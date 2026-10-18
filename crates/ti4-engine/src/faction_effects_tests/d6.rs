@@ -2920,3 +2920,660 @@ fn obsidianbt_1_the_reaping_collects_a_trade_good_per_combat_won_against_a_puppe
     assert_eq!(done.state.player(&a()).unwrap().trade_goods, goods + 2);
     assert_eq!(fw::goods_on_card(&done.state, &a()), 0);
 }
+
+// -- Deepwrought Scholarate -------------------------------------------------------------------------
+
+use crate::factions::deepwrought as dw;
+
+fn deepwrought_game() -> GameState {
+    seated_all(&[("a", "deepwrought"), ("b", "sol"), ("c", "hacan")])
+}
+
+/// Deepwrought (a) lands `landing` of its ground forces (kinds listed) from a carrier on a planet
+/// that Sol (b) holds with two infantry, in a tactical action on the one-ring planet map; `rules`
+/// answer the commit step and the Research Team question.
+fn research_team_landing(
+    kinds: &[&str],
+    rules: &[&str],
+) -> (
+    Game<'static>,
+    Seen,
+    SystemId,
+    PlanetId,
+    crate::fixtures::Hub,
+) {
+    let hub = planet_hub();
+    let system = sys(&hub.centre);
+    let planet = first_planet(&system);
+    let mut state = deepwrought_game();
+    for id in hub.outer.iter().chain(std::iter::once(&hub.centre)) {
+        let board = state.system_mut(&sys(id));
+        board.units.clear();
+        board.planet_units.clear();
+        board.planet_control.clear();
+    }
+    state.system_mut(&system).set_control(planet.clone(), b());
+    put_on_planet(&mut state, &system, &planet, "infantry", &b(), 2);
+    put(&mut state, &system, "carrier", &a(), 1);
+    for kind in kinds {
+        put(&mut state, &system, kind, &a(), 1);
+    }
+    let mut all = vec![TACTICAL_ACTION_ID, hub.centre.as_str(), "done_moving"];
+    all.extend_from_slice(rules);
+    let (mut game, seen) = action_game(state, "a", Some(hub.galaxy.clone()), &all);
+    for _ in 0..40 {
+        assert_eq!(game.step().error, None, "log: {:?}", game.events);
+        if logged(&game, "TACTICAL_ACTION_COMPLETE") {
+            break;
+        }
+    }
+    (game, seen, system, planet, hub)
+}
+
+#[test]
+fn researchteam_1_and_oceanbound_1_committed_forces_may_coexist_and_that_gains_a_ready_ocean_card()
+{
+    let commit = ["~commit|", "~commit|", "coexist", "done_committing"];
+    let (game, seen, system, planet, _) = research_team_landing(&["infantry", "infantry"], &commit);
+    assert!(
+        crate::coexistence::is_coexisting(&game.state, &system, &planet, &a()),
+        "{:?}",
+        asked(&seen)
+    );
+    assert!(
+        game.rolls()
+            .iter()
+            .all(|roll| roll.reason != "ground combat"),
+        "nobody fought"
+    );
+    assert_eq!(
+        game.state.system_state(&system).planet_control.get(&planet),
+        Some(&b()),
+        "Sol keeps the planet"
+    );
+    let oceans = dw::oceans(&game.state, &a());
+    assert_eq!(
+        oceans,
+        vec![PlanetId::new("ocean1")],
+        "Oceanbound: one ocean card"
+    );
+    assert!(
+        !game.state.exhausted_planets.contains(&oceans[0]),
+        "gained ready"
+    );
+    // Declining ("fight") starts the ground combat and gains no ocean.
+    let fight = ["~commit|", "~commit|", "fight", "done_committing"];
+    let (game, _, _, _, _) = research_team_landing(&["infantry", "infantry"], &fight);
+    assert!(
+        game.rolls()
+            .iter()
+            .any(|roll| roll.reason == "ground combat")
+    );
+    assert!(dw::oceans(&game.state, &a()).is_empty());
+    // Another faction's committed forces are never asked.
+    let mut other = deepwrought_game();
+    other.player_mut(&a()).unwrap().faction = ti4_model::id::FactionId::new("sol");
+    assert!(!crate::factions::deepwrought::has_research_team(
+        &other,
+        content(),
+        &a()
+    ));
+}
+
+#[test]
+fn unit_deepwrought_mech_1_eanautic_leaves_for_home_with_infantry_and_oceanbound_2_discards_the_ocean()
+ {
+    // Land a mech and two infantry and coexist (an ocean card); then Hacan activates the system:
+    // the Eanautic and one infantry go to a home planet, the coexistence ends, the ocean goes.
+    let commit = [
+        "~commit|",
+        "~commit|",
+        "~commit|",
+        "coexist",
+        "done_committing",
+    ];
+    let (game, _, system, planet, hub) =
+        research_team_landing(&["deepwrought_mech", "infantry", "infantry"], &commit);
+    assert!(crate::coexistence::is_coexisting(
+        &game.state,
+        &system,
+        &planet,
+        &a()
+    ));
+    assert_eq!(dw::oceans(&game.state, &a()).len(), 1);
+    let home = game
+        .state
+        .player(&a())
+        .unwrap()
+        .home_system
+        .clone()
+        .unwrap();
+    let home_planet = game.state.controlled_planets(&a())[0].1.clone();
+    let mech_at_home =
+        |state: &GameState| on_planet(state, &home, &home_planet, &a(), "deepwrought_mech");
+    let mut state = game.state.clone();
+    state.phase = Phase::Action;
+    state
+        .players
+        .iter_mut()
+        .for_each(|seat| seat.passed = false);
+    let eanautic = "unit:deepwrought:deepwrought_mech:SYSTEM_ACTIVATED:when";
+    let (mut next, seen) = action_game(
+        state.clone(),
+        "c",
+        Some(hub.galaxy.clone()),
+        &[
+            TACTICAL_ACTION_ID,
+            hub.centre.as_str(),
+            eanautic,
+            "infantry|1",
+            "done_moving",
+        ],
+    );
+    for _ in 0..30 {
+        assert_eq!(next.step().error, None, "log: {:?}", next.events);
+        if logged(&next, "TACTICAL_ACTION_COMPLETE") {
+            break;
+        }
+    }
+    assert_eq!(
+        mech_at_home(&next.state),
+        1,
+        "the Eanautic moved to the home planet: {:?}",
+        asked(&seen)
+    );
+    assert_eq!(
+        on_planet(&next.state, &system, &planet, &a(), "deepwrought_mech"),
+        0
+    );
+    assert_eq!(
+        on_planet(&next.state, &system, &planet, &a(), "infantry"),
+        1,
+        "one infantry stayed behind: {:?}",
+        asked(&seen)
+    );
+    // One infantry still coexists there, so the ocean stays; with every unit gone it would not.
+    assert!(crate::coexistence::is_coexisting(
+        &next.state,
+        &system,
+        &planet,
+        &a()
+    ));
+    let (mut all_out, _) = action_game(
+        state.clone(),
+        "c",
+        Some(hub.galaxy.clone()),
+        &[
+            TACTICAL_ACTION_ID,
+            hub.centre.as_str(),
+            eanautic,
+            "infantry|2",
+            "done_moving",
+        ],
+    );
+    for _ in 0..30 {
+        assert_eq!(all_out.step().error, None, "log: {:?}", all_out.events);
+        if logged(&all_out, "TACTICAL_ACTION_COMPLETE") {
+            break;
+        }
+    }
+    assert!(
+        !crate::coexistence::is_coexisting(&all_out.state, &system, &planet, &a()),
+        "the coexistence ended"
+    );
+    assert!(
+        dw::oceans(&all_out.state, &a()).is_empty(),
+        "Oceanbound: no coexisting planet, no ocean card"
+    );
+    // Declined (a may): the mech stays.
+    let (mut declined, _) = action_game(
+        state,
+        "c",
+        Some(hub.galaxy),
+        &[
+            TACTICAL_ACTION_ID,
+            hub.centre.as_str(),
+            "decline",
+            "done_moving",
+        ],
+    );
+    for _ in 0..30 {
+        assert_eq!(declined.step().error, None, "log: {:?}", declined.events);
+        if logged(&declined, "TACTICAL_ACTION_COMPLETE") {
+            break;
+        }
+    }
+    assert_eq!(
+        on_planet(&declined.state, &system, &planet, &a(), "deepwrought_mech"),
+        1
+    );
+}
+
+/// Sol (b) controls a planet outside every home system; returns its system and planet.
+fn give_sol_a_planet(state: &mut GameState) -> (SystemId, PlanetId) {
+    let (system, planet) = dw::testkit::plain_planet();
+    let board = state.system_mut(&system);
+    board.units.clear();
+    board.planet_units.clear();
+    board.planet_control.clear();
+    state.system_mut(&system).set_control(planet.clone(), b());
+    (system, planet)
+}
+
+fn technology_card(state: &mut GameState, who: &PlayerId) {
+    state.player_mut(who).unwrap().strategy_cards =
+        vec![ti4_model::id::StrategyCardId::new("pok7technology")];
+    for seat in state.players.iter_mut().filter(|seat| seat.id != *who) {
+        seat.strategic_tokens = 0;
+    }
+}
+
+#[test]
+fn deepwroughtagent_1_and_2_doctor_carrina_lets_a_researcher_ignore_a_prerequisite_and_places_infantry()
+ {
+    let setup = |own_green: bool| {
+        let mut state = deepwrought_game();
+        assert_eq!(
+            leader_status(&state, &a(), "deepwroughtagent"),
+            Some(LeaderStatus::Readied),
+            "starts ready"
+        );
+        state.player_mut(&b()).unwrap().technologies.clear();
+        if own_green {
+            super::give(&mut state, "b", "nm");
+        }
+        let (system, planet) = give_sol_a_planet(&mut state);
+        technology_card(&mut state, &b());
+        (state, system, planet)
+    };
+    let (state, system, planet) = setup(false);
+    let spot = format!("{system}|{planet}");
+    let rules = ["strategic", "use", "dxa", spot.as_str()];
+    let (mut game, seen) = action_game(state.clone(), "b", None, &rules);
+    steps(&mut game, 8);
+    assert!(
+        super::owns(&game.state, "b", "dxa"),
+        "Sol researched a green technology it had no prerequisite for: {:?}",
+        asked(&seen)
+    );
+    assert_eq!(
+        leader_status(&game.state, &a(), "deepwroughtagent"),
+        Some(LeaderStatus::Exhausted)
+    );
+    assert!(
+        crate::coexistence::is_coexisting(&game.state, &system, &planet, &a()),
+        "an infantry coexists on Sol's planet: {:?}",
+        asked(&seen)
+    );
+    assert_eq!(
+        on_planet(&game.state, &system, &planet, &a(), "infantry"),
+        1
+    );
+    assert_eq!(
+        dw::oceans(&game.state, &a()).len(),
+        1,
+        "and Oceanbound answered"
+    );
+    let mut after = game.state.clone();
+    run_status_phase(&mut after);
+    assert_eq!(
+        leader_status(&after, &a(), "deepwroughtagent"),
+        Some(LeaderStatus::Readied)
+    );
+    // Declined: the technology is closed to Sol.
+    let (mut game, seen) = action_game(state, "b", None, &["strategic", "decline"]);
+    steps(&mut game, 8);
+    assert!(!was_offered(&seen, "dxa"), "{:?}", asked(&seen));
+    assert_eq!(
+        leader_status(&game.state, &a(), "deepwroughtagent"),
+        Some(LeaderStatus::Readied)
+    );
+    // A technology whose prerequisite is already met needs no waiver: researched plainly, the
+    // agent stays ready and nothing is placed (even if it was exhausted for another card).
+    let (state, system, planet) = setup(true);
+    let (mut game, seen) = action_game(state, "b", None, &["strategic", "decline", "dxa"]);
+    steps(&mut game, 8);
+    assert!(super::owns(&game.state, "b", "dxa"), "{:?}", asked(&seen));
+    assert_eq!(
+        leader_status(&game.state, &a(), "deepwroughtagent"),
+        Some(LeaderStatus::Readied)
+    );
+    assert!(!crate::coexistence::is_coexisting(
+        &game.state,
+        &system,
+        &planet,
+        &a()
+    ));
+}
+
+#[test]
+fn hydrothermal_1_gains_a_trade_good_per_ocean_card_in_play_at_the_start_of_the_status_phase() {
+    let run = |tech: bool| {
+        let mut state = deepwrought_game();
+        if tech {
+            super::give(&mut state, "a", "hydrothermal");
+        }
+        dw::testkit::coexisting_everywhere(&mut state, 3);
+        assert_eq!(dw::oceans_in_play(&state), 3);
+        let before = state.player(&a()).unwrap().trade_goods;
+        let (game, _) = status_game(state, &[]);
+        game.state.player(&a()).unwrap().trade_goods - before
+    };
+    assert_eq!(run(true), 3, "one trade good per ocean card in play");
+    assert_eq!(run(false), 0, "no technology");
+}
+
+#[test]
+fn radical_1_replaces_an_owned_technology_with_one_with_exactly_one_more_prerequisite() {
+    let radical = "technology:deepwrought:radical:STATUS_PHASE_BEGAN:after";
+    let setup = || {
+        let mut state = deepwrought_game();
+        state.player_mut(&a()).unwrap().technologies.clear();
+        super::give(&mut state, "a", "radical");
+        super::give(&mut state, "a", "nm");
+        state
+    };
+    let (game, seen) = status_game(setup(), &[radical, "nm|dxa"]);
+    assert!(
+        super::owns(&game.state, "a", "dxa") && !super::owns(&game.state, "a", "nm"),
+        "{:?}",
+        asked(&seen)
+    );
+    assert!(super::owns(&game.state, "a", "radical"));
+    // Two more prerequisites is not on offer for nm.
+    assert!(!was_offered(&seen, "nm|hm"), "{:?}", asked(&seen));
+    let (game, _) = status_game(setup(), &["decline"]);
+    assert!(
+        super::owns(&game.state, "a", "nm") && !super::owns(&game.state, "a", "dxa"),
+        "a may"
+    );
+}
+
+#[test]
+fn oceanbound_ocean_cards_pay_for_things_like_planets_and_exhaust() {
+    // The Deepwrought has no trade goods and every planet exhausted, but an ocean card in play (1
+    // resource): it pays for a 1-cost infantry unit in a real use of PRODUCTION.
+    let home = |state: &GameState| state.player(&a()).unwrap().home_system.clone().unwrap();
+    let setup = |ocean: bool| {
+        let mut state = deepwrought_game();
+        state.player_mut(&a()).unwrap().trade_goods = 0;
+        for (_, planet) in state
+            .controlled_planets(&a())
+            .into_iter()
+            .map(|(s, p)| (s.clone(), p.clone()))
+            .collect::<Vec<_>>()
+        {
+            state.exhausted_planets.insert(planet);
+        }
+        if ocean {
+            dw::testkit::coexisting_everywhere(&mut state, 1);
+        }
+        state
+    };
+    let build = |ocean: bool| {
+        let state = setup(ocean);
+        let h = home(&state);
+        let (mut game, seen) = action_game(
+            state,
+            "a",
+            Some(crate::fixtures::plain_hub().galaxy),
+            &[
+                TACTICAL_ACTION_ID,
+                h.as_str(),
+                "done_moving",
+                "build|infantry|2",
+                "~ocean",
+                "done_producing",
+            ],
+        );
+        for _ in 0..8 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+        }
+        (
+            game.state,
+            was_offered(&seen, "build|infantry|2"),
+            asked(&seen),
+        )
+    };
+    let (state, offered, log) = build(true);
+    assert!(offered, "{log:?}");
+    assert!(
+        state.exhausted_planets.contains(&PlanetId::new("ocean1")),
+        "the ocean card was exhausted to pay: {log:?}"
+    );
+    let (_, offered, _) = build(false);
+    assert!(!offered, "nothing to pay with");
+}
+
+#[test]
+fn deepwroughtcommander_1_aello_unlocks_in_the_game_once_an_ocean_card_is_in_play() {
+    let mut state = deepwrought_game();
+    assert!(!unlocks_in_the_game(&state, &a(), "deepwroughtcommander"));
+    dw::testkit::coexisting_everywhere(&mut state, 1);
+    assert!(unlocks_in_the_game(&state, &a(), "deepwroughtcommander"));
+}
+
+#[test]
+fn deepwroughtcommander_2_aello_cuts_one_off_another_players_paid_research_and_pays_its_holder() {
+    // Sol plays Technology: the free research, then a second for 6 resources paid in trade goods.
+    let run = |unlocked: bool| {
+        let mut state = deepwrought_game();
+        dw::testkit::coexisting_everywhere(&mut state, 1);
+        if unlocked {
+            set_leader(
+                &mut state,
+                &a(),
+                "deepwroughtcommander",
+                LeaderStatus::Unlocked,
+            );
+        }
+        state.player_mut(&b()).unwrap().technologies.clear();
+        state.player_mut(&b()).unwrap().trade_goods = 8;
+        for (_, planet) in state
+            .controlled_planets(&b())
+            .into_iter()
+            .map(|(s, p)| (s.clone(), p.clone()))
+            .collect::<Vec<_>>()
+        {
+            state.exhausted_planets.insert(planet);
+        }
+        state.player_mut(&a()).unwrap().commodities = 0;
+        technology_card(&mut state, &b());
+        let (mut game, seen) = eager_game(state, "b", None, &["strategic", "nm", "pa", "~reduce"]);
+        steps(&mut game, 8);
+        (
+            game.state.player(&b()).unwrap().trade_goods,
+            game.state.player(&a()).unwrap().commodities,
+            super::owns(&game.state, "b", "pa"),
+            asked(&seen),
+        )
+    };
+    let (goods, commodities, researched, log) = run(true);
+    assert!(researched, "{log:?}");
+    assert_eq!(
+        (goods, commodities),
+        (3, 1),
+        "the second research cost 5 and the holder gained a commodity: {log:?}"
+    );
+    let (goods, commodities, researched, log) = run(false);
+    assert!(researched, "{log:?}");
+    assert_eq!((goods, commodities), (2, 0), "locked: the full 6");
+}
+
+#[test]
+fn deepwroughthero_1_unlocks_on_the_third_scored_objective() {
+    hero_unlocks_by_scoring("deepwrought", "deepwroughthero");
+}
+
+#[test]
+fn deepwroughthero_2_ta_zern_purges_a_technology_everywhere_and_each_loser_researches_another() {
+    let mut state = deepwrought_game();
+    state.player_mut(&a()).unwrap().technologies.clear();
+    state.player_mut(&b()).unwrap().technologies.clear();
+    for who in ["a", "b"] {
+        super::give(&mut state, who, "nm");
+    }
+    super::give(&mut state, "c", "amd");
+    set_leader(&mut state, &a(), "deepwroughthero", LeaderStatus::Unlocked);
+    let (mut game, seen) = eager_game(
+        state,
+        "a",
+        None,
+        &["component|leader|deepwroughthero", "nm", "pa", "aida"],
+    );
+    steps(&mut game, 6);
+    assert!(
+        !super::owns(&game.state, "a", "nm") && !super::owns(&game.state, "b", "nm"),
+        "purged from both: {:?}",
+        asked(&seen)
+    );
+    assert!(
+        dw::technology_purged(&game.state, &ti4_model::id::TechnologyId::new("nm")),
+        "and from the deck"
+    );
+    assert!(
+        super::owns(&game.state, "a", "pa"),
+        "the Deepwrought researched another: {:?}",
+        asked(&seen)
+    );
+    assert!(super::owns(&game.state, "b", "aida"), "so did Sol");
+    assert!(
+        super::owns(&game.state, "c", "amd"),
+        "a player without it is untouched"
+    );
+    assert_eq!(
+        leader_status(&game.state, &a(), "deepwroughthero"),
+        Some(LeaderStatus::Purged)
+    );
+}
+
+#[test]
+fn shareknowledge_1_and_2_the_holder_gains_a_technology_until_the_status_phase_ends_and_the_note_goes_home()
+ {
+    let note = crate::promissory::note_id("shareknowledge", "deepwrought");
+    let mut state = deepwrought_game();
+    crate::promissory::deal(&mut state, content(), DEFAULT);
+    assert_eq!(
+        state.promissory_notes.get(&note),
+        Some(&a()),
+        "dealt to the Deepwrought"
+    );
+    crate::promissory::take(&mut state, content(), &b(), &note);
+    state.player_mut(&b()).unwrap().technologies.clear();
+    state.player_mut(&a()).unwrap().technologies.clear();
+    super::give(&mut state, "a", "nm");
+    let (mut game, seen) = action_game(
+        state,
+        "b",
+        None,
+        &["faction|deepwrought|shareknowledge", "nm"],
+    );
+    steps(&mut game, 3);
+    assert!(super::owns(&game.state, "b", "nm"), "{:?}", asked(&seen));
+    assert!(
+        game.state.promissory_faceup.contains(&note),
+        "placed faceup"
+    );
+    let (done, _) = status_game(game.state.clone(), &[]);
+    assert!(
+        !super::owns(&done.state, "b", "nm"),
+        "returned to the deck at the end of the status phase"
+    );
+    assert_eq!(
+        done.state.promissory_notes.get(&note),
+        Some(&a()),
+        "and the card to the Deepwrought player"
+    );
+}
+
+#[test]
+fn deepwroughtbt_1_visionaria_select_sells_research_to_other_players_for_three_trade_goods_and_a_note()
+ {
+    let mut state = deepwrought_game();
+    crate::promissory::deal(&mut state, content(), DEFAULT);
+    state.player_mut(&b()).unwrap().trade_goods = 20;
+    state.player_mut(&b()).unwrap().technologies.clear();
+    state.player_mut(&a()).unwrap().technologies.clear();
+    state.player_mut(&c()).unwrap().trade_goods = 0;
+    state.player_mut(&a()).unwrap().breakthrough =
+        Some(ti4_model::id::BreakthroughId::new("deepwroughtbt"));
+    let notes_a = state
+        .promissory_notes
+        .values()
+        .filter(|holder| **holder == a())
+        .count();
+    let (mut game, seen) = action_game(
+        state,
+        "a",
+        None,
+        &["faction|deepwrought|visionaria", "accept", "aida"],
+    );
+    steps(&mut game, 3);
+    assert_eq!(
+        game.state.player(&b()).unwrap().trade_goods,
+        17,
+        "Sol spent 3 trade goods: {:?}",
+        asked(&seen)
+    );
+    assert!(super::owns(&game.state, "b", "aida"), "Sol researched");
+    assert!(
+        super::owns(&game.state, "a", "aida"),
+        "and the Deepwrought gains it too"
+    );
+    let notes_after = game
+        .state
+        .promissory_notes
+        .values()
+        .filter(|holder| **holder == a())
+        .count();
+    assert_eq!(notes_after, notes_a + 1, "a promissory note changed hands");
+    assert!(
+        !crate::factions::component_actions(&game.state, content(), &a())
+            .iter()
+            .any(|option| option.id == "faction|deepwrought|visionaria"),
+        "exhausted"
+    );
+    let (done, _) = status_game(game.state, &[]);
+    assert!(
+        crate::factions::component_actions(&done.state, content(), &a())
+            .iter()
+            .any(|option| option.id == "faction|deepwrought|visionaria"),
+        "ready again after the status phase"
+    );
+}
+
+#[test]
+fn unit_deepwrought_flagship_1_luminous_moves_through_systems_with_its_owners_units_past_a_blockade()
+ {
+    let hub = crate::fixtures::plain_hub();
+    let origin = hub.outer[0].clone();
+    let target = hub.across(&origin);
+    let centre = sys(&hub.centre);
+    let run = |own_unit_in_centre: bool| {
+        let mut state = deepwrought_game();
+        put(&mut state, &sys(&origin), "deepwrought_flagship", &a(), 1);
+        put(&mut state, &centre, "destroyer", &b(), 1);
+        if own_unit_in_centre {
+            put(&mut state, &centre, "infantry", &a(), 1);
+        }
+        let rule = format!("~move|{origin}|");
+        let (game, seen) = tactical(
+            state,
+            "a",
+            hub.galaxy.clone(),
+            &target,
+            &[&rule, "done_moving"],
+        );
+        (
+            ships(&game.state, &sys(&target), &a(), "deepwrought_flagship"),
+            asked(&seen),
+        )
+    };
+    assert_eq!(
+        run(true).0,
+        1,
+        "through a system holding its owner's unit, past Sol's destroyer: {:?}",
+        run(true).1
+    );
+    assert_eq!(run(false).0, 0, "an empty-handed blockade holds");
+}
