@@ -619,8 +619,7 @@ pub fn production_used(
 /// Asked once at the end of a use of PRODUCTION that produced units, only when the card is owned
 /// and ready, a mech is left in the reinforcements and the player controls a planet in `system`.
 /// A single planet is still a question: the exhaust is a "may". Not asked for games below
-/// [`ti4_model::state::RULES_SELF_ASSEMBLY`]. (The card's second ability, a trade good when a mech
-/// is destroyed, is not implemented: the engine has no unit-destroyed event yet.)
+/// [`ti4_model::state::RULES_SELF_ASSEMBLY`]. (The card's second ability is [`timing_abilities`].)
 ///
 /// # Errors
 /// [`IllegalChoice`] if a decider answers with something not offered.
@@ -698,6 +697,55 @@ pub fn self_assembly_after_production(
         .or_default()
         .push(ti4_model::units::Unit::new(mech, player.clone()));
     Ok(())
+}
+
+/// Self-Assembly Routines, second ability: "After 1 of your mechs is destroyed, gain 1 trade
+/// good." Listens to `GROUND_FORCE_DESTROYED`, which ground combat, bombardment, action cards,
+/// agendas and unit abilities announce for every ground force they destroy. Each destroyed mech
+/// is its own event, so two mechs lost together pay two trade goods ("after 1 of your mechs"
+/// is read per mech, as Letani Warrior II reads per unit). A sustained hit destroys nothing.
+/// Mandatory. Rules version [`ti4_model::state::RULES_SELF_ASSEMBLY`] and later; any seat that
+/// holds the card reacts, whatever its faction.
+///
+/// Not covered: a mech lost as cargo when its transporting ship is destroyed, which no ground
+/// force event announces.
+pub(crate) fn timing_abilities(owner_name: &str, seat: &PlayerId) -> Vec<crate::timing::Ability> {
+    use crate::timing::{Ability, Relation};
+    let owner = seat.clone();
+    let condition_owner = seat.clone();
+    vec![
+        Ability::stateful(
+            format!("tech:{owner_name}:sar:GROUND_FORCE_DESTROYED:after"),
+            seat.clone(),
+            "GROUND_FORCE_DESTROYED",
+            Relation::After,
+            std::sync::Arc::new(move |_event, resolver, context| {
+                crate::supply::gain_trade_goods_via(
+                    context,
+                    resolver,
+                    &owner,
+                    1,
+                    "self_assembly_routines",
+                )?;
+                Ok(())
+            }),
+        )
+        .with_stateful_condition(std::sync::Arc::new(move |event, _, context| {
+            context.state.rules_version >= ti4_model::state::RULES_SELF_ASSEMBLY
+                && event.text("player") == Some(condition_owner.as_str())
+                && context
+                    .state
+                    .player(&condition_owner)
+                    .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new("sar")))
+                && event.text("unit").is_some_and(|unit| {
+                    crate::supply::base_type_of(
+                        context.content,
+                        context.sources,
+                        &UnitTypeId::new(unit),
+                    ) == "mech"
+                })
+        })),
+    ]
 }
 
 /// Resolve technology effects caused by this player gaining control of a planet.

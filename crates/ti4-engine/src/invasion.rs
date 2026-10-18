@@ -8933,6 +8933,162 @@ mod ground_routes {
         );
     }
 
+    /// Self-Assembly Routines' second ability through a real ground combat: seat `b` defends with
+    /// `mechs` mechs against `attackers` infantry, every die hitting, and its trade goods after
+    /// the fight are returned.
+    fn goods_after_a_mech_fight(
+        rules_version: u32,
+        owns_the_card: bool,
+        mechs: usize,
+        attackers: usize,
+    ) -> i32 {
+        let (mut state, system, planet) = arena();
+        state.rules_version = rules_version;
+        state.system_mut(&system).set_control(planet.clone(), b());
+        for _ in 0..attackers {
+            on_planet(&mut state, &system, &planet, "infantry", &a());
+        }
+        for _ in 0..mechs {
+            on_planet(&mut state, &system, &planet, "mech", &b());
+        }
+        if owns_the_card {
+            state
+                .player_mut(&b())
+                .unwrap()
+                .technologies
+                .insert(ti4_model::id::TechnologyId::new("sar"));
+        }
+        let before = state.player(&b()).unwrap().trade_goods;
+        let mut window = fight_window(&mut state, &system, &planet);
+        let mut resolver = crate::fixtures::armed_resolver(&state);
+        let mut table = Table::with_default(Box::new(crate::choice::Scripted::new(
+            std::iter::repeat_n("fight", 8),
+        )));
+        let mut dice = Dice::from_faces(std::iter::repeat_n(10, 60));
+        let mut rng = GameRng::new(7);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut ctx = Resolving {
+            content: ContentStore::embedded(),
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(crate::choice::TimingHandle {
+                resolver: &mut resolver,
+                sequence: &mut sequence,
+                galaxy: None,
+            }),
+        };
+        let mut rounds = 0;
+        while !window.is_done() && rounds < 50 {
+            rounds += 1;
+            window
+                .drive(&mut state, &mut ctx)
+                .expect("only offered answers");
+            while window.take_scoring_occurrence().is_some() {}
+            window.settle(&mut state, &mut ctx);
+        }
+        assert!(
+            !state
+                .system_state(&system)
+                .planet_units
+                .get(&planet)
+                .is_some_and(|units| units.iter().any(|unit| unit.owner == b())),
+            "every defender fell"
+        );
+        state.player(&b()).unwrap().trade_goods - before
+    }
+
+    #[test]
+    fn self_assembly_routines_pays_a_trade_good_for_a_mech_lost_in_ground_combat() {
+        let now = ti4_model::state::RULES_SELF_ASSEMBLY;
+        assert_eq!(goods_after_a_mech_fight(now, true, 1, 2), 1);
+        assert_eq!(
+            goods_after_a_mech_fight(now, true, 2, 4),
+            2,
+            "one trade good per destroyed mech"
+        );
+        assert_eq!(
+            goods_after_a_mech_fight(now, false, 1, 2),
+            0,
+            "no card, no goods"
+        );
+        assert_eq!(
+            goods_after_a_mech_fight(now - 1, true, 1, 2),
+            0,
+            "a game from before the gate is unchanged"
+        );
+    }
+
+    /// The card pays for mechs only: infantry lost beside the card's owner earn nothing, and a
+    /// mech that only sustains is not destroyed.
+    #[test]
+    fn self_assembly_routines_ignores_infantry_and_a_sustained_mech() {
+        let (mut state, system, planet) = arena();
+        state.system_mut(&system).set_control(planet.clone(), b());
+        on_planet(&mut state, &system, &planet, "infantry", &b());
+        state
+            .player_mut(&b())
+            .unwrap()
+            .technologies
+            .insert(ti4_model::id::TechnologyId::new("sar"));
+        crate::factions::hooks_ground::stage_ground_force_destroyed(
+            &mut state,
+            &system,
+            &planet,
+            &Unit::new(UnitTypeId::new("infantry"), b()),
+            "ground_combat",
+        );
+        let before = state.player(&b()).unwrap().trade_goods;
+        flush_staged_with_armed_resolver(&mut state);
+        assert_eq!(state.player(&b()).unwrap().trade_goods, before);
+    }
+
+    /// An action card (or agenda, or ability) stages its kills; the flush announces them and the
+    /// card pays.
+    #[test]
+    fn self_assembly_routines_pays_for_a_mech_destroyed_by_an_action_card() {
+        let (mut state, system, planet) = arena();
+        state
+            .player_mut(&b())
+            .unwrap()
+            .technologies
+            .insert(ti4_model::id::TechnologyId::new("sar"));
+        for _ in 0..2 {
+            crate::factions::hooks_ground::stage_ground_force_destroyed(
+                &mut state,
+                &system,
+                &planet,
+                &Unit::new(UnitTypeId::new("mech"), b()),
+                "action_card:test",
+            );
+        }
+        let before = state.player(&b()).unwrap().trade_goods;
+        flush_staged_with_armed_resolver(&mut state);
+        assert_eq!(state.player(&b()).unwrap().trade_goods, before + 2);
+    }
+
+    fn flush_staged_with_armed_resolver(state: &mut GameState) {
+        let mut resolver = crate::fixtures::armed_resolver(state);
+        let mut table = Table::default();
+        let mut dice = Dice::new();
+        let mut rng = GameRng::new(7);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut ctx = Resolving {
+            content: ContentStore::embedded(),
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(crate::choice::TimingHandle {
+                resolver: &mut resolver,
+                sequence: &mut sequence,
+                galaxy: None,
+            }),
+        };
+        crate::factions::hooks_ground::announce_staged_events(state, &mut ctx);
+    }
+
     #[test]
     fn a_defender_who_holds_is_the_winner_and_control_does_not_change() {
         let (mut state, system, planet) = arena();

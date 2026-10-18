@@ -143,8 +143,16 @@ Version 13 = Self-Assembly Routines (`fb-warfare-mech-production`, `RULES_SELF_A
 PRODUCTION that produced units (not an ability's production): a player holding a ready "sar" is
 asked (`self_assembly_mech`, options = their controlled planets in that system, or decline); yes
 exhausts the card and places 1 mech from reinforcements on that planet. Version < 13: owned and
-inert, never asked. The card's second ability (1 trade good when one of your mechs is destroyed) is
-not implemented (no unit-destroyed event). Raising `RULES_VERSION` to 13 here assumes version 12 lands
+inert, never asked.
+
+Second ability (same version): `technology::timing_abilities` registers, for every seat, an
+`after GROUND_FORCE_DESTROYED` reaction (condition: rules version >= 13, the event's player holds
+"sar", the unit's base type is mech) that gains 1 trade good through `gain_trade_goods_via`
+(announced as `TRADE_GOODS_GAINED`, source `self_assembly_routines`). One trade good per destroyed
+mech (each destroyed mech is its own event; the card reads "after 1 of your mechs is destroyed").
+It covers every path that announces `GROUND_FORCE_DESTROYED`: ground combat, bombardment, action
+cards, agendas, unit abilities. Not covered: a mech lost as cargo when its ship is destroyed (no
+ground-force event exists for cargo). Raising `RULES_VERSION` to 13 here assumes version 12 lands
 from the other branch; the merge must keep both constants.
 
 ## Adding the next gate
