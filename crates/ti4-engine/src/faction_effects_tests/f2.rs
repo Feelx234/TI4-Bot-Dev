@@ -11,7 +11,7 @@ use ti4_content::galaxy::all_systems;
 use ti4_model::id::{LeaderId, ObjectiveId, PlanetId, PlayerId, SystemId};
 use ti4_model::state::{GameState, LeaderStatus};
 
-use super::{ALL, content, pid, scripted, seated_all, emit_full, strs};
+use super::{ALL, content, emit_full, pid, scripted, seated_all, strs};
 use crate::leaders;
 use crate::production::{Spend, planet_value_now};
 
@@ -93,12 +93,20 @@ fn xxchacommander_1_unlocks_at_twelve_influence() {
 /// Heroes unlock on the third scored objective (not before), for every faction here.
 fn hero_unlocks_at_three(faction: &str, hero: &str) {
     let mut state = seated_all(&[("a", faction), ("b", "hacan")]);
-    assert_eq!(status(&state, "a", hero), Some(LeaderStatus::Locked), "{hero} starts locked");
+    assert_eq!(
+        status(&state, "a", hero),
+        Some(LeaderStatus::Locked),
+        "{hero} starts locked"
+    );
     for objective in ["o1", "o2"] {
         state.record_score(&a(), ObjectiveId::new(objective));
     }
     leaders::check_unlocks(&mut state, content(), ALL, None, &a());
-    assert_eq!(status(&state, "a", hero), Some(LeaderStatus::Locked), "two is not three");
+    assert_eq!(
+        status(&state, "a", hero),
+        Some(LeaderStatus::Locked),
+        "two is not three"
+    );
     state.record_score(&a(), ObjectiveId::new("o3"));
     leaders::check_unlocks(&mut state, content(), ALL, None, &a());
     assert_eq!(status(&state, "a", hero), Some(LeaderStatus::Unlocked));
@@ -155,7 +163,10 @@ fn every_ability_of_these_factions_is_implemented_or_gated() {
 fn claire(unlocked: bool, answer: &str) -> usize {
     let mut state = seated_all(&[("a", "sol"), ("b", "hacan")]);
     let (system, planet) = crate::fixtures::a_placed_planet();
-    state.system_mut(&system).planet_control.insert(planet.clone(), a());
+    state
+        .system_mut(&system)
+        .planet_control
+        .insert(planet.clone(), a());
     if unlocked {
         set(&mut state, "a", "solcommander", LeaderStatus::Unlocked);
     }
@@ -182,7 +193,11 @@ fn claire(unlocked: bool, answer: &str) -> usize {
 fn solcommander_2_places_an_infantry_when_a_ground_combat_starts_on_its_planet() {
     let ability = "leader:sol:solcommander:GROUND_COMBAT_STARTED:after";
     assert_eq!(claire(true, ability), 1, "unlocked: one infantry arrives");
-    assert_eq!(claire(true, "decline"), 0, "optional: declined adds nothing");
+    assert_eq!(
+        claire(true, "decline"),
+        0,
+        "optional: declined adds nothing"
+    );
     assert_eq!(claire(false, ability), 0, "locked: nothing is offered");
 }
 

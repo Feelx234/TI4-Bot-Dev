@@ -1077,7 +1077,6 @@ fn first_roll_len(game: &Game<'_>, by: &str, reason: &str) -> usize {
 }
 
 #[test]
-#[ignore = "MISSING/BUG: letnevagent the owner is never offered the agent in a space combat round (only Ssruu's copy and, from version 16, Sol's own agent have a window)"]
 fn letnevagent_1_exhausts_to_give_one_ship_an_additional_die_in_a_space_combat_round() {
     let run = |use_agent: bool| {
         let mut state = seated_all(&[("a", "letnev"), ("b", "sol")]);
@@ -1100,7 +1099,7 @@ fn letnevagent_1_exhausts_to_give_one_ship_an_additional_die_in_a_space_combat_r
         let answers: &[&str] = if use_agent {
             &["leader:letnev:letnevagent"]
         } else {
-            &[]
+            &["decline"]
         };
         let (game, _, _) = attack_game(state, hub, answers);
         game
@@ -1129,7 +1128,6 @@ fn letnevagent_1_exhausts_to_give_one_ship_an_additional_die_in_a_space_combat_r
 }
 
 #[test]
-#[ignore = "MISSING/BUG: letnevcommander (Rear Admiral Farran) no trade good is offered when a ship sustains damage in a real space combat; only combat::absorb_hits asks, the combat window's sustain step does not"]
 fn letnevcommander_2_a_sustain_in_a_space_combat_offers_a_trade_good_only_once_unlocked() {
     // One round: Letnev's dreadnought and Sol's cruiser both hit. The dreadnought sustains.
     for (status, gain) in [(LeaderStatus::Locked, 0), (LeaderStatus::Unlocked, 1)] {
@@ -1162,7 +1160,6 @@ fn letnevcommander_2_a_sustain_in_a_space_combat_offers_a_trade_good_only_once_u
 }
 
 #[test]
-#[ignore = "MISSING/BUG: nes (Non-Euclidean Shielding) a sustain in a real space combat cancels one hit, not two; only combat::absorb_hits applies the card, the combat window's sustain step does not"]
 fn nes_1_non_euclidean_shielding_one_sustain_cancels_two_hits_in_a_space_combat() {
     let ships_left = |nes: bool| {
         let mut state = seated_all(&[("a", "letnev"), ("b", "sol")]);
@@ -1196,7 +1193,6 @@ fn nes_1_non_euclidean_shielding_one_sustain_cancels_two_hits_in_a_space_combat(
 }
 
 #[test]
-#[ignore = "MISSING/BUG: letnevhero (Darktalon Treilla) fleet::over_supply (the enforcement after production and at turn end) reads limit() and ignores fleet::is_unlimited, so ships over the pool are still removed during her round"]
 fn letnevhero_2_darktalon_lifts_the_fleet_limit_for_the_rest_of_the_round() {
     let ships_after = |use_hero: bool| {
         let (mut state, hub, centre, _planet) =
@@ -2642,7 +2638,6 @@ fn genesis_1_sol_flagship_places_an_infantry_in_its_space_area_at_the_end_of_the
 }
 
 #[test]
-#[ignore = "MISSING/BUG: hacan_mech (Pride of Kenara) the transaction menu never offers a planet card, so its planet cannot be traded and its units cannot move with it (registered_mech_abilities lists it, nothing implements it)"]
 fn hacan_mech_1_pride_of_kenara_makes_its_planet_card_tradable_and_moves_the_units() {
     let mut game = trading_game("hacan", "sol", true, &[]);
     let (home, planet) = home_planet(&game.state, &a());
@@ -2820,41 +2815,30 @@ fn saar_spacedock_1_floating_factory_i_retreats_with_the_fleet_as_if_it_were_a_s
 }
 
 #[test]
-#[ignore = "MISSING/BUG: saar_spacedock (Floating Factory I) a space dock built with Construction is an ordinary spacedock on the planet, not a Floating Factory in the space area"]
 fn saar_spacedock_2_floating_factory_i_is_placed_in_the_space_area_instead_of_on_a_planet() {
-    // Construction places the structure: for the Saar it should be a Floating Factory in space.
+    // Construction places the structure: for the Saar it is a Floating Factory in the space area.
     let mut state = seated_all(&[("a", "saar"), ("b", "sol")]);
-    state.phase = Phase::Action;
-    state.active = Some(a());
-    let card = state
-        .unclaimed_strategy_cards
-        .iter()
-        .find(|card| card.as_str().contains("construction"))
-        .cloned()
-        .expect("the Construction card");
-    state.player_mut(&a()).unwrap().strategy_cards = vec![card];
     let home = home_of(&state, &a());
     // The starting dock is already a Floating Factory in space; take it off the planet picture.
     state.system_mut(&home).planet_units.clear();
     let docks_before = count(&state, &home, "saar_spacedock", &a());
-    let table = preferring(&[
-        "strategic",
-        "structure",
-        &format!("spacedock|{home}|ragh"),
-        "no",
-        "pass",
-    ]);
-    let mut game = Game::with_table(state, content(), table).with_sources(SOURCES);
-    drive(&mut game, 12, |g| {
-        g.events.iter().any(|e| e == "STRATEGIC_ACTION_COMPLETE")
-    });
+    let mut table = preferring(&[&format!("spacedock|{home}|ragh")]);
+    crate::strategy_cards::place_structure(
+        &mut state,
+        content(),
+        SOURCES,
+        None,
+        &mut table,
+        &a(),
+        false,
+    )
+    .expect("the structure is placed");
     assert_eq!(
-        count(&game.state, &home, "saar_spacedock", &a()),
+        count(&state, &home, "saar_spacedock", &a()),
         docks_before + 1,
         "in the space area"
     );
-    let on_planets = game
-        .state
+    let on_planets = state
         .system_state(&home)
         .planet_units
         .values()

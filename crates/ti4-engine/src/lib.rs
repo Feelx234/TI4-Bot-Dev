@@ -33,6 +33,8 @@ pub mod entropic_scars;
 pub mod event;
 pub mod exploration;
 pub mod faction_abilities;
+#[cfg(test)]
+mod faction_effects_tests;
 pub mod faction_techs;
 pub mod factions;
 pub mod fingerprint;
@@ -92,8 +94,6 @@ pub mod tactical;
 pub mod technology;
 #[cfg(test)]
 mod technology_effects_tests;
-#[cfg(test)]
-mod faction_effects_tests;
 pub mod thunders_edge;
 pub mod timing;
 pub mod tokens;

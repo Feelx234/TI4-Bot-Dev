@@ -1605,7 +1605,6 @@ fn ps_1_political_secret_bars_its_owner_from_voting_on_that_agenda_and_goes_home
 }
 
 #[test]
-#[ignore = "MISSING/BUG: ps Political Secret does not stop its owner playing action cards or using faction abilities (only the vote bar exists)"]
 fn ps_1_political_secret_also_bars_its_owner_from_action_cards_until_the_agenda_resolves() {
     // Sol (b) holds Confounding Legal Text, playable when another player is elected. a plays
     // Political Secret on b when the agenda is revealed, so b may not play it before the agenda has
@@ -2844,7 +2843,6 @@ fn crafty_1_and_2_yssaril_keeps_any_number_of_action_cards_even_under_a_law_that
 }
 
 #[test]
-#[ignore = "MISSING/BUG: rule 2.4 hand limit is not enforced on the status phase action card draw (a seat with a full hand ends the phase over the limit)"]
 fn status_phase_draw_enforces_the_action_card_hand_limit_for_a_plain_seat() {
     // Not a Yssaril card, but the status-phase draw is where Crafty would matter most: a Hacan seat
     // holding seven cards draws an eighth and must discard back down.

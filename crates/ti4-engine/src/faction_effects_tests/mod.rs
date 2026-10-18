@@ -22,16 +22,16 @@ use ti4_model::state::GameState;
 
 pub(crate) use crate::technology_effects_tests::{content, emit_event, give, owns, pid, seated};
 
-mod f1;
-mod f2;
-mod f3;
-mod f4;
 mod d1;
 mod d2;
 mod d3;
 mod d4;
 mod d5;
 mod d6;
+mod f1;
+mod f2;
+mod f3;
+mod f4;
 mod v16;
 
 /// A seated, deployed game of `(seat, faction)` pairs with every content source (Thunder's Edge,

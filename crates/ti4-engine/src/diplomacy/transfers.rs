@@ -20,6 +20,9 @@ pub(crate) fn immediate_terms(terms: &[DealTerm]) -> Result<Terms, &'static str>
 /// bundle vocabulary cannot carry is left out rather than silently changed.
 pub(crate) fn assets_of(terms: &Terms) -> Option<Vec<TransferAsset>> {
     let amount = |n: i32| u8::try_from(n).ok();
+    if terms.planet.is_some() {
+        return None; // the bundle vocabulary has no planet card
+    }
     let mut out = Vec::new();
     if terms.trade_goods > 0 {
         out.push(TransferAsset::TradeGoods(amount(terms.trade_goods)?));

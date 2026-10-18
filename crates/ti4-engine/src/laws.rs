@@ -120,6 +120,19 @@ pub fn action_cards_forbidden(state: &GameState, player: &PlayerId) -> bool {
         || crate::factions::hooks_economy::action_cards_forbidden(state, player)
 }
 
+/// Political Secret (rules version 17): until the agenda it was played on is resolved, its target
+/// cannot play action cards or use faction abilities, on top of not voting. The bar is the
+/// `none|political_secret` entry `offer_political_secrets` puts in `agenda_predictions`; it ends
+/// with that agenda's resolution, which empties the table.
+#[must_use]
+pub fn political_secret_bars(state: &GameState, player: &PlayerId) -> bool {
+    state.rules_version >= ti4_model::state::RULES_FACTION_BUGFIXES
+        && state
+            .agenda_predictions
+            .get(player)
+            .is_some_and(|marker| marker == "none|political_secret")
+}
+
 /// Shared Research makes nebulae passable.
 #[must_use]
 pub fn nebulae_passable(state: &GameState) -> bool {

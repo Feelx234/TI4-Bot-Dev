@@ -652,7 +652,9 @@ pub fn playable_now(
     // A faction card that stops this player playing action cards (Yssaril Transparasteel
     // Plating). Deliberately not `laws::action_cards_forbidden`: Political Censure is not enforced
     // in reaction windows today and this must not start it.
-    if crate::factions::hooks_economy::action_cards_forbidden(state, player) {
+    if crate::factions::hooks_economy::action_cards_forbidden(state, player)
+        || crate::laws::political_secret_bars(state, player)
+    {
         return Vec::new();
     }
     // Cards lying on Garbozia are played "as if they were in your hand", so they are read beside

@@ -336,7 +336,14 @@ fn over_supply_with(
         types,
         state.board.get(system),
         player,
-        i64::from(limit(state, content, player)).max(0),
+        // Darktalon Treilla's lifted limit also governs the enforcement (rules version 17).
+        if state.rules_version >= ti4_model::state::RULES_FACTION_BUGFIXES
+            && is_unlimited(state, player)
+        {
+            UNLIMITED_FLEET_BILL
+        } else {
+            i64::from(limit(state, content, player)).max(0)
+        },
         None,
         &fighter_halves(state, content, player),
     );

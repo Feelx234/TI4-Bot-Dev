@@ -9,7 +9,7 @@ use serde_json::Value;
 use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
 use ti4_model::content_types::DEFAULT;
-use ti4_model::id::{ActionCardId, PlayerId, SecretObjectiveId, SystemId};
+use ti4_model::id::{ActionCardId, PlanetId, PlayerId, SecretObjectiveId, SystemId};
 use ti4_model::state::{GameState, TransientFlags};
 
 use crate::decision_context::{DecisionContext, DecisionSource, DecisionTarget};
@@ -33,6 +33,65 @@ pub struct Terms {
     /// these change hands at the table; like an action card its value is entirely situational,
     /// so it prices flat in both directions.
     pub secret: Option<SecretObjectiveId>,
+    /// A planet card (rules version 17), tradable only through the Hacan mech Pride of Kenara.
+    pub planet: Option<PlanetTerm>,
+}
+
+/// A planet card handed over with the Pride of Kenara: "This planet's card may be traded as part of
+/// a transaction; if you do, move all of your units from this planet to another planet you control."
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanetTerm {
+    /// The planet whose card changes hands.
+    pub planet: PlanetId,
+    /// The giver's other planet its units move to.
+    pub moves_to: PlanetId,
+}
+
+/// The planets `player` could trade away with a Pride of Kenara (rules version 17), each with the
+/// planets its units could move to. Empty below version 17 and for everyone but a mech's owner.
+#[must_use]
+pub fn pride_of_kenara_planets(
+    state: &GameState,
+    player: &PlayerId,
+) -> Vec<(PlanetId, Vec<PlanetId>)> {
+    if state.rules_version < ti4_model::state::RULES_FACTION_BUGFIXES {
+        return Vec::new();
+    }
+    let owned: Vec<(&SystemId, &PlanetId)> = state.controlled_planets(player);
+    owned
+        .iter()
+        .filter(|(system, planet)| {
+            state
+                .system_state(system)
+                .on_planet_of(planet, player)
+                .iter()
+                .any(|unit| unit.type_id.as_str() == "hacan_mech")
+        })
+        .filter_map(|(_, planet)| {
+            let moves: Vec<PlanetId> = owned
+                .iter()
+                .filter(|(_, other)| other != planet)
+                .map(|(_, other)| (*other).clone())
+                .collect();
+            (!moves.is_empty()).then(|| ((*planet).clone(), moves))
+        })
+        .collect()
+}
+
+/// Whether `player` may give this planet term away (the mech is on it, the destination is theirs).
+fn planet_term_payable(state: &GameState, player: &PlayerId, term: &PlanetTerm) -> bool {
+    pride_of_kenara_planets(state, player)
+        .iter()
+        .any(|(planet, moves)| *planet == term.planet && moves.contains(&term.moves_to))
+}
+
+/// What a planet card is worth to hold: its resources and influence.
+fn planet_value(content: &ContentStore, planet: &PlanetId) -> f64 {
+    ti4_content::galaxy::planet(content, planet.as_str(), DEFAULT).map_or(2.0, |record| {
+        #[allow(clippy::cast_precision_loss)]
+        let value = (record.resources() + record.influence()) as f64;
+        value.max(1.0)
+    })
 }
 
 impl Terms {
@@ -44,6 +103,7 @@ impl Terms {
             && self.promissory.is_none()
             && self.action_card.is_none()
             && self.secret.is_none()
+            && self.planet.is_none()
     }
 
     /// How these terms read in a prompt — the oracle's `Terms.describe`, same parts, order and
@@ -68,6 +128,12 @@ impl Terms {
         }
         if let Some(secret) = &self.secret {
             parts.push(format!("the secret objective {secret}"));
+        }
+        if let Some(term) = &self.planet {
+            parts.push(format!(
+                "the planet card {} (its units move to {})",
+                term.planet, term.moves_to
+            ));
         }
         if parts.is_empty() {
             "nothing".to_owned()
@@ -95,6 +161,10 @@ impl Terms {
             + note
             + f64::from(self.action_card.is_some())
             + f64::from(self.secret.is_some())
+            + self
+                .planet
+                .as_ref()
+                .map_or(0.0, |term| planet_value(content, &term.planet))
     }
 
     /// What giving these terms costs (oracle `cost_to_giver`): commodities barely, since a swap
@@ -114,8 +184,14 @@ impl Terms {
             + note
             + f64::from(self.action_card.is_some())
             + f64::from(self.secret.is_some())
+            // A planet is never parted with at a price the table could name: the rule bot
+            // proposes and accepts what nets it a gain, and must not sell its land.
+            + self.planet.as_ref().map_or(0.0, |_| PLANET_GIVING_COST)
     }
 }
+
+/// What parting with a planet card costs the giver, in trade goods: more than any deal pays.
+const PLANET_GIVING_COST: f64 = 100.0;
 
 /// A proposed deal.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -330,6 +406,11 @@ pub fn can_pay(
             return false;
         }
     }
+    if let Some(term) = &terms.planet
+        && !planet_term_payable(state, player, term)
+    {
+        return false;
+    }
     let mut held = seat.relic_fragments.clone();
     for trait_name in &terms.fragments {
         let entry = held.entry(fragment_key(trait_name)).or_insert(0);
@@ -438,6 +519,44 @@ pub fn why_illegal(
 
 /// Take what a player is giving away.
 fn take(state: &mut GameState, player: &PlayerId, terms: &Terms) {
+    if let Some(term) = &terms.planet {
+        // Pride of Kenara: the giver's units on the planet move to the other planet it names.
+        let systems: Vec<SystemId> = state.board.keys().cloned().collect();
+        let home = systems.iter().find(|system| {
+            state
+                .system_state(system)
+                .planet_control
+                .get(&term.planet)
+                .is_some_and(|owner| owner == player)
+        });
+        let destination = systems.iter().find(|system| {
+            state
+                .system_state(system)
+                .planet_control
+                .get(&term.moves_to)
+                .is_some_and(|owner| owner == player)
+        });
+        if let (Some(home), Some(destination)) = (home.cloned(), destination.cloned()) {
+            let moving: Vec<_> = state
+                .system_mut(&home)
+                .planet_units
+                .get_mut(&term.planet)
+                .map(|units| {
+                    let (mine, rest): (Vec<_>, Vec<_>) =
+                        units.drain(..).partition(|unit| unit.owner == *player);
+                    *units = rest;
+                    mine
+                })
+                .unwrap_or_default();
+            state
+                .system_mut(&destination)
+                .planet_units
+                .entry(term.moves_to.clone())
+                .or_default()
+                .extend(moving);
+            state.system_mut(&home).planet_control.remove(&term.planet);
+        }
+    }
     let Some(seat) = state.player_mut(player) else {
         return;
     };
@@ -475,6 +594,14 @@ fn take(state: &mut GameState, player: &PlayerId, terms: &Terms) {
 
 /// Give a player what they are receiving.
 fn give(state: &mut GameState, content: &ContentStore, player: &PlayerId, terms: &Terms) {
+    if let Some(term) = &terms.planet {
+        let home = crate::planets::system_of(state, content, DEFAULT, term.planet.as_str());
+        if let Some(home) = home {
+            state
+                .system_mut(&home)
+                .set_control(term.planet.clone(), player.clone());
+        }
+    }
     let Some(seat) = state.player_mut(player) else {
         return;
     };
@@ -1010,7 +1137,66 @@ pub fn offer_options(
     }
 
     partner_assets(state, content, proposer, partner, &mut shapes);
+    planet_shapes(state, content, proposer, partner, &mut shapes);
     priced(state, content, proposer, partner, shapes)
+}
+
+/// The planet cards a Pride of Kenara lets change hands (rules version 17), as gifts, sales and
+/// asks.
+///
+/// * `kp{planet}>{to}:{g}` -- my planet (my units move to my planet `to`) for `g` of their goods;
+/// * `kq{planet}>{to}:{g}` -- their planet (their units move to their planet `to`) for `g` of mine.
+///
+/// The price is the planet's resources plus influence; a gift is the same shape at 0.
+fn planet_shapes(
+    state: &GameState,
+    content: &ContentStore,
+    proposer: &PlayerId,
+    partner: &PlayerId,
+    shapes: &mut Vec<(String, String, BTreeMap<String, Value>)>,
+) {
+    let (my_goods, _) = holdings(state, proposer);
+    let (their_goods, _) = holdings(state, partner);
+    #[allow(clippy::cast_possible_truncation)]
+    let price_of = |planet: &PlanetId| planet_value(content, planet) as i32;
+    for (planet, moves) in pride_of_kenara_planets(state, proposer) {
+        for to in moves {
+            let mut payload = BTreeMap::new();
+            payload.insert("planet".to_owned(), Value::String(planet.to_string()));
+            payload.insert("moves_to".to_owned(), Value::String(to.to_string()));
+            let price = price_of(&planet);
+            shapes.push((
+                format!("kp{planet}>{to}:0"),
+                format!("give the planet {planet}, moving the units to {to}"),
+                payload.clone(),
+            ));
+            if their_goods >= price {
+                shapes.push((
+                    format!("kp{planet}>{to}:{price}"),
+                    format!("sell the planet {planet} for {price} trade goods, units to {to}"),
+                    payload,
+                ));
+            }
+        }
+    }
+    for (planet, moves) in pride_of_kenara_planets(state, partner) {
+        let price = price_of(&planet);
+        if my_goods < price {
+            continue;
+        }
+        for to in moves {
+            let mut payload = BTreeMap::new();
+            payload.insert(
+                "received_planet".to_owned(),
+                Value::String(planet.to_string()),
+            );
+            shapes.push((
+                format!("kq{planet}>{to}:{price}"),
+                format!("pay {price} trade goods for the planet {planet}, their units to {to}"),
+                payload,
+            ));
+        }
+    }
 }
 
 /// The asks that take something *from* the partner, as generated by [`partner_assets`].
@@ -1345,6 +1531,25 @@ pub fn offer_from(
             goods(price.parse().ok()?),
         );
     }
+    if let Some(rest) = id.strip_prefix("kp").or_else(|| id.strip_prefix("kq")) {
+        // `kp{planet}>{to}:{price}` (mine) or `kq{planet}>{to}:{price}` (theirs): a Pride of
+        // Kenara planet card for trade goods.
+        let (cards, price) = rest.rsplit_once(':')?;
+        let (planet, to) = cards.split_once('>')?;
+        let term = Terms {
+            planet: Some(PlanetTerm {
+                planet: PlanetId::new(planet),
+                moves_to: PlanetId::new(to),
+            }),
+            ..Terms::default()
+        };
+        let price = goods(price.parse().ok()?);
+        return if id.starts_with("kp") {
+            deal(term, price)
+        } else {
+            deal(price, term)
+        };
+    }
     // The asks that take something from the partner: `np`, `cp`, `pc`, `nn`, `cn`. Delegated rather
     // than inline because a shape this file cannot read has to fall through to the commodity and
     // goods branches untouched, and `offer_from` was already at the edge of being readable.
@@ -1421,6 +1626,9 @@ fn push_fields(out: &mut String, side: char, terms: &Terms) {
     if !terms.fragments.is_empty() {
         let _ = write!(out, "{side}f={};", terms.fragments.join(","));
     }
+    if let Some(term) = &terms.planet {
+        let _ = write!(out, "{side}p={}>{};", term.planet, term.moves_to);
+    }
 }
 
 /// The free-form id of a deal: `x;` then `g…` fields for what the proposer gives and `r…` fields
@@ -1470,6 +1678,13 @@ fn free_form_offer(id: &str, proposer: &PlayerId, partner: &PlayerId) -> Option<
             'a' => terms.action_card = Some(ActionCardId::new(value)),
             's' => terms.secret = Some(SecretObjectiveId::new(value)),
             'f' => terms.fragments = value.split(',').map(str::to_owned).collect(),
+            'p' => {
+                let (planet, to) = value.split_once('>')?;
+                terms.planet = Some(PlanetTerm {
+                    planet: PlanetId::new(planet),
+                    moves_to: PlanetId::new(to),
+                });
+            }
             _ => return None,
         }
     }
@@ -2885,6 +3100,7 @@ mod tests {
             promissory: Some("cf:b".to_owned()),
             action_card: Some(ActionCardId::new("emergency")),
             secret: Some(SecretObjectiveId::new("sb")),
+            planet: None,
         };
         assert_eq!(
             full.describe(),

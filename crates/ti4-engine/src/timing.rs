@@ -1063,6 +1063,9 @@ impl Resolver {
                         .is_none_or(|policy| policy(ability))
                     && (ability.repeatable_in_window || !resolved_here.contains(&ability.id))
                     && !self.is_used(ability, event)
+                    // Political Secret (version 17): no faction ability, no action card.
+                    && !(ability.id.starts_with("ability:")
+                        && crate::laws::political_secret_bars(context.state, player))
                     && ability
                         .condition
                         .as_ref()

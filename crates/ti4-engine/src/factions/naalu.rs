@@ -52,7 +52,7 @@ use ti4_model::units::Unit;
 use super::hooks_combat::CombatHooks;
 use super::hooks_ground::GroundHooks;
 use super::hooks_strategy::{SecondaryWaiver, StrategyHooks};
-use super::{FactionModule, Hooks};
+use super::{CombatUnit, FactionModule, Hooks};
 use crate::choice::{Choice, ChoiceOption};
 use crate::decision_context::{DecisionContext, DecisionSource};
 use crate::timing::{Ability, Relation, TimingContext, TimingError};
@@ -81,6 +81,7 @@ pub const MODULE: FactionModule = FactionModule {
     breakthroughs: &["naalubt"],
     hooks: Hooks {
         timing_abilities: Some(timing_abilities),
+        unit_roll_modifier: Some(unit_roll_modifier),
         combat: CombatHooks {
             fighter_fleet_weight_halves: Some(fighter_fleet_weight_halves),
             ..CombatHooks::NONE
@@ -103,6 +104,41 @@ pub const MODULE: FactionModule = FactionModule {
         ..Hooks::NONE
     },
 };
+
+/// Iconoclast (`naalu_mech`, the Prophecy of Kings printing): "During combat against an opponent
+/// who has at least 1 relic fragment, apply +2 to the results of this unit's combat rolls."
+/// Rules version 17. A mech only rolls in ground combat, so the opponents are the other players'
+/// ground forces on the planet.
+fn unit_roll_modifier(
+    state: &GameState,
+    _content: &ContentStore,
+    _sources: SourceSet,
+    unit: &CombatUnit<'_>,
+) -> i64 {
+    if state.rules_version < ti4_model::state::RULES_FACTION_BUGFIXES
+        || unit.unit_type != "naalu_mech"
+        || unit.context != "ground"
+    {
+        return 0;
+    }
+    let (Some(system), Some(planet)) = (unit.system, unit.planet) else {
+        return 0;
+    };
+    let against_fragments = state
+        .system_state(system)
+        .planet_units
+        .get(planet)
+        .into_iter()
+        .flatten()
+        .map(|other| &other.owner)
+        .filter(|owner| *owner != unit.player)
+        .any(|owner| {
+            state
+                .player(owner)
+                .is_some_and(|seat| seat.relic_fragments.values().sum::<i32>() > 0)
+        });
+    if against_fragments { 2 } else { 0 }
+}
 
 /// M'aban: the live permission follows the recipient's commander rights and neighbour status.
 fn may_view_promissory_hand(

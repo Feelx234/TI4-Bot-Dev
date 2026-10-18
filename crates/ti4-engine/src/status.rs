@@ -161,6 +161,19 @@ pub fn resolve_before_token_gain_with(
             }
             return Err(error.into());
         }
+        // Rules version 17 (2.4): the draw goes through the same hand limit as every other draw
+        // (after Scheming's discard, so that discard can be what keeps the hand legal).
+        if state.rules_version >= ti4_model::state::RULES_FACTION_BUGFIXES
+            && drawn_count > 0
+            && let Some((content, table)) = draw_effects.as_mut()
+            && let Err(error) =
+                crate::action_cards::enforce_hand_limit(state, content, table, &player_id)
+        {
+            if let Some(before) = snapshot {
+                *state = before;
+            }
+            return Err(error.into());
+        }
         report.action_cards_drawn.push((player_id, drawn_count));
     }
 

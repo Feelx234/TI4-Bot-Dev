@@ -153,17 +153,28 @@ fn owner_abilities(state: &GameState) -> Vec<Ability> {
     state
         .players
         .iter()
-        .filter(|seat| seat.faction.as_str() == "sol")
-        .map(|seat| {
-            let owner = seat.id.clone();
+        .filter_map(|seat| {
+            // Letnev's Viscount Unlenn joins at version 17 ("at the start of a space combat
+            // round: exhaust to choose 1 ship in the active system: it rolls 1 additional die").
+            let agent = match seat.faction.as_str() {
+                "sol" => SOL_AGENT,
+                "letnev" if state.rules_version >= ti4_model::state::RULES_FACTION_BUGFIXES => {
+                    LETNEV_AGENT
+                }
+                _ => return None,
+            };
+            Some((seat.id.clone(), agent, seat.faction.to_string()))
+        })
+        .map(|(owner, agent, faction)| {
             let (effect_owner, condition_owner) = (owner.clone(), owner.clone());
+            let event_type = event_for(agent).to_owned();
             Ability::stateful(
-                format!("leader:sol:{SOL_AGENT}:GROUND_COMBAT_ROUND_STARTED:after"),
+                format!("leader:{faction}:{agent}:{event_type}:after"),
                 owner,
-                "GROUND_COMBAT_ROUND_STARTED".to_owned(),
+                event_type,
                 Relation::After,
                 Arc::new(move |event, _, context| {
-                    resolve_copy(event, context, &effect_owner, &effect_owner, SOL_AGENT)
+                    resolve_copy(event, context, &effect_owner, &effect_owner, agent)
                 }),
             )
             .with_optional(true)
@@ -175,12 +186,24 @@ fn owner_abilities(state: &GameState) -> Vec<Ability> {
                     event,
                     &condition_owner,
                     &condition_owner,
-                    SOL_AGENT,
+                    agent,
                 )
                 .is_some()
             }))
         })
         .collect()
+}
+
+/// Whether any seat holds a readied Letnev agent of its own (rules version 17), for the
+/// producer's gating of `COMBAT_ROUND_STARTED`.
+#[must_use]
+pub fn has_owner_space_round_agent(state: &GameState) -> bool {
+    state.rules_version >= ti4_model::state::RULES_FACTION_BUGFIXES
+        && state.players.iter().any(|seat| {
+            seat.faction.as_str() == "letnev"
+                && seat.leaders.get(&LeaderId::new(LETNEV_AGENT))
+                    == Some(&ti4_model::state::LeaderStatus::Readied)
+        })
 }
 
 /// Whether any seat holds a readied Sol agent of its own (rules version 16), for the producer's
@@ -190,7 +213,8 @@ pub fn has_owner_round_agent(state: &GameState) -> bool {
     state.rules_version >= ti4_model::state::RULES_FACTION_EFFECTS
         && state.players.iter().any(|seat| {
             seat.faction.as_str() == "sol"
-                && seat.leaders.get(&LeaderId::new(SOL_AGENT)) == Some(&ti4_model::state::LeaderStatus::Readied)
+                && seat.leaders.get(&LeaderId::new(SOL_AGENT))
+                    == Some(&ti4_model::state::LeaderStatus::Readied)
         })
 }
 
@@ -270,13 +294,13 @@ fn source_is_borrowable(
     if borrower == source_owner {
         // The owner's own agent (rules version 16), only while readied.
         return state.rules_version >= ti4_model::state::RULES_FACTION_EFFECTS
-            && state
-                .player(borrower)
-                .is_some_and(|seat| {
-                    seat.faction.as_str() == "sol"
-                        && seat.leaders.get(&LeaderId::new(source_agent))
-                            == Some(&ti4_model::state::LeaderStatus::Readied)
-                });
+            && state.player(borrower).is_some_and(|seat| {
+                (seat.faction.as_str() == "sol"
+                    || (seat.faction.as_str() == "letnev"
+                        && state.rules_version >= ti4_model::state::RULES_FACTION_BUGFIXES))
+                    && seat.leaders.get(&LeaderId::new(source_agent))
+                        == Some(&ti4_model::state::LeaderStatus::Readied)
+            });
     }
     crate::factions::hooks_cards::borrowable_agents(state, content, borrower)
         .iter()
@@ -525,7 +549,11 @@ fn resolve_copy(
     crate::leaders::exhaust(
         context.state,
         borrower,
-        &LeaderId::new(if own_agent { source_agent } else { "yssarilagent" }),
+        &LeaderId::new(if own_agent {
+            source_agent
+        } else {
+            "yssarilagent"
+        }),
     );
     if borrower != &target.owner {
         crate::diplomacy::evaluate_event(

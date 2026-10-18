@@ -184,7 +184,15 @@ pub(crate) fn grant_chosen_technology(
     let researching = relic == "enigmaticdevice"
         && state.rules_version >= ti4_model::state::RULES_ENIGMATIC_DEVICE;
     let Some(chosen) = ask_technology(
-        state, content, sources, table, galaxy, player, colour, relic, researching,
+        state,
+        content,
+        sources,
+        table,
+        galaxy,
+        player,
+        colour,
+        relic,
+        researching,
     ) else {
         return false;
     };
@@ -1180,12 +1188,12 @@ pub fn available_actions(
                     )
                     .is_empty())
                     && crate::production::available(
-                    state,
-                    content,
-                    sources,
-                    player,
-                    crate::production::Spend::Resources,
-                ) >= 6
+                        state,
+                        content,
+                        sources,
+                        player,
+                        crate::production::Spend::Resources,
+                    ) >= 6
             }
             // Something in range that the card is allowed to destroy. Without a board there is no
             // adjacency and therefore no target.
@@ -1370,10 +1378,7 @@ mod tests {
             "Gravity Drive needs a blue prerequisite the seat does not have: {offered:?}"
         );
         for id in &offered {
-            assert!(
-                open.contains(id),
-                "{id} is offered but is not researchable"
-            );
+            assert!(open.contains(id), "{id} is offered but is not researchable");
         }
     }
 
@@ -1765,7 +1770,12 @@ mod tests {
         let json = serde_json::to_value(&state).unwrap();
         assert!(json["relic_log"][0].get("victory_points").is_none());
         state.relic_log.clear();
-        assert!(serde_json::to_value(&state).unwrap().get("relic_log").is_none());
+        assert!(
+            serde_json::to_value(&state)
+                .unwrap()
+                .get("relic_log")
+                .is_none()
+        );
     }
 
     use ti4_model::content_types::DEFAULT as ALL_SOURCES;

@@ -2628,7 +2628,6 @@ fn pok_only() -> ti4_model::content_types::SourceSet {
 }
 
 #[test]
-#[ignore = "MISSING/BUG: naalu_mech (Iconoclast, PoK printing) +2 to its rolls against an opponent with a relic fragment is not implemented"]
 fn unit_naalu_mech_1_iconoclast_rolls_two_better_against_an_opponent_with_a_relic_fragment() {
     let mech_roll = |fragments: i32| {
         let mut state = crate::fixtures::seated_game(
@@ -2665,7 +2664,6 @@ fn unit_naalu_mech_1_iconoclast_rolls_two_better_against_an_opponent_with_a_reli
 }
 
 #[test]
-#[ignore = "MISSING/BUG: naalu_mech_omega (Iconoclast Omega) 'other players cannot use ANTI-FIGHTER BARRAGE against your units in this system' is not implemented"]
 fn unit_naalu_mech_omega_1_other_players_cannot_barrage_the_naalus_units_in_its_system() {
     let barrage_rolls = |mech: bool| {
         let mut state = crate::fixtures::seated_game(

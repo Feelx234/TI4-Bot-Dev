@@ -1158,7 +1158,7 @@ pub struct StartingTechPick {
 /// The rules version of a new game. Raise it when an engine decision changes in a way that an
 /// older game log would not replay under (and gate the change on
 /// [`GameState::rules_version`]); see `docs/RULES_VERSION.md`.
-pub const RULES_VERSION: u32 = 16;
+pub const RULES_VERSION: u32 = 17;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
@@ -1245,6 +1245,13 @@ pub const RULES_TECH_EFFECTS: u32 = 15;
 /// Ral Nel commander's unlock, an optional Letnev commander trade good and the Shard of the
 /// Throne VP when the Naaz purge a relic fragment.
 pub const RULES_FACTION_EFFECTS: u32 = 16;
+
+/// The first rules version with the faction bug fixes found by the end-to-end faction audit
+/// (`docs/FACTION_EFFECT_COVERAGE.md`): Political Secret's action bar, the status phase hand
+/// limit, Non-Euclidean Shielding and the Letnev commander and agent in a real space combat,
+/// the Darktalon Treilla fleet limit, the Floating Factory in space, the Hacan mech's planet
+/// trade and both Naalu mech printings.
+pub const RULES_FACTION_BUGFIXES: u32 = 17;
 
 /// The whole game, as a value.
 ///

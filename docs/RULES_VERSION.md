@@ -201,6 +201,12 @@ Version 16 = faction effects (`faction-effect-fixes`, `RULES_FACTION_EFFECTS`). 
 
 Version < 16: none of these. The ability slot of item 2 is only registered at 16, so older logs replay unchanged. Rule bot golden benches v1 to v4 are hash-identical with `RULES_VERSION` pinned to 11; v5's `baseline.json` needs a deliberate re-record only if its games reach these effects.
 
+Version 17 = faction bug fixes (`faction-bug-fixes`, `RULES_FACTION_BUGFIXES`). Ten effects the end-to-end faction tests found missing or wrong (each gate is `state.rules_version >= RULES_FACTION_BUGFIXES`):
+
+(filled in below as the fixes land)
+
+Version < 17: none of these; older logs replay unchanged.
+
 ## Not a rules version: the Thunder's Edge switch (`GameState::thunders_edge`)
 
 Every game before 2026-10-18 ran under the Prophecy of Kings source scope (`content_types::POK`):
