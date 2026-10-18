@@ -10,6 +10,9 @@ import { playerDisplay } from "./presentation/playerDisplay.ts";
 import { Board } from "./components/Board.tsx";
 import { TurnStatusBar, TurnStatusDetails } from "./components/TurnStatusBar.tsx";
 import { useBuildInfo } from "./buildInfo.ts";
+import { engineLabel, useLoadedEngine } from "./offline/engineInfo.ts";
+import { summarizeVersions } from "./versionInfo.ts";
+import { VersionInfoDialog } from "./components/VersionInfo.tsx";
 import { PasswordScreen } from "./access/PasswordScreen.tsx";
 import { probeAccess, useAccessRequired } from "./access/accessGate.ts";
 import { FeedbackLauncher, openFeedback } from "./feedback/FeedbackLauncher.tsx";
@@ -436,6 +439,7 @@ const GameViewContainer: React.FC<{
     previewSecondary,
     queryReach,
     queryEngine,
+    gameVersions,
     batchResume,
     resumeBatch,
     dismissBatchResume,
@@ -447,6 +451,14 @@ const GameViewContainer: React.FC<{
   const shellMultiplayer = useCapability("multiplayer");
   const turnRedoOn = capabilities.turnRedo && shellTurnRedo;
   const multiplayerOn = capabilities.multiplayer && shellMultiplayer;
+  const loadedEngine = useLoadedEngine();
+  const versionSummary = summarizeVersions({
+    hosted: gameVersions ? gameVersions() : null,
+    state: snapshot?.state,
+    serverCommit: buildInfo.commit,
+    engine: engineLabel(loadedEngine),
+  });
+  const [isVersionsOpen, setIsVersionsOpen] = useState(false);
   useRegisterFeedbackSource("game", () => ({
     gameId,
     viewer,
@@ -454,6 +466,7 @@ const GameViewContainer: React.FC<{
     pendingChoice: realPendingChoice,
     lobby,
     events,
+    versions: versionSummary,
   }));
   const reconnecting = useAfterDelay(
     (status !== "connected" || Boolean(reconnectingState) || Boolean(lobbyConnectionLost)) && !fatal,
@@ -784,6 +797,7 @@ const GameViewContainer: React.FC<{
                 compactLayout ? (
                   <MobileTopMenu
                     onOpenFeedback={buildInfo.isPublic || createTransport ? openFeedback : undefined}
+                    versions={versionSummary}
                     attention={menuAttention({
                       connected: status === "connected",
                       yourDecision: Boolean(
@@ -830,9 +844,18 @@ const GameViewContainer: React.FC<{
               >
                 Objectives
               </button>
+              <button
+                type="button"
+                data-testid="version-info-button"
+                onClick={() => setIsVersionsOpen(true)}
+                className="button button--secondary"
+              >
+                Versions
+              </button>
               <NotificationLogButton />
             </div>
             )}
+            {isVersionsOpen && <VersionInfoDialog summary={versionSummary} onClose={() => setIsVersionsOpen(false)} />}
           </div>
         }
         board={
