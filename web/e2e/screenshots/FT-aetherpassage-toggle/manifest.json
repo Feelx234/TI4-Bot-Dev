@@ -6,8 +6,8 @@
     { "file": "out/1-offer-desktop.png", "heading": "The offer with the switch, desktop", "caption": "Default: asked as before. A checkbox reads \"Don't ask about Aetherpassage (decline it for me) until I switch it back on\"." },
     { "file": "out/1-offer-390x844.png", "heading": "The offer with the switch, phone", "caption": "Same at 390 px wide." },
     { "file": "out/5-switch-ticked.png", "heading": "Switch ticked in the offer", "caption": "Ticking it applies from the next activation on; this question is still yours to answer." },
-    { "file": "out/2-sheet-ask.png", "heading": "Player mat, asking", "caption": "The Empyrean player's sheet has an \"Aetherpassage ask\" button next to Sound, Toasts and Auto." },
-    { "file": "out/3-sheet-skipped.png", "heading": "Player mat, skipped", "caption": "Switched off the button reads \"Aetherpassage skipped\" and is shaded; it stays visible for any faction so it can be switched back on." },
+    { "file": "out/2-sheet-ask.png", "heading": "Player mat, asking", "caption": "The Empyrean player's sheet has one \"Prompts\" button (several abilities can be switched off since the FV change; a seat with three or fewer keeps one button each)." },
+    { "file": "out/3-sheet-skipped.png", "heading": "Prompts list, skipped", "caption": "Aetherpassage switched to Skipped in the Prompts list; it stays listed for any faction while skipped so it can be switched back on." },
     { "file": "out/4-declined-toast.png", "heading": "Declined for you", "caption": "With the switch off the client sends the pass after a short pause and shows the toast \"Aetherpassage skipped (switched off)\"." },
     { "file": "out/6-after-undo.png", "heading": "After an undo", "caption": "An undo that lands on the offer is asked, never answered again, so the player can undo past it." }
   ],

@@ -5,12 +5,17 @@ import { aetherOffer, openScene } from "./scene";
 // Switch it off in the player sheet; the next activation's offer is declined by the client.
 test("Aetherpassage skipped after switching off", async ({ page }, testInfo) => {
   const { advance, submissions } = await openScene(page);
-  const button = page.getByTestId("aetherpassage-ask-btn");
-  await expect(button).toContainText("Aetherpassage ask");
-  await shot(page, testInfo, "2-sheet-ask", { of: page.getByTestId("player-sheet-panel").locator("h2").locator(".."), pad: 40 });
-  await button.click();
-  await expect(button).toContainText("Aetherpassage skipped");
-  await shot(page, testInfo, "3-sheet-skipped", { of: page.getByTestId("player-sheet-panel").locator("h2").locator(".."), pad: 40 });
+  // The Empyrean seat has several switchable abilities: they sit behind the sheet's Prompts button.
+  const sheetTop = page.getByTestId("player-sheet-panel").locator("h2").locator("..");
+  await expect(page.getByTestId("prompts-btn")).toContainText("Prompts (7)");
+  await shot(page, testInfo, "2-sheet-ask", { of: sheetTop, pad: 40 });
+  await page.getByTestId("prompts-btn").click();
+  const toggle = page.getByTestId("prompt-toggle-aetherpassage");
+  await expect(toggle).toHaveText("Ask");
+  await toggle.click();
+  await expect(toggle).toHaveText("Skipped");
+  await shot(page, testInfo, "3-sheet-skipped");
+  await page.getByTestId("prompts-panel-close").click();
   advance(1, null);
   await page.waitForTimeout(300);
   advance(2, aetherOffer("aether-2"));
@@ -34,7 +39,9 @@ test("Aetherpassage switch inside the offer", async ({ page }, testInfo) => {
 // After an undo that lands on the offer, it is asked again even with the switch off.
 test("Aetherpassage asked again after an undo", async ({ page }, testInfo) => {
   const { advance, submissions } = await openScene(page);
-  await page.getByTestId("aetherpassage-ask-btn").click();
+  await page.getByTestId("prompts-btn").click();
+  await page.getByTestId("prompt-toggle-aetherpassage").click();
+  await page.getByTestId("prompts-panel-close").click();
   advance(3, null);
   advance(2, aetherOffer("aether-4"), 1);
   await page.waitForTimeout(1200);
