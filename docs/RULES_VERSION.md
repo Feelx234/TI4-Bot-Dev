@@ -10,7 +10,7 @@ playable.
 
 `GameState::rules_version: u32` (crates/ti4-model/src/state.rs). Constants next to it:
 
-- `RULES_VERSION` (now 15): what a **new** game plays. `GameState::new` sets it, so every way of
+- `RULES_VERSION` (now 17): what a **new** game plays. `GameState::new` sets it, so every way of
   creating a game (server, lobby, wasm host, selfplay, tests) gets the latest.
 - `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ENIGMATIC_DEVICE = 5`, `RULES_TECH_PAYMENT_CHOICE = 6`, `RULES_BRIBERY_PER_PLAYER = 7`, `RULES_MUNITIONS_AFTER_ROLL = 8`, `RULES_TECH_RIDER = 9`, `RULES_ACTION_CARD_TARGETS = 10`, `RULES_RETREAT_HAZARDS = 11`, `RULES_COMMAND_TOKEN_POOL = 12`, `RULES_SELF_ASSEMBLY = 13`, `RULES_AGENDA_GRANT_REVEAL = 14`, `RULES_TECH_EFFECTS = 15`): the first version with one gated change.
 A state without the field is **version 0**, the legacy rules (what the alpha ran until 2026-10-16).
@@ -203,7 +203,18 @@ Version < 16: none of these. The ability slot of item 2 is only registered at 16
 
 Version 17 = faction bug fixes (`faction-bug-fixes`, `RULES_FACTION_BUGFIXES`). Ten effects the end-to-end faction tests found missing or wrong (each gate is `state.rules_version >= RULES_FACTION_BUGFIXES`):
 
-(filled in below as the fixes land)
+1. Political Secret (`ps`, `laws::political_secret_bars`): until the agenda is resolved its target also cannot play action cards (`action_cards::is_playable`, `reactions::playable_now`) or use faction abilities (`timing::Resolver::eligible_with_context` skips `ability:` slots of the barred seat). The marker is the existing `none|political_secret` entry in `agenda_predictions`; Assassinate Representative's marker still bars only the vote.
+2. Status phase hand limit (2.4, `status::resolve_before_token_gain_with`): after a seat's status draw (and Scheming's discard) `action_cards::enforce_hand_limit` asks `discard_over_hand_limit`. Below 17 the draw left the hand over the limit.
+3. Non-Euclidean Shielding (`nes`): the combat window's sustain step (`combat.rs` `Stage::Sustaining`) cancels 2 hits per sustain, as `offer_sustain` (the `absorb_hits` path) always did.
+4. Rear Admiral Farran (`letnevcommander`): the combat window's sustain step asks `letnev_commander_trade_good` (until 16 it neither paid nor asked there).
+5. Viscount Unlenn (`letnevagent`): `borrowed_round_agents::owner_abilities` registers `leader:letnev:letnevagent:COMBAT_ROUND_STARTED:after` for each Letnev seat (same question `leader_ssruu_round_agent_unit` and mark as Ssruu's copy and Sol's agent); `combat.rs` numbers the round (`round_seq`) while a readied Letnev agent exists (`has_owner_space_round_agent`).
+6. Darktalon Treilla (`letnevhero`): `fleet::over_supply_with` honours `fleet::is_unlimited`, so the enforcement after production and at the end of a turn removes nothing during her round.
+7. Floating Factory (`saar_spacedock`, `saar_spacedock2`): Construction's space dock (and the Construction Rider) is placed in the space area of the chosen planet's system (`strategy_cards::construction_placement`); no planet's dock limit applies to it. Below 17 it is the plain space dock on the planet.
+8. Pride of Kenara (`hacan_mech`): `transactions::Terms::planet` (`PlanetTerm`), offered by `offer_options` as `kp{planet}>{to}:{price}` (give or sell mine), `kq{planet}>{to}:{price}` (buy theirs) and the free-form field `p`; only for a planet the giver controls with the mech on it and another controlled planet `to`. `take` moves all of the giver's units from the planet to `to`, `give` hands over the control. The rule bot never proposes it (parting cost 100).
+9. Iconoclast (`naalu_mech`, the PoK printing): +2 to its ground combat rolls against an opponent with a relic fragment (`factions/naalu.rs:unit_roll_modifier`).
+10. Iconoclast Omega (`naalu_mech_omega`): `combat::roll_barrage_side` rolls nothing for another player while the mech is in the system (`omega_forbids_barrage`).
+
+Also at 17: the combat dev scenarios start with Letnev's agent exhausted so they still open at the retreat (not a game rule). No new question kinds: the Farran, agent unit and discard questions already exist, so the delivery inventory and the rule bot's answers are unchanged.
 
 Version < 17: none of these; older logs replay unchanged.
 
