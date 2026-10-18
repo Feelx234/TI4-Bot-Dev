@@ -331,11 +331,35 @@ impl crate::choice::Decider for Builds {
     }
 }
 
+/// Builds the `wanted` options in order (each when it is offered), pays with trade goods, and
+/// stops producing when the list is used up.
+struct BuildOrder(std::collections::VecDeque<String>);
+
+impl crate::choice::Decider for BuildOrder {
+    fn choose(
+        &mut self,
+        choice: &crate::choice::Choice,
+    ) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
+        if let Some(next) = self.0.front()
+            && let Some(build) = choice.option(next)
+        {
+            self.0.pop_front();
+            return Ok(build.clone());
+        }
+        Ok(choice
+            .option("trade_good")
+            .or_else(|| choice.option("done_producing"))
+            .unwrap_or(&choice.options[0])
+            .clone())
+    }
+}
+
 /// The scripted `opening` answers first (they must be offered), then the `prefer`red ones.
 struct Opening {
     queue: std::collections::VecDeque<String>,
     then: Prefer,
     builds: Option<Builds>,
+    order: Option<BuildOrder>,
 }
 
 impl crate::choice::Decider for Opening {
@@ -352,6 +376,9 @@ impl crate::choice::Decider for Opening {
                 }
             });
         }
+        if let Some(order) = &mut self.order {
+            return order.choose(choice);
+        }
         match &mut self.builds {
             Some(builds) => builds.choose(choice),
             None => self.then.choose(choice),
@@ -364,6 +391,7 @@ fn opening_then(opening: &[&str], prefixes: &[&str]) -> Table {
         queue: opening.iter().map(|a| (*a).to_owned()).collect(),
         then: Prefer(prefixes.iter().map(|p| (*p).to_owned()).collect()),
         builds: None,
+        order: None,
     }))
 }
 
@@ -689,6 +717,7 @@ fn hacanbt_1_auto_factories_three_non_fighter_ships_put_a_token_in_the_fleet_poo
             queue: answers.iter().map(|a| (*a).to_owned()).collect(),
             then: Prefer(Vec::new()),
             builds: Some(Builds { option: "build|destroyer|1".to_owned(), left: ships }),
+            order: None,
         }));
         let mut game = game_of(state, hub.galaxy, table);
         drive(&mut game, 80, tactical_done);
@@ -779,6 +808,7 @@ fn armada_1_letnev_may_hold_two_more_ships_than_its_fleet_pool_has_tokens() {
                 .collect(),
             then: Prefer(Vec::new()),
             builds: Some(Builds { option: "build|destroyer|1".to_owned(), left: 4 }),
+            order: None,
         }));
         let mut game = game_of(state, hub.galaxy, table);
         drive(&mut game, 80, tactical_done);
@@ -964,6 +994,7 @@ fn letnevhero_2_darktalon_lifts_the_fleet_limit_for_the_rest_of_the_round() {
             queue: queue.iter().map(|a| (*a).to_owned()).collect(),
             then: Prefer(Vec::new()),
             builds: Some(Builds { option: "build|destroyer|1".to_owned(), left: 4 }),
+            order: None,
         }));
         let mut game = game_of(state, hub.galaxy, table);
         drive(&mut game, 120, tactical_done);
@@ -1114,6 +1145,7 @@ fn supernova_game(
         queue: [TACTICAL_ACTION_ID, target.as_str()].iter().map(|a| (*a).to_owned()).collect(),
         then: Prefer(vec!["move|".to_owned(), "done_loading".to_owned(), "done_moving".to_owned()]),
         builds: (builds > 0).then(|| Builds { option: "build|destroyer|1".to_owned(), left: builds }),
+        order: None,
     }));
     let mut game = game_of(state, hub.galaxy, table);
     drive(&mut game, 80, tactical_done);
@@ -1380,6 +1412,7 @@ fn cm_2_chaos_mapping_produces_a_unit_at_a_space_dock_at_the_start_of_the_turn()
             queue: queue.into_iter().collect(),
             then: Prefer(vec!["pass".to_owned()]),
             builds: None,
+            order: None,
         }));
         let mut game = game_of(state, hub.galaxy, table);
         drive(&mut game, 12, |g| g.events.iter().any(|e| e == "PLAYER_PASSED"));
@@ -1387,4 +1420,155 @@ fn cm_2_chaos_mapping_produces_a_unit_at_a_space_dock_at_the_start_of_the_turn()
     };
     assert_eq!(destroyers(true), 1);
     assert_eq!(destroyers(false), 0);
+}
+
+// -- Sol -----------------------------------------------------------------------------------------
+
+#[test]
+fn so2_2_spec_ops_ii_survivors_go_on_the_card_and_return_home_at_the_start_of_the_next_turn() {
+    let (mut state, hub, centre, planet) =
+        production_board(&[("a", "sol"), ("b", "hacan")], "spacedock");
+    super::give(&mut state, "a", "so2");
+    // Sol's four Spec Ops II hold the planet; Hacan bombards it with six dreadnoughts.
+    state.system_mut(&centre).planet_units.clear();
+    put_on_planet(&mut state, &centre, &planet, "sol_infantry2", &a(), 4);
+    for system in state.board.keys().cloned().collect::<Vec<_>>() {
+        if system != centre {
+            state.system_mut(&system).units.clear();
+        }
+    }
+    let origin = SystemId::new(hub.outer[0].clone());
+    put(&mut state, &origin, "dreadnought", &b(), 6);
+    let (_, home_planet_id) = home_planet(&state, &a());
+    let home = home_of(&state, &a());
+    let before_home = count_on(&state, &home, &home_planet_id, "sol_infantry2", &a());
+    state.active = Some(b());
+    let table = opening_then(
+        &[TACTICAL_ACTION_ID, centre.as_str()],
+        &["move|", "done_loading", "done_moving", "pass"],
+    );
+    let mut game = game_of(state, hub.galaxy, table);
+    drive(&mut game, 150, |g| g.events.iter().any(|e| e.starts_with("SPEC_OPS_RETURNED")) || g.state.round >= 2);
+    let faces: Vec<u32> = game
+        .rolls()
+        .iter()
+        .filter(|roll| roll.reason == "spec ops II")
+        .flat_map(|roll| roll.faces.clone())
+        .collect();
+    let survivors = faces.iter().filter(|face| **face >= 5).count();
+    let destroyed = 4 - count_on(&game.state, &centre, &planet, "sol_infantry2", &a());
+    assert!(destroyed > 0, "the bombardment killed some");
+    assert_eq!(faces.len(), destroyed, "one die for each Spec Ops II destroyed");
+    assert!(
+        survivors == 0 || game.events.iter().any(|e| e == &format!("SPEC_OPS_RETURNED:a:{survivors}")),
+        "survivors {survivors}: {:?}",
+        game.events
+    );
+    // Back in the home system, on a planet Sol controls.
+    let after_home = count_on(&game.state, &home, &home_planet_id, "sol_infantry2", &a());
+    assert_eq!(after_home, before_home + survivors);
+}
+
+#[test]
+fn versatile_1_sol_gains_one_more_command_token_in_the_status_phase() {
+    let mut state = seated_all(&[("a", "sol"), ("b", "hacan")]);
+    state.phase = Phase::Action;
+    state.active = Some(a());
+    let total = |state: &GameState, who: &PlayerId| state.player(who).unwrap().total_tokens();
+    let (a_before, b_before) = (total(&state, &a()), total(&state, &b()));
+    let mut game = Game::with_table(state, content(), preferring(&["pass"])).with_sources(SOURCES);
+    drive(&mut game, 200, |g| g.state.round >= 2);
+    let (a_gain, b_gain) = (
+        total(&game.state, &a()) - a_before,
+        total(&game.state, &b()) - b_before,
+    );
+    assert_eq!(b_gain, 2, "everyone gains two command tokens in the status phase");
+    assert_eq!(a_gain, 3, "Sol's Versatile adds one");
+}
+
+/// Sol (a) defends a planet with two Spec Ops; Hacan (b) lands six infantry from two carriers.
+/// `abilities` are the window answers Sol gives; anything else it declines. Runs to the end of the
+/// tactical action.
+fn sol_defends(commander: LeaderStatus, agent: LeaderStatus, abilities: &[&str]) -> Game<'static> {
+    let (mut state, hub, centre, planet) =
+        production_board(&[("a", "sol"), ("b", "hacan")], "spacedock");
+    state.system_mut(&centre).planet_units.clear();
+    put_on_planet(&mut state, &centre, &planet, "sol_infantry", &a(), 2);
+    set_leader(&mut state, &a(), "solcommander", commander);
+    set_leader(&mut state, &a(), "solagent", agent);
+    for system in state.board.keys().cloned().collect::<Vec<_>>() {
+        if system != centre {
+            state.system_mut(&system).units.clear();
+        }
+    }
+    let origin = SystemId::new(hub.outer[0].clone());
+    put(&mut state, &origin, "carrier", &b(), 2);
+    put(&mut state, &origin, "infantry", &b(), 6);
+    state.active = Some(b());
+    let mut prefixes = vec!["move|", "load|", "done_loading", "done_moving", "commit|", "done_committing", "fight"];
+    prefixes.extend_from_slice(abilities);
+    prefixes.push("decline");
+    let table = opening_then(&[TACTICAL_ACTION_ID, centre.as_str()], &prefixes);
+    let mut game = game_of(state, hub.galaxy, table);
+    drive(&mut game, 120, tactical_done);
+    game
+}
+
+#[test]
+fn solcommander_2_claire_gibson_adds_an_infantry_when_a_ground_combat_starts_on_a_sol_planet() {
+    let commander = "leader:sol:solcommander";
+    let dice = |status, abilities: &[&str]| {
+        let game = sol_defends(status, LeaderStatus::Exhausted, abilities);
+        first_roll_len(&game, "a", "ground combat")
+    };
+    assert_eq!(dice(LeaderStatus::Unlocked, &[commander]), 3, "unlocked: one more infantry rolls");
+    assert_eq!(dice(LeaderStatus::Unlocked, &[]), 2, "declined");
+    assert_eq!(dice(LeaderStatus::Locked, &[commander]), 2, "locked: nothing is offered");
+}
+
+#[test]
+fn solagent_1_the_chosen_ground_force_rolls_one_additional_die_in_a_ground_combat_round() {
+    let agent = "leader:sol:solagent";
+    let game = sol_defends(LeaderStatus::Locked, LeaderStatus::Readied, &[agent, "ground|", "pick", "force"]);
+    assert_eq!(first_roll_len(&game, "a", "ground combat"), 3, "two Spec Ops, one of them rolling twice");
+    assert_eq!(leader_status(&game.state, &a(), "solagent"), Some(LeaderStatus::Exhausted));
+    let declined = sol_defends(LeaderStatus::Locked, LeaderStatus::Readied, &[]);
+    assert_eq!(first_roll_len(&declined, "a", "ground combat"), 2);
+    assert_eq!(leader_status(&declined.state, &a(), "solagent"), Some(LeaderStatus::Readied));
+}
+
+#[test]
+fn solbt_1_bellum_gloriosum_a_produced_ship_brings_ground_forces_and_fighters_beyond_the_production_limit() {
+    // The dock has PRODUCTION 3. A carrier and two fighters use all of it; the infantry only fit
+    // because the breakthrough lets them ride on the carrier's capacity outside the limit. They are
+    // still paid for.
+    let run = |breakthrough: bool| {
+        let (mut state, hub, centre, _planet) =
+            production_board(&[("a", "sol"), ("b", "hacan")], "spacedock");
+        if breakthrough {
+            state.player_mut(&a()).unwrap().breakthrough =
+                Some(ti4_model::id::BreakthroughId::new("solbt"));
+        }
+        state.player_mut(&a()).unwrap().trade_goods = 20;
+        let table = Table::with_default(Box::new(Opening {
+            queue: [TACTICAL_ACTION_ID, centre.as_str(), "done_moving"].iter().map(|a| (*a).to_owned()).collect(),
+            then: Prefer(Vec::new()),
+            builds: None,
+            order: Some(BuildOrder(
+                ["build|sol_carrier|1", "build|fighter|2", "build|sol_infantry|2"].iter().map(|a| (*a).to_owned()).collect(),
+            )),
+        }));
+        let mut game = game_of(state, hub.galaxy, table);
+        drive(&mut game, 80, tactical_done);
+        let board = game.state.system_state(&centre);
+        let infantry = board
+            .units
+            .iter()
+            .chain(board.planet_units.values().flatten())
+            .filter(|u| u.owner == a() && u.type_id.as_str().contains("infantry"))
+            .count();
+        (infantry, 20 - game.state.player(&a()).unwrap().trade_goods)
+    };
+    assert_eq!(run(true), (2, 5), "carrier 3, two fighters 1, two infantry 1: all five paid for");
+    assert_eq!(run(false), (0, 4), "without it the PRODUCTION limit ends the build at the fighters");
 }
