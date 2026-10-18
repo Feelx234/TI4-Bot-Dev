@@ -36,8 +36,16 @@ fn sys(id: &str) -> SystemId {
 
 // -- shared drivers -------------------------------------------------------------------------------
 
-/// What a [`Pick`] saw: the option ids of every question, in order.
-pub(crate) type Seen = Rc<RefCell<Vec<Vec<String>>>>;
+/// One question a [`Pick`] was asked.
+#[derive(Clone, Debug)]
+pub(crate) struct Asked {
+    pub(crate) player: String,
+    pub(crate) prompt: String,
+    pub(crate) options: Vec<String>,
+}
+
+/// What a [`Pick`] saw: every question, in order.
+pub(crate) type Seen = Rc<RefCell<Vec<Asked>>>;
 
 /// A decider answering from `rules`: the next rule is used at the first question that offers an
 /// option with that id (a rule starting with `~` matches any id containing the rest). Questions
@@ -83,9 +91,11 @@ fn wanted<'a>(choice: &'a Choice, rule: &str) -> Option<&'a ChoiceOption> {
 
 impl Decider for Pick {
     fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
-        self.seen
-            .borrow_mut()
-            .push(choice.options.iter().map(|option| option.id.clone()).collect());
+        self.seen.borrow_mut().push(Asked {
+            player: choice.player.to_string(),
+            prompt: choice.prompt.clone(),
+            options: choice.options.iter().map(|option| option.id.clone()).collect(),
+        });
         if let Some(option) = self.rules.front().and_then(|rule| wanted(choice, rule)) {
             let option = option.clone();
             self.rules.pop_front();
@@ -106,7 +116,12 @@ impl Decider for Pick {
 
 /// Did any question offer an option with this id?
 pub(crate) fn was_offered(seen: &Seen, id: &str) -> bool {
-    seen.borrow().iter().flatten().any(|offered| offered == id)
+    seen.borrow().iter().flat_map(|asked| &asked.options).any(|offered| offered == id)
+}
+
+/// Did any question offer an option whose id contains `part`?
+pub(crate) fn was_offered_like(seen: &Seen, part: &str) -> bool {
+    seen.borrow().iter().flat_map(|asked| &asked.options).any(|offered| offered.contains(part))
 }
 
 /// A `Game` of `state` in the action phase with `active` to act, driven by `rules`.
@@ -198,8 +213,8 @@ pub(crate) fn padded(faces: &[u32]) -> Vec<u32> {
     faces.iter().copied().chain(std::iter::repeat_n(1, 800)).collect()
 }
 
-/// `faces`, then hits: whatever fight is still going afterwards ends quickly (an invasion window,
-/// unlike a space combat, has no round cap, so a miss-padded stalemate would drain the dice).
+/// `faces`, then hits: whatever fight is still going afterwards ends quickly (an invasion window
+/// has no round cap, so a miss-padded stalemate would drain the dice).
 pub(crate) fn padded_hits(faces: &[u32]) -> Vec<u32> {
     faces.iter().copied().chain(std::iter::repeat_n(10, 800)).collect()
 }
@@ -212,9 +227,21 @@ pub(crate) fn space_fight(
     faces: &[u32],
     table: &mut Table,
 ) -> (crate::combat::CombatOutcome, Dice) {
-    let mut dice = Dice::from_faces(padded(faces));
+    space_fight_in(DEFAULT, state, system, faces, table)
+}
+
+/// [`space_fight`] under another content scope.
+pub(crate) fn space_fight_in(
+    sources: ti4_model::content_types::SourceSet,
+    state: &mut GameState,
+    system: &SystemId,
+    faces: &[u32],
+    table: &mut Table,
+) -> (crate::combat::CombatOutcome, Dice) {
+    let mut dice = Dice::from_faces(padded_hits(faces));
     let mut rng = GameRng::new(11);
-    let outcome = crate::combat::resolve(state, content(), DEFAULT, table, &mut dice, &mut rng, system)
+    state.active_system = Some(system.clone());
+    let outcome = crate::combat::resolve(state, content(), sources, table, &mut dice, &mut rng, system)
         .expect("the combat resolves");
     (outcome, dice)
 }
@@ -235,12 +262,25 @@ pub(crate) fn invade(
     faces: &[u32],
     table: &mut Table,
 ) -> (crate::invasion::InvasionReport, Dice) {
+    invade_in(DEFAULT, state, system, invader, faces, table)
+}
+
+/// [`invade`] under another content scope.
+pub(crate) fn invade_in(
+    sources: ti4_model::content_types::SourceSet,
+    state: &mut GameState,
+    system: &SystemId,
+    invader: &PlayerId,
+    faces: &[u32],
+    table: &mut Table,
+) -> (crate::invasion::InvasionReport, Dice) {
     let mut dice = Dice::from_faces(padded_hits(faces));
     let mut rng = GameRng::new(11);
+    state.active_system = Some(system.clone());
     let report = crate::invasion::resolve(
         state,
         content(),
-        DEFAULT,
+        sources,
         table,
         &mut dice,
         &mut rng,
@@ -899,7 +939,7 @@ fn naalubt_1_mindsieve_follows_a_secondary_for_a_promissory_note_instead_of_a_to
                 break;
             }
         }
-        let offered = seen.borrow().iter().flatten().any(|id| id.contains("ms|"));
+        let offered = was_offered_like(&seen, "ms|");
         (offered, game.state.player(&a()).unwrap().commodities, notes - crate::promissory::held_by(&game.state, &a()).len())
     };
     let (offered, commodities, given) = run(true);
@@ -1387,12 +1427,478 @@ fn vax_2_and_vay_2_an_assimilated_technology_is_played_as_text_exhausting_the_va
         for _ in 0..3 {
             assert_eq!(game.step().error, None, "log: {:?}", game.events);
         }
-        assert!(seen.borrow().iter().flatten().any(|id| id.starts_with("faction|yssaril|mi|")), "{card}: offered");
+        assert!(was_offered_like(&seen, "faction|yssaril|mi|"), "{card}: offered");
         let seat = game.state.player(&a()).unwrap();
-        assert_eq!(seat.action_cards.len(), 1, "{card}: the Nekro took the Sol... Yssaril card");
+        assert_eq!(seat.action_cards.len(), 1, "{card}: the Nekro took the Yssaril player's card");
         assert!(
             seat.exhausted_technologies.contains(&ti4_model::id::TechnologyId::new(card)),
             "{card}: the Valefar card is the one exhausted"
         );
     }
+}
+
+// -- unit abilities -------------------------------------------------------------------------------
+
+/// What `kind` does in a real space combat against one Sol cruiser, every die a 10:
+/// `(hits_on, dice, kept after the cruiser's hit with damage)` -- the last is a unit that used
+/// SUSTAIN DAMAGE and is still standing.
+fn space_profile(faction: &str, kind: &str) -> (Option<u32>, usize, bool) {
+    let mut state = seated_all(&[("a", faction), ("b", "sol")]);
+    put(&mut state, &sys("19"), kind, &a(), 1);
+    put(&mut state, &sys("19"), "cruiser", &b(), 1);
+    let (_, dice) = space_fight(&mut state, &sys("19"), &[10; 8], &mut Table::new());
+    let (hits_on, count) = first_roll(&dice, "a").expect("the unit rolled");
+    let sustained = state
+        .system_state(&sys("19"))
+        .units
+        .iter()
+        .any(|unit| unit.owner == a() && unit.type_id.as_str() == kind && unit.sustained_damage);
+    (hits_on, count, sustained)
+}
+
+/// The first bombardment `kind` makes from space against a Sol infantry on a planet: `(hits_on, dice)`.
+fn bombard_profile(faction: &str, kind: &str) -> (Option<u32>, usize) {
+    let mut state = seated_all(&[("a", faction), ("b", "sol")]);
+    // Plasma Scoring (a starting technology of some of them) adds a die; not under test here.
+    state.player_mut(&a()).unwrap().technologies.remove(&ti4_model::id::TechnologyId::new("ps"));
+    let (system, planet) = one_planet();
+    state.system_mut(&system).set_control(planet.clone(), b());
+    put_on_planet(&mut state, &system, &planet, "infantry", &b(), 1);
+    put(&mut state, &system, kind, &a(), 1);
+    let (_, dice) = invade(&mut state, &system, &a(), &[10; 8], &mut Table::new());
+    dice.history()
+        .iter()
+        .find(|roll| roll.reason == "bombardment" && roll.by.as_deref() == Some("a"))
+        .map(|roll| (roll.hits_on, roll.faces.len()))
+        .expect("the unit bombarded")
+}
+
+#[test]
+fn unit_ghost_flagship_0_hil_colish_fights_with_one_die_on_5_and_sustains() {
+    assert_eq!(space_profile("ghost", "ghost_flagship"), (Some(5), 1, true));
+}
+
+#[test]
+fn unit_l1z1x_dreadnought_0_super_dreadnought_i_fights_and_bombards_on_5_and_sustains() {
+    assert_eq!(space_profile("l1z1x", "l1z1x_dreadnought"), (Some(5), 1, true));
+    assert_eq!(bombard_profile("l1z1x", "l1z1x_dreadnought"), (Some(5), 1));
+}
+
+#[test]
+fn unit_l1z1x_dreadnought2_0_super_dreadnought_ii_fights_and_bombards_on_4_and_sustains() {
+    assert_eq!(space_profile("l1z1x", "l1z1x_dreadnought2"), (Some(4), 1, true));
+    assert_eq!(bombard_profile("l1z1x", "l1z1x_dreadnought2"), (Some(4), 1));
+}
+
+#[test]
+fn unit_l1z1x_flagship_0_fights_with_two_dice_on_5_and_sustains() {
+    assert_eq!(space_profile("l1z1x", "l1z1x_flagship"), (Some(5), 2, true));
+}
+
+#[test]
+fn unit_mentak_flagship_0_fourth_moon_fights_with_two_dice_on_7_and_sustains() {
+    assert_eq!(space_profile("mentak", "mentak_flagship"), (Some(7), 2, true));
+}
+
+#[test]
+fn unit_mentak_cruiser3_0_corsair_fights_on_6_and_cannot_sustain() {
+    let (hits_on, dice, sustained) = space_profile("mentak", "mentak_cruiser3");
+    assert_eq!((hits_on, dice, sustained), (Some(6), 1, false));
+}
+
+#[test]
+fn unit_naalu_fighter_0_hybrid_crystal_fighter_i_hits_on_8() {
+    let (hits_on, dice, _) = space_profile("naalu", "naalu_fighter");
+    assert_eq!((hits_on, dice), (Some(8), 1), "a plain fighter hits on 9");
+}
+
+#[test]
+fn unit_naalu_fighter2_0_hybrid_crystal_fighter_ii_hits_on_7() {
+    let (hits_on, dice, _) = space_profile("naalu", "naalu_fighter2");
+    assert_eq!((hits_on, dice), (Some(7), 1));
+}
+
+#[test]
+fn unit_naalu_flagship_0_matriarch_fights_with_two_dice_on_9_and_sustains() {
+    assert_eq!(space_profile("naalu", "naalu_flagship"), (Some(9), 2, true));
+}
+
+#[test]
+fn unit_nekro_flagship_0_the_alastor_fights_with_two_dice_on_9_and_sustains() {
+    assert_eq!(space_profile("nekro", "nekro_flagship"), (Some(9), 2, true));
+}
+
+#[test]
+fn unit_sardakk_dreadnought_0_exotrireme_i_fights_on_5_bombards_two_dice_on_4_with_unrelenting() {
+    // The printed values are 5 (combat) and 4 (bombardment); the N'orr's Unrelenting makes the
+    // combat roll count one better.
+    assert_eq!(space_profile("sardakk", "sardakk_dreadnought"), (Some(4), 1, true));
+    let (_, dice) = bombard_profile("sardakk", "sardakk_dreadnought");
+    assert_eq!(dice, 2, "two bombardment dice");
+}
+
+#[test]
+fn unit_sardakk_dreadnought2_0_exotrireme_ii_fights_on_5_bombards_two_dice_on_4_with_unrelenting() {
+    assert_eq!(space_profile("sardakk", "sardakk_dreadnought2"), (Some(4), 1, true));
+    let (_, dice) = bombard_profile("sardakk", "sardakk_dreadnought2");
+    assert_eq!(dice, 2, "two bombardment dice");
+}
+
+#[test]
+fn unit_sardakk_flagship_0_c_morran_fights_with_two_dice_and_sustains() {
+    // Printed 6; Unrelenting makes it 5.
+    assert_eq!(space_profile("sardakk", "sardakk_flagship"), (Some(5), 2, true));
+}
+
+/// Sol (`b`, holding Direct Hit) attacks one `kind` of `faction` in system 19 with six cruisers.
+/// The dreadnought uses SUSTAIN DAMAGE on the first hit it takes (dice are the game's own; six
+/// cruisers make a hit in the first rounds all but certain, and a later round offers it again).
+/// Returns whether Direct Hit was offered and whether the dreadnought was destroyed by the card.
+fn direct_hit_on(faction: &str, kind: &str) -> (bool, bool) {
+    let mut state = seated_all(&[("a", faction), ("b", "sol")]);
+    put(&mut state, &sys("19"), kind, &a(), 1);
+    put(&mut state, &sys("19"), "cruiser", &b(), 6);
+    state.player_mut(&b()).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("dh1")];
+    let card = "~:SUSTAIN_DAMAGE_USED:after";
+    let (mut game, seen) = action_game(state, "b", Some(ghost_galaxy()), &[TACTICAL_ACTION_ID, "19", "done_moving", "sustain|0", card]);
+    for _ in 0..30 {
+        assert_eq!(game.step().error, None, "log: {:?}", game.events);
+        if game.events.iter().any(|event| event == "SPACE_COMBAT_RESOLVED") {
+            break;
+        }
+    }
+    assert!(seen.borrow().iter().any(|asked| asked.options.iter().any(|id| id == "sustain|0")), "the unit sustained");
+    let by_card = game
+        .timing
+        .applied_events()
+        .iter()
+        .any(|event| event.event_type == "SHIP_DESTROYED" && event.text("cause") == Some("action_card:direct_hit"));
+    (was_offered_like(&seen, "SUSTAIN_DAMAGE_USED:after"), by_card)
+}
+
+#[test]
+fn unit_l1z1x_dreadnought2_1_direct_hit_cannot_destroy_a_super_dreadnought_ii() {
+    assert_eq!(direct_hit_on("l1z1x", "l1z1x_dreadnought"), (true, true), "Super-Dreadnought I can be hit");
+    let (offered, destroyed) = direct_hit_on("l1z1x", "l1z1x_dreadnought2");
+    assert!(!destroyed, "Super-Dreadnought II cannot be destroyed by Direct Hit (offered: {offered})");
+}
+
+#[test]
+fn unit_sardakk_dreadnought2_1_direct_hit_cannot_destroy_an_exotrireme_ii() {
+    assert_eq!(direct_hit_on("sardakk", "sardakk_dreadnought"), (true, true), "Exotrireme I can be hit");
+    let (offered, destroyed) = direct_hit_on("sardakk", "sardakk_dreadnought2");
+    assert!(!destroyed, "Exotrireme II cannot be destroyed by Direct Hit (offered: {offered})");
+}
+
+/// Records every question (with payloads) and answers with the first option.
+struct Probe(Rc<RefCell<Vec<Choice>>>);
+
+impl Decider for Probe {
+    fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+        self.0.borrow_mut().push(choice.clone());
+        choice.options.first().cloned().ok_or_else(|| IllegalChoice::NoOptions {
+            player: choice.player.clone(),
+            prompt: choice.prompt.clone(),
+        })
+    }
+}
+
+/// The unit types offered in the questions `player` was asked, one list per question.
+fn offered_units(asked: &Rc<RefCell<Vec<Choice>>>, player: &str, prompt: &str) -> Vec<Vec<String>> {
+    asked
+        .borrow()
+        .iter()
+        .filter(|choice| choice.player.as_str() == player && choice.prompt.contains(prompt))
+        .map(|choice| {
+            choice
+                .options
+                .iter()
+                .filter_map(|option| option.payload.get("unit").and_then(|unit| unit.as_str()).map(str::to_owned))
+                .collect()
+        })
+        .collect()
+}
+
+#[test]
+fn unit_l1z1x_flagship_1_zero_zero_one_forces_the_fleets_hits_onto_non_fighters() {
+    // a: dreadnought (5, one die) and, in the first case, the flagship (5, two dice); every
+    // die of the first round is a 5, which hits a 5 and misses Sol's 7 and 9.
+    let hits_offered_to_sol = |flagship: bool| {
+        let mut state = seated_all(&[("a", "l1z1x"), ("b", "sol")]);
+        if flagship {
+            put(&mut state, &sys("19"), "l1z1x_flagship", &a(), 1);
+        }
+        put(&mut state, &sys("19"), "l1z1x_dreadnought", &a(), 1);
+        put(&mut state, &sys("19"), "cruiser", &b(), 1);
+        put(&mut state, &sys("19"), "fighter", &b(), 3);
+        let asked = Rc::new(RefCell::new(Vec::new()));
+        let mut table = Table::with_default(Box::new(Probe(asked.clone())));
+        let _ = space_fight(&mut state, &sys("19"), &[5, 5, 5, 1, 1, 1, 1], &mut table);
+        offered_units(&asked, "b", "assign a hit")
+    };
+    let without = hits_offered_to_sol(false);
+    assert!(without[0].contains(&"cruiser".to_owned()), "free choice: the fighters or the cruiser: {without:?}");
+    let with = hits_offered_to_sol(true);
+    assert!(
+        with.iter().all(|units| !units.contains(&"cruiser".to_owned())),
+        "the cruiser's hit was forced (no question about it), later hits fall on fighters: {with:?}"
+    );
+    assert!(!with.is_empty());
+}
+
+#[test]
+fn unit_l1z1x_mech_1_anihilator_bombards_the_other_planets_of_its_system_but_not_its_own() {
+    for (mech_on_target, kills) in [(false, 1), (true, 0)] {
+        let mut state = l1z1x_game();
+        state.player_mut(&a()).unwrap().technologies.remove(&ti4_model::id::TechnologyId::new("ps"));
+        let (system, first, second) = two_planet_system();
+        state.system_mut(&system).set_control(first.clone(), b());
+        put_on_planet(&mut state, &system, &first, "infantry", &b(), 1);
+        let mech_planet = if mech_on_target { &first } else { &second };
+        put_on_planet(&mut state, &system, mech_planet, "l1z1x_mech", &a(), 1);
+        let (report, dice) = invade(&mut state, &system, &a(), &[10; 4], &mut Table::new());
+        assert_eq!(report.bombardment_kills, kills, "mech on the bombarded planet: {mech_on_target}");
+        let bombard = dice.history().iter().find(|roll| roll.reason == "bombardment");
+        assert_eq!(bombard.map(|roll| roll.hits_on), kills.eq(&1).then_some(Some(8)), "the mech bombards on 8");
+    }
+}
+
+#[test]
+fn unit_mentak_flagship_1_fourth_moon_stops_other_players_ships_using_sustain_damage() {
+    // One hit each in round one. Sol's dreadnought can only absorb it by sustaining, which the
+    // Fourth Moon forbids; with a Sol flagship in its place it sustains and fights on.
+    let survivors = |faction: &str, flagship: &str| {
+        let mut state = seated_all(&[("a", faction), ("b", "sol")]);
+        put(&mut state, &sys("19"), flagship, &a(), 1);
+        put(&mut state, &sys("19"), "dreadnought", &b(), 1);
+        let (_, dice) = space_fight(&mut state, &sys("19"), &[10, 1, 10], &mut Table::new());
+        let _ = dice;
+        (ships(&state, &sys("19"), &a(), flagship), ships(&state, &sys("19"), &b(), "dreadnought"))
+    };
+    assert_eq!(survivors("mentak", "mentak_flagship"), (1, 0), "the dreadnought could not sustain and died in round one");
+    assert_eq!(survivors("sol", "sol_flagship"), (0, 0), "an ordinary flagship: it sustained, so both fought another round");
+}
+
+#[test]
+fn unit_mentak_mech_1_moll_terminus_stops_other_players_ground_forces_on_its_planet_sustaining() {
+    // b invades; each side's mech scores one hit in round one. Sol's mech sustains the hit unless
+    // the defender is Mentak's Moll Terminus.
+    let survivors = |faction: &str, mech: &str| {
+        let mut state = seated_all(&[("a", faction), ("b", "sol")]);
+        let (system, planet) = one_planet();
+        state.system_mut(&system).set_control(planet.clone(), a());
+        put_on_planet(&mut state, &system, &planet, mech, &a(), 1);
+        put(&mut state, &system, "sol_mech", &b(), 1);
+        let _ = invade(&mut state, &system, &b(), &[10, 10], &mut Table::new());
+        on_planet(&state, &system, &planet, &a(), mech)
+    };
+    assert_eq!(survivors("mentak", "mentak_mech"), 1, "the invader's mech could not sustain");
+    assert_eq!(survivors("sol", "sol_mech"), 0, "both mechs sustained and finished each other in round two");
+}
+
+#[test]
+fn unit_mentak_cruiser3_1_the_corsair_moves_through_other_players_ships_only_towards_non_fighter_ships() {
+    let hub = crate::fixtures::plain_hub();
+    let (origin, centre, target) = (hub.outer[0].clone(), hub.centre.clone(), hub.across(&hub.outer[0]));
+    // (the moving ship, what Sol has in the target) -> is the move through the blocked centre offered?
+    for (ship, defender, offered) in [
+        ("mentak_cruiser3", "cruiser", true),
+        ("mentak_cruiser3", "fighter", false),
+        ("cruiser", "cruiser", false),
+    ] {
+        let mut state = mentak_game();
+        state.board.clear();
+        put(&mut state, &sys(&origin), ship, &a(), 1);
+        // Every route out of the origin (the centre and both ring neighbours) holds a Sol ship.
+        put(&mut state, &sys(&centre), "cruiser", &b(), 1);
+        for next in hub.galaxy.adjacent(&origin) {
+            if next != centre {
+                put(&mut state, &sys(next), "cruiser", &b(), 1);
+            }
+        }
+        put(&mut state, &sys(&target), defender, &b(), 1);
+        let (_, seen) = tactical_move(state, "a", hub.galaxy.clone(), &origin, &target, &[]);
+        assert_eq!(was_offered(&seen, &format!("move|{origin}|0")), offered, "{ship} against a {defender}");
+    }
+}
+
+#[test]
+fn unit_naalu_fighter2_1_hybrid_crystal_fighter_ii_moves_without_being_transported() {
+    let hub = crate::fixtures::plain_hub();
+    let (origin, target) = (hub.outer[0].clone(), hub.centre.clone());
+    for (fighter, offered) in [("naalu_fighter2", true), ("naalu_fighter", false)] {
+        let mut state = naalu_game();
+        state.board.clear();
+        put(&mut state, &sys(&origin), fighter, &a(), 1);
+        let (game, seen) = tactical_move(state, "a", hub.galaxy.clone(), &origin, &target, &[]);
+        assert_eq!(was_offered(&seen, &format!("move|{origin}|0")), offered, "{fighter}");
+        assert_eq!(ships(&game.state, &sys(&target), &a(), fighter), usize::from(offered), "{fighter}");
+    }
+}
+
+#[test]
+fn unit_naalu_fighter2_2_excess_fighters_count_half_a_ship_against_the_fleet_pool() {
+    // A destroyer (no capacity) and four fighter IIs: two ships' worth of fighters for Naalu, four
+    // for anyone else. With three command tokens in the fleet pool only the second is over the
+    // limit, and the turn's fleet-supply enforcement asks it to remove the (non-fighter) destroyer.
+    for (faction, fighter, over) in [("naalu", "naalu_fighter2", false), ("sol", "fighter2", true)] {
+        let mut state = seated_all(&[("a", faction), ("b", "hacan")]);
+        state.board.clear();
+        state.player_mut(&a()).unwrap().fleet_tokens = 3;
+        put(&mut state, &sys("19"), "destroyer", &a(), 1);
+        put(&mut state, &sys("19"), fighter, &a(), 4);
+        let (mut game, seen) = action_game(state, "a", Some(ghost_galaxy()), &[TACTICAL_ACTION_ID, "19", "done_moving"]);
+        for _ in 0..6 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+        }
+        let removal_asked = seen.borrow().iter().any(|asked| asked.prompt.contains("over fleet supply"));
+        assert_eq!(removal_asked, over, "{faction}");
+    }
+}
+
+#[test]
+fn unit_nekro_mech_1_mordred_rolls_two_better_against_an_opponent_with_an_x_or_y_token() {
+    // The Nekro invades a Sol-held planet; its mech lands from the space area. Sol owns Mageon
+    // Implants, which carries an X token in one case.
+    let mech_roll = |token: bool| {
+        let mut state = nekro_game();
+        super::give(&mut state, "b", "mi");
+        if token {
+            state.player_mut(&a()).unwrap().assimilated_technologies.insert("vax".to_owned(), ti4_model::id::TechnologyId::new("mi"));
+        }
+        let (system, planet) = one_planet();
+        state.system_mut(&system).set_control(planet.clone(), b());
+        put_on_planet(&mut state, &system, &planet, "infantry", &b(), 1);
+        put(&mut state, &system, "nekro_mech", &a(), 1);
+        let (_, dice) = invade(&mut state, &system, &a(), &[10, 10], &mut Table::new());
+        first_roll(&dice, "a")
+    };
+    assert_eq!(mech_roll(false), Some((Some(6), 1)), "no token: the printed 6");
+    assert_eq!(mech_roll(true), Some((Some(4), 1)), "+2 to the roll against an X token");
+}
+
+#[test]
+fn unit_sardakk_flagship_1_c_morran_adds_one_to_every_other_ship_in_its_system() {
+    // a's cruiser hits on 7; Unrelenting makes that 6, and the flagship (printed 6, Unrelenting
+    // 5) makes the cruiser 5, so the cruiser's die joins the flagship's two on 5.
+    let rolls = |flagship: bool| {
+        let mut state = sardakk_game();
+        put(&mut state, &sys("19"), "cruiser", &a(), 1);
+        if flagship {
+            put(&mut state, &sys("19"), "sardakk_flagship", &a(), 1);
+        }
+        put(&mut state, &sys("19"), "cruiser", &b(), 1);
+        let (_, dice) = space_fight(&mut state, &sys("19"), &[10, 10, 10], &mut Table::new());
+        let mut found: Vec<(Option<u32>, usize)> = dice
+            .history()
+            .iter()
+            .filter(|roll| roll.by.as_deref() == Some("a") && roll.reason == "space combat")
+            .take(1)
+            .map(|roll| (roll.hits_on, roll.faces.len()))
+            .collect();
+        found.sort();
+        found
+    };
+    assert_eq!(rolls(false), [(Some(6), 1)], "Unrelenting only");
+    assert_eq!(rolls(true), [(Some(5), 3)], "the cruiser one better again, rolling with the flagship's two dice on 5");
+}
+
+/// Hacan `b` invades the planet of `a` (a `mech` standing on it) with two infantry in a running game,
+/// on a seed whose first ground-combat dice are the wanted ones: both invaders score and the mech
+/// misses. Returns the invaders left once the tactical action is over. (The game rolls its own dice;
+/// the seed is searched for, so the test does not depend on which seed that is.)
+fn invaders_left_after_two_hits(faction: &str, mech: &str) -> usize {
+    for seed in 0..400u64 {
+        let (x, planet) = crate::fixtures::a_placed_planet();
+        let mut state = seated_all(&[("a", faction), ("b", "hacan")]);
+        state.rng_seed = seed;
+        state.system_mut(&x).units.clear();
+        state.system_mut(&x).planet_units.clear();
+        state.system_mut(&x).set_control(planet.clone(), a());
+        put_on_planet(&mut state, &x, &planet, mech, &a(), 1);
+        put(&mut state, &x, "carrier", &b(), 1);
+        put(&mut state, &x, "infantry", &b(), 2);
+        let (mut game, _) = action_game(
+            state,
+            "b",
+            Some(hub_around(&x).galaxy),
+            &[TACTICAL_ACTION_ID, x.as_str(), "done_moving", "~commit|", "~commit|", "~sustain"],
+        );
+        for _ in 0..20 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+            if game.rolls().iter().filter(|roll| roll.reason == "ground combat").count() >= 2 {
+                break;
+            }
+        }
+        let first = |who: &str| {
+            game.rolls().iter().find(|roll| roll.reason == "ground combat" && roll.by.as_deref() == Some(who)).cloned()
+        };
+        let (Some(invader), Some(defender)) = (first("b"), first("a")) else {
+            continue;
+        };
+        let invader_hits = invader.faces.iter().filter(|face| **face >= 8).count();
+        // The defender misses at 5 (Unrelenting's mech) and at 6 (an ordinary mech) when it rolls 1-4.
+        if invader.faces.len() != 2 || invader_hits != 2 || defender.faces.iter().any(|face| *face > 4) {
+            continue;
+        }
+        for _ in 0..30 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+            if game.events.iter().any(|event| event == "INVASION_RESOLVED") {
+                break;
+            }
+        }
+        return on_planet(&game.state, &x, &planet, &b(), "infantry");
+    }
+    panic!("no seed gave the wanted first ground-combat round");
+}
+
+#[test]
+fn unit_sardakk_mech_1_valkyrie_exoskeleton_produces_a_hit_after_it_sustains_in_ground_combat() {
+    // Two hits land on the mech: it sustains the first, which produces one hit on the invaders,
+    // and is destroyed by the second. An ordinary mech's sustain produces nothing.
+    assert_eq!(invaders_left_after_two_hits("sardakk", "sardakk_mech"), 1, "the sustain produced a hit");
+    assert_eq!(invaders_left_after_two_hits("sol", "sol_mech"), 2, "an ordinary mech: no hit");
+}
+
+// -- scopes where an older printing is dealt ------------------------------------------------------
+
+fn pok_only() -> ti4_model::content_types::SourceSet {
+    ti4_model::content_types::Source::Base | ti4_model::content_types::Source::Pok
+}
+
+#[test]
+#[ignore = "MISSING/BUG: naalu_mech (Iconoclast, PoK printing) +2 to its rolls against an opponent with a relic fragment is not implemented"]
+fn unit_naalu_mech_1_iconoclast_rolls_two_better_against_an_opponent_with_a_relic_fragment() {
+    let mech_roll = |fragments: i32| {
+        let mut state = crate::fixtures::seated_game(&[("a", "naalu"), ("b", "sol")], pok_only());
+        if fragments > 0 {
+            state.player_mut(&b()).unwrap().relic_fragments.insert("CULTURAL".to_owned(), fragments);
+        }
+        let (system, planet) = one_planet();
+        state.system_mut(&system).set_control(planet.clone(), b());
+        put_on_planet(&mut state, &system, &planet, "infantry", &b(), 1);
+        put(&mut state, &system, "naalu_mech", &a(), 1);
+        let (_, dice) = invade_in(pok_only(), &mut state, &system, &a(), &[10, 10], &mut Table::new());
+        first_roll(&dice, "a")
+    };
+    assert_eq!(mech_roll(0), Some((Some(6), 1)));
+    assert_eq!(mech_roll(1), Some((Some(4), 1)), "+2 against an opponent with a relic fragment");
+}
+
+#[test]
+#[ignore = "MISSING/BUG: naalu_mech_omega (Iconoclast Omega) 'other players cannot use ANTI-FIGHTER BARRAGE against your units in this system' is not implemented"]
+fn unit_naalu_mech_omega_1_other_players_cannot_barrage_the_naalus_units_in_its_system() {
+    let barrage_rolls = |mech: bool| {
+        let mut state = crate::fixtures::seated_game(&[("a", "naalu"), ("b", "sol")], ti4_model::content_types::POK);
+        let (system, planet) = one_planet();
+        if mech {
+            put_on_planet(&mut state, &system, &planet, "naalu_mech_omega", &a(), 1);
+        }
+        put(&mut state, &system, "naalu_fighter", &a(), 2);
+        put(&mut state, &system, "destroyer", &b(), 1);
+        let (_, dice) = space_fight_in(ti4_model::content_types::POK, &mut state, &system, &[10; 6], &mut Table::new());
+        dice.history().iter().filter(|roll| roll.reason == "anti_fighter_barrage" && roll.by.as_deref() == Some("b")).count()
+    };
+    assert_eq!(barrage_rolls(false), 1, "without the mech Sol's destroyer barrages");
+    assert_eq!(barrage_rolls(true), 0, "with the Omega mech in the system it may not");
 }
