@@ -40,6 +40,12 @@ pub fn pick_with(
         "vote_spend_trade_goods" if tuning::vote_rule() => {
             choice.options.iter().position(ChoiceOption::is_decline)
         }
+        // Predictive Intelligence: three more votes cost only the card's ready state, and only if
+        // the outcome loses; the bot always takes them.
+        "vote_predictive_intelligence" if tuning::vote_rule() => choice
+            .options
+            .iter()
+            .position(|option| !option.is_decline()),
         "politics_choose_speaker" if tuning::vote_rule() => {
             own_seat_option(choice, me).or_else(|| weakest_seat_option(choice, seen))
         }

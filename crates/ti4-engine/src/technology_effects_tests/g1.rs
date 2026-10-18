@@ -1321,7 +1321,6 @@ fn pi_1_redistribute_command_tokens_at_the_end_of_the_turn() {
 }
 
 #[test]
-#[ignore = "MISSING: pi effect 2 (3 additional votes, exhausting if the outcome loses): no 'pi' check in vote.rs"]
 fn pi_2_three_additional_votes() {
     // Seat a controls a 1-influence planet; seat b a 3-influence planet. Without the card b wins
     // 3-1 (or a's 1 vote is outweighed); with Predictive Intelligence a casts 1 + 3 = 4.
@@ -1348,14 +1347,28 @@ fn pi_2_three_additional_votes() {
         .find(|p| p.2 == 3)
         .expect("a 3-influence planet")
         .clone();
-    let winner = |owner: bool| {
+    let second = planets
+        .iter()
+        .find(|p| p.2 == 2 && p.1 != high.1 && p.1 != low.1)
+        .expect("a 2-influence planet")
+        .clone();
+    // Returns the winner, whether the card was exhausted at the end, and whether the question
+    // was asked. `a` takes the extra votes when `take` is set.
+    let vote = |owner: bool, version: u32, take: bool, rich_b: bool| {
+        let a_backs = "for";
         let mut state = game(&["a", "b"]);
+        state.rules_version = version;
         state
             .system_mut(&low.0)
             .set_control(low.1.clone(), pid("a"));
         state
             .system_mut(&high.0)
             .set_control(high.1.clone(), pid("b"));
+        if rich_b {
+            state
+                .system_mut(&second.0)
+                .set_control(second.1.clone(), pid("b"));
+        }
         if owner {
             give(&mut state, "a", "pi");
         }
@@ -1365,30 +1378,72 @@ fn pi_2_three_additional_votes() {
             vec!["for".to_owned(), "against".to_owned()],
         );
         window.open(&state, content(), POK);
+        let mut asked = false;
         for _ in 0..20 {
             let Some(choice) = window.pending_choice(&state, content(), POK) else {
                 break;
             };
-            // a votes "for", b votes "against"; both spend whatever planets they have.
             let who = choice.player.clone();
-            let want = if who == pid("a") { "for" } else { "against" };
-            let pick = choice
-                .options
-                .iter()
-                .find(|o| o.id == want || o.id.contains("pi"))
-                .or_else(|| choice.options.iter().find(|o| !o.is_decline()))
-                .unwrap()
-                .clone();
+            let pick = if choice.options.iter().any(|o| o.kind == crate::vote::PREDICTIVE_KIND) {
+                asked = true;
+                choice
+                    .options
+                    .iter()
+                    .find(|o| o.is_decline() != take)
+                    .unwrap()
+                    .clone()
+            } else {
+                let want = if who == pid("a") { a_backs } else { "against" };
+                choice
+                    .options
+                    .iter()
+                    .find(|o| o.id == want)
+                    .or_else(|| choice.options.iter().find(|o| !o.is_decline()))
+                    .unwrap()
+                    .clone()
+            };
             window.resolve(&mut state, content(), POK, pick).unwrap();
         }
-        window.winner().map(ToOwned::to_owned)
+        let exhausted = state
+            .player(&pid("a"))
+            .unwrap()
+            .exhausted_technologies
+            .contains(&TechnologyId::new("pi"));
+        (window.winner().map(ToOwned::to_owned), exhausted, asked)
     };
+    let now = ti4_model::state::RULES_TECH_EFFECTS;
     assert_eq!(
-        winner(false).as_deref(),
-        Some("against"),
-        "control: 3 beats 1"
+        vote(false, now, true, false),
+        (Some("against".to_owned()), false, false),
+        "control: 3 beats 1, no card, no question"
     );
-    assert_eq!(winner(true).as_deref(), Some("for"), "1 + 3 beats 3");
+    assert_eq!(
+        vote(true, now, true, false),
+        (Some("for".to_owned()), false, true),
+        "1 + 3 beats 3; the outcome won, the card stays ready"
+    );
+    assert_eq!(
+        vote(true, now, false, false),
+        (Some("against".to_owned()), false, true),
+        "declined: just 1 vote, nothing exhausted"
+    );
+    assert_eq!(
+        vote(true, now - 1, true, false),
+        (Some("against".to_owned()), false, false),
+        "legacy: no question before the rules version"
+    );
+    // b has 3 + 2 = 5 votes: a's 1 + 3 = 4 still loses, so the outcome a backed is not resolved
+    // and the card exhausts. Without taking the extra votes the card stays ready.
+    assert_eq!(
+        vote(true, now, true, true),
+        (Some("against".to_owned()), true, true),
+        "the backed outcome lost: Predictive Intelligence exhausts"
+    );
+    assert_eq!(
+        vote(true, now, false, true),
+        (Some("against".to_owned()), false, true),
+        "declined the extra votes: nothing to exhaust"
+    );
 }
 
 // ---- Unit upgrades --------------------------------------------------------------------------
