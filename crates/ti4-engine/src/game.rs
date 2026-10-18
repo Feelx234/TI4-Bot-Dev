@@ -1953,6 +1953,13 @@ impl<'a> Game<'a> {
         &self.dice
     }
 
+    /// Test-only (faction_effects_tests d5): replace the dice with a roller that deals `faces`
+    /// first, so a whole game flow can be driven with known rolls.
+    #[cfg(test)]
+    pub(crate) fn load_dice(&mut self, dice: Dice) {
+        self.dice = dice;
+    }
+
     /// Every die this game has rolled, in order. Read-only: a viewer shows them, nothing may
     /// change them. Rolls made on a scratch roller inside a helper that owns its own `Dice` are
     /// not here.
