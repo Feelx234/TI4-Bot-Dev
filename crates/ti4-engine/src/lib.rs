@@ -61,6 +61,8 @@ pub mod neutral_units;
 pub mod objectives;
 #[cfg(test)]
 mod objectives_monument_tests;
+#[cfg(test)]
+mod technology_effects_tests;
 pub mod observation;
 pub mod opening;
 pub mod payment;
