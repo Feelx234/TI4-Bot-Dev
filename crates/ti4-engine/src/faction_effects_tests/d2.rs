@@ -46,6 +46,8 @@ pub(crate) type Seen = Rc<RefCell<Vec<Vec<String>>>>;
 pub(crate) struct Pick {
     rules: VecDeque<String>,
     seen: Seen,
+    /// Unmatched questions take the first option that is not a decline, not the decline.
+    eager: bool,
 }
 
 impl Pick {
@@ -55,9 +57,20 @@ impl Pick {
             Self {
                 rules: rules.iter().map(|rule| (*rule).to_owned()).collect(),
                 seen: seen.clone(),
+                eager: false,
             },
             seen,
         )
+    }
+}
+
+impl Pick {
+    /// Like [`Pick::new`], but a question no rule wants takes its first option that is not a
+    /// decline (forced assignments, payments, ...).
+    pub(crate) fn eager(rules: &[&str]) -> (Self, Seen) {
+        let (mut pick, seen) = Self::new(rules);
+        pick.eager = true;
+        (pick, seen)
     }
 }
 
@@ -78,10 +91,9 @@ impl Decider for Pick {
             self.rules.pop_front();
             return Ok(option);
         }
-        choice
-            .options
-            .iter()
-            .find(|option| option.is_decline())
+        let eager = self.eager.then(|| choice.options.iter().find(|option| !option.is_decline())).flatten();
+        eager
+            .or_else(|| choice.options.iter().find(|option| option.is_decline()))
             .or_else(|| choice.options.iter().find(|option| option.id == "pass"))
             .or_else(|| choice.options.first())
             .cloned()
@@ -99,20 +111,35 @@ pub(crate) fn was_offered(seen: &Seen, id: &str) -> bool {
 
 /// A `Game` of `state` in the action phase with `active` to act, driven by `rules`.
 pub(crate) fn action_game(
-    mut state: GameState,
+    state: GameState,
     active: &str,
     galaxy: Option<Galaxy>,
     rules: &[&str],
 ) -> (Game<'static>, Seen) {
+    let (pick, seen) = Pick::new(rules);
+    (game_with(state, active, galaxy, pick), seen)
+}
+
+/// [`action_game`] whose unmatched questions take the first non-decline option.
+pub(crate) fn eager_game(
+    state: GameState,
+    active: &str,
+    galaxy: Option<Galaxy>,
+    rules: &[&str],
+) -> (Game<'static>, Seen) {
+    let (pick, seen) = Pick::eager(rules);
+    (game_with(state, active, galaxy, pick), seen)
+}
+
+fn game_with(mut state: GameState, active: &str, galaxy: Option<Galaxy>, pick: Pick) -> Game<'static> {
     state.phase = Phase::Action;
     state.active = Some(PlayerId::new(active));
-    let (pick, seen) = Pick::new(rules);
     let table = Table::with_default(Box::new(pick));
     let mut game = Game::with_table(state, content(), table).with_sources(DEFAULT);
     if let Some(galaxy) = galaxy {
         game = game.with_galaxy(galaxy);
     }
-    (game, seen)
+    game
 }
 
 /// Step until the game logs `event` (at most `max` steps); every step must be legal.
@@ -738,4 +765,361 @@ fn ce_1_and_2_the_holder_gains_one_more_status_token_and_the_note_goes_home() {
     );
     assert_eq!(tokens_held(&held.state, &a()), tokens_held(&plain.state, &a()), "the L1Z1X player gains no extra");
     assert_eq!(held.state.promissory_notes.get(&note), Some(&a()), "returned to the L1Z1X player");
+}
+
+// -- Mentak ---------------------------------------------------------------------------------------
+
+fn mentak_game() -> GameState {
+    seated_all(&[("a", "mentak"), ("b", "sol")])
+}
+
+#[test]
+fn mc_1_each_trade_good_pays_two_when_building_a_ship() {
+    // Every planet is exhausted, so only trade goods pay; a dreadnought costs 4.
+    for (tech, builds) in [(true, true), (false, false)] {
+        let mut state = mentak_game();
+        if tech {
+            super::give(&mut state, "a", "mc");
+        }
+        let home = state.player(&a()).unwrap().home_system.clone().unwrap();
+        for (_, planet) in state.controlled_planets(&a()).into_iter().map(|(s, p)| (s.clone(), p.clone())).collect::<Vec<_>>() {
+            state.exhausted_planets.insert(planet);
+        }
+        state.player_mut(&a()).unwrap().trade_goods = 2;
+        let (mut game, seen) = action_game(
+            state,
+            "a",
+            Some(ghost_galaxy()),
+            &[TACTICAL_ACTION_ID, home.as_str(), "done_moving", "build|dreadnought|1", "done_producing"],
+        );
+        for _ in 0..8 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+        }
+        assert_eq!(was_offered(&seen, "build|dreadnought|1"), builds, "tech: {tech}");
+        assert_eq!(ships(&game.state, &home, &a(), "dreadnought"), usize::from(builds), "tech: {tech}");
+        if builds {
+            assert_eq!(game.state.player(&a()).unwrap().trade_goods, 0, "both goods were spent");
+        }
+    }
+}
+
+#[test]
+fn ambush_1_two_cruisers_or_destroyers_roll_at_the_start_and_each_hit_is_assigned_by_the_opponent() {
+    let fight = |faction: &str, faces: &[u32], choice: &str| {
+        let mut state = seated_all(&[("a", faction), ("b", "sol")]);
+        put(&mut state, &sys("19"), "cruiser", &a(), 1);
+        put(&mut state, &sys("19"), "destroyer", &a(), 2);
+        put(&mut state, &sys("19"), "carrier", &b(), 1);
+        let (_, dice) = space_fight(&mut state, &sys("19"), faces, &mut quiet_table(&[choice]));
+        (first_roll(&dice, "b").is_some(), ships(&state, &sys("19"), &b(), "carrier"))
+    };
+    // Cruiser hits on 7, destroyer on 9: a 7 and an 8 give one hit, which kills the lone carrier
+    // before the first round, so the Sol player never rolls.
+    assert_eq!(fight("mentak", &[7, 8], "cruiser+destroyer"), (false, 0));
+    // A 6 misses a 7: no hit, an ordinary first round (the carrier rolls and survives or not by dice).
+    assert!(fight("mentak", &[6, 1, 1, 1, 1], "cruiser").0);
+    // Another faction has no Ambush: its first round is rolled normally.
+    assert!(fight("sol", &[7, 8], "cruiser+destroyer").0);
+}
+
+#[test]
+fn pop_1_the_holder_places_promise_of_protection_with_an_action_and_mentak_cannot_pillage_them() {
+    let note = crate::promissory::note_id("pop", "mentak");
+    let mut state = mentak_game();
+    state.rules_version = ti4_model::state::RULES_FACTION_EFFECTS;
+    crate::promissory::take(&mut state, content(), &b(), &note);
+    assert!(!state.promissory_faceup.contains(&note), "waits in hand");
+    let (mut game, seen) = action_game(state, "b", Some(ghost_galaxy()), &["faction|mentak|pop"]);
+    for _ in 0..2 {
+        assert_eq!(game.step().error, None, "log: {:?}", game.events);
+    }
+    assert!(was_offered(&seen, "faction|mentak|pop"), "offered to the holder in the action menu");
+    assert!(game.state.promissory_faceup.contains(&note), "placed faceup in the holder's play area");
+    assert_eq!(game.state.promissory_notes.get(&note), Some(&b()), "still the holder's");
+    // The Mentak player is not offered the holder's copy.
+    let mut state = mentak_game();
+    state.rules_version = ti4_model::state::RULES_FACTION_EFFECTS;
+    crate::promissory::take(&mut state, content(), &b(), &note);
+    let (mut game, seen) = action_game(state, "a", Some(ghost_galaxy()), &[]);
+    assert_eq!(game.step().error, None);
+    assert!(!seen.borrow().is_empty() && !was_offered(&seen, "faction|mentak|pop"));
+}
+
+// -- Naalu ----------------------------------------------------------------------------------------
+
+fn naalu_game() -> GameState {
+    let mut state = seated_all(&[("a", "naalu"), ("b", "sol")]);
+    crate::promissory::deal(&mut state, content(), DEFAULT);
+    state
+}
+
+#[test]
+fn telepathic_1_naalu_acts_first_in_the_action_phase_whatever_card_it_took() {
+    // Sol takes Leadership (1), Naalu takes the second card: initiative would put Sol first.
+    for (faction, naalu_first) in [("naalu", true), ("hacan", false)] {
+        let state = seated_all(&[("a", "sol"), ("b", faction)]);
+        let (pick, _) = Pick::new(&["pok1leadership", "pok2diplomacy"]);
+        let mut game = Game::with_table(state, content(), Table::with_default(Box::new(pick))).with_sources(DEFAULT);
+        for _ in 0..8 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+            if game.state.phase == Phase::Action {
+                break;
+            }
+        }
+        assert_eq!(game.state.phase, Phase::Action);
+        assert_eq!(game.state.active, Some(if naalu_first { b() } else { a() }), "{faction}");
+    }
+}
+
+#[test]
+fn naalubt_1_mindsieve_follows_a_secondary_for_a_promissory_note_instead_of_a_token() {
+    let run = |breakthrough: bool| {
+        let mut state = naalu_game();
+        if breakthrough {
+            state.player_mut(&a()).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new("naalubt"));
+        }
+        state.player_mut(&a()).unwrap().strategic_tokens = 0;
+        state.player_mut(&a()).unwrap().commodities = 0;
+        state.player_mut(&b()).unwrap().strategy_cards = vec![ti4_model::id::StrategyCardId::new("pok5trade")];
+        let notes = crate::promissory::held_by(&state, &a()).len();
+        let (mut game, seen) = action_game(state, "b", Some(ghost_galaxy()), &["strategic", "~ms|"]);
+        for _ in 0..40 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+            if game.events.iter().any(|event| event == "STRATEGIC_ACTION_COMPLETE") {
+                break;
+            }
+        }
+        let offered = seen.borrow().iter().flatten().any(|id| id.contains("ms|"));
+        (offered, game.state.player(&a()).unwrap().commodities, notes - crate::promissory::held_by(&game.state, &a()).len())
+    };
+    let (offered, commodities, given) = run(true);
+    assert!(offered, "a waiver per note in hand is offered to a follower with no token");
+    assert!(commodities > 0, "the Trade secondary resolved: commodities replenished");
+    assert_eq!(given, 1, "one promissory note went to the primary player");
+    let (offered, commodities, given) = run(false);
+    assert!(!offered && commodities == 0 && given == 0, "without Mindsieve a follower with no token cannot follow");
+}
+
+// -- Nekro Virus ----------------------------------------------------------------------------------
+
+fn nekro_game() -> GameState {
+    seated_all(&[("a", "nekro"), ("b", "sol")])
+}
+
+#[test]
+fn nekrocommander_2_draws_an_action_card_after_a_technology_is_gained_only_once_unlocked() {
+    for (status, draws) in [(LeaderStatus::Unlocked, true), (LeaderStatus::Locked, false)] {
+        let mut state = nekro_game();
+        set_leader(&mut state, &a(), "nekrocommander", status);
+        state.action_card_deck = vec![ti4_model::id::ActionCardId::new("sabotage")];
+        let hand = state.player(&a()).unwrap().action_cards.len();
+        let ability = "leader:nekro:nekrocommander:TECHNOLOGY_GAINED:after";
+        let (mut game, seen) = action_game(state, "a", None, &[ability]);
+        assert_eq!(game.step().error, None, "the first look records the starting technologies");
+        super::give(&mut game.state, "a", "gd");
+        for _ in 0..3 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+        }
+        assert_eq!(was_offered(&seen, ability), draws, "{status:?}");
+        assert_eq!(game.state.player(&a()).unwrap().action_cards.len(), hand + usize::from(draws), "{status:?}");
+    }
+}
+
+/// Records who was asked what and always answers with the first option.
+struct Spy(Rc<RefCell<Vec<(String, String)>>>);
+
+impl Decider for Spy {
+    fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+        self.0.borrow_mut().push((choice.player.to_string(), choice.prompt.clone()));
+        choice.options.first().cloned().ok_or_else(|| IllegalChoice::NoOptions {
+            player: choice.player.clone(),
+            prompt: choice.prompt.clone(),
+        })
+    }
+}
+
+#[test]
+fn galactic_threat_1_the_nekro_is_never_asked_to_vote_on_an_agenda() {
+    let law = content()
+        .records(ti4_model::content_types::ContentType::Agendas)
+        .iter()
+        .find(|record| record.text("type") == Some("Law") && record.text("target") == Some("For/Against"))
+        .and_then(|record| record.text("alias"))
+        .expect("a For/Against law")
+        .to_owned();
+    let mut state = nekro_game();
+    state.phase = Phase::Agenda;
+    state.custodians_removed = true;
+    state.agenda_deck = vec![law];
+    // Both seats control a planet with influence, so both could vote.
+    let planets = ti4_content::galaxy::all_planets(content(), DEFAULT);
+    for (seat, (id, planet)) in [a(), b()].iter().zip(
+        planets.iter().filter(|(_, p)| p.influence() > 0 && !p.is_placed_during_play() && p.homeworld_of().is_none()),
+    ) {
+        state
+            .system_mut(&sys(planet.system_id().unwrap_or("18")))
+            .set_control(PlanetId::new(*id), seat.clone());
+    }
+    let asked = Rc::new(RefCell::new(Vec::new()));
+    let mut game = Game::with_table(state, content(), Table::with_default(Box::new(Spy(asked.clone()))))
+        .with_sources(DEFAULT);
+    for _ in 0..80 {
+        if game.state.phase != Phase::Agenda {
+            break;
+        }
+        assert_eq!(game.step().error, None, "log: {:?}", game.events);
+    }
+    assert!(game.events.iter().any(|event| event.starts_with("AGENDA_RESOLVED:")), "the agenda was decided");
+    let asked = asked.borrow();
+    assert!(asked.iter().any(|(who, prompt)| who == "b" && prompt.contains("vote")), "Sol voted: {asked:?}");
+    assert!(!asked.iter().any(|(who, prompt)| who == "a" && prompt.contains("vote")), "the Nekro was asked: {asked:?}");
+}
+
+#[test]
+fn nekroagent_1_malleon_pays_the_chosen_player_two_trade_goods_for_a_token_and_readies_at_status() {
+    let mut state = nekro_game();
+    state.player_mut(&b()).unwrap().trade_goods = 0;
+    let tactic = state.player(&b()).unwrap().tactic_tokens;
+    let (mut game, _) = action_game(state, "a", None, &["component|leader|nekroagent", "b", "token|tactic"]);
+    for _ in 0..3 {
+        assert_eq!(game.step().error, None, "log: {:?}", game.events);
+    }
+    let seat = game.state.player(&b()).unwrap();
+    assert_eq!((seat.trade_goods, seat.tactic_tokens), (2, tactic - 1));
+    assert_eq!(game.state.player(&a()).unwrap().trade_goods, 0, "the Nekro gains nothing");
+    assert_eq!(leader_status(&game.state, &a(), "nekroagent"), Some(LeaderStatus::Exhausted));
+    run_status_phase(&mut game.state);
+    assert_eq!(leader_status(&game.state, &a(), "nekroagent"), Some(LeaderStatus::Readied));
+}
+
+#[test]
+fn nekrocommander_1_unlocks_in_the_game_with_three_technologies() {
+    let mut state = nekro_game();
+    state.player_mut(&a()).unwrap().technologies.clear();
+    for tech in ["gd", "dxa"] {
+        super::give(&mut state, "a", tech);
+    }
+    assert!(!unlocks_in_the_game(&state, &a(), "nekrocommander"), "two technologies");
+    super::give(&mut state, "a", "ac2");
+    assert!(unlocks_in_the_game(&state, &a(), "nekrocommander"), "three technologies");
+}
+
+#[test]
+fn nekrohero_1_unlocks_in_the_game_on_the_third_scored_objective() {
+    let mut state = nekro_game();
+    score_objectives(&mut state, &a(), 2);
+    assert!(!unlocks_in_the_game(&state, &a(), "nekrohero"));
+    score_objectives(&mut state, &a(), 3);
+    assert!(unlocks_in_the_game(&state, &a(), "nekrohero"));
+}
+
+/// A system whose only technology-specialty planet is `planet`, and the colour of that specialty.
+fn specialty_planet() -> (SystemId, PlanetId, &'static str) {
+    for (id, record) in ti4_content::galaxy::all_planets(content(), DEFAULT) {
+        let (Some(specialty), Some(tile)) = (record.tech_specialties().first().copied(), record.system_id()) else {
+            continue;
+        };
+        if ti4_content::galaxy::planets_in(content(), tile, DEFAULT)
+            .iter()
+            .filter(|planet| !planet.tech_specialties().is_empty())
+            .count()
+            != 1
+        {
+            continue;
+        }
+        let colour = match specialty.to_ascii_uppercase().as_str() {
+            "BIOTIC" => "BIOTIC",
+            "CYBERNETIC" => "CYBERNETIC",
+            "PROPULSION" => "PROPULSION",
+            "WARFARE" => "WARFARE",
+            _ => continue,
+        };
+        return (SystemId::new(tile), PlanetId::new(id), colour);
+    }
+    panic!("a planet with a technology specialty");
+}
+
+#[test]
+fn nekrohero_2_mallice_devours_a_specialty_planet_for_goods_and_a_technology_and_is_purged() {
+    let (system, planet, colour) = specialty_planet();
+    let mut state = nekro_game();
+    set_leader(&mut state, &a(), "nekrohero", LeaderStatus::Unlocked);
+    put(&mut state, &system, "cruiser", &a(), 1);
+    put_on_planet(&mut state, &system, &planet, "infantry", &b(), 2);
+    put_on_planet(&mut state, &system, &planet, "pds", &b(), 1);
+    put_on_planet(&mut state, &system, &planet, "infantry", &a(), 1);
+    let worth = |spend| crate::production::planet_value_now(&state, content(), DEFAULT, &planet, spend);
+    let value = worth(crate::production::Spend::Resources) + worth(crate::production::Spend::Influence);
+    let (goods, owned) = {
+        let seat = state.player(&a()).unwrap();
+        (seat.trade_goods, seat.technologies.clone())
+    };
+    let (mut game, _) = eager_game(state, "a", None, &["component|leader|nekrohero"]);
+    for _ in 0..3 {
+        assert_eq!(game.step().error, None, "log: {:?}", game.events);
+    }
+    let seat = game.state.player(&a()).unwrap();
+    assert_eq!(i64::from(seat.trade_goods - goods), value, "goods equal resources plus influence");
+    let gained: Vec<_> = seat.technologies.difference(&owned).collect();
+    assert_eq!(gained.len(), 1, "exactly one technology");
+    assert_eq!(crate::technology::colour_type(content(), gained[0]), Some(colour), "of the planet's specialty");
+    assert_eq!(on_planet(&game.state, &system, &planet, &b(), "infantry"), 0, "their units are destroyed");
+    assert_eq!(on_planet(&game.state, &system, &planet, &b(), "pds"), 0, "structures too");
+    assert_eq!(on_planet(&game.state, &system, &planet, &a(), "infantry"), 1, "its own are untouched");
+    assert_eq!(leader_status(&game.state, &a(), "nekrohero"), Some(LeaderStatus::Purged));
+}
+
+#[test]
+fn antivirus_3_activating_a_system_with_the_nekros_units_returns_the_faceup_note() {
+    let note = "antivirus:nekro";
+    for (target, returns) in [("19", true), ("20", false)] {
+        let mut state = nekro_game();
+        put(&mut state, &sys("19"), "cruiser", &a(), 1);
+        put(&mut state, &sys("20"), "cruiser", &b(), 1);
+        state.promissory_notes.insert(note.to_owned(), b());
+        state.promissory_faceup.insert(note.to_owned());
+        let (mut game, _) = action_game(state, "b", Some(ghost_galaxy()), &[TACTICAL_ACTION_ID, target]);
+        for _ in 0..4 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+        }
+        assert_eq!(game.state.promissory_faceup.contains(note), !returns, "activated {target}");
+        assert_eq!(game.state.promissory_notes.get(note), Some(&if returns { a() } else { b() }));
+    }
+}
+
+/// Fighters committed through Matriarch fight the defender's infantry on a planet and go back to
+/// the space area; the invader holds no ground force afterwards (the engine returns them before
+/// control is checked).
+fn matriarch_fight(mut state: GameState, flagship_present: bool) -> (usize, usize) {
+    let (system, planet) = one_planet();
+    // The Nekro starts with Dacxive Animators (an infantry for the winner), which is not under test.
+    state.player_mut(&a()).unwrap().technologies.remove(&ti4_model::id::TechnologyId::new("dxa"));
+    state.system_mut(&system).set_control(planet.clone(), b());
+    put_on_planet(&mut state, &system, &planet, "infantry", &b(), 1);
+    let fighter = if state.player(&a()).unwrap().faction.as_str() == "naalu" { "naalu_fighter" } else { "fighter" };
+    let flagship = if fighter == "fighter" { "nekro_flagship" } else { "naalu_flagship" };
+    if flagship_present {
+        put(&mut state, &system, flagship, &a(), 1);
+    }
+    put(&mut state, &system, fighter, &a(), 2);
+    // The commit step is answered with the first option (commit the fighters), then done.
+    let (report, _) = invade(&mut state, &system, &a(), &[10; 6], &mut Table::new());
+    assert!(report.captured.is_empty(), "the fighters are back in space before control is checked: {report:?}");
+    (on_planet(&state, &system, &planet, &b(), "infantry"), ships(&state, &system, &a(), fighter))
+}
+
+#[test]
+fn nekrobt_1_the_flagship_gains_the_text_of_the_flagship_a_z_token_sits_on() {
+    // Matriarch lets fighters be committed to planets as if they were ground forces.
+    let with = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], &["naalu"]);
+    assert_eq!(matriarch_fight(with, true), (0, 2), "the fighters killed the defender and returned");
+    let without = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], &[]);
+    assert_eq!(matriarch_fight(without, true), (1, 2), "no Z token, no commit: the defender is untouched");
+}
+
+#[test]
+fn unit_naalu_flagship_1_matriarch_commits_fighters_to_planets_as_ground_forces() {
+    assert_eq!(matriarch_fight(seated_all(&[("a", "naalu"), ("b", "sol")]), true), (0, 2));
+    // Control: the fighters alone, without the flagship in the system, are not ground forces.
+    assert_eq!(matriarch_fight(seated_all(&[("a", "naalu"), ("b", "sol")]), false), (1, 2));
 }
