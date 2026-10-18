@@ -6,12 +6,7 @@ Status: `pass` = engine implements it and the test shows it; `ignored` = the tes
 
 ## Missing or broken effects
 
-Only Self-Assembly Routines (`sar`) is left; it is fixed on branch `fb-warfare-mech-production` (rules version 13). The other seven (`amd` 2, `pa` 1, `md` 1 and 2, `aida` 1, `pi` 2, `inf2` 2) are implemented on branch `tech-effect-fixes` behind `RULES_TECH_EFFECTS` (rules version 15; merge order decides the final number). Legacy games (below 15) play without them.
-
-| Tech | No. | Effect | Why | Test |
-|---|---|---|---|---|
-| `sar` Self-Assembly Routines | 1 | After 1 or more of your units use PRODUCTION, you may exhaust this card to place 1 mech from your reinforcements on a planet you control in that system. | fixed by branch fb-warfare-mech-production (rules version 13). Popularity: uncommon (red, 1 prerequisite, PoK) | `sar_1_production_lets_the_owner_place_a_mech_on_a_planet_in_that_system` |
-| `sar` Self-Assembly Routines | 2 | After 1 of your mechs is destroyed, gain 1 trade good. | fixed by branch fb-warfare-mech-production (rules version 13). Popularity: uncommon | `sar_2_a_destroyed_mech_pays_one_trade_good` |
+None. Self-Assembly Routines (`sar`, rules version 13), Antimass Deflectors 2, Psychoarchaeology, Magen Defense Grid 1 and 2, AI Development Algorithm, Predictive Intelligence and Infantry II (all behind `RULES_TECH_EFFECTS`, rules version 15) are implemented; every test passes and none is ignored. Legacy games (below the gating version) play without them.
 
 ## All effects
 
@@ -44,8 +39,8 @@ Only Self-Assembly Routines (`sar`) is left; it is fixed on branch `fb-warfare-m
 | `asc` | Assault Cannon | warfare | 1 | At the start of a space combat in a system that contains 3 or more of your non-fighter ships, your opponent must destroy 1 of their non-fighter ships. | reaction | combat.rs:CombatWindow (assault cannon at combat start) | `asc_1_opponent_destroys_a_non_fighter_when_three_non_fighters_attack` | pass |
 | `aida` | AI Development Algorithm | warfare | 1 | When you research a unit upgrade technology, you may exhaust this card to ignore any 1 prerequisite. | prerequisite-skip | technology.rs:aida_waiver/prerequisites_met_with (exhausted by research only when needed, unit upgrades only, rules version 15) | `aida_1_ignores_one_prerequisite_when_researching_a_unit_upgrade` | pass |
 | `aida` | AI Development Algorithm | warfare | 2 | When 1 or more of your units use PRODUCTION, you may exhaust this card to reduce the combined cost of the produced units by the number of unit upgrade technologies that you own. | reaction | technology.rs:production_used | `aida_2_exhaust_to_reduce_production_cost_by_owned_unit_upgrades` | pass |
-| `sar` | Self-Assembly Routines | warfare | 1 | After 1 or more of your units use PRODUCTION, you may exhaust this card to place 1 mech from your reinforcements on a planet you control in that system. | reaction | MISSING | `sar_1_production_lets_the_owner_place_a_mech_on_a_planet_in_that_system` | ignored |
-| `sar` | Self-Assembly Routines | warfare | 2 | After 1 of your mechs is destroyed, gain 1 trade good. | reaction | MISSING | `sar_2_a_destroyed_mech_pays_one_trade_good` | ignored |
+| `sar` | Self-Assembly Routines | warfare | 1 | After 1 or more of your units use PRODUCTION, you may exhaust this card to place 1 mech from your reinforcements on a planet you control in that system. | reaction | implemented (rules version 13) | `sar_1_production_lets_the_owner_place_a_mech_on_a_planet_in_that_system` | pass |
+| `sar` | Self-Assembly Routines | warfare | 2 | After 1 of your mechs is destroyed, gain 1 trade good. | reaction | implemented (rules version 13) | `sar_2_a_destroyed_mech_pays_one_trade_good` | pass |
 | `st` | Sarween Tools | cybernetic | 1 | When 1 or more of your units use PRODUCTION, reduce the combined cost of the produced units by 1. | passive modifier | technology.rs:production_used (discount) | `st_1_production_costs_one_less` | pass |
 | `gls` | Graviton Laser System | cybernetic | 1 | You may exhaust this card before 1 or more of your units uses SPACE CANNON; hits produced by those units must be assigned to non-fighter ships if able. | reaction | combat.rs:use_graviton; game.rs (space cannon step) (tested through the pub combat primitives, not the full game space-cannon step) | `gls_1_space_cannon_hits_must_go_to_non_fighters_once_per_readying` | pass |
 | `td` | Transit Diodes | cybernetic | 1 | You may exhaust this card at the start of your turn during the action phase; remove up to 4 of your ground forces from the game board and place them on 1 or more planets you control. | reaction | technology.rs:start_turn | `td_1_redeploy_up_to_four_ground_forces_at_turn_start` | pass |

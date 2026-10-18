@@ -1147,7 +1147,6 @@ fn aida_2_exhaust_to_reduce_production_cost_by_owned_unit_upgrades() {
 }
 
 #[test]
-#[ignore = "MISSING: sar effect 1 (place a mech after PRODUCTION): Self-Assembly Routines has no engine effect on main; fixed by branch fb-warfare-mech-production (rules version 13)"]
 fn sar_1_production_lets_the_owner_place_a_mech_on_a_planet_in_that_system() {
     let mut state = seated(&[("a", "arborec"), ("b", "letnev")]);
     let a = pid("a");
@@ -1169,30 +1168,39 @@ fn sar_1_production_lets_the_owner_place_a_mech_on_a_planet_in_that_system() {
             .count()
     };
     let before = mechs(&state);
-    // Agree to every offer that mentions the card, otherwise take the first non-decline option.
-    struct Eager;
+    // A use of PRODUCTION (not a single-unit ability): build one infantry, finish, and agree to
+    // the Self-Assembly Routines offer.
+    struct Eager {
+        built: bool,
+    }
     impl crate::choice::Decider for Eager {
         fn choose(
             &mut self,
             choice: &crate::choice::Choice,
         ) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
-            let pick = choice
-                .options
-                .iter()
-                .find(|o| o.id.contains("sar"))
-                .or_else(|| choice.options.iter().find(|o| !o.is_decline()))
-                .or(choice.options.first());
-            Ok(pick.expect("an option").clone())
+            if choice.prompt.starts_with("Self-Assembly Routines") {
+                return Ok(choice.options[0].clone());
+            }
+            if !self.built
+                && let Some(build) = choice.options.iter().find(|o| o.id == "build|infantry|2")
+            {
+                self.built = true;
+                return Ok(build.clone());
+            }
+            if self.built
+                && let Some(done) = choice.options.iter().find(|o| o.id == "done_producing")
+            {
+                return Ok(done.clone());
+            }
+            Ok(choice.options[0].clone())
         }
     }
-    let mut table = Table::with_default(Box::new(Eager));
-    crate::production::produce_one(&mut state, content(), POK, None, &mut table, &a, &home)
-        .unwrap();
+    let mut table = Table::with_default(Box::new(Eager { built: false }));
+    crate::production::resolve(&mut state, content(), POK, None, &mut table, &a, &home).unwrap();
     assert_eq!(mechs(&state), before + 1);
 }
 
 #[test]
-#[ignore = "MISSING: sar effect 2 (gain 1 trade good when a mech is destroyed): no engine effect on main; fixed by branch fb-warfare-mech-production (rules version 13)"]
 fn sar_2_a_destroyed_mech_pays_one_trade_good() {
     let tg_after = |owner: bool| {
         let mut state = seated(&[("a", "arborec"), ("b", "letnev")]);
