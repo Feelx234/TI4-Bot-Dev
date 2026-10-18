@@ -12,6 +12,7 @@ test("I48S skipped after switching off", async ({ page }, testInfo) => {
   await expect(button).toContainText("I48S skipped");
   await shot(page, testInfo, "3-sheet-skipped", { of: page.getByTestId("player-sheet-panel").locator("h2").locator(".."), pad: 40 });
   advance(1, null);
+  await page.waitForTimeout(300);
   advance(2, i48sOffer("i48s-2"));
   await expect.poll(() => submissions.length).toBe(1);
   expect(JSON.stringify(submissions[0])).toContain("decline");
