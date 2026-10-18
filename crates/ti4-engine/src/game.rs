@@ -5751,6 +5751,7 @@ impl<'a> Game<'a> {
             window = window.with_spender(owner.clone());
         }
         window.open(&self.state, self.content, self.sources);
+        self.state.agenda_casts = window.casts().to_vec();
         self.voting = Some((Box::new(window), queue));
         self.result(false, None)
     }
@@ -6191,6 +6192,7 @@ impl<'a> Game<'a> {
             crate::supply::close_goods_window(&mut self.state, spender, true);
         }
         let complete = window.is_complete();
+        self.state.agenda_casts = window.casts().to_vec();
         self.voting = Some((window, queue));
         // "After you cast votes on an outcome of an agenda", and "after the speaker votes".
         // Before RULES_BRIBERY_PER_PLAYER this fired after every answer of the vote (the outcome,
@@ -14335,6 +14337,20 @@ mod tests {
                 })
                 .collect();
             assert_eq!(logged, resolved, "one record per resolved agenda, in order");
+            // The casts of the last vote stay for viewers: per outcome they add up to its tally,
+            // each seat appears once, in voting order.
+            let last = game.state.agenda_log.last().expect("a record");
+            let mut summed: BTreeMap<String, i64> = BTreeMap::new();
+            for cast in &game.state.agenda_casts {
+                if let Some(outcome) = &cast.outcome {
+                    assert!(cast.votes > 0, "{cast:?}");
+                    *summed.entry(outcome.clone()).or_insert(0) += cast.votes;
+                } else {
+                    assert_eq!(cast.votes, 0, "an abstention casts nothing");
+                }
+            }
+            assert_eq!(summed, last.votes, "seed {seed}: the casts add up to the tally");
+            assert_eq!(game.state.agenda_casts.len(), 3, "seed {seed}: one entry per seat");
             for record in &game.state.agenda_log {
                 let outcome = record.outcome.as_deref().unwrap();
                 assert_eq!(record.round, round);
@@ -14368,6 +14384,10 @@ mod tests {
         assert!(
             json.get("agenda_log").is_none(),
             "an empty log is not serialised"
+        );
+        assert!(
+            json.get("agenda_casts").is_none(),
+            "an empty cast list is not serialised"
         );
     }
 

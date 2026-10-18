@@ -68,7 +68,7 @@ import { GONE_MESSAGE, UNREACHABLE_MESSAGE } from "./protocol/resilience.ts";
 import { ConnectionProblem, ReconnectingChip, useAfterDelay } from "./components/ConnectionNotice.tsx";
 import { readBreakthroughs } from "./presentation/breakthroughs.ts";
 import { readExplorationLog } from "./presentation/explorationToasts.ts";
-import { readAgendaLog } from "./presentation/agendaToasts.ts";
+import { readAgendaCasts, readAgendaLog } from "./presentation/agendaToasts.ts";
 import { readRelicLog } from "./presentation/relicToasts.ts";
 import { useBackUndo } from "./hooks/useBackUndo.ts";
 import { CornerToastLayer } from "./components/CornerToastLayer.tsx";
@@ -578,6 +578,7 @@ const GameViewContainer: React.FC<{
   const explorationLog = useMemo(() => readExplorationLog(snapshot?.state), [snapshot?.state]);
   const breakthroughs = useMemo(() => readBreakthroughs(snapshot?.state), [snapshot?.state]);
   const agendaLog = useMemo(() => readAgendaLog(snapshot?.state), [snapshot?.state]);
+  const agendaCastList = useMemo(() => readAgendaCasts(snapshot?.state), [snapshot?.state]);
   const relicLog = useMemo(() => readRelicLog(snapshot?.state), [snapshot?.state]);
   const planetResources = useMemo(() => planetResourceMap(snapshot?.view.board), [snapshot?.view.board]);
   const planetInfluence = useMemo(() => planetInfluenceMap(snapshot?.view.board), [snapshot?.view.board]);
@@ -782,6 +783,7 @@ const GameViewContainer: React.FC<{
         explorations={explorationLog}
         breakthroughs={breakthroughs}
         agendas={agendaLog}
+        agendaCasts={agendaCastList}
         relics={relicLog}
         table={snapshot?.view.table}
       />

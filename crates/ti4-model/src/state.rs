@@ -1344,6 +1344,12 @@ pub struct GameState {
     /// corner notification "Agenda: ... For wins"); no rule reads it, so it is not compared.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub agenda_log: Vec<AgendaRecord>,
+    /// What each seat cast in the agenda vote now open (or the one that just closed, until the next
+    /// one opens), in voting order: the outcome and the total votes from every source. Every cast is
+    /// public the moment it is made. History for viewers (the corner notification "Alice voted For:
+    /// 7 votes"); no rule reads it, so it is not compared and not written while empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agenda_casts: Vec<AgendaCast>,
     /// Every relic a player gained, in order, by any route (fragment purge, exploration, agenda,
     /// faction ability). History for viewers (the corner notification "gained Nano-Forge"); no
     /// rule reads it, so it is not compared and not written while empty.
@@ -1919,6 +1925,7 @@ impl GameState {
             legacy_device_ids: false,
             starting_tech_picks: Vec::new(),
             agenda_log: Vec::new(),
+            agenda_casts: Vec::new(),
             relic_log: Vec::new(),
             relic_deck: Vec::new(),
             agenda_deck: Vec::new(),
@@ -3248,6 +3255,17 @@ pub struct AgendaRecord {
     /// Favor). Such a record has `discarded` and no outcome, and is not a resolved agenda.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub discard_reason: Option<String>,
+}
+
+/// One seat's finished turn in an agenda vote. Display only: no rule reads it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgendaCast {
+    pub player: PlayerId,
+    /// The outcome voted for; `None` for an abstention.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<String>,
+    /// Total votes cast, bonuses included (0 for an abstention).
+    pub votes: i64,
 }
 
 /// One relic gained by one player. Display only: no rule reads it.

@@ -15,7 +15,7 @@ import { mergeRollToasts, rollToasts, type RollToast } from "../presentation/rol
 import { explorationToasts, type ExplorationRecordDto } from "../presentation/explorationToasts.ts";
 import { breakthroughToasts } from "../presentation/breakthroughs.ts";
 import { leaderUnlockToasts, readLeaderStatuses } from "../presentation/leaderUnlocks.ts";
-import { agendaToasts, type AgendaRecordDto, type AgendaToast } from "../presentation/agendaToasts.ts";
+import { agendaCastToasts, agendaToasts, type AgendaCastDto, type AgendaRecordDto, type AgendaToast } from "../presentation/agendaToasts.ts";
 import { relicToasts, type RelicGainDto, type RelicToast } from "../presentation/relicToasts.ts";
 import { buildTurnRecap, trackTurns, type OpenTurn, type TurnRecap } from "../presentation/turnRecap.ts";
 import { isTurnMenuChoice } from "../presentation/turnBar.ts";
@@ -47,6 +47,8 @@ export interface CornerToastsInput {
   breakthroughs?: Readonly<Record<string, string | null>>;
   /** The engine's public agenda log: every finished vote toasts, for every seat (voters too). */
   agendas?: readonly AgendaRecordDto[];
+  /** What each seat cast in the vote now open: every cast toasts once with its vote count, for every seat. */
+  agendaCasts?: readonly AgendaCastDto[];
   /** The engine's public relic log: every relic a player gains toasts, for every seat. */
   relics?: readonly RelicGainDto[];
   /** The table of the latest snapshot: why the viewer's Imperial scored nothing is read from it. */
@@ -58,6 +60,7 @@ export interface CornerToastsInput {
 const MAX_RECAPS = 2;
 const MAX_INVASION_TOASTS = 3;
 const MAX_AGENDA_TOASTS = 2;
+const MAX_CAST_TOASTS = 3;
 const MAX_ROLL_TOASTS = 3;
 const MAX_RELIC_TOASTS = 3;
 const RELIC_LINGER_MS = 10000;
@@ -91,6 +94,7 @@ export function useCornerToasts({
   explorations,
   breakthroughs,
   agendas,
+  agendaCasts,
   relics,
   table,
   ready,
@@ -108,6 +112,7 @@ export function useCornerToasts({
   const [actions, setActions] = useState<Shown[]>([]);
   const [invasionToasts, setInvasionToasts] = useState<InvasionToast[]>([]);
   const [agendaToastList, setAgendaToasts] = useState<AgendaToast[]>([]);
+  const [castToastList, setCastToasts] = useState<AgendaToast[]>([]);
   const [relicToastList, setRelicToasts] = useState<RelicToast[]>([]);
   const [rollToastList, setRollToasts] = useState<RollToast[]>([]);
   const [notices, setNotices] = useState<{ id: string; text: string; tag: string }[]>([]);
@@ -304,6 +309,38 @@ export function useCornerToasts({
     );
   }, [agendas, ready, historyGeneration]);
 
+  // Casts come from the state's cast list (reset when the next vote opens): what is there at load,
+  // or reappears after undo/redo, is history. The caster is told too ("You voted For: 7 votes").
+  const castCursor = useRef<number | null>(null);
+  const castGeneration = useRef(historyGeneration);
+  const castEpoch = useRef(0);
+  const viewerRef = useRef(viewerSeat);
+  viewerRef.current = viewerSeat;
+  useEffect(() => {
+    if (!ready || !agendaCasts) return;
+    if (castCursor.current === null || castGeneration.current !== historyGeneration) {
+      castGeneration.current = historyGeneration;
+      castCursor.current = agendaCasts.length;
+      castEpoch.current += 1;
+      return;
+    }
+    // A shorter list is the next vote opening: its casts start from the first.
+    if (agendaCasts.length < castCursor.current) {
+      castCursor.current = 0;
+      castEpoch.current += 1;
+    }
+    const seatName = (id: string) => {
+      const seat = displayRef.current(id);
+      return seat.position === null ? null : seat.label;
+    };
+    const { toasts, next } = agendaCastToasts(agendaCasts, castCursor.current, castEpoch.current, viewerRef.current, seatName);
+    castCursor.current = next;
+    if (toasts.length === 0 || mutedRef.current) return;
+    setCastToasts((prev) =>
+      [...prev.filter((t) => !toasts.some((n) => n.id === t.id)), ...toasts].slice(-MAX_CAST_TOASTS),
+    );
+  }, [agendaCasts, ready, historyGeneration]);
+
   // Relic gains come from the state's relic log, like agenda results: what is there at load, or
   // reappears after undo/redo, is history. Every seat is told, the gainer included.
   const relicCursor = useRef<number | null>(null);
@@ -418,6 +455,16 @@ export function useCornerToasts({
           tag: "Agenda",
         }),
       ),
+      ...castToastList.map(
+        (t): AutoResolveNotification => ({
+          id: t.id,
+          kind: "agenda",
+          decisionType: "",
+          selectedValue: "",
+          text: t.text,
+          tag: t.tag ?? "Vote",
+        }),
+      ),
       ...relicToastList.map(
         (t): AutoResolveNotification => ({
           id: t.id,
@@ -464,7 +511,7 @@ export function useCornerToasts({
         }),
       ),
     ],
-    [auto.toasts, actions, recaps, invasionToasts, agendaToastList, relicToastList, rollToastList, notices],
+    [auto.toasts, actions, recaps, invasionToasts, agendaToastList, castToastList, relicToastList, rollToastList, notices],
   );
 
   // Everything that was shown, kept so a toast that faded can be read again.

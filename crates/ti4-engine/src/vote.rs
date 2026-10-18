@@ -343,6 +343,9 @@ pub struct VoteWindow {
     order: Vec<PlayerId>,
     stage: Stage,
     ballot: Ballot,
+    /// What each seat cast, in voting order, abstentions included (display only: mirrored on
+    /// `GameState::agenda_casts` by the game, which no rule reads).
+    casts: Vec<ti4_model::state::AgendaCast>,
     /// Executive Order (Keleres): the seat that "can spend trade goods and resources on this agenda
     /// as if they were votes". Besides influence, its planets may be exhausted for resources, and
     /// its trade goods are a vote each.
@@ -426,6 +429,7 @@ impl VoteWindow {
             recombination_offered: std::collections::BTreeSet::new(),
             obligation: None,
             demanded: None,
+            casts: Vec::new(),
             predictive: Vec::new(),
         }
     }
@@ -541,6 +545,12 @@ impl VoteWindow {
             Stage::TradeGoods { index, .. } => self.order.get(*index),
             _ => None,
         }
+    }
+
+    /// What each seat has cast so far, for the public display list.
+    #[must_use]
+    pub fn casts(&self) -> &[ti4_model::state::AgendaCast] {
+        &self.casts
     }
 
     /// The decision currently owed, or `None` once the vote is finished. Every vote decision
@@ -993,6 +1003,8 @@ impl VoteWindow {
         votes: i64,
     ) {
         if votes <= 0 {
+            // Voted for an outcome but exhausted nothing: nothing was cast, and the table is told.
+            self.abstain(index);
             return;
         }
         let votes = votes
@@ -1013,6 +1025,20 @@ impl VoteWindow {
             .votes
             .insert(self.order[index].clone(), outcome.to_owned());
         *self.ballot.counts.entry(outcome.to_owned()).or_insert(0) += votes;
+        self.casts.push(ti4_model::state::AgendaCast {
+            player: self.order[index].clone(),
+            outcome: Some(outcome.to_owned()),
+            votes,
+        });
+    }
+
+    /// A seat that cast nothing (display list only).
+    fn abstain(&mut self, index: usize) {
+        self.casts.push(ti4_model::state::AgendaCast {
+            player: self.order[index].clone(),
+            outcome: None,
+            votes: 0,
+        });
     }
 
     /// Everyone has voted: decide, or hand it to the speaker.
@@ -1092,7 +1118,9 @@ impl VoteWindow {
             }
             Stage::Outcome(index) => {
                 if option.is_decline() {
-                    // 8.14: an abstention casts nothing and is not recorded as a vote.
+                    // 8.14: an abstention casts nothing and is not recorded as a vote (the
+                    // display list still tells the table).
+                    self.abstain(index);
                     self.stage = Stage::Outcome(index + 1);
                 } else {
                     self.stage = Stage::Planets {

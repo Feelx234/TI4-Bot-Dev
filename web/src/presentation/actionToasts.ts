@@ -56,7 +56,7 @@ const RULES: Rule[] = [
     // The log names the objective by id; the toast says it by its printed name.
     phrase: (m) => `scored ${objectiveName(m[1])}`,
   },
-  { re: /^(voted .+|abstained from voting)$/, category: "vote", phrase: (m) => m[1] },
+  // Votes are announced by the cast toast (agendaToasts.ts) once the seat's votes are counted.
   { re: /^placed (.+) on (.+)$/, category: "build", phrase: (m) => `placed ${m[1]} on ${m[2]}` },
   {
     re: /^produced (\d+) (.+)$/,
