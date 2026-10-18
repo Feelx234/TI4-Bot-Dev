@@ -1050,6 +1050,8 @@ pub fn arm(resolver: &mut Resolver, state: &GameState) {
         resolver.register([l1z1x_agent(&owner_name, &seat.id)]);
         // Infantry II's revival (generic card; the faction versions are in their modules).
         resolver.register(crate::infantry_ii::abilities(&owner_name, &seat.id));
+        // Magen Defense Grid (the Codex 4 printing).
+        resolver.register(crate::magen_defense::abilities(&owner_name, &seat.id));
         // Per-faction modules (`crate::factions`), after the shared slots so existing ordering
         // in every window is unchanged.
         resolver.register(crate::factions::timing_abilities(

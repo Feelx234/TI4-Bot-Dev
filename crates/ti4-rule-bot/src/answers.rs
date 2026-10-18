@@ -46,6 +46,29 @@ pub fn pick_with(
             .options
             .iter()
             .position(|option| !option.is_decline()),
+        // Magen Defense Grid: the free hit goes where it takes the most. A hit that destroys
+        // outright (no sustain left) beats one a mech would shrug off, then the costliest unit.
+        "magen_defense_hit" => choice
+            .options
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| {
+                let key = |o: &ChoiceOption| {
+                    (
+                        o.payload
+                            .get("kills")
+                            .and_then(serde_json::Value::as_bool)
+                            .unwrap_or(false),
+                        o.payload
+                            .get("cost")
+                            .and_then(serde_json::Value::as_f64)
+                            .unwrap_or(0.0),
+                    )
+                };
+                let (ka, kb) = (key(a), key(b));
+                ka.0.cmp(&kb.0).then(ka.1.total_cmp(&kb.1))
+            })
+            .map(|(index, _)| index),
         "politics_choose_speaker" if tuning::vote_rule() => {
             own_seat_option(choice, me).or_else(|| weakest_seat_option(choice, seen))
         }
@@ -378,7 +401,11 @@ fn exhaust_for_vote(
         .details
         .get("tally")
         .and_then(serde_json::Value::as_array)
-        .map(|rows| rows.iter().filter_map(|r| r.as_array()?.first()?.as_str()).collect())
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|r| r.as_array()?.first()?.as_str())
+                .collect()
+        })
         .unwrap_or_default();
     if (tuning::agenda_value() || tuning::agenda_budget())
         && secret_outcome(agenda, &all, seen, me, bias).is_none()
@@ -562,6 +589,46 @@ mod tests {
             3,
         ));
         choice
+    }
+
+    #[test]
+    fn magen_defense_hits_what_it_destroys_and_predictive_intelligence_casts() {
+        let state = game(&["a", "b"]);
+        let me = PlayerId::new("a");
+        let target = |id: &str, kills: bool, cost: f64| {
+            ChoiceOption::labelled(id, "magen_defense_hit", id)
+                .with("kills", kills)
+                .with("cost", cost)
+        };
+        let hit = with_subtype(
+            Choice::new(
+                me.clone(),
+                "assign the hit",
+                vec![
+                    target("0", false, 2.0),
+                    target("1", true, 0.5),
+                    target("2", true, 2.0),
+                ],
+            ),
+            "magen_defense_hit",
+        );
+        assert_eq!(
+            pick(&hit, &seen(&state), &me),
+            Some(2),
+            "kills first, then cost"
+        );
+        let votes = with_subtype(
+            Choice::new(
+                me.clone(),
+                "3 more votes",
+                vec![
+                    ChoiceOption::labelled("predictive|cast", "vote_predictive", "cast"),
+                    ChoiceOption::decline(),
+                ],
+            ),
+            "vote_predictive_intelligence",
+        );
+        assert_eq!(pick(&votes, &seen(&state), &me), Some(0));
     }
 
     #[test]

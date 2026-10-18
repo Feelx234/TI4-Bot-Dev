@@ -734,7 +734,6 @@ fn planet_fixture() -> (
 }
 
 #[test]
-#[ignore = "MISSING: md (Magen Defense Grid ΩΩ) effect 1 (activation places an infantry with each of the owner's structures): no implementation of 'md' anywhere in crates/ti4-engine/src (only research tests)"]
 fn md_1_activating_a_system_with_the_owners_structures_places_infantry() {
     let (mut state, galaxy, ids, planet) = planet_fixture();
     state
@@ -764,11 +763,118 @@ fn md_1_activating_a_system_with_the_owners_structures_places_infantry() {
     assert_eq!(infantry, 1, "one infantry beside the PDS");
 }
 
+/// Seat `b` owns `structures` (unit type ids) on the fixture planet; returns b's infantry on it
+/// after `a` activates the system.
+fn md_activation(structures: &[&str], version: u32, with_card: bool) -> usize {
+    let (mut state, _galaxy, ids, planet) = planet_fixture();
+    state.rules_version = version;
+    state
+        .system_mut(&ids[0])
+        .set_control(planet.clone(), pid("b"));
+    for kind in structures {
+        put_on_planet(&mut state, &ids[0], &planet, kind, &pid("b"), 1);
+    }
+    if with_card {
+        give(&mut state, "b", "md");
+    }
+    let mut table = Table::with_default(Box::new(FirstOption));
+    super::emit_event(
+        &mut state,
+        &mut table,
+        &[],
+        "SYSTEM_ACTIVATED",
+        &[("player", "a"), ("system", ids[0].as_str())],
+    );
+    state
+        .system_state(&ids[0])
+        .on_planet_of(&planet, &pid("b"))
+        .iter()
+        .filter(|u| u.type_id.as_str() == "infantry")
+        .count()
+}
+
 #[test]
-#[ignore = "MISSING: md (Magen Defense Grid ΩΩ) effect 2 (hit at the start of ground combat on a planet with the owner's structures): no implementation of 'md' in crates/ti4-engine/src/invasion.rs"]
+fn md_1_places_one_infantry_per_structure_and_only_with_the_card_and_version() {
+    let now = ti4_model::state::RULES_TECH_EFFECTS;
+    assert_eq!(
+        md_activation(&["pds", "spacedock"], now, true),
+        2,
+        "one per structure"
+    );
+    assert_eq!(md_activation(&["pds"], now, false), 0, "no card");
+    assert_eq!(md_activation(&["pds"], now - 1, true), 0, "legacy");
+    assert_eq!(
+        md_activation(&[], now, true),
+        0,
+        "no structure, no infantry"
+    );
+}
+
+#[test]
+fn md_2_the_owner_assigns_the_hit_and_a_lone_mech_sustains_it() {
+    let (mut state, _g, ids, planet) = planet_fixture();
+    state
+        .system_mut(&ids[0])
+        .set_control(planet.clone(), pid("b"));
+    put_on_planet(&mut state, &ids[0], &planet, "pds", &pid("b"), 1);
+    put_on_planet(&mut state, &ids[0], &planet, "infantry", &pid("a"), 2);
+    put_on_planet(&mut state, &ids[0], &planet, "mech", &pid("a"), 1);
+    give(&mut state, "b", "md");
+    // Two kinds of target: b is asked and names the infantry (the first option), a is not asked
+    // about sustain for infantry.
+    let mut table = Table::with_default(Box::new(FirstOption));
+    super::emit_event(
+        &mut state,
+        &mut table,
+        &[],
+        "GROUND_COMBAT_STARTED",
+        &[
+            ("system", ids[0].as_str()),
+            ("planet", planet.as_str()),
+            ("attacker", "a"),
+            ("defender", "b"),
+        ],
+    );
+    let left: Vec<String> = state
+        .system_state(&ids[0])
+        .on_planet_of(&planet, &pid("a"))
+        .iter()
+        .map(|u| u.type_id.to_string())
+        .collect();
+    assert_eq!(left.len(), 2, "exactly one unit was lost: {left:?}");
+
+    // A lone mech: no choice to make, and its owner sustains the hit instead of losing it.
+    let (mut state, _g, ids, planet) = planet_fixture();
+    state
+        .system_mut(&ids[0])
+        .set_control(planet.clone(), pid("b"));
+    put_on_planet(&mut state, &ids[0], &planet, "pds", &pid("b"), 1);
+    put_on_planet(&mut state, &ids[0], &planet, "mech", &pid("a"), 1);
+    give(&mut state, "b", "md");
+    let mut table = Table::with_default(Box::new(FirstOption));
+    super::emit_event(
+        &mut state,
+        &mut table,
+        &[],
+        "GROUND_COMBAT_STARTED",
+        &[
+            ("system", ids[0].as_str()),
+            ("planet", planet.as_str()),
+            ("attacker", "a"),
+            ("defender", "b"),
+        ],
+    );
+    let system = state.system_state(&ids[0]);
+    let mechs = system.on_planet_of(&planet, &pid("a"));
+    assert_eq!(mechs.len(), 1);
+    assert!(mechs[0].sustained_damage, "sustained, not destroyed");
+}
+
+#[test]
 fn md_2_ground_combat_starts_with_a_free_hit_on_the_attacker() {
-    let fight = |owner: bool| {
+    let fight = |owner: bool, version: u32| {
         let (mut state, _g, ids, planet) = planet_fixture();
+        state.rules_version = version;
         state
             .system_mut(&ids[0])
             .set_control(planet.clone(), pid("b"));
@@ -778,29 +884,42 @@ fn md_2_ground_combat_starts_with_a_free_hit_on_the_attacker() {
         if owner {
             give(&mut state, "b", "md");
         }
-        // Nobody ever hits, so only the card can kill anything.
-        let mut dice = crate::dice::Dice::from_faces(vec![1u32; 2000]);
-        let mut rng = crate::rng::GameRng::new(1);
+        // The live invasion announces this event before the first round.
         let mut table = Table::with_default(Box::new(FirstOption));
-        crate::invasion::ground_combat(
+        let dice = super::emit_event(
             &mut state,
-            content(),
-            POK,
             &mut table,
-            &mut dice,
-            &mut rng,
-            &ids[0],
-            &planet,
-            &pid("a"),
+            &[],
+            "GROUND_COMBAT_STARTED",
+            &[
+                ("system", ids[0].as_str()),
+                ("planet", planet.as_str()),
+                ("attacker", "a"),
+                ("defender", "b"),
+            ],
+        );
+        assert_eq!(dice, 0, "a hit is produced, not rolled");
+        (
+            state
+                .system_state(&ids[0])
+                .on_planet_of(&planet, &pid("a"))
+                .len(),
+            state
+                .system_state(&ids[0])
+                .on_planet_of(&planet, &pid("b"))
+                .iter()
+                .filter(|u| u.type_id.as_str() == "infantry")
+                .count(),
         )
-        .unwrap();
-        state
-            .system_state(&ids[0])
-            .on_planet_of(&planet, &pid("a"))
-            .len()
     };
-    assert_eq!(fight(false), 1, "control: both sides miss forever");
-    assert_eq!(fight(true), 0, "the grid's hit kills the lone attacker");
+    let now = ti4_model::state::RULES_TECH_EFFECTS;
+    assert_eq!(fight(false, now), (1, 1), "control: no card, no hit");
+    assert_eq!(
+        fight(true, now),
+        (0, 1),
+        "the grid's hit kills the lone attacker"
+    );
+    assert_eq!(fight(true, now - 1), (1, 1), "legacy: no hit");
 }
 
 #[test]

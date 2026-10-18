@@ -1527,6 +1527,13 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedVia("game.rs::step_tactical"),
     },
     Producer {
+        // Magen Defense Grid (md): the owner names the opponent's ground force that takes the hit.
+        module: "magen_defense.rs",
+        function: "combat_start",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         module: "vote.rs",
         function: "pending_choice_bare",
         // Outcome, planets, Gila's trade goods (hacancommander), tiebreak, Mahact's Recombine
@@ -1539,6 +1546,7 @@ const PRODUCERS: &[Producer] = &[
 const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     // BF faction modules (crates/ti4-engine/src/factions/).
     ("invasion.rs", "fight_committed_planet", 1),
+    ("magen_defense.rs", "combat_start", 1),
     ("invasion.rs", "assign_selected_ground_hit_in_timing", 1),
     ("yssaril.rs", "borrowed_stall_tactics", 1),
     ("argent.rs", "ask_option_for", 1),
