@@ -1685,3 +1685,150 @@ fn ralnelhero_2_director_nel_takes_back_the_last_pass_for_two_command_tokens_and
     );
     assert_eq!(game.state.phase, ti4_model::state::Phase::Action, "the phase went on");
 }
+
+#[test]
+fn ralnelcommander_2_watchful_ojz_retreats_up_to_two_ships_when_a_retreat_is_declared() {
+    let window = "leader:ralnel:ralnelcommander:RETREAT_DECLARED:when";
+    let hub = plain_hub();
+    let centre = sys(&hub.centre);
+    let safe = &hub.outer[0];
+    for (status, retreated) in [(LeaderStatus::Unlocked, true), (LeaderStatus::Locked, false)] {
+        let mut state = ralnel_game();
+        blank_hub(&mut state, &hub);
+        set_leader(&mut state, &a(), "ralnelcommander", status);
+        put(&mut state, &centre, "cruiser", &a(), 3);
+        put(&mut state, &sys(&hub.outer[1]), "cruiser", &b(), 1);
+        // An ordinary retreat needs a system of the retreater's: a unit makes one.
+        put(&mut state, &sys(safe), "destroyer", &a(), 1);
+        let move_it = format!("move|{}|0", hub.outer[1]);
+        let to = format!("to|{safe}");
+        let (game, seen) = tactical(
+            state,
+            "b",
+            &hub.galaxy,
+            &hub.centre,
+            &[&move_it, "done_moving", "stay", "retreat", window, &to, "ship|0|cruiser", "ship|0|cruiser"],
+            &[1; 8],
+        );
+        assert_eq!(was_offered(&seen, window), retreated, "{:?}", asked(&seen));
+        assert!(
+            ships(&game.state, &sys(safe), &a(), "cruiser") >= 2,
+            "at least the two cruisers that retreated"
+        );
+    }
+}
+
+#[test]
+fn nanolink_1_the_holder_moves_its_structures_in_from_adjacent_systems_and_the_note_goes_home() {
+    let window = "promissory:sol:nanolink:SYSTEM_ACTIVATED:after";
+    let hub = plain_hub();
+    let centre = sys(&hub.centre);
+    let mine = planet_of(&hub.centre);
+    let theirs = planet_of(&hub.outer[0]);
+    for (play, moves) in [(true, true), (false, false)] {
+        let mut state = ralnel_game();
+        blank_hub(&mut state, &hub);
+        state.system_mut(&centre).set_control(mine.clone(), b());
+        put_on_planet(&mut state, &sys(&hub.outer[0]), &theirs, "pds", &b(), 1);
+        state
+            .promissory_notes
+            .insert("nanolink:ralnel".to_owned(), b());
+        let rules: Vec<&str> = if play {
+            vec![window, mine.as_str(), "done_moving"]
+        } else {
+            vec!["decline", "done_moving"]
+        };
+        let (game, seen) = tactical(state, "b", &hub.galaxy, &hub.centre, &rules, &[1; 10]);
+        assert!(was_offered(&seen, window), "{:?}", asked(&seen));
+        assert_eq!(
+            on_planet(&game.state, &centre, &mine, &b(), "pds"),
+            usize::from(moves),
+            "{:?}",
+            asked(&seen)
+        );
+        assert_eq!(
+            on_planet(&game.state, &sys(&hub.outer[0]), &theirs, &b(), "pds"),
+            usize::from(!moves),
+            "left its old system only when played"
+        );
+        assert_eq!(
+            game.state.promissory_notes.get("nanolink:ralnel"),
+            Some(&if play { a() } else { b() }),
+            "returned to Ral Nel when played"
+        );
+    }
+}
+
+#[test]
+fn nanolink_2_is_dealt_to_ral_nel_and_offered_in_a_transaction_to_be_lent() {
+    let mut state = ralnel_game();
+    crate::promissory::deal(&mut state, content(), DEFAULT);
+    assert_eq!(
+        state.promissory_notes.get("nanolink:ralnel"),
+        Some(&a()),
+        "dealt to its owner"
+    );
+    // Neighbours: ships in adjacent systems of a map.
+    let hub = plain_hub();
+    blank_hub(&mut state, &hub);
+    put(&mut state, &sys(&hub.outer[0]), "carrier", &a(), 1);
+    put(&mut state, &sys(&hub.outer[1]), "carrier", &b(), 1);
+    let (mut game, seen) = action_game(
+        state,
+        "a",
+        Some(hub.galaxy.clone()),
+        &["component|trade|sol"],
+    );
+    steps(&mut game, 2);
+    assert!(
+        was_offered_like(&seen, "nanolink"),
+        "the note can be lent: {:?}",
+        asked(&seen)
+    );
+}
+
+#[test]
+fn ralnelbt_1_data_skimmer_keeps_other_players_discards_and_the_holder_takes_one_when_passing() {
+    // Sol plays a component action card, which would be discarded: it goes on the Data Skimmer
+    // instead. The Ral Nel passes and takes it.
+    let mut state = ralnel_game();
+    state.phase = ti4_model::state::Phase::Action;
+    state.player_mut(&a()).unwrap().breakthrough =
+        Some(ti4_model::id::BreakthroughId::new("ralnelbt"));
+    state.player_mut(&a()).unwrap().action_cards.clear();
+    state.player_mut(&b()).unwrap().action_cards = pile(&["mining_initiative"]);
+    let card = ti4_model::id::ActionCardId::new("mining_initiative");
+    let (mut game, seen) = action_game(state, "b", None, &["action_card|0"]);
+    steps(&mut game, 6);
+    assert!(
+        game.state.player(&a()).unwrap().action_cards.contains(&card)
+            || game.state.player(&a()).unwrap().passed,
+        "{:?}",
+        asked(&seen)
+    );
+    assert!(
+        !game.state.discarded_action_cards.contains(&card),
+        "never reached the discard pile"
+    );
+    assert_eq!(
+        game.state.player(&a()).unwrap().action_cards,
+        [card],
+        "the holder took it when passing: {:?}",
+        asked(&seen)
+    );
+}
+
+#[test]
+fn keleresbt_1_i_i_h_q_modernization_gives_neighbours_and_custodia_vigilia_like_the_technology() {
+    let (mut state, hub) = mecatol_neighbours();
+    state.player_mut(&a()).unwrap().breakthrough =
+        Some(ti4_model::id::BreakthroughId::new("keleresbt"));
+    let (mut game, seen) = action_game(state, "a", Some(hub.galaxy.clone()), &[]);
+    steps(&mut game, 1);
+    assert!(
+        was_offered(&seen, "component|trade|sol"),
+        "neighbours with the player near Mecatol: {:?}",
+        asked(&seen)
+    );
+    assert!(crate::factions::keleres::holds_custodia(&game.state, &a()));
+}
