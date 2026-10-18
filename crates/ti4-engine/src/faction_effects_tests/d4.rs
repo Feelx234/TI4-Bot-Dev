@@ -1018,7 +1018,7 @@ fn as_1_aetherstream_adds_one_move_when_a_neighbour_activates_next_to_an_anomaly
         put(&mut state, &sys(&hub.outer[1]), "carrier", &b(), 1);
         let target = hub.outer[3].clone();
         let rule = format!("move|{}|0", hub.outer[1]);
-        let answers: Vec<&str> = if accept {
+        let answers: Vec<&str> = if accept && tech {
             vec![stream, rule.as_str(), "done_moving"]
         } else {
             vec![rule.as_str(), "done_moving"]
@@ -2166,4 +2166,420 @@ fn unit_mahact_flagship_0_arvicon_rex_fights_with_two_dice_and_sustains() {
         .find(|unit| unit.type_id.as_str() == "mahact_flagship")
         .expect("it survived by sustaining");
     assert!(flagship.sustained_damage);
+}
+
+// -- Nomad ----------------------------------------------------------------------------------------
+
+fn nomad_game() -> GameState {
+    seated_all(&[("a", "nomad"), ("b", "sol"), ("c", "hacan")])
+}
+
+#[test]
+fn tcs_1_the_nomad_readies_another_players_agent_the_moment_it_is_exhausted() {
+    let window = "technology:nomad:tcs:AGENT_EXHAUSTED:after";
+    let run = |tech: bool, accept: bool| {
+        let hub = crate::fixtures::plain_hub();
+        let mut state = nomad_game();
+        if tech {
+            super::give(&mut state, "a", "tcs");
+        }
+        state.phase = Phase::Action;
+        state.active = Some(c());
+        let answer = if accept { window } else { "decline" };
+        let (pick, seen) = Pick::new(&["component|leader|hacanagent", "self", answer, "transact", "decline"]);
+        let mut game = Game::with_table(state, content(), Table::with_default(Box::new(pick)))
+            .with_sources(DEFAULT)
+            .with_galaxy(hub.galaxy);
+        for _ in 0..4 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+        }
+        (
+            was_offered(&seen, window),
+            leader_status(&game.state, &c(), "hacanagent"),
+            game.state
+                .player(&a())
+                .unwrap()
+                .exhausted_technologies
+                .contains(&ti4_model::id::TechnologyId::new("tcs")),
+        )
+    };
+    assert_eq!(run(true, true), (true, Some(LeaderStatus::Readied), true), "readied, the card exhausted");
+    assert_eq!(run(true, false), (true, Some(LeaderStatus::Exhausted), false), "declined");
+    assert_eq!(run(false, true), (false, Some(LeaderStatus::Exhausted), false), "no technology");
+}
+
+#[test]
+fn artuno_1_and_2_a_supply_gain_is_copied_onto_the_card_and_paid_out_when_it_readies() {
+    let window = "leader:nomad:nomadagentartuno:TRADE_GOODS_GAINED:after";
+    let run = |accept: bool| {
+        let mut state = nomad_game();
+        state.phase = Phase::Action;
+        state.active = Some(a());
+        let trade = state
+            .unclaimed_strategy_cards
+            .iter()
+            .find(|card| card.as_str().contains("trade"))
+            .cloned()
+            .expect("the Trade card");
+        state.player_mut(&a()).unwrap().strategy_cards = vec![trade];
+        let goods = |s: &GameState| s.player(&a()).unwrap().trade_goods;
+        let start = goods(&state);
+        let answer = if accept { window } else { "decline" };
+        let (pick, seen) = Pick::new(&["strategic", answer, "done"]);
+        let mut game = Game::with_table(state, content(), Table::with_default(Box::new(pick))).with_sources(DEFAULT);
+        step_until(&mut game, "STRATEGIC_ACTION_COMPLETE", 12);
+        let gained = goods(&game.state) - start;
+        let pile = crate::factions::nomad_agents::artuno_pile(&game.state, &a());
+        let status = leader_status(&game.state, &a(), "nomadagentartuno");
+        run_status_phase(&mut game.state);
+        (
+            was_offered(&seen, window),
+            gained,
+            pile,
+            status,
+            goods(&game.state) - start - gained,
+            leader_status(&game.state, &a(), "nomadagentartuno"),
+        )
+    };
+    assert_eq!(
+        run(true),
+        (true, 3, 3, Some(LeaderStatus::Exhausted), 3, Some(LeaderStatus::Readied)),
+        "Trade pays 3; a copy sits on Artuno; the status phase readies it and pays the pile"
+    );
+    assert_eq!(
+        run(false),
+        (true, 3, 0, Some(LeaderStatus::Readied), 0, Some(LeaderStatus::Readied)),
+        "declined: nothing copied, nothing paid later"
+    );
+}
+
+#[test]
+fn nomadagentmercer_1_moves_two_ground_forces_onto_a_planet_in_the_active_system_then_readies() {
+    let window = "leader:nomad:nomadagentmercer:TACTICAL_ACTION_ENDED:after";
+    let run = |accept: bool, agent: LeaderStatus| {
+        let hub = planet_hub();
+        let (here, there) = (SystemId::new(hub.centre.clone()), sys(&hub.outer[0]));
+        let mut state = blank(nomad_game());
+        let (target, far) = (first_planet(&here), first_planet(&there));
+        state.system_mut(&here).set_control(target.clone(), b());
+        state.system_mut(&there).set_control(far.clone(), b());
+        put_on_planet(&mut state, &there, &far, "infantry", &b(), 2);
+        set_leader(&mut state, &a(), "nomadagentmercer", agent);
+        let take = format!("take|{there}|{far}|infantry|0");
+        let mut rules = vec![TACTICAL_ACTION_ID, here.as_str(), "done_moving", window];
+        if accept {
+            rules.extend([take.as_str(), take.as_str()]);
+        }
+        let (mut game, seen) = action_game(state, "b", Some(hub.galaxy), &rules);
+        for _ in 0..8 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+            if game.state.active.as_ref() != Some(&b()) {
+                break;
+            }
+        }
+        let outcome = (
+            was_offered(&seen, window),
+            on_planet(&game.state, &here, &target, &b(), "infantry"),
+            on_planet(&game.state, &there, &far, &b(), "infantry"),
+            leader_status(&game.state, &a(), "nomadagentmercer"),
+        );
+        run_status_phase(&mut game.state);
+        assert_eq!(leader_status(&game.state, &a(), "nomadagentmercer"), Some(LeaderStatus::Readied));
+        outcome
+    };
+    assert_eq!(
+        run(true, LeaderStatus::Readied),
+        (true, 2, 0, Some(LeaderStatus::Exhausted)),
+        "two infantry moved from another planet onto the active system's planet"
+    );
+    assert_eq!(
+        run(false, LeaderStatus::Readied),
+        (true, 0, 2, Some(LeaderStatus::Readied)),
+        "declined: nothing moved and the agent stays ready"
+    );
+    assert!(!run(true, LeaderStatus::Exhausted).0, "exhausted: not offered");
+}
+
+#[test]
+fn nomadcommander_1_one_scored_secret_objective_unlocks_it() {
+    let aliases = |kind| -> String {
+        content()
+            .records(kind)
+            .iter()
+            .find_map(|r| r.text("alias"))
+            .expect("an objective")
+            .to_owned()
+    };
+    let public = aliases(ti4_model::content_types::ContentType::PublicObjectives);
+    let secret = aliases(ti4_model::content_types::ContentType::SecretObjectives);
+    let mut state = nomad_game();
+    let award = |state: &mut GameState, alias: &str| {
+        crate::objectives::award(state, content(), DEFAULT, &a(), &ObjectiveId::new(alias))
+            .expect("the objective scores");
+    };
+    award(&mut state, &public);
+    assert_eq!(leader_status(&state, &a(), "nomadcommander"), Some(LeaderStatus::Locked), "a public objective");
+    award(&mut state, &secret);
+    assert_eq!(leader_status(&state, &a(), "nomadcommander"), Some(LeaderStatus::Unlocked), "a secret one");
+    assert_eq!(leader_status(&state, &a(), "nomadhero"), Some(LeaderStatus::Locked), "two objectives only");
+}
+
+#[test]
+fn nomadcommander_2_the_flagship_is_produced_without_spending_resources_once_unlocked() {
+    let run = |status: LeaderStatus| {
+        let hub = planet_hub();
+        let centre = SystemId::new(hub.centre.clone());
+        let mut state = blank(nomad_game());
+        let planet = first_planet(&centre);
+        state.system_mut(&centre).set_control(planet.clone(), a());
+        put_on_planet(&mut state, &centre, &planet, "spacedock", &a(), 1);
+        state.player_mut(&a()).unwrap().trade_goods = 0;
+        state.exhausted_planets.insert(planet);
+        set_leader(&mut state, &a(), "nomadcommander", status);
+        let (mut game, seen) = action_game(
+            state,
+            "a",
+            Some(hub.galaxy),
+            &[TACTICAL_ACTION_ID, centre.as_str(), "done_moving", "build|nomad_flagship|1"],
+        );
+        for _ in 0..8 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+            if game.events.iter().any(|e| e == "TACTICAL_ACTION_COMPLETE") {
+                break;
+            }
+        }
+        (
+            was_offered(&seen, "build|nomad_flagship|1"),
+            ships(&game.state, &centre, &a(), "nomad_flagship"),
+            game.state.player(&a()).unwrap().trade_goods,
+        )
+    };
+    assert_eq!(run(LeaderStatus::Unlocked), (true, 1, 0), "a free flagship");
+    let (offered, built, _) = run(LeaderStatus::Locked);
+    assert_eq!((offered, built), (false, 0), "locked: nothing to pay 8 with");
+}
+
+#[test]
+fn nomadhero_1_scoring_a_third_objective_unlocks_the_hero() {
+    hero_unlocks_by_scoring("nomad", "nomadhero");
+}
+
+#[test]
+fn nomadhero_2_ahk_syl_siven_frees_the_flagship_and_its_cargo_from_command_tokens() {
+    // The Nomad's token sits on the origin system, which pins every ship there. After the hero's
+    // ACTION (and the other seats passing) the flagship and the fighter it carries may leave; the
+    // carrier may not.
+    let hero = "component|leader|nomadhero";
+    let run = |status: LeaderStatus| {
+        let hub = crate::fixtures::plain_hub();
+        let (origin, target) = (sys(&hub.outer[0]), sys(&hub.outer[1]));
+        let mut state = blank(nomad_game());
+        put(&mut state, &origin, "nomad_flagship", &a(), 1);
+        put(&mut state, &origin, "fighter", &a(), 1);
+        put(&mut state, &origin, "carrier", &a(), 1);
+        state.system_mut(&origin).command_tokens.insert(a());
+        set_leader(&mut state, &a(), "nomadhero", status);
+        let move_rule = format!("move|{origin}|");
+        let mut rules = vec![TACTICAL_ACTION_ID, target.as_str()];
+        let move_any = format!("~{move_rule}");
+        rules.extend([move_any.as_str(), "~load|", "done_loading", "done_moving"]);
+        if status == LeaderStatus::Unlocked {
+            rules.insert(0, hero);
+        }
+        let (pick, seen) = Pick::new(&rules);
+        let mut table = Table::with_default(Box::new(pick));
+        table.seat(b(), Box::new(Pick::new(&[]).0));
+        table.seat(c(), Box::new(Pick::new(&[]).0));
+        let mut game = Game::with_table(
+            {
+                state.phase = Phase::Action;
+                state.active = Some(a());
+                state
+            },
+            content(),
+            table,
+        )
+        .with_sources(DEFAULT)
+        .with_galaxy(hub.galaxy);
+        for _ in 0..40 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+            if game.events.iter().any(|e| e == "TACTICAL_ACTION_COMPLETE") {
+                break;
+            }
+        }
+        (game, seen, origin, target)
+    };
+    let (game, seen, origin, target) = run(LeaderStatus::Unlocked);
+    assert!(was_offered(&seen, hero));
+    assert_eq!(leader_status(&game.state, &a(), "nomadhero"), Some(LeaderStatus::Purged));
+    assert_eq!(ships(&game.state, &target, &a(), "nomad_flagship"), 1, "the flagship left the pinned system");
+    assert_eq!(ships(&game.state, &target, &a(), "fighter"), 1, "with the fighter it carried");
+    assert_eq!(ships(&game.state, &origin, &a(), "carrier"), 1, "only the flagship is freed");
+    let (game, seen, _, target) = run(LeaderStatus::Locked);
+    assert!(!was_offered(&seen, hero));
+    assert_eq!(ships(&game.state, &target, &a(), "nomad_flagship"), 0, "pinned without the hero");
+}
+
+#[test]
+fn unit_nomad_flagship_1_memoria_is_adjacent_to_systems_with_the_nomads_mechs() {
+    // Move 1 is one step; the active system is two steps away. Memoria treats itself as adjacent to
+    // a system holding a Nomad mech, so it gets there; a carrier (no Memoria) does not.
+    let run = |mech_owner: Option<&str>, ship: &str| {
+        let hub = planet_hub();
+        let origin = sys(&hub.outer[0]);
+        let target = sys(&hub.across(&hub.outer[0]));
+        let mut state = blank(nomad_game());
+        put(&mut state, &origin, ship, &a(), 1);
+        if let Some(owner) = mech_owner {
+            let planet = first_planet(&target);
+            let kind = if owner == "a" { "nomad_mech" } else { "sol_mech" };
+            put_on_planet(&mut state, &target, &planet, kind, &PlayerId::new(owner), 1);
+        }
+        let rule = format!("move|{origin}|0");
+        let (game, seen) = tactical(state, "a", hub.galaxy, target.as_str(), &[rule.as_str(), "done_moving"]);
+        (was_offered(&seen, &rule), ships(&game.state, &target, &a(), ship))
+    };
+    assert_eq!(run(Some("a"), "nomad_flagship"), (true, 1), "a Nomad mech in the active system");
+    assert_eq!(run(None, "nomad_flagship"), (false, 0), "no mech, too far");
+    assert_eq!(run(Some("b"), "nomad_flagship"), (false, 0), "another player's mech does not count");
+    assert_eq!(run(Some("a"), "carrier"), (false, 0), "only the flagship has Memoria");
+}
+
+#[test]
+fn unit_nomad_flagship_0_memoria_i_barrages_8_x3_fights_on_7_x2_and_sustains() {
+    let mut state = nomad_game();
+    put(&mut state, &sys("19"), "nomad_flagship", &a(), 1);
+    put(&mut state, &sys("19"), "cruiser", &b(), 1);
+    let (outcome, dice) = space_fight(
+        &mut state,
+        &sys("19"),
+        &[1, 1, 1, 1, 1, 10, 10, 10, 1],
+        &mut table(&["~sustain|"]),
+    );
+    assert_eq!(rolls(&dice, "a", "anti-fighter barrage"), [(Some(8), 3)]);
+    assert_eq!(rolls(&dice, "a", "space combat")[0], (Some(7), 2));
+    assert_eq!(outcome.winner, Some(a()), "it sustained the cruiser's hit and won round two");
+    let here = state.system_state(&sys("19"));
+    let flagship = here.units.iter().find(|u| u.type_id.as_str() == "nomad_flagship");
+    assert!(flagship.is_some_and(|unit| unit.sustained_damage));
+}
+
+#[test]
+fn m2_1_to_3_memoria_ii_moves_2_barrages_5_x3_fights_on_5_x2_and_keeps_memoria() {
+    let mut state = nomad_game();
+    put(&mut state, &sys("19"), "nomad_flagship", &a(), 1);
+    super::give(&mut state, "a", "m2");
+    crate::technology::apply_unit_upgrades(&mut state, content(), DEFAULT, &a());
+    assert_eq!(ships(&state, &sys("19"), &a(), "nomad_flagship2"), 1, "upgraded in place");
+    put(&mut state, &sys("19"), "fighter", &b(), 1);
+    put(&mut state, &sys("19"), "cruiser", &b(), 1);
+    let (_, dice) = space_fight(&mut state, &sys("19"), &[1; 8], &mut table(&[]));
+    assert_eq!(rolls(&dice, "a", "anti-fighter barrage"), [(Some(5), 3)]);
+    assert_eq!(rolls(&dice, "a", "space combat")[0], (Some(5), 2));
+    // Move 2: two steps across the hub with no mech needed; and Memoria still shortens the trip.
+    let run = |blocked: bool, mech: bool| {
+        let hub = planet_hub();
+        let origin = sys(&hub.outer[0]);
+        let target = sys(&hub.across(&hub.outer[0]));
+        let mut state = blank(nomad_game());
+        super::give(&mut state, "a", "m2");
+        put(&mut state, &origin, "nomad_flagship", &a(), 1);
+        crate::technology::apply_unit_upgrades(&mut state, content(), DEFAULT, &a());
+        if blocked {
+            // A rival ship in the centre: no way through, the long way round is three steps.
+            put(&mut state, &sys(&hub.centre), "destroyer", &b(), 1);
+        }
+        if mech {
+            let planet = first_planet(&sys(&hub.outer[2]));
+            put_on_planet(&mut state, &sys(&hub.outer[2]), &planet, "nomad_mech", &a(), 1);
+        }
+        let rule = format!("move|{origin}|0");
+        let (game, _) = tactical(state, "a", hub.galaxy, target.as_str(), &[rule.as_str(), "done_moving"]);
+        ships(&game.state, &target, &a(), "nomad_flagship2")
+    };
+    assert_eq!(run(false, false), 1, "move 2 reaches the far side");
+    assert_eq!(run(true, false), 0, "a blockaded centre stops it");
+    assert_eq!(run(true, true), 1, "but the mech beside the target is adjacent by Memoria");
+}
+
+#[test]
+fn unit_nomad_mech_1_quantum_manipulator_sustains_to_cancel_a_hit_against_the_fleet() {
+    let run = |mech: Option<&str>| {
+        let mut state = nomad_game();
+        put(&mut state, &sys("19"), "cruiser", &a(), 1);
+        if let Some(kind) = mech {
+            put(&mut state, &sys("19"), kind, &a(), 1);
+        }
+        put(&mut state, &sys("19"), "cruiser", &b(), 1);
+        let (outcome, _) = armed_fight(&mut state, &sys("19"), &[1, 10, 10, 1], &mut table(&["~sustain|"]));
+        (outcome.winner, ships(&state, &sys("19"), &a(), "cruiser"))
+    };
+    assert_eq!(run(Some("nomad_mech")), (Some(a()), 1), "the mech took the hit instead of the cruiser");
+    assert_eq!(run(None), (Some(b()), 0), "without it the cruiser dies");
+    assert_eq!(run(Some("sol_mech")), (Some(b()), 0), "another faction's mech has no such ability");
+}
+
+#[test]
+fn cavalry_2_it_is_never_offered_against_the_nomad_and_returns_when_the_combat_ends() {
+    let play = "promissory:sol:cavalry:SPACE_COMBAT_STARTED:after";
+    // Sol (b, holding The Cavalry) attacks `defender` with a destroyer.
+    let fight = |defender: &str| {
+        let mut state = nomad_game();
+        state.active = Some(b());
+        set_leader(&mut state, &a(), "nomadagentthundarian", LeaderStatus::Exhausted);
+        crate::promissory::take(&mut state, content(), &b(), "cavalry:nomad");
+        let defender = PlayerId::new(defender);
+        put(&mut state, &sys("19"), "destroyer", &b(), 1);
+        put(&mut state, &sys("19"), "destroyer", &defender, 1);
+        let (pick, seen) = Pick::new(&[play]);
+        let _ = armed_fight(&mut state, &sys("19"), &[1, 1, 1, 1, 10, 1], &mut Table::with_default(Box::new(pick)));
+        (was_offered(&seen, play), state.promissory_notes.get("cavalry:nomad").cloned())
+    };
+    assert_eq!(fight("c"), (true, Some(a())), "played against Hacan; back with the Nomad after the combat");
+    assert_eq!(fight("a"), (false, Some(b())), "not against the Nomad: Sol keeps it");
+}
+
+#[test]
+fn nomadbt_1_thunders_paradox_exhausts_one_nomad_agent_to_ready_another_players() {
+    let paradox = "breakthrough:nomad:nomadbt:TURN_BEGAN:after";
+    let run = |breakthrough: bool| {
+        let mut state = nomad_game();
+        if breakthrough {
+            state.player_mut(&a()).unwrap().breakthrough =
+                Some(ti4_model::id::BreakthroughId::new("nomadbt"));
+        }
+        set_leader(&mut state, &b(), "solagent", LeaderStatus::Exhausted);
+        state.phase = Phase::Action;
+        state.active = Some(b());
+        let rules: &[&str] = if breakthrough { &[paradox, "pair|0"] } else { &[] };
+        let (pick, seen) = Pick::new(rules);
+        let mut game = Game::with_table(state, content(), Table::with_default(Box::new(pick))).with_sources(DEFAULT);
+        assert_eq!(game.step().error, None, "log: {:?}", game.events);
+        let spent = ["nomadagentartuno", "nomadagentmercer", "nomadagentthundarian"]
+            .iter()
+            .filter(|agent| leader_status(&game.state, &a(), agent) == Some(LeaderStatus::Exhausted))
+            .count();
+        (was_offered(&seen, paradox), leader_status(&game.state, &b(), "solagent"), spent)
+    };
+    assert_eq!(run(true), (true, Some(LeaderStatus::Readied), 1), "one Nomad agent paid for Sol's");
+    assert_eq!(run(false), (false, Some(LeaderStatus::Exhausted), 0), "no breakthrough");
+}
+
+#[test]
+fn the_company_1_the_nomad_has_three_agents_and_all_of_them_ready_at_the_status_phase() {
+    let mut state = nomad_game();
+    let agents = ["nomadagentartuno", "nomadagentmercer", "nomadagentthundarian"];
+    for agent in agents {
+        assert_eq!(leader_status(&state, &a(), agent), Some(LeaderStatus::Readied), "{agent} dealt ready");
+        set_leader(&mut state, &a(), agent, LeaderStatus::Exhausted);
+    }
+    // Another faction keeps its one agent.
+    assert!(
+        agents.iter().all(|agent| leader_status(&state, &b(), agent).is_none()),
+        "the Nomad agents are the Nomad's only"
+    );
+    run_status_phase(&mut state);
+    for agent in agents {
+        assert_eq!(leader_status(&state, &a(), agent), Some(LeaderStatus::Readied), "{agent} readied");
+    }
 }
