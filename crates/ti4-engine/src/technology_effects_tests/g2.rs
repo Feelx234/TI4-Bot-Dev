@@ -2,7 +2,13 @@
 
 use ti4_content::units::UnitType;
 use ti4_model::content_types::POK;
-use ti4_model::id::{SystemId, UnitTypeId};
+use ti4_model::id::SystemId;
+
+use std::collections::BTreeSet;
+
+use ti4_content::galaxy::Galaxy;
+use ti4_model::id::{PlanetId, TechnologyId};
+use ti4_model::state::{GameState, RerollEntry, RerollSet};
 
 use super::{content, give, owns, pid, seated};
 use crate::fixtures::put;
@@ -180,7 +186,167 @@ fn dt2_1_dimensional_tear_ii_production_seven() {
     assert_eq!(unit.production(2), 7);
 }
 
-#[allow(dead_code, reason = "used by the ability tests below")]
-fn _unit_id(id: &str) -> UnitTypeId {
-    UnitTypeId::new(id)
+
+// -- shared helpers ---------------------------------------------------------------------------
+
+/// Emit one typed event through a resolver armed exactly as the game arms it, answering prompts
+/// from `answers` (then declining) and rolling `faces` first. Returns the dice rolled.
+fn emit(
+    state: &mut GameState,
+    answers: &[&str],
+    faces: &[u32],
+    galaxy: Option<&Galaxy>,
+    event_type: &str,
+    pairs: &[(&str, &str)],
+) -> usize {
+    let mut resolver = crate::fixtures::armed_resolver(state);
+    let mut table = crate::choice::Table::with_default(Box::new(
+        crate::choice::Scripted::with_fallback(
+            answers.iter().map(|a| (*a).to_owned()),
+            Box::new(crate::choice::AlwaysDecline),
+        ),
+    ));
+    let mut dice = crate::dice::Dice::from_faces(faces.iter().copied());
+    let mut rng = crate::rng::GameRng::new(0);
+    let mut sequence = crate::event::EventSequence::new();
+    let mut context = crate::timing::TimingContext {
+        state,
+        content: content(),
+        sources: POK,
+        table: &mut table,
+        dice: &mut dice,
+        rng: &mut rng,
+        event_sequence: &mut sequence,
+        galaxy,
+    };
+    let payload = pairs
+        .iter()
+        .map(|(k, v)| ((*k).to_owned(), serde_json::Value::from(*v)))
+        .collect();
+    let event = context.event_sequence.next(event_type, payload).expect("an event id");
+    resolver
+        .emit_with_context(&mut context, event, |_, _| {})
+        .expect("the window resolves");
+    context.dice.history().len()
+}
+
+/// How many of `player`'s `kind` units stand in the space area of `system`.
+fn count(state: &GameState, system: &SystemId, player: &str, kind: &str) -> usize {
+    state
+        .system_state(system)
+        .units
+        .iter()
+        .filter(|u| u.owner == pid(player) && u.type_id.as_str() == kind)
+        .count()
+}
+
+/// How many of `player`'s `kind` units stand on `planet` in `system`.
+fn count_on(state: &GameState, system: &SystemId, planet: &PlanetId, player: &str, kind: &str) -> usize {
+    state
+        .system_state(system)
+        .on_planet_of(planet, &pid(player))
+        .iter()
+        .filter(|u| u.type_id.as_str() == kind)
+        .count()
+}
+
+/// The seat's home system and its first controlled planet there.
+fn home_planet(state: &GameState, player: &str) -> (SystemId, PlanetId) {
+    let home = state.player(&pid(player)).and_then(|s| s.home_system.clone()).expect("home");
+    let planet = state
+        .controlled_planets(&pid(player))
+        .into_iter()
+        .find(|(system, _)| **system == home)
+        .map(|(_, planet)| planet.clone())
+        .expect("a home planet");
+    (home, planet)
+}
+
+/// Stage `faces` as `player`'s just-rolled barrage dice of `unit` in `system`.
+fn stage_barrage(state: &mut GameState, player: &str, system: &SystemId, unit: &str, hits_on: u32, faces: &[u32]) {
+    state.reroll_staging.insert(
+        pid(player),
+        RerollSet {
+            kind: "anti_fighter_barrage".to_owned(),
+            system: system.clone(),
+            rolls: vec![RerollEntry {
+                unit: unit.to_owned(),
+                planet: None,
+                hits_on: Some(hits_on),
+                faces: faces.to_vec(),
+                rerolled: BTreeSet::new(),
+                deltas: std::collections::BTreeMap::new(),
+                unit_types: std::iter::once((unit.to_owned(), 1)).collect(),
+            }],
+        },
+    );
+}
+
+fn learn(state: &mut GameState, player: &str, tech: &str) {
+    state.player_mut(&pid(player)).unwrap().technologies.insert(TechnologyId::new(tech));
+}
+
+// -- Arborec: Letani Warrior II -----------------------------------------------------------------
+
+#[test]
+fn lw2_2_letani_warrior_ii_has_production_two() {
+    let mut state = seated(&[("a", "arborec")]);
+    let system = empty_system(&state);
+    let planet = PlanetId::new("lw2-test-planet");
+    state.system_mut(&system).set_control(planet.clone(), pid("a"));
+    crate::fixtures::put_on_planet(&mut state, &system, &planet, "arborec_infantry", &pid("a"), 1);
+    let before = crate::production::capacity(&state, content(), POK, &pid("a"), &system);
+    assert_eq!(before, 1, "the printed Letani Warrior has PRODUCTION 1");
+    state.system_mut(&system).planet_units.get_mut(&planet).unwrap().clear();
+    crate::fixtures::put_on_planet(&mut state, &system, &planet, "arborec_infantry2", &pid("a"), 1);
+    assert_eq!(crate::production::capacity(&state, content(), POK, &pid("a"), &system), 2);
+}
+
+#[test]
+fn lw2_3_letani_warrior_ii_returns_home_after_a_six() {
+    let (mut state, home, planet) = {
+        let state = seated(&[("a", "arborec"), ("b", "sol")]);
+        let (home, planet) = home_planet(&state, "a");
+        (state, home, planet)
+    };
+    learn(&mut state, "a", "lw2");
+    let pairs = [("player", "a"), ("unit", "arborec_infantry2"), ("system", home.as_str()), ("planet", planet.as_str())];
+    let before = count_on(&state, &home, &planet, "a", "arborec_infantry2");
+    assert_eq!(emit(&mut state, &[], &[6], None, "GROUND_FORCE_DESTROYED", &pairs), 1);
+    emit(&mut state, &[], &[], None, "TURN_BEGAN", &[("player", "a")]);
+    assert_eq!(count_on(&state, &home, &planet, "a", "arborec_infantry2"), before + 1);
+    // A 5 does not save it, and a seat without the card does not roll at all.
+    let mut miss = seated(&[("a", "arborec"), ("b", "sol")]);
+    learn(&mut miss, "a", "lw2");
+    emit(&mut miss, &[], &[5], None, "GROUND_FORCE_DESTROYED", &pairs);
+    emit(&mut miss, &[], &[], None, "TURN_BEGAN", &[("player", "a")]);
+    assert_eq!(count_on(&miss, &home, &planet, "a", "arborec_infantry2"), 0);
+    let mut bare = seated(&[("a", "arborec"), ("b", "sol")]);
+    assert_eq!(emit(&mut bare, &[], &[6], None, "GROUND_FORCE_DESTROYED", &pairs), 0);
+}
+
+// -- Argent: Strike Wing Alpha II ---------------------------------------------------------------
+
+#[test]
+fn swa2_3_strike_wing_alpha_ii_barrage_nines_destroy_infantry() {
+    let build = |tech: bool| {
+        let mut state = seated(&[("a", "argent"), ("b", "sol")]);
+        let system = empty_system(&state);
+        if tech {
+            learn(&mut state, "a", "swa2");
+        }
+        put(&mut state, &system, "argent_destroyer2", &pid("a"), 1);
+        put(&mut state, &system, "cruiser", &pid("b"), 1);
+        put(&mut state, &system, "infantry", &pid("b"), 3);
+        stage_barrage(&mut state, "a", &system, "argent_destroyer2", 6, &[9, 10, 4]);
+        (state, system)
+    };
+    let (mut state, system) = build(true);
+    let pairs = [("player", "a"), ("system", system.as_str()), ("kind", "anti_fighter_barrage")];
+    emit(&mut state, &[], &[], None, "UNIT_ABILITY_ROLLED", &pairs);
+    assert_eq!(count(&state, &system, "b", "infantry"), 1, "the 9 and the 10 each kill one");
+    assert_eq!(count(&state, &system, "b", "cruiser"), 1);
+    let (mut state, system) = build(false);
+    emit(&mut state, &[], &[], None, "UNIT_ABILITY_ROLLED", &pairs);
+    assert_eq!(count(&state, &system, "b", "infantry"), 3, "no card, no kill");
 }
