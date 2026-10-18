@@ -62,6 +62,7 @@ import { Dialog, overlayStack } from "../primitives/index.ts";
 import { useParticipantText } from "../presentation/PlayerIdentity.tsx";
 import { useLoneAutoSubmit } from "../hooks/useLoneAutoSubmit.ts";
 import { useI48sAutoDecline } from "../hooks/useI48sAutoDecline.ts";
+import { useAetherpassageAutoDecline } from "../hooks/useAetherpassageAutoDecline.ts";
 import { readSinglePayment } from "../hooks/useSinglePaymentSetting.ts";
 import {
   ProductionPaymentProvider,
@@ -1121,6 +1122,14 @@ export const GameShell: React.FC<GameShellProps> = ({
     onNotice: onAutoSubmitNotice,
   });
   useI48sAutoDecline({
+    choice,
+    viewerSeat,
+    history,
+    busy: pipelineRunner.isRunning || Boolean(historyBusy),
+    submit: onSubmitChoice,
+    onNotice: onAutoSubmitNotice,
+  });
+  useAetherpassageAutoDecline({
     choice,
     viewerSeat,
     history,
