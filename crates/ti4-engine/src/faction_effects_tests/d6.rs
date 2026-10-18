@@ -1184,15 +1184,32 @@ fn breach(state: &mut GameState, system: &SystemId, active: bool) {
     }
 }
 
-/// A status phase played by a `Game` driven by `rules` until the next strategy phase.
-fn status_game(mut state: GameState, rules: &[&str]) -> (Game<'static>, Seen) {
-    state.phase = Phase::Status;
+/// The end of the action phase and the status phase after it, played by a `Game` driven by `rules`
+/// (every seat has passed, so the game itself begins the status phase and announces
+/// `STATUS_PHASE_BEGAN` before the scoring, upkeep and `STATUS_PHASE_ENDED`).
+fn status_game(state: GameState, rules: &[&str]) -> (Game<'static>, Seen) {
     let (pick, seen) = Pick::new(rules);
+    run_status(state, pick, seen)
+}
+
+/// [`status_game`] whose unmatched questions take the first option that is not a decline.
+fn status_game_eager(state: GameState, rules: &[&str]) -> (Game<'static>, Seen) {
+    let (pick, seen) = Pick::eager(rules);
+    run_status(state, pick, seen)
+}
+
+fn run_status(mut state: GameState, pick: Pick, seen: Seen) -> (Game<'static>, Seen) {
+    state.phase = Phase::Action;
+    for seat in &mut state.players {
+        seat.passed = true;
+    }
     let mut game = Game::with_table(state, content(), Table::with_default(Box::new(pick)))
         .with_sources(DEFAULT);
-    for _ in 0..60 {
+    let mut in_status = false;
+    for _ in 0..120 {
         assert_eq!(game.step().error, None, "log: {:?}", game.events);
-        if game.state.phase != Phase::Status {
+        in_status |= game.state.phase == Phase::Status;
+        if in_status && game.state.phase != Phase::Status {
             return (game, seen);
         }
     }
@@ -1918,4 +1935,403 @@ fn unit_crimson_flagship_2_quietus_stops_space_cannon_and_bombardment_in_active_
         0,
         "active breach and a Quietus: BOMBARDMENT is lost"
     );
+}
+
+// -- Firmament / Obsidian -------------------------------------------------------------------------
+
+use crate::factions::firmament as fw;
+
+fn firmament_game() -> GameState {
+    seated_all(&[("a", "firmament"), ("b", "sol"), ("c", "hacan")])
+}
+
+/// A map whose ring holds the Firmament's home tile `96a` first, six plain systems around a plain
+/// centre. Returns the map and the ring ids.
+fn firmament_map() -> (Galaxy, Vec<String>) {
+    let ids = fw::testkit::plain(7);
+    let mut ring: Vec<String> = ids[1..].to_vec();
+    ring[0] = "96a".to_owned();
+    let refs: Vec<&str> = ring.iter().map(String::as_str).collect();
+    (fw::testkit::ring(&ids[0], &refs), ring)
+}
+
+/// Seat a with a plot card (Sol's token) in play.
+fn with_plot(state: &mut GameState) {
+    fw::testkit::place_plot(state, &a(), &b());
+}
+
+#[test]
+fn plotsplots_1_and_2_scoring_another_players_secret_places_a_facedown_plot_for_no_victory_point() {
+    // Sol has scored Fuel the War Machine (3 space docks); the Firmament has 3 space docks.
+    let mut state = firmament_game();
+    state.record_score(&b(), ti4_model::id::ObjectiveId::new("fwm"));
+    let home = state.player(&a()).unwrap().home_system.clone().unwrap();
+    let planet = state.controlled_planets(&a())[0].1.clone();
+    put_on_planet(&mut state, &home, &planet, "spacedock", &a(), 2);
+    let points = state.player(&a()).unwrap().victory_points;
+    let scored = state.scored_by(&a()).len();
+    let (game, seen) = status_game_eager(state.clone(), &["plot|fwm|b"]);
+    let seat = game.state.player(&a()).unwrap();
+    assert_eq!(seat.victory_points, points, "no victory point: {:?}", asked(&seen));
+    assert_eq!(game.state.scored_by(&a()).len(), scored, "and not a scored objective");
+    let plots = fw::plots(&game.state, &a());
+    assert_eq!(plots.len(), 1, "one plot card placed");
+    assert!(!plots[0].faceup, "facedown");
+    assert_eq!(plots[0].tokens, std::collections::BTreeSet::from([b()]), "with Sol's control token on it");
+    assert!(seat.plot_objectives.contains(&ti4_model::id::SecretObjectiveId::new("fwm")));
+    // A Firmament that does not meet the requirement is not offered it; nor is anyone else.
+    let mut poor = state.clone();
+    let home_planet = planet.clone();
+    poor.system_mut(&home).planet_units.get_mut(&home_planet).unwrap().retain(|unit| unit.type_id.as_str() != "spacedock");
+    let (_, seen) = status_game_eager(poor, &["plot|fwm|b"]);
+    assert!(!was_offered(&seen, "plot|fwm|b"), "{:?}", asked(&seen));
+}
+
+#[test]
+fn puppetsoftheblade_1_the_action_purges_the_firmament_and_gains_the_obsidian_components() {
+    let (galaxy, _) = firmament_map();
+    let mut state = firmament_game();
+    // Without a plot card the ability is not there.
+    let (mut game, seen) = action_game(state.clone(), "a", Some(galaxy.clone()), &[]);
+    steps(&mut game, 1);
+    assert!(!was_offered(&seen, "faction|firmament|become_obsidian"), "{:?}", asked(&seen));
+    with_plot(&mut state);
+    state.promissory_notes.insert("blackops:firmament".to_owned(), a());
+    let (mut game, seen) = action_game(state, "a", Some(galaxy), &["faction|firmament|become_obsidian"]);
+    steps(&mut game, 3);
+    assert!(was_offered(&seen, "faction|firmament|become_obsidian"));
+    let seat = game.state.player(&a()).unwrap();
+    assert_eq!(seat.faction.as_str(), "obsidian");
+    assert_eq!(seat.home_system, Some(sys("96b")), "the home system is flipped");
+    assert_eq!(leader_status(&game.state, &a(), "obsidianagent"), Some(LeaderStatus::Readied));
+    assert_eq!(leader_status(&game.state, &a(), "obsidiancommander"), Some(LeaderStatus::Locked));
+    assert_eq!(leader_status(&game.state, &a(), "obsidianhero"), Some(LeaderStatus::Locked));
+    assert_eq!(leader_status(&game.state, &a(), "firmamentagent"), None, "the Firmament's leaders are purged");
+    assert!(
+        !game.state.promissory_notes.contains_key("blackops:firmament"),
+        "the Firmament's promissory note is purged"
+    );
+    assert!(game.state.promissory_notes.contains_key("malevolency:obsidian"), "the Obsidian's note is gained");
+    assert!(fw::plots(&game.state, &a()).iter().all(|plot| plot.faceup), "plot cards flip faceup");
+}
+
+/// The Firmament seat (a), flipped into the Obsidian by its real action in a running game, with the
+/// map the game used. `setup` may change the state first (after the plot card is placed).
+fn obsidian_game(setup: impl FnOnce(&mut GameState)) -> (GameState, Galaxy, Vec<String>) {
+    let (galaxy, ring) = firmament_map();
+    let mut state = firmament_game();
+    with_plot(&mut state);
+    setup(&mut state);
+    let (mut game, _) = action_game(state, "a", Some(galaxy.clone()), &["faction|firmament|become_obsidian"]);
+    steps(&mut game, 3);
+    assert_eq!(game.state.player(&a()).unwrap().faction.as_str(), "obsidian");
+    (game.state, galaxy, ring)
+}
+
+#[test]
+fn firmamentagent_2_myru_vos_moves_ships_through_other_players_ships_and_silences_space_cannon() {
+    let vos = "leader:firmament:firmamentagent:SYSTEM_ACTIVATED:after";
+    // Through a blockade: Sol's cruiser (move 2) goes through the centre where Hacan has a cruiser.
+    let hub = crate::fixtures::plain_hub();
+    let from = hub.outer[0].clone();
+    let target = hub.across(&from);
+    let run = |agent: bool| {
+        let mut state = firmament_game();
+        put(&mut state, &sys(&from), "cruiser", &b(), 1);
+        put(&mut state, &sys(&hub.centre), "cruiser", &c(), 1);
+        let rule = format!("move|{from}|0");
+        let rules = [if agent { vos } else { "decline" }, rule.as_str(), "done_moving"];
+        let (game, seen) = tactical(state, "b", hub.galaxy.clone(), &target, &rules);
+        (ships(&game.state, &sys(&target), &b(), "cruiser"), leader_status(&game.state, &a(), "firmamentagent"), asked(&seen))
+    };
+    let (arrived, status, log) = run(true);
+    assert_eq!((arrived, status), (1, Some(LeaderStatus::Exhausted)), "{log:?}");
+    let (arrived, status, _) = run(false);
+    assert_eq!((arrived, status), (0, Some(LeaderStatus::Readied)), "no agent: the blockade holds");
+    // Ready again after the status phase.
+    let mut after = firmament_game();
+    set_leader(&mut after, &a(), "firmamentagent", LeaderStatus::Exhausted);
+    run_status_phase(&mut after);
+    assert_eq!(leader_status(&after, &a(), "firmamentagent"), Some(LeaderStatus::Readied));
+    // SPACE CANNON cannot be used against the ships that moved: Hacan's PDS holds its fire.
+    let planets = planet_hub();
+    let centre = sys(&planets.centre);
+    let planet = first_planet(&centre);
+    let cannon = |agent: bool| {
+        let mut state = firmament_game();
+        for id in planets.outer.iter().chain(std::iter::once(&planets.centre)) {
+            let board = state.system_mut(&sys(id));
+            board.units.clear();
+            board.planet_units.clear();
+        }
+        state.system_mut(&centre).set_control(planet.clone(), c());
+        put_on_planet(&mut state, &centre, &planet, "pds", &c(), 1);
+        put(&mut state, &sys(&planets.outer[0]), "cruiser", &b(), 1);
+        let rule = format!("move|{}|0", planets.outer[0]);
+        let rules = [if agent { vos } else { "decline" }, rule.as_str(), "done_moving"];
+        let (game, _) = tactical(state, "b", planets.galaxy.clone(), &planets.centre, &rules);
+        game.rolls().iter().filter(|roll| roll.reason == "space cannon" && roll.by.as_deref() == Some("c")).count()
+    };
+    assert!(cannon(false) > 0, "without the agent the PDS fires");
+    assert_eq!(cannon(true), 0, "with Myru Vos, SPACE CANNON cannot be used against those ships");
+}
+
+#[test]
+fn firmamentcommander_1_unlocks_in_the_game_with_a_plot_card_in_play() {
+    let mut state = firmament_game();
+    assert!(!unlocks_in_the_game(&state, &a(), "firmamentcommander"), "no plot");
+    with_plot(&mut state);
+    assert!(unlocks_in_the_game(&state, &a(), "firmamentcommander"), "a plot card in play");
+}
+
+#[test]
+fn firmamentcommander_2_captain_aroz_counts_planets_in_systems_with_the_owners_ships_for_secrets() {
+    // Seize an Icon (control a legendary planet): the Firmament has only a ship in a legendary system.
+    let legendary = {
+        ti4_content::galaxy::all_systems(content(), DEFAULT)
+            .into_iter()
+            .find(|(id, _)| {
+                ti4_content::galaxy::system(content(), id, DEFAULT).is_some_and(|system| {
+                    system.planets().iter().any(|planet| {
+                        ti4_content::galaxy::planet(content(), planet, DEFAULT)
+                            .is_some_and(|planet| planet.is_legendary())
+                    })
+                })
+            })
+            .map(|(id, _)| sys(id))
+            .expect("a legendary system")
+    };
+    let offered = |unlocked: bool| {
+        let mut state = firmament_game();
+        state.player_mut(&a()).unwrap().secret_objectives =
+            vec![ti4_model::id::SecretObjectiveId::new("sai")];
+        if unlocked {
+            set_leader(&mut state, &a(), "firmamentcommander", LeaderStatus::Unlocked);
+        }
+        put(&mut state, &legendary, "cruiser", &a(), 1);
+        let (_, seen) = status_game_eager(state, &[]);
+        was_offered(&seen, "sai")
+    };
+    assert!(!offered(false), "the planet is not the Firmament's: the secret cannot be scored");
+    assert!(offered(true), "Captain Aroz: planets in systems with its ships count as controlled");
+}
+
+#[test]
+fn firmamenthero_1_unlocks_on_the_third_scored_objective() {
+    hero_unlocks_by_scoring("firmament", "firmamenthero");
+}
+
+#[test]
+fn firmamenthero_2_sharsiss_places_a_plot_with_another_players_token_may_add_a_token_and_is_purged() {
+    let mut state = firmament_game();
+    with_plot(&mut state);
+    set_leader(&mut state, &a(), "firmamenthero", LeaderStatus::Unlocked);
+    // Sol's token is already on the first plot; the hero places a new plot with Hacan's token, then
+    // puts Hacan's token on the first plot too (index 0).
+    let (mut game, seen) = action_game(
+        state,
+        "a",
+        None,
+        &["component|leader|firmamenthero", "c", "siphon", "token|c|0"],
+    );
+    steps(&mut game, 5);
+    let plots = fw::plots(&game.state, &a());
+    assert_eq!(plots.len(), 2, "a second plot card is in play: {:?}", asked(&seen));
+    assert!(plots[1].tokens.contains(&c()) && !plots[1].tokens.contains(&b()));
+    assert!(plots[0].tokens.contains(&b()) && plots[0].tokens.contains(&c()), "and a token was added to the first: {:?} {:?}", plots, asked(&seen));
+    assert_eq!(leader_status(&game.state, &a(), "firmamenthero"), Some(LeaderStatus::Purged));
+}
+
+#[test]
+fn blackops_1_and_2_the_note_is_dealt_lent_and_a_receiving_player_gains_two_tokens_and_trade_goods() {
+    let note = crate::promissory::note_id("blackops", "firmament");
+    let hub = crate::fixtures::plain_hub();
+    let mut state = firmament_game();
+    crate::promissory::deal(&mut state, content(), DEFAULT);
+    assert_eq!(state.promissory_notes.get(&note), Some(&a()), "dealt to the Firmament");
+    let centre = sys(&hub.centre);
+    put(&mut state, &centre, "cruiser", &a(), 1);
+    put(&mut state, &centre, "cruiser", &b(), 1);
+    let goods = state.player(&b()).unwrap().trade_goods;
+    let tokens = |state: &GameState| {
+        let seat = state.player(&b()).unwrap();
+        seat.tactic_tokens + seat.fleet_tokens + seat.strategic_tokens
+    };
+    let before = tokens(&state);
+    let offer = format!("pn{note}:0");
+    let (mut game, seen) = action_game(
+        state,
+        "a",
+        Some(hub.galaxy),
+        &["component|trade|sol", offer.as_str(), "accept", "place", "enervate"],
+    );
+    step_until(&mut game, "TRANSACTION_RESOLVED", 8);
+    steps(&mut game, 3);
+    assert!(was_offered(&seen, &offer), "{:?}", asked(&seen));
+    assert_eq!(game.state.player(&b()).unwrap().trade_goods, goods + 2, "2 trade goods");
+    assert_eq!(tokens(&game.state), before + 2, "2 command tokens");
+    assert!(!game.state.promissory_notes.contains_key(&note), "the card is purged");
+    let plots = fw::plots(&game.state, &a());
+    assert_eq!(plots.len(), 1, "the Firmament placed a facedown plot");
+    assert!(plots[0].tokens.contains(&b()) && !plots[0].faceup);
+}
+
+#[test]
+fn firmamentbt_1_the_sowing_takes_up_to_three_trade_goods_when_gained_and_at_the_status_phase() {
+    let mut state = firmament_game();
+    state.player_mut(&a()).unwrap().trade_goods = 8;
+    // Gaining the breakthrough in a running game opens the placement.
+    let (mut game, seen) = action_game(state, "a", None, &["3"]);
+    steps(&mut game, 1);
+    game.state.player_mut(&a()).unwrap().breakthrough =
+        Some(ti4_model::id::BreakthroughId::new("firmamentbt"));
+    steps(&mut game, 2);
+    assert_eq!(fw::goods_on_card(&game.state, &a()), 3, "{:?}", asked(&seen));
+    assert_eq!(game.state.player(&a()).unwrap().trade_goods, 5);
+    // At the start of the status phase, again, "up to 3": two this time.
+    let (done, seen) = status_game(game.state.clone(), &["2"]);
+    assert_eq!(fw::goods_on_card(&done.state, &a()), 5, "{:?}", asked(&seen));
+    assert_eq!(done.state.player(&a()).unwrap().trade_goods, 3);
+    // A may: declining places nothing.
+    let (done, _) = status_game(game.state.clone(), &["decline"]);
+    assert_eq!(fw::goods_on_card(&done.state, &a()), 3);
+}
+
+/// A research with the Technology strategy card played by seat `a` in a game of `state`.
+fn research(state: GameState, tech: &str) -> (Game<'static>, Seen) {
+    let mut state = state;
+    state.player_mut(&a()).unwrap().strategy_cards =
+        vec![ti4_model::id::StrategyCardId::new("pok7technology")];
+    for other in [b(), c()] {
+        if let Some(seat) = state.player_mut(&other) {
+            seat.strategic_tokens = 0;
+        }
+    }
+    let (mut game, seen) = eager_game(state, "a", None, &["strategic", tech]);
+    steps(&mut game, 8);
+    (game, seen)
+}
+
+#[test]
+fn planesplitter_firm_1_gaining_it_puts_the_fracture_into_play_in_a_real_research() {
+    let mut state = firmament_game();
+    super::give(&mut state, "a", "st");
+    super::give(&mut state, "a", "sdn");
+    assert!(!state.fracture_in_play);
+    let (game, seen) = research(state.clone(), "planesplitter-firm");
+    assert!(super::owns(&game.state, "a", "planesplitter-firm"), "{:?}", asked(&seen));
+    assert!(game.state.fracture_in_play, "The Fracture is in play");
+    assert!(!game.state.ingress_tokens.is_empty(), "with its ingress tokens");
+    // Researching an ordinary technology does not.
+    super::give(&mut state, "a", "pa");
+    let (game, _) = research(state, "gls");
+    assert!(!game.state.fracture_in_play);
+}
+
+#[test]
+fn parasite_firm_1_places_an_infantry_on_a_home_planet_at_the_start_of_the_status_phase() {
+    let infantry = |state: &GameState| {
+        let home = state.player(&a()).unwrap().home_system.clone().unwrap();
+        state
+            .controlled_planets(&a())
+            .into_iter()
+            .filter(|(system, _)| **system == home)
+            .map(|(system, planet)| on_planet(state, system, planet, &a(), "infantry"))
+            .sum::<usize>()
+    };
+    let run = |tech: bool, rule: &str| {
+        let mut state = firmament_game();
+        if tech {
+            super::give(&mut state, "a", "parasite-firm");
+        }
+        let before = infantry(&state);
+        let (game, _) = status_game(state, &[rule]);
+        infantry(&game.state) - before
+    };
+    assert_eq!(run(true, "cronos"), 1, "one infantry from reinforcements on Cronos");
+    assert_eq!(run(true, "decline"), 0, "a may");
+    assert_eq!(run(false, "cronos"), 0, "no technology");
+}
+
+#[test]
+fn planesplitter_firm_2_and_parasite_firm_2_the_cards_flip_when_the_faction_becomes_the_obsidian() {
+    let (state, _, _) = obsidian_game(|state| {
+        super::give(state, "a", "planesplitter-firm");
+        super::give(state, "a", "parasite-firm");
+        state
+            .player_mut(&a())
+            .unwrap()
+            .exhausted_technologies
+            .insert(ti4_model::id::TechnologyId::new("parasite-firm"));
+    });
+    assert!(super::owns(&state, "a", "planesplitter-obs") && super::owns(&state, "a", "parasite-obs"));
+    assert!(!super::owns(&state, "a", "planesplitter-firm") && !super::owns(&state, "a", "parasite-firm"));
+    assert!(
+        state
+            .player(&a())
+            .unwrap()
+            .exhausted_technologies
+            .contains(&ti4_model::id::TechnologyId::new("parasite-obs")),
+        "exhaustion is kept on the flipped card"
+    );
+}
+
+#[test]
+fn planesplitter_obs_1_a_strategic_action_may_move_an_ingress_token_next_to_the_owners_units() {
+    let (mut state, galaxy, _) = obsidian_game(|_| {});
+    super::give(&mut state, "a", "planesplitter-obs");
+    state.fracture_in_play = true;
+    state.ingress_tokens.insert(sys("19"));
+    state.player_mut(&a()).unwrap().strategy_cards =
+        vec![ti4_model::id::StrategyCardId::new("pok1leadership")];
+    let (mut game, seen) = eager_game(
+        state.clone(),
+        "a",
+        Some(galaxy.clone()),
+        &["strategic", "~planesplitter-obs", "19>96b"],
+    );
+    steps(&mut game, 6);
+    assert!(game.state.ingress_tokens.contains(&sys("96b")), "{:?}", asked(&seen));
+    assert!(!game.state.ingress_tokens.contains(&sys("19")), "moved, not copied");
+    // A may.
+    let (mut game, _) = eager_game(state, "a", Some(galaxy), &["strategic", "decline"]);
+    steps(&mut game, 6);
+    assert!(game.state.ingress_tokens.contains(&sys("19")));
+}
+
+#[test]
+fn planesplitter_obs_2_and_parasite_obs_2_the_flipped_technologies_cannot_be_researched() {
+    let (state, _, _) = obsidian_game(|_| {});
+    let (_, seen) = research(state, "aida");
+    assert!(!was_offered(&seen, "planesplitter-obs") && !was_offered(&seen, "parasite-obs"), "{:?}", asked(&seen));
+    // The same Technology action offers a researchable card, so the question was asked.
+    assert!(was_offered(&seen, "aida"), "{:?}", asked(&seen));
+}
+
+#[test]
+fn parasite_obs_1_destroys_an_infantry_of_another_player_next_to_the_owners_infantry_at_turn_start() {
+    let (galaxy, ring) = firmament_map();
+    let _ = ring;
+    let infantry_left = |tech: bool| {
+        let (mut state, galaxy, _) = obsidian_game(|_| {});
+        if tech {
+            super::give(&mut state, "a", "parasite-obs");
+        }
+        let centre = sys(&galaxy_centre(&galaxy));
+        let planet = first_planet(&centre);
+        state.system_mut(&centre).set_control(planet.clone(), b());
+        put_on_planet(&mut state, &centre, &planet, "infantry", &b(), 2);
+        let (mut game, seen) = action_game(state, "a", Some(galaxy), &[]);
+        steps(&mut game, 1);
+        let _ = seen;
+        on_planet(&game.state, &centre, &planet, &b(), "infantry")
+    };
+    assert_eq!(infantry_left(true), 1, "one Sol infantry in the system next to the Obsidian's home is destroyed");
+    assert_eq!(infantry_left(false), 2, "without the technology nothing happens");
+    let _ = galaxy;
+}
+
+/// The centre system of a one-ring map built from [`firmament_map`].
+fn galaxy_centre(_galaxy: &Galaxy) -> String {
+    fw::testkit::plain(7)[0].clone()
 }
