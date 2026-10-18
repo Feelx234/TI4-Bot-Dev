@@ -2494,8 +2494,6 @@ fn planesplitter_obs_2_and_parasite_obs_2_the_flipped_technologies_cannot_be_res
 #[test]
 fn parasite_obs_1_destroys_an_infantry_of_another_player_next_to_the_owners_infantry_at_turn_start()
 {
-    let (galaxy, ring) = firmament_map();
-    let _ = ring;
     let infantry_left = |tech: bool| {
         let (mut state, galaxy, _) = obsidian_game(|_| {});
         if tech {
@@ -2520,7 +2518,6 @@ fn parasite_obs_1_destroys_an_infantry_of_another_player_next_to_the_owners_infa
         2,
         "without the technology nothing happens"
     );
-    let _ = galaxy;
 }
 
 /// The centre system of a one-ring map built from [`firmament_map`].
@@ -2799,7 +2796,17 @@ fn malevolency_1_at_the_end_of_a_tactical_action_the_holder_may_pay_one_influenc
     // The note is the Obsidian's own, and it can use the ability itself.
     assert_eq!(state.promissory_notes.get(&note), Some(&a()));
     state.player_mut(&a()).unwrap().trade_goods = 3;
-    let influence_before = state.player(&a()).unwrap().trade_goods;
+    let paid = |after: &GameState| {
+        // The one influence is paid in trade goods or by exhausting a planet.
+        (3 - after.player(&a()).unwrap().trade_goods)
+            + i32::try_from(
+                after
+                    .exhausted_planets
+                    .len()
+                    .saturating_sub(state.exhausted_planets.len()),
+            )
+            .unwrap()
+    };
     let (game, seen) = tactical(
         state.clone(),
         "a",
@@ -2813,10 +2820,10 @@ fn malevolency_1_at_the_end_of_a_tactical_action_the_holder_may_pay_one_influenc
         "given to the neighbour: {:?}",
         asked(&seen)
     );
-    let spent = influence_before - game.state.player(&a()).unwrap().trade_goods;
     assert!(
-        spent <= 1,
-        "at most the one influence was paid in trade goods"
+        paid(&game.state) >= 1,
+        "one influence was spent: {:?}",
+        asked(&seen)
     );
     // Declining keeps the card.
     let (game, _) = tactical(state, "a", galaxy, "96b", &["done_moving", "decline"]);
@@ -3576,4 +3583,444 @@ fn unit_deepwrought_flagship_1_luminous_moves_through_systems_with_its_owners_un
         run(true).1
     );
     assert_eq!(run(false).0, 0, "an empty-handed blockade holds");
+}
+
+// -- unit abilities ---------------------------------------------------------------------------------
+
+/// `unit` of seat `a` fights one Sol cruiser (a pinned 1 and b pinned 10 for the first round): the
+/// first space combat roll is `(hits_on, dice)`, and the flagship is asked about SUSTAIN DAMAGE when
+/// Sol's hit lands.
+fn fights_like(mut state: GameState, unit: &str, hits_on: u32, dice: usize) {
+    let (system, _) = arena(&mut state);
+    state.active = Some(a());
+    put(&mut state, &system, unit, &a(), 1);
+    put(&mut state, &system, "cruiser", &b(), 1);
+    let (mut table, seen) = table_seen(&["sustain|0"]);
+    let faces: Vec<u32> = vec![1; dice].into_iter().chain([10]).collect();
+    let (_, rolled) = armed_fight(&mut state, &system, &faces, &mut table);
+    let combat = rolls(&rolled, "a", "space combat");
+    assert_eq!(
+        combat[0],
+        (Some(hits_on), dice),
+        "{unit}: combat value and dice"
+    );
+    assert!(
+        asked(&seen)
+            .iter()
+            .any(|line| line.starts_with("a: ") && line.contains("sustain|0")),
+        "{unit} can SUSTAIN DAMAGE: {:?}",
+        asked(&seen)
+    );
+}
+
+#[test]
+fn unit_bastion_flagship_0_the_egeiro_fights_on_9_with_one_die_and_sustains() {
+    fights_like(bastion_game(), "bastion_flagship", 9, 1);
+}
+
+#[test]
+fn unit_crimson_flagship_0_quietus_fights_with_two_dice_on_5_and_sustains() {
+    fights_like(crimson_game(), "crimson_flagship", 5, 2);
+}
+
+#[test]
+fn unit_deepwrought_flagship_0_luminous_fights_with_two_dice_on_7_and_sustains() {
+    fights_like(deepwrought_game(), "deepwrought_flagship", 7, 2);
+}
+
+#[test]
+fn unit_firmament_flagship_0_heavens_eye_fights_with_two_dice_on_5_and_sustains() {
+    fights_like(firmament_game(), "firmament_flagship", 5, 2);
+}
+
+#[test]
+fn unit_obsidian_flagship_0_heavens_hollow_fights_with_three_dice_on_5_and_sustains() {
+    let (state, _, _) = obsidian_game(|_| {});
+    fights_like(state, "obsidian_flagship", 5, 3);
+}
+
+#[test]
+fn unit_crimson_destroyer_0_exile_i_fights_on_8_and_barrages_9_x2() {
+    let mut state = crimson_game();
+    let (system, _) = arena(&mut state);
+    state.active = Some(a());
+    put(&mut state, &system, "crimson_destroyer", &a(), 1);
+    put(&mut state, &system, "fighter", &b(), 3);
+    let (_, dice) = space_fight(&mut state, &system, &[1; 8], &mut Table::new());
+    assert_eq!(rolls(&dice, "a", "anti-fighter barrage")[0], (Some(9), 2));
+    assert_eq!(
+        rolls(&dice, "a", "space combat")[0],
+        (Some(8), 1),
+        "the base destroyer fights on 9"
+    );
+}
+
+/// Seat a activates `system` (no dock there) in a tactical action and is offered PRODUCTION; the
+/// prompt reads "produce in <system> (<n> left)".
+fn production_offered(state: GameState, system: &SystemId) -> Option<String> {
+    let (mut game, seen) = action_game(
+        state,
+        "a",
+        Some(crate::fixtures::plain_hub().galaxy),
+        &[
+            TACTICAL_ACTION_ID,
+            system.as_str(),
+            "done_moving",
+            "done_producing",
+        ],
+    );
+    for _ in 0..6 {
+        assert_eq!(game.step().error, None, "log: {:?}", game.events);
+    }
+    asked(&seen)
+        .into_iter()
+        .find(|line| line.contains("produce in"))
+}
+
+#[test]
+fn unit_bastion_flagship_2_the_egeiro_has_production_1_in_its_system() {
+    // PRODUCTION 1 on the unit card: a system with the flagship and no space dock lets its owner
+    // produce one unit.
+    let mut state = bastion_game();
+    let (system, _) = arena(&mut state);
+    put(&mut state, &system, "bastion_flagship", &a(), 1);
+    let found = production_offered(state.clone(), &system);
+    assert!(
+        found
+            .as_deref()
+            .is_some_and(|line| line.contains("(1 left)")),
+        "{found:?}"
+    );
+    let mut without = state;
+    without.system_mut(&system).units.clear();
+    put(&mut without, &system, "cruiser", &a(), 1);
+    assert_eq!(
+        production_offered(without, &system),
+        None,
+        "no production unit, no production"
+    );
+}
+
+#[test]
+fn unit_deepwrought_mech_2_the_eanautic_has_production_1_on_its_planet() {
+    let mut state = deepwrought_game();
+    let (system, planet) = arena(&mut state);
+    state.system_mut(&system).set_control(planet.clone(), a());
+    put_on_planet(&mut state, &system, &planet, "deepwrought_mech", &a(), 1);
+    let found = production_offered(state, &system);
+    assert!(
+        found
+            .as_deref()
+            .is_some_and(|line| line.contains("(1 left)")),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn unit_bastion_spacedock_1_up_to_three_fighters_in_a_helios_system_do_not_count_against_capacity()
+{
+    // A tactical action's end enforces capacity: four fighters with no carrier is one over, three
+    // are free (V1 and V2 alike).
+    let (system, planet) = crate::fixtures::a_placed_planet();
+    let over = |dock: &str, fighters: usize| {
+        let mut state = bastion_game();
+        let board = state.system_mut(&system);
+        board.units.clear();
+        board.planet_units.clear();
+        board.planet_control.clear();
+        state.system_mut(&system).set_control(planet.clone(), a());
+        put_on_planet(&mut state, &system, &planet, dock, &a(), 1);
+        put(&mut state, &system, "fighter", &a(), fighters);
+        let (mut game, seen) = action_game(
+            state,
+            "a",
+            Some(crate::fixtures::plain_hub().galaxy),
+            &[
+                TACTICAL_ACTION_ID,
+                system.as_str(),
+                "done_moving",
+                "done_producing",
+            ],
+        );
+        for _ in 0..8 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+        }
+        asked(&seen)
+            .iter()
+            .any(|line| line.contains("over capacity"))
+    };
+    for dock in ["bastion_spacedock", "bastion_spacedock2"] {
+        assert!(!over(dock, 3), "{dock}: three fighters are supported");
+        assert!(over(dock, 4), "{dock}: the fourth is not");
+    }
+}
+
+#[test]
+fn unit_firmament_flagship_1_heavens_eye_moves_one_further_toward_a_puppeted_players_units() {
+    // Move 1 reaches the system across the centre only when the active system holds units of a
+    // player with a token on one of the Firmament's plots (Sol, not Hacan).
+    let hub = crate::fixtures::plain_hub();
+    let origin = hub.outer[0].clone();
+    let target = hub.across(&origin);
+    let reaches = |occupant: PlayerId| {
+        let mut state = firmament_game();
+        with_plot(&mut state);
+        for id in std::iter::once(&hub.centre).chain(hub.outer.iter()) {
+            state.system_mut(&sys(id)).units.clear();
+        }
+        put(&mut state, &sys(&origin), "firmament_flagship", &a(), 1);
+        put(&mut state, &sys(&target), "cruiser", &occupant, 1);
+        let rule = format!("~move|{origin}|");
+        let rules = [
+            rule.as_str(),
+            "done_moving",
+            "decline",
+            "decline",
+            "decline",
+        ];
+        let (game, seen) = tactical(state, "a", hub.galaxy.clone(), &target, &rules);
+        (
+            was_offered_like(&seen, &format!("move|{origin}|")),
+            game.state.clone(),
+            asked(&seen),
+        )
+    };
+    let (offered, _, log) = reaches(b());
+    assert!(
+        offered,
+        "Sol is puppeted: the flagship's move is 2: {log:?}"
+    );
+    let (offered, _, _) = reaches(c());
+    assert!(!offered, "Hacan is not: the move stays 1");
+}
+
+#[test]
+fn unit_firmament_flagship_2_heavens_eye_repairs_at_the_end_of_every_combat_round_against_a_puppet()
+{
+    let repaired = |opponent: PlayerId| {
+        let mut state = firmament_game();
+        with_plot(&mut state);
+        let (system, _) = arena(&mut state);
+        state.active = Some(a());
+        let mut flagship =
+            ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new("firmament_flagship"), a());
+        flagship.sustained_damage = true;
+        state.system_mut(&system).units.push(flagship);
+        put(&mut state, &system, "cruiser", &opponent, 1);
+        // Round one: both sides miss, so the fight goes on; round two: the flagship's dice hit.
+        let _ = armed_fight(&mut state, &system, &[1, 1, 1, 10, 10, 1], &mut table(&[]));
+        state
+            .system_state(&system)
+            .units
+            .iter()
+            .find(|unit| unit.type_id.as_str() == "firmament_flagship")
+            .map(|unit| unit.sustained_damage)
+    };
+    assert_eq!(
+        repaired(b()),
+        Some(false),
+        "repaired against Sol, whose token is on a plot"
+    );
+    assert_eq!(repaired(c()), Some(true), "not against Hacan");
+}
+
+#[test]
+fn unit_firmament_mech_1_viper_ex_23_may_coexist_and_unit_obsidian_mech_1_viper_hollow_takes_the_planet_on_the_flip()
+ {
+    // The Firmament lands a Viper EX-23 on Sol's planet and chooses to coexist; Sol keeps the planet.
+    let (galaxy, ring) = firmament_map();
+    let centre = sys(&galaxy_centre(&galaxy));
+    let planet = first_planet(&centre);
+    let mut state = firmament_game();
+    with_plot(&mut state);
+    let board = state.system_mut(&centre);
+    board.units.clear();
+    board.planet_units.clear();
+    board.planet_control.clear();
+    state.system_mut(&centre).set_control(planet.clone(), b());
+    put_on_planet(&mut state, &centre, &planet, "infantry", &b(), 2);
+    put(&mut state, &sys(&ring[1]), "carrier", &a(), 1);
+    put(&mut state, &sys(&ring[1]), "firmament_mech", &a(), 1);
+    let (mut game, seen) = action_game(
+        state,
+        "a",
+        Some(galaxy.clone()),
+        &[
+            TACTICAL_ACTION_ID,
+            centre.as_str(),
+            &format!("~move|{}|", ring[1]),
+            "load|0",
+            "done_moving",
+            "~commit|",
+            "coexist",
+            "done_committing",
+        ],
+    );
+    for _ in 0..40 {
+        assert_eq!(game.step().error, None, "log: {:?}", game.events);
+        if logged(&game, "TACTICAL_ACTION_COMPLETE") {
+            break;
+        }
+    }
+    assert!(
+        crate::coexistence::is_coexisting(&game.state, &centre, &planet, &a()),
+        "{:?}",
+        asked(&seen)
+    );
+    assert_eq!(
+        game.state.system_state(&centre).planet_control.get(&planet),
+        Some(&b())
+    );
+    assert!(
+        game.rolls()
+            .iter()
+            .all(|roll| roll.reason != "ground combat"),
+        "nobody fought"
+    );
+    // Then the faction flips: the Viper Hollow gains control, Sol's units now coexist.
+    let mut state = game.state.clone();
+    state.phase = Phase::Action;
+    for seat in &mut state.players {
+        seat.passed = false;
+    }
+    let (mut flip, seen) = action_game(
+        state,
+        "a",
+        Some(galaxy),
+        &["faction|firmament|become_obsidian"],
+    );
+    steps(&mut flip, 3);
+    assert_eq!(
+        flip.state.player(&a()).unwrap().faction.as_str(),
+        "obsidian",
+        "{:?}",
+        asked(&seen)
+    );
+    assert_eq!(
+        flip.state.system_state(&centre).planet_control.get(&planet),
+        Some(&a()),
+        "the Obsidian controls the planet"
+    );
+    assert!(
+        crate::coexistence::is_coexisting(&flip.state, &centre, &planet, &b()),
+        "and Sol's units now coexist"
+    );
+    assert_eq!(
+        on_planet(&flip.state, &centre, &planet, &a(), "obsidian_mech"),
+        1,
+        "the card flipped"
+    );
+}
+
+#[test]
+fn unit_crimson_flagship_3_quietus_strips_production_and_planetary_shield_in_active_breaches() {
+    // PRODUCTION: Sol's home dock sits in an active breach, the Quietus in another.
+    let produces = |active: bool| {
+        let mut state = crimson_game();
+        let (other, _) = arena(&mut state);
+        put(&mut state, &other, "crimson_flagship", &a(), 1);
+        breach(&mut state, &other, active);
+        let home = state.player(&b()).unwrap().home_system.clone().unwrap();
+        breach(&mut state, &home, active);
+        let (mut game, seen) = action_game(
+            state,
+            "b",
+            Some(crate::fixtures::plain_hub().galaxy),
+            &[
+                TACTICAL_ACTION_ID,
+                home.as_str(),
+                "done_moving",
+                "done_producing",
+            ],
+        );
+        for _ in 0..6 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+        }
+        was_offered_like(&seen, "build|")
+    };
+    assert!(produces(false), "inactive breaches: Sol's dock produces");
+    assert!(
+        !produces(true),
+        "active breaches: Sol's space dock has lost PRODUCTION"
+    );
+    // PLANETARY SHIELD: the Crimson's dreadnought bombards Sol's planet, which a PDS shields; the
+    // PDS (in an active breach beside the Quietus) has lost the shield.
+    let bombards = |active: bool| {
+        let mut state = crimson_game();
+        let (system, planet) = arena(&mut state);
+        state.active = Some(a());
+        breach(&mut state, &system, active);
+        put(&mut state, &system, "crimson_flagship", &a(), 1);
+        state.system_mut(&system).set_control(planet.clone(), b());
+        put_on_planet(&mut state, &system, &planet, "infantry", &b(), 2);
+        put_on_planet(&mut state, &system, &planet, "pds", &b(), 1);
+        put(&mut state, &system, "dreadnought", &a(), 1);
+        put(&mut state, &system, "carrier", &a(), 1);
+        put(&mut state, &system, "infantry", &a(), 1);
+        let (_, dice) = armed_invade(
+            &mut state,
+            &system,
+            &a(),
+            &[1; 8],
+            &mut table(&["~commit|"]),
+        );
+        rolls(&dice, "a", "bombardment").len()
+    };
+    assert_eq!(
+        bombards(false),
+        0,
+        "the PDS's PLANETARY SHIELD stops BOMBARDMENT"
+    );
+    assert!(
+        bombards(true) > 0,
+        "in an active breach beside the Quietus the shield is gone"
+    );
+}
+
+#[test]
+fn unit_deepwrought_flagship_2_luminous_adds_one_move_for_each_system_it_passes_through_with_its_owners_units()
+ {
+    // Three jumps round the ring (outer 0 -> 1 -> 2 -> 3); the centre is blockaded, so the move-1
+    // flagship needs +2: one for each intermediate system holding the Deepwrought's units.
+    let hub = crate::fixtures::plain_hub();
+    let (origin, first, second, target) = (
+        hub.outer[0].clone(),
+        hub.outer[1].clone(),
+        hub.outer[2].clone(),
+        hub.outer[3].clone(),
+    );
+    assert_eq!(
+        hub.galaxy.distance(&origin, &target),
+        Some(2),
+        "through the centre it is two"
+    );
+    let reaches = |own_in_second: bool| {
+        let mut state = deepwrought_game();
+        for id in std::iter::once(&hub.centre).chain(hub.outer.iter()) {
+            state.system_mut(&sys(id)).units.clear();
+        }
+        put(&mut state, &sys(&origin), "deepwrought_flagship", &a(), 1);
+        put(&mut state, &sys(&hub.centre), "destroyer", &b(), 2);
+        put(&mut state, &sys(&first), "destroyer", &b(), 1);
+        put(&mut state, &sys(&first), "infantry", &a(), 1);
+        put(&mut state, &sys(&second), "destroyer", &b(), 1);
+        if own_in_second {
+            put(&mut state, &sys(&second), "infantry", &a(), 1);
+        }
+        let rule = format!("~move|{origin}|");
+        let (game, _) = tactical(
+            state,
+            "a",
+            hub.galaxy.clone(),
+            &target,
+            &[&rule, "done_moving"],
+        );
+        ships(&game.state, &sys(&target), &a(), "deepwrought_flagship")
+    };
+    assert_eq!(reaches(true), 1, "two systems with its units: +2, move 3");
+    assert_eq!(
+        reaches(false),
+        0,
+        "one such system: +1, move 2, the second blockade holds"
+    );
 }
