@@ -1532,7 +1532,7 @@ fn pds2_2_space_cannon_reaches_ships_in_adjacent_systems() {
     let hub = plain_hub();
     let active = SystemId::new(&hub.centre);
     let next_door = SystemId::new(&hub.outer[0]);
-    let planet = PlanetId::new("a_planet_next_door");
+    let planet = PlanetId::new("mellon");
     let guns = |tech: bool| {
         let mut state = game(&["a", "b"]);
         for id in std::iter::once(&hub.centre).chain(hub.outer.iter()) {

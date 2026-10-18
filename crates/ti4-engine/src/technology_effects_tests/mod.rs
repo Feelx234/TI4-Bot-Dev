@@ -34,6 +34,7 @@ pub(super) fn give(state: &mut GameState, player: &str, alias: &str) {
 }
 
 /// Does `player` own `alias`?
+#[allow(dead_code)]
 pub(super) fn owns(state: &GameState, player: &str, alias: &str) -> bool {
     state
         .player(&pid(player))

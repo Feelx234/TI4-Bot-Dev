@@ -60,15 +60,27 @@ fn emit_full(
 }
 
 fn json(pairs: &[(&str, serde_json::Value)]) -> BTreeMap<String, serde_json::Value> {
-    pairs.iter().map(|(k, v)| ((*k).to_owned(), v.clone())).collect()
+    pairs
+        .iter()
+        .map(|(k, v)| ((*k).to_owned(), v.clone()))
+        .collect()
 }
 
 fn emit(state: &mut GameState, answers: &[&str], event_type: &str, pairs: &[(&str, &str)]) {
-    let payload = pairs.iter().map(|(k, v)| ((*k).to_owned(), serde_json::Value::from(*v))).collect();
+    let payload = pairs
+        .iter()
+        .map(|(k, v)| ((*k).to_owned(), serde_json::Value::from(*v)))
+        .collect();
     emit_full(state, &mut scripted(answers), None, event_type, payload);
 }
 
-fn on_planet(state: &GameState, system: &SystemId, planet: &str, who: &PlayerId, kind: &str) -> usize {
+fn on_planet(
+    state: &GameState,
+    system: &SystemId,
+    planet: &str,
+    who: &PlayerId,
+    kind: &str,
+) -> usize {
     state
         .system_state(system)
         .on_planet_of(&PlanetId::new(planet), who)
@@ -118,10 +130,24 @@ fn bio_1_moves_infantry_between_planets_at_the_end_of_the_status_phase() {
             give(&mut state, "a", "bio");
         }
         for (planet, n) in [("src", 2), ("dst", 0)] {
-            state.system_mut(&system).set_control(PlanetId::new(planet), a());
-            put_on_planet(&mut state, &system, &PlanetId::new(planet), "arborec_infantry", &a(), n);
+            state
+                .system_mut(&system)
+                .set_control(PlanetId::new(planet), a());
+            put_on_planet(
+                &mut state,
+                &system,
+                &PlanetId::new(planet),
+                "arborec_infantry",
+                &a(),
+                n,
+            );
         }
-        emit(&mut state, &[BIO, "move|0", "move|0"], "STATUS_PHASE_ENDED", &[]);
+        emit(
+            &mut state,
+            &[BIO, "move|0", "move|0"],
+            "STATUS_PHASE_ENDED",
+            &[],
+        );
         (
             on_planet(&state, &system, "src", &a(), "arborec_infantry"),
             on_planet(&state, &system, "dst", &a(), "arborec_infantry"),
@@ -159,7 +185,12 @@ fn ah_2_a_planet_with_your_structure_gains_production_one() {
     let production = |with_tech: bool, who: &PlayerId| {
         let (state, system, planet) = hololattice(with_tech);
         crate::factions::hooks_economy::extra_production_planet(
-            &state, content(), POK, who, &system, &planet,
+            &state,
+            content(),
+            POK,
+            who,
+            &system,
+            &planet,
         )
     };
     assert_eq!(production(true, &a()), 1);
@@ -180,15 +211,33 @@ fn nes_1_one_sustain_cancels_two_hits() {
             give(&mut state, "a", "nes");
         }
         let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
-        crate::combat::absorb_hits(&mut state, content(), POK, &mut table, &a(), &system, &b(), 2)
-            .expect("hits resolve");
+        crate::combat::absorb_hits(
+            &mut state,
+            content(),
+            POK,
+            &mut table,
+            &a(),
+            &system,
+            &b(),
+            2,
+        )
+        .expect("hits resolve");
         (
             state.system_state(&system).units_of(&a()).len(),
-            state.system_state(&system).units.iter().filter(|u| u.sustained_damage).count(),
+            state
+                .system_state(&system)
+                .units
+                .iter()
+                .filter(|u| u.sustained_damage)
+                .count(),
         )
     };
     assert_eq!(run(true), (2, 1), "the dreadnought alone absorbs both hits");
-    assert_eq!(run(false).0, 1, "without the card the second hit costs a ship");
+    assert_eq!(
+        run(false).0,
+        1,
+        "without the card the second hit costs a ship"
+    );
 }
 
 // -- Floating Factory II --------------------------------------------------------------------------
@@ -228,9 +277,14 @@ fn ffac2_4_moves_like_a_ship() {
     let origin = SystemId::new(hub.outer[0].clone());
     let active = SystemId::new(hub.centre.clone());
     put(&mut state, &origin, "saar_spacedock2", &a(), 1);
-    let moves = crate::tactical::movable_into(&state, content(), DEFAULT, &hub.galaxy, &a(), &active);
+    let moves =
+        crate::tactical::movable_into(&state, content(), DEFAULT, &hub.galaxy, &a(), &active);
     assert!(stats("saar_spacedock2").moves_as_ship());
-    assert!(moves.iter().any(|m| m.origin == origin && m.unit.type_id.as_str() == "saar_spacedock2"));
+    assert!(
+        moves
+            .iter()
+            .any(|m| m.origin == origin && m.unit.type_id.as_str() == "saar_spacedock2")
+    );
 }
 
 #[test]
@@ -239,7 +293,8 @@ fn ffac2_5_is_destroyed_when_blockaded() {
     let system = SystemId::new("19");
     put(&mut state, &system, "saar_spacedock2", &a(), 1);
     put(&mut state, &system, "cruiser", &b(), 1);
-    let gone = crate::production::destroy_blockaded_mobile_docks(&mut state, content(), DEFAULT, &system);
+    let gone =
+        crate::production::destroy_blockaded_mobile_docks(&mut state, content(), DEFAULT, &system);
     assert_eq!(gone.len(), 1);
     assert_eq!(in_space(&state, &system, &a(), "saar_spacedock2"), 0);
 }
@@ -359,7 +414,14 @@ fn so2_1_prints_cost_one_for_two_and_combat_six_and_replaces_spec_ops() {
     put_on_planet(&mut state, &system, &planet, "sol_infantry", &a(), 2);
     give(&mut state, "a", "so2");
     crate::technology::apply_unit_upgrades(&mut state, content(), DEFAULT, &a());
-    let on = |kind: &str| state.system_state(&system).on_planet_of(&planet, &a()).iter().filter(|u| u.type_id.as_str() == kind).count();
+    let on = |kind: &str| {
+        state
+            .system_state(&system)
+            .on_planet_of(&planet, &a())
+            .iter()
+            .filter(|u| u.type_id.as_str() == kind)
+            .count()
+    };
     assert_eq!((on("sol_infantry2"), on("sol_infantry")), (2, 0));
 }
 
@@ -372,12 +434,29 @@ fn so2_2_survives_on_a_five_and_comes_back_at_the_next_turn() {
     let mut dice = crate::dice::Dice::from_faces([5, 4]);
     let mut rng = crate::rng::GameRng::new(1);
     let rolled = crate::faction_techs::roll_spec_ops(&mut state, &mut dice, &mut rng);
-    assert_eq!(rolled, vec![(a(), true), (a(), false)], "5 survives, 4 does not");
+    assert_eq!(
+        rolled,
+        vec![(a(), true), (a(), false)],
+        "5 survives, 4 does not"
+    );
     assert_eq!(state.player(&a()).unwrap().spec_ops_card, 1);
     let home = state.player(&a()).unwrap().home_system.clone().unwrap();
-    let planet = state.controlled_planets(&a()).into_iter().find(|(s, _)| **s == home).map(|(_, p)| p.clone()).expect("a home planet");
+    let planet = state
+        .controlled_planets(&a())
+        .into_iter()
+        .find(|(s, _)| **s == home)
+        .map(|(_, p)| p.clone())
+        .expect("a home planet");
     assert_eq!(crate::faction_techs::return_spec_ops(&mut state, &a()), 1);
-    assert_eq!(state.system_state(&home).on_planet_of(&planet, &a()).iter().filter(|u| u.type_id.as_str() == "sol_infantry2").count(), 1);
+    assert_eq!(
+        state
+            .system_state(&home)
+            .on_planet_of(&planet, &a())
+            .iter()
+            .filter(|u| u.type_id.as_str() == "sol_infantry2")
+            .count(),
+        1
+    );
 }
 
 // -- Wormhole Generator ---------------------------------------------------------------------------
@@ -407,11 +486,15 @@ fn wg_1_exhaust_to_place_or_move_a_creuss_wormhole_token() {
     let option = offered(&state).expect("offered with the card ready");
     let galaxy = ghost_galaxy();
     let mut table = scripted(&["ALPHA|19"]);
-    let done = crate::fixtures::with_context(&mut state, DEFAULT, Some(&galaxy), &mut table, |context| {
-        crate::factions::perform_component(context, &a(), &option)
-    });
+    let done =
+        crate::fixtures::with_context(&mut state, DEFAULT, Some(&galaxy), &mut table, |context| {
+            crate::factions::perform_component(context, &a(), &option)
+        });
     assert!(done);
-    assert_eq!(state.wormhole_tokens.get("ALPHA"), Some(&SystemId::new("19")));
+    assert_eq!(
+        state.wormhole_tokens.get("ALPHA"),
+        Some(&SystemId::new("19"))
+    );
     assert!(offered(&state).is_none(), "exhausted");
 }
 
@@ -428,7 +511,13 @@ fn ds_1_produces_a_hit_at_the_start_of_combat_in_a_wormhole_system() {
         let system = SystemId::new(system);
         put(&mut state, &system, "cruiser", &a(), 1);
         put(&mut state, &system, "destroyer", &b(), 1);
-        let site = HitSite { player: &a(), opponent: &b(), system: &system, round: 1, moment: CombatMoment::CombatStart };
+        let site = HitSite {
+            player: &a(),
+            opponent: &b(),
+            system: &system,
+            round: 1,
+            moment: CombatMoment::CombatStart,
+        };
         let mut table = scripted(&["produce_hit"]);
         crate::fixtures::with_context(&mut state, DEFAULT, None, &mut table, |context| {
             crate::factions::hooks_combat::produced_hits(context, &site)
@@ -437,7 +526,11 @@ fn ds_1_produces_a_hit_at_the_start_of_combat_in_a_wormhole_system() {
     };
     assert_eq!(hits(true, "39").producer_assigned, 1);
     assert_eq!(hits(false, "39"), ProducedHits::NONE, "no card");
-    assert_eq!(hits(true, "19"), ProducedHits::NONE, "no wormhole in the system");
+    assert_eq!(
+        hits(true, "19"),
+        ProducedHits::NONE,
+        "no wormhole in the system"
+    );
 }
 
 // -- Inheritance Systems --------------------------------------------------------------------------
@@ -453,10 +546,21 @@ fn is_1_pay_two_resources_to_ignore_a_technologys_prerequisites() {
         state.player_mut(&a()).unwrap().trade_goods = 2;
         let war_sun = ti4_model::id::TechnologyId::new("ws");
         let done = crate::technology::research(&mut state, content(), POK, &a(), &war_sun);
-        (done, owns(&state, "a", "ws"), state.player(&a()).unwrap().trade_goods)
+        (
+            done,
+            owns(&state, "a", "ws"),
+            state.player(&a()).unwrap().trade_goods,
+        )
     };
-    assert_eq!(run(true), (true, true, 0), "two resources paid, War Sun gained");
-    assert!(!run(false).1, "without the card the prerequisites are a wall");
+    assert_eq!(
+        run(true),
+        (true, true, 0),
+        "two resources paid, War Sun gained"
+    );
+    assert!(
+        !run(false).1,
+        "without the card the prerequisites are a wall"
+    );
 }
 
 // -- Genetic Recombination ------------------------------------------------------------------------
@@ -471,20 +575,48 @@ fn gr_1_binds_a_voter_to_an_outcome_or_costs_them_a_fleet_token() {
     window.open(&state, content(), DEFAULT);
     let pick = |window: &mut VoteWindow, state: &mut GameState, id: &str| {
         let q = window.pending_choice(state, content(), DEFAULT).unwrap();
-        let option = q.options.iter().find(|o| o.id == id).unwrap_or_else(|| panic!("{id} not offered")).clone();
+        let option = q
+            .options
+            .iter()
+            .find(|o| o.id == id)
+            .unwrap_or_else(|| panic!("{id} not offered"))
+            .clone();
         window.resolve(state, content(), DEFAULT, option).unwrap();
     };
-    assert_eq!(window.pending_choice(&state, content(), DEFAULT).unwrap().player, a(), "the holder is asked before b casts");
+    assert_eq!(
+        window
+            .pending_choice(&state, content(), DEFAULT)
+            .unwrap()
+            .player,
+        a(),
+        "the holder is asked before b casts"
+    );
     pick(&mut window, &mut state, "recombine|against");
-    assert!(state.player(&a()).unwrap().exhausted_technologies.contains(&ti4_model::id::TechnologyId::new("gr")));
+    assert!(
+        state
+            .player(&a())
+            .unwrap()
+            .exhausted_technologies
+            .contains(&ti4_model::id::TechnologyId::new("gr"))
+    );
     let tokens = state.player(&b()).unwrap().fleet_tokens;
     pick(&mut window, &mut state, "tribute|token");
-    assert_eq!(state.player(&b()).unwrap().fleet_tokens, tokens - 1, "or pay a fleet token");
+    assert_eq!(
+        state.player(&b()).unwrap().fleet_tokens,
+        tokens - 1,
+        "or pay a fleet token"
+    );
     // Without the card nobody is asked.
     let plain = seated(&[("a", "mahact"), ("b", "xxcha"), ("c", "hacan")]);
     let mut window = VoteWindow::new(&plain, "x", vec!["for".into(), "against".into()]);
     window.open(&plain, content(), DEFAULT);
-    assert_ne!(window.pending_choice(&plain, content(), DEFAULT).unwrap().player, a());
+    assert_ne!(
+        window
+            .pending_choice(&plain, content(), DEFAULT)
+            .unwrap()
+            .player,
+        a()
+    );
 }
 
 // -- Salvage Operations ---------------------------------------------------------------------------
@@ -494,7 +626,10 @@ fn combat_ended(system: &SystemId, winner: Option<&str>) -> BTreeMap<String, ser
         ("system", system.as_str().into()),
         ("attacker", "a".into()),
         ("defender", "b".into()),
-        ("destroyed", serde_json::json!([{"player": "b", "unit": "destroyer"}, {"player": "a", "unit": "cruiser"}])),
+        (
+            "destroyed",
+            serde_json::json!([{"player": "b", "unit": "destroyer"}, {"player": "a", "unit": "cruiser"}]),
+        ),
     ]);
     if let Some(winner) = winner {
         payload.insert("winner".to_owned(), winner.into());
@@ -511,7 +646,13 @@ fn so_1_a_trade_good_after_winning_or_losing_a_space_combat() {
         }
         state.player_mut(&a()).unwrap().trade_goods = 0;
         let system = SystemId::new("18");
-        emit_full(&mut state, &mut scripted(&[]), None, "SPACE_COMBAT_ENDED", combat_ended(&system, winner));
+        emit_full(
+            &mut state,
+            &mut scripted(&[]),
+            None,
+            "SPACE_COMBAT_ENDED",
+            combat_ended(&system, winner),
+        );
         state.player(&a()).unwrap().trade_goods
     };
     assert_eq!(run(true, Some("b")), 1, "losing pays");
@@ -529,7 +670,12 @@ fn so_1_the_winner_may_produce_a_ship_of_a_type_destroyed() {
     let before = in_space(&state, &system, &a(), "cruiser");
     emit_full(
         &mut state,
-        &mut scripted(&["technology:mentak:so:SPACE_COMBAT_ENDED:produce", "cruiser", "trade_good", "trade_good"]),
+        &mut scripted(&[
+            "technology:mentak:so:SPACE_COMBAT_ENDED:produce",
+            "cruiser",
+            "trade_good",
+            "trade_good",
+        ]),
         None,
         "SPACE_COMBAT_ENDED",
         combat_ended(&system, Some("a")),
@@ -549,7 +695,12 @@ fn ng_1_an_activator_beside_your_ships_loses_a_fleet_token() {
         let system = SystemId::new("19");
         put(&mut state, &system, "cruiser", &a(), 1);
         let before = state.player(&pid(activator)).unwrap().fleet_tokens;
-        emit(&mut state, &[], "SYSTEM_ACTIVATED", &[("player", activator), ("system", "19")]);
+        emit(
+            &mut state,
+            &[],
+            "SYSTEM_ACTIVATED",
+            &[("player", activator), ("system", "19")],
+        );
         before - state.player(&pid(activator)).unwrap().fleet_tokens
     };
     assert_eq!(run(true, "b"), 1);
@@ -569,14 +720,37 @@ fn sc_1_exhaust_for_plus_one_to_each_combat_roll_this_round() {
         let system = SystemId::new("19");
         put(&mut state, &system, "cruiser", &a(), 1);
         state.active_system = Some(system.clone());
-        crate::faction_abilities::space_combat_round_started(&mut state, content(), POK, &mut scripted(&[answer]), &a());
-        let unit = state.system_state(&system).units_of(&a()).into_iter().find(|u| u.type_id.as_str() == "cruiser").unwrap().clone();
+        crate::faction_abilities::space_combat_round_started(
+            &mut state,
+            content(),
+            POK,
+            &mut scripted(&[answer]),
+            &a(),
+        );
+        let unit = state
+            .system_state(&system)
+            .units_of(&a())
+            .into_iter()
+            .find(|u| u.type_id.as_str() == "cruiser")
+            .unwrap()
+            .clone();
         let ready = crate::technology::technology_text_ready(&state, &a(), "sc");
-        (crate::combat::effective_hits_on(&state, content(), POK, &a(), &unit), ready)
+        (
+            crate::combat::effective_hits_on(&state, content(), POK, &a(), &unit),
+            ready,
+        )
     };
-    assert_eq!(threshold(true, "sc"), (Some(6), false), "7 becomes 6 and the card is exhausted");
+    assert_eq!(
+        threshold(true, "sc"),
+        (Some(6), false),
+        "7 becomes 6 and the card is exhausted"
+    );
     assert_eq!(threshold(true, "decline"), (Some(7), true));
-    assert_eq!(threshold(false, "sc"), (Some(7), false), "no card: nothing exhausted, no bonus");
+    assert_eq!(
+        threshold(false, "sc"),
+        (Some(7), false),
+        "no card: nothing exhausted, no bonus"
+    );
 }
 
 // -- Valefar Assimilator Y ------------------------------------------------------------------------
@@ -588,14 +762,25 @@ fn nekro_scene() -> (GameState, SystemId) {
         give(&mut state, "b", tech);
     }
     let system = state.player(&a()).unwrap().home_system.clone().unwrap();
-    emit(&mut state, &[], "SPACE_COMBAT_STARTED", &[("system", system.as_str()), ("attacker", "a"), ("defender", "b")]);
+    emit(
+        &mut state,
+        &[],
+        "SPACE_COMBAT_STARTED",
+        &[
+            ("system", system.as_str()),
+            ("attacker", "a"),
+            ("defender", "b"),
+        ],
+    );
     (state, system)
 }
 
 /// Destroy a ship of `who`'s, answering the Singularity offer with `answers`; returns the options
 /// the first question offered.
 fn destroy_ship(state: &mut GameState, system: &SystemId, answers: &[&str]) -> Vec<String> {
-    let (decider, seen) = crate::choice::Capturing::new(Box::new(Scripted::new(answers.iter().map(|s| (*s).to_owned()))));
+    let (decider, seen) = crate::choice::Capturing::new(Box::new(Scripted::new(
+        answers.iter().map(|s| (*s).to_owned()),
+    )));
     let mut table = Table::with_default(Box::new(decider));
     let payload = json(&[
         ("system", system.as_str().into()),
@@ -605,7 +790,11 @@ fn destroy_ship(state: &mut GameState, system: &SystemId, answers: &[&str]) -> V
         ("during_space_combat", true.into()),
     ]);
     emit_full(state, &mut table, None, "SHIP_DESTROYED", payload);
-    let ids = seen.borrow().iter().flat_map(|c| c.ids().into_iter().map(str::to_owned).collect::<Vec<_>>()).collect();
+    let ids = seen
+        .borrow()
+        .iter()
+        .flat_map(|c| c.ids().into_iter().map(str::to_owned).collect::<Vec<_>>())
+        .collect();
     ids
 }
 
@@ -616,7 +805,13 @@ fn vay_1_a_token_may_go_on_a_faction_technology_instead_of_gaining_it() {
     let (mut state, system) = nekro_scene();
     destroy_ship(&mut state, &system, &[SINGULARITY, "y|b|mi"]);
     let nekro = state.player(&a()).unwrap();
-    assert_eq!(nekro.assimilated_technologies.get("vay").map(|t| t.as_str()), Some("mi"));
+    assert_eq!(
+        nekro
+            .assimilated_technologies
+            .get("vay")
+            .map(|t| t.as_str()),
+        Some("mi")
+    );
     assert!(!owns(&state, "a", "mi"), "assimilated, never owned");
 }
 
@@ -626,9 +821,16 @@ fn vay_2_the_card_gains_the_text_of_the_technology_with_its_token() {
     assert!(!crate::technology::has_technology_text(&state, &a(), "mi"));
     destroy_ship(&mut state, &system, &[SINGULARITY, "y|b|mi"]);
     assert!(crate::technology::has_technology_text(&state, &a(), "mi"));
-    assert!(crate::technology::exhaust_technology_text(&mut state, &a(), "mi"));
+    assert!(crate::technology::exhaust_technology_text(
+        &mut state,
+        &a(),
+        "mi"
+    ));
     let exhausted = &state.player(&a()).unwrap().exhausted_technologies;
-    assert!(exhausted.contains(&ti4_model::id::TechnologyId::new("vay")), "it exhausts the Valefar card");
+    assert!(
+        exhausted.contains(&ti4_model::id::TechnologyId::new("vay")),
+        "it exhausts the Valefar card"
+    );
 }
 
 #[test]
@@ -636,11 +838,35 @@ fn vay_3_a_technology_with_a_token_takes_no_second_token() {
     let (mut state, system) = nekro_scene();
     destroy_ship(&mut state, &system, &[SINGULARITY, "x|b|mi"]);
     // The next combat opens the once-per-combat offer afresh.
-    emit(&mut state, &[], "SPACE_COMBAT_ENDED", &[("system", system.as_str()), ("attacker", "a"), ("defender", "b")]);
-    emit(&mut state, &[], "SPACE_COMBAT_STARTED", &[("system", system.as_str()), ("attacker", "a"), ("defender", "b")]);
+    emit(
+        &mut state,
+        &[],
+        "SPACE_COMBAT_ENDED",
+        &[
+            ("system", system.as_str()),
+            ("attacker", "a"),
+            ("defender", "b"),
+        ],
+    );
+    emit(
+        &mut state,
+        &[],
+        "SPACE_COMBAT_STARTED",
+        &[
+            ("system", system.as_str()),
+            ("attacker", "a"),
+            ("defender", "b"),
+        ],
+    );
     let offered = destroy_ship(&mut state, &system, &[SINGULARITY, "y|b|tp"]);
-    assert!(offered.iter().any(|id| id == "y|b|tp"), "other technologies still take the token: {offered:?}");
-    assert!(!offered.iter().any(|id| id.ends_with("|mi")), "mi already carries the X token: {offered:?}");
+    assert!(
+        offered.iter().any(|id| id == "y|b|tp"),
+        "other technologies still take the token: {offered:?}"
+    );
+    assert!(
+        !offered.iter().any(|id| id.ends_with("|mi")),
+        "mi already carries the X token: {offered:?}"
+    );
 }
 
 // -- Temporal Command Suite -----------------------------------------------------------------------
@@ -654,13 +880,31 @@ fn tcs_1_readies_an_exhausted_agent_and_may_open_a_transaction() {
         if with_tech {
             give(&mut state, "a", "tcs");
         }
-        state.player_mut(&b()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("solagent"), LeaderStatus::Exhausted);
-        let mut table = scripted(&["technology:nomad:tcs:AGENT_EXHAUSTED:after", "transact", "decline"]);
-        emit_full(&mut state, &mut table, Some(&hub.galaxy), crate::factions::nomad::AGENT_EXHAUSTED, json(&[("player", "b".into()), ("leader", "solagent".into())]));
-        let status = crate::leaders::status(&state, &b(), &ti4_model::id::LeaderId::new("solagent"));
+        state.player_mut(&b()).unwrap().leaders.insert(
+            ti4_model::id::LeaderId::new("solagent"),
+            LeaderStatus::Exhausted,
+        );
+        let mut table = scripted(&[
+            "technology:nomad:tcs:AGENT_EXHAUSTED:after",
+            "transact",
+            "decline",
+        ]);
+        emit_full(
+            &mut state,
+            &mut table,
+            Some(&hub.galaxy),
+            crate::factions::nomad::AGENT_EXHAUSTED,
+            json(&[("player", "b".into()), ("leader", "solagent".into())]),
+        );
+        let status =
+            crate::leaders::status(&state, &b(), &ti4_model::id::LeaderId::new("solagent"));
         (status, state.transacted_with(&a()).contains(&b()))
     };
-    assert_eq!(run(true), (Some(LeaderStatus::Readied), true), "ready, and a transaction with a non-neighbour");
+    assert_eq!(
+        run(true),
+        (Some(LeaderStatus::Readied), true),
+        "ready, and a transaction with a non-neighbour"
+    );
     assert_eq!(run(false).0, Some(LeaderStatus::Exhausted), "no card");
 }
 
@@ -674,7 +918,16 @@ fn vpw_1_one_additional_ground_hit_when_the_opponent_produced_hits() {
         if with_tech {
             give(&mut state, "a", "vpw");
         }
-        crate::factions::hooks_ground::ground_rolls_extra_hits(&state, content(), DEFAULT, who, &system, &planet, own, theirs)
+        crate::factions::hooks_ground::ground_rolls_extra_hits(
+            &state,
+            content(),
+            DEFAULT,
+            who,
+            &system,
+            &planet,
+            own,
+            theirs,
+        )
     };
     assert_eq!(extra(true, &a(), 0, 1), 1);
     assert_eq!(extra(true, &a(), 4, 2), 1, "one more, not one per hit");
@@ -688,7 +941,10 @@ fn vpw_1_one_additional_ground_hit_when_the_opponent_produced_hits() {
 #[test]
 fn ht2_1_combat_six_and_it_fights_as_a_ground_force_and_replaces_hel_titan() {
     let (old, new) = (stats("titans_pds"), stats("titans_pds2"));
-    assert_eq!((old.combat_hits_on(), new.combat_hits_on()), (Some(7), Some(6)));
+    assert_eq!(
+        (old.combat_hits_on(), new.combat_hits_on()),
+        (Some(7), Some(6))
+    );
     assert_eq!(new.upgrades_from(), Some("titans_pds"));
     assert_eq!(new.required_technology(), Some("ht2"));
     let (system, planet) = crate::fixtures::a_placed_planet();
@@ -696,12 +952,30 @@ fn ht2_1_combat_six_and_it_fights_as_a_ground_force_and_replaces_hel_titan() {
     put_on_planet(&mut state, &system, &planet, "titans_pds", &a(), 1);
     give(&mut state, "a", "ht2");
     crate::technology::apply_unit_upgrades(&mut state, content(), DEFAULT, &a());
-    assert_eq!(on_planet(&state, &system, planet.as_str(), &a(), "titans_pds2"), 1);
+    assert_eq!(
+        on_planet(&state, &system, planet.as_str(), &a(), "titans_pds2"),
+        1
+    );
     put_on_planet(&mut state, &system, &planet, "infantry", &b(), 2);
     let mut dice = crate::dice::Dice::new();
     let mut rng = crate::rng::GameRng::new(0);
-    crate::invasion::ground_combat(&mut state, content(), DEFAULT, &mut scripted(&[]), &mut dice, &mut rng, &system, &planet, &b()).expect("resolves");
-    assert!(dice.history().iter().any(|roll| roll.by.as_deref() == Some("a") && roll.hits_on == Some(6)));
+    crate::invasion::ground_combat(
+        &mut state,
+        content(),
+        DEFAULT,
+        &mut scripted(&[]),
+        &mut dice,
+        &mut rng,
+        &system,
+        &planet,
+        &b(),
+    )
+    .expect("resolves");
+    assert!(
+        dice.history()
+            .iter()
+            .any(|roll| roll.by.as_deref() == Some("a") && roll.hits_on == Some(6))
+    );
 }
 
 #[test]
@@ -716,7 +990,10 @@ fn ht2_2_has_planetary_shield_space_cannon_five_sustain_and_production_one() {
     bare(&mut state, &a());
     put_on_planet(&mut state, &system, &planet, "titans_pds2", &a(), 1);
     state.system_mut(&system).set_control(planet, a());
-    assert_eq!(crate::production::capacity(&state, content(), DEFAULT, &a(), &system), 1);
+    assert_eq!(
+        crate::production::capacity(&state, content(), DEFAULT, &a(), &system),
+        1
+    );
 }
 
 #[test]
@@ -728,8 +1005,16 @@ fn ht2_3_is_a_structure_and_a_ground_force_and_cannot_be_transported() {
     put_on_planet(&mut state, &system, &planet, "titans_pds2", &a(), 1);
     put_on_planet(&mut state, &system, &planet, "infantry", &a(), 1);
     let loadable = crate::transit::loadable(&state, content(), DEFAULT, &a(), &system);
-    assert!(loadable.iter().all(|c| c.unit.type_id.as_str() != "titans_pds2"));
-    assert!(loadable.iter().any(|c| c.unit.type_id.as_str() == "infantry"));
+    assert!(
+        loadable
+            .iter()
+            .all(|c| c.unit.type_id.as_str() != "titans_pds2")
+    );
+    assert!(
+        loadable
+            .iter()
+            .any(|c| c.unit.type_id.as_str() == "infantry")
+    );
 }
 
 #[test]
@@ -741,12 +1026,31 @@ fn ht2_4_space_cannon_reaches_ships_in_adjacent_systems() {
         let mut state = seated(&[("a", "titans"), ("b", "sol")]);
         put(&mut state, &centre, "cruiser", &b(), 1);
         if with_unit {
-            put_on_planet(&mut state, &beside, &PlanetId::new("somewhere"), "titans_pds2", &a(), 1);
+            put_on_planet(
+                &mut state,
+                &beside,
+                &PlanetId::new("mellon"),
+                "titans_pds2",
+                &a(),
+                1,
+            );
         }
         let mut dice = crate::dice::Dice::new();
         let mut rng = crate::rng::GameRng::new(0);
-        crate::combat::space_cannon_offense(&mut state, content(), DEFAULT, &mut dice, &mut rng, &centre, &b(), Some(&hub.galaxy));
-        dice.history().iter().filter(|roll| roll.by.as_deref() == Some("a") && roll.hits_on == Some(5)).count()
+        crate::combat::space_cannon_offense(
+            &mut state,
+            content(),
+            DEFAULT,
+            &mut dice,
+            &mut rng,
+            &centre,
+            &b(),
+            Some(&hub.galaxy),
+        );
+        dice.history()
+            .iter()
+            .filter(|roll| roll.by.as_deref() == Some("a") && roll.hits_on == Some(5))
+            .count()
     };
     assert_eq!(fired(true), 1, "next door, as the card says");
     assert_eq!(fired(false), 0);
@@ -787,7 +1091,9 @@ fn vtx_1_captures_a_unit_from_another_players_reinforcements() {
         }
         for id in state.board.keys().cloned().collect::<Vec<SystemId>>() {
             let system = state.system_mut(&id);
-            system.units.retain(|u| !(u.owner == a() && u.type_id.as_str().contains("spacedock")));
+            system
+                .units
+                .retain(|u| !(u.owner == a() && u.type_id.as_str().contains("spacedock")));
             for units in system.planet_units.values_mut() {
                 units.retain(|u| !(u.owner == a() && u.type_id.as_str().contains("spacedock")));
             }
@@ -795,21 +1101,49 @@ fn vtx_1_captures_a_unit_from_another_players_reinforcements() {
         if with_tech {
             give(&mut state, "a", "vtx");
         }
-        put_on_planet(&mut state, &dock_system, &dock_planet, "cabal_spacedock", &a(), 1);
-        put(&mut state, &SystemId::new(hub.outer[0].clone()), "cruiser", &b(), 1);
-        let option = crate::factions::mapped_component_actions(&state, content(), DEFAULT, &hub.galaxy, &a())
-            .into_iter()
-            .find(|option| option.id == "faction|cabal|vortex");
-        let Some(option) = option else { return (false, vec![]) };
+        put_on_planet(
+            &mut state,
+            &dock_system,
+            &dock_planet,
+            "cabal_spacedock",
+            &a(),
+            1,
+        );
+        put(
+            &mut state,
+            &SystemId::new(hub.outer[0].clone()),
+            "cruiser",
+            &b(),
+            1,
+        );
+        let option = crate::factions::mapped_component_actions(
+            &state,
+            content(),
+            DEFAULT,
+            &hub.galaxy,
+            &a(),
+        )
+        .into_iter()
+        .find(|option| option.id == "faction|cabal|vortex");
+        let Some(option) = option else {
+            return (false, vec![]);
+        };
         let mut table = scripted(&[]);
-        let done = crate::fixtures::with_context(&mut state, DEFAULT, Some(&hub.galaxy), &mut table, |context| {
-            crate::factions::perform_component(context, &a(), &option)
-        });
+        let done = crate::fixtures::with_context(
+            &mut state,
+            DEFAULT,
+            Some(&hub.galaxy),
+            &mut table,
+            |context| crate::factions::perform_component(context, &a(), &option),
+        );
         (done, crate::supply::captured_by(&state, &a()).to_vec())
     };
     let (done, captured) = run(true);
     assert!(done);
-    assert_eq!(captured, vec![(b(), ti4_model::id::UnitTypeId::new("cruiser"))]);
+    assert_eq!(
+        captured,
+        vec![(b(), ti4_model::id::UnitTypeId::new("cruiser"))]
+    );
     assert_eq!(run(false), (false, vec![]), "no card, no action");
 }
 
@@ -819,7 +1153,9 @@ fn vtx_1_captures_a_unit_from_another_players_reinforcements() {
 fn htp_1_swaps_resource_and_influence_of_one_planet_for_one_use_of_production() {
     use crate::production::Spend;
     let mut state = seated(&[("a", "winnu"), ("b", "sol")]);
-    let value = |state: &GameState, planet: &PlanetId, kind| crate::production::planet_value_now(state, content(), DEFAULT, planet, kind);
+    let value = |state: &GameState, planet: &PlanetId, kind| {
+        crate::production::planet_value_now(state, content(), DEFAULT, planet, kind)
+    };
     let planet = state
         .controlled_planets(&a())
         .into_iter()
@@ -828,15 +1164,40 @@ fn htp_1_swaps_resource_and_influence_of_one_planet_for_one_use_of_production() 
         .expect("a home planet with unequal values");
     let system = state.player(&a()).unwrap().home_system.clone().unwrap();
     state.production_seq += 1;
-    emit(&mut state, &["decline"], "PRODUCTION_USED", &[("player", "a"), ("system", system.as_str())]);
-    assert!(crate::production::swapped_planet(&state).is_none(), "no card, no swap");
+    emit(
+        &mut state,
+        &["decline"],
+        "PRODUCTION_USED",
+        &[("player", "a"), ("system", system.as_str())],
+    );
+    assert!(
+        crate::production::swapped_planet(&state).is_none(),
+        "no card, no swap"
+    );
     give(&mut state, "a", "htp");
     state.production_seq += 1;
-    emit(&mut state, &["technology:winnu:htp:PRODUCTION_USED:after", planet.as_str()], "PRODUCTION_USED", &[("player", "a"), ("system", system.as_str())]);
+    emit(
+        &mut state,
+        &[
+            "technology:winnu:htp:PRODUCTION_USED:after",
+            planet.as_str(),
+        ],
+        "PRODUCTION_USED",
+        &[("player", "a"), ("system", system.as_str())],
+    );
     assert_eq!(crate::production::swapped_planet(&state), Some(&planet));
     let res = value(&state, &planet, Spend::Resources);
     let inf = value(&state, &planet, Spend::Influence);
-    assert_eq!(crate::production::swapped_value(&state, content(), DEFAULT, &planet, Spend::Resources), Some(inf));
-    assert_eq!(crate::production::swapped_value(&state, content(), DEFAULT, &planet, Spend::Influence), Some(res));
-    assert!(!crate::technology::technology_text_ready(&state, &a(), "htp"), "exhausted");
+    assert_eq!(
+        crate::production::swapped_value(&state, content(), DEFAULT, &planet, Spend::Resources),
+        Some(inf)
+    );
+    assert_eq!(
+        crate::production::swapped_value(&state, content(), DEFAULT, &planet, Spend::Influence),
+        Some(res)
+    );
+    assert!(
+        !crate::technology::technology_text_ready(&state, &a(), "htp"),
+        "exhausted"
+    );
 }
