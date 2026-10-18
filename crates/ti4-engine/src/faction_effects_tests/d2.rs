@@ -2629,11 +2629,12 @@ fn pok_only() -> ti4_model::content_types::SourceSet {
 
 #[test]
 fn unit_naalu_mech_1_iconoclast_rolls_two_better_against_an_opponent_with_a_relic_fragment() {
-    let mech_roll = |fragments: i32| {
+    let mech_roll_at = |version: u32, fragments: i32| {
         let mut state = crate::fixtures::seated_game(
             &[("a", "naalu"), ("b", "sol")],
             ti4_model::content_types::POK,
         );
+        state.rules_version = version;
         if fragments > 0 {
             state
                 .player_mut(&b())
@@ -2655,6 +2656,12 @@ fn unit_naalu_mech_1_iconoclast_rolls_two_better_against_an_opponent_with_a_reli
         );
         first_roll(&dice, "a")
     };
+    let mech_roll = |fragments: i32| mech_roll_at(ti4_model::state::RULES_VERSION, fragments);
+    assert_eq!(
+        mech_roll_at(ti4_model::state::RULES_FACTION_BUGFIXES - 1, 1),
+        Some((Some(6), 1)),
+        "no bonus below version 17"
+    );
     assert_eq!(mech_roll(0), Some((Some(6), 1)));
     assert_eq!(
         mech_roll(1),
@@ -2665,11 +2672,12 @@ fn unit_naalu_mech_1_iconoclast_rolls_two_better_against_an_opponent_with_a_reli
 
 #[test]
 fn unit_naalu_mech_omega_1_other_players_cannot_barrage_the_naalus_units_in_its_system() {
-    let barrage_rolls = |mech: bool| {
+    let barrage_rolls_at = |version: u32, mech: bool| {
         let mut state = crate::fixtures::seated_game(
             &[("a", "naalu"), ("b", "sol")],
             ti4_model::content_types::POK,
         );
+        state.rules_version = version;
         let (system, planet) = one_planet();
         if mech {
             put_on_planet(&mut state, &system, &planet, "naalu_mech_omega", &a(), 1);
@@ -2688,6 +2696,12 @@ fn unit_naalu_mech_omega_1_other_players_cannot_barrage_the_naalus_units_in_its_
             .filter(|roll| roll.reason == "anti-fighter barrage" && roll.by.as_deref() == Some("b"))
             .count()
     };
+    let barrage_rolls = |mech: bool| barrage_rolls_at(ti4_model::state::RULES_VERSION, mech);
+    assert_eq!(
+        barrage_rolls_at(ti4_model::state::RULES_FACTION_BUGFIXES - 1, true),
+        1,
+        "below version 17 the Omega mech stops nothing"
+    );
     assert_eq!(
         barrage_rolls(false),
         1,

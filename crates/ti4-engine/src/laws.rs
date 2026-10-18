@@ -1377,4 +1377,24 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn political_secret_bars_only_its_own_marker_and_only_from_version_17() {
+        let mut state = game(&["a"]);
+        assert!(!political_secret_bars(&state, &player()));
+        state
+            .agenda_predictions
+            .insert(player(), "none|assassin".to_owned());
+        assert!(
+            !political_secret_bars(&state, &player()),
+            "Assassinate Representative only stops the vote"
+        );
+        state
+            .agenda_predictions
+            .insert(player(), "none|political_secret".to_owned());
+        assert!(political_secret_bars(&state, &player()));
+        assert!(!action_cards_forbidden(&state, &player()), "a separate bar");
+        state.rules_version = ti4_model::state::RULES_FACTION_BUGFIXES - 1;
+        assert!(!political_secret_bars(&state, &player()));
+    }
 }

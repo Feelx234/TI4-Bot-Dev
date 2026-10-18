@@ -1612,6 +1612,16 @@ fn ps_1_political_secret_also_bars_its_owner_from_action_cards_until_the_agenda_
     // that agenda has been resolved".)
     let note = crate::promissory::note_id("ps", "sol");
     let b_id = b();
+    // Below version 17 only the vote bar exists: b still plays Confounding Legal Text.
+    let mut legacy = agenda_position(("hacan", "sol"), &["secret"], Some(("confounding", &b_id)));
+    legacy.rules_version = ti4_model::state::RULES_FACTION_BUGFIXES - 1;
+    legacy.promissory_notes.insert(note.clone(), a());
+    let (old_game, _) = play_agenda(legacy, &[("Political Secret", "use")]);
+    assert!(
+        logged(&old_game, "AGENDA_OUTCOME_REDIRECTED:a:b"),
+        "the legacy game lets b play it: {:?}",
+        old_game.events
+    );
     let mut state = agenda_position(("hacan", "sol"), &["secret"], Some(("confounding", &b_id)));
     state.promissory_notes.insert(note, a());
     let (game, seen) = play_agenda(state, &[("Political Secret", "use")]);
@@ -2846,6 +2856,15 @@ fn crafty_1_and_2_yssaril_keeps_any_number_of_action_cards_even_under_a_law_that
 fn status_phase_draw_enforces_the_action_card_hand_limit_for_a_plain_seat() {
     // Not a Yssaril card, but the status-phase draw is where Crafty would matter most: a Hacan seat
     // holding seven cards draws an eighth and must discard back down.
+    let mut legacy = yssaril_game();
+    legacy.rules_version = ti4_model::state::RULES_FACTION_BUGFIXES - 1;
+    deal(&mut legacy, &b(), &["sabotage"; 7]);
+    let (old_game, _) = play_status(legacy, &[]);
+    assert_eq!(
+        hand(&old_game.state, &b()).len(),
+        8,
+        "below version 17 the draw left the hand over the limit"
+    );
     let mut state = yssaril_game();
     deal(&mut state, &b(), &["sabotage"; 7]);
     let (game, seen) = play_status(state, &[]);

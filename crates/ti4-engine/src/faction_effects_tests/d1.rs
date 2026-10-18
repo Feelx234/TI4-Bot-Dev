@@ -1078,8 +1078,9 @@ fn first_roll_len(game: &Game<'_>, by: &str, reason: &str) -> usize {
 
 #[test]
 fn letnevagent_1_exhausts_to_give_one_ship_an_additional_die_in_a_space_combat_round() {
-    let run = |use_agent: bool| {
+    let run_at = |version: u32, use_agent: bool| {
         let mut state = seated_all(&[("a", "letnev"), ("b", "sol")]);
+        state.rules_version = version;
         let hub = open_hub();
         put(
             &mut state,
@@ -1104,6 +1105,14 @@ fn letnevagent_1_exhausts_to_give_one_ship_an_additional_die_in_a_space_combat_r
         let (game, _, _) = attack_game(state, hub, answers);
         game
     };
+    let run = |use_agent: bool| run_at(ti4_model::state::RULES_VERSION, use_agent);
+    // Below version 17 the owner is never offered the agent in a space combat round.
+    let legacy = run_at(ti4_model::state::RULES_FACTION_BUGFIXES - 1, true);
+    assert_eq!(
+        leader_status(&legacy.state, &a(), "letnevagent"),
+        Some(LeaderStatus::Readied)
+    );
+    assert_eq!(first_roll_len(&legacy, "a", "space combat"), 2);
     let with_agent = run(true);
     let without = run(false);
     assert_eq!(
@@ -1130,8 +1139,18 @@ fn letnevagent_1_exhausts_to_give_one_ship_an_additional_die_in_a_space_combat_r
 #[test]
 fn letnevcommander_2_a_sustain_in_a_space_combat_offers_a_trade_good_only_once_unlocked() {
     // One round: Letnev's dreadnought and Sol's cruiser both hit. The dreadnought sustains.
-    for (status, gain) in [(LeaderStatus::Locked, 0), (LeaderStatus::Unlocked, 1)] {
+    for (version, status, gain) in [
+        (ti4_model::state::RULES_VERSION, LeaderStatus::Locked, 0),
+        (ti4_model::state::RULES_VERSION, LeaderStatus::Unlocked, 1),
+        // Below version 17 the combat window's sustain step paid and asked nothing.
+        (
+            ti4_model::state::RULES_FACTION_BUGFIXES - 1,
+            LeaderStatus::Unlocked,
+            0,
+        ),
+    ] {
         let mut state = seated_all(&[("a", "letnev"), ("b", "sol")]);
+        state.rules_version = version;
         let system = open_system(0);
         put(&mut state, &system, "dreadnought", &a(), 1);
         put(&mut state, &system, "cruiser", &b(), 1);
@@ -1161,8 +1180,9 @@ fn letnevcommander_2_a_sustain_in_a_space_combat_offers_a_trade_good_only_once_u
 
 #[test]
 fn nes_1_non_euclidean_shielding_one_sustain_cancels_two_hits_in_a_space_combat() {
-    let ships_left = |nes: bool| {
+    let ships_left_at = |version: u32, nes: bool| {
         let mut state = seated_all(&[("a", "letnev"), ("b", "sol")]);
+        state.rules_version = version;
         let system = open_system(0);
         put(&mut state, &system, "dreadnought", &a(), 1);
         put(&mut state, &system, "cruiser", &a(), 1);
@@ -1184,6 +1204,12 @@ fn nes_1_non_euclidean_shielding_one_sustain_cancels_two_hits_in_a_space_combat(
             .filter(|u| u.owner == a())
             .count()
     };
+    let ships_left = |nes: bool| ships_left_at(ti4_model::state::RULES_VERSION, nes);
+    assert_eq!(
+        ships_left_at(ti4_model::state::RULES_FACTION_BUGFIXES - 1, true),
+        1,
+        "below version 17 the combat window cancels one hit per sustain"
+    );
     assert_eq!(ships_left(true), 2, "the sustain cancels both hits");
     assert_eq!(
         ships_left(false),
@@ -1194,9 +1220,10 @@ fn nes_1_non_euclidean_shielding_one_sustain_cancels_two_hits_in_a_space_combat(
 
 #[test]
 fn letnevhero_2_darktalon_lifts_the_fleet_limit_for_the_rest_of_the_round() {
-    let ships_after = |use_hero: bool| {
+    let ships_after_at = |version: u32, use_hero: bool| {
         let (mut state, hub, centre, _planet) =
             production_board(&[("a", "letnev"), ("b", "sol")], "spacedock");
+        state.rules_version = version;
         state.player_mut(&a()).unwrap().fleet_tokens = 3;
         put(&mut state, &centre, "cruiser", &a(), 3);
         set_leader(&mut state, &a(), "letnevhero", LeaderStatus::Unlocked);
@@ -1227,6 +1254,12 @@ fn letnevhero_2_darktalon_lifts_the_fleet_limit_for_the_rest_of_the_round() {
             leader_status(&game.state, &a(), "letnevhero"),
         )
     };
+    let ships_after = |use_hero: bool| ships_after_at(ti4_model::state::RULES_VERSION, use_hero);
+    assert_eq!(
+        ships_after_at(ti4_model::state::RULES_FACTION_BUGFIXES - 1, true).0,
+        5,
+        "below version 17 the enforcement ignores her lifted limit"
+    );
     assert_eq!(
         ships_after(false).0,
         5,
@@ -2665,6 +2698,82 @@ fn hacan_mech_1_pride_of_kenara_makes_its_planet_card_tradable_and_moves_the_uni
         offered.iter().any(|id| id.contains(planet.as_str())),
         "a deal that gives the planet {planet} is on offer: {offered:?}"
     );
+}
+
+#[test]
+fn hacan_mech_2_the_traded_planet_changes_hands_and_the_givers_units_move_to_its_other_planet() {
+    let deal = |version: u32| {
+        let mut state = seated_all(&[("a", "hacan"), ("b", "sol")]);
+        state.rules_version = version;
+        state.phase = Phase::Agenda;
+        let (home, planet) = home_planet(&state, &a());
+        let other = state
+            .controlled_planets(&a())
+            .into_iter()
+            .map(|(_, p)| p.clone())
+            .find(|p| *p != planet)
+            .expect("a second planet");
+        put_on_planet(&mut state, &home, &planet, "hacan_mech", &a(), 1);
+        put_on_planet(&mut state, &home, &planet, "infantry", &a(), 2);
+        let already = (
+            on_planet_count(&state, &home, &other, &a()),
+            on_planet_count(&state, &home, &planet, &a()),
+        );
+        let galaxy = crate::fixtures::plain_hub().galaxy;
+        let offer =
+            crate::transactions::offer_from(&state, &format!("kp{planet}>{other}:0"), &a(), &b())
+                .expect("a planet gift id parses");
+        let result = crate::transactions::resolve(&mut state, content(), &galaxy, &offer);
+        (state, result, home, planet, (other, already))
+    };
+    let (state, result, home, planet, (other, (already, moving))) =
+        deal(ti4_model::state::RULES_VERSION);
+    assert_eq!(result, Ok(()));
+    assert_eq!(
+        state.system_state(&home).planet_control.get(&planet),
+        Some(&b()),
+        "the card changed hands"
+    );
+    assert_eq!(on_planet_count(&state, &home, &planet, &a()), 0);
+    assert_eq!(
+        on_planet_count(&state, &home, &other, &a()),
+        already + moving,
+        "the mech and every other unit moved to the other planet"
+    );
+    // Below version 17 the planet is not on offer and the deal cannot be paid.
+    let (state, result, _, planet, _) = deal(ti4_model::state::RULES_FACTION_BUGFIXES - 1);
+    assert_eq!(result, Err(crate::transactions::OfferError::CannotPay(a())));
+    assert!(crate::transactions::pride_of_kenara_planets(&state, &a()).is_empty());
+    let _ = planet;
+}
+
+fn on_planet_count(
+    state: &GameState,
+    system: &SystemId,
+    planet: &PlanetId,
+    who: &PlayerId,
+) -> usize {
+    state.system_state(system).on_planet_of(planet, who).len()
+}
+
+#[test]
+fn hacan_mech_3_a_planet_needs_the_mech_on_it_and_another_planet_to_move_to() {
+    let mut state = seated_all(&[("a", "hacan"), ("b", "sol")]);
+    let (home, planet) = home_planet(&state, &a());
+    assert!(
+        crate::transactions::pride_of_kenara_planets(&state, &a()).is_empty(),
+        "no mech: no planet card"
+    );
+    put_on_planet(&mut state, &home, &planet, "hacan_mech", &a(), 1);
+    let planets = crate::transactions::pride_of_kenara_planets(&state, &a());
+    assert_eq!(planets.len(), 1);
+    assert_eq!(planets[0].0, planet);
+    assert!(!planets[0].1.contains(&planet), "not onto itself");
+    // A seat holding only the mech's planet has nowhere to move its units.
+    for other in planets[0].1.clone() {
+        state.system_mut(&home).planet_control.remove(&other);
+    }
+    assert!(crate::transactions::pride_of_kenara_planets(&state, &a()).is_empty());
 }
 
 #[test]
