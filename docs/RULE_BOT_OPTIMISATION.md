@@ -152,7 +152,7 @@ matrix, or `--candidate`. `bot_version=1` sets every number of that version (`tu
 `bot_version=5` is the **current bot** (`tuning::v5()` = version 4 plus the decided knobs; `BOT_VERSION` is 5 since 2026-10-17: new games, the offline host and the server bots play it; versions 1 to 4 play exactly as before). Its members so far are `land_all` (the landing step commits every ground force aboard; A/B on 4pBgaBalancedD,
 1200 seat-games: neutral, win share +0.04 pp [-1.4, +1.5]) and the three agenda-voting knobs `agenda_value`, `agenda_budget`, `agenda_riders` (docs/BOT_AGENDA_VOTING.md; enabled by Felix's decision). Other candidate knobs are not in it yet, pending decisions: `mecatol_guard` and
 `mecatol_imperial_priority` (branch fb-muaat-warsun). A save with `bot_version` 5 resumes
-(`bot_version_check` covers it). Overrides are per thread (`tuning::set`, `tuning::with`), so a baseline
+(`bot_version_check` covers it). `bot_version=6` is **staging, not shipped** (`tuning::v6()` = v5 plus `muaat_keeps_note`; `MAX_BOT_VERSION` is 6, `BOT_VERSION` stays 5 until Felix says ship): a Muaat seat never gives away its own faction note Fires of the Gashlai (`fires:muaat`, the War Sun technology) in a transaction. It refuses an incoming deal whose "for" side contains it and never proposes "give/sell fires:muaat". The knob is off in v1 to v5, so those tables and their benches are unchanged. Overrides are per thread (`tuning::set`, `tuning::with`), so a baseline
 and a candidate play in one process, even in one game. The server and the browser never set
 them: the defaults are the shipped bot, byte for byte (60 saved nightly games replay to the
 same hashes on the build before and after the hook; the golden baseline below checks it again).

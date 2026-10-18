@@ -152,6 +152,7 @@ tuning! {
     agenda_rival_share: f64 = 0.6, "v5: chance that a rival without an opinion votes against the seat";
     agenda_second_prior: f64 = 2.0, "v5: assumed stake of an unknown second agenda, in value points (agenda_budget)";
     rider_min_p: f64 = 0.7, "v5: least probability that the predicted outcome wins for a rider to be played (agenda_riders)";
+    muaat_keeps_note: bool = false, "v6 staging (off in v1-v5): a Muaat seat never gives away its Fires of the Gashlai (the War Sun technology note) in a transaction: it refuses proposals that take it and never proposes it";
     land_all: bool = false, "v5 (off in v1-v4): the landing step commits every ground force aboard to a planet of the system (never leaves them in space)";
 }
 
@@ -160,11 +161,11 @@ tuning! {
 /// version it was played with (`ti4_wasm::host_setup::Setup::bot_version`) and is resumed with it.
 pub const BOT_VERSION: u32 = 5;
 
-/// The highest version [`for_version`] knows: version 5 ([`v5`]) is the current bot that new games
-/// play ([`BOT_VERSION`]); the `Tuning::default()` table stays version 4.
-pub const MAX_BOT_VERSION: u32 = 5;
+/// The highest version [`for_version`] knows: version 6 ([`v6`]) is staging (not shipped), version 5
+/// ([`v5`]) is the current bot that new games play ([`BOT_VERSION`]); the `Tuning::default()` table stays version 4.
+pub const MAX_BOT_VERSION: u32 = 6;
 
-/// The tuning of bot version `version` (1 to 5; anything else: the current one).
+/// The tuning of bot version `version` (1 to 6; anything else: the current one).
 ///
 /// Version 1 is written out in full (every field, no `..`), so a new knob cannot slip into it
 /// with a changed default: the compiler asks for its version-1 value. Version 2 is version 1 plus
@@ -176,7 +177,8 @@ pub fn for_version(version: u32) -> Tuning {
         2 => v2(),
         3 => v3(),
         4 => Tuning::default(),
-        _ => v5(),
+        5 => v5(),
+        _ => v6(),
     }
 }
 
@@ -202,6 +204,16 @@ pub fn v5() -> Tuning {
         agenda_budget: true,
         agenda_riders: true,
         ..Tuning::default()
+    }
+}
+
+/// Version 6, **staging** (not shipped: [`BOT_VERSION`] stays 5 until the user says ship): version
+/// 5 plus `muaat_keeps_note` (a Muaat seat keeps Fires of the Gashlai out of every transaction).
+#[must_use]
+pub fn v6() -> Tuning {
+    Tuning {
+        muaat_keeps_note: true,
+        ..v5()
     }
 }
 
@@ -340,6 +352,7 @@ fn v1() -> Tuning {
         agenda_second_prior: 2.0,
         rider_min_p: 0.7,
         land_all: false,
+        muaat_keeps_note: false,
     }
 }
 
@@ -422,6 +435,15 @@ mod tests {
             },
             v4
         );
+        assert_eq!(
+            Tuning {
+                muaat_keeps_note: false,
+                ..for_version(6)
+            },
+            for_version(5)
+        );
+        assert!(for_version(6).muaat_keeps_note && !for_version(5).muaat_keeps_note);
+        assert_eq!(for_version(7), for_version(6));
         assert!(!v4.nekro_tech && v4.tech_pick_rule && v4.r1_tech);
         assert!((v4.planner_gap - 5.0).abs() < f64::EPSILON);
         assert!(v4.bw_enabled && v4.bw_prep_build && v4.bw_prep_warfare && v4.bw_agenda);
