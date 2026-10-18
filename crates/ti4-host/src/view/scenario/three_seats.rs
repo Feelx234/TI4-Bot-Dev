@@ -476,6 +476,12 @@ fn space_combat(
     }
     if let Some(seat) = state.player_mut(letnev) {
         seat.fleet_tokens = 4;
+        // From rules version 17 Letnev's own agent is offered at the start of each round of a space
+        // combat; the scenario opens at the retreat as it always did, so the agent starts spent.
+        seat.leaders.insert(
+            ti4_model::id::LeaderId::new("letnevagent"),
+            ti4_model::state::LeaderStatus::Exhausted,
+        );
     }
     state
         .system_mut(&SystemId::new("01"))
