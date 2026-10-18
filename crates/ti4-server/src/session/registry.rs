@@ -2286,6 +2286,23 @@ impl GameRegistry {
         self.table_changed(game_id);
     }
 
+    /// The record of the table a started game was made from, if it has one (a lobby game).
+    #[must_use]
+    pub fn lobby_record(&self, game_id: &str) -> Option<PlayerLobbyRecord> {
+        let held = self
+            .state
+            .lock()
+            .expect("registry lock")
+            .player_lobbies
+            .get(game_id)
+            .cloned();
+        held.or_else(|| {
+            self.store
+                .as_ref()
+                .and_then(|store| store.load_player_lobby(game_id).ok().flatten())
+        })
+    }
+
     /// Returns the optional underlying game store.
     #[must_use]
     pub fn store(&self) -> Option<Arc<crate::storage::FileGameStore>> {

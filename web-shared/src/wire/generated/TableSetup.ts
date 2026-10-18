@@ -48,6 +48,7 @@ starting_tech?: boolean,
 thunders_edge?: boolean, 
 /**
  * The seed of the table. It tells the factions that nobody chose, so a host
- * with several people keeps it to itself.
+ * with several people keeps it to itself. Read from a number or a decimal string (an export
+ * writes it as a string: [`crate::wire`]).
  */
 seed: number, };

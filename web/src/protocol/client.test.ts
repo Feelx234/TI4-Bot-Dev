@@ -977,14 +977,22 @@ describe("GameSessionClient ingress lifecycle", () => {
     const { client } = await connectedPlayer();
     const request = vi.fn().mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ format: "ti4-replay", history: { decisions: [] } }),
+      // A seed that no JavaScript number holds, as the server writes it: the text must come
+      // back untouched.
+      text: async () =>
+        '{\n  "format": "ti4-replay",\n  "seed": "18432220952314264515",\n  "history": { "decisions": [] }\n}',
     });
     vi.stubGlobal("fetch", request);
     const replay = await client.fetchReplay();
     expect(request.mock.calls[0][0]).toBe("/api/games/game_12345/replay");
     expect(request.mock.calls[0][1].headers).toHaveProperty("x-ti4-player-session");
     expect(replay.filename).toBe("ti4-replay-game_12345.json");
-    expect(JSON.parse(replay.text)).toEqual({ format: "ti4-replay", history: { decisions: [] } });
+    expect(replay.text).toContain('"seed": "18432220952314264515"');
+    expect(JSON.parse(replay.text)).toEqual({
+      format: "ti4-replay",
+      seed: "18432220952314264515",
+      history: { decisions: [] },
+    });
     client.stop();
   });
 

@@ -220,11 +220,17 @@ pub enum HistoryAction {
     Redo,
     RedoBatch,
     RedoPipeline,
-    RestoreCursor { cursor: usize },
-    Restore { event_id: String },
+    RestoreCursor {
+        cursor: usize,
+    },
+    Restore {
+        event_id: String,
+    },
     /// Go back to the start of the shown seat's last `turns` turns (1 or 2): the turn redo of
     /// the server, without its auto-play (the bots simply play on from there).
-    UndoTurn { turns: u8 },
+    UndoTurn {
+        turns: u8,
+    },
 }
 
 /// A batch (a staged movement, production or payment) that answers the person's choices.
@@ -1936,6 +1942,7 @@ impl HostSession {
             bot_version: self.bot_version(),
             rules_version: self.rules_version(),
             humans: self.identity.humans,
+            seats: self.save_seats(),
             decisions: self
                 .decision_log
                 .iter()
@@ -1968,6 +1975,57 @@ impl HostSession {
             engine: extra,
         };
         serde_json::to_value(save).expect("a save is JSON")
+    }
+
+    /// Who sat where, for the save: the page's seats are `human`, the others are what the game's
+    /// request made them.
+    fn save_seats(&self) -> Vec<SaveSeat> {
+        use crate::host_setup::{Bots, SeatKind};
+        let game = &self.identity.game;
+        let rule_seats = game.local.as_ref().map_or(0, |local| local.rule_seats);
+        let bots = game
+            .setup
+            .as_ref()
+            .and_then(|setup| setup.bots)
+            .unwrap_or_default();
+        self.state
+            .players
+            .iter()
+            .take(self.identity.players)
+            .enumerate()
+            .map(|(seat, player)| {
+                let human = self.identity.humans >> seat & 1 == 1;
+                let kind = if human {
+                    "human"
+                } else if let Some(table) = &game.table {
+                    match table.seats.get(seat).map(|s| s.kind) {
+                        Some(SeatKind::Random) => "random",
+                        _ => "smart",
+                    }
+                } else if game.local.is_some() {
+                    if rule_seats >> seat & 1 == 1 {
+                        "smart"
+                    } else {
+                        "random"
+                    }
+                } else if bots == Bots::Random {
+                    "random"
+                } else {
+                    "smart"
+                };
+                SaveSeat {
+                    seat,
+                    player_id: player.id.clone(),
+                    name: game
+                        .table
+                        .as_ref()
+                        .and_then(|table| table.seats.get(seat))
+                        .and_then(|s| s.name.clone()),
+                    kind: kind.to_owned(),
+                    faction: player.faction.as_str().to_owned(),
+                }
+            })
+            .collect()
     }
 
     /// The turn status the game shows while it waits (for a host that wants to show who plays).
@@ -2013,6 +2071,9 @@ pub struct HostSave {
     pub rules_version: Option<u32>,
     /// The seats that the page plays at the start (bit 0 is seat `a`).
     pub humans: u32,
+    /// Who sat where: the id, the name (a table's), who plays it and its faction. Information for
+    /// a reader of the file; `game` is what a replay is made from.
+    pub seats: Vec<SaveSeat>,
     /// The option id of every decision of every seat, in order.
     pub decisions: Vec<String>,
     /// The page's answers among them (ids), in order.
@@ -2042,18 +2103,25 @@ pub struct HostSave {
     pub engine: serde_json::Value,
 }
 
+/// One seat of a save, for the reader of the file.
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct SaveSeat {
+    /// 0-based.
+    pub seat: usize,
+    pub player_id: PlayerId,
+    /// The name at the table, if the game is one of a table.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub name: Option<String>,
+    /// `human` (the page), `smart` (the rule bot) or `random`.
+    pub kind: String,
+    pub faction: String,
+}
+
 /// A short hash of the decisions of a game, to tell on replay that the engine still decides the
 /// same (FNV-1a over the canonical V1 fingerprint of each record).
 #[must_use]
 pub fn decisions_hash(records: &[DecisionRecord]) -> String {
-    use ti4_engine::fingerprint::{CanonicalHashVersion, decision_hash};
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for record in records {
-        let digest = decision_hash(CanonicalHashVersion::V1, record);
-        for byte in format!("{digest:?}").bytes() {
-            hash ^= u64::from(byte);
-            hash = hash.wrapping_mul(0x0100_0000_01b3);
-        }
-    }
-    format!("{hash:016x}")
+    ti4_host::export::decisions_hash(records)
 }

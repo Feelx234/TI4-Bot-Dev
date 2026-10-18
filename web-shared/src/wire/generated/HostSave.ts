@@ -2,6 +2,7 @@
 import type { GameRequest } from "./GameRequest.ts";
 import type { Phase } from "./Phase.ts";
 import type { PlayerId } from "./PlayerId.ts";
+import type { SaveSeat } from "./SaveSeat.ts";
 import type { SeatStaged } from "./SeatStaged.ts";
 import type { SeatSwitch } from "./SeatSwitch.ts";
 import type { TableSetup } from "./TableSetup.ts";
@@ -42,6 +43,11 @@ rules_version?: number,
  * The seats that the page plays at the start (bit 0 is seat `a`).
  */
 humans: number, 
+/**
+ * Who sat where: the id, the name (a table's), who plays it and its faction. Information for
+ * a reader of the file; `game` is what a replay is made from.
+ */
+seats: Array<SaveSeat>, 
 /**
  * The option id of every decision of every seat, in order.
  */

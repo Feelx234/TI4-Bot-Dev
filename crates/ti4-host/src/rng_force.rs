@@ -104,17 +104,80 @@ impl<'de> Deserialize<'de> for RngMarks {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let raw: BTreeMap<String, serde_json::Value> = BTreeMap::deserialize(deserializer)?;
         let mut out = Self::default();
-        for (key, value) in raw {
+        for (key, mut value) in raw {
+            // An export writes the big integers as strings, and a copy that went through a
+            // browser has them rounded: both read as numbers here.
             if key == "decks" {
+                if let Some(segments) = value.as_array_mut() {
+                    for segment in segments {
+                        crate::wire::number_at(segment, "from");
+                        crate::wire::number_at(segment, "until");
+                    }
+                }
                 out.deck_plan = serde_json::from_value(value).map_err(D::Error::custom)?;
             } else {
                 let index: usize = key.parse().map_err(D::Error::custom)?;
-                let positions = serde_json::from_value(value).map_err(D::Error::custom)?;
+                // The positions are 128 bits wide: read them past the Value's numbers.
+                let positions: RngPositions = value
+                    .as_object()
+                    .ok_or_else(|| D::Error::custom("rng mark positions must be an object"))?
+                    .iter()
+                    .map(|(stream, position)| {
+                        crate::wire::read_u128(position)
+                            .map(|position| (stream.clone(), position))
+                            .ok_or_else(|| D::Error::custom("rng mark position is not an integer"))
+                    })
+                    .collect::<Result<_, _>>()?;
                 out.marks.insert(index, positions);
             }
         }
         Ok(out)
     }
+}
+
+/// [`RngMarks`] as an export writes it: the same object, with every integer as a decimal string
+/// (the positions are 128 bits wide and the end of an open segment is `usize::MAX`), so that it
+/// survives a JavaScript `Number`. [`RngMarks`]'s own form, which the checksums of the stored
+/// history are made over, is unchanged.
+pub struct AsText<'a>(pub &'a RngMarks);
+
+impl Serialize for AsText<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let marks = self.0;
+        let extra = usize::from(!marks.deck_plan.is_empty());
+        let mut map = serializer.serialize_map(Some(marks.marks.len() + extra))?;
+        for (index, positions) in &marks.marks {
+            let text: BTreeMap<&String, String> = positions
+                .iter()
+                .map(|(stream, position)| (stream, position.to_string()))
+                .collect();
+            map.serialize_entry(&index.to_string(), &text)?;
+        }
+        if !marks.deck_plan.is_empty() {
+            let segments: Vec<serde_json::Value> = marks
+                .deck_plan
+                .iter()
+                .map(|segment| {
+                    serde_json::json!({
+                        "from": segment.from.to_string(),
+                        "until": segment.until.to_string(),
+                        "reserved": segment.reserved,
+                    })
+                })
+                .collect();
+            map.serialize_entry("decks", &segments)?;
+        }
+        map.end()
+    }
+}
+
+/// `serde(serialize_with)` for a field of [`RngMarks`] written as an export has it.
+pub fn serialize_as_text<S: Serializer>(
+    marks: &RngMarks,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    AsText(marks).serialize(serializer)
 }
 
 /// Applies [`RngMarks`] during a replay. Cheap to clone; clones share the same side channel.

@@ -8,6 +8,7 @@ pub mod feedback;
 pub mod fixtures;
 pub mod http;
 pub mod public;
+pub mod replay_export;
 pub mod session;
 pub mod storage;
 pub mod ws;

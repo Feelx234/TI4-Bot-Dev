@@ -6,7 +6,10 @@
 //! cargo run -p ti4-wasm --example replay_save -- save.json [--snapshot snapshot.json]
 //! ```
 //!
-//! The file may be the save blob itself, a stored report (`context.local.save`) or a request body.
+//! The file may be the save blob itself, a stored report (`context.local.save`) or a request body,
+//! or a replay export of an online game (`GET /api/games/{id}/replay`, format `ti4-replay`, see
+//! `docs/REPLAY_FORMAT.md`): that carries its own setup, so it needs no settings and is replayed
+//! natively from its factions, seats, card set and seed through every journaled decision.
 //! The game is played again from its seed and every saved decision until the saved position;
 //! the tool prints whether the decisions came back the same (count and hash of the save) and what
 //! the person was asked there. A save of a finished game has no question: the whole game's decisions
@@ -31,6 +34,86 @@ fn save_of(file: &Value) -> Option<Value> {
     .cloned()
 }
 
+/// A replay export in `file`: the file itself, or under `replay` (a report that carries one).
+fn export_of(file: &Value) -> Option<Value> {
+    [file.get("replay"), Some(file)]
+        .into_iter()
+        .flatten()
+        .find(|v| v["format"] == "ti4-replay")
+        .cloned()
+}
+
+/// Replays an export from its own setup and says what it found. Exit code 1 when the journal does
+/// not come back the same.
+fn replay_export(value: Value) -> Result<(), String> {
+    let export = ti4_host::export::ReplayExport::from_value(value)?;
+    println!(
+        "export: format {} of {}, seed {}, {} seats, {} decisions",
+        export.format_version,
+        export.game_id,
+        export.seed.map_or("-".to_owned(), |s| s.to_string()),
+        export.player_ids.len(),
+        export.history.decisions.len(),
+    );
+    if let Some(build) = &export.build {
+        println!(
+            "written by: build {}, engine {}, content {}, rules version {}",
+            build.build_commit.as_deref().unwrap_or("?"),
+            build.engine_version.as_deref().unwrap_or("?"),
+            build.content_digest.as_deref().unwrap_or("?"),
+            build.rules_version,
+        );
+    }
+    if let Some(setup) = &export.setup {
+        let table = &setup.table;
+        println!(
+            "table: map {:?}, cards {}, speaker {:?}, starting tech {}, thunders edge {}",
+            table.map,
+            table.strategy_cards,
+            table.speaker_order,
+            table.starting_tech,
+            table.thunders_edge,
+        );
+    }
+    for seat in &export.seats {
+        println!(
+            "  seat {} {} ({}) {}",
+            seat.seat,
+            seat.nickname.as_deref().unwrap_or("-"),
+            seat.kind,
+            seat.faction.as_str(),
+        );
+    }
+    let outcome = export.replay()?;
+    let state = &outcome.final_state;
+    println!(
+        "replayed {} decisions: round {} phase {:?}, state hash {}",
+        outcome.decisions, state.round, state.phase, outcome.final_state_hash,
+    );
+    let mut ok = outcome.hashes_match;
+    if outcome.setup_matches == Some(false) {
+        println!(
+            "DIFFERENT: the setup builds another opening state than the one the game began with"
+        );
+        ok = false;
+    }
+    if let Some(check) = &export.check {
+        println!(
+            "saved: decisions {} hash {}; found: decisions {} hash {}",
+            check.decisions, check.decisions_hash, outcome.decisions, outcome.decisions_hash,
+        );
+        ok &=
+            check.decisions == outcome.decisions && check.decisions_hash == outcome.decisions_hash;
+    }
+    if ok {
+        println!("OK: the game is reproduced");
+        Ok(())
+    } else {
+        println!("DIFFERENT: this build decides otherwise than the one that made the file");
+        std::process::exit(1);
+    }
+}
+
 fn main() -> Result<(), String> {
     let mut path = None;
     let mut snapshot_path = None;
@@ -46,8 +129,11 @@ fn main() -> Result<(), String> {
     let file: Value =
         serde_json::from_slice(&std::fs::read(&path).map_err(|e| format!("{path}: {e}"))?)
             .map_err(|e| format!("{path}: {e}"))?;
+    if let Some(export) = export_of(&file) {
+        return replay_export(export);
+    }
     let save = save_of(&file).ok_or("no save found (need game and decisions)")?;
-    let seed = save["seed"].as_u64().ok_or("save.seed")?;
+    let seed = ti4_host::wire::read_u64(&save["seed"]).ok_or("save.seed")?;
     let humans = save["humans"].as_u64().unwrap_or(0);
     if let Some(local) = file.pointer("/context/local").or_else(|| file.get("local")) {
         println!(

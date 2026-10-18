@@ -8,6 +8,9 @@
 # -n N  how many reports (default 20)      -v  also print the context JSON (without the save blob)
 # -s ID write the save blob of an offline report (its fb_... id or client report id) to FILE or
 #       stdout; replay it with: cargo run -p ti4-wasm --example replay_save -- FILE
+#       A report of an online game has no save: with TI4_SERVER_BIN set, the server writes the game's
+#       replay export (setup, seats, factions, seed, decisions: docs/REPLAY_FORMAT.md) from the files
+#       in DATA_DIR instead, and replay_save replays that too.
 # Offline reports show a "source: offline | seed | build | decisions" line.
 # DATA_DIR defaults to $TI4_DATA_DIR or /var/lib/ti4-public.
 # Uses the server binary when present, otherwise falls back to jq over the JSON files.
@@ -47,7 +50,7 @@ if [[ -n "$save_id" ]]; then
   for f in "$data_dir"/feedback/*/*.json; do
     [[ -e "$f" ]] || continue
     if jq -e --arg id "$save_id" '.id == $id or .report_id == $id' "$f" >/dev/null; then
-      jq -e '.context.local.save' "$f" > "${out_file:-/dev/stdout}" || { echo "not an offline report" >&2; exit 1; }
+      jq -e '.context.local.save' "$f" > "${out_file:-/dev/stdout}" || { echo "not an offline report: set TI4_SERVER_BIN to a server binary to export the online game $(jq -r '.context.game_id // "?"' "$f") from $data_dir" >&2; exit 1; }
       exit 0
     fi
   done
@@ -55,6 +58,6 @@ if [[ -n "$save_id" ]]; then
 fi
 # shellcheck disable=SC2012
 ls -1t "$data_dir"/feedback/*/*.json 2>/dev/null | head -n "$limit" | while read -r f; do
-  jq -r '"=== \(.id) | \(.received_at) | \(.category | ascii_upcase) | client \(.context.build_commit // "-") | game \(.context.game_id // "-") | seat \(.context.viewer_seat // "-") | round \(.context.round // "-") \(.context.phase // "")\n\(if .context.local then "    source: offline | seed \(.context.local.seed) | build \(.context.local.engine.build // "?") | decisions \(.context.local.save.decisions // "?") | answers \(.context.local.answers | length)\n" else "" end)\(if .context.sender or .context.players then "    from \(.context.sender.nickname // .context.sender.typed_name // (if .context.sender.lobby_nickname then "lobby name " + .context.sender.lobby_nickname else "?" end))" + (if .context.players then " | table: " + ([.context.players[] | "\(.nickname // "?")\(if .is_sender then "*" else "" end) (\(.faction // "?"))"] | join(", ")) else "" end) + "\n" else "" end)\(.text)\n    file: '"$f"'\n"' "$f"
+  jq -r '"=== \(.id) | \(.received_at) | \(.category | ascii_upcase) | client \(.context.build_commit // "-") | game \(.context.game_id // "-") | seat \(.context.viewer_seat // "-") | round \(.context.round // "-") \(.context.phase // "")\n\(if .context.local then "    source: offline | seed \(.context.local.seed) | build \(.context.local.engine.build // "?") | decisions \(.context.local.save.decisions // "?") | answers \(.context.local.answers | length)\n" else "" end)\(if .context.local.save.seats then "    seats: \(.context.local.save.seats | map("\(.name // "-") (\(.faction), \(.kind))") | join(", "))\n" else "" end)\(if .context.sender or .context.players then "    from \(.context.sender.nickname // .context.sender.typed_name // (if .context.sender.lobby_nickname then "lobby name " + .context.sender.lobby_nickname else "?" end))" + (if .context.players then " | table: " + ([.context.players[] | "\(.nickname // "?")\(if .is_sender then "*" else "" end) (\(.faction // "?"))"] | join(", ")) else "" end) + "\n" else "" end)\(.text)\n    file: '"$f"'\n"' "$f"
   if [[ -n "$verbose" ]]; then jq '.context | if .local then .local |= (.save = "<omitted>" | .answers = "<omitted>" | .setup = "<omitted>") else . end' "$f"; fi
 done

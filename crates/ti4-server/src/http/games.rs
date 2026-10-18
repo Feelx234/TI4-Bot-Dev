@@ -805,14 +805,18 @@ pub async fn get_map(
 
 /// Handler for `GET /api/games/{game_id}/replay`: the game's history for copying out.
 ///
-/// Any seated player of the game may fetch it. The body wraps the same JSON a `history.json`
-/// holds (`history`) with the seed and seats needed to replay it; it includes every player's
-/// decisions and the seed, so it is not a spectator view.
+/// Any seated player of the game may fetch it. The body is a [`ti4_host::export::ReplayExport`]
+/// (`docs/REPLAY_FORMAT.md`): the table's setup (map, seats with factions and names, card set,
+/// speaker order, Thunder's Edge), the seed and the same history a `history.json` holds. It
+/// includes every player's decisions and the seed, so it is not a spectator view. The big integers
+/// are decimal strings, and the text is sent as it is meant to be saved: a page must not parse and
+/// print it again.
 pub async fn get_replay(
     Path(game_id): Path<String>,
     headers: HeaderMap,
     State(registry): State<Arc<GameRegistry>>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    use axum::response::IntoResponse;
     let token = require_player_session(&headers)?.to_owned();
     tokio::task::spawn_blocking(move || {
         let session = registry
@@ -822,19 +826,36 @@ pub async fn get_replay(
             .authenticate_player_session(&game_id, &token)
             .map_err(lobby_error)?;
         let (history, seed, player_ids) = session.replay_export();
+        let (initial_state, seats, nicknames, galaxy_layout) = session.export_basis();
         let map_template = registry
             .store()
             .and_then(|store| store.load_player_init(&game_id).ok())
             .and_then(|init| init.map_template);
-        Ok(Json(serde_json::json!({
-            "format": "ti4-replay",
-            "version": 1,
-            "game_id": game_id,
-            "seed": seed,
-            "player_ids": player_ids,
-            "map_template": map_template,
-            "history": history,
-        })))
+        let lobby = registry.lobby_record(&game_id);
+        let export = crate::replay_export::build(crate::replay_export::ExportInputs {
+            game_id: &game_id,
+            history,
+            seed,
+            player_ids,
+            initial_state: &initial_state,
+            galaxy_layout: Some(galaxy_layout),
+            seats: &seats,
+            nicknames: &nicknames,
+            map_template,
+            lobby: lobby.as_ref(),
+            build_commit: registry.public().build_commit(),
+        });
+        let text = serde_json::to_string_pretty(&export).map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("replay export failed: {error}"),
+            )
+        })?;
+        Ok((
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            text,
+        )
+            .into_response())
     })
     .await
     .map_err(|error| {

@@ -1103,6 +1103,26 @@ impl GameSession {
         )
     }
 
+    /// What the replay export needs besides the history: the opening state of the game, who
+    /// controls each seat, the names, and the layout of the map.
+    #[must_use]
+    pub fn export_basis(
+        &self,
+    ) -> (
+        GameState,
+        BTreeMap<PlayerId, SeatController>,
+        BTreeMap<PlayerId, String>,
+        ti4_host::map::GalaxyLayout,
+    ) {
+        let config = &self.initial_config;
+        (
+            config.state.clone(),
+            config.seats.clone(),
+            config.nicknames.clone(),
+            config.galaxy_layout.clone(),
+        )
+    }
+
     pub fn restart_config(&self) -> SessionConfig {
         let mut config = self.initial_config.clone();
         // Callers can replace the decision prefix (batch commit, undo, redo).
