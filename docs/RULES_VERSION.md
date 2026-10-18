@@ -10,9 +10,9 @@ playable.
 
 `GameState::rules_version: u32` (crates/ti4-model/src/state.rs). Constants next to it:
 
-- `RULES_VERSION` (now 11): what a **new** game plays. `GameState::new` sets it, so every way of
+- `RULES_VERSION` (now 15): what a **new** game plays. `GameState::new` sets it, so every way of
   creating a game (server, lobby, wasm host, selfplay, tests) gets the latest.
-- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ENIGMATIC_DEVICE = 5`, `RULES_TECH_PAYMENT_CHOICE = 6`, `RULES_BRIBERY_PER_PLAYER = 7`, `RULES_MUNITIONS_AFTER_ROLL = 8`, `RULES_TECH_RIDER = 9`, `RULES_ACTION_CARD_TARGETS = 10`, `RULES_RETREAT_HAZARDS = 11`): the first version with one gated change.
+- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ENIGMATIC_DEVICE = 5`, `RULES_TECH_PAYMENT_CHOICE = 6`, `RULES_BRIBERY_PER_PLAYER = 7`, `RULES_MUNITIONS_AFTER_ROLL = 8`, `RULES_TECH_RIDER = 9`, `RULES_ACTION_CARD_TARGETS = 10`, `RULES_RETREAT_HAZARDS = 11`, `RULES_TECH_EFFECTS = 15`; 12 to 14 are taken by unmerged branches): the first version with one gated change.
 A state without the field is **version 0**, the legacy rules (what the alpha ran until 2026-10-16).
 
 ## How it is stored (the checksum rule)
@@ -135,6 +135,17 @@ Version 11 = Retreat hazards (`fb-retreat-asteroids`, `RULES_RETREAT_HAZARDS`):
 1. `combat::retreat_may_enter`: retreat destinations (78.7c, Dark Energy Tap, Skilled Retreat) must
    pass `MovementRules::can_enter`: no asteroid field without Antimass Deflectors (11.1), no
    supernova (86.1) except faction exceptions. Nebulae stay allowed. Version < 11: no check.
+
+Version 15 = technology effects (`tech-effect-fixes`, `RULES_TECH_EFFECTS`; 12 to 14 belong to other unmerged branches, merge order decides the final number). Seven card effects that were missing:
+
+1. Infantry II (`inf2`, `infantry_ii.rs`): after a generic `infantry2` is destroyed (`GROUND_FORCE_DESTROYED`), roll 1 die; 6 or more puts it on the card (a count in `faction_marks`, `inf2:card:<player>`; off the board); on the owner's `TURN_BEGAN` the units go to the first planet they control in the home system (no question), or wait; a player without the card loses what is on it.
+2. Antimass Deflectors (`amd`): `combat::space_cannon_offense` asks 1 more of every SPACE CANNON die against the owner (the roll is recorded with the raised hit number, as Assail records its own).
+3. Magen Defense Grid (`md`, the Codex 4 printing, `magen_defense.rs`): `SYSTEM_ACTIVATED` ("when") places 1 infantry per structure on its planet; `GROUND_COMBAT_STARTED` produces 1 hit that the card's owner assigns to one of the opponent's ground forces (question `magen_defense_hit` only when the opponent has several kinds; the target's owner decides on SUSTAIN DAMAGE).
+4. Psychoarchaeology (`pa`): `technology::specialties` counts exhausted planets and `exhaust_specialties_for_research` exhausts nothing.
+5. AI Development Algorithm (`aida`): a ready card ignores 1 prerequisite of a unit upgrade (`prerequisites_met_with`); research exhausts it only when the other holdings and waivers fall short.
+6. Predictive Intelligence (`pi`): after a voter's planets and trade goods, `VoteWindow` asks `vote_predictive_intelligence` (3 additional votes); if taken and the backed outcome is not resolved, the card is exhausted when the vote closes.
+
+Version < 15: none of these. The new questions only exist at version 15, so older logs replay unchanged; the timing abilities of items 1 and 3 are registered for every seat but their conditions are false below 15. Rule bot golden benches v1 to v5 are hash-identical with `RULES_VERSION` pinned to 11; at 15 the games differ (new effects, e.g. every Sol seat starts with Antimass Deflectors) and `baseline.json` needs a deliberate re-record.
 
 ## Adding the next gate
 
