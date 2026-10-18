@@ -98,6 +98,19 @@ fn drive(game: &mut Game<'_>, limit: usize, done: impl Fn(&Game<'_>) -> bool) {
     panic!("not finished within {limit} steps; events: {:?}", game.events);
 }
 
+/// Step `game` until it is about to ask a question whose prompt starts with `prefix`; return it.
+fn until_prompt(game: &mut Game<'_>, prefix: &str) -> crate::choice::Choice {
+    for _ in 0..60 {
+        if let Some(choice) = game.legal_options()
+            && choice.prompt.starts_with(prefix)
+        {
+            return choice;
+        }
+        assert_eq!(game.step().error, None, "events: {:?}", game.events);
+    }
+    panic!("no question starting {prefix:?}; events: {:?}", game.events);
+}
+
 fn tactical_done(game: &Game<'_>) -> bool {
     game.events.iter().any(|e| e == "TACTICAL_ACTION_COMPLETE")
 }
@@ -1133,4 +1146,245 @@ fn mr_2_magmus_reactor_gives_a_supernova_holding_your_ships_production_five() {
     let (game, nova, _) = supernova_game("muaat", |hub| hub.centre.clone(), Some("mr"), 6);
     assert_eq!(count(&game.state, &nova, "destroyer", &a()), 5);
     assert!(game.events.iter().any(|e| e == "PRODUCTION_USED"));
+}
+
+// -- Saar ----------------------------------------------------------------------------------------
+
+#[test]
+fn nomadic_1_saar_may_score_without_controlling_the_planets_in_their_home_system() {
+    // Both seats lose their home planets and hold the five trade goods "Trade Routes" asks for.
+    // In the status phase's scoring step only the Saar player is offered the objective.
+    let mut state = seated_all(&[("a", "saar"), ("b", "sol")]);
+    for who in [a(), b()] {
+        let (home, _) = home_planet(&state, &who);
+        state.system_mut(&home).planet_control.clear();
+        state.player_mut(&who).unwrap().trade_goods = 5;
+    }
+    state.revealed_objectives.push(ObjectiveId::new("trade_routes"));
+    state.phase = Phase::Action;
+    state.active = Some(a());
+    let table = preferring(&["pass", "trade_routes"]);
+    let mut game = Game::with_table(state, content(), table).with_sources(SOURCES);
+    drive(&mut game, 200, |g| g.state.round >= 2);
+    assert!(game.state.scored_by(&a()).contains(&ObjectiveId::new("trade_routes")));
+    assert!(game.state.scored_by(&b()).is_empty(), "Sol still needs its home planets (61.16)");
+}
+
+#[test]
+fn saaragent_1_raises_one_ship_of_the_activating_player_to_the_fastest_move_on_the_board() {
+    // Sol's carrier (move 1) is two systems from the target; a Saar cruiser (move 2) sits elsewhere.
+    let carrier_arrives = |agent: bool| {
+        let mut state = seated_all(&[("a", "saar"), ("b", "sol")]);
+        let hub = open_hub();
+        let origin = SystemId::new(hub.outer[0].clone());
+        let target = SystemId::new(hub.across(&hub.outer[0]));
+        // Take every other ship off the board, so the carrier is the only choice for the agent.
+        for system in state.board.keys().cloned().collect::<Vec<_>>() {
+            state.system_mut(&system).units.clear();
+        }
+        put(&mut state, &origin, "carrier", &b(), 1);
+        put(&mut state, &SystemId::new(hub.outer[2].clone()), "cruiser", &a(), 1);
+        if !agent {
+            set_leader(&mut state, &a(), "saaragent", LeaderStatus::Exhausted);
+        } else {
+            set_leader(&mut state, &a(), "saaragent", LeaderStatus::Readied);
+        }
+        state.phase = Phase::Action;
+        state.active = Some(b());
+        let table = opening_then(
+            &[TACTICAL_ACTION_ID, target.as_str()],
+            &["leader:saar:saaragent", "ship|", "move|", "done_loading", "done_moving"],
+        );
+        let mut game = game_of(state, hub.galaxy, table);
+        drive(&mut game, 80, tactical_done);
+        (
+            count(&game.state, &target, "carrier", &b()),
+            leader_status(&game.state, &a(), "saaragent"),
+        )
+    };
+    assert_eq!(carrier_arrives(true), (1, Some(LeaderStatus::Exhausted)), "the carrier moves 2");
+    assert_eq!(carrier_arrives(false).0, 0, "without the agent it is too slow");
+}
+
+#[test]
+fn saarcommander_2_fighters_may_be_placed_at_any_unblockaded_space_dock() {
+    let fighters = |status: LeaderStatus, blockaded: bool| {
+        let mut state = seated_all(&[("a", "saar"), ("b", "sol")]);
+        let hub = open_hub();
+        let centre = SystemId::new(hub.centre.clone());
+        let other = SystemId::new(hub.outer[1].clone());
+        for system in state.board.keys().cloned().collect::<Vec<_>>() {
+            let board = state.system_mut(&system);
+            board.units.retain(|u| u.owner != a());
+            board.planet_units.values_mut().for_each(|units| units.retain(|u| u.owner != a()));
+        }
+        put(&mut state, &centre, "saar_spacedock", &a(), 1);
+        put(&mut state, &other, "saar_spacedock", &a(), 1);
+        if blockaded {
+            put(&mut state, &other, "cruiser", &b(), 1);
+        }
+        set_leader(&mut state, &a(), "saarcommander", status);
+        state.player_mut(&a()).unwrap().trade_goods = 10;
+        state.phase = Phase::Action;
+        state.active = Some(a());
+        let place = format!("place|{other}@");
+        let table = opening_then(
+            &[TACTICAL_ACTION_ID, centre.as_str(), "done_moving"],
+            &["build|fighter", "trade_good", place.as_str(), "done_producing"],
+        );
+        let mut game = game_of(state, hub.galaxy, table);
+        drive(&mut game, 80, tactical_done);
+        (
+            count(&game.state, &centre, "fighter", &a()),
+            count(&game.state, &other, "fighter", &a()),
+        )
+    };
+    let (here, there) = fighters(LeaderStatus::Unlocked, false);
+    assert!(there > 0, "placed at the other dock: {here} here, {there} there");
+    let (here, there) = fighters(LeaderStatus::Locked, false);
+    assert!(here > 0 && there == 0, "locked: only where they were produced ({here}, {there})");
+    let (here, there) = fighters(LeaderStatus::Unlocked, true);
+    assert!(here > 0 && there == 0, "a blockaded dock is not an option ({here}, {there})");
+}
+
+#[test]
+fn ffac2_1_floating_factory_ii_moves_two_systems_like_a_ship() {
+    let arrives = |tech: bool| {
+        let mut state = seated_all(&[("a", "saar"), ("b", "sol")]);
+        let hub = open_hub();
+        let origin = SystemId::new(hub.outer[0].clone());
+        let target = SystemId::new(hub.across(&hub.outer[0]));
+        put(&mut state, &origin, "saar_spacedock", &a(), 1);
+        if tech {
+            super::give(&mut state, "a", "ffac2");
+            crate::technology::apply_unit_upgrades(&mut state, content(), SOURCES, &a());
+        }
+        state.phase = Phase::Action;
+        state.active = Some(a());
+        let table = opening_then(
+            &[TACTICAL_ACTION_ID, target.as_str()],
+            &["move|", "done_loading", "done_moving"],
+        );
+        let mut game = game_of(state, hub.galaxy, table);
+        // Take the Saar home fleet out of the way: only the floating factory can move.
+        drive(&mut game, 60, tactical_done);
+        (
+            count(&game.state, &target, "saar_spacedock2", &a()),
+            count(&game.state, &target, "saar_spacedock", &a()),
+        )
+    };
+    assert_eq!(arrives(true), (1, 0), "Floating Factory II has move 2");
+    assert_eq!(arrives(false), (0, 0), "Floating Factory I (move 1) cannot make the two systems");
+}
+
+#[test]
+fn ffac2_2_floating_factory_ii_has_production_seven_in_the_space_area() {
+    let left = |tech: bool| {
+        let mut state = seated_all(&[("a", "saar"), ("b", "sol")]);
+        let hub = open_hub();
+        let centre = SystemId::new(hub.centre.clone());
+        for system in state.board.keys().cloned().collect::<Vec<_>>() {
+            let board = state.system_mut(&system);
+            board.units.retain(|u| u.owner != a());
+            board.planet_units.values_mut().for_each(|units| units.retain(|u| u.owner != a()));
+        }
+        put(&mut state, &centre, "saar_spacedock", &a(), 1);
+        if tech {
+            super::give(&mut state, "a", "ffac2");
+            crate::technology::apply_unit_upgrades(&mut state, content(), SOURCES, &a());
+        }
+        state.phase = Phase::Action;
+        state.active = Some(a());
+        let table = opening_then(&[TACTICAL_ACTION_ID, centre.as_str(), "done_moving"], &[]);
+        let mut game = game_of(state, hub.galaxy, table);
+        for _ in 0..40 {
+            if let Some(choice) = game.legal_options()
+                && choice.prompt.starts_with("produce in ")
+            {
+                return choice.prompt.rsplit(" (").next().unwrap().trim_end_matches(" left)").to_owned();
+            }
+            assert_eq!(game.step().error, None);
+        }
+        panic!("no production prompt");
+    };
+    assert_eq!(left(true), "7");
+    assert_eq!(left(false), "5", "Floating Factory I produces 5");
+}
+
+#[test]
+fn ffac2_5_a_blockaded_floating_factory_is_destroyed() {
+    let mut state = seated_all(&[("a", "saar"), ("b", "sol")]);
+    let hub = open_hub();
+    let target = SystemId::new(hub.outer[0].clone());
+    let origin = SystemId::new(hub.centre.clone());
+    for system in state.board.keys().cloned().collect::<Vec<_>>() {
+        let board = state.system_mut(&system);
+        board.units.clear();
+        board.planet_units.values_mut().for_each(|units| units.retain(|u| u.owner != a()));
+    }
+    put(&mut state, &target, "saar_spacedock", &a(), 1);
+    put(&mut state, &origin, "cruiser", &b(), 1);
+    state.phase = Phase::Action;
+    state.active = Some(b());
+    let table = opening_then(
+        &[TACTICAL_ACTION_ID, target.as_str()],
+        &["move|", "done_loading", "done_moving"],
+    );
+    let mut game = game_of(state, hub.galaxy, table);
+    drive(&mut game, 60, tactical_done);
+    assert_eq!(count(&game.state, &target, "cruiser", &b()), 1, "Sol's ship arrived");
+    assert_eq!(count(&game.state, &target, "saar_spacedock", &a()), 0, "the blockaded dock is destroyed");
+}
+
+#[test]
+fn cm_1_chaos_mapping_bars_other_players_from_activating_an_asteroid_field_with_your_ships() {
+    let field = crate::fixtures::a_system_where("asteroid field");
+    let offered = |tech: bool, who: &PlayerId| {
+        let mut state = seated_all(&[("a", "saar"), ("b", "sol")]);
+        let hub = crate::fixtures::hub_with_outer(&field);
+        put(&mut state, &SystemId::new(field.as_str()), "destroyer", &a(), 1);
+        if tech {
+            super::give(&mut state, "a", "cm");
+        }
+        state.phase = Phase::Action;
+        state.active = Some(who.clone());
+        let mut game = game_of(state, hub.galaxy, preferring(&[TACTICAL_ACTION_ID, "decline"]));
+        let choice = until_prompt(&mut game, "activate a system");
+        choice.ids().contains(&field.as_str())
+    };
+    assert!(offered(true, &a()), "the holder may activate its own field");
+    assert!(!offered(true, &b()), "another player may not");
+    assert!(offered(false, &b()), "without the technology the field is open");
+}
+
+#[test]
+fn cm_2_chaos_mapping_produces_a_unit_at_a_space_dock_at_the_start_of_the_turn() {
+    let destroyers = |tech: bool| {
+        let mut state = seated_all(&[("a", "saar"), ("b", "sol")]);
+        let hub = open_hub();
+        let dock = SystemId::new(hub.outer[0].clone());
+        put(&mut state, &dock, "saar_spacedock", &a(), 1);
+        if tech {
+            super::give(&mut state, "a", "cm");
+        }
+        state.player_mut(&a()).unwrap().trade_goods = 10;
+        state.phase = Phase::Action;
+        state.active = Some(a());
+        // With the technology the turn opens with a production offer; without it, nothing.
+        let queue: Vec<String> = if tech {
+            [dock.as_str(), "build|destroyer|1", "trade_good"].iter().map(|a| (*a).to_owned()).collect()
+        } else {
+            Vec::new()
+        };
+        let table = Table::with_default(Box::new(Opening {
+            queue: queue.into_iter().collect(),
+            then: Prefer(vec!["pass".to_owned()]),
+            builds: None,
+        }));
+        let mut game = game_of(state, hub.galaxy, table);
+        drive(&mut game, 12, |g| g.events.iter().any(|e| e == "PLAYER_PASSED"));
+        count(&game.state, &dock, "destroyer", &a())
+    };
+    assert_eq!(destroyers(true), 1);
+    assert_eq!(destroyers(false), 0);
 }
