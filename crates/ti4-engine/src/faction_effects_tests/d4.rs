@@ -2225,11 +2225,16 @@ fn unit_mahact_mech_1_starlancer_spends_a_pool_token_to_end_the_activators_turn(
             put_on_planet(&mut state, &centre, &planet, "mahact_mech", &a(), 1);
         }
         put(&mut state, &sys(&hub.outer[0]), "cruiser", &b(), 1);
+        let total = |state: &GameState| {
+            let (t, f, s) = token_pools(state, &b());
+            t + f + s
+        };
+        let before = total(&state);
         let (mut game, seen) = action_game(
             state,
             "b",
             Some(hub.galaxy),
-            &[TACTICAL_ACTION_ID, centre.as_str(), answer],
+            &[TACTICAL_ACTION_ID, centre.as_str(), answer, "tactic_tokens"],
         );
         for _ in 0..5 {
             assert_eq!(game.step().error, None, "log: {:?}", game.events);
@@ -2238,26 +2243,27 @@ fn unit_mahact_mech_1_starlancer_spends_a_pool_token_to_end_the_activators_turn(
             was_offered(&seen, "use"),
             offered_to(&seen, "b", "done_moving"),
             fleet_pool(&game.state).len(),
+            total(&game.state) - before,
         )
     };
     assert_eq!(
         run("use", true, true),
-        (true, false, 0),
-        "b's turn ended before it could move; the token went back"
+        (true, false, 0, 0),
+        "b's turn ended before it could move; the token went back (paying for the activation)"
     );
     assert_eq!(
         run("decline", true, true),
-        (true, true, 1),
+        (true, true, 1, -1),
         "declined: b moves and the token stays"
     );
     assert_eq!(
         run("use", false, true),
-        (false, true, 0),
+        (false, true, 0, -1),
         "no token of b's in the pool: no offer"
     );
     assert_eq!(
         run("use", true, false),
-        (false, true, 1),
+        (false, true, 1, -1),
         "no mech in the system: no offer"
     );
 }
@@ -3604,5 +3610,33 @@ fn unit_naaz_voltron_1_the_eidolon_maximum_is_a_ship_that_moves_3_and_a_ground_f
         on_planet(&state, &system, &planet, &a(), "naaz_voltron"),
         1,
         "it landed as itself"
+    );
+}
+
+#[test]
+fn unit_argent_mech_2_aerie_sentinel_needs_no_capacity_in_a_space_area_with_your_carriers() {
+    // A carrier (capacity 4) in a space area with 4 infantry and a mech: over capacity (and the
+    // owner is asked to remove a unit) for Sol's mech, not for the Argent one.
+    let asked_to_remove = |faction: &str, mech: &str| {
+        let mut state = seated_all(&[("a", faction), ("b", "hacan")]);
+        strip_units(&mut state, &a());
+        put(&mut state, &sys("19"), "carrier", &a(), 1);
+        put(&mut state, &sys("19"), "infantry", &a(), 4);
+        put(&mut state, &sys("19"), mech, &a(), 1);
+        let (mut game, seen) = action_game(state, "a", None, &["pass"]);
+        for _ in 0..4 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+        }
+        seen.borrow()
+            .iter()
+            .any(|q| q.prompt.starts_with("remove a unit: over capacity"))
+    };
+    assert!(
+        !asked_to_remove("argent", "argent_mech"),
+        "the Sentinel rides for free"
+    );
+    assert!(
+        asked_to_remove("sol", "sol_mech"),
+        "an ordinary mech takes the fifth place"
     );
 }
