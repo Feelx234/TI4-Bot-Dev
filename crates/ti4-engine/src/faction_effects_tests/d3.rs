@@ -2966,7 +2966,7 @@ fn yssarilbt_1_deepgloom_lets_another_player_draw_one_more_card_and_discard_one_
 }
 
 #[test]
-fn unit_yssaril_flagship_0_y_sia_y_ssrila_fights_with_two_dice_on_5_and_sustains() {
+fn unit_yssaril_flagship_0_y_sia_y_ssrila_fights_with_two_dice_on_5_moves_two_and_sustains() {
     assert_eq!(space_profile("yssaril", "yssaril_flagship"), (Some(5), 2));
     let mut state = yssaril_game();
     put(&mut state, &sys("19"), "yssaril_flagship", &a(), 1);
@@ -2980,6 +2980,23 @@ fn unit_yssaril_flagship_0_y_sia_y_ssrila_fights_with_two_dice_on_5_and_sustains
             .any(|unit| unit.type_id.as_str() == "yssaril_flagship" && unit.sustained_damage),
         "the hit is sustained"
     );
+    // Move 2 where the printed flagship moves 1: two jumps across an empty centre.
+    let hub = plain_hub();
+    let target = hub.outer[0].clone();
+    let from = hub.across(&target);
+    for (kind, reaches) in [("yssaril_flagship", true), ("flagship", false)] {
+        let mut state = yssaril_game();
+        blank_hub(&mut state, &hub);
+        put(&mut state, &sys(&from), kind, &a(), 1);
+        let move_it = format!("move|{from}|0");
+        let (_, seen) = tactical(state, "a", &hub.galaxy, &target, &[&move_it], "never");
+        assert_eq!(
+            was_offered(&seen, &move_it),
+            reaches,
+            "{kind}: {:?}",
+            asked(&seen)
+        );
+    }
 }
 
 #[test]
