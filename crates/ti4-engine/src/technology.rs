@@ -613,6 +613,93 @@ pub fn production_used(
     Ok(())
 }
 
+/// Self-Assembly Routines: "After 1 or more of your units use PRODUCTION, you may exhaust this
+/// card to place 1 mech from your reinforcements on a planet you control in that system."
+///
+/// Asked once at the end of a use of PRODUCTION that produced units, only when the card is owned
+/// and ready, a mech is left in the reinforcements and the player controls a planet in `system`.
+/// A single planet is still a question: the exhaust is a "may". Not asked for games below
+/// [`ti4_model::state::RULES_SELF_ASSEMBLY`]. (The card's second ability, a trade good when a mech
+/// is destroyed, is not implemented: the engine has no unit-destroyed event yet.)
+///
+/// # Errors
+/// [`IllegalChoice`] if a decider answers with something not offered.
+pub fn self_assembly_after_production(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    player: &PlayerId,
+    system: &SystemId,
+) -> Result<(), IllegalChoice> {
+    let sar = TechnologyId::new("sar");
+    let (content, sources) = (ctx.content, ctx.sources);
+    if state.rules_version < ti4_model::state::RULES_SELF_ASSEMBLY
+        || !state.player(player).is_some_and(|seat| {
+            seat.technologies.contains(&sar) && !seat.exhausted_technologies.contains(&sar)
+        })
+    {
+        return Ok(());
+    }
+    let Some(mech) = crate::action_cards::placed_unit_id(state, content, sources, player, "mech")
+    else {
+        return Ok(());
+    };
+    if crate::supply::allowed(state, content, sources, player, &mech, 1) == 0 {
+        return Ok(());
+    }
+    let planets: Vec<_> = state
+        .controlled_planets(player)
+        .into_iter()
+        .filter(|(here, _)| *here == system)
+        .map(|(_, planet)| planet.clone())
+        .collect();
+    if planets.is_empty() {
+        return Ok(());
+    }
+    let mut options: Vec<ChoiceOption> = planets
+        .iter()
+        .map(|planet| {
+            ChoiceOption::labelled(
+                planet.as_str(),
+                "self_assembly",
+                format!("exhaust Self-Assembly Routines to place a mech on {planet}"),
+            )
+        })
+        .collect();
+    options.push(ChoiceOption::decline());
+    let choice = Choice::new(
+        player.clone(),
+        "Self-Assembly Routines: exhaust to place 1 mech from your reinforcements on a planet you control in this system",
+        options,
+    )
+    .contextualized(DecisionContext::new(
+        player.clone(),
+        DecisionSource::Content("sar".to_owned()),
+        "self_assembly_mech",
+        state.phase,
+        state.round,
+    ));
+    let galaxy = ctx.timing.as_ref().and_then(|handle| handle.galaxy);
+    let answer = ctx
+        .table
+        .ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))?;
+    if answer.is_decline() {
+        return Ok(());
+    }
+    let Some(planet) = planets.iter().find(|planet| planet.as_str() == answer.id) else {
+        return Ok(());
+    };
+    if let Some(seat) = state.player_mut(player) {
+        seat.exhausted_technologies.insert(sar);
+    }
+    state
+        .system_mut(system)
+        .planet_units
+        .entry(planet.clone())
+        .or_default()
+        .push(ti4_model::units::Unit::new(mech, player.clone()));
+    Ok(())
+}
+
 /// Resolve technology effects caused by this player gaining control of a planet.
 ///
 /// Integrated Economy is an `AFTER PLANET_CONTROL_GAINED` effect in the oracle.  Keeping the

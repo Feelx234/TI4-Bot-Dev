@@ -136,6 +136,17 @@ Version 11 = Retreat hazards (`fb-retreat-asteroids`, `RULES_RETREAT_HAZARDS`):
    pass `MovementRules::can_enter`: no asteroid field without Antimass Deflectors (11.1), no
    supernova (86.1) except faction exceptions. Nebulae stay allowed. Version < 11: no check.
 
+Version 12 = reserved by branch `fix-exploration-token-pool` (`RULES_COMMAND_TOKEN_POOL`), not on this line yet.
+
+Version 13 = Self-Assembly Routines (`fb-warfare-mech-production`, `RULES_SELF_ASSEMBLY`):
+`technology::self_assembly_after_production`, called where a `ProductionWindow` ends a use of
+PRODUCTION that produced units (not an ability's production): a player holding a ready "sar" is
+asked (`self_assembly_mech`, options = their controlled planets in that system, or decline); yes
+exhausts the card and places 1 mech from reinforcements on that planet. Version < 13: owned and
+inert, never asked. The card's second ability (1 trade good when one of your mechs is destroyed) is
+not implemented (no unit-destroyed event). Raising `RULES_VERSION` to 13 here assumes version 12 lands
+from the other branch; the merge must keep both constants.
+
 ## Adding the next gate
 
 1. Raise `RULES_VERSION` in state.rs and add `pub const RULES_<NAME>: u32 = <new>;`.

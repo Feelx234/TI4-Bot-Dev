@@ -268,8 +268,10 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
         return Some(index);
     }
     match subtype {
-        // A victory point is never worth declining once the engine offers it.
-        Some("imperial_score_objective" | "remove_custodians") => {
+        // A victory point is never worth declining once the engine offers it. Likewise the free
+        // mech Self-Assembly Routines offers after production (rules version 13): the card
+        // readies again every round.
+        Some("imperial_score_objective" | "remove_custodians" | "self_assembly_mech") => {
             return choice.options.iter().position(|o| !o.is_decline());
         }
         Some("activate_system") => return pick_activation(choice, observed, &me),

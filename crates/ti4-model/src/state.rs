@@ -1155,7 +1155,7 @@ pub struct StartingTechPick {
 /// The rules version of a new game. Raise it when an engine decision changes in a way that an
 /// older game log would not replay under (and gate the change on
 /// [`GameState::rules_version`]); see `docs/RULES_VERSION.md`.
-pub const RULES_VERSION: u32 = 11;
+pub const RULES_VERSION: u32 = 13;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
@@ -1212,6 +1212,12 @@ pub const RULES_ACTION_CARD_TARGETS: u32 = 10;
 /// The first rules version where a retreat obeys the movement rules for entering the destination:
 /// no asteroid field without Antimass Deflectors, no supernova.
 pub const RULES_RETREAT_HAZARDS: u32 = 11;
+
+/// The first rules version where Self-Assembly Routines works: after a use of PRODUCTION that
+/// produced units, its owner may exhaust it to place 1 mech from reinforcements on a planet they
+/// control in that system. Before, the technology could be owned and did nothing. Version 12 is
+/// reserved by branch `fix-exploration-token-pool` (`RULES_COMMAND_TOKEN_POOL`); this is 13.
+pub const RULES_SELF_ASSEMBLY: u32 = 13;
 
 /// The whole game, as a value.
 ///
