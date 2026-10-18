@@ -9,7 +9,12 @@ use ti4_model::content_types::{DEFAULT, POK};
 use ti4_model::id::{PlanetId, SystemId, TechnologyId};
 use ti4_model::state::GameState;
 
-use super::{content, give, pid, seated};
+use super::{content, give, pid};
+
+/// Seated and deployed at the default sources (Thunder's Edge factions need them).
+fn seated(seats: &[(&str, &str)]) -> GameState {
+    crate::fixtures::seated_game(seats, DEFAULT)
+}
 use crate::choice::{ChoiceOption, Scripted, Table};
 
 // -- helpers -----------------------------------------------------------------------------------
@@ -638,4 +643,260 @@ fn helios2_3_three_fighters_in_the_system_do_not_count_against_capacity() {
     assert_eq!(excess(&state), 1, "the fourth is not");
     upgrade_helios(&mut state, &system, &planet);
     assert_eq!(excess(&state), 1, "V2 still frees exactly three");
+}
+
+// -- Deepwrought: Hydrothermal Mining, Radical Advancement ---------------------------------------
+
+/// Make `count` oceans: `a` (Deepwrought) coexisting on invented planets that `b` controls.
+fn make_oceans(state: &mut GameState, count: usize) {
+    for n in 0..count {
+        let (system, planet) = (SystemId::new(format!("9{n}")), PlanetId::new(format!("px{n}")));
+        state.system_mut(&system).set_control(planet.clone(), pid("b"));
+        crate::fixtures::put_on_planet(state, &system, &planet, "infantry", &pid("b"), 1);
+        crate::fixtures::put_on_planet(state, &system, &planet, "infantry", &pid("a"), 1);
+        assert!(crate::factions::deepwrought::begin_coexisting(state, &pid("a"), &system, &planet, None).expect("begins"));
+    }
+}
+
+fn goods(state: &GameState, who: &str) -> i32 {
+    state.player(&pid(who)).map_or(0, |seat| seat.trade_goods)
+}
+
+#[test]
+fn hydrothermal_1_gains_a_trade_good_per_ocean_in_play_at_status_phase_start() {
+    let mut state = seated(&[("a", "deepwrought"), ("b", "sol"), ("c", "hacan")]);
+    give(&mut state, "a", "hydrothermal");
+    make_oceans(&mut state, 3);
+    let before = goods(&state, "a");
+    emit(&mut state, &[], "STATUS_PHASE_BEGAN", &[]);
+    assert_eq!(goods(&state, "a"), before + 3);
+
+    // Without the technology the oceans pay nothing; with no oceans neither does the card.
+    let mut bare = seated(&[("a", "deepwrought"), ("b", "sol"), ("c", "hacan")]);
+    make_oceans(&mut bare, 3);
+    let before = goods(&bare, "a");
+    emit(&mut bare, &[], "STATUS_PHASE_BEGAN", &[]);
+    assert_eq!(goods(&bare, "a"), before);
+}
+
+#[test]
+fn radical_1_replaces_a_technology_with_one_with_exactly_one_more_prerequisite() {
+    const RADICAL_ID: &str = "technology:deepwrought:radical:STATUS_PHASE_BEGAN:after";
+    let mut state = seated(&[("a", "deepwrought"), ("b", "sol"), ("c", "hacan")]);
+    state.player_mut(&pid("a")).unwrap().technologies.clear();
+    give(&mut state, "a", "radical");
+    give(&mut state, "a", "nm");
+    emit(&mut state, &[RADICAL_ID, "nm|dxa"], "STATUS_PHASE_BEGAN", &[]);
+    assert!(crate::technology::has_technology_text(&state, &pid("a"), "dxa"), "dxa (one more green) replaced nm");
+    assert!(!crate::technology::has_technology_text(&state, &pid("a"), "nm"), "the old card went back");
+    assert!(crate::technology::has_technology_text(&state, &pid("a"), "radical"));
+
+    // Two more prerequisites is not allowed: hm is never on offer for nm.
+    let mut state = seated(&[("a", "deepwrought"), ("b", "sol"), ("c", "hacan")]);
+    state.player_mut(&pid("a")).unwrap().technologies.clear();
+    give(&mut state, "a", "radical");
+    give(&mut state, "a", "nm");
+    let ids: Vec<String> = crate::factions::deepwrought::replacements(&state, content(), DEFAULT, &pid("a"))
+        .iter()
+        .map(|r| format!("{}|{}", r.old, r.new))
+        .collect();
+    assert!(ids.contains(&"nm|dxa".to_owned()), "{ids:?}");
+    assert!(!ids.contains(&"nm|hm".to_owned()), "{ids:?}");
+}
+
+// -- unit upgrade helper -------------------------------------------------------------------------
+
+/// `(cost, combat hits-on, move, capacity, anti-fighter barrage hits-on, afb dice)` of a unit card.
+fn card(unit: &str) -> (f64, Option<i64>, i64, i64, Option<i64>, i64) {
+    let types = ti4_content::units::catalogue(content(), DEFAULT);
+    let t = types.get(unit).unwrap_or_else(|| panic!("no unit card {unit}"));
+    (t.cost(), t.combat_hits_on(), t.move_value(), t.capacity(), t.afb_hits_on(), t.afb_dice())
+}
+
+/// Owning `tech` turns every `old` unit of seat `a` (faction `faction`) into `new`, and not before.
+fn upgrade_replaces(faction: &str, tech: &str, old: &str, new: &str) {
+    let mut state = seated(&[("a", faction), ("b", "sol")]);
+    let count = |s: &GameState, kind: &str| -> usize {
+        s.board
+            .values()
+            .flat_map(|b| b.units.iter().chain(b.planet_units.values().flatten()))
+            .filter(|u| u.owner == pid("a") && u.type_id.as_str() == kind)
+            .count()
+    };
+    let before = count(&state, old);
+    assert!(before > 0, "the starting force carries {old}");
+    crate::technology::apply_unit_upgrades(&mut state, content(), DEFAULT, &pid("a"));
+    assert_eq!(count(&state, old), before, "without the technology nothing changes");
+    give(&mut state, "a", tech);
+    crate::technology::apply_unit_upgrades(&mut state, content(), DEFAULT, &pid("a"));
+    assert_eq!((count(&state, old), count(&state, new)), (0, before), "the new card replaces the old");
+    assert!(
+        crate::production::buildable_for(&state, content(), DEFAULT, &pid("a")).contains(&new.to_owned()),
+        "and new ones are built upgraded"
+    );
+}
+
+// -- Crimson Rebellion: Subatomic Splicer, Exile II ----------------------------------------------
+
+fn crimson_ship_destroyed(state: &mut GameState, owner: &str, unit: &str, answers: &[&str]) {
+    emit(
+        state,
+        answers,
+        "SHIP_DESTROYED",
+        &[
+            ("system", "18".into()),
+            ("player", owner.into()),
+            ("unit", unit.into()),
+            ("last", false.into()),
+            ("cause", "space_combat".into()),
+            ("during_space_combat", true.into()),
+        ],
+    );
+}
+
+fn at_home(state: &GameState, who: &str, unit: &str) -> usize {
+    let home = state.player(&pid(who)).unwrap().home_system.clone().unwrap();
+    state.system_state(&home).units.iter().filter(|u| u.owner == pid(who) && u.type_id.as_str() == unit).count()
+}
+
+#[test]
+fn subatomic_1_produces_the_destroyed_ship_type_at_a_home_space_dock() {
+    const SPLICER: &str = "technology:crimson:subatomic:SHIP_DESTROYED:after";
+    let mut state = seated(&[("a", "crimson"), ("b", "sol"), ("c", "hacan")]);
+    give(&mut state, "a", "subatomic");
+    state.player_mut(&pid("a")).unwrap().trade_goods = 12;
+    let before = at_home(&state, "a", "crimson_destroyer");
+    crimson_ship_destroyed(&mut state, "a", "crimson_destroyer", &[SPLICER]);
+    assert_eq!(at_home(&state, "a", "crimson_destroyer"), before + 1);
+    // Another player's ship, and a ground force, are not "one of your ships".
+    let snapshot = state.clone();
+    crimson_ship_destroyed(&mut state, "b", "destroyer", &[]);
+    crimson_ship_destroyed(&mut state, "a", "infantry", &[]);
+    assert_eq!(state, snapshot);
+    // Without the card nothing is produced.
+    let mut bare = seated(&[("a", "crimson"), ("b", "sol"), ("c", "hacan")]);
+    bare.player_mut(&pid("a")).unwrap().trade_goods = 12;
+    let snapshot = bare.clone();
+    crimson_ship_destroyed(&mut bare, "a", "crimson_destroyer", &[]);
+    assert_eq!(bare, snapshot);
+}
+
+#[test]
+fn exile2_1_unit_card_stats_and_replaces_exile_i() {
+    assert_eq!(card("crimson_destroyer2"), (1.0, Some(7), 2, 0, Some(6), 3));
+    upgrade_replaces("crimson", "exile2", "crimson_destroyer", "crimson_destroyer2");
+}
+
+#[test]
+fn exile2_2_places_an_active_or_inactive_breach_up_to_two_systems_from_a_combat() {
+    const EXILE: &str = "unit:crimson:crimson_destroyer:SPACE_COMBAT_ENDED:after";
+    let ids = crate::factions::crimson::testkit::plain(7);
+    let ring: Vec<&str> = ids[..6].iter().map(String::as_str).collect();
+    let mut galaxy = ti4_content::galaxy::Galaxy::build(content(), &[&ids[6], ring[0], ring[1], ring[2], ring[3], ring[4], ring[5]], DEFAULT, 1).expect("map");
+    crate::seating::place_crimson_home(&mut galaxy, content(), DEFAULT).expect("home");
+    let (fought, far) = (SystemId::new(ids[0].as_str()), SystemId::new(ids[2].as_str()));
+    let combat = vec![("system", serde_json::Value::from(fought.to_string()))];
+    let run = |kind: &str, tech_unit: &str, answers: &[&str]| {
+        let mut state = seated(&[("a", "crimson"), ("b", "sol"), ("c", "hacan")]);
+        crate::fixtures::put(&mut state, &far, tech_unit, &pid("a"), 1);
+        let mut table = scripted(answers);
+        let mut resolver = crate::fixtures::armed_resolver(&state);
+        crate::fixtures::with_context(&mut state, DEFAULT, Some(&galaxy), &mut table, |ctx| {
+            let payload = combat.iter().map(|(k, v)| ((*k).to_owned(), v.clone())).collect();
+            let event = ctx.event_sequence.next(kind, payload).expect("event");
+            resolver.emit_with_context(ctx, event, |_, _| {}).expect("emits");
+        });
+        state
+    };
+    // Exile II reaches two systems and may choose active.
+    let active = run("SPACE_COMBAT_ENDED", "crimson_destroyer2", &[EXILE, "active"]);
+    assert!(crate::factions::crimson::is_active(&active, &fought));
+    let inactive = run("SPACE_COMBAT_ENDED", "crimson_destroyer2", &[EXILE, "inactive"]);
+    assert!(crate::factions::crimson::has_breach(&inactive, &fought) && !crate::factions::crimson::is_active(&inactive, &fought));
+    // Exile I two systems away is out of reach.
+    let none = run("SPACE_COMBAT_ENDED", "crimson_destroyer", &[EXILE]);
+    assert!(!crate::factions::crimson::has_breach(&none, &fought));
+}
+
+// -- Ral Nel Consortium: Nanomachines, Linkship II -----------------------------------------------
+
+fn ralnel() -> GameState {
+    let mut state = seated(&[("a", "ralnel"), ("b", "sol"), ("c", "hacan")]);
+    give(&mut state, "a", "nanomachines");
+    state
+}
+
+fn nano_exhausted(state: &GameState) -> bool {
+    !offered(state, "a").iter().any(|o| o.contains("nano_"))
+}
+
+#[test]
+fn nanomachines_1_places_a_pds_on_a_controlled_planet_and_exhausts() {
+    let mut state = ralnel();
+    let before = pds_of(&state, "a");
+    assert!(perform(&mut state, "a", "faction|ralnel|nano_pds", &[]));
+    assert_eq!(pds_of(&state, "a"), before + 1);
+    assert!(nano_exhausted(&state), "one exhaustion covers all three actions");
+    assert!(!perform(&mut state, "a", "faction|ralnel|nano_pds", &[]));
+    // Without the technology nothing is offered.
+    let bare = seated(&[("a", "ralnel"), ("b", "sol")]);
+    assert!(nano_exhausted(&bare));
+}
+
+#[test]
+fn nanomachines_2_repairs_all_of_your_damaged_units() {
+    let mut state = ralnel();
+    damage_all(&mut state, "a");
+    damage_all(&mut state, "b");
+    assert!(offered(&state, "a").contains(&"faction|ralnel|nano_repair".to_owned()));
+    assert!(perform(&mut state, "a", "faction|ralnel|nano_repair", &[]));
+    let damaged = |who: &str| {
+        state.board.values().flat_map(|b| b.units.iter().chain(b.planet_units.values().flatten())).filter(|u| u.owner == pid(who) && u.sustained_damage).count()
+    };
+    assert_eq!(damaged("a"), 0);
+    assert!(damaged("b") > 0, "only your own units");
+    assert!(nano_exhausted(&state));
+    // The status phase readies the card.
+    emit(&mut state, &[], "STATUS_PHASE_ENDED", &[]);
+    assert!(!nano_exhausted(&state));
+}
+
+#[test]
+fn nanomachines_3_discards_an_action_card_to_draw_one() {
+    let mut state = ralnel();
+    state.player_mut(&pid("a")).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("sabo1")];
+    let deck = state.action_card_deck.len();
+    assert!(perform(&mut state, "a", "faction|ralnel|nano_draw", &["sabo1"]));
+    let seat = state.player(&pid("a")).unwrap();
+    assert_eq!(seat.action_cards.len(), 1);
+    assert_ne!(seat.action_cards[0].as_str(), "sabo1");
+    assert_eq!(state.action_card_deck.len(), deck - 1);
+    assert!(nano_exhausted(&state));
+}
+
+#[test]
+fn linkship2_1_unit_card_stats_and_replaces_linkship_i() {
+    assert_eq!(card("ralnel_destroyer2"), (1.0, Some(8), 4, 0, Some(6), 3));
+    upgrade_replaces("ralnel", "linkship2", "ralnel_destroyer", "ralnel_destroyer2");
+}
+
+fn cannon_dice(state: &mut GameState) -> usize {
+    let mut dice = crate::dice::Dice::new();
+    let mut rng = crate::rng::GameRng::new(7);
+    let _ = crate::combat::space_cannon_offense(state, content(), DEFAULT, &mut dice, &mut rng, &SystemId::new("18"), &pid("b"), None);
+    dice.count()
+}
+
+#[test]
+fn linkship2_2_each_linkship_ii_uses_the_same_structures_space_cannon() {
+    let setup = |kind: &str| {
+        let mut state = seated(&[("a", "ralnel"), ("b", "sol")]);
+        let sys = SystemId::new("18");
+        crate::fixtures::put(&mut state, &sys, "cruiser", &pid("b"), 1);
+        crate::fixtures::put(&mut state, &sys, "pds", &pid("a"), 1);
+        crate::fixtures::put(&mut state, &sys, kind, &pid("a"), 2);
+        state
+    };
+    assert_eq!(cannon_dice(&mut setup("ralnel_destroyer2")), 2, "each Linkship II fires the structure");
+    assert_eq!(cannon_dice(&mut setup("ralnel_destroyer")), 1, "Linkship I: each structure once");
 }
