@@ -465,3 +465,113 @@ fn cm_2_chaos_mapping_produces_a_unit_at_the_start_of_the_turn() {
     assert_eq!(build(true), 1);
     assert_eq!(build(false), 0);
 }
+
+// -- Muaat: Prototype War Sun II ----------------------------------------------------------------
+
+#[test]
+fn pws2_3_prototype_war_sun_ii_ignores_planetary_shield() {
+    let (system, planet) = planet_off_mecatol();
+    let mut state = seated(&[("a", "muaat"), ("b", "sol")]);
+    crate::fixtures::put_on_planet(&mut state, &system, &planet, "pds", &pid("b"), 1);
+    put(&mut state, &system, "dreadnought", &pid("a"), 1);
+    let bombardable = |state: &GameState| {
+        crate::invasion::bombardable(state, content(), POK, &system, &planet, &pid("a"))
+    };
+    assert!(!bombardable(&state), "a PDS shields the planet from a dreadnought");
+    give(&mut state, "a", "pws2");
+    crate::technology::apply_unit_upgrades(&mut state, content(), POK, &pid("a"));
+    put(&mut state, &system, "muaat_warsun2", &pid("a"), 1);
+    assert!(bombardable(&state), "the upgraded war sun removes the shield");
+}
+
+// -- Hacan: Quantum Datahub Node ----------------------------------------------------------------
+
+#[test]
+fn qdn_1_quantum_datahub_node_swaps_strategy_cards_for_three_trade_goods_and_a_token() {
+    let build = |tech: bool| {
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        let (high, low) = (
+            ti4_model::id::StrategyCardId::new("imperial"),
+            ti4_model::id::StrategyCardId::new("leadership"),
+        );
+        if tech {
+            learn(&mut state, "a", "qdn");
+        }
+        let seat = state.player_mut(&pid("a")).unwrap();
+        seat.trade_goods = 5;
+        seat.strategic_tokens = 1;
+        seat.strategy_cards = vec![high.clone()];
+        state.player_mut(&pid("b")).unwrap().strategy_cards = vec![low.clone()];
+        (state, high, low)
+    };
+    let (mut state, high, low) = build(true);
+    let mut table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new([format!("qdn|b|{high}|{low}")])));
+    let used = crate::faction_techs::offer_quantum_datahub(&mut state, content(), POK, &mut table, None);
+    assert_eq!(used, Some((pid("a"), pid("b"))));
+    let (a, b) = (state.player(&pid("a")).unwrap(), state.player(&pid("b")).unwrap());
+    assert_eq!((a.trade_goods, a.strategic_tokens, b.trade_goods), (2, 0, 3));
+    assert_eq!(a.strategy_cards, vec![low.clone()]);
+    assert_eq!(b.strategy_cards, vec![high]);
+    let (mut state, _, _) = build(false);
+    let mut table = crate::choice::Table::with_default(Box::new(crate::choice::FirstOption));
+    assert_eq!(crate::faction_techs::offer_quantum_datahub(&mut state, content(), POK, &mut table, None), None);
+}
+
+// -- Empyrean: Aetherstream ---------------------------------------------------------------------
+
+#[test]
+fn as_1_aetherstream_adds_one_move_next_to_an_anomaly() {
+    let build = |tech: bool| {
+        let mut state = seated(&[("a", "empyrean"), ("b", "sol")]);
+        for system in state.board.keys().cloned().collect::<Vec<_>>() {
+            let board = state.system_mut(&system);
+            board.units.clear();
+            board.planet_units.clear();
+            board.planet_control.clear();
+        }
+        let asteroid = crate::fixtures::a_system_where("asteroid field");
+        let hub = crate::fixtures::hub_with_centre(&asteroid);
+        put(&mut state, &SystemId::new(hub.outer[0].as_str()), "carrier", &pid("a"), 1);
+        put(&mut state, &SystemId::new(hub.outer[1].as_str()), "carrier", &pid("b"), 1);
+        if tech {
+            learn(&mut state, "a", "as");
+        }
+        (state, hub)
+    };
+    let move_of_b = |state: &GameState, hub: &crate::fixtures::Hub| {
+        let kind = ti4_content::units::unit_type(content(), "carrier", POK).unwrap();
+        let origin = SystemId::new(hub.outer[1].as_str());
+        crate::tactical::effective_move_value(state, &kind, &pid("b"), &origin)
+    };
+    for (tech, bonus) in [(true, 1), (false, 0)] {
+        let (mut state, hub) = build(tech);
+        let printed = move_of_b(&state, &hub);
+        state.activation_seq += 1;
+        let target = hub.outer[3].clone();
+        emit(
+            &mut state,
+            if tech { &["technology:empyrean:as:SYSTEM_ACTIVATED:after"] } else { &[] },
+            &[],
+            Some(&hub.galaxy),
+            "SYSTEM_ACTIVATED",
+            &[("player", "b"), ("system", target.as_str())],
+        );
+        assert_eq!(move_of_b(&state, &hub), printed + bonus, "tech {tech}");
+    }
+}
+
+// -- Mentak: Mirror Computing -------------------------------------------------------------------
+
+#[test]
+fn mc_1_mirror_computing_makes_a_trade_good_worth_two() {
+    let plans = |tech: bool| {
+        let mut state = crate::fixtures::game(&["a"]);
+        state.player_mut(&pid("a")).unwrap().trade_goods = 2;
+        if tech {
+            learn(&mut state, "a", "mc");
+        }
+        crate::payment::plans(&state, content(), POK, &pid("a"), 3, crate::production::Spend::Influence)
+    };
+    assert!(!plans(true).is_empty(), "two goods pay up to four");
+    assert!(plans(false).is_empty(), "without the card two goods pay two");
+}
