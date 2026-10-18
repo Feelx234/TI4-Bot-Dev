@@ -16,18 +16,15 @@ use super::d2::{
 };
 use super::{content, seated_all};
 use crate::choice::Table;
-use ti4_content::galaxy::Galaxy;
 use crate::fixtures::{Hub, plain_hub, put, put_on_planet};
 use crate::game::{Game, TACTICAL_ACTION_ID};
+use ti4_content::galaxy::Galaxy;
 
 fn a() -> PlayerId {
     PlayerId::new("a")
 }
 fn b() -> PlayerId {
     PlayerId::new("b")
-}
-fn c() -> PlayerId {
-    PlayerId::new("c")
 }
 fn sys(id: &str) -> SystemId {
     SystemId::new(id)
@@ -97,12 +94,6 @@ fn tech_exhausted(state: &GameState, who: &PlayerId, alias: &str) -> bool {
         .contains(&ti4_model::id::TechnologyId::new(alias))
 }
 
-/// Total command tokens `who` holds.
-fn tokens(state: &GameState, who: &PlayerId) -> i32 {
-    let seat = state.player(who).expect("seat");
-    seat.tactic_tokens + seat.fleet_tokens + seat.strategic_tokens
-}
-
 /// `(hits_on, dice)` of the first space-combat roll `kind` of seat `a` makes against one Sol
 /// cruiser in system 19, every die a 10.
 fn space_profile(faction: &str, kind: &str) -> (Option<u32>, usize) {
@@ -122,19 +113,35 @@ fn jolnar_game() -> GameState {
 #[test]
 fn fragile_1_jolnar_units_hit_on_a_higher_number_in_a_real_space_combat() {
     // A cruiser hits on 7; Fragile is -1 to the result, so Jol-Nar needs an 8.
-    let (jolnar, sol) = (space_profile("jolnar", "cruiser"), space_profile("sol", "cruiser"));
+    let (jolnar, sol) = (
+        space_profile("jolnar", "cruiser"),
+        space_profile("sol", "cruiser"),
+    );
     assert_eq!(sol.0, Some(7));
-    assert_eq!(jolnar.0, Some(8), "-1 to the roll: one number higher is needed");
+    assert_eq!(
+        jolnar.0,
+        Some(8),
+        "-1 to the roll: one number higher is needed"
+    );
     // The same die decides it: a 7 hits for Sol and misses for Jol-Nar.
     for (faction, hits) in [("jolnar", false), ("sol", true)] {
         let mut state = seated_all(&[("a", faction), ("b", "hacan")]);
         put(&mut state, &sys("19"), "cruiser", &a(), 1);
         put(&mut state, &sys("19"), "dreadnought", &b(), 1);
         // The first die is the attacker's: a 7, then every die misses for the rest of round one.
-        let (_, dice) = space_fight(&mut state, &sys("19"), &[7, 1, 1, 1, 1, 1], &mut Table::new());
+        let (_, dice) = space_fight(
+            &mut state,
+            &sys("19"),
+            &[7, 1, 1, 1, 1, 1],
+            &mut Table::new(),
+        );
         let first = dice.history().first().expect("a roll");
         assert_eq!(first.by.as_deref(), Some("a"));
-        let landed = first.faces.iter().filter(|face| first.hits_on.is_some_and(|n| **face >= n)).count();
+        let landed = first
+            .faces
+            .iter()
+            .filter(|face| first.hits_on.is_some_and(|n| **face >= n))
+            .count();
         assert_eq!(landed == 1, hits, "{faction}: a 7");
     }
 }
@@ -176,9 +183,19 @@ fn scc_1_the_activated_system_becomes_adjacent_to_every_system_with_your_units()
         put(&mut state, &sys(&target), "cruiser", &a(), 1);
         let answer = if use_it { "use" } else { "decline" };
         let move_it = format!("move|{from}|0");
-        let (game, seen) = tactical(state, "a", &hub.galaxy, &target, &[answer, &move_it], "never");
+        let (game, seen) = tactical(
+            state,
+            "a",
+            &hub.galaxy,
+            &target,
+            &[answer, &move_it],
+            "never",
+        );
         assert_eq!(was_offered(&seen, &move_it), arrives, "use: {use_it}");
-        assert_eq!(ships(&game.state, &sys(&target), &a(), "carrier"), usize::from(arrives));
+        assert_eq!(
+            ships(&game.state, &sys(&target), &a(), "carrier"),
+            usize::from(arrives)
+        );
         assert_eq!(
             tech_exhausted(&game.state, &a(), "scc"),
             use_it,
@@ -191,7 +208,12 @@ fn scc_1_the_activated_system_becomes_adjacent_to_every_system_with_your_units()
 fn asked(seen: &Seen) -> Vec<String> {
     seen.borrow()
         .iter()
-        .map(|question| format!("{} {}: {:?}", question.player, question.prompt, question.options))
+        .map(|question| {
+            format!(
+                "{} {}: {:?}",
+                question.player, question.prompt, question.options
+            )
+        })
         .collect()
 }
 
@@ -226,13 +248,21 @@ fn analytical_1_a_missing_prerequisite_is_ignored_when_researching_in_the_game()
         .into_iter()
         .filter(|tech| !plain.contains(tech) && !["ers", "scc"].contains(&tech.as_str()))
         .collect();
-    let target = extra.first().expect("Analytical opens a technology").clone();
+    let target = extra
+        .first()
+        .expect("Analytical opens a technology")
+        .clone();
     for (faction, researched) in [("jolnar", true), ("sol", false)] {
         let mut state = bare_game(faction);
         with_card(&mut state, &a(), "pok7technology");
         let (mut game, seen) = action_game(state, "a", None, &["strategic", &target]);
         steps(&mut game, 6);
-        assert_eq!(was_offered(&seen, &target), researched, "{faction}: {:?}", asked(&seen));
+        assert_eq!(
+            was_offered(&seen, &target),
+            researched,
+            "{faction}: {:?}",
+            asked(&seen)
+        );
         assert_eq!(owns(&game.state, &a(), &target), researched, "{faction}");
     }
 }
@@ -271,17 +301,36 @@ fn brilliant_1_jolnar_follows_the_technology_card_with_its_primary_and_not_the_s
     steps(&mut game, 8);
     assert!(was_offered(&seen, &target), "{:?}", asked(&seen));
     assert!(owns(&game.state, &a(), &target), "{:?}", asked(&seen));
-    assert_eq!(game.state.player(&a()).unwrap().trade_goods, goods, "nothing was paid");
-    assert_eq!(game.state.player(&a()).unwrap().strategic_tokens, 1, "a token pays the follow");
+    assert_eq!(
+        game.state.player(&a()).unwrap().trade_goods,
+        goods,
+        "nothing was paid"
+    );
+    assert_eq!(
+        game.state.player(&a()).unwrap().strategic_tokens,
+        1,
+        "a token pays the follow"
+    );
     // Trade: Brilliant does not apply, so Jol-Nar replenishes commodities (the secondary) and
     // gains none of the primary's trade goods.
     state.player_mut(&a()).unwrap().commodities = 0;
     with_card(&mut state, &b(), "pok5trade");
     let (mut game, seen) = action_game(state, "b", None, &["strategic", "yes"]);
     steps(&mut game, 8);
-    let limit = ti4_content::factions::get(content(), "jolnar").unwrap().commodities();
-    assert_eq!(game.state.player(&a()).unwrap().commodities, limit, "{:?}", asked(&seen));
-    assert_eq!(game.state.player(&a()).unwrap().trade_goods, goods, "no primary effect");
+    let limit = ti4_content::factions::get(content(), "jolnar")
+        .unwrap()
+        .commodities();
+    assert_eq!(
+        game.state.player(&a()).unwrap().commodities,
+        limit,
+        "{:?}",
+        asked(&seen)
+    );
+    assert_eq!(
+        game.state.player(&a()).unwrap().trade_goods,
+        goods,
+        "no primary effect"
+    );
 }
 
 /// Every planet `who` controls exhausted, no trade goods: nothing to pay with.
@@ -319,17 +368,30 @@ fn jolnaragent_1_doctor_sucaban_pays_for_the_second_research_with_infantry_and_r
             &mut state,
             &a(),
             "jolnaragent",
-            if agent { LeaderStatus::Readied } else { LeaderStatus::Exhausted },
+            if agent {
+                LeaderStatus::Readied
+            } else {
+                LeaderStatus::Exhausted
+            },
         );
         state.player_mut(&b()).unwrap().strategic_tokens = 0;
         let owned = state.player(&a()).unwrap().technologies.len();
         let (mut game, seen) = super::d2::eager_game(state, "a", None, &["strategic", &free]);
         steps(&mut game, 10);
         let gained = game.state.player(&a()).unwrap().technologies.len() - owned;
-        assert_eq!(gained, if second { 2 } else { 1 }, "agent: {agent}: {:?}", asked(&seen));
+        assert_eq!(
+            gained,
+            if second { 2 } else { 1 },
+            "agent: {agent}: {:?}",
+            asked(&seen)
+        );
         assert_eq!(was_offered_like_prompt(&seen, "Doctor Sucaban"), agent);
         if second {
-            assert_eq!(infantry(&game.state), before - 6, "six infantry paid the six resources");
+            assert_eq!(
+                infantry(&game.state),
+                before - 6,
+                "six infantry paid the six resources"
+            );
             assert_eq!(
                 leader_status(&game.state, &a(), "jolnaragent"),
                 Some(LeaderStatus::Exhausted)
@@ -347,7 +409,9 @@ fn jolnaragent_1_doctor_sucaban_pays_for_the_second_research_with_infantry_and_r
 
 /// Did any question's prompt contain `part`?
 fn was_offered_like_prompt(seen: &Seen, part: &str) -> bool {
-    seen.borrow().iter().any(|question| question.prompt.contains(part))
+    seen.borrow()
+        .iter()
+        .any(|question| question.prompt.contains(part))
 }
 
 /// A planet with a technology specialty, alone in its tile with that specialty.
@@ -399,13 +463,32 @@ fn jolnarbt_1_specialist_compounds_pays_the_second_research_with_an_exhausted_sp
         let (mut game, seen) =
             super::d2::eager_game(state, "a", None, &["strategic", &free, &pick]);
         steps(&mut game, 10);
-        let gained: Vec<_> = game.state.player(&a()).unwrap().technologies.difference(&owned).cloned().collect();
-        assert_eq!(was_offered(&seen, &pick), breakthrough, "{:?}", asked(&seen));
-        assert_eq!(gained.len(), if researches { 2 } else { 1 }, "{gained:?} {:?}", asked(&seen));
+        let gained: Vec<_> = game
+            .state
+            .player(&a())
+            .unwrap()
+            .technologies
+            .difference(&owned)
+            .cloned()
+            .collect();
+        assert_eq!(
+            was_offered(&seen, &pick),
+            breakthrough,
+            "{:?}",
+            asked(&seen)
+        );
+        assert_eq!(
+            gained.len(),
+            if researches { 2 } else { 1 },
+            "{gained:?} {:?}",
+            asked(&seen)
+        );
         assert_eq!(game.state.exhausted_planets.contains(&planet), researches);
         if researches {
             assert!(
-                gained.iter().any(|tech| crate::technology::colour_type(content(), tech) == Some(colour)),
+                gained
+                    .iter()
+                    .any(|tech| crate::technology::colour_type(content(), tech) == Some(colour)),
                 "a technology of the specialty's colour"
             );
         }
@@ -429,7 +512,11 @@ fn ra_1_and_2_the_holder_gains_the_researched_technology_and_the_note_goes_home(
         let (mut game, seen) = action_game(state, "a", None, &["strategic", tech]);
         steps(&mut game, 6);
         assert!(owns(&game.state, &a(), tech), "{tech}: {:?}", asked(&seen));
-        assert_eq!(owns(&game.state, &b(), tech), copied, "{tech} reaches the holder");
+        assert_eq!(
+            owns(&game.state, &b(), tech),
+            copied,
+            "{tech} reaches the holder"
+        );
         assert_eq!(
             game.state.promissory_notes.get(&note),
             Some(&if copied { a() } else { b() }),
@@ -444,9 +531,15 @@ fn jolnarcommander_1_unlocks_in_the_game_with_eight_technologies() {
     for tech in ["amd", "gd", "fl", "lwd", "det", "nm", "dxa"] {
         super::give(&mut state, "a", tech);
     }
-    assert!(!unlocks_in_the_game(&state, &a(), "jolnarcommander"), "seven");
+    assert!(
+        !unlocks_in_the_game(&state, &a(), "jolnarcommander"),
+        "seven"
+    );
     super::give(&mut state, "a", "hm");
-    assert!(unlocks_in_the_game(&state, &a(), "jolnarcommander"), "eight");
+    assert!(
+        unlocks_in_the_game(&state, &a(), "jolnarcommander"),
+        "eight"
+    );
 }
 
 #[test]
@@ -461,19 +554,30 @@ fn jolnarhero_1_unlocks_in_the_game_on_the_third_scored_objective() {
 /// Three ordinary (not faction, not unit upgrade) technologies of one colour, in id order.
 fn three_of_a_colour() -> [String; 3] {
     let mut by_colour: std::collections::BTreeMap<String, Vec<String>> = Default::default();
-    for record in content().from_sources(ti4_model::content_types::ContentType::Technologies, DEFAULT) {
+    for record in
+        content().from_sources(ti4_model::content_types::ContentType::Technologies, DEFAULT)
+    {
         let types = record.strings("types");
         let (Some(alias), Some(colour)) = (record.text("alias"), types.first()) else {
             continue;
         };
         if record.text("faction").is_none()
             && !types.contains(&"UNITUPGRADE")
-            && !crate::technology::is_unit_upgrade(content(), &ti4_model::id::TechnologyId::new(alias))
+            && !crate::technology::is_unit_upgrade(
+                content(),
+                &ti4_model::id::TechnologyId::new(alias),
+            )
         {
-            by_colour.entry((*colour).to_owned()).or_default().push(alias.to_owned());
+            by_colour
+                .entry((*colour).to_owned())
+                .or_default()
+                .push(alias.to_owned());
         }
     }
-    let mut techs = by_colour.into_values().find(|techs| techs.len() >= 3).expect("a colour");
+    let mut techs = by_colour
+        .into_values()
+        .find(|techs| techs.len() >= 3)
+        .expect("a colour");
     techs.sort();
     [techs[0].clone(), techs[1].clone(), techs[2].clone()]
 }
@@ -494,9 +598,15 @@ fn jolnarhero_2_rin_swaps_a_technology_for_another_of_its_colour_and_is_purged()
     );
     steps(&mut game, 4);
     assert!(owns(&game.state, &a(), &third), "{:?}", asked(&seen));
-    assert!(!owns(&game.state, &a(), &first), "the traded technology went back to the deck");
+    assert!(
+        !owns(&game.state, &a(), &first),
+        "the traded technology went back to the deck"
+    );
     assert!(owns(&game.state, &a(), &second), "the kept one stayed");
-    assert_eq!(leader_status(&game.state, &a(), "jolnarhero"), Some(LeaderStatus::Purged));
+    assert_eq!(
+        leader_status(&game.state, &a(), "jolnarhero"),
+        Some(LeaderStatus::Purged)
+    );
 }
 
 /// A lone-planet system `(system, planet)` the corpus places.
@@ -531,14 +641,23 @@ fn unit_jolnar_flagship_1_hylarim_a_nine_or_ten_before_modifiers_adds_two_hits()
         let mut state = jolnar_game();
         put(&mut state, &sys("19"), "jolnar_flagship", &a(), 1);
         put(&mut state, &sys("19"), "cruiser", &b(), 3);
-        let (_, dice) = space_fight(&mut state, &sys("19"), &[first, 1, 1, 1, 1], &mut Table::new());
+        let (_, dice) = space_fight(
+            &mut state,
+            &sys("19"),
+            &[first, 1, 1, 1, 1],
+            &mut Table::new(),
+        );
         dice.history()
             .iter()
             .filter(|roll| roll.by.as_deref() == Some("b"))
             .map(|roll| roll.faces.len())
             .sum::<usize>()
     };
-    assert_eq!(sol_dice(9), 3, "three hits destroy all three cruisers in round one");
+    assert_eq!(
+        sol_dice(9),
+        3,
+        "three hits destroy all three cruisers in round one"
+    );
     assert!(sol_dice(8) > 3, "one hit only: Sol fights a second round");
 }
 
@@ -559,8 +678,16 @@ fn unit_jolnar_mech_1_shield_paling_exempts_the_infantry_on_its_planet_from_frag
             .find(|roll| roll.by.as_deref() == Some("a") && roll.faces.len() == 2)
             .map(|roll| roll.hits_on)
     };
-    assert_eq!(infantry_roll(false), Some(Some(9)), "Fragile: the printed 8 becomes 9");
-    assert_eq!(infantry_roll(true), Some(Some(8)), "with Shield Paling on the planet: the printed 8");
+    assert_eq!(
+        infantry_roll(false),
+        Some(Some(9)),
+        "Fragile: the printed 8 becomes 9"
+    );
+    assert_eq!(
+        infantry_roll(true),
+        Some(Some(8)),
+        "with Shield Paling on the planet: the printed 8"
+    );
 }
 
 // -- Winnu ----------------------------------------------------------------------------------------
@@ -580,7 +707,10 @@ fn mecatol_invasion(faction: &str) -> (bool, i32) {
     let (pick, _) = super::d2::Pick::new(&["yes"]);
     let mut table = Table::with_default(Box::new(pick));
     let (report, _) = invade(&mut state, &mecatol, &a(), &[10; 4], &mut table);
-    (report.custodians_removed, state.player(&a()).unwrap().victory_points - points)
+    (
+        report.custodians_removed,
+        state.player(&a()).unwrap().victory_points - points,
+    )
 }
 
 #[test]
@@ -606,7 +736,12 @@ fn take_mecatol(mech: bool, rules: &[&str]) -> (Game<'static>, Seen) {
     if mech {
         put(&mut state, &mecatol, "winnu_mech", &a(), 1);
     }
-    let mut all = vec![TACTICAL_ACTION_ID, crate::seating::MECATOL, "done_moving", "yes"];
+    let mut all = vec![
+        TACTICAL_ACTION_ID,
+        crate::seating::MECATOL,
+        "done_moving",
+        "yes",
+    ];
     all.extend_from_slice(rules);
     let (mut game, seen) = action_game(state, "a", Some(hub.galaxy), &all);
     for _ in 0..25 {
@@ -646,7 +781,12 @@ fn winnu_mech_1_reclaimer_places_one_structure_on_the_planet_it_stands_on_after_
     rules.extend([RECLAIMER, "~pds|"]);
     let (game, seen) = take_mecatol(true, &rules);
     assert!(was_offered(&seen, RECLAIMER), "{:?}", asked(&seen));
-    assert_eq!(on_planet(&game.state, &mecatol, &mr, &a(), "pds"), 1, "{:?}", asked(&seen));
+    assert_eq!(
+        on_planet(&game.state, &mecatol, &mr, &a(), "pds"),
+        1,
+        "{:?}",
+        asked(&seen)
+    );
     assert_eq!(
         on_planet(&game.state, &mecatol, &mr, &a(), "spacedock"),
         0,
@@ -676,7 +816,11 @@ fn gate_galaxy() -> Galaxy {
 fn lgf_1_a_ship_in_a_wormhole_system_reaches_mecatol_rex_only_while_it_is_not_held() {
     let galaxy = gate_galaxy();
     assert!(!galaxy.adjacent(crate::seating::MECATOL).contains("39"));
-    for (tech, holds, arrives) in [(true, false, true), (true, true, false), (false, false, false)] {
+    for (tech, holds, arrives) in [
+        (true, false, true),
+        (true, true, false),
+        (false, false, false),
+    ] {
         let mut state = winnu_game();
         if tech {
             super::give(&mut state, "a", "lgf");
@@ -717,17 +861,37 @@ fn lgf_2_the_component_action_places_an_infantry_on_mecatol_rex_and_exhausts_the
     for (holds, placed) in [(true, true), (false, false)] {
         let mut state = winnu_game();
         super::give(&mut state, "a", "lgf");
-        state.system_mut(&sys(crate::seating::MECATOL)).planet_control.clear();
+        state
+            .system_mut(&sys(crate::seating::MECATOL))
+            .planet_control
+            .clear();
         if holds {
             state
                 .system_mut(&sys(crate::seating::MECATOL))
                 .set_control(PlanetId::new("mr"), a());
         }
-        let before = on_planet(&state, &sys(crate::seating::MECATOL), &PlanetId::new("mr"), &a(), "infantry");
+        let before = on_planet(
+            &state,
+            &sys(crate::seating::MECATOL),
+            &PlanetId::new("mr"),
+            &a(),
+            "infantry",
+        );
         let (mut game, seen) = action_game(state, "a", None, &["faction|winnu|lgf", "pass"]);
         steps(&mut game, 3);
-        assert_eq!(was_offered(&seen, "faction|winnu|lgf"), placed, "{:?}", asked(&seen));
-        let after = on_planet(&game.state, &sys(crate::seating::MECATOL), &PlanetId::new("mr"), &a(), "infantry");
+        assert_eq!(
+            was_offered(&seen, "faction|winnu|lgf"),
+            placed,
+            "{:?}",
+            asked(&seen)
+        );
+        let after = on_planet(
+            &game.state,
+            &sys(crate::seating::MECATOL),
+            &PlanetId::new("mr"),
+            &a(),
+            "infantry",
+        );
         assert_eq!(after - before, usize::from(placed));
         assert_eq!(tech_exhausted(&game.state, &a(), "lgf"), placed);
     }
@@ -781,7 +945,12 @@ fn htp_1_swaps_a_planets_influence_for_its_resources_for_one_use_of_production()
             ],
         );
         steps(&mut game, 10);
-        assert_eq!(was_offered(&seen, "build|cruiser|1"), builds, "{:?}", asked(&seen));
+        assert_eq!(
+            was_offered(&seen, "build|cruiser|1"),
+            builds,
+            "{:?}",
+            asked(&seen)
+        );
         assert_eq!(
             ships(&game.state, &home, &a(), "cruiser") - cruisers,
             usize::from(builds)
@@ -818,7 +987,12 @@ fn winnuagent_1_berekar_cuts_any_players_production_by_two_and_readies_at_status
             ],
         );
         steps(&mut game, 10);
-        assert_eq!(was_offered(&seen, "build|sol_carrier|1"), builds, "{:?}", asked(&seen));
+        assert_eq!(
+            was_offered(&seen, "build|sol_carrier|1"),
+            builds,
+            "{:?}",
+            asked(&seen)
+        );
         assert_eq!(
             ships(&game.state, &home, &b(), "sol_carrier") - carriers,
             usize::from(builds),
@@ -826,13 +1000,20 @@ fn winnuagent_1_berekar_cuts_any_players_production_by_two_and_readies_at_status
             asked(&seen)
         );
         if builds {
-            assert_eq!(game.state.player(&b()).unwrap().trade_goods, 1, "3 - 2 = 1 good paid");
+            assert_eq!(
+                game.state.player(&b()).unwrap().trade_goods,
+                1,
+                "3 - 2 = 1 good paid"
+            );
             assert_eq!(
                 leader_status(&game.state, &a(), "winnuagent"),
                 Some(LeaderStatus::Exhausted)
             );
             run_status_phase(&mut game.state);
-            assert_eq!(leader_status(&game.state, &a(), "winnuagent"), Some(LeaderStatus::Readied));
+            assert_eq!(
+                leader_status(&game.state, &a(), "winnuagent"),
+                Some(LeaderStatus::Readied)
+            );
         }
     }
 }
@@ -857,7 +1038,10 @@ fn legendary_system() -> SystemId {
 #[test]
 fn winnucommander_1_unlocks_in_the_game_by_holding_mecatol_rex() {
     let mut state = winnu_game();
-    state.system_mut(&sys(crate::seating::MECATOL)).planet_control.clear();
+    state
+        .system_mut(&sys(crate::seating::MECATOL))
+        .planet_control
+        .clear();
     assert!(!unlocks_in_the_game(&state, &a(), "winnucommander"));
     state
         .system_mut(&sys(crate::seating::MECATOL))
@@ -870,8 +1054,17 @@ fn winnucommander_1_unlocks_in_the_game_when_a_combat_starts_in_the_mecatol_syst
     // Sol's cruiser holds Mecatol Rex's system; the Winnu carrier jumps in and the fight unlocks it.
     let hub = crate::fixtures::hub_with_centre(crate::seating::MECATOL);
     let mut state = winnu_game();
-    state.system_mut(&sys(crate::seating::MECATOL)).planet_control.clear();
-    put(&mut state, &sys(crate::seating::MECATOL), "cruiser", &b(), 1);
+    state
+        .system_mut(&sys(crate::seating::MECATOL))
+        .planet_control
+        .clear();
+    put(
+        &mut state,
+        &sys(crate::seating::MECATOL),
+        "cruiser",
+        &b(),
+        1,
+    );
     let from = sys(&hub.outer[0]);
     put(&mut state, &from, "dreadnought", &a(), 1);
     let move_it = format!("move|{from}|0");
@@ -879,18 +1072,38 @@ fn winnucommander_1_unlocks_in_the_game_when_a_combat_starts_in_the_mecatol_syst
         state,
         "a",
         Some(hub.galaxy),
-        &[TACTICAL_ACTION_ID, crate::seating::MECATOL, &move_it, "done_moving"],
+        &[
+            TACTICAL_ACTION_ID,
+            crate::seating::MECATOL,
+            &move_it,
+            "done_moving",
+        ],
     );
-    assert_eq!(leader_status(&game.state, &a(), "winnucommander"), Some(LeaderStatus::Locked));
-    assert!(drive(&mut game, "SPACE_COMBAT_STARTED", 25), "log: {:?}", game.events);
+    assert_eq!(
+        leader_status(&game.state, &a(), "winnucommander"),
+        Some(LeaderStatus::Locked)
+    );
+    assert!(
+        drive(&mut game, "SPACE_COMBAT_STARTED", 25),
+        "log: {:?}",
+        game.events
+    );
     steps(&mut game, 1);
-    assert_eq!(leader_status(&game.state, &a(), "winnucommander"), Some(LeaderStatus::Unlocked));
+    assert_eq!(
+        leader_status(&game.state, &a(), "winnucommander"),
+        Some(LeaderStatus::Unlocked)
+    );
 }
 
 #[test]
 fn winnucommander_2_rolls_two_better_in_mecatol_home_and_legendary_systems_once_unlocked() {
     // A Winnu cruiser (7) against one Sol cruiser, in four systems and locked/unlocked.
-    let home = winnu_game().player(&a()).unwrap().home_system.clone().unwrap();
+    let home = winnu_game()
+        .player(&a())
+        .unwrap()
+        .home_system
+        .clone()
+        .unwrap();
     let legendary = legendary_system();
     let roll = |system: &SystemId, status: LeaderStatus| {
         let mut state = winnu_game();
@@ -902,10 +1115,22 @@ fn winnucommander_2_rolls_two_better_in_mecatol_home_and_legendary_systems_once_
         first_roll(&dice, "a").and_then(|(hits_on, _)| hits_on)
     };
     for system in [sys(crate::seating::MECATOL), home.clone(), legendary] {
-        assert_eq!(roll(&system, LeaderStatus::Locked), Some(7), "{system} locked");
-        assert_eq!(roll(&system, LeaderStatus::Unlocked), Some(5), "{system} unlocked: +2");
+        assert_eq!(
+            roll(&system, LeaderStatus::Locked),
+            Some(7),
+            "{system} locked"
+        );
+        assert_eq!(
+            roll(&system, LeaderStatus::Unlocked),
+            Some(5),
+            "{system} unlocked: +2"
+        );
     }
-    assert_eq!(roll(&sys("19"), LeaderStatus::Unlocked), Some(7), "an ordinary system");
+    assert_eq!(
+        roll(&sys("19"), LeaderStatus::Unlocked),
+        Some(7),
+        "an ordinary system"
+    );
 }
 
 #[test]
@@ -929,7 +1154,8 @@ fn winnuhero_2_mathis_performs_a_primary_lets_chosen_players_follow_and_is_purge
             seat.strategy_cards.clear();
         }
         set_leader(&mut state, &a(), "winnuhero", LeaderStatus::Unlocked);
-        let hand = |state: &GameState, who: &PlayerId| state.player(who).unwrap().action_cards.len();
+        let hand =
+            |state: &GameState, who: &PlayerId| state.player(who).unwrap().action_cards.len();
         let (mine, theirs) = (hand(&state, &a()), hand(&state, &b()));
         let (mut game, seen) = action_game(
             state,
@@ -938,8 +1164,16 @@ fn winnuhero_2_mathis_performs_a_primary_lets_chosen_players_follow_and_is_purge
             &["component|leader|winnuhero", "pok3politics", choose, "yes"],
         );
         steps(&mut game, 6);
-        assert_eq!(hand(&game.state, &a()) - mine, 2, "the primary resolved: {:?}", asked(&seen));
-        assert_eq!(leader_status(&game.state, &a(), "winnuhero"), Some(LeaderStatus::Purged));
+        assert_eq!(
+            hand(&game.state, &a()) - mine,
+            2,
+            "the primary resolved: {:?}",
+            asked(&seen)
+        );
+        assert_eq!(
+            leader_status(&game.state, &a(), "winnuhero"),
+            Some(LeaderStatus::Purged)
+        );
         hand(&game.state, &b()) - theirs
     };
     assert_eq!(followed("yes|b"), 2, "Sol followed and drew");
@@ -965,9 +1199,17 @@ fn acq_1_the_holder_follows_the_winnu_card_without_a_token_and_the_note_goes_hom
             "{:?}",
             asked(&seen)
         );
-        assert_eq!(game.state.player(&b()).unwrap().strategic_tokens, 0, "no token was spent");
+        assert_eq!(
+            game.state.player(&b()).unwrap().strategic_tokens,
+            0,
+            "no token was spent"
+        );
         if held {
-            assert_eq!(game.state.promissory_notes.get(&note), Some(&a()), "the card went home");
+            assert_eq!(
+                game.state.promissory_notes.get(&note),
+                Some(&a()),
+                "the card went home"
+            );
         }
     }
 }
@@ -985,7 +1227,9 @@ fn winnubt_1_imperator_adds_one_to_combat_rolls_per_support_in_the_opponents_pla
             winnubt(&mut state);
         }
         for (owner, holder) in supports {
-            state.support_holders.insert(PlayerId::new(*owner), (*holder).clone());
+            state
+                .support_holders
+                .insert(PlayerId::new(*owner), (*holder).clone());
         }
         put(&mut state, &sys("19"), "cruiser", &a(), 1);
         put(&mut state, &sys("19"), "cruiser", &b(), 1);
@@ -999,7 +1243,11 @@ fn winnubt_1_imperator_adds_one_to_combat_rolls_per_support_in_the_opponents_pla
         Some(5),
         "+1 for each of the two in Sol's area; the one in Winnu's own does not count"
     );
-    assert_eq!(roll(false, &[("c", &sol), ("d", &sol)]), Some(7), "no breakthrough, no bonus");
+    assert_eq!(
+        roll(false, &[("c", &sol), ("d", &sol)]),
+        Some(7),
+        "no breakthrough, no bonus"
+    );
 }
 
 #[test]
@@ -1033,7 +1281,10 @@ fn winnubt_2_imperator_gives_one_ship_plus_one_move_after_a_legendary_activation
             "never",
         );
         assert_eq!(was_offered(&seen, &move_it), arrives, "{:?}", asked(&seen));
-        assert_eq!(ships(&game.state, &legendary, &a(), "carrier"), usize::from(arrives));
+        assert_eq!(
+            ships(&game.state, &legendary, &a(), "carrier"),
+            usize::from(arrives)
+        );
     }
 }
 
@@ -1110,7 +1361,11 @@ fn peace_accords_1_after_diplomacy_xxcha_gains_an_empty_planet_next_to_one_it_co
     let hub = plain_hub();
     let has_planets =
         |id: &&String| !ti4_content::galaxy::planets_in(content(), id, DEFAULT).is_empty();
-    let mine = hub.outer.iter().find(has_planets).expect("a ring system with a planet");
+    let mine = hub
+        .outer
+        .iter()
+        .find(has_planets)
+        .expect("a ring system with a planet");
     // Two other systems next to it that hold planets (the centre counts).
     let neighbours: Vec<&String> = std::iter::once(&hub.centre)
         .chain(&hub.outer)
@@ -1125,7 +1380,9 @@ fn peace_accords_1_after_diplomacy_xxcha_gains_an_empty_planet_next_to_one_it_co
             seated_all(&[("a", "sol"), ("b", "hacan")])
         };
         blank_hub(&mut state, &hub);
-        state.system_mut(&sys(mine)).set_control(first_planet(mine), a());
+        state
+            .system_mut(&sys(mine))
+            .set_control(first_planet(mine), a());
         let target = first_planet(open);
         with_card(&mut state, &a(), "pok2diplomacy");
         let (mut game, seen) = action_game(
@@ -1135,9 +1392,17 @@ fn peace_accords_1_after_diplomacy_xxcha_gains_an_empty_planet_next_to_one_it_co
             &["strategic", mine, target.as_str()],
         );
         steps(&mut game, 6);
-        assert_eq!(was_offered(&seen, target.as_str()), gains, "{:?}", asked(&seen));
         assert_eq!(
-            game.state.system_state(&sys(open)).planet_control.get(&target),
+            was_offered(&seen, target.as_str()),
+            gains,
+            "{:?}",
+            asked(&seen)
+        );
+        assert_eq!(
+            game.state
+                .system_state(&sys(open))
+                .planet_control
+                .get(&target),
             gains.then_some(&a()),
             "{:?}",
             asked(&seen)
@@ -1146,13 +1411,30 @@ fn peace_accords_1_after_diplomacy_xxcha_gains_an_empty_planet_next_to_one_it_co
     // A planet that holds a unit (anybody's) is not offered.
     let mut state = xxcha_game();
     blank_hub(&mut state, &hub);
-    state.system_mut(&sys(mine)).set_control(first_planet(mine), a());
-    put_on_planet(&mut state, &sys(occupied), &first_planet(occupied), "infantry", &b(), 1);
+    state
+        .system_mut(&sys(mine))
+        .set_control(first_planet(mine), a());
+    put_on_planet(
+        &mut state,
+        &sys(occupied),
+        &first_planet(occupied),
+        "infantry",
+        &b(),
+        1,
+    );
     with_card(&mut state, &a(), "pok2diplomacy");
     let (mut game, seen) = action_game(state, "a", Some(hub.galaxy.clone()), &["strategic", mine]);
     steps(&mut game, 6);
-    assert!(was_offered(&seen, first_planet(open).as_str()), "{:?}", asked(&seen));
-    assert!(!was_offered(&seen, first_planet(occupied).as_str()), "{:?}", asked(&seen));
+    assert!(
+        was_offered(&seen, first_planet(open).as_str()),
+        "{:?}",
+        asked(&seen)
+    );
+    assert!(
+        !was_offered(&seen, first_planet(occupied).as_str()),
+        "{:?}",
+        asked(&seen)
+    );
 }
 
 /// A two-player agenda phase of seated factions: `a` holds two influence planets and `b` two more,
@@ -1177,7 +1459,8 @@ fn agenda_position(
         }
     }
     if let Some((alias, holder)) = card {
-        state.player_mut(holder).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new(alias)];
+        state.player_mut(holder).unwrap().action_cards =
+            vec![ti4_model::id::ActionCardId::new(alias)];
     }
     state.agenda_deck = deck.iter().map(ToString::to_string).collect();
     state
@@ -1198,7 +1481,11 @@ impl crate::choice::Decider for ByPrompt {
         self.seen.borrow_mut().push(super::d2::Asked {
             player: choice.player.to_string(),
             prompt: choice.prompt.clone(),
-            options: choice.options.iter().map(|option| option.id.clone()).collect(),
+            options: choice
+                .options
+                .iter()
+                .map(|option| option.id.clone())
+                .collect(),
         });
         let ruled = self.rules.iter().find_map(|(part, answer)| {
             choice
@@ -1222,7 +1509,10 @@ impl crate::choice::Decider for ByPrompt {
 fn play_agenda(state: GameState, rules: &[(&str, &str)]) -> (Game<'static>, Seen) {
     let seen = Seen::default();
     let decider = ByPrompt {
-        rules: rules.iter().map(|(p, a)| ((*p).to_owned(), (*a).to_owned())).collect(),
+        rules: rules
+            .iter()
+            .map(|(p, a)| ((*p).to_owned(), (*a).to_owned()))
+            .collect(),
         seen: seen.clone(),
     };
     let table = Table::with_default(Box::new(decider));
@@ -1259,8 +1549,7 @@ fn favor_1_and_2_political_favor_replaces_the_agenda_for_a_strategy_token_and_go
         state.player_mut(&b()).unwrap().strategic_tokens = 1;
         // Quash (Xxcha's own ability) is always declined; the note's holder answers.
         let answer = if use_it { "use" } else { "decline" };
-        let (game, seen) =
-            play_agenda(state, &[("Quash", "decline"), ("Political Favor", answer)]);
+        let (game, seen) = play_agenda(state, &[("Quash", "decline"), ("Political Favor", answer)]);
         let resolved = |alias: &str| {
             game.events
                 .iter()
@@ -1269,8 +1558,15 @@ fn favor_1_and_2_political_favor_replaces_the_agenda_for_a_strategy_token_and_go
         assert_eq!(resolved(first), !replaced, "{:?}", asked(&seen));
         // The next agenda is voted on instead of the discarded one (the phase decides two).
         assert!(resolved(second), "{:?}", asked(&seen));
-        assert_eq!(resolved(&laws[2]), replaced, "the third is reached only after a replacement");
-        assert_eq!(logged(&game, &format!("AGENDA_DISCARDED:{first}")), replaced);
+        assert_eq!(
+            resolved(&laws[2]),
+            replaced,
+            "the third is reached only after a replacement"
+        );
+        assert_eq!(
+            logged(&game, &format!("AGENDA_DISCARDED:{first}")),
+            replaced
+        );
         assert_eq!(
             game.state.player(&b()).unwrap().strategic_tokens,
             if replaced { 0 } else { 1 },
@@ -1291,7 +1587,10 @@ fn ps_1_political_secret_bars_its_owner_from_voting_on_that_agenda_and_goes_home
     for (use_it, barred) in [(true, true), (false, false)] {
         let mut state = agenda_position(("hacan", "sol"), &[&laws[0]], None);
         state.promissory_notes.insert(note.clone(), a());
-        let (game, seen) = play_agenda(state, &[("Political Secret", if use_it { "use" } else { "decline" })]);
+        let (game, seen) = play_agenda(
+            state,
+            &[("Political Secret", if use_it { "use" } else { "decline" })],
+        );
         let voted_by_b = seen
             .borrow()
             .iter()
@@ -1317,7 +1616,11 @@ fn ps_1_political_secret_also_bars_its_owner_from_action_cards_until_the_agenda_
     let mut state = agenda_position(("hacan", "sol"), &["secret"], Some(("confounding", &b_id)));
     state.promissory_notes.insert(note, a());
     let (game, seen) = play_agenda(state, &[("Political Secret", "use")]);
-    assert!(logged(&game, "AGENDA_RESOLVED:secret:a"), "a is elected: {:?}", game.events);
+    assert!(
+        logged(&game, "AGENDA_RESOLVED:secret:a"),
+        "a is elected: {:?}",
+        game.events
+    );
     assert!(
         !logged(&game, "AGENDA_OUTCOME_REDIRECTED:a:b"),
         "b played an action card while barred by Political Secret: {:?}",
@@ -1330,16 +1633,25 @@ fn xxchaagent_1_ggrocuto_readies_a_planet_and_removes_an_infantry_next_to_a_plan
     let hub = plain_hub();
     let has_planets =
         |id: &&String| !ti4_content::galaxy::planets_in(content(), id, DEFAULT).is_empty();
-    let mine = hub.outer.iter().find(has_planets).expect("a ring system with a planet");
+    let mine = hub
+        .outer
+        .iter()
+        .find(has_planets)
+        .expect("a ring system with a planet");
     let near = std::iter::once(&hub.centre)
         .chain(&hub.outer)
-        .find(|id| *id != mine && hub.galaxy.adjacent(mine).contains(id.as_str()) && has_planets(id))
+        .find(|id| {
+            *id != mine && hub.galaxy.adjacent(mine).contains(id.as_str()) && has_planets(id)
+        })
         .expect("a neighbour with a planet");
     let far = hub
         .outer
         .iter()
         .find(|id| {
-            *id != mine && *id != near && hub.galaxy.distance(mine, id).is_some_and(|d| d > 1) && has_planets(id)
+            *id != mine
+                && *id != near
+                && hub.galaxy.distance(mine, id).is_some_and(|d| d > 1)
+                && has_planets(id)
         })
         .expect("a system two jumps away");
     for (system, removes) in [(near, true), (far, false)] {
@@ -1347,8 +1659,12 @@ fn xxchaagent_1_ggrocuto_readies_a_planet_and_removes_an_infantry_next_to_a_plan
         let mut state = xxcha_game();
         blank_hub(&mut state, &hub);
         state.exhausted_planets.clear();
-        state.system_mut(&sys(mine)).set_control(first_planet(mine), a());
-        state.system_mut(&sys(system)).set_control(planet.clone(), b());
+        state
+            .system_mut(&sys(mine))
+            .set_control(first_planet(mine), a());
+        state
+            .system_mut(&sys(system))
+            .set_control(planet.clone(), b());
         put_on_planet(&mut state, &sys(system), &planet, "infantry", &a(), 1);
         state.exhausted_planets.insert(planet.clone());
         let (mut game, seen) = action_game(
@@ -1358,22 +1674,35 @@ fn xxchaagent_1_ggrocuto_readies_a_planet_and_removes_an_infantry_next_to_a_plan
             &["component|leader|xxchaagent", "remove"],
         );
         steps(&mut game, 3);
-        assert!(!game.state.exhausted_planets.contains(&planet), "readied: {:?}", asked(&seen));
+        assert!(
+            !game.state.exhausted_planets.contains(&planet),
+            "readied: {:?}",
+            asked(&seen)
+        );
         assert_eq!(was_offered(&seen, "remove"), removes, "{:?}", asked(&seen));
         assert_eq!(
             on_planet(&game.state, &sys(system), &planet, &a(), "infantry"),
             usize::from(!removes)
         );
-        assert_eq!(leader_status(&game.state, &a(), "xxchaagent"), Some(LeaderStatus::Exhausted));
+        assert_eq!(
+            leader_status(&game.state, &a(), "xxchaagent"),
+            Some(LeaderStatus::Exhausted)
+        );
         run_status_phase(&mut game.state);
-        assert_eq!(leader_status(&game.state, &a(), "xxchaagent"), Some(LeaderStatus::Readied));
+        assert_eq!(
+            leader_status(&game.state, &a(), "xxchaagent"),
+            Some(LeaderStatus::Readied)
+        );
     }
 }
 
 #[test]
 fn xxchacommander_1_unlocks_in_the_game_at_twelve_influence() {
     let mut state = xxcha_game();
-    state.board.iter_mut().for_each(|(_, system)| system.planet_control.clear());
+    state
+        .board
+        .iter_mut()
+        .for_each(|(_, system)| system.planet_control.clear());
     let mut total = 0;
     for (id, record) in ti4_content::galaxy::all_planets(content(), DEFAULT) {
         let planet = PlanetId::new(id);
@@ -1384,7 +1713,9 @@ fn xxchacommander_1_unlocks_in_the_game_at_twelve_influence() {
             &planet,
             crate::production::Spend::Influence,
         );
-        let Some(system) = record.system_id() else { continue };
+        let Some(system) = record.system_id() else {
+            continue;
+        };
         if worth == 0 || record.is_placed_during_play() {
             continue;
         }
@@ -1417,19 +1748,30 @@ fn xxchacommander_2_each_planet_exhausted_to_vote_gives_one_more_vote() {
         let planets = state.controlled_planets(&a()).len() as i64;
         let (game, seen) = play_agenda(state, &[("vote for which", "for")]);
         let record = game.state.agenda_log.last().expect("the agenda resolved");
-        (record.votes.get("for").copied().unwrap_or(0), planets, asked(&seen))
+        (
+            record.votes.get("for").copied().unwrap_or(0),
+            planets,
+            asked(&seen),
+        )
     };
     let (locked, planets, _) = votes_for(LeaderStatus::Locked);
     let (unlocked, _, asked) = votes_for(LeaderStatus::Unlocked);
     assert!(planets >= 2, "a seat with two home planets");
-    assert_eq!(unlocked - locked, planets, "one more per planet exhausted: {asked:?}");
+    assert_eq!(
+        unlocked - locked,
+        planets,
+        "one more per planet exhausted: {asked:?}"
+    );
 }
 
 #[test]
 fn xxchacommander_3_game_effects_cannot_stop_the_xxcha_player_voting() {
     let laws = for_against_laws();
     let note = crate::promissory::note_id("ps", "xxcha");
-    for (status, votes) in [(LeaderStatus::Unlocked, true), (LeaderStatus::Locked, false)] {
+    for (status, votes) in [
+        (LeaderStatus::Unlocked, true),
+        (LeaderStatus::Locked, false),
+    ] {
         let mut state = agenda_position(("xxcha", "hacan"), &[&laws[0]], None);
         set_leader(&mut state, &a(), "xxchacommander", status);
         state.promissory_notes.insert(note.clone(), b());
@@ -1439,7 +1781,11 @@ fn xxchacommander_3_game_effects_cannot_stop_the_xxcha_player_voting() {
             .iter()
             .any(|question| question.player == "a" && question.prompt.contains("vote"));
         assert_eq!(a_voted, votes, "{status:?}: {:?}", asked(&seen));
-        assert_eq!(game.state.promissory_notes.get(&note), Some(&a()), "the note was used and went home");
+        assert_eq!(
+            game.state.promissory_notes.get(&note),
+            Some(&a()),
+            "the note was used and went home"
+        );
     }
 }
 
@@ -1476,14 +1822,35 @@ fn xxchahero_te_2_xxekir_grom_places_units_on_controlled_planets_readies_them_an
         state,
         "a",
         None,
-        &["component|leader|xxchahero-te", "place|pds", &first_pick, "place|mech", &second_pick, "stop"],
+        &[
+            "component|leader|xxchahero-te",
+            "place|pds",
+            &first_pick,
+            "place|mech",
+            &second_pick,
+            "stop",
+        ],
     );
     steps(&mut game, 8);
-    assert_eq!(on_planet(&game.state, &home, &first, &a(), "pds") - pds, 1, "{:?}", asked(&seen));
-    assert_eq!(on_planet(&game.state, &home, &second, &a(), "xxcha_mech") - mechs, 1);
-    assert!(!game.state.exhausted_planets.contains(&first), "ready each planet that you place a unit on");
+    assert_eq!(
+        on_planet(&game.state, &home, &first, &a(), "pds") - pds,
+        1,
+        "{:?}",
+        asked(&seen)
+    );
+    assert_eq!(
+        on_planet(&game.state, &home, &second, &a(), "xxcha_mech") - mechs,
+        1
+    );
+    assert!(
+        !game.state.exhausted_planets.contains(&first),
+        "ready each planet that you place a unit on"
+    );
     assert!(!game.state.exhausted_planets.contains(&second));
-    assert_eq!(leader_status(&game.state, &a(), "xxchahero-te"), Some(LeaderStatus::Purged));
+    assert_eq!(
+        leader_status(&game.state, &a(), "xxchahero-te"),
+        Some(LeaderStatus::Purged)
+    );
 }
 
 /// The sources of the Prophecy of Kings scope (where Xxekir Grom is the original hero).
@@ -1494,7 +1861,8 @@ fn pok_sources() -> ti4_model::content_types::SourceSet {
 #[test]
 fn xxchahero_1_unlocks_in_the_prophecy_of_kings_game_on_the_third_scored_objective() {
     let unlocked = |objectives: usize| {
-        let mut state = crate::fixtures::seated_game(&[("a", "xxcha"), ("b", "hacan")], pok_sources());
+        let mut state =
+            crate::fixtures::seated_game(&[("a", "xxcha"), ("b", "hacan")], pok_sources());
         score_objectives(&mut state, &a(), objectives);
         let mut game = Game::with_table(
             {
@@ -1519,7 +1887,8 @@ fn xxchahero_2_exhausting_planets_counts_resources_and_influence_together_when_b
     // affordable only with Xxekir Grom, which treats the planet's total as both.
     let (system, planet) = influence_planet();
     for (hero, builds) in [(true, true), (false, false)] {
-        let mut state = crate::fixtures::seated_game(&[("a", "xxcha"), ("b", "hacan")], pok_sources());
+        let mut state =
+            crate::fixtures::seated_game(&[("a", "xxcha"), ("b", "hacan")], pok_sources());
         state.system_mut(&system).set_control(planet.clone(), a());
         broke(&mut state, &a());
         state.exhausted_planets.remove(&planet);
@@ -1542,8 +1911,16 @@ fn xxchahero_2_exhausting_planets_counts_resources_and_influence_together_when_b
             .with_sources(pok_sources())
             .with_galaxy(plain_hub().galaxy);
         steps(&mut game, 10);
-        assert_eq!(was_offered(&seen, "build|cruiser|1"), builds, "{:?}", asked(&seen));
-        assert_eq!(ships(&game.state, &home, &a(), "cruiser") - cruisers, usize::from(builds));
+        assert_eq!(
+            was_offered(&seen, "build|cruiser|1"),
+            builds,
+            "{:?}",
+            asked(&seen)
+        );
+        assert_eq!(
+            ships(&game.state, &home, &a(), "cruiser") - cruisers,
+            usize::from(builds)
+        );
     }
 }
 
@@ -1570,9 +1947,16 @@ fn nf_1_nullification_field_ends_the_activating_players_turn_for_a_token_and_exh
         );
         let nf = "TURN_ENDED_BY_NULLIFICATION_FIELD:b";
         assert_eq!(logged(&game, nf), ended, "{:?}", asked(&seen));
-        assert_eq!(was_offered(&seen, &move_it), !ended, "no movement once the turn is over");
+        assert_eq!(
+            was_offered(&seen, &move_it),
+            !ended,
+            "no movement once the turn is over"
+        );
         assert_eq!(tech_exhausted(&game.state, &b(), "nf"), ended);
-        assert_eq!(game.state.player(&b()).unwrap().strategic_tokens, if ended { 1 } else { 2 });
+        assert_eq!(
+            game.state.player(&b()).unwrap().strategic_tokens,
+            if ended { 1 } else { 2 }
+        );
     }
 }
 
@@ -1623,10 +2007,7 @@ fn it_1_instinct_training_cancels_an_action_card_played_in_a_running_game_for_a_
 
 /// Hacan (`b`) activates the ring system `target` (holding its cruiser) on a blank hub; Xxcha (`a`)
 /// has `units` placed by `place` first. Returns the space cannon rolls Xxcha made: `(hits_on, dice)`.
-fn cannon_rolls_at(
-    hub: &Hub,
-    place: impl Fn(&mut GameState),
-) -> Vec<(Option<u32>, usize)> {
+fn cannon_rolls_at(hub: &Hub, place: impl Fn(&mut GameState)) -> Vec<(Option<u32>, usize)> {
     let target = hub.outer[0].clone();
     let mut state = seated_all(&[("a", "xxcha"), ("b", "hacan")]);
     // Antimass Deflectors (a starting technology) would make every cannon die one harder.
@@ -1675,17 +2056,25 @@ fn unit_xxcha_flagship_0_loncara_ssodu_fights_with_two_dice_on_7_and_sustains() 
 }
 
 #[test]
-fn unit_xxcha_flagship_1_loncara_ssodu_fires_three_space_cannon_dice_on_5_at_ships_in_adjacent_systems() {
+fn unit_xxcha_flagship_1_loncara_ssodu_fires_three_space_cannon_dice_on_5_at_ships_in_adjacent_systems()
+ {
     let hub = plain_hub();
     let (next_door, far) = (hub.outer[1].clone(), hub.across(&hub.outer[0]));
     let adjacent = cannon_rolls_at(&hub, |state| {
         put(state, &sys(&next_door), "xxcha_flagship", &a(), 1);
     });
-    assert_eq!(adjacent, vec![(Some(5), 3)], "SPACE CANNON 5 (x3) from the neighbouring system");
+    assert_eq!(
+        adjacent,
+        vec![(Some(5), 3)],
+        "SPACE CANNON 5 (x3) from the neighbouring system"
+    );
     let distant = cannon_rolls_at(&hub, |state| {
         put(state, &sys(&far), "xxcha_flagship", &a(), 1);
     });
-    assert!(distant.is_empty(), "two systems away it cannot fire: {distant:?}");
+    assert!(
+        distant.is_empty(),
+        "two systems away it cannot fire: {distant:?}"
+    );
 }
 
 #[test]
@@ -1693,13 +2082,34 @@ fn unit_xxcha_mech_1_indomitus_fires_one_space_cannon_die_on_8_at_ships_in_adjac
     let hub = plain_hub();
     let (next_door, far) = (hub.outer[1].clone(), hub.across(&hub.outer[0]));
     let adjacent = cannon_rolls_at(&hub, |state| {
-        put_on_planet(state, &sys(&next_door), &first_planet(&next_door), "xxcha_mech", &a(), 1);
+        put_on_planet(
+            state,
+            &sys(&next_door),
+            &first_planet(&next_door),
+            "xxcha_mech",
+            &a(),
+            1,
+        );
     });
-    assert_eq!(adjacent, vec![(Some(8), 1)], "SPACE CANNON 8 from a planet next door");
+    assert_eq!(
+        adjacent,
+        vec![(Some(8), 1)],
+        "SPACE CANNON 8 from a planet next door"
+    );
     let distant = cannon_rolls_at(&hub, |state| {
-        put_on_planet(state, &sys(&far), &first_planet(&far), "xxcha_mech", &a(), 1);
+        put_on_planet(
+            state,
+            &sys(&far),
+            &first_planet(&far),
+            "xxcha_mech",
+            &a(),
+            1,
+        );
     });
-    assert!(distant.is_empty(), "two systems away it cannot fire: {distant:?}");
+    assert!(
+        distant.is_empty(),
+        "two systems away it cannot fire: {distant:?}"
+    );
 }
 
 #[test]
@@ -1733,8 +2143,1200 @@ fn xxchabt_1_archons_gift_lets_an_influence_planet_pay_for_a_unit() {
             ],
         );
         steps(&mut game, 10);
-        assert_eq!(was_offered(&seen, "build|cruiser|1"), builds, "{:?}", asked(&seen));
-        assert_eq!(ships(&game.state, &home, &a(), "cruiser") - cruisers, usize::from(builds));
+        assert_eq!(
+            was_offered(&seen, "build|cruiser|1"),
+            builds,
+            "{:?}",
+            asked(&seen)
+        );
+        assert_eq!(
+            ships(&game.state, &home, &a(), "cruiser") - cruisers,
+            usize::from(builds)
+        );
         assert_eq!(game.state.exhausted_planets.contains(&planet), builds);
+    }
+}
+
+// -- Yin ------------------------------------------------------------------------------------------
+
+fn yin_game() -> GameState {
+    seated_all(&[("a", "yin"), ("b", "sol")])
+}
+
+/// A table whose first answers are `rules` (see `Pick`), plus what it was asked.
+fn pick_table(rules: &[&str]) -> (Table, Seen) {
+    let (pick, seen) = super::d2::Pick::new(rules);
+    (Table::with_default(Box::new(pick)), seen)
+}
+
+#[test]
+fn devotion_1_after_a_combat_round_a_yin_cruiser_is_destroyed_to_hit_an_opposing_ship() {
+    // Round one misses everywhere. Yin pays its lone cruiser for a hit on one of Sol's two
+    // cruisers; with no ship left the fight ends there. Declined, the cruiser fights on.
+    for (devote, rounds) in [(true, 1), (false, 2)] {
+        let mut state = yin_game();
+        put(&mut state, &sys("19"), "cruiser", &a(), 1);
+        put(&mut state, &sys("19"), "cruiser", &b(), 2);
+        let (mut table, seen) = pick_table(if devote { &["cruiser"] } else { &["decline"] });
+        let (_, dice) = space_fight(&mut state, &sys("19"), &[1, 1, 1], &mut table);
+        let yin_rounds = dice
+            .history()
+            .iter()
+            .filter(|roll| roll.by.as_deref() == Some("a") && roll.reason == "space combat")
+            .count();
+        assert!(
+            yin_rounds >= rounds,
+            "{yin_rounds} Yin rolls: {:?}",
+            asked(&seen)
+        );
+        assert_eq!(
+            yin_rounds == 1,
+            devote,
+            "Yin only rolled in round one when it devoted: {:?}",
+            asked(&seen)
+        );
+        assert_eq!(
+            ships(&state, &sys("19"), &a(), "cruiser"),
+            0,
+            "the Yin cruiser is gone either way by the end"
+        );
+        if devote {
+            assert_eq!(
+                ships(&state, &sys("19"), &b(), "cruiser"),
+                1,
+                "one Sol cruiser took the hit"
+            );
+        }
+    }
+}
+
+/// Run the Yin cruiser from `outer[1]` into `outer[0]`, where two Sol carriers wait, over seeds
+/// until Devotion has been offered (and `rules` answered it). Returns the finished game.
+fn yin_fights_until_devotion(rules: &[&str]) -> Game<'static> {
+    let hub = plain_hub();
+    let (target, from) = (hub.outer[0].clone(), hub.outer[1].clone());
+    for seed in 0..60u64 {
+        let mut state = yin_game();
+        state.rng_seed = seed;
+        blank_hub(&mut state, &hub);
+        put(&mut state, &sys(&from), "cruiser", &a(), 1);
+        put(&mut state, &sys(&target), "carrier", &b(), 2);
+        let move_it = format!("move|{from}|0");
+        let mut all = vec![move_it.as_str()];
+        all.extend_from_slice(rules);
+        let (game, seen) = tactical(state, "a", &hub.galaxy, &target, &all, "never");
+        if was_offered_like_prompt(&seen, "Devotion") {
+            return game;
+        }
+    }
+    panic!("no seed let the Yin cruiser live to use Devotion");
+}
+
+#[test]
+fn yincommander_1_unlocks_in_the_game_once_a_faction_ability_was_used() {
+    // (The unlock check runs at the top of the Yin player's next step.)
+    let used = yin_fights_until_devotion(&["cruiser"]);
+    assert!(unlocks_in_the_game(&used.state, &a(), "yincommander"));
+    let declined = yin_fights_until_devotion(&["decline"]);
+    assert!(
+        !unlocks_in_the_game(&declined.state, &a(), "yincommander"),
+        "an offer that was declined is not a use"
+    );
+}
+
+#[test]
+fn yincommander_2_omar_supplies_a_green_prerequisite_in_a_technology_research() {
+    let green = content()
+        .records(ti4_model::content_types::ContentType::Technologies)
+        .iter()
+        .filter(|record| {
+            record.text("requirements") == Some("G") && record.text("faction").is_none()
+        })
+        .filter_map(|record| record.text("alias"))
+        .find(|alias| {
+            !crate::technology::is_unit_upgrade(
+                content(),
+                &ti4_model::id::TechnologyId::new(*alias),
+            )
+        })
+        .expect("a single-green technology")
+        .to_owned();
+    for (status, researched) in [
+        (LeaderStatus::Unlocked, true),
+        (LeaderStatus::Locked, false),
+    ] {
+        let mut state = bare_game("yin");
+        set_leader(&mut state, &a(), "yincommander", status);
+        with_card(&mut state, &a(), "pok7technology");
+        let (mut game, seen) = action_game(state, "a", None, &["strategic", &green]);
+        steps(&mut game, 6);
+        assert_eq!(
+            was_offered(&seen, &green),
+            researched,
+            "{status:?}: {:?}",
+            asked(&seen)
+        );
+        assert_eq!(owns(&game.state, &a(), &green), researched);
+    }
+}
+
+#[test]
+fn yincommander_2_omar_returns_an_infantry_to_ignore_the_prerequisites_of_a_technology_another_player_owns()
+ {
+    // The War Sun needs four prerequisites a fresh Yin player lacks; Sol owns it.
+    for (status, researched) in [
+        (LeaderStatus::Unlocked, true),
+        (LeaderStatus::Locked, false),
+    ] {
+        let mut state = bare_game("yin");
+        super::give(&mut state, "b", "ws");
+        set_leader(&mut state, &a(), "yincommander", status);
+        with_card(&mut state, &a(), "pok7technology");
+        let infantry = |state: &GameState| {
+            state
+                .board
+                .values()
+                .flat_map(|system| system.planet_units.values().flatten())
+                .filter(|unit| unit.owner == a() && unit.type_id.as_str() == "infantry")
+                .count()
+        };
+        let before = infantry(&state);
+        let (mut game, seen) = super::d2::eager_game(state, "a", None, &["strategic", "ws"]);
+        steps(&mut game, 8);
+        assert_eq!(
+            owns(&game.state, &a(), "ws"),
+            researched,
+            "{status:?}: {:?}",
+            asked(&seen)
+        );
+        assert_eq!(
+            before - infantry(&game.state),
+            usize::from(researched),
+            "one infantry went back to reinforcements: {:?}",
+            asked(&seen)
+        );
+    }
+}
+
+#[test]
+fn yinhero_1_unlocks_in_the_game_on_the_third_scored_objective() {
+    let mut state = yin_game();
+    score_objectives(&mut state, &a(), 2);
+    assert!(!unlocks_in_the_game(&state, &a(), "yinhero"));
+    score_objectives(&mut state, &a(), 3);
+    assert!(unlocks_in_the_game(&state, &a(), "yinhero"));
+}
+
+#[test]
+fn yinhero_2_dannel_lands_three_infantry_on_a_non_home_planet_fights_without_space_cannon_and_is_purged()
+ {
+    let (system, planet) = influence_planet();
+    let hub = crate::fixtures::hub_with_centre(system.as_str());
+    let spot = format!("{system}|{planet}");
+    for (defended, ground_rolls) in [(false, false), (true, true)] {
+        let mut state = yin_game();
+        // Sol's own agent has a ground-combat window since rules version 16; not under test here.
+        set_leader(&mut state, &b(), "solagent", LeaderStatus::Exhausted);
+        set_leader(&mut state, &a(), "yinhero", LeaderStatus::Unlocked);
+        blank_hub(&mut state, &hub);
+        if defended {
+            put_on_planet(&mut state, &system, &planet, "pds", &b(), 1);
+            put_on_planet(&mut state, &system, &planet, "infantry", &b(), 1);
+        }
+        let (mut game, seen) = action_game(
+            state,
+            "a",
+            Some(hub.galaxy.clone()),
+            &["component|leader|yinhero", &spot, &spot, &spot],
+        );
+        steps(&mut game, 8);
+        assert_eq!(
+            leader_status(&game.state, &a(), "yinhero"),
+            Some(LeaderStatus::Purged),
+            "{:?}",
+            asked(&seen)
+        );
+        assert!(
+            !game
+                .rolls()
+                .iter()
+                .any(|roll| roll.reason.contains("space cannon")),
+            "no SPACE CANNON against the landing: {:?}",
+            game.rolls()
+        );
+        let mine = on_planet(&game.state, &system, &planet, &a(), "infantry");
+        if defended {
+            let theirs = on_planet(&game.state, &system, &planet, &b(), "infantry");
+            assert!(
+                mine == 0 || theirs == 0,
+                "the ground combat ran to its end: {mine} v {theirs}"
+            );
+            assert!(
+                game.rolls()
+                    .iter()
+                    .any(|roll| roll.reason == "ground combat"),
+                "{:?}",
+                game.rolls()
+            );
+        } else {
+            assert_eq!(mine, 3, "never more than three");
+            assert_eq!(
+                game.state.system_state(&system).planet_control.get(&planet),
+                Some(&a())
+            );
+            assert!(!ground_rolls);
+        }
+    }
+}
+
+#[test]
+fn yinbt_1_yin_ascendant_grants_a_commander_ability_that_then_works_in_combat() {
+    // Gaining the breakthrough hands Yin one random unused faction's commander ability. A seed that
+    // hands it the Winnu commander is searched for; that ability adds 2 to Yin's rolls in the
+    // Mecatol Rex system, in a real space combat there.
+    let granted = |seed: u64| {
+        let mut state = yin_game();
+        state.rng_seed = seed;
+        let mut game = Game::with_table(
+            state,
+            content(),
+            Table::with_default(Box::new(crate::choice::AlwaysDecline)),
+        )
+        .with_sources(DEFAULT);
+        game.state.player_mut(&a()).unwrap().breakthrough =
+            Some(ti4_model::id::BreakthroughId::new("yinbt"));
+        steps(&mut game, 1);
+        game.state
+    };
+    let state = (0..400u64)
+        .map(granted)
+        .find(|state| crate::promissory::has_commander_ability(state, &a(), "winnucommander"))
+        .expect("some seed grants the Winnu commander");
+    let roll = |mut state: GameState| {
+        let mecatol = sys(crate::seating::MECATOL);
+        state.system_mut(&mecatol).units.clear();
+        put(&mut state, &mecatol, "cruiser", &a(), 1);
+        put(&mut state, &mecatol, "cruiser", &b(), 1);
+        let (_, dice) = space_fight(&mut state, &mecatol, &[10; 8], &mut Table::new());
+        first_roll(&dice, "a").and_then(|(hits_on, _)| hits_on)
+    };
+    assert_eq!(
+        roll(state),
+        Some(5),
+        "the granted Winnu commander: +2 at Mecatol Rex"
+    );
+    assert_eq!(
+        roll(yin_game()),
+        Some(7),
+        "without the grant: the printed 7"
+    );
+}
+
+#[test]
+fn unit_yin_flagship_0_van_hauge_fights_with_two_dice_on_9_and_sustains() {
+    assert_eq!(space_profile("yin", "yin_flagship"), (Some(9), 2));
+    let mut state = yin_game();
+    put(&mut state, &sys("19"), "yin_flagship", &a(), 1);
+    put(&mut state, &sys("19"), "cruiser", &b(), 1);
+    let _ = space_fight(&mut state, &sys("19"), &[10; 8], &mut Table::new());
+    assert!(
+        state
+            .system_state(&sys("19"))
+            .units
+            .iter()
+            .any(|unit| unit.type_id.as_str() == "yin_flagship" && unit.sustained_damage),
+        "the hit is sustained"
+    );
+}
+
+#[test]
+fn unit_yin_flagship_1_van_hauge_takes_every_ship_in_its_system_with_it() {
+    // Sol brings six cruisers against a lone Van Hauge. It kills at most two per round, so when it
+    // goes down within two rounds Sol still had ships -- and Van Hauge takes them with it.
+    let hub = plain_hub();
+    let (target, from) = (hub.outer[0].clone(), hub.outer[1].clone());
+    let moves: Vec<String> = (0..6).map(|_| format!("move|{from}|0")).collect();
+    let rules: Vec<&str> = moves.iter().map(String::as_str).collect();
+    let mut verified = 0;
+    for seed in 0..60u64 {
+        let mut state = yin_game();
+        state.rng_seed = seed;
+        blank_hub(&mut state, &hub);
+        set_leader(&mut state, &a(), "yinagent", LeaderStatus::Exhausted);
+        put(&mut state, &sys(&target), "yin_flagship", &a(), 1);
+        put(&mut state, &sys(&from), "cruiser", &b(), 6);
+        let (game, _) = tactical(state, "b", &hub.galaxy, &target, &rules, "never");
+        let yin_rounds = game
+            .rolls()
+            .iter()
+            .filter(|roll| roll.by.as_deref() == Some("a") && roll.reason == "space combat")
+            .count();
+        if ships(&game.state, &sys(&target), &a(), "yin_flagship") == 0 && yin_rounds <= 2 {
+            assert_eq!(
+                game.state.system_state(&sys(&target)).units.len(),
+                0,
+                "seed {seed}: the flagship fell in round {yin_rounds} and every ship went with it"
+            );
+            verified += 1;
+        }
+    }
+    assert!(
+        verified > 0,
+        "some seed destroyed Van Hauge within two rounds"
+    );
+}
+
+/// Yin `a` invades `planet`, held by Sol's two infantry, from a carrier with two infantry. The
+/// first ground combat's dice counts `(Yin, Sol)` and the questions asked, with `rules` answering
+/// Indoctrination.
+fn yin_invades(rules: &[&str], mech_in_reserve: bool) -> ((usize, usize), Seen, Game<'static>) {
+    let (system, planet) = influence_planet();
+    let hub = crate::fixtures::hub_with_centre(system.as_str());
+    let mut state = yin_game();
+    set_leader(&mut state, &b(), "solagent", LeaderStatus::Exhausted);
+    state.system_mut(&system).units.clear();
+    state.system_mut(&system).planet_units.clear();
+    state.system_mut(&system).set_control(planet.clone(), b());
+    put_on_planet(&mut state, &system, &planet, "infantry", &b(), 2);
+    put(&mut state, &system, "carrier", &a(), 1);
+    put(&mut state, &system, "infantry", &a(), 2);
+    let _ = mech_in_reserve;
+    let mut all = vec![
+        TACTICAL_ACTION_ID,
+        system.as_str(),
+        "done_moving",
+        "~commit|",
+        "~commit|",
+    ];
+    all.extend_from_slice(rules);
+    let (mut game, seen) = action_game(state, "a", Some(hub.galaxy), &all);
+    for _ in 0..16 {
+        assert_eq!(game.step().error, None, "log: {:?}", game.events);
+        if game
+            .rolls()
+            .iter()
+            .any(|roll| roll.reason == "ground combat")
+        {
+            break;
+        }
+    }
+    let first = |who: &str| {
+        game.rolls()
+            .iter()
+            .find(|roll| roll.reason == "ground combat" && roll.by.as_deref() == Some(who))
+            .map_or(0, |roll| roll.faces.len())
+    };
+    ((first("a"), first("b")), seen, game)
+}
+
+#[test]
+fn indoctrination_1_a_real_invasion_replaces_one_opposing_infantry_for_two_influence() {
+    let ((yin, sol), seen, _) = yin_invades(&["infantry"], false);
+    assert_eq!(
+        (yin, sol),
+        (3, 1),
+        "one Sol infantry became a Yin one: {:?}",
+        asked(&seen)
+    );
+    let ((yin, sol), seen, _) = yin_invades(&["decline"], false);
+    assert_eq!(
+        (yin, sol),
+        (2, 2),
+        "declined: nothing changes: {:?}",
+        asked(&seen)
+    );
+}
+
+#[test]
+fn unit_yin_mech_1_moyin_s_ashes_replaces_the_infantry_with_a_mech_for_one_more_influence() {
+    // The mech rolls on 6 where an infantry needs 8: the first Yin ground roll with a single die
+    // on 6 can only be the replacement mech.
+    let ((_, sol), seen, game) = yin_invades(&["mech"], true);
+    assert_eq!(sol, 1, "one Sol infantry was replaced: {:?}", asked(&seen));
+    assert!(
+        game.rolls()
+            .iter()
+            .any(|roll| roll.reason == "ground combat"
+                && roll.by.as_deref() == Some("a")
+                && roll.hits_on == Some(6)
+                && roll.faces.len() == 1),
+        "{:?}",
+        game.rolls()
+    );
+    assert!(was_offered(&seen, "mech") && was_offered(&seen, "infantry"));
+}
+
+// -- Yssaril --------------------------------------------------------------------------------------
+
+fn yssaril_game() -> GameState {
+    seated_all(&[("a", "yssaril"), ("b", "hacan")])
+}
+
+fn deal(state: &mut GameState, who: &PlayerId, cards: &[&str]) {
+    state.player_mut(who).unwrap().action_cards = cards
+        .iter()
+        .map(|alias| ti4_model::id::ActionCardId::new(*alias))
+        .collect();
+}
+
+fn hand(state: &GameState, who: &PlayerId) -> Vec<String> {
+    state
+        .player(who)
+        .unwrap()
+        .action_cards
+        .iter()
+        .map(ToString::to_string)
+        .collect()
+}
+
+fn mechs_of(state: &GameState, who: &PlayerId, kind: &str) -> usize {
+    state
+        .board
+        .values()
+        .flat_map(|system| system.planet_units.values().flatten())
+        .filter(|unit| &unit.owner == who && unit.type_id.as_str() == kind)
+        .count()
+}
+
+#[test]
+fn stall_tactics_1_and_mech_1_discard_a_chosen_card_then_deploy_a_blackshade_infantry_mech() {
+    let stall = "faction|yssaril|stall_tactics";
+    let mut state = yssaril_game();
+    deal(&mut state, &a(), &["sabotage", "bribery"]);
+    let home = state.player(&a()).unwrap().home_system.clone().unwrap();
+    let planet = state.controlled_planets(&a())[0].1.clone();
+    let spot = format!("{home}|{planet}");
+    let mechs = mechs_of(&state, &a(), "yssaril_mech");
+    let (mut game, seen) = action_game(state.clone(), "a", None, &[stall, "bribery", &spot]);
+    steps(&mut game, 3);
+    assert_eq!(
+        hand(&game.state, &a()),
+        ["sabotage"],
+        "the chosen card was discarded: {:?}",
+        asked(&seen)
+    );
+    assert!(
+        game.state
+            .discarded_action_cards
+            .iter()
+            .any(|card| card.as_str() == "bribery"),
+        "and lies in the discard pile"
+    );
+    assert_eq!(
+        mechs_of(&game.state, &a(), "yssaril_mech") - mechs,
+        1,
+        "DEPLOY: one mech placed"
+    );
+    // The mech may be declined.
+    let (mut game, _) = action_game(state.clone(), "a", None, &[stall, "sabotage", "decline"]);
+    steps(&mut game, 3);
+    assert_eq!(mechs_of(&game.state, &a(), "yssaril_mech"), mechs);
+    // With no card in hand the ability is not offered.
+    let mut empty = state;
+    deal(&mut empty, &a(), &[]);
+    let (mut game, seen) = action_game(empty, "a", None, &[]);
+    steps(&mut game, 1);
+    assert!(!was_offered(&seen, stall), "{:?}", asked(&seen));
+}
+
+#[test]
+fn mi_1_mageon_implants_takes_one_action_card_from_another_players_hand_and_exhausts() {
+    for (tech, takes) in [(true, true), (false, false)] {
+        let mut state = yssaril_game();
+        if tech {
+            super::give(&mut state, "a", "mi");
+        }
+        deal(&mut state, &a(), &[]);
+        deal(&mut state, &b(), &["sabotage", "bribery"]);
+        let id = "faction|yssaril|mi|b";
+        let (mut game, seen) = action_game(state, "a", None, &[id, "bribery"]);
+        steps(&mut game, 3);
+        assert_eq!(was_offered(&seen, id), takes, "{:?}", asked(&seen));
+        assert_eq!(
+            hand(&game.state, &a()),
+            if takes { vec!["bribery"] } else { vec![] },
+            "{:?}",
+            asked(&seen)
+        );
+        assert_eq!(hand(&game.state, &b()).len(), if takes { 1 } else { 2 });
+        assert_eq!(tech_exhausted(&game.state, &a(), "mi"), takes);
+    }
+}
+
+#[test]
+fn yssarilagent_1_ssruu_uses_another_players_agent_text_even_exhausted_and_exhausts_itself() {
+    let mut state = yssaril_game();
+    state.player_mut(&b()).unwrap().commodities = 0;
+    set_leader(&mut state, &b(), "hacanagent", LeaderStatus::Exhausted);
+    let id = "component|leader|yssarilagent|hacanagent";
+    let (mut game, seen) = action_game(state, "a", None, &[id, "b"]);
+    steps(&mut game, 3);
+    assert!(was_offered(&seen, id), "{:?}", asked(&seen));
+    assert!(
+        game.state.player(&b()).unwrap().commodities > 0,
+        "Carth's text replenished Hacan: {:?}",
+        asked(&seen)
+    );
+    assert_eq!(
+        leader_status(&game.state, &b(), "hacanagent"),
+        Some(LeaderStatus::Exhausted),
+        "the source is untouched"
+    );
+    assert_eq!(
+        leader_status(&game.state, &a(), "yssarilagent"),
+        Some(LeaderStatus::Exhausted)
+    );
+    run_status_phase(&mut game.state);
+    assert_eq!(
+        leader_status(&game.state, &a(), "yssarilagent"),
+        Some(LeaderStatus::Readied)
+    );
+}
+
+#[test]
+fn yssarilcommander_1_unlocks_in_the_game_with_seven_action_cards() {
+    let mut state = yssaril_game();
+    deal(&mut state, &a(), &["sabotage"; 6]);
+    assert!(!unlocks_in_the_game(&state, &a(), "yssarilcommander"));
+    deal(&mut state, &a(), &["sabotage"; 7]);
+    assert!(unlocks_in_the_game(&state, &a(), "yssarilcommander"));
+}
+
+#[test]
+fn yssarilhero_1_unlocks_in_the_game_on_the_third_scored_objective() {
+    let mut state = yssaril_game();
+    score_objectives(&mut state, &a(), 2);
+    assert!(!unlocks_in_the_game(&state, &a(), "yssarilhero"));
+    score_objectives(&mut state, &a(), 3);
+    assert!(unlocks_in_the_game(&state, &a(), "yssarilhero"));
+}
+
+#[test]
+fn yssarilhero_2_kyver_takes_the_shown_card_or_forces_three_discards_and_is_purged() {
+    // Sol (Hacan here) shows its Bribery; Yssaril takes it. Declined: Sol discards three at random.
+    for (answer, taken) in [("take", true), ("discard", false)] {
+        let mut state = yssaril_game();
+        set_leader(&mut state, &a(), "yssarilhero", LeaderStatus::Unlocked);
+        deal(&mut state, &a(), &[]);
+        deal(
+            &mut state,
+            &b(),
+            &["bribery", "sabotage", "rally", "plague"],
+        );
+        let (mut game, seen) = action_game(
+            state,
+            "a",
+            None,
+            &["component|leader|yssarilhero", "bribery", answer],
+        );
+        steps(&mut game, 3);
+        assert_eq!(
+            leader_status(&game.state, &a(), "yssarilhero"),
+            Some(LeaderStatus::Purged),
+            "{:?}",
+            asked(&seen)
+        );
+        if taken {
+            assert_eq!(hand(&game.state, &a()), ["bribery"]);
+            assert_eq!(hand(&game.state, &b()).len(), 3);
+        } else {
+            assert!(hand(&game.state, &a()).is_empty());
+            assert_eq!(
+                hand(&game.state, &b()).len(),
+                1,
+                "three random cards were discarded"
+            );
+        }
+    }
+}
+
+/// The status phase of `state` played by a `Game` with questions answered by prompt (see
+/// [`ByPrompt`]) until the next strategy phase; returns the game and what was asked.
+fn play_status(mut state: GameState, rules: &[(&str, &str)]) -> (Game<'static>, Seen) {
+    state.phase = ti4_model::state::Phase::Status;
+    let seen = Seen::default();
+    let decider = ByPrompt {
+        rules: rules
+            .iter()
+            .map(|(p, a)| ((*p).to_owned(), (*a).to_owned()))
+            .collect(),
+        seen: seen.clone(),
+    };
+    let mut game = Game::with_table(state, content(), Table::with_default(Box::new(decider)))
+        .with_sources(DEFAULT);
+    for _ in 0..60 {
+        assert_eq!(game.step().error, None, "log: {:?}", game.events);
+        if game.state.phase != ti4_model::state::Phase::Status {
+            return (game, seen);
+        }
+    }
+    panic!("the status phase never ended; log: {:?}", game.events);
+}
+
+fn pile(aliases: &[&str]) -> Vec<ti4_model::id::ActionCardId> {
+    aliases
+        .iter()
+        .map(|alias| ti4_model::id::ActionCardId::new(*alias))
+        .collect()
+}
+
+#[test]
+fn scheming_1_the_status_phase_draw_takes_one_more_card_and_discards_one() {
+    let deck = pile(&[
+        "bribery", "rally", "plague", "spy", "uprising", "scuttle", "seize", "decoy",
+    ]);
+    // (cards `a` ends with, cards left in the deck, cards in the discard pile, questions)
+    let run = |faction: &str| {
+        let mut state = seated_all(&[("a", faction), ("b", "hacan")]);
+        deal(&mut state, &a(), &[]);
+        deal(&mut state, &b(), &[]);
+        state.action_card_deck = deck.clone();
+        state.discarded_action_cards.clear();
+        let (game, seen) = play_status(state, &[]);
+        (
+            hand(&game.state, &a()).len(),
+            game.state.action_card_deck.len(),
+            game.state.discarded_action_cards.len(),
+            asked(&seen),
+        )
+    };
+    let (yssaril_hand, yssaril_deck, yssaril_pile, asked_y) = run("yssaril");
+    let (sol_hand, sol_deck, sol_pile, _) = run("sol");
+    assert_eq!(
+        yssaril_hand, sol_hand,
+        "both end the phase with the one card: {asked_y:?}"
+    );
+    assert_eq!(
+        sol_deck - yssaril_deck,
+        1,
+        "Yssaril drew one more card: {asked_y:?}"
+    );
+    assert_eq!(yssaril_pile - sol_pile, 1, "and discarded one: {asked_y:?}");
+}
+
+#[test]
+fn crafty_1_and_2_yssaril_keeps_any_number_of_action_cards_even_under_a_law_that_caps_the_hand() {
+    // Hacan plays Politics; the follower draws two action cards from a full hand. A plain follower
+    // must discard back down to the limit, Yssaril does not, whatever Sanctions says.
+    for (law, full) in [(None, 7), (Some("sanctions"), 3)] {
+        let hand_after_following = |faction: &str| {
+            let mut state = seated_all(&[("a", faction), ("b", "hacan")]);
+            deal(&mut state, &a(), &vec!["sabotage"; full]);
+            if let Some(law) = law {
+                state.laws.insert(law.to_owned(), String::new());
+            }
+            with_card(&mut state, &b(), "pok3politics");
+            let (mut game, seen) = action_game(state, "b", None, &["strategic", "yes"]);
+            steps(&mut game, 6);
+            (hand(&game.state, &a()).len(), asked(&seen))
+        };
+        let (yssaril, seen) = hand_after_following("yssaril");
+        let (plain, _) = hand_after_following("sol");
+        assert_eq!(
+            plain, full,
+            "{law:?}: a plain follower is cut down to the limit"
+        );
+        assert!(
+            yssaril > full,
+            "{law:?}: Yssaril keeps {yssaril} cards: {seen:?}"
+        );
+    }
+}
+
+#[test]
+#[ignore = "MISSING/BUG: rule 2.4 hand limit is not enforced on the status phase action card draw (a seat with a full hand ends the phase over the limit)"]
+fn status_phase_draw_enforces_the_action_card_hand_limit_for_a_plain_seat() {
+    // Not a Yssaril card, but the status-phase draw is where Crafty would matter most: a Hacan seat
+    // holding seven cards draws an eighth and must discard back down.
+    let mut state = yssaril_game();
+    deal(&mut state, &b(), &["sabotage"; 7]);
+    let (game, seen) = play_status(state, &[]);
+    assert_eq!(hand(&game.state, &b()).len(), 7, "{:?}", asked(&seen));
+}
+
+#[test]
+fn tp_1_transparasteel_plating_stops_passed_players_playing_action_cards_on_the_owners_turn() {
+    // Hacan holds Forward Supply Base ("after another player activates a system that contains your
+    // units: gain 3 trade goods") and offers it whenever Yssaril activates a system with its ship.
+    for (tech, passed, offered) in [
+        (true, true, false),
+        (true, false, true),
+        (false, true, true),
+    ] {
+        let hub = plain_hub();
+        let target = hub.outer[0].clone();
+        let mut state = yssaril_game();
+        blank_hub(&mut state, &hub);
+        if tech {
+            super::give(&mut state, "a", "tp");
+        }
+        state.player_mut(&b()).unwrap().passed = passed;
+        deal(&mut state, &b(), &["fsb"]);
+        put(&mut state, &sys(&target), "cruiser", &b(), 1);
+        let (game, seen) = tactical(state, "a", &hub.galaxy, &target, &[], "never");
+        let fsb_offered = seen.borrow().iter().any(|question| {
+            question.player == "b"
+                && question
+                    .options
+                    .iter()
+                    .any(|id| id.starts_with("reaction:"))
+        });
+        assert_eq!(
+            fsb_offered,
+            offered,
+            "tech {tech}, passed {passed}: {:?}",
+            asked(&seen)
+        );
+        let _ = game;
+    }
+}
+
+#[test]
+fn yssarilbt_1_deepgloom_lets_another_player_use_stall_tactics_and_trade_outside_the_limit() {
+    let id = "faction|yssaril|bt_stall|a";
+    for (breakthrough, works) in [(true, true), (false, false)] {
+        let mut state = yssaril_game();
+        if breakthrough {
+            state.player_mut(&a()).unwrap().breakthrough =
+                Some(ti4_model::id::BreakthroughId::new("yssarilbt"));
+        }
+        deal(&mut state, &b(), &["sabotage"]);
+        state.player_mut(&a()).unwrap().commodities = 1;
+        state.player_mut(&b()).unwrap().commodities = 1;
+        // The pair already traded this turn: only Deepgloom's exemption lets the borrowed trade open.
+        state.record_transaction(&a(), &b());
+        let (mut game, seen) = action_game(
+            state,
+            "b",
+            Some(plain_hub().galaxy),
+            &[id, "allow", "cc1", "accept"],
+        );
+        steps(&mut game, 6);
+        assert_eq!(was_offered(&seen, id), works, "{:?}", asked(&seen));
+        assert_eq!(
+            hand(&game.state, &b()).is_empty(),
+            works,
+            "the borrowed Stall Tactics discarded: {:?}",
+            asked(&seen)
+        );
+        assert_eq!(
+            was_offered(&seen, "accept"),
+            works,
+            "the trade outside the per-turn limit was opened: {:?}",
+            asked(&seen)
+        );
+    }
+}
+
+#[test]
+fn yssarilbt_1_deepgloom_lets_another_player_draw_one_more_card_and_discard_one_through_scheming() {
+    for (breakthrough, extra) in [(true, 1), (false, 0)] {
+        let mut state = yssaril_game();
+        if breakthrough {
+            state.player_mut(&a()).unwrap().breakthrough =
+                Some(ti4_model::id::BreakthroughId::new("yssarilbt"));
+        }
+        deal(&mut state, &b(), &[]);
+        with_card(&mut state, &a(), "pok3politics");
+        let deck = state.action_card_deck.len();
+        // Hacan follows with the Politics secondary (draw two); Yssaril lets it use Scheming.
+        let (mut game, seen) = action_game(state, "a", None, &["strategic", "yes", "allow"]);
+        steps(&mut game, 8);
+        assert_eq!(
+            hand(&game.state, &b()).len(),
+            2,
+            "Hacan keeps two cards after the discard: {:?}",
+            asked(&seen)
+        );
+        // Yssaril's own Politics primary draws two and (Scheming) one more: 3; Hacan's secondary
+        // draws two, and with Deepgloom one more: 3 against 2.
+        assert_eq!(
+            deck - game.state.action_card_deck.len(),
+            5 + extra,
+            "{:?}",
+            asked(&seen)
+        );
+        assert_eq!(
+            was_offered(&seen, "allow"),
+            breakthrough,
+            "{:?}",
+            asked(&seen)
+        );
+    }
+}
+
+#[test]
+fn unit_yssaril_flagship_0_y_sia_y_ssrila_fights_with_two_dice_on_5_and_sustains() {
+    assert_eq!(space_profile("yssaril", "yssaril_flagship"), (Some(5), 2));
+    let mut state = yssaril_game();
+    put(&mut state, &sys("19"), "yssaril_flagship", &a(), 1);
+    put(&mut state, &sys("19"), "cruiser", &b(), 1);
+    let _ = space_fight(&mut state, &sys("19"), &[10; 8], &mut Table::new());
+    assert!(
+        state
+            .system_state(&sys("19"))
+            .units
+            .iter()
+            .any(|unit| unit.type_id.as_str() == "yssaril_flagship" && unit.sustained_damage),
+        "the hit is sustained"
+    );
+}
+
+#[test]
+fn unit_yssaril_flagship_1_y_sia_y_ssrila_moves_two_and_through_other_players_ships() {
+    // Sol's cruiser sits in the centre, the only way from `from` to `target` (two jumps). The
+    // flagship (move 2) passes through; an ordinary cruiser (move 2) is blocked.
+    let hub = plain_hub();
+    let target = hub.outer[0].clone();
+    let from = hub.across(&target);
+    for (kind, passes) in [("yssaril_flagship", true), ("cruiser", false)] {
+        let mut state = seated_all(&[("a", "yssaril"), ("b", "hacan")]);
+        blank_hub(&mut state, &hub);
+        put(&mut state, &sys(&hub.centre), "cruiser", &b(), 1);
+        put(&mut state, &sys(&from), kind, &a(), 1);
+        let move_it = format!("move|{from}|0");
+        let (game, seen) = tactical(state, "a", &hub.galaxy, &target, &[&move_it], "never");
+        assert_eq!(
+            was_offered(&seen, &move_it),
+            passes,
+            "{kind}: {:?}",
+            asked(&seen)
+        );
+        assert_eq!(
+            ships(&game.state, &sys(&target), &a(), kind),
+            usize::from(passes)
+        );
+    }
+}
+
+// -- generic promissory notes ---------------------------------------------------------------------
+
+#[test]
+fn cf_1_ceasefire_stops_its_owner_moving_into_a_system_with_the_holders_units_and_goes_home() {
+    // Hacan (b) holds Sol's (a) Ceasefire. Sol activates the system b's cruiser sits in and tries to
+    // move a carrier in: the move is denied (for the whole activation) and the note goes home.
+    let note = crate::promissory::note_id("cf", "sol");
+    for (held, denied) in [(true, true), (false, false)] {
+        let hub = plain_hub();
+        let (target, from) = (hub.outer[0].clone(), hub.outer[1].clone());
+        let mut state = seated_all(&[("a", "sol"), ("b", "hacan")]);
+        blank_hub(&mut state, &hub);
+        put(&mut state, &sys(&target), "cruiser", &b(), 1);
+        put(&mut state, &sys(&from), "carrier", &a(), 2);
+        if held {
+            state.promissory_notes.insert(note.clone(), b());
+        }
+        let moves = format!("move|{from}|0");
+        let (game, seen) = tactical(state, "a", &hub.galaxy, &target, &[&moves, &moves], "never");
+        assert_eq!(
+            logged(&game, "CEASEFIRE_USED"),
+            denied,
+            "{:?}",
+            asked(&seen)
+        );
+        assert_eq!(logged(&game, "SHIP_MOVED"), !denied, "{:?}", asked(&seen));
+        if denied {
+            assert_eq!(
+                ships(&game.state, &sys(&from), &a(), "carrier"),
+                2,
+                "the carriers stayed home"
+            );
+        }
+        if held {
+            assert_eq!(
+                game.state.promissory_notes.get(&note),
+                Some(&a()),
+                "returned to its owner"
+            );
+        }
+    }
+}
+
+#[test]
+fn sftt_1_support_for_the_throne_scores_for_its_holder_and_returns_when_they_activate_the_owners_system()
+ {
+    // Hacan (b) and Sol (a) swap Supports in a transaction, so each holds a point. Then Hacan
+    // activates a system with a Sol ship: Sol's Support goes home and takes its point with it.
+    let hub = plain_hub();
+    let target = hub.outer[0].clone();
+    let mut state = seated_all(&[("a", "sol"), ("b", "hacan")]);
+    blank_hub(&mut state, &hub);
+    put(&mut state, &sys(&target), "cruiser", &a(), 1);
+    let (sol_points, hacan_points) = (
+        state.player(&a()).unwrap().victory_points,
+        state.player(&b()).unwrap().victory_points,
+    );
+    let (mut game, seen) = action_game(
+        state,
+        "b",
+        Some(hub.galaxy.clone()),
+        &[
+            "component|trade|sol",
+            "ss",
+            "accept",
+            TACTICAL_ACTION_ID,
+            &target,
+        ],
+    );
+    // The transaction first: both points are in.
+    for _ in 0..4 {
+        assert_eq!(game.step().error, None, "log: {:?}", game.events);
+        if game.state.support_holders.len() == 2 {
+            break;
+        }
+    }
+    assert_eq!(
+        game.state.support_holders.get(&a()),
+        Some(&b()),
+        "{:?}",
+        asked(&seen)
+    );
+    assert_eq!(game.state.support_holders.get(&b()), Some(&a()));
+    assert_eq!(
+        game.state.player(&a()).unwrap().victory_points,
+        sol_points + 1
+    );
+    assert_eq!(
+        game.state.player(&b()).unwrap().victory_points,
+        hacan_points + 1
+    );
+    // Then the activation.
+    assert!(
+        drive(&mut game, "SUPPORT_FOR_THE_THRONE_RETURNED:a", 8),
+        "{:?}",
+        asked(&seen)
+    );
+    assert_eq!(
+        game.state.support_holders.get(&a()),
+        None,
+        "Sol's Support went home"
+    );
+    assert_eq!(
+        game.state.player(&b()).unwrap().victory_points,
+        hacan_points,
+        "and took Hacan's point with it"
+    );
+    assert_eq!(
+        game.state.support_holders.get(&b()),
+        Some(&a()),
+        "Hacan's own Support is still out"
+    );
+    assert_eq!(
+        game.state.player(&a()).unwrap().victory_points,
+        sol_points + 1
+    );
+}
+
+#[test]
+fn ta_1_trade_agreement_hands_its_holder_all_the_owners_replenished_commodities_and_goes_home() {
+    // Sol plays Trade and replenishes; Hacan, holding Sol's Trade Agreement, receives the lot as
+    // trade goods and the card goes home.
+    let note = crate::promissory::note_id("ta", "sol");
+    for (held, handed) in [(true, true), (false, false)] {
+        let mut state = seated_all(&[("a", "sol"), ("b", "hacan")]);
+        with_card(&mut state, &a(), "pok5trade");
+        state.player_mut(&a()).unwrap().commodities = 0;
+        if held {
+            state.promissory_notes.insert(note.clone(), b());
+        }
+        let goods = state.player(&b()).unwrap().trade_goods;
+        let limit = ti4_content::factions::get(content(), "sol")
+            .unwrap()
+            .commodities();
+        let (mut game, seen) = action_game(state, "a", None, &["strategic"]);
+        steps(&mut game, 4);
+        assert_eq!(
+            game.state.player(&b()).unwrap().trade_goods - goods,
+            if handed { limit } else { 0 },
+            "{:?}",
+            asked(&seen)
+        );
+        assert_eq!(
+            game.state.player(&a()).unwrap().commodities,
+            if handed { 0 } else { limit },
+            "the owner's commodities went with the card"
+        );
+        if held {
+            assert_eq!(
+                game.state.promissory_notes.get(&note),
+                Some(&a()),
+                "the card went home"
+            );
+        }
+    }
+}
+
+#[test]
+fn an_1_alliance_gives_its_holder_the_owners_unlocked_commander_ability_in_combat() {
+    // Winnu's commander adds 2 to rolls in Mecatol Rex; Sol, holding Winnu's faceup Alliance, gets
+    // it too -- but only while the commander is unlocked and the card is held.
+    let roll = |status: LeaderStatus, held: bool| {
+        let mut state = seated_all(&[("a", "winnu"), ("b", "sol")]);
+        set_leader(&mut state, &a(), "winnucommander", status);
+        if held {
+            crate::promissory::take(&mut state, content(), &b(), "an:winnu");
+        }
+        let mecatol = sys(crate::seating::MECATOL);
+        state.system_mut(&mecatol).units.clear();
+        put(&mut state, &mecatol, "cruiser", &a(), 1);
+        put(&mut state, &mecatol, "cruiser", &b(), 1);
+        let (_, dice) = space_fight(&mut state, &mecatol, &[10; 8], &mut Table::new());
+        first_roll(&dice, "b").and_then(|(hits_on, _)| hits_on)
+    };
+    assert_eq!(
+        roll(LeaderStatus::Unlocked, true),
+        Some(5),
+        "the holder rolls with the ability"
+    );
+    assert_eq!(
+        roll(LeaderStatus::Locked, true),
+        Some(7),
+        "withheld until the commander unlocks"
+    );
+    assert_eq!(
+        roll(LeaderStatus::Unlocked, false),
+        Some(7),
+        "not held, no ability"
+    );
+}
+
+#[test]
+fn an_1_alliance_goes_home_when_its_holder_activates_a_system_with_the_owners_units() {
+    let hub = plain_hub();
+    let target = hub.outer[0].clone();
+    for (owner_present, returns) in [(true, true), (false, false)] {
+        let mut state = seated_all(&[("a", "winnu"), ("b", "sol")]);
+        blank_hub(&mut state, &hub);
+        set_leader(&mut state, &a(), "winnucommander", LeaderStatus::Unlocked);
+        crate::promissory::take(&mut state, content(), &b(), "an:winnu");
+        if owner_present {
+            put(&mut state, &sys(&target), "cruiser", &a(), 1);
+        }
+        let (game, seen) = tactical(state, "b", &hub.galaxy, &target, &[], "never");
+        let home = game.state.promissory_notes.get("an:winnu") == Some(&a());
+        assert_eq!(home, returns, "{:?}", asked(&seen));
+        assert_eq!(game.state.promissory_faceup.contains("an:winnu"), !returns);
+    }
+}
+
+#[test]
+fn generic_notes_2_every_player_is_dealt_cf_ps_ta_an_and_support_and_can_trade_them_in_the_game() {
+    // From the setup deal: Hacan opens a transaction with Sol and is offered its Ceasefire,
+    // Political Secret and Trade Agreement for sale, and the Support swap. (Its Alliance is
+    // withheld until its commander unlocks, see promissory.rs.)
+    let mut state = seated_all(&[("a", "sol"), ("b", "hacan")]);
+    crate::promissory::deal(&mut state, content(), DEFAULT);
+    for alias in ["cf", "ps", "ta", "an"] {
+        for (faction, holder) in [("sol", a()), ("hacan", b())] {
+            let note = crate::promissory::note_id(alias, faction);
+            assert_eq!(
+                state.promissory_notes.get(&note),
+                Some(&holder),
+                "{note} is dealt to its owner"
+            );
+        }
+    }
+    let (mut game, seen) = action_game(
+        state,
+        "b",
+        Some(plain_hub().galaxy),
+        &["component|trade|sol"],
+    );
+    steps(&mut game, 2);
+    for alias in ["cf", "ps", "ta"] {
+        assert!(
+            super::d2::was_offered_like(&seen, &format!("pn{alias}:hacan:")),
+            "{alias} can be traded: {:?}",
+            asked(&seen)
+        );
+    }
+    assert!(
+        was_offered(&seen, "ss"),
+        "and so can Support: {:?}",
+        asked(&seen)
+    );
+}
+
+// -- breakthroughs (registry) ----------------------------------------------------------------------
+
+/// `faction` seated as `a` against a Sol `b`, or `None` when the faction cannot be seated at setup.
+fn try_seat(faction: &str) -> Option<GameState> {
+    let ids = [a(), b()];
+    let mut state = crate::setup::start_game_seeded(content(), &ids, DEFAULT, None, 0).ok()?;
+    for (seat, name) in [(&a(), faction), (&b(), "sol")] {
+        crate::seating::deploy(
+            &mut state,
+            content(),
+            seat,
+            &ti4_model::id::FactionId::new(name),
+            DEFAULT,
+        )
+        .ok()?;
+    }
+    Some(state)
+}
+
+#[test]
+fn breakthroughs_0_gaining_each_one_resolves_in_a_live_game_and_leaves_it_with_its_owner() {
+    // Smoke over the whole registry: seat each breakthrough's faction, hand it the breakthrough and
+    // let the game deliver the gain. Nothing here checks an effect (every breakthrough's own row
+    // does); it proves the gain event has a handler in a running game for all 31.
+    let mut seated = 0;
+    let mut unseatable = Vec::new();
+    for record in content().from_sources(
+        ti4_model::content_types::ContentType::Breakthroughs,
+        DEFAULT,
+    ) {
+        let (Some(alias), Some(faction)) = (record.text("alias"), record.text("faction")) else {
+            continue;
+        };
+        let seat = match faction {
+            "keleres" => "keleresm",
+            other => other,
+        };
+        let Some(mut state) = try_seat(seat) else {
+            unseatable.push(alias.to_owned());
+            continue;
+        };
+        state.phase = ti4_model::state::Phase::Action;
+        state.active = Some(a());
+        state.player_mut(&a()).unwrap().breakthrough =
+            Some(ti4_model::id::BreakthroughId::new(alias));
+        let mut game = Game::with_table(
+            state,
+            content(),
+            Table::with_default(Box::new(crate::choice::AlwaysDecline)),
+        )
+        .with_sources(DEFAULT);
+        assert_eq!(game.step().error, None, "{alias}: {:?}", game.events);
+        assert!(
+            crate::breakthroughs::holds(&game.state, &a(), alias),
+            "{alias} stays with its owner"
+        );
+        seated += 1;
+    }
+    assert!(
+        seated >= 28,
+        "{seated} seated; could not seat {unseatable:?}"
+    );
+}
+
+#[test]
+fn the_agents_of_these_factions_ready_in_the_status_phase() {
+    for (faction, agent) in [
+        ("jolnar", "jolnaragent"),
+        ("winnu", "winnuagent"),
+        ("xxcha", "xxchaagent"),
+        ("yin", "yinagent"),
+        ("yssaril", "yssarilagent"),
+    ] {
+        let mut state = seated_all(&[("a", faction), ("b", "sol")]);
+        set_leader(&mut state, &a(), agent, LeaderStatus::Exhausted);
+        run_status_phase(&mut state);
+        assert_eq!(
+            leader_status(&state, &a(), agent),
+            Some(LeaderStatus::Readied),
+            "{agent}"
+        );
     }
 }
