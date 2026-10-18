@@ -118,6 +118,17 @@ pub(crate) fn armed_fight(
     faces: &[u32],
     table: &mut Table,
 ) -> (crate::combat::CombatOutcome, crate::dice::Dice) {
+    armed_fight_on(state, system, faces, table, None)
+}
+
+/// [`armed_fight`] on a map (abilities that reach "up to 2 systems away" need one).
+pub(crate) fn armed_fight_on(
+    state: &mut GameState,
+    system: &SystemId,
+    faces: &[u32],
+    table: &mut Table,
+    galaxy: Option<&Galaxy>,
+) -> (crate::combat::CombatOutcome, crate::dice::Dice) {
     let mut resolver = crate::fixtures::armed_resolver(state);
     let mut sequence = crate::event::EventSequence::new();
     let mut dice = crate::dice::Dice::from_faces(padded_hits(faces));
@@ -133,7 +144,7 @@ pub(crate) fn armed_fight(
             timing: Some(crate::choice::TimingHandle {
                 resolver: &mut resolver,
                 sequence: &mut sequence,
-                galaxy: None,
+                galaxy,
             }),
         };
         crate::combat::resolve_resolving(state, &mut ctx, system, None)
@@ -1152,5 +1163,759 @@ fn bastioncommander_3_nip_and_tuck_bars_the_nekro_from_placing_assimilator_token
     assert!(
         gain && !token,
         "unlocked: the gain stays, no token: {log:?}"
+    );
+}
+
+// -- Crimson Rebellion ----------------------------------------------------------------------------
+
+use crate::factions::crimson::testkit::{plain, ring_map, wormhole_tiles};
+use crate::factions::crimson::{flip_breach, has_breach, is_active};
+
+fn crimson_game() -> GameState {
+    seated_all(&[("a", "crimson"), ("b", "sol"), ("c", "hacan")])
+}
+
+/// Put a breach token in `system` (active or not) as the engine's own placement leaves it.
+fn breach(state: &mut GameState, system: &SystemId, active: bool) {
+    state.breach_tokens.insert(system.clone());
+    if active {
+        assert!(!is_active(state, system));
+        flip_breach(state, system);
+    }
+}
+
+/// A status phase played by a `Game` driven by `rules` until the next strategy phase.
+fn status_game(mut state: GameState, rules: &[&str]) -> (Game<'static>, Seen) {
+    state.phase = Phase::Status;
+    let (pick, seen) = Pick::new(rules);
+    let mut game = Game::with_table(state, content(), Table::with_default(Box::new(pick)))
+        .with_sources(DEFAULT);
+    for _ in 0..60 {
+        assert_eq!(game.step().error, None, "log: {:?}", game.events);
+        if game.state.phase != Phase::Status {
+            return (game, seen);
+        }
+    }
+    panic!("the status phase never ended; log: {:?}", game.events);
+}
+
+/// Six plain ring systems around a plain centre with the Crimson home placed: `(galaxy, ring ids)`.
+fn crimson_ring(first: Option<&str>) -> (Galaxy, Vec<String>) {
+    let others = plain(7);
+    let mut ring: Vec<String> = others[..6].to_vec();
+    if let Some(first) = first {
+        ring[0] = first.to_owned();
+    }
+    let refs: Vec<&str> = ring.iter().map(String::as_str).collect();
+    (ring_map(&others[6], &refs), ring)
+}
+
+#[test]
+fn sundered_1_the_crimson_cannot_use_a_wormhole_but_epsilon_in_a_real_movement() {
+    // Alpha wormholes at ring positions 0 and 3; a carrier (move 1) waits at position 0.
+    let alpha = wormhole_tiles("ALPHA");
+    let others = plain(5);
+    let ring = [
+        alpha[0].as_str(),
+        others[0].as_str(),
+        others[1].as_str(),
+        alpha[1].as_str(),
+        others[2].as_str(),
+        others[3].as_str(),
+    ];
+    let galaxy = ring_map(&others[4], &ring);
+    let reaches = |mover: &str| {
+        let mut state = crimson_game();
+        put(
+            &mut state,
+            &sys(ring[0]),
+            "carrier",
+            &PlayerId::new(mover),
+            1,
+        );
+        let (game, seen) = tactical(
+            state,
+            mover,
+            galaxy.clone(),
+            ring[3],
+            &[&format!("move|{}|0", ring[0]), "done_moving"],
+        );
+        (
+            was_offered(&seen, &format!("move|{}|0", ring[0])),
+            ships(&game.state, &sys(ring[3]), &PlayerId::new(mover), "carrier"),
+        )
+    };
+    assert_eq!(reaches("b"), (true, 1), "Sol uses the alpha wormhole");
+    assert_eq!(
+        reaches("a"),
+        (false, 0),
+        "the Crimson is never offered the move"
+    );
+    // Epsilon stays open: the Sorrow (94) to the home system (118), in both directions.
+    let (galaxy, _) = crimson_ring(Some("94"));
+    let mut state = crimson_game();
+    put(&mut state, &sys("94"), "cruiser", &a(), 1);
+    let (game, seen) = tactical(state, "a", galaxy, "118", &["move|94|0", "done_moving"]);
+    assert!(was_offered(&seen, "move|94|0"), "{:?}", asked(&seen));
+    assert_eq!(ships(&game.state, &sys("118"), &a(), "cruiser"), 1);
+}
+
+#[test]
+fn incursion_1_activating_a_system_with_a_breach_may_flip_it_and_active_breaches_are_adjacent() {
+    let (galaxy, ring) = crimson_ring(None);
+    let flip = "ability:crimson:incursion:SYSTEM_ACTIVATED:when";
+    for (answer, active) in [(flip, true), ("decline", false)] {
+        let mut state = crimson_game();
+        breach(&mut state, &sys(&ring[0]), false);
+        let (game, seen) = tactical(
+            state,
+            "a",
+            galaxy.clone(),
+            &ring[0],
+            &[answer, "done_moving"],
+        );
+        assert!(was_offered(&seen, flip), "{:?}", asked(&seen));
+        assert_eq!(is_active(&game.state, &sys(&ring[0])), active, "{answer}");
+    }
+    // Another player activating the system gets no flip.
+    let mut state = crimson_game();
+    breach(&mut state, &sys(&ring[0]), false);
+    let (game, seen) = tactical(state, "b", galaxy.clone(), &ring[0], &[flip, "done_moving"]);
+    assert!(!was_offered(&seen, flip));
+    assert!(!is_active(&game.state, &sys(&ring[0])));
+    // "Systems that contain active breaches are adjacent", for every player: Sol's carrier (move 1)
+    // reaches the system across the ring only while both hold active breaches.
+    let (from, to) = (&ring[0], &ring[3]);
+    let reaches = |both_active: bool| {
+        let mut state = crimson_game();
+        breach(&mut state, &sys(from), true);
+        breach(&mut state, &sys(to), both_active);
+        put(&mut state, &sys(from), "carrier", &b(), 1);
+        let rule = format!("move|{from}|0");
+        let (game, seen) = tactical(state, "b", galaxy.clone(), to, &[&rule, "done_moving"]);
+        (
+            was_offered(&seen, &rule),
+            ships(&game.state, &sys(to), &b(), "carrier"),
+        )
+    };
+    assert_eq!(reaches(true), (true, 1));
+    assert_eq!(
+        reaches(false),
+        (false, 0),
+        "an inactive breach links nothing"
+    );
+}
+
+#[test]
+fn incursion_2_any_player_with_ships_in_an_active_breach_may_remove_it_at_the_end_of_the_status_phase()
+ {
+    let remove = "ability:sol:incursion_remove:STATUS_PHASE_ENDED:after";
+    let setup = || {
+        let mut state = crimson_game();
+        let (here, there) = (sys("25"), sys("26"));
+        breach(&mut state, &here, true);
+        breach(&mut state, &there, false);
+        put(&mut state, &here, "cruiser", &b(), 1);
+        put(&mut state, &there, "cruiser", &b(), 1);
+        state
+    };
+    let (game, seen) = status_game(setup(), &[remove]);
+    assert!(
+        !has_breach(&game.state, &sys("25")),
+        "Sol removed the active breach: {:?}",
+        asked(&seen)
+    );
+    assert!(
+        has_breach(&game.state, &sys("26")),
+        "an inactive breach stays"
+    );
+    let (game, _) = status_game(setup(), &["decline"]);
+    assert!(is_active(&game.state, &sys("25")), "the removal is a may");
+    // Nobody has ships there: nobody may remove it.
+    let mut empty = crimson_game();
+    breach(&mut empty, &sys("25"), true);
+    let (game, seen) = status_game(empty, &[remove]);
+    assert!(is_active(&game.state, &sys("25")) && !was_offered_like(&seen, "incursion_remove"));
+}
+
+#[test]
+fn subatomic_1_a_destroyed_ship_may_be_rebuilt_at_a_home_space_dock_in_a_real_combat() {
+    let rebuilt = |tech: bool, decline: bool| {
+        let mut state = crimson_game();
+        if tech {
+            super::give(&mut state, "a", "subatomic");
+        }
+        state.player_mut(&a()).unwrap().trade_goods = 12;
+        let (system, _) = arena(&mut state);
+        state.active = Some(a());
+        put(&mut state, &system, "cruiser", &a(), 1);
+        put(&mut state, &system, "cruiser", &b(), 1);
+        let home = state.player(&a()).unwrap().home_system.clone().unwrap();
+        let before = ships(&state, &home, &a(), "cruiser");
+        let rule = if decline { "decline" } else { "~subatomic" };
+        let (mut table, seen) = eager_table_seen(&[rule]);
+        // a's cruiser misses, b's hits: the Crimson cruiser is destroyed.
+        let _ = armed_fight(&mut state, &system, &[1, 10], &mut table);
+        (
+            ships(&state, &home, &a(), "cruiser") - before,
+            was_offered_like(&seen, "subatomic"),
+        )
+    };
+    assert_eq!(
+        rebuilt(true, false),
+        (1, true),
+        "a cruiser appears at the home dock"
+    );
+    assert_eq!(rebuilt(true, true), (0, true), "declined");
+    assert_eq!(rebuilt(false, false), (0, false), "no technology, no offer");
+}
+
+#[test]
+fn crimsonagent_1_and_2_ahk_ravin_lets_a_player_swap_two_ships_with_their_cargo_and_readies_at_status()
+ {
+    let setup = || {
+        let mut state = crimson_game();
+        assert_eq!(
+            leader_status(&state, &a(), "crimsonagent"),
+            Some(LeaderStatus::Readied),
+            "starts ready"
+        );
+        // Sol's carrier at 25 holds two infantry; its destroyer sits at 26.
+        put(&mut state, &sys("25"), "sol_carrier", &b(), 1);
+        put(&mut state, &sys("25"), "infantry", &b(), 2);
+        put(&mut state, &sys("26"), "destroyer", &b(), 1);
+        state
+    };
+    let swap = [
+        "component|leader|crimsonagent",
+        "25|sol_carrier|whole",
+        "26|destroyer|whole",
+        "~load|",
+        "~load|",
+    ];
+    let (mut game, seen) = action_game(setup(), "a", None, &swap);
+    steps(&mut game, 6);
+    let state = &game.state;
+    assert_eq!(
+        ships(state, &sys("26"), &b(), "sol_carrier"),
+        1,
+        "{:?}",
+        asked(&seen)
+    );
+    assert_eq!(ships(state, &sys("25"), &b(), "destroyer"), 1);
+    assert_eq!(
+        ships(state, &sys("26"), &b(), "infantry"),
+        2,
+        "the carrier took its cargo along: {:?}",
+        asked(&seen)
+    );
+    assert_eq!(ships(state, &sys("25"), &b(), "infantry"), 0);
+    assert_eq!(
+        leader_status(state, &a(), "crimsonagent"),
+        Some(LeaderStatus::Exhausted)
+    );
+    let mut after = game.state.clone();
+    run_status_phase(&mut after);
+    assert_eq!(
+        leader_status(&after, &a(), "crimsonagent"),
+        Some(LeaderStatus::Readied)
+    );
+    // The chosen player may decline: nothing moves.
+    let (mut game, _) = action_game(
+        setup(),
+        "a",
+        None,
+        &["component|leader|crimsonagent", "decline"],
+    );
+    steps(&mut game, 3);
+    assert_eq!(ships(&game.state, &sys("25"), &b(), "sol_carrier"), 1);
+    assert_eq!(ships(&game.state, &sys("26"), &b(), "destroyer"), 1);
+}
+
+/// Seat a (Crimson) owns Exile II after a real research with the Technology card (two red
+/// prerequisites given), returning the game after the research.
+fn research_exile2() -> GameState {
+    let mut state = crimson_game();
+    super::give(&mut state, "a", "ps");
+    super::give(&mut state, "a", "aida");
+    state.player_mut(&a()).unwrap().strategy_cards =
+        vec![ti4_model::id::StrategyCardId::new("pok7technology")];
+    state.player_mut(&b()).unwrap().strategic_tokens = 0;
+    state.player_mut(&c()).unwrap().strategic_tokens = 0;
+    let (mut game, seen) = action_game(state, "a", None, &["strategic", "exile2"]);
+    steps(&mut game, 8);
+    assert!(
+        super::owns(&game.state, "a", "exile2"),
+        "{:?}",
+        asked(&seen)
+    );
+    game.state
+}
+
+#[test]
+fn exile2_1_researching_it_replaces_exile_i_and_the_destroyer_has_the_upgraded_stats_in_combat() {
+    let state = research_exile2();
+    let count = |state: &GameState, kind: &str| {
+        state
+            .board
+            .values()
+            .flat_map(|board| board.units.iter())
+            .filter(|unit| unit.owner == a() && unit.type_id.as_str() == kind)
+            .count()
+    };
+    assert_eq!(count(&state, "crimson_destroyer"), 0, "Exile I is gone");
+    assert!(
+        count(&state, "crimson_destroyer2") > 0,
+        "the starting destroyers were upgraded"
+    );
+    // Combat 7, ANTI-FIGHTER BARRAGE 6 (x3), in a real combat against fighters.
+    let mut fight = state.clone();
+    let (system, _) = arena(&mut fight);
+    fight.active = Some(a());
+    put(&mut fight, &system, "crimson_destroyer2", &a(), 1);
+    put(&mut fight, &system, "fighter", &b(), 4);
+    let (_, dice) = space_fight(&mut fight, &system, &[1; 6], &mut Table::new());
+    assert_eq!(rolls(&dice, "a", "anti-fighter barrage")[0], (Some(6), 3));
+    assert_eq!(first_roll(&dice, "a").map(|(_, n)| n), Some(3));
+    let combat = rolls(&dice, "a", "space combat");
+    assert_eq!(combat[0], (Some(7), 1), "combat 7, one die");
+}
+
+/// A combat between Sol (b) and Hacan (c) in the first ring system, the Crimson (a) holding a
+/// destroyer of kind `exile` in ring system `at`. `rules` answer a's questions.
+fn exile_combat(exile: &str, at: usize, rules: &[&str]) -> (GameState, Vec<String>, Seen) {
+    let (galaxy, ring) = crimson_ring(None);
+    let mut state = crimson_game();
+    let fought = sys(&ring[0]);
+    state.active = Some(b());
+    put(&mut state, &fought, "cruiser", &b(), 1);
+    put(&mut state, &fought, "cruiser", &c(), 1);
+    put(&mut state, &sys(&ring[at]), exile, &a(), 1);
+    let (mut table, seen) = table_seen(rules);
+    // b's die hits, c's misses: Sol keeps the system.
+    let _ = armed_fight_on(&mut state, &fought, &[10, 1], &mut table, Some(&galaxy));
+    (state, ring, seen)
+}
+
+#[test]
+fn exile2_2_an_upgraded_destroyer_two_systems_away_may_place_an_active_or_inactive_breach() {
+    // Exile II at ring[2], two steps from the combat in ring[0]: the Crimson may choose active.
+    let (state, ring, seen) =
+        exile_combat("crimson_destroyer2", 2, &["~crimson_destroyer", "active"]);
+    assert!(is_active(&state, &sys(&ring[0])), "{:?}", asked(&seen));
+    let (state, ring, _) =
+        exile_combat("crimson_destroyer2", 2, &["~crimson_destroyer", "inactive"]);
+    assert!(has_breach(&state, &sys(&ring[0])) && !is_active(&state, &sys(&ring[0])));
+    let (state, ring, _) = exile_combat("crimson_destroyer2", 2, &["decline"]);
+    assert!(
+        !has_breach(&state, &sys(&ring[0])),
+        "the placement is a may"
+    );
+    // Exile I reaches only one system, and only an inactive breach.
+    let (state, ring, _) = exile_combat("crimson_destroyer", 2, &["~crimson_destroyer"]);
+    assert!(
+        !has_breach(&state, &sys(&ring[0])),
+        "two systems away is out of reach for Exile I"
+    );
+    let (state, ring, seen) = exile_combat("crimson_destroyer", 1, &["~crimson_destroyer"]);
+    assert!(
+        has_breach(&state, &sys(&ring[0])) && !is_active(&state, &sys(&ring[0])),
+        "{:?}",
+        asked(&seen)
+    );
+    assert!(!was_offered(&seen, "active"));
+}
+
+#[test]
+fn crimsoncommander_1_placing_a_breach_where_another_players_unit_stands_unlocks_ahk_siever() {
+    // The breach goes into the combat system, where Sol's surviving cruiser stands.
+    let (state, _, seen) = exile_combat("crimson_destroyer", 1, &["~crimson_destroyer"]);
+    assert_eq!(
+        leader_status(&state, &a(), "crimsoncommander"),
+        Some(LeaderStatus::Unlocked),
+        "{:?}",
+        asked(&seen)
+    );
+    // Declining the breach leaves the commander locked.
+    let (state, _, _) = exile_combat("crimson_destroyer", 1, &["decline"]);
+    assert_eq!(
+        leader_status(&state, &a(), "crimsoncommander"),
+        Some(LeaderStatus::Locked)
+    );
+}
+
+#[test]
+fn crimsoncommander_2_ahk_siever_pays_a_commodity_at_the_end_of_any_combat_once_unlocked() {
+    let paid = |unlocked: bool, commodities: i32| {
+        let mut state = crimson_game();
+        if unlocked {
+            set_leader(&mut state, &a(), "crimsoncommander", LeaderStatus::Unlocked);
+        }
+        state.player_mut(&a()).unwrap().commodities = commodities;
+        let (system, _) = arena(&mut state);
+        state.active = Some(b());
+        put(&mut state, &system, "cruiser", &b(), 1);
+        put(&mut state, &system, "cruiser", &c(), 1);
+        let goods = state.player(&a()).unwrap().trade_goods;
+        let (mut table, seen) = table_seen(&["convert"]);
+        let _ = armed_fight(&mut state, &system, &[10, 1], &mut table);
+        let seat = state.player(&a()).unwrap();
+        (seat.commodities, seat.trade_goods - goods, asked(&seen))
+    };
+    assert_eq!(
+        paid(true, 0).0,
+        1,
+        "a combat between two other players: gain 1 commodity"
+    );
+    let (commodities, goods, log) = paid(true, 1);
+    assert_eq!(
+        (commodities, goods),
+        (0, 1),
+        "a commodity in hand and room: the holder converted it: {log:?}"
+    );
+    assert_eq!(paid(false, 0).0, 0, "locked: nothing");
+}
+
+#[test]
+fn crimsonhero_1_unlocks_on_the_third_scored_objective() {
+    hero_unlocks_by_scoring("crimson", "crimsonhero");
+}
+
+#[test]
+fn crimsonhero_2_homesick_phantom_takes_produced_ships_onto_its_card_and_launches_them_into_a_combat()
+ {
+    let (galaxy, _) = crimson_ring(None);
+    let mut state = crimson_game();
+    set_leader(&mut state, &a(), "crimsonhero", LeaderStatus::Unlocked);
+    state.player_mut(&a()).unwrap().trade_goods = 12;
+    state.player_mut(&a()).unwrap().fleet_tokens = 12;
+    let home = state.player(&a()).unwrap().home_system.clone().unwrap();
+    let on_board = ships(&state, &home, &a(), "crimson_destroyer");
+    // Produce a destroyer in the home system and place it onto the hero card.
+    let (mut game, seen) = action_game(
+        state,
+        "a",
+        Some(galaxy),
+        &[
+            TACTICAL_ACTION_ID,
+            home.as_str(),
+            "done_moving",
+            "build|crimson_destroyer|1",
+            "place|crimsoncard@space",
+            "done_producing",
+        ],
+    );
+    for _ in 0..10 {
+        assert_eq!(game.step().error, None, "log: {:?}", game.events);
+    }
+    let card = crate::factions::crimson_cards::card_ships(&game.state, &a());
+    assert_eq!(
+        card,
+        vec!["crimson_destroyer".to_owned()],
+        "{:?}",
+        asked(&seen)
+    );
+    assert_eq!(
+        ships(&game.state, &home, &a(), "crimson_destroyer"),
+        on_board,
+        "it is on the card, not the board"
+    );
+    // At the start of a space combat of the owner's, the card is purged and the ship placed.
+    let mut state = game.state.clone();
+    let (system, _) = arena(&mut state);
+    state.active = Some(a());
+    put(&mut state, &system, "cruiser", &a(), 1);
+    put(&mut state, &system, "cruiser", &b(), 1);
+    let (mut table, seen) = table_seen(&["~crimsonhero"]);
+    let (_, dice) = armed_fight(&mut state, &system, &[1, 1, 1, 1, 1], &mut table);
+    assert!(was_offered_like(&seen, "crimsonhero"), "{:?}", asked(&seen));
+    assert_eq!(
+        first_batch(&dice, "a", "space combat"),
+        2,
+        "the launched destroyer rolled with the cruiser"
+    );
+    assert_eq!(
+        leader_status(&state, &a(), "crimsonhero"),
+        Some(LeaderStatus::Purged)
+    );
+    assert!(crate::factions::crimson_cards::card_ships(&state, &a()).is_empty());
+}
+
+#[test]
+fn sever_1_and_2_the_played_note_silences_a_systems_wormholes_for_everyone_until_the_status_phase_ends()
+ {
+    let note = crate::promissory::note_id("sever", "crimson");
+    let alpha = wormhole_tiles("ALPHA");
+    let others = plain(5);
+    let ring = [
+        alpha[0].as_str(),
+        others[0].as_str(),
+        others[1].as_str(),
+        alpha[1].as_str(),
+        others[2].as_str(),
+        others[3].as_str(),
+    ];
+    let galaxy = ring_map(&others[4], &ring);
+    let mut state = crimson_game();
+    crate::promissory::deal(&mut state, content(), DEFAULT);
+    assert_eq!(
+        state.promissory_notes.get(&note),
+        Some(&a()),
+        "dealt to the Rebellion"
+    );
+    crate::promissory::take(&mut state, content(), &b(), &note);
+    put(&mut state, &sys(ring[0]), "carrier", &b(), 1);
+    // b plays the note as an ACTION and puts the sever token in the alpha system holding its carrier.
+    let (mut game, seen) = action_game(
+        state,
+        "b",
+        Some(galaxy.clone()),
+        &["faction|crimson|sever", ring[0]],
+    );
+    steps(&mut game, 3);
+    assert!(
+        game.state.promissory_faceup.contains(&note),
+        "placed faceup: {:?}",
+        asked(&seen)
+    );
+    assert_eq!(
+        game.state.promissory_notes.get(&note),
+        Some(&b()),
+        "still in b's play area"
+    );
+    // The wormhole there has no effect during movement: even Sol's own carrier cannot use it.
+    let mut after = game.state.clone();
+    for seat in after.players.iter_mut() {
+        seat.passed = false;
+    }
+    let rule = format!("move|{}|0", ring[0]);
+    let (moved, seen) = tactical(
+        after.clone(),
+        "b",
+        galaxy.clone(),
+        ring[3],
+        &[&rule, "done_moving"],
+    );
+    assert!(!was_offered(&seen, &rule), "{:?}", asked(&seen));
+    assert_eq!(ships(&moved.state, &sys(ring[3]), &b(), "carrier"), 0);
+    // Control: without the token the same carrier uses the wormhole.
+    let mut control = after.clone();
+    control
+        .faction_marks
+        .retain(|key, _| !key.starts_with("crimson:sever:"));
+    let (_, seen) = tactical(control, "b", galaxy, ring[3], &[&rule, "done_moving"]);
+    assert!(was_offered(&seen, &rule), "{:?}", asked(&seen));
+    // At the end of the status phase the token goes and the card returns to the Rebellion player.
+    let (done, _) = status_game(after, &[]);
+    assert_eq!(
+        done.state.promissory_notes.get(&note),
+        Some(&a()),
+        "returned to its owner"
+    );
+    assert!(
+        done.state
+            .faction_marks
+            .keys()
+            .all(|key| !key.starts_with("crimson:sever:"))
+    );
+    assert!(!done.state.promissory_faceup.contains(&note));
+}
+
+#[test]
+fn crimsonbt_1_the_resonance_generator_adds_one_move_to_ships_starting_at_home_or_in_an_active_breach()
+ {
+    // A carrier (move 1) at the home system 118 reaches the system beside the Sorrow (two jumps,
+    // epsilon then a hex); another starting in an active breach reaches a system two hexes away.
+    let (galaxy, ring) = crimson_ring(Some("94"));
+    let beside = ring[1].clone();
+    let far = ring[2].clone();
+    let reaches = |bt: bool, origin: &str, target: &str, active_breach: bool| {
+        let mut state = crimson_game();
+        if bt {
+            state.player_mut(&a()).unwrap().breakthrough =
+                Some(ti4_model::id::BreakthroughId::new("crimsonbt"));
+        }
+        if active_breach {
+            breach(&mut state, &sys(origin), true);
+        }
+        put(&mut state, &sys(origin), "carrier", &a(), 1);
+        let rule = format!("~move|{origin}|");
+        let (game, _) = tactical(state, "a", galaxy.clone(), target, &[&rule, "done_moving"]);
+        ships(&game.state, &sys(target), &a(), "carrier")
+    };
+    assert_eq!(
+        reaches(true, "118", &beside, false),
+        1,
+        "starting at home: +1"
+    );
+    assert_eq!(
+        reaches(false, "118", &beside, false),
+        0,
+        "no breakthrough: no bonus"
+    );
+    assert_eq!(
+        reaches(true, &ring[3], &ring[5], true),
+        1,
+        "starting in an active breach: +1"
+    );
+    assert_eq!(
+        reaches(true, &ring[3], &ring[5], false),
+        0,
+        "elsewhere: no bonus"
+    );
+    assert_eq!(
+        reaches(false, &ring[3], &ring[5], true),
+        0,
+        "no breakthrough: no bonus"
+    );
+    let _ = far;
+}
+
+#[test]
+fn crimsonbt_2_the_resonance_generator_flips_or_places_a_breach_exhausts_and_readies_at_status() {
+    let generator = |state: &mut GameState| {
+        state.player_mut(&a()).unwrap().breakthrough =
+            Some(ti4_model::id::BreakthroughId::new("crimsonbt"));
+    };
+    let mut state = crimson_game();
+    generator(&mut state);
+    let (mut game, seen) = action_game(
+        state.clone(),
+        "a",
+        None,
+        &["faction|crimson|resonance", "flip|94"],
+    );
+    steps(&mut game, 3);
+    assert!(
+        is_active(&game.state, &sys("94")),
+        "the Sorrow's breach flipped active: {:?}",
+        asked(&seen)
+    );
+    // Exhausted: not offered again this round.
+    assert!(
+        !crate::factions::component_actions(&game.state, content(), &a())
+            .iter()
+            .any(|option| option.id == "faction|crimson|resonance")
+    );
+    // The status phase readies it.
+    let (done, _) = status_game(game.state.clone(), &[]);
+    assert!(
+        crate::factions::component_actions(&done.state, content(), &a())
+            .iter()
+            .any(|option| option.id == "faction|crimson|resonance"),
+        "ready again"
+    );
+    // Placing an active breach in a non-home system with the Crimson's units.
+    put(&mut state, &sys("25"), "cruiser", &a(), 1);
+    let (mut game, seen) =
+        action_game(state, "a", None, &["faction|crimson|resonance", "place|25"]);
+    steps(&mut game, 3);
+    assert!(is_active(&game.state, &sys("25")), "{:?}", asked(&seen));
+}
+
+#[test]
+fn unit_crimson_flagship_1_quietus_takes_sustain_damage_and_anti_fighter_barrage_from_other_players_in_active_breaches()
+ {
+    // The Quietus (a) fights in an active breach system; Sol's dreadnought (SUSTAIN DAMAGE) and
+    // destroyer (ANTI-FIGHTER BARRAGE) stand in it too.
+    let run = |breach_active: bool| {
+        let mut state = crimson_game();
+        let (system, _) = arena(&mut state);
+        state.active = Some(a());
+        breach(&mut state, &system, breach_active);
+        put(&mut state, &system, "crimson_flagship", &a(), 1);
+        put(&mut state, &system, "fighter", &a(), 2);
+        put(&mut state, &system, "dreadnought", &b(), 1);
+        put(&mut state, &system, "destroyer", &b(), 1);
+        // Everything a rolls hits for one round (the flagship, two fighters) and Sol's dice miss.
+        let (mut table, seen) = table_seen(&["sustain|0"]);
+        let (_, dice) = armed_fight(&mut state, &system, &[10, 10, 10, 1, 1, 1, 1], &mut table);
+        let sustain_asked = asked(&seen)
+            .iter()
+            .any(|line| line.starts_with("b: ") && line.contains("sustain"));
+        (
+            rolls(&dice, "b", "anti-fighter barrage").len(),
+            sustain_asked,
+        )
+    };
+    let (barrage, sustain) = run(false);
+    assert_eq!(
+        (barrage > 0, sustain),
+        (true, true),
+        "inactive breach: Sol keeps both abilities"
+    );
+    let (barrage, sustain) = run(true);
+    assert_eq!(
+        (barrage, sustain),
+        (0, false),
+        "active breach: Sol's destroyer cannot barrage, its dreadnought cannot sustain"
+    );
+}
+
+#[test]
+fn unit_crimson_flagship_2_quietus_stops_space_cannon_and_bombardment_in_active_breaches() {
+    // Space cannon: the Crimson cruiser enters Sol's PDS system (an active breach); the Quietus
+    // stands in another active breach.
+    let hub = planet_hub();
+    let centre = sys(&hub.centre);
+    let planet = first_planet(&centre);
+    let cannon = |active: bool| {
+        let mut state = crimson_game();
+        for id in hub.outer.iter().chain(std::iter::once(&hub.centre)) {
+            let board = state.system_mut(&sys(id));
+            board.units.clear();
+            board.planet_units.clear();
+        }
+        state.system_mut(&centre).set_control(planet.clone(), b());
+        put_on_planet(&mut state, &centre, &planet, "pds", &b(), 1);
+        put(&mut state, &sys(&hub.outer[0]), "cruiser", &a(), 1);
+        put(&mut state, &sys(&hub.outer[1]), "crimson_flagship", &a(), 1);
+        breach(&mut state, &sys(&hub.outer[1]), active);
+        breach(&mut state, &centre, active);
+        let rule = format!("move|{}|0", hub.outer[0]);
+        let (game, _) = tactical(
+            state,
+            "a",
+            hub.galaxy.clone(),
+            &hub.centre,
+            &[&rule, "done_moving"],
+        );
+        game.rolls()
+            .iter()
+            .filter(|roll| roll.reason == "space cannon" && roll.by.as_deref() == Some("b"))
+            .count()
+    };
+    assert!(cannon(false) > 0, "inactive breaches: Sol's PDS fires");
+    assert_eq!(
+        cannon(true),
+        0,
+        "active breaches: the PDS has lost SPACE CANNON"
+    );
+    // Bombardment: Sol's dreadnought in an active breach cannot bombard Hacan's planet.
+    let bombard = |active: bool| {
+        let mut state = crimson_game();
+        let (system, planet) = arena(&mut state);
+        state.active = Some(b());
+        breach(&mut state, &system, active);
+        put(&mut state, &system, "crimson_flagship", &a(), 1);
+        state.system_mut(&system).set_control(planet.clone(), c());
+        put_on_planet(&mut state, &system, &planet, "infantry", &c(), 2);
+        put(&mut state, &system, "dreadnought", &b(), 1);
+        put(&mut state, &system, "carrier", &b(), 1);
+        put(&mut state, &system, "infantry", &b(), 1);
+        let (_, dice) = armed_invade(
+            &mut state,
+            &system,
+            &b(),
+            &[1; 8],
+            &mut table(&["~commit|"]),
+        );
+        rolls(&dice, "b", "bombardment").len()
+    };
+    assert!(bombard(false) > 0, "inactive: the dreadnought bombards");
+    assert_eq!(
+        bombard(true),
+        0,
+        "active breach and a Quietus: BOMBARDMENT is lost"
     );
 }
