@@ -187,3 +187,27 @@ fn ralnelcommander_2_unlocks_for_the_last_player_to_pass() {
     leaders::check_unlocks(&mut state, content(), ALL, None, &a());
     assert_eq!(status(&state, "ralnelcommander"), Some(LeaderStatus::Unlocked));
 }
+
+/// Letnev, Gravleash Maneuvers, second half: before rolling in a space combat, +X to the result of
+/// 1 ship's roll, X being the number of ship types the Letnev has in the combat. Two ship types
+/// whose dice both just miss (6 against a cruiser's 7, 8 against a destroyer's 9) must produce a
+/// hit with the card, and none without it.
+#[test]
+#[ignore = "MISSING: letnevbt Gravleash Maneuvers combat bonus (+X to one ship's roll, X = ship types in the combat) has no code in combat.rs; only the move-value half is implemented (tactical.rs gravleash anchor)"]
+fn letnevbt_2_plus_x_to_one_roll_in_space_combat() {
+    let hits = |with_card: bool| {
+        let mut state = seated_all(&[("a", "letnev"), ("b", "sol")]);
+        if with_card {
+            state.player_mut(&a()).unwrap().breakthrough =
+                Some(ti4_model::id::BreakthroughId::new("letnevbt"));
+        }
+        let system = ti4_model::id::SystemId::new(crate::fixtures::plain_systems(1)[0].clone());
+        crate::fixtures::put(&mut state, &system, "cruiser", &a(), 1);
+        crate::fixtures::put(&mut state, &system, "destroyer", &a(), 1);
+        let mut dice = crate::dice::Dice::from_faces([6, 8]);
+        let mut rng = crate::rng::GameRng::new(0);
+        crate::combat::roll_fleet(&state, content(), ALL, &mut dice, &mut rng, &a(), &system)
+    };
+    assert_eq!(hits(false), 0, "control: both dice miss without the card");
+    assert!(hits(true) >= 1, "with two ship types one roll gains +2");
+}
