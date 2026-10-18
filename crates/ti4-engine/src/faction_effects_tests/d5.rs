@@ -413,8 +413,9 @@ fn terraform_2_gives_the_planet_one_more_resource_and_influence_and_all_three_tr
     let value = |state: &GameState, kind| {
         crate::production::planet_value_now(state, content(), DEFAULT, &planet, kind)
     };
-    let influence =
-        |state: &GameState| crate::production::available(state, content(), DEFAULT, &b(), Spend::Influence);
+    let influence = |state: &GameState| {
+        crate::production::available(state, content(), DEFAULT, &b(), Spend::Influence)
+    };
     let before = (
         value(&state, Spend::Resources),
         value(&state, Spend::Influence),
@@ -567,7 +568,10 @@ fn riftmeld_1_a_captured_cruiser_pays_for_cruiser_ii_in_a_technology_research() 
         "to its owner's reinforcements"
     );
     let (game, seen, _) = research(false);
-    assert!(!owns_tech(&game.state, &a(), "cr2"), "no capture, no waiver");
+    assert!(
+        !owns_tech(&game.state, &a(), "cr2"),
+        "no capture, no waiver"
+    );
     assert!(!was_offered(&seen, "cr2"), "{:?}", asked(&seen));
 }
 
@@ -646,22 +650,22 @@ fn vtx_1_the_vortex_action_captures_a_unit_from_another_players_reinforcements()
 }
 
 #[test]
-fn cabalagent_1_stillness_of_stars_converts_commodities_and_captures_a_unit_when_trade_replenishes() {
+fn cabalagent_1_stillness_of_stars_converts_commodities_and_captures_a_unit_when_trade_replenishes()
+{
     // Sol plays Trade and replenishes; the Cabal agent exhausts, Sol's commodities become trade
     // goods and a unit is captured from Sol's reinforcements.
     let window = "leader:cabal:cabalagent:COMMODITIES_REPLENISHED:after";
-    for (agent, used) in [(LeaderStatus::Readied, true), (LeaderStatus::Exhausted, false)] {
+    for (agent, used) in [
+        (LeaderStatus::Readied, true),
+        (LeaderStatus::Exhausted, false),
+    ] {
         let mut state = cabal_game();
         with_card(&mut state, &b(), "pok5trade");
         set_leader(&mut state, &a(), "cabalagent", agent);
         state.player_mut(&b()).unwrap().commodities = 0;
         let goods = state.player(&b()).unwrap().trade_goods;
-        let (mut game, seen) = action_game(
-            state,
-            "b",
-            None,
-            &["strategic", window, "~dreadnought"],
-        );
+        let (mut game, seen) =
+            action_game(state, "b", None, &["strategic", window, "~dreadnought"]);
         steps(&mut game, 8);
         assert_eq!(was_offered(&seen, window), used, "{:?}", asked(&seen));
         let limit = crate::strategy_cards::commodity_limit(&game.state, content(), &b());
@@ -799,7 +803,11 @@ fn cabalhero_2_it_which_is_not_captures_on_a_one_to_three_and_is_purged() {
         .map(|(_, unit)| unit.as_str())
         .collect();
     assert_eq!(taken, ["cruiser", "fighter"], "the 3 captured one cruiser");
-    assert_eq!(ships(&game.state, &tear, &b(), "cruiser"), 1, "the 4 missed");
+    assert_eq!(
+        ships(&game.state, &tear, &b(), "cruiser"),
+        1,
+        "the 4 missed"
+    );
     assert_eq!(
         leader_status(&game.state, &a(), "cabalhero"),
         Some(LeaderStatus::Purged)
@@ -855,7 +863,14 @@ fn crucible_2_only_the_activating_holder_may_play_it_never_the_cabal() {
         .insert("crucible:cabal".to_owned(), b());
     put(&mut state, &sys(&hub.centre), "cruiser", &a(), 1);
     // The Cabal activates: neither it nor the holder is offered the note.
-    let (game, seen) = tactical(state, "a", &hub.galaxy, tear.as_str(), &["done_moving"], &[1; 20]);
+    let (game, seen) = tactical(
+        state,
+        "a",
+        &hub.galaxy,
+        tear.as_str(),
+        &["done_moving"],
+        &[1; 20],
+    );
     assert!(!was_offered(&seen, window), "{:?}", asked(&seen));
     assert_eq!(
         game.state.promissory_notes.get("crucible:cabal"),
@@ -944,7 +959,8 @@ fn the_tribuni_1_each_variant_takes_its_base_factions_home_system_and_its_matchi
 }
 
 #[test]
-fn council_patronage_1_replenishes_commodities_then_gains_a_trade_good_when_the_strategy_phase_begins() {
+fn council_patronage_1_replenishes_commodities_then_gains_a_trade_good_when_the_strategy_phase_begins()
+ {
     // The real status phase hands over to the strategy phase, whose start fires the ability.
     let after_status = |faction: &str| {
         let mut state = seated_all(&[("a", faction), ("b", "sol")]);
@@ -958,13 +974,11 @@ fn council_patronage_1_replenishes_commodities_then_gains_a_trade_good_when_the_
     let plain = after_status("sol");
     for variant in crate::factions::keleres::VARIANTS {
         let (commodities, goods) = after_status(variant);
-        let limit = i32::try_from(
-            crate::strategy_cards::commodity_limit(
-                &seated_all(&[("a", variant), ("b", "sol")]),
-                content(),
-                &a(),
-            ),
-        )
+        let limit = i32::try_from(crate::strategy_cards::commodity_limit(
+            &seated_all(&[("a", variant), ("b", "sol")]),
+            content(),
+            &a(),
+        ))
         .unwrap();
         assert_eq!(commodities, limit, "{variant}: replenished");
         assert_eq!(goods, plain.1 + 1, "{variant}: and one trade good");
@@ -997,7 +1011,10 @@ fn laws_order_1_spending_a_trade_good_blanks_every_law_until_that_turn_ends() {
             "paid with the trade good"
         );
         // Sol passed, ending the turn: the law is back.
-        assert!(crate::laws::active(&game.state, "censure"), "until the turn ends");
+        assert!(
+            crate::laws::active(&game.state, "censure"),
+            "until the turn ends"
+        );
     }
 }
 
@@ -1084,14 +1101,7 @@ fn iihq_2_custodia_vigilia_gives_mecatol_rex_space_cannon_five_and_production_th
             .sum();
         assert_eq!(cannon, dice, "{:?}", asked(&seen));
         // The Keleres activate Mecatol: a production window with a budget of 3 opens.
-        let (_, seen) = tactical(
-            state,
-            "a",
-            &galaxy,
-            "18",
-            &["done_moving"],
-            &[1; 40],
-        );
+        let (_, seen) = tactical(state, "a", &galaxy, "18", &["done_moving"], &[1; 40]);
         assert_eq!(
             was_offered_like(&seen, "build|"),
             production,
@@ -1141,7 +1151,8 @@ fn kelerescommander_1_unlocks_by_spending_a_trade_good_after_a_component_action_
 }
 
 #[test]
-fn kelerescommander_2_suffi_an_lets_the_owner_perform_an_additional_action_after_a_component_action() {
+fn kelerescommander_2_suffi_an_lets_the_owner_perform_an_additional_action_after_a_component_action()
+ {
     let window = "leader:keleresm:kelerescommander:ACTION_COMPLETED:after";
     // (commander, accept) -> the Keleres seat's "action phase" questions in a row.
     for (status, accept, extra) in [
@@ -1159,34 +1170,16 @@ fn kelerescommander_2_suffi_an_lets_the_owner_perform_an_additional_action_after
         };
         let (mut game, seen) = action_game(state, "a", None, &rules);
         steps(&mut game, 5);
-        let actions_by_a = seen
-            .borrow()
+        // Did the Keleres seat get a second action question before Sol's first?
+        let log = seen.borrow();
+        let actions: Vec<&str> = log
             .iter()
-            .filter(|question| question.prompt.starts_with("action phase") && question.player == "a")
-            .count();
-        assert_eq!(
-            actions_by_a >= 2 && actions_by_a > 1 && {
-                // The second question must come before any question of Sol's.
-                let log = seen.borrow();
-                let first_sol = log
-                    .iter()
-                    .position(|q| q.prompt.starts_with("action phase") && q.player == "b");
-                let second_a = log
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, q)| q.prompt.starts_with("action phase") && q.player == "a")
-                    .nth(1)
-                    .map(|(i, _)| i);
-                match (first_sol, second_a) {
-                    (Some(sol), Some(again)) => again < sol,
-                    (None, Some(_)) => true,
-                    _ => false,
-                }
-            },
-            extra,
-            "{:?}",
-            asked(&seen)
-        );
+            .filter(|question| question.prompt.starts_with("action phase"))
+            .map(|question| question.player.as_str())
+            .collect();
+        let again = actions.first() == Some(&"a") && actions.get(1) == Some(&"a");
+        assert_eq!(again, extra, "{:?}", asked(&seen));
+        drop(log);
         assert_eq!(was_offered(&seen, window), status == LeaderStatus::Unlocked);
     }
 }
@@ -1219,7 +1212,8 @@ fn keleresherokuuasi_1_unlocks_in_the_game_on_the_third_scored_objective() {
 }
 
 #[test]
-fn keleresheroharka_2_draws_the_first_three_component_action_cards_shuffles_the_rest_and_is_purged() {
+fn keleresheroharka_2_draws_the_first_three_component_action_cards_shuffles_the_rest_and_is_purged()
+{
     let plain = action_cards_where(false, 4);
     let action = action_cards_where(true, 4);
     let deck = vec![
@@ -1263,7 +1257,8 @@ fn keleresheroharka_2_draws_the_first_three_component_action_cards_shuffles_the_
 }
 
 #[test]
-fn keleresherokuuasi_2_places_the_flagship_and_two_escorts_at_the_start_of_a_combat_round_and_is_purged() {
+fn keleresherokuuasi_2_places_the_flagship_and_two_escorts_at_the_start_of_a_combat_round_and_is_purged()
+ {
     let window = "leader:keleresa:keleresherokuuasi:COMBAT_ROUND_STARTED:after";
     let (system, planet) = crate::fixtures::a_placed_planet();
     let hub = crate::fixtures::hub_with_outer(system.as_str());
@@ -1372,7 +1367,12 @@ fn keleresheroodlynn_2_casts_six_more_votes_predicts_pays_per_dissenter_and_is_p
         let mut state = keleres_game("keleresx");
         state.players.retain(|seat| seat.id != PlayerId::new("c"));
         state.seating_order.retain(|id| *id != PlayerId::new("c"));
-        set_leader(&mut state, &a(), "keleresheroodlynn", LeaderStatus::Unlocked);
+        set_leader(
+            &mut state,
+            &a(),
+            "keleresheroodlynn",
+            LeaderStatus::Unlocked,
+        );
         state
     };
     // Sol votes "against"; the Keleres predict and vote "for" with six extra votes.
@@ -1418,10 +1418,12 @@ fn riders_1_a_keleres_rider_predicts_gives_up_the_vote_and_pays_when_right() {
             crate::promissory::take(&mut state, content(), &b(), &note);
             state.player_mut(&b()).unwrap().action_cards.clear();
             state.action_card_deck = pile(&["bribery", "rally", "plague"]);
-            let (goods, hand) = (state.player(&b()).unwrap().trade_goods, 0);
+            let goods = state.player(&b()).unwrap().trade_goods;
             let (game, seen_a, seen_b) = agenda_game(state, &["for"], &[window, prediction]);
             assert!(
-                game.events.iter().any(|e| e == "AGENDA_RESOLVED:sanctions:for"),
+                game.events
+                    .iter()
+                    .any(|e| e == "AGENDA_RESOLVED:sanctions:for"),
                 "{variant}: {:?}",
                 asked(&seen_a)
             );
@@ -1453,7 +1455,6 @@ fn riders_1_a_keleres_rider_predicts_gives_up_the_vote_and_pays_when_right() {
                 3 - usize::from(pays),
                 "{variant}: one action card drawn only when right"
             );
-            let _ = (seat, hand);
         }
     }
 }
@@ -1475,7 +1476,8 @@ fn planet_of(system: &str) -> PlanetId {
 }
 
 #[test]
-fn survivalinstinct_1_moves_up_to_two_ships_in_from_adjacent_systems_when_another_player_activates() {
+fn survivalinstinct_1_moves_up_to_two_ships_in_from_adjacent_systems_when_another_player_activates()
+{
     let window = "ability:ralnel:survivalinstinct:SYSTEM_ACTIVATED:after";
     let hub = plain_hub();
     let centre = sys(&hub.centre);
@@ -1508,7 +1510,10 @@ fn survivalinstinct_1_moves_up_to_two_ships_in_from_adjacent_systems_when_anothe
             }
             (true, _) => assert_eq!(here, 1, "declined: {:?}", asked(&seen)),
             (false, true) => {
-                assert!(!moved(first), "a system with your command token is not taken from");
+                assert!(
+                    !moved(first),
+                    "a system with your command token is not taken from"
+                );
                 assert!(!was_offered(&seen, &move_first), "{:?}", asked(&seen));
             }
         }
@@ -1532,7 +1537,9 @@ fn nanomachines_ready(state: &GameState) -> bool {
 fn nanomachines_1_places_a_pds_on_a_planet_you_control_exhausts_and_readies_at_status() {
     let mut state = nano_game();
     let planet = planet_of("18");
-    state.system_mut(&sys("18")).set_control(planet.clone(), a());
+    state
+        .system_mut(&sys("18"))
+        .set_control(planet.clone(), a());
     let (mut game, seen) = action_game(
         state,
         "a",
@@ -1551,7 +1558,10 @@ fn nanomachines_1_places_a_pds_on_a_planet_you_control_exhausts_and_readies_at_s
         "one exhaustion covers all three actions"
     );
     let after = super::d2::play_status_phase(game.state.clone());
-    assert!(nanomachines_ready(&after.state), "readied by the status phase");
+    assert!(
+        nanomachines_ready(&after.state),
+        "readied by the status phase"
+    );
 }
 
 #[test]
@@ -1573,7 +1583,12 @@ fn nanomachines_2_repairs_all_of_your_damaged_units_and_none_of_anyone_elses() {
         game.state
             .board
             .values()
-            .flat_map(|board| board.units.iter().chain(board.planet_units.values().flatten()))
+            .flat_map(|board| {
+                board
+                    .units
+                    .iter()
+                    .chain(board.planet_units.values().flatten())
+            })
             .filter(|unit| unit.owner == *who && unit.sustained_damage)
             .count()
     };
@@ -1618,8 +1633,17 @@ fn ralnelagent_1_kan_kip_rel_draws_two_action_cards_gives_one_away_and_readies_a
         "{:?}",
         asked(&seen)
     );
-    assert_eq!(hand_size(&game.state, &a()), 1, "one kept: {:?}", asked(&seen));
-    assert_eq!(hand_size(&game.state, &b()), 1, "one given to the chosen player");
+    assert_eq!(
+        hand_size(&game.state, &a()),
+        1,
+        "one kept: {:?}",
+        asked(&seen)
+    );
+    assert_eq!(
+        hand_size(&game.state, &b()),
+        1,
+        "one given to the chosen player"
+    );
     assert_eq!(
         leader_status(&game.state, &a(), "ralnelagent"),
         Some(LeaderStatus::Exhausted)
@@ -1673,17 +1697,27 @@ fn ralnelhero_2_director_nel_takes_back_the_last_pass_for_two_command_tokens_and
     state.player_mut(&a()).unwrap().action_cards.clear();
     let tokens = state.player(&a()).unwrap().tactic_tokens;
     let window = "leader:ralnel:ralnelhero:PLAYER_PASSED:after";
-    let (mut game, seen) = action_game(state, "a", None, &["pass", window, "tactic_tokens", "tactic_tokens"]);
+    let (mut game, seen) = action_game(
+        state,
+        "a",
+        None,
+        &["pass", window, "tactic_tokens", "tactic_tokens"],
+    );
     steps(&mut game, 2);
     let seat = game.state.player(&a()).unwrap();
     assert!(!seat.passed, "the pass was taken back: {:?}", asked(&seen));
     assert_eq!(seat.tactic_tokens, tokens + 2, "two command tokens");
     assert_eq!(seat.action_cards.len(), 1, "one action card");
     assert_eq!(
-        seat.leaders.get(&ti4_model::id::LeaderId::new("ralnelhero")),
+        seat.leaders
+            .get(&ti4_model::id::LeaderId::new("ralnelhero")),
         Some(&LeaderStatus::Purged)
     );
-    assert_eq!(game.state.phase, ti4_model::state::Phase::Action, "the phase went on");
+    assert_eq!(
+        game.state.phase,
+        ti4_model::state::Phase::Action,
+        "the phase went on"
+    );
 }
 
 #[test]
@@ -1692,7 +1726,10 @@ fn ralnelcommander_2_watchful_ojz_retreats_up_to_two_ships_when_a_retreat_is_dec
     let hub = plain_hub();
     let centre = sys(&hub.centre);
     let safe = &hub.outer[0];
-    for (status, retreated) in [(LeaderStatus::Unlocked, true), (LeaderStatus::Locked, false)] {
+    for (status, retreated) in [
+        (LeaderStatus::Unlocked, true),
+        (LeaderStatus::Locked, false),
+    ] {
         let mut state = ralnel_game();
         blank_hub(&mut state, &hub);
         set_leader(&mut state, &a(), "ralnelcommander", status);
@@ -1707,7 +1744,16 @@ fn ralnelcommander_2_watchful_ojz_retreats_up_to_two_ships_when_a_retreat_is_dec
             "b",
             &hub.galaxy,
             &hub.centre,
-            &[&move_it, "done_moving", "stay", "retreat", window, &to, "ship|0|cruiser", "ship|0|cruiser"],
+            &[
+                &move_it,
+                "done_moving",
+                "stay",
+                "retreat",
+                window,
+                &to,
+                "ship|0|cruiser",
+                "ship|0|cruiser",
+            ],
             &[1; 8],
         );
         assert_eq!(was_offered(&seen, window), retreated, "{:?}", asked(&seen));
@@ -1801,7 +1847,11 @@ fn ralnelbt_1_data_skimmer_keeps_other_players_discards_and_the_holder_takes_one
     let (mut game, seen) = action_game(state, "b", None, &["action_card|0"]);
     steps(&mut game, 6);
     assert!(
-        game.state.player(&a()).unwrap().action_cards.contains(&card)
+        game.state
+            .player(&a())
+            .unwrap()
+            .action_cards
+            .contains(&card)
             || game.state.player(&a()).unwrap().passed,
         "{:?}",
         asked(&seen)
@@ -1831,4 +1881,850 @@ fn keleresbt_1_i_i_h_q_modernization_gives_neighbours_and_custodia_vigilia_like_
         asked(&seen)
     );
     assert!(crate::factions::keleres::holds_custodia(&game.state, &a()));
+}
+
+// -- unit abilities ---------------------------------------------------------------------------------
+
+/// An ordinary planet that is nobody's home, alone in its system, not Mecatol Rex.
+fn one_planet() -> (SystemId, PlanetId) {
+    let all = ti4_content::galaxy::all_planets(content(), ti4_model::content_types::POK);
+    all.iter()
+        .find(|(_, planet)| {
+            planet.homeworld_of().is_none()
+                && !planet.is_placed_during_play()
+                && planet.system_id().is_some_and(|system| {
+                    system != "18"
+                        && all
+                            .iter()
+                            .filter(|(_, other)| other.system_id() == Some(system))
+                            .count()
+                            == 1
+                })
+        })
+        .map(|(id, planet)| {
+            (
+                SystemId::new(planet.system_id().unwrap_or("19")),
+                PlanetId::new(*id),
+            )
+        })
+        .expect("an ordinary lone planet")
+}
+
+/// `(hits_on, dice, sustained)` of the first space-combat roll `kind` of seat `a` makes against one
+/// Sol cruiser in system 19 (every die a 10), and whether the unit stood on holding the hit.
+fn space_profile(faction: &str, kind: &str) -> (Option<u32>, usize, bool) {
+    let mut state = seated_all(&[("a", faction), ("b", "sol")]);
+    put(&mut state, &sys("19"), kind, &a(), 1);
+    put(&mut state, &sys("19"), "cruiser", &b(), 1);
+    let (_, dice) = space_fight(&mut state, &sys("19"), &[10; 8], &mut Table::new());
+    let (hits_on, count) = first_roll(&dice, "a").expect("the unit rolled");
+    let sustained = state
+        .system_state(&sys("19"))
+        .units
+        .iter()
+        .any(|unit| unit.type_id.as_str() == kind && unit.sustained_damage);
+    (hits_on, count, sustained)
+}
+
+/// `(hits_on, dice)` of the first bombardment roll `kind` of seat `a` makes at a Sol planet.
+fn bombard_profile(faction: &str, kind: &str) -> (Option<u32>, usize) {
+    let mut state = seated_all(&[("a", faction), ("b", "sol")]);
+    let (system, planet) = one_planet();
+    state.system_mut(&system).set_control(planet.clone(), b());
+    put_on_planet(&mut state, &system, &planet, "infantry", &b(), 1);
+    put(&mut state, &system, kind, &a(), 1);
+    let (_, dice) = invade(&mut state, &system, &a(), &[10; 8], &mut Table::new());
+    dice.history()
+        .iter()
+        .find(|roll| roll.reason == "bombardment" && roll.by.as_deref() == Some("a"))
+        .map(|roll| (roll.hits_on, roll.faces.len()))
+        .expect("the unit bombarded")
+}
+
+/// The first ground-combat roll `who` makes when `a`'s `defender` unit holds a planet against Sol
+/// infantry landing from the space area: `(hits_on, dice)`, and the defender as it stands after
+/// one 10-die hit round (damaged flag).
+fn defends(faction: &str, defender: &str) -> ((Option<u32>, usize), bool) {
+    let mut state = seated_all(&[("a", faction), ("b", "sol")]);
+    let (system, planet) = one_planet();
+    state.system_mut(&system).set_control(planet.clone(), a());
+    put_on_planet(&mut state, &system, &planet, defender, &a(), 1);
+    put(&mut state, &system, "infantry", &b(), 1);
+    // The Hel-Titan's own SPACE CANNON DEFENSE misses. Round one: Sol hits, the defender misses
+    // (so it must sustain). Round two: Sol misses, the defender hits and wins.
+    let (_, dice) = invade(
+        &mut state,
+        &system,
+        &b(),
+        &[1, 10, 1, 1, 10],
+        &mut Table::new(),
+    );
+    let roll = dice
+        .history()
+        .iter()
+        .find(|roll| roll.reason == "ground combat" && roll.by.as_deref() == Some("a"))
+        .map(|roll| (roll.hits_on, roll.faces.len()))
+        .expect("the defender fought");
+    let sustained = state
+        .system_state(&system)
+        .on_planet_of(&planet, &a())
+        .iter()
+        .any(|unit| unit.type_id.as_str() == defender && unit.sustained_damage);
+    (roll, sustained)
+}
+
+/// Whether one `kind` of seat `a` reaches a system `distance` jumps away on a two-ring map of
+/// ordinary systems (nothing else on it), in a real tactical action.
+fn reaches(faction: &str, kind: &str, distance: i32) -> bool {
+    let ids = crate::fixtures::plain_systems(19);
+    let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+    let galaxy = Galaxy::build(content(), &refs, DEFAULT, 2).expect("a two-ring map");
+    let (from, target) = ids
+        .iter()
+        .flat_map(|from| ids.iter().map(move |to| (from, to)))
+        .find(|(from, to)| galaxy.distance(from, to) == Some(distance))
+        .expect("two systems that far apart");
+    let mut state = seated_all(&[("a", faction), ("b", "sol")]);
+    for board in state.board.values_mut() {
+        board.units.clear();
+        board.planet_units.clear();
+        board.planet_control.clear();
+        board.command_tokens.clear();
+    }
+    put(&mut state, &sys(from), kind, &a(), 1);
+    let move_it = format!("move|{from}|0");
+    let (game, seen) = tactical(
+        state,
+        "a",
+        &galaxy,
+        target,
+        &[&move_it, "done_moving"],
+        &[1; 10],
+    );
+    let arrived = ships(&game.state, &sys(target), &a(), kind) == 1;
+    assert_eq!(was_offered(&seen, &move_it), arrived, "{:?}", asked(&seen));
+    arrived
+}
+
+#[test]
+fn unit_titans_flagship_0_ouranos_fights_with_two_dice_on_7_and_sustains() {
+    assert_eq!(
+        space_profile("titans", "titans_flagship"),
+        (Some(7), 2, true),
+        "cost, move 1 and capacity 3 are unit data and not exercised here"
+    );
+}
+
+#[test]
+fn unit_titans_flagship_1_ouranos_deploys_in_place_of_a_pds_in_a_real_tactical_action() {
+    let (system, planet) = one_planet();
+    let hub = crate::fixtures::hub_with_outer(system.as_str());
+    let window = "unit:titans:titans_flagship:SYSTEM_ACTIVATED:after";
+    for (deploy, flagship) in [(true, 1), (false, 0)] {
+        let mut state = titans_game();
+        blank_hub(&mut state, &hub);
+        put_on_planet(&mut state, &system, &planet, "titans_pds", &a(), 2);
+        let rules: Vec<&str> = if deploy {
+            vec![window, "done_moving"]
+        } else {
+            vec!["decline", "done_moving"]
+        };
+        let (game, seen) = tactical(state, "a", &hub.galaxy, system.as_str(), &rules, &[1; 10]);
+        assert_eq!(was_offered(&seen, window), true, "{:?}", asked(&seen));
+        assert_eq!(
+            ships(&game.state, &system, &a(), "titans_flagship"),
+            flagship,
+            "{:?}",
+            asked(&seen)
+        );
+        assert_eq!(
+            on_planet(&game.state, &system, &planet, &a(), "titans_pds"),
+            2 - flagship,
+            "exactly one PDS was replaced"
+        );
+    }
+}
+
+#[test]
+fn unit_titans_mech_1_hecatoncheires_stands_in_for_the_awakened_pds_with_an_infantry() {
+    let (system, planet) = one_planet();
+    let hub = crate::fixtures::hub_with_outer(system.as_str());
+    let awaken = "ability:titans:awaken:SYSTEM_ACTIVATED:after";
+    for (choice, mech, pds) in [("mech", 1, 0), ("pds", 0, 1)] {
+        let mut state = titans_game();
+        blank_hub(&mut state, &hub);
+        crate::factions::titans::place_sleeper(&mut state, &a(), &system, &planet);
+        let (game, seen) = tactical(
+            state,
+            "a",
+            &hub.galaxy,
+            system.as_str(),
+            &[awaken, choice, "done_moving"],
+            &[1; 10],
+        );
+        let at = |kind: &str| on_planet(&game.state, &system, &planet, &a(), kind);
+        assert_eq!(at("titans_mech"), mech, "{choice}: {:?}", asked(&seen));
+        assert_eq!(at("titans_pds"), pds, "{choice}");
+        assert_eq!(at("infantry"), mech, "the mech comes with one infantry");
+        assert!(
+            !crate::factions::titans::has_sleeper(&game.state, &planet),
+            "the token went back"
+        );
+    }
+}
+
+#[test]
+fn unit_titans_pds_0_hel_titan_i_defends_as_a_ground_force_on_7_sustains_and_stands_when_hit() {
+    let (roll, sustained) = defends("titans", "titans_pds");
+    assert_eq!(roll, (Some(7), 1), "COMBAT 7 as a ground force");
+    assert!(sustained, "SUSTAIN DAMAGE absorbed Sol's hit");
+}
+
+#[test]
+fn unit_titans_pds_1_hel_titan_i_fires_space_cannon_6_and_cannot_be_transported() {
+    // SPACE CANNON 6 at a ship that activates its system (Sol's technologies cleared of
+    // Antimass Deflectors).
+    let (system, planet) = one_planet();
+    let hub = crate::fixtures::hub_with_outer(system.as_str());
+    let mut state = titans_game();
+    blank_hub(&mut state, &hub);
+    state.player_mut(&b()).unwrap().technologies.clear();
+    put_on_planet(&mut state, &system, &planet, "titans_pds", &a(), 1);
+    put(&mut state, &sys(&hub.centre), "cruiser", &b(), 1);
+    let move_it = format!("move|{}|0", hub.centre);
+    let (game, _) = tactical(
+        state,
+        "b",
+        &hub.galaxy,
+        system.as_str(),
+        &[&move_it, "done_moving"],
+        &[1; 40],
+    );
+    assert!(
+        game.rolls()
+            .iter()
+            .any(|roll| roll.by.as_deref() == Some("a") && roll.hits_on == Some(6)),
+        "{:?}",
+        game.rolls()
+    );
+    // Not transportable (either generation): a carrier at the Titans' planet lifts the infantry and leaves the PDS.
+    for kind in ["titans_pds", "titans_pds2"] {
+        let mut state = titans_game();
+        blank_hub(&mut state, &hub);
+        put(&mut state, &system, "carrier", &a(), 1);
+        put_on_planet(&mut state, &system, &planet, kind, &a(), 1);
+        put_on_planet(&mut state, &system, &planet, "infantry", &a(), 1);
+        state.system_mut(&system).set_control(planet.clone(), a());
+        let (mut game, _) = super::d2::eager_game(
+            state,
+            "a",
+            Some(hub.galaxy.clone()),
+            &[
+                TACTICAL_ACTION_ID,
+                hub.centre.as_str(),
+                &format!("move|{system}|0"),
+            ],
+        );
+        for _ in 0..12 {
+            assert_eq!(game.step().error, None, "{:?}", game.events);
+        }
+        assert_eq!(
+            game.events
+                .iter()
+                .filter(|event| *event == "UNITS_COMMITTED")
+                .count(),
+            1,
+            "only the infantry was lifted and landed: {:?}",
+            game.events
+        );
+        assert_eq!(
+            on_planet(&game.state, &system, &planet, &a(), kind),
+            1,
+            "the Hel-Titan stayed"
+        );
+    }
+}
+
+#[test]
+fn unit_titans_pds_2_hel_titan_ii_planetary_shield_stops_bombardment() {
+    // Sol's dreadnought bombards Titans infantry: with a Hel-Titan on the planet the shield
+    // stops it, without one the bombardment rolls.
+    for (pds, bombards) in [("titans_pds", false), ("titans_pds2", false), ("", true)] {
+        let mut state = titans_game();
+        let (system, planet) = one_planet();
+        state.system_mut(&system).set_control(planet.clone(), a());
+        put_on_planet(&mut state, &system, &planet, "infantry", &a(), 1);
+        if !pds.is_empty() {
+            put_on_planet(&mut state, &system, &planet, pds, &a(), 1);
+        }
+        put(&mut state, &system, "dreadnought", &b(), 1);
+        let (_, dice) = invade(&mut state, &system, &b(), &[10; 8], &mut Table::new());
+        let bombardments = dice
+            .history()
+            .iter()
+            .filter(|roll| roll.reason == "bombardment")
+            .count();
+        assert_eq!(bombardments > 0, bombards, "{pds:?}: {:?}", dice.history());
+    }
+}
+
+#[test]
+fn unit_titans_pds2_0_hel_titan_ii_defends_on_6_sustains_and_fires_space_cannon_5() {
+    let (roll, sustained) = defends("titans", "titans_pds2");
+    assert_eq!(roll, (Some(6), 1), "COMBAT 6 as a ground force");
+    assert!(sustained, "SUSTAIN DAMAGE absorbed Sol's hit");
+}
+
+#[test]
+fn unit_titans_pds2_1_hel_titan_ii_fires_space_cannon_5_at_ships_in_adjacent_systems() {
+    let hub = plain_hub();
+    let adjacent = |kind: &str| {
+        let mut state = titans_game();
+        blank_hub(&mut state, &hub);
+        state.player_mut(&b()).unwrap().technologies.clear();
+        put_on_planet(
+            &mut state,
+            &sys(&hub.outer[0]),
+            &planet_of(&hub.outer[0]),
+            kind,
+            &a(),
+            1,
+        );
+        put(&mut state, &sys(&hub.outer[2]), "cruiser", &b(), 1);
+        let move_it = format!("move|{}|0", hub.outer[2]);
+        let (game, _) = tactical(
+            state,
+            "b",
+            &hub.galaxy,
+            &hub.centre,
+            &[&move_it, "done_moving"],
+            &[1; 40],
+        );
+        game.rolls()
+            .iter()
+            .filter(|roll| roll.by.as_deref() == Some("a") && roll.reason == "space cannon")
+            .map(|roll| roll.hits_on)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        adjacent("titans_pds2"),
+        vec![Some(5)],
+        "next door, as the card says"
+    );
+    assert!(
+        adjacent("titans_pds").is_empty(),
+        "Hel-Titan I only fires in its own system"
+    );
+}
+
+#[test]
+fn unit_titans_pds2_2_hel_titan_ii_gives_production_one_in_a_real_tactical_action() {
+    for (kind, window) in [("titans_pds", true), ("titans_pds2", true), ("pds", false)] {
+        let (system, planet) = one_planet();
+        let hub = crate::fixtures::hub_with_outer(system.as_str());
+        let mut state = titans_game();
+        blank_hub(&mut state, &hub);
+        state.system_mut(&system).set_control(planet.clone(), a());
+        put_on_planet(&mut state, &system, &planet, kind, &a(), 1);
+        let (_, seen) = tactical(
+            state,
+            "a",
+            &hub.galaxy,
+            system.as_str(),
+            &["done_moving"],
+            &[1; 10],
+        );
+        assert_eq!(
+            seen.borrow()
+                .iter()
+                .any(|question| question.prompt.starts_with("produce in ")
+                    && question.prompt.ends_with("(1 left)")),
+            window,
+            "{kind}: PRODUCTION 1 {:?}",
+            asked(&seen)
+        );
+    }
+}
+
+#[test]
+fn unit_titans_cruiser2_0_saturn_engine_ii_fights_on_6_sustains_and_carries_two() {
+    assert_eq!(
+        space_profile("titans", "titans_cruiser2"),
+        (Some(6), 1, true)
+    );
+    assert_eq!(
+        space_profile("titans", "titans_cruiser"),
+        (Some(7), 1, false),
+        "Saturn Engine I: combat 7, no sustain"
+    );
+    // Capacity 2 against 1: three fighters in a system with one of them are over capacity.
+    let over_capacity = |kind: &str, fighters: usize| {
+        let (system, planet) = one_planet();
+        let hub = crate::fixtures::hub_with_outer(system.as_str());
+        let mut state = titans_game();
+        blank_hub(&mut state, &hub);
+        let _ = planet;
+        put(&mut state, &system, kind, &a(), 1);
+        put(&mut state, &system, "fighter", &a(), fighters);
+        let (_, seen) = tactical(
+            state,
+            "a",
+            &hub.galaxy,
+            system.as_str(),
+            &["done_moving"],
+            &[1; 10],
+        );
+        seen.borrow()
+            .iter()
+            .any(|question| question.prompt.contains("over capacity"))
+    };
+    assert!(!over_capacity("titans_cruiser2", 2), "two fit");
+    assert!(over_capacity("titans_cruiser2", 3), "three do not");
+    assert!(
+        over_capacity("titans_cruiser", 2),
+        "Saturn Engine I carries one"
+    );
+    assert!(!over_capacity("titans_cruiser", 1));
+}
+
+#[test]
+fn unit_cabal_flagship_0_the_terror_between_fights_with_two_dice_on_5_bombards_on_5_and_sustains() {
+    assert_eq!(
+        space_profile("cabal", "cabal_flagship"),
+        (Some(5), 2, true),
+        "cost, move 1 and capacity 3 are unit data and not exercised here"
+    );
+    assert_eq!(bombard_profile("cabal", "cabal_flagship"), (Some(5), 1));
+}
+
+#[test]
+fn unit_cabal_mech_1_reanimator_captures_the_infantry_destroyed_on_its_planet() {
+    // Sol lands two infantry on the Cabal's planet and both hit in round one. With the mech the
+    // Cabal's own destroyed infantry is captured onto its faction sheet; without, it is lost.
+    let hub = plain_hub();
+    let centre = sys(&hub.centre);
+    let planet = planet_of(&hub.centre);
+    for (mech, captured) in [(true, true), (false, false)] {
+        let mut state = cabal_game();
+        blank_hub(&mut state, &hub);
+        state.system_mut(&centre).set_control(planet.clone(), a());
+        put_on_planet(&mut state, &centre, &planet, "infantry", &a(), 1);
+        if mech {
+            put_on_planet(&mut state, &centre, &planet, "cabal_mech", &a(), 1);
+        }
+        put(&mut state, &sys(&hub.outer[1]), "carrier", &b(), 1);
+        put(&mut state, &sys(&hub.outer[1]), "infantry", &b(), 2);
+        let move_it = format!("move|{}|0", hub.outer[1]);
+        let (game, seen) = tactical(
+            state,
+            "b",
+            &hub.galaxy,
+            &hub.centre,
+            &[
+                &move_it,
+                "~load",
+                "~load",
+                "done_moving",
+                "~commit",
+                "~commit",
+            ],
+            &[10, 10, 1, 1, 1, 1],
+        );
+        let taken = crate::supply::captured_by(&game.state, &a())
+            .iter()
+            .filter(|(owner, unit)| *owner == a() && unit.as_str() == "infantry")
+            .count();
+        assert_eq!(taken > 0, captured, "mech {mech}: {:?}", asked(&seen));
+    }
+}
+
+/// A Cabal dock of `kind` on the lone planet of a hub's first outer system.
+fn tear_game(kind: &str) -> (GameState, Hub, SystemId, PlanetId) {
+    let (system, planet) = one_planet();
+    let hub = crate::fixtures::hub_with_outer(system.as_str());
+    let mut state = cabal_game();
+    strip_units(&mut state, &a());
+    for board in state.board.values_mut() {
+        board.units.clear();
+    }
+    blank_hub(&mut state, &hub);
+    state.system_mut(&system).set_control(planet.clone(), a());
+    put_on_planet(&mut state, &system, &planet, kind, &a(), 1);
+    (state, hub, system, planet)
+}
+
+/// The production budget a tactical action in the dock's system opens ("produce in X (N left)").
+fn production_budget(kind: &str) -> Option<i64> {
+    let (state, hub, system, _) = tear_game(kind);
+    let (_, seen) = tactical(
+        state,
+        "a",
+        &hub.galaxy,
+        system.as_str(),
+        &["done_moving"],
+        &[1; 10],
+    );
+    let budget = seen
+        .borrow()
+        .iter()
+        .find(|question| question.prompt.starts_with("produce in "))
+        .and_then(|question| {
+            question
+                .prompt
+                .rsplit(" (")
+                .next()?
+                .strip_suffix(" left)")?
+                .parse()
+                .ok()
+        });
+    budget
+}
+
+/// Whether `fighters` fighters in the dock's system are over capacity at the end of movement.
+fn fighters_over_capacity(kind: &str, fighters: usize) -> bool {
+    let (mut state, hub, system, _) = tear_game(kind);
+    put(&mut state, &system, "fighter", &a(), fighters);
+    let (_, seen) = tactical(
+        state,
+        "a",
+        &hub.galaxy,
+        system.as_str(),
+        &["done_moving"],
+        &[1; 10],
+    );
+    seen.borrow()
+        .iter()
+        .any(|question| question.prompt.contains("over capacity"))
+}
+
+/// Whether a lone cruiser of `mover` survives leaving the dock's system through the gravity rift
+/// the dock makes, every die a 1.
+fn leaves_the_tear(mover: &str, kind: &str) -> bool {
+    let (mut state, hub, system, _) = tear_game(kind);
+    let who = PlayerId::new(mover);
+    put(&mut state, &system, "cruiser", &who, 1);
+    let move_it = format!("move|{system}|0");
+    let (game, seen) = tactical(
+        state,
+        mover,
+        &hub.galaxy,
+        &hub.centre,
+        &[&move_it, "done_moving"],
+        &[1; 20],
+    );
+    let arrived = ships(&game.state, &sys(&hub.centre), &who, "cruiser") == 1;
+    let rolled = game
+        .rolls()
+        .iter()
+        .any(|roll| roll.by.as_deref() == Some(mover) && roll.reason.contains("rift"));
+    assert_eq!(
+        rolled,
+        !arrived,
+        "{mover}: {:?} {:?}",
+        game.rolls(),
+        asked(&seen)
+    );
+    arrived
+}
+
+#[test]
+fn unit_cabal_spacedock_0_dimensional_tear_i_produces_five_is_a_rift_and_frees_six_fighters() {
+    assert_eq!(
+        production_budget("cabal_spacedock"),
+        Some(5),
+        "PRODUCTION 5"
+    );
+    assert!(
+        leaves_the_tear("a", "cabal_spacedock"),
+        "the owner's ships do not roll for this rift"
+    );
+    assert!(
+        !leaves_the_tear("b", "cabal_spacedock"),
+        "another player's ship does, and a 1 destroys it"
+    );
+    assert!(
+        !fighters_over_capacity("cabal_spacedock", 6),
+        "six are free"
+    );
+    assert!(
+        fighters_over_capacity("cabal_spacedock", 7),
+        "the seventh counts"
+    );
+}
+
+#[test]
+fn unit_cabal_spacedock2_0_dimensional_tear_ii_produces_seven_is_a_rift_and_frees_twelve_fighters()
+{
+    assert_eq!(
+        production_budget("cabal_spacedock2"),
+        Some(7),
+        "PRODUCTION 7"
+    );
+    assert!(leaves_the_tear("a", "cabal_spacedock2"));
+    assert!(!leaves_the_tear("b", "cabal_spacedock2"));
+    assert!(
+        !fighters_over_capacity("cabal_spacedock2", 12),
+        "twelve are free"
+    );
+    assert!(fighters_over_capacity("cabal_spacedock2", 13));
+}
+
+#[test]
+fn unit_keleres_flagship_0_artemiris_fights_with_two_dice_on_7_and_sustains() {
+    assert_eq!(
+        space_profile("keleresm", "keleres_flagship"),
+        (Some(7), 2, true),
+        "cost, move 1 and capacity 6 are unit data and not exercised here"
+    );
+}
+
+#[test]
+fn unit_keleres_flagship_1_artemiris_makes_other_players_spend_two_influence_to_activate_its_system()
+ {
+    let hub = plain_hub();
+    for (rich, offered, spent) in [(true, true, 2), (false, false, 0)] {
+        let mut state = keleres_game("keleresm");
+        blank_hub(&mut state, &hub);
+        put(&mut state, &sys(&hub.outer[0]), "keleres_flagship", &a(), 1);
+        put(&mut state, &sys(&hub.outer[1]), "cruiser", &b(), 1);
+        // The ring is blank, so Sol's influence is its trade goods alone.
+        state.player_mut(&b()).unwrap().trade_goods = if rich { 5 } else { 1 };
+        let influence = |state: &GameState| {
+            crate::production::available(
+                state,
+                content(),
+                DEFAULT,
+                &b(),
+                crate::production::Spend::Influence,
+            )
+        };
+        let before = influence(&state);
+        let (mut game, seen) = action_game(
+            state,
+            "b",
+            Some(hub.galaxy.clone()),
+            &[TACTICAL_ACTION_ID, hub.outer[0].as_str()],
+        );
+        steps(&mut game, 4);
+        let activations: Vec<_> = seen
+            .borrow()
+            .iter()
+            .filter(|question| question.prompt == "activate a system")
+            .map(|question| question.options.clone())
+            .collect();
+        assert_eq!(
+            activations
+                .first()
+                .is_some_and(|options| options.contains(&hub.outer[0])),
+            offered,
+            "{:?}",
+            asked(&seen)
+        );
+        if offered {
+            assert!(
+                game.state
+                    .system_state(&sys(&hub.outer[0]))
+                    .command_tokens
+                    .contains(&b()),
+                "activated"
+            );
+            assert!(
+                influence(&game.state) <= before - spent,
+                "two influence were spent: {} -> {}",
+                before,
+                influence(&game.state)
+            );
+        }
+    }
+}
+
+#[test]
+fn unit_ralnel_flagship_0_last_dispatch_fights_with_two_dice_on_8_and_sustains() {
+    assert_eq!(
+        space_profile("ralnel", "ralnel_flagship"),
+        (Some(8), 2, true),
+        "cost and capacity 4 are unit data and not exercised here"
+    );
+    assert!(reaches("ralnel", "ralnel_flagship", 2), "MOVE 2");
+    assert!(
+        !reaches("ralnel", "flagship", 2),
+        "the printed flagship moves 1"
+    );
+}
+
+#[test]
+fn unit_ralnel_mech_1_alarum_moves_two_ground_forces_in_after_a_round_of_combat_on_its_planet() {
+    let window = "unit:ralnel:ralnel_mech:GROUND_COMBAT_ROUND_ENDED:after";
+    let hub = plain_hub();
+    let centre = sys(&hub.centre);
+    let mine = planet_of(&hub.centre);
+    let theirs = planet_of(&hub.outer[0]);
+    let second_round_dice = |play: bool| {
+        let mut state = ralnel_game();
+        blank_hub(&mut state, &hub);
+        state.system_mut(&centre).set_control(mine.clone(), a());
+        put_on_planet(&mut state, &centre, &mine, "ralnel_mech", &a(), 1);
+        put_on_planet(&mut state, &centre, &mine, "infantry", &a(), 1);
+        put_on_planet(
+            &mut state,
+            &sys(&hub.outer[0]),
+            &theirs,
+            "infantry",
+            &a(),
+            2,
+        );
+        put(&mut state, &sys(&hub.outer[1]), "carrier", &b(), 1);
+        put(&mut state, &sys(&hub.outer[1]), "infantry", &b(), 3);
+        let move_it = format!("move|{}|0", hub.outer[1]);
+        let first = format!("{}|{theirs}|0", hub.outer[0]);
+        let mut rules = vec![
+            move_it.as_str(),
+            "~load",
+            "~load",
+            "~load",
+            "done_moving",
+            "~commit",
+            "~commit",
+            "~commit",
+        ];
+        if play {
+            rules.extend([window, first.as_str(), first.as_str()]);
+        }
+        let (game, seen) = tactical(state, "b", &hub.galaxy, &hub.centre, &rules, &[1; 6]);
+        let infantry_dice: Vec<usize> = game
+            .rolls()
+            .iter()
+            .filter(|roll| {
+                roll.reason == "ground combat"
+                    && roll.by.as_deref() == Some("a")
+                    && roll.hits_on == Some(8)
+            })
+            .map(|roll| roll.faces.len())
+            .collect();
+        assert!(infantry_dice.len() >= 2, "{:?}", asked(&seen));
+        (infantry_dice[1], game)
+    };
+    let (with, game) = second_round_dice(true);
+    let (without, _) = second_round_dice(false);
+    assert_eq!(with, without + 2, "two more infantry rolled in round two");
+    assert!(
+        on_planet(&game.state, &sys(&hub.outer[0]), &theirs, &a(), "infantry") <= 1,
+        "it left the adjacent planet"
+    );
+}
+
+/// The space-cannon dice seat `a` rolls when Sol activates the system holding `a`'s PDS (a
+/// structure in the space area) and two of `kind`.
+fn linkship_cannon_dice(kind: &str) -> usize {
+    let hub = plain_hub();
+    let mut state = ralnel_game();
+    blank_hub(&mut state, &hub);
+    state.player_mut(&b()).unwrap().technologies.clear();
+    let target = sys(&hub.outer[0]);
+    put(&mut state, &target, "pds", &a(), 1);
+    put(&mut state, &target, kind, &a(), 2);
+    put(&mut state, &sys(&hub.centre), "cruiser", &b(), 1);
+    let move_it = format!("move|{}|0", hub.centre);
+    let (game, _) = tactical(
+        state,
+        "b",
+        &hub.galaxy,
+        &hub.outer[0],
+        &[&move_it, "done_moving"],
+        &[1; 40],
+    );
+    game.rolls()
+        .iter()
+        .filter(|roll| roll.by.as_deref() == Some("a") && roll.reason == "space cannon")
+        .map(|roll| roll.faces.len())
+        .sum()
+}
+
+#[test]
+fn unit_ralnel_destroyer_1_linkship_i_moves_three_and_linkship_ii_four() {
+    assert!(
+        reaches("ralnel", "ralnel_destroyer", 3),
+        "Linkship I: MOVE 3"
+    );
+    assert!(
+        !reaches("ralnel", "destroyer", 3),
+        "an ordinary destroyer moves 2"
+    );
+    assert!(!reaches("ralnel", "ralnel_destroyer", 4));
+    assert!(
+        reaches("ralnel", "ralnel_destroyer2", 4),
+        "Linkship II: MOVE 4"
+    );
+}
+
+#[test]
+fn unit_ralnel_destroyer_0_linkship_i_uses_each_structures_space_cannon_once() {
+    assert_eq!(
+        linkship_cannon_dice("ralnel_destroyer"),
+        1,
+        "two Linkships, one structure: it fires once"
+    );
+    assert_eq!(
+        linkship_cannon_dice("destroyer"),
+        0,
+        "an ordinary destroyer uses nothing, and a PDS in space cannot fire"
+    );
+}
+
+#[test]
+fn unit_ralnel_destroyer2_0_linkship_ii_lets_each_linkship_trigger_the_same_structure() {
+    assert_eq!(
+        linkship_cannon_dice("ralnel_destroyer2"),
+        2,
+        "two Linkship IIs trigger the same PDS twice"
+    );
+}
+
+#[test]
+fn unit_ralnel_destroyer2_1_linkship_ii_barrages_three_dice_on_6_and_fights_on_8() {
+    let afb = |kind: &str| {
+        let mut state = ralnel_game();
+        put(&mut state, &sys("19"), kind, &a(), 1);
+        put(&mut state, &sys("19"), "fighter", &b(), 4);
+        put(&mut state, &sys("19"), "cruiser", &b(), 1);
+        let (_, dice) = space_fight(&mut state, &sys("19"), &[10; 12], &mut Table::new());
+        dice.history()
+            .iter()
+            .find(|roll| roll.by.as_deref() == Some("a") && roll.reason.contains("barrage"))
+            .map(|roll| (roll.hits_on, roll.faces.len()))
+    };
+    assert_eq!(
+        afb("ralnel_destroyer2"),
+        Some((Some(6), 3)),
+        "ANTI-FIGHTER BARRAGE 6 (x3)"
+    );
+    assert_eq!(
+        afb("ralnel_destroyer"),
+        Some((Some(9), 2)),
+        "Linkship I: 9 (x2)"
+    );
+    let mut state = ralnel_game();
+    put(&mut state, &sys("19"), "ralnel_destroyer2", &a(), 1);
+    put(&mut state, &sys("19"), "cruiser", &b(), 1);
+    let (_, dice) = space_fight(&mut state, &sys("19"), &[10; 12], &mut Table::new());
+    let fought = dice
+        .history()
+        .iter()
+        .find(|roll| roll.by.as_deref() == Some("a") && roll.reason == "space combat")
+        .map(|roll| (roll.hits_on, roll.faces.len()));
+    assert_eq!(fought, Some((Some(8), 1)), "COMBAT 8");
+}
+
+#[test]
+fn the_agents_of_these_factions_ready_in_the_status_phase() {
+    for (faction, agent) in [
+        ("titans", "titansagent"),
+        ("cabal", "cabalagent"),
+        ("keleresm", "keleresagent"),
+        ("keleresx", "keleresagent"),
+        ("keleresa", "keleresagent"),
+        ("ralnel", "ralnelagent"),
+    ] {
+        agent_readies_at_status(faction, agent);
+    }
 }
