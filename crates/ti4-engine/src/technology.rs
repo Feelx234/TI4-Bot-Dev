@@ -3175,6 +3175,23 @@ mod tests {
         );
     }
 
+    /// Gaining AI Development Algorithm as the first pick of the Technology primary leaves it
+    /// ready for the second pick, which then spends it (rules version 15+).
+    #[test]
+    fn a_freshly_researched_aida_is_ready_for_the_second_pick_and_exhausts_then() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a"]);
+        state.rules_version = 15;
+        give(&mut state, &["st"]);
+        let (aida, cr2) = (TechnologyId::new("aida"), TechnologyId::new("cr2"));
+        assert!(!can_research(&state, content, POK, &player(), &cr2));
+        assert!(research(&mut state, content, POK, &player(), &aida));
+        assert!(!state.player(&player()).unwrap().exhausted_technologies.contains(&aida));
+        assert!(can_research(&state, content, POK, &player(), &cr2));
+        assert!(research(&mut state, content, POK, &player(), &cr2));
+        assert!(state.player(&player()).unwrap().exhausted_technologies.contains(&aida));
+    }
+
     /// The web picker's `technologyWaivers.test.ts` reads the same table and must give the same
     /// answers: what the picker marks researchable is what the engine lets the seat research.
     #[test]
@@ -3231,6 +3248,15 @@ mod tests {
                 scenario["researchable"].as_bool().unwrap(),
                 "{name}"
             );
+            if let Some(then) = scenario["then_target"].as_str() {
+                assert!(research(&mut state, content, POK, &player(), &target), "{name}: first pick");
+                let then = TechnologyId::new(then);
+                assert_eq!(
+                    can_research(&state, content, POK, &player(), &then),
+                    scenario["then_researchable"].as_bool().unwrap(),
+                    "{name}: second pick"
+                );
+            }
         }
     }
 

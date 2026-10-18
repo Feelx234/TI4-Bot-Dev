@@ -5,6 +5,7 @@ import {
   techMatches,
   hasResearchedTech,
   aidaIsReady,
+  secondPickPrerequisitesMet,
   checkTechPrerequisites,
   hydrateTech,
   psychoarchaeologyFrees,
@@ -108,8 +109,10 @@ describe("parity with the engine's can_research", () => {
     specialties?: { colour: "propulsion" | "biotic" | "cybernetic" | "warfare"; exhausted: boolean }[];
     target: string;
     researchable: boolean;
+    then_target?: string;
+    then_researchable?: boolean;
   };
-  const client = (sc: Scenario): boolean => {
+  const client = (sc: Scenario, second = false): boolean => {
     const me = player(sc.owned, sc.exhausted ?? []);
     if (hasResearchedTech(me, sc.target)) return false;
     const owned = { ...none };
@@ -121,17 +124,25 @@ describe("parity with the engine's can_research", () => {
     for (const spec of sc.specialties ?? []) {
       if (free || !spec.exhausted) skips[spec.colour.toUpperCase() as keyof typeof skips] += 1;
     }
-    return checkTechPrerequisites(
-      hydrateTech(sc.target),
-      owned,
-      skips,
-      "sol",
-      visibleWaivers(me, sc.rules_version),
-    );
+    const waivers = visibleWaivers(me, sc.rules_version);
+    if (second) {
+      return secondPickPrerequisitesMet(
+        sc.target,
+        hydrateTech(sc.then_target!),
+        owned,
+        skips,
+        skips,
+        "sol",
+        waivers,
+        sc.rules_version,
+      );
+    }
+    return checkTechPrerequisites(hydrateTech(sc.target), owned, skips, "sol", waivers);
   };
   for (const sc of table.scenarios as Scenario[]) {
     it(sc.name, () => {
       expect(client(sc)).toBe(sc.researchable);
+      if (sc.then_target) expect(client(sc, true)).toBe(sc.then_researchable);
     });
   }
 });

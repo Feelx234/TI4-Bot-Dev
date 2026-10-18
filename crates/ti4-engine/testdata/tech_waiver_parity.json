@@ -1,24 +1,305 @@
 {
-  "comment": "Shared by the engine (technology.rs, tech_picker_parity) and the web client (technologyWaivers.test.ts): a seat of the Federation of Sol with these technologies, ready or exhausted specialty planets, at a rules version; `researchable` is what the engine's can_research says and what the picker must say.",
+  "comment": "Shared by the engine (technology.rs, tech_picker_parity) and the web client (technologyWaivers.test.ts): a seat of the Federation of Sol with these technologies, ready or exhausted specialty planets, at a rules version; `researchable` is what the engine's can_research says and what the picker must say. A scenario with `then_target` researches `target` first (the engine's research(), which exhausts what it needs) and then asks about `then_target`: the second pick of the Technology primary.",
   "scenarios": [
-    { "name": "plain: nothing owned, no prerequisites", "rules_version": 15, "owned": [], "target": "amd", "researchable": true },
-    { "name": "plain: one blue short for Dreadnought II is not enough", "rules_version": 15, "owned": ["amd", "st"], "target": "dn2", "researchable": false },
-    { "name": "plain: Graviton Laser System with nothing", "rules_version": 15, "owned": [], "target": "gls", "researchable": false },
-    { "name": "aida ready unlocks a unit upgrade one short", "rules_version": 15, "owned": ["aida", "amd", "st"], "target": "dn2", "researchable": true },
-    { "name": "aida exhausted unlocks nothing", "rules_version": 15, "owned": ["aida", "amd", "st"], "exhausted": ["aida"], "target": "dn2", "researchable": false },
-    { "name": "aida before rules version 15 unlocks nothing", "rules_version": 14, "owned": ["aida", "amd", "st"], "target": "dn2", "researchable": false },
-    { "name": "aida does not unlock a plain technology", "rules_version": 15, "owned": ["aida"], "target": "gls", "researchable": false },
-    { "name": "aida covers only one: Dreadnought II two short", "rules_version": 15, "owned": ["aida", "amd"], "target": "dn2", "researchable": false },
-    { "name": "aida unlocks Cruiser II missing only green", "rules_version": 15, "owned": ["aida", "st"], "target": "cr2", "researchable": true },
-    { "name": "aida plus a ready blue specialty cover two blue", "rules_version": 15, "owned": ["aida", "st"], "specialties": [{ "colour": "propulsion", "exhausted": false }], "target": "dn2", "researchable": true },
-    { "name": "aida plus an exhausted blue specialty without pa: only one waived", "rules_version": 15, "owned": ["aida", "st"], "specialties": [{ "colour": "propulsion", "exhausted": true }], "target": "dn2", "researchable": false },
-    { "name": "pa with an exhausted blue specialty: Gravity Drive", "rules_version": 15, "owned": ["pa"], "specialties": [{ "colour": "propulsion", "exhausted": true }], "target": "gd", "researchable": true },
-    { "name": "exhausted blue specialty without pa", "rules_version": 15, "owned": [], "specialties": [{ "colour": "propulsion", "exhausted": true }], "target": "gd", "researchable": false },
-    { "name": "ready blue specialty without pa", "rules_version": 15, "owned": [], "specialties": [{ "colour": "propulsion", "exhausted": false }], "target": "gd", "researchable": true },
-    { "name": "pa before rules version 15: exhausted specialty unusable", "rules_version": 14, "owned": ["pa"], "specialties": [{ "colour": "propulsion", "exhausted": true }], "target": "gd", "researchable": false },
-    { "name": "pa and aida: exhausted specialty plus aida cover two blue", "rules_version": 15, "owned": ["pa", "aida", "st"], "specialties": [{ "colour": "propulsion", "exhausted": true }], "target": "dn2", "researchable": true },
-    { "name": "pa and aida exhausted: exhausted specialty alone is one short", "rules_version": 15, "owned": ["pa", "aida", "st"], "exhausted": ["aida"], "specialties": [{ "colour": "propulsion", "exhausted": true }], "target": "dn2", "researchable": false },
-    { "name": "two ready specialties of different colours for Cruiser II", "rules_version": 15, "owned": ["aida"], "specialties": [{ "colour": "biotic", "exhausted": false }, { "colour": "cybernetic", "exhausted": false }], "target": "cr2", "researchable": true },
-    { "name": "an owned technology is not researchable again", "rules_version": 15, "owned": ["amd"], "target": "amd", "researchable": false }
+    {
+      "name": "plain: nothing owned, no prerequisites",
+      "rules_version": 15,
+      "owned": [],
+      "target": "amd",
+      "researchable": true
+    },
+    {
+      "name": "plain: one blue short for Dreadnought II is not enough",
+      "rules_version": 15,
+      "owned": [
+        "amd",
+        "st"
+      ],
+      "target": "dn2",
+      "researchable": false
+    },
+    {
+      "name": "plain: Graviton Laser System with nothing",
+      "rules_version": 15,
+      "owned": [],
+      "target": "gls",
+      "researchable": false
+    },
+    {
+      "name": "aida ready unlocks a unit upgrade one short",
+      "rules_version": 15,
+      "owned": [
+        "aida",
+        "amd",
+        "st"
+      ],
+      "target": "dn2",
+      "researchable": true
+    },
+    {
+      "name": "aida exhausted unlocks nothing",
+      "rules_version": 15,
+      "owned": [
+        "aida",
+        "amd",
+        "st"
+      ],
+      "exhausted": [
+        "aida"
+      ],
+      "target": "dn2",
+      "researchable": false
+    },
+    {
+      "name": "aida before rules version 15 unlocks nothing",
+      "rules_version": 14,
+      "owned": [
+        "aida",
+        "amd",
+        "st"
+      ],
+      "target": "dn2",
+      "researchable": false
+    },
+    {
+      "name": "aida does not unlock a plain technology",
+      "rules_version": 15,
+      "owned": [
+        "aida"
+      ],
+      "target": "gls",
+      "researchable": false
+    },
+    {
+      "name": "aida covers only one: Dreadnought II two short",
+      "rules_version": 15,
+      "owned": [
+        "aida",
+        "amd"
+      ],
+      "target": "dn2",
+      "researchable": false
+    },
+    {
+      "name": "aida unlocks Cruiser II missing only green",
+      "rules_version": 15,
+      "owned": [
+        "aida",
+        "st"
+      ],
+      "target": "cr2",
+      "researchable": true
+    },
+    {
+      "name": "aida plus a ready blue specialty cover two blue",
+      "rules_version": 15,
+      "owned": [
+        "aida",
+        "st"
+      ],
+      "specialties": [
+        {
+          "colour": "propulsion",
+          "exhausted": false
+        }
+      ],
+      "target": "dn2",
+      "researchable": true
+    },
+    {
+      "name": "aida plus an exhausted blue specialty without pa: only one waived",
+      "rules_version": 15,
+      "owned": [
+        "aida",
+        "st"
+      ],
+      "specialties": [
+        {
+          "colour": "propulsion",
+          "exhausted": true
+        }
+      ],
+      "target": "dn2",
+      "researchable": false
+    },
+    {
+      "name": "pa with an exhausted blue specialty: Gravity Drive",
+      "rules_version": 15,
+      "owned": [
+        "pa"
+      ],
+      "specialties": [
+        {
+          "colour": "propulsion",
+          "exhausted": true
+        }
+      ],
+      "target": "gd",
+      "researchable": true
+    },
+    {
+      "name": "exhausted blue specialty without pa",
+      "rules_version": 15,
+      "owned": [],
+      "specialties": [
+        {
+          "colour": "propulsion",
+          "exhausted": true
+        }
+      ],
+      "target": "gd",
+      "researchable": false
+    },
+    {
+      "name": "ready blue specialty without pa",
+      "rules_version": 15,
+      "owned": [],
+      "specialties": [
+        {
+          "colour": "propulsion",
+          "exhausted": false
+        }
+      ],
+      "target": "gd",
+      "researchable": true
+    },
+    {
+      "name": "pa before rules version 15: exhausted specialty unusable",
+      "rules_version": 14,
+      "owned": [
+        "pa"
+      ],
+      "specialties": [
+        {
+          "colour": "propulsion",
+          "exhausted": true
+        }
+      ],
+      "target": "gd",
+      "researchable": false
+    },
+    {
+      "name": "pa and aida: exhausted specialty plus aida cover two blue",
+      "rules_version": 15,
+      "owned": [
+        "pa",
+        "aida",
+        "st"
+      ],
+      "specialties": [
+        {
+          "colour": "propulsion",
+          "exhausted": true
+        }
+      ],
+      "target": "dn2",
+      "researchable": true
+    },
+    {
+      "name": "pa and aida exhausted: exhausted specialty alone is one short",
+      "rules_version": 15,
+      "owned": [
+        "pa",
+        "aida",
+        "st"
+      ],
+      "exhausted": [
+        "aida"
+      ],
+      "specialties": [
+        {
+          "colour": "propulsion",
+          "exhausted": true
+        }
+      ],
+      "target": "dn2",
+      "researchable": false
+    },
+    {
+      "name": "two ready specialties of different colours for Cruiser II",
+      "rules_version": 15,
+      "owned": [
+        "aida"
+      ],
+      "specialties": [
+        {
+          "colour": "biotic",
+          "exhausted": false
+        },
+        {
+          "colour": "cybernetic",
+          "exhausted": false
+        }
+      ],
+      "target": "cr2",
+      "researchable": true
+    },
+    {
+      "name": "an owned technology is not researchable again",
+      "rules_version": 15,
+      "owned": [
+        "amd"
+      ],
+      "target": "amd",
+      "researchable": false
+    },
+    {
+      "name": "sequence: first pick aida, second pick Cruiser II one green short",
+      "rules_version": 15,
+      "owned": [
+        "st"
+      ],
+      "target": "aida",
+      "researchable": true,
+      "then_target": "cr2",
+      "then_researchable": true
+    },
+    {
+      "name": "sequence: first pick Dreadnought II spends aida, Cruiser II is then not unlocked",
+      "rules_version": 15,
+      "owned": [
+        "aida",
+        "amd",
+        "st"
+      ],
+      "target": "dn2",
+      "researchable": true,
+      "then_target": "cr2",
+      "then_researchable": false
+    },
+    {
+      "name": "sequence: first pick aida does not cover two blue for Dreadnought II",
+      "rules_version": 15,
+      "owned": [
+        "st"
+      ],
+      "target": "aida",
+      "researchable": true,
+      "then_target": "dn2",
+      "then_researchable": false
+    },
+    {
+      "name": "sequence: first pick a plain technology, aida still ready for the second",
+      "rules_version": 15,
+      "owned": [
+        "aida",
+        "st"
+      ],
+      "target": "amd",
+      "researchable": true,
+      "then_target": "dn2",
+      "then_researchable": true
+    },
+    {
+      "name": "sequence: before version 15 a first pick aida unlocks nothing",
+      "rules_version": 14,
+      "owned": [
+        "st"
+      ],
+      "target": "aida",
+      "researchable": true,
+      "then_target": "cr2",
+      "then_researchable": false
+    }
   ]
 }

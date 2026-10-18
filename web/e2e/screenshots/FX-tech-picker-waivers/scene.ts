@@ -79,5 +79,10 @@ export const VARIANTS: Variant[] = [
     // The exhausted blue specialty (Thibah) still counts under Psychoarchaeology: Gravity Drive is on offer.
     engine: ["amd", "gd", "nm", "ps"],
   },
+  // New variants (no before shot: the base picker had no AI Development Algorithm chip at all).
+  { key: "aida-toggled", owned: ["aida", "amd", "st"], engine: ["nm", "ps", "gd", "gls", "cr2", "dn2"] },
+  { key: "aida-nonupgrade", owned: ["aida", "amd", "st"], engine: ["nm", "ps", "gd", "gls", "cr2", "dn2"] },
+  // Researches AI Development Algorithm first, then Cruiser II (G Y R, one green short) with it.
+  { key: "first-aida-second-cr2", owned: ["st"], engine: ["aida", "ps", "nm", "gls"] },
   { key: "plain", owned: ["amd", "st"], engine: ["nm", "ps", "gd", "gls"] },
 ];

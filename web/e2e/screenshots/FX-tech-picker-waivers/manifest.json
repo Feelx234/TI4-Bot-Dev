@@ -11,12 +11,12 @@
     {
       "file": "out/after-aida-unlocks-desktop-cards.png",
       "heading": "After: AI Development Algorithm ready, a unit upgrade one prerequisite short, desktop",
-      "caption": "Both cards are available and say 'Unlocked by AI Development Algorithm'; the control panel shows the auto-applied note 'AI Development Algorithm ignores 1 prerequisite (exhausts only if needed)'."
+      "caption": "Both cards are available and say 'Unlocked by AI Development Algorithm'."
     },
     {
       "file": "out/after-aida-unlocks-desktop-panel.png",
       "heading": "After: control panel, AI Development Algorithm ready, a unit upgrade one prerequisite short, desktop",
-      "caption": "Top of the picker: Tech Skips row, waiver note and resources."
+      "caption": "Tech Skips row: an AI Development Algorithm chip, enabled, 'Ready (+1), exhausts only if needed'."
     },
     {
       "file": "before/before-aida-unlocks-390x844-cards.png",
@@ -26,12 +26,12 @@
     {
       "file": "out/after-aida-unlocks-390x844-cards.png",
       "heading": "After: AI Development Algorithm ready, a unit upgrade one prerequisite short, phone 390x844",
-      "caption": "Both cards are available and say 'Unlocked by AI Development Algorithm'; the control panel shows the auto-applied note 'AI Development Algorithm ignores 1 prerequisite (exhausts only if needed)'."
+      "caption": "Both cards are available and say 'Unlocked by AI Development Algorithm'."
     },
     {
       "file": "out/after-aida-unlocks-390x844-panel.png",
       "heading": "After: control panel, AI Development Algorithm ready, a unit upgrade one prerequisite short, phone 390x844",
-      "caption": "Top of the picker: Tech Skips row, waiver note and resources."
+      "caption": "Tech Skips row: an AI Development Algorithm chip, enabled, 'Ready (+1), exhausts only if needed'."
     },
     {
       "file": "before/before-aida-exhausted-desktop-cards.png",
@@ -46,7 +46,7 @@
     {
       "file": "out/after-aida-exhausted-desktop-panel.png",
       "heading": "After: control panel, AI Development Algorithm exhausted, desktop",
-      "caption": "Top of the picker: Tech Skips row, waiver note and resources."
+      "caption": "The chip is disabled: '(Exhausted)'."
     },
     {
       "file": "before/before-aida-exhausted-390x844-cards.png",
@@ -61,7 +61,7 @@
     {
       "file": "out/after-aida-exhausted-390x844-panel.png",
       "heading": "After: control panel, AI Development Algorithm exhausted, phone 390x844",
-      "caption": "Top of the picker: Tech Skips row, waiver note and resources."
+      "caption": "The chip is disabled: '(Exhausted)'."
     },
     {
       "file": "before/before-pa-exhausted-planet-desktop-cards.png",
@@ -132,6 +132,46 @@
       "file": "out/after-plain-390x844-panel.png",
       "heading": "After: control panel, Plain case, no waiver cards, phone 390x844",
       "caption": "Top of the picker: Tech Skips row, waiver note and resources."
+    },
+    {
+      "file": "out/after-aida-toggled-desktop-toggled.png",
+      "heading": "After: Dreadnought II selected, chip on, desktop",
+      "caption": "Chip toggled on: 'Active (+1), exhausts only if needed'. It is also on automatically when the selection needs it."
+    },
+    {
+      "file": "out/after-aida-nonupgrade-desktop-disabled.png",
+      "heading": "After: plain technology selected, chip disabled, desktop",
+      "caption": "Gravity Drive selected: the chip reads '(Unit upgrades only)' and cannot be toggled."
+    },
+    {
+      "file": "out/after-first-aida-second-cr2-desktop-second.png",
+      "heading": "After: first pick AI Development Algorithm, second pick Cruiser II, desktop",
+      "caption": "Sol owns only Sarween Tools. The first pick (aida) is a ready waiver for the second: Cruiser II (G Y R, green missing) is selectable and the chip is Active (+1)."
+    },
+    {
+      "file": "out/after-first-aida-second-cr2-desktop-second-card.png",
+      "heading": "After: Cruiser II card, desktop",
+      "caption": "The card says 'Unlocked by AI Development Algorithm'."
+    },
+    {
+      "file": "out/after-aida-toggled-390x844-toggled.png",
+      "heading": "After: Dreadnought II selected, chip on, phone 390x844",
+      "caption": "Chip toggled on: 'Active (+1), exhausts only if needed'. It is also on automatically when the selection needs it."
+    },
+    {
+      "file": "out/after-aida-nonupgrade-390x844-disabled.png",
+      "heading": "After: plain technology selected, chip disabled, phone 390x844",
+      "caption": "Gravity Drive selected: the chip reads '(Unit upgrades only)' and cannot be toggled."
+    },
+    {
+      "file": "out/after-first-aida-second-cr2-390x844-second.png",
+      "heading": "After: first pick AI Development Algorithm, second pick Cruiser II, phone 390x844",
+      "caption": "Sol owns only Sarween Tools. The first pick (aida) is a ready waiver for the second: Cruiser II (G Y R, green missing) is selectable and the chip is Active (+1)."
+    },
+    {
+      "file": "out/after-first-aida-second-cr2-390x844-second-card.png",
+      "heading": "After: Cruiser II card, phone 390x844",
+      "caption": "The card says 'Unlocked by AI Development Algorithm'."
     }
   ],
   "notes": [
@@ -150,6 +190,18 @@
     {
       "title": "Not modelled client-side",
       "text": "Research Team laws and Publicize Weapon Schematics: the client has no data for them, so the first pick relies on the engine's list and the second pick's own check does not count them. Jol-Nar's budget is untouched (its literal 'unit_upgrade' test never matched the catalog's UNITUPGRADE, so it has always been 2 for every technology)."
+    },
+    {
+      "title": "AI Development Algorithm as a skip chip",
+      "text": "A chip in the Tech Skips row: enabled while a ready aida is owned (rules version 15+) and the considered card is a unit upgrade; disabled with '(Exhausted)', '(Unit upgrades only)' or '(Spent by the first pick)'. The engine spends the card only if needed, so toggling it adds no extra spending; availability always counts a ready aida, and the chip shows Active (+1) when toggled or when the selection needs it."
+    },
+    {
+      "title": "Gaining aida and using it at once",
+      "text": "Engine check: the Technology primary offers the first research, applies it, then offers the second on the updated state, so a first pick of aida is ready for the second pick and is exhausted by it; a first pick of a unit upgrade that needed aida exhausts it, and the second upgrade is not unlocked. The engine already behaved so: no engine change, no new rules version. Both orders are in the parity table (sequence scenarios), asserted by the Rust and the vitest tests."
+    },
+    {
+      "title": "Before shots",
+      "text": "Unchanged: taken on 0a18dd87 for the first four variants; the new variants have no before (the base had no such chip)."
     }
   ]
 }

@@ -729,11 +729,13 @@ describe("TechnologyModal", () => {
       const card = screen.getByTestId("tech-card-dn2");
       expect(card).toHaveAttribute("data-researchable", "true");
       expect(screen.getByTestId("tech-aida-note-dn2")).toHaveTextContent("Unlocked by AI Development Algorithm");
-      expect(screen.getByTestId("tech-aida-note")).toHaveTextContent(
-        "AI Development Algorithm ignores 1 prerequisite (exhausts only if needed)",
-      );
+      const chip = screen.getByTestId("tech-skip-aida");
+      expect(chip).not.toBeDisabled();
+      expect(chip).toHaveAttribute("title", expect.stringContaining("exhausts only if needed"));
+      expect(chip).toHaveTextContent("Ready (+1)");
       fireEvent.click(card);
       expect(card).toHaveAttribute("data-selected", "true");
+      expect(screen.getByTestId("tech-skip-aida")).toHaveTextContent("Active (+1)");
     });
 
     it("trusts the engine's list for a first pick, even where the client lacks the data", () => {
@@ -747,14 +749,40 @@ describe("TechnologyModal", () => {
     it("an exhausted aida unlocks nothing and shows no note", () => {
       open(["aida", "amd", "st"], ["aida"], [], 15);
       expect(screen.getByTestId("tech-card-dn2")).toHaveAttribute("data-researchable", "false");
-      expect(screen.queryByTestId("tech-aida-note")).not.toBeInTheDocument();
+      const chip = screen.getByTestId("tech-skip-aida");
+      expect(chip).toBeDisabled();
+      expect(chip).toHaveTextContent("(Exhausted)");
       expect(screen.queryByTestId("tech-aida-note-dn2")).not.toBeInTheDocument();
     });
 
     it("at rules version 14 the old check stays: the list does not override it and aida is ignored", () => {
       open(["aida", "amd", "st"], [], ["dn2"], 14);
       expect(screen.getByTestId("tech-card-dn2")).toHaveAttribute("data-researchable", "false");
-      expect(screen.queryByTestId("tech-aida-note")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("tech-skip-aida")).not.toBeInTheDocument();
+    });
+
+    it("the chip is disabled with a reason for a plain technology and toggles on for a unit upgrade", () => {
+      open(["aida", "amd", "st"], [], ["dn2", "gd"], 15);
+      fireEvent.click(screen.getByTestId("tech-card-gd"));
+      const chip = screen.getByTestId("tech-skip-aida");
+      expect(chip).toBeDisabled();
+      expect(chip).toHaveTextContent("(Unit upgrades only)");
+      fireEvent.click(screen.getByTestId("tech-card-gd")); // deselect
+      fireEvent.click(screen.getByTestId("tech-card-dn2"));
+      fireEvent.click(screen.getByTestId("tech-skip-aida"));
+      expect(screen.getByTestId("tech-skip-aida")).toHaveTextContent("Active (+1)");
+    });
+
+    it("a first pick of aida itself is a ready waiver for the second pick (Cruiser II one green short)", () => {
+      // Owns Sarween Tools only; Cruiser II (G Y R) needs green and red: aida gives the red as a
+      // technology and ignores the green.
+      open(["st"], [], ["aida", "ps"], 15);
+      fireEvent.click(screen.getByTestId("tech-card-aida"));
+      const cr2 = screen.getByTestId("tech-card-cr2");
+      expect(cr2).toHaveAttribute("data-selectable", "true");
+      expect(screen.getByTestId("tech-aida-note-cr2")).toBeInTheDocument();
+      fireEvent.click(cr2);
+      expect(screen.getByTestId("tech-skip-aida")).toHaveTextContent("Active (+1)");
     });
 
     it("the second pick may use aida for a unit upgrade one short, but not after the first pick spent it", () => {

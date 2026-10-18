@@ -402,3 +402,48 @@ export function unlockedByAida(
     !checkTechPrerequisites(tech, ownedTrackCounts, toggledSkips, faction, { ...waivers, aida: false })
   );
 }
+
+/**
+ * The waivers left for a SECOND pick of the Technology primary, given the first pick: AI
+ * Development Algorithm is there when it was owned and ready, or when the first pick IS aida
+ * (gained, so ready); it is gone when the first pick (a unit upgrade) fell short without it, because
+ * the engine spent it then.
+ */
+export function secondPickWaivers(
+  firstId: string,
+  ownedTrackCounts: Record<Track, number>,
+  allSkips: Record<Track, number>,
+  faction: string | undefined,
+  waivers: PrereqWaivers,
+  rulesVersion: number,
+): PrereqWaivers {
+  const first = hydrateTech(firstId);
+  const gained = rulesVersion >= RULES_TECH_EFFECTS && firstId === "aida";
+  const spent =
+    Boolean(waivers.aida) &&
+    isUnitUpgradeTech(first) &&
+    !checkTechPrerequisites(first, ownedTrackCounts, allSkips, faction, { ...waivers, aida: false });
+  return { ...waivers, aida: (Boolean(waivers.aida) || gained) && !spent };
+}
+
+export function secondPickPrerequisitesMet(
+  firstId: string,
+  tech: HydratedTech,
+  ownedTrackCounts: Record<Track, number>,
+  skips: Record<Track, number>,
+  allSkips: Record<Track, number>,
+  faction: string | undefined,
+  waivers: PrereqWaivers,
+  rulesVersion: number,
+): boolean {
+  const counts = { ...ownedTrackCounts };
+  const firstTrack = getTechnologyTrack(firstId);
+  if (firstTrack) counts[firstTrack] = (counts[firstTrack] || 0) + 1;
+  return checkTechPrerequisites(
+    tech,
+    counts,
+    skips,
+    faction,
+    secondPickWaivers(firstId, ownedTrackCounts, allSkips, faction, waivers, rulesVersion),
+  );
+}

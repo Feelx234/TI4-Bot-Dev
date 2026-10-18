@@ -1005,3 +1005,9 @@
   text-align: left;
   flex-wrap: wrap;
 }
+
+.tech-skip-pill__badge--aida {
+  background: rgba(192, 132, 252, 0.3);
+  color: #c084fc;
+  font-size: 9px;
+}

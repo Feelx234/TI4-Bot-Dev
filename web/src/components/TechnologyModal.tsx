@@ -24,6 +24,9 @@ import {
   getControlledSpecialtyPlanets,
   checkTechPrerequisites,
   unlockedByAida,
+  secondPickPrerequisitesMet,
+  secondPickWaivers,
+  aidaIsReady,
   visibleWaivers,
   psychoarchaeologyFrees,
   isUnitUpgradeTech,
@@ -265,24 +268,18 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
    * upgrade) falls short without it, and then is not there for the second.
    */
   const secondPickPrereqsMet = useCallback(
-    (firstId: string, tech: HydratedTech): boolean => {
-      const counts = { ...ownedTrackCounts };
-      const firstTrack = getTechnologyTrack(firstId);
-      if (firstTrack) counts[firstTrack] = (counts[firstTrack] || 0) + 1;
-      const first = hydrateTech(firstId);
-      const aidaSpent =
-        Boolean(waivers.aida) &&
-        isUnitUpgradeTech(first) &&
-        !checkTechPrerequisites(first, ownedTrackCounts, allSkipCounts, viewerPlayer?.faction, {
-          ...waivers,
-          aida: false,
-        });
-      return checkTechPrerequisites(tech, counts, toggledSkipCounts, viewerPlayer?.faction, {
-        ...waivers,
-        aida: Boolean(waivers.aida) && !aidaSpent,
-      });
-    },
-    [ownedTrackCounts, allSkipCounts, toggledSkipCounts, viewerPlayer?.faction, waivers],
+    (firstId: string, tech: HydratedTech): boolean =>
+      secondPickPrerequisitesMet(
+        firstId,
+        tech,
+        ownedTrackCounts,
+        toggledSkipCounts,
+        allSkipCounts,
+        viewerPlayer?.faction,
+        waivers,
+        rulesVersion,
+      ),
+    [ownedTrackCounts, allSkipCounts, toggledSkipCounts, viewerPlayer?.faction, waivers, rulesVersion],
   );
 
   // Resources calculation
@@ -519,11 +516,15 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
 
   /** A card that is available only because AI Development Algorithm ignores one of its prerequisites. */
   const aidaNoteFor = (tech: HydratedTech): string | undefined => {
-    if (!waivers.aida || !isUnitUpgradeTech(tech)) return undefined;
+    if (!isUnitUpgradeTech(tech)) return undefined;
     if (!isAvailableNow(tech)) return undefined;
     const second = activeResearchMode && secondPickOpen && !techMatches(tech.id, selectedTechs[0]);
     const counts = second ? effectiveTrackCounts : ownedTrackCounts;
-    return unlockedByAida(tech, counts, allSkipCounts, viewerPlayer?.faction, waivers)
+    const w = second
+      ? secondPickWaivers(selectedTechs[0], ownedTrackCounts, allSkipCounts, viewerPlayer?.faction, waivers, rulesVersion)
+      : waivers;
+    if (!w.aida) return undefined;
+    return unlockedByAida(tech, counts, allSkipCounts, viewerPlayer?.faction, w)
       ? "Unlocked by AI Development Algorithm"
       : undefined;
   };
@@ -535,6 +536,32 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
   );
   const unitUpgradesVisible = unitUpgradeTechs.filter(shown).length > 0;
   const factionVisible = factionTechs.filter(shown).length > 0;
+
+  // AI Development Algorithm as a skip chip: +1 prerequisite of any colour, unit upgrades only.
+  const [aidaToggled, setAidaToggled] = useState(false);
+  const aidaChip = (() => {
+    if (!activeResearchMode || rulesVersion < RULES_TECH_EFFECTS) return null;
+    const firstId = selectedTechs[0];
+    const owns = Boolean(viewerPlayer) && hasResearchedTech(viewerPlayer!, "aida");
+    const gainedByFirst = firstId === "aida" && maxSelectable === 2 && selectedTechs.length === 2;
+    if (!owns && !gainedByFirst) return null;
+    const considered = selectedTechs.length > 0 ? selectedTechs[selectedTechs.length - 1] : null;
+    const isSecond = maxSelectable === 2 && selectedTechs.length === 2;
+    const w = isSecond
+      ? secondPickWaivers(firstId, ownedTrackCounts, allSkipCounts, viewerPlayer?.faction, waivers, rulesVersion)
+      : waivers;
+    const ready = Boolean(w.aida);
+    const tech = considered ? hydrateTech(considered) : null;
+    let reason: string | null = null;
+    if (!ready) reason = owns && !aidaIsReady(viewerPlayer, rulesVersion) ? "Exhausted" : "Spent by the first pick";
+    else if (tech && !isUnitUpgradeTech(tech)) reason = "Unit upgrades only";
+    const required = Boolean(
+      !reason &&
+        tech &&
+        unlockedByAida(tech, isSecond ? effectiveTrackCounts : ownedTrackCounts, allSkipCounts, viewerPlayer?.faction, w),
+    );
+    return { reason, active: !reason && (aidaToggled || required) };
+  })();
 
   if (!isOpen) return null;
 
@@ -653,6 +680,36 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                       );
                     })()}
 
+                  {aidaChip && (
+                    <button
+                      type="button"
+                      data-testid="tech-skip-aida"
+                      disabled={aidaChip.reason !== null}
+                      className={`tech-skip-pill tech-skip-pill--free ${
+                        aidaChip.reason !== null
+                          ? "tech-skip-pill--exhausted"
+                          : aidaChip.active
+                            ? "tech-skip-pill--toggled"
+                            : "tech-skip-pill--ready"
+                      }`}
+                      onClick={() => setAidaToggled((v) => !v)}
+                      title={
+                        aidaChip.reason ??
+                        "AI Development Algorithm ignores 1 prerequisite of a unit upgrade (exhausts only if needed)"
+                      }
+                    >
+                      <span className="tech-skip-pill__badge tech-skip-pill__badge--aida">AI</span>
+                      <span>AI Development Algorithm</span>
+                      <span className="tech-skip-pill__status">
+                        {aidaChip.reason !== null
+                          ? `(${aidaChip.reason})`
+                          : aidaChip.active
+                            ? "Active (+1), exhausts only if needed"
+                            : "Ready (+1), exhausts only if needed"}
+                      </span>
+                    </button>
+                  )}
+
                   {controlledSpecialties.length === 0 &&
                   (maxSelectable !== 2 || selectedTechs.length === 0) ? (
                     <span className="technology-modal__skips-empty">
@@ -710,12 +767,6 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                   )}
                 </div>
               </div>
-
-              {waivers.aida && (
-                <div className="technology-modal__aida-note" data-testid="tech-aida-note">
-                  AI Development Algorithm ignores 1 prerequisite (exhausts only if needed)
-                </div>
-              )}
 
               {/* Resources & Decision Actions */}
               <div className="technology-modal__research-footer">
