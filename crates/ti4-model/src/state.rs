@@ -1155,7 +1155,7 @@ pub struct StartingTechPick {
 /// The rules version of a new game. Raise it when an engine decision changes in a way that an
 /// older game log would not replay under (and gate the change on
 /// [`GameState::rules_version`]); see `docs/RULES_VERSION.md`.
-pub const RULES_VERSION: u32 = 11;
+pub const RULES_VERSION: u32 = 12;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
@@ -1212,6 +1212,12 @@ pub const RULES_ACTION_CARD_TARGETS: u32 = 10;
 /// The first rules version where a retreat obeys the movement rules for entering the destination:
 /// no asteroid field without Antimass Deflectors, no supernova.
 pub const RULES_RETREAT_HAZARDS: u32 = 11;
+
+/// The first rules version where a command token gained without a named pool (the exploration
+/// cards Volatile Fuel Source, the Entropic Field frontier rewards and the Keleres ones, and the
+/// Leadership Rider) is placed into a pool of the player's choice (52.4). Before,
+/// exploration put them in the strategy pool and Leadership Rider in the fleet pool.
+pub const RULES_COMMAND_TOKEN_POOL: u32 = 12;
 
 /// The whole game, as a value.
 ///
