@@ -69,6 +69,7 @@ import {
 } from "../presentation/ProductionPaymentContext.tsx";
 import {
   autoPaymentFor,
+  isAnsweredFromPlan,
   isProductionPayQuestion,
   newProductionPay,
   type ProductionPay,
@@ -859,11 +860,7 @@ export const ChoiceRendererDispatcher: React.FC<
   if (choice.nonce === autoAnswerNonce && choice.prompt === "movement") return null;
 
   // A production's later payments are answered from the plan the player confirmed: no prompt.
-  if (
-    productionPay?.mode === "auto" &&
-    choice.nonce !== productionPay.panelNonce &&
-    isProductionPayQuestion(choice, productionPay)
-  )
+  if (isAnsweredFromPlan(choice, productionPay))
     return (
       <div
         className="choice-banner panel system-activation-bar"
@@ -1416,6 +1413,8 @@ export const GameShell: React.FC<GameShellProps> = ({
     <BoardPrepSlotContext.Provider value={prepSlotValue}>
     <AgendaPillProvider value={agendaPill ?? null}>
     <TradeGoodLedgerProvider players={Object.values(playersMap)} events={events}>
+    {/* Around the board too: the map offers no planets for a payment the plan answers. */}
+    <ProductionPaymentProvider value={productionPayApi}>
     <div data-testid="game-container" className="app-shell">
       <div className="app-shell__header">
         {header}
@@ -1561,7 +1560,6 @@ export const GameShell: React.FC<GameShellProps> = ({
             onDismiss={onDismissBatchResume}
           />
         )}
-        <ProductionPaymentProvider value={productionPayApi}>
         <PipelineRunnerContext.Provider value={pipelineRunner}>
           <ChoiceRendererDispatcher
             key={`${history?.generation ?? 0}:${boardView?.invasion?.invasion_seq ?? "none"}`}
@@ -1619,9 +1617,9 @@ export const GameShell: React.FC<GameShellProps> = ({
             }}
           />
         </PipelineRunnerContext.Provider>
-        </ProductionPaymentProvider>
       </div>
     </div>
+    </ProductionPaymentProvider>
     </TradeGoodLedgerProvider>
     </AgendaPillProvider>
     </BoardPrepSlotContext.Provider>
