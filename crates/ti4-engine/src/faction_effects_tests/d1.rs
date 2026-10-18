@@ -2021,3 +2021,123 @@ fn hacan_mech_1_pride_of_kenara_makes_its_planet_card_tradable_and_moves_the_uni
         "a deal that gives the planet {planet} is on offer: {offered:?}"
     );
 }
+
+#[test]
+fn arborec_mech_1_letani_behemoth_gives_its_planet_planetary_shield() {
+    let bombarded = |mech: bool| {
+        let (mut state, hub, centre, planet) =
+            production_board(&[("a", "arborec"), ("b", "letnev")], "spacedock");
+        state.system_mut(&centre).planet_units.clear();
+        put_on_planet(&mut state, &centre, &planet, "arborec_infantry", &a(), 3);
+        if mech {
+            put_on_planet(&mut state, &centre, &planet, "arborec_mech", &a(), 1);
+        }
+        for system in state.board.keys().cloned().collect::<Vec<_>>() {
+            if system != centre {
+                state.system_mut(&system).units.clear();
+            }
+        }
+        put(&mut state, &SystemId::new(hub.outer[0].clone()), "dreadnought", &b(), 2);
+        state.active = Some(b());
+        let table = opening_then(
+            &[TACTICAL_ACTION_ID, centre.as_str()],
+            &["move|", "done_loading", "done_moving", "decline"],
+        );
+        let mut game = game_of(state, hub.galaxy, table);
+        drive(&mut game, 80, tactical_done);
+        game.rolls().iter().any(|roll| roll.reason == "bombardment" && roll.by.as_deref() == Some("b"))
+    };
+    assert!(!bombarded(true), "the mech shields the planet from BOMBARDMENT");
+    assert!(bombarded(false), "without it the infantry are bombarded");
+}
+
+/// The "(n left)" figure of the first production prompt when `a` (Arborec) activates a system whose
+/// only unit with PRODUCTION is `unit` on a planet it controls.
+fn production_left_with_only(unit: &str, tech: Option<&str>) -> String {
+    let (mut state, hub, centre, planet) =
+        production_board(&[("a", "arborec"), ("b", "hacan")], "spacedock");
+    state.system_mut(&centre).planet_units.clear();
+    put_on_planet(&mut state, &centre, &planet, unit, &a(), 1);
+    if let Some(tech) = tech {
+        super::give(&mut state, "a", tech);
+    }
+    let table = opening_then(&[TACTICAL_ACTION_ID, centre.as_str(), "done_moving"], &[]);
+    let mut game = game_of(state, hub.galaxy, table);
+    let choice = until_prompt(&mut game, "produce in ");
+    choice.prompt.rsplit(" (").next().unwrap().trim_end_matches(" left)").to_owned()
+}
+
+#[test]
+fn arborec_infantry_1_letani_warrior_i_has_production_one() {
+    assert_eq!(production_left_with_only("arborec_infantry", None), "1");
+}
+
+#[test]
+fn arborec_infantry2_2_letani_warrior_ii_has_production_two() {
+    assert_eq!(production_left_with_only("arborec_infantry2", Some("lw2")), "2");
+}
+
+/// The first roll's hit number for `unit` defending a planet in a ground combat against one Hacan
+/// infantry, fought with `invasion::ground_combat`.
+fn ground_hit_number(faction: &str, unit: &str) -> Option<u32> {
+    let mut state = seated_all(&[("a", faction), ("b", "hacan")]);
+    let (system, planet) = crate::fixtures::a_placed_planet();
+    put_on_planet(&mut state, &system, &planet, unit, &a(), 1);
+    put_on_planet(&mut state, &system, &planet, "infantry", &b(), 1);
+    state.active = Some(b());
+    let mut dice = crate::dice::Dice::new();
+    let mut rng = crate::rng::GameRng::new(5);
+    crate::invasion::ground_combat(
+        &mut state,
+        content(),
+        SOURCES,
+        &mut Table::new(),
+        &mut dice,
+        &mut rng,
+        &system,
+        &planet,
+        &b(),
+    )
+    .expect("the fight resolves");
+    dice.history()
+        .iter()
+        .find(|roll| roll.by.as_deref() == Some("a"))
+        .and_then(|roll| roll.hits_on)
+}
+
+#[test]
+fn sol_infantry_1_spec_ops_i_hits_on_seven() {
+    assert_eq!(ground_hit_number("sol", "sol_infantry"), Some(7));
+}
+
+#[test]
+fn sol_infantry2_1_spec_ops_ii_hits_on_six() {
+    assert_eq!(ground_hit_number("sol", "sol_infantry2"), Some(6));
+}
+
+#[test]
+fn arborec_infantry_2_letani_warrior_i_hits_on_eight() {
+    assert_eq!(ground_hit_number("arborec", "arborec_infantry"), Some(8));
+}
+
+#[test]
+fn arborec_infantry2_1_letani_warrior_ii_hits_on_seven() {
+    assert_eq!(ground_hit_number("arborec", "arborec_infantry2"), Some(7));
+}
+
+#[test]
+fn saar_spacedock_1_floating_factory_i_retreats_with_the_fleet_as_if_it_were_a_ship() {
+    // Hook level: the retreat of a real fight cannot be driven with loaded dice through `Game`
+    // (its dice are seeded), so this calls the retreat primitive the combat window uses.
+    let mut state = seated_all(&[("a", "saar"), ("b", "sol")]);
+    let hub = open_hub();
+    let (centre, safe) = (SystemId::new(hub.centre.clone()), SystemId::new(hub.outer[1].clone()));
+    for system in state.board.keys().cloned().collect::<Vec<_>>() {
+        state.system_mut(&system).units.clear();
+    }
+    put(&mut state, &centre, "saar_spacedock", &a(), 1);
+    put(&mut state, &centre, "cruiser", &a(), 1);
+    crate::combat::retreat_to(&mut state, content(), SOURCES, &a(), &centre, &safe);
+    assert_eq!(count(&state, &safe, "saar_spacedock", &a()), 1, "the factory left with the cruiser");
+    assert_eq!(count(&state, &centre, "saar_spacedock", &a()), 0);
+}
