@@ -36,6 +36,7 @@ pub fn setup_of(record: &PlayerLobbyRecord) -> TableSetup {
         // A lobby starts a new game, which asks for the starting technology; the game then lives
         // on in its saved opening state, whatever this says.
         starting_tech: true,
+        thunders_edge: record.thunders_edge,
         seed: record.seed,
     }
 }
@@ -93,6 +94,8 @@ pub struct TableSettings {
     pub player_count: Option<usize>,
     /// One of [`ti4_host::setup::card_set::OFFERED`].
     pub strategy_card_set: Option<String>,
+    /// Thunder's Edge content on or off.
+    pub thunders_edge: Option<bool>,
     /// 0 to [`MAX_BOT_DELAY_MS`].
     pub bot_delay_ms: Option<u64>,
     /// The id of a scenario of `ti4_host::view::scenario`, or `null` for round 1.
@@ -244,6 +247,9 @@ pub fn apply_settings(
         let set = ti4_host::setup::card_set::validate(name)
             .map_err(|error| LobbyError::InvalidSetting(error.to_string()))?;
         updated.strategy_card_set = Some(set.to_owned());
+    }
+    if let Some(on) = settings.thunders_edge {
+        updated.thunders_edge = on;
     }
     if let Some(delay) = settings.bot_delay_ms {
         if delay > MAX_BOT_DELAY_MS {

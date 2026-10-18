@@ -390,6 +390,7 @@ async fn the_script_messages_are_answered_over_the_websocket() {
             ti4_host::setup::card_set::DEFAULT,
             ti4_host::setup::SpeakerOrder::Seat,
             None,
+            false,
         )
         .expect("a started game");
     let session = registry.get_game(&game_id).expect("the game runs");

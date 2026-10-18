@@ -214,7 +214,7 @@ Columns: handle, slug (use as `/slug`), subtype, who answers, what is asked, UI 
 | Neuraloop Purge | `/neuraloop-purge` | `neuraloop_choose_relic_to_purge` | owner | which relic to purge | Generic fallback | list | 0 (never seen) | Not seen. |
 | Scanlink Pick | `/scanlink-pick` | `scanlink_explore` | Scanlink owner | explore planet | Shared specialised | PlanetSelectionBar | 7 (3) |  |
 | Expedition Discard | `/expedition-discard` | `expedition_discard_action_card / expedition_discard_secret` | owner | pay with cards | Shared specialised | card tiles (cardOptions.ts) | 0 (never seen) | Thunder's Edge; not seen. |
-| Expedition Place | `/expedition-place` | `expedition_place_system / expedition_placement_tiebreak` | owner | where to place | Generic fallback | list | 0 (never seen) | Not seen. system suffix does not match system regex. |
+| Expedition Place | `/expedition-place` | `expedition_place_system / expedition_placement_tiebreak` | owner | where to place | Shared specialised (system pick on the map) / list | system dialog with "Choose on the map"; tie-break list | 0 (reachable only with the Thunder's Edge switch on) | `expedition_place_system` is in the system-pick regex (`systemFacts.ts`); the options are kind `system` when the table has the switch on. Screenshots: `FP-thunders-edge-expedition`. |
 
 ### Technologies, factions, leaders
 

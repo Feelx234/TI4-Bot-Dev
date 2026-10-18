@@ -3,6 +3,7 @@ import { readBreakthroughs } from "./breakthroughs.ts";
 import { readFrontierTokens } from "./explorationMarks.ts";
 import { EMPTY_HELD_STATE, readHeldState, type HeldState } from "./heldItems.ts";
 import { readExplorationLog, type ExplorationRecordDto } from "./explorationToasts.ts";
+import { readExpeditionSlices, readThundersEdge } from "./expedition.ts";
 
 /**
  * Public facts the engine's state carries that the projected views leave out: each seat's
@@ -15,9 +16,20 @@ export interface PublicStateFacts {
   frontierSystems: ReadonlySet<string>;
   /** The promissory fields the Held items panel reads. */
   held: HeldState;
+  /** The table plays Thunder's Edge content (`thunders_edge`; left out of the state while off). */
+  thundersEdge: boolean;
+  /** Expedition slice to the seat that claimed it. */
+  expeditionSlices: Readonly<Record<string, string>>;
 }
 
-const EMPTY: PublicStateFacts = { breakthroughs: {}, explorations: [], frontierSystems: new Set(), held: EMPTY_HELD_STATE };
+const EMPTY: PublicStateFacts = {
+  breakthroughs: {},
+  explorations: [],
+  frontierSystems: new Set(),
+  held: EMPTY_HELD_STATE,
+  thundersEdge: false,
+  expeditionSlices: {},
+};
 const PublicStateContext = createContext<PublicStateFacts>(EMPTY);
 
 export function publicStateFacts(state: Record<string, unknown> | null | undefined): PublicStateFacts {
@@ -26,6 +38,8 @@ export function publicStateFacts(state: Record<string, unknown> | null | undefin
     explorations: readExplorationLog(state),
     frontierSystems: new Set(readFrontierTokens(state)),
     held: readHeldState(state),
+    thundersEdge: readThundersEdge(state),
+    expeditionSlices: readExpeditionSlices(state),
   };
 }
 

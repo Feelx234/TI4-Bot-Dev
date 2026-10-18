@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
-use ti4_model::content_types::{POK, SourceSet};
+use ti4_model::content_types::{FULL, POK, SourceSet};
 use ti4_model::id::{PlayerId, StrategyCardId, SystemId};
 use ti4_model::state::{Feat, FeatOccurrence, GameState, Phase, TransientFlags};
 use ti4_model::units::Unit;
@@ -1488,6 +1488,7 @@ impl<'a> Game<'a> {
         // unregister — a "cannot" effect must not be removable (LRR 1.6) — so registering hands
         // instead of slots would leak an ability for every card ever drawn.
         crate::reactions::arm(&mut timing, &state);
+        let thunders_edge = state.thunders_edge;
         Self {
             strategy_cards: state.unclaimed_strategy_cards.clone(),
             state,
@@ -1496,7 +1497,7 @@ impl<'a> Game<'a> {
             timing,
             event_sequence: EventSequence::new(),
             content,
-            sources: POK,
+            sources: if thunders_edge { FULL } else { POK },
             secondary: None,
             secondary_after_tactical: None,
             leader_strategy: None,
@@ -2441,7 +2442,8 @@ impl<'a> Game<'a> {
     /// Whether an action-phase option leaves the turn's action untouched: a contact, a trade, a
     /// payment on a deal, or a leader printed "During the action phase:".
     fn is_free_option(&self, option: &ChoiceOption) -> bool {
-        crate::diplomacy::candidates::contact_seat_index(&option.id).is_some()
+        (self.state.thunders_edge && option.id.starts_with("component|expedition|"))
+            || crate::diplomacy::candidates::contact_seat_index(&option.id).is_some()
             || crate::diplomacy::candidates::payment_action(option).is_some()
             || option.kind == crate::transactions::OPEN_KIND
             || option
@@ -2475,6 +2477,21 @@ impl<'a> Game<'a> {
                     options.push(option);
                 }
             }
+        }
+        // "At the end of a player's turn, they may commit to the expedition": one slice, after
+        // the action, without using an action.
+        if self.state.thunders_edge
+            && !self
+                .state
+                .transient_flags
+                .has(TransientFlags::EXPEDITION_CLAIMED)
+        {
+            options.extend(crate::thunders_edge::available_actions(
+                &self.state,
+                self.content,
+                self.sources,
+                player,
+            ));
         }
         Choice::new(
             player.clone(),
@@ -2557,14 +2574,19 @@ impl<'a> Game<'a> {
             self.sources,
             active,
         ));
-        choice
-            .options
-            .extend(crate::thunders_edge::available_actions(
-                &self.state,
-                self.content,
-                self.sources,
-                active,
-            ));
+        // A table with Thunder's Edge on commits to the expedition "at the end of a player's
+        // turn" (the closing menu, `closing_options`), not as an action; older games keep the
+        // component action they were recorded with.
+        if !self.state.thunders_edge {
+            choice
+                .options
+                .extend(crate::thunders_edge::available_actions(
+                    &self.state,
+                    self.content,
+                    self.sources,
+                    active,
+                ));
+        }
         // A faction's own component actions — Sol's Orbital Drop is the first.
         choice
             .options
@@ -2856,6 +2878,15 @@ impl<'a> Game<'a> {
                     });
                     if !done {
                         self.failed_component_actions.insert(answer.id.clone());
+                        return Ok(());
+                    }
+                    if self.state.thunders_edge {
+                        // Committed at the end of the turn: no action was used, and the turn
+                        // goes on closing (one slice per turn).
+                        self.state
+                            .transient_flags
+                            .set(TransientFlags::EXPEDITION_CLAIMED);
+                        self.emit("EXPEDITION_SLICE_CLAIMED");
                         return Ok(());
                     }
                     self.finish_action()?;
@@ -6984,6 +7015,9 @@ impl<'a> Game<'a> {
         self.state
             .transient_flags
             .clear(TransientFlags::BLACK_MARKET);
+        self.state
+            .transient_flags
+            .clear(TransientFlags::EXPEDITION_CLAIMED);
         if self.state.phase == Phase::Action
             && let Some(active) = ended.clone()
         {
@@ -13769,6 +13803,60 @@ mod tests {
             crate::action_cards::move_bonus(&game.state, &a, 2),
             0,
             "expired by identity at the next activation"
+        );
+    }
+
+    /// A table with Thunder's Edge on commits to the expedition at the end of its turn: the action
+    /// menu does not offer a slice, the closing menu does, claiming one uses no action and goes
+    /// back to the closing menu without a second slice that turn.
+    #[test]
+    fn the_expedition_is_committed_at_the_end_of_the_turn_when_thunders_edge_is_on() {
+        let content = ContentStore::embedded();
+        let a = PlayerId::new("a");
+        let players = [a.clone(), PlayerId::new("b")];
+        let mut state = start_game(content, &players, POK, None).unwrap();
+        state.thunders_edge = true;
+        state.phase = Phase::Action;
+        state.active = Some(a.clone());
+        state.player_mut(&a).unwrap().trade_goods = 6;
+        let table = Table::with_default(Box::new(Scripted::new([
+            "component|expedition|trade_goods".to_owned(),
+            END_TURN_ID.to_owned(),
+        ])));
+        let mut game = Game::with_table(state, content, table);
+        assert_eq!(game.sources, ti4_model::content_types::FULL);
+        let has_slice = |choice: &Choice| {
+            choice
+                .ids()
+                .iter()
+                .any(|id| id.starts_with("component|expedition|"))
+        };
+        assert!(
+            !has_slice(&game.legal_options().unwrap()),
+            "no slice in the action menu"
+        );
+        game.turn_closing = Some(a.clone());
+        let closing = game.legal_options().unwrap();
+        assert!(closing.ids().contains(&"component|expedition|trade_goods"));
+        assert_eq!(game.step().error, None);
+        assert_eq!(game.state.expedition_slices.get("trade_goods"), Some(&a));
+        assert_eq!(game.actions_this_turn, 0, "no action was used");
+        assert!(game.turn_closing.is_some(), "the turn is still closing");
+        let again = game.legal_options().unwrap();
+        assert!(!has_slice(&again), "one slice per turn");
+        assert!(again.ids().contains(&END_TURN_ID));
+        assert_eq!(game.step().error, None);
+        assert_eq!(
+            game.state.active,
+            Some(PlayerId::new("b")),
+            "the turn passed"
+        );
+        assert!(
+            !game
+                .state
+                .transient_flags
+                .has(TransientFlags::EXPEDITION_CLAIMED),
+            "a new turn may commit again"
         );
     }
 

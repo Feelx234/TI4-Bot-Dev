@@ -1,5 +1,13 @@
 import type { ChoiceOption, PendingChoiceDto, PlayerView } from "../protocol/types.ts";
+import { describeBreakthrough } from "./breakthroughs.ts";
 import { describeComponent } from "./componentInfo.ts";
+import {
+  EXPEDITION_INTRO,
+  EXPEDITION_PLACEMENT,
+  EXPEDITION_SLICES,
+  sliceCounts,
+  type ExpeditionFacts,
+} from "./expedition.ts";
 import {
   findActionCardByName,
   findStrategyCardMeta,
@@ -61,11 +69,19 @@ export interface BarItem {
   facts?: string[];
   /** Components: a short extra line (borrowed through Ssruu, the technology researched). */
   note?: string | null;
+  /** The row is shown but cannot be used; this says why (an expedition slice that is taken). */
+  disabledReason?: string | null;
+  /** A raw seat id the row belongs to (the seat that claimed an expedition slice). */
+  claimedBy?: string | null;
 }
 
 export interface BarGroup {
   title: string;
   items: BarItem[];
+  /** A line under the title that says what the group is. */
+  intro?: string;
+  /** Further lines under the intro (the expedition's placement rule, who holds how many slices). */
+  notes?: string[];
 }
 
 export interface TradePartnerView {
@@ -152,6 +168,91 @@ function playedName(label: string): string {
     .replace(/^play\s+/i, "")
     .replace(/\s+off the salvage yard$/i, "")
     .trim();
+}
+
+const EXPEDITION_GROUP = "Thunder's Edge";
+
+/**
+ * The expedition group: all six slices in order, the ones the engine offers as usable rows and the
+ * others as rows that say why they are not (taken by a seat, or not payable now). `null` when the
+ * table does not play Thunder's Edge content and the engine offered nothing, or when every slice
+ * is taken (the expedition is over).
+ */
+function expeditionRows(
+  offered: BarItem[],
+  facts: ExpeditionFacts | null | undefined,
+  player: PlayerView | null | undefined,
+  closing: boolean,
+): { items: BarItem[]; notes: string[] } | null {
+  const slices = facts?.slices ?? {};
+  if (!facts?.enabled && offered.length === 0) return null;
+  if (Object.keys(slices).length >= EXPEDITION_SLICES.length) return null;
+  const byId = new Map(offered.map((item) => [item.optionId, item]));
+  const heldNote =
+    "You already hold your breakthrough. Every slice you claim counts toward who places the infantry on Thunder's Edge and takes the planet.";
+  const items: BarItem[] = EXPEDITION_SLICES.map((slice) => {
+    const id = `component|expedition|${slice.id}`;
+    const usable = byId.get(id);
+    if (usable) {
+      // Compact row: the cost; the printed text and the breakthrough sit in the hover panel.
+      const secondary = facts?.breakthroughHeld ? heldNote : usable.info.secondary;
+      return {
+        optionId: id,
+        label: slice.cost,
+        detail: null,
+        note: null,
+        info: {
+          ...usable.info,
+          secondary,
+          chips: [
+            { label: slice.cost, tone: "neutral" },
+            { label: "End of turn", tone: "ok" },
+          ],
+        },
+      };
+    }
+    const claimant = slices[slice.id] ?? null;
+    const reason = claimant
+      ? "Already claimed"
+      : closing
+        ? "Not available now"
+        : "Commit at the end of your turn";
+    return {
+      optionId: id,
+      label: slice.cost,
+      detail: null,
+      disabledReason: reason,
+      claimedBy: claimant,
+      info: {
+        kind: "Thunder's Edge expedition",
+        title: `Expedition: ${slice.cost.toLowerCase()}`,
+        text: claimant
+          ? `${slice.cost}. This slice is taken.`
+          : closing
+            ? `${slice.cost}. Not available now: you cannot pay for it, or you already committed a slice this turn.`
+            : `${slice.cost}. The expedition is committed at the end of your turn, after your action: it uses no action.`,
+        secondary: null,
+        chips: [
+          {
+            label: claimant ? "Claimed" : closing ? "Not available now" : "End of turn",
+            tone: claimant ? "neutral" : "warn",
+          },
+        ],
+      },
+    };
+  });
+  // The slices that can be used come first, so they sit right under the explanation.
+  items.sort((a, b) => Number(Boolean(a.disabledReason)) - Number(Boolean(b.disabledReason)));
+  const taken = Object.keys(slices).length;
+  const notes = [`${taken} of ${EXPEDITION_SLICES.length} slices claimed.`, EXPEDITION_PLACEMENT];
+  const counts = sliceCounts(slices);
+  if (taken > 0 && player) {
+    notes.splice(1, 0, `You hold ${counts[player.id] ?? 0} of them.`);
+  }
+  const breakthrough = facts?.breakthroughHeld ? null : describeBreakthrough(player?.faction, null);
+  if (breakthrough)
+    notes.push(`Your first claim grants ${breakthrough.name} (synergy ${breakthrough.synergy}).`);
+  return { items, notes };
 }
 
 function componentGroupTitle(id: string): string {
@@ -397,6 +498,7 @@ function disabledAction(
 export function deriveTurnBar(
   choice: Pick<PendingChoiceDto, "prompt" | "options" | "context" | "details">,
   player?: PlayerView | null,
+  expedition?: ExpeditionFacts | null,
 ): TurnBarModel | null {
   if (!isTurnMenuChoice(choice)) return null;
   const options = choice.options;
@@ -509,11 +611,20 @@ export function deriveTurnBar(
     const title = componentGroupTitle(option.id);
     grouped.set(title, [...(grouped.get(title) ?? []), itemFor(option, undefined, player?.faction)]);
   }
+  const expeditionItems = expeditionRows(grouped.get(EXPEDITION_GROUP) ?? [], expedition, player, closing);
+  if (expeditionItems) grouped.set(EXPEDITION_GROUP, expeditionItems.items);
   const groups: BarGroup[] = GROUP_ORDER.filter((t) => grouped.has(t)).map((title) => ({
     title,
     items: grouped.get(title) ?? [],
+    ...(title === EXPEDITION_GROUP && expeditionItems
+      ? { intro: EXPEDITION_INTRO, notes: expeditionItems.notes }
+      : {}),
   }));
-  const componentCount = groups.reduce((n, g) => n + g.items.length, 0);
+  const componentCount = groups.reduce(
+    (n, g) => n + g.items.filter((item) => !item.disabledReason).length,
+    0,
+  );
+  const expeditionOpen = groups.some((g) => g.title === EXPEDITION_GROUP);
 
   // Trade
   const partners = readPartners(details, options);
@@ -576,8 +687,9 @@ export function deriveTurnBar(
     components: {
       groups,
       count: componentCount,
-      enabled: componentCount > 0,
-      reason: componentCount > 0 ? null : "Nothing usable now",
+      // The expedition stays reachable while no slice can be paid, so its six slices are seen.
+      enabled: componentCount > 0 || expeditionOpen,
+      reason: componentCount > 0 || expeditionOpen ? null : "Nothing usable now",
     },
     actionCards: {
       items: cardItems,

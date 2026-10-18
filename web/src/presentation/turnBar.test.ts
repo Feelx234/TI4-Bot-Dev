@@ -357,3 +357,88 @@ describe("planetsSummary", () => {
     expect(econSummary([])).toContain("nothing to ready");
   });
 });
+
+describe("deriveTurnBar: the Thunder's Edge expedition", () => {
+  const base = [opt("tactical", "Tactical action"), opt("pass", "Pass")];
+  const slice = (id: string, label: string) =>
+    opt(`component|expedition|${id}`, `Thunder's Edge expedition: ${label}`, "component");
+  const facts = (slices: Record<string, string> = {}, breakthroughHeld = false) => ({
+    enabled: true,
+    slices,
+    breakthroughHeld,
+  });
+  const group = (model: TurnBarModel) => model.components.groups.find((g) => g.title === "Thunder's Edge");
+
+  it("files an offered slice under the Thunder's Edge group and counts it", () => {
+    const model = deriveTurnBar(
+      menu([opt("end_turn", "end your turn", "end_turn"), slice("resources", "spend 5 resources")], {
+        closing: true,
+      }),
+      undefined,
+      facts(),
+    )!;
+    const g = group(model)!;
+    expect(model.components).toMatchObject({ count: 1, enabled: true });
+    expect(g.intro).toMatch(/six expedition slices/);
+    // All six slices are listed; the five that cannot be paid say so.
+    expect(g.items).toHaveLength(6);
+    expect(g.items.filter((i) => !i.disabledReason)).toHaveLength(1);
+    expect(g.items.find((i) => i.optionId.endsWith("|trade_goods"))?.disabledReason).toBe(
+      "Not available now",
+    );
+  });
+
+  it("before the action every slice waits for the end of the turn; the closing menu offers them", () => {
+    const beforeAction = deriveTurnBar(menu(base), undefined, facts())!;
+    expect(group(beforeAction)!.items.every((i) => i.disabledReason === "Commit at the end of your turn")).toBe(
+      true,
+    );
+    const closing = deriveTurnBar(
+      menu([opt("end_turn", "end your turn", "end_turn"), slice("secret", "discard 1 unscored secret objective")], {
+        closing: true,
+      }),
+      undefined,
+      facts(),
+    )!;
+    expect(closing.mode).toBe("closing");
+    expect(closing.components).toMatchObject({ count: 1, enabled: true });
+    expect(group(closing)!.items[0]).toMatchObject({ optionId: "component|expedition|secret" });
+    expect(group(closing)!.items[0].disabledReason).toBeUndefined();
+  });
+
+  it("shows the claimed slices with their claimant, and keeps the menu open when nothing is payable", () => {
+    const model = deriveTurnBar(menu(base), undefined, facts({ resources: "b", secret: "a" }))!;
+    const g = group(model)!;
+    expect(model.components).toMatchObject({ count: 0, enabled: true, reason: null });
+    expect(g.items.find((i) => i.optionId.endsWith("|resources"))).toMatchObject({
+      disabledReason: "Already claimed",
+      claimedBy: "b",
+    });
+    expect(g.notes?.[0]).toBe("2 of 6 slices claimed.");
+  });
+
+  it("does not offer the group at all when the table plays without Thunder's Edge", () => {
+    const model = deriveTurnBar(menu(base), undefined, { enabled: false, slices: {}, breakthroughHeld: false })!;
+    expect(group(model)).toBeUndefined();
+    expect(model.components).toMatchObject({ enabled: false, reason: "Nothing usable now" });
+    expect(group(deriveTurnBar(menu(base))!)).toBeUndefined();
+  });
+
+  it("drops the group once all six slices are taken", () => {
+    const all = Object.fromEntries(
+      ["resources", "influence", "trade_goods", "action_cards", "secret", "tech_planet"].map((s) => [s, "a"]),
+    );
+    expect(group(deriveTurnBar(menu(base), undefined, facts(all))!)).toBeUndefined();
+  });
+
+  it("says that a further slice grants no second breakthrough", () => {
+    const model = deriveTurnBar(
+      menu([...base, slice("secret", "discard 1 unscored secret objective")]),
+      undefined,
+      facts({ resources: "a" }, true),
+    )!;
+    const item = group(model)!.items.find((i) => i.optionId.endsWith("|secret"))!;
+    expect(item.info.secondary).toMatch(/already hold your breakthrough/);
+    expect(item.label).toBe("Discard 1 unscored secret objective");
+  });
+});

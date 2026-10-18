@@ -24,6 +24,8 @@ export interface MapLobbyOptions {
   rejectRandom?: boolean;
   /** The strategy card set the lobby reports (default: omitted, as an older server would). */
   strategyCardSet?: StrategyCardSetId;
+  /** The lobby reports Thunder's Edge content as switched on. */
+  thundersEdge?: boolean;
   /**
    * Real server answers instead of the synthetic fixtures: the catalog for this player count and
    * the preview of each alias (missing aliases fall back to the fixture board). The lobby's map
@@ -67,6 +69,7 @@ export async function openMapLobby(page: Page, options: MapLobbyOptions = {}) {
     ...(realChoice() ? { map: realChoice() } : {}),
     game_id: GAME_ID,
     ...(options.strategyCardSet ? { strategy_card_set: options.strategyCardSet } : {}),
+    ...(options.thundersEdge ? { thunders_edge: true } : {}),
   });
   const hang = () => new Promise<void>(() => undefined);
   const fail = (route: Route) => route.fulfill({ status: 503, json: { error: "server unavailable" } });

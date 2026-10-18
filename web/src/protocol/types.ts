@@ -83,6 +83,8 @@ export interface LobbyDto {
   map_revision?: number;
   /** The strategy card set this table plays; absent from servers that predate the option. */
   strategy_card_set?: StrategyCardSetId;
+  /** Thunder's Edge content is on for this table; absent from servers that predate the switch. */
+  thunders_edge?: boolean;
 }
 
 /** Catalog `strategy_card_sets` a game may be created with (`card_set::OFFERED` on the server). */

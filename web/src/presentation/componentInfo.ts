@@ -234,7 +234,7 @@ export function describeComponent(
       owner: null,
       timing: "ACTION",
       cost: componentCost(label),
-      text: `Pay for and resolve this expedition slice: ${what}.`,
+      text: `Claim this expedition slice: ${what}. Each of the six slices can be claimed once per game; the sixth completes the expedition.`,
       // The slice that grants the breakthrough names the card so the choice is an informed one.
       note: breakthroughNote(viewerFaction),
     };
