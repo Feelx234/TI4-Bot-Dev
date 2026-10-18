@@ -247,8 +247,10 @@ fn create_game_with_random_board(
     seed: u64,
     assignments: &std::collections::BTreeMap<PlayerId, ti4_model::id::FactionId>,
     card_set: Option<&str>,
+    deck_sources: SourceSet,
 ) -> Result<(GameState, Galaxy), SeatingError> {
-    let mut state = start_game_seeded_with_card_set(content, player_ids, POK, None, seed, card_set)
+    let mut state =
+        start_game_seeded_with_card_set(content, player_ids, deck_sources, None, seed, card_set)
         .map_err(|e| SeatingError::UnknownPlayer(e.to_string()))?;
 
     for (player, faction) in assignments {
@@ -311,17 +313,53 @@ pub fn create_game_with_template_seated(
     assignments: &std::collections::BTreeMap<PlayerId, ti4_model::id::FactionId>,
     card_set: Option<&str>,
 ) -> Result<(GameState, Galaxy), String> {
+    create_game_with_template_seated_in(
+        content,
+        player_ids,
+        seed,
+        template,
+        assignments,
+        card_set,
+        POK,
+    )
+}
+
+/// [`create_game_with_template_seated`] with the decks (action cards, relics, ...) built from
+/// `deck_sources`: a table that switched Thunder's Edge on ([`FULL`]) draws from decks that hold
+/// its cards. The board, the seats and their leaders are still built under the Prophecy of Kings
+/// scope.
+///
+/// # Errors
+///
+/// As [`create_game_with_template_seated`].
+pub fn create_game_with_template_seated_in(
+    content: &ContentStore,
+    player_ids: &[PlayerId],
+    seed: u64,
+    template: Option<&str>,
+    assignments: &std::collections::BTreeMap<PlayerId, ti4_model::id::FactionId>,
+    card_set: Option<&str>,
+    deck_sources: SourceSet,
+) -> Result<(GameState, Galaxy), String> {
     let Some(alias) = template else {
-        return create_game_with_random_board(content, player_ids, seed, assignments, card_set)
-            .map_err(|e| e.to_string());
+        return create_game_with_random_board(
+            content,
+            player_ids,
+            seed,
+            assignments,
+            card_set,
+            deck_sources,
+        )
+        .map_err(|e| e.to_string());
     };
     let loader = crate::maps::TemplateLoader::load()?;
     let template = loader
         .get(alias)
         .ok_or_else(|| crate::maps::TemplateError::Unknown(alias.to_owned()).to_string())?;
 
-    let mut state = start_game_seeded_with_card_set(content, player_ids, POK, None, seed, card_set)
-        .map_err(|e| e.to_string())?;
+    let mut state =
+        start_game_seeded_with_card_set(content, player_ids, deck_sources, None, seed, card_set)
+            .map_err(|e| e.to_string())?;
     for (player, faction) in assignments {
         seating::deploy(&mut state, content, player, faction, POK).map_err(|e| e.to_string())?;
     }
@@ -400,7 +438,7 @@ mod template_tests {
         let content = ContentStore::embedded();
         let (_, a) = create_game_with_template(content, &players(6), 9, None).unwrap();
         let seated = seating::seat_in_scope(&players(6));
-        let (_, b) = create_game_with_random_board(content, &players(6), 9, &seated, None).unwrap();
+        let (_, b) = create_game_with_random_board(content, &players(6), 9, &seated, None, POK).unwrap();
         assert_eq!(
             build_board_tiles(content, &a),
             build_board_tiles(content, &b)

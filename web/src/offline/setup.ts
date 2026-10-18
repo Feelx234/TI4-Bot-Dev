@@ -11,6 +11,10 @@ export interface SetupDraft {
   map: MapChoice | null;
   /** Raw text of the dev-only seed field; ignored unless `allowSeed`. */
   seed: string;
+  /** Thunder's Edge content switch. */
+  thundersEdge: boolean;
+  /** Raw text of the dev-only start preset field (`ti4_host::preset`); ignored unless `allowSeed`. */
+  preset: string;
 }
 
 export const DEFAULT_DRAFT: SetupDraft = {
@@ -20,6 +24,8 @@ export const DEFAULT_DRAFT: SetupDraft = {
   nickname: "",
   map: null,
   seed: "",
+  thundersEdge: false,
+  preset: "",
 };
 
 /** Number of players a template alias is made for (`6pStandard` is 6), or null for other names. */
@@ -69,7 +75,9 @@ export function buildSetup(draft: SetupDraft, allowSeed: boolean, pool: readonly
       humanFaction: draft.faction,
       nickname,
       ...(map ? { map } : {}),
+      ...(draft.thundersEdge ? { thundersEdge: true } : {}),
       ...(seed !== undefined ? { seed } : {}),
+      ...(allowSeed && draft.preset.trim() ? { preset: draft.preset.trim() } : {}),
     },
   };
 }

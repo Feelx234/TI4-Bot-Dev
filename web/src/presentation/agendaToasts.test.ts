@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { agendaResultText, agendaToasts, readAgendaLog, type AgendaRecordDto } from "./agendaToasts.ts";
+import {
+  agendaCastText,
+  agendaCastToasts,
+  agendaResultText,
+  agendaToasts,
+  readAgendaCasts,
+  readAgendaLog,
+  type AgendaCastDto,
+  type AgendaRecordDto,
+} from "./agendaToasts.ts";
 
 const names: Record<string, string> = { p1: "Alice", p2: "Bob" };
 const seatName = (id: string) => names[id] ?? null;
@@ -74,5 +83,57 @@ describe("agenda result toasts", () => {
       { agenda: "mutiny", outcome: "for" },
     ]);
     expect(readAgendaLog(null)).toEqual([]);
+  });
+
+  describe("vote count toasts", () => {
+    const cast = (player: string, outcome: string | null, votes: number): AgendaCastDto => ({ player, outcome, votes });
+
+    it("names the seat, the outcome and the votes cast", () => {
+      expect(agendaCastText(cast("p2", "for", 7), [], "p1", seatName)).toBe("Bob voted For: 7 votes");
+      expect(agendaCastText(cast("p2", "against", 1), [], "p1", seatName)).toBe("Bob voted Against: 1 vote");
+    });
+
+    it("says You for the viewer, and names an elected seat or planet", () => {
+      expect(agendaCastText(cast("p1", "for", 4), [], "p1", seatName)).toBe("You voted For: 4 votes");
+      expect(agendaCastText(cast("p2", "p1", 12), [], "p1", seatName)).toBe("Bob voted for Alice: 12 votes");
+      expect(agendaCastText(cast("p1", "p2", 3), [], "p1", seatName)).toBe("You voted for Bob: 3 votes");
+      expect(agendaCastText(cast("p2", "mecatol_rex", 5), [], null, seatName)).toBe("Bob voted for Mecatol Rex: 5 votes");
+    });
+
+    it("an abstention (or nothing cast) says so, without a count", () => {
+      expect(agendaCastText(cast("p2", null, 0), [], "p1", seatName)).toBe("Bob abstained");
+      expect(agendaCastText(cast("p1", null, 0), [], "p1", seatName)).toBe("You abstained");
+      expect(agendaCastText(cast("p1", "for", 0), [], "p1", seatName)).toBe("You abstained");
+    });
+
+    it("adds the running total once a second cast makes it news", () => {
+      const before = [cast("p2", "for", 7)];
+      expect(agendaCastText(cast("p1", "against", 3), before, "p1", seatName)).toBe(
+        "You voted Against: 3 votes\nRunning total: For 7 \u00b7 Against 3",
+      );
+      expect(agendaCastText(cast("p3", "for", 5), before, "p1", seatName)).toContain("Running total: For 12");
+      expect(agendaCastText(cast("p3", "for", 5), [cast("p2", null, 0)], "p1", seatName)).not.toContain("Running total");
+    });
+
+    it("a large cast from several sources is one total", () => {
+      expect(agendaCastText(cast("p1", "for", 21), [], "p1", seatName)).toBe("You voted For: 21 votes");
+    });
+
+    it("toasts only casts past the cursor, with ids unique per vote", () => {
+      const casts = [cast("p2", "for", 7), cast("p1", null, 0)];
+      const first = agendaCastToasts(casts, 1, 3, "p1", seatName);
+      expect(first.toasts.map((t) => t.id)).toEqual(["agenda-cast:3:1:p1"]);
+      expect(first.toasts[0]).toMatchObject({ tag: "Vote", text: "You abstained" });
+      expect(first.next).toBe(2);
+      expect(agendaCastToasts(casts, first.next, 3, "p1", seatName).toasts).toEqual([]);
+      expect(agendaCastToasts(casts, 0, 4, "p1", seatName).toasts[0].id).toBe("agenda-cast:4:0:p2");
+    });
+
+    it("reads the casts off the state and ignores junk", () => {
+      expect(readAgendaCasts({ agenda_casts: [{ player: "p1", outcome: "for", votes: 2 }, null, { votes: 1 }] })).toEqual([
+        { player: "p1", outcome: "for", votes: 2 },
+      ]);
+      expect(readAgendaCasts(undefined)).toEqual([]);
+    });
   });
 });

@@ -37,8 +37,12 @@ export interface OfflineSetup {
    * Left out: the layout recommended for the table size (what every game had before the picker).
    */
   map?: MapChoice;
+  /** Thunder's Edge content (expedition, breakthroughs, ...) is on. Left out: off. */
+  thundersEdge?: boolean;
   /** Only ever set from the dev-only seed field. */
   seed?: number;
+  /** Only ever set from the dev-only start preset field: a test table of `ti4_host::preset`. */
+  preset?: string;
 }
 
 /** One row of "My offline games". */

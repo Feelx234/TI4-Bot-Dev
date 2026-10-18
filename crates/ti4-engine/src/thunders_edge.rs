@@ -261,8 +261,45 @@ fn pay(
             Ok(true)
         }
         "tech_planet" => {
-            if let Some(planet) = specialty_planets(state, content, sources, player).first() {
-                state.exhaust_planet(planet.clone());
+            let candidates = specialty_planets(state, content, sources, player);
+            // A table that switched Thunder's Edge on chooses which planet pays; older games
+            // exhaust the first one without asking, as they were recorded.
+            let planet = if state.thunders_edge && candidates.len() > 1 {
+                let choice = Choice::new(
+                    player.clone(),
+                    "exhaust a technology specialty planet for the expedition",
+                    candidates
+                        .iter()
+                        .map(|planet| {
+                            ChoiceOption::labelled(
+                                planet.to_string(),
+                                "exhaust",
+                                format!("exhaust {planet}"),
+                            )
+                            .with_planet_located(
+                                state,
+                                content,
+                                sources,
+                                planet.as_str(),
+                            )
+                        })
+                        .collect(),
+                )
+                .contextualized(DecisionContext::new(
+                    player.clone(),
+                    DecisionSource::Content("thunders_edge".to_owned()),
+                    "expedition_exhaust_planet",
+                    state.phase,
+                    state.round,
+                ));
+                Some(PlanetId::new(
+                    ask_seeing(state, content, sources, galaxy, table, &choice)?.id,
+                ))
+            } else {
+                candidates.first().cloned()
+            };
+            if let Some(planet) = planet {
+                state.exhaust_planet(planet);
             }
             Ok(true)
         }
@@ -270,7 +307,7 @@ fn pay(
     }
 }
 
-pub(crate) fn breakthrough_for(
+pub fn breakthrough_for(
     content: &ContentStore,
     _sources: SourceSet,
     faction: &str,
@@ -353,6 +390,32 @@ fn eligible_systems(content: &ContentStore, sources: SourceSet, galaxy: &Galaxy)
     systems
 }
 
+/// The systems offered when the map has no [`eligible_systems`]: every neutral system without a
+/// supernova or a printed wormhole, outside the Fracture, that is neither Mecatol Rex nor a home
+/// system.
+///
+/// The boards this app generates draw their filler from planet systems only (`seating::map_filler`),
+/// so a generated map has no planetless system and the printed rule would leave the sixth slice
+/// with nowhere to put the planet: the game paid for the expedition and nothing arrived. Only a
+/// table that switched Thunder's Edge on ([`GameState::thunders_edge`]) gets this fallback; the
+/// printed rule stays whenever the map offers a legal system.
+fn fallback_systems(content: &ContentStore, sources: SourceSet, galaxy: &Galaxy) -> Vec<SystemId> {
+    let homes = ti4_content::galaxy::home_systems(content, sources);
+    let mut systems: Vec<SystemId> = galaxy
+        .system_ids_holding_things()
+        .into_iter()
+        .filter(|id| !crate::seating::is_mecatol(id) && !homes.contains(id))
+        .filter(|id| {
+            ti4_content::galaxy::system(content, id, sources)
+                .is_some_and(|record| !record.is_supernova() && record.wormholes().is_empty())
+        })
+        .map(SystemId::new)
+        .filter(|system| !crate::fracture::is_fracture_system(content, sources, system))
+        .collect();
+    systems.sort();
+    systems
+}
+
 /// The finishing player's choice of where to place Thunder's Edge, or `None` when this game's
 /// map has nowhere legal for it.
 fn choose_system(
@@ -366,21 +429,38 @@ fn choose_system(
     let Some(galaxy) = galaxy else {
         return Ok(None); // no board to place it on
     };
-    let candidates = eligible_systems(content, sources, galaxy);
+    let mut candidates = eligible_systems(content, sources, galaxy);
+    let mut fallback = false;
+    if candidates.is_empty() && state.thunders_edge {
+        candidates = fallback_systems(content, sources, galaxy);
+        fallback = !candidates.is_empty();
+    }
     match candidates.as_slice() {
         [] => Ok(None),
         [only] => Ok(Some(only.clone())),
         many => {
             let choice = Choice::new(
                 finisher.clone(),
-                "Thunder's Edge expedition: choose a system with no planet, no supernova, and \
-                 no printed wormhole"
-                    .to_owned(),
+                if fallback {
+                    "Thunder's Edge expedition: this map has no system without a planet, so choose \
+                     a neutral system for Thunder's Edge"
+                        .to_owned()
+                } else {
+                    "Thunder's Edge expedition: choose a system with no planet, no supernova, and \
+                     no printed wormhole"
+                        .to_owned()
+                },
                 many.iter()
                     .map(|system| {
                         ChoiceOption::labelled(
                             system.to_string(),
-                            "component",
+                            // The map answers a pick among bare system ids; older games keep the
+                            // kind they were recorded with.
+                            if state.thunders_edge {
+                                "system"
+                            } else {
+                                "component"
+                            },
                             format!("place Thunder's Edge in system {system}"),
                         )
                     })
@@ -427,7 +507,21 @@ fn choose_placer(
         finisher.clone(),
         "Thunder's Edge expedition: which tied player places the infantry".to_owned(),
         tied.iter()
-            .map(|player| ChoiceOption::labelled(player.as_str(), "component", player.to_string()))
+            .map(|player| {
+                let label = if state.thunders_edge {
+                    let faction = state.player(player).map_or_else(String::new, |seat| {
+                        content
+                            .get(ContentType::Factions, seat.faction.as_str())
+                            .and_then(|record| record.text("factionName"))
+                            .unwrap_or(seat.faction.as_str())
+                            .to_owned()
+                    });
+                    format!("{faction} ({player}) places the infantry on Thunder's Edge")
+                } else {
+                    player.to_string()
+                };
+                ChoiceOption::labelled(player.as_str(), "component", label)
+            })
             .collect(),
     )
     .contextualized(DecisionContext::new(
@@ -665,6 +759,129 @@ mod tests {
         assert_eq!(events[0].1["player"], "a");
         assert_eq!(events[0].1["planet"], "thundersedge");
         assert_eq!(events[0].1.get("previous_owner"), None);
+    }
+
+    /// Two controlled planets with a technology specialty.
+    fn specialty_pair(state: &mut GameState, owner: &PlayerId) -> (PlanetId, PlanetId) {
+        let content = ContentStore::embedded();
+        let planets: Vec<(String, String)> = ti4_content::galaxy::all_planets(content, DEFAULT)
+            .into_iter()
+            .filter(|(_, planet)| !planet.tech_specialties().is_empty())
+            .filter_map(|(id, planet)| Some((id.to_owned(), planet.system_id()?.to_owned())))
+            .take(2)
+            .collect();
+        for (planet, system) in &planets {
+            state
+                .system_mut(&SystemId::new(system.clone()))
+                .set_control(PlanetId::new(planet.clone()), owner.clone());
+        }
+        (
+            PlanetId::new(planets[0].0.clone()),
+            PlanetId::new(planets[1].0.clone()),
+        )
+    }
+
+    /// With Thunder's Edge switched on the seat chooses which specialty planet pays the slice;
+    /// a game recorded before the switch still exhausts the first one without asking.
+    #[test]
+    fn the_tech_planet_slice_asks_which_planet_only_when_thunders_edge_is_on() {
+        let content = ContentStore::embedded();
+        let a = PlayerId::new("a");
+        for switched in [false, true] {
+            let mut state = game(&["a"]);
+            state.thunders_edge = switched;
+            let (first, second) = specialty_pair(&mut state, &a);
+            let option = available_actions(&state, content, DEFAULT, &a)
+                .into_iter()
+                .find(|option| option.id == "component|expedition|tech_planet")
+                .expect("a specialty planet is ready");
+            // Scripted answer: the second planet. Unused when the game does not ask.
+            let mut table =
+                Table::with_default(Box::new(crate::choice::Scripted::new([second.to_string()])));
+            assert!(perform(&mut state, content, DEFAULT, None, &mut table, &a, &option).unwrap());
+            let exhausted = |planet: &PlanetId| state.exhausted_planets.contains(planet);
+            if switched {
+                assert!(
+                    exhausted(&second) && !exhausted(&first),
+                    "the seat's pick pays"
+                );
+            } else {
+                assert!(
+                    exhausted(&first) != exhausted(&second),
+                    "exactly one planet paid, without a question"
+                );
+            }
+        }
+    }
+
+    /// The printed rule offers planetless systems only. The boards this app generates have none,
+    /// so a switched-on table falls back to neutral systems rather than paying six slices for a
+    /// planet that never arrives; an older game keeps the printed rule (and the silent no-op).
+    #[test]
+    fn a_map_without_a_legal_system_falls_back_only_when_thunders_edge_is_on() {
+        let content = ContentStore::embedded();
+        let a = PlayerId::new("a");
+        let homes = ti4_content::galaxy::home_systems(content, DEFAULT);
+        let planet_systems: Vec<String> = ti4_content::galaxy::all_systems(content, DEFAULT)
+            .into_iter()
+            .filter(|(id, system)| {
+                !homes.contains(id)
+                    && !system.is_hyperlane()
+                    && !system.planets().is_empty()
+                    && system.wormholes().is_empty()
+                    && !system.is_supernova()
+                    && !crate::seating::is_mecatol(id)
+            })
+            .map(|(id, _)| id.to_owned())
+            .take(3)
+            .collect();
+        let refs: Vec<&str> = planet_systems.iter().map(String::as_str).collect();
+        let galaxy = Galaxy::build(content, &refs, DEFAULT, 1).unwrap();
+        assert!(eligible_systems(content, DEFAULT, &galaxy).is_empty());
+        for switched in [false, true] {
+            let mut state = game(&["a"]);
+            state.thunders_edge = switched;
+            for slice in [
+                "resources",
+                "influence",
+                "action_cards",
+                "secret",
+                "tech_planet",
+            ] {
+                state.claim_slice(slice, &a);
+            }
+            state.player_mut(&a).unwrap().trade_goods = 3;
+            let option = available_actions(&state, content, DEFAULT, &a)
+                .into_iter()
+                .find(|option| option.id == "component|expedition|trade_goods")
+                .unwrap();
+            let mut table = Table::with_default(Box::new(crate::choice::Scripted::new([
+                planet_systems[1].clone(),
+            ])));
+            assert!(
+                perform(
+                    &mut state,
+                    content,
+                    DEFAULT,
+                    Some(&galaxy),
+                    &mut table,
+                    &a,
+                    &option
+                )
+                .unwrap()
+            );
+            assert_eq!(
+                state.thunders_edge_system.is_some(),
+                switched,
+                "placed only under the switch"
+            );
+            if switched {
+                assert_eq!(
+                    state.thunders_edge_system.as_ref().map(SystemId::as_str),
+                    Some(planet_systems[1].as_str())
+                );
+            }
+        }
     }
 
     #[test]

@@ -97,7 +97,8 @@ it("a table is made with what the page asks, and a refusal keeps its status and 
     { playerCount: 8, nickname: "Ada", map: "random", fill: "random", waitMs: 1000, cards: "pok" },
     fetcher,
   );
-  expect(calls.map((call) => call.url)).toEqual(["/api/games", "/api/games"]);
+  await createTable({ playerCount: 4, nickname: "Ada", thundersEdge: true }, fetcher);
+  expect(calls.map((call) => call.url)).toEqual(["/api/games", "/api/games", "/api/games"]);
   expect(calls.map((call) => JSON.parse(String(call.init?.body)))).toEqual([
     { player_count: 6, nickname: "Ada", seed: 3, map_template: "milty6" },
     {
@@ -108,6 +109,7 @@ it("a table is made with what the page asks, and a refusal keeps its status and 
       strategy_card_set: "pok",
       map: "random",
     },
+    { player_count: 4, nickname: "Ada", thunders_edge: true },
   ]);
   const refused = createTable({ playerCount: 4, nickname: "Ada" }, server(429, "busy").fetcher);
   await expect(refused).rejects.toBeInstanceOf(ApiError);

@@ -84,6 +84,7 @@ export function decodeLobby(value: unknown, expectedGameId: string): LobbyDto {
     ...(isStrategyCardSetId(value.strategy_card_set)
       ? { strategy_card_set: value.strategy_card_set }
       : {}),
+    ...(typeof value.thunders_edge === "boolean" ? { thunders_edge: value.thunders_edge } : {}),
     ...(value.map === undefined
       ? {}
       : {

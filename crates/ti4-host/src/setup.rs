@@ -14,7 +14,7 @@ use ti4_engine::seating;
 use ti4_model::id::{FactionId, PlayerId};
 use ti4_model::state::GameState;
 
-use crate::map::create_game_with_template_seated;
+use crate::map::create_game_with_template_seated_in;
 use crate::preset;
 use crate::view::scenario::{self, Scenario};
 
@@ -168,10 +168,22 @@ pub struct TableSetup {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[cfg_attr(feature = "ts", ts(optional = nullable, as = "Option<bool>"))]
     pub starting_tech: bool,
+    /// Thunder's Edge content is on ([`GameState::thunders_edge`]): the game is played with every
+    /// source, which brings in the expedition (a component action), the breakthroughs it grants,
+    /// the planet it places and the Thunder's Edge printings. Left out (every table made before the
+    /// switch, and so every save and recorded game of one) it is off: those games replay as they
+    /// were played. A new game is made with [`DEFAULT_THUNDERS_EDGE`].
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable, as = "Option<bool>"))]
+    pub thunders_edge: bool,
     /// The seed of the table. It tells the factions that nobody chose, so a host
     /// with several people keeps it to itself.
     pub seed: u64,
 }
+
+/// Whether a new table plays with Thunder's Edge content when nobody chose. Off keeps the
+/// Prophecy of Kings scope that every game played before the switch existed.
+pub const DEFAULT_THUNDERS_EDGE: bool = false;
 
 const fn random_map() -> MapChoice {
     MapChoice::Random
@@ -190,6 +202,7 @@ impl TableSetup {
             start_from: None,
             preset: None,
             starting_tech: false,
+            thunders_edge: DEFAULT_THUNDERS_EDGE,
             seed,
         }
     }
@@ -198,6 +211,13 @@ impl TableSetup {
     #[must_use]
     pub const fn with_starting_tech(mut self) -> Self {
         self.starting_tech = true;
+        self
+    }
+
+    /// The table with Thunder's Edge content switched on or off.
+    #[must_use]
+    pub const fn with_thunders_edge(mut self, on: bool) -> Self {
+        self.thunders_edge = on;
         self
     }
 
@@ -499,14 +519,20 @@ pub fn create(
         .cloned()
         .zip(drawn.factions.iter().cloned())
         .collect();
-    let (mut state, galaxy) = create_game_with_template_seated(
+    let (mut state, galaxy) = create_game_with_template_seated_in(
         content,
         players,
         seed,
         setup.map.stored().as_deref(),
         &assignments,
         Some(&setup.strategy_cards),
+        if setup.thunders_edge {
+            ti4_model::content_types::FULL
+        } else {
+            ti4_model::content_types::POK
+        },
     )?;
+    state.thunders_edge = setup.thunders_edge;
     if setup.speaker_order == SpeakerOrder::Random
         && let Some(speaker) = ti4_engine::seeded_speaker(players, seed)
     {
@@ -558,6 +584,40 @@ mod tests {
         let (state, _) =
             create(ContentStore::embedded(), setup, &players, &drawn).expect("the game starts");
         (drawn, state)
+    }
+
+    #[test]
+    fn thunders_edge_content_is_a_switch_of_the_table_and_brings_its_cards_into_the_decks() {
+        use ti4_model::content_types::{ContentType, Source};
+        let content = ContentStore::embedded();
+        let te_cards: std::collections::BTreeSet<String> = content
+            .records(ContentType::ActionCards)
+            .iter()
+            .filter(|record| record.source() == Some(Source::ThundersEdge))
+            .filter_map(|record| record.id().map(str::to_owned))
+            .collect();
+        assert!(!te_cards.is_empty());
+        let holds_te = |state: &GameState| {
+            state
+                .action_card_deck
+                .iter()
+                .chain(state.players.iter().flat_map(|seat| seat.action_cards.iter()))
+                .any(|card| te_cards.contains(card.as_str()))
+        };
+        for switched in [false, true] {
+            let setup = TableSetup::new(4, 5).with_thunders_edge(switched);
+            let (_, state) = started(&setup, &vec![None; 4]);
+            assert_eq!(state.thunders_edge, switched);
+            assert_eq!(holds_te(&state), switched, "the action card deck");
+            // A table made before the switch (the field left out) is a table without it, and the
+            // state does not write the flag then.
+            let json = serde_json::to_value(&state).unwrap();
+            assert_eq!(json.get("thunders_edge").is_some(), switched);
+        }
+        let old: TableSetup =
+            serde_json::from_str(r#"{"player_count":4,"seed":5}"#).expect("a table without it");
+        assert!(!old.thunders_edge);
+        assert!(!serde_json::to_string(&old).unwrap().contains("thunders_edge"));
     }
 
     #[test]
@@ -703,7 +763,7 @@ mod tests {
         let factions = seating::lobby_faction_draw(&by_seat, 9).unwrap();
         let assignments: BTreeMap<PlayerId, FactionId> =
             players.iter().cloned().zip(factions).collect();
-        let (mut expected, _) = create_game_with_template_seated(
+        let (mut expected, _) = crate::map::create_game_with_template_seated(
             ContentStore::embedded(),
             &players,
             9,

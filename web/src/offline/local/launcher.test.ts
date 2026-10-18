@@ -24,6 +24,11 @@ describe("engineSetup", () => {
     const mapped = engineSetup({ ...setup, humanSeat: null, humanFaction: null, seed: 42 }, "off_x");
     expect(mapped).toEqual({ game_id: "off_x", seed: 42, players: 4 });
   });
+  it("asks the engine for Thunder's Edge content and a preset only when set", () => {
+    const mapped = engineSetup({ ...setup, thundersEdge: true, preset: "expedition", seed: 1 }, "off_x");
+    expect(mapped).toMatchObject({ thunders_edge: true, preset: "expedition" });
+    expect(engineSetup({ ...setup, seed: 1 }, "off_x")).not.toHaveProperty("thunders_edge");
+  });
 });
 
 const feedback = {

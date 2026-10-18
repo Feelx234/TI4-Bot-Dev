@@ -325,7 +325,7 @@ export const TurnActionBar: React.FC<TurnActionBarProps> = ({ model, onSubmit, l
     const first = rootRef.current?.querySelector<HTMLElement>(
       `[data-bar-menu="${open}"] [data-bar-row]:not([aria-disabled="true"])`,
     );
-    first?.focus();
+    first?.focus({ preventScroll: true });
   }, [open]);
 
   useEffect(() => {
@@ -409,13 +409,23 @@ export const TurnActionBar: React.FC<TurnActionBarProps> = ({ model, onSubmit, l
       key={item.optionId}
       type="button"
       role="menuitem"
-      className="turn-bar__row"
+      className={item.disabledReason ? "turn-bar__row turn-bar__row--disabled" : "turn-bar__row"}
       data-bar-row
+      aria-disabled={item.disabledReason ? true : undefined}
       data-testid={`turn-bar-item-${item.optionId}`}
-      onClick={() => void submit(item.optionId)}
+      onClick={() => {
+        if (!item.disabledReason) void submit(item.optionId);
+      }}
       {...infoHandlers(item.info)}
     >
       <span className="turn-bar__row-label">{item.label}</span>
+      {item.disabledReason && (
+        <span className="turn-bar__row-taken" data-testid="turn-bar-row-taken">
+          {item.claimedBy
+            ? `Claimed by ${display(item.claimedBy).label}`
+            : item.disabledReason}
+        </span>
+      )}
       {item.facts && item.facts.length > 0 && (
         <span className="turn-bar__row-facts" data-testid="turn-bar-row-facts">
           {item.facts.map((fact) => (
@@ -626,6 +636,16 @@ export const TurnActionBar: React.FC<TurnActionBarProps> = ({ model, onSubmit, l
               {model.components.groups.map((group) => (
                 <div key={group.title} role="group" aria-label={group.title}>
                   <h4>{group.title}</h4>
+                  {group.intro && (
+                    <p className="turn-bar__group-intro" data-testid="turn-bar-group-intro">
+                      {group.intro}
+                    </p>
+                  )}
+                  {group.notes?.map((note) => (
+                    <p key={note} className="turn-bar__group-note">
+                      {note}
+                    </p>
+                  ))}
                   {group.items.map(row)}
                 </div>
               ))}

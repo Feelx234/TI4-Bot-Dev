@@ -62,6 +62,9 @@ export const CONTENT: ContentTables = {
   breakthroughs: {},
 };
 
+/** The printed agendas by id (`Catalog.components.agendas`); empty until `setCatalog` fills them. */
+export const AGENDAS: Record<string, import("./types.ts").AgendaCard> = {};
+
 let loaded: string | null = null;
 
 /** The digest of the corpus of the catalog in the tables (`Catalog.content`); null before one. */
@@ -77,6 +80,8 @@ export function setCatalog(catalog: Catalog): void {
     for (const id of Object.keys(table)) delete table[id];
     Object.assign(table, tables[key]);
   }
+  for (const id of Object.keys(AGENDAS)) delete AGENDAS[id];
+  for (const agenda of catalog.components?.agendas ?? []) AGENDAS[agenda.id] = agenda;
   loaded = catalog.content;
 }
 

@@ -541,6 +541,9 @@ pub struct PlayerLobbyView {
     /// The strategy card set this table plays (`te`, `pok`, `base_game_codex1`); `pok` for a
     /// game created before the option existed.
     pub strategy_card_set: String,
+    /// Thunder's Edge content (the expedition, breakthroughs, ...) is on for this table. Off
+    /// unless the host switched it on; a scenario never has it.
+    pub thunders_edge: bool,
     /// Who opens as speaker: `random` (drawn from the seed) or `seat` (the first seat).
     pub speaker_order: String,
     /// The factions a seat can be given (`ti4_engine::seating::LOBBY_FACTIONS`, base game first): what
@@ -630,6 +633,7 @@ impl PlayerLobbyRecord {
             map_template: None,
             start_preset: None,
             strategy_card_set: Some(ti4_host::setup::card_set::DEFAULT.to_owned()),
+            thunders_edge: ti4_host::setup::DEFAULT_THUNDERS_EDGE,
             speaker_order: None,
             map_revision: 0,
             legacy_seat_order: None,
@@ -744,6 +748,7 @@ impl PlayerLobbyRecord {
             } else {
                 crate::storage::stored_card_set(self.strategy_card_set.as_deref()).to_owned()
             },
+            thunders_edge: self.thunders_edge && !scenario,
             speaker_order: ti4_host::setup::SpeakerOrder::from_stored(
                 self.speaker_order.as_deref(),
             )
@@ -3102,6 +3107,7 @@ impl GameRegistry {
         strategy_card_set: &'static str,
         speaker_order: ti4_host::setup::SpeakerOrder,
         bot_delay_ms: Option<u64>,
+        thunders_edge: bool,
     ) -> Result<(PlayerLobbyView, PlayerId, PlayerSession), LobbyError> {
         let (_, player, credential) = self.create_player_lobby_with_speaker(
             game_id.clone(),
@@ -3113,12 +3119,13 @@ impl GameRegistry {
             strategy_card_set,
             speaker_order,
         )?;
-        if let Some(delay) = bot_delay_ms {
+        if bot_delay_ms.is_some() || thunders_edge {
             self.change_player_lobby_settings(
                 &game_id,
                 credential.as_str(),
                 &super::table::TableSettings {
-                    bot_delay_ms: Some(delay),
+                    bot_delay_ms,
+                    thunders_edge: thunders_edge.then_some(true),
                     ..super::table::TableSettings::default()
                 },
             )?;

@@ -39,6 +39,8 @@ export interface MobileTopMenuProps {
   status: React.ReactNode;
   onOpenTechnologies: () => void;
   onOpenObjectives: () => void;
+  /** Opens the "In play" sheet: laws, table state and the face-up discard piles. */
+  onOpenInPlay?: () => void;
   /** Present on the public playtest server: opens the feedback sheet. */
   onOpenFeedback?: () => void;
   /** Bot and rules version of the game and the build. */
@@ -55,6 +57,7 @@ export const MobileTopMenu: React.FC<MobileTopMenuProps> = ({
   status,
   onOpenTechnologies,
   onOpenObjectives,
+  onOpenInPlay,
   onOpenFeedback,
   versions,
 }) => {
@@ -120,6 +123,16 @@ export const MobileTopMenu: React.FC<MobileTopMenuProps> = ({
             >
               Objectives
             </button>
+            {onOpenInPlay && (
+              <button
+                type="button"
+                data-testid="in-play-menu-button"
+                className="button button--secondary"
+                onClick={openThen(onOpenInPlay)}
+              >
+                In play
+              </button>
+            )}
             {onOpenFeedback && (
               <button
                 type="button"

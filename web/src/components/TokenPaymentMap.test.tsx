@@ -124,7 +124,7 @@ describe("Leadership purchase paid on the map (planet first)", () => {
     render(<Harness onSubmitBatch={vi.fn()} />);
     await click("token-buy-plus");
     expect(screen.getByTestId("payment-mark-abyz")).toHaveTextContent("✓ 3");
-    expect(screen.getByTestId("payment-mark-abyz")).toHaveAttribute("aria-label", "Staged: 3 influence, exhausting loses 0 resources");
+    expect(screen.getByTestId("payment-mark-abyz")).toHaveAttribute("aria-label", "Staged: 3 influence, exhausting loses 3 resources");
     expect(screen.getByTestId("payment-mark-fria")).toHaveTextContent("2");
     expect(screen.getByTestId("planet-abyz")).toHaveAttribute("data-payment-staged", "true");
     expect(screen.getByTestId("planet-fria")).toHaveAttribute("data-payment-staged", "false");

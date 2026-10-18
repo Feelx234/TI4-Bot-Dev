@@ -1070,6 +1070,9 @@ impl TransientFlags {
     /// action cards, and unscored secret objectives. Set while the negotiation whose opening
     /// triggered it is still on the table, cleared when it closes or the turn ends.
     pub const BLACK_MARKET: u8 = 1 << 5;
+    /// Thunder's Edge: the player whose turn is closing already committed to the expedition at
+    /// the end of this turn (one slice per turn). Cleared when the turn passes.
+    pub const EXPEDITION_CLAIMED: u8 = 1 << 6;
 
     #[must_use]
     pub const fn has(self, flag: u8) -> bool {
@@ -1344,6 +1347,12 @@ pub struct GameState {
     /// corner notification "Agenda: ... For wins"); no rule reads it, so it is not compared.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub agenda_log: Vec<AgendaRecord>,
+    /// What each seat cast in the agenda vote now open (or the one that just closed, until the next
+    /// one opens), in voting order: the outcome and the total votes from every source. Every cast is
+    /// public the moment it is made. History for viewers (the corner notification "Alice voted For:
+    /// 7 votes"); no rule reads it, so it is not compared and not written while empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agenda_casts: Vec<AgendaCast>,
     /// Every relic a player gained, in order, by any route (fragment purge, exploration, agenda,
     /// faction ability). History for viewers (the corner notification "gained Nano-Forge"); no
     /// rule reads it, so it is not compared and not written while empty.
@@ -1499,6 +1508,16 @@ pub struct GameState {
     /// checksummed over.
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub rules_version: u32,
+    /// The table switched Thunder's Edge content on: the game is played with every source
+    /// ([`crate::content_types::FULL`]: the expedition, breakthroughs, the Thunder's Edge
+    /// printings and technologies) instead of the Prophecy of Kings scope that every game played
+    /// before the switch. The host sets it once at table setup; `Game` reads it to choose its
+    /// source scope, so a saved or recorded game replays under the scope it was played with.
+    ///
+    /// Not written while false: a legacy `init.json` must serialize back to the bytes its
+    /// checksum covers.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub thunders_edge: bool,
     /// Allocator for typed secret-objective trigger occurrences.
     ///
     /// This sequence affects replay-visible event identity and is included in structural equality.
@@ -1805,6 +1824,7 @@ impl PartialEq for GameState {
             && self.turn_seq == other.turn_seq
             && self.action_turn == other.action_turn
             && self.rules_version == other.rules_version
+            && self.thunders_edge == other.thunders_edge
             && self.starting_tech_picks == other.starting_tech_picks
             && self.feat_occurrence_seq == other.feat_occurrence_seq
             && self.scored_feat_occurrences == other.scored_feat_occurrences
@@ -1919,6 +1939,7 @@ impl GameState {
             legacy_device_ids: false,
             starting_tech_picks: Vec::new(),
             agenda_log: Vec::new(),
+            agenda_casts: Vec::new(),
             relic_log: Vec::new(),
             relic_deck: Vec::new(),
             agenda_deck: Vec::new(),
@@ -1954,6 +1975,7 @@ impl GameState {
             turn_seq: 0,
             action_turn: 0,
             rules_version: RULES_VERSION,
+            thunders_edge: false,
             feat_occurrence_seq: 0,
             scored_feat_occurrences: BTreeSet::new(),
             vp_ledger: Vec::new(),
@@ -2531,6 +2553,24 @@ impl GameState {
 
 #[cfg(test)]
 mod tests {
+
+    /// The Thunder's Edge switch is not written while off, so a legacy `init.json` serializes
+    /// back to the bytes its checksum covers; switched on it is written and read back.
+    #[test]
+    fn the_thunders_edge_switch_is_written_only_when_on() {
+        let player = PlayerId::new("a");
+        let mut state =
+            GameState::new(std::slice::from_ref(&player), &[], BTreeMap::new(), None, 0);
+        let off = serde_json::to_value(&state).unwrap();
+        assert!(off.get("thunders_edge").is_none());
+        let back: GameState = serde_json::from_value(off).unwrap();
+        assert!(!back.thunders_edge);
+        state.thunders_edge = true;
+        let on = serde_json::to_value(&state).unwrap();
+        assert_eq!(on["thunders_edge"], true);
+        let back: GameState = serde_json::from_value(on).unwrap();
+        assert!(back.thunders_edge);
+    }
 
     /// 20.4/20.4a: a faction has sixteen command tokens and cannot gain a seventeenth.
     ///
@@ -3248,6 +3288,17 @@ pub struct AgendaRecord {
     /// Favor). Such a record has `discarded` and no outcome, and is not a resolved agenda.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub discard_reason: Option<String>,
+}
+
+/// One seat's finished turn in an agenda vote. Display only: no rule reads it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgendaCast {
+    pub player: PlayerId,
+    /// The outcome voted for; `None` for an abstention.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<String>,
+    /// Total votes cast, bonuses included (0 for an abstention).
+    pub votes: i64,
 }
 
 /// One relic gained by one player. Display only: no rule reads it.

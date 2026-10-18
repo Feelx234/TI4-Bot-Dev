@@ -42,6 +42,8 @@ export interface MockGameOptions {
   events?: GameEvent[];
   /** Engine `GameState` fields the page reads (e.g. `exploration_log`); default `{}`. */
   state?: Record<string, unknown>;
+  /** Server facts beside the view (`action_cards`, `exploration`, `agendas`, ...), merged into the snapshot. */
+  facts?: Record<string, unknown>;
   /** Undo/redo position; with log entries that carry decision_count it enables the log Undo buttons. */
   history?: { cursor: number; redo_count: number; generation?: number };
   turnStatus?: PublicTurnStatus;
@@ -121,7 +123,8 @@ export function buildSnapshot(options: MockGameOptions = {}) {
       : null,
     events: options.events ?? [],
     ...(options.history ? { history: options.history } : {}),
-  };
+    ...(options.facts ?? {}),
+  } as InitialSnapshotMsg & { type: "initial_snapshot" };
   return snapshot;
 }
 

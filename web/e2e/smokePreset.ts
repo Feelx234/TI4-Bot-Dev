@@ -1,5 +1,5 @@
 /** Start presets the server knows (crates/ti4-server/src/preset.rs). */
-export const KNOWN_PRESETS = ["combat", "cards", "agenda", "relics", "invasion", "techs", "leaders", "endgame", "siege", "bombard", "capture", "explore", "notes", "world"] as const;
+export const KNOWN_PRESETS = ["combat", "cards", "agenda", "relics", "invasion", "techs", "leaders", "endgame", "siege", "bombard", "capture", "explore", "notes", "world", "expedition"] as const;
 
 /** The preset without its `+rot`, `+short`, `+agenda` and `+fac[:alias...]` suffixes. */
 export function basePreset(name: string | undefined): string {

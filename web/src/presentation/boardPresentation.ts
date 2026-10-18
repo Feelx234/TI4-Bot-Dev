@@ -5,6 +5,7 @@ import {
   PlayerView,
   PendingChoiceDto,
 } from "../protocol/types.ts";
+import { findPlanetMeta } from "../protocol/contentCatalog.ts";
 import { applyBoosts, wireBoosts, type PlanetBoost } from "./planetValues.ts";
 import { SEAT_COLORS } from "./playerDisplay.ts";
 import { isPlanetSelectionChoice } from "./choiceModel.ts";
@@ -45,6 +46,25 @@ function effective(
 ): { resources: number; influence: number; boosts: PlanetBoost[] } {
   const boosts = wireBoosts(dyn);
   return { ...applyBoosts(printed.resources, printed.influence, boosts), boosts };
+}
+
+/**
+ * What a planet that no map tile prints (placed during the game: Thunder's Edge, Avernus, a Mirage)
+ * is shown as: its name, values and specialties from the catalog, not its id and 0/0.
+ */
+function placedPlanetFacts(planetId: string): {
+  label: string;
+  printed: { resources: number; influence: number };
+  techSpecialties: TechSpecialty[];
+  legendary: boolean;
+} {
+  const meta = findPlanetMeta(planetId);
+  return {
+    label: meta?.name ?? planetId,
+    printed: { resources: meta?.resources ?? 0, influence: meta?.influence ?? 0 },
+    techSpecialties: (meta?.techSpecialties ?? []).map((t) => t.toLowerCase()) as TechSpecialty[],
+    legendary: Boolean(meta?.legendaryAbilityName),
+  };
 }
 
 export interface PlanetPresentation {
@@ -504,13 +524,14 @@ export function deriveSelectedSystemDetails(
   // Next any dynamic planets not in static
   for (const [pId, dyn] of Object.entries(dynamicPlanets)) {
     if (!planetsMap.has(pId)) {
+      const placed = placedPlanetFacts(pId);
       planetsMap.set(pId, {
         id: pId,
-        label: pId,
-        ...effective({ resources: 0, influence: 0 }, dyn),
+        label: placed.label,
+        ...effective(placed.printed, dyn),
         traits: [],
-        techSpecialties: [],
-        legendary: false,
+        techSpecialties: placed.techSpecialties,
+        legendary: placed.legendary,
         controlledBy: dyn.controlled_by || null,
         controllerColor: getPlayerColor(dyn.controlled_by, seatingOrder),
         exhausted: Boolean(dyn.exhausted),
@@ -746,17 +767,20 @@ export function buildBoardPresentationModel(
       };
     });
 
-    // If no static planets but dynamic planets exist
-    if (planets.length === 0 && dynamicSystem?.planets) {
+    // Planets placed during the game that the tile does not print (Thunder's Edge, Avernus ...),
+    // also in a system that has printed planets.
+    if (dynamicSystem?.planets) {
       Object.entries(dynamicSystem.planets).forEach(([pId, dyn]) => {
+        if (planets.some((planet) => planet.id === pId)) return;
         const isPlanetTarget = targets.targetablePlanetIds.has(pId);
+        const placed = placedPlanetFacts(pId);
         planets.push({
           id: pId,
-          label: pId,
-          ...effective({ resources: 0, influence: 0 }, dyn),
+          label: placed.label,
+          ...effective(placed.printed, dyn),
           traits: [],
-          techSpecialties: [],
-          legendary: false,
+          techSpecialties: placed.techSpecialties,
+          legendary: placed.legendary,
           controlledBy: dyn.controlled_by || null,
           controllerColor: getPlayerColor(dyn.controlled_by, seatingOrder),
           exhausted: Boolean(dyn.exhausted),
