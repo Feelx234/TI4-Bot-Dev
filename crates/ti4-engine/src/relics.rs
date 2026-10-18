@@ -178,6 +178,39 @@ pub(crate) fn grant_chosen_technology(
     colour: Option<&str>,
     relic: &str,
 ) -> bool {
+    // Enigmatic Device researches (rules version `RULES_ENIGMATIC_DEVICE`): only what the player
+    // could research, by the normal rules. Earlier games and Maw of Worlds (which says *gain*) keep
+    // the unfiltered list.
+    let researching = relic == "enigmaticdevice"
+        && state.rules_version >= ti4_model::state::RULES_ENIGMATIC_DEVICE;
+    let Some(chosen) = ask_technology(
+        state, content, sources, table, galaxy, player, colour, relic, researching,
+    ) else {
+        return false;
+    };
+    if researching {
+        crate::technology::research_chosen(state, content, sources, player, &chosen);
+    } else if let Some(seat) = state.player_mut(player) {
+        seat.technologies.insert(chosen);
+    }
+    true
+}
+
+/// Ask `player` which technology to gain and return the answer, changing nothing.
+///
+/// `None` when there is nothing to offer or the question is not answered. `researchable_only`
+/// narrows the list to what the player could research by prerequisites.
+pub(crate) fn ask_technology(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    table: &mut crate::choice::Table,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    player: &PlayerId,
+    colour: Option<&str>,
+    source: &str,
+    researchable_only: bool,
+) -> Option<ti4_model::id::TechnologyId> {
     let held: std::collections::BTreeSet<String> = state
         .player(player)
         .map(|seat| {
@@ -189,11 +222,7 @@ pub(crate) fn grant_chosen_technology(
         .unwrap_or_default();
     let faction = state.player(player).map(|seat| seat.faction.to_string());
 
-    // Enigmatic Device researches (rules version `RULES_ENIGMATIC_DEVICE`): only what the player
-    // could research, by the normal rules. Earlier games and Maw of Worlds (which says *gain*) keep
-    // the unfiltered list.
-    let researching = relic == "enigmaticdevice"
-        && state.rules_version >= ti4_model::state::RULES_ENIGMATIC_DEVICE;
+    let researching = researchable_only;
     let researchable: Vec<ti4_model::id::TechnologyId> = if researching {
         crate::technology::researchable_by_prerequisites(state, content, sources, player)
     } else {
@@ -230,27 +259,21 @@ pub(crate) fn grant_chosen_technology(
         })
         .collect();
     if options.is_empty() {
-        return false;
+        return None;
     }
     let choice = crate::choice::Choice::new(player.clone(), "gain which technology", options)
         .contextualized(DecisionContext::new(
             player.clone(),
-            DecisionSource::Content(relic.to_owned()),
-            format!("{relic}_choose_technology"),
+            DecisionSource::Content(source.to_owned()),
+            format!("{source}_choose_technology"),
             state.phase,
             state.round,
         ));
     let Ok(answer) = table.ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))
     else {
-        return false;
+        return None;
     };
-    let chosen = ti4_model::id::TechnologyId::new(answer.id);
-    if researching {
-        crate::technology::research_chosen(state, content, sources, player, &chosen);
-    } else if let Some(seat) = state.player_mut(player) {
-        seat.technologies.insert(chosen);
-    }
-    true
+    Some(ti4_model::id::TechnologyId::new(answer.id))
 }
 
 /// The Silver Flame: a ten scores, anything else consumes your home system.

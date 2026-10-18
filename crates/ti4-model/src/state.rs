@@ -1155,7 +1155,7 @@ pub struct StartingTechPick {
 /// The rules version of a new game. Raise it when an engine decision changes in a way that an
 /// older game log would not replay under (and gate the change on
 /// [`GameState::rules_version`]); see `docs/RULES_VERSION.md`.
-pub const RULES_VERSION: u32 = 11;
+pub const RULES_VERSION: u32 = 14;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
@@ -1212,6 +1212,14 @@ pub const RULES_ACTION_CARD_TARGETS: u32 = 10;
 /// The first rules version where a retreat obeys the movement rules for entering the destination:
 /// no asteroid field without Antimass Deflectors, no supernova.
 pub const RULES_RETREAT_HAZARDS: u32 = 11;
+
+/// The first rules version where (1) Research Grant Reallocation asks the elected player which
+/// technology to gain and removes one fleet token per prerequisite, and (2) an agenda revealed
+/// with nothing to elect ("if there are no scored secret objectives / laws in play, discard this
+/// card and reveal another") is replaced by the next card instead of costing the phase one of its
+/// two agendas; discards (that and Veto / Quash / Political Favor) are listed in `agenda_log`.
+/// (Versions 12 and 13 belong to other branches.)
+pub const RULES_AGENDA_GRANT_REVEAL: u32 = 14;
 
 /// The whole game, as a value.
 ///
@@ -3207,6 +3215,11 @@ pub struct AgendaRecord {
     /// Confusing / Confounding Legal Text: who the agenda's effect went to instead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub redirected_to: Option<String>,
+    /// Set on a card that was revealed and discarded without a vote (rules version 14): `no_choice`
+    /// (nothing to elect, the next agenda was revealed) or `replaced` (Veto, Quash, Political
+    /// Favor). Such a record has `discarded` and no outcome, and is not a resolved agenda.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discard_reason: Option<String>,
 }
 
 /// Negotiations one player may initiate during one action (operator limit, 2026-09-22).
