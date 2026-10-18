@@ -2233,6 +2233,16 @@ pub fn space_cannon_offense(
         let value = (value
             - crate::factions::firmament_plots::assail_against(state, &unit.owner, target.iter()))
         .max(1);
+        // Antimass Deflectors: -1 to other players' SPACE CANNON rolls against the owner's units,
+        // the same as asking 1 more of the die.
+        let value = value
+            + i64::from(
+                state.rules_version >= ti4_model::state::RULES_TECH_EFFECTS
+                    && target.as_ref().is_some_and(|victim| {
+                        *victim != unit.owner
+                            && crate::technology::owns_technology(state, victim, "amd")
+                    }),
+            );
         let roll = dice.roll_by(
             rng,
             count,

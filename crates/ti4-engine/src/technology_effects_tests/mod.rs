@@ -45,3 +45,40 @@ pub(super) fn owns(state: &GameState, player: &str, alias: &str) -> bool {
 pub(super) fn seated(seats: &[(&str, &str)]) -> GameState {
     crate::fixtures::seated_game(seats, POK)
 }
+
+/// Emit one typed event through a resolver armed exactly as the game arms it, with these dice
+/// faces loaded first and `table` answering any question. Returns how many dice were rolled.
+pub(super) fn emit_event(
+    state: &mut GameState,
+    table: &mut crate::choice::Table,
+    faces: &[u32],
+    event_type: &str,
+    pairs: &[(&str, &str)],
+) -> usize {
+    let mut resolver = crate::fixtures::armed_resolver(state);
+    let mut dice = crate::dice::Dice::from_faces(faces.iter().copied());
+    let mut rng = crate::rng::GameRng::new(0);
+    let mut sequence = crate::event::EventSequence::new();
+    let mut context = crate::timing::TimingContext {
+        state,
+        content: content(),
+        sources: POK,
+        table,
+        dice: &mut dice,
+        rng: &mut rng,
+        event_sequence: &mut sequence,
+        galaxy: None,
+    };
+    let payload = pairs
+        .iter()
+        .map(|(k, v)| ((*k).to_owned(), serde_json::Value::from(*v)))
+        .collect();
+    let event = context
+        .event_sequence
+        .next(event_type, payload)
+        .expect("an event id");
+    resolver
+        .emit_with_context(&mut context, event, |_, _| {})
+        .expect("resolves");
+    context.dice.history().len()
+}

@@ -63,11 +63,11 @@ fn amd_1_ships_move_into_and_through_asteroid_fields() {
 }
 
 #[test]
-#[ignore = "MISSING: amd effect 2 (-1 to other players' SPACE CANNON rolls against the owner's units): no technology check in combat.rs space_cannon_offense"]
 fn amd_2_space_cannon_against_the_owner_gets_minus_one() {
     // A PDS hits on 6: a rolled 6 hits the target, but with the -1 it is a 5 and misses.
-    let hits_with = |owner: bool| {
+    let hits_at = |owner: bool, version: u32| {
         let (mut state, _galaxy, ids) = tactical_fixture();
+        state.rules_version = version;
         let system = ids[0].clone();
         put(&mut state, &system, "cruiser", &pid("a"), 1);
         put_on_planet(
@@ -95,8 +95,18 @@ fn amd_2_space_cannon_against_the_owner_gets_minus_one() {
         );
         fired.iter().map(|(_, hits, _)| *hits).sum::<usize>()
     };
-    assert_eq!(hits_with(false), 1, "control: a 6 hits a PDS target");
-    assert_eq!(hits_with(true), 0, "Antimass Deflectors: the 6 becomes a 5");
+    let now = ti4_model::state::RULES_TECH_EFFECTS;
+    assert_eq!(hits_at(false, now), 1, "control: a 6 hits a PDS target");
+    assert_eq!(
+        hits_at(true, now),
+        0,
+        "Antimass Deflectors: the 6 becomes a 5"
+    );
+    assert_eq!(
+        hits_at(true, now - 1),
+        1,
+        "legacy: no -1 before the rules version"
+    );
 }
 
 #[test]
@@ -419,7 +429,6 @@ fn hm_1_three_command_tokens_in_the_status_phase() {
 }
 
 #[test]
-#[ignore = "MISSING: pa effect 1 (technology specialties usable without exhausting, even when exhausted): technology.rs specialties() skips exhausted planets and exhaust_specialties_for_research exhausts them; no pa check"]
 fn pa_1_specialties_are_usable_without_exhausting_and_when_exhausted() {
     // Gravity Drive needs one blue; a controlled propulsion specialty stands in for it.
     let (system, planet) = specialty_planet("propulsion");
@@ -449,6 +458,40 @@ fn pa_1_specialties_are_usable_without_exhausting_and_when_exhausted() {
         !state.exhausted_planets.contains(&planet),
         "pa: using the specialty does not exhaust the planet"
     );
+}
+
+#[test]
+fn pa_1_legacy_games_still_exhaust_and_skip_exhausted_specialties() {
+    let (system, planet) = specialty_planet("propulsion");
+    let gd = TechnologyId::new("gd");
+    let a = pid("a");
+    let mut state = game(&["a"]);
+    state.rules_version = ti4_model::state::RULES_TECH_EFFECTS - 1;
+    control(&mut state, &system, &planet);
+    give(&mut state, "a", "pa");
+    assert!(crate::technology::research(
+        &mut state,
+        content(),
+        POK,
+        &a,
+        &gd
+    ));
+    assert!(
+        state.exhausted_planets.contains(&planet),
+        "legacy: the specialty is exhausted by the research"
+    );
+    let mut state = game(&["a"]);
+    state.rules_version = ti4_model::state::RULES_TECH_EFFECTS - 1;
+    control(&mut state, &system, &planet);
+    state.exhausted_planets.insert(planet);
+    give(&mut state, "a", "pa");
+    assert!(!crate::technology::prerequisites_met(
+        &state,
+        content(),
+        POK,
+        &a,
+        &gd
+    ));
 }
 
 #[test]
@@ -691,7 +734,6 @@ fn planet_fixture() -> (
 }
 
 #[test]
-#[ignore = "MISSING: md (Magen Defense Grid ΩΩ) effect 1 (activation places an infantry with each of the owner's structures): no implementation of 'md' anywhere in crates/ti4-engine/src (only research tests)"]
 fn md_1_activating_a_system_with_the_owners_structures_places_infantry() {
     let (mut state, galaxy, ids, planet) = planet_fixture();
     state
@@ -721,11 +763,118 @@ fn md_1_activating_a_system_with_the_owners_structures_places_infantry() {
     assert_eq!(infantry, 1, "one infantry beside the PDS");
 }
 
+/// Seat `b` owns `structures` (unit type ids) on the fixture planet; returns b's infantry on it
+/// after `a` activates the system.
+fn md_activation(structures: &[&str], version: u32, with_card: bool) -> usize {
+    let (mut state, _galaxy, ids, planet) = planet_fixture();
+    state.rules_version = version;
+    state
+        .system_mut(&ids[0])
+        .set_control(planet.clone(), pid("b"));
+    for kind in structures {
+        put_on_planet(&mut state, &ids[0], &planet, kind, &pid("b"), 1);
+    }
+    if with_card {
+        give(&mut state, "b", "md");
+    }
+    let mut table = Table::with_default(Box::new(FirstOption));
+    super::emit_event(
+        &mut state,
+        &mut table,
+        &[],
+        "SYSTEM_ACTIVATED",
+        &[("player", "a"), ("system", ids[0].as_str())],
+    );
+    state
+        .system_state(&ids[0])
+        .on_planet_of(&planet, &pid("b"))
+        .iter()
+        .filter(|u| u.type_id.as_str() == "infantry")
+        .count()
+}
+
 #[test]
-#[ignore = "MISSING: md (Magen Defense Grid ΩΩ) effect 2 (hit at the start of ground combat on a planet with the owner's structures): no implementation of 'md' in crates/ti4-engine/src/invasion.rs"]
+fn md_1_places_one_infantry_per_structure_and_only_with_the_card_and_version() {
+    let now = ti4_model::state::RULES_TECH_EFFECTS;
+    assert_eq!(
+        md_activation(&["pds", "spacedock"], now, true),
+        2,
+        "one per structure"
+    );
+    assert_eq!(md_activation(&["pds"], now, false), 0, "no card");
+    assert_eq!(md_activation(&["pds"], now - 1, true), 0, "legacy");
+    assert_eq!(
+        md_activation(&[], now, true),
+        0,
+        "no structure, no infantry"
+    );
+}
+
+#[test]
+fn md_2_the_owner_assigns_the_hit_and_a_lone_mech_sustains_it() {
+    let (mut state, _g, ids, planet) = planet_fixture();
+    state
+        .system_mut(&ids[0])
+        .set_control(planet.clone(), pid("b"));
+    put_on_planet(&mut state, &ids[0], &planet, "pds", &pid("b"), 1);
+    put_on_planet(&mut state, &ids[0], &planet, "infantry", &pid("a"), 2);
+    put_on_planet(&mut state, &ids[0], &planet, "mech", &pid("a"), 1);
+    give(&mut state, "b", "md");
+    // Two kinds of target: b is asked and names the infantry (the first option), a is not asked
+    // about sustain for infantry.
+    let mut table = Table::with_default(Box::new(FirstOption));
+    super::emit_event(
+        &mut state,
+        &mut table,
+        &[],
+        "GROUND_COMBAT_STARTED",
+        &[
+            ("system", ids[0].as_str()),
+            ("planet", planet.as_str()),
+            ("attacker", "a"),
+            ("defender", "b"),
+        ],
+    );
+    let left: Vec<String> = state
+        .system_state(&ids[0])
+        .on_planet_of(&planet, &pid("a"))
+        .iter()
+        .map(|u| u.type_id.to_string())
+        .collect();
+    assert_eq!(left.len(), 2, "exactly one unit was lost: {left:?}");
+
+    // A lone mech: no choice to make, and its owner sustains the hit instead of losing it.
+    let (mut state, _g, ids, planet) = planet_fixture();
+    state
+        .system_mut(&ids[0])
+        .set_control(planet.clone(), pid("b"));
+    put_on_planet(&mut state, &ids[0], &planet, "pds", &pid("b"), 1);
+    put_on_planet(&mut state, &ids[0], &planet, "mech", &pid("a"), 1);
+    give(&mut state, "b", "md");
+    let mut table = Table::with_default(Box::new(FirstOption));
+    super::emit_event(
+        &mut state,
+        &mut table,
+        &[],
+        "GROUND_COMBAT_STARTED",
+        &[
+            ("system", ids[0].as_str()),
+            ("planet", planet.as_str()),
+            ("attacker", "a"),
+            ("defender", "b"),
+        ],
+    );
+    let system = state.system_state(&ids[0]);
+    let mechs = system.on_planet_of(&planet, &pid("a"));
+    assert_eq!(mechs.len(), 1);
+    assert!(mechs[0].sustained_damage, "sustained, not destroyed");
+}
+
+#[test]
 fn md_2_ground_combat_starts_with_a_free_hit_on_the_attacker() {
-    let fight = |owner: bool| {
+    let fight = |owner: bool, version: u32| {
         let (mut state, _g, ids, planet) = planet_fixture();
+        state.rules_version = version;
         state
             .system_mut(&ids[0])
             .set_control(planet.clone(), pid("b"));
@@ -735,29 +884,42 @@ fn md_2_ground_combat_starts_with_a_free_hit_on_the_attacker() {
         if owner {
             give(&mut state, "b", "md");
         }
-        // Nobody ever hits, so only the card can kill anything.
-        let mut dice = crate::dice::Dice::from_faces(vec![1u32; 2000]);
-        let mut rng = crate::rng::GameRng::new(1);
+        // The live invasion announces this event before the first round.
         let mut table = Table::with_default(Box::new(FirstOption));
-        crate::invasion::ground_combat(
+        let dice = super::emit_event(
             &mut state,
-            content(),
-            POK,
             &mut table,
-            &mut dice,
-            &mut rng,
-            &ids[0],
-            &planet,
-            &pid("a"),
+            &[],
+            "GROUND_COMBAT_STARTED",
+            &[
+                ("system", ids[0].as_str()),
+                ("planet", planet.as_str()),
+                ("attacker", "a"),
+                ("defender", "b"),
+            ],
+        );
+        assert_eq!(dice, 0, "a hit is produced, not rolled");
+        (
+            state
+                .system_state(&ids[0])
+                .on_planet_of(&planet, &pid("a"))
+                .len(),
+            state
+                .system_state(&ids[0])
+                .on_planet_of(&planet, &pid("b"))
+                .iter()
+                .filter(|u| u.type_id.as_str() == "infantry")
+                .count(),
         )
-        .unwrap();
-        state
-            .system_state(&ids[0])
-            .on_planet_of(&planet, &pid("a"))
-            .len()
     };
-    assert_eq!(fight(false), 1, "control: both sides miss forever");
-    assert_eq!(fight(true), 0, "the grid's hit kills the lone attacker");
+    let now = ti4_model::state::RULES_TECH_EFFECTS;
+    assert_eq!(fight(false, now), (1, 1), "control: no card, no hit");
+    assert_eq!(
+        fight(true, now),
+        (0, 1),
+        "the grid's hit kills the lone attacker"
+    );
+    assert_eq!(fight(true, now - 1), (1, 1), "legacy: no hit");
 }
 
 #[test]
@@ -845,7 +1007,6 @@ fn asc_1_opponent_destroys_a_non_fighter_when_three_non_fighters_attack() {
 }
 
 #[test]
-#[ignore = "MISSING: aida effect 1 (ignore 1 prerequisite when researching a unit upgrade): no 'aida' check in technology.rs prerequisites_met/research; only effect 2 (production discount) exists"]
 fn aida_1_ignores_one_prerequisite_when_researching_a_unit_upgrade() {
     // Dreadnought II needs two blue and one yellow: own one blue and one yellow, and the card
     // (a red technology, which counts for nothing here) stands in for the missing blue.
@@ -870,6 +1031,65 @@ fn aida_1_ignores_one_prerequisite_when_researching_a_unit_upgrade() {
             .unwrap()
             .exhausted_technologies
             .contains(&TechnologyId::new("aida"))
+    );
+}
+
+#[test]
+fn aida_1_only_for_unit_upgrades_once_and_only_from_the_new_version() {
+    let a = pid("a");
+    let dn2 = TechnologyId::new("dn2");
+    let build = |version: u32| {
+        let mut state = game(&["a"]);
+        state.rules_version = version;
+        for t in ["amd", "st", "aida"] {
+            give(&mut state, "a", t);
+        }
+        state
+    };
+    let now = ti4_model::state::RULES_TECH_EFFECTS;
+    assert!(
+        !crate::technology::prerequisites_met(&build(now - 1), content(), POK, &a, &dn2),
+        "legacy: no waiver"
+    );
+    // Not a unit upgrade: Light/Wave Deflector needs 3 blue and the player has 2.
+    let lwd = TechnologyId::new("lwd");
+    let mut two_blue = build(now);
+    give(&mut two_blue, "a", "gd");
+    assert!(
+        !crate::technology::prerequisites_met(&two_blue, content(), POK, &a, &lwd),
+        "a plain technology gets no waiver"
+    );
+    // Exhausted card: no waiver.
+    let mut state = build(now);
+    state
+        .player_mut(&a)
+        .unwrap()
+        .exhausted_technologies
+        .insert(TechnologyId::new("aida"));
+    assert!(!crate::technology::prerequisites_met(
+        &state,
+        content(),
+        POK,
+        &a,
+        &dn2
+    ));
+    // Prerequisites already met: the card stays ready.
+    let mut state = build(now);
+    give(&mut state, "a", "gd");
+    assert!(crate::technology::research(
+        &mut state,
+        content(),
+        POK,
+        &a,
+        &dn2
+    ));
+    assert!(
+        !state
+            .player(&a)
+            .unwrap()
+            .exhausted_technologies
+            .contains(&TechnologyId::new("aida")),
+        "not needed, not spent"
     );
 }
 
@@ -1224,7 +1444,6 @@ fn pi_1_redistribute_command_tokens_at_the_end_of_the_turn() {
 }
 
 #[test]
-#[ignore = "MISSING: pi effect 2 (3 additional votes, exhausting if the outcome loses): no 'pi' check in vote.rs"]
 fn pi_2_three_additional_votes() {
     // Seat a controls a 1-influence planet; seat b a 3-influence planet. Without the card b wins
     // 3-1 (or a's 1 vote is outweighed); with Predictive Intelligence a casts 1 + 3 = 4.
@@ -1251,14 +1470,28 @@ fn pi_2_three_additional_votes() {
         .find(|p| p.2 == 3)
         .expect("a 3-influence planet")
         .clone();
-    let winner = |owner: bool| {
+    let second = planets
+        .iter()
+        .find(|p| p.2 == 2 && p.1 != high.1 && p.1 != low.1)
+        .expect("a 2-influence planet")
+        .clone();
+    // Returns the winner, whether the card was exhausted at the end, and whether the question
+    // was asked. `a` takes the extra votes when `take` is set.
+    let vote = |owner: bool, version: u32, take: bool, rich_b: bool| {
+        let a_backs = "for";
         let mut state = game(&["a", "b"]);
+        state.rules_version = version;
         state
             .system_mut(&low.0)
             .set_control(low.1.clone(), pid("a"));
         state
             .system_mut(&high.0)
             .set_control(high.1.clone(), pid("b"));
+        if rich_b {
+            state
+                .system_mut(&second.0)
+                .set_control(second.1.clone(), pid("b"));
+        }
         if owner {
             give(&mut state, "a", "pi");
         }
@@ -1268,30 +1501,76 @@ fn pi_2_three_additional_votes() {
             vec!["for".to_owned(), "against".to_owned()],
         );
         window.open(&state, content(), POK);
+        let mut asked = false;
         for _ in 0..20 {
             let Some(choice) = window.pending_choice(&state, content(), POK) else {
                 break;
             };
-            // a votes "for", b votes "against"; both spend whatever planets they have.
             let who = choice.player.clone();
-            let want = if who == pid("a") { "for" } else { "against" };
-            let pick = choice
+            let pick = if choice
                 .options
                 .iter()
-                .find(|o| o.id == want || o.id.contains("pi"))
-                .or_else(|| choice.options.iter().find(|o| !o.is_decline()))
-                .unwrap()
-                .clone();
+                .any(|o| o.kind == crate::vote::PREDICTIVE_KIND)
+            {
+                asked = true;
+                choice
+                    .options
+                    .iter()
+                    .find(|o| o.is_decline() != take)
+                    .unwrap()
+                    .clone()
+            } else {
+                let want = if who == pid("a") { a_backs } else { "against" };
+                choice
+                    .options
+                    .iter()
+                    .find(|o| o.id == want)
+                    .or_else(|| choice.options.iter().find(|o| !o.is_decline()))
+                    .unwrap()
+                    .clone()
+            };
             window.resolve(&mut state, content(), POK, pick).unwrap();
         }
-        window.winner().map(ToOwned::to_owned)
+        let exhausted = state
+            .player(&pid("a"))
+            .unwrap()
+            .exhausted_technologies
+            .contains(&TechnologyId::new("pi"));
+        (window.winner().map(ToOwned::to_owned), exhausted, asked)
     };
+    let now = ti4_model::state::RULES_TECH_EFFECTS;
     assert_eq!(
-        winner(false).as_deref(),
-        Some("against"),
-        "control: 3 beats 1"
+        vote(false, now, true, false),
+        (Some("against".to_owned()), false, false),
+        "control: 3 beats 1, no card, no question"
     );
-    assert_eq!(winner(true).as_deref(), Some("for"), "1 + 3 beats 3");
+    assert_eq!(
+        vote(true, now, true, false),
+        (Some("for".to_owned()), false, true),
+        "1 + 3 beats 3; the outcome won, the card stays ready"
+    );
+    assert_eq!(
+        vote(true, now, false, false),
+        (Some("against".to_owned()), false, true),
+        "declined: just 1 vote, nothing exhausted"
+    );
+    assert_eq!(
+        vote(true, now - 1, true, false),
+        (Some("against".to_owned()), false, false),
+        "legacy: no question before the rules version"
+    );
+    // b has 3 + 2 = 5 votes: a's 1 + 3 = 4 still loses, so the outcome a backed is not resolved
+    // and the card exhausts. Without taking the extra votes the card stays ready.
+    assert_eq!(
+        vote(true, now, true, true),
+        (Some("against".to_owned()), true, true),
+        "the backed outcome lost: Predictive Intelligence exhausts"
+    );
+    assert_eq!(
+        vote(true, now, false, true),
+        (Some("against".to_owned()), false, true),
+        "declined the extra votes: nothing to exhaust"
+    );
 }
 
 // ---- Unit upgrades --------------------------------------------------------------------------
@@ -1622,7 +1901,6 @@ fn inf2_1_infantry_ii_stats_and_replaces_infantry() {
 }
 
 #[test]
-#[ignore = "MISSING: inf2 effect 2 (roll a die when destroyed; on 6+ it returns to the home system next turn): only the faction versions (Letani Warrior II, Spec Ops II, Crimson Legionnaire II) have it; nothing for generic infantry2 in invasion.rs or faction_techs.rs"]
 fn inf2_2_a_destroyed_infantry_ii_returns_home_on_a_six() {
     let returned = |face: u32, tech: bool| {
         let mut state = seated(&[("a", "arborec"), ("b", "letnev")]);

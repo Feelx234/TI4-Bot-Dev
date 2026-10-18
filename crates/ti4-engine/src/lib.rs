@@ -51,18 +51,18 @@ pub mod fleet;
 pub mod fleet_strength;
 pub mod fracture;
 pub mod game;
+pub mod infantry_ii;
 pub mod invasion;
 pub mod laws;
 pub mod leaders;
 pub mod legendary;
+pub mod magen_defense;
 pub mod map_feasibility;
 pub mod movement;
 pub mod neutral_units;
 pub mod objectives;
 #[cfg(test)]
 mod objectives_monument_tests;
-#[cfg(test)]
-mod technology_effects_tests;
 pub mod observation;
 pub mod opening;
 pub mod payment;
@@ -90,6 +90,8 @@ pub mod supply;
 pub mod synergy;
 pub mod tactical;
 pub mod technology;
+#[cfg(test)]
+mod technology_effects_tests;
 pub mod thunders_edge;
 pub mod timing;
 pub mod tokens;

@@ -1155,7 +1155,7 @@ pub struct StartingTechPick {
 /// The rules version of a new game. Raise it when an engine decision changes in a way that an
 /// older game log would not replay under (and gate the change on
 /// [`GameState::rules_version`]); see `docs/RULES_VERSION.md`.
-pub const RULES_VERSION: u32 = 14;
+pub const RULES_VERSION: u32 = 15;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
@@ -1230,6 +1230,12 @@ pub const RULES_SELF_ASSEMBLY: u32 = 13;
 /// card and reveal another") is replaced by the next card instead of costing the phase one of its
 /// two agendas; discards (that and Veto / Quash / Political Favor) are listed in `agenda_log`.
 pub const RULES_AGENDA_GRANT_REVEAL: u32 = 14;
+
+/// The first rules version with the missing technology effects: Infantry II returns on a 6,
+/// Antimass Deflectors' -1 to Space Cannon rolls, Magen Defense Grid (infantry on activation, a
+/// free hit at the start of ground combat), Psychoarchaeology's free specialties, AI Development
+/// Algorithm's skipped prerequisite and Predictive Intelligence's 3 extra votes.
+pub const RULES_TECH_EFFECTS: u32 = 15;
 
 /// The whole game, as a value.
 ///
