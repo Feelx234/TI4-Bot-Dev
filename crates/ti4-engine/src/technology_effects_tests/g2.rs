@@ -575,3 +575,141 @@ fn mc_1_mirror_computing_makes_a_trade_good_worth_two() {
     assert!(!plans(true).is_empty(), "two goods pay up to four");
     assert!(plans(false).is_empty(), "without the card two goods pay two");
 }
+
+// -- Mahact: Crimson Legionnaire II -------------------------------------------------------------
+
+#[test]
+fn cl2_2_crimson_legionnaire_ii_pays_a_commodity_then_returns_home() {
+    let infantry_at_home = |state: &GameState, home: &SystemId| {
+        state
+            .system_state(home)
+            .planet_units
+            .values()
+            .flatten()
+            .filter(|u| u.owner == pid("a") && u.type_id.as_str().ends_with("infantry"))
+            .count()
+    };
+    let mut state = seated(&[("a", "mahact"), ("b", "sol")]);
+    let (home, planet) = home_planet(&state, "a");
+    state.player_mut(&pid("a")).unwrap().commodities = 0;
+    let pairs = |unit: &'static str| {
+        [("player", "a"), ("unit", unit), ("system", "x"), ("planet", "y")]
+    };
+    // The first-generation Legionnaire pays out but does not come back.
+    emit(&mut state, &[], &[], None, "GROUND_FORCE_DESTROYED", &pairs("mahact_infantry"));
+    assert_eq!(state.player(&pid("a")).unwrap().commodities, 1);
+    let before = infantry_at_home(&state, &home);
+    emit(&mut state, &[planet.as_str()], &[], None, "TURN_BEGAN", &[("player", "a")]);
+    assert_eq!(infantry_at_home(&state, &home), before, "nothing on the card");
+    // The II pays out, goes on the card and lands at the start of the next turn.
+    emit(&mut state, &[], &[], None, "GROUND_FORCE_DESTROYED", &pairs("mahact_infantry2"));
+    assert_eq!(state.player(&pid("a")).unwrap().commodities, 2);
+    emit(&mut state, &[planet.as_str()], &[], None, "TURN_BEGAN", &[("player", "b")]);
+    assert_eq!(infantry_at_home(&state, &home), before, "not on another player's turn");
+    emit(&mut state, &[planet.as_str()], &[], None, "TURN_BEGAN", &[("player", "a")]);
+    assert_eq!(infantry_at_home(&state, &home), before + 1);
+}
+
+// -- Naalu: Hybrid Crystal Fighter II -----------------------------------------------------------
+
+#[test]
+fn hcf2_2_hybrid_crystal_fighter_ii_moves_without_being_transported() {
+    let hub = crate::fixtures::plain_hub();
+    let movable_fighters = |kind: &str| {
+        let mut state = crate::fixtures::game(&["a"]);
+        let origin = SystemId::new(hub.outer[0].clone());
+        let target = SystemId::new(hub.centre.clone());
+        put(&mut state, &origin, kind, &pid("a"), 1);
+        crate::tactical::activate(&mut state, &pid("a"), &target).unwrap();
+        crate::tactical::movable(&state, content(), POK, &hub.galaxy, &pid("a")).len()
+    };
+    assert_eq!(movable_fighters("naalu_fighter2"), 1, "it moves on its own");
+    assert_eq!(movable_fighters("naalu_fighter"), 0, "the printed fighter needs a carrier");
+}
+
+#[test]
+fn hcf2_3_excess_hybrid_crystal_fighter_ii_counts_half_a_ship() {
+    let charged = |faction: &str, kind: &str| {
+        let mut state = seated(&[("a", faction), ("b", "hacan")]);
+        let system = empty_system(&state);
+        put(&mut state, &system, kind, &pid("a"), 4);
+        crate::fleet::standing(&state, content(), POK, &pid("a"), &system, None).fleet_charged
+    };
+    assert_eq!(charged("naalu", "naalu_fighter2"), 2, "four excess fighters cost two ships");
+    assert_eq!(charged("sol", "fighter2"), 4, "an ordinary Fighter II costs a ship each");
+}
+
+// -- Direct Hit immunity (Super Dreadnought II, Exotrireme II) ----------------------------------
+
+#[test]
+fn sdn2_3_super_dreadnought_ii_cannot_be_destroyed_by_direct_hit() {
+    assert!(crate::combat::direct_hittable(content(), POK, "l1z1x_dreadnought"));
+    assert!(!crate::combat::direct_hittable(content(), POK, "l1z1x_dreadnought2"));
+}
+
+#[test]
+fn exo2_3_exotrireme_ii_cannot_be_destroyed_by_direct_hit() {
+    assert!(crate::combat::direct_hittable(content(), POK, "sardakk_dreadnought"));
+    assert!(!crate::combat::direct_hittable(content(), POK, "sardakk_dreadnought2"));
+}
+
+// -- Sardakk: Exotrireme II ---------------------------------------------------------------------
+
+#[test]
+fn exo2_4_exotrireme_ii_destroys_itself_and_up_to_two_ships_after_a_combat_round() {
+    let build = |tech: bool| {
+        let mut state = seated(&[("a", "sardakk"), ("b", "sol")]);
+        let (home, _) = home_planet(&state, "a");
+        state.system_mut(&home).units.clear();
+        put(&mut state, &home, "sardakk_dreadnought2", &pid("a"), 1);
+        put(&mut state, &home, "cruiser", &pid("b"), 3);
+        if tech {
+            give(&mut state, "a", "exo2");
+        }
+        (state, home)
+    };
+    let pairs = |home: &SystemId| {
+        [("system", home.to_string()), ("round", "1".into()), ("attacker", "a".into()), ("defender", "b".into())]
+    };
+    for (tech, answers, cruisers_left) in [
+        (true, &["technology:sardakk:exo2:SPACE_COMBAT_ROUND_ENDED:after", "ship|0", "ship|0"][..], 1),
+        (false, &["technology:sardakk:exo2:SPACE_COMBAT_ROUND_ENDED:after"][..], 3),
+    ] {
+        let (mut state, home) = build(tech);
+        let owned = pairs(&home);
+        let refs: Vec<(&str, &str)> = owned.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        emit(&mut state, if tech { answers } else { &[] }, &[], None, "SPACE_COMBAT_ROUND_ENDED", &refs);
+        assert_eq!(count(&state, &home, "b", "cruiser"), cruisers_left, "tech {tech}");
+        assert_eq!(count(&state, &home, "a", "sardakk_dreadnought2"), usize::from(!tech));
+    }
+}
+
+// -- Nomad: Memoria II --------------------------------------------------------------------------
+
+#[test]
+fn m2_3_memoria_ii_is_adjacent_to_systems_with_your_mechs() {
+    let hub = crate::fixtures::plain_hub();
+    let origin = hub.outer[0].clone();
+    let active = hub.across(&origin);
+    let beside = hub
+        .galaxy
+        .adjacent(&active)
+        .into_iter()
+        .map(ToOwned::to_owned)
+        .find(|id| *id != hub.centre)
+        .expect("a ring neighbour");
+    let flagships = |flagship: &str, with_mech: bool| {
+        let mut state = seated(&[("a", "nomad"), ("b", "sol")]);
+        put(&mut state, &SystemId::new(origin.clone()), flagship, &pid("a"), 1);
+        put(&mut state, &SystemId::new(hub.centre.clone()), "destroyer", &pid("b"), 1);
+        if with_mech {
+            crate::fixtures::put_on_planet(&mut state, &SystemId::new(beside.clone()), &PlanetId::new("m2-test"), "nomad_mech", &pid("a"), 1);
+        }
+        crate::tactical::movable_into(&state, content(), POK, &hub.galaxy, &pid("a"), &SystemId::new(active.clone()))
+            .into_iter()
+            .filter(|m| m.unit.type_id.as_str() == flagship && m.origin.as_str() == origin)
+            .count()
+    };
+    assert_eq!(flagships("nomad_flagship2", false), 0, "blockaded, no mech");
+    assert_eq!(flagships("nomad_flagship2", true), 1, "adjacent to the mech");
+}
