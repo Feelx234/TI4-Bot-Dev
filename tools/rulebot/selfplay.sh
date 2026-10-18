@@ -5,6 +5,7 @@
 #   tools/rulebot/selfplay.sh smoke            10 games, about a minute
 #   tools/rulebot/selfplay.sh bench            the golden set (200 games, starting-technology choices on), checked against baseline.json
 #   tools/rulebot/selfplay.sh bench-v4         the same golden set as bot version 4 played it, checked against baseline-v4.json
+#   tools/rulebot/selfplay.sh bench-v1         the same seeds as bot version 1 played them, checked against baseline-v1.json
 #   tools/rulebot/selfplay.sh bench-v2         the same seeds as bot version 2 played them (no choice), checked against baseline-v2.json
 #   tools/rulebot/selfplay.sh bench-v3         the same seeds as bot version 3 played them (no choice), checked against baseline-v3.json
 #   tools/rulebot/selfplay.sh ab k=v[,k=v] [N] candidate bot against the shipped bot on N tables (default 200)
@@ -53,8 +54,14 @@ case "$cmd" in
     build
     # Version 4 on the golden set (starting-technology choices on): identical to baseline-v4.json
     # proves the engine and the version-4 bot still play the old games.
-    "$bin" run --config "$here/golden.json" --bot bot_version=4 --no-cache "${workers[@]}" --out "$out/bench-v4.json" \
+    "$bin" run --config "$here/golden-v4.json" --bot bot_version=4 --no-cache "${workers[@]}" --out "$out/bench-v4.json" \
       --verify "$here/baseline-v4.json" "$@" || { rc=$?; [[ $rc -eq 2 ]] && echo "bench-v4: hashes differ from baseline-v4.json (see above)"; exit $rc; }
+    ;;
+  bench-v1)
+    build
+    # Version 1 on the same seeds and rules version as version 2 (no starting-technology choice): identical to baseline-v1.json.
+    "$bin" run --config "$here/golden-v2.json" --bot bot_version=1 "${workers[@]}" --out "$out/bench-v1.json" \
+      --verify "$here/baseline-v1.json" "$@" || { rc=$?; [[ $rc -eq 2 ]] && echo "bench-v1: hashes differ from baseline-v1.json (see above)"; exit $rc; }
     ;;
   bench-v2)
     build

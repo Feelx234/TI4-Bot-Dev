@@ -320,6 +320,7 @@ pub(crate) fn empty_for_tests() -> GameResult {
         card_set: None,
         rotation: None,
         starting_tech: false,
+        rules_version: None,
     };
     empty_result(
         &spec,
