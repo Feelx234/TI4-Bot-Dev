@@ -333,7 +333,17 @@ fn verify(summary: &Summary, path: &str) -> Result<ExitCode, String> {
     let base: Summary = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
     let (mut same, mut different, mut missing) = (0, Vec::new(), 0);
     for g in &summary.games {
-        match base.games.iter().find(|b| b.spec == g.spec) {
+        // A baseline recorded before rules versions could be pinned carries no `rules_version`:
+        // a pinned game is compared with it by the rest of its spec.
+        let unpinned = GameSpec {
+            rules_version: None,
+            ..g.spec.clone()
+        };
+        match base
+            .games
+            .iter()
+            .find(|b| b.spec == g.spec || (g.spec.rules_version.is_some() && b.spec == unpinned))
+        {
             None => missing += 1,
             Some(b) if b.hash == g.hash && b.termination == g.termination && b.vp == g.vp => {
                 same += 1
