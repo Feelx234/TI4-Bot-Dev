@@ -1,0 +1,240 @@
+/* The "In play" panel: laws, table state and the face-up discard piles. */
+.in-play {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  box-sizing: border-box;
+  color: #e2e8f0;
+  font-size: 13px;
+  background: #0b1220;
+}
+.in-play__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px 6px;
+}
+.in-play__title {
+  margin: 0;
+  font-size: 16px;
+}
+.in-play__summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #94a3b8;
+}
+.in-play__close {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 16px;
+}
+.in-play__tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 14px 8px;
+  border-bottom: 1px solid #1e293b;
+}
+.in-play__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.in-play__filter {
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid #334155;
+  background: #111c30;
+  color: #cbd5e1;
+  font: inherit;
+  cursor: pointer;
+}
+.in-play__filter.is-active {
+  background: #1d4ed8;
+  border-color: #3b82f6;
+  color: #fff;
+}
+.in-play__search {
+  flex: 1 1 200px;
+  min-width: 0;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid #334155;
+  background: #0f172a;
+  color: #f8fafc;
+  font: inherit;
+}
+.in-play__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 14px 24px;
+}
+.in-play__groups {
+  display: block;
+}
+.in-play__group {
+  display: block;
+}
+.in-play__section {
+  margin: 0 0 14px;
+  break-inside: avoid;
+}
+.in-play__section-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 0 6px;
+  background: #0b1220;
+  border-bottom: 1px solid #1e293b;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #93c5fd;
+}
+.in-play__count {
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #1e293b;
+  color: #e2e8f0;
+  text-align: center;
+  letter-spacing: 0;
+}
+.in-play__hint {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 11px;
+}
+.in-play__facts {
+  margin: 8px 0 0;
+}
+.in-play__facts dt {
+  color: #94a3b8;
+  font-size: 11px;
+  margin-top: 6px;
+}
+.in-play__facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.in-play__items {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.in-play__item {
+  padding: 8px 10px;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  background: #0f172a;
+  min-width: 0;
+}
+.in-play__item-title {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.in-play__chips {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 0 0;
+  padding: 0;
+}
+.in-play__chip {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #1e293b;
+  color: #cbd5e1;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.in-play__text {
+  margin-top: 6px;
+  color: #cbd5e1;
+  overflow-wrap: anywhere;
+}
+.in-play__text p {
+  margin: 0 0 4px;
+}
+.in-play__text--clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.in-play__more {
+  min-height: 44px;
+  margin-top: 2px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: #60a5fa;
+  font: inherit;
+  cursor: pointer;
+}
+.in-play__empty {
+  margin: 8px 0 0;
+  color: #64748b;
+}
+.in-play__note {
+  margin: 8px 0 0;
+  color: #64748b;
+  font-size: 11px;
+}
+
+/* Phone: a full-height sheet. */
+.in-play-sheet {
+  height: 100dvh;
+  max-height: 100dvh;
+  border-radius: 0;
+  overflow: hidden;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: #0b1220;
+}
+
+.in-play-sheet .in-play__scroll {
+  /* Room under the last block for the bottom dock, which sits over the sheet's lower edge. */
+  padding-bottom: 84px;
+}
+
+/* Desktop: a wide side panel that stays open beside the game. */
+.in-play-side {
+  position: fixed;
+  top: var(--in-play-top, 0px);
+  right: 0;
+  bottom: 0;
+  z-index: var(--layer-drawer, 40);
+  width: min(1040px, 68vw);
+  border-left: 1px solid #334155;
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.45);
+}
+@media (min-width: 900px) {
+  .in-play-side .in-play__groups {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    gap: 0 22px;
+    align-items: start;
+  }
+  .in-play-side .in-play__group--play {
+    columns: 2 260px;
+    column-gap: 22px;
+  }
+  .in-play-side .in-play__group--discard:only-child {
+    grid-column: 1 / -1;
+  }
+}

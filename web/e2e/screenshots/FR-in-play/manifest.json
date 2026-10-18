@@ -1,0 +1,23 @@
+{
+  "title": "In play: laws, table state and discard piles",
+  "description": "A new In play view for everything that lies on the table for everybody: laws (with what passed, who was elected, the round and the votes), lingering card effects, the speaker and custodians tokens, public objectives, strategy cards with their trade goods, tokens on the map, and the discard piles the rules keep face up (action cards, agendas, exploration). On a phone it is an entry of the Menu and opens a full-height sheet; on desktop it is a header button next to Versions that opens a wide side panel which can stay open while the game goes on. Draw piles show only how many cards are left. Mocked game on the real UI (the data is the public engine state the page already receives).",
+  "tag": "web/e2e/screenshots/FR-in-play",
+  "shots": [
+    { "file": "out/1-header-button-desktop.png", "heading": "Desktop header", "caption": "An In play button in the header actions next to Technologies, Objectives and Versions." },
+    { "file": "out/2-panel-mid-game-desktop.png", "heading": "Desktop panel, round 4", "caption": "Three laws, the custodians token taken, objectives, strategy cards with trade goods on the left; the discard piles in the right column." },
+    { "file": "out/3-discards-desktop.png", "heading": "Desktop, discard piles only", "caption": "The Discard piles chip: action cards (grouped, newest first), agendas with how each ended, exploration cards." },
+    { "file": "out/4-search-desktop.png", "heading": "Desktop, search", "caption": "Searching for a card name keeps only the sections that match." },
+    { "file": "out/5-expanded-law-desktop.png", "heading": "Expanded law text", "caption": "Long card text is clamped to three lines; the More button (keyboard operable) shows all of it." },
+    { "file": "out/6-early-game-desktop.png", "heading": "Early game", "caption": "Round 1: no laws, empty discards, the custodians token still on Mecatol Rex." },
+    { "file": "out/1-menu-entry-390x844.png", "heading": "Phone: Menu entry", "caption": "In play is a button in the Menu, beside Technologies and Objectives." },
+    { "file": "out/2-sheet-top-390x844.png", "heading": "Phone: sheet", "caption": "A full-height sheet with filter chips, search and sections; no sideways scroll." },
+    { "file": "out/3-sheet-discards-390x844.png", "heading": "Phone: sticky headers", "caption": "Scrolled to the discard piles: the section header sticks to the top." },
+    { "file": "out/4-sheet-filter-discard-390x844.png", "heading": "Phone: discard filter", "caption": "Only the discard piles." },
+    { "file": "out/5-sheet-early-game-390x844.png", "heading": "Phone: early game", "caption": "Nearly empty." }
+  ],
+  "notes": [
+    { "title": "Reproduce", "text": "cd web && rm -rf node_modules/.vite && npm run screenshots -- FR" },
+    { "title": "Data", "text": "No new engine fields: everything is read from the redacted state, the view and the facts (action_cards, agendas, exploration) the page already receives, plus the agenda texts of the catalog." },
+    { "title": "Not shown", "text": "Draw pile contents and order, hands, the secret objective discard. Purged relics: the engine does not record them." }
+  ]
+}

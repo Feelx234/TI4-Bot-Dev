@@ -13,6 +13,8 @@ import { useBuildInfo } from "./buildInfo.ts";
 import { engineLabel, useLoadedEngine } from "./offline/engineInfo.ts";
 import { summarizeVersions } from "./versionInfo.ts";
 import { VersionInfoDialog } from "./components/VersionInfo.tsx";
+import { InPlayPanel } from "./components/InPlayPanel.tsx";
+import { buildInPlayModel } from "./presentation/inPlay.ts";
 import { PasswordScreen } from "./access/PasswordScreen.tsx";
 import { probeAccess, useAccessRequired } from "./access/accessGate.ts";
 import { FeedbackLauncher, openFeedback } from "./feedback/FeedbackLauncher.tsx";
@@ -460,6 +462,7 @@ const GameViewContainer: React.FC<{
     engine: engineLabel(loadedEngine),
   });
   const [isVersionsOpen, setIsVersionsOpen] = useState(false);
+  const [isInPlayOpen, setIsInPlayOpen] = useState(false);
   useRegisterFeedbackSource("game", () => ({
     gameId,
     viewer,
@@ -579,6 +582,24 @@ const GameViewContainer: React.FC<{
   const breakthroughs = useMemo(() => readBreakthroughs(snapshot?.state), [snapshot?.state]);
   const agendaLog = useMemo(() => readAgendaLog(snapshot?.state), [snapshot?.state]);
   const relicLog = useMemo(() => readRelicLog(snapshot?.state), [snapshot?.state]);
+  const inPlayModel = useMemo(
+    () =>
+      isInPlayOpen
+        ? buildInPlayModel({
+            view: snapshot?.view,
+            state: snapshot?.state,
+            actionCards: snapshot?.action_cards,
+            exploration: snapshot?.exploration,
+            agendas: snapshot?.agendas,
+            seatName: (id) => {
+              const seat = playerDisplay(lobby, snapshot?.view.seating_order ?? [], id);
+              return seat.position === null ? null : seat.label;
+            },
+            viewerSeat: viewer.role === "player" ? viewer.seat : null,
+          })
+        : null,
+    [isInPlayOpen, snapshot, lobby, viewer],
+  );
   const planetResources = useMemo(() => planetResourceMap(snapshot?.view.board), [snapshot?.view.board]);
   const planetInfluence = useMemo(() => planetInfluenceMap(snapshot?.view.board), [snapshot?.view.board]);
   const planetBoosts = useMemo(() => planetBoostMap(snapshot?.view.board), [snapshot?.view.board]);
@@ -824,6 +845,7 @@ const GameViewContainer: React.FC<{
                     }
                     onOpenTechnologies={() => setIsTechModalOpen(true)}
                     onOpenObjectives={() => setIsObjectivesModalOpen(true)}
+                    onOpenInPlay={() => setIsInPlayOpen(true)}
                   />
                 ) : undefined
               }
@@ -855,8 +877,20 @@ const GameViewContainer: React.FC<{
               >
                 Versions
               </button>
+              <button
+                type="button"
+                data-testid="in-play-button"
+                onClick={() => setIsInPlayOpen((open) => !open)}
+                aria-pressed={isInPlayOpen}
+                className="button button--secondary"
+              >
+                In play
+              </button>
               <NotificationLogButton />
             </div>
+            )}
+            {inPlayModel && (
+              <InPlayPanel open wide={!compactLayout} model={inPlayModel} onClose={() => setIsInPlayOpen(false)} />
             )}
             {isVersionsOpen && <VersionInfoDialog summary={versionSummary} onClose={() => setIsVersionsOpen(false)} />}
           </div>
