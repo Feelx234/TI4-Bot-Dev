@@ -3146,6 +3146,16 @@ impl Window for ProductionWindow {
                 .count();
             crate::laws::prophecy_after_production(state, &who, fighters);
             self.announce_produced(state, ctx, &made);
+            // Self-Assembly Routines: "after 1 or more of your units use PRODUCTION". Not for
+            // units an ability produces, which use no unit's PRODUCTION.
+            if !self.ability && !made.is_empty() {
+                crate::technology::self_assembly_after_production(
+                    state,
+                    ctx,
+                    &self.player,
+                    &self.system,
+                )?;
+            }
         }
         Ok(())
     }
@@ -5480,11 +5490,19 @@ mod tests {
                 .options
                 .iter()
                 .find(|o| o.payload.get("unit").and_then(|u| u.as_str()) == Some(unit))
-                .and_then(|o| o.payload.get("fleet_ships").and_then(serde_json::Value::as_i64))
+                .and_then(|o| {
+                    o.payload
+                        .get("fleet_ships")
+                        .and_then(serde_json::Value::as_i64)
+                })
         };
         assert_eq!(ships("cruiser"), Some(1));
         assert_eq!(ships("fighter"), Some(0), "fighters are not in the pool");
-        assert_eq!(ships("infantry"), Some(0), "ground forces are not in the pool");
+        assert_eq!(
+            ships("infantry"),
+            Some(0),
+            "ground forces are not in the pool"
+        );
     }
 
     #[test]
@@ -6578,6 +6596,136 @@ mod tests {
                 });
             assert!(!offered);
         });
+    }
+
+    /// Plays a use of PRODUCTION: builds two infantry, pays whatever is asked, stops, and answers
+    /// the Self-Assembly Routines prompt with `sar_answer`. Returns whether the prompt was asked.
+    struct BuildOneInfantry {
+        built: bool,
+        sar_answer: &'static str,
+        sar_asked: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl crate::choice::Decider for BuildOneInfantry {
+        fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+            if choice.prompt.starts_with("Self-Assembly Routines") {
+                self.sar_asked
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                return Ok(if self.sar_answer == "planet" {
+                    choice.options[0].clone()
+                } else {
+                    choice.option(self.sar_answer).cloned().unwrap()
+                });
+            }
+            if !self.built
+                && let Some(build) = choice.options.iter().find(|o| o.id == "build|infantry|2")
+            {
+                self.built = true;
+                return Ok(build.clone());
+            }
+            if let Some(done) = choice.options.iter().find(|o| o.id == "done_producing")
+                && self.built
+            {
+                return Ok(done.clone());
+            }
+            Ok(choice.options[0].clone())
+        }
+    }
+
+    fn use_production_with_self_assembly(
+        rules_version: u32,
+        owned: bool,
+        sar_answer: &'static str,
+    ) -> (GameState, SystemId, PlanetId, bool) {
+        let (mut state, system, planet) = a_producing_game();
+        state.rules_version = rules_version;
+        if owned {
+            state
+                .player_mut(&player())
+                .unwrap()
+                .technologies
+                .insert(ti4_model::id::TechnologyId::new("sar"));
+        }
+        let asked = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut table = Table::with_default(Box::new(BuildOneInfantry {
+            built: false,
+            sar_answer,
+            sar_asked: asked.clone(),
+        }));
+        let report = resolve(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            None,
+            &mut table,
+            &player(),
+            &system,
+        )
+        .unwrap();
+        assert!(!report.produced.is_empty(), "infantry was built");
+        let asked = asked.load(std::sync::atomic::Ordering::SeqCst);
+        (state, system, planet, asked)
+    }
+
+    fn mechs_on(state: &GameState, system: &SystemId, planet: &PlanetId) -> usize {
+        state.board[system]
+            .planet_units
+            .get(planet)
+            .map_or(0, |units| {
+                units
+                    .iter()
+                    .filter(|unit| unit.type_id.as_str() == "mech")
+                    .count()
+            })
+    }
+
+    /// Self-Assembly Routines: after a use of PRODUCTION, exhaust to place a mech on a planet
+    /// you control in that system.
+    #[test]
+    fn self_assembly_routines_places_a_mech_after_production() {
+        let (state, system, planet, asked) = use_production_with_self_assembly(
+            ti4_model::state::RULES_SELF_ASSEMBLY,
+            true,
+            "planet",
+        );
+        assert!(asked);
+        assert_eq!(mechs_on(&state, &system, &planet), 1);
+        assert!(
+            state
+                .player(&player())
+                .unwrap()
+                .exhausted_technologies
+                .contains(&ti4_model::id::TechnologyId::new("sar"))
+        );
+    }
+
+    #[test]
+    fn self_assembly_routines_can_be_declined() {
+        let (state, system, planet, asked) = use_production_with_self_assembly(
+            ti4_model::state::RULES_SELF_ASSEMBLY,
+            true,
+            "decline",
+        );
+        assert!(asked);
+        assert_eq!(mechs_on(&state, &system, &planet), 0);
+    }
+
+    #[test]
+    fn self_assembly_routines_is_silent_without_the_card_or_in_old_games() {
+        let (state, system, planet, asked) = use_production_with_self_assembly(
+            ti4_model::state::RULES_SELF_ASSEMBLY,
+            false,
+            "decline",
+        );
+        assert!(!asked, "no card, no question");
+        assert_eq!(mechs_on(&state, &system, &planet), 0);
+        let (state, system, planet, asked) = use_production_with_self_assembly(
+            ti4_model::state::RULES_SELF_ASSEMBLY - 1,
+            true,
+            "decline",
+        );
+        assert!(!asked, "a game from before the gate never asks");
+        assert_eq!(mechs_on(&state, &system, &planet), 0);
     }
 
     /// `resolve_timed` carries the caller's timing handle, so Warfare secondary / Construction can

@@ -1453,6 +1453,12 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "technology.rs",
+        function: "self_assembly_after_production",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "technology.rs",
         function: "production_used",
         count: 1,
         delivery: Delivery::ObservedHere,
@@ -1715,6 +1721,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("strategy_cards.rs", "ask", 1),
     ("technology.rs", "end_turn", 2),
     ("technology.rs", "production_used", 1),
+    ("technology.rs", "self_assembly_after_production", 1),
     ("technology.rs", "start_turn", 3),
     ("thunders_edge.rs", "ask_seeing", 1),
     ("timing.rs", "ask_seeing", 1),
