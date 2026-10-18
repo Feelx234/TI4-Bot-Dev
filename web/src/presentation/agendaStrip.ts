@@ -88,8 +88,90 @@ export function agendaInfoFromChoice(
   return null;
 }
 
+
+/**
+ * What the game state says about the agenda being decided, public to every seat and spectator the
+ * moment the agenda is revealed: `agenda_in_play` (its alias, until the vote closes), the outcomes
+ * on offer, what each seat cast so far, the riders' predictions and the finished votes of the log.
+ * All of it is read-only display data; absent fields (older servers) read as empty.
+ */
+export interface AgendaTable {
+  /** The alias of the agenda being voted on, or `null` between agendas. */
+  inPlay: string | null;
+  /** The outcomes on offer (`FOR`, `AGAINST`, or the candidates). */
+  choices: string[];
+  casts: { player: string; outcome: string | null; votes: number }[];
+  /** Imperial Rider and the like: seat to the outcome it predicted. */
+  predictions: { player: string; outcome: string }[];
+  /** The finished agendas of the log: the round and alias of each. */
+  log: { round: number | null; agenda: string }[];
+}
+
+export const EMPTY_AGENDA_TABLE: AgendaTable = { inPlay: null, choices: [], casts: [], predictions: [], log: [] };
+
+export function readAgendaTable(state: Record<string, unknown> | null | undefined): AgendaTable {
+  if (!state) return EMPTY_AGENDA_TABLE;
+  const list = (value: unknown): Record<string, unknown>[] =>
+    Array.isArray(value) ? value.filter((v): v is Record<string, unknown> => !!record(v)) : [];
+  const predictions = record(state.agenda_predictions);
+  return {
+    inPlay: str(state.agenda_in_play),
+    choices: Array.isArray(state.agenda_choices) ? state.agenda_choices.filter((c): c is string => typeof c === "string") : [],
+    casts: list(state.agenda_casts)
+      .filter((c) => typeof c.player === "string")
+      .map((c) => ({ player: c.player as string, outcome: str(c.outcome), votes: typeof c.votes === "number" ? c.votes : 0 })),
+    predictions: predictions
+      ? Object.entries(predictions)
+          .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+          .map(([player, outcome]) => ({ player, outcome }))
+      : [],
+    log: list(state.agenda_log)
+      .filter((r) => typeof r.agenda === "string")
+      .map((r) => ({ round: typeof r.round === "number" ? r.round : null, agenda: r.agenda as string })),
+  };
+}
+
+/** A printed agenda as the catalog holds it (`Catalog.components.agendas`). */
+export interface PrintedAgenda {
+  id: string;
+  name: string;
+  kind: string;
+  elect?: string;
+  text: string;
+  against?: string;
+}
+
+/** The agenda in play as a card: the catalog's printed text when it knows the alias, else just the name. */
+export function agendaInfoFromTable(
+  table: AgendaTable,
+  lookup: (alias: string) => PrintedAgenda | undefined,
+): AgendaInfo | null {
+  const id = table.inPlay;
+  if (!id) return null;
+  const def = lookup(id);
+  const elect = def?.elect?.trim() || null;
+  // The catalog prints the side labels itself ("For: ...", "Against: ..."); an election has one text.
+  const text = [def?.text, def?.against].map((line) => line?.trim() ?? "").filter(Boolean);
+  return { id, name: def?.name || agendaNameFromId(id), type: def?.kind ?? null, target: elect, text };
+}
+
+/** The agenda has just been resolved and the next one is not revealed yet (the log has it, nothing is in play). */
+export function agendaJustResolved(table: AgendaTable, round: number | null | undefined, info: AgendaInfo | null): boolean {
+  if (table.inPlay) return false;
+  const thisRound = table.log.filter((r) => r.round === null || round == null || r.round === round);
+  if (thisRound.length === 0) return false;
+  // Nothing known about a current agenda (the page loaded after it resolved), or the one known is in the log.
+  return !info?.id || thisRound.some((r) => r.agenda === info.id);
+}
+
 const sameAgenda = (a: AgendaInfo, b: AgendaInfo): boolean =>
   a.id !== null && b.id !== null ? a.id === b.id : a.name !== null && a.name === b.name;
+
+/** What the decision and the game state each say about the agenda: the decision's printed card wins, the state fills the gaps. */
+export function mergeAgendaInfo(fromChoice: AgendaInfo | null, fromState: AgendaInfo | null): AgendaInfo | null {
+  if (fromChoice && fromState && sameAgenda(fromChoice, fromState)) return richer(fromState, fromChoice);
+  return fromState ?? fromChoice;
+}
 
 const richer = (known: AgendaInfo, update: AgendaInfo): AgendaInfo => ({
   id: update.id ?? known.id,
@@ -180,8 +262,23 @@ export interface AgendaStrip {
   outcomes: string[];
   whose: AgendaWhose | null;
   speaker: string | null;
-  /** "FOR 3 · AGAINST 1", when the votes cast so far are public in the decision. */
+  /** "FOR 3 · AGAINST 1", when the votes cast so far are public (the decision's counts, or the state's casts). */
   tally: string | null;
+  /** Who has voted so far, in voting order, from the state's `agenda_casts`. */
+  casts: AgendaStripCast[];
+  /** Seats still to vote, in voting order (speaker last). Empty when unknown. */
+  waiting: string[];
+  /** Riders and predictions that are on the table. */
+  riders: { label: string; outcome: string }[];
+}
+
+export interface AgendaStripCast {
+  label: string;
+  you: boolean;
+  /** The outcome as shown ("For", a name); `null` for an abstention. */
+  outcome: string | null;
+  votes: number;
+  badge?: { color: string; symbol: string } | null;
 }
 
 const roleOf = (subtype: string, choice: PendingChoiceDto): TurnRole => {
@@ -217,6 +314,15 @@ export interface DeriveInput {
   label: (seat: string) => string;
   /** True while the server waits for reactions that name no seat. */
   waitingForReactions?: boolean;
+  /** The public agenda data of the game state; see [`readAgendaTable`]. */
+  table?: AgendaTable;
+  /** Seats in table order, to work out who votes after whom. */
+  seatingOrder?: readonly string[];
+  /** How an outcome (`FOR`, a seat, a planet) reads. */
+  outcomeLabel?: (outcome: string) => string;
+  /** A seat's colour and symbol, the badge shown beside its name. */
+  seatBadge?: (seat: string) => { color: string; symbol: string } | null;
+  round?: number | null;
 }
 
 /**
@@ -227,12 +333,15 @@ export function deriveAgendaStrip(input: DeriveInput): AgendaStrip | null {
   const choice = input.choice ?? null;
   const decision = isAgendaDecision(choice);
   if (!isAgendaPhase(input.phase) && !decision) return null;
+  const table = input.table ?? EMPTY_AGENDA_TABLE;
   const current = agendaInfoFromChoice(choice) ?? input.memory.agendas[input.memory.agendas.length - 1] ?? null;
   const known = choice ? agendaInfoFromChoice(choice) : null;
   const info = known && current ? richer(current, known) : current;
-  const index = info
-    ? input.memory.agendas.findIndex((agenda) => sameAgenda(agenda, info))
-    : -1;
+  // Resolved and nothing else going on: the agenda is decided, the banner is gone until the next reveal.
+  if (!decision && agendaJustResolved(table, input.round, info)) return null;
+  const inRound = table.log.filter((r) => r.round === null || input.round == null || r.round === input.round).length;
+  const index = info ? input.memory.agendas.findIndex((agenda) => sameAgenda(agenda, info)) : -1;
+  const number = table.inPlay && table.log.length ? inRound + 1 : index >= 0 ? index + 1 : null;
   const kind = agendaKind(info, decision ? choice : null);
   const subtype = choice?.context?.subtype ?? "";
   let whose: AgendaWhose | null = null;
@@ -245,17 +354,19 @@ export function deriveAgendaStrip(input: DeriveInput): AgendaStrip | null {
   } else if (input.waitingForReactions) {
     whose = { seat: "", label: "", you: false, role: "reaction", text: "Reactions" };
   }
-  const outcomes = (decision ? (choice?.options ?? []) : [])
+  // Only a vote, a tie-break or a prediction offers outcomes; a reaction window offers cards.
+  const offersOutcomes = decision && choice !== null && ["vote", "tiebreak", "predict"].includes(roleOf(subtype, choice));
+  const outcomes = (offersOutcomes ? (choice?.options ?? []) : [])
     .filter((o) => o.kind !== "decline" && o.id !== "decline")
-    .map((o) => (typeof o.payload?.planet_name === "string" ? o.payload.planet_name : o.label.replace(/^predict\s+/i, "")));
+    .map((o) => optionName(o, input));
   const tallies =
     subtype === "cast_vote"
       ? (choice?.options ?? [])
           .filter((o) => o.kind !== "decline" && o.id !== "decline" && typeof o.payload?.current_votes === "number")
-          .map((o) => `${o.label} ${o.payload?.current_votes as number}`)
+          .map((o) => `${optionName(o, input)} ${o.payload?.current_votes as number}`)
       : [];
   return {
-    number: index >= 0 ? index + 1 : null,
+    number,
     name: info?.name ?? null,
     kind,
     kindLabel: kindLabel(kind, info),
@@ -264,7 +375,8 @@ export function deriveAgendaStrip(input: DeriveInput): AgendaStrip | null {
     outcomes: subtype === "vote_exhaust_planet" ? [] : outcomes,
     whose,
     speaker: input.speaker ? input.label(input.speaker) : null,
-    tally: tallies.length ? tallies.join(" · ") : null,
+    tally: tallies.length ? tallies.join(" · ") : stateTally(table, input),
+    ...castsAndRiders(table, input),
   };
 }
 
@@ -285,4 +397,51 @@ export function agendaPillLabel(strip: AgendaStrip, choice: Pick<PendingChoiceDt
     role === "vote" ? "Voting" : role === "tiebreak" ? "Tie-break" : role === "predict" ? "Predict" : "Agenda";
   const name = strip.name ?? "agenda";
   return strip.kindLabel ? `${verb}: ${name} — ${strip.kindLabel}` : `${verb}: ${name}`;
+}
+
+const SIDE = /^(for|against)$/i;
+
+/** An option of a vote or prediction as a person reads it: planets and players by name, never by id. */
+function optionName(o: PendingChoiceDto["options"][number], input: DeriveInput): string {
+  if (typeof o.payload?.planet_name === "string") return o.payload.planet_name;
+  const label = o.label.replace(/^predict\s+/i, "");
+  if (SIDE.test(o.id) || SIDE.test(label)) return label;
+  return input.outcomeLabel ? input.outcomeLabel(o.id) : label;
+}
+
+const outcomeText = (input: DeriveInput, outcome: string): string =>
+  input.outcomeLabel ? input.outcomeLabel(outcome) : outcome;
+
+/** The running count per outcome from the public casts: "For 7 · Against 3". */
+function stateTally(table: AgendaTable, input: DeriveInput): string | null {
+  if (!table.inPlay || table.casts.length === 0) return null;
+  const sums = new Map<string, number>();
+  for (const outcome of table.choices) sums.set(outcome, 0);
+  for (const cast of table.casts) if (cast.outcome) sums.set(cast.outcome, (sums.get(cast.outcome) ?? 0) + cast.votes);
+  const entries = [...sums].filter(([, n]) => n > 0 || table.choices.length <= 3);
+  return entries.length ? entries.map(([o, n]) => `${outcomeText(input, o)} ${n}`).join(" · ") : null;
+}
+
+/** Seats in voting order: the seat after the speaker first, the speaker last. */
+export function votingOrder(seating: readonly string[], speaker: string | null | undefined): string[] {
+  const at = speaker ? seating.indexOf(speaker) : -1;
+  return at < 0 ? [...seating] : [...seating.slice(at + 1), ...seating.slice(0, at + 1)];
+}
+
+function castsAndRiders(table: AgendaTable, input: DeriveInput): Pick<AgendaStrip, "casts" | "waiting" | "riders"> {
+  if (!table.inPlay) return { casts: [], waiting: [], riders: [] };
+  const label = (seat: string) => (input.viewerSeat && seat === input.viewerSeat ? "You" : input.label(seat));
+  const done = new Set([...table.casts.map((c) => c.player), ...table.predictions.map((p) => p.player)]);
+  const order = votingOrder(input.seatingOrder ?? [], input.speaker);
+  return {
+    casts: table.casts.map((c) => ({
+      label: input.label(c.player),
+      you: Boolean(input.viewerSeat) && c.player === input.viewerSeat,
+      outcome: c.outcome ? outcomeText(input, c.outcome) : null,
+      votes: c.votes,
+      badge: input.seatBadge?.(c.player) ?? null,
+    })),
+    waiting: order.filter((seat) => !done.has(seat)).map(label),
+    riders: table.predictions.map((p) => ({ label: label(p.player), outcome: outcomeText(input, p.outcome) })),
+  };
 }

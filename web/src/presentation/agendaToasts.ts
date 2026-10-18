@@ -4,6 +4,8 @@ import {
   findSecretObjectiveMeta,
   humanizeId,
 } from "../protocol/contentCatalog.ts";
+import { AGENDAS } from "../protocol/catalogStore.ts";
+import { findStrategyCardMeta } from "../protocol/contentCatalog.ts";
 import { agendaNameFromId } from "./agendaStrip.ts";
 
 /** One entry of the engine's `agenda_log`: a finished agenda vote (public, written at resolution). */
@@ -52,7 +54,10 @@ export function readAgendaLog(state: Record<string, unknown> | null | undefined)
 /** A seat's display name, or `null` when `id` is not a seat. */
 export type SeatName = (id: string) => string | null;
 
-/** "For", "Against", a player's name, a planet's name, an objective's name. */
+/** A seat id as the engine makes them (`player_<64 hex>`); never shown as it is. */
+const RAW_PLAYER_ID = /^player_[0-9a-f]{8,}$/i;
+
+/** "For", "Against", a player's name, a planet's name, an objective's, strategy card's or law's name; never a raw id. */
 export function agendaOutcomeLabel(outcome: string, seatName: SeatName): string {
   const lower = outcome.toLowerCase();
   if (lower === "for") return "For";
@@ -62,7 +67,9 @@ export function agendaOutcomeLabel(outcome: string, seatName: SeatName): string 
     findPlanetMeta(outcome)?.name ??
     findSecretObjectiveMeta(outcome)?.name ??
     findPublicObjectiveMeta(outcome)?.name ??
-    humanizeId(outcome)
+    findStrategyCardMeta(outcome)?.name ??
+    AGENDAS[outcome]?.name ??
+    (RAW_PLAYER_ID.test(outcome) ? "a player" : humanizeId(outcome))
   );
 }
 

@@ -14,6 +14,9 @@ const model = (extra: Partial<Model> = {}): Model => ({
   whose: { seat: "p1", label: "You", you: true, role: "vote", text: "Your vote" },
   speaker: "Alice",
   tally: "FOR 3 · AGAINST 1",
+  casts: [],
+  waiting: [],
+  riders: [],
   ...extra,
 });
 
@@ -50,6 +53,40 @@ describe("AgendaStrip", () => {
     unmount();
     expect(document.documentElement.dataset.agendaStrip).toBeUndefined();
     expect(document.documentElement.style.getPropertyValue("--agenda-strip-bottom")).toBe("");
+  });
+});
+
+describe("AgendaStrip card for every viewer", () => {
+  it("lists who voted with their votes, the running total, who is still to vote and the riders", () => {
+    render(
+      <AgendaStrip
+        strip={model({
+          whose: null,
+          casts: [
+            { label: "Bob", you: false, outcome: "For", votes: 7 },
+            { label: "Ada", you: true, outcome: null, votes: 0 },
+          ],
+          tally: "For 7 · Against 0",
+          waiting: ["Cy", "Dee"],
+          riders: [{ label: "Cy", outcome: "Against" }],
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("agenda-strip-toggle"));
+    expect(screen.getByTestId("agenda-strip-casts").textContent).toBe("Bob For: 7 votesYou abstained");
+    expect(screen.getByTestId("agenda-strip-tally").textContent).toBe("Running total: For 7 · Against 0");
+    expect(screen.getByTestId("agenda-strip-waiting").textContent).toBe("Still to vote: Cy, Dee");
+    expect(screen.getByTestId("agenda-strip-riders").textContent).toBe("Riders: Cy predicts Against");
+  });
+
+  it("clamps long card text behind More / Less", () => {
+    render(<AgendaStrip strip={model({ text: ["A long outcome. ".repeat(20)] })} />);
+    fireEvent.click(screen.getByTestId("agenda-strip-toggle"));
+    const block = screen.getByTestId("agenda-strip-card-text");
+    expect(block.hasAttribute("data-clamped")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    expect(block.hasAttribute("data-clamped")).toBe(false);
+    expect(screen.getByRole("button", { name: "Less" })).toBeTruthy();
   });
 });
 

@@ -14,9 +14,20 @@ export const useAgendaPill = (): string | null => useContext(AgendaPillContext);
  * (`--agenda-strip-bottom`, `data-agenda-strip`) so dialogs, the connection chip and the like keep clear.
  */
 export const AgendaStrip: React.FC<{ strip: AgendaStripModel }> = ({ strip }) => {
-  const [open, setOpen] = useState(false);
+  // Wide windows have the room: the card starts open there. Phones show the one line and open on tap.
+  const [open, setOpen] = useState(() => {
+    try {
+      return typeof window.matchMedia === "function" && window.matchMedia("(min-width: 900px)").matches;
+    } catch {
+      return false;
+    }
+  });
+  const [wholeText, setWholeText] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const hasMore =
+    strip.casts.length > 0 ||
+    strip.waiting.length > 0 ||
+    strip.riders.length > 0 ||
     strip.text.length > 0 || strip.outcomes.length > 0 || Boolean(strip.tally) || Boolean(strip.speaker) || Boolean(strip.type);
 
   useLayoutEffect(() => {
@@ -77,13 +88,47 @@ export const AgendaStrip: React.FC<{ strip: AgendaStripModel }> = ({ strip }) =>
               {strip.kindLabel ? ` · ${strip.kindLabel}` : ""}
             </p>
           )}
-          {strip.text.map((paragraph) => (
-            <p key={paragraph} className="agenda-strip__text-line">
-              {paragraph}
-            </p>
-          ))}
+          {strip.text.length > 0 && (
+            <div className="agenda-strip__text-block" data-clamped={!wholeText || undefined} data-testid="agenda-strip-card-text">
+              {strip.text.map((paragraph) => (
+                <p key={paragraph} className="agenda-strip__text-line">
+                  {paragraph}
+                </p>
+              ))}
+              {strip.text.join(" ").length > 220 && (
+                <button type="button" className="agenda-strip__more" aria-expanded={wholeText} onClick={() => setWholeText((v) => !v)}>
+                  {wholeText ? "Less" : "More"}
+                </button>
+              )}
+            </div>
+          )}
           {strip.outcomes.length > 0 && <p>Outcomes: {strip.outcomes.join(" / ")}</p>}
-          {strip.tally && <p data-testid="agenda-strip-tally">Votes so far: {strip.tally}</p>}
+          {strip.casts.length > 0 && (
+            <ul className="agenda-strip__casts" data-testid="agenda-strip-casts">
+              {strip.casts.map((cast, i) => (
+                <li key={`${cast.label}:${i}`}>
+                  {cast.badge && (
+                    <span aria-hidden="true" style={{ color: cast.badge.color }}>
+                      {cast.badge.symbol}{" "}
+                    </span>
+                  )}
+                  <strong>{cast.you ? "You" : cast.label}</strong>{" "}
+                  {cast.outcome ? `${cast.outcome}: ${cast.votes} ${cast.votes === 1 ? "vote" : "votes"}` : "abstained"}
+                </li>
+              ))}
+            </ul>
+          )}
+          {strip.tally && <p data-testid="agenda-strip-tally">{strip.casts.length ? "Running total" : "Votes so far"}: {strip.tally}</p>}
+          {strip.waiting.length > 0 && (
+            <p data-testid="agenda-strip-waiting">
+              Still to vote: {strip.waiting.join(", ")}
+            </p>
+          )}
+          {strip.riders.length > 0 && (
+            <p data-testid="agenda-strip-riders">
+              Riders: {strip.riders.map((r) => `${r.label} predicts ${r.outcome}`).join("; ")}
+            </p>
+          )}
           {strip.speaker && <p>Speaker: {strip.speaker} (votes last, breaks ties)</p>}
         </div>
       )}

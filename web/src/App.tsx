@@ -38,6 +38,9 @@ import { logHistoryKey as logHistoryKeyFor } from "./components/eventLogScroll.t
 import { PlayerIdentityProvider } from "./presentation/PlayerIdentity.tsx";
 import {
   advanceAgendaMemory,
+  agendaInfoFromTable,
+  mergeAgendaInfo,
+  readAgendaTable,
   agendaInfoFromChoice,
   agendaPillLabel,
   deriveAgendaStrip,
@@ -45,6 +48,7 @@ import {
   isAgendaDecision,
   type AgendaMemory,
 } from "./presentation/agendaStrip.ts";
+import { AGENDAS } from "./protocol/catalogStore.ts";
 import { SeatInfoProvider } from "./presentation/SeatInfoContext.tsx";
 import { PublicStateProvider } from "./presentation/PublicStateContext.tsx";
 import { DecisionTableProvider } from "./components/PoliticsDecisionParts.tsx";
@@ -70,7 +74,7 @@ import { GONE_MESSAGE, UNREACHABLE_MESSAGE } from "./protocol/resilience.ts";
 import { ConnectionProblem, ReconnectingChip, useAfterDelay } from "./components/ConnectionNotice.tsx";
 import { readBreakthroughs } from "./presentation/breakthroughs.ts";
 import { readExplorationLog } from "./presentation/explorationToasts.ts";
-import { readAgendaCasts, readAgendaLog } from "./presentation/agendaToasts.ts";
+import { agendaOutcomeLabel, readAgendaCasts, readAgendaLog } from "./presentation/agendaToasts.ts";
 import { readRelicLog } from "./presentation/relicToasts.ts";
 import { useBackUndo } from "./hooks/useBackUndo.ts";
 import { CornerToastLayer } from "./components/CornerToastLayer.tsx";
@@ -628,12 +632,13 @@ const GameViewContainer: React.FC<{
   // The agenda being decided stays on screen for the whole agenda phase: the strip under the top bar
   // and the minimized pill. The phase's memory carries the agenda through waiting states and
   // decisions that do not name it, and is dropped when the phase ends.
+  const agendaTable = useMemo(() => readAgendaTable(snapshot?.state), [snapshot?.state]);
   const agendaMemoryRef = useRef<AgendaMemory>(EMPTY_AGENDA_MEMORY);
   const agendaPhase = snapshot?.view.phase;
   agendaMemoryRef.current = advanceAgendaMemory(agendaMemoryRef.current, {
     phase: agendaPhase,
     round: snapshot?.view.round,
-    info: agendaInfoFromChoice(realPendingChoice),
+    info: mergeAgendaInfo(agendaInfoFromChoice(realPendingChoice), agendaInfoFromTable(agendaTable, (alias) => AGENDAS[alias])),
     decision: isAgendaDecision(realPendingChoice),
   });
   const agendaStrip = snapshot
@@ -645,6 +650,18 @@ const GameViewContainer: React.FC<{
         speaker: snapshot.view.speaker,
         label: (seat) => playerDisplay(lobby, snapshot.view.seating_order, seat).label,
         waitingForReactions: turnStatus?.kind === "waiting_for_reactions",
+        table: agendaTable,
+        seatingOrder: snapshot.view.seating_order,
+        round: snapshot.view.round,
+        seatBadge: (seat) => {
+          const d = playerDisplay(lobby, snapshot.view.seating_order, seat);
+          return d.position === null ? null : { color: d.color, symbol: d.symbol };
+        },
+        outcomeLabel: (outcome) =>
+          agendaOutcomeLabel(outcome, (id) => {
+            const seat = playerDisplay(lobby, snapshot.view.seating_order, id);
+            return seat.position === null ? null : seat.label;
+          }),
       })
     : null;
   const agendaPill = agendaStrip ? agendaPillLabel(agendaStrip, realPendingChoice) : null;

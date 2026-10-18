@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { PendingChoiceDto } from "../protocol/types.ts";
 import {
   advanceAgendaMemory,
+  agendaInfoFromTable,
+  EMPTY_AGENDA_TABLE,
+  mergeAgendaInfo,
+  readAgendaTable,
+  votingOrder,
   agendaInfoFromChoice,
   agendaNameFromId,
   agendaPillLabel,
@@ -11,6 +16,7 @@ import {
   isAgendaDecision,
   type AgendaMemory,
 } from "./agendaStrip.ts";
+import { agendaOutcomeLabel } from "./agendaToasts.ts";
 import { partialContext } from "../test/wire.ts";
 
 const PEACE = {
@@ -193,5 +199,169 @@ describe("agenda memory across the phase", () => {
     const memory = advanceAgendaMemory(EMPTY_AGENDA_MEMORY, { phase: "agenda", round: 3, info: info(PEACE) });
     expect(advanceAgendaMemory(memory, { phase: "agenda", round: 3, info: info(PEACE) })).toBe(memory);
     expect(advanceAgendaMemory(EMPTY_AGENDA_MEMORY, { phase: "action", round: 3, info: null })).toBe(EMPTY_AGENDA_MEMORY);
+  });
+});
+
+describe("the agenda from the game state (visible to every seat)", () => {
+  const lookup = (alias: string) =>
+    alias === "minister_of_peace"
+      ? { id: alias, name: "Minister of Peace", kind: "Law", elect: "For/Against", text: "For: Ready Mecatol Rex.", against: "Against: Discard this card." }
+      : alias === "minister_of_commerce"
+        ? { id: alias, name: "Minister of Commerce", kind: "Law", elect: "Elect Player", text: "Gain trade goods." }
+        : undefined;
+  const state = (extra: Record<string, unknown> = {}) => ({ agenda_in_play: "minister_of_peace", agenda_choices: ["FOR", "AGAINST"], ...extra });
+  const base = (extra: Partial<Parameters<typeof deriveAgendaStrip>[0]> = {}) => ({
+    phase: "agenda",
+    round: 3,
+    choice: null,
+    memory: EMPTY_AGENDA_MEMORY,
+    viewerSeat: "p1",
+    speaker: "p2",
+    seatingOrder: ["p1", "p2", "p3", "p4"],
+    label: (seat: string) => seat.toUpperCase(),
+    outcomeLabel: (o: string) => (o === "FOR" ? "For" : o === "AGAINST" ? "Against" : o.toUpperCase()),
+    ...extra,
+  });
+
+  it("reads nothing from a state without the fields", () => {
+    expect(readAgendaTable({})).toEqual(EMPTY_AGENDA_TABLE);
+    expect(readAgendaTable(null)).toEqual(EMPTY_AGENDA_TABLE);
+    expect(agendaInfoFromTable(EMPTY_AGENDA_TABLE, lookup)).toBeNull();
+  });
+
+  it("builds the card from the catalog, with both outcomes", () => {
+    const info = agendaInfoFromTable(readAgendaTable(state()), lookup)!;
+    expect(info).toMatchObject({ id: "minister_of_peace", name: "Minister of Peace", type: "Law", target: "For/Against" });
+    expect(info.text).toEqual(["For: Ready Mecatol Rex.", "Against: Discard this card."]);
+    expect(agendaInfoFromTable(readAgendaTable(state({ agenda_in_play: "minister_of_commerce" })), lookup)!.text).toEqual(["Gain trade goods."]);
+    expect(agendaInfoFromTable(readAgendaTable(state({ agenda_in_play: "mystery" })), lookup)).toMatchObject({ name: "Mystery", text: [] });
+  });
+
+  it("a seat that is not asked still sees the agenda, the casts, the total, who is next and the riders", () => {
+    const table = readAgendaTable(
+      state({
+        agenda_casts: [
+          { player: "p3", outcome: "FOR", votes: 4 },
+          { player: "p4", outcome: "AGAINST", votes: 2 },
+          { player: "p1", votes: 0 },
+        ],
+        agenda_predictions: { p2: "AGAINST" },
+      }),
+    );
+    const info = agendaInfoFromTable(table, lookup);
+    const memory = advanceAgendaMemory(EMPTY_AGENDA_MEMORY, { phase: "agenda", round: 3, info });
+    const strip = deriveAgendaStrip(base({ memory, table }))!;
+    expect(strip.name).toBe("Minister of Peace");
+    expect(strip.kindLabel).toBe("For/Against");
+    expect(strip.number).toBe(1);
+    expect(strip.casts).toEqual([
+      { label: "P3", you: false, outcome: "For", votes: 4, badge: null },
+      { label: "P4", you: false, outcome: "Against", votes: 2, badge: null },
+      { label: "P1", you: true, outcome: null, votes: 0, badge: null },
+    ]);
+    expect(strip.tally).toBe("For 4 · Against 2");
+    expect(strip.waiting).toEqual([]);
+    expect(strip.riders).toEqual([{ label: "P2", outcome: "Against" }]);
+  });
+
+  it("lists the seats still to vote in voting order, speaker last", () => {
+    const table = readAgendaTable(state({ agenda_casts: [{ player: "p3", outcome: "FOR", votes: 1 }] }));
+    const strip = deriveAgendaStrip(base({ table, memory: advanceAgendaMemory(EMPTY_AGENDA_MEMORY, { phase: "agenda", round: 3, info: agendaInfoFromTable(table, lookup) }) }))!;
+    expect(strip.waiting).toEqual(["P4", "You", "P2"]);
+    expect(votingOrder(["a", "b", "c"], "a")).toEqual(["b", "c", "a"]);
+    expect(votingOrder(["a", "b"], null)).toEqual(["a", "b"]);
+  });
+
+  it("numbers the second agenda from the log and prefers the decision's printed card", () => {
+    const table = readAgendaTable(
+      state({ agenda_in_play: "minister_of_commerce", agenda_log: [{ round: 3, agenda: "minister_of_peace" }, { round: 2, agenda: "old" }] }),
+    );
+    const info = mergeAgendaInfo(null, agendaInfoFromTable(table, lookup));
+    const strip = deriveAgendaStrip(base({ table, memory: advanceAgendaMemory(EMPTY_AGENDA_MEMORY, { phase: "agenda", round: 3, info }) }))!;
+    expect(strip.number).toBe(2);
+    expect(strip.kindLabel).toBe("Elect Player");
+    const printed = { id: "minister_of_commerce", name: "Printed", type: "Law", target: "Elect Player", text: ["From the decision."] };
+    expect(mergeAgendaInfo(printed, info)).toMatchObject({ name: "Printed", text: ["From the decision."] });
+  });
+
+  it("is gone once the agenda is resolved and nothing is in play, and back at the next reveal", () => {
+    const resolved = readAgendaTable({ agenda_log: [{ round: 3, agenda: "minister_of_peace" }], agenda_casts: [{ player: "p1", outcome: "FOR", votes: 3 }] });
+    const memory = advanceAgendaMemory(EMPTY_AGENDA_MEMORY, { phase: "agenda", round: 3, info: { id: "minister_of_peace", name: "Minister of Peace", type: null, target: null, text: [] } });
+    expect(deriveAgendaStrip(base({ table: resolved, memory }))).toBeNull();
+    // an older server (no log): unchanged, the strip stays for the phase
+    expect(deriveAgendaStrip(base({ table: EMPTY_AGENDA_TABLE, memory }))).not.toBeNull();
+    // the log of an earlier round does not hide it
+    const earlier = readAgendaTable({ agenda_log: [{ round: 2, agenda: "minister_of_peace" }] });
+    expect(deriveAgendaStrip(base({ table: earlier, memory }))).not.toBeNull();
+  });
+
+  it("shows no casts after the vote closed (nothing in play)", () => {
+    const strip = deriveAgendaStrip(base({ table: readAgendaTable({ agenda_casts: [{ player: "p1", outcome: "FOR", votes: 3 }] }), memory: EMPTY_AGENDA_MEMORY }))!;
+    expect(strip.casts).toEqual([]);
+    expect(strip.tally).toBeNull();
+  });
+});
+
+describe("no raw player id ever reaches the banner text", () => {
+  const hex = (n: number) => `player_${n.toString(16).padStart(2, "0").repeat(32)}`;
+  const names = ["Felix", "Ada", "Bob", "Cy", "Dee", "Eve"];
+  for (const count of [3, 4, 6]) {
+    it(`${count} players, Elect Player`, () => {
+      const seats = Array.from({ length: count }, (_, i) => hex(i + 1));
+      const nameOf = (seat: string) => names[seats.indexOf(seat)] ?? "Unknown";
+      const table = readAgendaTable({
+        agenda_in_play: "prophecy",
+        agenda_choices: seats,
+        agenda_casts: seats.slice(0, 2).map((p, i) => ({ player: p, outcome: seats[count - 1 - i], votes: 3 + i })),
+        agenda_predictions: { [seats[2]]: seats[1] },
+      });
+      const choice = {
+        actor: seats[0],
+        prompt: "vote",
+        nonce: "n",
+        context: { subtype: "cast_vote" },
+        options: [
+          ...seats.map((id) => ({ id, label: id, kind: "vote", payload: { current_votes: 2 } })),
+          { id: "decline", label: "Abstain", kind: "decline" },
+        ],
+      } as unknown as PendingChoiceDto;
+      const strip = deriveAgendaStrip({
+        phase: "agenda",
+        round: 2,
+        choice,
+        memory: EMPTY_AGENDA_MEMORY,
+        viewerSeat: seats[0],
+        speaker: seats[count - 1],
+        seatingOrder: seats,
+        table,
+        label: nameOf,
+        outcomeLabel: (o) => agendaOutcomeLabel(o, (id) => (seats.includes(id) ? nameOf(id) : null)),
+      })!;
+      const { whose, ...shown } = strip; // whose.seat is an internal key, only its text is shown
+      const text = JSON.stringify({ ...shown, whose: whose?.text }) + agendaStripText(strip);
+      expect(text).not.toMatch(/player_[0-9a-f]{8}/);
+      expect(strip.outcomes).toEqual(seats.map(nameOf));
+      expect(strip.tally).toContain("Felix 2");
+    });
+  }
+
+  it("falls back to a neutral word for an unknown player id and names strategy cards and laws", () => {
+    const nobody = () => null;
+    expect(agendaOutcomeLabel(hex(9), nobody)).toBe("a player");
+    expect(agendaOutcomeLabel("pok3politics", nobody)).not.toMatch(/pok3/);
+  });
+});
+
+describe("a reaction window offers cards, not outcomes", () => {
+  it("lists no outcomes for the reaction options", () => {
+    const choice = {
+      actor: "p1",
+      prompt: "reaction",
+      nonce: "n",
+      context: { subtype: "reaction_when_AGENDA_REVEALED", trigger: { kind: "agenda_revealed", agenda: "minister_peace" } },
+      options: [{ id: "reaction:letnev:AGENDA_REVEALED:after", label: "Play Sabotage", kind: "ability" }, { id: "decline", label: "Pass", kind: "decline" }],
+    } as unknown as PendingChoiceDto;
+    const strip = deriveAgendaStrip({ phase: "agenda", round: 1, choice, memory: EMPTY_AGENDA_MEMORY, viewerSeat: "p1", label: (s) => s });
+    expect(strip!.outcomes).toEqual([]);
   });
 });

@@ -150,3 +150,7 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Score Public Objective on a phone (EK-score-objective-compact)
 
 `EK-score-objective-compact` shows the scoring window (objectives modal in scoring mode, with and without the Imperial note) on 390x844, 360x740 and landscape 844x390, plus desktop unchanged. The `before-*` PNGs were taken with `TI4_SHOT_PREFIX=before` on the commit without the change; `npm run screenshots -- EK` regenerates the `after-*` PNGs and asserts a one-row header (<= 52 px, Minimize on it), >= 3 visible objective rows (2 in landscape), the footer inside the viewport and no horizontal overflow.
+
+## Agenda visible to all (FW-agenda-visible-to-all)
+
+`FW-agenda-visible-to-all` shows the agenda banner for every viewer from the reveal to the resolution: the voter, a seat that is not asked, a spectator, the reaction window with riders, the second agenda, after resolution (banner gone) and a 6-player Elect Player table with real 64-hex ids, desktop and 390x844. `capture-2-real-engine.ts` plays the `agenda` preset through the real wasm engine (needs `npm run build:wasm`). The `before-*` PNGs were taken with `TI4_SHOT_PREFIX=before` on 0a18dd87. `npm run screenshots -- FW` asserts the texts, no raw player id and no horizontal scroll.

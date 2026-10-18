@@ -1,0 +1,217 @@
+{
+  "title": "Agenda visible to all",
+  "description": "Once an agenda is revealed, every seat and spectator sees it until it resolves: a banner under the top bar (one line on phones, tap for the card; open on desktop) with the agenda number, name, type, Elect/For-Against target, the printed outcomes (More/Less), who voted with their vote totals, the running tally, who is still to vote and the riders. It is derived only from public game state (agenda_in_play, agenda_choices, agenda_casts, agenda_predictions, agenda_log) and the catalog; no decision is needed. Every player id is shown as the seat's name with its badge. Mocked server for the variants; the real wasm engine for the last shots.",
+  "tag": "web/e2e/screenshots/FW-agenda-visible-to-all",
+  "shots": [
+    {
+      "file": "before/before-1-voter-desktop.png",
+      "heading": "Before: Voter's view (desktop)",
+      "caption": "Base commit 0a18dd87 with the same state."
+    },
+    {
+      "file": "out/after-1-voter-desktop.png",
+      "heading": "After: Voter's view (desktop)",
+      "caption": "The seat being asked: the vote dialog and the banner above it name the same agenda, with who has voted (Cy For: 4 votes) and the running total."
+    },
+    {
+      "file": "before/before-2-other-seat-votes-desktop.png",
+      "heading": "Before: A seat that is not asked, another seat votes (desktop)",
+      "caption": "Base commit 0a18dd87 with the same state. No banner for a seat without a decision."
+    },
+    {
+      "file": "out/after-2-other-seat-votes-desktop.png",
+      "heading": "After: A seat that is not asked, another seat votes (desktop)",
+      "caption": "No decision of its own: the banner still shows the agenda, its printed text, the casts, the running total and who is still to vote (public state only)."
+    },
+    {
+      "file": "before/before-3-spectator-desktop.png",
+      "heading": "Before: Spectator (desktop)",
+      "caption": "Base commit 0a18dd87 with the same state. No banner for a seat without a decision."
+    },
+    {
+      "file": "out/after-3-spectator-desktop.png",
+      "heading": "After: Spectator (desktop)",
+      "caption": "A spectator sees the same card, casts and the seats still to vote, in voting order (speaker last)."
+    },
+    {
+      "file": "before/before-4-reaction-window-desktop.png",
+      "heading": "Before: Reaction window, riders (desktop)",
+      "caption": "Base commit 0a18dd87 with the same state. No banner for a seat without a decision."
+    },
+    {
+      "file": "out/after-4-reaction-window-desktop.png",
+      "heading": "After: Reaction window, riders (desktop)",
+      "caption": "Right after the reveal, a seat with nothing to play still sees the agenda; a rider's prediction is listed (Cy predicts Against)."
+    },
+    {
+      "file": "before/before-5-second-agenda-desktop.png",
+      "heading": "Before: Second agenda (desktop)",
+      "caption": "Base commit 0a18dd87 with the same state. No banner for a seat without a decision."
+    },
+    {
+      "file": "out/after-5-second-agenda-desktop.png",
+      "heading": "After: Second agenda (desktop)",
+      "caption": "'Agenda 2/2: Minister of Commerce', Elect Player, numbered from the agenda log."
+    },
+    {
+      "file": "before/before-6-after-resolution-desktop.png",
+      "heading": "Before: After resolution (desktop)",
+      "caption": "Base commit 0a18dd87 with the same state."
+    },
+    {
+      "file": "out/after-6-after-resolution-desktop.png",
+      "heading": "After: After resolution (desktop)",
+      "caption": "The first agenda is in the log and nothing is in play: the banner is gone until the next reveal."
+    },
+    {
+      "file": "before/before-7-six-players-elect-player-desktop.png",
+      "heading": "Before: Six players, Elect Player (real 64-hex ids) (desktop)",
+      "caption": "Base commit 0a18dd87 with the same state. No banner for a seat without a decision."
+    },
+    {
+      "file": "out/after-7-six-players-elect-player-desktop.png",
+      "heading": "After: Six players, Elect Player (real 64-hex ids) (desktop)",
+      "caption": "Candidates, casts, running total and who is still to vote all by name with a seat badge; no raw player id."
+    },
+    {
+      "file": "before/before-1-voter-390x844.png",
+      "heading": "Before: Voter's view (390x844)",
+      "caption": "Base commit 0a18dd87 with the same state."
+    },
+    {
+      "file": "out/after-1-voter-390x844.png",
+      "heading": "After: Voter's view (390x844)",
+      "caption": "The seat being asked: the vote dialog and the banner above it name the same agenda, with who has voted (Cy For: 4 votes) and the running total."
+    },
+    {
+      "file": "out/after-1-voter-390x844-line.png",
+      "heading": "After: Voter's view, phone one-line bar",
+      "caption": "Closed bar; tap opens the full card."
+    },
+    {
+      "file": "before/before-2-other-seat-votes-390x844.png",
+      "heading": "Before: A seat that is not asked, another seat votes (390x844)",
+      "caption": "Base commit 0a18dd87 with the same state. No banner for a seat without a decision."
+    },
+    {
+      "file": "out/after-2-other-seat-votes-390x844.png",
+      "heading": "After: A seat that is not asked, another seat votes (390x844)",
+      "caption": "No decision of its own: the banner still shows the agenda, its printed text, the casts, the running total and who is still to vote (public state only)."
+    },
+    {
+      "file": "out/after-2-other-seat-votes-390x844-line.png",
+      "heading": "After: A seat that is not asked, another seat votes, phone one-line bar",
+      "caption": "Closed bar; tap opens the full card."
+    },
+    {
+      "file": "before/before-3-spectator-390x844.png",
+      "heading": "Before: Spectator (390x844)",
+      "caption": "Base commit 0a18dd87 with the same state. No banner for a seat without a decision."
+    },
+    {
+      "file": "out/after-3-spectator-390x844.png",
+      "heading": "After: Spectator (390x844)",
+      "caption": "A spectator sees the same card, casts and the seats still to vote, in voting order (speaker last)."
+    },
+    {
+      "file": "out/after-3-spectator-390x844-line.png",
+      "heading": "After: Spectator, phone one-line bar",
+      "caption": "Closed bar; tap opens the full card."
+    },
+    {
+      "file": "before/before-4-reaction-window-390x844.png",
+      "heading": "Before: Reaction window, riders (390x844)",
+      "caption": "Base commit 0a18dd87 with the same state. No banner for a seat without a decision."
+    },
+    {
+      "file": "out/after-4-reaction-window-390x844.png",
+      "heading": "After: Reaction window, riders (390x844)",
+      "caption": "Right after the reveal, a seat with nothing to play still sees the agenda; a rider's prediction is listed (Cy predicts Against)."
+    },
+    {
+      "file": "out/after-4-reaction-window-390x844-line.png",
+      "heading": "After: Reaction window, riders, phone one-line bar",
+      "caption": "Closed bar; tap opens the full card."
+    },
+    {
+      "file": "before/before-5-second-agenda-390x844.png",
+      "heading": "Before: Second agenda (390x844)",
+      "caption": "Base commit 0a18dd87 with the same state. No banner for a seat without a decision."
+    },
+    {
+      "file": "out/after-5-second-agenda-390x844.png",
+      "heading": "After: Second agenda (390x844)",
+      "caption": "'Agenda 2/2: Minister of Commerce', Elect Player, numbered from the agenda log."
+    },
+    {
+      "file": "out/after-5-second-agenda-390x844-line.png",
+      "heading": "After: Second agenda, phone one-line bar",
+      "caption": "Closed bar; tap opens the full card."
+    },
+    {
+      "file": "before/before-6-after-resolution-390x844.png",
+      "heading": "Before: After resolution (390x844)",
+      "caption": "Base commit 0a18dd87 with the same state."
+    },
+    {
+      "file": "out/after-6-after-resolution-390x844.png",
+      "heading": "After: After resolution (390x844)",
+      "caption": "The first agenda is in the log and nothing is in play: the banner is gone until the next reveal."
+    },
+    {
+      "file": "before/before-7-six-players-elect-player-390x844.png",
+      "heading": "Before: Six players, Elect Player (real 64-hex ids) (390x844)",
+      "caption": "Base commit 0a18dd87 with the same state. No banner for a seat without a decision."
+    },
+    {
+      "file": "out/after-7-six-players-elect-player-390x844.png",
+      "heading": "After: Six players, Elect Player (real 64-hex ids) (390x844)",
+      "caption": "Candidates, casts, running total and who is still to vote all by name with a seat badge; no raw player id."
+    },
+    {
+      "file": "out/after-7-six-players-elect-player-390x844-line.png",
+      "heading": "After: Six players, Elect Player (real 64-hex ids), phone one-line bar",
+      "caption": "Closed bar; tap opens the full card."
+    },
+    {
+      "file": "out/real-desktop-01.png",
+      "heading": "Real engine (desktop), banner state 01",
+      "caption": "Real wasm engine, `agenda` preset, played through the UI as seat 3 against rule bots: the banner is read from the engine's own state."
+    },
+    {
+      "file": "out/real-desktop-02.png",
+      "heading": "Real engine (desktop), banner state 02",
+      "caption": "Real wasm engine, `agenda` preset, played through the UI as seat 3 against rule bots: the banner is read from the engine's own state."
+    },
+    {
+      "file": "out/real-desktop-03.png",
+      "heading": "Real engine (desktop), banner state 03",
+      "caption": "Real wasm engine, `agenda` preset, played through the UI as seat 3 against rule bots: the banner is read from the engine's own state."
+    },
+    {
+      "file": "out/real-390x844-01.png",
+      "heading": "Real engine (390x844), banner state 01",
+      "caption": "Real wasm engine, `agenda` preset, played through the UI as seat 3 against rule bots: the banner is read from the engine's own state."
+    },
+    {
+      "file": "out/real-390x844-02.png",
+      "heading": "Real engine (390x844), banner state 02",
+      "caption": "Real wasm engine, `agenda` preset, played through the UI as seat 3 against rule bots: the banner is read from the engine's own state."
+    },
+    {
+      "file": "out/real-390x844-03.png",
+      "heading": "Real engine (390x844), banner state 03",
+      "caption": "Real wasm engine, `agenda` preset, played through the UI as seat 3 against rule bots: the banner is read from the engine's own state."
+    }
+  ],
+  "notes": [
+    {
+      "title": "Reproduce",
+      "text": "cd web && npm run build:wasm && rm -rf node_modules/.vite && npm run screenshots -- FW. The before-* PNGs were taken with TI4_SHOT_PREFIX=before on 0a18dd87."
+    },
+    {
+      "title": "Data",
+      "text": "No engine change: agenda_in_play (already on main), agenda_casts, agenda_predictions and agenda_log are public state the page receives."
+    }
+  ]
+}
