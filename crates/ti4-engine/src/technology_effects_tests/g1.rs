@@ -425,7 +425,6 @@ fn hm_1_three_command_tokens_in_the_status_phase() {
 }
 
 #[test]
-#[ignore = "MISSING: pa effect 1 (technology specialties usable without exhausting, even when exhausted): technology.rs specialties() skips exhausted planets and exhaust_specialties_for_research exhausts them; no pa check"]
 fn pa_1_specialties_are_usable_without_exhausting_and_when_exhausted() {
     // Gravity Drive needs one blue; a controlled propulsion specialty stands in for it.
     let (system, planet) = specialty_planet("propulsion");
@@ -455,6 +454,40 @@ fn pa_1_specialties_are_usable_without_exhausting_and_when_exhausted() {
         !state.exhausted_planets.contains(&planet),
         "pa: using the specialty does not exhaust the planet"
     );
+}
+
+#[test]
+fn pa_1_legacy_games_still_exhaust_and_skip_exhausted_specialties() {
+    let (system, planet) = specialty_planet("propulsion");
+    let gd = TechnologyId::new("gd");
+    let a = pid("a");
+    let mut state = game(&["a"]);
+    state.rules_version = ti4_model::state::RULES_TECH_EFFECTS - 1;
+    control(&mut state, &system, &planet);
+    give(&mut state, "a", "pa");
+    assert!(crate::technology::research(
+        &mut state,
+        content(),
+        POK,
+        &a,
+        &gd
+    ));
+    assert!(
+        state.exhausted_planets.contains(&planet),
+        "legacy: the specialty is exhausted by the research"
+    );
+    let mut state = game(&["a"]);
+    state.rules_version = ti4_model::state::RULES_TECH_EFFECTS - 1;
+    control(&mut state, &system, &planet);
+    state.exhausted_planets.insert(planet);
+    give(&mut state, "a", "pa");
+    assert!(!crate::technology::prerequisites_met(
+        &state,
+        content(),
+        POK,
+        &a,
+        &gd
+    ));
 }
 
 #[test]
@@ -851,7 +884,6 @@ fn asc_1_opponent_destroys_a_non_fighter_when_three_non_fighters_attack() {
 }
 
 #[test]
-#[ignore = "MISSING: aida effect 1 (ignore 1 prerequisite when researching a unit upgrade): no 'aida' check in technology.rs prerequisites_met/research; only effect 2 (production discount) exists"]
 fn aida_1_ignores_one_prerequisite_when_researching_a_unit_upgrade() {
     // Dreadnought II needs two blue and one yellow: own one blue and one yellow, and the card
     // (a red technology, which counts for nothing here) stands in for the missing blue.
@@ -876,6 +908,65 @@ fn aida_1_ignores_one_prerequisite_when_researching_a_unit_upgrade() {
             .unwrap()
             .exhausted_technologies
             .contains(&TechnologyId::new("aida"))
+    );
+}
+
+#[test]
+fn aida_1_only_for_unit_upgrades_once_and_only_from_the_new_version() {
+    let a = pid("a");
+    let dn2 = TechnologyId::new("dn2");
+    let build = |version: u32| {
+        let mut state = game(&["a"]);
+        state.rules_version = version;
+        for t in ["amd", "st", "aida"] {
+            give(&mut state, "a", t);
+        }
+        state
+    };
+    let now = ti4_model::state::RULES_TECH_EFFECTS;
+    assert!(
+        !crate::technology::prerequisites_met(&build(now - 1), content(), POK, &a, &dn2),
+        "legacy: no waiver"
+    );
+    // Not a unit upgrade: Light/Wave Deflector needs 3 blue and the player has 2.
+    let lwd = TechnologyId::new("lwd");
+    let mut two_blue = build(now);
+    give(&mut two_blue, "a", "gd");
+    assert!(
+        !crate::technology::prerequisites_met(&two_blue, content(), POK, &a, &lwd),
+        "a plain technology gets no waiver"
+    );
+    // Exhausted card: no waiver.
+    let mut state = build(now);
+    state
+        .player_mut(&a)
+        .unwrap()
+        .exhausted_technologies
+        .insert(TechnologyId::new("aida"));
+    assert!(!crate::technology::prerequisites_met(
+        &state,
+        content(),
+        POK,
+        &a,
+        &dn2
+    ));
+    // Prerequisites already met: the card stays ready.
+    let mut state = build(now);
+    give(&mut state, "a", "gd");
+    assert!(crate::technology::research(
+        &mut state,
+        content(),
+        POK,
+        &a,
+        &dn2
+    ));
+    assert!(
+        !state
+            .player(&a)
+            .unwrap()
+            .exhausted_technologies
+            .contains(&TechnologyId::new("aida")),
+        "not needed, not spent"
     );
 }
 

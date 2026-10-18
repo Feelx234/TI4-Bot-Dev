@@ -882,6 +882,14 @@ pub fn owned_colours(
     held
 }
 
+/// Psychoarchaeology (effect 1, rules version 15): the player's technology specialties can be used
+/// without exhausting their planets, exhausted or not.
+#[must_use]
+pub fn psychoarchaeology_frees_specialties(state: &GameState, player: &PlayerId) -> bool {
+    state.rules_version >= ti4_model::state::RULES_TECH_EFFECTS
+        && owns_technology(state, player, "pa")
+}
+
 /// Technology specialties on the planets this player controls, by colour.
 ///
 /// A specialty stands in for one prerequisite of its colour (90.8), which is most of why a
@@ -894,8 +902,9 @@ pub fn specialties(
     player: &PlayerId,
 ) -> BTreeMap<&'static str, usize> {
     let mut found = BTreeMap::new();
+    let free = psychoarchaeology_frees_specialties(state, player);
     for (_, planet) in state.controlled_planets(player) {
-        if state.exhausted_planets.contains(planet) {
+        if !free && state.exhausted_planets.contains(planet) {
             continue;
         }
         for specialty in crate::planets::tech_specialties_now(state, content, sources, planet) {
@@ -1045,6 +1054,37 @@ pub(crate) fn prerequisites_met(
     player: &PlayerId,
     alias: &TechnologyId,
 ) -> bool {
+    prerequisites_met_with(state, content, sources, player, alias, true)
+}
+
+/// AI Development Algorithm (effect 1, rules version 15): when researching a unit upgrade, the
+/// ready card ignores 1 prerequisite. The card is exhausted by [`research`] only when the other
+/// waivers and holdings fall short without it.
+fn aida_waiver(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+    alias: &TechnologyId,
+) -> usize {
+    let card = TechnologyId::new("aida");
+    usize::from(
+        state.rules_version >= ti4_model::state::RULES_TECH_EFFECTS
+            && is_unit_upgrade(content, alias)
+            && state.player(player).is_some_and(|seat| {
+                seat.technologies.contains(&card) && !seat.exhausted_technologies.contains(&card)
+            }),
+    )
+}
+
+/// [`prerequisites_met`], optionally leaving out AI Development Algorithm's waiver.
+fn prerequisites_met_with(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    alias: &TechnologyId,
+    with_aida: bool,
+) -> bool {
     let held = owned_colours(state, content, player);
     let specialties = specialties(state, content, sources, player);
     // A faction may waive whole prerequisite slots — Jol-Nar's Brilliant on anything, Analytical
@@ -1082,6 +1122,9 @@ pub(crate) fn prerequisites_met(
     // and the Research Teams, for the same reason -- they are all "ignore a prerequisite" and the
     // requirement is checked once.
     waivable += crate::relics::prerequisite_waivers(state, player);
+    if with_aida {
+        waivable += aida_waiver(state, content, player, alias);
+    }
     // Publicize Weapon Schematics waives war sun prerequisites for everyone once anybody owns one.
     // A whole-requirement waiver, not a budget: the card says "ignore all prerequisites".
     if crate::laws::war_sun_prerequisites_waived(state, content, alias) {
@@ -1428,6 +1471,15 @@ fn exhaust_specialties_for_research(
         waivable += crate::laws::research_team_waivers(state, player, colour);
     }
     waivable += crate::relics::prerequisite_waivers(state, player);
+    // AI Development Algorithm: spent only when nothing else covers the prerequisites.
+    if aida_waiver(state, content, player, alias) > 0
+        && !prerequisites_met_with(state, content, sources, player, alias, false)
+    {
+        waivable += 1;
+        if let Some(seat) = state.player_mut(player) {
+            seat.exhausted_technologies.insert(TechnologyId::new("aida"));
+        }
+    }
 
     let mut to_exhaust = Vec::new();
     for (colour, req_count) in reqs {
@@ -1458,6 +1510,9 @@ fn exhaust_specialties_for_research(
                 }
             }
         }
+    }
+    if psychoarchaeology_frees_specialties(state, player) {
+        return;
     }
     for planet in to_exhaust {
         state.exhaust_planet(planet);

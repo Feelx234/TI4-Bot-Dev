@@ -1049,7 +1049,8 @@ fn ht2_4_space_cannon_reaches_ships_in_adjacent_systems() {
         );
         dice.history()
             .iter()
-            .filter(|roll| roll.by.as_deref() == Some("a") && roll.hits_on == Some(5))
+            // Sol starts with Antimass Deflectors, so the PDS II's 5 is asked as a 6.
+            .filter(|roll| roll.by.as_deref() == Some("a") && roll.hits_on == Some(6))
             .count()
     };
     assert_eq!(fired(true), 1, "next door, as the card says");
