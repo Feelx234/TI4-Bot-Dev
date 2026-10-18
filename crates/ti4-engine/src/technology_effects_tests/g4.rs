@@ -900,3 +900,196 @@ fn linkship2_2_each_linkship_ii_uses_the_same_structures_space_cannon() {
     assert_eq!(cannon_dice(&mut setup("ralnel_destroyer2")), 2, "each Linkship II fires the structure");
     assert_eq!(cannon_dice(&mut setup("ralnel_destroyer")), 1, "Linkship I: each structure once");
 }
+
+// -- Firmament / Obsidian: Planesplitter, Neural Parasite ----------------------------------------
+
+use crate::factions::firmament::testkit as fk;
+
+fn firmament_game() -> GameState {
+    seated(&[("a", "firmament"), ("b", "sol"), ("c", "hacan")])
+}
+
+fn firmament_infantry(state: &GameState, planet: &str) -> usize {
+    let home = state.player(&pid("a")).unwrap().home_system.clone().unwrap();
+    state
+        .system_state(&home)
+        .on_planet_of(&PlanetId::new(planet), &pid("a"))
+        .iter()
+        .filter(|u| u.type_id.as_str().contains("infantry"))
+        .count()
+}
+
+#[test]
+fn planesplitter_firm_1_puts_the_fracture_into_play_when_gained() {
+    let gained = [("player", serde_json::Value::from("a")), ("technology", "planesplitter-firm".into())];
+    let mut state = firmament_game();
+    give(&mut state, "a", "planesplitter-firm");
+    assert!(!state.fracture_in_play);
+    emit(&mut state, &[], "TECHNOLOGY_GAINED", &gained);
+    assert!(state.fracture_in_play);
+    assert!(!state.ingress_tokens.is_empty());
+    // Another card gained does not do it.
+    let mut other = firmament_game();
+    emit(&mut other, &[], "TECHNOLOGY_GAINED", &[("player", "a".into()), ("technology", "ac2".into())]);
+    assert!(!other.fracture_in_play);
+}
+
+/// The Firmament (`a`) with a plot in play, a map holding its home tile, and `techs` owned.
+fn flip_ready(techs: &[&str]) -> (GameState, ti4_content::galaxy::Galaxy) {
+    let ids = fk::plain(6);
+    let mut ring_ids: Vec<&str> = ids[1..].iter().map(String::as_str).collect();
+    ring_ids[0] = "96a";
+    let galaxy = fk::ring(&ids[0], &ring_ids);
+    let mut state = firmament_game();
+    fk::place_plot(&mut state, &pid("a"), &pid("b"));
+    for tech in techs {
+        give(&mut state, "a", tech);
+    }
+    (state, galaxy)
+}
+
+fn become_obsidian(state: &mut GameState, galaxy: &ti4_content::galaxy::Galaxy) -> bool {
+    let Some(option) = crate::factions::mapped_component_actions(state, content(), DEFAULT, galaxy, &pid("a"))
+        .into_iter()
+        .find(|o| o.id == "faction|firmament|become_obsidian")
+    else {
+        return false;
+    };
+    let mut table = scripted(&[]);
+    crate::fixtures::with_context(state, DEFAULT, Some(galaxy), &mut table, |ctx| {
+        crate::factions::perform_component(ctx, &pid("a"), &option)
+    })
+}
+
+#[test]
+fn planesplitter_firm_2_flips_to_the_obsidian_card_when_the_faction_flips() {
+    let (mut state, galaxy) = flip_ready(&["planesplitter-firm", "parasite-firm"]);
+    assert!(become_obsidian(&mut state, &galaxy));
+    assert!(crate::technology::has_technology_text(&state, &pid("a"), "planesplitter-obs"));
+    assert!(!crate::technology::has_technology_text(&state, &pid("a"), "planesplitter-firm"));
+}
+
+#[test]
+fn parasite_firm_1_places_an_infantry_on_a_home_planet_at_status_phase_start() {
+    let mut state = firmament_game();
+    give(&mut state, "a", "parasite-firm");
+    let before = firmament_infantry(&state, "tallin");
+    emit(&mut state, &["tallin"], "STATUS_PHASE_BEGAN", &[]);
+    assert_eq!(firmament_infantry(&state, "tallin"), before + 1);
+    // A may; and nothing without the card.
+    let mut declined = firmament_game();
+    give(&mut declined, "a", "parasite-firm");
+    emit(&mut declined, &["decline"], "STATUS_PHASE_BEGAN", &[]);
+    assert_eq!(firmament_infantry(&declined, "tallin"), before);
+    let mut bare = firmament_game();
+    emit(&mut bare, &["tallin"], "STATUS_PHASE_BEGAN", &[]);
+    assert_eq!(firmament_infantry(&bare, "tallin"), before);
+}
+
+#[test]
+fn parasite_firm_2_flips_to_the_obsidian_card_when_the_faction_flips() {
+    let (mut state, galaxy) = flip_ready(&["planesplitter-firm", "parasite-firm"]);
+    assert!(become_obsidian(&mut state, &galaxy));
+    assert!(crate::technology::has_technology_text(&state, &pid("a"), "parasite-obs"));
+    assert!(!crate::technology::has_technology_text(&state, &pid("a"), "parasite-firm"));
+}
+
+/// Seven plain systems and a ring map for the Obsidian tests.
+fn obsidian_map() -> (Vec<String>, ti4_content::galaxy::Galaxy) {
+    let ids = fk::plain(7);
+    let galaxy = fk::ring(&ids[0], &ids[1..].iter().map(String::as_str).collect::<Vec<_>>());
+    (ids, galaxy)
+}
+
+fn planet_in(system: &str) -> PlanetId {
+    PlanetId::new(*ti4_content::galaxy::system(content(), system, DEFAULT).unwrap().planets().first().expect("a planet"))
+}
+
+fn obsidian_game() -> GameState {
+    let mut state = seated(&[("a", "obsidian"), ("b", "sol"), ("c", "hacan")]);
+    crate::promissory::deal(&mut state, content(), DEFAULT);
+    state
+}
+
+#[test]
+fn planesplitter_obs_1_moves_an_ingress_token_next_to_the_owners_units() {
+    const WINDOW: &str = "technology:obsidian:planesplitter-obs:STRATEGIC_ACTION_BEGAN:when";
+    let (ids, galaxy) = obsidian_map();
+    let mut state = obsidian_game();
+    give(&mut state, "a", "planesplitter-obs");
+    state.fracture_in_play = true;
+    state.ingress_tokens.insert(SystemId::new(ids[4].as_str()));
+    crate::fixtures::put(&mut state, &SystemId::new(ids[1].as_str()), "cruiser", &pid("a"), 1);
+    let mut bare = state.clone();
+    bare.player_mut(&pid("a")).unwrap().technologies.clear();
+    let (from, to) = (ids[4].as_str(), ids[2].as_str());
+    let pick = format!("{from}>{to}");
+    let strategic = [("player", serde_json::Value::from("a"))];
+    let run = |state: &mut GameState, answers: &[&str]| {
+        let mut resolver = crate::fixtures::armed_resolver(state);
+        let mut table = scripted(answers);
+        crate::fixtures::with_context(state, DEFAULT, Some(&galaxy), &mut table, |ctx| {
+            let payload = strategic.iter().map(|(k, v)| ((*k).to_owned(), v.clone())).collect();
+            let event = ctx.event_sequence.next("STRATEGIC_ACTION_BEGAN", payload).expect("event");
+            resolver.emit_with_context(ctx, event, |_, _| {}).expect("emits");
+        });
+    };
+    run(&mut state, &[WINDOW, pick.as_str()]);
+    assert_eq!(state.ingress_tokens, std::collections::BTreeSet::from([SystemId::new(to)]), "moved, not copied");
+    run(&mut bare, &[]);
+    assert!(bare.ingress_tokens.contains(&SystemId::new(from)), "no card, no move");
+}
+
+#[test]
+fn planesplitter_obs_2_cannot_be_researched() {
+    let state = obsidian_game();
+    let open = crate::technology::researchable(&state, content(), DEFAULT, &pid("a"));
+    assert!(!open.contains(&TechnologyId::new("planesplitter-obs")));
+    assert!(!open.contains(&TechnologyId::new("parasite-obs")));
+    assert!(!crate::technology::can_research(&state, content(), DEFAULT, &pid("a"), &TechnologyId::new("planesplitter-obs")));
+}
+
+#[test]
+fn parasite_obs_1_destroys_an_adjacent_players_infantry_at_the_start_of_the_owners_turn() {
+    let (ids, galaxy) = obsidian_map();
+    let setup = |tech: bool| {
+        let mut state = obsidian_game();
+        if tech {
+            give(&mut state, "a", "parasite-obs");
+        }
+        let mine = SystemId::new(ids[1].as_str());
+        crate::fixtures::put_on_planet(&mut state, &mine, &planet_in(&ids[1]), "infantry", &pid("a"), 1);
+        let next = SystemId::new(ids[2].as_str());
+        crate::fixtures::put_on_planet(&mut state, &next, &planet_in(&ids[2]), "infantry", &pid("b"), 2);
+        state
+    };
+    let infantry_of = |state: &GameState, system: &str, who: &str| {
+        let board = state.system_state(&SystemId::new(system));
+        board.planet_units.values().flatten().filter(|u| u.owner == pid(who) && u.type_id.as_str().contains("infantry")).count()
+    };
+    let turn = |state: &mut GameState, player: &str| {
+        let mut resolver = crate::fixtures::armed_resolver(state);
+        let mut table = scripted(&[]);
+        crate::fixtures::with_context(state, DEFAULT, Some(&galaxy), &mut table, |ctx| {
+            let payload = std::iter::once(("player".to_owned(), serde_json::Value::from(player))).collect();
+            let event = ctx.event_sequence.next("TURN_BEGAN", payload).expect("event");
+            resolver.emit_with_context(ctx, event, |_, _| {}).expect("emits");
+        });
+    };
+    let mut state = setup(true);
+    turn(&mut state, "a");
+    assert_eq!(infantry_of(&state, &ids[2], "b"), 1, "exactly one destroyed");
+    assert_eq!(infantry_of(&state, &ids[1], "a"), 1, "its own are never targets");
+    let mut bare = setup(false);
+    turn(&mut bare, "a");
+    assert_eq!(infantry_of(&bare, &ids[2], "b"), 2, "no card, no effect");
+    let mut other_turn = setup(true);
+    turn(&mut other_turn, "b");
+    assert_eq!(infantry_of(&other_turn, &ids[2], "b"), 2, "only at the owner's turn");
+}
+
+#[test]
+fn parasite_obs_2_cannot_be_researched() {
+    let state = obsidian_game();
+    assert!(!crate::technology::can_research(&state, content(), DEFAULT, &pid("a"), &TechnologyId::new("parasite-obs")));
+}
