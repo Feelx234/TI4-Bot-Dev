@@ -883,6 +883,13 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Rear Admiral Farran (letnevcommander, rules version 16): "You may gain 1 trade good".
+        module: "combat.rs",
+        function: "ask_sustain_commander",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         // War Funding: offered to the holder after both sides have rolled a combat round.
         module: "combat.rs",
         function: "roll_round",
@@ -1658,6 +1665,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("combat.rs", "choose_reroll_dice", 1),
     ("combat.rs", "heart_ixth", 1),
     ("combat.rs", "offer_sustain", 1),
+    ("combat.rs", "ask_sustain_commander", 1),
     ("combat.rs", "roll_round", 1),
     ("combat.rs", "wrath_of_kenara_buy", 1),
     ("exploration.rs", "ask_decorated", 1),

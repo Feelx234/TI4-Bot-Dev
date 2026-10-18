@@ -2703,6 +2703,11 @@ impl<'a> Game<'a> {
                         let occurrence = self.state.begin_feat_occurrence();
                         self.state
                             .record_event_feat(&active, Feat::LastToPass, occurrence);
+                        // Watchful Ojz: "Be the last person to pass during the Action Phase".
+                        // Opened at the pass itself rather than at some later step.
+                        if self.state.rules_version >= ti4_model::state::RULES_FACTION_EFFECTS {
+                            self.refresh_commander_unlocks(&active);
+                        }
                         self.open_occurrence_event_scoring(
                             crate::secrets::Timing::Action,
                             occurrence,
@@ -13938,6 +13943,38 @@ mod tests {
                 .iter()
                 .any(|alias| alias.as_str() == "pe")
         );
+    }
+
+    #[test]
+    fn the_last_to_pass_unlocks_the_ral_nel_commander_when_the_phase_closes() {
+        let play = |version: u32| {
+            let a = PlayerId::new("a");
+            let b = PlayerId::new("b");
+            let mut state =
+                start_game(ContentStore::embedded(), &[a.clone(), b.clone()], POK, None).unwrap();
+            state.rules_version = version;
+            state.phase = Phase::Action;
+            state.active = Some(b.clone());
+            state.player_mut(&a).unwrap().passed = true;
+            let seat = state.player_mut(&b).unwrap();
+            seat.leaders.insert(
+                ti4_model::id::LeaderId::new("ralnelcommander"),
+                ti4_model::state::LeaderStatus::Locked,
+            );
+            let table = Table::with_default(Box::new(Scripted::new(["pass".to_owned()])));
+            let mut game = Game::with_table(state, ContentStore::embedded(), table);
+            assert_eq!(game.step().error, None, "the final pass resolves");
+            let ojz = ti4_model::id::LeaderId::new("ralnelcommander");
+            (
+                crate::leaders::status(&game.state, &b, &ojz),
+                crate::leaders::status(&game.state, &a, &ojz),
+            )
+        };
+        let (last, first) = play(ti4_model::state::RULES_FACTION_EFFECTS);
+        assert_eq!(last, Some(ti4_model::state::LeaderStatus::Unlocked));
+        assert_eq!(first, None, "the seat that passed earlier has no such commander");
+        let (old, _) = play(ti4_model::state::RULES_FACTION_EFFECTS - 1);
+        assert_eq!(old, Some(ti4_model::state::LeaderStatus::Locked));
     }
 
     #[test]

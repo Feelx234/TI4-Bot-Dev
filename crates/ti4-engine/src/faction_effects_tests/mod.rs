@@ -26,6 +26,7 @@ mod f1;
 mod f2;
 mod f3;
 mod f4;
+mod v16;
 
 /// A seated, deployed game of `(seat, faction)` pairs with every content source (Thunder's Edge,
 /// Codex and Prophecy of Kings factions included).
