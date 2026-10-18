@@ -350,3 +350,118 @@ fn swa2_3_strike_wing_alpha_ii_barrage_nines_destroy_infantry() {
     emit(&mut state, &[], &[], None, "UNIT_ABILITY_ROLLED", &pairs);
     assert_eq!(count(&state, &system, "b", "infantry"), 3, "no card, no kill");
 }
+
+// -- Letnev: L4 Disruptors ----------------------------------------------------------------------
+
+/// Answers a commit prompt with the first unit, anything else with its first option.
+struct CommitAll;
+
+impl crate::choice::Decider for CommitAll {
+    fn choose(
+        &mut self,
+        choice: &crate::choice::Choice,
+    ) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
+        let pick = choice
+            .options
+            .iter()
+            .find(|o| o.id.starts_with("commit|"))
+            .or_else(|| choice.options.iter().find(|o| o.id == "done_committing"))
+            .or_else(|| choice.options.first());
+        pick.cloned().ok_or(crate::choice::IllegalChoice::NoOptions {
+            player: choice.player.clone(),
+            prompt: choice.prompt.clone(),
+        })
+    }
+}
+
+/// A placed planet that is not in Mecatol Rex's system.
+fn planet_off_mecatol() -> (SystemId, PlanetId) {
+    let planets = ti4_content::galaxy::all_planets(content(), POK);
+    let (id, p) = planets
+        .iter()
+        .find(|(_, p)| {
+            p.system_id().is_some_and(|sys| planets.iter().filter(|(_, q)| q.system_id() == Some(sys)).count() == 1)
+                && !p.is_placed_during_play()
+                && p.system_id() != Some(crate::seating::MECATOL)
+                && p.homeworld_of().is_none()
+        })
+        .expect("a placed planet");
+    (SystemId::new(p.system_id().unwrap()), PlanetId::new(*id))
+}
+
+#[test]
+fn l4_1_l4_disruptors_silence_space_cannon_defense_during_an_invasion() {
+    // Seven landing infantry against one PDS that hits on every die: without L4 the PDS kills
+    // some of them, with L4 none.
+    let landed = |tech: bool| {
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        let (system, planet) = planet_off_mecatol();
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "pds", &pid("b"), 1);
+        state.system_mut(&system).set_control(planet.clone(), pid("b"));
+        put(&mut state, &system, "carrier", &pid("a"), 2);
+        put(&mut state, &system, "infantry", &pid("a"), 7);
+        if tech {
+            learn(&mut state, "a", "l4");
+        }
+        let mut table = crate::choice::Table::with_default(Box::new(CommitAll));
+        let mut dice = crate::dice::Dice::from_faces([10u32; 40]);
+        let mut rng = crate::rng::GameRng::new(3);
+        let report = crate::invasion::resolve(&mut state, content(), POK, &mut table, &mut dice, &mut rng, &system, &pid("a"))
+            .expect("the invasion resolves");
+        assert!(!report.committed.is_empty());
+        state
+            .system_state(&system)
+            .planet_units
+            .values()
+            .flatten()
+            .filter(|u| u.owner == pid("a") && u.type_id.as_str() == "infantry")
+            .count()
+    };
+    assert_eq!(landed(true), 7, "no space cannon fire at the Letnev forces");
+    assert!(landed(false) < 7, "the PDS shoots without L4 Disruptors");
+}
+
+// -- Saar: Chaos Mapping ------------------------------------------------------------------------
+
+#[test]
+fn cm_1_chaos_mapping_bars_other_players_from_activating_your_asteroid_field() {
+    let field = crate::fixtures::a_system_where("asteroid field");
+    let hub = crate::fixtures::hub_with_outer(&field);
+    let mut state = crate::fixtures::game(&["a", "b"]);
+    let barred = |state: &GameState, who: &str| {
+        !crate::tactical::activatable_with(state, content(), POK, &hub.galaxy, &pid(who))
+            .contains(&SystemId::new(field.as_str()))
+    };
+    put(&mut state, &SystemId::new(field.as_str()), "destroyer", &pid("a"), 1);
+    assert!(!barred(&state, "b"), "without the card the field is open");
+    learn(&mut state, "a", "cm");
+    assert!(barred(&state, "b"), "other players cannot activate it");
+    assert!(!barred(&state, "a"), "the holder still can");
+    // Only a field holding one of the holder's ships.
+    let mut empty = crate::fixtures::game(&["a", "b"]);
+    learn(&mut empty, "a", "cm");
+    assert!(!barred(&empty, "b"), "no ship of the holder's there");
+}
+
+#[test]
+fn cm_2_chaos_mapping_produces_a_unit_at_the_start_of_the_turn() {
+    let build = |tech: bool| {
+        let mut state = crate::fixtures::game(&["a"]);
+        if tech {
+            learn(&mut state, "a", "cm");
+        }
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        state.system_mut(&system).set_control(planet.clone(), pid("a"));
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "spacedock", &pid("a"), 1);
+        state.player_mut(&pid("a")).unwrap().trade_goods = 1;
+        let mut table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new([
+            system.to_string(),
+            "build|destroyer|1".to_owned(),
+            "trade_good".to_owned(),
+        ])));
+        crate::technology::start_turn(&mut state, content(), POK, None, &mut table, &pid("a")).unwrap();
+        count(&state, &system, "a", "destroyer")
+    };
+    assert_eq!(build(true), 1);
+    assert_eq!(build(false), 0);
+}
