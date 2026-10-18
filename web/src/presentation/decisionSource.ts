@@ -8,6 +8,7 @@ import {
 } from "../protocol/contentCatalog.ts";
 
 function contentName(alias: string): string {
+  if (alias === "thunders_edge") return "Thunder's Edge";
   return (
     findTechnologyMeta(alias)?.name ??
     findActionCardMeta(alias)?.name ??
@@ -56,6 +57,11 @@ const SUBTYPE_TOPICS: Record<string, string> = {
   politics_place_agenda: "Politics",
   politics_choose_speaker: "Politics",
   diplomacy_choose_system: "Diplomacy",
+  expedition_discard_action_card: "Expedition",
+  expedition_discard_secret: "Expedition",
+  expedition_exhaust_planet: "Expedition",
+  expedition_place_system: "Expedition",
+  expedition_placement_tiebreak: "Expedition",
   trade_choose_replenish: "Trade",
   warfare_recall_token: "Warfare",
   research_technology: "Research",

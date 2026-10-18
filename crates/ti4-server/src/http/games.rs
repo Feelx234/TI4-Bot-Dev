@@ -92,6 +92,10 @@ pub struct CreateGameRequest {
     /// The wait before each answer of a seat that the server plays, in milliseconds (0 to
     /// 30 000). Without it the table waits as the process says, until the host sets a value.
     pub bot_delay_ms: Option<u64>,
+    /// Thunder's Edge content (the expedition, breakthroughs, ...): `true` plays the game with
+    /// every source, `false` or absent keeps the Prophecy of Kings scope. See
+    /// [`ti4_host::setup::TableSetup::thunders_edge`].
+    pub thunders_edge: Option<bool>,
 }
 
 /// Response after creating a game.
@@ -331,6 +335,9 @@ pub async fn create_game(
         None => ti4_host::setup::SpeakerOrder::default(),
     };
 
+    let thunders_edge = payload
+        .thunders_edge
+        .unwrap_or(ti4_host::setup::DEFAULT_THUNDERS_EDGE);
     let bot_delay_ms = payload.bot_delay_ms;
     if bot_delay_ms.is_some_and(|delay| delay > crate::session::table::MAX_BOT_DELAY_MS) {
         return Err((
@@ -358,6 +365,7 @@ pub async fn create_game(
                 strategy_card_set,
                 speaker_order,
                 bot_delay_ms,
+                thunders_edge,
             )
         })
         .await
@@ -375,16 +383,18 @@ pub async fn create_game(
                 speaker_order,
             )
             .and_then(|(lobby, player, session)| {
-                let lobby = match bot_delay_ms {
-                    Some(delay) => registry.change_player_lobby_settings(
+                let lobby = if bot_delay_ms.is_some() || thunders_edge {
+                    registry.change_player_lobby_settings(
                         &game_id,
                         session.as_str(),
                         &crate::session::table::TableSettings {
-                            bot_delay_ms: Some(delay),
+                            bot_delay_ms,
+                            thunders_edge: thunders_edge.then_some(true),
                             ..crate::session::table::TableSettings::default()
                         },
-                    )?,
-                    None => lobby,
+                    )?
+                } else {
+                    lobby
                 };
                 Ok((lobby, player, session))
             })
@@ -1068,6 +1078,7 @@ mod template_request_tests {
             strategy_card_set: None,
             speaker_order: None,
             bot_delay_ms: None,
+            thunders_edge: None,
         })
     }
 
@@ -1083,6 +1094,7 @@ mod template_request_tests {
             strategy_card_set: None,
             speaker_order: None,
             bot_delay_ms: None,
+            thunders_edge: None,
         })
     }
 

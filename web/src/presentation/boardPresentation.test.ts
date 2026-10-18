@@ -488,3 +488,24 @@ describe("neutral and unassigned greys", () => {
     expect(NEUTRAL_COLOR).not.toBe(UNASSIGNED_COLOR);
   });
 });
+
+describe("planets placed during the game", () => {
+  it("are shown with the catalog's name, values and legendary flag, not their id and 0/0", () => {
+    const board = {
+      systems: {
+        "21": {
+          system_id: "21",
+          command_tokens: [],
+          units: [],
+          planets: { thundersedge: { planet_id: "thundersedge", controlled_by: "a", exhausted: false, attachments: [], value_boosts: [] } },
+        },
+      },
+      map_tiles: [{ system_id: "21", label: "Thibah", planets: [{ id: "thibah", label: "Thibah", resources: 1, influence: 1 }] }],
+    } as unknown as BoardView;
+    const details = deriveSelectedSystemDetails("21", board, ["a"], [], null, "a");
+    const edge = details?.planets.find((p) => p.id === "thundersedge");
+    expect(edge).toMatchObject({ label: "Thunder's Edge", resources: 5, influence: 1, legendary: true, controlledBy: "a" });
+    // The printed planet of the tile is still there.
+    expect(details?.planets.map((p) => p.id)).toContain("thibah");
+  });
+});

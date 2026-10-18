@@ -14,6 +14,7 @@ mod host_script;
 mod host_session;
 mod host_setup;
 mod host_staged;
+mod host_thunders_edge;
 mod protocol_fixtures;
 mod server_parity;
 mod wire_types;

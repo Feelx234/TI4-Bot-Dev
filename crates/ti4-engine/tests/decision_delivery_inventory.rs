@@ -1487,7 +1487,7 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         module: "thunders_edge.rs",
         function: "pay",
-        count: 2,
+        count: 3,
         delivery: Delivery::ObservedVia("thunders_edge.rs::ask_seeing"),
     },
     Producer {

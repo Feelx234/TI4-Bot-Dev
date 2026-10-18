@@ -19,7 +19,6 @@ use ti4_engine::game::Game;
 use ti4_engine::seating;
 use ti4_host::maps::catalog::{self, MapChoice};
 use ti4_host::setup::{self, SpeakerOrder, TableSeats, TableSetup, bot_kind, card_set};
-use ti4_model::content_types::POK;
 use ti4_model::id::PlayerId;
 use ti4_model::state::ReactionMode;
 
@@ -90,6 +89,11 @@ pub struct Setup {
     /// (bot version 2 or less) resumes without it. Not written while off, like the table's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub starting_tech: Option<bool>,
+    /// Whether Thunder's Edge content is on ([`ti4_host::setup::TableSetup::thunders_edge`]).
+    /// Left out: off, so a save made before the switch resumes as it was played. Not written
+    /// while off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thunders_edge: Option<bool>,
 }
 
 /// The format of the save of [`crate::host_session::HostSession::save_state`]. A save of another
@@ -371,9 +375,7 @@ impl TableRequest {
             .scenario()?
             .and_then(|scenario| ti4_host::view::scenario::opening(scenario, &state, &galaxy));
         let seed = table.setup.game_seed();
-        let game = Game::with_seeded_random(state, content, seed)
-            .with_sources(POK)
-            .with_galaxy(galaxy.clone());
+        let game = Game::with_seeded_random(state, content, seed).with_galaxy(galaxy.clone());
         Ok(Built {
             game,
             galaxy: Some(galaxy),
@@ -574,6 +576,7 @@ impl Setup {
             start_from: self.scenario.clone(),
             preset: self.preset.clone(),
             starting_tech: self.starting_tech == Some(true),
+            thunders_edge: self.thunders_edge == Some(true),
             seed: self.seed,
         }
     }
@@ -642,9 +645,8 @@ impl Setup {
         } else {
             ((1_u32 << players) - 1) & !(1 << human)
         };
-        let game = Game::with_seeded_random(state, content, table.game_seed())
-            .with_sources(POK)
-            .with_galaxy(galaxy.clone());
+        let game =
+            Game::with_seeded_random(state, content, table.game_seed()).with_galaxy(galaxy.clone());
         Ok(Built {
             game,
             galaxy: Some(galaxy),

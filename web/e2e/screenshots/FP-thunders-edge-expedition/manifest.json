@@ -1,0 +1,41 @@
+{
+  "title": "Thunder's Edge expedition in the turn bar",
+  "description": "Why a tester never saw the Thunder's Edge options, and what a table with the content switched on now offers. Every game shot is a real offline game: the rules engine in a Web Worker, rule bots, seed 12, 3 players, and (where the caption says so) the dev start preset `expedition`, which has the bots hold four of the six slices so the human can finish the expedition in round 1. The expedition is committed at the end of a player's turn (the closing menu), uses no action, and one slice can be claimed per turn.",
+  "tag": "web/e2e/screenshots/FP-thunders-edge-expedition",
+  "shots": [
+    { "file": "out/1-offline-setup-off-desktop.png", "heading": "Offline setup: the switch, off (desktop)", "caption": "New row 'Thunder's Edge content', off by default. Off plays the Prophecy of Kings content, which is what every game played before the switch." },
+    { "file": "out/2-offline-setup-on-desktop.png", "heading": "Offline setup: the switch, on (desktop)", "caption": "Ticked: the game is played with every source, which brings in the expedition and the faction breakthroughs it grants." },
+    { "file": "out/1-offline-setup-off-390x844.png", "heading": "Offline setup, off (390x844)", "caption": "The same on a phone." },
+    { "file": "out/2-offline-setup-on-390x844.png", "heading": "Offline setup, on (390x844)", "caption": "The same on a phone. (The dev-only seed and start preset fields are below.)" },
+    { "file": "out/3-online-table-form-desktop.png", "heading": "Online table form (desktop)", "caption": "The same switch on the form that creates a table; it travels to the server as thunders_edge." },
+    { "file": "out/3-online-table-form-390x844.png", "heading": "Online table form (390x844)", "caption": "The same on a phone." },
+    { "file": "out/4-online-lobby-desktop.png", "heading": "Online lobby (desktop)", "caption": "A table that has the content on says so under the strategy cards." },
+    { "file": "out/4-online-lobby-390x844.png", "heading": "Online lobby (390x844)", "caption": "The same on a phone." },
+
+    { "file": "out/1-switch-off-no-components-390x844.png", "heading": "What the tester saw: switch off (390x844)", "caption": "A new offline game before this change: the Components button reads 'Nothing usable now' and no Thunder's Edge option exists, because the engine played the Prophecy of Kings sources, which do not contain Thunder's Edge." },
+    { "file": "out/1-switch-off-no-components-desktop.png", "heading": "Switch off (desktop)", "caption": "The same on desktop." },
+    { "file": "out/2-before-the-action-390x844.png", "heading": "Switch on, before the action (390x844)", "caption": "Components now has a Thunder's Edge group. Before the turn's action every slice waits: the expedition is committed at the end of the turn. Claimed slices name the bot that holds them; the group says how many are taken, how many you hold, and which breakthrough your first claim grants." },
+    { "file": "out/2-before-the-action-desktop.png", "heading": "Switch on, before the action (desktop)", "caption": "The same on desktop." },
+    { "file": "out/3-end-of-turn-desktop.png", "heading": "End of the turn (desktop)", "caption": "After the action the turn is closing: Components says '2 usable' next to End turn." },
+    { "file": "out/4-slices-and-claimants-390x844.png", "heading": "Slices and who holds them (390x844)", "caption": "The two slices the seat can pay come first (discard a secret objective, exhaust a technology-specialty planet); the four taken ones say 'Claimed by Bot 2 / Bot 3'." },
+    { "file": "out/4-slices-and-claimants-desktop.png", "heading": "Slices and who holds them (desktop)", "caption": "The same on desktop." },
+    { "file": "out/5-slice-hover-breakthrough-desktop.png", "heading": "Hover: the breakthrough (desktop)", "caption": "The side panel names the card the first claim grants (Bellum Gloriosum, synergy Biotic + Cybernetic) with its printed text." },
+    { "file": "out/6-one-slice-per-turn-390x844.png", "heading": "One slice per turn (390x844)", "caption": "After a slice is claimed (the only secret objective is discarded without asking) the other open slice is not offered again this turn." },
+    { "file": "out/6-one-slice-per-turn-desktop.png", "heading": "One slice per turn (desktop)", "caption": "The same on desktop." },
+
+    { "file": "out/1-the-last-slice-390x844.png", "heading": "The last slice (390x844)", "caption": "Second turn of the same game: five slices are taken, the sixth (exhaust a technology-specialty planet) is the one that completes the expedition." },
+    { "file": "out/2-choose-the-system-390x844.png", "heading": "Choose the system (390x844)", "caption": "The finisher places Thunder's Edge. The printed rule wants a system with no planet, supernova or printed wormhole; generated maps have none (their filler is planet systems only), so a table with the content on falls back to neutral systems and the prompt says so. 'Choose on the map' works as for any system pick." },
+    { "file": "out/2-choose-the-system-desktop.png", "heading": "Choose the system (desktop)", "caption": "The same on desktop." },
+    { "file": "out/3-choose-the-placer-390x844.png", "heading": "Tie: who places the infantry (390x844)", "caption": "Three seats hold two slices each; the finisher chooses which of them places the infantry (a rules tie-break)." },
+    { "file": "out/3-choose-the-placer-desktop.png", "heading": "Tie: who places the infantry (desktop)", "caption": "The same on desktop." },
+    { "file": "out/4-thunders-edge-placed-desktop.png", "heading": "Thunder's Edge on the map (desktop)", "caption": "The planet stands in the chosen system (second chip on tile #21), the seat that claimed the first slice holds its breakthrough (Bellum Gloriosum, unlocked in the player sheet), the secret objective is gone, and the expedition group has left Components." },
+    { "file": "out/4-thunders-edge-placed-390x844.png", "heading": "Thunder's Edge placed (390x844)", "caption": "The same on a phone: Components is back to 'Nothing usable now'." },
+    { "file": "out/5-the-system-desktop.png", "heading": "The system inspector (desktop)", "caption": "Thunder's Edge: 5 resources, 1 influence, legendary (Jupiter Brain), controlled by the placer with 2 infantry on it. A planet placed during the game used to show its id and 0/0 here; it now takes its name and values from the catalog." },
+    { "file": "out/5-the-system-390x844.png", "heading": "The system inspector (390x844)", "caption": "The same on a phone." }
+  ],
+  "notes": [
+    { "title": "Reproduce", "text": "cd web && npm run build:wasm && rm -rf node_modules/.vite && npm run screenshots -- FP (needs cargo with the wasm32-unknown-unknown target; TI4_WASM_FILE=<file> reuses a prebuilt engine)." },
+    { "title": "Why the start preset", "text": "Reaching the sixth slice by play takes many rounds and the dumb click driver of the offline captures does not get through them. The dev-only 'Start preset' field of the offline form (dev builds only) starts the engine's `expedition` preset: Thunder's Edge on, four slices claimed by the bots (with their breakthroughs), and the first seat holding a secret objective and a technology-specialty planet. Everything after that is the real engine and the real UI." },
+    { "title": "Not shown", "text": "The discard prompts of the action-card and trade-good slices and the choice of which specialty planet pays are covered by engine and host tests (a seat holding exactly one candidate is not asked). Choosing a planet pays through the same planet picker as any planet pick." }
+  ]
+}

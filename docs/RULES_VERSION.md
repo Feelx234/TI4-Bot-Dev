@@ -201,6 +201,39 @@ Version 16 = faction effects (`faction-effect-fixes`, `RULES_FACTION_EFFECTS`). 
 
 Version < 16: none of these. The ability slot of item 2 is only registered at 16, so older logs replay unchanged. Rule bot golden benches v1 to v4 are hash-identical with `RULES_VERSION` pinned to 11; v5's `baseline.json` needs a deliberate re-record only if its games reach these effects.
 
+## Not a rules version: the Thunder's Edge switch (`GameState::thunders_edge`)
+
+Every game before 2026-10-18 ran under the Prophecy of Kings source scope (`content_types::POK`):
+`Game::sources` defaulted to it, and neither host ever changed it. Thunder's Edge is not in that
+scope, so `thunders_edge::available_actions` (the expedition) returned nothing in every real game
+and the Thunder's Edge technologies were not in the deck. A tester who never saw "Thunder's Edge"
+in the Components menu was right: it could not be offered.
+
+The content is now a per-table switch instead of a rules version, because it changes the source
+scope of the whole game and not one decision:
+
+- `TableSetup::thunders_edge` (lobby, offline form, `Setup.thunders_edge` of the wasm host,
+  `thunders_edge` of `POST /api/games`) is copied to `GameState::thunders_edge` by `setup::create`.
+  Default `setup::DEFAULT_THUNDERS_EDGE = false`: today's behaviour.
+- `GameState::thunders_edge` is **not written while false** (`skip_serializing_if`), so legacy
+  `init.json` files and `state_checksum`s are byte-identical. `Game::with_table` reads it and plays
+  under `content_types::FULL`. At setup the decks (action cards, relics, ...) are built under FULL
+  too (`map::create_game_with_template_seated_in`), so the Thunder's Edge action cards and relics
+  are in them; the board, the seats and their leaders are still built under POK, and every id a POK
+  game holds resolves under FULL.
+- A game made without the switch (all saved games) never sees it. Nothing needs `RULES_VERSION`.
+- Only games with the switch changed in these places, all gated on the flag: the expedition is
+  committed at the end of a turn (the closing menu, `Game::closing_options`; the printed rule says
+  "At the end of a player's turn") and not as a component action, one slice per turn
+  (`TransientFlags::EXPEDITION_CLAIMED`); the technology-specialty slice asks which planet pays
+  when there are several (`expedition_exhaust_planet`); the system pick is kind `system` and, when
+  the generated map has no planetless system (its filler is planet systems only), offers the
+  neutral systems (`thunders_edge::fallback_systems`); the tie-break labels name the faction.
+  Games played under FULL without the flag (the simulator, selfplay, training) keep the old
+  component action and choices.
+- Start preset `expedition` (`ti4_host::preset`): the switch on, four slices claimed by the other
+  seats, the first seat able to pay the other two. For tests and screenshots (`FP-thunders-edge-expedition`).
+
 ## Adding the next gate
 
 1. Raise `RULES_VERSION` in state.rs and add `pub const RULES_<NAME>: u32 = <new>;`.

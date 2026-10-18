@@ -2089,6 +2089,29 @@ html,
   font-size: 13px;
 }
 
+.field-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 8px;
+  color: #cbd5e1;
+  font-size: 14px;
+}
+
+.field-check input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+}
+
+.field-check__hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .input {
   width: 100%;
   border: 1px solid var(--color-border-strong);

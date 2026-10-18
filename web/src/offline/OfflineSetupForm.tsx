@@ -3,6 +3,7 @@ import { FactionPicker } from "../components/FactionPicker.tsx";
 import { preferredNickname } from "../protocol/nickname.ts";
 import { MapDataProvider } from "../hooks/useMapCatalog.ts";
 import { mapDataSourceOf, mapLabel, OfflineMapPicker } from "./OfflineMapPicker.tsx";
+import { THUNDERS_EDGE_HINT, THUNDERS_EDGE_LABEL } from "../presentation/thundersEdge.ts";
 import { buildSetup, DEFAULT_DRAFT, mapForPlayers, type SetupDraft } from "./setup.ts";
 import { PLAYER_COUNTS, type OfflineMapSource, type OfflineSetup } from "./types.ts";
 
@@ -116,6 +117,18 @@ export const OfflineSetupForm: React.FC<{
           />
         </MapDataProvider>
       )}
+      <label className="field-check" data-testid="offline-thunders-edge">
+        <input
+          type="checkbox"
+          disabled={disabled}
+          checked={draft.thundersEdge}
+          onChange={(e) => set({ thundersEdge: e.target.checked })}
+        />
+        <span>
+          {THUNDERS_EDGE_LABEL}
+          <span className="text-faint field-check__hint">{THUNDERS_EDGE_HINT}</span>
+        </span>
+      </label>
       <label className="field-label">
         Nickname
         <input
@@ -126,6 +139,19 @@ export const OfflineSetupForm: React.FC<{
           onChange={(e) => set({ nickname: e.target.value })}
         />
       </label>
+      {allowSeed && (
+        <label className="field-label">
+          Start preset (dev, optional)
+          <input
+            className="input"
+            data-testid="offline-preset"
+            disabled={disabled}
+            placeholder="expedition"
+            value={draft.preset}
+            onChange={(e) => set({ preset: e.target.value })}
+          />
+        </label>
+      )}
       {allowSeed && (
         <label className="field-label">
           Seed (dev, optional)

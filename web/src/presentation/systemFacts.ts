@@ -166,7 +166,7 @@ export function planetOccupants(
 }
 
 const SYSTEM_PICK_SUBTYPE =
-  /(_pick_system|_choose_system|_recall_token|_pick_recall|_pick_rescue_from|_pick_space dock)$/;
+  /(_pick_system|_choose_system|_recall_token|_pick_recall|_pick_rescue_from|_pick_space dock|expedition_place_system)$/;
 
 /** Cards that pick one of several units; each option names the system its unit stands in (`payload.system`). */
 const UNIT_PICK_SUBTYPE = /_pick_(ship|infantry|cruiser)$/;

@@ -78,6 +78,13 @@ pub const EXPLORE: &str = "explore";
 /// the play, return and give flows have something to work on from the first turn.
 pub const NOTES: &str = "notes";
 
+/// Thunder's Edge content on, with four of the six expedition slices claimed by the other seats
+/// (they hold their breakthroughs) and the first seat able to pay the other two: it holds a secret
+/// objective and controls a technology specialty planet. Two claims at the end of its turns finish
+/// the expedition: the system pick, the tie-break between three seats with two slices each, and
+/// the planet arriving on the map are the first thing a table sees.
+pub const EXPEDITION: &str = "expedition";
+
 /// Factions outside the original six, seated by seed from [`ROSTER`], each with its faction
 /// technologies, every leader usable, its flagship and mech beside a defended colony, and the
 /// other seats' promissory notes in hand: faction abilities have something to decide from round one.
@@ -98,7 +105,7 @@ pub const SHORT: &str = "+short";
 /// `web/e2e/smokePreset.ts` (a test below compares the two).
 pub const KNOWN: &[&str] = &[
     COMBAT, CARDS, AGENDA, RELICS, INVASION, TECHS, LEADERS, ENDGAME, SIEGE, BOMBARD, CAPTURE,
-    EXPLORE, NOTES, WORLD,
+    EXPLORE, NOTES, WORLD, EXPEDITION,
 ];
 
 /// Factions a preset may seat, in the order the seeded walk visits them: the original six, then
@@ -617,7 +624,61 @@ fn apply_base(
             Ok(())
         }
         CAPTURE => capture(content, state, galaxy, players, seed),
+        EXPEDITION => {
+            expedition(content, state, galaxy, players);
+            Ok(())
+        }
         other => Err(format!("unknown start_preset {other:?}")),
+    }
+}
+
+/// The `expedition` preset: see [`EXPEDITION`].
+fn expedition(
+    content: &ContentStore,
+    state: &mut GameState,
+    galaxy: &Galaxy,
+    players: &[PlayerId],
+) {
+    state.thunders_edge = true;
+    let count = players.len();
+    let others = [&players[1 % count], &players[2 % count]];
+    for (index, slice) in ["resources", "influence", "trade_goods", "action_cards"]
+        .into_iter()
+        .enumerate()
+    {
+        state.claim_slice(slice, others[index % 2]);
+    }
+    for other in others {
+        let faction = state
+            .player(other)
+            .map(|seat| seat.faction.to_string())
+            .unwrap_or_default();
+        if let Some(breakthrough) =
+            ti4_engine::thunders_edge::breakthrough_for(content, POK, &faction)
+            && let Some(seat) = state.player_mut(other)
+        {
+            seat.breakthrough.get_or_insert(breakthrough);
+        }
+    }
+    // A neutral planet with a technology specialty, on the map, for the first seat to hold.
+    let first = &players[0];
+    let mut systems: Vec<&str> = galaxy.system_ids_holding_things();
+    systems.sort_unstable();
+    for system in systems {
+        let system = SystemId::new(system);
+        let found = ti4_engine::planets::in_system(state, content, POK, &system)
+            .into_iter()
+            .find(|planet| {
+                !ti4_engine::planets::tech_specialties_now(state, content, POK, planet).is_empty()
+                    && !state
+                        .board
+                        .values()
+                        .any(|board| board.planet_control.contains_key(planet))
+            });
+        if let Some(planet) = found {
+            state.system_mut(&system).set_control(planet, first.clone());
+            break;
+        }
     }
 }
 
@@ -2524,6 +2585,34 @@ mod tests {
         assert!(
             factions.contains(&"jolnar") || factions.contains(&"l1z1x"),
             "{factions:?}"
+        );
+    }
+
+    #[test]
+    fn the_expedition_preset_leaves_two_slices_the_first_seat_can_pay() {
+        let list = players(3);
+        let (state, _) = preset_game(content(), &list, 12, None, "expedition").unwrap();
+        assert!(state.thunders_edge);
+        assert_eq!(state.expedition_slices.len(), 4);
+        assert_eq!(state.expedition_slices.get("resources"), Some(&list[1]));
+        assert_eq!(state.expedition_slices.get("influence"), Some(&list[2]));
+        assert!(state.player(&list[1]).unwrap().breakthrough.is_some());
+        let mut options: Vec<String> = ti4_engine::thunders_edge::available_actions(
+            &state,
+            content(),
+            ti4_model::content_types::FULL,
+            &list[0],
+        )
+        .into_iter()
+        .map(|option| option.id)
+        .collect();
+        options.sort();
+        assert_eq!(
+            options,
+            [
+                "component|expedition|secret",
+                "component|expedition|tech_planet"
+            ]
         );
     }
 

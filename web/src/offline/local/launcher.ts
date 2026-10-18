@@ -58,6 +58,9 @@ export function engineSetup(setup: OfflineSetup, gameId: string): Record<string,
     ...(setup.humanFaction !== null ? { human_faction: setup.humanFaction } : {}),
     // Left out when untouched: the engine takes the layout recommended for the table size.
     ...(setup.map ? { map: setup.map.kind === "random" ? "random" : setup.map.alias } : {}),
+    // Left out when off: a save without it plays the content it was made with.
+    ...(setup.thundersEdge ? { thunders_edge: true } : {}),
+    ...(setup.preset ? { preset: setup.preset } : {}),
   };
 }
 

@@ -39,6 +39,14 @@ preset?: string,
  */
 starting_tech?: boolean, 
 /**
+ * Thunder's Edge content is on ([`GameState::thunders_edge`]): the game is played with every
+ * source, which brings in the expedition (a component action), the breakthroughs it grants,
+ * the planet it places and the Thunder's Edge printings. Left out (every table made before the
+ * switch, and so every save and recorded game of one) it is off: those games replay as they
+ * were played. A new game is made with [`DEFAULT_THUNDERS_EDGE`].
+ */
+thunders_edge?: boolean, 
+/**
  * The seed of the table. It tells the factions that nobody chose, so a host
  * with several people keeps it to itself.
  */

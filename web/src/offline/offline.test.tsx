@@ -350,3 +350,16 @@ describe("saves, import and the engine", () => {
     expect(Array.from(sha256(long), (b) => b.toString(16).padStart(2, "0")).join("")).toBe(viaSubtle);
   });
 });
+
+describe("Thunder's Edge switch and the dev preset", () => {
+  it("leaves both out of the setup unless asked for", () => {
+    const plain = buildSetup(draft, true, MOCK_FACTIONS);
+    expect(plain.ok && plain.setup).not.toHaveProperty("thundersEdge");
+    expect(plain.ok && plain.setup).not.toHaveProperty("preset");
+    const on = buildSetup({ ...draft, thundersEdge: true, preset: " expedition " }, true, MOCK_FACTIONS);
+    expect(on.ok && on.setup).toMatchObject({ thundersEdge: true, preset: "expedition" });
+    // The preset field exists in dev builds only.
+    const prod = buildSetup({ ...draft, thundersEdge: true, preset: "expedition" }, false, MOCK_FACTIONS);
+    expect(prod.ok && prod.setup).not.toHaveProperty("preset");
+  });
+});

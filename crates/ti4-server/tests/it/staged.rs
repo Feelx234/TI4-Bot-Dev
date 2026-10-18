@@ -42,6 +42,7 @@ fn game(registry: &GameRegistry, game_id: &str) -> (PlayerId, String) {
             ti4_host::setup::card_set::DEFAULT,
             ti4_host::setup::SpeakerOrder::Seat,
             Some(0),
+            false,
         )
         .expect("a started game");
     (seat, credential.as_str().to_owned())

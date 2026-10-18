@@ -53,4 +53,10 @@ bot_version?: number,
  * bot of version 3 or later ([`Start::settle_bot_version`]), so a save made before the choice
  * (bot version 2 or less) resumes without it. Not written while off, like the table's.
  */
-starting_tech?: boolean, };
+starting_tech?: boolean, 
+/**
+ * Whether Thunder's Edge content is on ([`ti4_host::setup::TableSetup::thunders_edge`]).
+ * Left out: off, so a save made before the switch resumes as it was played. Not written
+ * while off.
+ */
+thunders_edge?: boolean, };

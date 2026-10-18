@@ -257,6 +257,26 @@
   color: #fbbf24;
 }
 
+/* Thunder's Edge: the group's explanation and the slices that cannot be used */
+.turn-bar__group-intro,
+.turn-bar__group-note {
+  margin: 2px 8px 4px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--color-text-muted, #94a3b8);
+}
+.turn-bar__group-intro {
+  color: var(--color-text-strong, #e2e8f0);
+}
+.turn-bar__row--disabled {
+  cursor: default;
+  opacity: 0.62;
+}
+.turn-bar__row-taken {
+  font-size: 12px;
+  color: #fbbf24;
+}
+
 /* trade partner picker */
 .turn-bar__partner {
   display: grid;

@@ -240,6 +240,11 @@ pub struct PlayerLobbyRecord {
     /// ([`LEGACY_CARD_SET`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strategy_card_set: Option<String>,
+    /// Thunder's Edge content (the expedition, breakthroughs, ...) is on for this table
+    /// ([`ti4_host::setup::TableSetup::thunders_edge`]). Absent in records written before the
+    /// switch: off. The started game keeps it in its opening state.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub thunders_edge: bool,
     /// Who opens as speaker: `"random"` (a seat drawn from the seed) or `"seat"` (the first
     /// seat). Absent means random; the drawn speaker itself is saved in the init record's state.
     #[serde(default, skip_serializing_if = "Option::is_none")]

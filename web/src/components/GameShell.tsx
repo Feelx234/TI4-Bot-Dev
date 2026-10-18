@@ -1,3 +1,4 @@
+import { usePublicState } from "../presentation/PublicStateContext.tsx";
 import { gainTokensPrompt } from "../presentation/commandTokens.ts";
 import { optionUnit, produceStep } from "../presentation/productionDraft.ts";
 import React, { useEffect, useState, useMemo, useRef } from "react";
@@ -728,6 +729,7 @@ export const ChoiceRendererDispatcher: React.FC<
   autoAnswerNonce,
 }) => {
   const present = useParticipantText();
+  const publicFacts = usePublicState();
   const agendaPill = useAgendaPill();
   const derivedModel = useMemo(() => {
     return choice
@@ -884,7 +886,11 @@ export const ChoiceRendererDispatcher: React.FC<
   // The turn menu and the end-turn question live on the persistent bar. Options the bar cannot
   // place keep the old list.
   if (isTurnMenuChoice(visibleChoice) && choice.actor === viewerSeat) {
-    const barModel = deriveTurnBar(visibleChoice, viewer);
+    const barModel = deriveTurnBar(visibleChoice, viewer, {
+      enabled: publicFacts.thundersEdge,
+      slices: publicFacts.expeditionSlices,
+      breakthroughHeld: Boolean(viewer && publicFacts.breakthroughs[viewer.id]),
+    });
     if (barModel)
       return (
         <TurnActionBar
