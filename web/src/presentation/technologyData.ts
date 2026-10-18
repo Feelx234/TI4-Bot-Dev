@@ -301,40 +301,104 @@ export function getControlledSpecialtyPlanets(
   return results;
 }
 
-export function checkTechPrerequisites(
-  tech: HydratedTech,
-  ownedTrackCounts: Record<"PROPULSION" | "BIOTIC" | "CYBERNETIC" | "WARFARE", number>,
-  toggledSkips: Record<"PROPULSION" | "BIOTIC" | "CYBERNETIC" | "WARFARE", number>,
-  faction?: string,
+/** First rules version with AI Development Algorithm and Psychoarchaeology (engine: RULES_TECH_EFFECTS). */
+export const RULES_TECH_EFFECTS = 15;
+
+type Track = "PROPULSION" | "BIOTIC" | "CYBERNETIC" | "WARFARE";
+
+/** Waivers beyond the faction's own that the client can see in the player's data. */
+export interface PrereqWaivers {
+  /** AI Development Algorithm is owned, ready and the rules version has it: ignores 1 on a unit upgrade. */
+  aida?: boolean;
+  /** Other "ignore 1 prerequisite" budget the client knows (The Prophet's Tears). */
+  extra?: number;
+}
+
+export function isUnitUpgradeTech(tech: HydratedTech): boolean {
+  return Boolean(tech.meta.types?.some((t) => t.toUpperCase().replace("_", "") === "UNITUPGRADE"));
+}
+
+/** AI Development Algorithm is usable: version 15+, owned and not exhausted. */
+export function aidaIsReady(player: PlayerView | null | undefined, rulesVersion: number): boolean {
+  return (
+    rulesVersion >= RULES_TECH_EFFECTS &&
+    Boolean(player) &&
+    hasResearchedTech(player as PlayerView, "aida") &&
+    !isTechExhausted(player as PlayerView, "aida")
+  );
+}
+
+/** Psychoarchaeology (version 15+): specialties are used without exhausting their planets. */
+export function psychoarchaeologyFrees(
+  player: PlayerView | null | undefined,
+  rulesVersion: number,
 ): boolean {
-  if (tech.prereqs.length === 0) return true;
+  return (
+    rulesVersion >= RULES_TECH_EFFECTS && Boolean(player) && hasResearchedTech(player as PlayerView, "pa")
+  );
+}
 
-  const needed: Record<string, number> = { B: 0, G: 0, Y: 0, R: 0 };
-  for (const p of tech.prereqs) {
-    needed[p.type] = (needed[p.type] || 0) + 1;
-  }
-
-  const colorMap: Record<string, "PROPULSION" | "BIOTIC" | "CYBERNETIC" | "WARFARE"> = {
-    B: "PROPULSION",
-    G: "BIOTIC",
-    Y: "CYBERNETIC",
-    R: "WARFARE",
+/** The waivers the client can see for `player` (see the engine's prerequisites_met_with). */
+export function visibleWaivers(player: PlayerView | null | undefined, rulesVersion: number): PrereqWaivers {
+  return {
+    aida: aidaIsReady(player, rulesVersion),
+    extra: player?.relics?.some((r) => r === "prophetstears") ? 1 : 0,
   };
+}
 
-  let waiverBudget = 0;
-  if (faction?.toLowerCase() === "jolnar") {
-    waiverBudget = tech.meta.types?.includes("unit_upgrade") ? 1 : 2;
-  }
-
+function missingPrerequisites(
+  tech: HydratedTech,
+  ownedTrackCounts: Record<Track, number>,
+  toggledSkips: Record<Track, number>,
+): number {
+  const needed: Record<string, number> = { B: 0, G: 0, Y: 0, R: 0 };
+  for (const p of tech.prereqs) needed[p.type] = (needed[p.type] || 0) + 1;
+  const colorMap: Record<string, Track> = { B: "PROPULSION", G: "BIOTIC", Y: "CYBERNETIC", R: "WARFARE" };
   let totalMissing = 0;
   for (const [letter, reqCount] of Object.entries(needed)) {
     if (reqCount === 0) continue;
     const track = colorMap[letter];
     const available = (ownedTrackCounts[track] || 0) + (toggledSkips[track] || 0);
-    if (available < reqCount) {
-      totalMissing += reqCount - available;
-    }
+    if (available < reqCount) totalMissing += reqCount - available;
   }
+  return totalMissing;
+}
 
-  return totalMissing <= waiverBudget;
+/** The waiver budget the faction and the visible cards give for `tech`, without AI Development Algorithm. */
+function baseWaiverBudget(tech: HydratedTech, faction: string | undefined, waivers: PrereqWaivers): number {
+  let budget = waivers.extra ?? 0;
+  if (faction?.toLowerCase() === "jolnar") {
+    // Kept as it always was: the literal "unit_upgrade" never matches the catalog's UNITUPGRADE, so
+    // this has been 2 for every technology (reported, not changed here).
+    budget += tech.meta.types?.includes("unit_upgrade") ? 1 : 2;
+  }
+  return budget;
+}
+
+export function checkTechPrerequisites(
+  tech: HydratedTech,
+  ownedTrackCounts: Record<Track, number>,
+  toggledSkips: Record<Track, number>,
+  faction?: string,
+  waivers: PrereqWaivers = {},
+): boolean {
+  if (tech.prereqs.length === 0) return true;
+  const missing = missingPrerequisites(tech, ownedTrackCounts, toggledSkips);
+  const budget = baseWaiverBudget(tech, faction, waivers) + (waivers.aida && isUnitUpgradeTech(tech) ? 1 : 0);
+  return missing <= budget;
+}
+
+/** True when `tech` passes only because AI Development Algorithm ignores a prerequisite. */
+export function unlockedByAida(
+  tech: HydratedTech,
+  ownedTrackCounts: Record<Track, number>,
+  toggledSkips: Record<Track, number>,
+  faction: string | undefined,
+  waivers: PrereqWaivers,
+): boolean {
+  if (!waivers.aida || !isUnitUpgradeTech(tech)) return false;
+  return (
+    checkTechPrerequisites(tech, ownedTrackCounts, toggledSkips, faction, waivers) &&
+    !checkTechPrerequisites(tech, ownedTrackCounts, toggledSkips, faction, { ...waivers, aida: false })
+  );
 }

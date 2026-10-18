@@ -23,6 +23,11 @@ import {
   isTechAllowedForFaction,
   getControlledSpecialtyPlanets,
   checkTechPrerequisites,
+  unlockedByAida,
+  visibleWaivers,
+  psychoarchaeologyFrees,
+  isUnitUpgradeTech,
+  RULES_TECH_EFFECTS,
   type HydratedTech,
 } from "../presentation/technologyData.ts";
 import {
@@ -50,6 +55,8 @@ export interface TechnologyModalProps {
   onSelectTech?: (techId: string) => void;
   onConfirmResearch?: (techId: string) => void;
   isResearchMode?: boolean;
+  /** `rules_version` of the game state: AI Development Algorithm and Psychoarchaeology need 15. */
+  rulesVersion?: number;
 }
 
 const TRACK_ACCENTS: Record<string, string> = {
@@ -77,6 +84,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
   onSelectTech,
   onConfirmResearch,
   isResearchMode = false,
+  rulesVersion = 0,
 }) => {
   const display = usePlayerIdentity();
 
@@ -167,20 +175,31 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
     return getControlledSpecialtyPlanets(board, viewerPlayer?.id);
   }, [board, viewerPlayer?.id]);
 
-  const toggledSkipCounts = useMemo(() => {
-    const counts: Record<"PROPULSION" | "BIOTIC" | "CYBERNETIC" | "WARFARE", number> = {
-      PROPULSION: 0,
-      BIOTIC: 0,
-      CYBERNETIC: 0,
-      WARFARE: 0,
-    };
-    for (const p of controlledSpecialties) {
-      if (!p.isExhausted && toggledPlanets[p.planetId]) {
-        counts[p.specialty] += 1;
+  // Psychoarchaeology (rules version 15): specialties work exhausted or not, and are not exhausted.
+  const freeSpecialties = psychoarchaeologyFrees(viewerPlayer, rulesVersion);
+  const waivers = useMemo(() => visibleWaivers(viewerPlayer, rulesVersion), [viewerPlayer, rulesVersion]);
+  const trustEngineList = rulesVersion >= RULES_TECH_EFFECTS;
+
+  /** Specialties per track: the toggled ones, or (all = true) every one the engine would use. */
+  const specialtyCounts = useCallback(
+    (all: boolean) => {
+      const counts: Record<"PROPULSION" | "BIOTIC" | "CYBERNETIC" | "WARFARE", number> = {
+        PROPULSION: 0,
+        BIOTIC: 0,
+        CYBERNETIC: 0,
+        WARFARE: 0,
+      };
+      for (const p of controlledSpecialties) {
+        if ((freeSpecialties || !p.isExhausted) && (all || toggledPlanets[p.planetId])) {
+          counts[p.specialty] += 1;
+        }
       }
-    }
-    return counts;
-  }, [controlledSpecialties, toggledPlanets]);
+      return counts;
+    },
+    [controlledSpecialties, toggledPlanets, freeSpecialties],
+  );
+  const toggledSkipCounts = useMemo(() => specialtyCounts(false), [specialtyCounts]);
+  const allSkipCounts = useMemo(() => specialtyCounts(true), [specialtyCounts]);
 
   const ownedTrackCounts = useMemo(() => {
     const counts: Record<"PROPULSION" | "BIOTIC" | "CYBERNETIC" | "WARFARE", number> = {
@@ -226,14 +245,44 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
       if (legalOptionIds && !legalOptionIds.some((optId) => techMatches(optId, tech.id))) {
         return false;
       }
+      // The engine's list is authoritative for the first pick (version 15+): it knows every
+      // waiver (AI Development Algorithm, Research Teams, relics, Publicize).
+      if (trustEngineList && choice?.options) return true;
       return checkTechPrerequisites(
         tech,
         ownedTrackCounts,
         toggledSkipCounts,
         viewerPlayer?.faction,
+        waivers,
       );
     },
-    [legalOptionIds, ownedTrackCounts, toggledSkipCounts, viewerPlayer],
+    [legalOptionIds, ownedTrackCounts, toggledSkipCounts, viewerPlayer, waivers, trustEngineList, choice?.options],
+  );
+
+  /**
+   * The second pick's prerequisites, given the first pick: it counts as one more owned technology
+   * of its track. AI Development Algorithm is spent on the first pick when the first (a unit
+   * upgrade) falls short without it, and then is not there for the second.
+   */
+  const secondPickPrereqsMet = useCallback(
+    (firstId: string, tech: HydratedTech): boolean => {
+      const counts = { ...ownedTrackCounts };
+      const firstTrack = getTechnologyTrack(firstId);
+      if (firstTrack) counts[firstTrack] = (counts[firstTrack] || 0) + 1;
+      const first = hydrateTech(firstId);
+      const aidaSpent =
+        Boolean(waivers.aida) &&
+        isUnitUpgradeTech(first) &&
+        !checkTechPrerequisites(first, ownedTrackCounts, allSkipCounts, viewerPlayer?.faction, {
+          ...waivers,
+          aida: false,
+        });
+      return checkTechPrerequisites(tech, counts, toggledSkipCounts, viewerPlayer?.faction, {
+        ...waivers,
+        aida: Boolean(waivers.aida) && !aidaSpent,
+      });
+    },
+    [ownedTrackCounts, allSkipCounts, toggledSkipCounts, viewerPlayer?.faction, waivers],
   );
 
   // Resources calculation
@@ -257,9 +306,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
     if (!secondPickAffordable) {
       return `Second technology costs ${secondPickCost} resources, you have ${availableResources.total}`;
     }
-    if (
-      !checkTechPrerequisites(tech, effectiveTrackCounts, toggledSkipCounts, viewerPlayer?.faction)
-    ) {
+    if (!secondPickPrereqsMet(selectedTechs[0], tech)) {
       return "Prerequisites not met";
     }
     // The engine's list holds what is researchable before the first pick. A technology that only
@@ -268,7 +315,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
     if (
       legalOptionIds &&
       !legalOptionIds.some((optId) => techMatches(optId, tech.id)) &&
-      checkTechPrerequisites(tech, ownedTrackCounts, toggledSkipCounts, viewerPlayer?.faction)
+      checkTechPrerequisites(tech, ownedTrackCounts, toggledSkipCounts, viewerPlayer?.faction, waivers)
     ) {
       return "Not available to research";
     }
@@ -438,26 +485,16 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
       const firstTech = hydrateTech(prev[0]);
       if (!canResearchAlone(firstTech)) return [];
       if (prev.length === 2) {
-        const firstTrack = getTechnologyTrack(prev[0]);
-        const trackWithFirst = { ...ownedTrackCounts };
-        if (firstTrack) {
-          trackWithFirst[firstTrack] = (trackWithFirst[firstTrack] || 0) + 1;
-        }
         const secondTech = hydrateTech(prev[1]);
         const secondValid =
           isTechAllowedForFaction(secondTech, viewerPlayer?.faction) &&
           (!viewerPlayer || !hasResearchedTech(viewerPlayer, secondTech.id)) &&
-          checkTechPrerequisites(
-            secondTech,
-            trackWithFirst,
-            toggledSkipCounts,
-            viewerPlayer?.faction,
-          );
+          secondPickPrereqsMet(prev[0], secondTech);
         if (!secondValid || !secondPickAffordable) return [prev[0]];
       }
       return prev;
     });
-  }, [toggledSkipCounts, ownedTrackCounts, canResearchAlone, viewerPlayer, secondPickAffordable]);
+  }, [toggledSkipCounts, ownedTrackCounts, canResearchAlone, viewerPlayer, secondPickAffordable, secondPickPrereqsMet]);
 
   const factionTechs = useMemo<HydratedTech[]>(() => {
     if (!viewerPlayer?.faction) return [];
@@ -477,7 +514,18 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
     if (!viewerPlayer) return false;
     if (hasResearchedTech(viewerPlayer, tech.id)) return false;
     if (!isTechAllowedForFaction(tech, viewerPlayer.faction)) return false;
-    return checkTechPrerequisites(tech, ownedTrackCounts, toggledSkipCounts, viewerPlayer.faction);
+    return checkTechPrerequisites(tech, ownedTrackCounts, toggledSkipCounts, viewerPlayer.faction, waivers);
+  };
+
+  /** A card that is available only because AI Development Algorithm ignores one of its prerequisites. */
+  const aidaNoteFor = (tech: HydratedTech): string | undefined => {
+    if (!waivers.aida || !isUnitUpgradeTech(tech)) return undefined;
+    if (!isAvailableNow(tech)) return undefined;
+    const second = activeResearchMode && secondPickOpen && !techMatches(tech.id, selectedTechs[0]);
+    const counts = second ? effectiveTrackCounts : ownedTrackCounts;
+    return unlockedByAida(tech, counts, allSkipCounts, viewerPlayer?.faction, waivers)
+      ? "Unlocked by AI Development Algorithm"
+      : undefined;
   };
   const shown = (tech: HydratedTech): boolean =>
     matchesTechFilter(tech, filter, !filter.availableOnly || isAvailableNow(tech));
@@ -612,16 +660,17 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                     </span>
                   ) : (
                     controlledSpecialties.map((planet) => {
-                      const isToggled =
-                        !planet.isExhausted && Boolean(toggledPlanets[planet.planetId]);
+                      const spent = planet.isExhausted && !freeSpecialties;
+                      const isToggled = !spent && Boolean(toggledPlanets[planet.planetId]);
+                      const freeWhileExhausted = planet.isExhausted && freeSpecialties;
                       return (
                         <button
                           key={planet.planetId}
                           type="button"
                           data-testid={`tech-skip-${planet.planetId}`}
-                          disabled={planet.isExhausted}
-                          className={`tech-skip-pill ${
-                            planet.isExhausted
+                          disabled={spent}
+                          className={`tech-skip-pill${freeWhileExhausted ? " tech-skip-pill--free" : ""} ${
+                            spent
                               ? "tech-skip-pill--exhausted"
                               : isToggled
                                 ? "tech-skip-pill--toggled"
@@ -629,11 +678,13 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                           }`}
                           onClick={() => togglePlanetSkip(planet.planetId)}
                           title={
-                            planet.isExhausted
+                            spent
                               ? `${planet.name} is exhausted`
-                              : isToggled
-                                ? `Click to untoggle ${planet.name} skip`
-                                : `Click to toggle ${planet.name} skip`
+                              : freeWhileExhausted
+                                ? `${planet.name} is exhausted: Psychoarchaeology lets you use its specialty anyway, free, not exhausted`
+                                : isToggled
+                                  ? `Click to untoggle ${planet.name} skip`
+                                  : `Click to toggle ${planet.name} skip`
                           }
                         >
                           <span
@@ -643,11 +694,15 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                           </span>
                           <span>{planet.name}</span>
                           <span className="tech-skip-pill__status">
-                            {planet.isExhausted
+                            {spent
                               ? "(Exhausted)"
-                              : isToggled
-                                ? "Active (+1)"
-                                : "Ready"}
+                              : freeWhileExhausted
+                                ? isToggled
+                                  ? "Active (+1), free, not exhausted by Psychoarchaeology"
+                                  : "Exhausted, free with Psychoarchaeology"
+                                : isToggled
+                                  ? "Active (+1)"
+                                  : "Ready"}
                           </span>
                         </button>
                       );
@@ -655,6 +710,12 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                   )}
                 </div>
               </div>
+
+              {waivers.aida && (
+                <div className="technology-modal__aida-note" data-testid="tech-aida-note">
+                  AI Development Algorithm ignores 1 prerequisite (exhausts only if needed)
+                </div>
+              )}
 
               {/* Resources & Decision Actions */}
               <div className="technology-modal__research-footer">
@@ -823,7 +884,9 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                         players={playerList}
                         isResearchMode={activeResearchMode}
                         isResearchable={isTechResearchable(tech)}
- blockedReason={blockedReasonFor(tech)}
+
+                        blockedReason={blockedReasonFor(tech)}
+                        aidaNote={aidaNoteFor(tech)}
                         isSelected={selectedTechs.includes(tech.id)}
                         onSelectTech={() => handleSelectCard(tech.id)}
                       />
@@ -888,8 +951,10 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                                   players={playerList}
                                   isResearchMode={activeResearchMode}
                                   isResearchable={isTechResearchable(tech)}
- blockedReason={blockedReasonFor(tech)}
-                                  isSelected={selectedTechs.includes(tech.id)}
+
+                        blockedReason={blockedReasonFor(tech)}
+                        aidaNote={aidaNoteFor(tech)}
+                        isSelected={selectedTechs.includes(tech.id)}
                                   onSelectTech={() => handleSelectCard(tech.id)}
                                 />
                               );
@@ -918,8 +983,10 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                       players={playerList}
                       isResearchMode={activeResearchMode}
                       isResearchable={isTechResearchable(tech)}
- blockedReason={blockedReasonFor(tech)}
-                      isSelected={selectedTechs.includes(tech.id)}
+
+                        blockedReason={blockedReasonFor(tech)}
+                        aidaNote={aidaNoteFor(tech)}
+                        isSelected={selectedTechs.includes(tech.id)}
                       onSelectTech={() => handleSelectCard(tech.id)}
                     />
                   ))}
@@ -943,6 +1010,8 @@ interface TechCardProps {
   isResearchable?: boolean;
   /** Why a card is dimmed even though it could be picked first (tooltip and aria). */
   blockedReason?: string;
+  /** "Unlocked by AI Development Algorithm" when that card is what makes this one available. */
+  aidaNote?: string;
   isSelected?: boolean;
   onSelectTech?: () => void;
 }
@@ -955,6 +1024,7 @@ const TechCard: React.FC<TechCardProps> = ({
   isResearchMode = false,
   isResearchable = true,
   blockedReason,
+  aidaNote,
   isSelected = false,
   onSelectTech,
 }) => {
@@ -1028,6 +1098,12 @@ const TechCard: React.FC<TechCardProps> = ({
           )}
         </div>
       </div>
+
+      {aidaNote && (
+        <div className="technology-card__aida-note" data-testid={`tech-aida-note-${tech.id}`}>
+          {aidaNote}
+        </div>
+      )}
 
       <TechEffectText id={tech.id} text={tech.meta.description} />
 

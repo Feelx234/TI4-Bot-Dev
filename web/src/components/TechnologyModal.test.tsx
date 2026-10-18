@@ -675,6 +675,127 @@ describe("TechnologyModal", () => {
     });
   });
 
+  describe("AI Development Algorithm and Psychoarchaeology (rules version 15)", () => {
+    const choice = (ids: string[], secondary = false): PendingChoiceDto => ({
+      actor: "player1",
+      nonce: "dec-tech-aida",
+      prompt: "Research a technology",
+      context: partialContext({
+        subtype: "research_technology",
+        source: { StrategyCard: { card: "Technology", secondary } },
+      }),
+      options: ids.map((id) => ({ id, label: id, kind: "research", payload: {} })),
+    });
+    const board = {
+      systems: {
+        "1": {
+          system_id: "1",
+          command_tokens: [],
+          units: [],
+          planets: {
+            wellon: { planet_id: "wellon", controlled_by: "player1", exhausted: false },
+            lazar: { planet_id: "lazar", controlled_by: "player1", exhausted: true },
+          },
+        },
+      },
+    } as unknown as BoardView;
+    const open = (
+      owned: string[],
+      exhausted: string[],
+      ids: string[],
+      rulesVersion: number,
+      withBoard = false,
+      tradeGoods = 8,
+    ) =>
+      renderWithIdentity(
+        <TechnologyModal
+          isOpen={true}
+          onClose={vi.fn()}
+          players={[
+            { ...mockPlayers[0], faction: "sol", trade_goods: tradeGoods, technologies: owned, exhausted_technologies: exhausted },
+            mockPlayers[1],
+          ]}
+          board={withBoard ? board : undefined}
+          viewerSeat="player1"
+          choice={choice(ids)}
+          onSubmit={vi.fn().mockResolvedValue(undefined)}
+          isResearchMode={true}
+          rulesVersion={rulesVersion}
+        />,
+      );
+
+    it("offers a unit upgrade the engine lists though only aida unlocks it, with a note", () => {
+      open(["aida", "amd", "st"], [], ["dn2"], 15);
+      const card = screen.getByTestId("tech-card-dn2");
+      expect(card).toHaveAttribute("data-researchable", "true");
+      expect(screen.getByTestId("tech-aida-note-dn2")).toHaveTextContent("Unlocked by AI Development Algorithm");
+      expect(screen.getByTestId("tech-aida-note")).toHaveTextContent(
+        "AI Development Algorithm ignores 1 prerequisite (exhausts only if needed)",
+      );
+      fireEvent.click(card);
+      expect(card).toHaveAttribute("data-selected", "true");
+    });
+
+    it("trusts the engine's list for a first pick, even where the client lacks the data", () => {
+      open(["amd"], [], ["dn2", "gls"], 15);
+      expect(screen.getByTestId("tech-card-dn2")).toHaveAttribute("data-researchable", "true");
+      expect(screen.getByTestId("tech-card-gls")).toHaveAttribute("data-researchable", "true");
+      // Not in the list: not researchable.
+      expect(screen.getByTestId("tech-card-cr2")).toHaveAttribute("data-researchable", "false");
+    });
+
+    it("an exhausted aida unlocks nothing and shows no note", () => {
+      open(["aida", "amd", "st"], ["aida"], [], 15);
+      expect(screen.getByTestId("tech-card-dn2")).toHaveAttribute("data-researchable", "false");
+      expect(screen.queryByTestId("tech-aida-note")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("tech-aida-note-dn2")).not.toBeInTheDocument();
+    });
+
+    it("at rules version 14 the old check stays: the list does not override it and aida is ignored", () => {
+      open(["aida", "amd", "st"], [], ["dn2"], 14);
+      expect(screen.getByTestId("tech-card-dn2")).toHaveAttribute("data-researchable", "false");
+      expect(screen.queryByTestId("tech-aida-note")).not.toBeInTheDocument();
+    });
+
+    it("the second pick may use aida for a unit upgrade one short, but not after the first pick spent it", () => {
+      // Owns amd + st: Dreadnought II (B B Y) is one blue short; Sarween-like picks need nothing.
+      open(["aida", "amd", "st"], [], ["dn2", "ps"], 15);
+      fireEvent.click(screen.getByTestId("tech-card-ps"));
+      expect(screen.getByTestId("tech-card-dn2")).toHaveAttribute("data-selectable", "true");
+    });
+
+    it("the second pick cannot reuse aida when the first pick (a unit upgrade) needed it", () => {
+      // First: Dreadnought II, one blue short (aida spent). Second: Cruiser II (G Y R) is one green
+      // short (aida itself is the red), which only the spent card could have covered.
+      open(["aida", "amd", "st"], [], ["dn2", "cr2"], 15);
+      fireEvent.click(screen.getByTestId("tech-card-dn2"));
+      const cr2 = screen.getByTestId("tech-card-cr2");
+      expect(cr2).toHaveAttribute("data-selectable", "false");
+      expect(cr2).toHaveAttribute("data-blocked-reason", "Prerequisites not met");
+    });
+
+    it("with Psychoarchaeology an exhausted specialty planet can be toggled and says it is free", () => {
+      open(["pa"], [], [], 15, true);
+      const lazar = screen.getByTestId("tech-skip-lazar");
+      expect(lazar).not.toBeDisabled();
+      expect(lazar).toHaveTextContent("free with Psychoarchaeology");
+      fireEvent.click(lazar);
+      expect(lazar).toHaveTextContent("free, not exhausted by Psychoarchaeology");
+    });
+
+    it("without Psychoarchaeology (or below version 15) an exhausted planet stays disabled", () => {
+      open([], [], [], 15, true);
+      expect(screen.getByTestId("tech-skip-lazar")).toBeDisabled();
+    });
+
+    it("below version 15 Psychoarchaeology changes nothing", () => {
+      open(["pa"], [], [], 14, true);
+      const lazar = screen.getByTestId("tech-skip-lazar");
+      expect(lazar).toBeDisabled();
+      expect(lazar).toHaveTextContent("(Exhausted)");
+    });
+  });
+
   describe("filter", () => {
     it("narrows the cards to one colour and back", () => {
       renderWithIdentity(
