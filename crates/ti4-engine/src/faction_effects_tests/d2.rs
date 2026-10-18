@@ -198,6 +198,12 @@ pub(crate) fn padded(faces: &[u32]) -> Vec<u32> {
     faces.iter().copied().chain(std::iter::repeat_n(1, 800)).collect()
 }
 
+/// `faces`, then hits: whatever fight is still going afterwards ends quickly (an invasion window,
+/// unlike a space combat, has no round cap, so a miss-padded stalemate would drain the dice).
+pub(crate) fn padded_hits(faces: &[u32]) -> Vec<u32> {
+    faces.iter().copied().chain(std::iter::repeat_n(10, 800)).collect()
+}
+
 /// A whole space combat in `system` with these dice faces loaded first (then the seeded stream),
 /// the table answering the questions. Returns the outcome and the dice that were rolled.
 pub(crate) fn space_fight(
@@ -229,7 +235,7 @@ pub(crate) fn invade(
     faces: &[u32],
     table: &mut Table,
 ) -> (crate::invasion::InvasionReport, Dice) {
-    let mut dice = Dice::from_faces(padded(faces));
+    let mut dice = Dice::from_faces(padded_hits(faces));
     let mut rng = GameRng::new(11);
     let report = crate::invasion::resolve(
         state,
@@ -248,11 +254,19 @@ pub(crate) fn invade(
 /// `state` stepped once in a `Game`: the engine's own unlock check (51.7) runs at the top of the
 /// step. True when the game announced `LEADER_UNLOCKED:<leader>` and the seat holds it unlocked.
 pub(crate) fn unlocks_in_the_game(state: &GameState, who: &PlayerId, leader: &str) -> bool {
+    unlocks_on_the_map(state, who, leader, None)
+}
+
+/// [`unlocks_in_the_game`] for a game with a map (Naalu's commander asks about Mecatol Rex).
+pub(crate) fn unlocks_on_the_map(state: &GameState, who: &PlayerId, leader: &str, galaxy: Option<Galaxy>) -> bool {
     let mut state = state.clone();
     state.phase = Phase::Action;
     state.active = Some(who.clone());
     let mut game = Game::with_table(state, content(), Table::with_default(Box::new(AlwaysDecline)))
         .with_sources(DEFAULT);
+    if let Some(galaxy) = galaxy {
+        game = game.with_galaxy(galaxy);
+    }
     let _ = game.step();
     let announced = game
         .events
@@ -574,21 +588,17 @@ fn harrow_1_the_fleet_bombards_again_after_each_round_of_ground_combat() {
     for (faction, harrows) in [("l1z1x", true), ("sol", false)] {
         let mut state = seated_all(&[("a", faction), ("b", "hacan")]);
         let (system, planet) = one_planet();
+        state.system_mut(&system).set_control(planet.clone(), b());
         put(&mut state, &system, "dreadnought", &a(), 1);
-        put_on_planet(&mut state, &system, &planet, "infantry", &a(), 3);
+        put(&mut state, &system, "infantry", &a(), 3);
         put_on_planet(&mut state, &system, &planet, "infantry", &b(), 1);
-        // Round one: a misses with 3 dice, b misses with 1, then the Harrow die is a 10.
-        let mut dice = Dice::from_faces(padded(&[1, 1, 1, 1, 10]));
-        let mut rng = GameRng::new(3);
-        let winner = crate::invasion::ground_combat(
-            &mut state, content(), DEFAULT, &mut Table::new(), &mut dice, &mut rng, &system, &planet, &a(),
-        )
-        .expect("resolves");
+        // The opening bombardment misses, round one misses on both sides, the Harrow die hits.
+        let (report, dice) = invade(&mut state, &system, &a(), &[1, 1, 1, 1, 1, 10], &mut Table::new());
         let harrow_rolls = dice.history().iter().filter(|roll| roll.reason == "harrow").count();
         if harrows {
             assert_eq!(harrow_rolls, 1, "one extra bombardment at the end of round one");
-            assert_eq!(winner, Some(a()), "it killed the last defender");
-            assert_eq!(on_planet(&state, &system, &planet, &b(), "infantry"), 0);
+            assert_eq!(on_planet(&state, &system, &planet, &b(), "infantry"), 0, "it killed the last defender");
+            assert_eq!(report.captured.len(), 1);
         } else {
             assert_eq!(harrow_rolls, 0, "{faction} has no Harrow");
         }
@@ -1122,4 +1132,267 @@ fn unit_naalu_flagship_1_matriarch_commits_fighters_to_planets_as_ground_forces(
     assert_eq!(matriarch_fight(seated_all(&[("a", "naalu"), ("b", "sol")]), true), (0, 2));
     // Control: the fighters alone, without the flagship in the system, are not ground forces.
     assert_eq!(matriarch_fight(seated_all(&[("a", "naalu"), ("b", "sol")]), false), (1, 2));
+}
+
+// -- Sardakk N'orr --------------------------------------------------------------------------------
+
+fn sardakk_game() -> GameState {
+    seated_all(&[("a", "sardakk"), ("b", "hacan")])
+}
+
+#[test]
+fn unrelenting_1_every_norr_combat_roll_gets_plus_one_in_space_and_on_the_ground() {
+    // Space: both sides' cruisers hit on 7; every die is a 6, so only the N'orr one hits.
+    let mut state = sardakk_game();
+    put(&mut state, &sys("19"), "cruiser", &a(), 1);
+    put(&mut state, &sys("19"), "cruiser", &b(), 1);
+    let (outcome, _) = space_fight(&mut state, &sys("19"), &[6, 6], &mut Table::new());
+    assert_eq!(outcome.winner, Some(a()), "the N'orr 6 counts as a 7");
+    assert_eq!(ships(&state, &sys("19"), &b(), "cruiser"), 0);
+    // Ground: infantry hit on 8; a 7 hits for the N'orr player only.
+    let mut state = sardakk_game();
+    let (system, planet) = one_planet();
+    state.system_mut(&system).set_control(planet.clone(), a());
+    put_on_planet(&mut state, &system, &planet, "infantry", &a(), 1);
+    put(&mut state, &system, "infantry", &b(), 1);
+    let _ = invade(&mut state, &system, &b(), &[7, 7], &mut Table::new());
+    assert_eq!(on_planet(&state, &system, &planet, &b(), "infantry"), 0, "the invader's 7 missed");
+    assert_eq!(on_planet(&state, &system, &planet, &a(), "infantry"), 1, "the N'orr 7 hit and it survived");
+}
+
+#[test]
+fn vpw_1_one_additional_ground_hit_when_the_opponent_produced_hits() {
+    let run = |tech: bool| {
+        let mut state = sardakk_game();
+        if tech {
+            super::give(&mut state, "a", "vpw");
+        }
+        let (system, planet) = one_planet();
+        state.system_mut(&system).set_control(planet.clone(), b());
+        put(&mut state, &system, "infantry", &a(), 1);
+        put_on_planet(&mut state, &system, &planet, "infantry", &b(), 1);
+        // Round one: a [1] misses, b [10] hits, so a is wiped out; with the weave a also scores.
+        let _ = invade(&mut state, &system, &a(), &[1, 10], &mut Table::new());
+        on_planet(&state, &system, &planet, &b(), "infantry")
+    };
+    assert_eq!(run(false), 1, "without the technology the defender survives");
+    assert_eq!(run(true), 0, "with it the N'orr produces one additional hit");
+}
+
+/// A one-ring map with the system `x` in the middle.
+fn hub_around(x: &SystemId) -> crate::fixtures::Hub {
+    let mut ids = vec![x.to_string()];
+    ids.extend(crate::fixtures::plain_systems(9).into_iter().filter(|id| id != x.as_str()).take(6));
+    crate::fixtures::hub_from(&ids)
+}
+
+/// The N'orr player `a` takes a tactical action into the lone-planet system `x`, where it has a
+/// carrier and no ground forces; its infantry waits on a planet of the adjacent system `near`.
+fn commander_game(status: LeaderStatus, token_in_near: bool) -> (Game<'static>, Seen, SystemId, PlanetId, SystemId) {
+    let (x, planet) = crate::fixtures::a_placed_planet();
+    let hub = hub_around(&x);
+    let near = sys(&hub.outer[0]);
+    let mut state = sardakk_game();
+    set_leader(&mut state, &a(), "sardakkcommander", status);
+    put(&mut state, &x, "carrier", &a(), 1);
+    put_on_planet(&mut state, &near, &PlanetId::new("test-near"), "infantry", &a(), 1);
+    if token_in_near {
+        state.system_mut(&near).place_token(a());
+    }
+    let (game, seen) = action_game(
+        state,
+        "a",
+        Some(hub.galaxy),
+        &[TACTICAL_ACTION_ID, x.as_str(), "done_moving", "~commit|", "done_committing"],
+    );
+    (game, seen, x, planet, near)
+}
+
+#[test]
+fn sardakkcommander_2_commits_a_ground_force_from_an_adjacent_planet_without_the_invaders_token() {
+    for (status, token, commits) in [
+        (LeaderStatus::Unlocked, false, true),
+        (LeaderStatus::Locked, false, false),
+        (LeaderStatus::Unlocked, true, false),
+    ] {
+        let (mut game, seen, x, planet, near) = commander_game(status, token);
+        for _ in 0..6 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+        }
+        let label = format!("{status:?}, token in the adjacent system: {token}");
+        assert_eq!(was_offered(&seen, "commit|0|0.0.0"), commits, "{label}");
+        assert_eq!(game.state.system_state(&x).planet_control.get(&planet).is_some(), commits, "{label}");
+        assert_eq!(
+            on_planet(&game.state, &near, &PlanetId::new("test-near"), &a(), "infantry"),
+            usize::from(!commits),
+            "{label}"
+        );
+    }
+}
+
+#[test]
+fn sardakkcommander_1_unlocks_in_the_game_with_five_planets_outside_home_systems() {
+    let mut state = sardakk_game();
+    let planets: Vec<(SystemId, PlanetId)> = ti4_content::galaxy::all_planets(content(), DEFAULT)
+        .iter()
+        .filter(|(_, planet)| planet.homeworld_of().is_none() && !planet.is_placed_during_play())
+        .filter_map(|(id, planet)| planet.system_id().map(|system| (sys(system), PlanetId::new(*id))))
+        .filter(|(system, _)| !ti4_content::galaxy::is_home_system(content(), system.as_str(), DEFAULT))
+        .take(5)
+        .collect();
+    for (system, planet) in &planets[..4] {
+        state.system_mut(system).set_control(planet.clone(), a());
+    }
+    assert!(!unlocks_in_the_game(&state, &a(), "sardakkcommander"), "four planets");
+    let (system, planet) = &planets[4];
+    state.system_mut(system).set_control(planet.clone(), a());
+    assert!(unlocks_in_the_game(&state, &a(), "sardakkcommander"), "five planets");
+}
+
+#[test]
+fn sardakkhero_1_unlocks_in_the_game_on_the_third_scored_objective() {
+    let mut state = sardakk_game();
+    score_objectives(&mut state, &a(), 2);
+    assert!(!unlocks_in_the_game(&state, &a(), "sardakkhero"));
+    score_objectives(&mut state, &a(), 3);
+    assert!(unlocks_in_the_game(&state, &a(), "sardakkhero"));
+}
+
+/// Hacan `b` invades the N'orr `a`'s planet with 3 infantry against 2 and holds Tekklar Legion when
+/// `note` is set. Returns the `hits_on` of the first ground-combat roll of each side
+/// `(invader b, defender a)` and the note's holder afterwards.
+fn tekklar_fight(note: bool) -> ((Option<u32>, Option<u32>), Option<PlayerId>, Seen) {
+    let (x, planet) = crate::fixtures::a_placed_planet();
+    let mut state = sardakk_game();
+    state.system_mut(&x).units.clear();
+    state.system_mut(&x).planet_units.clear();
+    state.system_mut(&x).set_control(planet.clone(), a());
+    put_on_planet(&mut state, &x, &planet, "infantry", &a(), 2);
+    put(&mut state, &x, "carrier", &b(), 1);
+    put(&mut state, &x, "infantry", &b(), 3);
+    let tekklar = "tekklar:sardakk";
+    if note {
+        state.promissory_notes.insert(tekklar.to_owned(), b());
+    }
+    let (mut game, seen) = action_game(
+        state,
+        "b",
+        Some(hub_around(&x).galaxy),
+        &[TACTICAL_ACTION_ID, x.as_str(), "done_moving", "~commit|", "~commit|", "~commit|", "~tekklar"],
+    );
+    for _ in 0..20 {
+        assert_eq!(game.step().error, None, "log: {:?}", game.events);
+        if game.rolls().iter().any(|roll| roll.reason == "ground combat") {
+            break;
+        }
+    }
+    let first = |who: &str| {
+        game.rolls()
+            .iter()
+            .find(|roll| roll.reason == "ground combat" && roll.by.as_deref() == Some(who))
+            .and_then(|roll| roll.hits_on)
+    };
+    ((first("b"), first("a")), game.state.promissory_notes.get(tekklar).cloned(), seen)
+}
+
+#[test]
+fn tekklar_1_the_holder_rolls_one_better_the_norr_one_worse_and_the_note_goes_home() {
+    // Hacan infantry hit on 8, N'orr infantry on 8 minus Unrelenting's 1.
+    let (plain, _, _) = tekklar_fight(false);
+    assert_eq!(plain, (Some(8), Some(7)), "no note: printed values and Unrelenting");
+    let (played, holder, seen) = tekklar_fight(true);
+    assert!(was_offered(&seen, "promissory:hacan:tekklar:GROUND_COMBAT_STARTED:after"), "offered to the holder");
+    assert_eq!(played, (Some(7), Some(8)), "+1 for the holder, -1 for the N'orr player");
+    assert_eq!(holder, Some(a()), "returned to the N'orr player");
+}
+
+#[test]
+fn mentakcommander_1_unlocks_in_the_game_with_four_cruisers_on_the_board() {
+    let mut state = mentak_game();
+    state.board.values_mut().for_each(|board| board.units.retain(|unit| unit.type_id.as_str() != "cruiser"));
+    put(&mut state, &sys("19"), "cruiser", &a(), 2);
+    put(&mut state, &sys("20"), "cruiser", &a(), 1);
+    put(&mut state, &sys("21"), "cruiser", &b(), 4);
+    assert!(!unlocks_in_the_game(&state, &a(), "mentakcommander"), "three of its own");
+    put(&mut state, &sys("25"), "cruiser", &a(), 1);
+    assert!(unlocks_in_the_game(&state, &a(), "mentakcommander"), "four cruisers");
+}
+
+#[test]
+fn mentakhero_1_unlocks_in_the_game_on_the_third_scored_objective() {
+    let mut state = mentak_game();
+    score_objectives(&mut state, &a(), 2);
+    assert!(!unlocks_in_the_game(&state, &a(), "mentakhero"));
+    score_objectives(&mut state, &a(), 3);
+    assert!(unlocks_in_the_game(&state, &a(), "mentakhero"));
+}
+
+#[test]
+fn naalucommander_1_unlocks_in_the_game_with_ground_forces_in_or_next_to_mecatol() {
+    let galaxy = || ghost_galaxy();
+    let infantry_in = |system: &str| {
+        let mut state = naalu_game();
+        let planet = ti4_content::galaxy::system(content(), system, DEFAULT)
+            .and_then(|tile| tile.planets().into_iter().next())
+            .map(PlanetId::new)
+            .expect("a planet");
+        put_on_planet(&mut state, &sys(system), &planet, "infantry", &a(), 1);
+        state
+    };
+    assert!(!unlocks_on_the_map(&naalu_game(), &a(), "naalucommander", Some(galaxy())), "no ground forces");
+    assert!(unlocks_on_the_map(&infantry_in("19"), &a(), "naalucommander", Some(galaxy())), "next to Mecatol");
+    assert!(!unlocks_on_the_map(&infantry_in("20"), &a(), "naalucommander", Some(galaxy())), "two away");
+}
+
+#[test]
+fn naaluhero_1_unlocks_in_the_game_on_the_third_scored_objective() {
+    let mut state = naalu_game();
+    score_objectives(&mut state, &a(), 2);
+    assert!(!unlocks_in_the_game(&state, &a(), "naaluhero"));
+    score_objectives(&mut state, &a(), 3);
+    assert!(unlocks_in_the_game(&state, &a(), "naaluhero"));
+}
+
+#[test]
+fn the_agents_of_these_factions_ready_in_the_status_phase() {
+    for (faction, agent) in [
+        ("ghost", "ghostagent"),
+        ("l1z1x", "l1z1xagent"),
+        ("mentak", "mentakagent"),
+        ("naalu", "naaluagent-te"),
+        ("nekro", "nekroagent"),
+        ("sardakk", "sardakkagent"),
+    ] {
+        let mut state = seated_all(&[("a", faction), ("b", "sol")]);
+        set_leader(&mut state, &a(), agent, LeaderStatus::Exhausted);
+        run_status_phase(&mut state);
+        assert_eq!(leader_status(&state, &a(), agent), Some(LeaderStatus::Readied), "{agent}");
+    }
+}
+
+#[test]
+fn vax_2_and_vay_2_an_assimilated_technology_is_played_as_text_exhausting_the_valefar_card() {
+    // Yssaril's Mageon Implants ("ACTION: exhaust: look at another player's action cards and take
+    // one") through the Nekro's X or Y token, in the action menu of a running game.
+    for card in ["vax", "vay"] {
+        let mut state = seated_all(&[("a", "nekro"), ("b", "yssaril")]);
+        for tech in ["vax", "vay"] {
+            super::give(&mut state, "a", tech);
+        }
+        super::give(&mut state, "b", "mi");
+        state.player_mut(&b()).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("sabotage")];
+        state.player_mut(&a()).unwrap().action_cards.clear();
+        state.player_mut(&a()).unwrap().assimilated_technologies.insert(card.to_owned(), ti4_model::id::TechnologyId::new("mi"));
+        let (mut game, seen) = eager_game(state, "a", None, &["~faction|yssaril|mi|"]);
+        for _ in 0..3 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+        }
+        assert!(seen.borrow().iter().flatten().any(|id| id.starts_with("faction|yssaril|mi|")), "{card}: offered");
+        let seat = game.state.player(&a()).unwrap();
+        assert_eq!(seat.action_cards.len(), 1, "{card}: the Nekro took the Sol... Yssaril card");
+        assert!(
+            seat.exhausted_technologies.contains(&ti4_model::id::TechnologyId::new(card)),
+            "{card}: the Valefar card is the one exhausted"
+        );
+    }
 }
