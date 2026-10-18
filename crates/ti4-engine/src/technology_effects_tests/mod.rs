@@ -19,36 +19,36 @@ mod g3;
 mod g4;
 
 /// The embedded content, for the tests that need it.
-pub(super) fn content() -> &'static ContentStore {
+pub(crate) fn content() -> &'static ContentStore {
     ContentStore::embedded()
 }
 
 /// `PlayerId::new` for a seat name.
-pub(super) fn pid(name: &str) -> PlayerId {
+pub(crate) fn pid(name: &str) -> PlayerId {
     PlayerId::new(name)
 }
 
 /// Give `player` the technology `alias` (owned, ready), without paying for it.
-pub(super) fn give(state: &mut GameState, player: &str, alias: &str) {
+pub(crate) fn give(state: &mut GameState, player: &str, alias: &str) {
     crate::technology::grant(state, &pid(player), &TechnologyId::new(alias));
 }
 
 /// Does `player` own `alias`?
 #[allow(dead_code)]
-pub(super) fn owns(state: &GameState, player: &str, alias: &str) -> bool {
+pub(crate) fn owns(state: &GameState, player: &str, alias: &str) -> bool {
     state
         .player(&pid(player))
         .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new(alias)))
 }
 
 /// A seated, deployed game (home systems, starting units) of `(seat, faction)` pairs at POK.
-pub(super) fn seated(seats: &[(&str, &str)]) -> GameState {
+pub(crate) fn seated(seats: &[(&str, &str)]) -> GameState {
     crate::fixtures::seated_game(seats, POK)
 }
 
 /// Emit one typed event through a resolver armed exactly as the game arms it, with these dice
 /// faces loaded first and `table` answering any question. Returns how many dice were rolled.
-pub(super) fn emit_event(
+pub(crate) fn emit_event(
     state: &mut GameState,
     table: &mut crate::choice::Table,
     faces: &[u32],
