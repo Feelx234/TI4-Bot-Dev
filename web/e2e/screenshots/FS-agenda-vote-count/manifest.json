@@ -1,0 +1,20 @@
+{
+  "title": "Agenda Vote Count Toast",
+  "description": "The corner toast for a cast agenda vote now says how many votes the seat cast, from every source (planets, trade goods, cards, Predictive Intelligence), for other players and as You for the viewer. An abstention says so. A second outcome adds the running total. The toast history shows the same text.",
+  "tag": "web/e2e/screenshots/FS-agenda-vote-count",
+  "shots": [
+    { "file": "out/own-vote-desktop.png", "heading": "Your own vote", "caption": "\"You voted For: 7 votes\"." },
+    { "file": "out/other-vote-desktop.png", "heading": "Another player's vote", "caption": "\"<Seat> voted Against: 4 votes\"." },
+    { "file": "out/abstain-desktop.png", "heading": "Abstention", "caption": "\"<Seat> abstained\" with no count." },
+    { "file": "out/large-vote-desktop.png", "heading": "Large vote, two casts", "caption": "21 votes in one total (planets, trade goods, Predictive Intelligence, bonuses); the second cast adds the running total For 21 / Against 9." },
+    { "file": "out/history-desktop.png", "heading": "Toast history", "caption": "The history lists the same two lines." },
+    { "file": "out/own-vote-390x844.png", "heading": "Phone: own vote", "caption": "The same toast at 390 px." },
+    { "file": "out/other-vote-390x844.png", "heading": "Phone: another player's vote", "caption": "" },
+    { "file": "out/abstain-390x844.png", "heading": "Phone: abstention", "caption": "" },
+    { "file": "out/large-vote-390x844.png", "heading": "Phone: large vote", "caption": "" },
+    { "file": "out/history-390x844.png", "heading": "Phone: toast history", "caption": "" }
+  ],
+  "notes": [
+    { "title": "Data source", "text": "A new display-only list agenda_casts on the game state (player, outcome, total votes), filled when a seat's votes are counted and reset when the next vote opens. Skipped from the JSON while empty, not compared, read by no rule: checksums, decision hashes and rules version are unchanged. The old 'voted for' toast, fired at the outcome pick before any planet was exhausted, is replaced by this one." }
+  ]
+}

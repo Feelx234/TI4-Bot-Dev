@@ -3,7 +3,7 @@ import { partialLeaders } from "../test/wire.ts";
 import { renderHook, act } from "@testing-library/react";
 import type { AutoResolvedNote, GameEvent, LeaderStatus } from "../protocol/types.ts";
 import { useCornerToasts } from "./useCornerToasts.ts";
-import type { AgendaRecordDto } from "../presentation/agendaToasts.ts";
+import type { AgendaCastDto, AgendaRecordDto } from "../presentation/agendaToasts.ts";
 import type { RelicGainDto } from "../presentation/relicToasts.ts";
 import { TOAST_MUTE_KEY } from "./useToastMute.ts";
 
@@ -102,6 +102,36 @@ describe("useCornerToasts", () => {
     });
     spectator.rerender({ ...base, viewerSeat: null, agendas: [first] });
     expect(spectator.result.current.notifications[0].text).toContain("Mutiny: For wins");
+  });
+
+  it("toasts each vote cast once with its count, the viewer's own as You, and the history shows the same text", () => {
+    const c1: AgendaCastDto = { player: "p2", outcome: "for", votes: 7 };
+    const c2: AgendaCastDto = { player: "p1", outcome: "against", votes: 3 };
+    const c3: AgendaCastDto = { player: "p3", outcome: null, votes: 0 };
+    const { result, rerender } = renderHook((p: Props) => useCornerToasts(p), {
+      initialProps: { ...base, agendaCasts: [c1] },
+    });
+    // What was cast at load is history.
+    expect(result.current.notifications).toHaveLength(0);
+    rerender({ ...base, agendaCasts: [c1, c2] });
+    expect(result.current.notifications).toHaveLength(1);
+    expect(result.current.notifications[0]).toMatchObject({ kind: "agenda", tag: "Vote" });
+    expect(result.current.notifications[0].text).toContain("You voted Against: 3 votes");
+    // The same state again does not toast twice.
+    rerender({ ...base, agendaCasts: [c1, c2] });
+    expect(result.current.notifications).toHaveLength(1);
+    rerender({ ...base, agendaCasts: [c1, c2, c3] });
+    expect(result.current.notifications.map((n) => n.text)).toContainEqual(expect.stringMatching(/abstained/));
+    // Undo/redo: a new generation treats what reappears as history.
+    rerender({ ...base, agendaCasts: [c1], historyGeneration: 1 });
+    rerender({ ...base, agendaCasts: [c1, c2], historyGeneration: 2 });
+    expect(result.current.history.filter((h) => h.tag === "Vote")).toHaveLength(2);
+    expect(result.current.history.find((h) => h.text.startsWith("You voted"))?.text).toContain("3 votes");
+    // The next vote opens (list reset): its casts toast again, with fresh ids.
+    rerender({ ...base, agendaCasts: [], historyGeneration: 2 });
+    rerender({ ...base, agendaCasts: [{ player: "p2", outcome: "for", votes: 7 }], historyGeneration: 2 });
+    expect(result.current.history.filter((h) => /voted For: 7 votes/.test(h.text))).toHaveLength(1);
+    expect(result.current.history.filter((h) => h.tag === "Vote")).toHaveLength(3);
   });
 
   it("toasts a relic gain once for every seat, highlighting the viewer's own, and lists it in the history", () => {

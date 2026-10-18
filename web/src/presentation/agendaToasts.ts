@@ -23,8 +23,19 @@ export interface AgendaRecordDto {
   discard_reason?: string | null;
 }
 
+/** One entry of the state's `agenda_casts`: what one seat cast in the vote now open (public the moment it is cast). */
+export interface AgendaCastDto {
+  player: string;
+  /** The outcome voted for; absent for an abstention. */
+  outcome?: string | null;
+  /** Total votes from every source (planets, trade goods, cards, Predictive Intelligence ...). */
+  votes?: number;
+}
+
 export interface AgendaToast {
   id: string;
+  /** Small heading; "Agenda" when absent. */
+  tag?: string;
   /** One line per fact. */
   text: string;
 }
@@ -103,4 +114,67 @@ export function agendaToasts(
     toasts.push({ id: `agenda:${i}:${record.round ?? 0}:${record.agenda}`, text: agendaResultText(record, seatName) });
   }
   return { toasts, next: log.length };
+}
+
+export function readAgendaCasts(state: Record<string, unknown> | null | undefined): AgendaCastDto[] {
+  const raw = state?.agenda_casts;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (r): r is AgendaCastDto => !!r && typeof r === "object" && typeof (r as AgendaCastDto).player === "string",
+  );
+}
+
+const votesText = (n: number) => `${n} ${n === 1 ? "vote" : "votes"}`;
+
+/**
+ * What one seat cast, as the table reads it: "Alice voted For: 7 votes", "You voted for Carol: 12
+ * votes", "Bob abstained". `before` are the casts already made in this vote; with two or more
+ * outcomes standing it adds the running total (every cast is public, so is the sum so far).
+ */
+export function agendaCastText(
+  cast: AgendaCastDto,
+  before: readonly AgendaCastDto[],
+  viewerSeat: string | null | undefined,
+  seatName: SeatName,
+): string {
+  const own = !!viewerSeat && cast.player === viewerSeat;
+  const who = own ? "You" : (seatName(cast.player) ?? humanizeId(cast.player));
+  const votes = cast.votes ?? 0;
+  if (!cast.outcome || votes <= 0) return `${who} abstained`;
+  const label = agendaOutcomeLabel(cast.outcome, seatName);
+  const lines = [`${who} voted ${isForAgainst(cast.outcome) ? label : `for ${label}`}: ${votesText(votes)}`];
+  const totals = new Map<string, number>();
+  for (const c of [...before, cast]) {
+    if (c.outcome && (c.votes ?? 0) > 0) totals.set(c.outcome, (totals.get(c.outcome) ?? 0) + (c.votes ?? 0));
+  }
+  if (totals.size >= 2 || (totals.size === 1 && (totals.get(cast.outcome) ?? 0) > votes)) {
+    const counts = [...totals.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([o, n]) => `${agendaOutcomeLabel(o, seatName)} ${n}`)
+      .join(" \u00b7 ");
+    lines.push(`Running total: ${counts}`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Toasts for casts the viewer has not been told about; `from` is how many of this vote's casts were
+ * already known and `epoch` tells votes apart (ids stay unique across agendas and history).
+ */
+export function agendaCastToasts(
+  casts: readonly AgendaCastDto[],
+  from: number,
+  epoch: number,
+  viewerSeat: string | null | undefined,
+  seatName: SeatName,
+): { toasts: AgendaToast[]; next: number } {
+  const toasts: AgendaToast[] = [];
+  for (let i = Math.min(from, casts.length); i < casts.length; i++) {
+    toasts.push({
+      id: `agenda-cast:${epoch}:${i}:${casts[i].player}`,
+      tag: "Vote",
+      text: agendaCastText(casts[i], casts.slice(0, i), viewerSeat, seatName),
+    });
+  }
+  return { toasts, next: casts.length };
 }
