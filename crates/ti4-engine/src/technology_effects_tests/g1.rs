@@ -3,7 +3,7 @@
 use super::{content, give, pid, seated};
 use crate::choice::{FirstOption, Scripted, Table, Window as _};
 use crate::fixtures::{game, hub_with_centre, plain_hub, put, put_on_planet};
-use crate::game::{Game, END_TURN_ID, TACTICAL_ACTION_ID};
+use crate::game::{END_TURN_ID, Game, TACTICAL_ACTION_ID};
 use ti4_model::content_types::POK;
 use ti4_model::id::{PlanetId, SystemId, TechnologyId};
 use ti4_model::state::{GameState, Phase};
@@ -52,8 +52,14 @@ fn amd_1_ships_move_into_and_through_asteroid_fields() {
     give(&mut state, "a", "amd");
     let rules = rules_for(&hub, &state, "a", &far);
     assert!(rules.can_enter(&asteroid));
-    assert!(rules.can_reach(&near, 2), "through the field to the far side");
-    assert!(!rules_for(&hub, &state, "b", &far).can_enter(&asteroid), "only the owner");
+    assert!(
+        rules.can_reach(&near, 2),
+        "through the field to the far side"
+    );
+    assert!(
+        !rules_for(&hub, &state, "b", &far).can_enter(&asteroid),
+        "only the owner"
+    );
 }
 
 #[test]
@@ -64,13 +70,29 @@ fn amd_2_space_cannon_against_the_owner_gets_minus_one() {
         let (mut state, _galaxy, ids) = tactical_fixture();
         let system = ids[0].clone();
         put(&mut state, &system, "cruiser", &pid("a"), 1);
-        put_on_planet(&mut state, &system, &ti4_model::id::PlanetId::new("p"), "pds", &pid("b"), 1);
+        put_on_planet(
+            &mut state,
+            &system,
+            &ti4_model::id::PlanetId::new("p"),
+            "pds",
+            &pid("b"),
+            1,
+        );
         if owner {
             give(&mut state, "a", "amd");
         }
         let mut dice = crate::dice::Dice::from_faces([6u32]);
         let mut rng = crate::rng::GameRng::new(1);
-        let fired = crate::combat::space_cannon_offense(&mut state, content(), POK, &mut dice, &mut rng, &system, &pid("a"), None);
+        let fired = crate::combat::space_cannon_offense(
+            &mut state,
+            content(),
+            POK,
+            &mut dice,
+            &mut rng,
+            &system,
+            &pid("a"),
+            None,
+        );
         fired.iter().map(|(_, hits, _)| *hits).sum::<usize>()
     };
     assert_eq!(hits_with(false), 1, "control: a 6 hits a PDS target");
@@ -82,19 +104,32 @@ fn gd_1_adds_one_to_one_ships_move_once_per_activation() {
     let mut state = game(&["a"]);
     let a = pid("a");
     state.activation_seq = 3;
-    assert!(!crate::technology::gravity_drive_available(&state, &a), "needs the card");
+    assert!(
+        !crate::technology::gravity_drive_available(&state, &a),
+        "needs the card"
+    );
     give(&mut state, "a", "gd");
     assert!(crate::technology::gravity_drive_available(&state, &a));
     let types = ti4_content::units::catalogue(content(), POK);
     let cruiser = types.get("cruiser").unwrap();
     let origin = SystemId::new("19");
-    let plain = crate::tactical::effective_move_value_for_ship(&state, cruiser, &a, &origin, None, false, false);
-    let boosted = crate::tactical::effective_move_value_for_ship(&state, cruiser, &a, &origin, None, true, false);
+    let plain = crate::tactical::effective_move_value_for_ship(
+        &state, cruiser, &a, &origin, None, false, false,
+    );
+    let boosted = crate::tactical::effective_move_value_for_ship(
+        &state, cruiser, &a, &origin, None, true, false,
+    );
     assert_eq!(boosted, plain + 1);
     assert!(crate::technology::use_gravity_drive(&mut state, &a));
-    assert!(!crate::technology::gravity_drive_available(&state, &a), "once per tactical action");
+    assert!(
+        !crate::technology::gravity_drive_available(&state, &a),
+        "once per tactical action"
+    );
     state.activation_seq = 4;
-    assert!(crate::technology::gravity_drive_available(&state, &a), "renews with the next activation");
+    assert!(
+        crate::technology::gravity_drive_available(&state, &a),
+        "renews with the next activation"
+    );
 }
 
 #[test]
@@ -112,7 +147,9 @@ fn gd_1_a_ship_one_short_is_offered_with_the_boost_only_for_the_owner() {
             .unwrap(),
     );
     put(&mut state, &from, "carrier", &a, 1);
-    let movable = |state: &GameState| crate::tactical::movable_into(state, content(), POK, &hub.galaxy, &a, &target);
+    let movable = |state: &GameState| {
+        crate::tactical::movable_into(state, content(), POK, &hub.galaxy, &a, &target)
+    };
     assert!(movable(&state).is_empty(), "out of reach without the drive");
     give(&mut state, "a", "gd");
     let found = movable(&state);
@@ -156,7 +193,13 @@ fn lwd_1_ships_move_through_systems_with_other_players_ships() {
     let mut state = game(&["a", "b"]);
     let near = hub.outer[0].clone();
     let far = hub.across(&near);
-    put(&mut state, &SystemId::new(hub.centre.clone()), "cruiser", &pid("b"), 1);
+    put(
+        &mut state,
+        &SystemId::new(hub.centre.clone()),
+        "cruiser",
+        &pid("b"),
+        1,
+    );
     assert!(!rules_for(&hub, &state, "a", &far).can_reach(&near, 2));
     give(&mut state, "a", "lwd");
     assert!(rules_for(&hub, &state, "a", &far).can_reach(&near, 2));
@@ -194,7 +237,13 @@ fn det_2_ships_retreat_into_adjacent_systems_without_enemies_or_own_presence() {
     let hub = plain_hub();
     let state = {
         let mut s = game(&["a", "b"]);
-        put(&mut s, &SystemId::new(hub.centre.clone()), "cruiser", &pid("a"), 1);
+        put(
+            &mut s,
+            &SystemId::new(hub.centre.clone()),
+            "cruiser",
+            &pid("a"),
+            1,
+        );
         s
     };
     let centre = SystemId::new(hub.centre.clone());
@@ -202,12 +251,32 @@ fn det_2_ships_retreat_into_adjacent_systems_without_enemies_or_own_presence() {
     let retreats = |state: &GameState| {
         crate::combat::eligible_retreats(state, content(), POK, &hub.galaxy, &pid("a"), &centre)
     };
-    assert!(!retreats(&state).contains(&empty), "78.7c needs your units or a planet there");
-    let det = crate::combat::det_retreat_destinations(&state, content(), POK, &hub.galaxy, &pid("a"), &centre);
-    assert!(det.contains(&empty), "Dark Energy Tap's looser set includes it");
+    assert!(
+        !retreats(&state).contains(&empty),
+        "78.7c needs your units or a planet there"
+    );
+    let det = crate::combat::det_retreat_destinations(
+        &state,
+        content(),
+        POK,
+        &hub.galaxy,
+        &pid("a"),
+        &centre,
+    );
+    assert!(
+        det.contains(&empty),
+        "Dark Energy Tap's looser set includes it"
+    );
     let mut enemy = state.clone();
     put(&mut enemy, &empty, "cruiser", &pid("b"), 1);
-    let det = crate::combat::det_retreat_destinations(&enemy, content(), POK, &hub.galaxy, &pid("a"), &centre);
+    let det = crate::combat::det_retreat_destinations(
+        &enemy,
+        content(),
+        POK,
+        &hub.galaxy,
+        &pid("a"),
+        &centre,
+    );
     assert!(!det.contains(&empty), "other players' units still close it");
 }
 
@@ -227,11 +296,29 @@ fn sr_1_action_produces_one_ship_at_a_space_dock() {
     let actions = crate::technology::component_actions(&state, content(), POK, &a);
     assert_eq!(actions.len(), 1);
     let mut table = Table::with_default(Box::new(FirstOption));
-    let done = crate::technology::perform_component(&mut state, content(), POK, None, &mut table, &a, &actions[0]).unwrap();
+    let done = crate::technology::perform_component(
+        &mut state,
+        content(),
+        POK,
+        None,
+        &mut table,
+        &a,
+        &actions[0],
+    )
+    .unwrap();
     assert!(done);
     assert_eq!(ships(&state), before + 1);
-    assert!(state.player(&a).unwrap().exhausted_technologies.contains(&TechnologyId::new("sr")));
-    assert!(crate::technology::component_actions(&state, content(), POK, &a).is_empty(), "exhausted");
+    assert!(
+        state
+            .player(&a)
+            .unwrap()
+            .exhausted_technologies
+            .contains(&TechnologyId::new("sr"))
+    );
+    assert!(
+        crate::technology::component_actions(&state, content(), POK, &a).is_empty(),
+        "exhausted"
+    );
 }
 
 // ---- Biotic (green) -------------------------------------------------------------------------
@@ -243,19 +330,31 @@ fn specialty_planet(colour: &str) -> (SystemId, PlanetId) {
         .find(|(_, planet)| {
             planet.system_id().is_some()
                 && !planet.is_placed_during_play()
-                && planet.tech_specialties().iter().any(|s| s.eq_ignore_ascii_case(colour))
+                && planet
+                    .tech_specialties()
+                    .iter()
+                    .any(|s| s.eq_ignore_ascii_case(colour))
         })
-        .map(|(id, planet)| (SystemId::new(planet.system_id().unwrap()), PlanetId::new(*id)))
+        .map(|(id, planet)| {
+            (
+                SystemId::new(planet.system_id().unwrap()),
+                PlanetId::new(*id),
+            )
+        })
         .expect("the corpus has such a specialty planet")
 }
 
 /// Seat `a` controls `planet` in `system`.
 fn control(state: &mut GameState, system: &SystemId, planet: &PlanetId) {
-    state.system_mut(system).set_control(planet.clone(), pid("a"));
+    state
+        .system_mut(system)
+        .set_control(planet.clone(), pid("a"));
 }
 
 fn scripted(answers: &[&str]) -> Table {
-    Table::with_default(Box::new(Scripted::new(answers.iter().map(|a| (*a).to_owned()))))
+    Table::with_default(Box::new(Scripted::new(
+        answers.iter().map(|a| (*a).to_owned()),
+    )))
 }
 
 #[test]
@@ -267,7 +366,11 @@ fn nm_1_draws_two_action_cards_in_the_status_phase() {
             give(&mut state, "a", "nm");
         }
         let report = crate::status::resolve_status_phase(&mut state).unwrap();
-        report.action_cards_drawn.iter().find(|(p, _)| p == &pid("a")).map(|(_, n)| *n)
+        report
+            .action_cards_drawn
+            .iter()
+            .find(|(p, _)| p == &pid("a"))
+            .map(|(_, n)| *n)
     };
     assert_eq!(draws(true), Some(2));
     assert_eq!(draws(false), Some(1), "control: one card without it");
@@ -278,17 +381,38 @@ fn dxa_1_the_winner_of_a_ground_combat_places_an_infantry() {
     let mut state = game(&["a"]);
     let winner = pid("a");
     let (system, planet) = crate::fixtures::a_placed_planet();
-    assert!(!crate::faction_techs::dacxive_animators(&mut state, content(), POK, &winner, &system, &planet));
+    assert!(!crate::faction_techs::dacxive_animators(
+        &mut state,
+        content(),
+        POK,
+        &winner,
+        &system,
+        &planet
+    ));
     give(&mut state, "a", "dxa");
-    assert!(crate::faction_techs::dacxive_animators(&mut state, content(), POK, &winner, &system, &planet));
-    assert_eq!(state.system_state(&system).on_planet_of(&planet, &winner).len(), 1);
+    assert!(crate::faction_techs::dacxive_animators(
+        &mut state,
+        content(),
+        POK,
+        &winner,
+        &system,
+        &planet
+    ));
+    assert_eq!(
+        state
+            .system_state(&system)
+            .on_planet_of(&planet, &winner)
+            .len(),
+        1
+    );
 }
 
 #[test]
 fn hm_1_three_command_tokens_in_the_status_phase() {
     let mut state = game(&["a"]);
     let a = pid("a");
-    let tokens = |state: &GameState| crate::faction_abilities::status_tokens(state, content(), &a, 2);
+    let tokens =
+        |state: &GameState| crate::faction_abilities::status_tokens(state, content(), &a, 2);
     assert_eq!(tokens(&state), 2);
     give(&mut state, "a", "hm");
     assert_eq!(tokens(&state), 3);
@@ -304,12 +428,27 @@ fn pa_1_specialties_are_usable_without_exhausting_and_when_exhausted() {
     let mut state = game(&["a"]);
     control(&mut state, &system, &planet);
     state.exhausted_planets.insert(planet.clone());
-    assert!(!crate::technology::prerequisites_met(&state, content(), POK, &a, &gd), "control: exhausted, no pa");
+    assert!(
+        !crate::technology::prerequisites_met(&state, content(), POK, &a, &gd),
+        "control: exhausted, no pa"
+    );
     give(&mut state, "a", "pa");
-    assert!(crate::technology::prerequisites_met(&state, content(), POK, &a, &gd), "pa: an exhausted specialty still counts");
+    assert!(
+        crate::technology::prerequisites_met(&state, content(), POK, &a, &gd),
+        "pa: an exhausted specialty still counts"
+    );
     state.ready_planet(&planet);
-    assert!(crate::technology::research(&mut state, content(), POK, &a, &gd));
-    assert!(!state.exhausted_planets.contains(&planet), "pa: using the specialty does not exhaust the planet");
+    assert!(crate::technology::research(
+        &mut state,
+        content(),
+        POK,
+        &a,
+        &gd
+    ));
+    assert!(
+        !state.exhausted_planets.contains(&planet),
+        "pa: using the specialty does not exhaust the planet"
+    );
 }
 
 #[test]
@@ -325,7 +464,10 @@ fn pa_2_exhaust_a_specialty_planet_for_a_trade_good() {
         let before = state.player(&a).unwrap().trade_goods;
         let mut table = scripted(&[planet.as_str()]);
         crate::technology::start_turn(&mut state, content(), POK, None, &mut table, &a).unwrap();
-        (state.player(&a).unwrap().trade_goods - before, state.exhausted_planets.contains(&planet))
+        (
+            state.player(&a).unwrap().trade_goods - before,
+            state.exhausted_planets.contains(&planet),
+        )
     };
     assert_eq!(run(true), (1, true));
     assert_eq!(run(false), (0, false));
@@ -343,26 +485,64 @@ fn bs_1_ready_an_exhausted_specialty_planet_or_another_technology() {
     let mut table = scripted(&[&format!("ready|planet|{planet}")]);
     crate::technology::end_turn(&mut state, content(), POK, None, &mut table, &a).unwrap();
     assert!(!state.exhausted_planets.contains(&planet));
-    assert!(state.player(&a).unwrap().exhausted_technologies.contains(&TechnologyId::new("bs")), "Bio-Stims exhausts itself");
+    assert!(
+        state
+            .player(&a)
+            .unwrap()
+            .exhausted_technologies
+            .contains(&TechnologyId::new("bs")),
+        "Bio-Stims exhausts itself"
+    );
     // The technology branch.
     let mut state = game(&["a"]);
     give(&mut state, "a", "bs");
     give(&mut state, "a", "sr");
-    state.player_mut(&a).unwrap().exhausted_technologies.insert(TechnologyId::new("sr"));
+    state
+        .player_mut(&a)
+        .unwrap()
+        .exhausted_technologies
+        .insert(TechnologyId::new("sr"));
     let mut table = scripted(&["ready|technology|sr"]);
     crate::technology::end_turn(&mut state, content(), POK, None, &mut table, &a).unwrap();
-    assert!(!state.player(&a).unwrap().exhausted_technologies.contains(&TechnologyId::new("sr")));
+    assert!(
+        !state
+            .player(&a)
+            .unwrap()
+            .exhausted_technologies
+            .contains(&TechnologyId::new("sr"))
+    );
     // Control: without the card nothing is offered.
     let mut state = game(&["a"]);
-    state.player_mut(&a).unwrap().exhausted_technologies.insert(TechnologyId::new("sr"));
-    crate::technology::end_turn(&mut state, content(), POK, None, &mut scripted(&["ready|technology|sr"]), &a).unwrap();
-    assert!(state.player(&a).unwrap().exhausted_technologies.contains(&TechnologyId::new("sr")));
+    state
+        .player_mut(&a)
+        .unwrap()
+        .exhausted_technologies
+        .insert(TechnologyId::new("sr"));
+    crate::technology::end_turn(
+        &mut state,
+        content(),
+        POK,
+        None,
+        &mut scripted(&["ready|technology|sr"]),
+        &a,
+    )
+    .unwrap();
+    assert!(
+        state
+            .player(&a)
+            .unwrap()
+            .exhausted_technologies
+            .contains(&TechnologyId::new("sr"))
+    );
 }
 
 /// A superseded printing is not in the active deck, so nobody can own it: nothing to implement.
 fn assert_superseded(alias: &str) {
     let active = crate::technology::active_aliases(content(), POK);
-    assert!(!active.contains(&TechnologyId::new(alias)), "{alias} is a superseded printing");
+    assert!(
+        !active.contains(&TechnologyId::new(alias)),
+        "{alias} is a superseded printing"
+    );
     let mut state = game(&["a"]);
     for colour_tech in ["x89c4", "md"] {
         assert!(active.contains(&TechnologyId::new(colour_tech)));
@@ -394,7 +574,17 @@ fn bombard_kills(owner_tech: Option<&str>, ship: &str, faces: &[u32]) -> (usize,
     let mut dice = crate::dice::Dice::from_faces(faces.iter().copied());
     let mut rng = crate::rng::GameRng::new(1);
     let mut table = Table::new();
-    let killed = crate::invasion::bombardment(&mut state, content(), POK, &mut dice, &mut rng, &mut table, &system, &pid("a")).unwrap();
+    let killed = crate::invasion::bombardment(
+        &mut state,
+        content(),
+        POK,
+        &mut dice,
+        &mut rng,
+        &mut table,
+        &system,
+        &pid("a"),
+    )
+    .unwrap();
     (killed, state)
 }
 
@@ -423,14 +613,33 @@ fn ps_1_one_unit_rolls_an_extra_die_when_bombarding_or_firing_space_cannon() {
     let dice_rolled = |owner: bool| {
         let (mut state, _g, ids) = tactical_fixture();
         put(&mut state, &ids[0], "cruiser", &pid("b"), 1);
-        put_on_planet(&mut state, &ids[0], &PlanetId::new("p"), "pds", &pid("a"), 1);
+        put_on_planet(
+            &mut state,
+            &ids[0],
+            &PlanetId::new("p"),
+            "pds",
+            &pid("a"),
+            1,
+        );
         if owner {
             give(&mut state, "a", "ps");
         }
         let mut dice = crate::dice::Dice::new();
         let mut rng = crate::rng::GameRng::new(3);
-        crate::combat::space_cannon_offense(&mut state, content(), POK, &mut dice, &mut rng, &ids[0], &pid("b"), None);
-        dice.history().iter().map(|roll| roll.faces.len()).sum::<usize>()
+        crate::combat::space_cannon_offense(
+            &mut state,
+            content(),
+            POK,
+            &mut dice,
+            &mut rng,
+            &ids[0],
+            &pid("b"),
+            None,
+        );
+        dice.history()
+            .iter()
+            .map(|roll| roll.faces.len())
+            .sum::<usize>()
     };
     assert_eq!(dice_rolled(false), 1);
     assert_eq!(dice_rolled(true), 2);
@@ -454,26 +663,47 @@ fn md_c1_1_superseded_printing_is_not_in_play() {
 }
 
 /// A galaxy of a real planet's system plus six plain ones, seat `a` active in the action phase.
-fn planet_fixture() -> (GameState, ti4_content::galaxy::Galaxy, Vec<SystemId>, PlanetId) {
+fn planet_fixture() -> (
+    GameState,
+    ti4_content::galaxy::Galaxy,
+    Vec<SystemId>,
+    PlanetId,
+) {
     let (planet_system, planet) = crate::fixtures::a_placed_planet();
     let mut ids = vec![planet_system.to_string()];
-    ids.extend(crate::fixtures::plain_systems(8).into_iter().filter(|id| *id != planet_system.as_str()).take(6));
+    ids.extend(
+        crate::fixtures::plain_systems(8)
+            .into_iter()
+            .filter(|id| *id != planet_system.as_str())
+            .take(6),
+    );
     let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
     let galaxy = ti4_content::galaxy::Galaxy::build(content(), &refs, POK, 1).unwrap();
     let mut state = game(&["a", "b"]);
     state.phase = Phase::Action;
     state.active = Some(pid("a"));
-    (state, galaxy, ids.into_iter().map(SystemId::new).collect(), planet)
+    (
+        state,
+        galaxy,
+        ids.into_iter().map(SystemId::new).collect(),
+        planet,
+    )
 }
 
 #[test]
 #[ignore = "MISSING: md (Magen Defense Grid ΩΩ) effect 1 (activation places an infantry with each of the owner's structures): no implementation of 'md' anywhere in crates/ti4-engine/src (only research tests)"]
 fn md_1_activating_a_system_with_the_owners_structures_places_infantry() {
     let (mut state, galaxy, ids, planet) = planet_fixture();
-    state.system_mut(&ids[0]).set_control(planet.clone(), pid("b"));
+    state
+        .system_mut(&ids[0])
+        .set_control(planet.clone(), pid("b"));
     put_on_planet(&mut state, &ids[0], &planet, "pds", &pid("b"), 1);
     give(&mut state, "b", "md");
-    let table = Table::with_default(Box::new(Scripted::new([TACTICAL_ACTION_ID.to_owned(), ids[0].to_string(), "done_moving".to_owned()])));
+    let table = Table::with_default(Box::new(Scripted::new([
+        TACTICAL_ACTION_ID.to_owned(),
+        ids[0].to_string(),
+        "done_moving".to_owned(),
+    ])));
     let mut game = Game::with_table(state, content(), table).with_galaxy(galaxy);
     for _ in 0..40 {
         assert_eq!(game.step().error, None);
@@ -481,7 +711,13 @@ fn md_1_activating_a_system_with_the_owners_structures_places_infantry() {
             break;
         }
     }
-    let infantry = game.state.system_state(&ids[0]).on_planet_of(&planet, &pid("b")).iter().filter(|u| u.type_id.as_str() == "infantry").count();
+    let infantry = game
+        .state
+        .system_state(&ids[0])
+        .on_planet_of(&planet, &pid("b"))
+        .iter()
+        .filter(|u| u.type_id.as_str() == "infantry")
+        .count();
     assert_eq!(infantry, 1, "one infantry beside the PDS");
 }
 
@@ -490,7 +726,9 @@ fn md_1_activating_a_system_with_the_owners_structures_places_infantry() {
 fn md_2_ground_combat_starts_with_a_free_hit_on_the_attacker() {
     let fight = |owner: bool| {
         let (mut state, _g, ids, planet) = planet_fixture();
-        state.system_mut(&ids[0]).set_control(planet.clone(), pid("b"));
+        state
+            .system_mut(&ids[0])
+            .set_control(planet.clone(), pid("b"));
         put_on_planet(&mut state, &ids[0], &planet, "pds", &pid("b"), 1);
         put_on_planet(&mut state, &ids[0], &planet, "infantry", &pid("b"), 1);
         put_on_planet(&mut state, &ids[0], &planet, "infantry", &pid("a"), 1);
@@ -501,8 +739,22 @@ fn md_2_ground_combat_starts_with_a_free_hit_on_the_attacker() {
         let mut dice = crate::dice::Dice::from_faces(vec![1u32; 2000]);
         let mut rng = crate::rng::GameRng::new(1);
         let mut table = Table::with_default(Box::new(FirstOption));
-        crate::invasion::ground_combat(&mut state, content(), POK, &mut table, &mut dice, &mut rng, &ids[0], &planet, &pid("a")).unwrap();
-        state.system_state(&ids[0]).on_planet_of(&planet, &pid("a")).len()
+        crate::invasion::ground_combat(
+            &mut state,
+            content(),
+            POK,
+            &mut table,
+            &mut dice,
+            &mut rng,
+            &ids[0],
+            &planet,
+            &pid("a"),
+        )
+        .unwrap();
+        state
+            .system_state(&ids[0])
+            .on_planet_of(&planet, &pid("a"))
+            .len()
     };
     assert_eq!(fight(false), 1, "control: both sides miss forever");
     assert_eq!(fight(true), 0, "the grid's hit kills the lone attacker");
@@ -517,8 +769,16 @@ fn da_1_repairs_a_unit_that_did_not_sustain_this_round() {
         let (mut state, system) = arena();
         put(&mut state, &system, "cruiser", &pid("a"), 1);
         put(&mut state, &system, "dreadnought", &pid("a"), 1);
-        let dread = state.system_state(&system).units.iter().find(|u| u.type_id.as_str() == "dreadnought").cloned().unwrap();
-        state.system_mut(&system).replace_unit(&dread, dread.sustained());
+        let dread = state
+            .system_state(&system)
+            .units
+            .iter()
+            .find(|u| u.type_id.as_str() == "dreadnought")
+            .cloned()
+            .unwrap();
+        state
+            .system_mut(&system)
+            .replace_unit(&dread, dread.sustained());
         put(&mut state, &system, "cruiser", &pid("b"), 1);
         if owner {
             give(&mut state, "a", "da");
@@ -529,8 +789,21 @@ fn da_1_repairs_a_unit_that_did_not_sustain_this_round() {
         let mut dice = crate::dice::Dice::from_faces(faces);
         let mut rng = crate::rng::GameRng::new(1);
         let mut table = Table::with_default(Box::new(FirstOption));
-        let _ = crate::combat::resolve(&mut state, content(), POK, &mut table, &mut dice, &mut rng, &system);
-        state.system_state(&system).units_of(&pid("a")).iter().filter(|u| u.type_id.as_str() == "dreadnought").count()
+        let _ = crate::combat::resolve(
+            &mut state,
+            content(),
+            POK,
+            &mut table,
+            &mut dice,
+            &mut rng,
+            &system,
+        );
+        state
+            .system_state(&system)
+            .units_of(&pid("a"))
+            .iter()
+            .filter(|u| u.type_id.as_str() == "dreadnought")
+            .count()
     };
     assert_eq!((survivors(false), survivors(true)), (0, 1));
 }
@@ -547,11 +820,27 @@ fn asc_1_opponent_destroys_a_non_fighter_when_three_non_fighters_attack() {
         let mut table = Table::with_default(Box::new(FirstOption));
         let mut dice = crate::dice::Dice::new();
         let mut rng = crate::rng::GameRng::new(3);
-        crate::combat::resolve(&mut state, content(), POK, &mut table, &mut dice, &mut rng, &system).unwrap();
-        (crate::combat::ships_of(&state, content(), POK, &pid("b"), &system).len(), dice.rolled("space combat").len())
+        crate::combat::resolve(
+            &mut state,
+            content(),
+            POK,
+            &mut table,
+            &mut dice,
+            &mut rng,
+            &system,
+        )
+        .unwrap();
+        (
+            crate::combat::ships_of(&state, content(), POK, &pid("b"), &system).len(),
+            dice.rolled("space combat").len(),
+        )
     };
     assert_eq!(defender_ships(true, 3), (0, 0), "destroyed before any die");
-    assert_ne!(defender_ships(false, 3).1, 0, "control: without the card the dice roll");
+    assert_ne!(
+        defender_ships(false, 3).1,
+        0,
+        "control: without the card the dice roll"
+    );
     assert_ne!(defender_ships(true, 2).1, 0, "two ships are not enough");
 }
 
@@ -566,10 +855,22 @@ fn aida_1_ignores_one_prerequisite_when_researching_a_unit_upgrade() {
     for t in ["amd", "st"] {
         give(&mut state, "a", t);
     }
-    assert!(!crate::technology::prerequisites_met(&state, content(), POK, &a, &dn2), "control: one blue short");
+    assert!(
+        !crate::technology::prerequisites_met(&state, content(), POK, &a, &dn2),
+        "control: one blue short"
+    );
     give(&mut state, "a", "aida");
-    assert!(crate::technology::research(&mut state, content(), POK, &a, &dn2), "aida waives the missing prerequisite");
-    assert!(state.player(&a).unwrap().exhausted_technologies.contains(&TechnologyId::new("aida")));
+    assert!(
+        crate::technology::research(&mut state, content(), POK, &a, &dn2),
+        "aida waives the missing prerequisite"
+    );
+    assert!(
+        state
+            .player(&a)
+            .unwrap()
+            .exhausted_technologies
+            .contains(&TechnologyId::new("aida"))
+    );
 }
 
 /// The cost of a carrier in a fresh production window, after `production_used` has set the discount.
@@ -577,7 +878,9 @@ fn carrier_cost_after_production(techs: &[&str], answers: &[&str]) -> (i64, Game
     let (mut state, system, planet) = {
         let mut state = game(&["a"]);
         let (system, planet) = crate::fixtures::a_placed_planet();
-        state.system_mut(&system).set_control(planet.clone(), pid("a"));
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), pid("a"));
         put_on_planet(&mut state, &system, &planet, "spacedock", &pid("a"), 1);
         (state, system, planet)
     };
@@ -586,12 +889,27 @@ fn carrier_cost_after_production(techs: &[&str], answers: &[&str]) -> (i64, Game
         give(&mut state, "a", t);
     }
     let mut table = scripted(answers);
-    crate::technology::production_used(&mut state, content(), POK, None, &mut table, &pid("a")).unwrap();
-    let mut window = crate::production::ProductionWindow::new(&state, content(), POK, &pid("a"), &system);
+    crate::technology::production_used(&mut state, content(), POK, None, &mut table, &pid("a"))
+        .unwrap();
+    let mut window =
+        crate::production::ProductionWindow::new(&state, content(), POK, &pid("a"), &system);
     window.refresh(&state, content(), POK);
-    let choice = window.pending_choice(&state, content(), POK).expect("a production choice");
-    let carrier = choice.options.iter().find(|o| o.id.starts_with("build|carrier|")).expect("carrier");
-    (carrier.payload.get("cost").and_then(serde_json::Value::as_i64).unwrap(), state)
+    let choice = window
+        .pending_choice(&state, content(), POK)
+        .expect("a production choice");
+    let carrier = choice
+        .options
+        .iter()
+        .find(|o| o.id.starts_with("build|carrier|"))
+        .expect("carrier");
+    (
+        carrier
+            .payload
+            .get("cost")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap(),
+        state,
+    )
 }
 
 #[test]
@@ -599,7 +917,13 @@ fn aida_2_exhaust_to_reduce_production_cost_by_owned_unit_upgrades() {
     assert_eq!(carrier_cost_after_production(&[], &[]).0, 3, "control");
     let (cost, state) = carrier_cost_after_production(&["aida", "cr2", "dn2"], &["exhaust"]);
     assert_eq!(cost, 1, "3 minus two owned unit upgrades");
-    assert!(state.player(&pid("a")).unwrap().exhausted_technologies.contains(&TechnologyId::new("aida")));
+    assert!(
+        state
+            .player(&pid("a"))
+            .unwrap()
+            .exhausted_technologies
+            .contains(&TechnologyId::new("aida"))
+    );
 }
 
 #[test]
@@ -612,19 +936,38 @@ fn sar_1_production_lets_the_owner_place_a_mech_on_a_planet_in_that_system() {
     state.player_mut(&a).unwrap().trade_goods = 10;
     let mechs = |s: &GameState| {
         let types = ti4_content::units::catalogue(content(), POK);
-        s.system_state(&home).planet_units.values().flatten().filter(|u| u.owner == a && types.get(u.type_id.as_str()).is_some_and(|k| k.base_type() == "mech")).count()
+        s.system_state(&home)
+            .planet_units
+            .values()
+            .flatten()
+            .filter(|u| {
+                u.owner == a
+                    && types
+                        .get(u.type_id.as_str())
+                        .is_some_and(|k| k.base_type() == "mech")
+            })
+            .count()
     };
     let before = mechs(&state);
     // Agree to every offer that mentions the card, otherwise take the first non-decline option.
     struct Eager;
     impl crate::choice::Decider for Eager {
-        fn choose(&mut self, choice: &crate::choice::Choice) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
-            let pick = choice.options.iter().find(|o| o.id.contains("sar")).or_else(|| choice.options.iter().find(|o| !o.is_decline())).or(choice.options.first());
+        fn choose(
+            &mut self,
+            choice: &crate::choice::Choice,
+        ) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
+            let pick = choice
+                .options
+                .iter()
+                .find(|o| o.id.contains("sar"))
+                .or_else(|| choice.options.iter().find(|o| !o.is_decline()))
+                .or(choice.options.first());
             Ok(pick.expect("an option").clone())
         }
     }
     let mut table = Table::with_default(Box::new(Eager));
-    crate::production::produce_one(&mut state, content(), POK, None, &mut table, &a, &home).unwrap();
+    crate::production::produce_one(&mut state, content(), POK, None, &mut table, &a, &home)
+        .unwrap();
     assert_eq!(mechs(&state), before + 1);
 }
 
@@ -644,10 +987,32 @@ fn sar_2_a_destroyed_mech_pays_one_trade_good() {
         let mut rng = crate::rng::GameRng::new(0);
         let mut sequence = crate::event::EventSequence::new();
         let mut table = Table::with_default(Box::new(FirstOption));
-        let mut context = crate::timing::TimingContext { state: &mut state, content: content(), sources: POK, table: &mut table, dice: &mut dice, rng: &mut rng, event_sequence: &mut sequence, galaxy: None };
-        let payload = [("player", "a"), ("unit", "arborec_mech"), ("system", home.as_str()), ("planet", "nestphar")].iter().map(|(k, v)| ((*k).to_owned(), serde_json::Value::from(*v))).collect();
-        let event = context.event_sequence.next("GROUND_FORCE_DESTROYED", payload).expect("an event id");
-        resolver.emit_with_context(&mut context, event, |_, _| {}).expect("resolves");
+        let mut context = crate::timing::TimingContext {
+            state: &mut state,
+            content: content(),
+            sources: POK,
+            table: &mut table,
+            dice: &mut dice,
+            rng: &mut rng,
+            event_sequence: &mut sequence,
+            galaxy: None,
+        };
+        let payload = [
+            ("player", "a"),
+            ("unit", "arborec_mech"),
+            ("system", home.as_str()),
+            ("planet", "nestphar"),
+        ]
+        .iter()
+        .map(|(k, v)| ((*k).to_owned(), serde_json::Value::from(*v)))
+        .collect();
+        let event = context
+            .event_sequence
+            .next("GROUND_FORCE_DESTROYED", payload)
+            .expect("an event id");
+        resolver
+            .emit_with_context(&mut context, event, |_, _| {})
+            .expect("resolves");
         state.player(&a).unwrap().trade_goods - before
     };
     assert_eq!(tg_after(true), 1);
@@ -668,18 +1033,60 @@ fn gls_1_space_cannon_hits_must_go_to_non_fighters_once_per_readying() {
     put(&mut state, &system, "fighter", &pid("b"), 2);
     put(&mut state, &system, "destroyer", &pid("b"), 1);
     let (a, b) = (pid("a"), pid("b"));
-    assert!(!crate::combat::use_graviton(&mut state, content(), POK, &a, &b, &system, 1), "control: no card");
+    assert!(
+        !crate::combat::use_graviton(&mut state, content(), POK, &a, &b, &system, 1),
+        "control: no card"
+    );
     give(&mut state, "a", "gls");
-    assert!(crate::combat::use_graviton(&mut state, content(), POK, &a, &b, &system, 1));
-    assert!(!crate::combat::use_graviton(&mut state, content(), POK, &a, &b, &system, 1), "exhausted");
+    assert!(crate::combat::use_graviton(
+        &mut state,
+        content(),
+        POK,
+        &a,
+        &b,
+        &system,
+        1
+    ));
+    assert!(
+        !crate::combat::use_graviton(&mut state, content(), POK, &a, &b, &system, 1),
+        "exhausted"
+    );
 
     let mut table = Table::with_default(Box::new(FirstOption));
     let mut dice = crate::dice::Dice::new();
     let mut rng = crate::rng::GameRng::new(1);
-    let mut ctx = crate::choice::Resolving { content: content(), sources: POK, dice: &mut dice, rng: &mut rng, table: &mut table, timing: None };
-    crate::combat::absorb_hits_seeing_with(&mut state, content(), POK, None, &mut ctx, &b, &system, &a, 1, true, crate::combat::HitOrigin::UnitAbility).unwrap();
-    assert_eq!(crate::combat::non_fighter_ships_of(&state, content(), POK, &b, &system), 0, "the destroyer took the hit");
-    assert_eq!(crate::combat::ships_of(&state, content(), POK, &b, &system).len(), 2, "both fighters survive");
+    let mut ctx = crate::choice::Resolving {
+        content: content(),
+        sources: POK,
+        dice: &mut dice,
+        rng: &mut rng,
+        table: &mut table,
+        timing: None,
+    };
+    crate::combat::absorb_hits_seeing_with(
+        &mut state,
+        content(),
+        POK,
+        None,
+        &mut ctx,
+        &b,
+        &system,
+        &a,
+        1,
+        true,
+        crate::combat::HitOrigin::UnitAbility,
+    )
+    .unwrap();
+    assert_eq!(
+        crate::combat::non_fighter_ships_of(&state, content(), POK, &b, &system),
+        0,
+        "the destroyer took the hit"
+    );
+    assert_eq!(
+        crate::combat::ships_of(&state, content(), POK, &b, &system).len(),
+        2,
+        "both fighters survive"
+    );
 }
 
 #[test]
@@ -689,7 +1096,12 @@ fn td_1_redeploy_up_to_four_ground_forces_at_turn_start() {
         .into_iter()
         .map(PlanetId::new)
         .filter(|p| *p != planet_a)
-        .find_map(|p| ti4_content::galaxy::all_planets(content(), POK).get(p.as_str()).and_then(|pl| pl.system_id()).map(|s| (SystemId::new(s), p.clone())))
+        .find_map(|p| {
+            ti4_content::galaxy::all_planets(content(), POK)
+                .get(p.as_str())
+                .and_then(|pl| pl.system_id())
+                .map(|s| (SystemId::new(s), p.clone()))
+        })
         .unwrap();
     let a = pid("a");
     let run = |owner: bool| {
@@ -705,7 +1117,11 @@ fn td_1_redeploy_up_to_four_ground_forces_at_turn_start() {
         crate::technology::start_turn(&mut state, content(), POK, None, &mut table, &a).unwrap();
         (
             state.system_state(&sys_b).on_planet_of(&planet_b, &a).len(),
-            state.player(&a).unwrap().exhausted_technologies.contains(&TechnologyId::new("td")),
+            state
+                .player(&a)
+                .unwrap()
+                .exhausted_technologies
+                .contains(&TechnologyId::new("td")),
         )
     };
     assert_eq!(run(true), (2, true), "two moved, card exhausted");
@@ -724,8 +1140,25 @@ fn ie_1_gaining_a_planet_lets_the_owner_produce_up_to_its_resources() {
         control(&mut state, &system, &planet);
         state.player_mut(&a).unwrap().trade_goods = 1;
         let mut table = scripted(&["build|destroyer|1", "trade_good", "done_producing"]);
-        let built = crate::technology::control_gained(&mut state, content(), POK, None, &mut table, &a, &system, &planet).unwrap();
-        (built, state.system_state(&system).units_of(&a).iter().any(|u| u.type_id.as_str() == "destroyer"))
+        let built = crate::technology::control_gained(
+            &mut state,
+            content(),
+            POK,
+            None,
+            &mut table,
+            &a,
+            &system,
+            &planet,
+        )
+        .unwrap();
+        (
+            built,
+            state
+                .system_state(&system)
+                .units_of(&a)
+                .iter()
+                .any(|u| u.type_id.as_str() == "destroyer"),
+        )
     };
     assert_eq!(run(true), (true, true));
     assert_eq!(run(false), (false, false));
@@ -736,7 +1169,9 @@ fn traited_planet() -> (SystemId, PlanetId) {
     ti4_content::galaxy::all_planets(content(), POK)
         .iter()
         .filter(|(_, p)| p.system_id().is_some() && !p.is_placed_during_play())
-        .find(|(id, _)| crate::exploration::trait_of(content(), POK, &PlanetId::new(**id)).is_some())
+        .find(|(id, _)| {
+            crate::exploration::trait_of(content(), POK, &PlanetId::new(**id)).is_some()
+        })
         .map(|(id, p)| (SystemId::new(p.system_id().unwrap()), PlanetId::new(*id)))
         .expect("a planet with a trait")
 }
@@ -778,7 +1213,11 @@ fn pi_1_redistribute_command_tokens_at_the_end_of_the_turn() {
         let mut table = scripted(&["tactic|strategy", "done"]);
         crate::technology::end_turn(&mut state, content(), POK, None, &mut table, &a).unwrap();
         let seat = state.player(&a).unwrap();
-        ((seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens), seat.exhausted_technologies.contains(&TechnologyId::new("pi")))
+        (
+            (seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens),
+            seat.exhausted_technologies
+                .contains(&TechnologyId::new("pi")),
+        )
     };
     assert_eq!(run(true), ((2, 3, 3), true));
     assert_eq!(run(false), ((3, 3, 2), false));
@@ -791,30 +1230,466 @@ fn pi_2_three_additional_votes() {
     // 3-1 (or a's 1 vote is outweighed); with Predictive Intelligence a casts 1 + 3 = 4.
     let planets: Vec<(SystemId, PlanetId, i64)> = ti4_content::galaxy::all_planets(content(), POK)
         .iter()
-        .filter(|(_, p)| p.system_id().is_some() && !p.is_placed_during_play() && p.homeworld_of().is_none())
-        .map(|(id, p)| (SystemId::new(p.system_id().unwrap()), PlanetId::new(*id), p.influence()))
+        .filter(|(_, p)| {
+            p.system_id().is_some() && !p.is_placed_during_play() && p.homeworld_of().is_none()
+        })
+        .map(|(id, p)| {
+            (
+                SystemId::new(p.system_id().unwrap()),
+                PlanetId::new(*id),
+                p.influence(),
+            )
+        })
         .collect();
-    let low = planets.iter().find(|p| p.2 == 1).expect("a 1-influence planet").clone();
-    let high = planets.iter().find(|p| p.2 == 3).expect("a 3-influence planet").clone();
+    let low = planets
+        .iter()
+        .find(|p| p.2 == 1)
+        .expect("a 1-influence planet")
+        .clone();
+    let high = planets
+        .iter()
+        .find(|p| p.2 == 3)
+        .expect("a 3-influence planet")
+        .clone();
     let winner = |owner: bool| {
         let mut state = game(&["a", "b"]);
-        state.system_mut(&low.0).set_control(low.1.clone(), pid("a"));
-        state.system_mut(&high.0).set_control(high.1.clone(), pid("b"));
+        state
+            .system_mut(&low.0)
+            .set_control(low.1.clone(), pid("a"));
+        state
+            .system_mut(&high.0)
+            .set_control(high.1.clone(), pid("b"));
         if owner {
             give(&mut state, "a", "pi");
         }
-        let mut window = crate::vote::VoteWindow::new(&state, "mutiny", vec!["for".to_owned(), "against".to_owned()]);
+        let mut window = crate::vote::VoteWindow::new(
+            &state,
+            "mutiny",
+            vec!["for".to_owned(), "against".to_owned()],
+        );
         window.open(&state, content(), POK);
         for _ in 0..20 {
-            let Some(choice) = window.pending_choice(&state, content(), POK) else { break };
+            let Some(choice) = window.pending_choice(&state, content(), POK) else {
+                break;
+            };
             // a votes "for", b votes "against"; both spend whatever planets they have.
             let who = choice.player.clone();
             let want = if who == pid("a") { "for" } else { "against" };
-            let pick = choice.options.iter().find(|o| o.id == want || o.id.contains("pi")).or_else(|| choice.options.iter().find(|o| !o.is_decline())).unwrap().clone();
+            let pick = choice
+                .options
+                .iter()
+                .find(|o| o.id == want || o.id.contains("pi"))
+                .or_else(|| choice.options.iter().find(|o| !o.is_decline()))
+                .unwrap()
+                .clone();
             window.resolve(&mut state, content(), POK, pick).unwrap();
         }
         window.winner().map(ToOwned::to_owned)
     };
-    assert_eq!(winner(false).as_deref(), Some("against"), "control: 3 beats 1");
+    assert_eq!(
+        winner(false).as_deref(),
+        Some("against"),
+        "control: 3 beats 1"
+    );
     assert_eq!(winner(true).as_deref(), Some("for"), "1 + 3 beats 3");
+}
+
+// ---- Unit upgrades --------------------------------------------------------------------------
+
+/// The printed values of a unit type, as the card states them: cost per unit, combat (hits on,
+/// dice), move and capacity. `None` leaves a value unchecked.
+fn assert_card(
+    unit: &str,
+    cost: f64,
+    combat: Option<(i64, i64)>,
+    mv: Option<i64>,
+    capacity: Option<i64>,
+) {
+    let types = ti4_content::units::catalogue(content(), POK);
+    let kind = types.get(unit).unwrap_or_else(|| panic!("unit {unit}"));
+    assert!(
+        (kind.cost() - cost).abs() < f64::EPSILON,
+        "{unit} cost {} != {cost}",
+        kind.cost()
+    );
+    if let Some((hits_on, dice)) = combat {
+        assert_eq!(
+            (kind.combat_hits_on(), kind.combat_dice()),
+            (Some(hits_on), dice),
+            "{unit} combat"
+        );
+    }
+    if let Some(mv) = mv {
+        assert_eq!(kind.move_value(), mv, "{unit} move");
+    }
+    if let Some(capacity) = capacity {
+        assert_eq!(kind.capacity(), capacity, "{unit} capacity");
+    }
+}
+
+/// Researching `tech` replaces `old` with `new` on the board (on a planet for structures and
+/// ground forces) and in what can be built; without the card nothing changes.
+fn assert_upgrade_replaces(tech: &str, old: &str, new: &str, on_planet: bool) {
+    let a = pid("a");
+    let mut state = game(&["a"]);
+    let (system, planet) = crate::fixtures::a_placed_planet();
+    if on_planet {
+        put_on_planet(&mut state, &system, &planet, old, &a, 2);
+    } else {
+        put(&mut state, &system, old, &a, 2);
+    }
+    let kinds = |state: &GameState| -> Vec<String> {
+        let board = state.system_state(&system);
+        let units = if on_planet {
+            board.on_planet_of(&planet, &a).to_vec()
+        } else {
+            board.units_of(&a)
+        };
+        units.iter().map(|u| u.type_id.to_string()).collect()
+    };
+    crate::technology::apply_unit_upgrades(&mut state, content(), POK, &a);
+    assert_eq!(
+        kinds(&state),
+        vec![old.to_owned(); 2],
+        "without the card nothing changes"
+    );
+    // Structures are placed by Construction rather than produced, so only units are checked here.
+    let produced = !matches!(old, "pds" | "spacedock");
+    assert!(
+        !crate::production::buildable_for(&state, content(), POK, &a).contains(&new.to_owned())
+    );
+    give(&mut state, "a", tech);
+    crate::technology::apply_unit_upgrades(&mut state, content(), POK, &a);
+    assert_eq!(
+        kinds(&state),
+        vec![new.to_owned(); 2],
+        "the new card replaces the old on the board"
+    );
+    if produced {
+        let buildable = crate::production::buildable_for(&state, content(), POK, &a);
+        assert!(
+            buildable.contains(&new.to_owned()),
+            "and new ones are built upgraded"
+        );
+        assert!(!buildable.contains(&old.to_owned()), "the old card is gone");
+    }
+}
+
+#[test]
+fn ws_1_war_sun_stats_and_only_buildable_with_the_card() {
+    assert_card("warsun", 12.0, Some((3, 3)), Some(2), Some(6));
+    let mut state = game(&["a"]);
+    let a = pid("a");
+    assert!(
+        !crate::production::buildable_for(&state, content(), POK, &a)
+            .contains(&"warsun".to_owned())
+    );
+    give(&mut state, "a", "ws");
+    assert!(
+        crate::production::buildable_for(&state, content(), POK, &a).contains(&"warsun".to_owned())
+    );
+}
+
+#[test]
+fn ws_2_war_sun_sustains_and_bombards_with_three_dice() {
+    let types = ti4_content::units::catalogue(content(), POK);
+    let ws = types.get("warsun").unwrap();
+    assert!(ws.sustain_damage());
+    assert_eq!((ws.bombard_hits_on(), ws.bombard_dice()), (Some(3), 3));
+}
+
+#[test]
+fn ws_3_other_players_units_lose_planetary_shield() {
+    let (system, planet) = crate::fixtures::a_placed_planet();
+    let bombardable = |ship: &str| {
+        let mut state = game(&["a", "b"]);
+        put_on_planet(&mut state, &system, &planet, "pds", &pid("b"), 1);
+        put_on_planet(&mut state, &system, &planet, "infantry", &pid("b"), 1);
+        put(&mut state, &system, ship, &pid("a"), 1);
+        crate::invasion::bombardable(&state, content(), POK, &system, &planet, &pid("a"))
+    };
+    assert!(!bombardable("dreadnought"), "a PDS shields the planet");
+    assert!(bombardable("warsun"), "a war sun ignores the shield");
+}
+
+#[test]
+fn sd2_1_has_production_and_replaces_space_dock_i() {
+    let types = ti4_content::units::catalogue(content(), POK);
+    assert!(types.get("spacedock2").unwrap().has_production());
+    assert_upgrade_replaces("sd2", "spacedock", "spacedock2", true);
+}
+
+#[test]
+fn sd2_2_production_is_four_more_than_the_planets_resources() {
+    let a = pid("a");
+    let (system, planet) = crate::fixtures::a_placed_planet();
+    let mut state = game(&["a"]);
+    control(&mut state, &system, &planet);
+    put_on_planet(&mut state, &system, &planet, "spacedock", &a, 1);
+    let resources = crate::production::planet_value_now(
+        &state,
+        content(),
+        POK,
+        &planet,
+        crate::production::Spend::Resources,
+    );
+    assert_eq!(
+        crate::production::capacity(&state, content(), POK, &a, &system),
+        resources + 2,
+        "Space Dock I"
+    );
+    give(&mut state, "a", "sd2");
+    crate::technology::apply_unit_upgrades(&mut state, content(), POK, &a);
+    assert_eq!(
+        crate::production::capacity(&state, content(), POK, &a, &system),
+        resources + 4,
+        "Space Dock II"
+    );
+}
+
+#[test]
+fn sd2_3_three_fighters_do_not_count_against_capacity() {
+    let a = pid("a");
+    let (system, planet) = crate::fixtures::a_placed_planet();
+    let mut state = game(&["a"]);
+    control(&mut state, &system, &planet);
+    put_on_planet(&mut state, &system, &planet, "spacedock", &a, 1);
+    give(&mut state, "a", "sd2");
+    crate::technology::apply_unit_upgrades(&mut state, content(), POK, &a);
+    put(&mut state, &system, "fighter", &a, 3);
+    let standing = crate::fleet::standing(&state, content(), POK, &a, &system, None);
+    assert_eq!(
+        (standing.consumed, standing.capacity_excess),
+        (0, 0),
+        "three fighters ride free"
+    );
+    put(&mut state, &system, "fighter", &a, 1);
+    let standing = crate::fleet::standing(&state, content(), POK, &a, &system, None);
+    assert_eq!(standing.capacity_excess, 1, "the fourth does not");
+}
+
+#[test]
+fn cr2_1_cruiser_ii_stats_and_replaces_cruiser() {
+    assert_card("cruiser2", 2.0, Some((6, 1)), Some(3), Some(1));
+    assert_upgrade_replaces("cr2", "cruiser", "cruiser2", false);
+}
+
+#[test]
+fn dn2_1_dreadnought_ii_stats_and_replaces_dreadnought() {
+    assert_card("dreadnought2", 4.0, Some((5, 1)), Some(2), Some(1));
+    assert_upgrade_replaces("dn2", "dreadnought", "dreadnought2", false);
+}
+
+#[test]
+fn dn2_2_sustains_damage_and_bombards_at_five() {
+    let types = ti4_content::units::catalogue(content(), POK);
+    let dn = types.get("dreadnought2").unwrap();
+    assert!(dn.sustain_damage());
+    assert_eq!((dn.bombard_hits_on(), dn.bombard_dice()), (Some(5), 1));
+}
+
+#[test]
+fn dn2_3_cannot_be_destroyed_by_direct_hit() {
+    assert!(crate::combat::direct_hittable(
+        content(),
+        POK,
+        "dreadnought"
+    ));
+    assert!(!crate::combat::direct_hittable(
+        content(),
+        POK,
+        "dreadnought2"
+    ));
+}
+
+#[test]
+fn dd2_1_destroyer_ii_stats_and_replaces_destroyer() {
+    assert_card("destroyer2", 1.0, Some((8, 1)), Some(2), None);
+    assert_upgrade_replaces("dd2", "destroyer", "destroyer2", false);
+}
+
+#[test]
+fn dd2_2_anti_fighter_barrage_six_with_three_dice() {
+    let types = ti4_content::units::catalogue(content(), POK);
+    let dd = types.get("destroyer2").unwrap();
+    assert_eq!((dd.afb_hits_on(), dd.afb_dice()), (Some(6), 3));
+}
+
+#[test]
+fn pds2_1_planetary_shield_and_space_cannon_five_and_replaces_pds() {
+    let types = ti4_content::units::catalogue(content(), POK);
+    let pds = types.get("pds2").unwrap();
+    assert!(pds.planetary_shield());
+    assert_eq!(
+        (pds.space_cannon_hits_on(), pds.space_cannon_dice()),
+        (Some(5), 1)
+    );
+    assert_upgrade_replaces("pds2", "pds", "pds2", true);
+}
+
+#[test]
+fn pds2_2_space_cannon_reaches_ships_in_adjacent_systems() {
+    let hub = plain_hub();
+    let active = SystemId::new(&hub.centre);
+    let next_door = SystemId::new(&hub.outer[0]);
+    let planet = PlanetId::new("a_planet_next_door");
+    let guns = |tech: bool| {
+        let mut state = game(&["a", "b"]);
+        for id in std::iter::once(&hub.centre).chain(hub.outer.iter()) {
+            state.board.entry(SystemId::new(id)).or_default();
+        }
+        put(&mut state, &active, "cruiser", &pid("a"), 1);
+        put_on_planet(&mut state, &next_door, &planet, "pds", &pid("b"), 1);
+        if tech {
+            give(&mut state, "b", "pds2");
+            crate::technology::apply_unit_upgrades(&mut state, content(), POK, &pid("b"));
+        }
+        crate::combat::space_cannon_guns(
+            &state,
+            content(),
+            POK,
+            &active,
+            &pid("a"),
+            Some(&hub.galaxy),
+        )
+        .units
+        .len()
+    };
+    assert_eq!(guns(false), 0, "PDS I stays home");
+    assert_eq!(guns(true), 1, "PDS II reaches next door");
+}
+
+#[test]
+fn cv2_1_carrier_ii_stats_and_replaces_carrier() {
+    assert_card("carrier2", 3.0, Some((9, 1)), Some(2), Some(6));
+    assert_upgrade_replaces("cv2", "carrier", "carrier2", false);
+}
+
+#[test]
+fn ff2_1_fighter_ii_stats_and_replaces_fighter() {
+    assert_card("fighter2", 0.5, Some((8, 1)), Some(2), None);
+    assert_upgrade_replaces("ff2", "fighter", "fighter2", false);
+}
+
+#[test]
+fn ff2_2_moves_without_being_transported() {
+    let hub = plain_hub();
+    let a = pid("a");
+    let target = SystemId::new(&hub.centre);
+    let from = SystemId::new(&hub.outer[0]);
+    let movable = |tech: bool| {
+        let mut state = game(&["a"]);
+        put(&mut state, &from, "fighter", &a, 1);
+        if tech {
+            give(&mut state, "a", "ff2");
+            crate::technology::apply_unit_upgrades(&mut state, content(), POK, &a);
+        }
+        crate::tactical::movable_into(&state, content(), POK, &hub.galaxy, &a, &target).len()
+    };
+    assert_eq!(movable(false), 0, "Fighter I needs a carrier");
+    assert_eq!(movable(true), 1, "Fighter II moves on its own");
+}
+
+#[test]
+fn ff2_3_fighters_in_excess_of_capacity_count_against_the_fleet_pool() {
+    let a = pid("a");
+    let charged = |upgraded: bool| {
+        let mut state = game(&["a"]);
+        let system = SystemId::new(crate::fixtures::plain_systems(1)[0].clone());
+        state.board.entry(system.clone()).or_default();
+        put(
+            &mut state,
+            &system,
+            if upgraded { "fighter2" } else { "fighter" },
+            &a,
+            3,
+        );
+        let standing = crate::fleet::standing(&state, content(), POK, &a, &system, None);
+        (standing.fighters_charged, standing.fleet_charged)
+    };
+    assert_eq!(
+        charged(true),
+        (3, 3),
+        "Fighter II: excess fighters are ships against the pool"
+    );
+    assert_eq!(charged(false).0, 0, "Fighter I: they are removed instead");
+}
+
+#[test]
+fn inf2_1_infantry_ii_stats_and_replaces_infantry() {
+    assert_card("infantry2", 0.5, Some((7, 1)), None, None);
+    assert_upgrade_replaces("inf2", "infantry", "infantry2", true);
+}
+
+#[test]
+#[ignore = "MISSING: inf2 effect 2 (roll a die when destroyed; on 6+ it returns to the home system next turn): only the faction versions (Letani Warrior II, Spec Ops II, Crimson Legionnaire II) have it; nothing for generic infantry2 in invasion.rs or faction_techs.rs"]
+fn inf2_2_a_destroyed_infantry_ii_returns_home_on_a_six() {
+    let returned = |face: u32, tech: bool| {
+        let mut state = seated(&[("a", "arborec"), ("b", "letnev")]);
+        let a = pid("a");
+        // Arborec holds its own infantry, so use a generic-infantry faction.
+        state.player_mut(&a).unwrap().faction = ti4_model::id::FactionId::new("hacan");
+        if tech {
+            give(&mut state, "a", "inf2");
+        }
+        let home = state.player(&a).unwrap().home_system.clone().unwrap();
+        let planet = state
+            .controlled_planets(&a)
+            .into_iter()
+            .find(|(s, _)| **s == home)
+            .map(|(_, p)| p.clone())
+            .unwrap();
+        let count = |s: &GameState| {
+            s.system_state(&home)
+                .on_planet_of(&planet, &a)
+                .iter()
+                .filter(|u| u.type_id.as_str() == "infantry2")
+                .count()
+        };
+        let before = count(&state);
+        let emit = |state: &mut GameState, face: &[u32], kind: &str, pairs: &[(&str, &str)]| {
+            let mut resolver = crate::fixtures::armed_resolver(state);
+            let mut dice = crate::dice::Dice::from_faces(face.iter().copied());
+            let mut rng = crate::rng::GameRng::new(0);
+            let mut sequence = crate::event::EventSequence::new();
+            let mut table = Table::with_default(Box::new(FirstOption));
+            let mut context = crate::timing::TimingContext {
+                state,
+                content: content(),
+                sources: POK,
+                table: &mut table,
+                dice: &mut dice,
+                rng: &mut rng,
+                event_sequence: &mut sequence,
+                galaxy: None,
+            };
+            let payload = pairs
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), serde_json::Value::from(*v)))
+                .collect();
+            let event = context
+                .event_sequence
+                .next(kind, payload)
+                .expect("an event id");
+            resolver
+                .emit_with_context(&mut context, event, |_, _| {})
+                .expect("resolves");
+        };
+        emit(
+            &mut state,
+            &[face],
+            "GROUND_FORCE_DESTROYED",
+            &[
+                ("player", "a"),
+                ("unit", "infantry2"),
+                ("system", home.as_str()),
+                ("planet", planet.as_str()),
+            ],
+        );
+        emit(&mut state, &[], "TURN_BEGAN", &[("player", "a")]);
+        count(&state) - before
+    };
+    assert_eq!(returned(6, true), 1);
+    assert_eq!(returned(5, true), 0);
+    assert_eq!(returned(6, false), 0);
 }
