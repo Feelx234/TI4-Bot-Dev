@@ -637,6 +637,24 @@ mod tests {
     }
 
     #[test]
+    fn the_farran_trade_good_is_always_taken() {
+        let state = game(&["a", "b"]);
+        let me = PlayerId::new("a");
+        let offer = with_subtype(
+            Choice::new(
+                me.clone(),
+                "Rear Admiral Farran: gain 1 trade good",
+                vec![
+                    ChoiceOption::labelled("gain", "letnev_commander_trade_good", "gain"),
+                    ChoiceOption::decline(),
+                ],
+            ),
+            "letnev_commander_trade_good",
+        );
+        assert_eq!(pick(&offer, &seen(&state), &me), Some(0));
+    }
+
+    #[test]
     fn munitions_reserves_is_bought_for_two_or_more_misses_and_re_rolls_them_all() {
         let state = game(&["a", "b"]);
         let me = PlayerId::new("a");

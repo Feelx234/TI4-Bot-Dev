@@ -421,7 +421,11 @@ pub fn stage_for(subtype: &str) -> Option<&'static str> {
         "propose_transaction" | "answer_transaction" => "transactions",
         "activate_system" => "activation",
         "movement_step" | "load_cargo" => "movement",
-        "assign_casualty" | "sustain_damage" | "announce_retreat" | "retreat_to" => "combat",
+        "assign_casualty"
+        | "sustain_damage"
+        | "letnev_commander_trade_good"
+        | "announce_retreat"
+        | "retreat_to" => "combat",
         "assign_ground_casualty"
         | "fight_ground_combat_round"
         | "start_next_ground_combat"

@@ -190,6 +190,17 @@ Version 15 = technology effects (`tech-effect-fixes`, `RULES_TECH_EFFECTS`). Sev
 
 Version < 15: none of these. The new questions only exist at version 15, so older logs replay unchanged; the timing abilities of items 1 and 3 are registered for every seat but their conditions are false below 15. Rule bot golden benches v1 to v5 are hash-identical with `RULES_VERSION` pinned to 11; at 15 the games differ (new effects, e.g. every Sol seat starts with Antimass Deflectors) and `baseline.json` needs a deliberate re-record.
 
+Version 16 = faction effects (`faction-effect-fixes`, `RULES_FACTION_EFFECTS`). Six card effects that were missing or wrong:
+
+1. Letnev breakthrough Gravleash Maneuvers (`letnevbt`, `combat::gravleash_maneuvers`): "before you roll dice during space combat, apply +X to the results of 1 of your ship's rolls, X = ship types you have in the combat". In every round `fleet_groups` splits one die off its group with the hit number lowered by X (minimum 1): the die the bonus helps most, ties to the first ship in board order (no question). Not for unit abilities.
+2. Sol agent (`solagent`, Evelyn DeLouis): `borrowed_round_agents::owner_abilities` registers `leader:sol:solagent:GROUND_COMBAT_ROUND_STARTED:after` for each Sol seat; `Game`'s ground round emits the event while a readied Sol agent exists. Question `leader_ssruu_round_agent_unit` (the Ssruu copy's, any ground force in the system), the agent exhausts, `extra_die_for` adds the die for that round. From 16 every ground round ticks `combat_round_seq` (as space rounds do), and `roll_ground` also reads `extra_die_round`/`extra_die_unit` set by `leaders::dispatch_leader`.
+3. Mentak Promise of Protection (`pop`): `promissory::take` no longer places it faceup; the holder plays it with `faction|mentak|pop` (`factions/mentak.rs`), the existing Pillage bar and return on activation apply once it is faceup.
+4. Ral Nel commander (`ralnelcommander`): `leaders::commander_unlocked` reads `Feat::LastToPass`; `Game` runs the unlock check at the last pass.
+5. Letnev commander (`letnevcommander`, Rear Admiral Farran): after a sustain the holder is asked `letnev_commander_trade_good` (gain / decline) instead of always being paid.
+6. (Naaz fragment purge: already awarded the Shard of the Throne's point through `relics::gain`; no change.)
+
+Version < 16: none of these. The ability slot of item 2 is only registered at 16, so older logs replay unchanged. Rule bot golden benches v1 to v4 are hash-identical with `RULES_VERSION` pinned to 11; v5's `baseline.json` needs a deliberate re-record only if its games reach these effects.
+
 ## Adding the next gate
 
 1. Raise `RULES_VERSION` in state.rs and add `pub const RULES_<NAME>: u32 = <new>;`.
