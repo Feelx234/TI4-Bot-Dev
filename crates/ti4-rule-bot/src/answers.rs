@@ -46,6 +46,11 @@ pub fn pick_with(
             .options
             .iter()
             .position(|option| !option.is_decline()),
+        // Rear Admiral Farran (rules version 16): a free trade good, always taken.
+        "letnev_commander_trade_good" => choice
+            .options
+            .iter()
+            .position(|option| !option.is_decline()),
         // Magen Defense Grid: the free hit goes where it takes the most. A hit that destroys
         // outright (no sustain left) beats one a mech would shrug off, then the costliest unit.
         "magen_defense_hit" => choice

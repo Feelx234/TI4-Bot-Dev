@@ -131,7 +131,6 @@ plumbing!("crimson", "crimsonagent", "crimsoncommander", "crimsonhero", "sever",
     sever_1_is_dealt_to_the_crimson_lent_and_returned);
 plumbing!("ralnel", "ralnelagent", "ralnelcommander", "ralnelhero", "nanolink",
     ralnelagent_1_starts_ready_exhausts_and_readies_in_the_status_phase,
-    #[ignore = "MISSING: ralnelcommander unlock (be the last person to pass during the action phase) has no registered check, so Watchful Ojz stays locked for the whole game; Feat::LastToPass is recorded by game.rs on the last pass but nothing unlocks the commander"]
     ralnelcommander_1_starts_locked_with_a_registered_unlock_condition,
     ralnelhero_1_unlocks_on_three_scored_objectives_and_is_purged,
     nanolink_1_is_dealt_to_the_ral_nel_lent_and_returned);
@@ -176,7 +175,6 @@ fn generic_notes_cf_ps_ta_an_and_support_are_dealt_to_every_player() {
 /// Watchful Ojz unlocks for "the last person to pass during the action phase". The game records
 /// `Feat::LastToPass` when the last seat passes; the commander should open from that.
 #[test]
-#[ignore = "MISSING: ralnelcommander unlock (last to pass) is not implemented: leaders::commander_unlocked returns None"]
 fn ralnelcommander_2_unlocks_for_the_last_player_to_pass() {
     let mut state = game("ralnel");
     for seat in state.players.iter_mut() {
@@ -193,7 +191,6 @@ fn ralnelcommander_2_unlocks_for_the_last_player_to_pass() {
 /// whose dice both just miss (6 against a cruiser's 7, 8 against a destroyer's 9) must produce a
 /// hit with the card, and none without it.
 #[test]
-#[ignore = "MISSING: letnevbt Gravleash Maneuvers combat bonus (+X to one ship's roll, X = ship types in the combat) has no code in combat.rs; only the move-value half is implemented (tactical.rs gravleash anchor)"]
 fn letnevbt_2_plus_x_to_one_roll_in_space_combat() {
     let hits = |with_card: bool| {
         let mut state = seated_all(&[("a", "letnev"), ("b", "sol")]);

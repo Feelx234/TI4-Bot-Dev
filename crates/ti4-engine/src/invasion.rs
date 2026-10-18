@@ -1197,6 +1197,7 @@ fn roll_ground(
         .filter(|unit| is_ground_force_here(state, content, sources, system, planet, unit))
         .cloned()
         .collect();
+    let mut sol_die_added = false;
     for (unit_index, unit) in roster.into_iter().enumerate() {
         let Some(kind) = types.get(unit.type_id.as_str()) else {
             continue;
@@ -1231,6 +1232,18 @@ fn roll_ground(
         );
         // A galvanized unit rolls 1 additional die for its combat rolls (Last Bastion).
         slot.0 += i64::try_from(crate::factions::bastion::extra_die(&unit)).unwrap_or(0);
+        // The Sol agent's mark, set by `leaders::dispatch_leader` (rules version 16): one ground
+        // force of the chosen type rolls 1 additional die in the round it was used.
+        if !sol_die_added
+            && state.rules_version >= ti4_model::state::RULES_FACTION_EFFECTS
+            && state.player(player).is_some_and(|seat| {
+                seat.extra_die_round == Some(state.combat_round_seq)
+                    && seat.extra_die_unit.as_ref() == Some(&unit.type_id)
+            })
+        {
+            slot.0 += 1;
+            sol_die_added = true;
+        }
         slot.0 += crate::factions::borrowed_round_agents::extra_die_for(
             state,
             content,
@@ -3330,7 +3343,14 @@ impl InvasionWindow {
             }
         }
         let copied_round = ctx.timing.is_some()
-            && crate::factions::borrowed_round_agents::has_round_copy(state, content, "solagent");
+            && (crate::factions::borrowed_round_agents::has_round_copy(state, content, "solagent")
+                || crate::factions::borrowed_round_agents::has_owner_round_agent(state));
+        // From rules version 16 every ground round is a numbered combat round, so what a card
+        // marks "for this round" (the Sol agent's extra die) cannot outlive it.
+        let numbered = state.rules_version >= ti4_model::state::RULES_FACTION_EFFECTS;
+        if numbered && !copied_round {
+            state.combat_round_seq = state.combat_round_seq.saturating_add(1);
+        }
         if copied_round {
             state.combat_round_seq = state.combat_round_seq.saturating_add(1);
             let payload = std::collections::BTreeMap::from([

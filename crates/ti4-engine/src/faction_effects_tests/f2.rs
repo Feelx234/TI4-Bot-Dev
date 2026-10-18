@@ -190,7 +190,7 @@ fn solcommander_2_places_an_infantry_when_a_ground_combat_starts_on_its_planet()
 fn first_ground_roll_dice(marked: bool) -> usize {
     let mut state = seated_all(&[("a", "sol"), ("b", "hacan")]);
     let (system, planet) = crate::fixtures::a_placed_planet();
-    crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &a(), 2);
+    crate::fixtures::put_on_planet(&mut state, &system, &planet, "sol_infantry", &a(), 2);
     crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &pid("b"), 2);
     if marked {
         let used = crate::fixtures::with_context(
@@ -225,7 +225,6 @@ fn first_ground_roll_dice(marked: bool) -> usize {
 }
 
 #[test]
-#[ignore = "MISSING: solagent owner use at the start of a ground combat round: leaders::dispatch_leader only marks seat.extra_die_*, which invasion::roll_ground never reads (only combat::fleet_groups, space, does), and no ground round window offers the owner the agent; only Ssruu's borrowed copy works"]
 fn solagent_1_the_chosen_ground_force_rolls_an_additional_die() {
     let plain = first_ground_roll_dice(false);
     let marked = first_ground_roll_dice(true);

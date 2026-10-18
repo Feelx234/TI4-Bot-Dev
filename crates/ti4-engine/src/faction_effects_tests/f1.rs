@@ -198,7 +198,6 @@ fn naalucommander_1_unlocks_with_ground_forces_in_or_adjacent_to_mecatol() {
 // -- Mentak --------------------------------------------------------------------------------------
 
 #[test]
-#[ignore = "MISSING: pop (Promise of Protection) ACTION: the engine cannot place it faceup (promissory::is_action_placed lists only convoys, blood_pact, dark_pact, share_knowledge, sever), so its holder can never put it in play"]
 fn pop_1_action_places_promise_of_protection_faceup_in_the_holders_play_area() {
     let mut state = seated(&[("a", "mentak"), ("b", "sol")]);
     let note = crate::promissory::note_id("pop", "mentak");

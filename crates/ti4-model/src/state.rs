@@ -1155,7 +1155,7 @@ pub struct StartingTechPick {
 /// The rules version of a new game. Raise it when an engine decision changes in a way that an
 /// older game log would not replay under (and gate the change on
 /// [`GameState::rules_version`]); see `docs/RULES_VERSION.md`.
-pub const RULES_VERSION: u32 = 15;
+pub const RULES_VERSION: u32 = 16;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
@@ -1236,6 +1236,12 @@ pub const RULES_AGENDA_GRANT_REVEAL: u32 = 14;
 /// free hit at the start of ground combat), Psychoarchaeology's free specialties, AI Development
 /// Algorithm's skipped prerequisite and Predictive Intelligence's 3 extra votes.
 pub const RULES_TECH_EFFECTS: u32 = 15;
+
+/// The first rules version with the missing faction effects: Gravleash Maneuvers' +X to one
+/// ship's combat roll, the Sol agent's extra ground die, Promise of Protection's ACTION, the
+/// Ral Nel commander's unlock, an optional Letnev commander trade good and the Shard of the
+/// Throne VP when the Naaz purge a relic fragment.
+pub const RULES_FACTION_EFFECTS: u32 = 16;
 
 /// The whole game, as a value.
 ///
