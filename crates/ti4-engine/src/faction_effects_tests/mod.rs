@@ -13,6 +13,8 @@
 //! Shared helpers live here; the technology tests' helpers (`give`, `seated`, `emit_event`, ...)
 //! are reused.
 
+#![allow(dead_code, unused_imports)]
+
 use std::collections::BTreeMap;
 
 use ti4_model::content_types::{DEFAULT, SourceSet};
