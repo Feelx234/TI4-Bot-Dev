@@ -10,6 +10,7 @@
 
 pub mod batch;
 pub mod clock;
+pub mod export;
 pub mod history;
 pub mod journal;
 pub mod map;
@@ -26,5 +27,6 @@ pub mod staged;
 pub mod state_update;
 pub mod step_snapshot;
 pub mod view;
+pub mod wire;
 
 pub use protocol::*;

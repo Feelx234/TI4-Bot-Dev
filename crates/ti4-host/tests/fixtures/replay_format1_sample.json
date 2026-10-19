@@ -1,0 +1,331 @@
+{
+ "format": "ti4-replay",
+ "game_id": "game_a897471f907a69675a1f1a6589fbd34b",
+ "history": {
+  "batches": [
+   {
+    "actor": "player_bbf98ebd3c4172c5b53a0cb85f98b8720b4bd918fa6977ba15ea59dc6c91344f",
+    "batch_id": "batch_06986576e52751387dea51ee78231e5d",
+    "end_cursor": 51,
+    "request_id": "01ef29f7-d99f-43fc-8ce2-6354809a6260",
+    "start_cursor": 45
+   },
+   {
+    "actor": "player_a56cb864d9d9683b07f45ed07753d44685ad2b11b745724d64e7c271f7a36195",
+    "batch_id": "batch_15f73b4385888bcae3c58fa32cde680e",
+    "end_cursor": 74,
+    "request_id": "da316c53-586c-4aa2-8729-5749b6de1d0f",
+    "start_cursor": 68
+   }
+  ],
+  "decisions": [
+   {
+    "chosen": "ps",
+    "context": {
+     "actor": "player_d9d9fdc551090588b98062b87a38f882987b9afcc6e21ffb78f6ed51ec3a38ea",
+     "optional": false,
+     "outstanding": [],
+     "phase": "strategy",
+     "round": 1,
+     "source": {
+      "Content": "starting_technology"
+     },
+     "subtype": "starting_technology",
+     "target": null,
+     "version": 1
+    },
+    "offered": [
+     "nm",
+     "ps",
+     "st"
+    ],
+    "player": "player_d9d9fdc551090588b98062b87a38f882987b9afcc6e21ffb78f6ed51ec3a38ea",
+    "prompt": "choose a starting technology (1 of 2)"
+   },
+   {
+    "chosen": "st",
+    "context": {
+     "actor": "player_d9d9fdc551090588b98062b87a38f882987b9afcc6e21ffb78f6ed51ec3a38ea",
+     "optional": false,
+     "outstanding": [],
+     "phase": "strategy",
+     "round": 1,
+     "source": {
+      "Content": "starting_technology"
+     },
+     "subtype": "starting_technology",
+     "target": null,
+     "version": 1
+    },
+    "offered": [
+     "nm",
+     "st"
+    ],
+    "player": "player_d9d9fdc551090588b98062b87a38f882987b9afcc6e21ffb78f6ed51ec3a38ea",
+    "prompt": "choose a starting technology (2 of 2)"
+   },
+   {
+    "chosen": "te6warfare",
+    "context": {
+     "actor": "player_bbf98ebd3c4172c5b53a0cb85f98b8720b4bd918fa6977ba15ea59dc6c91344f",
+     "optional": false,
+     "outstanding": [],
+     "phase": "strategy",
+     "round": 1,
+     "source": {
+      "Rule": "26"
+     },
+     "subtype": "draft_strategy_card",
+     "target": null,
+     "version": 1
+    },
+    "offered": [
+     "pok1leadership",
+     "pok2diplomacy",
+     "pok3politics",
+     "te4construction",
+     "pok5trade",
+     "te6warfare",
+     "pok7technology",
+     "pok8imperial"
+    ],
+    "player": "player_bbf98ebd3c4172c5b53a0cb85f98b8720b4bd918fa6977ba15ea59dc6c91344f",
+    "prompt": "choose a strategy card"
+   },
+   {
+    "chosen": "te4construction",
+    "context": {
+     "actor": "player_8f572bf393c9ed1e98b29b9fe71e32e59aaf2304332ae4503eac697e31d94cb2",
+     "optional": false,
+     "outstanding": [],
+     "phase": "strategy",
+     "round": 1,
+     "source": {
+      "Rule": "26"
+     },
+     "subtype": "draft_strategy_card",
+     "target": null,
+     "version": 1
+    },
+    "offered": [
+     "pok1leadership",
+     "pok2diplomacy",
+     "pok3politics",
+     "te4construction",
+     "pok5trade",
+     "pok7technology",
+     "pok8imperial"
+    ],
+    "player": "player_8f572bf393c9ed1e98b29b9fe71e32e59aaf2304332ae4503eac697e31d94cb2",
+    "prompt": "choose a strategy card"
+   },
+   {
+    "chosen": "pok7technology",
+    "context": {
+     "actor": "player_a56cb864d9d9683b07f45ed07753d44685ad2b11b745724d64e7c271f7a36195",
+     "optional": false,
+     "outstanding": [],
+     "phase": "strategy",
+     "round": 1,
+     "source": {
+      "Rule": "26"
+     },
+     "subtype": "draft_strategy_card",
+     "target": null,
+     "version": 1
+    },
+    "offered": [
+     "pok1leadership",
+     "pok2diplomacy",
+     "pok3politics",
+     "pok5trade",
+     "pok7technology",
+     "pok8imperial"
+    ],
+    "player": "player_a56cb864d9d9683b07f45ed07753d44685ad2b11b745724d64e7c271f7a36195",
+    "prompt": "choose a strategy card"
+   },
+   {
+    "chosen": "pok1leadership",
+    "context": {
+     "actor": "player_d9d9fdc551090588b98062b87a38f882987b9afcc6e21ffb78f6ed51ec3a38ea",
+     "optional": false,
+     "outstanding": [],
+     "phase": "strategy",
+     "round": 1,
+     "source": {
+      "Rule": "26"
+     },
+     "subtype": "draft_strategy_card",
+     "target": null,
+     "version": 1
+    },
+    "offered": [
+     "pok1leadership",
+     "pok2diplomacy",
+     "pok3politics",
+     "pok5trade",
+     "pok8imperial"
+    ],
+    "player": "player_d9d9fdc551090588b98062b87a38f882987b9afcc6e21ffb78f6ed51ec3a38ea",
+    "prompt": "choose a strategy card"
+   }
+  ],
+  "event_counter": 1992,
+  "events": [
+   {
+    "decision_count": 0,
+    "event": {
+     "kind": "game_initialized",
+     "phase": "strategy",
+     "round": 1,
+     "speaker": "player_bbf98ebd3c4172c5b53a0cb85f98b8720b4bd918fa6977ba15ea59dc6c91344f"
+    },
+    "id": "game_a897471f907a69675a1f1a6589fbd34b-1",
+    "timestamp": "18:54:42",
+    "version": 1,
+    "visibility": {
+     "visibility": "public"
+    }
+   },
+   {
+    "actor": "player_d9d9fdc551090588b98062b87a38f882987b9afcc6e21ffb78f6ed51ec3a38ea",
+    "decision_count": 1,
+    "detail": "player_d9d9fdc551090588b98062b87a38f882987b9afcc6e21ffb78f6ed51ec3a38ea starts with Plasma Scoring",
+    "event": {
+     "kind": "decision_resolved"
+    },
+    "id": "game_a897471f907a69675a1f1a6589fbd34b-2",
+    "phase": "strategy",
+    "round": 1,
+    "stage": "setup",
+    "timestamp": "18:54:43",
+    "version": 1,
+    "visibility": {
+     "visibility": "public"
+    }
+   },
+   {
+    "actor": "player_d9d9fdc551090588b98062b87a38f882987b9afcc6e21ffb78f6ed51ec3a38ea",
+    "decision_count": 2,
+    "detail": "player_d9d9fdc551090588b98062b87a38f882987b9afcc6e21ffb78f6ed51ec3a38ea starts with Sarween Tools",
+    "event": {
+     "kind": "decision_resolved"
+    },
+    "id": "game_a897471f907a69675a1f1a6589fbd34b-3",
+    "phase": "strategy",
+    "round": 1,
+    "stage": "setup",
+    "timestamp": "18:54:44",
+    "version": 2,
+    "visibility": {
+     "visibility": "public"
+    }
+   },
+   {
+    "actor": "player_bbf98ebd3c4172c5b53a0cb85f98b8720b4bd918fa6977ba15ea59dc6c91344f",
+    "decision_count": 3,
+    "detail": "player_bbf98ebd3c4172c5b53a0cb85f98b8720b4bd918fa6977ba15ea59dc6c91344f picked Warfare",
+    "event": {
+     "kind": "decision_resolved"
+    },
+    "fact": {
+     "card": "te6warfare",
+     "kind": "strategy_picked"
+    },
+    "id": "game_a897471f907a69675a1f1a6589fbd34b-4",
+    "phase": "strategy",
+    "round": 1,
+    "stage": "draft",
+    "timestamp": "18:57:17",
+    "version": 4,
+    "visibility": {
+     "visibility": "public"
+    }
+   },
+   {
+    "actor": "player_8f572bf393c9ed1e98b29b9fe71e32e59aaf2304332ae4503eac697e31d94cb2",
+    "decision_count": 4,
+    "detail": "player_8f572bf393c9ed1e98b29b9fe71e32e59aaf2304332ae4503eac697e31d94cb2 picked Construction",
+    "event": {
+     "kind": "decision_resolved"
+    },
+    "fact": {
+     "card": "te4construction",
+     "kind": "strategy_picked"
+    },
+    "id": "game_a897471f907a69675a1f1a6589fbd34b-5",
+    "phase": "strategy",
+    "round": 1,
+    "stage": "draft",
+    "timestamp": "18:57:31",
+    "version": 6,
+    "visibility": {
+     "visibility": "public"
+    }
+   },
+   {
+    "actor": "player_a56cb864d9d9683b07f45ed07753d44685ad2b11b745724d64e7c271f7a36195",
+    "decision_count": 5,
+    "detail": "player_a56cb864d9d9683b07f45ed07753d44685ad2b11b745724d64e7c271f7a36195 picked Technology",
+    "event": {
+     "kind": "decision_resolved"
+    },
+    "fact": {
+     "card": "pok7technology",
+     "kind": "strategy_picked"
+    },
+    "id": "game_a897471f907a69675a1f1a6589fbd34b-6",
+    "phase": "strategy",
+    "round": 1,
+    "stage": "draft",
+    "timestamp": "18:58:04",
+    "version": 8,
+    "visibility": {
+     "visibility": "public"
+    }
+   }
+  ],
+  "generation": 49,
+  "redo": [],
+  "redo_events": [],
+  "revision": 1038,
+  "rng_marks": {
+   "331": {
+    "dice": 11
+   },
+   "332": {
+    "dice": 11
+   },
+   "333": {
+    "dice": 11
+   },
+   "334": {
+    "dice": 11
+   },
+   "decks": [
+    {
+     "from": 324,
+     "reserved": [],
+     "until": 335
+    },
+    {
+     "from": 863,
+     "reserved": [],
+     "until": 18446744073709552000
+    }
+   ]
+  }
+ },
+ "map_template": "6pScpt2021Prelim",
+ "player_ids": [
+  "player_a56cb864d9d9683b07f45ed07753d44685ad2b11b745724d64e7c271f7a36195",
+  "player_d9d9fdc551090588b98062b87a38f882987b9afcc6e21ffb78f6ed51ec3a38ea",
+  "player_a513d92224b4cd97bfcd32894ba326929f26ba215eb820f8dc7d50e358d7ecb8",
+  "player_08fb19369453a98759213a9d55cad3254c3643f1015bad2fe8c0d4665144186a",
+  "player_bbf98ebd3c4172c5b53a0cb85f98b8720b4bd918fa6977ba15ea59dc6c91344f",
+  "player_8f572bf393c9ed1e98b29b9fe71e32e59aaf2304332ae4503eac697e31d94cb2"
+ ],
+ "seed": 18432220952314264000,
+ "version": 1
+}

@@ -425,6 +425,25 @@ pub fn who_line(record: &StoredFeedback) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join(" | "))
 }
 
+/// The seats of an offline save (`context.local.save.seats`, written since the save listed them):
+/// `Ada (sol, human), Rule Bot (hacan, smart)`.
+fn seats_line(record: &StoredFeedback) -> Option<String> {
+    let seats = save_blob(record)?.get("seats")?.as_array()?;
+    let text: Vec<String> = seats
+        .iter()
+        .map(|seat| {
+            let text = |key: &str| seat.get(key).and_then(Value::as_str).unwrap_or("?");
+            format!(
+                "{} ({}, {})",
+                seat.get("name").and_then(Value::as_str).unwrap_or("-"),
+                text("faction"),
+                text("kind")
+            )
+        })
+        .collect();
+    (!text.is_empty()).then(|| text.join(", "))
+}
+
 /// Terminal-readable rendering of one report.
 #[must_use]
 pub fn render(record: &StoredFeedback, verbose: bool) -> String {
@@ -458,6 +477,17 @@ pub fn render(record: &StoredFeedback, verbose: bool) -> String {
                 .map_or_else(|| "?".to_owned(), |d| d.to_string()),
             local.answers,
             record.id,
+        );
+    }
+    if let Some(seats) = seats_line(record) {
+        let _ = writeln!(s, "    seats: {seats}");
+    } else if local_summary(record).is_none()
+        && let Some(game) = ctx.and_then(|c| c.get("game_id")).and_then(Value::as_str)
+    {
+        let _ = writeln!(
+            s,
+            "    online game {game} | replay: feedback-save {} (needs the data directory of the game)",
+            record.id
         );
     }
     if let Some(who) = who_line(record) {

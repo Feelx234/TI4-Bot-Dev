@@ -161,7 +161,9 @@ fn feedback_list(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 
 /// `server feedback-save [--data-dir DIR] [--out FILE] ID`: writes the save blob of an offline
 /// report (ID is the `fb_...` id or the client's report id) as JSON to FILE or stdout; replay it
-/// with `cargo run -p ti4-wasm --example replay_save -- FILE`.
+/// with `cargo run -p ti4-wasm --example replay_save -- FILE`. A report of an online game has no
+/// save: its replay export (`docs/REPLAY_FORMAT.md`) is made from the game's files in the data
+/// directory instead, and replays the same way.
 fn feedback_save(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let mut data_dir = std::env::var("TI4_DATA_DIR").unwrap_or_else(|_| "./data/games".to_owned());
     let mut out: Option<String> = None;
@@ -185,10 +187,22 @@ fn feedback_save(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let id = id.ok_or("usage: feedback-save [--data-dir DIR] [--out FILE] ID")?;
     let (_, record) = ti4_server::feedback::find(std::path::Path::new(&data_dir), &id)
         .ok_or_else(|| format!("no report {id} under {data_dir}/feedback"))?;
-    let save = ti4_server::feedback::save_blob(&record).ok_or_else(|| {
-        format!("report {id} is not from an offline game (no context.local.save)")
-    })?;
-    let text = serde_json::to_string_pretty(save)?;
+    let text = if let Some(save) = ti4_server::feedback::save_blob(&record) {
+        serde_json::to_string_pretty(save)?
+    } else {
+        let game = record
+            .context
+            .as_ref()
+            .and_then(|c| c.get("game_id"))
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                format!("report {id} has neither an offline save nor a game id (context.game_id)")
+            })?;
+        let store = ti4_server::storage::FileGameStore::new(&data_dir)?;
+        let export = ti4_server::replay_export::from_store(&store, game, &record.server_commit)
+            .map_err(|e| format!("report {id}: the files of game {game} do not export: {e}"))?;
+        serde_json::to_string_pretty(&export)?
+    };
     match out {
         Some(path) => {
             std::fs::write(&path, text + "\n")?;

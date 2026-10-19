@@ -49,6 +49,8 @@ pub enum Bots {
 pub struct Setup {
     #[serde(default = "local_game_id")]
     pub game_id: String,
+    /// Read from a number or a decimal string ([`ti4_host::wire`]).
+    #[serde(deserialize_with = "ti4_host::wire::lenient_u64")]
     pub seed: u64,
     pub players: usize,
     /// 0-based place of the person. Left out: drawn from the seed.
@@ -404,7 +406,7 @@ impl TableRequest {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Local {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "ti4_host::wire::lenient_u64")]
     pub seed: u64,
     #[serde(default = "eight")]
     pub players: usize,

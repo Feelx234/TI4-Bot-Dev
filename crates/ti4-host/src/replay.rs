@@ -116,7 +116,23 @@ pub fn replay_session_forced(
     records: &[DecisionRecord],
     marks: &crate::rng_force::RngMarks,
 ) -> Result<ReplayReport, ReplayError> {
-    replay(initial_state, galaxy, records, marks, None).map(|(report, _)| report)
+    replay(initial_state, galaxy, records, marks, None, false).map(|(report, _)| report)
+}
+
+/// [`replay_session_forced`], then on past the last journaled decision for as long as the engine
+/// needs no further answer: the state is the one a live game shows at its next question (or its
+/// end), and not the one right after the last answer. What an export is compared against.
+///
+/// # Errors
+///
+/// Returns [`ReplayError`] if the engine fails or decisions diverge.
+pub fn replay_session_to_next_question(
+    initial_state: &GameState,
+    galaxy: Option<&Galaxy>,
+    records: &[DecisionRecord],
+    marks: &crate::rng_force::RngMarks,
+) -> Result<ReplayReport, ReplayError> {
+    replay(initial_state, galaxy, records, marks, None, true).map(|(report, _)| report)
 }
 
 /// [`replay_session_forced`], also copying the game at a step boundary near the end of the
@@ -133,7 +149,14 @@ pub fn replay_session_with_copy(
     marks: &crate::rng_force::RngMarks,
     generation: u64,
 ) -> Result<(ReplayReport, Option<StepSnapshot>), ReplayError> {
-    replay(initial_state, galaxy, records, marks, Some(generation))
+    replay(
+        initial_state,
+        galaxy,
+        records,
+        marks,
+        Some(generation),
+        false,
+    )
 }
 
 fn replay(
@@ -142,6 +165,7 @@ fn replay(
     records: &[DecisionRecord],
     marks: &crate::rng_force::RngMarks,
     copy_generation: Option<u64>,
+    run_on: bool,
 ) -> Result<(ReplayReport, Option<StepSnapshot>), ReplayError> {
     let original_hashes: Vec<CanonicalHash> = records
         .iter()
@@ -197,6 +221,23 @@ fn replay(
             return Err(ReplayError::EngineError(
                 "Game finished before all recorded decisions could be replayed".to_owned(),
             ));
+        }
+    }
+
+    // Past the journal: the steps that need no answer (the end of a phase, the end of the game).
+    if run_on {
+        loop {
+            let result = game.step();
+            if let Some(err) = result.error {
+                let err_str = err.to_string();
+                if err_str.contains("replay completed all scripted decisions") {
+                    break;
+                }
+                return Err(ReplayError::EngineError(err_str));
+            }
+            if result.finished {
+                break;
+            }
         }
     }
 

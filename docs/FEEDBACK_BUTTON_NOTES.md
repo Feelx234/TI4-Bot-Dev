@@ -64,6 +64,11 @@ it in the background; the contract with `POST /api/feedback` is:
   (`resume_check`), the round/phase and the pending question, and exits 1 when this build decides
   otherwise (then check `engine.build` and `content_digest` in the report against the build you
   replay with).
+- Online games: a report of an online game carries no save (its `context.game_id` names the game's
+  files). `server feedback-save` then writes the game's replay export, made from its files in the
+  data directory (`docs/REPLAY_FORMAT.md`: the setup, seats, factions, names, seed, decisions), and
+  `replay_save` replays that file by itself. The offline save lists its `seats` (name, faction,
+  who plays it), which `list_feedback.sh` prints as a `seats:` line.
 
 Not built from the options below: no Discord/Telegram/GitHub forwarding (the file on the server
 is the only copy, so the team needs server access or someone to relay it), no confirmation

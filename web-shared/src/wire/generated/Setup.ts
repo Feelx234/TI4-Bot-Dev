@@ -5,7 +5,11 @@ import type { SpeakerOrder } from "./SpeakerOrder.ts";
 /**
  * The table of a game. Everything the game's opening state is made from; a save carries it.
  */
-export type Setup = { game_id: string, seed: number, players: number, 
+export type Setup = { game_id: string, 
+/**
+ * Read from a number or a decimal string ([`ti4_host::wire`]).
+ */
+seed: number, players: number, 
 /**
  * 0-based place of the person. Left out: drawn from the seed.
  */

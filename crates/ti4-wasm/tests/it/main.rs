@@ -16,5 +16,6 @@ mod host_setup;
 mod host_staged;
 mod host_thunders_edge;
 mod protocol_fixtures;
+mod replay_export;
 mod server_parity;
 mod wire_types;

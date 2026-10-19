@@ -1087,7 +1087,14 @@ export class GameSessionClient implements GameTransport {
     this.openSocket();
   }
 
-  /** Any seated player: the live game history (seed, seats, decisions, events) as pretty JSON. */
+  /**
+   * Any seated player: the live game history with the table's setup (map, seats with factions and
+   * names, card set, seed, decisions, events) as the server's pretty JSON text.
+   *
+   * The text is passed on exactly as received and never parsed here: the seed and some other
+   * integers are 64 bits wide (the server writes them as strings for that reason) and
+   * `JSON.parse` followed by `JSON.stringify` would round any that were numbers.
+   */
   async fetchReplay(): Promise<{ text: string; filename: string }> {
     if (this.options.viewer.role !== "player" || !this.options.viewer.playerSession)
       throw new Error("A player session is required");
@@ -1099,9 +1106,8 @@ export class GameSessionClient implements GameTransport {
       const reason = (await response.text().catch(() => "")).trim();
       throw new Error(reason || `The server refused the replay (${response.status})`);
     }
-    const replay: unknown = await response.json();
     return {
-      text: JSON.stringify(replay, null, 2),
+      text: await response.text(),
       filename: `ti4-replay-${this.options.gameId}.json`,
     };
   }
