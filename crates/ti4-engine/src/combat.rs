@@ -1694,6 +1694,21 @@ pub fn roll_barrage_side(
     // Quietus: units in an active breach beside another player's Quietus have lost every unit
     // ability, ANTI-FIGHTER BARRAGE among them.
     let abilities_lost = crate::factions::crimson::abilities_lost(state, player, system);
+    // Hits fall only on fighters (a Waylay widens them to every ship).
+    let waylay_in_play = state
+        .player(player)
+        .and_then(|seat| seat.waylay_barrage_round)
+        .is_some_and(|played| played == state.combat_round_seq);
+    let no_fighter_target = !waylay_in_play
+        && state
+            .system_state(system)
+            .units
+            .iter()
+            .map(|unit| &unit.owner)
+            .filter(|owner| *owner != player)
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .all(|owner| fighters_of(state, content, sources, owner, system) == 0);
     for unit in ships_of(state, content, sources, player, system) {
         let Some(kind) = types.get(unit.type_id.as_str()) else {
             continue;
@@ -1741,6 +1756,17 @@ pub fn roll_barrage_side(
             player,
         );
         hits += roll.hits();
+        // Presentation only: a barrage against a fleet without fighters still rolls (the dice
+        // are drawn as ever), but the log says its hits have nothing to hit.
+        if no_fighter_target {
+            let hit_count = roll.hits();
+            let outcome = match hit_count {
+                0 => "no hits".to_owned(),
+                1 => "1 hit, but no enemy fighters to hit".to_owned(),
+                n => format!("{n} hits, but no enemy fighters to hit"),
+            };
+            dice.annotate_last(Some(system.as_str()), Some(&outcome));
+        }
         set.rolls.push(RerollEntry {
             unit: unit.type_id.to_string(),
             planet: None,
@@ -7314,6 +7340,51 @@ mod tests {
             3,
             "nothing was destroyed"
         );
+    }
+
+    #[test]
+    fn a_barrage_against_no_fighters_still_rolls_but_the_log_says_it_hit_nothing() {
+        // Feedback fb_1792391288_b1b8a1e9: a destroyer's barrage showed "(1 hit)" against a
+        // fleet without fighters. The dice are drawn as ever (replays), the line explains.
+        let mut roll_counts = Vec::new();
+        for with_fighters in [false, true] {
+            let mut said_nothing_to_hit = false;
+            for seed in 0..40_u64 {
+                let (mut state, system) = arena();
+                put(&mut state, &system, &a_barrage_unit(), &attacker(), 8);
+                put(&mut state, &system, "cruiser", &defender(), 1);
+                if with_fighters {
+                    put(&mut state, &system, "fighter", &defender(), 1);
+                }
+                let mut dice = Dice::new();
+                let mut rng = GameRng::new(seed);
+                anti_fighter_barrage(
+                    &mut state,
+                    ContentStore::embedded(),
+                    POK,
+                    &mut dice,
+                    &mut rng,
+                    &system,
+                    &attacker(),
+                    &defender(),
+                )
+                .unwrap();
+                roll_counts.push(dice.count());
+                for roll in dice.history() {
+                    let outcome = roll.outcome.as_deref().unwrap_or("");
+                    let flagged = outcome.contains("no enemy fighters");
+                    if with_fighters {
+                        assert!(!flagged, "fighters were there: {outcome}");
+                    } else if flagged {
+                        said_nothing_to_hit = true;
+                    }
+                }
+            }
+            if !with_fighters {
+                assert!(said_nothing_to_hit, "some seed hits and says so");
+            }
+        }
+        assert!(roll_counts.iter().all(|n| *n == roll_counts[0]), "same dice either way");
     }
 
     #[test]
