@@ -361,6 +361,12 @@ prompt("sol_agent", "Evelyn DeLouis", {
   factions: ["sol"],
   option: ["leader", "solagent"],
 });
+prompt("letnev_agent", "Viscount Unlenn", {
+  source: "Letnev agent",
+  when: "at the start of a space combat round",
+  factions: ["letnev"],
+  option: ["leader", "letnevagent"],
+});
 prompt("sol_commander", "Claire Gibson", {
   source: "Sol commander",
   when: "at the start of a ground combat on a planet you control",

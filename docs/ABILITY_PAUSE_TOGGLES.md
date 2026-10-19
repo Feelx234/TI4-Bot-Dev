@@ -11,7 +11,7 @@ The engine is unchanged: it asks every question every time, rules, checksum and 
 - Action card windows (`reaction:<faction>:<EVENT>:<relation>`): already handled by the seat's `reaction_card_modes`; listed as covered, not duplicated.
 - Rule of thumb for the verdict: TOGGLE when the question is asked on a frequent event (every activation, movement, combat round, roll, production, unit loss, command token, trade-good gain, turn start or end, action card, vote) and the card is a standing ability (faction ability, technology, agent, commander, mech, flagship, breakthrough, relic). NO for one-shot cards (promissory notes return after use, heroes are purged), once-per-round abilities, own-choice abilities that only fire in a rare position (own conquest, own win), passive effects, and anything that is not a question. A free 'may gain' (Magmus, Tungstantus, Farran) is toggleable too: pausing it gives up the gain, the player decides.
 
-Counts (table rows; a not-needed row can name several cards): 64 registered (toggle), 1 covered by an existing mechanism (action card modes), 53 not needed, 2 not skippable (no decline, a rule).
+Counts (table rows; a not-needed row can name several cards): 65 registered (toggle), 1 covered by an existing mechanism (action card modes), 53 not needed, 2 not skippable (no decline, a rule).
 
 Not found as a recurring optional question with a decline in this build (listed as not needed with the reason): Hacan agent and commander, Jol-Nar agent, Letnev agent, Xxcha agent and commander, Mahact agent, L1Z1X commander (passive).
 
@@ -70,6 +70,7 @@ Storage key `player_ask_<id>` in localStorage, default ask. The registry is `web
 | `yin_agent` | Yin | Brother Milor (and Ssruu copy) | agent | SHIP_DESTROYED / GROUND_FORCE_DESTROYED after | owner, anyone's combat losses; every combat loss while readied |
 | `indoctrination` | Yin | Indoctrination | faction ability | start of ground combat (inline question) | owner; every ground combat against infantry |
 | `yssaril_commander` | Yssaril | So Ata | commander | SYSTEM_ACTIVATED after | owner, others' activations; every activation of a system holding your units |
+| `letnev_agent` | Letnev | Viscount Unlenn | agent | COMBAT_ROUND_STARTED after | owner (and Ssruu copy); every space combat round while readied |
 | `sol_agent` | Sol | Evelyn DeLouis | agent | GROUND_COMBAT_ROUND_STARTED after | owner; every ground combat round while readied |
 | `sol_commander` | Sol | Claire Gibson | commander | GROUND_COMBAT_STARTED after | owner; every ground combat on a planet you control |
 | `munitions_reserves` | Letnev | Munitions Reserves | faction ability | combat round (inline question) | owner; every space combat round with 2+ trade goods |

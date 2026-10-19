@@ -60,12 +60,14 @@ const WINDOW_OPTION: Record<string, string> = {
   yin_spinner: "technology:yin:yso:UNITS_PRODUCED:after",
   yin_agent: "leader:yin:yinagent:SHIP_DESTROYED:after",
   yssaril_commander: "leader:yssaril:yssarilcommander:SYSTEM_ACTIVATED:after",
+  letnev_agent: "leader:letnev:letnevagent:COMBAT_ROUND_STARTED:after",
   sol_agent: "leader:sol:solagent:GROUND_COMBAT_ROUND_STARTED:after",
   sol_commander: "leader:sol:solcommander:GROUND_COMBAT_STARTED:after",
 };
 
 /** Yssaril's copies of an agent: the Ssruu ids carry the borrowed agent's id. */
 const SSRUU_COPY: Record<string, string> = {
+  letnev_agent: "leader:ssruu-copy:yssaril:letnevagent:letnev:COMBAT_ROUND_STARTED:after",
   i48s: "leader:ssruu-copy:yssaril:l1z1xagent:l1z1x:SYSTEM_ACTIVATED:after",
   argent_agent: "leader:yssaril:argent:yssarilagent:argentagent:GROUND_FORCES_BEING_PRODUCED:when",
   ghost_agent: "leader:yssaril:ghost:yssarilagent:ghostagent:SYSTEM_ACTIVATED:after",
@@ -165,6 +167,15 @@ describe("the pausable prompt registry", () => {
     expect(promptsOfChoice(window).map((p) => p.id)).toEqual(["aetherpassage", "i48s"]);
     expect(promptsOfChoice(choiceOf([{ id: "use", kind: "leader" }, decline], "l1z1x_agent_swap")).map((p) => p.id)).toEqual(["i48s"]);
     expect(promptsOfChoice(null)).toEqual([]);
+  });
+});
+
+describe("the agents and commanders that ask in a combat round", () => {
+  it("registers the Letnev agent, the Sol agent window and the Farran question", () => {
+    expect(promptForOption("leader:letnev:letnevagent:COMBAT_ROUND_STARTED:after")?.id).toBe("letnev_agent");
+    expect(promptForOption("leader:sol:solagent:GROUND_COMBAT_ROUND_STARTED:after")?.id).toBe("sol_agent");
+    expect(promptsForSubtype("letnev_commander_trade_good").map((p) => p.id)).toEqual(["letnev_commander"]);
+    expect(promptsHeldBy({ faction: "letnev" }).map((p) => p.id)).toContain("letnev_agent");
   });
 });
 
