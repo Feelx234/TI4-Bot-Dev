@@ -151,6 +151,8 @@ export interface GameShellProps {
   viewerSeat?: string | null;
   players?: Record<string, PlayerView> | PlayerView[];
   boardView?: BoardView;
+  /** `rules_version` of the game state (the technology picker's AI Development Algorithm / Psychoarchaeology). */
+  rulesVersion?: number;
   /** The engine's facts for the pending tactical choice (routes and loads of the ships). */
   tacticalFacts?: TacticalFacts | null;
   activeSystemId?: string | null;
@@ -221,6 +223,7 @@ export interface ChoiceRendererDispatcherProps {
   onMinimizedChange: (minimized: boolean) => void;
   players?: Record<string, PlayerView>;
   boardView?: BoardView;
+  rulesVersion?: number;
   /** The engine's facts for the pending tactical choice (routes and loads of the ships). */
   tacticalFacts?: TacticalFacts | null;
   activeSystemId?: string | null;
@@ -566,6 +569,7 @@ function renderTechnologyResearch({
   lastError,
   boardView,
   players,
+  rulesVersion,
 }: Parameters<WorkflowRenderer>[0]) {
   return (
     <TechnologyModal
@@ -578,6 +582,7 @@ function renderTechnologyResearch({
       board={boardView}
       players={players}
       isResearchMode={true}
+      rulesVersion={rulesVersion}
       lastError={lastError}
     />
   );
@@ -712,6 +717,7 @@ export const ChoiceRendererDispatcher: React.FC<
   onMinimizedChange,
   players,
   boardView,
+  rulesVersion,
   tacticalFacts,
   activeSystemId,
   revealedObjectives,
@@ -935,6 +941,7 @@ export const ChoiceRendererDispatcher: React.FC<
     onMinimizedChange,
     players,
     boardView,
+    rulesVersion,
     tacticalFacts,
     activeSystemId,
     revealedObjectives,
@@ -1086,6 +1093,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   viewerSeat,
   players,
   boardView,
+  rulesVersion,
   tacticalFacts,
   activeSystemId,
   revealedObjectives,
@@ -1590,6 +1598,7 @@ export const GameShell: React.FC<GameShellProps> = ({
             viewerSeat={viewerSeat}
             players={playersMap}
             boardView={boardView}
+            rulesVersion={rulesVersion}
             tacticalFacts={tacticalFacts}
             activeSystemId={activeSystemId}
             revealedObjectives={revealedObjectives}

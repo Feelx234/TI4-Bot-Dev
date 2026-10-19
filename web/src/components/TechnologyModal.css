@@ -982,3 +982,32 @@
     flex: 0 0 auto;
   }
 }
+
+.technology-card__aida-note {
+  font-size: 12px;
+  font-weight: 600;
+  color: #38bdf8;
+  margin: 2px 0 4px;
+}
+
+.technology-modal__aida-note {
+  font-size: 12px;
+  color: #38bdf8;
+  padding: 2px 0;
+}
+
+/* An exhausted specialty planet usable under Psychoarchaeology: its note is long, so the pill wraps. */
+.tech-skip-pill--free {
+  height: auto !important;
+  min-height: 26px;
+  max-width: 100%;
+  border-radius: 14px;
+  text-align: left;
+  flex-wrap: wrap;
+}
+
+.tech-skip-pill__badge--aida {
+  background: rgba(192, 132, 252, 0.3);
+  color: #c084fc;
+  font-size: 9px;
+}

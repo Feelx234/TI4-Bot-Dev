@@ -77,6 +77,7 @@ import { ConnectionProblem, ReconnectingChip, useAfterDelay } from "./components
 import { readBreakthroughs } from "./presentation/breakthroughs.ts";
 import { readExplorationLog } from "./presentation/explorationToasts.ts";
 import { agendaOutcomeLabel, readAgendaCasts, readAgendaLog } from "./presentation/agendaToasts.ts";
+import { stateRulesVersion } from "./versionInfo.ts";
 import { readRelicLog } from "./presentation/relicToasts.ts";
 import { useBackUndo } from "./hooks/useBackUndo.ts";
 import { CornerToastLayer } from "./components/CornerToastLayer.tsx";
@@ -990,6 +991,7 @@ const GameViewContainer: React.FC<{
           )
         }
         boardView={snapshot?.view.board}
+        rulesVersion={stateRulesVersion(snapshot?.state)}
         tacticalFacts={snapshot?.tactical}
         activeSystemId={
           typeof snapshot?.state.active_system === "string" ? snapshot.state.active_system : null
@@ -1111,6 +1113,7 @@ const GameViewContainer: React.FC<{
         onClose={() => setIsTechModalOpen(false)}
         players={snapshot?.view.players}
         viewerSeat={userSeat}
+        rulesVersion={stateRulesVersion(snapshot?.state)}
       />
       <ObjectivesModal
         isOpen={

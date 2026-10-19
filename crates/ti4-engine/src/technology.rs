@@ -3174,6 +3174,92 @@ mod tests {
             "research options must be in canonical (sorted) order"
         );
     }
+
+    /// Gaining AI Development Algorithm as the first pick of the Technology primary leaves it
+    /// ready for the second pick, which then spends it (rules version 15+).
+    #[test]
+    fn a_freshly_researched_aida_is_ready_for_the_second_pick_and_exhausts_then() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a"]);
+        state.rules_version = 15;
+        give(&mut state, &["st"]);
+        let (aida, cr2) = (TechnologyId::new("aida"), TechnologyId::new("cr2"));
+        assert!(!can_research(&state, content, POK, &player(), &cr2));
+        assert!(research(&mut state, content, POK, &player(), &aida));
+        assert!(!state.player(&player()).unwrap().exhausted_technologies.contains(&aida));
+        assert!(can_research(&state, content, POK, &player(), &cr2));
+        assert!(research(&mut state, content, POK, &player(), &cr2));
+        assert!(state.player(&player()).unwrap().exhausted_technologies.contains(&aida));
+    }
+
+    /// The web picker's `technologyWaivers.test.ts` reads the same table and must give the same
+    /// answers: what the picker marks researchable is what the engine lets the seat research.
+    #[test]
+    fn tech_picker_parity_table_matches_can_research() {
+        let table: serde_json::Value =
+            serde_json::from_str(include_str!("../testdata/tech_waiver_parity.json")).unwrap();
+        let content = ContentStore::embedded();
+        for scenario in table["scenarios"].as_array().unwrap() {
+            let name = scenario["name"].as_str().unwrap();
+            let mut state = game(&["a"]);
+            state.rules_version = scenario["rules_version"].as_u64().unwrap() as u32;
+            let strings = |key: &str| -> Vec<String> {
+                scenario[key]
+                    .as_array()
+                    .map(|a| a.iter().map(|v| v.as_str().unwrap().to_owned()).collect())
+                    .unwrap_or_default()
+            };
+            let owned = strings("owned");
+            give(
+                &mut state,
+                &owned.iter().map(String::as_str).collect::<Vec<_>>(),
+            );
+            for alias in strings("exhausted") {
+                state
+                    .player_mut(&player())
+                    .unwrap()
+                    .exhausted_technologies
+                    .insert(TechnologyId::new(alias));
+            }
+            let mut used = BTreeSet::new();
+            for specialty in scenario["specialties"].as_array().into_iter().flatten() {
+                let colour = specialty["colour"].as_str().unwrap();
+                let planets = ti4_content::galaxy::all_planets(content, POK);
+                let (id, record) = planets
+                    .iter()
+                    .find(|(id, record)| {
+                        !used.contains(*id)
+                            && record.tech_specialties().len() == 1
+                            && record.tech_specialties()[0].eq_ignore_ascii_case(colour)
+                            && record.system_id().is_some()
+                    })
+                    .expect("a planet with that specialty");
+                used.insert(*id);
+                let system = ti4_model::id::SystemId::new(record.system_id().unwrap());
+                let planet = PlanetId::new(*id);
+                state.system_mut(&system).set_control(planet.clone(), player());
+                if specialty["exhausted"].as_bool().unwrap() {
+                    state.exhaust_planet(planet);
+                }
+            }
+            let target = TechnologyId::new(scenario["target"].as_str().unwrap());
+            assert_eq!(
+                can_research(&state, content, POK, &player(), &target),
+                scenario["researchable"].as_bool().unwrap(),
+                "{name}"
+            );
+            if let Some(then) = scenario["then_target"].as_str() {
+                assert!(research(&mut state, content, POK, &player(), &target), "{name}: first pick");
+                let then = TechnologyId::new(then);
+                assert_eq!(
+                    can_research(&state, content, POK, &player(), &then),
+                    scenario["then_researchable"].as_bool().unwrap(),
+                    "{name}: second pick"
+                );
+            }
+        }
+    }
+
 }
 
 #[cfg(test)]
