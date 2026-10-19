@@ -153,6 +153,10 @@ tuning! {
     agenda_second_prior: f64 = 2.0, "v5: assumed stake of an unknown second agenda, in value points (agenda_budget)";
     rider_min_p: f64 = 0.7, "v5: least probability that the predicted outcome wins for a rider to be played (agenda_riders)";
     muaat_keeps_note: bool = false, "v6 staging (off in v1-v5): a Muaat seat never gives away its Fires of the Gashlai (the War Sun technology note) in a transaction: it refuses proposals that take it and never proposes it";
+    rift_risk: bool = false, "v6 staging (off in v1-v5): gravity-rift risk model (docs/BOT_GRAVITY_RIFT.md): a ship whose route exits a rift (30% loss per rift, cargo too) moves only when the worth it adds beats the expected loss; safe ships and cheap ones first";
+    rift_gain_scale: f64 = 1.0, "v6 (rift_risk): resources one point of activation worth is taken to be (a planet pays for several rounds); gain = scale * worth added";
+    rift_margin: f64 = 3.0, "v6 (rift_risk): the gain must beat the expected loss times this";
+    rift_flagship_weight: f64 = 1.0, "v6 (rift_risk): extra weight on the cost of a flagship or war sun that would cross a rift (irreplaceable: one per seat)";
     land_all: bool = false, "v5 (off in v1-v4): the landing step commits every ground force aboard to a planet of the system (never leaves them in space)";
 }
 
@@ -208,11 +212,13 @@ pub fn v5() -> Tuning {
 }
 
 /// Version 6, **staging** (not shipped: [`BOT_VERSION`] stays 5 until the user says ship): version
-/// 5 plus `muaat_keeps_note` (a Muaat seat keeps Fires of the Gashlai out of every transaction).
+/// 5 plus `muaat_keeps_note` (a Muaat seat keeps Fires of the Gashlai out of every transaction)
+/// and `rift_risk` (the gravity-rift risk model, docs/BOT_GRAVITY_RIFT.md).
 #[must_use]
 pub fn v6() -> Tuning {
     Tuning {
         muaat_keeps_note: true,
+        rift_risk: true,
         ..v5()
     }
 }
@@ -353,6 +359,10 @@ fn v1() -> Tuning {
         rider_min_p: 0.7,
         land_all: false,
         muaat_keeps_note: false,
+        rift_risk: false,
+        rift_gain_scale: 1.0,
+        rift_margin: 3.0,
+        rift_flagship_weight: 1.0,
     }
 }
 
@@ -438,11 +448,13 @@ mod tests {
         assert_eq!(
             Tuning {
                 muaat_keeps_note: false,
+                rift_risk: false,
                 ..for_version(6)
             },
             for_version(5)
         );
         assert!(for_version(6).muaat_keeps_note && !for_version(5).muaat_keeps_note);
+        assert!(for_version(6).rift_risk && !for_version(5).rift_risk && !for_version(1).rift_risk);
         assert_eq!(for_version(7), for_version(6));
         assert!(!v4.nekro_tech && v4.tech_pick_rule && v4.r1_tech);
         assert!((v4.planner_gap - 5.0).abs() < f64::EPSILON);

@@ -120,6 +120,7 @@ mod decider;
 pub mod faction_plans;
 pub mod planner;
 pub mod random;
+mod rift;
 pub mod tuning;
 
 pub use decider::RuleBotDecider;
@@ -214,7 +215,8 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
     // -- movement filters (bot version 2): no gravity-rift gamble outside a fight; never strip
     // the home system bare before a rival fleet --
     if subtype == Some("movement_step")
-        && let Some(keep) = rift_keep(choice, observed, &me)
+        && let Some(keep) = rift::keep(choice, observed, &me)
+            .or_else(|| rift_keep(choice, observed, &me))
             .or_else(|| home_guard_keep(choice, observed, &me))
             .or_else(|| mecatol_guard_keep(choice, observed, &me))
     {
@@ -752,6 +754,23 @@ fn has_own_production(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> 
 #[must_use]
 pub fn activation_value(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> f64 {
     let movable = movable_for(seen, me, system);
+    // Bot version 6 (rift_risk): the expected loss of the ships that must cross a rift.
+    let penalty = rift::penalty(seen, me, system, &movable);
+    let value = activation_value_with(seen, me, system, movable);
+    if penalty > 0.0 && value > 0.0 {
+        (value - penalty).max(0.0)
+    } else {
+        value
+    }
+}
+
+/// [`activation_value`] for the given ships coming (the gravity-rift model weighs subsets).
+pub(crate) fn activation_value_with(
+    seen: &Observed<'_>,
+    me: &PlayerId,
+    system: &SystemId,
+    movable: Vec<Movable>,
+) -> f64 {
     let board = seen.system(system);
     let present: Vec<&Unit> = board
         .units
@@ -1926,13 +1945,15 @@ fn pick_move(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usiz
             // Already winning: only a carrier for the invasion is still useful.
             return carrier_for_ground(&moves, seen, me, &active).or(Some(done));
         }
+        // Bot version 6 (rift_risk): the ships that may come exclude those the rift risk rules out.
+        let arriving = rift::prune(seen, me, &active, seen.movable_into(me, &active));
         let everything = fleet(
             seen,
             me,
             present
                 .iter()
                 .copied()
-                .chain(seen.movable_into(me, &active).iter().map(|m| &m.unit)),
+                .chain(arriving.iter().map(|m| &m.unit)),
         );
         if matchup(&everything, &enemy) < fight_margin(seen, &active) {
             return Some(done); // a losing fight: stay out
@@ -2148,6 +2169,10 @@ fn mecatol_surplus(seen: &Observed<'_>, me: &PlayerId) -> Option<BTreeMap<String
 /// The ships that could move into `system` ([`Observed::movable_into`]), less the Mecatol Rex
 /// garrison ([`mecatol_surplus`]).
 pub(crate) fn movable_for(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Vec<Movable> {
+    rift::prune(seen, me, system, movable_guarded(seen, me, system))
+}
+
+fn movable_guarded(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Vec<Movable> {
     let movable = seen.movable_into(me, system);
     if !tuning::mecatol_guard() {
         return movable;

@@ -3221,7 +3221,38 @@ impl<'a> Game<'a> {
                     ));
                 Some(choice)
             }
-            TacticalStage::Loading { window, .. } => window.pending_choice(),
+            TacticalStage::Loading { window, path, .. } => {
+                let mut choice = window.pending_choice()?;
+                // Policy fact: the rifts this ship's route exits (each rolls a die, 1-3 destroys
+                // it with everything aboard). Absent when none.
+                let exits = self.route_rift_exits(&choice.player.clone(), path);
+                if exits > 0 {
+                    choice = choice.detailed("rift_exits", exits);
+                }
+                Some(choice)
+            }
+        }
+    }
+
+    /// Gravity rifts `path` exits for `player`'s ship, as [`Self::sail`] rolls them.
+    fn route_rift_exits(&self, player: &PlayerId, path: &[String]) -> usize {
+        let (Some(galaxy), Some(active)) =
+            (self.galaxy.as_ref(), self.state.active_system.as_ref())
+        else {
+            return 0;
+        };
+        let mut rules = MovementRules::new(
+            galaxy,
+            self.content,
+            self.sources,
+            active.as_str(),
+            Board::default(),
+        );
+        crate::action_cards::apply_movement_effects(&mut rules, &self.state, player);
+        if rules.anomalies_ignored || rules.rifts_ignored {
+            0
+        } else {
+            crate::transit::rifts_exited(&rules, path).len()
         }
     }
 
