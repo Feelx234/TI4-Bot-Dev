@@ -1,0 +1,19 @@
+{
+  "title": "Aetherpassage prompt toggle",
+  "description": "Empyrean Aetherpassage (after a player activates a system: you may allow that player to move their ships through systems that contain your ships) is asked after every qualifying activation. A viewer-local switch, shown on the Empyrean player sheet and in the offer, now lets the client decline it automatically until it is switched back on. The engine still asks; the decline is an ordinary recorded choice. Mocked game; regenerate with npm run screenshots -- FT.",
+  "tag": "web/e2e/screenshots/FT-aetherpassage-toggle",
+  "shots": [
+    { "file": "out/1-offer-desktop.png", "heading": "The offer with the switch, desktop", "caption": "Default: asked as before. A checkbox reads \"Don't ask about Aetherpassage (decline it for me) until I switch it back on\"." },
+    { "file": "out/1-offer-390x844.png", "heading": "The offer with the switch, phone", "caption": "Same at 390 px wide." },
+    { "file": "out/5-switch-ticked.png", "heading": "Switch ticked in the offer", "caption": "Ticking it applies from the next activation on; this question is still yours to answer." },
+    { "file": "out/2-sheet-ask.png", "heading": "Player mat, asking", "caption": "The Empyrean player's sheet has an \"Aetherpassage ask\" button next to Sound, Toasts and Auto." },
+    { "file": "out/3-sheet-skipped.png", "heading": "Player mat, skipped", "caption": "Switched off the button reads \"Aetherpassage skipped\" and is shaded; it stays visible for any faction so it can be switched back on." },
+    { "file": "out/4-declined-toast.png", "heading": "Declined for you", "caption": "With the switch off the client sends the pass after a short pause and shows the toast \"Aetherpassage skipped (switched off)\"." },
+    { "file": "out/6-after-undo.png", "heading": "After an undo", "caption": "An undo that lands on the offer is asked, never answered again, so the player can undo past it." }
+  ],
+  "notes": [
+    { "title": "Persistence", "text": "The setting is stored in this browser only (localStorage key player_ask_aetherpassage). It applies to all games and survives reloads until the player switches it back on." },
+    { "title": "When it acts", "text": "Only the Empyrean owner's own client, only when the game moved forward to the offer (history cursor grew, nothing to redo), and only when Aetherpassage is the only ability in that reaction window. Page load, reconnect, undo, redo and restore never decline." },
+    { "title": "Not changed", "text": "No engine, rules or checksum change. The question is still asked and the answer is a recorded submit_choice." }
+  ]
+}
