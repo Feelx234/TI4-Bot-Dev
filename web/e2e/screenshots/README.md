@@ -154,3 +154,7 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Plan the status phase tokens (FU-plan-status-tokens)
 
 `FU-plan-status-tokens` shows planning the status phase's command-token gain and redistribution ahead of time (chip, planner dialog, saved plan, cleared plan), the plan answered automatically ("Answered from your plan"), the Review-mode bar with the real token panel prefilled, and the two "Needs review" cases (a different number of tokens gained or held), desktop and 390x844. `npm run screenshots -- FU` asserts the texts, that a wrong total cannot be saved and that nothing is applied when the plan does not fit.
+
+## Agenda visible to all (FW-agenda-visible-to-all)
+
+`FW-agenda-visible-to-all` shows the agenda banner for every viewer from the reveal to the resolution: the voter, a seat that is not asked, a spectator, the reaction window with riders, the second agenda, after resolution (banner gone) and a 6-player Elect Player table with real 64-hex ids, desktop and 390x844. `capture-2-real-engine.ts` plays the `agenda` preset through the real wasm engine (needs `npm run build:wasm`). The `before-*` PNGs were taken with `TI4_SHOT_PREFIX=before` on 0a18dd87. `npm run screenshots -- FW` asserts the texts, no raw player id and no horizontal scroll.
