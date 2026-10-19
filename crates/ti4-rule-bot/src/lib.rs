@@ -334,8 +334,12 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
                 return Some(index);
             }
         }
-        Some("answer_transaction") => return pick_answer(choice),
-        Some("propose_transaction") => return pick_proposal(choice),
+        Some("answer_transaction") => {
+            return pick_answer(choice, keeps_fires(observed, &me));
+        }
+        Some("propose_transaction") => {
+            return pick_proposal(choice, keeps_fires(observed, &me));
+        }
         _ => {}
     }
     if choice
@@ -2563,9 +2567,7 @@ fn land_leftover(
             .clone()
             .filter(|u| &u.owner == me && is_ground(seen, u))
             .count();
-        let defended = units
-            .clone()
-            .any(|u| &u.owner != me && is_ground(seen, u));
+        let defended = units.clone().any(|u| &u.owner != me && is_ground(seen, u));
         let held = board.planet_control.get(&planet) == Some(me);
         if defended && mine == 0 && !held {
             continue;
@@ -3354,8 +3356,19 @@ fn exhausted_influence(seen: &Observed<'_>, me: &PlayerId) -> i64 {
         .sum()
 }
 
+/// The id of the Muaat's faction promissory note, Fires of the Gashlai (it hands its holder the
+/// War Sun technology).
+const FIRES_OF_THE_GASHLAI: &str = "fires:muaat";
+
+/// Bot version 6 (`muaat_keeps_note`): the seat plays the Muaat and keeps its own Fires of the
+/// Gashlai out of every transaction.
+fn keeps_fires(seen: &Observed<'_>, me: &PlayerId) -> bool {
+    tuning::muaat_keeps_note() && faction(seen, me) == "muaat"
+}
+
 /// Accept only a trade that is slightly in the bot's favour; otherwise refuse, never counter.
-fn pick_answer(choice: &Choice) -> Option<usize> {
+/// `keeps_fires`: the seat refuses any trade that makes it give Fires of the Gashlai.
+fn pick_answer(choice: &Choice, keeps_fires: bool) -> Option<usize> {
     let accept = choice.options.iter().position(|o| o.id == "accept");
     let refuse = choice.options.iter().position(ChoiceOption::is_decline);
     // Bot version 2: a Support for the Throne is a victory point to whoever holds it; the bot
@@ -3366,6 +3379,15 @@ fn pick_answer(choice: &Choice) -> Option<usize> {
             .split(" for ")
             .skip(1)
             .any(|part| part.contains(ti4_engine::promissory::SUPPORT_PREFIX))
+    {
+        return refuse;
+    }
+    if keeps_fires
+        && choice
+            .prompt
+            .split(" for ")
+            .skip(1)
+            .any(|part| part.contains(FIRES_OF_THE_GASHLAI))
     {
         return refuse;
     }
@@ -3385,14 +3407,25 @@ fn gives_support(option: &ChoiceOption) -> bool {
         .is_some_and(|given| given.contains(ti4_engine::promissory::SUPPORT_PREFIX))
 }
 
+/// Whether a proposal makes the proposer give Fires of the Gashlai (its label, "give/sell X ...",
+/// names it before the first " for ").
+fn gives_fires(option: &ChoiceOption) -> bool {
+    option
+        .label
+        .split(" for ")
+        .next()
+        .is_some_and(|given| given.contains(FIRES_OF_THE_GASHLAI))
+}
+
 /// Propose the offer that gains most for the bot among those that also gain for the other side.
-fn pick_proposal(choice: &Choice) -> Option<usize> {
+fn pick_proposal(choice: &Choice, keeps_fires: bool) -> Option<usize> {
     let scored: Vec<(usize, f64)> = choice
         .options
         .iter()
         .enumerate()
         .filter(|(_, o)| o.kind == "offer")
         .filter(|(_, o)| !(tuning::sftt_rule() && gives_support(o)))
+        .filter(|(_, o)| !(keeps_fires && gives_fires(o)))
         .filter_map(|(i, o)| {
             let net = payload_f64(o, "net")?;
             let theirs = payload_f64(o, "their_net")?;
@@ -5157,7 +5190,11 @@ mod tests {
         let choice = Choice::new(
             me(),
             "pay 4 more resources",
-            vec![pay("trade_good", 1, 4), pay("exhaust|big", 5, 4), pay("exhaust|fit", 4, 4)],
+            vec![
+                pay("trade_good", 1, 4),
+                pay("exhaust|big", 5, 4),
+                pay("exhaust|fit", 4, 4),
+            ],
         );
         assert!(choice.options.iter().all(|o| o.kind == "pay"));
         let (state, hub, _, _) = board();
@@ -5179,9 +5216,9 @@ mod tests {
                 ],
             )
         };
-        assert_eq!(pick_answer(&answer(1.0)), Some(0));
-        assert_eq!(pick_answer(&answer(0.1)), Some(1));
-        assert_eq!(pick_answer(&answer(-3.0)), Some(1));
+        assert_eq!(pick_answer(&answer(1.0), false), Some(0));
+        assert_eq!(pick_answer(&answer(0.1), false), Some(1));
+        assert_eq!(pick_answer(&answer(-3.0), false), Some(1));
 
         let offer = |id: &str, net: f64, theirs: f64| {
             ChoiceOption::labelled(id, "offer", id)
@@ -5198,13 +5235,74 @@ mod tests {
                 ChoiceOption::decline(),
             ],
         );
-        assert_eq!(pick_proposal(&propose), Some(1));
+        assert_eq!(pick_proposal(&propose, false), Some(1));
         let none = Choice::new(
             me(),
             "transaction",
             vec![offer("greedy", 3.0, -1.0), ChoiceOption::decline()],
         );
-        assert_eq!(pick_proposal(&none), Some(1));
+        assert_eq!(pick_proposal(&none, false), Some(1));
+    }
+
+    /// Bot version 6: the Muaat bot never gives away Fires of the Gashlai; any other trade (and
+    /// the same trade without the note) is judged as before.
+    #[test]
+    fn the_muaat_bot_keeps_fires_of_the_gashlai() {
+        let answer = |prompt: &str| {
+            Choice::new(
+                me(),
+                prompt,
+                vec![
+                    ChoiceOption::labelled("accept", "transaction", "accept").with("net", 5.0),
+                    ChoiceOption::labelled("refuse", "decline", "refuse"),
+                ],
+            )
+        };
+        let takes = answer("hacan gives 3 trade goods for fires:muaat");
+        let fine = answer("hacan gives 3 trade goods for 2 trade goods");
+        let gets = answer("hacan gives fires:muaat for 2 trade goods");
+        // Muaat with the knob on.
+        assert_eq!(pick_answer(&takes, true), Some(1));
+        assert_eq!(pick_answer(&fine, true), Some(0));
+        assert_eq!(pick_answer(&gets, true), Some(0));
+        // Knob off or another faction (keeps_fires false): unchanged.
+        assert_eq!(pick_answer(&takes, false), Some(0));
+
+        let offer = |id: &str, label: &str, net: f64| {
+            ChoiceOption::labelled(id, "offer", label)
+                .with("net", net)
+                .with("their_net", 1.0)
+        };
+        let propose = Choice::new(
+            me(),
+            "transaction",
+            vec![
+                offer("a", "sell fires:muaat for 4 trade goods", 3.0),
+                offer("b", "give fires:muaat", 2.5),
+                offer("c", "sell support:muaat for 3 trade goods", 0.1),
+                offer("d", "sell sabo:muaat for 2 trade goods", 1.0),
+                ChoiceOption::decline(),
+            ],
+        );
+        assert_eq!(pick_proposal(&propose, true), Some(3));
+        assert_eq!(pick_proposal(&propose, false), Some(0));
+    }
+
+    #[test]
+    fn keeps_fires_needs_the_knob_and_the_muaat() {
+        let (state, hub, _, _) = board();
+        let seen = observe(&state, &hub);
+        let mut on = tuning::for_version(6);
+        assert!(on.muaat_keeps_note);
+        let faction_now = faction(&seen, &me());
+        tuning::with(on, || {
+            assert_eq!(keeps_fires(&seen, &me()), faction_now == "muaat");
+        });
+        on.muaat_keeps_note = false;
+        tuning::with(on, || assert!(!keeps_fires(&seen, &me())));
+        for v in 1..=5 {
+            assert!(!tuning::for_version(v).muaat_keeps_note);
+        }
     }
 
     #[test]
