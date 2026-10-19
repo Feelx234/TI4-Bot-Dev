@@ -19,9 +19,9 @@ export interface OfferAutoDeclineSpec {
   /** The option to answer with, or null when the client may not answer this question. */
   declineOption: (choice: PendingChoiceDto | null, viewerSeat?: string | null) => string | null;
   /** Whether the viewer wants to be asked (read fresh each time). */
-  readAsk: () => boolean;
-  noticePrefix: string;
-  noticeText: string;
+  readAsk: (choice: PendingChoiceDto | null) => boolean;
+  noticePrefix: string | ((choice: PendingChoiceDto | null) => string);
+  noticeText: string | ((choice: PendingChoiceDto | null) => string);
   delayMs?: number;
 }
 
@@ -65,10 +65,12 @@ export function useOfferAutoDecline(
     const wasArmed = armed.current;
     armed.current = false;
     // Decided when the offer appears: switching off while it is open leaves this one to the player.
-    if (!wasArmed || !declineId || spec.readAsk()) return;
+    if (!wasArmed || !declineId || spec.readAsk(choice)) return;
     const timer = window.setTimeout(() => {
-      if (busyRef.current || spec.readAsk()) return;
-      noticeRef.current?.({ id: `${spec.noticePrefix}-${nonce}`, text: spec.noticeText });
+      if (busyRef.current || spec.readAsk(choice)) return;
+      const prefix = typeof spec.noticePrefix === "function" ? spec.noticePrefix(choice) : spec.noticePrefix;
+      const text = typeof spec.noticeText === "function" ? spec.noticeText(choice) : spec.noticeText;
+      noticeRef.current?.({ id: `${prefix}-${nonce}`, text });
       submitRef.current(declineId, nonce).catch(() => {
         // The decision stays open for a click.
       });

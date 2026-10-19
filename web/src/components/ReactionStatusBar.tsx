@@ -1,7 +1,4 @@
-import { I48sSwitch } from "./I48sSwitch.tsx";
-import { AetherpassageSwitch } from "./AetherpassageSwitch.tsx";
-import { isAetherpassageOffer } from "../presentation/aetherpassageOffer.ts";
-import { isI48sOffer } from "../presentation/i48sOffer.ts";
+import { PromptSwitches } from "./PromptSwitch.tsx";
 import React, { useState, useEffect, useMemo } from "react";
 import { readableEventTypes } from "../presentation/participantText.ts";
 import type {
@@ -394,8 +391,7 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
               </button>
             )}
 
-            {isI48sOffer(choice) && <I48sSwitch />}
-            {isAetherpassageOffer(choice) && <AetherpassageSwitch />}
+            <PromptSwitches choice={choice} />
 
             <label className="reaction-status-bar__pin">
               <input

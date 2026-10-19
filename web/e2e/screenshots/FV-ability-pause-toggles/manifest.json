@@ -1,0 +1,35 @@
+{
+  "title": "Pausable ability prompts",
+  "description": "Every optional ability that the engine asks a player about on a frequent event (another player's activation, a combat round, a production, a unit loss, a turn start, ...) can now be switched off for this browser, like I48S and Aetherpassage: a checkbox in the offer, an automatic decline with a toast, a Prompts list on the player sheet, and a chip while anything is skipped. 64 abilities are registered (docs/ABILITY_PAUSE_TOGGLES.md has the audit). Mocked game; regenerate with npm run screenshots -- FV.",
+  "tag": "web/e2e/screenshots/FV-ability-pause-toggles",
+  "shots": [
+    { "file": "out/1-offer-desktop.png", "heading": "Reaction offer with the checkbox, desktop", "caption": "Saar agent Captain Mendosa (after a system activation), an ability that had no switch before. The checkbox reads \"Don't ask about Captain Mendosa (when a player activates a system); decline it for me until I switch it back on\"." },
+    { "file": "out/1-offer-390x844.png", "heading": "Reaction offer with the checkbox, phone", "caption": "Same at 390 px wide." },
+    { "file": "out/2-own-question-desktop.png", "heading": "An ability that asks by itself, desktop", "caption": "Self-Assembly Routines asks its own question (no reaction window); the same switch sits in a small strip under it." },
+    { "file": "out/2-own-question-390x844.png", "heading": "An ability that asks by itself, phone", "caption": "Same at 390 px wide." },
+    { "file": "out/3-sheet-prompts-desktop.png", "heading": "Player sheet: one Prompts control, desktop", "caption": "An Empyrean seat has seven switchable abilities, so the sheet shows one \"Prompts (7)\" button instead of seven. A seat with three or fewer keeps one button each (I48S and Aetherpassage keys and test ids are unchanged)." },
+    { "file": "out/3-sheet-prompts-390x844.png", "heading": "Player sheet: one Prompts control, phone", "caption": "On the phone the sheet is behind the Players button; the Prompts button is in its control row." },
+    { "file": "out/4-panel-all-ask-desktop.png", "heading": "The Prompts list, all asking, desktop", "caption": "Each ability with its source and when it asks, and an Ask / Skipped switch. The note says it applies to all games on this browser." },
+    { "file": "out/4-panel-all-ask-390x844.png", "heading": "The Prompts list, all asking, phone", "caption": "Same at 390 px wide." },
+    { "file": "out/5-panel-some-skipped-desktop.png", "heading": "The Prompts list, some skipped, desktop", "caption": "Aetherpassage, Dynamo and Watcher switched to Skipped (amber)." },
+    { "file": "out/5-panel-some-skipped-390x844.png", "heading": "The Prompts list, some skipped, phone", "caption": "Same at 390 px wide." },
+    { "file": "out/6-sheet-after-desktop.png", "heading": "Sheet and chip after skipping, desktop", "caption": "The sheet button counts the skipped prompts and the chip \"3 prompts skipped\" sits under the top bar." },
+    { "file": "out/6-sheet-after-390x844.png", "heading": "Sheet and chip after skipping, phone", "caption": "Same at 390 px wide." },
+    { "file": "out/7-few-abilities.png", "heading": "A seat with few abilities", "caption": "L1Z1X has one switchable ability and keeps its \"I48S skipped\" button." },
+    { "file": "out/8-chip-desktop.png", "heading": "Paused-prompts chip, desktop", "caption": "Two Nomad prompts are skipped; the chip is under the top bar so nobody forgets." },
+    { "file": "out/8-chip-390x844.png", "heading": "Paused-prompts chip, phone", "caption": "Same at 390 px wide." },
+    { "file": "out/9-chip-opens-list-desktop.png", "heading": "The chip opens the list, desktop", "caption": "Clicking the chip opens the Prompts list with the skipped abilities highlighted." },
+    { "file": "out/9-chip-opens-list-390x844.png", "heading": "The chip opens the list, phone", "caption": "Same at 390 px wide." },
+    { "file": "out/10-foreign-listed.png", "heading": "A skipped ability of another faction", "caption": "An ability stays listed (and switchable) while it is skipped, whichever faction the seat plays." },
+    { "file": "out/11-declined-toast-desktop.png", "heading": "Declined for you, desktop", "caption": "With Captain Mendosa skipped the client sends the pass after a short pause and shows \"Captain Mendosa skipped (switched off)\"." },
+    { "file": "out/11-declined-toast-390x844.png", "heading": "Declined for you, phone", "caption": "Same at 390 px wide." },
+    { "file": "out/12-stays-open-with-card.png", "heading": "Another answer keeps the question open", "caption": "When the same window also offers an action card, the paused ability is not declined for the player." },
+    { "file": "out/13-after-undo.png", "heading": "Asked again after an undo", "caption": "An undo that lands on the offer asks it, never answers it again, so the player can undo past it." }
+  ],
+  "notes": [
+    { "title": "Persistence", "text": "Each setting is stored in this browser only (localStorage key player_ask_<id>, e.g. player_ask_i48s and player_ask_aetherpassage as before). It applies to all games and survives reloads until switched back on. Storage failures mean ask." },
+    { "title": "When it acts", "text": "Only the offered seat's own client, only when the game moved forward to the offer (history cursor grew, nothing to redo), and only when every non-decline answer of the question is a paused ability. Page load, reconnect, undo, redo and restore never decline." },
+    { "title": "Not changed", "text": "No engine, rules, checksum or decision-hash change. The question is still asked and the answer is a recorded submit_choice (the decline). Action cards keep their existing per-game 'Never offer' mode." },
+    { "title": "Audit", "text": "docs/ABILITY_PAUSE_TOGGLES.md lists every optional ability that was checked, which are registered, which are covered by the action card modes, and which were left out and why." }
+  ]
+}

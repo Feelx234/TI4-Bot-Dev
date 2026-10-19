@@ -61,8 +61,12 @@ import {
 import { Dialog, overlayStack } from "../primitives/index.ts";
 import { useParticipantText } from "../presentation/PlayerIdentity.tsx";
 import { useLoneAutoSubmit } from "../hooks/useLoneAutoSubmit.ts";
-import { useI48sAutoDecline } from "../hooks/useI48sAutoDecline.ts";
-import { useAetherpassageAutoDecline } from "../hooks/useAetherpassageAutoDecline.ts";
+import { usePausedPromptAutoDecline } from "../hooks/usePausedPromptAutoDecline.ts";
+import { PromptSwitches } from "./PromptSwitch.tsx";
+import "./PromptsPanel.css";
+import { promptsOfChoice } from "../presentation/pausablePrompts.ts";
+import { PromptsPanel } from "./PromptsPanel.tsx";
+import { PausedPromptsChip } from "./PausedPromptsChip.tsx";
 import { readSinglePayment } from "../hooks/useSinglePaymentSetting.ts";
 import {
   ProductionPaymentProvider,
@@ -1007,6 +1011,15 @@ export const ChoiceRendererDispatcher: React.FC<
         />
       )}
 
+      {/* The pause switch of an ability that asks its own question (the reaction dialog has its own). */}
+      {workflow !== "action_card_reaction" &&
+        choice.actor === viewerSeat &&
+        promptsOfChoice(choice).length > 0 && (
+          <div className="prompt-switch-strip" data-testid="prompt-switch-strip">
+            <PromptSwitches choice={choice} />
+          </div>
+        )}
+
       {wrappedWorkflow ? (
         <Dialog.Root
           open={!isMinimized}
@@ -1121,15 +1134,7 @@ export const GameShell: React.FC<GameShellProps> = ({
     submit: onSubmitChoice,
     onNotice: onAutoSubmitNotice,
   });
-  useI48sAutoDecline({
-    choice,
-    viewerSeat,
-    history,
-    busy: pipelineRunner.isRunning || Boolean(historyBusy),
-    submit: onSubmitChoice,
-    onNotice: onAutoSubmitNotice,
-  });
-  useAetherpassageAutoDecline({
+  usePausedPromptAutoDecline({
     choice,
     viewerSeat,
     history,
@@ -1435,6 +1440,7 @@ export const GameShell: React.FC<GameShellProps> = ({
         {header}
         {agenda && <AgendaStrip strip={agenda} />}
         <ActiveEffectsStrip effects={activeEffects} viewerSeat={viewerSeat} />
+        {viewerSeat && <PausedPromptsChip />}
       </div>
       <div className="app-shell__content">
         <main className="app-shell__board">
@@ -1575,6 +1581,7 @@ export const GameShell: React.FC<GameShellProps> = ({
             onDismiss={onDismissBatchResume}
           />
         )}
+        {viewerSeat && <PromptsPanel holder={playersMap[viewerSeat]} />}
         <PipelineRunnerContext.Provider value={pipelineRunner}>
           <ChoiceRendererDispatcher
             key={`${history?.generation ?? 0}:${boardView?.invasion?.invasion_seq ?? "none"}`}
