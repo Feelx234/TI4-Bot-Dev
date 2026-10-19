@@ -39,6 +39,8 @@ import {
   type TokenStaging,
   restackMoves,
 } from "../presentation/commandTokens.ts";
+import { useStatusTokenPlanContext } from "./StatusTokenPlanHost.tsx";
+import { describeStatusPart } from "../presentation/statusTokenPlan.ts";
 import "./DecisionContext.css";
 
 export interface CommandTokenPanelProps {
@@ -126,6 +128,10 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
   const suggestion = purchase && suggestCount > 0 ? planPayment(view, suggestCount) : null;
   const suggestedNow = override === null && bought > 0;
 
+  // The prepared status-phase plan for this very question (gain or redistribution), as chips.
+  const statusPlan = useStatusTokenPlanContext();
+  const planned = statusPlan?.part ? statusPlan.plan[statusPlan.part] : undefined;
+
   const confirm = async () => {
     const outcome = tokenOutcome(view, staging, bought, override);
     if (!outcome) return;
@@ -170,6 +176,24 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
           </span>
         )}
       </div>
+      {statusPlan?.part && planned && (
+        <p className="status-plan__chips" data-testid="token-status-plan">
+          <span
+            className={`secondary-prep__badge${statusPlan.resolution.kind === "review" ? " secondary-prep__badge--review" : ""}`}
+            data-testid="token-status-plan-badge"
+          >
+            {statusPlan.resolution.kind === "review" ? "Needs review" : "Your plan"}
+          </span>
+          {TOKEN_POOLS.filter((pool) => planned[pool] > 0).map((pool) => (
+            <span key={pool} className="secondary-prep__badge" data-testid={`token-status-plan-${pool}`}>
+              {POOL_LABEL[pool]} {planned[pool]}
+            </span>
+          ))}
+          <span className="secondary-prep__note" style={{ margin: 0 }}>
+            {describeStatusPart(statusPlan.part, planned)}
+          </span>
+        </p>
+      )}
       {restack && (
         <p className="token-panel__note" data-testid="token-restack-note">
           Predictive Intelligence: arrange the pools you want at the end of your turn. The{" "}

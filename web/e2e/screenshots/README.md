@@ -150,3 +150,7 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Score Public Objective on a phone (EK-score-objective-compact)
 
 `EK-score-objective-compact` shows the scoring window (objectives modal in scoring mode, with and without the Imperial note) on 390x844, 360x740 and landscape 844x390, plus desktop unchanged. The `before-*` PNGs were taken with `TI4_SHOT_PREFIX=before` on the commit without the change; `npm run screenshots -- EK` regenerates the `after-*` PNGs and asserts a one-row header (<= 52 px, Minimize on it), >= 3 visible objective rows (2 in landscape), the footer inside the viewport and no horizontal overflow.
+
+## Plan the status phase tokens (FU-plan-status-tokens)
+
+`FU-plan-status-tokens` shows planning the status phase's command-token gain and redistribution ahead of time (chip, planner dialog, saved plan, cleared plan), the plan answered automatically ("Answered from your plan"), the Review-mode bar with the real token panel prefilled, and the two "Needs review" cases (a different number of tokens gained or held), desktop and 390x844. `npm run screenshots -- FU` asserts the texts, that a wrong total cannot be saved and that nothing is applied when the plan does not fit.

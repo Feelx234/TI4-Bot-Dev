@@ -301,3 +301,62 @@
     box-sizing: border-box;
   }
 }
+
+/* Planning the status phase's token decisions (StatusTokenPlanDialog). */
+.status-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.status-plan__held {
+  margin: 0;
+  color: var(--color-text-muted, #94a3b8);
+  font-size: 0.85rem;
+}
+.status-plan__section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border, #334155);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.6);
+}
+.status-plan__toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  min-height: 44px;
+}
+.status-plan__pools {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.status-plan__pool {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.status-plan__pool-name {
+  min-width: 70px;
+  font-weight: 600;
+}
+.status-plan__pool .button--sm {
+  min-width: 44px;
+  min-height: 44px;
+}
+.status-plan__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.status-plan__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 0;
+}

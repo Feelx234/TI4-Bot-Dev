@@ -486,4 +486,72 @@ mod tests {
         );
         assert_eq!(progress.remaining().len(), 1);
     }
+    fn status_token_question(
+        player: &PlayerId,
+        subtype: &str,
+        options: Vec<ChoiceOption>,
+    ) -> Choice {
+        Choice::new(player.clone(), "tokens", options).contextualized(DecisionContext::new(
+            player.clone(),
+            DecisionSource::Rule("81.5".into()),
+            subtype,
+            Phase::Status,
+            3,
+        ))
+    }
+
+    fn pool_option(pool: &str) -> ChoiceOption {
+        ChoiceOption::labelled(format!("{pool}_tokens"), "pool", format!("{pool} pool"))
+    }
+
+    fn arrangement(id: &str) -> ChoiceOption {
+        ChoiceOption::labelled(id, "redistribute", id)
+    }
+
+    /// A planned status phase (gain per 52.4/81.5, then the 81.5 redistribution) replays on an
+    /// unchanged fresh game exactly, with no new decision kind or hash involved; if the fresh game
+    /// holds a different number of tokens the arrangement is simply not offered and the replay
+    /// stops instead of applying part of the plan.
+    #[test]
+    fn status_token_gain_and_redistribution_replay_exactly_or_stop() {
+        let player = PlayerId::new("b");
+        let gain = status_token_question(
+            &player,
+            "gain_command_token",
+            vec![pool_option("tactic"), pool_option("fleet"), pool_option("strategic")],
+        );
+        let redistribute = status_token_question(
+            &player,
+            "status_redistribute_tokens",
+            vec![arrangement("4|4|2"), arrangement("5|3|2"), arrangement("3|5|2")],
+        );
+        let planned = vec![
+            RecordedDecision::from_answer(&gain, &pool_option("tactic")),
+            RecordedDecision::from_answer(&gain, &pool_option("tactic")),
+            RecordedDecision::from_answer(&redistribute, &arrangement("5|3|2")),
+        ];
+        assert!(planned[2].matches_replay_question(&redistribute));
+        assert!(planned[0].matches_replay_question(&gain));
+        assert!(!planned[0].matches_replay_question(&redistribute));
+
+        let (mut replay, progress) = ReplayDecider::for_planning(planned.clone());
+        assert_eq!(replay.choose(&gain).unwrap().id, "tactic_tokens");
+        assert_eq!(replay.choose(&gain).unwrap().id, "tactic_tokens");
+        assert_eq!(replay.choose(&redistribute).unwrap().id, "5|3|2");
+        assert_eq!(progress.lock().unwrap().remaining().len(), 0);
+
+        // Eleven tokens held instead of ten: the planned arrangement is not on offer.
+        let other_total = status_token_question(
+            &player,
+            "status_redistribute_tokens",
+            vec![arrangement("5|3|3"), arrangement("6|3|2")],
+        );
+        let (mut replay, progress) = ReplayDecider::for_planning(planned);
+        replay.choose(&gain).unwrap();
+        replay.choose(&gain).unwrap();
+        assert!(replay.choose(&other_total).is_err());
+        let progress = progress.lock().unwrap();
+        assert_eq!(progress.stop_reason(), Some(ReplayStopReason::SelectionMissing));
+        assert_eq!(progress.remaining().len(), 1);
+    }
 }
