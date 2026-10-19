@@ -15,7 +15,7 @@ import {
 const SEAT = "p1";
 const pools = { tactic: 3, fleet: 3, strategic: 2 };
 
-const gainChoice = (tokens: number, extra: Record<string, unknown> = {}, phase = "status"): PendingChoiceDto => ({
+const gainChoice = (tokens: number, extra: Record<string, unknown> = {}, phase: "status" | "action" | "agenda" | "strategy" = "status"): PendingChoiceDto => ({
   prompt: "gain a command token into which pool",
   actor: SEAT,
   nonce: "n-gain",
