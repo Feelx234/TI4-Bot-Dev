@@ -3181,6 +3181,23 @@ select:focus-visible,
   color: #e69f00;
 }
 
+.combat-barrage-note__lines {
+  flex-basis: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.combat-barrage-note__line--info {
+  color: var(--color-text);
+}
+
+.combat-barrage-note__line--none {
+  color: var(--color-text-muted);
+}
+
 .combat-card-offer {
   display: flex;
   justify-content: space-between;

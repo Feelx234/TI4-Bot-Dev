@@ -1,0 +1,47 @@
+{
+  "title": "Anti-fighter barrage note: what the hits did",
+  "description": "Feedback fb_1792391288_b1b8a1e9: a barrage of 1 hit against a fleet without fighters read like a hit on the carrier. The combat overlay's barrage note now says, per side that rolled, what the hits did: destroyed fighters, excess hits with no effect, 'No enemy fighters: the hits have no effect', Argent Raid Formation damage, or no hits. Synthetic fixtures through a mocked server (the client reads barrage_start, barrage_hits and the factions the engine already sends).",
+  "tag": "web/e2e/screenshots/FY-barrage-no-fighters",
+  "shots": [
+    {
+      "file": "out/barrage-no-fighters-desktop.png",
+      "heading": "Destroyer barrage, defender has only a carrier, desktop 1440x900",
+      "caption": "1 hit and the note says the hits have no effect; the carrier row is untouched."
+    },
+    {
+      "file": "out/barrage-no-fighters-phone.png",
+      "heading": "Destroyer barrage, defender has only a carrier, phone 390x844",
+      "caption": "1 hit and the note says the hits have no effect; the carrier row is untouched."
+    },
+    {
+      "file": "out/barrage-with-fighters-desktop.png",
+      "heading": "Barrage against fighters, desktop 1440x900",
+      "caption": "2 hits destroy 2 of the 3 fighters; the fighter row shows the loss."
+    },
+    {
+      "file": "out/barrage-with-fighters-phone.png",
+      "heading": "Barrage against fighters, phone 390x844",
+      "caption": "2 hits destroy 2 of the 3 fighters; the fighter row shows the loss."
+    },
+    {
+      "file": "out/barrage-raid-formation-desktop.png",
+      "heading": "Argent Raid Formation, no enemy fighters, desktop 1440x900",
+      "caption": "Each hit damages a ship with Sustain Damage."
+    },
+    {
+      "file": "out/barrage-raid-formation-phone.png",
+      "heading": "Argent Raid Formation, no enemy fighters, phone 390x844",
+      "caption": "Each hit damages a ship with Sustain Damage."
+    },
+    {
+      "file": "out/barrage-missed-desktop.png",
+      "heading": "Barrage that missed, desktop 1440x900",
+      "caption": "The note says no hits."
+    },
+    {
+      "file": "out/barrage-missed-phone.png",
+      "heading": "Barrage that missed, phone 390x844",
+      "caption": "The note says no hits."
+    }
+  ]
+}

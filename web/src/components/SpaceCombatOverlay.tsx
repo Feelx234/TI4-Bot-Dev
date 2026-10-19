@@ -1,3 +1,4 @@
+import { barrageLines, barrageSides } from "../presentation/barrageNote.ts";
 import { HitKindBanner, BarrageWindowBanner } from "./HitKindBanner.tsx";
 import {
   deriveBarrageWindow,
@@ -267,6 +268,24 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
         ? "resolving_hits"
         : "pre_roll");
   const isPreRoll = phase === "pre_roll";
+  const barrageNoteLines = useMemo(
+    () =>
+      board?.combat
+        ? barrageLines(
+            barrageSides(
+              board.combat.barrage_hits,
+              board.combat.barrage_start,
+              {
+                attacker: board.combat.attacker,
+                defender: board.combat.defender,
+              },
+              (seat) => playersMap[seat]?.faction,
+            ),
+            (seat) => display(seat).label,
+          )
+        : [],
+    [board?.combat, playersMap, display],
+  );
   const isResolving = phase === "resolving_hits" || phase === "barrage";
   const showBarrageRecap =
     isPreRoll &&
@@ -1086,6 +1105,21 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                   Hits automatically destroy opposing fighters. Waylay lets the
                   defender assign hits to other ships instead.
                 </span>
+                {barrageNoteLines.length > 0 && (
+                  <ul
+                    className="combat-barrage-note__lines"
+                    data-testid="combat-barrage-lines"
+                  >
+                    {barrageNoteLines.map((line) => (
+                      <li
+                        key={line.seat}
+                        className={`combat-barrage-note__line combat-barrage-note__line--${line.tone}`}
+                      >
+                        {line.text}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             )}
 
