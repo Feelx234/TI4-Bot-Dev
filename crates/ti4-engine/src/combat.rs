@@ -1348,10 +1348,11 @@ fn gravleash_maneuvers(
     {
         return;
     }
-    let kinds: std::collections::BTreeSet<String> = ships_of(state, content, sources, player, system)
-        .into_iter()
-        .map(|unit| unit.type_id.to_string())
-        .collect();
+    let kinds: std::collections::BTreeSet<String> =
+        ships_of(state, content, sources, player, system)
+            .into_iter()
+            .map(|unit| unit.type_id.to_string())
+            .collect();
     let bonus = i64::try_from(kinds.len()).unwrap_or(0);
     let chance = |hit_on: i64| (11 - hit_on).clamp(0, 10);
     let mut best: Option<(usize, i64)> = None;
@@ -1628,6 +1629,24 @@ pub fn anti_fighter_barrage(
     .map(|(resolved, _)| resolved)
 }
 
+/// Iconoclast Omega (`naalu_mech_omega`): "Other players cannot use ANTI-FIGHTER BARRAGE against
+/// your units in this system." Rules version 17.
+fn omega_forbids_barrage(state: &GameState, system: &SystemId, player: &PlayerId) -> bool {
+    if state.rules_version < ti4_model::state::RULES_FACTION_BUGFIXES {
+        return false;
+    }
+    let board = state.system_state(system);
+    board
+        .units
+        .iter()
+        .chain(board.planet_units.values().flatten())
+        .any(|unit| {
+            unit.owner != *player
+                && unit.type_id.as_str() == "naalu_mech_omega"
+                && !crate::factions::crimson::abilities_lost(state, &unit.owner, system)
+        })
+}
+
 /// Roll one side's anti-fighter barrage and stage the roll for the reroll windows.
 ///
 /// The dice-consuming half: both the combat window and the synchronous wrapper below call
@@ -1641,6 +1660,9 @@ pub fn roll_barrage_side(
     system: &SystemId,
     player: &PlayerId,
 ) -> usize {
+    if omega_forbids_barrage(state, system, player) {
+        return 0;
+    }
     let types = catalogue(content, sources);
     let mut set = RerollSet {
         kind: "anti_fighter_barrage".into(),
@@ -4877,6 +4899,7 @@ impl CombatWindow {
                 let _ = ctx.emit(state, "SPACE_COMBAT_STARTED", opening);
             }
             if crate::factions::borrowed_round_agents::has_round_copy(state, content, "letnevagent")
+                || crate::factions::borrowed_round_agents::has_owner_space_round_agent(state)
             {
                 payload.insert(
                     "round_seq".to_owned(),
@@ -5965,6 +5988,18 @@ impl Window for CombatWindow {
                     if let Some(unit) = sustained {
                         let kind = unit.type_id.to_string();
                         remember_sustain_target(state, &self.system, location, &unit);
+                        // Rear Admiral Farran in a real combat (rules version 17; the window's
+                        // sustain step never asked before).
+                        if state.rules_version >= ti4_model::state::RULES_FACTION_BUGFIXES {
+                            ask_sustain_commander(
+                                state,
+                                ctx,
+                                content,
+                                sources,
+                                self.galaxy.as_ref(),
+                                &front_player,
+                            )?;
+                        }
                         emit_sustain_used(
                             state,
                             ctx,
@@ -5977,8 +6012,17 @@ impl Window for CombatWindow {
                         )
                         .map_err(CombatError::into_illegal_choice)?;
                     }
+                    // Non-Euclidean Shielding: "cancel 2 hits instead of 1" per use (version 17).
+                    let cancelled = if state.rules_version
+                        >= ti4_model::state::RULES_FACTION_BUGFIXES
+                        && non_euclidean_shielding(state, &front_player)
+                    {
+                        2
+                    } else {
+                        1
+                    };
                     if let Some(front) = queue.first_mut() {
-                        front.hits = front.hits.saturating_sub(1);
+                        front.hits = front.hits.saturating_sub(cancelled);
                     }
                     self.stage = Stage::Sustaining { queue, round };
                 }

@@ -2908,19 +2908,31 @@ mod tests {
             .player(&b())
             .unwrap()
             .tokens(ti4_model::state::TokenPool::Fleet);
-        assert!(!state.player(&b()).unwrap().technologies.contains(&ti4_model::id::TechnologyId::new("hm")));
+        assert!(
+            !state
+                .player(&b())
+                .unwrap()
+                .technologies
+                .contains(&ti4_model::id::TechnologyId::new("hm"))
+        );
 
         run_with(&mut state, None, "grant_reallocation", "b", &["hm"]);
 
         let seat = state.player(&b()).unwrap();
-        assert!(seat.technologies.contains(&ti4_model::id::TechnologyId::new("hm")));
+        assert!(
+            seat.technologies
+                .contains(&ti4_model::id::TechnologyId::new("hm"))
+        );
         assert_eq!(
             seat.tokens(ti4_model::state::TokenPool::Fleet),
             before - 2,
             "one fleet token per prerequisite (GG)"
         );
         assert_eq!(
-            state.player(&a()).unwrap().tokens(ti4_model::state::TokenPool::Fleet),
+            state
+                .player(&a())
+                .unwrap()
+                .tokens(ti4_model::state::TokenPool::Fleet),
             before,
             "nobody else pays"
         );
@@ -2935,7 +2947,10 @@ mod tests {
             .tokens(ti4_model::state::TokenPool::Fleet);
         run_with(&mut state, None, "grant_reallocation", "b", &["nm"]);
         let seat = state.player(&b()).unwrap();
-        assert!(seat.technologies.contains(&ti4_model::id::TechnologyId::new("nm")));
+        assert!(
+            seat.technologies
+                .contains(&ti4_model::id::TechnologyId::new("nm"))
+        );
         assert_eq!(seat.tokens(ti4_model::state::TokenPool::Fleet), before);
     }
 
@@ -2948,7 +2963,11 @@ mod tests {
             .tokens(ti4_model::state::TokenPool::Fleet);
         run_with(&mut state, None, "grant_reallocation", "b", &["hm"]);
         let seat = state.player(&b()).unwrap();
-        assert!(!seat.technologies.contains(&ti4_model::id::TechnologyId::new("hm")));
+        assert!(
+            !seat
+                .technologies
+                .contains(&ti4_model::id::TechnologyId::new("hm"))
+        );
         assert_eq!(seat.tokens(ti4_model::state::TokenPool::Fleet), before - 1);
     }
 }

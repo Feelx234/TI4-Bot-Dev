@@ -476,7 +476,9 @@ pub fn is_playable(
     player: &PlayerId,
     alias: &ActionCardId,
 ) -> bool {
-    if crate::laws::action_cards_forbidden(state, player) {
+    if crate::laws::action_cards_forbidden(state, player)
+        || crate::laws::political_secret_bars(state, player)
+    {
         return false;
     }
     // Oracle parity (engine/action_cards.py): each card's printed text gates itself. Signal
@@ -2631,19 +2633,23 @@ fn asked_rider_payoff(
                 return true;
             };
             if let Some((system, planet)) = spot.split_once('|') {
-                let dock = crate::strategy_cards::construction_unit(
+                let (dock, in_space) = crate::strategy_cards::construction_placement(
                     state,
                     content,
                     sources,
                     player,
                     "spacedock",
                 );
-                state
-                    .system_mut(&ti4_model::id::SystemId::new(system))
-                    .planet_units
-                    .entry(ti4_model::id::PlanetId::new(planet))
-                    .or_default()
-                    .push(Unit::new(dock, player.clone()));
+                let board = state.system_mut(&ti4_model::id::SystemId::new(system));
+                if in_space {
+                    board.units.push(Unit::new(dock, player.clone()));
+                } else {
+                    board
+                        .planet_units
+                        .entry(ti4_model::id::PlanetId::new(planet))
+                        .or_default()
+                        .push(Unit::new(dock, player.clone()));
+                }
             }
             true
         }
@@ -13728,9 +13734,12 @@ mod hidden_hands {
             state
                 .agenda_predictions
                 .insert(a.clone(), "FOR|lead_rider".to_owned());
-            let (decider, seen) = crate::choice::Capturing::new(Box::new(
-                crate::choice::Scripted::new(["strategic_tokens", "tactic_tokens", "fleet_tokens"]),
-            ));
+            let (decider, seen) =
+                crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new([
+                    "strategic_tokens",
+                    "tactic_tokens",
+                    "fleet_tokens",
+                ])));
             let mut table = Table::with_default(Box::new(decider));
             let paid = resolve_predictions_asking(
                 &mut state,

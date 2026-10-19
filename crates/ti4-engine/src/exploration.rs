@@ -2859,7 +2859,10 @@ mod tests {
         assert!(state.relic_deck.is_empty());
         let logged = &state.relic_log;
         assert_eq!(logged.len(), 1);
-        assert_eq!((logged[0].relic.as_str(), logged[0].victory_points), ("some_relic", 0));
+        assert_eq!(
+            (logged[0].relic.as_str(), logged[0].victory_points),
+            ("some_relic", 0)
+        );
         assert_eq!(logged[0].player, player());
     }
 
@@ -3261,7 +3264,13 @@ mod bf_f3_tests {
             rng: &mut rng,
             timing: None,
         };
-        assert!(resolve_instant(&mut state, &mut ctx, &a, planet.as_ref(), card));
+        assert!(resolve_instant(
+            &mut state,
+            &mut ctx,
+            &a,
+            planet.as_ref(),
+            card
+        ));
         let asked = seen
             .borrow()
             .iter()

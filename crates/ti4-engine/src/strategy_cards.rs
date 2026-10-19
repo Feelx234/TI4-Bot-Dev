@@ -1858,10 +1858,15 @@ pub(crate) fn structure_options(
                 .filter(move |kind| {
                     // The unit this player actually places: faction unit or upgrade, as an action
                     // card placement resolves it (Titans Hel-Titan, PDS II).
-                    let unit = construction_unit(state, content, sources, player, kind);
-                    crate::production::structure_allowed(
-                        state, content, sources, player, planet, kind,
-                    ) && crate::supply::allowed(state, content, sources, player, &unit, 1) == 1
+                    let (unit, in_space) =
+                        construction_placement(state, content, sources, player, kind);
+                    // A Floating Factory sits in the space area, so no planet's own dock limit
+                    // applies to it (rules version 17).
+                    (in_space
+                        || crate::production::structure_allowed(
+                            state, content, sources, player, planet, kind,
+                        ))
+                        && crate::supply::allowed(state, content, sources, player, &unit, 1) == 1
                 })
                 .map(move |kind| {
                     ChoiceOption::labelled(
@@ -1895,6 +1900,32 @@ pub(crate) fn construction_unit(
         .get(unit.as_str())
         .is_some_and(|record| record.is_space_only_structure());
     if space_only { generic() } else { unit }
+}
+
+/// [`construction_unit`], and whether the unit goes in the space area. From rules version 17 a
+/// space-only form (Saar's Floating Factory: "placed in the space area instead of on a planet") is
+/// placed as itself in the space area of the chosen planet's system; before, and for every other
+/// unit, it is the planet unit.
+pub(crate) fn construction_placement(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    kind: &str,
+) -> (UnitTypeId, bool) {
+    if state.rules_version >= ti4_model::state::RULES_FACTION_BUGFIXES
+        && let Some(unit) =
+            crate::action_cards::placed_unit_id(state, content, sources, player, kind)
+        && ti4_content::units::catalogue(content, sources)
+            .get(unit.as_str())
+            .is_some_and(|record| record.is_space_only_structure())
+    {
+        return (unit, true);
+    }
+    (
+        construction_unit(state, content, sources, player, kind),
+        false,
+    )
 }
 
 pub(crate) fn place_structure(
@@ -2021,13 +2052,20 @@ pub(crate) fn place_structure_step(
             }
         }
     }
-    let placed = construction_unit(state, content, sources, player, kind);
-    state
-        .system_mut(&system)
-        .planet_units
-        .entry(planet)
-        .or_default()
-        .push(Unit::new(placed, player.clone()));
+    let (placed, in_space) = construction_placement(state, content, sources, player, kind);
+    if in_space {
+        state
+            .system_mut(&system)
+            .units
+            .push(Unit::new(placed, player.clone()));
+    } else {
+        state
+            .system_mut(&system)
+            .planet_units
+            .entry(planet)
+            .or_default()
+            .push(Unit::new(placed, player.clone()));
+    }
 
     // Minister of Industry: "When the owner of this card places a space dock in a system, their
     // units in that system may use their PRODUCTION abilities." A space dock specifically, so a
@@ -3726,10 +3764,12 @@ mod tests {
     }
 
     #[test]
-    fn saar_construction_places_the_generic_dock_on_a_planet_not_the_floating_factory() {
+    fn saar_construction_below_version_17_places_the_generic_dock_on_a_planet_not_the_floating_factory()
+     {
         let content = ContentStore::embedded();
         let sources = ti4_model::content_types::DEFAULT;
         let mut state = seated_game(&[("a", "saar")], sources);
+        state.rules_version = ti4_model::state::RULES_FACTION_BUGFIXES - 1;
         let player = PlayerId::new("a");
         // Free the planet of any dock so a space dock is a legal Construction spot.
         for system in state.board.values_mut() {
@@ -3750,6 +3790,39 @@ mod tests {
         assert_eq!(count_type(&state, &player, "spacedock"), 1);
         assert_eq!(count_type(&state, &player, "saar_spacedock"), 0);
         assert_eq!(count_type(&state, &player, "saar_spacedock2"), 0);
+    }
+
+    #[test]
+    fn saar_construction_from_version_17_places_the_floating_factory_in_the_space_area() {
+        let content = ContentStore::embedded();
+        let sources = ti4_model::content_types::DEFAULT;
+        let mut state = seated_game(&[("a", "saar")], sources);
+        let player = PlayerId::new("a");
+        for system in state.board.values_mut() {
+            for units in system.planet_units.values_mut() {
+                units.retain(|unit| !unit.type_id.as_str().contains("spacedock"));
+            }
+        }
+        let spot = structure_options(&state, content, sources, &player, false)
+            .into_iter()
+            .find(|option| option.id.starts_with("spacedock|"))
+            .expect("a Saar space dock spot is offered")
+            .id;
+        let system = SystemId::new(spot.split('|').nth(1).unwrap());
+        let before = state.system_state(&system).units.len();
+        let mut table = Table::with_default(Box::new(crate::choice::Scripted::new([spot])));
+        place_structure(
+            &mut state, content, sources, None, &mut table, &player, false,
+        )
+        .unwrap();
+        assert_eq!(
+            count_type(&state, &player, "spacedock"),
+            0,
+            "not on a planet"
+        );
+        let space = &state.system_state(&system).units;
+        assert_eq!(space.len(), before + 1);
+        assert_eq!(space.last().unwrap().type_id.as_str(), "saar_spacedock");
     }
 
     #[test]

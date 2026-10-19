@@ -1954,6 +1954,13 @@ impl<'a> Game<'a> {
         &self.dice
     }
 
+    /// Test-only (faction_effects_tests d5): replace the dice with a roller that deals `faces`
+    /// first, so a whole game flow can be driven with known rolls.
+    #[cfg(test)]
+    pub(crate) fn load_dice(&mut self, dice: Dice) {
+        self.dice = dice;
+    }
+
     /// Every die this game has rolled, in order. Read-only: a viewer shows them, nothing may
     /// change them. Rolls made on a scratch roller inside a helper that owns its own `Dice` are
     /// not here.
@@ -6229,8 +6236,7 @@ impl<'a> Game<'a> {
         // Before RULES_BRIBERY_PER_PLAYER this fired after every answer of the vote (the outcome,
         // each planet exhausted, the trade goods), asking a Bribery holder again at each; now it
         // fires once per voter, when they have named their outcome.
-        if answered_outcome
-            || self.state.rules_version < ti4_model::state::RULES_BRIBERY_PER_PLAYER
+        if answered_outcome || self.state.rules_version < ti4_model::state::RULES_BRIBERY_PER_PLAYER
         {
             let mut payload = BTreeMap::new();
             payload.insert(
@@ -9807,7 +9813,11 @@ mod tests {
     fn an_agenda_with_nothing_to_elect_is_just_dropped_below_rules_version_14() {
         let mut game = quash_game(0, &[]);
         game.state.rules_version = ti4_model::state::RULES_AGENDA_GRANT_REVEAL - 1;
-        assert!(game.reveal_agenda("classified").expect("revealed").is_none());
+        assert!(
+            game.reveal_agenda("classified")
+                .expect("revealed")
+                .is_none()
+        );
         assert_eq!(game.state.agenda_deck.len(), 2, "no card is drawn");
         assert!(game.state.agenda_log.is_empty(), "and nothing is listed");
     }
@@ -14062,7 +14072,10 @@ mod tests {
         };
         let (last, first) = play(ti4_model::state::RULES_FACTION_EFFECTS);
         assert_eq!(last, Some(ti4_model::state::LeaderStatus::Unlocked));
-        assert_eq!(first, None, "the seat that passed earlier has no such commander");
+        assert_eq!(
+            first, None,
+            "the seat that passed earlier has no such commander"
+        );
         let (old, _) = play(ti4_model::state::RULES_FACTION_EFFECTS - 1);
         assert_eq!(old, Some(ti4_model::state::LeaderStatus::Locked));
     }
@@ -14230,12 +14243,14 @@ mod tests {
                     return Ok(decline.clone());
                 }
             }
-            choice.options.first().cloned().ok_or_else(|| {
-                crate::choice::IllegalChoice::NoOptions {
+            choice
+                .options
+                .first()
+                .cloned()
+                .ok_or_else(|| crate::choice::IllegalChoice::NoOptions {
                     player: choice.player.clone(),
                     prompt: choice.prompt.clone(),
-                }
-            })
+                })
         }
     }
 
@@ -14437,8 +14452,15 @@ mod tests {
                     assert_eq!(cast.votes, 0, "an abstention casts nothing");
                 }
             }
-            assert_eq!(summed, last.votes, "seed {seed}: the casts add up to the tally");
-            assert_eq!(game.state.agenda_casts.len(), 3, "seed {seed}: one entry per seat");
+            assert_eq!(
+                summed, last.votes,
+                "seed {seed}: the casts add up to the tally"
+            );
+            assert_eq!(
+                game.state.agenda_casts.len(),
+                3,
+                "seed {seed}: one entry per seat"
+            );
             for record in &game.state.agenda_log {
                 let outcome = record.outcome.as_deref().unwrap();
                 assert_eq!(record.round, round);

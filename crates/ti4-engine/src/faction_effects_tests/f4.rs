@@ -51,21 +51,36 @@ fn hero_cycle(faction: &str, hero: &str) {
         state.record_score(&a(), ObjectiveId::new(objective));
     }
     leaders::check_unlocks(&mut state, content(), ALL, None, &a());
-    assert_eq!(status(&state, hero), Some(LeaderStatus::Locked), "two is not three");
+    assert_eq!(
+        status(&state, hero),
+        Some(LeaderStatus::Locked),
+        "two is not three"
+    );
     state.record_score(&a(), ObjectiveId::new("o3"));
     leaders::check_unlocks(&mut state, content(), ALL, None, &a());
     assert_eq!(status(&state, hero), Some(LeaderStatus::Unlocked));
     assert!(leaders::purge(&mut state, &a(), &LeaderId::new(hero)));
     assert_eq!(status(&state, hero), Some(LeaderStatus::Purged));
     leaders::check_unlocks(&mut state, content(), ALL, None, &a());
-    assert_eq!(status(&state, hero), Some(LeaderStatus::Purged), "stays purged");
+    assert_eq!(
+        status(&state, hero),
+        Some(LeaderStatus::Purged),
+        "stays purged"
+    );
 }
 
 fn commander_registered(faction: &str, commander: &str) {
     let state = game(faction);
     assert_eq!(status(&state, commander), Some(LeaderStatus::Locked));
     assert_eq!(
-        leaders::commander_unlocked(&state, content(), ALL, None, &a(), &LeaderId::new(commander)),
+        leaders::commander_unlocked(
+            &state,
+            content(),
+            ALL,
+            None,
+            &a(),
+            &LeaderId::new(commander)
+        ),
         Some(false),
         "a fresh game meets no unlock condition, and the condition is registered"
     );
@@ -75,9 +90,18 @@ fn commander_registered(faction: &str, commander: &str) {
 fn note_travels(faction: &str, alias: &str) {
     let mut state = game(faction);
     let note = crate::promissory::note_id(alias, faction);
-    assert_eq!(state.promissory_notes.get(&note), Some(&a()), "dealt to its owner");
+    assert_eq!(
+        state.promissory_notes.get(&note),
+        Some(&a()),
+        "dealt to its owner"
+    );
     assert!(
-        state.promissory_notes.keys().filter(|key| key.starts_with(&format!("{alias}:"))).count() == 1,
+        state
+            .promissory_notes
+            .keys()
+            .filter(|key| key.starts_with(&format!("{alias}:")))
+            .count()
+            == 1,
         "only the owner's faction has this note"
     );
     crate::promissory::take(&mut state, content(), &b(), &note);
@@ -109,31 +133,61 @@ macro_rules! plumbing {
     };
 }
 
-plumbing!("bastion", "bastionagent", "bastioncommander", "bastionhero", "raisethestandard",
+plumbing!(
+    "bastion",
+    "bastionagent",
+    "bastioncommander",
+    "bastionhero",
+    "raisethestandard",
     bastionagent_1_starts_ready_exhausts_and_readies_in_the_status_phase,
     bastioncommander_1_starts_locked_with_a_registered_unlock_condition,
     bastionhero_1_unlocks_on_three_scored_objectives_and_is_purged,
-    raisethestandard_1_is_dealt_to_the_bastion_lent_and_returned);
-plumbing!("deepwrought", "deepwroughtagent", "deepwroughtcommander", "deepwroughthero", "shareknowledge",
+    raisethestandard_1_is_dealt_to_the_bastion_lent_and_returned
+);
+plumbing!(
+    "deepwrought",
+    "deepwroughtagent",
+    "deepwroughtcommander",
+    "deepwroughthero",
+    "shareknowledge",
     deepwroughtagent_1_starts_ready_exhausts_and_readies_in_the_status_phase,
     deepwroughtcommander_1_starts_locked_with_a_registered_unlock_condition,
     deepwroughthero_1_unlocks_on_three_scored_objectives_and_is_purged,
-    shareknowledge_1_is_dealt_to_the_deepwrought_lent_and_returned);
-plumbing!("firmament", "firmamentagent", "firmamentcommander", "firmamenthero", "blackops",
+    shareknowledge_1_is_dealt_to_the_deepwrought_lent_and_returned
+);
+plumbing!(
+    "firmament",
+    "firmamentagent",
+    "firmamentcommander",
+    "firmamenthero",
+    "blackops",
     firmamentagent_1_starts_ready_exhausts_and_readies_in_the_status_phase,
     firmamentcommander_1_starts_locked_with_a_registered_unlock_condition,
     firmamenthero_1_unlocks_on_three_scored_objectives_and_is_purged,
-    blackops_1_is_dealt_to_the_firmament_lent_and_returned);
-plumbing!("crimson", "crimsonagent", "crimsoncommander", "crimsonhero", "sever",
+    blackops_1_is_dealt_to_the_firmament_lent_and_returned
+);
+plumbing!(
+    "crimson",
+    "crimsonagent",
+    "crimsoncommander",
+    "crimsonhero",
+    "sever",
     crimsonagent_1_starts_ready_exhausts_and_readies_in_the_status_phase,
     crimsoncommander_1_starts_locked_with_a_registered_unlock_condition,
     crimsonhero_1_unlocks_on_three_scored_objectives_and_is_purged,
-    sever_1_is_dealt_to_the_crimson_lent_and_returned);
-plumbing!("ralnel", "ralnelagent", "ralnelcommander", "ralnelhero", "nanolink",
+    sever_1_is_dealt_to_the_crimson_lent_and_returned
+);
+plumbing!(
+    "ralnel",
+    "ralnelagent",
+    "ralnelcommander",
+    "ralnelhero",
+    "nanolink",
     ralnelagent_1_starts_ready_exhausts_and_readies_in_the_status_phase,
     ralnelcommander_1_starts_locked_with_a_registered_unlock_condition,
     ralnelhero_1_unlocks_on_three_scored_objectives_and_is_purged,
-    nanolink_1_is_dealt_to_the_ral_nel_lent_and_returned);
+    nanolink_1_is_dealt_to_the_ral_nel_lent_and_returned
+);
 
 // Obsidian: the faction cannot be seated at setup (Nocturne), so its cards are checked on the
 // Firmament seat that flips into it; the Obsidian's own components are the flipped leaders.
@@ -141,7 +195,10 @@ plumbing!("ralnel", "ralnelagent", "ralnelcommander", "ralnelhero", "nanolink",
 fn obsidian_leaders_exist_in_the_corpus_and_the_commander_condition_is_registered() {
     let state = game("firmament");
     for leader in ["obsidianagent", "obsidiancommander", "obsidianhero"] {
-        assert!(leaders::kind_of(content(), &LeaderId::new(leader)).is_some(), "{leader}");
+        assert!(
+            leaders::kind_of(content(), &LeaderId::new(leader)).is_some(),
+            "{leader}"
+        );
     }
     // The Obsidian's commander check is reached through the flipped seat (obsidian.rs tests it).
     let _ = state;
@@ -183,7 +240,10 @@ fn ralnelcommander_2_unlocks_for_the_last_player_to_pass() {
     let occurrence = state.begin_feat_occurrence();
     state.record_event_feat(&a(), ti4_model::state::Feat::LastToPass, occurrence);
     leaders::check_unlocks(&mut state, content(), ALL, None, &a());
-    assert_eq!(status(&state, "ralnelcommander"), Some(LeaderStatus::Unlocked));
+    assert_eq!(
+        status(&state, "ralnelcommander"),
+        Some(LeaderStatus::Unlocked)
+    );
 }
 
 /// Letnev, Gravleash Maneuvers, second half: before rolling in a space combat, +X to the result of
