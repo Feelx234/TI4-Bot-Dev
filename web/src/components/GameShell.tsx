@@ -45,6 +45,9 @@ import { InvasionLandingTray } from "./InvasionLandingTray.tsx";
 import type { Landing } from "./InvasionLandingTray.tsx";
 import { InvasionOverlay } from "./InvasionOverlay.tsx";
 import { SystemActivationBar } from "./SystemActivationBar.tsx";
+import { RetreatPickBar } from "./RetreatPickBar.tsx";
+import { isRetreatPickChoice } from "../presentation/retreatPick.ts";
+import { isSystemPickChoice } from "../presentation/systemFacts.ts";
 import { PlanetSelectionBar } from "./PlanetSelectionBar.tsx";
 import { ReadyPlanetsBar } from "./ReadyPlanetsBar.tsx";
 import { TurnActionBar } from "./TurnActionBar.tsx";
@@ -896,6 +899,24 @@ export const ChoiceRendererDispatcher: React.FC<
       label: present(option.label, !trading),
     })),
   };
+
+  // A retreat or Foresight destination is chosen on the map (the system the ships leave stands
+  // out); the bar names the move and keeps the destinations as a list.
+  if (
+    choice.actor === viewerSeat &&
+    isRetreatPickChoice(choice) &&
+    isSystemPickChoice(choice, boardView)
+  )
+    return (
+      <RetreatPickBar
+        choice={visibleChoice}
+        boardView={boardView}
+        selectedOptionId={selectedOptionId}
+        onSelectOption={onSelectOption}
+        onSubmit={(optionId) => onSubmit(optionId, choice.nonce)}
+        lastError={lastError ? present(lastError) : lastError}
+      />
+    );
 
   // The turn menu and the end-turn question live on the persistent bar. Options the bar cannot
   // place keep the old list.

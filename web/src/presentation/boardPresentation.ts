@@ -11,6 +11,7 @@ import { SEAT_COLORS } from "./playerDisplay.ts";
 import { isPlanetSelectionChoice } from "./choiceModel.ts";
 import { isPaymentChoice } from "./paymentDraft.ts";
 import { isSystemPickChoice, systemPickOptionSystem } from "./systemFacts.ts";
+import { describeRetreatPick } from "./retreatPick.ts";
 
 /** What a map click answers: a system hex (activation) or a planet (planet selection). */
 export type MapTargetMode = "system" | "planet" | "payment" | null;
@@ -110,6 +111,8 @@ export interface TilePresentation {
   commandTokens: { owner: string; color: string }[];
   isCandidateTarget: boolean;
   isContextSubject: boolean;
+  /** The system a retreat or Foresight move leaves: marked apart from the destinations. */
+  isMoveOrigin?: boolean;
   associatedOptionIds: string[];
   /**
    * In planet target mode, the only candidate planet in this system: a hex click selects it.
@@ -149,6 +152,8 @@ export interface TargetHighlightModel {
   targetablePlanetIds: Set<string>;
   contextSubjectSystemId: string | null;
   contextSubjectPlanetId: string | null;
+  /** Where a retreat or Foresight move starts (the destinations are the targets). */
+  moveOriginSystemId?: string | null;
   systemOptionMap: Map<string, string[]>;
   planetOptionMap: Map<string, string[]>;
   hasActiveTargets: boolean;
@@ -457,6 +462,7 @@ export function deriveActorTargetHighlights(
     targetablePlanetIds,
     contextSubjectSystemId,
     contextSubjectPlanetId,
+    moveOriginSystemId: describeRetreatPick(pendingChoice, board)?.fromId ?? null,
     systemOptionMap,
     planetOptionMap,
     hasActiveTargets:
@@ -822,6 +828,7 @@ export function buildBoardPresentationModel(
       commandTokens,
       isCandidateTarget,
       isContextSubject,
+      isMoveOrigin: targets.moveOriginSystemId === sysId,
       associatedOptionIds,
       singleCandidatePlanetId,
     };

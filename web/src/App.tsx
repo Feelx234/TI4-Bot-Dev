@@ -56,7 +56,7 @@ import { participantText } from "./presentation/participantText.ts";
 import { CardDetails, CardSubject } from "./components/CardDetails.tsx";
 import { TechnologyModal } from "./components/TechnologyModal.tsx";
 import { ObjectivesModal } from "./components/ObjectivesModal.tsx";
-import { resolveMapTargetSelection } from "./presentation/planetSelection.ts";
+import { optionSystemKey, resolveMapTargetSelection } from "./presentation/planetSelection.ts";
 import { isPlanetSelectionChoice } from "./presentation/choiceModel.ts";
 import {
   derivePaymentOffer,
@@ -979,8 +979,7 @@ const GameViewContainer: React.FC<{
                   !isPlanetSelectionChoice(pendingChoice)
                 ) {
                   const match = pendingChoice.options.find(
-                    (option) =>
-                      String(option.payload?.system ?? option.payload?.to ?? option.id) === id,
+                    (option) => optionSystemKey(option) === id,
                   );
                   if (!match) {
                     setSelectedOptionId(undefined);

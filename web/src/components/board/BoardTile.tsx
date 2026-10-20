@@ -136,6 +136,33 @@ export const BoardTile: React.FC<BoardTileProps> = ({
         />
       )}
 
+      {/* Where a retreat or Foresight move leaves from: amber, apart from the blue destinations */}
+      {tile.isMoveOrigin && (
+        <g data-testid="move-origin-marker" style={{ pointerEvents: "none" }}>
+          <polygon points={tile.points} fill="rgba(245, 158, 11, 0.18)" />
+          <polygon
+            points={tile.innerPoints}
+            fill="none"
+            stroke="#f59e0b"
+            strokeWidth={3}
+            strokeDasharray="8 4"
+          />
+          <text
+            x={tile.center.x}
+            y={tile.center.y - 34}
+            textAnchor="middle"
+            fontSize={11}
+            fontWeight={700}
+            fill="#f59e0b"
+            stroke="#0f172a"
+            strokeWidth={3}
+            paintOrder="stroke"
+          >
+            FROM
+          </text>
+        </g>
+      )}
+
       {/* Activation Mode Target Reticle */}
       {tile.isCandidateTarget && isActivationMode && (
         <g data-testid="activation-target-reticle" style={{ pointerEvents: "none" }}>

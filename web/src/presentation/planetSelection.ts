@@ -183,6 +183,17 @@ export type MapTargetSelection =
  *   candidate planet; otherwise the click is just an inspection.
  * - Hex click otherwise: the option targeting that system.
  */
+/**
+ * The system a system-valued option names: payload.system, payload.to, else its id (Foresight's
+ * "system|<id>" and the Ral Nel commander's "to|<id>" lose their prefix).
+ */
+export function optionSystemKey(o: ChoiceOption): string {
+  const raw = String(o.payload?.system ?? o.payload?.to ?? o.id);
+  return o.payload?.system === undefined && o.payload?.to === undefined
+    ? raw.replace(/^(?:system|to)\|/, "")
+    : raw;
+}
+
 export function resolveMapTargetSelection(
   choice: PendingChoiceDto | null,
   systemId: string,
@@ -208,9 +219,7 @@ export function resolveMapTargetSelection(
       return resolveMapTargetSelection(choice, systemId, inSystem[0].planetId, board);
     return { kind: "ignore" };
   }
-  const match = choice.options.find(
-    (o) => !isDeclineOption(o) && String(o.payload?.system ?? o.payload?.to ?? o.id) === systemId,
-  );
+  const match = choice.options.find((o) => !isDeclineOption(o) && optionSystemKey(o) === systemId);
   return { kind: "select", optionId: match?.id, planetId: null };
 }
 
