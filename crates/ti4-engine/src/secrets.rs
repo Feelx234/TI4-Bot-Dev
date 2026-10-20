@@ -69,6 +69,17 @@ pub fn held_count(state: &GameState, content: &ContentStore, player: &PlayerId) 
         + scored_count(state, content, player)
 }
 
+/// Whether the seat holds no unscored secret and its scored ones already fill the limit: a further
+/// draw could not be kept and nothing could be returned in its place.
+#[must_use]
+pub fn hand_is_all_scored(state: &GameState, content: &ContentStore, player: &PlayerId) -> bool {
+    let limit = HAND_LIMIT + crate::relics::secret_objective_bonus(state, player);
+    state
+        .player(player)
+        .is_some_and(|seat| seat.secret_objectives.is_empty())
+        && scored_count(state, content, player) >= limit
+}
+
 /// Draw the top secret, then enforce the hand limit.
 ///
 /// # Errors
