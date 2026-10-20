@@ -5848,6 +5848,7 @@ mod tests {
             consumed: 2,
             fighters_charged: 0,
             capacity_excess: 0,
+            ..Standing::default()
         };
         let after = Standing {
             fleet_limit: 3,
@@ -5856,6 +5857,7 @@ mod tests {
             consumed: 6,
             fighters_charged: 0,
             capacity_excess: 2,
+            ..Standing::default()
         };
         let facts = placement_facts(
             ChoiceOption::new("place|space", PLACE_KIND),

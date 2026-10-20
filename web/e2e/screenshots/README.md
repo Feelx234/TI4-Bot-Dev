@@ -158,3 +158,6 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Agenda visible to all (FW-agenda-visible-to-all)
 
 `FW-agenda-visible-to-all` shows the agenda banner for every viewer from the reveal to the resolution: the voter, a seat that is not asked, a spectator, the reaction window with riders, the second agenda, after resolution (banner gone) and a 6-player Elect Player table with real 64-hex ids, desktop and 390x844. `capture-2-real-engine.ts` plays the `agenda` preset through the real wasm engine (needs `npm run build:wasm`). The `before-*` PNGs were taken with `TI4_SHOT_PREFIX=before` on 0a18dd87. `npm run screenshots -- FW` asserts the texts, no raw player id and no horizontal scroll.
+## Movement: Fighter II (GA-movement-fighter2)
+
+`GA-movement-fighter2` shows the tactical movement tray with Fighter II: moving alone (own row, no carrier needed), within and beyond the fleet supply (gauge counts the fighters no capacity holds, warning past the limit) and carried versus uncarried via All from here, desktop and 390x844. The `before-*` PNGs were taken with `TI4_SHOT_PREFIX=before` on 80ce1bf1 and live under `before/`; `npm run screenshots -- GA` regenerates the `after-*` PNGs and asserts the counts and the gauge.

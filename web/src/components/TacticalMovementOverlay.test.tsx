@@ -1187,3 +1187,119 @@ describe("TacticalMovementOverlay Armada fleet supply", () => {
     expect(screen.queryByTestId("movement-armada")).not.toBeInTheDocument();
   });
 });
+
+describe("TacticalMovementOverlay Fighter II moving alone", () => {
+  const supply = {
+    used: 0, limit: 3, ships: 0, capacity: 0, carried: 0, fighters: 0,
+    fighter_support: 0, fighters_upgraded: false, fighters_half: false,
+  };
+  const choiceWith = (units: string[], details = supply): PendingChoiceDto => ({
+    actor: "p1",
+    nonce: "ff2-move",
+    prompt: "movement",
+    context: partialContext({ subtype: "movement_step", target: { System: "18" } }),
+    options: [
+      ...units.map((unit, i) => ({
+        id: `move|24|${i}`,
+        label: unit,
+        kind: "move",
+        payload: { origin: "24", unit, capacity: unit === "carrier" ? 4 : 0 },
+      })),
+      { id: "done_moving", kind: "decline", label: "finish movement", payload: {} },
+    ],
+    details: { fleet_supply: details },
+  });
+  const board = (units: string[]) =>
+    ({
+      systems: {
+        "24": {
+          system_id: "24",
+          command_tokens: [],
+          planets: {},
+          units: units.map((unit_type) => ({ owner: "p1", unit_type, damaged: false })),
+        },
+        "18": { system_id: "18", command_tokens: [], planets: {}, units: [] },
+      },
+      map_tiles: [
+        { system_id: "18", label: "Mecatol Rex", q: 0, r: 0 },
+        { system_id: "24", label: "Mehar Xull", q: 1, r: 0 },
+      ],
+    }) as any;
+  const show = (choice: PendingChoiceDto, units: string[]) => {
+    const onSubmitBatch = vi.fn().mockResolvedValue(undefined);
+    render(
+      <TacticalMovementOverlay
+        choice={choice}
+        board={board(units)}
+        activeSystemId="18"
+        player={mockPlayer}
+        onSubmit={vi.fn()}
+        onSubmitBatch={onSubmitBatch}
+        isOpen
+        onClose={vi.fn()}
+      />,
+    );
+    return onSubmitBatch;
+  };
+
+  it("stages Fighter II as a ship without any carrier and commits a plain move", async () => {
+    const units = ["fighter2", "fighter2"];
+    const onSubmitBatch = show(choiceWith(["fighter2"]), units);
+    expect(screen.getByTestId("rally-row-24-fighter2")).toHaveTextContent("Moves on its own");
+    const inc = screen.getByTestId("rally-inc-24-fighter2");
+    expect(inc).toBeEnabled();
+    fireEvent.click(inc);
+    fireEvent.click(inc);
+    expect(inc).toBeDisabled();
+    expect(screen.getByTestId("cargo-capacity-gauge-24")).toHaveTextContent("0 loaded / 0 capacity");
+    expect(screen.queryByTestId("movement-error-banner")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("commit-moves-btn"));
+    await waitFor(() => expect(onSubmitBatch).toHaveBeenCalledTimes(1));
+    expect(onSubmitBatch.mock.calls[0][1]).toEqual([
+      { kind: "move", origin: "24", unit: "fighter2", damaged: false },
+      { kind: "move", origin: "24", unit: "fighter2", damaged: false },
+      { kind: "done_moving" },
+    ]);
+  });
+
+  it("counts uncarried Fighter II against the fleet supply and warns past the limit", () => {
+    show(choiceWith(["fighter2"], { ...supply, ships: 2, limit: 3 }), ["fighter2", "fighter2", "fighter2"]);
+    const gauge = screen.getByTestId("fleet-supply-gauge");
+    expect(gauge).toHaveTextContent("2 / 3 Ships");
+    fireEvent.click(screen.getByTestId("rally-inc-24-fighter2"));
+    expect(gauge).toHaveTextContent("3 / 3 Ships");
+    expect(gauge).not.toHaveAttribute("data-warning");
+    fireEvent.click(screen.getByTestId("rally-inc-24-fighter2"));
+    expect(gauge).toHaveTextContent("4 / 3 Ships");
+    expect(gauge).toHaveAttribute("data-warning", "true");
+    expect(screen.getByTestId("movement-uncarried-fighters")).toHaveTextContent("2 uncarried");
+  });
+
+  it("does not count Fighter II a moving carrier holds as cargo", () => {
+    show(choiceWith(["carrier", "fighter2"]), ["carrier", "fighter2", "fighter2"]);
+    fireEvent.click(screen.getByTestId("rally-inc-24-carrier"));
+    fireEvent.click(screen.getByTestId("rally-inc-cargo-24-fighter2-space"));
+    fireEvent.click(screen.getByTestId("rally-inc-cargo-24-fighter2-space"));
+    expect(screen.getByTestId("fleet-supply-gauge")).toHaveTextContent("1 / 3 Ships");
+    expect(screen.queryByTestId("movement-uncarried-fighters")).not.toBeInTheDocument();
+    // Both fighters ride, so none is left to move on its own.
+    expect(screen.getByTestId("rally-inc-24-fighter2")).toBeDisabled();
+  });
+
+  it("All from here loads what the carrier holds and sends the rest alone", async () => {
+    const units = ["carrier", "fighter2", "fighter2", "fighter2", "fighter2", "fighter2", "fighter2"];
+    const onSubmitBatch = show(choiceWith(["carrier", "fighter2"]), units);
+    fireEvent.click(screen.getByTestId("rally-all-24"));
+    expect(screen.getByTestId("rally-count-cargo-24-fighter2-space")).toHaveTextContent("4");
+    expect(screen.getByTestId("rally-count-24-fighter2")).toHaveTextContent("2");
+    // Carrier plus the two fighters beyond its four slots.
+    expect(screen.getByTestId("fleet-supply-gauge")).toHaveTextContent("3 / 3 Ships");
+    fireEvent.click(screen.getByTestId("commit-moves-btn"));
+    await waitFor(() => expect(onSubmitBatch).toHaveBeenCalledTimes(1));
+    const steps = onSubmitBatch.mock.calls[0][1];
+    expect(steps.filter((s: any) => s.kind === "load")).toHaveLength(4);
+    expect(steps.filter((s: any) => s.kind === "move").map((s: any) => s.unit)).toEqual([
+      "carrier", "fighter2", "fighter2",
+    ]);
+  });
+});
