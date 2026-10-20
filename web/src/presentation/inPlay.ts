@@ -8,13 +8,13 @@ import type {
 import { AGENDAS } from "../protocol/catalogStore.ts";
 import {
   findActionCardMeta,
-  findAttachmentMeta,
   findExplorationCardMeta,
   findPlanetMeta,
   findPublicObjectiveMeta,
   findStrategyCardMeta,
   humanizeId,
 } from "../protocol/contentCatalog.ts";
+import { attachmentInfo } from "./attachmentInfo.ts";
 import { agendaNameFromId } from "./agendaStrip.ts";
 import { agendaOutcomeLabel, readAgendaLog, type AgendaRecordDto, type SeatName } from "./agendaToasts.ts";
 import { describeActiveEffect, expiryText } from "./effectText.ts";
@@ -373,11 +373,8 @@ function mapSection(view: GameView, state: Record<string, unknown>, seatName: Se
   for (const system of Object.values(view.board?.systems ?? {})) {
     for (const [planetId, planet] of Object.entries(system.planets ?? {})) {
       for (const attachment of planet.attachments ?? []) {
-        const meta = findAttachmentMeta(attachment);
-        const bits = meta
-          ? [meta.resourcesModifier ? `${meta.resourcesModifier > 0 ? "+" : ""}${meta.resourcesModifier} resources` : "", meta.influenceModifier ? `${meta.influenceModifier > 0 ? "+" : ""}${meta.influenceModifier} influence` : ""].filter(Boolean)
-          : [];
-        items.push(item(`attachment:${planetId}:${attachment}`, meta?.name ?? humanizeId(attachment), [`On ${planetName(planetId)}`, ...bits], []));
+        const info = attachmentInfo(attachment);
+        items.push(item(`attachment:${planetId}:${attachment}`, info.name, [`On ${planetName(planetId)}`, info.text], []));
       }
     }
   }

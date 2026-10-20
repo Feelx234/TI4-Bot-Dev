@@ -199,6 +199,10 @@ export interface AttachmentStaticMeta {
   name: string;
   resourcesModifier: number;
   influenceModifier: number;
+  /** The technology specialties it gives a planet (a research facility), lower-case. */
+  techSpecialties?: readonly string[];
+  /** The printed card text; empty when no card places it. */
+  text?: string;
 }
 
 export function findPlanetMeta(id: string): PlanetStaticMeta | undefined {

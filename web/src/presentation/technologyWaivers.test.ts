@@ -11,8 +11,11 @@ import {
   psychoarchaeologyFrees,
   unlockedByAida,
   visibleWaivers,
+  getControlledSpecialtyPlanets,
+  skipCounts,
 } from "./technologyData.ts";
-import type { PlayerView } from "../protocol/types.ts";
+import type { BoardView, PlayerView } from "../protocol/types.ts";
+import { PLANETS } from "../protocol/contentCatalog.ts";
 
 const none = { PROPULSION: 0, BIOTIC: 0, CYBERNETIC: 0, WARFARE: 0 };
 const player = (technologies: string[], exhausted: string[] = [], extra: Partial<PlayerView> = {}) =>
@@ -106,7 +109,12 @@ describe("parity with the engine's can_research", () => {
     rules_version: number;
     owned: string[];
     exhausted?: string[];
-    specialties?: { colour: "propulsion" | "biotic" | "cybernetic" | "warfare"; exhausted: boolean }[];
+    specialties?: {
+      colour: "propulsion" | "biotic" | "cybernetic" | "warfare";
+      exhausted: boolean;
+      /** A research facility on a bare planet, or a facility's +1/+1 on a planet printing the colour. */
+      via?: "facility" | "facility_on_specialty";
+    }[];
     target: string;
     researchable: boolean;
     then_target?: string;
@@ -120,10 +128,29 @@ describe("parity with the engine's can_research", () => {
       owned[track.id] = sc.owned.filter((id) => track.techIds.some((t) => techMatches(id, t))).length;
     }
     const free = psychoarchaeologyFrees(me, sc.rules_version);
-    const skips = { ...none };
+    // The skips come from the board the picker reads: planets with their printed specialty and
+    // attachments, through the same functions the picker uses.
+    const used = new Set<string>();
+    const planets: Record<string, unknown> = {};
     for (const spec of sc.specialties ?? []) {
-      if (free || !spec.exhausted) skips[spec.colour.toUpperCase() as keyof typeof skips] += 1;
+      const printed = spec.via !== "facility";
+      const meta = Object.values(PLANETS).find(
+        (p) =>
+          !used.has(p.id) &&
+          (printed
+            ? p.techSpecialties?.length === 1 && p.techSpecialties[0].toLowerCase() === spec.colour
+            : !p.techSpecialties?.length),
+      )!;
+      used.add(meta.id);
+      planets[meta.id] = {
+        planet_id: meta.id,
+        controlled_by: "p1",
+        exhausted: spec.exhausted,
+        attachments: spec.via === "facility" ? [spec.colour] : spec.via ? ["warfarestat"] : [],
+      };
     }
+    const board = { systems: { s: { planets } } } as unknown as BoardView;
+    const skips = skipCounts(getControlledSpecialtyPlanets(board, "p1"), (p) => free || !p.isExhausted);
     const waivers = visibleWaivers(me, sc.rules_version);
     if (second) {
       return secondPickPrerequisitesMet(
@@ -145,4 +172,58 @@ describe("parity with the engine's can_research", () => {
       if (sc.then_target) expect(client(sc, true)).toBe(sc.then_researchable);
     });
   }
+});
+
+describe("technology skips of a planet with a research facility", () => {
+  const bare = Object.values(PLANETS).find((p) => !p.techSpecialties?.length)!;
+  const blue = Object.values(PLANETS).find((p) => p.techSpecialties?.length === 1 && p.techSpecialties[0].toLowerCase() === "propulsion")!;
+  const boardOf = (planets: Record<string, { attachments: string[]; exhausted?: boolean }>) =>
+    ({
+      systems: {
+        s: {
+          planets: Object.fromEntries(
+            Object.entries(planets).map(([id, p]) => [id, { planet_id: id, controlled_by: "p1", exhausted: false, ...p }]),
+          ),
+        },
+      },
+    }) as unknown as BoardView;
+
+  it("every facility colour is a skip of that colour on a planet without a specialty", () => {
+    for (const [attachment, track] of [
+      ["warfare", "WARFARE"],
+      ["propulsion", "PROPULSION"],
+      ["cybernetic", "CYBERNETIC"],
+      ["biotic", "BIOTIC"],
+    ] as const) {
+      const found = getControlledSpecialtyPlanets(boardOf({ [bare.id]: { attachments: [attachment] } }), "p1");
+      expect(found).toHaveLength(1);
+      expect(found[0].skips).toEqual([{ specialty: track, fromAttachment: attachment }]);
+    }
+  });
+
+  it("shows the facility's colour next to the planet's own specialty when both are present", () => {
+    const found = getControlledSpecialtyPlanets(boardOf({ [blue.id]: { attachments: ["warfare"] } }), "p1");
+    expect(found[0].skips).toEqual([
+      { specialty: "PROPULSION", fromAttachment: undefined },
+      { specialty: "WARFARE", fromAttachment: "warfare" },
+    ]);
+    const counts = skipCounts(found, () => true);
+    expect(counts.PROPULSION).toBe(1);
+    expect(counts.WARFARE).toBe(1);
+  });
+
+  it("the +1/+1 facility record on a planet with a specialty adds no skip", () => {
+    const found = getControlledSpecialtyPlanets(boardOf({ [blue.id]: { attachments: ["warfarestat"] } }), "p1");
+    expect(found[0].skips.map((s) => s.specialty)).toEqual(["PROPULSION"]);
+  });
+
+  it("an exhausted planet gives nothing unless Psychoarchaeology frees it", () => {
+    const found = getControlledSpecialtyPlanets(
+      boardOf({ [bare.id]: { attachments: ["warfare"], exhausted: true } }),
+      "p1",
+    );
+    expect(found[0].isExhausted).toBe(true);
+    expect(skipCounts(found, (p) => !p.isExhausted).WARFARE).toBe(0);
+    expect(skipCounts(found, () => true).WARFARE).toBe(1);
+  });
 });

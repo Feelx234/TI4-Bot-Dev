@@ -3224,20 +3224,42 @@ mod tests {
             let mut used = BTreeSet::new();
             for specialty in scenario["specialties"].as_array().into_iter().flatten() {
                 let colour = specialty["colour"].as_str().unwrap();
+                // `via`: absent = a planet printing the colour; `facility` = a planet printing
+                // no specialty with that colour's research facility attached; `facility_on_specialty`
+                // = a planet printing the colour with a facility's `...stat` (+1/+1) attached.
+                let via = specialty["via"].as_str().unwrap_or("printed");
                 let planets = ti4_content::galaxy::all_planets(content, POK);
                 let (id, record) = planets
                     .iter()
                     .find(|(id, record)| {
                         !used.contains(*id)
-                            && record.tech_specialties().len() == 1
-                            && record.tech_specialties()[0].eq_ignore_ascii_case(colour)
                             && record.system_id().is_some()
+                            && if via == "facility" {
+                                record.tech_specialties().is_empty()
+                                    && !record.is_placed_during_play()
+                            } else {
+                                record.tech_specialties().len() == 1
+                                    && record.tech_specialties()[0].eq_ignore_ascii_case(colour)
+                            }
                     })
                     .expect("a planet with that specialty");
                 used.insert(*id);
                 let system = ti4_model::id::SystemId::new(record.system_id().unwrap());
                 let planet = PlanetId::new(*id);
                 state.system_mut(&system).set_control(planet.clone(), player());
+                match via {
+                    "facility" => {
+                        state
+                            .planet_attachments
+                            .insert(planet.clone(), vec![colour.to_owned()]);
+                    }
+                    "facility_on_specialty" => {
+                        state
+                            .planet_attachments
+                            .insert(planet.clone(), vec!["warfarestat".to_owned()]);
+                    }
+                    _ => {}
+                }
                 if specialty["exhausted"].as_bool().unwrap() {
                     state.exhaust_planet(planet);
                 }

@@ -2,6 +2,7 @@ import type { BoardView, PlayerView } from "../protocol/types.ts";
 import {
   getTechnologyMeta,
   findPlanetMeta,
+  findAttachmentMeta,
   TECHNOLOGIES,
   humanizeId,
   type TechnologyMeta,
@@ -257,13 +258,31 @@ export function isTechAllowedForFaction(tech: HydratedTech, faction?: string): b
   return true;
 }
 
+export type SkipTrack = "PROPULSION" | "BIOTIC" | "CYBERNETIC" | "WARFARE";
+
+/** One technology skip a planet gives: its own printed specialty, or a research facility's. */
+export interface PlanetSkip {
+  specialty: SkipTrack;
+  /** The attachment that gives it ("warfare" for the Warfare Research Facility); absent when printed. */
+  fromAttachment?: string;
+}
+
+/** A controlled planet with its technology specialties as they now stand (printed + attached). */
 export interface ControlledSpecialtyPlanet {
   planetId: string;
   name: string;
-  specialty: "PROPULSION" | "BIOTIC" | "CYBERNETIC" | "WARFARE";
+  /** Printed first, then attached: the engine's `tech_specialties_now`, in the same order. */
+  skips: PlanetSkip[];
   isExhausted: boolean;
 }
 
+const SKIP_TRACKS: readonly string[] = ["PROPULSION", "BIOTIC", "CYBERNETIC", "WARFARE"];
+
+/**
+ * Every controlled planet that gives at least one technology skip. Mirrors the engine's
+ * `tech_specialties_now`: the specialties printed on the planet, then those an attachment gave it
+ * (a research facility), each colour once per planet.
+ */
 export function getControlledSpecialtyPlanets(
   board: BoardView | null | undefined,
   playerId?: string | null,
@@ -274,31 +293,43 @@ export function getControlledSpecialtyPlanets(
 
   for (const system of Object.values(board.systems || {})) {
     for (const planet of Object.values(system.planets || {})) {
-      if (planet.controlled_by === playerId && !seenPlanets.has(planet.planet_id)) {
-        seenPlanets.add(planet.planet_id);
-        const meta = findPlanetMeta(planet.planet_id);
-        if (meta && meta.techSpecialties && meta.techSpecialties.length > 0) {
-          for (const spec of meta.techSpecialties) {
-            const upper = spec.toUpperCase();
-            if (
-              upper === "PROPULSION" ||
-              upper === "BIOTIC" ||
-              upper === "CYBERNETIC" ||
-              upper === "WARFARE"
-            ) {
-              results.push({
-                planetId: planet.planet_id,
-                name: meta.name || humanizeId(planet.planet_id),
-                specialty: upper,
-                isExhausted: Boolean(planet.exhausted),
-              });
-            }
-          }
-        }
+      if (planet.controlled_by !== playerId || seenPlanets.has(planet.planet_id)) continue;
+      seenPlanets.add(planet.planet_id);
+      const meta = findPlanetMeta(planet.planet_id);
+      const skips: PlanetSkip[] = [];
+      const add = (spec: string, fromAttachment?: string) => {
+        const upper = spec.toUpperCase();
+        if (!SKIP_TRACKS.includes(upper) || skips.some((skip) => skip.specialty === upper)) return;
+        skips.push({ specialty: upper as SkipTrack, fromAttachment });
+      };
+      for (const spec of meta?.techSpecialties ?? []) add(spec);
+      for (const id of planet.attachments ?? []) {
+        for (const spec of findAttachmentMeta(id)?.techSpecialties ?? []) add(spec, id);
+      }
+      if (skips.length > 0) {
+        results.push({
+          planetId: planet.planet_id,
+          name: meta?.name || humanizeId(planet.planet_id),
+          skips,
+          isExhausted: Boolean(planet.exhausted),
+        });
       }
     }
   }
   return results;
+}
+
+/** The skips per colour that `planets` give; a planet counts when `use` says so. */
+export function skipCounts(
+  planets: readonly ControlledSpecialtyPlanet[],
+  use: (planet: ControlledSpecialtyPlanet) => boolean,
+): Record<SkipTrack, number> {
+  const counts: Record<SkipTrack, number> = { PROPULSION: 0, BIOTIC: 0, CYBERNETIC: 0, WARFARE: 0 };
+  for (const planet of planets) {
+    if (!use(planet)) continue;
+    for (const skip of planet.skips) counts[skip.specialty] += 1;
+  }
+  return counts;
 }
 
 /** First rules version with AI Development Algorithm and Psychoarchaeology (engine: RULES_TECH_EFFECTS). */

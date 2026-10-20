@@ -36,9 +36,9 @@ test("event log: gravity rift and combat rolls", async ({ page }, testInfo) => {
   await openLogFully(page);
   const rows = page.getByTestId("event-log-roll");
   await expect(rows).toHaveCount(5);
-  await expect(rows.first()).toContainText("Gravity rift in system 67");
-  await expect(rows.first()).toContainText("ship survives");
-  await expect(rows.nth(1)).toContainText("ship destroyed");
+  await expect(rows.first()).toContainText("at the gravity rift in #67");
+  await expect(rows.first()).toContainText("the ship survived");
+  await expect(rows.nth(1)).toContainText("the ship was destroyed");
   // Hits are filled, misses dimmed, rerolled dice dashed; and a roll has no Undo button.
   await expect(rows.nth(2).locator('.event-log__die[data-hit="yes"]')).toHaveCount(2);
   await expect(rows.nth(2).locator('.event-log__die[data-hit="no"]')).toHaveCount(1);

@@ -1011,3 +1011,12 @@
   color: #c084fc;
   font-size: 9px;
 }
+
+.tech-skip-pill__badge--facility {
+  outline: 1px dashed currentColor;
+  outline-offset: 1px;
+}
+.tech-skip-pill__source {
+  font-size: 11px;
+  opacity: 0.85;
+}

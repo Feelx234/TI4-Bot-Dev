@@ -300,6 +300,137 @@
       "researchable": true,
       "then_target": "cr2",
       "then_researchable": false
+    },
+    {
+      "name": "facility: a ready Warfare Research Facility on a bare planet is a red skip (PDS II)",
+      "rules_version": 15,
+      "owned": [
+        "st"
+      ],
+      "specialties": [
+        {
+          "colour": "warfare",
+          "exhausted": false,
+          "via": "facility"
+        }
+      ],
+      "target": "pds2",
+      "researchable": true
+    },
+    {
+      "name": "facility: no facility, no red skip (PDS II)",
+      "rules_version": 15,
+      "owned": [
+        "st"
+      ],
+      "specialties": [],
+      "target": "pds2",
+      "researchable": false
+    },
+    {
+      "name": "facility: an exhausted facility planet gives nothing without Psychoarchaeology",
+      "rules_version": 15,
+      "owned": [
+        "st"
+      ],
+      "specialties": [
+        {
+          "colour": "warfare",
+          "exhausted": true,
+          "via": "facility"
+        }
+      ],
+      "target": "pds2",
+      "researchable": false
+    },
+    {
+      "name": "facility: Psychoarchaeology uses an exhausted facility planet",
+      "rules_version": 15,
+      "owned": [
+        "st",
+        "pa"
+      ],
+      "specialties": [
+        {
+          "colour": "warfare",
+          "exhausted": true,
+          "via": "facility"
+        }
+      ],
+      "target": "pds2",
+      "researchable": true
+    },
+    {
+      "name": "facility: a Cybernetic Research Facility on a bare planet is a yellow skip (Graviton Laser System)",
+      "rules_version": 15,
+      "owned": [],
+      "specialties": [
+        {
+          "colour": "cybernetic",
+          "exhausted": false,
+          "via": "facility"
+        }
+      ],
+      "target": "gls",
+      "researchable": true
+    },
+    {
+      "name": "facility: a Propulsion Research Facility on a bare planet is a blue skip (Gravity Drive)",
+      "rules_version": 15,
+      "owned": [],
+      "specialties": [
+        {
+          "colour": "propulsion",
+          "exhausted": false,
+          "via": "facility"
+        }
+      ],
+      "target": "gd",
+      "researchable": true
+    },
+    {
+      "name": "facility: a Biotic Research Facility is green, so it does not cover a blue prerequisite",
+      "rules_version": 15,
+      "owned": [],
+      "specialties": [
+        {
+          "colour": "biotic",
+          "exhausted": false,
+          "via": "facility"
+        }
+      ],
+      "target": "gd",
+      "researchable": false
+    },
+    {
+      "name": "facility: on a planet with a printed blue specialty it is only +1/+1, no red skip",
+      "rules_version": 15,
+      "owned": [
+        "st"
+      ],
+      "specialties": [
+        {
+          "colour": "propulsion",
+          "exhausted": false,
+          "via": "facility_on_specialty"
+        }
+      ],
+      "target": "pds2",
+      "researchable": false
+    },
+    {
+      "name": "facility: the printed blue specialty of that planet still counts",
+      "rules_version": 15,
+      "owned": [],
+      "specialties": [
+        {
+          "colour": "propulsion",
+          "exhausted": false,
+          "via": "facility_on_specialty"
+        }
+      ],
+      "target": "gd",
+      "researchable": true
     }
   ]
 }

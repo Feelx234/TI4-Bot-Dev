@@ -33,7 +33,7 @@ const label = (seat: string) => (seat === "np" ? "np" : seat);
 describe("dice roll toasts", () => {
   it("names who rolled, what for, the system, the die and what it did", () => {
     const [toast] = rollToasts([rolled(rift)], label);
-    expect(toast.text).toBe("np rolled Gravity rift in #67: 2 · ship destroyed");
+    expect(toast.text).toBe("np rolled a 2 at the gravity rift in #67 and the ship was destroyed, with anything it carried");
   });
 
   it("merges the dice of one combat round into a single toast with the hits totalled", () => {
@@ -81,5 +81,27 @@ describe("dice roll toasts", () => {
     const hidden: GameEvent = { ...rolled(rift), visibility: { visibility: "seat", seat: "p1" } };
     const bare: GameEvent = { ...rolled(rift), roll: undefined };
     expect(rollToasts([decision, hidden, bare], label)).toEqual([]);
+  });
+
+  it("never calls a gravity rift die a hit: one line per ship, each says what happened", () => {
+    const survive: PublicRoll = { ...rift, index: 26, faces: [7], hits: 1, outcome: "ship survives" };
+    const survive2: PublicRoll = { ...rift, index: 27, faces: [9], hits: 1, outcome: "ship survives" };
+    const [toast] = rollToasts([rolled(survive), rolled(survive2), rolled({ ...rift, index: 28 })], label);
+    expect(toast.text).not.toMatch(/hit/i);
+    expect(toast.text.split("\n")).toEqual([
+      "np rolled a 7 at the gravity rift in #67 and the ship survived",
+      "np rolled a 9 at the gravity rift in #67 and the ship survived",
+      "np rolled a 2 at the gravity rift in #67 and the ship was destroyed, with anything it carried",
+    ]);
+  });
+
+  it("keeps merging rift rolls that arrive one by one into separate lines", () => {
+    const first = rollToasts([rolled({ ...rift, index: 30, faces: [8], hits: 1, outcome: "ship survives" })], label);
+    const second = rollToasts([rolled({ ...rift, index: 31, faces: [3], hits: 0 })], label);
+    const merged = mergeRollToasts(first, second, 3);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].text).toBe(
+      "np rolled an 8 at the gravity rift in #67 and the ship survived\nnp rolled a 3 at the gravity rift in #67 and the ship was destroyed, with anything it carried",
+    );
   });
 });

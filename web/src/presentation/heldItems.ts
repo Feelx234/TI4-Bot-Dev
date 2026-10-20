@@ -1,12 +1,12 @@
 import type { BoardView, ChoiceOption, PlayerView } from "../protocol/types.ts";
 import { CONTENT } from "../protocol/catalogStore.ts";
 import {
-  findAttachmentMeta,
   findExplorationCardMeta,
   findPlanetMeta,
   findTechnologyMeta,
   humanizeId,
 } from "../protocol/contentCatalog.ts";
+import { attachmentInfo } from "./attachmentInfo.ts";
 import { describeBreakthrough } from "./breakthroughs.ts";
 import { findLeaderRecord, findRelicRecord } from "./componentInfo.ts";
 import {
@@ -434,14 +434,13 @@ export function buildHeldItems(input: HeldItemsInput): HeldItemsModel {
         });
       }
       for (const att of planet.attachments ?? []) {
-        const am = findAttachmentMeta(att);
-        const signed = (n: number, what: string) => (n ? `${n > 0 ? "+" : ""}${n} ${what}` : "");
+        const am = attachmentInfo(att);
         attachItems.push({
           key: `attach-${pid}-${att}`,
-          name: am?.name ?? humanizeId(att),
+          name: am.name,
           kind: `On ${meta?.name ?? humanizeId(pid)}`,
           owner: null,
-          text: am ? [signed(am.resourcesModifier, "resources"), signed(am.influenceModifier, "influence")].filter(Boolean).join(", ") || null : null,
+          text: am.text,
           chips: [chip("attached", "info")],
           usableNow: false,
         });

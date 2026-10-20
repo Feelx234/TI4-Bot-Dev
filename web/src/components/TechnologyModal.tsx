@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from "react";
+import { attachmentInfo } from "../presentation/attachmentInfo.ts";
 import { PlanetValue, ValueText } from "./PlanetValueIcons.tsx";
 import type { BoardView, PlayerView, PendingChoiceDto } from "../protocol/types.ts";
 import {
@@ -22,6 +23,7 @@ import {
   getTechnologyTrack,
   isTechAllowedForFaction,
   getControlledSpecialtyPlanets,
+  skipCounts,
   checkTechPrerequisites,
   unlockedByAida,
   secondPickPrerequisitesMet,
@@ -186,18 +188,10 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
   /** Specialties per track: the toggled ones, or (all = true) every one the engine would use. */
   const specialtyCounts = useCallback(
     (all: boolean) => {
-      const counts: Record<"PROPULSION" | "BIOTIC" | "CYBERNETIC" | "WARFARE", number> = {
-        PROPULSION: 0,
-        BIOTIC: 0,
-        CYBERNETIC: 0,
-        WARFARE: 0,
-      };
-      for (const p of controlledSpecialties) {
-        if ((freeSpecialties || !p.isExhausted) && (all || toggledPlanets[p.planetId])) {
-          counts[p.specialty] += 1;
-        }
-      }
-      return counts;
+      return skipCounts(
+        controlledSpecialties,
+        (p) => (freeSpecialties || !p.isExhausted) && (all || Boolean(toggledPlanets[p.planetId])),
+      );
     },
     [controlledSpecialties, toggledPlanets, freeSpecialties],
   );
@@ -744,12 +738,30 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                                   : `Click to toggle ${planet.name} skip`
                           }
                         >
-                          <span
-                            className={`tech-skip-pill__badge tech-skip-pill__badge--${planet.specialty.toLowerCase()}`}
-                          >
-                            {planet.specialty.charAt(0)}
-                          </span>
+                          {planet.skips.map((skip) => (
+                            <span
+                              key={skip.specialty}
+                              data-testid={`tech-skip-badge-${planet.planetId}-${skip.specialty.toLowerCase()}`}
+                              title={
+                                skip.fromAttachment
+                                  ? `${attachmentInfo(skip.fromAttachment).name}: ${skip.specialty.toLowerCase()} skip`
+                                  : `${skip.specialty.toLowerCase()} skip`
+                              }
+                              className={`tech-skip-pill__badge tech-skip-pill__badge--${skip.specialty.toLowerCase()}${
+                                skip.fromAttachment ? " tech-skip-pill__badge--facility" : ""
+                              }`}
+                            >
+                              {skip.specialty.charAt(0)}
+                            </span>
+                          ))}
                           <span>{planet.name}</span>
+                          {planet.skips
+                            .filter((skip) => skip.fromAttachment)
+                            .map((skip) => (
+                              <span key={skip.fromAttachment} className="tech-skip-pill__source">
+                                + {attachmentInfo(skip.fromAttachment!).name}
+                              </span>
+                            ))}
                           <span className="tech-skip-pill__status">
                             {spent
                               ? "(Exhausted)"

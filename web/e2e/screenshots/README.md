@@ -158,3 +158,7 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Agenda visible to all (FW-agenda-visible-to-all)
 
 `FW-agenda-visible-to-all` shows the agenda banner for every viewer from the reveal to the resolution: the voter, a seat that is not asked, a spectator, the reaction window with riders, the second agenda, after resolution (banner gone) and a 6-player Elect Player table with real 64-hex ids, desktop and 390x844. `capture-2-real-engine.ts` plays the `agenda` preset through the real wasm engine (needs `npm run build:wasm`). The `before-*` PNGs were taken with `TI4_SHOT_PREFIX=before` on 0a18dd87. `npm run screenshots -- FW` asserts the texts, no raw player id and no horizontal scroll.
+
+## Attachments, skips, text (GF-attachments-skips-text)
+
+`GF-attachments-skips-text` shows research facilities in the technology picker's skips row, attachment effect text on hover/focus/tap (system inspector, board marker tooltip), the Held items attachment texts (Demilitarized Zone, Cybernetic Research Facility) and the gravity-rift toast and log line. The `before/before-*.png` were taken at 80ce1bf1 (`TI4_SHOT_PREFIX=before`); `npm run screenshots -- GF` regenerates the `after-*` PNGs and asserts the behaviour.

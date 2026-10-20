@@ -16,8 +16,8 @@ for (const [size, viewport] of Object.entries(SIZES)) {
     const toast = page.locator('[data-testid="corner-toast"][data-toast-kind="notice"]');
     await toast.waitFor();
     await expect(page.getByTestId("toast-notice-tag")).toHaveText("Dice");
-    await expect(toast).toContainText("rolled Gravity rift in #67");
-    await expect(toast).toContainText("2 · ship destroyed");
+    await expect(toast).toContainText("rolled a 2 at the gravity rift in #67");
+    await expect(toast).toContainText("the ship was destroyed");
     await page.waitForTimeout(700);
     const box = (await toast.boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(0);
@@ -32,7 +32,7 @@ test("dice toast: own roll, and a combat round merged", async ({ page }, testInf
   pushEntry(game, rollEntry(riftSurvives(actor)));
   const toast = page.locator('[data-testid="corner-toast"][data-toast-kind="notice"]');
   await toast.waitFor();
-  await expect(toast).toContainText("8 · ship survives");
+  await expect(toast).toContainText("the ship survived");
   await shot(page, testInfo, "2a-own-roll-survives", cornerCrop(page));
   await toast.click();
   await expect(toast).toHaveCount(0);

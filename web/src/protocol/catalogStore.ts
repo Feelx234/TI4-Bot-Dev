@@ -176,6 +176,8 @@ export function contentTables(records: ContentRecords): ContentTables {
       name: attachment.name,
       resourcesModifier: attachment.resources_modifier,
       influenceModifier: attachment.influence_modifier,
+      techSpecialties: attachment.tech_specialties ?? [],
+      text: attachment.text ?? "",
     })),
     factions: each(records.factions, (faction) =>
       defined({

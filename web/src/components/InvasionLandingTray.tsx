@@ -10,6 +10,7 @@ import { UnitIcon, getUnitDisplayName } from "./UnitIcon.tsx";
 import { PlanetValue } from "./PlanetValueIcons.tsx";
 import { WorkflowShell } from "./WorkflowShell.tsx";
 import { InfoPopover } from "./InfoPopover.tsx";
+import { AttachmentInfo } from "./AttachmentInfo.tsx";
 import {
   formatDefenderUnits,
   planDefaultLanding,
@@ -475,11 +476,11 @@ export const InvasionLandingTray: React.FC<{
                           </span>
                         )}
                         {info.attachments.length > 0 && (
-                          <span
-                            className="invasion-planet-trait"
-                            title={`Attachments: ${info.attachments.join(", ")}`}
-                          >
-                            + {info.attachments.join(", ")}
+                          <span className="invasion-planet-trait">
+                            +{" "}
+                            {info.attachments.map((id) => (
+                              <AttachmentInfo key={id} id={id} />
+                            ))}
                           </span>
                         )}
                       </div>
