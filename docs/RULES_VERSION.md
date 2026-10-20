@@ -10,7 +10,7 @@ playable.
 
 `GameState::rules_version: u32` (crates/ti4-model/src/state.rs). Constants next to it:
 
-- `RULES_VERSION` (now 17): what a **new** game plays. `GameState::new` sets it, so every way of
+- `RULES_VERSION` (now 20): what a **new** game plays. `GameState::new` sets it, so every way of
   creating a game (server, lobby, wasm host, selfplay, tests) gets the latest.
 - `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ENIGMATIC_DEVICE = 5`, `RULES_TECH_PAYMENT_CHOICE = 6`, `RULES_BRIBERY_PER_PLAYER = 7`, `RULES_MUNITIONS_AFTER_ROLL = 8`, `RULES_TECH_RIDER = 9`, `RULES_ACTION_CARD_TARGETS = 10`, `RULES_RETREAT_HAZARDS = 11`, `RULES_COMMAND_TOKEN_POOL = 12`, `RULES_SELF_ASSEMBLY = 13`, `RULES_AGENDA_GRANT_REVEAL = 14`, `RULES_TECH_EFFECTS = 15`): the first version with one gated change.
 A state without the field is **version 0**, the legacy rules (what the alpha ran until 2026-10-16).
@@ -217,6 +217,10 @@ Version 17 = faction bug fixes (`faction-bug-fixes`, `RULES_FACTION_BUGFIXES`). 
 Also at 17: the combat dev scenarios start with Letnev's agent exhausted so they still open at the retreat (not a game rule). No new question kinds: the Farran, agent unit and discard questions already exist, so the delivery inventory and the rule bot's answers are unchanged.
 
 Version < 17: none of these; older logs replay unchanged.
+
+Version 20 = no empty conversion (`RULES_NO_EMPTY_CONVERT`; numbers 18 and 19 belong to other branches). Abandoned Warehouses (aw1-aw4) and Merchant Station (ms1, ms2) offered "convert commodities to trade goods" to a seat with no commodities. From 20 the convert option is left out of the reward question when the seat holds none, and when only the gain is left the card takes it without a question (`exploration::can_offer_convert`, `ask_unless_single`). With 1 or more commodities the question is unchanged. No new question kinds; the bot and the web client already handle the gain-only case (the reward is just not asked).
+
+Version < 20: always both options; older logs replay unchanged.
 
 ## Not a rules version: the Thunder's Edge switch (`GameState::thunders_edge`)
 
