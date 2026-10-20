@@ -7,12 +7,12 @@ import {
   getStrategyCardMeta,
   getSecretObjectiveMeta,
   getActionCardMeta,
-  PUBLIC_OBJECTIVES,
-  SECRET_OBJECTIVES,
 } from "../protocol/contentCatalog.ts";
 import { CardSubject } from "./CardDetails.tsx";
 import { FactionInfoButton } from "./UnitInfo.tsx";
 import { describeBreakthrough } from "../presentation/breakthroughs.ts";
+import { usePassStatus } from "../presentation/passOrder.tsx";
+import { ScoreBreakdownDialog } from "./ScoreBreakdownDialog.tsx";
 import { usePublicState } from "../presentation/PublicStateContext.tsx";
 import { SecondaryPrepModeToggle } from "./SecondaryPrepModeToggle.tsx";
 import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
@@ -79,93 +79,6 @@ export const HeldForeignTokens: React.FC<{ owners: readonly string[] }> = ({ own
     </div>
   );
 };
-
-export interface VPBreakdown {
-  publicObjectives: number;
-  publicVP: number;
-  secretObjectives: number;
-  secretVP: number;
-  /** Points the client cannot attribute (custodians, Imperial, relics, laws, abilities). */
-  otherVP: number;
-  /** Server-authoritative total (player.victory_points). */
-  total: number;
-  /** True when the known objective points exceed the server total. */
-  knownExceedsTotal: boolean;
-}
-
-export const calculateVPBreakdown = (
-  player: PlayerView,
-  _board?: BoardView,
-  table?: TableView
-): VPBreakdown => {
-  let publicObjectives = 0;
-  let publicVP = 0;
-  let secretObjectives = 0;
-  let secretVP = 0;
-
-  for (const objId of table?.scored_objectives?.[player.id] ?? []) {
-    const objMeta = PUBLIC_OBJECTIVES[objId as keyof typeof PUBLIC_OBJECTIVES];
-    if (objMeta) {
-      publicObjectives++;
-      publicVP += objMeta.points;
-    }
-  }
-
-  for (const objId of player.scored_secret_objectives ?? []) {
-    const objMeta = SECRET_OBJECTIVES[objId as keyof typeof SECRET_OBJECTIVES];
-    if (objMeta) {
-      secretObjectives++;
-      secretVP += objMeta.points;
-    }
-  }
-
-  const total = Math.max(0, player.victory_points);
-  const known = publicVP + secretVP;
-  const knownExceedsTotal = known > total;
-  if (knownExceedsTotal) {
-    // Never show more than the server total: clamp the known lines to it.
-    const cappedPublic = Math.min(publicVP, total);
-    secretVP = Math.min(secretVP, total - cappedPublic);
-    publicVP = cappedPublic;
-  }
-  return {
-    publicObjectives,
-    publicVP,
-    secretObjectives,
-    secretVP,
-    otherVP: Math.max(0, total - publicVP - secretVP),
-    total,
-    knownExceedsTotal,
-  };
-};
-
-export const VPBreakdownTooltip: React.FC<{ breakdown: VPBreakdown }> = ({ breakdown }) => (
-  <div className="vp-breakdown-tooltip">
-    <div className="vp-breakdown-row">
-      <span className="vp-breakdown-label">Public Objectives:</span>
-      <span className="vp-breakdown-count">{breakdown.publicObjectives}</span>
-      <span className="vp-breakdown-vp">+{breakdown.publicVP} VP</span>
-    </div>
-    <div className="vp-breakdown-row">
-      <span className="vp-breakdown-label">Secret Objectives:</span>
-      <span className="vp-breakdown-count">{breakdown.secretObjectives}</span>
-      <span className="vp-breakdown-vp">+{breakdown.secretVP} VP</span>
-    </div>
-    <div className="vp-breakdown-row" data-testid="vp-breakdown-other">
-      <span className="vp-breakdown-label">Other sources (custodians, Imperial, relics, laws, abilities):</span>
-      <span className="vp-breakdown-vp">+{breakdown.otherVP} VP</span>
-    </div>
-    <div className="vp-breakdown-row" data-testid="vp-breakdown-total">
-      <span className="vp-breakdown-label">Total:</span>
-      <span className="vp-breakdown-vp">{breakdown.total} VP</span>
-    </div>
-    {breakdown.knownExceedsTotal && (
-      <div className="vp-breakdown-note">
-        Scored objectives exceed the reported total; showing the server total.
-      </div>
-    )}
-  </div>
-);
 
 const SystemIcon: React.FC<{ style?: React.CSSProperties }> = ({ style }) => (
   <svg
@@ -277,6 +190,9 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
   const display = usePlayerIdentity();
   const [heldFor, setHeldFor] = useState<string | null>(null);
   const closeHeld = React.useCallback(() => setHeldFor(null), []);
+  const [scoreFor, setScoreFor] = useState<string | null>(null);
+  const closeScore = React.useCallback(() => setScoreFor(null), []);
+  const passStatus = usePassStatus();
   const publicState = usePublicState();
   const bluff = useBluffControls();
   const { isMuted, toggleMute } = useTurnSound();
@@ -480,34 +396,39 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                   style={{ fontSize: 12, color: "#94a3b8", display: "flex", alignItems: "center", gap: 6 }}
                 >
                   {player.faction}
+                  {passStatus(player.id).passed && (
+                    <span
+                      className="passed-chip"
+                      data-testid="player-passed"
+                      data-place={passStatus(player.id).place ?? ""}
+                      title="Passed: takes no more turns in this action phase"
+                    >
+                      {passStatus(player.id).label}
+                    </span>
+                  )}
                   <FactionInfoButton
                     faction={player.faction}
+                    showBreakthrough={publicState.thundersEdge}
                     breakthroughHeld={publicState.breakthroughs[player.id] ?? null}
                     technologies={player.technologies}
                     leaders={player.leaders}
                   />
                 </div>
               </div>
-              <Tooltip
-                content={<VPBreakdownTooltip breakdown={calculateVPBreakdown(player, board, table)} />}
-                position="left"
+              <button
+                type="button"
+                data-testid="player-vp"
+                className="player-vp-chip"
+                aria-haspopup="dialog"
+                aria-expanded={scoreFor === player.id}
+                aria-label={`${player.victory_points} victory points, show where they come from`}
+                onClick={() => {
+                  setHeldFor(null);
+                  setScoreFor(player.id);
+                }}
               >
-                <div
-                  data-testid="player-vp"
-                  style={{
-                    background: "#fbbf24",
-                    color: "#0f172a",
-                    fontWeight: "bold",
-                    fontSize: 14,
-                    padding: "2px 8px",
-                    borderRadius: 12,
-                    cursor: "help",
-                  }}
-                  tabIndex={0}
-                >
-                  {player.victory_points} VP
-                </div>
-              </Tooltip>
+                {player.victory_points} VP
+              </button>
             </div>
 
             {/* Economy & Tokens */}
@@ -769,11 +690,16 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                 viewer={userSeat}
                 board={board}
                 expanded={heldFor === player.id}
-                onOpen={setHeldFor}
+                onOpen={(seat) => {
+                  setScoreFor(null);
+                  setHeldFor(seat);
+                }}
               />
             </div>
 
-            <BreakthroughRow faction={player.faction} held={publicState.breakthroughs[player.id] ?? null} />
+            {publicState.thundersEdge && (
+              <BreakthroughRow faction={player.faction} held={publicState.breakthroughs[player.id] ?? null} />
+            )}
 
             {player.scored_secret_objectives && player.scored_secret_objectives.length > 0 && (
               <div style={{ display: "grid", gap: 4 }}>
@@ -1044,6 +970,16 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
           </div>
         );
       })}
+      {scoreFor && (
+        <ScoreBreakdownDialog
+          key={scoreFor}
+          players={players}
+          table={table}
+          viewer={userSeat}
+          initialSeat={scoreFor}
+          onClose={closeScore}
+        />
+      )}
       {heldFor && (
         <HeldItemsPanel
           key={heldFor}

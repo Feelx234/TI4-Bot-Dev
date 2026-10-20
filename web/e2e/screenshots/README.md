@@ -158,3 +158,7 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Agenda visible to all (FW-agenda-visible-to-all)
 
 `FW-agenda-visible-to-all` shows the agenda banner for every viewer from the reveal to the resolution: the voter, a seat that is not asked, a spectator, the reaction window with riders, the second agenda, after resolution (banner gone) and a 6-player Elect Player table with real 64-hex ids, desktop and 390x844. `capture-2-real-engine.ts` plays the `agenda` preset through the real wasm engine (needs `npm run build:wasm`). The `before-*` PNGs were taken with `TI4_SHOT_PREFIX=before` on 0a18dd87. `npm run screenshots -- FW` asserts the texts, no raw player id and no horizontal scroll.
+
+## VP breakdown, passed badge, breakthrough gate (GE-vp-breakdown-mat)
+
+`GE-vp-breakdown-mat` shows the VP breakdown sheet (tap a VP chip: seat tabs, points by source, bar toward the target, open public objectives), the Passed chip on the mat, the seat legend and the VP sheet, and the breakthrough hidden on a table without Thunder's Edge. The `before/` PNGs were taken on 80ce1bf1 with `TI4_SHOT_PREFIX=before` (`capture-0-before.ts` is skipped otherwise); `npm run screenshots -- GE` regenerates the after shots and asserts totals, no horizontal scroll and 44 px targets.

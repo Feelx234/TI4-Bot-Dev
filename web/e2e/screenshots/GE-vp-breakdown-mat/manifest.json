@@ -1,0 +1,31 @@
+{
+  "title": "VP Breakdown and Passed Badge",
+  "description": "Three fixes from the tester's list. (1) The VP breakdown was a hover tooltip on the VP chip: clipped off-screen on a phone, no touch way to open it, and everything that was not an objective lumped into 'Other sources'. It is now a sheet opened by tapping the chip: a tab per seat (one tap to switch, sticky header, 44 px), the points by source from the server's score facts (public objectives with stage, scored secrets by name, Custodians, Imperial, Support for the Throne, agendas, relics, other), the total the engine reports, a bar toward the points to win, Leader and points behind, and the revealed public objectives that seat has not scored. (2) A seat that passed in the action phase shows a Passed chip (with the place, 1st, 2nd, when this page saw the passes one by one) on its mat, in the seat legend over the board and in the VP sheet; cleared at the next round. (3) Breakthrough chips, Held items section and the faction card breakthrough are hidden when the table does not play Thunder's Edge (state.thunders_edge off); shown as before when on. Synthetic fixtures through a mocked server (the score facts have the shape of the engine's project_score_facts). Before shots were taken on 80ce1bf1 with TI4_SHOT_PREFIX=before and are committed under before/; npm run screenshots -- GE regenerates the after shots.",
+  "tag": "web/e2e/screenshots/GE-vp-breakdown-mat",
+  "shots": [
+    { "file": "before/before-2-vp-tooltip-desktop.png", "heading": "Before: VP tooltip, desktop", "caption": "Hover only, clipped by the panel edge; 'Other sources (custodians, Imperial, relics, laws, abilities)' lumped; no names." },
+    { "file": "before/before-2-vp-tooltip-390x844.png", "heading": "Before: VP tooltip, 390x844", "caption": "Cut off at the left screen edge, covers the card, cannot be opened by touch." },
+    { "file": "before/before-1-players-desktop.png", "heading": "Before: players, Hacan and Letnev passed, Thunder's Edge off", "caption": "Nothing shows who passed; a Breakthrough row shows although the table has no Thunder's Edge." },
+    { "file": "before/before-1-players-390x844.png", "heading": "Before: players, 390x844", "caption": "Same on a phone." },
+    { "file": "out/after-1-own-desktop.png", "heading": "After: your points, desktop", "caption": "Docked sheet: seat tabs with totals, bar toward 10, points by source, total, open public objectives." },
+    { "file": "out/after-1-own-390x844.png", "heading": "After: your points, 390x844", "caption": "Full-height sheet, sticky header with the seat tabs, no horizontal scroll, 44 px targets." },
+    { "file": "out/after-2-leader-desktop.png", "heading": "After: the leader, desktop", "caption": "One tap on Blair: Leader and Passed chips, 8 of 10, 2 to win, secrets by name, Imperial." },
+    { "file": "out/after-2-leader-390x844.png", "heading": "After: the leader, 390x844", "caption": "Same on a phone." },
+    { "file": "out/after-3-leader-open-objectives-desktop.png", "heading": "After: open objectives, desktop", "caption": "Scrolled: revealed public objectives the seat has not scored, with who has." },
+    { "file": "out/after-3-leader-open-objectives-390x844.png", "heading": "After: open objectives, 390x844", "caption": "Same on a phone." },
+    { "file": "out/after-4-trailing-desktop.png", "heading": "After: a trailing seat with an agenda point, desktop", "caption": "Agenda point by name; rows add up to the total." },
+    { "file": "out/after-4-trailing-390x844.png", "heading": "After: a trailing seat, 390x844", "caption": "Same on a phone." },
+    { "file": "out/after-1-mat-desktop.png", "heading": "After: Passed on the mat, desktop", "caption": "Blair's mat: Passed (2nd); Drew passed first." },
+    { "file": "out/after-1-mat-390x844.png", "heading": "After: Passed on the mat, 390x844", "caption": "Players drawer: Passed (2nd) next to the faction." },
+    { "file": "out/after-2-seat-legend-desktop.png", "heading": "After: seat legend, desktop", "caption": "Passed chips next to the seat names over the board." },
+    { "file": "out/after-2-seat-legend-390x844.png", "heading": "After: seat legend, 390x844", "caption": "In the top menu on a phone." },
+    { "file": "out/after-1-off-desktop.png", "heading": "Breakthrough hidden, desktop", "caption": "Table without Thunder's Edge: no Breakthrough row." },
+    { "file": "out/after-1-off-390x844.png", "heading": "Breakthrough hidden, 390x844", "caption": "Same on a phone." },
+    { "file": "out/after-2-on-desktop.png", "heading": "Breakthrough shown, desktop", "caption": "Thunder's Edge on: the row is there as before." },
+    { "file": "out/after-2-on-390x844.png", "heading": "Breakthrough shown, 390x844", "caption": "Same on a phone." }
+  ],
+  "notes": [
+    { "title": "Data", "text": "No engine or wire change. The sheet reads the snapshot's existing score facts (ti4_host view::score, wire type ScoreFacts) and falls back to the view's scored lists when a server sends none. The engine keeps only a passed flag per seat, so the pass order is what the client saw (a pass alone in an update); passes that arrive together or were there when the page opened show Passed without a place. The vp_ledger carries no round, so the round a point was scored is not shown." },
+    { "title": "Breakthrough content", "text": "Breakthroughs come from the thunders_edge content source; the table flag is state.thunders_edge." }
+  ]
+}

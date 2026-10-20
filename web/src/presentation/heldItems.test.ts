@@ -229,3 +229,14 @@ describe("readHeldState", () => {
     expect(s).toEqual({ notes: { "cf:a": "p1" }, faceup: ["cf:a"], support: { a: "p1" }, marks: { "a:b:c": "1" } });
   });
 });
+
+describe("breakthrough section follows the table's content", () => {
+  const keys = (on?: boolean) =>
+    buildHeldItems({ players: [base("p1", "sol")], subject: "p1", viewer: "p1", held: readHeldState({}), breakthroughsOn: on })
+      .sections.flatMap((s) => s.items.map((i) => i.key));
+  it("is there by default and when on, gone when off", () => {
+    expect(keys()).toContain("breakthrough");
+    expect(keys(true)).toContain("breakthrough");
+    expect(keys(false)).not.toContain("breakthrough");
+  });
+});

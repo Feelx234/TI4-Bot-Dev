@@ -113,6 +113,8 @@ export interface HeldItemsInput {
   held?: HeldState;
   /** The breakthrough alias of the subject, from the state, for the faction section. */
   breakthrough?: string | null;
+  /** The table plays the content that has breakthroughs (Thunder's Edge); default on. Off: no section. */
+  breakthroughsOn?: boolean;
   /** Options of the pending choice the viewer is asked; marks "usable now" (read-only). */
   options?: readonly Pick<ChoiceOption, "id" | "label" | "kind">[];
   /** Seat label, e.g. "Red". */
@@ -380,7 +382,8 @@ export function buildHeldItems(input: HeldItemsInput): HeldItemsModel {
       usableNow: own && usable.ability(id),
     });
   }
-  const breakthrough = describeBreakthrough(player.faction, input.breakthrough ?? null);
+  const breakthrough =
+    input.breakthroughsOn === false ? null : describeBreakthrough(player.faction, input.breakthrough ?? null);
   if (breakthrough) {
     factionItems.push({
       key: "breakthrough",

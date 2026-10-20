@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { renderHook } from "@testing-library/react";
 import { Board } from "./Board.tsx";
 import { PlayerSheet } from "./PlayerSheet.tsx";
@@ -28,6 +28,7 @@ const board: BoardView = {
 };
 
 const state = {
+  thunders_edge: true,
   frontier_tokens: ["51"],
   exploration_log: [
     { round: 1, player: "p1", deck: "INDUSTRIAL", card: "aw2", planet: "abyz", outcome: "resolved", result: "gained 2 commodities" },
@@ -152,6 +153,18 @@ describe("breakthrough on the sheet, the faction card and decisions", () => {
     expect(rows[1]).toHaveAttribute("data-unlocked", "false");
     expect(within(rows[1]).getByTestId("player-breakthrough-state")).toHaveTextContent("locked");
     expect(within(rows[1]).queryByTestId("player-breakthrough-text")).toBeNull();
+  });
+  it("shows no breakthrough anywhere when the table plays without Thunder's Edge", () => {
+    const { thunders_edge: _on, ...off } = state;
+    render(
+      <PublicStateProvider state={off}>
+        <PlayerSheet players={[player("p1", "sol"), player("p2", "letnev")]} userSeat="p1" />
+      </PublicStateProvider>,
+    );
+    expect(screen.queryByTestId("player-breakthrough")).toBeNull();
+    expect(screen.queryByText(/Bellum Gloriosum/)).toBeNull();
+    fireEvent.click(screen.getAllByTestId("faction-info-button")[0]);
+    expect(screen.queryByTestId("faction-breakthrough")).toBeNull();
   });
   it("is a section of the faction card with its lock state", () => {
     const info = describeFaction("sol")!;
