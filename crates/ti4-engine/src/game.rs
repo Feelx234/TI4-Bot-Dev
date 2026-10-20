@@ -6388,6 +6388,10 @@ impl<'a> Game<'a> {
             self.galaxy.as_ref(),
             "committee",
             &format!("Committee Formation: discard to choose who {alias} elects"),
+            &crate::laws::DiscardPresentation {
+                effect: "Choose who the agenda elects".to_owned(),
+                facts: Vec::new(),
+            },
         )?;
         let options: Vec<crate::choice::ChoiceOption> = self
             .state
@@ -6441,6 +6445,13 @@ impl<'a> Game<'a> {
             self.galaxy.as_ref(),
             "minister_peace",
             "Minister of Peace: discard to end the active player's turn",
+            &crate::laws::DiscardPresentation {
+                effect: "Ends the active player's turn at once".to_owned(),
+                facts: vec![
+                    crate::choice::offer_fact_system("Activated system", system.as_str()),
+                    crate::choice::offer_fact_seat("Activated by", active.as_str()),
+                ],
+            },
         )
         .is_some()
     }
@@ -6473,6 +6484,10 @@ impl<'a> Game<'a> {
             self.galaxy.as_ref(),
             "minister_war",
             "Minister of War: discard to retrieve a command token and act again",
+            &crate::laws::DiscardPresentation {
+                effect: "Retrieve a command token and take another action".to_owned(),
+                facts: Vec::new(),
+            },
         ) else {
             return;
         };
@@ -6554,6 +6569,10 @@ impl<'a> Game<'a> {
             self.galaxy.as_ref(),
             "arbiter",
             "Imperial Arbiter: discard to swap a strategy card",
+            &crate::laws::DiscardPresentation {
+                effect: "Swap a strategy card with another player".to_owned(),
+                facts: Vec::new(),
+            },
         )
         .is_none()
         {

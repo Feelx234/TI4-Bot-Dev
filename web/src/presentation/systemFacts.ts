@@ -112,6 +112,34 @@ export function systemNamedLabel(systemId: string, board?: BoardView | null): st
   return name ? `${name} (${bare})` : bare;
 }
 
+/**
+ * A system named by what is in it, for the options of a system choice: "System 25 · Quann (2/1)",
+ * "System 18 · Mecatol Rex (1/6)", "System 41 · gravity rift, no planets". Planets show their
+ * resources/influence; a tile the board does not know is just "System 99".
+ */
+export function systemOptionLabel(systemId: string, board?: BoardView | null): string {
+  const bare = `System ${systemId}`;
+  const tile = board?.map_tiles?.find((t) => t.system_id === systemId);
+  const planetIds = [
+    ...new Set([
+      ...(tile?.planets?.map((p) => p.id) ?? []),
+      ...Object.keys(board?.systems?.[systemId]?.planets ?? {}),
+    ]),
+  ];
+  if (planetIds.length > 0) {
+    const named = planetIds.map((id) => {
+      const d = getPlanetDetails(id, board);
+      return d.resources !== null && d.influence !== null ? `${d.name} (${d.resources}/${d.influence})` : d.name;
+    });
+    return `${bare} · ${named.join(" / ")}`;
+  }
+  if (!tile) return systemId === "18" ? `${bare} · Mecatol Rex` : bare;
+  if (systemId === "18") return `${bare} · Mecatol Rex`;
+  const anomaly = tile.anomalies?.[0]?.toLowerCase().replace(/_/g, " ");
+  const named = systemCommonName(systemId, board)?.toLowerCase();
+  return `${bare} · ${anomaly || named || "empty space"}, no planets`;
+}
+
 /** "#18 [Mecatol Rex]", "#01 [Sol home system]", "#41 [Gravity rift]"; "#99" when unknown. */
 export function systemTag(systemId: string, board?: BoardView | null): string {
   const name = systemCommonName(systemId, board);
@@ -166,10 +194,24 @@ export function planetOccupants(
 }
 
 const SYSTEM_PICK_SUBTYPE =
-  /(_pick_system|_choose_system|_recall_token|_pick_recall|_pick_rescue_from|_pick_space dock|expedition_place_system)$/;
+  /(_pick_system|_choose_system|_recall_token|_pick_recall|_pick_rescue_from|_pick_space dock|expedition_place_system|_rider_system|_ingress_system|stymie_system|sever_system|scepter_system|umbat_system|synergy_system|zeu_activate_system|asn_system)$/;
 
 /** Cards that pick one of several units; each option names the system its unit stands in (`payload.system`). */
 const UNIT_PICK_SUBTYPE = /_pick_(ship|infantry|cruiser)$/;
+
+/**
+ * The name an option of a system pick goes by ("System 25 · Quann (2/1)"), in place of the
+ * engine's label (a bare id or a sentence around one). `null` for any other decision or option.
+ */
+export function systemPickOptionTitle(
+  choice: PendingChoiceDto | null,
+  option: ChoiceOption,
+  board?: BoardView | null,
+): string | null {
+  if (!isSystemPickChoice(choice, board)) return null;
+  const id = systemPickOptionSystem(option);
+  return id ? systemOptionLabel(id, board) : null;
+}
 
 /** The system an option of a system pick stands for: payload.system, else the option id. */
 export function systemPickOptionSystem(opt: ChoiceOption): string | null {

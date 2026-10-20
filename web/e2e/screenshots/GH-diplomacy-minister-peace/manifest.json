@@ -1,0 +1,32 @@
+{
+  "title": "Diplomacy Rider and Minister of Peace prompts",
+  "description": "Two prompts that did not say enough. (1) System questions (Diplomacy Rider, Warfare Rider, Umbat, Stymie, Sever, Scepter, ASN, ...) listed bare system ids; the Diplomacy Rider's did not show what the card does. Every option is now named by its planets ('System 25 · Quann (2/1)', 'System 41 · gravity rift, no planets'), the rider's printed text is above the list, and the systems are picked on the map like Diplomacy's. (2) Minister of Peace's offer (discard to end the active player's turn) is a card: the law as printed, the system that was activated named by its planets, who activated it, and a switch like Aetherpassage's (checkbox in the offer, Prompts control on the owner's sheet, auto-decline with a toast). Mocked game with the engine's payload shapes; regenerate with npm run screenshots -- GH. The before shots are the base commit 80ce1bf1 with the same scenes.",
+  "tag": "web/e2e/screenshots/GH-diplomacy-minister-peace",
+  "shots": [
+    { "file": "before/before-1-diplomacy-rider-desktop.png", "heading": "Before: Diplomacy Rider, which system (desktop)", "caption": "A bare list of ids; nothing says what the card does." },
+    { "file": "out/after-1-diplomacy-rider-desktop.png", "heading": "After: Diplomacy Rider (desktop)", "caption": "The card and its printed text above the list; each system named by its planets with resources/influence." },
+    { "file": "before/before-1-diplomacy-rider-390x844.png", "heading": "Before: Diplomacy Rider (390x844)", "caption": "Same on a phone." },
+    { "file": "out/after-1-diplomacy-rider-390x844.png", "heading": "After: Diplomacy Rider (390x844)", "caption": "Same on a phone." },
+    { "file": "before/before-2-rider-map-desktop.png", "heading": "Before: choosing on the map (desktop)", "caption": "No map pick for the rider's systems." },
+    { "file": "out/after-2-rider-map-desktop.png", "heading": "After: choosing on the map (desktop)", "caption": "Choose on the map hides the list; the offered systems are highlighted." },
+    { "file": "before/before-3-warfare-rider-desktop.png", "heading": "Before: Warfare Rider (desktop)", "caption": "Same list of bare ids." },
+    { "file": "out/after-3-warfare-rider-desktop.png", "heading": "After: Warfare Rider (desktop)", "caption": "Printed text and named systems through the same helper." },
+    { "file": "before/before-4-umbat-desktop.png", "heading": "Before: Umbat, produce in which system (desktop)", "caption": "'system 25'." },
+    { "file": "out/after-4-umbat-desktop.png", "heading": "After: Umbat (desktop)", "caption": "Named systems; Decline stays." },
+    { "file": "before/before-5-minister-offer-desktop.png", "heading": "Before: Minister of Peace (desktop)", "caption": "Two buttons; no card text, no system, no player." },
+    { "file": "out/after-5-minister-offer-desktop.png", "heading": "After: Minister of Peace (desktop)", "caption": "The law as printed, the activated system named by its planets, who activated it, and the switch." },
+    { "file": "before/before-5-minister-offer-390x844.png", "heading": "Before: Minister of Peace (390x844)", "caption": "Same on a phone." },
+    { "file": "out/after-5-minister-offer-390x844.png", "heading": "After: Minister of Peace (390x844)", "caption": "Same on a phone." },
+    { "file": "out/after-6-switch-ticked-desktop.png", "heading": "Toggle ticked in the offer", "caption": "Applies from the next offer on; this one is still yours to answer." },
+    { "file": "out/after-7-sheet-ask-desktop.png", "heading": "Player sheet, asking", "caption": "The law's owner gets a 'Minister of Peace ask' button." },
+    { "file": "out/after-8-sheet-skipped-desktop.png", "heading": "Player sheet, skipped", "caption": "Switched to skipped; it stays listed while skipped." },
+    { "file": "out/after-9-declined-toast-desktop.png", "heading": "Declined for you", "caption": "The next offer is declined by the client with the toast 'Minister of Peace skipped (switched off)'." },
+    { "file": "out/after-6-switch-ticked-390x844.png", "heading": "Toggle ticked (390x844)", "caption": "Same on a phone." },
+    { "file": "out/after-8-sheet-skipped-390x844.png", "heading": "Sheet, skipped (390x844)", "caption": "Same on a phone." },
+    { "file": "out/after-9-declined-toast-390x844.png", "heading": "Declined for you (390x844)", "caption": "Same on a phone." }
+  ],
+  "notes": [
+    { "title": "Display only", "text": "The engine asks the same questions with the same option ids. Minister of Peace's question gains display details (the law card, the activated system and activator); option ids, subtype and hashes are unchanged. No rules-version change." },
+    { "title": "Toggle", "text": "Storage key player_ask_minister_of_peace in this browser. The engine still asks; a paused offer is an ordinary recorded decline. The ministers of War and Commerce, Imperial Arbiter and Committee Formation share the question type, so their offers now also show their card, but are not toggleable." }
+  ]
+}

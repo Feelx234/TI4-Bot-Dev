@@ -1,5 +1,6 @@
-import type { ChoiceOption, PendingChoiceDto } from "../protocol/types.ts";
+import type { BoardView, ChoiceOption, PendingChoiceDto } from "../protocol/types.ts";
 import { findPlanetMeta, getTechnologyMeta, humanizeId } from "../protocol/contentCatalog.ts";
+import { systemOptionLabel } from "./systemFacts.ts";
 import { getUnitDisplayName } from "../components/UnitIcon.tsx";
 
 /** One labelled fact of an offer card. */
@@ -47,7 +48,7 @@ const capitalize = (value: string): string => (value ? value[0].toUpperCase() + 
 
 const isDecline = (option: ChoiceOption) => option.kind === "decline" || option.id === "decline";
 
-function readFact(raw: unknown): OfferFact | null {
+function readFact(raw: unknown, board?: BoardView | null): OfferFact | null {
   if (!raw || typeof raw !== "object") return null;
   const record = raw as Record<string, unknown>;
   const label = text(record.label);
@@ -65,6 +66,8 @@ function readFact(raw: unknown): OfferFact | null {
     const name = findPlanetMeta(planetId)?.name ?? humanizeId(planetId);
     value = system ? `${name} (system ${system})` : name;
   }
+  // A system alone (no planet): named by what is in it.
+  if (system && !planetId && value === null) value = systemOptionLabel(system, board);
   if (technologyId) value = getTechnologyMeta(technologyId).name;
   if (unit) value = null;
   const change = from !== null && to !== null ? { from, to, of: num(record.of) } : null;
@@ -83,6 +86,7 @@ export const offerUnitName = (type: string): string =>
  */
 export function describeOfferCard(
   choice: Pick<PendingChoiceDto, "options" | "details">,
+  board?: BoardView | null,
 ): OfferCardView | null {
   const details = choice.details;
   if (!details || details.kind !== "offer") return null;
@@ -91,7 +95,7 @@ export function describeOfferCard(
   if (!title || choice.options.length === 0) return null;
   const captions = (details.captions ?? {}) as Record<string, Record<string, unknown>>;
   const facts = Array.isArray(details.facts)
-    ? details.facts.map(readFact).filter((fact): fact is OfferFact => fact !== null)
+    ? details.facts.map((fact) => readFact(fact, board)).filter((fact): fact is OfferFact => fact !== null)
     : [];
   const answers: OfferAnswer[] = choice.options.map((option) => {
     const caption = captions[option.id];

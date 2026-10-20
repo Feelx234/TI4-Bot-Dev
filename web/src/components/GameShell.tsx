@@ -64,7 +64,7 @@ import { useLoneAutoSubmit } from "../hooks/useLoneAutoSubmit.ts";
 import { usePausedPromptAutoDecline } from "../hooks/usePausedPromptAutoDecline.ts";
 import { PromptSwitches } from "./PromptSwitch.tsx";
 import "./PromptsPanel.css";
-import { promptsOfChoice } from "../presentation/pausablePrompts.ts";
+import { lawsOwnedBy, promptsOfChoice } from "../presentation/pausablePrompts.ts";
 import { PromptsPanel } from "./PromptsPanel.tsx";
 import { PausedPromptsChip } from "./PausedPromptsChip.tsx";
 import { readSinglePayment } from "../hooks/useSinglePaymentSetting.ts";
@@ -1104,6 +1104,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   prepOverlay,
   productionSubmitRef,
 }) => {
+  const shellPublicFacts = usePublicState();
   const [openDrawer, setOpenDrawer] = useState<"events" | "players" | null>(
     null,
   );
@@ -1589,7 +1590,7 @@ export const GameShell: React.FC<GameShellProps> = ({
             onDismiss={onDismissBatchResume}
           />
         )}
-        {viewerSeat && <PromptsPanel holder={playersMap[viewerSeat]} />}
+        {viewerSeat && <PromptsPanel holder={playersMap[viewerSeat] ? { ...playersMap[viewerSeat], laws: lawsOwnedBy(viewerSeat, shellPublicFacts.laws) } : playersMap[viewerSeat]} />}
         <PipelineRunnerContext.Provider value={pipelineRunner}>
           <ChoiceRendererDispatcher
             key={`${history?.generation ?? 0}:${boardView?.invasion?.invasion_seq ?? "none"}`}

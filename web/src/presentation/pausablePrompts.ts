@@ -33,6 +33,13 @@ export interface PausablePrompt {
   option?: { kind: string; token: string };
   /** The ability asks its own question with one of these decision subtypes. */
   subtypes: readonly string[];
+  /** Laws (agenda aliases) whose current owner has the ability. */
+  laws: readonly string[];
+  /**
+   * The question names one of these as its content source (`context.source.Content`), for
+   * abilities that share a decision subtype with others (the discard offers of the ministers).
+   */
+  contentSources: readonly string[];
 }
 
 interface PromptSpec {
@@ -43,6 +50,9 @@ interface PromptSpec {
   relics?: readonly string[];
   option?: readonly [kind: string, token: string];
   subtypes?: readonly string[];
+  laws?: readonly string[];
+  /** Used together with `subtypes`: only questions whose content source is one of these. */
+  contentSources?: readonly string[];
 }
 
 const REGISTRY: PausablePrompt[] = [];
@@ -58,6 +68,8 @@ function prompt(id: string, label: string, spec: PromptSpec): void {
     relics: spec.relics ?? [],
     option: spec.option ? { kind: spec.option[0], token: spec.option[1] } : undefined,
     subtypes: spec.subtypes ?? [],
+    laws: spec.laws ?? [],
+    contentSources: spec.contentSources ?? [],
   });
 }
 
@@ -74,6 +86,15 @@ prompt("aetherpassage", "Aetherpassage", {
   when: "after a player activates a system",
   factions: ["empyrean"],
   option: ["ability", "aetherpassage"],
+});
+
+// -- A law's owner (the ministers ask in a shared subtype; the content source tells them apart) -------
+prompt("minister_of_peace", "Minister of Peace", {
+  source: "law",
+  when: "after a player activates a system that holds another player's units",
+  laws: ["minister_peace"],
+  subtypes: ["offer_discard_law"],
+  contentSources: ["minister_peace"],
 });
 
 // -- Reaction to other players' actions: the owner is asked on every occasion ------------------------
@@ -486,10 +507,25 @@ export function promptForOption(optionId: string): PausablePrompt | undefined {
   return REGISTRY.find((entry) => optionMatches(entry, optionId));
 }
 
-/** The abilities that ask this question by its decision subtype. */
-export function promptsForSubtype(subtype: string | undefined): PausablePrompt[] {
+/**
+ * The abilities that ask this question by its decision subtype. A subtype several abilities share
+ * is told apart by the question's content source (`context.source.Content`); without a source
+ * only the abilities that need none match.
+ */
+export function promptsForSubtype(subtype: string | undefined, contentSource?: string | null): PausablePrompt[] {
   if (!subtype) return [];
-  return REGISTRY.filter((entry) => entry.subtypes.includes(subtype));
+  return REGISTRY.filter(
+    (entry) =>
+      entry.subtypes.includes(subtype) &&
+      (entry.contentSources.length === 0 || (contentSource != null && entry.contentSources.includes(contentSource))),
+  );
+}
+
+/** The content alias a question names as its source (`{ Content: "minister_peace" }`), if any. */
+export function contentSourceOf(choice: Pick<PendingChoiceDto, "context"> | null | undefined): string | null {
+  const source = choice?.context?.source as Record<string, unknown> | undefined;
+  const value = source?.Content;
+  return typeof value === "string" ? value : null;
 }
 
 /** Every registered ability the question is about (its window options and its own subtype). */
@@ -503,7 +539,7 @@ export function promptsOfChoice(choice: PendingChoiceDto | null | undefined): Pa
     if (option.kind === "decline") continue;
     add(promptForOption(option.id));
   }
-  promptsForSubtype(choice.context?.subtype).forEach(add);
+  promptsForSubtype(choice.context?.subtype, contentSourceOf(choice)).forEach(add);
   return found;
 }
 
@@ -512,6 +548,16 @@ export interface PromptHolder {
   faction?: string | null;
   technologies?: readonly string[] | null;
   relics?: readonly string[] | null;
+  /** Laws (agenda aliases) the seat owns right now. */
+  laws?: readonly string[] | null;
+}
+
+/** The aliases of the laws a seat owns, from the table's `laws` map (alias to the elected seat). */
+export function lawsOwnedBy(seat: string | null | undefined, laws: Readonly<Record<string, string>> | null | undefined): string[] {
+  if (!seat || !laws) return [];
+  return Object.entries(laws)
+    .filter(([, owner]) => owner === seat)
+    .map(([alias]) => alias);
 }
 
 /** Whether the seat has the ability (by faction, technology or relic). */
@@ -521,6 +567,7 @@ export function holdsPrompt(entry: PausablePrompt, holder: PromptHolder | null |
   if (faction && entry.factions.some((f) => faction === f || faction.startsWith(f))) return true;
   if (holder.technologies?.some((t) => entry.technologies.includes(t))) return true;
   if (holder.relics?.some((r) => entry.relics.includes(r))) return true;
+  if (holder.laws?.some((l) => entry.laws.includes(l))) return true;
   return false;
 }
 

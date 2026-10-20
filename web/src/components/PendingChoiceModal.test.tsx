@@ -490,7 +490,7 @@ describe("PendingChoiceModal system pick", () => {
       <PendingChoiceModal choice={pick} onSubmit={onSubmit} boardView={board} selectedOptionId="18" />,
     );
     fireEvent.click(screen.getByTestId("system-pick-inspect-map-btn"));
-    expect(screen.getByTestId("system-pick-selected")).toHaveTextContent("Mecatol Rex (#18)");
+    expect(screen.getByTestId("system-pick-selected")).toHaveTextContent("System 18 · Mecatol Rex");
     expect(screen.getByTestId("resume-choice-button")).toBeInTheDocument();
     await act(async () => {
       fireEvent.click(screen.getByTestId("confirm-activation-btn"));

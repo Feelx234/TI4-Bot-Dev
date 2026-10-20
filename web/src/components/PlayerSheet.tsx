@@ -21,6 +21,7 @@ import { Tooltip } from "../primitives/index.ts";
 import { useTurnSound } from "../hooks/useTurnSound.ts";
 import { useToastMute } from "../hooks/useToastMute.ts";
 import { useTurnRecapSetting } from "../hooks/useTurnRecapSetting.ts";
+import { lawsOwnedBy } from "../presentation/pausablePrompts.ts";
 import { PromptSheetControls } from "./PromptSheetControls.tsx";
 import { useAutoSubmitSetting } from "../hooks/useAutoSubmitSetting.ts";
 import { SecretObjectiveProgress } from "./SecretObjectiveProgress.tsx";
@@ -446,7 +447,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
             {autoSubmit ? "⚡ Auto" : "⚡ Auto off"}
           </button>
         )}
-        {userSeat && <PromptSheetControls holder={viewerPlayer} />}
+        {userSeat && <PromptSheetControls holder={viewerPlayer ? { ...viewerPlayer, laws: lawsOwnedBy(userSeat, publicState.laws) } : viewerPlayer} />}
         </div>
       </div>
 
