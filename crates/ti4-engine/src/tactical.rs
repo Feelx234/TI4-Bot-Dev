@@ -655,6 +655,15 @@ pub fn preview_moves(
     let mut fleet_supply = serde_json::json!({
         "used": before.fleet_charged,
         "limit": before.fleet_limit,
+        // Display only: the inputs of `used`, so a client can price a staged move (ships, fighters
+        // and capacity arriving) with the same arithmetic as `fleet::standing_with`.
+        "ships": before.ships,
+        "capacity": before.transport,
+        "carried": before.carried,
+        "fighters": before.fighters,
+        "fighter_support": before.fighter_support,
+        "fighters_upgraded": before.upgraded,
+        "fighters_half": before.half_weight,
     });
     let armada = crate::faction_abilities::armada_bonus(state, content, player);
     if armada > 0 {
@@ -1160,6 +1169,51 @@ mod tests {
         let (mut state, galaxy, _) = fixture();
         state.player_mut(&player()).unwrap().tactic_tokens = 0;
         assert!(activation_options(&state, &galaxy, &player()).is_none());
+    }
+
+    /// A Fighter II standing alone is offered its own move (move 2, no capacity), and the
+    /// movement choice reports the inputs a client needs to price the arrival: fighters the
+    /// destination holds, its capacity and whether they are upgraded.
+    #[test]
+    fn fighter_ii_is_offered_a_move_of_its_own_and_the_choice_reports_the_fleet_inputs() {
+        let hub = crate::fixtures::plain_hub();
+        let player = PlayerId::new("a");
+        let origin = SystemId::new(hub.outer[0].clone());
+        let active = SystemId::new(hub.centre.clone());
+        let mut state = crate::fixtures::game(&["a"]);
+        crate::fixtures::put(&mut state, &origin, "fighter2", &player, 2);
+        crate::fixtures::put(&mut state, &active, "fighter2", &player, 1);
+        crate::fixtures::put(&mut state, &active, "cruiser", &player, 1);
+        activate(&mut state, &player, &active).unwrap();
+        let moves = movable(&state, ContentStore::embedded(), POK, &hub.galaxy, &player);
+        let choice = preview_moves(
+            &state,
+            ContentStore::embedded(),
+            POK,
+            &hub.galaxy,
+            &player,
+            &active,
+            movement_options(&player, &moves),
+        );
+        let fighter = choice
+            .options
+            .iter()
+            .find(|option| {
+                option
+                    .payload
+                    .get("unit")
+                    .and_then(serde_json::Value::as_str)
+                    == Some("fighter2")
+            })
+            .expect("Fighter II moves on its own");
+        assert_eq!(fighter.payload["capacity"], 0);
+        let details = &choice.details["fleet_supply"];
+        assert_eq!(details["ships"], 1);
+        assert_eq!(details["fighters"], 1);
+        assert_eq!(details["capacity"], 0);
+        assert_eq!(details["fighters_upgraded"], true);
+        // The cruiser plus the one fighter that no capacity holds.
+        assert_eq!(details["used"], 2);
     }
 
     /// The movement choice carries the enforced fleet limit of the active system; Letnev's Armada

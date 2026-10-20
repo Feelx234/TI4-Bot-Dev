@@ -70,7 +70,7 @@ pub struct Arrival<'a> {
 /// cannot hold onto the fleet pool, so a ground force placed in a space area can push fighters out
 /// of capacity and consume fleet supply without a single ship being produced. Answering either
 /// question on its own gets that case wrong.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Standing {
     /// Non-fighter ships this seat may keep here (37.1).
     pub fleet_limit: i64,
@@ -85,6 +85,18 @@ pub struct Standing {
     pub fighters_charged: i64,
     /// Capacity-consuming units that cannot legally remain here (16.3).
     pub capacity_excess: i64,
+    /// Non-fighter ships here, before any fighter the pool carries (37.1).
+    pub ships: i64,
+    /// Capacity the ground forces in the space area consume (16.3).
+    pub carried: i64,
+    /// Capacity the fighters here would consume, before structure support excuses any.
+    pub fighters: i64,
+    /// Fighters that structures on planets here support without capacity (Space Dock II).
+    pub fighter_support: i64,
+    /// Whether a fighter here is upgraded, so the pool carries what capacity cannot (Fighter II).
+    pub upgraded: bool,
+    /// Whether the pool counts such a fighter as half a ship (Naalu Hybrid Crystal Fighter II).
+    pub half_weight: bool,
 }
 
 impl Standing {
@@ -289,7 +301,8 @@ fn standing_with(
     // Naalu Hybrid Crystal Fighter II: each excess fighter counts as 1/2 of a ship. The pool is
     // compared in whole ships, and `present + k/2 > limit` holds exactly when
     // `present + ceil(k/2) > limit` (both integers), so the charge rounds an odd half up.
-    let pool_charge = if upgraded_fighters().any(|kind| half_weight(kind.id())) {
+    let half = upgraded_fighters().any(|kind| half_weight(kind.id()));
+    let pool_charge = if half {
         (fighters_charged + 1) / 2
     } else {
         fighters_charged
@@ -303,6 +316,12 @@ fn standing_with(
         consumed,
         fighters_charged,
         capacity_excess: (overflow - fighters_charged).max(0),
+        ships: present,
+        carried,
+        fighters,
+        fighter_support: support,
+        upgraded,
+        half_weight: half,
     }
 }
 

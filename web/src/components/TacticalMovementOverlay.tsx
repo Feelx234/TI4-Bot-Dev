@@ -14,6 +14,12 @@ import {
   ridesFree,
 } from "../presentation/enRoutePickup.ts";
 import { systemTag } from "../presentation/systemFacts.ts";
+import {
+  fighterMovesAlone,
+  isUpgradedFighter,
+  projectFleetSupply,
+  readFleetInputs,
+} from "../presentation/fleetProjection.ts";
 
 export interface TacticalMovementOverlayProps {
   choice: PendingChoiceDto | null;
@@ -41,6 +47,11 @@ interface OriginShipGroup {
   totalAvailable: number;
   capacityPerUnit: number;
   isFighter: boolean;
+  /**
+   * A fighter with a move of its own (Fighter II): a ship that needs no carrier, selectable like
+   * the others. It may also ride as cargo; both draw on the same fighters (`aloneMax`).
+   */
+  movesAlone: boolean;
   isGroundForce: boolean;
   options: { id: string; gravityDrive?: boolean }[];
 }
@@ -68,12 +79,21 @@ const cargoTestId = (c: OriginCargoGroup) =>
     c.pickupSystemId === c.originSystemId ? "" : `-via-${c.pickupSystemId}`
   }`;
 
+/** The upgraded fighter is named as such: it moves, and is charged, differently from the base one. */
+const unitLabel = (unitType: string) =>
+  unitType.toLowerCase() === "naalu_fighter2"
+    ? "Hybrid Crystal Fighter II"
+    : isUpgradedFighter(unitType)
+      ? "Fighter II"
+      : getUnitDisplayName(unitType);
+
 const shipKey = (g: OriginShipGroup) =>
   `${g.originSystemId}:${g.unitType}${g.damaged ? ":damaged" : ""}`;
 
 /** A fighter move option is listed under cargo when the board shows the same fighters there. */
 const shownAsCargo = (g: OriginShipGroup, cargoGroups: OriginCargoGroup[]) =>
   g.isFighter &&
+  !g.movesAlone &&
   cargoGroups.some(
     (cargo) =>
       cargo.originSystemId === g.originSystemId &&
@@ -127,16 +147,21 @@ export function stageAllFromOrigin(
   const ships = shipGroups.filter(
     (g) => g.originSystemId === origin && !g.isFighter && !g.isGroundForce,
   );
+  // Fighters with a move of their own: whatever no hold took goes on its own.
+  const aloners = shipGroups.filter(
+    (g) => g.originSystemId === origin && g.movesAlone,
+  );
   const shipCargo = shipGroups.filter(
     (g) =>
       g.originSystemId === origin &&
+      !g.movesAlone &&
       (g.isFighter || g.isGroundForce) &&
       !shownAsCargo(g, cargoGroups),
   );
   const localCargo = cargoGroups.filter(
     (c) => c.originSystemId === origin && c.pickupSystemId === origin,
   );
-  for (const g of [...ships, ...shipCargo]) delete next[shipKey(g)];
+  for (const g of [...ships, ...aloners, ...shipCargo]) delete next[shipKey(g)];
   for (const c of localCargo) delete next[cargoKey(c)];
 
   let capacity = 0;
@@ -192,6 +217,21 @@ export function stageAllFromOrigin(
     if (count <= 0) continue;
     next[item.key] = count;
     if (!ridesFree(item.unitType)) used += count;
+  }
+
+  for (const g of aloners) {
+    const key = shipKey(g);
+    const carried = localCargo
+      .filter(
+        (c) => c.source === null && c.unitType === g.unitType && c.damaged === g.damaged,
+      )
+      .reduce((sum, c) => sum + (next[cargoKey(c)] ?? 0), 0);
+    let count = Math.max(0, g.totalAvailable - carried);
+    if (gravityKeys.has(key)) {
+      const elsewhere = [...gravityKeys].reduce((sum, k) => sum + (next[k] ?? 0), 0);
+      count = Math.min(count, Math.max(0, 1 - elsewhere));
+    }
+    if (count > 0) next[key] = count;
   }
   return next;
 }
@@ -309,6 +349,7 @@ export const TacticalMovementOverlay: React.FC<
 
       const baseType = getUnitBaseType(unit);
       const isFighter = baseType === "fighter";
+      const movesAlone = isFighter && fighterMovesAlone(unit);
       const isGroundForce = baseType === "infantry" || baseType === "mech";
       const capacityPerUnit = p.capacity ?? 0;
 
@@ -342,6 +383,7 @@ export const TacticalMovementOverlay: React.FC<
           totalAvailable: availableCount,
           capacityPerUnit,
           isFighter,
+          movesAlone,
           isGroundForce,
           options: [{ id: opt.id, gravityDrive: p.gravity_drive }],
         });
@@ -534,7 +576,10 @@ export const TacticalMovementOverlay: React.FC<
         const count = stagedMoves[key] ?? 0;
         if (count === 0) continue;
 
-        if (!g.isFighter && !g.isGroundForce) {
+        if (g.movesAlone) {
+          // Moves on its own: no hold, no cargo slot.
+          continue;
+        } else if (!g.isFighter && !g.isGroundForce) {
           nonFighters += count;
           const shipCap = count * g.capacityPerUnit;
           capacity += shipCap;
@@ -609,13 +654,66 @@ export const TacticalMovementOverlay: React.FC<
           o.damaged === c.damaged,
       )
       .reduce((sum, o) => sum + (stagedMoves[cargoKey(o)] ?? 0), 0);
-    return c.blocked ? 0 : Math.max(0, c.totalAvailable - others);
+    return c.blocked ? 0 : Math.max(0, c.totalAvailable - others - aloneStagedFor(c));
   };
 
-  const totalProjectedFleet =
-    existingNonFightersInDestination + totalNonFightersMoving;
+  // The same fighters can move on their own or ride as cargo, never both.
+  const aloneGroupFor = (c: OriginCargoGroup) =>
+    c.pickupSystemId === c.originSystemId && c.source === null
+      ? shipGroups.find(
+          (g) =>
+            g.movesAlone &&
+            g.originSystemId === c.originSystemId &&
+            g.unitType === c.unitType &&
+            g.damaged === c.damaged,
+        )
+      : undefined;
+  const aloneStagedFor = (c: OriginCargoGroup) => {
+    const g = aloneGroupFor(c);
+    return g ? (stagedMoves[shipKey(g)] ?? 0) : 0;
+  };
+  const aloneMax = (g: OriginShipGroup) =>
+    Math.max(
+      0,
+      g.totalAvailable -
+        originCargoGroups
+          .filter((c) => aloneGroupFor(c) === g)
+          .reduce((sum, c) => sum + (stagedMoves[cargoKey(c)] ?? 0), 0),
+    );
+
+  // What the staged moves bring into the active system, priced like the engine does (fighters
+  // beyond capacity count against the pool when they are upgraded).
+  const fleetInputs = readFleetInputs(choice?.details?.fleet_supply);
+  const stagedArrival = useMemo(() => {
+    const arrival = { ships: 0, capacity: 0, fighters: 0, fighterTypes: [] as string[] };
+    const addFighters = (unitType: string, n: number) => {
+      if (n <= 0) return;
+      arrival.fighters += n;
+      arrival.fighterTypes.push(unitType);
+    };
+    for (const g of shipGroups) {
+      const n = stagedMoves[shipKey(g)] ?? 0;
+      if (n === 0) continue;
+      if (g.isFighter) addFighters(g.unitType, n);
+      else if (!g.isGroundForce) {
+        arrival.ships += n;
+        arrival.capacity += n * g.capacityPerUnit;
+      }
+    }
+    for (const c of originCargoGroups) {
+      if (getUnitBaseType(c.unitType) === "fighter") {
+        addFighters(c.unitType, stagedMoves[cargoKey(c)] ?? 0);
+      }
+    }
+    return arrival;
+  }, [shipGroups, originCargoGroups, stagedMoves]);
+  const projection = fleetInputs ? projectFleetSupply(fleetInputs, stagedArrival) : null;
+  const totalProjectedFleet = projection
+    ? projection.used
+    : existingNonFightersInDestination + totalNonFightersMoving;
   const isOverFleetSupply =
     fleetTokens !== undefined && totalProjectedFleet > fleetTokens;
+  const uncarriedFighters = projection?.uncarriedFighters ?? 0;
 
   const totalUnitsStaged = Object.values(stagedMoves).reduce(
     (a, b) => a + b,
@@ -874,7 +972,7 @@ export const TacticalMovementOverlay: React.FC<
     // Collect capital ships to move
     const ships: ExecutionPlan["remainingShips"] = [];
     for (const g of shipGroups) {
-      if (g.isFighter || g.isGroundForce) continue;
+      if ((g.isFighter && !g.movesAlone) || g.isGroundForce) continue;
       const key = `${g.originSystemId}:${g.unitType}${g.damaged ? ":damaged" : ""}`;
       const count = stagedMoves[key] ?? 0;
       for (let i = 0; i < count; i++) {
@@ -886,6 +984,12 @@ export const TacticalMovementOverlay: React.FC<
         });
       }
     }
+
+    // Fighters that move on their own go last: the fighters a hold takes must still be there when
+    // that ship is loaded, and the engine offers one move per kind of fighter that is left.
+    const aloneLast = (ship: { unitType: string; capacity: number }) =>
+      ship.capacity <= 0 && fighterMovesAlone(ship.unitType) ? 1 : 0;
+    ships.sort((a, b) => aloneLast(a) - aloneLast(b));
 
     // Collect cargo to load
     const cargo: ExecutionPlan["remainingCargo"] = [];
@@ -903,7 +1007,7 @@ export const TacticalMovementOverlay: React.FC<
       }
     }
     for (const g of shipGroups) {
-      if (!g.isFighter && !g.isGroundForce) continue;
+      if ((!g.isFighter && !g.isGroundForce) || g.movesAlone) continue;
       const key = `${g.originSystemId}:${g.unitType}${g.damaged ? ":damaged" : ""}`;
       const count = stagedMoves[key] ?? 0;
       for (let i = 0; i < count; i++) {
@@ -1135,6 +1239,15 @@ export const TacticalMovementOverlay: React.FC<
               >
                 {totalProjectedFleet} / {fleetTokens ?? "unknown"} Ships
               </span>
+              {uncarriedFighters > 0 && (
+                <span
+                  className="token-panel__armada"
+                  data-testid="movement-uncarried-fighters"
+                  title="Fighter II beyond the capacity of the ships there count against the fleet pool"
+                >
+                  incl. {projection?.fighterCharge} for {uncarriedFighters} uncarried Fighter II
+                </span>
+              )}
               {armadaBonus > 0 && (
                 <span
                   className="token-panel__armada"
@@ -1174,6 +1287,7 @@ export const TacticalMovementOverlay: React.FC<
                 (g) =>
                   g.originSystemId === originId &&
                   (!g.isFighter ||
+                    g.movesAlone ||
                     !originCargoGroups.some(
                       (cargo) =>
                         cargo.originSystemId === g.originSystemId &&
@@ -1254,6 +1368,12 @@ export const TacticalMovementOverlay: React.FC<
                       {shipsForOrigin.map((g) => {
                         const key = `${g.originSystemId}:${g.unitType}${g.damaged ? ":damaged" : ""}`;
                         const count = stagedMoves[key] ?? 0;
+                        const maxMove = g.movesAlone ? aloneMax(g) : g.totalAvailable;
+                        const moveValue = g.movesAlone
+                          ? facts?.ships.find(
+                              (f) => f.origin === g.originSystemId && f.unit === g.unitType,
+                            )?.move_value
+                          : undefined;
 
                         return (
                           <div
@@ -1276,7 +1396,7 @@ export const TacticalMovementOverlay: React.FC<
                               <UnitIcon type={g.unitType} size={22} />
                               <div>
                                 <div className="workflow-unit-name">
-                                  {getUnitDisplayName(g.unitType)}
+                                  {unitLabel(g.unitType)}
                                   {g.damaged ? " (Damaged)" : ""}
                                 </div>
                                 <div className="text-muted">
@@ -1284,7 +1404,17 @@ export const TacticalMovementOverlay: React.FC<
                                   {g.totalAvailable}
                                   {g.capacityPerUnit > 0 &&
                                     ` • Capacity: ${g.capacityPerUnit}`}
+                                  {g.movesAlone &&
+                                    ` • Moves on its own${moveValue ? ` (Move ${moveValue})` : ""}`}
                                 </div>
+                                {g.movesAlone && (
+                                  <div
+                                    className="text-muted"
+                                    data-testid={`rally-alone-note-${g.originSystemId}-${g.unitType}`}
+                                  >
+                                    Counts against fleet supply unless a ship&apos;s capacity carries it.
+                                  </div>
+                                )}
                               </div>
                             </div>
 
@@ -1292,9 +1422,7 @@ export const TacticalMovementOverlay: React.FC<
                               <button
                                 type="button"
                                 data-testid={`rally-dec-${g.originSystemId}-${g.unitType}`}
-                                onClick={() =>
-                                  handleUpdateCount(key, -1, g.totalAvailable)
-                                }
+                                onClick={() => handleUpdateCount(key, -1, maxMove)}
                                 disabled={
                                   count <= 0 ||
                                   isExecuting ||
@@ -1313,23 +1441,23 @@ export const TacticalMovementOverlay: React.FC<
                               <button
                                 type="button"
                                 data-testid={`rally-inc-${g.originSystemId}-${g.unitType}`}
-                                onClick={() =>
-                                  handleUpdateCount(key, 1, g.totalAvailable)
-                                }
+                                onClick={() => handleUpdateCount(key, 1, maxMove)}
                                 disabled={
-                                  count >= g.totalAvailable ||
+                                  count >= maxMove ||
                                   (gravityDriveKeys.has(key) &&
                                     [...gravityDriveKeys].reduce(
                                       (sum, k) => sum + (stagedMoves[k] ?? 0),
                                       0,
                                     ) >= 1) ||
                                   ((g.isFighter || g.isGroundForce) &&
+                                    !g.movesAlone &&
                                     noRoomFor(g.originSystemId, g.unitType)) ||
                                   isExecuting ||
                                   isDirectSubmitting
                                 }
                                 title={
                                   (g.isFighter || g.isGroundForce) &&
+                                  !g.movesAlone &&
                                   count < g.totalAvailable &&
                                   noRoomFor(g.originSystemId, g.unitType)
                                     ? noCapacityTitle
@@ -1377,7 +1505,7 @@ export const TacticalMovementOverlay: React.FC<
                               <UnitIcon type={c.unitType} size={18} />
                               <div>
                                 <div className="workflow-unit-name">
-                                  {getUnitDisplayName(c.unitType)}
+                                  {unitLabel(c.unitType)}
                                   {c.damaged ? " (Damaged)" : ""}
                                 </div>
                                 <div className="text-muted">
