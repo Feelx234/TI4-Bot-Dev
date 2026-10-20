@@ -5,6 +5,7 @@ import { FeedbackSheet, MAX_FEEDBACK_CHARS, type FeedbackResult } from "./Feedba
 import { FeedbackLauncher } from "./FeedbackLauncher.tsx";
 import { resetBuildInfoForTests } from "../buildInfo.ts";
 import { useRegisterFeedbackSource } from "./source.ts";
+import { resetFeedbackOutboxForTests } from "./outbox.ts";
 
 function health(isPublic: boolean) {
   globalThis.fetch = vi.fn(async () =>
@@ -154,6 +155,52 @@ describe("FeedbackSheet names", () => {
   it("sends no sender when no nickname is known and nothing was typed", async () => {
     const context = await sendOnce(false);
     expect(context).not.toHaveProperty("sender");
+  });
+});
+
+describe("FeedbackSheet offline", () => {
+  const originalOnline = Object.getOwnPropertyDescriptor(Navigator.prototype, "onLine");
+  afterEach(() => {
+    if (originalOnline) Object.defineProperty(Navigator.prototype, "onLine", originalOnline);
+    resetFeedbackOutboxForTests();
+    localStorage.clear();
+  });
+
+  it("offline: the report is saved on the device, with a pending chip and the plain message", async () => {
+    Object.defineProperty(Navigator.prototype, "onLine", { configurable: true, get: () => false });
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    render(<FeedbackSheet open onClose={() => undefined} />);
+    expect(screen.getByTestId("feedback-offline-note")).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("feedback-text"), { target: { value: "on the train" } });
+    fireEvent.click(screen.getByTestId("feedback-submit"));
+    expect(await screen.findByTestId("feedback-sent")).toHaveTextContent("Saved on this device, will be sent when you are back online");
+    expect(screen.getByTestId("feedback-queued")).toBeInTheDocument();
+    expect(await screen.findByTestId("feedback-pending-chip")).toHaveTextContent("1 waiting to be sent");
+    expect((fetchMock.mock.calls as unknown as string[][]).filter(([url]) => String(url).includes("/api/feedback"))).toHaveLength(0);
+    // Back online: Send now delivers it and the history says sent.
+    Object.defineProperty(Navigator.prototype, "onLine", { configurable: true, get: () => true });
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify({ id: "fb_9_aa", duplicate: false }), { status: 200 }));
+    fireEvent.click(await screen.findByTestId("feedback-send-now"));
+    await waitFor(() => expect(screen.getByTestId("feedback-pending-chip")).toHaveTextContent("All sent"));
+    expect(screen.getByTestId("feedback-history")).toHaveTextContent("Sent");
+  });
+
+  it("a server error keeps the report queued instead of dropping it", async () => {
+    globalThis.fetch = vi.fn(async () => new Response("{}", { status: 503 })) as unknown as typeof fetch;
+    render(<FeedbackSheet open onClose={() => undefined} />);
+    fireEvent.change(screen.getByTestId("feedback-text"), { target: { value: "flaky" } });
+    fireEvent.click(screen.getByTestId("feedback-submit"));
+    expect(await screen.findByTestId("feedback-queued")).toBeInTheDocument();
+  });
+
+  it("a report the server refuses for good stays in the sheet with the message", async () => {
+    globalThis.fetch = vi.fn(async () => new Response("{}", { status: 413 })) as unknown as typeof fetch;
+    render(<FeedbackSheet open onClose={() => undefined} />);
+    fireEvent.change(screen.getByTestId("feedback-text"), { target: { value: "huge" } });
+    fireEvent.click(screen.getByTestId("feedback-submit"));
+    expect(await screen.findByTestId("feedback-error")).toHaveTextContent("too large");
+    expect(screen.getByTestId("feedback-text")).toHaveValue("huge");
   });
 });
 

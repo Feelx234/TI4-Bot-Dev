@@ -6,6 +6,9 @@ import { buildFeedbackContext, currentEnvironment } from "./context.ts";
 import { preferredNickname } from "../protocol/nickname.ts";
 import { currentFeedbackSource } from "./source.ts";
 import { routeFeedback } from "../offline/feedbackRoute.ts";
+import { getFeedbackOutbox } from "./outbox.ts";
+import { postReport } from "./transport.ts";
+import { FeedbackOutboxPanel } from "./FeedbackOutboxPanel.tsx";
 import "./feedback.css";
 
 export const MAX_FEEDBACK_CHARS = 4000;
@@ -40,27 +43,27 @@ export type FeedbackResult = { ok: true; id: string; queued?: boolean } | { ok: 
 export const submitFeedback = (body: Parameters<typeof sendFeedback>[0]): Promise<FeedbackResult> =>
   routeFeedback(body, sendFeedback);
 
+/**
+ * The online path: the report is written to the device's outbox first and sent from there, so
+ * a lost connection, a timeout or a 5xx keeps it ("queued") instead of dropping it. Only a
+ * refusal that retrying cannot fix (too large, invalid) comes back as a message, with the text
+ * still in the sheet.
+ */
 export async function sendFeedback(body: {
   category: FeedbackCategory;
   text: string;
   context: Record<string, unknown>;
 }): Promise<FeedbackResult> {
   try {
-    const response = await fetch("/api/feedback", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (response.ok) {
-      const data = (await response.json()) as { id?: string };
-      return { ok: true, id: data.id ?? "" };
-    }
-    if (response.status === 429) return { ok: false, message: "Too many reports in a short time. Try again later." };
-    if (response.status === 401) return { ok: false, message: "Enter the playtest password first." };
-    if (response.status === 413) return { ok: false, message: "The report is too large." };
-    return { ok: false, message: "The server could not save the report. Try again." };
+    const outbox = await getFeedbackOutbox();
+    const outcome = await outbox.submit(body);
+    if (outcome.status === "sent") return { ok: true, id: outcome.serverId };
+    if (outcome.status === "queued") return { ok: true, id: outcome.id, queued: true };
+    return { ok: false, message: outcome.message };
   } catch {
-    return { ok: false, message: "Could not reach the server. Your text is kept; try again." };
+    // No outbox at all (storage unusable): the plain send, and the text stays in the sheet on failure.
+    const result = await postReport(JSON.stringify(body));
+    return result.ok ? { ok: true, id: result.serverId } : { ok: false, message: `${result.message} Your text is kept; try again.` };
   }
 }
 
@@ -69,6 +72,21 @@ export interface FeedbackSheetProps {
   onClose: () => void;
   /** Injectable for tests. */
   send?: typeof sendFeedback;
+}
+
+function useOffline(): boolean {
+  return React.useSyncExternalStore(
+    (cb) => {
+      window.addEventListener("online", cb);
+      window.addEventListener("offline", cb);
+      return () => {
+        window.removeEventListener("online", cb);
+        window.removeEventListener("offline", cb);
+      };
+    },
+    () => navigator.onLine === false,
+    () => false,
+  );
 }
 
 export const FeedbackSheet: React.FC<FeedbackSheetProps> = ({ open, onClose, send = submitFeedback }) => {
@@ -81,6 +99,7 @@ export const FeedbackSheet: React.FC<FeedbackSheetProps> = ({ open, onClose, sen
   const [problem, setProblem] = useState<string | null>(null);
   const [sentId, setSentId] = useState<string | null>(null);
   const [queued, setQueued] = useState(false);
+  const offline = useOffline();
   const trimmed = text.trim();
   const nickname = open ? knownNickname() : undefined;
   const close = () => {
@@ -130,7 +149,7 @@ export const FeedbackSheet: React.FC<FeedbackSheetProps> = ({ open, onClose, sen
           </h2>
           <p className="feedback__sent-text">
             {queued
-              ? "Your report is saved on this device and will be sent in the background. You can keep playing. Thank you, it helps."
+              ? "Saved on this device, will be sent when you are back online. You can keep playing. Thank you, it helps."
               : "Your report was saved. Thank you, it helps."}
           </p>
           {queued && (
@@ -143,6 +162,7 @@ export const FeedbackSheet: React.FC<FeedbackSheetProps> = ({ open, onClose, sen
               Report id <code data-testid="feedback-id">{sentId}</code>
             </p>
           )}
+          <FeedbackOutboxPanel />
           <button type="button" className="button button--primary feedback__submit" data-testid="feedback-done" onClick={close}>
             Close
           </button>
@@ -225,6 +245,11 @@ export const FeedbackSheet: React.FC<FeedbackSheetProps> = ({ open, onClose, sen
               : "."}{" "}
             Stored as a file on the playtest server; ask to have it deleted.
           </p>
+          {offline && (
+            <p className="feedback__offline-note" data-testid="feedback-offline-note">
+              No connection. Send saves the report on this device and sends it when you are back online.
+            </p>
+          )}
           {problem && (
             <div className="feedback__error" role="alert" data-testid="feedback-error">
               {problem}
@@ -236,8 +261,9 @@ export const FeedbackSheet: React.FC<FeedbackSheetProps> = ({ open, onClose, sen
             data-testid="feedback-submit"
             disabled={busy || !trimmed}
           >
-            {busy ? "Sending…" : "Send"}
+            {busy ? "Sending…" : offline ? "Save to send later" : "Send"}
           </button>
+          <FeedbackOutboxPanel />
         </form>
       )}
     </Drawer>

@@ -306,6 +306,18 @@ describe("the feedback sender follows the server contract", () => {
     expect(body.context.offline).toBeUndefined();
   });
 
+  it("sends when the report was written and the attempt, and honours Retry-After", async () => {
+    const fetchImpl = reply(200, { id: "fb_1" });
+    await httpFeedbackSender(fetchImpl as unknown as typeof fetch)({ ...payload, queuedAt: 1_000_000, attempt: 3 });
+    const body = JSON.parse(fetchImpl.mock.calls[0]![1]!.body as string);
+    expect(body.client_queued_at).toBe(new Date(1_000_000).toISOString());
+    expect(body.context.delivery).toMatchObject({ queued_at: body.client_queued_at, attempt: 3, via: "offline-queue" });
+    expect(body.context.local).toEqual(LOCAL);
+    const limited = vi.fn(async () => new Response("{}", { status: 429, headers: { "retry-after": "120" } }));
+    expect(await httpFeedbackSender(limited as unknown as typeof fetch)(payload)).toMatchObject({ retryable: true, retryAfterMs: 120_000 });
+    expect(await httpFeedbackSender(reply(413) as unknown as typeof fetch)(payload)).toMatchObject({ retryable: false });
+  });
+
   it("counts duplicate:true as sent", async () => {
     const result = await httpFeedbackSender(reply(200, { id: "fb_1", duplicate: true }) as unknown as typeof fetch)(payload);
     expect(result).toEqual({ ok: true, serverId: "fb_1" });

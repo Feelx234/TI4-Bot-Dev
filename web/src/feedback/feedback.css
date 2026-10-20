@@ -192,3 +192,78 @@
   color: inherit;
   font: inherit;
 }
+
+.feedback-outbox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+}
+.feedback-outbox__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.feedback-outbox__chip {
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  background: #fbbf24;
+  border-radius: 999px;
+}
+.feedback-outbox__chip--failed {
+  background: #fca5a5;
+}
+.feedback-outbox__chip--ok {
+  background: #86efac;
+}
+.feedback-outbox__send {
+  min-height: 44px;
+  min-width: 96px;
+}
+.feedback-outbox__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.feedback-outbox__item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 2px;
+  font-size: 13px;
+}
+.feedback-outbox__state {
+  grid-row: span 2;
+  font-weight: 700;
+  color: #fbbf24;
+}
+.feedback-outbox__item--sent .feedback-outbox__state {
+  color: #86efac;
+}
+.feedback-outbox__item--failed .feedback-outbox__state {
+  color: #fca5a5;
+}
+.feedback-outbox__preview {
+  overflow: hidden;
+  color: #e2e8f0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.feedback-outbox__meta {
+  font-size: 12px;
+  color: #94a3b8;
+}
+.feedback__offline-note {
+  margin: 0;
+  font-size: 13px;
+  color: #fbbf24;
+}

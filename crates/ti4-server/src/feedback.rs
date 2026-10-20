@@ -36,6 +36,11 @@ pub struct FeedbackRequest {
     /// the first one's id back.
     #[serde(default)]
     pub report_id: Option<String>,
+    /// When the client wrote the report (ISO 8601, e.g. `2026-10-20T08:15:00.000Z`). A report that
+    /// waited in the device's outbox (no network) arrives later; this says by how much. Stored as
+    /// `client_queued_at`, untrusted (a device clock).
+    #[serde(default)]
+    pub client_queued_at: Option<String>,
 }
 
 /// What lands on disk.
@@ -50,7 +55,14 @@ pub struct StoredFeedback {
     pub context: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub report_id: Option<String>,
+    /// The client's own timestamp of writing the report; absent for reports sent at once and for
+    /// files written before this field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_queued_at: Option<String>,
 }
+
+/// Longest `client_queued_at`.
+pub const MAX_QUEUED_AT_CHARS: usize = 40;
 
 /// Returns the validated request or a human-readable refusal.
 pub fn validate(request: &FeedbackRequest) -> Result<(), String> {
@@ -93,6 +105,14 @@ pub fn validate(request: &FeedbackRequest) -> Result<(), String> {
                 "report_id must be {MIN_REPORT_ID_CHARS} to {MAX_REPORT_ID_CHARS} characters of A-Z a-z 0-9 _ -"
             ));
         }
+    }
+    if let Some(at) = &request.client_queued_at
+        && (at.chars().count() > MAX_QUEUED_AT_CHARS
+            || !at
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, ':' | '.' | '-' | '+' | ' ')))
+    {
+        return Err("client_queued_at must be a short ISO 8601 timestamp".to_owned());
     }
     Ok(())
 }
@@ -323,6 +343,7 @@ fn write_report(
         text: request.text,
         context: request.context,
         report_id: request.report_id,
+        client_queued_at: request.client_queued_at,
     };
     let tmp = dir.join(format!(".{id}.tmp"));
     fs::write(&tmp, serde_json::to_vec_pretty(&record)?)?;
@@ -466,6 +487,13 @@ pub fn render(record: &StoredFeedback, verbose: bool) -> String {
         get("round"),
         get("phase"),
     );
+    if let Some(at) = &record.client_queued_at {
+        let _ = writeln!(
+            s,
+            "    written on the device {at} | received {} (queued while offline)",
+            record.received_at
+        );
+    }
     if let Some(local) = local_summary(record) {
         let _ = writeln!(
             s,
@@ -534,6 +562,7 @@ mod tests {
             text: "np gave me a note".to_owned(),
             context,
             report_id: None,
+            client_queued_at: None,
         }
     }
 
@@ -579,6 +608,7 @@ mod tests {
             text: "hi".to_owned(),
             context: Some(serde_json::json!({ "sender": { "nickname": "Alex" } })),
             report_id: None,
+            client_queued_at: None,
         };
         validate(&request).unwrap();
         let id = store(&dir, request, 1_760_227_200, "abc").unwrap();
@@ -613,6 +643,7 @@ mod tests {
                 serde_json::json!({ "sender": { "nickname": "Ada" }, "local": local(3) }),
             ),
             report_id: report_id.map(str::to_owned),
+            client_queued_at: None,
         }
     }
 

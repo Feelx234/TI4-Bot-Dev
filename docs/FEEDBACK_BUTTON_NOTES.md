@@ -70,6 +70,38 @@ it in the background; the contract with `POST /api/feedback` is:
   `replay_save` replays that file by itself. The offline save lists its `seats` (name, faction,
   who plays it), which `list_feedback.sh` prints as a `seats:` line.
 
+Outbox for lost connections (added 2026-10-20, branch `feedback-offline-queue`): a report no longer
+depends on the network at the moment of sending (a phone on a train, a tunnel, a flaky tether).
+
+- Failure modes before: the online sheet did one `fetch` without timeout and, on any failure,
+  showed a message and kept the text only while the sheet stayed open (a reload lost it); the
+  `/health` lookup that decides whether the Feedback button exists cached a failed answer for the
+  whole page, so a page loaded offline had no button at all; the offline-game queue only retried on
+  the `online` event, with no timeout, no tab coordination and no write time on the server.
+- Web: `web/src/feedback/outbox.ts` (+ `outboxStorage.ts`, `outboxCodec.ts`, `transport.ts`). The
+  online path writes the report to the device first (IndexedDB `ti4-feedback-outbox`, else
+  localStorage, else memory; every access in try/catch; bodies over 32 KB are gzip-compressed;
+  at most 30 waiting reports and 12 MB; the server's 3 MB body cap is checked before sending),
+  then sends it. Retryable failures (offline, timeout, 408, 5xx, 429 with `Retry-After`, 401) stay
+  queued with exponential backoff (15 s to 30 min, jitter); 400/413 are shown at once and the text
+  stays in the sheet. Triggers: a new report, the `online` event, the tab becoming visible, page
+  load, a successful send (the rest is then due immediately), the backoff timer, "Send now".
+  Oldest first, one at a time. Several tabs: one flush at a time (Web Locks, not waited for), a
+  BroadcastChannel tells other tabs to re-read the storage; the report id makes a double send
+  harmless anyway. Offline games still use the launcher's queue (`web/src/offline/storage/
+  feedbackQueue.ts`), now with the same timeout, `Retry-After`, tab lock, visibilitychange and
+  success-triggered flush. The sheet shows "Saved on this device, will be sent when you are back
+  online", a pending chip, "Send now" and the last five reports (both queues merged).
+- Each send carries `client_queued_at` (when it was written on the device) and `context.delivery`
+  {`queued_at`, `sent_at` (this attempt), `attempt`, `client_build`, `via`}.
+- Server: `client_queued_at` (optional, a short ISO timestamp, validated) is stored next to
+  `received_at`; `report_id` idempotency is as before (a second send with the id returns the first
+  `id` and `duplicate: true`, the first stored write and its `client_queued_at` win). Old files
+  without the field load; the lister prints `written on the device <time> | received <time>`.
+- Not done: no byte-level upload progress (fetch cannot report it; the timeout scales with the size,
+  20 s plus 15 s per MB); no service-worker background sync, so a report waits for the next time the
+  app is opened or comes to the foreground.
+
 Not built from the options below: no Discord/Telegram/GitHub forwarding (the file on the server
 is the only copy, so the team needs server access or someone to relay it), no confirmation
 reference id for the player. The first alpha batch (39 usable reports, 12-13 Oct, build

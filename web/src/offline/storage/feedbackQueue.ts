@@ -14,6 +14,8 @@
  * - Never blocks the game: `enqueue` only touches local storage; sending is in the background.
  */
 import { feedbackRequestBody, newReportId } from "../feedbackRoute.ts";
+import { postReport, withFlushLock } from "../../feedback/transport.ts";
+import { WEB_COMMIT } from "../../versionInfo.ts";
 import type { OfflineFeedbackQueue, QueuedFeedbackItem, QueuedFeedbackReport } from "../types.ts";
 import { type FeedbackBackend, StoreError } from "@ti4/shared/storage/index.ts";
 
@@ -36,7 +38,7 @@ export interface StoredFeedbackItem extends QueuedFeedbackItem {
 
 export type FeedbackSendResult =
   | { ok: true; serverId: string }
-  | { ok: false; retryable: boolean; message: string };
+  | { ok: false; retryable: boolean; message: string; retryAfterMs?: number };
 
 export type FeedbackSender = (payload: FeedbackPayload) => Promise<FeedbackSendResult>;
 
@@ -47,6 +49,9 @@ export interface FeedbackPayload {
   text: string;
   context: Record<string, unknown>;
   local?: QueuedFeedbackItem["report"]["local"];
+  /** When the report was written on this device (ms), and which attempt this is: sent along so the server shows both. */
+  queuedAt?: number;
+  attempt?: number;
 }
 
 export interface DurableFeedbackQueue extends OfflineFeedbackQueue {
@@ -74,6 +79,10 @@ export interface FeedbackQueueOptions {
   keepSentMs?: number;
   /** Where `online` is listened for; default window when present. */
   onlineTarget?: Pick<EventTarget, "addEventListener" | "removeEventListener"> | null;
+  /** Where `visibilitychange` is listened for; default document when present. */
+  visibilityTarget?: Pick<EventTarget, "addEventListener" | "removeEventListener"> | null;
+  /** Runs a flush in one tab only (Web Locks); default `withFlushLock`. */
+  lock?: <T>(work: () => Promise<T>) => Promise<T | undefined>;
 }
 
 export function backoffDelay(attempts: number, base: number, max: number, random: number): number {
@@ -97,6 +106,7 @@ export function createDurableFeedbackQueue(opts: FeedbackQueueOptions): DurableF
   let timer: ReturnType<typeof setTimeout> | null = null;
   let flushing: Promise<void> | null = null;
   let disposed = false;
+  const lock = opts.lock ?? (<T,>(work: () => Promise<T>) => withFlushLock("ti4-offline-feedback-flush", work));
 
   const publish = () => {
     // Replace, never mutate: useSyncExternalStore compares by identity.
@@ -128,13 +138,15 @@ export function createDurableFeedbackQueue(opts: FeedbackQueueOptions): DurableF
     await save({ ...item, state: "sending", attempts, lastAttemptAt: now() });
     let result: FeedbackSendResult;
     try {
-      result = await opts.send(toPayload(item));
+      result = await opts.send({ ...toPayload(item), attempt: attempts });
     } catch (e) {
       result = { ok: false, retryable: true, message: e instanceof Error ? e.message : "send failed" };
     }
     const current = items.find((i) => i.localId === item.localId)!;
     if (result.ok) {
       await save({ ...current, state: "sent", serverId: result.serverId, lastError: undefined });
+      // The server answered: whatever waits for its backoff is due now.
+      items = items.map((i) => (i.state === "queued" ? { ...i, nextAttemptAt: 0 } : i));
     } else if (!result.retryable || attempts >= maxAttempts) {
       await save({ ...current, state: "failed", lastError: result.message });
     } else {
@@ -142,7 +154,7 @@ export function createDurableFeedbackQueue(opts: FeedbackQueueOptions): DurableF
         ...current,
         state: "queued",
         lastError: result.message,
-        nextAttemptAt: now() + backoffDelay(attempts, base, max, random()),
+        nextAttemptAt: now() + Math.max(backoffDelay(attempts, base, max, random()), result.retryAfterMs ?? 0),
       });
     }
   };
@@ -152,12 +164,14 @@ export function createDurableFeedbackQueue(opts: FeedbackQueueOptions): DurableF
     flushing = (async () => {
       await Promise.resolve(); // `flushing` must be assigned before the body can finish
       try {
-        // Oldest first, one at a time: a flaky network is not hammered.
-        for (const item of [...items].sort((a, b) => a.queuedAt - b.queuedAt)) {
-          if (disposed) return;
-          const fresh = items.find((i) => i.localId === item.localId);
-          if (fresh?.state === "queued" && fresh.nextAttemptAt <= now()) await attempt(fresh);
-        }
+        // Oldest first, one at a time: a flaky network is not hammered. One tab at a time.
+        await lock(async () => {
+          for (const item of [...items].sort((a, b) => a.queuedAt - b.queuedAt)) {
+            if (disposed) return;
+            const fresh = items.find((i) => i.localId === item.localId);
+            if (fresh?.state === "queued" && fresh.nextAttemptAt <= now()) await attempt(fresh);
+          }
+        });
       } finally {
         flushing = null;
         schedule();
@@ -174,6 +188,12 @@ export function createDurableFeedbackQueue(opts: FeedbackQueueOptions): DurableF
   const onlineTarget =
     opts.onlineTarget === undefined ? (typeof window !== "undefined" ? window : null) : opts.onlineTarget;
   onlineTarget?.addEventListener("online", onOnline);
+  const visibilityTarget =
+    opts.visibilityTarget === undefined ? (typeof document !== "undefined" ? document : null) : opts.visibilityTarget;
+  const onVisible = () => {
+    if (typeof document === "undefined" || document.visibilityState !== "hidden") void flush();
+  };
+  visibilityTarget?.addEventListener("visibilitychange", onVisible);
 
   return {
     async start() {
@@ -234,6 +254,7 @@ export function createDurableFeedbackQueue(opts: FeedbackQueueOptions): DurableF
       disposed = true;
       if (timer) clearTimeout(timer);
       onlineTarget?.removeEventListener("online", onOnline);
+      visibilityTarget?.removeEventListener("visibilitychange", onVisible);
     },
   } as DurableFeedbackQueue;
 }
@@ -244,7 +265,14 @@ function toPublic(i: StoredFeedbackItem): QueuedFeedbackItem {
 }
 
 function toPayload(i: StoredFeedbackItem): FeedbackPayload {
-  return { reportId: i.reportId, category: i.report.category, text: i.report.text, context: i.report.context, local: i.report.local };
+  return {
+    reportId: i.reportId,
+    category: i.report.category,
+    text: i.report.text,
+    context: i.report.context,
+    local: i.report.local,
+    queuedAt: i.queuedAt,
+  };
 }
 
 function checkReport(r: QueuedFeedbackReport) {
@@ -279,22 +307,29 @@ function isStoredItem(v: unknown): v is StoredFeedbackItem {
  */
 export function httpFeedbackSender(fetchImpl: typeof fetch = (...a) => fetch(...a), url = "/api/feedback"): FeedbackSender {
   return async (p) => {
-    try {
-      const res = await fetchImpl(url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(
-          feedbackRequestBody({ category: p.category, text: p.text, context: p.context, local: p.local, reportId: p.reportId }),
-        ),
-      });
-      if (res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { id?: string };
-        return { ok: true, serverId: data.id ?? "" };
-      }
-      const retryable = res.status === 408 || res.status === 429 || res.status >= 500 || res.status === 401;
-      return { ok: false, retryable, message: `HTTP ${res.status}` };
-    } catch {
-      return { ok: false, retryable: true, message: "offline" };
+    const request: Record<string, unknown> = feedbackRequestBody({
+      category: p.category,
+      text: p.text,
+      context: p.context,
+      local: p.local,
+      reportId: p.reportId,
+    });
+    if (p.queuedAt !== undefined) {
+      // When the report was written versus received: the server stores `client_queued_at`.
+      request.client_queued_at = new Date(p.queuedAt).toISOString();
+      request.context = {
+        ...(request.context as Record<string, unknown>),
+        delivery: {
+          queued_at: request.client_queued_at,
+          sent_at: new Date().toISOString(),
+          attempt: p.attempt ?? 1,
+          client_build: WEB_COMMIT,
+          via: "offline-queue",
+        },
+      };
     }
+    const result = await postReport(JSON.stringify(request), { fetchImpl, url });
+    if (result.ok) return { ok: true, serverId: result.serverId };
+    return { ok: false, retryable: result.retryable, message: result.message, retryAfterMs: result.retryAfterMs };
   };
 }
