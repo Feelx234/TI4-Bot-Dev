@@ -1252,7 +1252,13 @@ pub fn plan_vote(
         .as_ref()
         .and_then(|o| outcomes.iter().position(|x| x == o))
         .map(|k| ballot.probabilities(Some(k), available as f64)[k]);
-    if !conditional_agenda && margin < tuning::agenda_min_margin() {
+    // The second agenda is the last of the phase: a vote costs nothing, so any lead is an opinion.
+    let threshold = if second && tuning::agenda_second_vote() {
+        tuning::agenda_second_min_margin()
+    } else {
+        tuning::agenda_min_margin()
+    };
+    if !conditional_agenda && margin < threshold {
         // No opinion: abstain and keep every planet.
         log_vote(seen, me, agenda, round, second, &old, None, 0, available, margin, None, p_old);
         return abstain.map(|index| Cast { index, votes: 0 });
@@ -1379,7 +1385,7 @@ fn log_vote(
             "k": "vote", "agenda": agenda, "round": round, "seat": me.as_str(), "faction": faction,
             "second": second, "old": old, "new": chosen, "votes": votes, "available": available,
             "margin": margin, "p_win": p_win, "p_old": p_old,
-            "value": tuning::agenda_value(), "budget": tuning::agenda_budget(),
+            "value": tuning::agenda_value(), "budget": tuning::agenda_budget(), "svote": tuning::agenda_second_vote(),
         });
         if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
             let _ = f.write_all(format!("{line}\n").as_bytes());
@@ -2082,6 +2088,111 @@ mod tests {
         tuning::with(off, || {
             assert!(plan_vote(&choice, &seen(&state), &me, "schematics", None).is_none());
         });
+    }
+
+    fn second_of_the_phase(mut state: ti4_model::state::GameState) -> ti4_model::state::GameState {
+        let round = state.round;
+        state.agenda_log.push(ti4_model::state::AgendaRecord {
+            round,
+            agenda: "minister_policy".to_owned(),
+            name: String::new(),
+            outcome: Some("a".to_owned()),
+            votes: BTreeMap::new(),
+            speaker_decided: false,
+            law: false,
+            enacted: false,
+            discarded: false,
+            redirected_to: None,
+            discard_reason: None,
+        });
+        state
+    }
+
+    /// Every agenda with its outcomes as an open vote for `me`, with its margin for that seat.
+    fn margins(state: &ti4_model::state::GameState, me: &PlayerId) -> Vec<(String, f64, Choice)> {
+        let mut rows = Vec::new();
+        let records =
+            ContentStore::embedded().records(ti4_model::content_types::ContentType::Agendas);
+        for record in records {
+            let alias = record.text("alias").expect("alias");
+            let outcomes = outcomes_of(&seen(state), alias);
+            if outcomes.is_empty() {
+                continue;
+            }
+            let refs: Vec<&str> = outcomes.iter().map(String::as_str).collect();
+            let opts: Vec<(&str, f64)> = refs.iter().map(|o| (*o, 0.0)).collect();
+            let margin = evaluate(alias, &refs, &seen(state), me)
+                .and_then(|v| v.best().map(|b| b.1))
+                .unwrap_or(0.0);
+            rows.push((alias.to_owned(), margin, vote(me, alias, &opts)));
+        }
+        rows
+    }
+
+    fn on_second() -> tuning::Tuning {
+        tuning::Tuning { agenda_second_vote: true, ..on() }
+    }
+
+    #[test]
+    fn second_agenda_with_an_opinion_and_influence_left_casts_votes() {
+        let first = table();
+        let second = second_of_the_phase(table());
+        let me = PlayerId::new("b");
+        let mut seen_one = false;
+        for (alias, margin, choice) in margins(&first, &me) {
+            if is_voter_conditional(&alias) || !(0.2..1.4).contains(&margin) {
+                continue;
+            }
+            seen_one = true;
+            // First agenda, or the knob off: a small lead is no opinion.
+            tuning::with(on_second(), || {
+                let cast = plan_vote(&choice, &seen(&first), &me, &alias, None).expect("cast");
+                assert_eq!(cast.votes, 0, "{alias} first agenda");
+            });
+            tuning::with(on(), || {
+                let cast = plan_vote(&choice, &seen(&second), &me, &alias, None).expect("cast");
+                assert_eq!(cast.votes, 0, "{alias} knob off");
+            });
+            // Second agenda with the knob: it votes (voting is free).
+            tuning::with(on_second(), || {
+                let cast = plan_vote(&choice, &seen(&second), &me, &alias, None).expect("cast");
+                assert!(cast.votes > 0, "{alias} margin {margin} second agenda");
+            });
+        }
+        assert!(seen_one, "some agenda has a small lead for the seat");
+    }
+
+    #[test]
+    fn a_seat_with_no_lead_abstains_on_the_second_agenda() {
+        let second = second_of_the_phase(table());
+        let me = PlayerId::new("b");
+        let mut seen_one = false;
+        for (alias, margin, choice) in margins(&second, &me) {
+            if is_voter_conditional(&alias) || margin >= 0.01 {
+                continue;
+            }
+            seen_one = true;
+            tuning::with(on_second(), || {
+                let cast = plan_vote(&choice, &seen(&second), &me, &alias, None).expect("cast");
+                assert_eq!(cast.votes, 0, "{alias} is indifferent");
+            });
+        }
+        assert!(seen_one, "some agenda is indifferent for the seat");
+    }
+
+    #[test]
+    fn the_first_agenda_is_unchanged_by_the_second_agenda_knob() {
+        let first = table();
+        let me = PlayerId::new("b");
+        for (alias, _, choice) in margins(&first, &me) {
+            let a = tuning::with(on(), || plan_vote(&choice, &seen(&first), &me, &alias, None));
+            let b = tuning::with(on_second(), || plan_vote(&choice, &seen(&first), &me, &alias, None));
+            assert_eq!(
+                a.map(|c| (c.index, c.votes)),
+                b.map(|c| (c.index, c.votes)),
+                "{alias}"
+            );
+        }
     }
 
     #[test]

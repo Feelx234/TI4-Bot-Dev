@@ -153,6 +153,8 @@ tuning! {
     agenda_second_prior: f64 = 2.0, "v5: assumed stake of an unknown second agenda, in value points (agenda_budget)";
     rider_min_p: f64 = 0.7, "v5: least probability that the predicted outcome wins for a rider to be played (agenda_riders)";
     muaat_keeps_note: bool = false, "v6 staging (off in v1-v5): a Muaat seat never gives away its Fires of the Gashlai (the War Sun technology note) in a transaction: it refuses proposals that take it and never proposes it";
+    agenda_second_vote: bool = false, "v6 staging (off in v1-v5): on the second agenda of a phase voting is free (nothing follows it, the planets ready next round), so the seat votes for any outcome it values: the no-opinion threshold falls to agenda_second_min_margin (agenda_vote.rs)";
+    agenda_second_min_margin: f64 = 0.05, "v6: value points the best outcome must lead by on the second agenda, else no opinion (agenda_second_vote)";
     land_all: bool = false, "v5 (off in v1-v4): the landing step commits every ground force aboard to a planet of the system (never leaves them in space)";
 }
 
@@ -208,11 +210,13 @@ pub fn v5() -> Tuning {
 }
 
 /// Version 6, **staging** (not shipped: [`BOT_VERSION`] stays 5 until the user says ship): version
-/// 5 plus `muaat_keeps_note` (a Muaat seat keeps Fires of the Gashlai out of every transaction).
+/// 5 plus `muaat_keeps_note` (a Muaat seat keeps Fires of the Gashlai out of every transaction) and
+/// `agenda_second_vote` (the second agenda of a phase is voted on whenever the seat has any opinion).
 #[must_use]
 pub fn v6() -> Tuning {
     Tuning {
         muaat_keeps_note: true,
+        agenda_second_vote: true,
         ..v5()
     }
 }
@@ -350,6 +354,8 @@ fn v1() -> Tuning {
         agenda_min_margin: 1.5,
         agenda_rival_share: 0.6,
         agenda_second_prior: 2.0,
+        agenda_second_vote: false,
+        agenda_second_min_margin: 0.05,
         rider_min_p: 0.7,
         land_all: false,
         muaat_keeps_note: false,
@@ -438,6 +444,7 @@ mod tests {
         assert_eq!(
             Tuning {
                 muaat_keeps_note: false,
+                agenda_second_vote: false,
                 ..for_version(6)
             },
             for_version(5)
