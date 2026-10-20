@@ -1,0 +1,21 @@
+{
+  "title": "Technology UI: Bio-Stims and Focused Research",
+  "description": "Two technology-dialog changes. Bio-Stims: a strip in the technology dialog shows the card's state (usable at the end of the turn, ready with nothing to ready, exhausted) and what it could ready now (exhausted specialty planets, exhausted technologies); it mirrors the engine's end-of-turn offer. Focused Research: from rules version 18 the card spends its 4 trade goods and asks the Technology primary's research_technology question, so the normal technology dialog opens (engine-legal list, prerequisites, skips, resources) instead of a plain option list. Synthetic fixtures through a mocked server; the before shots are the pre-18 question shape (bare technology pick).",
+  "tag": "web/e2e/screenshots/FZ-tech-biostims-focused",
+  "shots": [
+    { "file": "out/before-focused-desktop.png", "heading": "Focused Research before (rules version < 18), desktop", "caption": "A bare option list of technologies; no prerequisites, skips or resources." },
+    { "file": "out/after-focused-desktop.png", "heading": "Focused Research after, desktop", "caption": "The normal research dialog: only engine-legal cards selectable (Gravity Drive dimmed), Confirm Research after picking." },
+    { "file": "out/before-focused-390x844.png", "heading": "Focused Research before, 390x844", "caption": "The plain list on a phone." },
+    { "file": "out/after-focused-390x844.png", "heading": "Focused Research after, 390x844", "caption": "The same technology dialog on a phone." },
+    { "file": "out/after-biostims-usable-desktop.png", "heading": "Bio-Stims usable, desktop", "caption": "Ready, with Wellon (specialty planet) and Sarween Tools exhausted: the strip says what it could ready at the end of the turn." },
+    { "file": "out/after-biostims-nothing-desktop.png", "heading": "Bio-Stims ready, nothing to ready, desktop", "caption": "Ready, but no exhausted specialty planet or technology: the engine would not offer it." },
+    { "file": "out/after-biostims-exhausted-desktop.png", "heading": "Bio-Stims exhausted, desktop", "caption": "Exhausted: dashed and dimmed, readies again in the status phase." },
+    { "file": "out/after-biostims-usable-390x844.png", "heading": "Bio-Stims usable, 390x844", "caption": "The strip wraps on a phone." },
+    { "file": "out/after-biostims-nothing-390x844.png", "heading": "Bio-Stims ready, nothing to ready, 390x844", "caption": "Ready, nothing to ready." },
+    { "file": "out/after-biostims-exhausted-390x844.png", "heading": "Bio-Stims exhausted, 390x844", "caption": "Exhausted." }
+  ],
+  "notes": [
+    { "title": "Reading of the bug list", "text": "Bio-Stims is an end-of-turn card. The engine already offers it (technology.rs end_turn: exhausted specialty planets and exhausted other technologies) but the technology dialog never showed it. The strip is display only; the offer itself is unchanged. Focused Research is the action card f_researched (spend 4 trade goods to research 1 technology)." },
+    { "title": "Rules version 18", "text": "RULES_FOCUSED_RESEARCH = 18 (another branch may also claim 18)." }
+  ]
+}

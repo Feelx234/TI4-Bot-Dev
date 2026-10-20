@@ -6941,6 +6941,10 @@ fn focused_research_spend(context: &mut crate::timing::TimingContext<'_>, player
     if held < i64::from(FOCUSED_RESEARCH_COST) {
         return; // 22.3: it cannot resolve, so it does nothing
     }
+    if context.state.rules_version >= ti4_model::state::RULES_FOCUSED_RESEARCH {
+        focused_research_normal(context, player);
+        return;
+    }
     // Doctor Carrina's window: this is a research (see `factions/deepwrought_research.rs`).
     crate::factions::deepwrought_research::around(
         context,
@@ -6948,6 +6952,38 @@ fn focused_research_spend(context: &mut crate::timing::TimingContext<'_>, player
         &crate::factions::deepwrought_research::any,
         |context| focused_research_chosen(context, player),
     );
+}
+
+/// Focused Research from rules version `RULES_FOCUSED_RESEARCH`: the same research as the
+/// Technology primary (its `research_technology` question, which also opens Doctor Carrina's
+/// window and handles faction waivers). The four trade goods are spent first; if nothing could be
+/// researched after all, they come back.
+fn focused_research_normal(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
+    if crate::technology::researchable(context.state, context.content, context.sources, player)
+        .is_empty()
+    {
+        return; // 22.3: nothing to research, nothing is charged
+    }
+    if !crate::supply::spend_goods(context.state, player, FOCUSED_RESEARCH_COST) {
+        return;
+    }
+    let before = context.state.player(player).map(|seat| seat.technologies.len());
+    let researched = crate::strategy_cards::offer_free_research(
+        context.state,
+        context.content,
+        context.sources,
+        context.galaxy,
+        context.table,
+        player,
+        DecisionSource::ActionCard("f_researched".to_owned()),
+    );
+    let after = context.state.player(player).map(|seat| seat.technologies.len());
+    if !matches!(researched, Ok(Some(_))) && before == after {
+        // Declined every waiver offer: nothing was researched, so nothing is paid.
+        if let Some(seat) = context.state.player_mut(player) {
+            seat.trade_goods += FOCUSED_RESEARCH_COST;
+        }
+    }
 }
 
 /// Focused Research's choice and payment, once the four trade goods are known to be there.
@@ -10751,6 +10787,56 @@ mod tests {
             before + 1,
             "and one gained"
         );
+    }
+
+    /// Felix's report: Focused Research must use the normal research dialog. From rules version
+    /// 18 it asks the Technology primary's `research_technology` question (kind `research`).
+    #[test]
+    fn focused_research_asks_the_normal_research_question() {
+        let player = PlayerId::new("a");
+        let mut state = crate::fixtures::game(&["a"]);
+        state.player_mut(&player).unwrap().trade_goods = 6;
+        let seen = resolve_card_capturing(&mut state, "f_researched", &player, &[]);
+        let asked = seen.borrow();
+        let research = asked
+            .iter()
+            .find(|choice| {
+                choice
+                    .context
+                    .as_ref()
+                    .is_some_and(|c| c.subtype == "research_technology")
+            })
+            .expect("the research question");
+        assert!(research.options.iter().all(|o| o.kind == "research"));
+        assert_eq!(
+            research.context.as_ref().unwrap().source,
+            DecisionSource::ActionCard("f_researched".to_owned())
+        );
+        let open = crate::technology::researchable(
+            &state,
+            ContentStore::embedded(),
+            ti4_model::content_types::POK,
+            &player,
+        );
+        assert!(!research.options.is_empty() && research.options.len() <= open.len() + 1);
+        assert_eq!(state.player(&player).unwrap().trade_goods, 2, "four spent");
+    }
+
+    #[test]
+    fn focused_research_in_a_legacy_game_keeps_the_bare_technology_pick() {
+        let player = PlayerId::new("a");
+        let mut state = crate::fixtures::game(&["a"]);
+        state.rules_version = ti4_model::state::RULES_FOCUSED_RESEARCH - 1;
+        state.player_mut(&player).unwrap().trade_goods = 6;
+        let seen = resolve_card_capturing(&mut state, "f_researched", &player, &[]);
+        let asked = seen.borrow();
+        assert!(asked.iter().all(|choice| {
+            choice
+                .context
+                .as_ref()
+                .is_none_or(|c| c.subtype != "research_technology")
+        }));
+        assert!(asked.iter().any(|c| c.options.iter().any(|o| o.kind == "technology")));
     }
 
     /// Doctor Carrina reaches an action-card research (Focused Research): the holder ignores the

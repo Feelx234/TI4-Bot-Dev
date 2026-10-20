@@ -10,9 +10,9 @@ playable.
 
 `GameState::rules_version: u32` (crates/ti4-model/src/state.rs). Constants next to it:
 
-- `RULES_VERSION` (now 17): what a **new** game plays. `GameState::new` sets it, so every way of
+- `RULES_VERSION` (now 18): what a **new** game plays. `GameState::new` sets it, so every way of
   creating a game (server, lobby, wasm host, selfplay, tests) gets the latest.
-- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ENIGMATIC_DEVICE = 5`, `RULES_TECH_PAYMENT_CHOICE = 6`, `RULES_BRIBERY_PER_PLAYER = 7`, `RULES_MUNITIONS_AFTER_ROLL = 8`, `RULES_TECH_RIDER = 9`, `RULES_ACTION_CARD_TARGETS = 10`, `RULES_RETREAT_HAZARDS = 11`, `RULES_COMMAND_TOKEN_POOL = 12`, `RULES_SELF_ASSEMBLY = 13`, `RULES_AGENDA_GRANT_REVEAL = 14`, `RULES_TECH_EFFECTS = 15`): the first version with one gated change.
+- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ENIGMATIC_DEVICE = 5`, `RULES_TECH_PAYMENT_CHOICE = 6`, `RULES_BRIBERY_PER_PLAYER = 7`, `RULES_MUNITIONS_AFTER_ROLL = 8`, `RULES_TECH_RIDER = 9`, `RULES_ACTION_CARD_TARGETS = 10`, `RULES_RETREAT_HAZARDS = 11`, `RULES_COMMAND_TOKEN_POOL = 12`, `RULES_SELF_ASSEMBLY = 13`, `RULES_AGENDA_GRANT_REVEAL = 14`, `RULES_TECH_EFFECTS = 15`, `RULES_FACTION_BUGFIXES = 17`, `RULES_FOCUSED_RESEARCH = 18`): the first version with one gated change.
 A state without the field is **version 0**, the legacy rules (what the alpha ran until 2026-10-16).
 
 ## How it is stored (the checksum rule)
@@ -217,6 +217,8 @@ Version 17 = faction bug fixes (`faction-bug-fixes`, `RULES_FACTION_BUGFIXES`). 
 Also at 17: the combat dev scenarios start with Letnev's agent exhausted so they still open at the retreat (not a game rule). No new question kinds: the Farran, agent unit and discard questions already exist, so the delivery inventory and the rule bot's answers are unchanged.
 
 Version < 17: none of these; older logs replay unchanged.
+
+Version 18 = Focused Research as a normal research (`RULES_FOCUSED_RESEARCH`, `action_cards::focused_research_normal`). The card spends its four trade goods first, then asks the Technology primary's `research_technology` question (options of kind `research`, source `ActionCard f_researched`, Doctor Carrina's window and faction waivers included), so the client opens its technology dialog. If nothing is researched after all (every waiver declined) the four come back. Below 18 it asks a bare `technology` pick after the goods window. (Another branch may also claim 18: renumber on merge.)
 
 ## Not a rules version: the Thunder's Edge switch (`GameState::thunders_edge`)
 

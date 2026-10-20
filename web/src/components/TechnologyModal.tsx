@@ -27,6 +27,7 @@ import {
   secondPickPrerequisitesMet,
   secondPickWaivers,
   aidaIsReady,
+  bioStimsStatus,
   visibleWaivers,
   psychoarchaeologyFrees,
   isUnitUpgradeTech,
@@ -538,6 +539,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
   const factionVisible = factionTechs.filter(shown).length > 0;
 
   // AI Development Algorithm as a skip chip: +1 prerequisite of any colour, unit upgrades only.
+  const bioStims = useMemo(() => bioStimsStatus(viewerPlayer, board), [viewerPlayer, board]);
   const [aidaToggled, setAidaToggled] = useState(false);
   const aidaChip = (() => {
     if (!activeResearchMode || rulesVersion < RULES_TECH_EFFECTS) return null;
@@ -642,6 +644,36 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
               Close
             </Dialog.Close>
           </div>
+
+          {bioStims && (
+            <div
+              className={`technology-modal__bio-stims${bioStims.ready ? "" : " technology-modal__bio-stims--exhausted"}`}
+              data-testid="tech-bio-stims"
+              data-state={bioStims.ready ? (bioStims.usable ? "usable" : "ready") : "exhausted"}
+            >
+              <span className="tech-skip-pill__badge tech-skip-pill__badge--biotic">BS</span>
+              <strong>Bio-Stims</strong>
+              <span className="technology-modal__bio-stims-state">
+                {!bioStims.ready
+                  ? "Exhausted"
+                  : bioStims.usable
+                    ? "Ready: usable at the end of your turn"
+                    : "Ready: nothing to ready right now"}
+              </span>
+              <span className="technology-modal__bio-stims-text">
+                {bioStims.ready
+                  ? `At the end of your turn, exhaust it to ready 1 specialty planet or 1 other technology. Now: ${
+                      [
+                        bioStims.planets.length ? `planets ${bioStims.planets.join(", ")}` : "",
+                        bioStims.technologies.length ? `technologies ${bioStims.technologies.join(", ")}` : "",
+                      ]
+                        .filter(Boolean)
+                        .join("; ") || "no exhausted specialty planet or technology"
+                    }.`
+                  : "It readies again in the status phase."}
+              </span>
+            </div>
+          )}
 
           {/* Research Mode Controls Panel (Tech Skips + Available Resources + Cost) */}
           {activeResearchMode && (
