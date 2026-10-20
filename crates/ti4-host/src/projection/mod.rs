@@ -459,7 +459,7 @@ pub fn project_board_view_full(
     BoardView {
         systems,
         active_system: state.active_system.clone(),
-        map_tiles: map_tiles.to_vec(),
+        map_tiles: crate::map::with_recorded_edits(ContentStore::embedded(), map_tiles, state),
         combat: project_combat_view_for(state, pending_choice, dice_rolls, viewer),
         invasion,
     }

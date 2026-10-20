@@ -1,0 +1,1581 @@
+{
+  "systems": {
+    "01": {
+      "system_id": "01",
+      "command_tokens": [],
+      "planets": {
+        "jord": {
+          "planet_id": "jord",
+          "controlled_by": "gallery_seat",
+          "exhausted": false
+        }
+      },
+      "units": [
+        {
+          "unit_type": "sol_carrier",
+          "owner": "gallery_seat",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "sol_carrier",
+          "owner": "gallery_seat",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "destroyer",
+          "owner": "gallery_seat",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "fighter",
+          "owner": "gallery_seat",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "fighter",
+          "owner": "gallery_seat",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "fighter",
+          "owner": "gallery_seat",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "sol_infantry",
+          "owner": "gallery_seat",
+          "planet": "jord",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "sol_infantry",
+          "owner": "gallery_seat",
+          "planet": "jord",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "sol_infantry",
+          "owner": "gallery_seat",
+          "planet": "jord",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "sol_infantry",
+          "owner": "gallery_seat",
+          "planet": "jord",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "sol_infantry",
+          "owner": "gallery_seat",
+          "planet": "jord",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "spacedock",
+          "owner": "gallery_seat",
+          "planet": "jord",
+          "damaged": false,
+          "galvanized": false
+        }
+      ]
+    },
+    "06": {
+      "system_id": "06",
+      "command_tokens": [],
+      "planets": {
+        "0.0.0": {
+          "planet_id": "0.0.0",
+          "controlled_by": "p6",
+          "exhausted": false
+        }
+      },
+      "units": [
+        {
+          "unit_type": "l1z1x_dreadnought",
+          "owner": "p6",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "carrier",
+          "owner": "p6",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "fighter",
+          "owner": "p6",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "fighter",
+          "owner": "p6",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "fighter",
+          "owner": "p6",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "infantry",
+          "owner": "p6",
+          "planet": "0.0.0",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "infantry",
+          "owner": "p6",
+          "planet": "0.0.0",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "infantry",
+          "owner": "p6",
+          "planet": "0.0.0",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "infantry",
+          "owner": "p6",
+          "planet": "0.0.0",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "infantry",
+          "owner": "p6",
+          "planet": "0.0.0",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "spacedock",
+          "owner": "p6",
+          "planet": "0.0.0",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "pds",
+          "owner": "p6",
+          "planet": "0.0.0",
+          "damaged": false,
+          "galvanized": false
+        }
+      ]
+    },
+    "10": {
+      "system_id": "10",
+      "command_tokens": [],
+      "planets": {
+        "arcprime": {
+          "planet_id": "arcprime",
+          "controlled_by": "p3",
+          "exhausted": false
+        },
+        "wrenterra": {
+          "planet_id": "wrenterra",
+          "controlled_by": "p3",
+          "exhausted": false
+        }
+      },
+      "units": [
+        {
+          "unit_type": "dreadnought",
+          "owner": "p3",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "carrier",
+          "owner": "p3",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "destroyer",
+          "owner": "p3",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "fighter",
+          "owner": "p3",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "spacedock",
+          "owner": "p3",
+          "planet": "arcprime",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "infantry",
+          "owner": "p3",
+          "planet": "wrenterra",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "infantry",
+          "owner": "p3",
+          "planet": "wrenterra",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "infantry",
+          "owner": "p3",
+          "planet": "wrenterra",
+          "damaged": false,
+          "galvanized": false
+        }
+      ]
+    },
+    "12": {
+      "system_id": "12",
+      "command_tokens": [],
+      "planets": {
+        "jol": {
+          "planet_id": "jol",
+          "controlled_by": "p5",
+          "exhausted": false
+        },
+        "nar": {
+          "planet_id": "nar",
+          "controlled_by": "p5",
+          "exhausted": false
+        }
+      },
+      "units": [
+        {
+          "unit_type": "dreadnought",
+          "owner": "p5",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "carrier",
+          "owner": "p5",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "carrier",
+          "owner": "p5",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "fighter",
+          "owner": "p5",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "infantry",
+          "owner": "p5",
+          "planet": "jol",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "infantry",
+          "owner": "p5",
+          "planet": "jol",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "pds",
+          "owner": "p5",
+          "planet": "jol",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "spacedock",
+          "owner": "p5",
+          "planet": "nar",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "pds",
+          "owner": "p5",
+          "planet": "nar",
+          "damaged": false,
+          "galvanized": false
+        }
+      ]
+    },
+    "14": {
+      "system_id": "14",
+      "command_tokens": [],
+      "planets": {
+        "archonren": {
+          "planet_id": "archonren",
+          "controlled_by": "p4",
+          "exhausted": false
+        },
+        "archontau": {
+          "planet_id": "archontau",
+          "controlled_by": "p4",
+          "exhausted": false
+        }
+      },
+      "units": [
+        {
+          "unit_type": "carrier",
+          "owner": "p4",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "cruiser",
+          "owner": "p4",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "cruiser",
+          "owner": "p4",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "fighter",
+          "owner": "p4",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "fighter",
+          "owner": "p4",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "fighter",
+          "owner": "p4",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "infantry",
+          "owner": "p4",
+          "planet": "archonren",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "infantry",
+          "owner": "p4",
+          "planet": "archonren",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "spacedock",
+          "owner": "p4",
+          "planet": "archonren",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "infantry",
+          "owner": "p4",
+          "planet": "archontau",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "infantry",
+          "owner": "p4",
+          "planet": "archontau",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "pds",
+          "owner": "p4",
+          "planet": "archontau",
+          "damaged": false,
+          "galvanized": false
+        }
+      ]
+    },
+    "16": {
+      "system_id": "16",
+      "command_tokens": [],
+      "planets": {
+        "arretze": {
+          "planet_id": "arretze",
+          "controlled_by": "other_seat",
+          "exhausted": false
+        },
+        "hercant": {
+          "planet_id": "hercant",
+          "controlled_by": "other_seat",
+          "exhausted": false
+        },
+        "kamdorn": {
+          "planet_id": "kamdorn",
+          "controlled_by": "other_seat",
+          "exhausted": false
+        }
+      },
+      "units": [
+        {
+          "unit_type": "carrier",
+          "owner": "other_seat",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "carrier",
+          "owner": "other_seat",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "cruiser",
+          "owner": "other_seat",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "fighter",
+          "owner": "other_seat",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "fighter",
+          "owner": "other_seat",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "spacedock",
+          "owner": "other_seat",
+          "planet": "arretze",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "infantry",
+          "owner": "other_seat",
+          "planet": "arretze",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "infantry",
+          "owner": "other_seat",
+          "planet": "hercant",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "infantry",
+          "owner": "other_seat",
+          "planet": "hercant",
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "infantry",
+          "owner": "other_seat",
+          "planet": "kamdorn",
+          "damaged": false,
+          "galvanized": false
+        }
+      ]
+    },
+    "31": {
+      "system_id": "31",
+      "command_tokens": [],
+      "planets": {},
+      "units": [
+        {
+          "unit_type": "muaat_warsun",
+          "owner": "gallery_seat",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "cruiser",
+          "owner": "gallery_seat",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "destroyer",
+          "owner": "gallery_seat",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        },
+        {
+          "unit_type": "cruiser",
+          "owner": "other_seat",
+          "planet": null,
+          "damaged": false,
+          "galvanized": false
+        }
+      ]
+    }
+  },
+  "map_tiles": [
+    {
+      "system_id": "06",
+      "label": "[0.0.0] - L1Z1X",
+      "q": -3,
+      "r": 0,
+      "planets": [
+        {
+          "id": "0.0.0",
+          "label": "[0.0.0]",
+          "resources": 5,
+          "influence": 0
+        }
+      ]
+    },
+    {
+      "system_id": "34",
+      "label": "Centauri/Gral",
+      "q": -3,
+      "r": 1,
+      "planets": [
+        {
+          "id": "centauri",
+          "label": "Centauri",
+          "resources": 1,
+          "influence": 3,
+          "traits": [
+            "CULTURAL"
+          ]
+        },
+        {
+          "id": "gral",
+          "label": "Gral",
+          "resources": 1,
+          "influence": 1,
+          "traits": [
+            "INDUSTRIAL"
+          ],
+          "tech_specialties": [
+            "PROPULSION"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "69",
+      "label": "Accoen/Jeol-ir",
+      "q": -3,
+      "r": 2,
+      "planets": [
+        {
+          "id": "accoen",
+          "label": "Accoen",
+          "resources": 2,
+          "influence": 3,
+          "traits": [
+            "INDUSTRIAL"
+          ]
+        },
+        {
+          "id": "jeolir",
+          "label": "Jeol Ir",
+          "resources": 2,
+          "influence": 3,
+          "traits": [
+            "INDUSTRIAL"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "01",
+      "label": "Jord - Sol",
+      "q": -3,
+      "r": 3,
+      "planets": [
+        {
+          "id": "jord",
+          "label": "Jord",
+          "resources": 4,
+          "influence": 2
+        }
+      ]
+    },
+    {
+      "system_id": "62",
+      "label": "Sem-Lore",
+      "q": -2,
+      "r": -1,
+      "planets": [
+        {
+          "id": "semlore",
+          "label": "Sem-Lore",
+          "resources": 3,
+          "influence": 2,
+          "traits": [
+            "CULTURAL"
+          ],
+          "tech_specialties": [
+            "CYBERNETIC"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "31",
+      "label": "Lazar/Sakulag",
+      "q": -2,
+      "r": 0,
+      "planets": [
+        {
+          "id": "lazar",
+          "label": "Lazar",
+          "resources": 1,
+          "influence": 0,
+          "traits": [
+            "INDUSTRIAL"
+          ],
+          "tech_specialties": [
+            "CYBERNETIC"
+          ]
+        },
+        {
+          "id": "sakulag",
+          "label": "Sakulag",
+          "resources": 2,
+          "influence": 1,
+          "traits": [
+            "HAZARDOUS"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "33",
+      "label": "Corneeq/Resculon",
+      "q": -2,
+      "r": 1,
+      "planets": [
+        {
+          "id": "corneeq",
+          "label": "Corneeq",
+          "resources": 1,
+          "influence": 2,
+          "traits": [
+            "CULTURAL"
+          ]
+        },
+        {
+          "id": "resculon",
+          "label": "Resculon",
+          "resources": 2,
+          "influence": 0,
+          "traits": [
+            "CULTURAL"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "76",
+      "label": "Rigels",
+      "q": -2,
+      "r": 2,
+      "planets": [
+        {
+          "id": "rigeliii",
+          "label": "Rigel III",
+          "resources": 1,
+          "influence": 1,
+          "traits": [
+            "INDUSTRIAL"
+          ],
+          "tech_specialties": [
+            "BIOTIC"
+          ]
+        },
+        {
+          "id": "rigelii",
+          "label": "Rigel II",
+          "resources": 1,
+          "influence": 2,
+          "traits": [
+            "INDUSTRIAL"
+          ]
+        },
+        {
+          "id": "rigeli",
+          "label": "Rigel I",
+          "resources": 0,
+          "influence": 1,
+          "traits": [
+            "HAZARDOUS"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "74",
+      "label": "Vega Major/Vega Minor",
+      "q": -2,
+      "r": 3,
+      "planets": [
+        {
+          "id": "vegamajor",
+          "label": "Vega Major",
+          "resources": 2,
+          "influence": 1,
+          "traits": [
+            "CULTURAL"
+          ]
+        },
+        {
+          "id": "vegaminor",
+          "label": "Vega Minor",
+          "resources": 1,
+          "influence": 2,
+          "traits": [
+            "CULTURAL"
+          ],
+          "tech_specialties": [
+            "PROPULSION"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "35",
+      "label": "Bereg/Lirta iv",
+      "q": -1,
+      "r": -2,
+      "planets": [
+        {
+          "id": "bereg",
+          "label": "Bereg",
+          "resources": 3,
+          "influence": 1,
+          "traits": [
+            "HAZARDOUS"
+          ]
+        },
+        {
+          "id": "lirtaiv",
+          "label": "Lirta IV",
+          "resources": 2,
+          "influence": 3,
+          "traits": [
+            "HAZARDOUS"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "22",
+      "label": "Tarmann",
+      "q": -1,
+      "r": -1,
+      "planets": [
+        {
+          "id": "tarmann",
+          "label": "Tar'mann",
+          "resources": 1,
+          "influence": 1,
+          "traits": [
+            "INDUSTRIAL"
+          ],
+          "tech_specialties": [
+            "BIOTIC"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "70",
+      "label": "Kraag/Siig",
+      "q": -1,
+      "r": 0,
+      "planets": [
+        {
+          "id": "kraag",
+          "label": "Kraag",
+          "resources": 2,
+          "influence": 1,
+          "traits": [
+            "HAZARDOUS"
+          ]
+        },
+        {
+          "id": "siig",
+          "label": "Siig",
+          "resources": 0,
+          "influence": 2,
+          "traits": [
+            "HAZARDOUS"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "29",
+      "label": "Qucenn/Rarron",
+      "q": -1,
+      "r": 1,
+      "planets": [
+        {
+          "id": "qucenn",
+          "label": "Qucen'n",
+          "resources": 1,
+          "influence": 2,
+          "traits": [
+            "INDUSTRIAL"
+          ]
+        },
+        {
+          "id": "rarron",
+          "label": "Rarron",
+          "resources": 0,
+          "influence": 3,
+          "traits": [
+            "CULTURAL"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "28",
+      "label": "Tequran/Torkan",
+      "q": -1,
+      "r": 2,
+      "planets": [
+        {
+          "id": "tequran",
+          "label": "Tequ'ran",
+          "resources": 2,
+          "influence": 0,
+          "traits": [
+            "HAZARDOUS"
+          ]
+        },
+        {
+          "id": "torkan",
+          "label": "Torkan",
+          "resources": 0,
+          "influence": 3,
+          "traits": [
+            "CULTURAL"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "63",
+      "label": "Vorhal",
+      "q": -1,
+      "r": 3,
+      "planets": [
+        {
+          "id": "vorhal",
+          "label": "Vorhal",
+          "resources": 0,
+          "influence": 2,
+          "traits": [
+            "CULTURAL"
+          ],
+          "tech_specialties": [
+            "BIOTIC"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "12",
+      "label": "Nar/Jol - Jol-Nar",
+      "q": 0,
+      "r": -3,
+      "planets": [
+        {
+          "id": "nar",
+          "label": "Nar",
+          "resources": 2,
+          "influence": 3
+        },
+        {
+          "id": "jol",
+          "label": "Jol",
+          "resources": 1,
+          "influence": 2
+        }
+      ]
+    },
+    {
+      "system_id": "37",
+      "label": "Arinam/Meer",
+      "q": 0,
+      "r": -2,
+      "planets": [
+        {
+          "id": "arinam",
+          "label": "Arinam",
+          "resources": 1,
+          "influence": 2,
+          "traits": [
+            "INDUSTRIAL"
+          ]
+        },
+        {
+          "id": "meer",
+          "label": "Meer",
+          "resources": 0,
+          "influence": 4,
+          "traits": [
+            "HAZARDOUS"
+          ],
+          "tech_specialties": [
+            "WARFARE"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "36",
+      "label": "Arnor/Lor",
+      "q": 0,
+      "r": -1,
+      "planets": [
+        {
+          "id": "arnor",
+          "label": "Arnor",
+          "resources": 2,
+          "influence": 1,
+          "traits": [
+            "INDUSTRIAL"
+          ]
+        },
+        {
+          "id": "lor",
+          "label": "Lor",
+          "resources": 1,
+          "influence": 2,
+          "traits": [
+            "INDUSTRIAL"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "18",
+      "label": "Mecatol Rex",
+      "q": 0,
+      "r": 0,
+      "planets": [
+        {
+          "id": "mr",
+          "label": "Mecatol Rex",
+          "resources": 1,
+          "influence": 6
+        }
+      ]
+    },
+    {
+      "system_id": "66",
+      "label": "Hope's End",
+      "q": 0,
+      "r": 1,
+      "planets": [
+        {
+          "id": "hopesend",
+          "label": "Hope's End",
+          "resources": 3,
+          "influence": 0,
+          "traits": [
+            "HAZARDOUS"
+          ],
+          "legendary": true
+        }
+      ]
+    },
+    {
+      "system_id": "72",
+      "label": "Lisis/Velnor",
+      "q": 0,
+      "r": 2,
+      "planets": [
+        {
+          "id": "lisis",
+          "label": "Lisis",
+          "resources": 2,
+          "influence": 2,
+          "traits": [
+            "INDUSTRIAL"
+          ]
+        },
+        {
+          "id": "velnor",
+          "label": "Velnor",
+          "resources": 2,
+          "influence": 1,
+          "traits": [
+            "INDUSTRIAL"
+          ],
+          "tech_specialties": [
+            "WARFARE"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "16",
+      "label": "Arretze/Hercant/Kamdorn - Hacan",
+      "q": 0,
+      "r": 3,
+      "planets": [
+        {
+          "id": "hercant",
+          "label": "Hercant",
+          "resources": 1,
+          "influence": 1
+        },
+        {
+          "id": "arretze",
+          "label": "Arretze",
+          "resources": 2,
+          "influence": 0
+        },
+        {
+          "id": "kamdorn",
+          "label": "Kamdorn",
+          "resources": 0,
+          "influence": 1
+        }
+      ]
+    },
+    {
+      "system_id": "75",
+      "label": "Loki/Ashtroth/Abaddon - Devils",
+      "q": 1,
+      "r": -3,
+      "planets": [
+        {
+          "id": "loki",
+          "label": "Loki",
+          "resources": 1,
+          "influence": 2,
+          "traits": [
+            "CULTURAL"
+          ]
+        },
+        {
+          "id": "abaddon",
+          "label": "Abaddon",
+          "resources": 1,
+          "influence": 0,
+          "traits": [
+            "CULTURAL"
+          ]
+        },
+        {
+          "id": "ashtroth",
+          "label": "Ashtroth",
+          "resources": 2,
+          "influence": 0,
+          "traits": [
+            "HAZARDOUS"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "73",
+      "label": "Cealdri/Xanhact",
+      "q": 1,
+      "r": -2,
+      "planets": [
+        {
+          "id": "cealdri",
+          "label": "Cealdri",
+          "resources": 0,
+          "influence": 2,
+          "traits": [
+            "CULTURAL"
+          ],
+          "tech_specialties": [
+            "CYBERNETIC"
+          ]
+        },
+        {
+          "id": "xanhact",
+          "label": "Xanhact",
+          "resources": 0,
+          "influence": 1,
+          "traits": [
+            "HAZARDOUS"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "19",
+      "label": "Wellon",
+      "q": 1,
+      "r": -1,
+      "planets": [
+        {
+          "id": "wellon",
+          "label": "Wellon",
+          "resources": 1,
+          "influence": 2,
+          "traits": [
+            "INDUSTRIAL"
+          ],
+          "tech_specialties": [
+            "CYBERNETIC"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "59",
+      "label": "Archon Vail",
+      "q": 1,
+      "r": 0,
+      "planets": [
+        {
+          "id": "archonvail",
+          "label": "Archon Vail",
+          "resources": 1,
+          "influence": 3,
+          "traits": [
+            "HAZARDOUS"
+          ],
+          "tech_specialties": [
+            "PROPULSION"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "65",
+      "label": "Primor",
+      "q": 1,
+      "r": 1,
+      "planets": [
+        {
+          "id": "primor",
+          "label": "Primor",
+          "resources": 2,
+          "influence": 1,
+          "traits": [
+            "CULTURAL"
+          ],
+          "legendary": true
+        }
+      ]
+    },
+    {
+      "system_id": "61",
+      "label": "Ang",
+      "q": 1,
+      "r": 2,
+      "planets": [
+        {
+          "id": "ang",
+          "label": "Ang",
+          "resources": 2,
+          "influence": 0,
+          "traits": [
+            "INDUSTRIAL"
+          ],
+          "tech_specialties": [
+            "WARFARE"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "30",
+      "label": "Mellon/Zohbat",
+      "q": 2,
+      "r": -3,
+      "planets": [
+        {
+          "id": "mellon",
+          "label": "Mellon",
+          "resources": 0,
+          "influence": 2,
+          "traits": [
+            "CULTURAL"
+          ]
+        },
+        {
+          "id": "zohbat",
+          "label": "Zohbat",
+          "resources": 3,
+          "influence": 1,
+          "traits": [
+            "HAZARDOUS"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "27",
+      "label": "Starpoint/New Albion",
+      "q": 2,
+      "r": -2,
+      "planets": [
+        {
+          "id": "newalbion",
+          "label": "New Albion",
+          "resources": 1,
+          "influence": 1,
+          "traits": [
+            "INDUSTRIAL"
+          ],
+          "tech_specialties": [
+            "BIOTIC"
+          ]
+        },
+        {
+          "id": "starpoint",
+          "label": "Starpoint",
+          "resources": 3,
+          "influence": 1,
+          "traits": [
+            "HAZARDOUS"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "20",
+      "label": "Vefut II",
+      "q": 2,
+      "r": -1,
+      "planets": [
+        {
+          "id": "vefutii",
+          "label": "Vefut II",
+          "resources": 2,
+          "influence": 2,
+          "traits": [
+            "HAZARDOUS"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "32",
+      "label": "Dal-Bootha/Xxehan",
+      "q": 2,
+      "r": 0,
+      "planets": [
+        {
+          "id": "dalbootha",
+          "label": "Dal Bootha",
+          "resources": 0,
+          "influence": 2,
+          "traits": [
+            "CULTURAL"
+          ]
+        },
+        {
+          "id": "xxehan",
+          "label": "Xxehan",
+          "resources": 1,
+          "influence": 1,
+          "traits": [
+            "CULTURAL"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "24",
+      "label": "Mehar Xull",
+      "q": 2,
+      "r": 1,
+      "planets": [
+        {
+          "id": "meharxull",
+          "label": "Mehar Xull",
+          "resources": 1,
+          "influence": 3,
+          "traits": [
+            "HAZARDOUS"
+          ],
+          "tech_specialties": [
+            "WARFARE"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "14",
+      "label": "Archon Ren/Archon Tau - Xxcha",
+      "q": 3,
+      "r": -3,
+      "planets": [
+        {
+          "id": "archonren",
+          "label": "Archon Ren",
+          "resources": 2,
+          "influence": 3
+        },
+        {
+          "id": "archontau",
+          "label": "Archon Tau",
+          "resources": 1,
+          "influence": 1
+        }
+      ]
+    },
+    {
+      "system_id": "21",
+      "label": "Thibah",
+      "q": 3,
+      "r": -2,
+      "planets": [
+        {
+          "id": "thibah",
+          "label": "Thibah",
+          "resources": 1,
+          "influence": 1,
+          "traits": [
+            "INDUSTRIAL"
+          ],
+          "tech_specialties": [
+            "PROPULSION"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "60",
+      "label": "Perimeter",
+      "q": 3,
+      "r": -1,
+      "planets": [
+        {
+          "id": "perimeter",
+          "label": "Perimeter",
+          "resources": 2,
+          "influence": 1,
+          "traits": [
+            "INDUSTRIAL"
+          ]
+        }
+      ]
+    },
+    {
+      "system_id": "10",
+      "label": "Arc Prime/Wren Terra - Letnev",
+      "q": 3,
+      "r": 0,
+      "planets": [
+        {
+          "id": "arcprime",
+          "label": "Arc Prime",
+          "resources": 4,
+          "influence": 0
+        },
+        {
+          "id": "wrenterra",
+          "label": "Wren Terra",
+          "resources": 2,
+          "influence": 1
+        }
+      ]
+    },
+    {
+      "system_id": "82a",
+      "label": "Mallice - Locked Nexus",
+      "q": 0,
+      "r": 0,
+      "special_area": "nexus",
+      "wormholes": [
+        "GAMMA"
+      ],
+      "planets": [
+        {
+          "id": "lockedmallice",
+          "label": "Locked Mallice",
+          "resources": 0,
+          "influence": 3,
+          "traits": [
+            "CULTURAL"
+          ],
+          "legendary": true
+        }
+      ]
+    },
+    {
+      "system_id": "82b",
+      "label": "Mallice - Nexus",
+      "q": 0,
+      "r": 0,
+      "special_area": "nexus",
+      "wormholes": [
+        "ALPHA",
+        "BETA",
+        "GAMMA"
+      ],
+      "planets": [
+        {
+          "id": "mallice",
+          "label": "Mallice",
+          "resources": 0,
+          "influence": 3,
+          "traits": [
+            "CULTURAL"
+          ],
+          "legendary": true
+        }
+      ]
+    },
+    {
+      "system_id": "fracture1",
+      "label": "Cocytus",
+      "q": 0,
+      "r": 0,
+      "special_area": "fracture",
+      "planets": [
+        {
+          "id": "cocytus",
+          "label": "Cocytus",
+          "resources": 3,
+          "influence": 0
+        }
+      ]
+    },
+    {
+      "system_id": "fracture2",
+      "label": "Fracture Egress Left",
+      "q": 1,
+      "r": 0,
+      "special_area": "fracture",
+      "egress": true
+    },
+    {
+      "system_id": "fracture3",
+      "label": "Fracture Void Left",
+      "q": 2,
+      "r": 0,
+      "special_area": "fracture"
+    },
+    {
+      "system_id": "fracture4",
+      "label": "Styx",
+      "q": 3,
+      "r": 0,
+      "special_area": "fracture",
+      "planets": [
+        {
+          "id": "styx",
+          "label": "Styx",
+          "resources": 4,
+          "influence": 0,
+          "legendary": true
+        }
+      ]
+    },
+    {
+      "system_id": "fracture5",
+      "label": "Fracture Void Right",
+      "q": 4,
+      "r": 0,
+      "special_area": "fracture"
+    },
+    {
+      "system_id": "fracture6",
+      "label": "Fracture Egress Right",
+      "q": 5,
+      "r": 0,
+      "special_area": "fracture",
+      "egress": true
+    },
+    {
+      "system_id": "fracture7",
+      "label": "Lethe/Phlegethon",
+      "q": 6,
+      "r": 0,
+      "special_area": "fracture",
+      "planets": [
+        {
+          "id": "lethe",
+          "label": "Lethe",
+          "resources": 0,
+          "influence": 2
+        },
+        {
+          "id": "phlegethon",
+          "label": "Phlegethon",
+          "resources": 1,
+          "influence": 2
+        }
+      ]
+    }
+  ]
+}

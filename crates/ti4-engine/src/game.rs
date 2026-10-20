@@ -4583,6 +4583,23 @@ impl<'a> Game<'a> {
         if let Err(error) = self.emit_typed("MOVEMENT_FINISHED", moved) {
             return self.result(false, Some(error));
         }
+        // Nova Seed replaced the active system's tile during that window: the rest of the step
+        // belongs to the supernova, on a map that already shows it.
+        let system = if self.state.rules_version >= ti4_model::state::RULES_NOVA_SEED_AFTERMATH {
+            if let Some(galaxy) = self.galaxy.as_mut()
+                && let Err(error) = crate::movement::replay_map_edits(
+                    &self.state,
+                    galaxy,
+                    self.content,
+                    self.sources,
+                )
+            {
+                self.blocked = Some(error.into());
+            }
+            self.state.active_system.clone().unwrap_or(system)
+        } else {
+            system
+        };
         // "After you move ships into the active system: you may skip directly to the Commit Ground
         // Forces step" (Sardakk hero). Asked once movement is over, before anything shoots.
         let skip_to_commit = {

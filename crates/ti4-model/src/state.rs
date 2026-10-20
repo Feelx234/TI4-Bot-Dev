@@ -1158,7 +1158,7 @@ pub struct StartingTechPick {
 /// The rules version of a new game. Raise it when an engine decision changes in a way that an
 /// older game log would not replay under (and gate the change on
 /// [`GameState::rules_version`]); see `docs/RULES_VERSION.md`.
-pub const RULES_VERSION: u32 = 17;
+pub const RULES_VERSION: u32 = 21;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
@@ -1252,6 +1252,14 @@ pub const RULES_FACTION_EFFECTS: u32 = 16;
 /// the Darktalon Treilla fleet limit, the Floating Factory in space, the Hacan mech's planet
 /// trade and both Naalu mech printings.
 pub const RULES_FACTION_BUGFIXES: u32 = 17;
+
+/// The first rules version where the steps after a movement step (space combat, invasion,
+/// production, the blockade check) follow a tile the movement step replaced: the Muaat hero's
+/// Nova Seed swaps the active system for the supernova tile, and from here the post-movement
+/// sequence runs on the supernova (with the map caught up to the swap), so the units that moved
+/// in are the ones it looks at (the Magmus Reactor's PRODUCTION 5 included). Below, it ran on the
+/// replaced tile's id, which no longer holds anything.
+pub const RULES_NOVA_SEED_AFTERMATH: u32 = 21;
 
 /// The whole game, as a value.
 ///
