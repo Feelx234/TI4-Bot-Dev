@@ -1,0 +1,117 @@
+{
+  "title": "Promissory note text everywhere",
+  "description": "Every promissory note shown or offered now reads \"<Faction>'s <Note>\" with its printed card text (clamped with More / Less where space is tight), through one helper (promissoryNoteMeta). Support for the Throne in the trade desk names its issuer, shows the card text and the current holder. Raw ids (antivirus:nekro, support:hacan) and concealed ?n ids never reach the player. Real app against a mocked game; the before shots are the commit without the change.",
+  "tag": "web/e2e/screenshots/GD-promissory-note-text",
+  "shots": [
+    {
+      "file": "out/before-1-antivirus-reaction-desktop.png",
+      "heading": "Antivirus offered at the start of a combat: before (desktop)",
+      "caption": "The reaction row already resolved the engine id to the note name and text; the issuer was not named anywhere."
+    },
+    {
+      "file": "out/after-1-antivirus-reaction-desktop.png",
+      "heading": "Antivirus offered at the start of a combat: after (desktop)",
+      "caption": "Same offer with the shared note helper behind it (name and text from the catalog, no raw id possible)."
+    },
+    {
+      "file": "out/before-1-antivirus-reaction-390x844.png",
+      "heading": "Antivirus offered at the start of a combat: before (phone 390x844)",
+      "caption": "The reaction row already resolved the engine id to the note name and text; the issuer was not named anywhere."
+    },
+    {
+      "file": "out/after-1-antivirus-reaction-390x844.png",
+      "heading": "Antivirus offered at the start of a combat: after (phone 390x844)",
+      "caption": "Same offer with the shared note helper behind it (name and text from the catalog, no raw id possible)."
+    },
+    {
+      "file": "out/before-2-note-pick-desktop.png",
+      "heading": "Choosing a note to give (Mentak, Visionaria, Naalu, Empyrean): before (desktop)",
+      "caption": "Raw ids as the options: antivirus:nekro, support:jolnar, ra:jolnar, cf:generic."
+    },
+    {
+      "file": "out/after-2-note-pick-desktop.png",
+      "heading": "Choosing a note to give (Mentak, Visionaria, Naalu, Empyrean): after (desktop)",
+      "caption": "Each option reads \"<Faction>'s <Note>\": Nekro Virus's Antivirus, Jol-Nar's Support for the Throne, ..."
+    },
+    {
+      "file": "out/before-2-note-pick-390x844.png",
+      "heading": "Choosing a note to give (Mentak, Visionaria, Naalu, Empyrean): before (phone 390x844)",
+      "caption": "Raw ids as the options: antivirus:nekro, support:jolnar, ra:jolnar, cf:generic."
+    },
+    {
+      "file": "out/after-2-note-pick-390x844.png",
+      "heading": "Choosing a note to give (Mentak, Visionaria, Naalu, Empyrean): after (phone 390x844)",
+      "caption": "Each option reads \"<Faction>'s <Note>\": Nekro Virus's Antivirus, Jol-Nar's Support for the Throne, ..."
+    },
+    {
+      "file": "out/before-3-exchange-support-desktop.png",
+      "heading": "Trade desk: exchange Support for the Throne: before (desktop)",
+      "caption": "The exchange card showed a generic text with no issuer; the listed note asks were \"Support (hacan)\" with \"Card text is not available in this view\"."
+    },
+    {
+      "file": "out/after-3-exchange-support-desktop.png",
+      "heading": "Trade desk: exchange Support for the Throne: after (desktop)",
+      "caption": "Each column names whose Support it is, shows the card text (clamped, More / Less) and who holds it now."
+    },
+    {
+      "file": "out/before-3-exchange-support-390x844.png",
+      "heading": "Trade desk: exchange Support for the Throne: before (phone 390x844)",
+      "caption": "The exchange card showed a generic text with no issuer; the listed note asks were \"Support (hacan)\" with \"Card text is not available in this view\"."
+    },
+    {
+      "file": "out/after-3-exchange-support-390x844.png",
+      "heading": "Trade desk: exchange Support for the Throne: after (phone 390x844)",
+      "caption": "Each column names whose Support it is, shows the card text (clamped, More / Less) and who holds it now."
+    },
+    {
+      "file": "out/before-4-support-note-ask-desktop.png",
+      "heading": "Trade desk: ask for the partner's Support note: before (desktop)",
+      "caption": "\"Support (jolnar)\" with no text."
+    },
+    {
+      "file": "out/after-4-support-note-ask-desktop.png",
+      "heading": "Trade desk: ask for the partner's Support note: after (desktop)",
+      "caption": "\"Jol-Nar's Support for the Throne\", the card text and \"Held by: Player 2\"."
+    },
+    {
+      "file": "out/before-4-support-note-ask-390x844.png",
+      "heading": "Trade desk: ask for the partner's Support note: before (phone 390x844)",
+      "caption": "\"Support (jolnar)\" with no text."
+    },
+    {
+      "file": "out/after-4-support-note-ask-390x844.png",
+      "heading": "Trade desk: ask for the partner's Support note: after (phone 390x844)",
+      "caption": "\"Jol-Nar's Support for the Throne\", the card text and \"Held by: Player 2\"."
+    },
+    {
+      "file": "out/before-5-support-answer-desktop.png",
+      "heading": "Answering a Support exchange: before (desktop)",
+      "caption": "Prompt and columns read \"Support (jolnar)\" with no card text."
+    },
+    {
+      "file": "out/after-5-support-answer-desktop.png",
+      "heading": "Answering a Support exchange: after (desktop)",
+      "caption": "The same names, text and holders on the answer screen, and in the sentence above it."
+    },
+    {
+      "file": "out/before-5-support-answer-390x844.png",
+      "heading": "Answering a Support exchange: before (phone 390x844)",
+      "caption": "Prompt and columns read \"Support (jolnar)\" with no card text."
+    },
+    {
+      "file": "out/after-5-support-answer-390x844.png",
+      "heading": "Answering a Support exchange: after (phone 390x844)",
+      "caption": "The same names, text and holders on the answer screen, and in the sentence above it."
+    }
+  ],
+  "notes": [
+    {
+      "title": "Reproduce",
+      "text": "cd web && npm run screenshots -- GD. Before shots: copy this folder to a checkout of 80ce1bf1 and run with TI4_SHOT_PREFIX=before."
+    },
+    {
+      "title": "One helper",
+      "text": "promissoryNoteMeta(id) in contentCatalog reads alias:faction, support:faction, a bare alias or ?n. humanizeNoteIds() applies it to prose (option labels, prompts, event log, toasts) through participantText; trade prompts keep the raw ids because the desk parses them."
+    }
+  ]
+}

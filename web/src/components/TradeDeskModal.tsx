@@ -180,6 +180,8 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
                       <TradeOfferColumns
                         staged={offered.staged}
                         proposerLabel={partnerLabel}
+                        myFaction={viewer?.faction ?? null}
+                        proposerFaction={partner?.faction ?? null}
                         net={typeof acceptNet === "number" ? acceptNet : undefined}
                       />
                     ) : (
@@ -244,6 +246,7 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
                       }}
                       partnerLabel={partnerLabel}
                       partnerFaction={partner?.faction ?? null}
+                      myFaction={viewer?.faction ?? null}
                       myHoldings={holdings(viewer)}
                       partnerHoldings={holdings(partner)}
                       freeForm={freeForm}

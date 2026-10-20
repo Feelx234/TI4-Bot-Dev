@@ -24,7 +24,7 @@ export function usePlayerIdentity() {
 /** Presentation only: never feed this text back into protocol or choice IDs. */
 export function useParticipantText() {
   const { lobby, seatingOrder } = useContext(PlayerContext);
-  return (text: string) => participantText(text, lobby, seatingOrder);
+  return (text: string, notes = true) => participantText(text, lobby, seatingOrder, notes);
 }
 
 export function useParticipantParts() {

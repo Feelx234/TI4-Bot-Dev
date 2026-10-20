@@ -4,7 +4,7 @@
  * Quick deals and the answer prompt, so no raw id reaches the player.
  */
 import { CONTENT } from "../protocol/catalogStore.ts";
-import { humanizeId } from "../protocol/contentCatalog.ts";
+import { humanizeId, promissoryNoteMeta } from "../protocol/contentCatalog.ts";
 import { getCardInfo } from "./cardDatabase.ts";
 
 export type TradeCardKind = "note" | "action" | "secret";
@@ -34,17 +34,19 @@ export interface PrintedName {
  */
 export function printedCardName(kind: TradeCardKind, rawId: string): PrintedName {
   const id = rawId.trim();
-  const [head, ...rest] = kind === "note" ? id.split(":") : [id];
-  const owner = rest.join(":").split(" for ")[0].trim();
-  const suffix = owner && owner !== "generic" ? ` (${owner})` : "";
+  if (kind === "note") {
+    // Notes read as "<Faction>'s <Note>" (Support for the Throne included); a concealed id as "a promissory note".
+    const meta = promissoryNoteMeta(id);
+    return { name: meta.title, known: meta.known };
+  }
   let known: string | undefined;
-  if (kind === "secret") known = SECRETS[head]?.name;
+  if (kind === "secret") known = SECRETS[id]?.name;
   else {
-    const info = getCardInfo(head);
+    const info = getCardInfo(id);
     if (info && info.type === KIND_TYPE[kind]) known = info.name;
   }
-  if (known) return { name: `${known}${suffix}`, known: true };
-  return { name: `${fallbackName(head)}${suffix}` || id, known: false };
+  if (known) return { name: known, known: true };
+  return { name: fallbackName(id) || id, known: false };
 }
 
 const PREFIX_KIND: Record<string, TradeCardKind> = {

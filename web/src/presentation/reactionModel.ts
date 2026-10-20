@@ -14,6 +14,7 @@ import {
   findStrategyCardMeta,
   findTechnologyMeta,
   humanizeId,
+  promissoryNoteMeta,
 } from "../protocol/contentCatalog.ts";
 
 /**
@@ -457,7 +458,6 @@ interface CatalogNamed {
   ability?: string;
 }
 
-const CATALOG_NOTES = CONTENT.promissoryNotes as unknown as Record<string, CatalogNamed>;
 const CATALOG_UNITS = CONTENT.units as unknown as Record<string, CatalogNamed>;
 const CATALOG_LEADERS = CONTENT.leaders as unknown as Record<string, CatalogNamed>;
 
@@ -475,12 +475,8 @@ function abilityName(optionId: string): { name: string; note: string | null; tex
     return { name: tech?.name ?? humanizeId(id), note: null, text: tech?.description ?? "" };
   }
   if (family === "promissory") {
-    const note = CATALOG_NOTES[id] ?? CATALOG_NOTES[`<color>_${id}`];
-    return {
-      name: note?.name ?? humanizeId(id),
-      note: null,
-      text: (note?.text ?? "").replace(/<color>/g, "issuing"),
-    };
+    const note = promissoryNoteMeta(id);
+    return { name: note.name, note: null, text: note.text ?? "" };
   }
   if (family === "unit") {
     const unit = CATALOG_UNITS[id];

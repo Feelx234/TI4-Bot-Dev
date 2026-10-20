@@ -13,7 +13,7 @@ describe("promissory note names", () => {
     for (const [alias, note] of Object.entries(NOTES)) {
       if (!note.faction) continue;
       const shown = printedCardName("note", `${alias}:${note.faction}`);
-      if (!shown.known || !shown.name.startsWith(note.name)) problems.push(`${alias}: ${shown.name}`);
+      if (!shown.known || !shown.name.endsWith(note.name)) problems.push(`${alias}: ${shown.name}`);
     }
     expect(problems).toEqual([]);
   });
@@ -25,7 +25,7 @@ describe("promissory note names", () => {
       ["ta", "Trade Agreement"],
       ["an", "Alliance"],
     ]) {
-      expect(printedCardName("note", `${alias}:sol`).name).toBe(`${name} (sol)`);
+      expect(printedCardName("note", `${alias}:sol`).name).toBe(`Sol's ${name}`);
     }
   });
 });

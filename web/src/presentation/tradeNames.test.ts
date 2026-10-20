@@ -8,7 +8,7 @@ import { humanizeOfferPrompt, printedCardName, printedItemLabel } from "./tradeN
 describe("printedCardName", () => {
   it("names generic and faction notes", () => {
     expect(printedCardName("note", "cf:generic")).toEqual({ name: "Ceasefire", known: true });
-    expect(printedCardName("note", "ra:jolnar").name).toBe("Research Agreement (jolnar)");
+    expect(printedCardName("note", "ra:jolnar").name).toBe("Jol-Nar's Research Agreement");
     expect(printedCardName("note", "support_for_throne").name).toBe("Support for the Throne");
   });
   it("names action cards and secret objectives", () => {
@@ -17,7 +17,7 @@ describe("printedCardName", () => {
   });
   it("falls back to readable text for unknown ids", () => {
     expect(printedCardName("note", "mystery_pact:generic")).toEqual({ name: "Mystery Pact", known: false });
-    expect(printedCardName("note", "mystery_pact:sol").name).toBe("Mystery Pact (sol)");
+    expect(printedCardName("note", "mystery_pact:sol").name).toBe("Sol's Mystery Pact");
     expect(printedCardName("action", "nope_card")).toEqual({ name: "Nope Card", known: false });
   });
   it("rewrites item labels", () => {
@@ -35,7 +35,7 @@ describe("sideLines", () => {
       "Secret Objective: Adapt New Strategies",
     ]);
     expect(sideLines({ ...emptySide(), note: "ra:jolnar" })).toEqual([
-      "Promissory Note: Research Agreement (jolnar)",
+      "Promissory Note: Jol-Nar's Research Agreement",
     ]);
     expect(sideLines({ ...emptySide(), note: "mystery_pact:generic" })).toEqual([
       "Promissory Note: Mystery Pact",
@@ -56,10 +56,10 @@ describe("Quick deal labels", () => {
     expect(sell.label).toBe("sell Ceasefire for 2 trade goods");
     expect(sell.engineLabel).toBe("sell cf:generic for 2 trade goods");
     expect(decodeTradeOption(opt("nncf:generic>ra:jolnar", "give the note cf:generic for the note ra:jolnar")).label).toBe(
-      "give the note Ceasefire for the note Research Agreement (jolnar)",
+      "give the note Ceasefire for the note Jol-Nar's Research Agreement",
     );
     expect(decodeTradeOption(opt("npra:jolnar:4", "pay 4 trade goods for the note ra:jolnar")).label).toBe(
-      "pay 4 trade goods for the note Research Agreement (jolnar)",
+      "pay 4 trade goods for the note Jol-Nar's Research Agreement",
     );
     expect(decodeTradeOption(opt("acsabo1:1", "sell the action card sabo1 for 1 trade good")).label).toBe(
       "sell the action card Sabotage for 1 trade good",
@@ -87,7 +87,7 @@ describe("humanizeOfferPrompt", () => {
         "Hacan gives 2 trade goods, the action card sabo1 for 3 commodities, ra:jolnar -- accept?",
       ),
     ).toBe(
-      "Hacan gives 2 trade goods, the action card Sabotage for 3 commodities, Research Agreement (jolnar) -- accept?",
+      "Hacan gives 2 trade goods, the action card Sabotage for 3 commodities, Jol-Nar's Research Agreement -- accept?",
     );
     expect(humanizeOfferPrompt("Sol gives cf:generic for support_for_throne -- accept?")).toBe(
       "Sol gives Ceasefire for Support for the Throne -- accept?",

@@ -63,12 +63,14 @@ const Stepper: React.FC<{
 const ItemToggle: React.FC<{
   name: string;
   label: string;
+  issuerFaction?: string;
+  holder?: string;
   card: boolean;
   type: "offer" | "receive";
   pressed: boolean;
   testId: string;
   onToggle: () => void;
-}> = ({ name, label, card, type, pressed, testId, onToggle }) => (
+}> = ({ name, label, issuerFaction, holder, card, type, pressed, testId, onToggle }) => (
   <button
     type="button"
     className="trade-toggle"
@@ -78,7 +80,7 @@ const ItemToggle: React.FC<{
     data-staged={pressed}
     onClick={onToggle}
   >
-    <TradeItemDisplay label={name} type={type} isCard={card} />
+    <TradeItemDisplay label={name} type={type} isCard={card} issuerFaction={issuerFaction} holder={holder} />
     <span className="trade-toggle__state" aria-hidden="true">
       {pressed ? "Staged" : "Add"}
     </span>
@@ -94,6 +96,10 @@ interface ColumnProps {
   limits: SideLimits;
   held?: Holdings | null;
   heldLabel?: string;
+  /** The faction whose Support for the Throne this column swaps (this side's own). */
+  supportFaction?: string | null;
+  /** Who holds the cards of this column now ("You", the partner's label). */
+  holderLabel?: string;
   /** Free-form deals: any amount the purse covers, not only what the list reaches. */
   freeForm?: boolean;
   onChange: (side: StagedSide) => void;
@@ -108,6 +114,8 @@ const Column: React.FC<ColumnProps> = ({
   limits,
   held,
   heldLabel,
+  supportFaction,
+  holderLabel,
   freeForm,
   onChange,
 }) => {
@@ -174,6 +182,8 @@ const Column: React.FC<ColumnProps> = ({
       {hasSupport && (
         <ItemToggle
           name="Promissory Note: support_for_throne"
+          issuerFaction={supportFaction ?? undefined}
+          holder={holderLabel}
           label="Support for the Throne"
           card
           type={type}
@@ -186,6 +196,7 @@ const Column: React.FC<ColumnProps> = ({
         <ItemToggle
           key={`n-${note}`}
           name={`Promissory Note: ${note}`}
+          holder={holderLabel}
           label={`the note ${printedCardName("note", note).name}`}
           card
           type={type}
@@ -242,6 +253,8 @@ export interface TradeStagingDeskProps {
   onChange: (s: Staged) => void;
   partnerLabel: string;
   partnerFaction?: string | null;
+  /** The viewer's own faction id: whose Support for the Throne the "give" column swaps. */
+  myFaction?: string | null;
   myHoldings?: Holdings | null;
   partnerHoldings?: Holdings | null;
   /** The decision accepts a deal built from any amounts (`details.free_form`). */
@@ -256,6 +269,7 @@ export const TradeStagingDesk: React.FC<TradeStagingDeskProps> = ({
   onChange,
   partnerLabel,
   partnerFaction,
+  myFaction,
   myHoldings,
   partnerHoldings,
   freeForm = false,
@@ -284,6 +298,8 @@ export const TradeStagingDesk: React.FC<TradeStagingDeskProps> = ({
           limits={limits.give}
           held={myHoldings}
           heldLabel="You hold"
+          supportFaction={myFaction}
+          holderLabel="You"
           freeForm={freeForm}
           onChange={(give) => onChange({ ...staged, give })}
         />
@@ -296,6 +312,8 @@ export const TradeStagingDesk: React.FC<TradeStagingDeskProps> = ({
           limits={limits.receive}
           held={partnerHoldings}
           heldLabel="They hold"
+          supportFaction={partnerFaction}
+          holderLabel={partnerLabel}
           freeForm={freeForm}
           onChange={(receive) => onChange({ ...staged, receive })}
         />
@@ -369,9 +387,24 @@ export const TradeOfferColumns: React.FC<{
   staged: Staged;
   proposerLabel: string;
   net?: number;
-}> = ({ staged, proposerLabel, net }) => {
+  /** Faction ids of the viewer and the proposer, for whose Support for the Throne is swapped. */
+  myFaction?: string | null;
+  proposerFaction?: string | null;
+}> = ({ staged, proposerLabel, net, myFaction, proposerFaction }) => {
   const side = (s: StagedSide, type: "offer" | "receive") => {
     const items: React.ReactNode[] = [];
+    const mine = type === "offer";
+    if (s.support)
+      items.push(
+        <TradeItemDisplay
+          key="sup"
+          label="Promissory Note: support_for_throne"
+          type={type}
+          isCard
+          issuerFaction={(mine ? myFaction : proposerFaction) ?? undefined}
+          holder={mine ? "You" : proposerLabel}
+        />,
+      );
     if (s.tradeGoods)
       items.push(
         <TradeItemDisplay key="tg" label={`${s.tradeGoods} trade goods`} type={type} />,
@@ -385,7 +418,7 @@ export const TradeOfferColumns: React.FC<{
         <TradeItemDisplay key="fr" label={`${s.fragments.length} relic fragments`} type={type} />,
       );
     if (s.note)
-      items.push(<TradeItemDisplay key="n" label={`Promissory Note: ${s.note}`} type={type} isCard />);
+      items.push(<TradeItemDisplay key="n" label={`Promissory Note: ${s.note}`} type={type} isCard holder={mine ? "You" : proposerLabel} />);
     if (s.actionCard)
       items.push(
         <TradeItemDisplay key="a" label={`Action Card: ${s.actionCard}`} type={type} isCard />,
