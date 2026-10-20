@@ -170,3 +170,8 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Movement: Fighter II (GA-movement-fighter2)
 
 `GA-movement-fighter2` shows the tactical movement tray with Fighter II: moving alone (own row, no carrier needed), within and beyond the fleet supply (gauge counts the fighters no capacity holds, warning past the limit) and carried versus uncarried via All from here, desktop and 390x844. The `before-*` PNGs were taken with `TI4_SHOT_PREFIX=before` on 80ce1bf1 and live under `before/`; `npm run screenshots -- GA` regenerates the `after-*` PNGs and asserts the counts and the gauge.
+
+
+## Promissory note text (GD-promissory-note-text)
+
+`GD-promissory-note-text` shows promissory notes read as "<Faction>'s <Note>" with the printed text: the Antivirus reaction, the give-a-note pick and the trade desk with Support for the Throne (exchange, a note ask, the answer screen). The `before-*` PNGs were taken with `TI4_SHOT_PREFIX=before` on commit 80ce1bf1; `npm run screenshots -- GD` regenerates the `after-*` PNGs.

@@ -4433,6 +4433,23 @@ select:focus-visible,
   margin-bottom: 4px;
 }
 
+.trade-item__description--clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.trade-item__more {
+  display: inline-block;
+  align-self: flex-start;
+  padding: 0 0 4px;
+  color: var(--color-link, #38bdf8);
+  font-size: 0.8rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .trade-item__meta {
   display: flex;
   flex-wrap: wrap;

@@ -4,8 +4,8 @@ import {
   findActionCardMeta,
   findSecretObjectiveMeta,
   humanizeId,
+  promissoryNoteMeta,
 } from "../protocol/contentCatalog.ts";
-import { CONTENT } from "../protocol/catalogStore.ts";
 
 export interface CardOptionInfo {
   title: string;
@@ -38,21 +38,13 @@ const FRAGMENT_TRAITS: Record<string, string> = {
 /** Diplomatic Pressure (and any card) asking a seat which promissory note to give: `<card>_pick_promissory note`. */
 const NOTE_PICK_SUBTYPE = /_pick_promissory note$/;
 
-type NoteRecord = { name: string; text?: string };
-const NOTES = CONTENT.promissoryNotes as unknown as Record<string, NoteRecord>;
-
-/** A note id is `alias:Owner faction` (Support for the Throne: `support:Owner`). */
+/** A note id is `alias:Owner faction` (Support for the Throne: `support:Owner`); `?n` when concealed. */
 function describeNote(id: string): CardOptionInfo {
-  const support = id.startsWith("support:");
-  const [alias, ownerPart] = support ? ["sftt", id.slice("support:".length)] : id.split(/:(.*)/s);
-  const owner = ownerPart || null;
-  const record = NOTES[`<color>_${alias}`] ?? NOTES[alias];
-  if (!record) return { title: humanizeId(alias), text: null, badge: owner ? `${owner}'s note` : null };
-  const who = owner ? `the ${owner} player` : "the issuing player";
+  const meta = promissoryNoteMeta(id);
   return {
-    title: record.name,
-    text: record.text ? record.text.replace(/the <color> player/g, who).replace(/<color>/g, owner ?? "issuing") : null,
-    badge: owner ? `Promissory note · ${owner}` : "Promissory note",
+    title: meta.title,
+    text: meta.text,
+    badge: meta.issuerName ? `Promissory note · ${meta.issuerName}` : "Promissory note",
   };
 }
 

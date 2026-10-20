@@ -1,4 +1,5 @@
 import type { LobbyDto } from "../protocol/types.ts";
+import { humanizeNoteIds } from "./noteText.ts";
 import { playerDisplay } from "./playerDisplay.ts";
 
 // Only standalone participant tokens in prose are presentation references. In
@@ -41,8 +42,10 @@ export function participantText(
   text: string,
   lobby: LobbyDto | null,
   seatingOrder: readonly string[],
+  /** False keeps promissory note ids as they are, for text a parser reads again (trade prompts). */
+  notes = true,
 ): string {
-  return participantReferences(readableEventTypes(text), lobby)
+  return participantReferences(readableEventTypes(notes ? humanizeNoteIds(text) : text), lobby)
     .map((part) =>
       typeof part === "string" ? part : playerDisplay(lobby, seatingOrder, part.id).label,
     )

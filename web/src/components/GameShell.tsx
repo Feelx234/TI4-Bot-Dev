@@ -885,12 +885,15 @@ export const ChoiceRendererDispatcher: React.FC<
     );
 
   // A view-only copy: IDs, payloads and the original pending choice stay intact.
+  // The trade desk parses the prompt and the option labels again (cards in an offer), so their note
+  // ids stay as the engine wrote them there; the desk prints the names itself.
+  const trading = /_transaction$/.test(choice.context?.subtype ?? "");
   const visibleChoice = {
     ...choice,
-    prompt: present(gainTokensPrompt(choice)),
+    prompt: present(gainTokensPrompt(choice), !trading),
     options: choice.options.map((option) => ({
       ...option,
-      label: present(option.label),
+      label: present(option.label, !trading),
     })),
   };
 

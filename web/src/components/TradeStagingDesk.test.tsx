@@ -256,7 +256,7 @@ describe("answer screen", () => {
     renderDesk(answerChoice(), "seat_2");
     expect(screen.getByTestId("offer-give")).toHaveTextContent("3 commodities");
     expect(screen.getByTestId("offer-receive")).toHaveTextContent("2 trade goods");
-    expect(screen.getByTestId("offer-receive")).toHaveTextContent("Ceasefire (sol)");
+    expect(screen.getByTestId("offer-receive")).toHaveTextContent("Sol's Ceasefire");
     expect(screen.getByTestId("offer-net")).toHaveTextContent("You give 3 commodities");
     expect(screen.getByTestId("offer-net")).toHaveTextContent("Net value (you): +4");
     // card text for the note comes from the card database (alias before the colon)
