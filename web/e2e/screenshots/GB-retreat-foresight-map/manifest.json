@@ -1,0 +1,205 @@
+{
+ "title": "Retreat and Foresight: pick the destination on the map",
+ "description": "Naalu's Foresight and every retreat prompt (combat retreat, Skilled Retreat, Ral Nel commander retreat, and the announce question) now name the ships and the system they leave in the heading and take the destination on the map like a tactical move: the system the ships leave is marked FROM, the legal destinations are highlighted, a click selects one, Confirm sends it; the chip list is the fallback. Desktop and 390x844. Synthetic board through a mocked server; the choices (prompts, subtypes, ids, labels, payloads) are copied from the engine.",
+ "tag": "web/e2e/screenshots/GB-retreat-foresight-map",
+ "shots": [
+  {
+   "heading": "Naalu Foresight (desktop)",
+   "images": [
+    {
+     "label": "Before",
+     "file": "before/before-foresight-desktop.png"
+    },
+    {
+     "label": "After",
+     "file": "out/after-foresight-desktop.png"
+    }
+   ],
+   "caption": "Before: Foresight: 'move your ships from 18 to 26' x3 as radio rows in a dialog that hides the map; the origin only appears inside every label. After: Heading: ships and origin. The origin is marked FROM (amber) on the map, the systems Naalu can move to are highlighted; tap one (or its chip) and confirm. Each chip says what the engine knows about that system."
+  },
+  {
+   "heading": "Naalu Foresight (390x844)",
+   "images": [
+    {
+     "label": "Before",
+     "file": "before/before-foresight-phone.png"
+    },
+    {
+     "label": "After",
+     "file": "out/after-foresight-phone.png"
+    }
+   ],
+   "caption": "Before: Foresight: 'move your ships from 18 to 26' x3 as radio rows in a dialog that hides the map; the origin only appears inside every label. After: Heading: ships and origin. The origin is marked FROM (amber) on the map, the systems Naalu can move to are highlighted; tap one (or its chip) and confirm. Each chip says what the engine knows about that system."
+  },
+  {
+   "heading": "Combat retreat, two cruisers (desktop)",
+   "images": [
+    {
+     "label": "Before",
+     "file": "before/before-retreat-small-desktop.png"
+    },
+    {
+     "label": "After",
+     "file": "out/after-retreat-small-desktop.png"
+    }
+   ],
+   "caption": "Before: 'Retreat to #26 [Lodor]' buttons inside the combat panel; the combat screen covers the map. After: Heading names the cruisers and Mecatol Rex; destinations are highlighted on the map, with the from system marked."
+  },
+  {
+   "heading": "Combat retreat, two cruisers (390x844)",
+   "images": [
+    {
+     "label": "Before",
+     "file": "before/before-retreat-small-phone.png"
+    },
+    {
+     "label": "After",
+     "file": "out/after-retreat-small-phone.png"
+    }
+   ],
+   "caption": "Before: 'Retreat to #26 [Lodor]' buttons inside the combat panel; the combat screen covers the map. After: Heading names the cruisers and Mecatol Rex; destinations are highlighted on the map, with the from system marked."
+  },
+  {
+   "heading": "Combat retreat, a 16-unit fleet (desktop)",
+   "images": [
+    {
+     "label": "Before",
+     "file": "before/before-retreat-multi-desktop.png"
+    },
+    {
+     "label": "After",
+     "file": "out/after-retreat-multi-desktop.png"
+    }
+   ],
+   "caption": "Before: Same buttons, no statement of what leaves. After: Heading counts the fleet (16 units) and the full list sits under it; 'Why these systems?' spells out the legality the engine applied (78.7c, asteroid field, supernova)."
+  },
+  {
+   "heading": "Combat retreat, a 16-unit fleet (390x844)",
+   "images": [
+    {
+     "label": "Before",
+     "file": "before/before-retreat-multi-phone.png"
+    },
+    {
+     "label": "After",
+     "file": "out/after-retreat-multi-phone.png"
+    }
+   ],
+   "caption": "Before: Same buttons, no statement of what leaves. After: Heading counts the fleet (16 units) and the full list sits under it; 'Why these systems?' spells out the legality the engine applied (78.7c, asteroid field, supernova)."
+  },
+  {
+   "heading": "Announce a retreat (desktop)",
+   "images": [
+    {
+     "label": "Before",
+     "file": "before/before-announce-desktop.png"
+    },
+    {
+     "label": "After",
+     "file": "out/after-announce-desktop.png"
+    }
+   ],
+   "caption": "Before: Generic sentence without the system or the fleet. After: The question names the system and the ships that would leave, and says the destination is chosen next on the map."
+  },
+  {
+   "heading": "Announce a retreat (390x844)",
+   "images": [
+    {
+     "label": "Before",
+     "file": "before/before-announce-phone.png"
+    },
+    {
+     "label": "After",
+     "file": "out/after-announce-phone.png"
+    }
+   ],
+   "caption": "Before: Generic sentence without the system or the fleet. After: The question names the system and the ships that would leave, and says the destination is chosen next on the map."
+  },
+  {
+   "heading": "Skilled Retreat (desktop)",
+   "images": [
+    {
+     "label": "Before",
+     "file": "before/before-skilled-desktop.png"
+    },
+    {
+     "label": "After",
+     "file": "out/after-skilled-desktop.png"
+    }
+   ],
+   "caption": "Before: Skilled Retreat's destinations as a plain list of 'withdraw to 26' radios. After: Same map pick as the combat retreat, headed 'Skilled Retreat: withdraw ...'."
+  },
+  {
+   "heading": "Skilled Retreat (390x844)",
+   "images": [
+    {
+     "label": "Before",
+     "file": "before/before-skilled-phone.png"
+    },
+    {
+     "label": "After",
+     "file": "out/after-skilled-phone.png"
+    }
+   ],
+   "caption": "Before: Skilled Retreat's destinations as a plain list of 'withdraw to 26' radios. After: Same map pick as the combat retreat, headed 'Skilled Retreat: withdraw ...'."
+  },
+  {
+   "heading": "Ral Nel commander retreat (desktop)",
+   "images": [
+    {
+     "label": "Before",
+     "file": "before/before-ralnel-desktop.png"
+    },
+    {
+     "label": "After",
+     "file": "out/after-ralnel-desktop.png"
+    }
+   ],
+   "caption": "Before: 'retreat up to 2 ships to 26' radios. After: Same map pick, headed 'Ral Nel commander: retreat up to 2 ships from ...'."
+  },
+  {
+   "heading": "Ral Nel commander retreat (390x844)",
+   "images": [
+    {
+     "label": "Before",
+     "file": "before/before-ralnel-phone.png"
+    },
+    {
+     "label": "After",
+     "file": "out/after-ralnel-phone.png"
+    }
+   ],
+   "caption": "Before: 'retreat up to 2 ships to 26' radios. After: Same map pick, headed 'Ral Nel commander: retreat up to 2 ships from ...'."
+  },
+  {
+   "heading": "Foresight: destination picked on the map (desktop)",
+   "file": "out/after-foresight-selected-desktop.png",
+   "caption": "A click on the highlighted system selects it (yellow outline, system inspector opens as for any system pick); the bar says 'To <system>' and Confirm sends that option."
+  },
+  {
+   "heading": "Foresight: destination picked on the map (390x844)",
+   "file": "out/after-foresight-selected-phone.png",
+   "caption": "A click on the highlighted system selects it (yellow outline, system inspector opens as for any system pick); the bar says 'To <system>' and Confirm sends that option."
+  },
+  {
+   "heading": "Combat retreat (multi-ship): destination picked on the map (desktop)",
+   "file": "out/after-retreat-multi-selected-desktop.png",
+   "caption": "A click on the highlighted system selects it (yellow outline, system inspector opens as for any system pick); the bar says 'To <system>' and Confirm sends that option."
+  },
+  {
+   "heading": "Combat retreat (multi-ship): destination picked on the map (390x844)",
+   "file": "out/after-retreat-multi-selected-phone.png",
+   "caption": "A click on the highlighted system selects it (yellow outline, system inspector opens as for any system pick); the bar says 'To <system>' and Confirm sends that option."
+  }
+ ],
+ "notes": [
+  {
+   "title": "Reproduce",
+   "text": "cd web && npm run build:wasm && rm -rf node_modules/.vite && npm run screenshots -- GB. The before/ PNGs were taken with TI4_SHOT_PREFIX=before on commit 80ce1bf1 (scene.ts and capture-1-scenes.ts copied there)."
+  },
+  {
+   "title": "Not on the map",
+   "text": "The Ral Nel commander's second step (which ship goes, 'retreat which ship now?') names no destination and stays a list; stay-or-retreat is a yes/no question."
+  }
+ ]
+}

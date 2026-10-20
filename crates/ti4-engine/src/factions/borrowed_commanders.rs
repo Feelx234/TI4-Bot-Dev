@@ -260,6 +260,7 @@ fn ralnel_commander(owner_name: &str, seat: &PlayerId) -> Ability {
 fn ralnel_ask(
     context: &mut crate::timing::TimingContext<'_>,
     owner: &PlayerId,
+    from: &ti4_model::id::SystemId,
     prompt: &str,
     subtype: &str,
     options: Vec<crate::choice::ChoiceOption>,
@@ -271,7 +272,9 @@ fn ralnel_ask(
             subtype,
             context.state.phase,
             context.state.round,
-        ),
+        )
+        // The system the ships retreat from, for the map (read-only display fact).
+        .about(crate::decision_context::DecisionTarget::System(from.clone())),
     );
     context.ask_seeing(&choice)
 }
@@ -303,6 +306,7 @@ fn ralnel_resolve(
     let answer = ralnel_ask(
         context,
         owner,
+        system,
         "Ral Nel commander: where do up to 2 ships retreat now?",
         "ralnel_retreat_destination",
         options,
@@ -339,6 +343,7 @@ fn ralnel_resolve(
         let answer = ralnel_ask(
             context,
             owner,
+            system,
             "Ral Nel commander: retreat which ship now?",
             "ralnel_retreat_ship",
             options,

@@ -47,6 +47,7 @@ import {
 import type { BasketPlan } from "../protocol/client.ts";
 import { HitAssignmentPanel } from "./HitAssignmentPanel.tsx";
 import { salvageEffect } from "../presentation/reactionModel.ts";
+import { describeRetreatAnnouncement } from "../presentation/retreatPick.ts";
 import { describePreview } from "../presentation/effectText.ts";
 import { decodeEffectPreviews } from "../protocol/decode.ts";
 import { systemNamedLabel, systemTag } from "../presentation/systemFacts.ts";
@@ -223,6 +224,7 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
     subtype === "announce_retreat" ||
     subtype === "retreat_to" ||
     model?.workflow === "combat_retreat";
+  const announcement = describeRetreatAnnouncement(choice, board);
   const isReactionStage = Boolean(
     choice?.context?.subtype.startsWith("reaction_") ||
     choice?.context?.subtype.startsWith("play_reaction_"),
@@ -1661,9 +1663,9 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                     {/* Stage 3: Retreat */}
                     {isActor && isRetreatStage && (
                       <div className="workflow-inline">
-                        <div className="combat-action-prompt">
-                          {subtype === "announce_retreat"
-                            ? "Choose whether to announce a retreat before combat rounds commence:"
+                        <div className="combat-action-prompt" data-testid="retreat-heading">
+                          {announcement
+                            ? `${announcement.title}${announcement.fleet ? ` Your ${announcement.fleet} would leave; the destination is chosen next, on the map.` : ""}`
                             : "Select an adjacent system to retreat your surviving fleet to:"}
                         </div>
 

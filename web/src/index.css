@@ -5510,3 +5510,128 @@ select:focus-visible,
   font-size: 13px;
   pointer-events: none;
 }
+
+/* Retreat and Foresight destination picks: the map is the control, this bar names the move. */
+.retreat-pick-bar {
+  max-width: min(720px, 94vw);
+}
+.retreat-pick-bar__body {
+  width: 100%;
+  gap: 6px;
+}
+.retreat-pick-bar__title {
+  margin: 0;
+  font-size: 15px;
+  text-align: center;
+  color: #f8fafc;
+}
+.retreat-pick-bar__fleet,
+.retreat-pick-bar__hint,
+.retreat-pick-bar__rule {
+  font-size: 12px;
+  white-space: normal !important;
+  text-align: center;
+}
+.retreat-pick-bar__legend {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 11px;
+  color: #94a3b8;
+}
+.retreat-pick-bar__swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.retreat-pick-bar__swatch--from {
+  background: #f59e0b;
+}
+.retreat-pick-bar__swatch--to {
+  background: #38bdf8;
+}
+.retreat-pick-bar__list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 96px;
+  overflow-y: auto;
+}
+.retreat-pick-bar__chip {
+  font: inherit;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-height: 44px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(56, 189, 248, 0.5);
+  background: rgba(56, 189, 248, 0.08);
+  color: #f8fafc;
+  cursor: pointer;
+}
+.retreat-pick-bar__chip[aria-pressed="true"] {
+  background: #38bdf8;
+  border-color: #38bdf8;
+  color: #0f172a;
+}
+.retreat-pick-bar__notes {
+  font-size: 11px;
+  opacity: 0.85;
+  white-space: normal;
+}
+.retreat-pick-bar__rule-toggle {
+  font: inherit;
+  font-size: 11px;
+  background: none;
+  border: 0;
+  color: #38bdf8;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+@media (max-width: 720px) {
+  .retreat-pick-bar {
+    padding: 8px 10px;
+    bottom: 56px;
+  }
+  .retreat-pick-bar__title {
+    font-size: 13px;
+  }
+  .retreat-pick-bar__legend {
+    display: none;
+  }
+  .retreat-pick-bar__list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+    max-height: 120px;
+  }
+  .retreat-pick-bar__chip {
+    width: 100%;
+  }
+  .retreat-pick-bar__fleet {
+    font-size: 11px;
+  }
+}
+.choice-banner .retreat-pick-bar__notes {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  text-align: left;
+}
+.retreat-pick-bar__chip {
+  min-width: 0;
+  text-align: left;
+}
+@media (max-width: 720px) {
+  .retreat-pick-bar__list {
+    justify-content: stretch;
+  }
+}
