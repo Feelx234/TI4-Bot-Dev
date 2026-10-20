@@ -457,3 +457,30 @@ export async function settledGameOverBanner(
 export function isPaymentDeadEnd(problem: string | null | undefined): boolean {
   return /Not enough: all offered .* cover only/i.test(problem ?? "");
 }
+
+// Containers that render a decision for the acting seat.
+export const DECISION_CONTAINERS = [
+  "turn-action-bar",
+  "pending-choice-dialog",
+  "system-activation-bar",
+  "planet-selection-bar",
+  "transit-panel",
+  "ready-planets-bar",
+  "tactical-movement-tray",
+  "cargo-loading-tray",
+  "invasion-landing-tray",
+  "invasion-overlay",
+  "payment-drawer",
+  "payment-bar",
+  "token-payment-bar",
+  "production-builder-drawer",
+  "objectives-modal",
+  "technology-modal",
+  "combat-resolution-modal",
+  "trade-desk-modal",
+  "agenda-ballot-modal",
+  "reaction-status-bar",
+  "paused-plan",
+  // Retreat, Skilled Retreat, Foresight and Ral Nel destinations: picked on the map, sent by its Confirm.
+  "retreat-pick-bar",
+];
