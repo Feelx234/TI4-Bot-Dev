@@ -104,19 +104,21 @@ export const HitAssignmentPanel: React.FC<HitAssignmentPanelProps> = ({
               data-staged={entry.destroy + (entry.sustain ? 1 : 0)}
             >
               <UnitIcon type={row.unitType} size={20} />
-              <span className="hit-assignment__name">
-                {name}
-                {row.individual ? "" : ` ×${row.count}`}
-                {row.capacity > 0 && ` · capacity ${row.capacity}`}
-              </span>
-              <span className="hit-assignment__hint">
-                {row.individual
-                  ? row.canSustain
-                    ? "can sustain damage · 2 hits to destroy"
-                    : row.damaged
-                      ? "damaged · 1 hit to destroy"
-                      : ""
-                  : `takes up to ${row.count} hit${row.count === 1 ? "" : "s"}`}
+              <span className="hit-assignment__info">
+                <span className="hit-assignment__name">
+                  {name}
+                  {row.individual ? "" : ` ×${row.count}`}
+                  {row.capacity > 0 && ` · capacity ${row.capacity}`}
+                </span>
+                <span className="hit-assignment__hint">
+                  {row.individual
+                    ? row.canSustain
+                      ? "can sustain damage · 2 hits to destroy"
+                      : row.damaged
+                        ? "damaged · 1 hit to destroy"
+                        : ""
+                    : `takes up to ${row.count} hit${row.count === 1 ? "" : "s"}`}
+                </span>
               </span>
               <span
                 className="hit-assignment__staged"
@@ -130,44 +132,48 @@ export const HitAssignmentPanel: React.FC<HitAssignmentPanelProps> = ({
                       ? `−${entry.destroy}`
                       : ""}
               </span>
-              <button
-                type="button"
-                className="button button--secondary button--sm"
-                data-testid={`hit-remove-${row.key}`}
-                aria-label={`Remove a hit from ${name}`}
-                disabled={locked || (entry.destroy === 0 && !entry.sustain)}
-                onClick={() => setStaging((s) => removeHit(s, row))}
-              >
-                −
-              </button>
-              {row.canSustain && (
+              <span className="hit-assignment__controls">
                 <button
                   type="button"
-                  className="button button--secondary button--sm"
-                  data-testid={`hit-sustain-${row.key}`}
-                  aria-label={`Sustain damage on ${name}`}
-                  disabled={locked || !canSustain(row, staging, needed)}
-                  onClick={() => setStaging((s) => addSustain(s, row))}
+                  className="button button--secondary button--sm hit-assignment__btn"
+                  data-testid={`hit-remove-${row.key}`}
+                  aria-label={`Remove a hit from ${name}`}
+                  disabled={locked || (entry.destroy === 0 && !entry.sustain)}
+                  onClick={() => setStaging((s) => removeHit(s, row))}
                 >
-                  Sustain
+                  −
                 </button>
-              )}
-              {!row.canSustain && <span aria-hidden="true" />}
-              <button
-                type="button"
-                className="button button--secondary button--sm"
-                data-testid={`hit-destroy-${row.key}`}
-                aria-label={`Destroy ${name}`}
-                disabled={locked || !canAddDestroy(row, staging, needed, ctx)}
-                onClick={() => setStaging((s) => addDestroy(s, row))}
-              >
-                +
-              </button>
+                {row.canSustain && (
+                  <button
+                    type="button"
+                    className="button button--secondary button--sm hit-assignment__btn hit-assignment__btn--sustain"
+                    data-testid={`hit-sustain-${row.key}`}
+                    aria-label={`Sustain damage on ${name}`}
+                    disabled={locked || !canSustain(row, staging, needed)}
+                    onClick={() => setStaging((s) => addSustain(s, row))}
+                  >
+                    Sustain
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="button button--secondary button--sm hit-assignment__btn"
+                  data-testid={`hit-destroy-${row.key}`}
+                  aria-label={`Destroy ${name}`}
+                  disabled={locked || !canAddDestroy(row, staging, needed, ctx)}
+                  onClick={() => setStaging((s) => addDestroy(s, row))}
+                >
+                  +
+                </button>
+              </span>
             </div>
           );
         })}
       </div>
-      <div className="hit-assignment__actions">
+      <div className="hit-assignment__actions" data-testid="hit-actions">
+        <span className="hit-assignment__bar-status" aria-hidden="true">
+          {Math.max(0, needed - staged)} of {needed} left
+        </span>
         <button
           type="button"
           className="button button--secondary"
