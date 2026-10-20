@@ -653,6 +653,31 @@ describe("SpaceCombatOverlay", () => {
     expect(screen.queryByTestId("combat-remaining-hits")).not.toBeInTheDocument();
   });
 
+  it("says a barrage's hits have no effect when the opponent had no fighters", () => {
+    const start = sampleBoard.systems["18"].units.filter((unit) => unit.unit_type !== "fighter");
+    const board: BoardView = {
+      ...sampleBoard,
+      systems: { "18": { ...sampleBoard.systems["18"], units: start } },
+      combat: partialCombat({
+        system_id: "18",
+        round: 1,
+        battle_seq: 4,
+        phase: "pre_roll",
+        attacker: "seat_1",
+        defender: "seat_2",
+        barrage_start: start,
+        barrage_hits: { seat_1: 1, seat_2: 0 },
+        barrage_dice: [{ player: "seat_1", unit: "destroyer", roll: 10, target: 9, hit: true }],
+      }),
+    };
+    render(
+      <SpaceCombatOverlay isOpen choice={null} board={board} onSubmit={vi.fn()} onClose={vi.fn()} />,
+    );
+    const lines = screen.getByTestId("combat-barrage-lines");
+    expect(lines).toHaveTextContent("No enemy fighters: the hits have no effect.");
+    expect(lines).toHaveTextContent("no hits.");
+  });
+
   it("closes rather than minimizes when combat is complete", () => {
     const onClose = vi.fn();
     const onMinimize = vi.fn();
