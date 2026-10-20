@@ -1158,7 +1158,7 @@ pub struct StartingTechPick {
 /// The rules version of a new game. Raise it when an engine decision changes in a way that an
 /// older game log would not replay under (and gate the change on
 /// [`GameState::rules_version`]); see `docs/RULES_VERSION.md`.
-pub const RULES_VERSION: u32 = 17;
+pub const RULES_VERSION: u32 = 23;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
@@ -1252,6 +1252,12 @@ pub const RULES_FACTION_EFFECTS: u32 = 16;
 /// the Darktalon Treilla fleet limit, the Floating Factory in space, the Hacan mech's planet
 /// trade and both Naalu mech printings.
 pub const RULES_FACTION_BUGFIXES: u32 = 17;
+
+/// The first rules version in which the Wormhole Nexus beside the board is offered as a system to
+/// activate. It lives off the hex grid and has no board entry until a unit is in it, so the
+/// activation list (which walks the grid and the board) never named it: the Nexus was adjacent to
+/// every gamma system and could not be entered. Versions 18-22 belong to other branches.
+pub const RULES_NEXUS_ACTIVATION: u32 = 23;
 
 /// The whole game, as a value.
 ///

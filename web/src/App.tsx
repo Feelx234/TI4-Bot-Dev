@@ -612,6 +612,13 @@ const GameViewContainer: React.FC<{
   );
   const pendingChoice = statusPlan.holding && !prep.dry ? null : prep.shownChoice;
   const paymentDraft = usePaymentDraftState(pendingChoice?.nonce);
+  const boardEngineFacts = useMemo(
+    () => ({
+      nexusUnlocked: snapshot?.state?.nexus_unlocked === true,
+      wormholeTokens: (snapshot?.state?.wormhole_tokens ?? undefined) as Record<string, unknown> | undefined,
+    }),
+    [snapshot?.state],
+  );
   const explorationLog = useMemo(() => readExplorationLog(snapshot?.state), [snapshot?.state]);
   const breakthroughs = useMemo(() => readBreakthroughs(snapshot?.state), [snapshot?.state]);
   const agendaLog = useMemo(() => readAgendaLog(snapshot?.state), [snapshot?.state]);
@@ -961,6 +968,7 @@ const GameViewContainer: React.FC<{
               viewerSeat={userSeat}
               selectedSystemId={selectedSystemId}
               queryReach={queryReach}
+              engineFacts={boardEngineFacts}
               onSelectSystem={(id) => {
                 setSelectedSystemId(id);
                 setCardSubject(null);

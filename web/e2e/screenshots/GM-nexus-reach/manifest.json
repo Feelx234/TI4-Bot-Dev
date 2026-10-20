@@ -1,0 +1,58 @@
+{
+ "title": "Wormhole Nexus on the board",
+ "description": "The Wormhole Nexus sits in an off-map slot beside the board. The host sent both faces stacked in one slot, so the open face covered the locked one and the activatable system (82a) could not be clicked. The client now draws one tile (82a) with the face from the engine state, links it with dashed gamma lines to the gamma systems (printed or token) while it can be activated, and the capture asserts click -> inspector -> Confirm submits 82a, desktop and 390x844.",
+ "tag": "web/e2e/screenshots/GM-nexus-reach",
+ "shots": [
+  {
+   "file": "before/before-locked-desktop.png",
+   "heading": "Before: locked Nexus, activation pick, desktop",
+   "caption": "The host sends both faces (82a and 82b) at the same slot. 82b is drawn on top, shows alpha/beta/gamma although the Nexus is still locked, and is not a target: the engine offers 82a, hidden underneath. The Nexus cannot be clicked."
+  },
+  {
+   "file": "out/after-locked-gamma-token-desktop.png",
+   "heading": "After: Locked Nexus, gamma token in #26, desktop",
+   "caption": "One Nexus tile (82a), target-highlighted, with a dashed green gamma link from the gamma system; the locked face shows gamma only, the open face alpha, beta and gamma."
+  },
+  {
+   "file": "out/after-locked-gamma-token-desktop-picked.png",
+   "heading": "After: Nexus picked, desktop",
+   "caption": "Clicking the Nexus opens the inspector and the Confirm Activation bar submits option 82a."
+  },
+  {
+   "file": "out/after-locked-gamma-token-390x844.png",
+   "heading": "After: Locked Nexus, gamma token in #26, 390x844",
+   "caption": "One Nexus tile (82a), target-highlighted, with a dashed green gamma link from the gamma system; the locked face shows gamma only, the open face alpha, beta and gamma."
+  },
+  {
+   "file": "out/after-locked-gamma-token-390x844-picked.png",
+   "heading": "After: Nexus picked, 390x844",
+   "caption": "Clicking the Nexus opens the inspector and the Confirm Activation bar submits option 82a."
+  },
+  {
+   "file": "out/after-open-with-ships-desktop.png",
+   "heading": "After: Open Nexus with a destroyer, gamma token in #26, desktop",
+   "caption": "One Nexus tile (82a), target-highlighted, with a dashed green gamma link from the gamma system; the locked face shows gamma only, the open face alpha, beta and gamma."
+  },
+  {
+   "file": "out/after-open-with-ships-desktop-picked.png",
+   "heading": "After: Nexus picked, desktop",
+   "caption": "Clicking the Nexus opens the inspector and the Confirm Activation bar submits option 82a."
+  },
+  {
+   "file": "out/after-open-with-ships-390x844.png",
+   "heading": "After: Open Nexus with a destroyer, gamma token in #26, 390x844",
+   "caption": "One Nexus tile (82a), target-highlighted, with a dashed green gamma link from the gamma system; the locked face shows gamma only, the open face alpha, beta and gamma."
+  },
+  {
+   "file": "out/after-open-with-ships-390x844-picked.png",
+   "heading": "After: Nexus picked, 390x844",
+   "caption": "Clicking the Nexus opens the inspector and the Confirm Activation bar submits option 82a."
+  }
+ ],
+ "notes": [
+  {
+   "title": "Not changed",
+   "text": "The inspector for the open face still lists only the printed gamma wormhole; the alpha/beta of the open face are shown on the tile."
+  }
+ ]
+}

@@ -223,7 +223,9 @@ fn a_save_without_a_rules_version_resumes_as_a_legacy_game() {
     // differently from rules version 2 on, so a save of it is no longer a legacy game.
     let seed = 12;
     let first = page(vec![
-        Act::Answer(8),
+        // Two answers only: from the first tactical activation on, a rules version 23 game offers the
+        // Nexus and a legacy replay does not, so a longer script is no longer a legacy-equal game.
+        Act::Answer(2),
         Act::Cmd(json!({ "type": "save_state" })),
         Act::Leave,
     ]);

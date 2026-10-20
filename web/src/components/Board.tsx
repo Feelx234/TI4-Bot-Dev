@@ -6,6 +6,7 @@ import { useMobileMenuSlot } from "../presentation/MobileMenuSlot.tsx";
 import { BoardView, PlayerView, PendingChoiceDto } from "../protocol/types.ts";
 import {
   buildBoardPresentationModel,
+  type BoardEngineFacts,
   getPlayerColor,
   PLAYER_PALETTE,
 } from "../presentation/boardPresentation.ts";
@@ -56,6 +57,8 @@ export interface BoardProps {
   onOverlayModeChange?: (mode: MapOverlayMode) => void;
   /** Read-only "who can go here" query; without it the system overview has no such tab. */
   queryReach?: (systemId: string) => Promise<ReachReply>;
+  /** `nexus_unlocked` and `wormhole_tokens` from the engine state (Nexus face, gamma tokens). */
+  engineFacts?: BoardEngineFacts;
 }
 
 export const Board: React.FC<BoardProps> = ({
@@ -71,6 +74,7 @@ export const Board: React.FC<BoardProps> = ({
   overlayMode: controlledOverlayMode,
   onOverlayModeChange,
   queryReach,
+  engineFacts,
 }) => {
   const display = usePlayerIdentity();
   const [uncontrolledSelectedSystemId, setUncontrolledSelectedSystemId] = useState<string | null>(
@@ -133,6 +137,7 @@ export const Board: React.FC<BoardProps> = ({
     viewerSeat,
     selectedSystemId,
     tokenPaymentPlanets,
+    engineFacts,
   );
 
   // A hex tapped to answer a pick (an activation) opens the inspector too; once that decision is
@@ -504,6 +509,24 @@ export const Board: React.FC<BoardProps> = ({
               bed={presentation.tiles.find((t) => t.hyperlane)?.fillColor}
             />
           )}
+
+          {/* Gamma links: the Nexus is joined to every gamma system while it can be activated */}
+          {presentation.nexusLinks.map((link) => (
+            <line
+              key={`gamma-${link.fromSystemId}`}
+              data-testid={`gamma-link-${link.fromSystemId}`}
+              x1={link.from.x}
+              y1={link.from.y}
+              x2={link.to.x}
+              y2={link.to.y}
+              stroke="#4ade80"
+              strokeWidth={2}
+              strokeDasharray="3 7"
+              strokeLinecap="round"
+              opacity={0.7}
+              style={{ pointerEvents: "none" }}
+            />
+          ))}
 
           {/* Movement Vector Overlays */}
           <MovementVectorsOverlay vectors={presentation.targets.movementVectors} />

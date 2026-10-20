@@ -82,6 +82,7 @@ pub fn activatable_with(
         .into_iter()
         .map(SystemId::new)
         .chain(state.board.keys().cloned())
+        .chain(nexus_slot(state, galaxy))
     {
         // A hyperlane tile is not a system: it is never offered (ruling: may not be moved into).
         if galaxy.is_hyperlane(system.as_str()) {
@@ -107,6 +108,23 @@ pub fn activatable_with(
         found.push(system);
     }
     found
+}
+
+/// The Wormhole Nexus as an activation candidate (rules version 23, `RULES_NEXUS_ACTIVATION`).
+///
+/// It sits beside the board with no hex and no board entry until a unit is in it, so neither the
+/// grid nor the board lists it; activating it is how a ship moves in and opens it. Whether it can
+/// be reached is movement's question (a gamma wormhole), not this list's, like any other system.
+fn nexus_slot(state: &GameState, galaxy: &Galaxy) -> Option<SystemId> {
+    (state.rules_version >= ti4_model::state::RULES_NEXUS_ACTIVATION)
+        .then(|| {
+            galaxy
+                .off_map_system_ids()
+                .into_iter()
+                .find(|id| *id == crate::seating::LOCKED_NEXUS)
+                .map(SystemId::new)
+        })
+        .flatten()
 }
 
 /// The activation choice, or `None` when the player cannot take a tactical action.
