@@ -27,7 +27,6 @@ import {
   secondPickPrerequisitesMet,
   secondPickWaivers,
   aidaIsReady,
-  bioStimsStatus,
   visibleWaivers,
   psychoarchaeologyFrees,
   isUnitUpgradeTech,
@@ -204,6 +203,10 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
   );
   const toggledSkipCounts = useMemo(() => specialtyCounts(false), [specialtyCounts]);
   const allSkipCounts = useMemo(() => specialtyCounts(true), [specialtyCounts]);
+  // With Psychoarchaeology every specialty is usable, exhausted or not, and none is spent, so the
+  // engine counts them all without anyone toggling them: the second pick (whose list the engine
+  // does not send ahead) must not wait for a toggle either.
+  const usableSkipCounts = freeSpecialties ? allSkipCounts : toggledSkipCounts;
 
   const ownedTrackCounts = useMemo(() => {
     const counts: Record<"PROPULSION" | "BIOTIC" | "CYBERNETIC" | "WARFARE", number> = {
@@ -255,12 +258,12 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
       return checkTechPrerequisites(
         tech,
         ownedTrackCounts,
-        toggledSkipCounts,
+        usableSkipCounts,
         viewerPlayer?.faction,
         waivers,
       );
     },
-    [legalOptionIds, ownedTrackCounts, toggledSkipCounts, viewerPlayer, waivers, trustEngineList, choice?.options],
+    [legalOptionIds, ownedTrackCounts, usableSkipCounts, viewerPlayer, waivers, trustEngineList, choice?.options],
   );
 
   /**
@@ -274,13 +277,13 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
         firstId,
         tech,
         ownedTrackCounts,
-        toggledSkipCounts,
+        usableSkipCounts,
         allSkipCounts,
         viewerPlayer?.faction,
         waivers,
         rulesVersion,
       ),
-    [ownedTrackCounts, allSkipCounts, toggledSkipCounts, viewerPlayer?.faction, waivers, rulesVersion],
+    [ownedTrackCounts, allSkipCounts, usableSkipCounts, viewerPlayer?.faction, waivers, rulesVersion],
   );
 
   // Resources calculation
@@ -313,7 +316,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
     if (
       legalOptionIds &&
       !legalOptionIds.some((optId) => techMatches(optId, tech.id)) &&
-      checkTechPrerequisites(tech, ownedTrackCounts, toggledSkipCounts, viewerPlayer?.faction, waivers)
+      checkTechPrerequisites(tech, ownedTrackCounts, usableSkipCounts, viewerPlayer?.faction, waivers)
     ) {
       return "Not available to research";
     }
@@ -492,7 +495,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
       }
       return prev;
     });
-  }, [toggledSkipCounts, ownedTrackCounts, canResearchAlone, viewerPlayer, secondPickAffordable, secondPickPrereqsMet]);
+  }, [usableSkipCounts, ownedTrackCounts, canResearchAlone, viewerPlayer, secondPickAffordable, secondPickPrereqsMet]);
 
   const factionTechs = useMemo<HydratedTech[]>(() => {
     if (!viewerPlayer?.faction) return [];
@@ -512,7 +515,8 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
     if (!viewerPlayer) return false;
     if (hasResearchedTech(viewerPlayer, tech.id)) return false;
     if (!isTechAllowedForFaction(tech, viewerPlayer.faction)) return false;
-    return checkTechPrerequisites(tech, ownedTrackCounts, toggledSkipCounts, viewerPlayer.faction, waivers);
+    // Not choosing a research: nothing to toggle, so every specialty the engine would count counts.
+    return checkTechPrerequisites(tech, ownedTrackCounts, allSkipCounts, viewerPlayer.faction, waivers);
   };
 
   /** A card that is available only because AI Development Algorithm ignores one of its prerequisites. */
@@ -539,7 +543,6 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
   const factionVisible = factionTechs.filter(shown).length > 0;
 
   // AI Development Algorithm as a skip chip: +1 prerequisite of any colour, unit upgrades only.
-  const bioStims = useMemo(() => bioStimsStatus(viewerPlayer, board), [viewerPlayer, board]);
   const [aidaToggled, setAidaToggled] = useState(false);
   const aidaChip = (() => {
     if (!activeResearchMode || rulesVersion < RULES_TECH_EFFECTS) return null;
@@ -644,36 +647,6 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
               Close
             </Dialog.Close>
           </div>
-
-          {bioStims && (
-            <div
-              className={`technology-modal__bio-stims${bioStims.ready ? "" : " technology-modal__bio-stims--exhausted"}`}
-              data-testid="tech-bio-stims"
-              data-state={bioStims.ready ? (bioStims.usable ? "usable" : "ready") : "exhausted"}
-            >
-              <span className="tech-skip-pill__badge tech-skip-pill__badge--biotic">BS</span>
-              <strong>Bio-Stims</strong>
-              <span className="technology-modal__bio-stims-state">
-                {!bioStims.ready
-                  ? "Exhausted"
-                  : bioStims.usable
-                    ? "Ready: usable at the end of your turn"
-                    : "Ready: nothing to ready right now"}
-              </span>
-              <span className="technology-modal__bio-stims-text">
-                {bioStims.ready
-                  ? `At the end of your turn, exhaust it to ready 1 specialty planet or 1 other technology. Now: ${
-                      [
-                        bioStims.planets.length ? `planets ${bioStims.planets.join(", ")}` : "",
-                        bioStims.technologies.length ? `technologies ${bioStims.technologies.join(", ")}` : "",
-                      ]
-                        .filter(Boolean)
-                        .join("; ") || "no exhausted specialty planet or technology"
-                    }.`
-                  : "It readies again in the status phase."}
-              </span>
-            </div>
-          )}
 
           {/* Research Mode Controls Panel (Tech Skips + Available Resources + Cost) */}
           {activeResearchMode && (

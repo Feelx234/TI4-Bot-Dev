@@ -447,37 +447,3 @@ export function secondPickPrerequisitesMet(
     secondPickWaivers(firstId, ownedTrackCounts, allSkips, faction, waivers, rulesVersion),
   );
 }
-
-/** What Bio-Stims could ready for its owner right now (the end-of-turn "exhaust this card"). */
-export interface BioStimsStatus {
-  /** The card itself is not exhausted: it can be used at the end of the turn. */
-  ready: boolean;
-  /** Exhausted planets the viewer controls that carry a technology specialty. */
-  planets: string[];
-  /** Exhausted technologies other than Bio-Stims itself. */
-  technologies: string[];
-  /** Ready and something to ready: the engine will offer it at the end of the turn. */
-  usable: boolean;
-}
-
-/**
- * Bio-Stims ("exhaust this card at the end of your turn to ready 1 of your planets that has a
- * technology specialty or 1 of your other technologies"), as the technology dialog shows it. It
- * mirrors the engine's end-of-turn offer (technology.rs `end_turn`): null if the player does not
- * own it. Psychoarchaeology does not matter here: it only changes research.
- */
-export function bioStimsStatus(
-  player: PlayerView | null | undefined,
-  board: BoardView | null | undefined,
-): BioStimsStatus | null {
-  if (!player || !hasResearchedTech(player, "bs")) return null;
-  const ready = !isTechExhausted(player, "bs");
-  const planets: string[] = [];
-  for (const planet of getControlledSpecialtyPlanets(board, player.id)) {
-    if (planet.isExhausted && !planets.includes(planet.name)) planets.push(planet.name);
-  }
-  const technologies = (player.exhausted_technologies ?? [])
-    .filter((id) => !techMatches(id, "bs"))
-    .map((id) => hydrateTech(id).meta.name);
-  return { ready, planets, technologies, usable: ready && planets.length + technologies.length > 0 };
-}

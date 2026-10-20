@@ -1011,27 +1011,3 @@
   color: #c084fc;
   font-size: 9px;
 }
-
-.technology-modal__bio-stims {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 10px;
-  margin: 8px 0;
-  padding: 8px 10px;
-  border: 1px solid rgba(74, 222, 128, 0.4);
-  border-radius: 8px;
-  background: rgba(74, 222, 128, 0.08);
-  font-size: 0.85rem;
-}
-.technology-modal__bio-stims--exhausted {
-  opacity: 0.7;
-  border-style: dashed;
-}
-.technology-modal__bio-stims-state {
-  font-weight: 600;
-}
-.technology-modal__bio-stims-text {
-  flex: 1 1 100%;
-  opacity: 0.85;
-}

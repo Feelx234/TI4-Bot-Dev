@@ -811,6 +811,27 @@ describe("TechnologyModal", () => {
       expect(lazar).toHaveTextContent("free, not exhausted by Psychoarchaeology");
     });
 
+    it("with Psychoarchaeology the second pick counts every specialty without toggling any", () => {
+      // st (yellow) first; Transit Diodes needs two yellow; st gives one.
+      const pick = (owned: string[]) => {
+        open(owned, [], ["st", "td"], 15, true);
+        fireEvent.click(screen.getByTestId("tech-card-st"));
+        const second = screen.getByTestId("tech-card-td");
+        fireEvent.click(second);
+        return second.getAttribute("data-selected");
+      };
+      expect(pick(["pa"])).toBe("true");
+    });
+
+    it("without Psychoarchaeology the second pick still waits for a toggle", () => {
+      open([], [], ["st", "td"], 15, true);
+      fireEvent.click(screen.getByTestId("tech-card-st"));
+      const second = screen.getByTestId("tech-card-td");
+      expect(second).toHaveAttribute("data-selectable", "false");
+      fireEvent.click(screen.getByTestId("tech-skip-wellon"));
+      expect(screen.getByTestId("tech-card-td")).toHaveAttribute("data-selectable", "true");
+    });
+
     it("without Psychoarchaeology (or below version 15) an exhausted planet stays disabled", () => {
       open([], [], [], 15, true);
       expect(screen.getByTestId("tech-skip-lazar")).toBeDisabled();

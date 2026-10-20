@@ -42,30 +42,3 @@ export async function openFocusedBefore(page: Page, size: SizeName) {
   });
   await page.waitForTimeout(900);
 }
-
-/** The header's Technologies button for a seat that owns Bio-Stims. */
-export async function openBioStims(
-  page: Page,
-  size: SizeName,
-  opts: { exhaustedBs: boolean; exhaustedTech: boolean; exhaustedPlanet: boolean },
-) {
-  await page.setViewportSize(SIZES[size]);
-  const board = JSON.parse(JSON.stringify(galleryBoard));
-  for (const system of Object.values(board.systems) as any[]) {
-    const wellon = system.planets?.wellon;
-    if (wellon) wellon.exhausted = opts.exhaustedPlanet;
-  }
-  const exhausted_technologies = [
-    ...(opts.exhaustedBs ? ["bs"] : []),
-    ...(opts.exhaustedTech ? ["st"] : []),
-  ];
-  await openMockedGame(page, {
-    board,
-    players: [playerWithHand({ technologies: ["bs", "st", "amd"], exhausted_technologies }), opponent],
-  });
-  const menu = page.getByTestId("top-menu-button");
-  if (await menu.count()) await menu.click();
-  await page.getByTestId("technology-modal-button").click();
-  await page.getByTestId("technology-modal").waitFor();
-  await page.waitForTimeout(700);
-}

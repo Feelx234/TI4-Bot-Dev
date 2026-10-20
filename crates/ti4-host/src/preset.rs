@@ -85,6 +85,14 @@ pub const NOTES: &str = "notes";
 /// the planet arriving on the map are the first thing a table sees.
 pub const EXPEDITION: &str = "expedition";
 
+/// Every seat owns Psychoarchaeology and holds two exhausted technology-specialty planets (a green
+/// and a blue one where the map has them), so the Technology card's research has exhausted
+/// specialties to use as prerequisites: the technology dialog with Psychoarchaeology.
+pub const RESEARCH: &str = "research";
+
+/// [`RESEARCH`] without Psychoarchaeology: the same exhausted specialty planets, none usable.
+pub const RESEARCH_NO_PA: &str = "research_nopa";
+
 /// Factions outside the original six, seated by seed from [`ROSTER`], each with its faction
 /// technologies, every leader usable, its flagship and mech beside a defended colony, and the
 /// other seats' promissory notes in hand: faction abilities have something to decide from round one.
@@ -105,7 +113,7 @@ pub const SHORT: &str = "+short";
 /// `web/e2e/smokePreset.ts` (a test below compares the two).
 pub const KNOWN: &[&str] = &[
     COMBAT, CARDS, AGENDA, RELICS, INVASION, TECHS, LEADERS, ENDGAME, SIEGE, BOMBARD, CAPTURE,
-    EXPLORE, NOTES, WORLD, EXPEDITION,
+    EXPLORE, NOTES, WORLD, EXPEDITION, RESEARCH, RESEARCH_NO_PA,
 ];
 
 /// Factions a preset may seat, in the order the seeded walk visits them: the original six, then
@@ -628,7 +636,64 @@ fn apply_base(
             expedition(content, state, galaxy, players);
             Ok(())
         }
+        RESEARCH | RESEARCH_NO_PA => {
+            research(content, state, galaxy, players, preset == RESEARCH);
+            Ok(())
+        }
         other => Err(format!("unknown start_preset {other:?}")),
+    }
+}
+
+/// The `research` presets: see [`RESEARCH`]. Each seat takes the first unclaimed green and blue
+/// specialty planets of the map (seats in order), exhausted; no seat owns another technology.
+fn research(
+    content: &ContentStore,
+    state: &mut GameState,
+    galaxy: &Galaxy,
+    players: &[PlayerId],
+    psychoarchaeology: bool,
+) {
+    let mut systems: Vec<&str> = galaxy.system_ids_holding_things();
+    systems.sort_unstable();
+    if psychoarchaeology {
+        for player in players {
+            if let Some(seat) = state.player_mut(player) {
+                seat.technologies.insert(TechnologyId::new("pa"));
+            }
+        }
+    }
+    // Round by round, so a map with few specialty planets still reaches every seat: green first,
+    // then blue, and whatever specialty is left when a colour has run out.
+    for wanted in ["BIOTIC", "PROPULSION"] {
+        for player in players {
+            let mut take = |colour: Option<&str>| {
+                systems.iter().find_map(|system| {
+                    let system = SystemId::new(*system);
+                    ti4_engine::planets::in_system(state, content, POK, &system)
+                        .into_iter()
+                        .find(|planet| {
+                            let specialties =
+                                ti4_engine::planets::tech_specialties_now(state, content, POK, planet);
+                            let fits = colour.is_none_or(|colour| {
+                                specialties
+                                    .iter()
+                                    .any(|spec| format!("{spec:?}").to_uppercase().contains(colour))
+                            });
+                            !specialties.is_empty()
+                                && fits
+                                && !state
+                                    .board
+                                    .values()
+                                    .any(|board| board.planet_control.contains_key(planet))
+                        })
+                        .map(|planet| (system, planet))
+                })
+            };
+            if let Some((system, planet)) = take(Some(wanted)).or_else(|| take(None)) {
+                state.system_mut(&system).set_control(planet.clone(), player.clone());
+                state.exhaust_planet(planet);
+            }
+        }
     }
 }
 
@@ -2614,6 +2679,28 @@ mod tests {
                 "component|expedition|tech_planet"
             ]
         );
+    }
+
+    #[test]
+    fn research_presets_exhaust_specialty_planets_and_hand_out_psychoarchaeology_to_every_seat_or_none() {
+        for (preset, pa) in [(RESEARCH, true), (RESEARCH_NO_PA, false)] {
+            let (state, _) = preset_game(content(), &players(4), 11, None, preset).unwrap();
+            let mut with_planets = 0;
+            for seat in &state.players {
+                assert_eq!(seat.technologies.contains(&TechnologyId::new("pa")), pa);
+                let exhausted_specialty = state
+                    .controlled_planets(&seat.id)
+                    .into_iter()
+                    .filter(|(_, planet)| state.exhausted_planets.contains(*planet))
+                    .filter(|(_, planet)| {
+                        !ti4_engine::planets::tech_specialties_now(&state, content(), POK, planet)
+                            .is_empty()
+                    })
+                    .count();
+                with_planets += usize::from(exhausted_specialty > 0);
+            }
+            assert!(with_planets >= 2, "{preset}: seats with exhausted specialty planets");
+        }
     }
 
     #[test]
