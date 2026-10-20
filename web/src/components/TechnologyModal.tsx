@@ -203,6 +203,10 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
   );
   const toggledSkipCounts = useMemo(() => specialtyCounts(false), [specialtyCounts]);
   const allSkipCounts = useMemo(() => specialtyCounts(true), [specialtyCounts]);
+  // With Psychoarchaeology every specialty is usable, exhausted or not, and none is spent, so the
+  // engine counts them all without anyone toggling them: the second pick (whose list the engine
+  // does not send ahead) must not wait for a toggle either.
+  const usableSkipCounts = freeSpecialties ? allSkipCounts : toggledSkipCounts;
 
   const ownedTrackCounts = useMemo(() => {
     const counts: Record<"PROPULSION" | "BIOTIC" | "CYBERNETIC" | "WARFARE", number> = {
@@ -254,12 +258,12 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
       return checkTechPrerequisites(
         tech,
         ownedTrackCounts,
-        toggledSkipCounts,
+        usableSkipCounts,
         viewerPlayer?.faction,
         waivers,
       );
     },
-    [legalOptionIds, ownedTrackCounts, toggledSkipCounts, viewerPlayer, waivers, trustEngineList, choice?.options],
+    [legalOptionIds, ownedTrackCounts, usableSkipCounts, viewerPlayer, waivers, trustEngineList, choice?.options],
   );
 
   /**
@@ -273,13 +277,13 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
         firstId,
         tech,
         ownedTrackCounts,
-        toggledSkipCounts,
+        usableSkipCounts,
         allSkipCounts,
         viewerPlayer?.faction,
         waivers,
         rulesVersion,
       ),
-    [ownedTrackCounts, allSkipCounts, toggledSkipCounts, viewerPlayer?.faction, waivers, rulesVersion],
+    [ownedTrackCounts, allSkipCounts, usableSkipCounts, viewerPlayer?.faction, waivers, rulesVersion],
   );
 
   // Resources calculation
@@ -312,7 +316,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
     if (
       legalOptionIds &&
       !legalOptionIds.some((optId) => techMatches(optId, tech.id)) &&
-      checkTechPrerequisites(tech, ownedTrackCounts, toggledSkipCounts, viewerPlayer?.faction, waivers)
+      checkTechPrerequisites(tech, ownedTrackCounts, usableSkipCounts, viewerPlayer?.faction, waivers)
     ) {
       return "Not available to research";
     }
@@ -491,7 +495,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
       }
       return prev;
     });
-  }, [toggledSkipCounts, ownedTrackCounts, canResearchAlone, viewerPlayer, secondPickAffordable, secondPickPrereqsMet]);
+  }, [usableSkipCounts, ownedTrackCounts, canResearchAlone, viewerPlayer, secondPickAffordable, secondPickPrereqsMet]);
 
   const factionTechs = useMemo<HydratedTech[]>(() => {
     if (!viewerPlayer?.faction) return [];
@@ -511,7 +515,8 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
     if (!viewerPlayer) return false;
     if (hasResearchedTech(viewerPlayer, tech.id)) return false;
     if (!isTechAllowedForFaction(tech, viewerPlayer.faction)) return false;
-    return checkTechPrerequisites(tech, ownedTrackCounts, toggledSkipCounts, viewerPlayer.faction, waivers);
+    // Not choosing a research: nothing to toggle, so every specialty the engine would count counts.
+    return checkTechPrerequisites(tech, ownedTrackCounts, allSkipCounts, viewerPlayer.faction, waivers);
   };
 
   /** A card that is available only because AI Development Algorithm ignores one of its prerequisites. */

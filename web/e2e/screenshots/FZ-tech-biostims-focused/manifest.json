@@ -1,0 +1,105 @@
+{
+  "title": "Technology UI: Psychoarchaeology and Focused Research",
+  "description": "Two technology-dialog changes. Focused Research: from rules version 18 the card spends its 4 trade goods and asks the Technology primary's research_technology question, so the normal technology dialog opens (engine-legal list, prerequisites, skips, resources) instead of a plain option list (mocked fixtures; the before shots are the pre-18 question shape). Psychoarchaeology: real wasm engine and real UI (offline game, start presets research and research_nopa). Ada (Letnev) holds two exhausted specialty planets, Wellon (yellow) and Meer (red). With Psychoarchaeology the engine's legal list and the dialog both offer technologies those planets unlock (Graviton Laser System, Non-Euclidean Shielding), the second pick no longer waits for a toggle, and the header-opened Technologies dialog now gets the board so its Can research now filter counts them; without it neither is offered.",
+  "tag": "web/e2e/screenshots/FZ-tech-biostims-focused",
+  "shots": [
+    {
+      "file": "out/before-focused-desktop.png",
+      "heading": "Focused Research before (rules version < 18), desktop",
+      "caption": "A bare option list of technologies; no prerequisites, skips or resources."
+    },
+    {
+      "file": "out/after-focused-desktop.png",
+      "heading": "Focused Research after, desktop",
+      "caption": "The normal research dialog: only engine-legal cards selectable (Gravity Drive dimmed). The 4 trade goods are already paid, so the cost reads Free."
+    },
+    {
+      "file": "out/before-focused-390x844.png",
+      "heading": "Focused Research before (rules version < 18), 390x844",
+      "caption": "A bare option list of technologies; no prerequisites, skips or resources."
+    },
+    {
+      "file": "out/after-focused-390x844.png",
+      "heading": "Focused Research after, 390x844",
+      "caption": "The normal research dialog: only engine-legal cards selectable (Gravity Drive dimmed). The 4 trade goods are already paid, so the cost reads Free."
+    },
+    {
+      "file": "out/real-pa-desktop-1-open.png",
+      "heading": "Psychoarchaeology: Technology primary, desktop",
+      "caption": "Real engine. Wellon and Meer are exhausted; the pills read Exhausted, free with Psychoarchaeology. The engine's list includes Graviton Laser System and Non-Euclidean Shielding."
+    },
+    {
+      "file": "out/real-pa-desktop-2-first.png",
+      "heading": "Psychoarchaeology: first pick, desktop",
+      "caption": "Graviton Laser System (needs a yellow prerequisite Ada only has through Wellon) is picked; Confirm is enabled."
+    },
+    {
+      "file": "out/real-pa-desktop-3-second.png",
+      "heading": "Psychoarchaeology: second pick, desktop",
+      "caption": "Non-Euclidean Shielding (R R, Plasma Scoring plus Meer) as the second pick for 6 resources, without toggling any planet. Before this change the second pick was refused with Prerequisites not met until the pills were toggled."
+    },
+    {
+      "file": "out/real-nopa-desktop.png",
+      "heading": "Same planets, no Psychoarchaeology, desktop",
+      "caption": "The pills read (Exhausted); the engine's list lacks both technologies and the dialog dims them."
+    },
+    {
+      "file": "out/real-header-research-desktop.png",
+      "heading": "Header Technologies, Can research now, with Psychoarchaeology, desktop",
+      "caption": "No decision open. The dialog now receives the board, so the list matches the engine's."
+    },
+    {
+      "file": "out/real-header-research_nopa-desktop.png",
+      "heading": "Header Technologies, Can research now, without, desktop",
+      "caption": "Exhausted specialty planets do not count."
+    },
+    {
+      "file": "out/real-pa-390x844-1-open.png",
+      "heading": "Psychoarchaeology: Technology primary, 390x844",
+      "caption": "Real engine. Wellon and Meer are exhausted; the pills read Exhausted, free with Psychoarchaeology. The engine's list includes Graviton Laser System and Non-Euclidean Shielding."
+    },
+    {
+      "file": "out/real-pa-390x844-2-first.png",
+      "heading": "Psychoarchaeology: first pick, 390x844",
+      "caption": "Graviton Laser System (needs a yellow prerequisite Ada only has through Wellon) is picked; Confirm is enabled."
+    },
+    {
+      "file": "out/real-pa-390x844-3-second.png",
+      "heading": "Psychoarchaeology: second pick, 390x844",
+      "caption": "Non-Euclidean Shielding (R R, Plasma Scoring plus Meer) as the second pick for 6 resources, without toggling any planet. Before this change the second pick was refused with Prerequisites not met until the pills were toggled."
+    },
+    {
+      "file": "out/real-nopa-390x844.png",
+      "heading": "Same planets, no Psychoarchaeology, 390x844",
+      "caption": "The pills read (Exhausted); the engine's list lacks both technologies and the dialog dims them."
+    },
+    {
+      "file": "out/real-header-research-390x844.png",
+      "heading": "Header Technologies, Can research now, with Psychoarchaeology, 390x844",
+      "caption": "No decision open. The dialog now receives the board, so the list matches the engine's."
+    },
+    {
+      "file": "out/real-header-research_nopa-390x844.png",
+      "heading": "Header Technologies, Can research now, without, 390x844",
+      "caption": "Exhausted specialty planets do not count."
+    }
+  ],
+  "notes": [
+    {
+      "title": "What was checked",
+      "text": "In the real UI with the real engine: the dialog's selectable cards equal the engine's legal list in both the Technology primary and the header dialog; both picks are accepted and paid (6 resources via Auto-pay) and the two technologies leave the Can research now list afterwards. Engine tests (technology_effects_tests/g1.rs pa_1) cover that research does not exhaust a specialty planet for a Psychoarchaeology owner and that older games still do."
+    },
+    {
+      "title": "Found and fixed in the client",
+      "text": "1. The second pick of the Technology primary counted only toggled planets, so with Psychoarchaeology it said Prerequisites not met until the player toggled planets the engine uses anyway. 2. The header-opened dialog got no board, so its Can research now ignored all specialty planets. No engine change."
+    },
+    {
+      "title": "Start presets",
+      "text": "research and research_nopa (ti4_host::preset) give every seat two exhausted specialty planets (green and blue first, whatever specialty is left otherwise), and Psychoarchaeology for research. For tests and screenshots."
+    },
+    {
+      "title": "Rules version 18",
+      "text": "RULES_FOCUSED_RESEARCH = 18 (Focused Research). Another branch may also claim 18."
+    }
+  ]
+}

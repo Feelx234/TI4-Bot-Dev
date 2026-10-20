@@ -1118,6 +1118,7 @@ const GameViewContainer: React.FC<{
         isOpen={isTechModalOpen}
         onClose={() => setIsTechModalOpen(false)}
         players={snapshot?.view.players}
+        board={snapshot?.view.board}
         viewerSeat={userSeat}
         rulesVersion={stateRulesVersion(snapshot?.state)}
       />
