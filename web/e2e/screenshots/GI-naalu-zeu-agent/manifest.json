@@ -1,0 +1,22 @@
+{
+  "title": "Naalu agent Z'eu: one text, tactical action UI",
+  "description": "Z'eu (Prophecy of Kings printing, the card a PoK game deals the Naalu) was worded differently in the Components menu (the dealt card: 'ACTION: exhaust ... a tactical action in a non-home system without placing a command token') and in the faction overview (the sheet's Thunder's Edge printing: 'return that token to reinforcements'). The faction card now shows the printing the seat holds. Z'eu's system choice also was a generic choice dialog because of its Decline option; it now is the tactical action's activation step (highlighted hexes, activation bar, Decline button), after which the normal movement tray runs. Before shots are taken at 80ce1bf1 with TI4_SHOT_PREFIX=before.",
+  "tag": "web/e2e/screenshots/GI-naalu-zeu-agent",
+  "shots": [
+    { "file": "before/before-components-desktop.png", "heading": "Before: Components menu, desktop", "caption": "The dealt card's text." },
+    { "file": "before/before-faction-desktop.png", "heading": "Before: faction overview, desktop", "caption": "The other printing's text for the same agent." },
+    { "file": "out/after-components-desktop.png", "heading": "After: Components menu, desktop", "caption": "Unchanged." },
+    { "file": "out/after-faction-desktop.png", "heading": "After: faction overview, desktop", "caption": "Same card and text as the menu." },
+    { "file": "before/before-activation-desktop.png", "heading": "Before: Z'eu system choice, desktop", "caption": "A generic choice dialog." },
+    { "file": "out/after-activation-desktop.png", "heading": "After: Z'eu system choice, desktop", "caption": "The tactical activation bar, systems highlighted on the map, Decline beside it." },
+    { "file": "before/before-components-390x844.png", "heading": "Before: Components menu, 390x844", "caption": "" },
+    { "file": "before/before-faction-390x844.png", "heading": "Before: faction overview, 390x844", "caption": "" },
+    { "file": "out/after-components-390x844.png", "heading": "After: Components menu, 390x844", "caption": "" },
+    { "file": "out/after-faction-390x844.png", "heading": "After: faction overview, 390x844", "caption": "" },
+    { "file": "before/before-activation-390x844.png", "heading": "Before: Z'eu system choice, 390x844", "caption": "" },
+    { "file": "out/after-activation-390x844.png", "heading": "After: Z'eu system choice, 390x844", "caption": "" }
+  ],
+  "notes": [
+    { "title": "How the agent works", "text": "Component action component|leader|naaluagent -> Game::perform_zeu asks zeu_activate_system (activate options for non-home systems without the Naalu token, plus Decline); the answer exhausts the agent and begin_free_tactical runs the standard tactical action (movement_step, commit, invasion) without a command token. Client-only change, no rules version." }
+  ]
+}

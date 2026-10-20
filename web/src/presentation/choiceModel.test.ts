@@ -468,3 +468,22 @@ describe("choiceModel", () => {
     });
   });
 });
+
+describe("isSystemActivationChoice (Z'eu)", () => {
+  const act = (id: string) => ({ id, label: `activate ${id}`, kind: "activate", payload: {} });
+  it("treats activations plus a decline as the tactical activation step", async () => {
+    const { isSystemActivationChoice } = await import("./choiceModel.ts");
+    expect(
+      isSystemActivationChoice({
+        options: [act("24"), { id: "decline", label: "Decline", kind: "decline", payload: {} }],
+        context: { subtype: "zeu_activate_system" },
+      } as never),
+    ).toBe(true);
+    expect(isSystemActivationChoice({ options: [act("24")] } as never)).toBe(true);
+    expect(
+      isSystemActivationChoice({
+        options: [{ id: "decline", label: "Decline", kind: "decline", payload: {} }],
+      } as never),
+    ).toBe(false);
+  });
+});

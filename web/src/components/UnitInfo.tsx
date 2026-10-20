@@ -279,7 +279,7 @@ export const FactionInfoButton: React.FC<{
   /** The seat's earned breakthrough alias, or null while it is locked; omit outside a seat. */
   breakthroughHeld?: string | null;
 }> = ({ faction, technologies, leaders, breakthroughHeld }) => {
-  const info = describeFaction(faction, technologies);
+  const info = describeFaction(faction, technologies, leaders ? Object.keys(leaders) : undefined);
   return (
     <InfoPopover
       label={`${info?.name ?? faction}: faction details`}
