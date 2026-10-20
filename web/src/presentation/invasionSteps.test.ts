@@ -36,6 +36,22 @@ describe("summarizeInvasionStep", () => {
     expect(summary.destroyed).toBe(1);
   });
 
+  it("shows X-89 Bacterial Weapon: two hit dice count as four hits", () => {
+    const summary = summarizeInvasionStep({ ...bombardment, hits: { [INVADER]: 4 } }, INVADER)!;
+    expect(summary.rolledHits).toBe(2);
+    expect(summary.multiplier).toBe(2);
+    expect(summary.hits).toBe(4);
+    const text = stepOutcomeText(summary, INVADER);
+    expect(text).toContain("2 hits from 3 dice, each counted twice (X-89 Bacterial Weapon): 4 hits.");
+  });
+
+  it("has no multiplier without the technology", () => {
+    const summary = summarizeInvasionStep(bombardment, INVADER)!;
+    expect(summary.multiplier).toBe(1);
+    expect(summary.hits).toBe(2);
+    expect(stepOutcomeText(summary, INVADER)).not.toContain("Bacterial");
+  });
+
   it("is null for ground combat rounds", () => {
     expect(summarizeInvasionStep({ ...bombardment, kind: "ground_round" }, INVADER)).toBeNull();
     expect(summarizeInvasionStep(null, INVADER)).toBeNull();

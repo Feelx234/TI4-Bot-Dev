@@ -33,7 +33,12 @@ export interface InvasionStepSummary {
   /** Who rolled: the invader for bombardment, the planet's defenders for Space Cannon Defense. */
   shooters: DiceGroup[];
   dice: number;
+  /** Hits that apply: the rolled hits times `multiplier`. */
   hits: number;
+  /** Dice that hit, before any doubling. */
+  rolledHits: number;
+  /** 2 when X-89 Bacterial Weapon doubles the bombardment's hits, otherwise 1. */
+  multiplier: number;
   /** Whose ground forces the hits could fall on (those with ground forces on the planet). */
   targets: StepSideEffect[];
   /** Ground forces destroyed in total. */
@@ -41,6 +46,9 @@ export interface InvasionStepSummary {
   /** Hits that cost nothing: a Mech sustained damage, or there was nothing left to hit. */
   absorbed: number;
 }
+
+/** The technology that doubles bombardment and ground combat hits. */
+export const BACTERIAL_WEAPON = "X-89 Bacterial Weapon";
 
 export const STEP_TITLES: Record<InvasionStepKind, string> = {
   bombardment: "Bombardment",
@@ -109,7 +117,15 @@ export function summarizeInvasionStep(
   const shooters = [...groups.values()];
   const dice = step.dice.length;
   // Dice are the truth when the step lists them; otherwise the server's hit totals.
-  const hits = dice > 0 ? step.dice.filter((d) => d.hit).length : Object.values(step.hits).reduce((a, b) => a + b, 0);
+  const rolledHits = dice > 0 ? step.dice.filter((d) => d.hit).length : Object.values(step.hits).reduce((a, b) => a + b, 0);
+  // X-89 Bacterial Weapon doubles the invader's bombardment hits: the engine reports the doubled
+  // count in `hits` while the dice still show what was rolled, so a whole multiple means a multiplier.
+  const applied = step.hits[invader] ?? 0;
+  const multiplier =
+    step.kind === "bombardment" && dice > 0 && rolledHits > 0 && applied >= 2 * rolledHits && applied % rolledHits === 0
+      ? applied / rolledHits
+      : 1;
+  const hits = rolledHits * multiplier;
   // Bombardment hits fall on everyone but the invader; Space Cannon hits fall on the invader only.
   const owners = new Set([...step.before, ...step.after].map((u) => u.owner));
   const targetSeats = [...owners].filter((o) =>
@@ -121,7 +137,7 @@ export function summarizeInvasionStep(
   const destroyed = targets.reduce((n, t) => n + t.lost.reduce((m, u) => m + u.count, 0), 0);
   const sustainedCount = targets.reduce((n, t) => n + t.sustained.reduce((m, u) => m + u.count, 0), 0);
   const absorbed = Math.max(0, hits - destroyed - sustainedCount) + sustainedCount;
-  return { kind: step.kind, planet: step.planet, shooters, dice, hits, targets, destroyed, absorbed };
+  return { kind: step.kind, planet: step.planet, shooters, dice, hits, rolledHits, multiplier, targets, destroyed, absorbed };
 }
 
 /** "2 Infantry, 1 Mech" */
@@ -149,7 +165,14 @@ export function stepOutcomeText(
 ): string {
   const planet = planetName(summary.planet);
   const title = STEP_TITLES[summary.kind];
-  const rolled = summary.dice > 0 ? ` ${summary.hits} hit${summary.hits === 1 ? "" : "s"} from ${summary.dice} di${summary.dice === 1 ? "e" : "ce"}.` : "";
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const from = `from ${summary.dice} di${summary.dice === 1 ? "e" : "ce"}`;
+  const rolled =
+    summary.dice === 0
+      ? ""
+      : summary.multiplier > 1
+        ? ` ${plural(summary.rolledHits, "hit")} ${from}, each counted ${summary.multiplier === 2 ? "twice" : `${summary.multiplier} times`} (${BACTERIAL_WEAPON}): ${plural(summary.hits, "hit")}.`
+        : ` ${plural(summary.hits, "hit")} ${from}.`;
   if (summary.hits === 0) return `${title} on ${planet}: no hits.${summary.dice > 0 ? ` ${summary.dice} di${summary.dice === 1 ? "e" : "ce"} rolled, none reached the target.` : ""}`;
   const effects: string[] = [];
   for (const side of summary.targets) {

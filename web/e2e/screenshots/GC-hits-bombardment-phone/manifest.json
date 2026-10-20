@@ -1,0 +1,134 @@
+{
+ "title": "Assign hits on a phone, and X-89 Bacterial Weapon in the bombardment card",
+ "description": "The staged hit assignment panel (space combat, Space Cannon, ground combat) no longer clips its + and Sustain buttons at 390 px: two-line rows, 44px targets, a sticky confirm bar. The bombardment result now shows the doubling of X-89 Bacterial Weapon. Before shots were taken with TI4_SHOT_PREFIX=before on 80ce1bf1; fixtures are synthetic states through the mocked server.",
+ "tag": "web/e2e/screenshots/GC-hits-bombardment-phone",
+ "shots": [
+  {
+   "file": "before/before-space-sustain-hits-phone.png",
+   "heading": "Space combat hits (sustain stage, 5 hits), phone 390x844: before",
+   "caption": "Base 80ce1bf1: the row grid is seven fixed columns; on a phone the + and Sustain buttons are clipped off the right edge (unreachable), the name wraps one word per line and the Confirm bar scrolls away with the list."
+  },
+  {
+   "file": "out/after-space-sustain-hits-phone.png",
+   "heading": "Space combat hits (sustain stage, 5 hits), phone 390x844: after",
+   "caption": "Two-line rows: name and hint on top, a full-width row of 44px -, Sustain and + below. A sticky bar keeps '5 of 5 left', Auto-assign, Reset and Confirm hits on screen. No horizontal scroll (asserted)."
+  },
+  {
+   "file": "before/before-space-sustain-hits-small.png",
+   "heading": "Space combat hits (sustain stage, 5 hits), small phone 360x740: before",
+   "caption": "Base 80ce1bf1: the row grid is seven fixed columns; on a phone the + and Sustain buttons are clipped off the right edge (unreachable), the name wraps one word per line and the Confirm bar scrolls away with the list."
+  },
+  {
+   "file": "out/after-space-sustain-hits-small.png",
+   "heading": "Space combat hits (sustain stage, 5 hits), small phone 360x740: after",
+   "caption": "Two-line rows: name and hint on top, a full-width row of 44px -, Sustain and + below. A sticky bar keeps '5 of 5 left', Auto-assign, Reset and Confirm hits on screen. No horizontal scroll (asserted)."
+  },
+  {
+   "file": "before/before-space-sustain-hits-landscape.png",
+   "heading": "Space combat hits (sustain stage, 5 hits), phone landscape 844x390: before",
+   "caption": "Base 80ce1bf1: the row grid is seven fixed columns; on a phone the + and Sustain buttons are clipped off the right edge (unreachable), the name wraps one word per line and the Confirm bar scrolls away with the list."
+  },
+  {
+   "file": "out/after-space-sustain-hits-landscape.png",
+   "heading": "Space combat hits (sustain stage, 5 hits), phone landscape 844x390: after",
+   "caption": "Two-line rows: name and hint on top, a full-width row of 44px -, Sustain and + below. A sticky bar keeps '5 of 5 left', Auto-assign, Reset and Confirm hits on screen. No horizontal scroll (asserted)."
+  },
+  {
+   "file": "before/before-space-sustain-hits-desktop.png",
+   "heading": "Space combat hits (sustain stage, 5 hits), desktop 1440x900: before",
+   "caption": "Base 80ce1bf1: the row grid is seven fixed columns; on a phone the + and Sustain buttons are clipped off the right edge (unreachable), the name wraps one word per line and the Confirm bar scrolls away with the list."
+  },
+  {
+   "file": "out/after-space-sustain-hits-desktop.png",
+   "heading": "Space combat hits (sustain stage, 5 hits), desktop 1440x900: after",
+   "caption": "Two-line rows: name and hint on top, a full-width row of 44px -, Sustain and + below. A sticky bar keeps '5 of 5 left', Auto-assign, Reset and Confirm hits on screen. No horizontal scroll (asserted)."
+  },
+  {
+   "file": "before/before-space-casualty-hits-phone.png",
+   "heading": "Space combat hits (destroy stage, Space Cannon), phone 390x844: before",
+   "caption": "Same clipping: the + column is cut off at 390 px."
+  },
+  {
+   "file": "out/after-space-casualty-hits-phone.png",
+   "heading": "Space combat hits (destroy stage, Space Cannon), phone 390x844: after",
+   "caption": "Same two-line rows and sticky bar; desktop keeps one line per row."
+  },
+  {
+   "file": "before/before-space-casualty-hits-desktop.png",
+   "heading": "Space combat hits (destroy stage, Space Cannon), desktop 1440x900: before",
+   "caption": "Same clipping: the + column is cut off at 390 px."
+  },
+  {
+   "file": "out/after-space-casualty-hits-desktop.png",
+   "heading": "Space combat hits (destroy stage, Space Cannon), desktop 1440x900: after",
+   "caption": "Same two-line rows and sticky bar; desktop keeps one line per row."
+  },
+  {
+   "file": "before/before-ground-hits-phone.png",
+   "heading": "Ground combat hits (4 hits), phone 390x844: before",
+   "caption": "Base: + buttons clipped, tiny targets."
+  },
+  {
+   "file": "out/after-ground-hits-phone.png",
+   "heading": "Ground combat hits (4 hits), phone 390x844: after",
+   "caption": "Rows with 44px controls and the sticky Confirm bar."
+  },
+  {
+   "file": "before/before-ground-hits-small.png",
+   "heading": "Ground combat hits (4 hits), small phone 360x740: before",
+   "caption": "Base: + buttons clipped, tiny targets."
+  },
+  {
+   "file": "out/after-ground-hits-small.png",
+   "heading": "Ground combat hits (4 hits), small phone 360x740: after",
+   "caption": "Rows with 44px controls and the sticky Confirm bar."
+  },
+  {
+   "file": "before/before-ground-hits-landscape.png",
+   "heading": "Ground combat hits (4 hits), phone landscape 844x390: before",
+   "caption": "Base: + buttons clipped, tiny targets."
+  },
+  {
+   "file": "out/after-ground-hits-landscape.png",
+   "heading": "Ground combat hits (4 hits), phone landscape 844x390: after",
+   "caption": "Rows with 44px controls and the sticky Confirm bar."
+  },
+  {
+   "file": "before/before-ground-hits-desktop.png",
+   "heading": "Ground combat hits (4 hits), desktop 1440x900: before",
+   "caption": "Base: + buttons clipped, tiny targets."
+  },
+  {
+   "file": "out/after-ground-hits-desktop.png",
+   "heading": "Ground combat hits (4 hits), desktop 1440x900: after",
+   "caption": "Rows with 44px controls and the sticky Confirm bar."
+  },
+  {
+   "file": "before/before-bombardment-bacterial-phone.png",
+   "heading": "Bombardment with X-89 Bacterial Weapon, phone 390x844: before",
+   "caption": "Base: 3 dice, 2 hit, the card says '2 hits' while the engine applied 4 (Player 2 lost 3 infantry and a mech): the doubling is invisible."
+  },
+  {
+   "file": "out/after-bombardment-bacterial-phone.png",
+   "heading": "Bombardment with X-89 Bacterial Weapon, phone 390x844: after",
+   "caption": "Per-shooter '2 x 2 = 4 hits', a line 'X-89 Bacterial Weapon: each hit counts as 2. 2 rolled hits = 4 hits to assign', and the result sentence says '2 hits from 3 dice, each counted twice (X-89 Bacterial Weapon): 4 hits'."
+  },
+  {
+   "file": "before/before-bombardment-bacterial-desktop.png",
+   "heading": "Bombardment with X-89 Bacterial Weapon, desktop 1440x900: before",
+   "caption": "Base: 3 dice, 2 hit, the card says '2 hits' while the engine applied 4 (Player 2 lost 3 infantry and a mech): the doubling is invisible."
+  },
+  {
+   "file": "out/after-bombardment-bacterial-desktop.png",
+   "heading": "Bombardment with X-89 Bacterial Weapon, desktop 1440x900: after",
+   "caption": "Per-shooter '2 x 2 = 4 hits', a line 'X-89 Bacterial Weapon: each hit counts as 2. 2 rolled hits = 4 hits to assign', and the result sentence says '2 hits from 3 dice, each counted twice (X-89 Bacterial Weapon): 4 hits'."
+  }
+ ],
+ "notesHeading": "Notes",
+ "notes": [
+  {
+   "title": "Engine: ",
+   "text": "X-89 Bacterial Weapon already doubles bombardment and ground combat hits in the engine (invasion.rs x89_multiplier) and exhausts the bombarded planet; only the web display was wrong. The coexistence target question already states the doubled hit count."
+  }
+ ]
+}

@@ -2,6 +2,7 @@ import React from "react";
 import type { InvasionStepView } from "../protocol/types.ts";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import {
+  BACTERIAL_WEAPON,
   formatCounts,
   planetName,
   shooterLabel,
@@ -50,7 +51,9 @@ export const InvasionStepCard: React.FC<{ step: InvasionStepView; invader: strin
                 <strong>{display(group.seat).label}</strong>
                 <span>{shooterLabel(summary.kind, group)}</span>
                 <span className="invasion-shooter__hits">
-                  {group.hits} hit{group.hits === 1 ? "" : "s"}
+                  {summary.multiplier > 1 && group.seat === invader
+                    ? `${group.hits} × ${summary.multiplier} = ${group.hits * summary.multiplier} hits`
+                    : `${group.hits} hit${group.hits === 1 ? "" : "s"}`}
                 </span>
               </div>
               <div className="invasion-step-card__dice">
@@ -74,6 +77,12 @@ export const InvasionStepCard: React.FC<{ step: InvasionStepView; invader: strin
         </ul>
       ) : (
         <p className="invasion-step-card__forces">No dice were rolled.</p>
+      )}
+      {summary.multiplier > 1 && (
+        <p className="invasion-step-card__multiplier" data-testid="invasion-step-multiplier">
+          <strong>{BACTERIAL_WEAPON}:</strong> each hit counts as {summary.multiplier}.{" "}
+          {summary.rolledHits} rolled hit{summary.rolledHits === 1 ? "" : "s"} = {summary.hits} hits to assign.
+        </p>
       )}
       <p className="invasion-step-card__result" data-testid="invasion-step-outcome">
         <strong>Result:</strong> {outcome}
