@@ -812,4 +812,51 @@ describe("ProductionBuilderDrawer capacity meter", () => {
     open({});
     expect(screen.queryByTestId("capacity-meter")).toBeNull();
   });
+  it("shows unit limits, stops + at the limit and lists a unit the engine no longer offers", () => {
+    const opt = (unit: string, cost: number) => ({
+      id: `build|${unit}|1`,
+      kind: "produce",
+      label: unit,
+      payload: { unit, cost, count: 1, placed: 1, production_spent: 1, available_resources: 20 },
+    });
+    render(
+      <ProductionBuilderDrawer
+        choice={{
+          actor: "seat_1",
+          nonce: "limits",
+          prompt: "produce",
+          context: partialContext({ subtype: "produce_unit", outstanding: [{ amount: 6, paid: 0 }] }),
+          details: {
+            unit_limits: {
+              carrier: { units: ["carrier"], limit: 4, held: 3, remaining: 1 },
+              flagship: { units: ["flagship"], limit: 1, held: 1, remaining: 0 },
+            },
+          },
+          options: [opt("carrier", 3), opt("cruiser", 2)],
+        }}
+        viewerSeat="seat_1"
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+        isOpen
+        onQueueProduction={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("produce-limit-build|carrier|1")).toHaveTextContent(
+      "Carrier 3 on board · 1 left (limit 4)",
+    );
+    expect(screen.queryByTestId("produce-limit-build|cruiser|1")).toBeNull();
+    const add = screen.getByTestId("produce-unit-btn-build|carrier|1");
+    expect(add).toBeEnabled();
+    fireEvent.click(add);
+    expect(screen.getByTestId("produce-limit-build|carrier|1")).toHaveTextContent(
+      "Carrier 3 on board · 1 in this build · none left (limit 4)",
+    );
+    expect(add).toBeDisabled();
+    expect(screen.getByTestId("produce-option-build|carrier|1")).toHaveTextContent(
+      "Limit reached: no carrier left in reinforcements",
+    );
+    const row = screen.getByTestId("produce-limit-row-flagship");
+    expect(row).toHaveTextContent("Limit reached: no flagship left in reinforcements");
+    expect(within(row).getByRole("button")).toBeDisabled();
+  });
 });

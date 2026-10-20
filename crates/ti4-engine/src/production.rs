@@ -2607,6 +2607,49 @@ impl ProductionWindow {
         )
     }
 
+    /// Display only (31.4): per capped plastic type this seat could build, the box limit, how many
+    /// are on the board (captured and card-held included) and how many are left. The engine drops
+    /// an option once `remaining` is 0, so a client needs this to say why the row is missing.
+    /// Changes no rule: it reads `supply::plastic` and `supply::held`, as the offers already do.
+    fn unit_limits(
+        &self,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+    ) -> serde_json::Value {
+        let types = catalogue(content, sources);
+        let mut limits = serde_json::Map::new();
+        for id in buildable_for(state, content, sources, &self.player) {
+            let Some(kind) = types.get(id.as_str()) else {
+                continue;
+            };
+            let base = kind.base_type();
+            let Some(limit) = crate::supply::plastic(base) else {
+                continue;
+            };
+            // `units` names every buildable id of this plastic (a faction or upgrade variant shares
+            // the base unit's box), so a client matches an option to its limit without guessing.
+            if let Some(entry) = limits.get_mut(base) {
+                entry["units"]
+                    .as_array_mut()
+                    .expect("units array")
+                    .push(serde_json::json!(id));
+                continue;
+            }
+            let held = crate::supply::held(state, content, sources, &self.player, base);
+            limits.insert(
+                base.to_owned(),
+                serde_json::json!({
+                    "units": [id],
+                    "limit": limit,
+                    "held": held,
+                    "remaining": (limit - held).max(0),
+                }),
+            );
+        }
+        serde_json::Value::Object(limits)
+    }
+
     /// Options for what to build now: affordable, placeable, one per unit type.
     #[allow(
         clippy::too_many_lines,
@@ -3038,7 +3081,8 @@ impl Window for ProductionWindow {
                     )
                     .contextualized(self.context(state))
                     .detailed("fleet_supply", fleet_supply)
-                    .detailed("capacity", capacity),
+                    .detailed("capacity", capacity)
+                    .detailed("unit_limits", self.unit_limits(state, content, sources)),
                 )
             }
             Stage::Paying {
@@ -5553,6 +5597,45 @@ mod tests {
             Some(i64::from(crate::fleet::limit(&state, content, &player())))
         );
         assert!(supply.get("unlimited").is_none());
+    }
+
+    #[test]
+    fn the_produce_choice_reports_unit_limits_and_drops_a_unit_at_its_limit() {
+        let content = ContentStore::embedded();
+        let (mut state, system, planet) = seated();
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), player());
+        put_on_planet(&mut state, &system, &planet, "spacedock", &player(), 1);
+        put(&mut state, &system, "carrier", &player(), 2);
+        let limits = |state: &GameState| {
+            let window = ProductionWindow::new(state, content, POK, &player(), &system);
+            window
+                .pending_choice(state, content, POK)
+                .expect("production choice")
+        };
+        let choice = limits(&state);
+        let carrier = &choice.details["unit_limits"]["carrier"];
+        assert_eq!(carrier["limit"].as_i64(), Some(4));
+        assert_eq!(carrier["held"].as_i64(), Some(2));
+        assert_eq!(carrier["remaining"].as_i64(), Some(2));
+        // Structures are not production options, so they have no entry.
+        assert!(choice.details["unit_limits"].get("spacedock").is_none());
+        assert!(carrier["units"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|u| u == "carrier"));
+        assert!(choice.details["unit_limits"].get("fighter").is_none());
+        assert!(option_field(&choice, "carrier", "cost").is_some());
+        // Two more carriers empty the box: the offer goes, the limit stays visible.
+        put(&mut state, &system, "carrier", &player(), 2);
+        let choice = limits(&state);
+        assert!(option_field(&choice, "carrier", "cost").is_none());
+        assert_eq!(
+            choice.details["unit_limits"]["carrier"]["remaining"].as_i64(),
+            Some(0)
+        );
     }
 
     #[test]

@@ -1,0 +1,97 @@
+{
+  "title": "Produce units: unit limits",
+  "description": "The produce dialog shows, for each unit with a component limit, how many are on the board, how many are left in reinforcements and the limit. Staged builds count against what is left, the + stops at the limit with the reason, and a unit with nothing left (which the engine no longer offers) is listed with 'Limit reached: no <unit> left in reinforcements'. Numbers come from the engine's new display-only detail unit_limits; fixtures are synthetic mocked games in that shape (an engine test checks the shape). Before shots were taken on 80ce1bf1.",
+  "tag": "web/e2e/screenshots/GG-unit-limits",
+  "shots": [
+    {
+      "file": "before/before-1-early-game-desktop.png",
+      "heading": "Before: Early game, desktop",
+      "caption": "Commit 80ce1bf1: no component limit anywhere in the dialog."
+    },
+    {
+      "file": "out/after-1-early-game-desktop.png",
+      "heading": "After: Early game, desktop",
+      "caption": "Carrier 1 on board, 3 left; every row with a limit states it. Fighters and infantry have none (cardboard tokens, LRR 31.4)."
+    },
+    {
+      "file": "before/before-1-early-game-390x844.png",
+      "heading": "Before: Early game, 390x844",
+      "caption": "Commit 80ce1bf1: no component limit anywhere in the dialog."
+    },
+    {
+      "file": "out/after-1-early-game-390x844.png",
+      "heading": "After: Early game, 390x844",
+      "caption": "Carrier 1 on board, 3 left; every row with a limit states it. Fighters and infantry have none (cardboard tokens, LRR 31.4)."
+    },
+    {
+      "file": "before/before-2-carriers-at-limit-desktop.png",
+      "heading": "Before: Carriers at the limit, desktop",
+      "caption": "Commit 80ce1bf1: no component limit anywhere in the dialog. The unit just disappears."
+    },
+    {
+      "file": "out/after-2-carriers-at-limit-desktop.png",
+      "heading": "After: Carriers at the limit, desktop",
+      "caption": "All four carriers are on the board. The engine no longer offers a carrier, so the dialog lists it under 'At the unit limit' with a disabled + and 'Limit reached: no carrier left in reinforcements'. The flagship is listed the same way."
+    },
+    {
+      "file": "before/before-2-carriers-at-limit-390x844.png",
+      "heading": "Before: Carriers at the limit, 390x844",
+      "caption": "Commit 80ce1bf1: no component limit anywhere in the dialog. The unit just disappears."
+    },
+    {
+      "file": "out/after-2-carriers-at-limit-390x844.png",
+      "heading": "After: Carriers at the limit, 390x844",
+      "caption": "All four carriers are on the board. The engine no longer offers a carrier, so the dialog lists it under 'At the unit limit' with a disabled + and 'Limit reached: no carrier left in reinforcements'. The flagship is listed the same way."
+    },
+    {
+      "file": "before/before-3-flagship-and-war-sun-at-limit-desktop.png",
+      "heading": "Before: Flagship, war sun and mech at the limit, desktop",
+      "caption": "Commit 80ce1bf1: no component limit anywhere in the dialog. The unit just disappears."
+    },
+    {
+      "file": "out/after-3-flagship-and-war-sun-at-limit-desktop.png",
+      "heading": "After: Flagship, war sun and mech at the limit, desktop",
+      "caption": "One flagship, two war suns and four mechs on the board: each is listed as unavailable with the reason; the other rows keep their numbers."
+    },
+    {
+      "file": "before/before-3-flagship-and-war-sun-at-limit-390x844.png",
+      "heading": "Before: Flagship, war sun and mech at the limit, 390x844",
+      "caption": "Commit 80ce1bf1: no component limit anywhere in the dialog. The unit just disappears."
+    },
+    {
+      "file": "out/after-3-flagship-and-war-sun-at-limit-390x844.png",
+      "heading": "After: Flagship, war sun and mech at the limit, 390x844",
+      "caption": "One flagship, two war suns and four mechs on the board: each is listed as unavailable with the reason; the other rows keep their numbers."
+    },
+    {
+      "file": "before/before-4-queued-units-reduce-remaining-desktop.png",
+      "heading": "Before: Staged builds reduce what is left, desktop",
+      "caption": "Commit 80ce1bf1: no component limit anywhere in the dialog, and the + keeps working past the box (the engine would stop the queue)."
+    },
+    {
+      "file": "out/after-4-queued-units-reduce-remaining-desktop.png",
+      "heading": "After: Staged builds reduce what is left, desktop",
+      "caption": "Starting from 3 carriers, 3 dreadnoughts and 1 war sun: one carrier, two dreadnoughts and one war sun are staged, so each row reads 'N in this build' and 'none left', the + is disabled with the reason, and the cruiser row (not staged) still says 2 left."
+    },
+    {
+      "file": "before/before-4-queued-units-reduce-remaining-390x844.png",
+      "heading": "Before: Staged builds reduce what is left, 390x844",
+      "caption": "Commit 80ce1bf1: no component limit anywhere in the dialog, and the + keeps working past the box (the engine would stop the queue)."
+    },
+    {
+      "file": "out/after-4-queued-units-reduce-remaining-390x844.png",
+      "heading": "After: Staged builds reduce what is left, 390x844",
+      "caption": "Starting from 3 carriers, 3 dreadnoughts and 1 war sun: one carrier, two dreadnoughts and one war sun are staged, so each row reads 'N in this build' and 'none left', the + is disabled with the reason, and the cruiser row (not staged) still says 2 left."
+    }
+  ],
+  "notes": [
+    {
+      "title": "What the engine enforces. ",
+      "text": "supply.rs caps flagship 1, war sun 2, dreadnought 5, cruiser and destroyer 8, carrier and mech 4, PDS 6, space dock 3 per player by base type (faction and upgrade variants share the box); captured units and units on the Crimson hero card count as held. Fighters and infantry are uncapped on purpose. The production question drops an option when nothing is left and trims a batch to what the box holds. No rule was changed."
+    },
+    {
+      "title": "Not modelled. ",
+      "text": "No effect that changes a limit (Mahact or otherwise) exists in the engine, so none is shown."
+    }
+  ]
+}
