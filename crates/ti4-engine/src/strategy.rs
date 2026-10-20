@@ -739,6 +739,12 @@ fn secondary_can_do_something(
                 })
                 .unwrap_or(false)
         }
+        // Imperial's secondary draws a secret objective. A seat whose every secret is already
+        // scored (three, or four with the Obsidian) can neither keep the card (45.4) nor hand an
+        // unscored one back, so the draw gains nothing and costs the token.
+        "Imperial" if state.rules_version >= ti4_model::state::RULES_IMPERIAL_SECRET_CAP => {
+            !crate::secrets::hand_is_all_scored(state, content, player)
+        }
         "Diplomacy" => state
             .controlled_planets(player)
             .into_iter()
@@ -1166,6 +1172,64 @@ mod tests {
         // Empty details are not serialised, so an old reader sees exactly the old bytes.
         assert!(!serde_json::to_string(&bare).unwrap().contains("details"));
         assert!(serde_json::to_string(&with).unwrap().contains("details"));
+    }
+
+    fn imperial_seat(scored: usize, in_hand: usize, version: u32) -> (GameState, StrategyCardId) {
+        let mut state = drafted_three_player_game();
+        state.rules_version = version;
+        let player = PlayerId::new("a");
+        let card = card_named(&state, "Imperial");
+        let aliases = ["ans", "btgk", "ctr", "csl", "dtgs", "eap"];
+        if let Some(seat) = state.player_mut(&player) {
+            seat.strategic_tokens = 3;
+            seat.secret_objectives = aliases[3..3 + in_hand.min(3)]
+                .iter()
+                .map(|a| ti4_model::id::SecretObjectiveId::new(*a))
+                .collect();
+        }
+        state.scored_objectives.insert(
+            player,
+            aliases[..scored]
+                .iter()
+                .map(|a| ti4_model::id::ObjectiveId::new(*a))
+                .collect(),
+        );
+        (state, card)
+    }
+
+    #[test]
+    fn imperial_secondary_is_withheld_from_a_seat_with_three_scored_secrets() {
+        let player = PlayerId::new("a");
+        let (state, card) = imperial_seat(3, 0, ti4_model::state::RULES_IMPERIAL_SECRET_CAP);
+        assert!(!secondary_eligible(
+            &state,
+            ContentStore::embedded(),
+            POK,
+            &player,
+            &card
+        ));
+        // Before the gate the offer is made as it always was.
+        let (old, card) = imperial_seat(3, 0, ti4_model::state::RULES_IMPERIAL_SECRET_CAP - 1);
+        assert!(secondary_eligible(
+            &old,
+            ContentStore::embedded(),
+            POK,
+            &player,
+            &card
+        ));
+    }
+
+    #[test]
+    fn imperial_secondary_is_still_offered_with_two_scored_or_a_full_hand() {
+        let player = PlayerId::new("a");
+        let v = ti4_model::state::RULES_IMPERIAL_SECRET_CAP;
+        for (scored, hand) in [(2, 0), (2, 1), (0, 3), (1, 2), (0, 0)] {
+            let (state, card) = imperial_seat(scored, hand, v);
+            assert!(
+                secondary_eligible(&state, ContentStore::embedded(), POK, &player, &card),
+                "{scored} scored, {hand} in hand"
+            );
+        }
     }
 
     #[test]

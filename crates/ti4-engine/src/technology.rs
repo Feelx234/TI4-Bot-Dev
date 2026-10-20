@@ -3186,10 +3186,22 @@ mod tests {
         let (aida, cr2) = (TechnologyId::new("aida"), TechnologyId::new("cr2"));
         assert!(!can_research(&state, content, POK, &player(), &cr2));
         assert!(research(&mut state, content, POK, &player(), &aida));
-        assert!(!state.player(&player()).unwrap().exhausted_technologies.contains(&aida));
+        assert!(
+            !state
+                .player(&player())
+                .unwrap()
+                .exhausted_technologies
+                .contains(&aida)
+        );
         assert!(can_research(&state, content, POK, &player(), &cr2));
         assert!(research(&mut state, content, POK, &player(), &cr2));
-        assert!(state.player(&player()).unwrap().exhausted_technologies.contains(&aida));
+        assert!(
+            state
+                .player(&player())
+                .unwrap()
+                .exhausted_technologies
+                .contains(&aida)
+        );
     }
 
     /// The web picker's `technologyWaivers.test.ts` reads the same table and must give the same
@@ -3237,7 +3249,9 @@ mod tests {
                 used.insert(*id);
                 let system = ti4_model::id::SystemId::new(record.system_id().unwrap());
                 let planet = PlanetId::new(*id);
-                state.system_mut(&system).set_control(planet.clone(), player());
+                state
+                    .system_mut(&system)
+                    .set_control(planet.clone(), player());
                 if specialty["exhausted"].as_bool().unwrap() {
                     state.exhaust_planet(planet);
                 }
@@ -3249,7 +3263,10 @@ mod tests {
                 "{name}"
             );
             if let Some(then) = scenario["then_target"].as_str() {
-                assert!(research(&mut state, content, POK, &player(), &target), "{name}: first pick");
+                assert!(
+                    research(&mut state, content, POK, &player(), &target),
+                    "{name}: first pick"
+                );
                 let then = TechnologyId::new(then);
                 assert_eq!(
                     can_research(&state, content, POK, &player(), &then),
@@ -3259,7 +3276,6 @@ mod tests {
             }
         }
     }
-
 }
 
 #[cfg(test)]
