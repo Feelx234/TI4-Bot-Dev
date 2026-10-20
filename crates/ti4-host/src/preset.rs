@@ -666,7 +666,7 @@ fn research(
     // then blue, and whatever specialty is left when a colour has run out.
     for wanted in ["BIOTIC", "PROPULSION"] {
         for player in players {
-            let mut take = |colour: Option<&str>| {
+            let take = |colour: Option<&str>| {
                 systems.iter().find_map(|system| {
                     let system = SystemId::new(*system);
                     ti4_engine::planets::in_system(state, content, POK, &system)
