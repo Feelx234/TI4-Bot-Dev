@@ -643,7 +643,12 @@ pub struct Observed<'a> {
     /// reachability question from more than one feature family; the position cannot change while
     /// it is borrowed, so the answer cannot either.
     movable: std::cell::RefCell<BTreeMap<(PlayerId, SystemId), Vec<crate::tactical::Movable>>>,
+    /// [`Self::rift_exits_into`] answers, for the same reason.
+    rift_exits: std::cell::RefCell<BTreeMap<RiftKey, usize>>,
 }
+
+/// (player, destination, origin, unit type, Gravity Drive, Ionian) of a cached rift count.
+type RiftKey = (PlayerId, SystemId, SystemId, String, bool, bool);
 
 impl<'a> Observed<'a> {
     /// The public battle boundary at this exact decision, including the victory window.
@@ -671,6 +676,7 @@ impl<'a> Observed<'a> {
             sources,
             galaxy,
             movable: std::cell::RefCell::new(BTreeMap::new()),
+            rift_exits: std::cell::RefCell::new(BTreeMap::new()),
         }
     }
 
@@ -913,6 +919,53 @@ impl<'a> Observed<'a> {
             destination,
         );
         self.movable.borrow_mut().insert(key, found.clone());
+        found
+    }
+
+    /// Gravity rifts a ship of `player` sailing from `origin` to `destination` would exit (each
+    /// rolls a die: 1-3 destroys it and its cargo, 41.2); 0 without a map. Reads the public map
+    /// and the seat's own effects, like [`Self::movable_into`].
+    #[must_use]
+    pub fn rift_exits_into(
+        &self,
+        player: &PlayerId,
+        origin: &SystemId,
+        unit_type: &str,
+        boosts: (bool, bool),
+        destination: &SystemId,
+    ) -> usize {
+        let Some(galaxy) = self.galaxy else {
+            return 0;
+        };
+        let key = (
+            player.clone(),
+            destination.clone(),
+            origin.clone(),
+            unit_type.to_owned(),
+            boosts.0,
+            boosts.1,
+        );
+        if let Some(known) = self.rift_exits.borrow().get(&key) {
+            return *known;
+        }
+        let found = ti4_content::units::unit_type(self.content, unit_type, self.sources).map_or(
+            0,
+            |kind| {
+                crate::tactical::route_rift_exits(
+                    self.state,
+                    self.content,
+                    self.sources,
+                    galaxy,
+                    player,
+                    destination,
+                    origin.as_str(),
+                    &kind,
+                    unit_type,
+                    boosts,
+                )
+            },
+        );
+        self.rift_exits.borrow_mut().insert(key, found);
         found
     }
 

@@ -141,6 +141,65 @@ fn seat_index(choice: &Choice) -> usize {
         .unwrap_or(0)
 }
 
+/// Every seat's units on the board by (owner, type): the before/after of one step.
+fn unit_census(state: &ti4_model::state::GameState) -> BTreeMap<(String, String), i64> {
+    let mut census = BTreeMap::new();
+    for system in state.board.values() {
+        for unit in system
+            .units
+            .iter()
+            .chain(system.planet_units.values().flatten())
+        {
+            *census
+                .entry((unit.owner.to_string(), unit.type_id.to_string()))
+                .or_default() += 1;
+        }
+    }
+    census
+}
+
+/// Count the gravity-rift dice rolled by the step that just ran, and the units a destroying die
+/// took with it (the census difference of that step: no combat happens inside a move step).
+fn record_rift_rolls(
+    game: &ti4_engine::game::Game<'_>,
+    from: usize,
+    before: Option<BTreeMap<(String, String), i64>>,
+    usage: &mut BTreeMap<String, u64>,
+) {
+    let mut destroyed_by: Vec<String> = Vec::new();
+    for roll in &game.rolls()[from..] {
+        if roll.reason != "gravity rift" {
+            continue;
+        }
+        let seat = roll
+            .by
+            .as_deref()
+            .and_then(|b| SEATS.iter().position(|s| *s == b))
+            .unwrap_or(9);
+        *usage.entry(format!("rift:s{seat}:dice")).or_default() += 1;
+        if roll.outcome.as_deref() == Some("ship destroyed") {
+            *usage.entry(format!("rift:s{seat}:destroyed")).or_default() += 1;
+            destroyed_by.push(roll.by.clone().unwrap_or_default());
+        }
+    }
+    let (Some(before), false) = (before, destroyed_by.is_empty()) else {
+        return;
+    };
+    let after = unit_census(&game.state);
+    for ((owner, kind), n) in &before {
+        let lost = n - after
+            .get(&(owner.clone(), kind.clone()))
+            .copied()
+            .unwrap_or(0);
+        if lost > 0 && destroyed_by.contains(owner) {
+            let seat = SEATS.iter().position(|s| *s == owner).unwrap_or(9);
+            *usage
+                .entry(format!("rift:s{seat}:lost:{kind}"))
+                .or_default() += lost as u64;
+        }
+    }
+}
+
 fn subtype_of(choice: &Choice) -> String {
     choice.context.as_ref().map_or_else(
         || {
@@ -215,13 +274,8 @@ impl SelfPlay {
                     .copied()
                     .unwrap_or_default();
                 tuning::set(t);
-                let (picked, smart, _) = ti4_rule_bot::choose_explained(
-                    choice,
-                    Some(seen),
-                    sh.seed,
-                    seat,
-                    index,
-                );
+                let (picked, smart, _) =
+                    ti4_rule_bot::choose_explained(choice, Some(seen), sh.seed, seat, index);
                 (choice.options[picked].clone(), smart)
             }
             _ => (sh.random.choose(choice)?, false),
@@ -243,6 +297,25 @@ impl SelfPlay {
         stat.ns += u64::try_from(ns).unwrap_or(u64::MAX);
         if let Some(key) = usage_key(&subtype, &option) {
             *sh.usage.entry(key).or_default() += 1;
+        }
+        // Gravity-rift statistics (docs/BOT_GRAVITY_RIFT.md), per seat index: the ship moves the
+        // seat chose that exit a rift, and how many such moves it passed over.
+        if subtype == "movement_step"
+            && let Some(map) = choice.details.get("rift_exits").and_then(|v| v.as_object())
+        {
+            let seat = seat_index(choice);
+            let chose = map.get(&option.id).and_then(|n| n.as_u64());
+            *sh.usage
+                .entry(format!("rift:s{seat}:moves_offered_rift"))
+                .or_default() += map.len() as u64;
+            if let Some(n) = chose {
+                *sh.usage
+                    .entry(format!("rift:s{seat}:moves_chosen_rift"))
+                    .or_default() += 1;
+                *sh.usage
+                    .entry(format!("rift:s{seat}:exits_chosen"))
+                    .or_default() += n;
+            }
         }
         // The same question, from the same seat, answered the same way, over and over.
         let mut hash = 0xcbf2_9ce4_8422_2325_u64;
@@ -402,6 +475,7 @@ fn play(spec: &GameSpec, options: &PlayOptions) -> (GameResult, Option<Vec<Trace
     let limits = &options.limits;
     let mut phase_ns: BTreeMap<String, u128> = BTreeMap::new();
     let mut steps = 0usize;
+    let mut rift_usage: BTreeMap<String, u64> = BTreeMap::new();
     let mut round_log: Vec<(usize, u32, String)> = Vec::new();
     let mut vp_by_round: Vec<Vec<i32>> = Vec::new();
     let mut recorder = options
@@ -452,10 +526,16 @@ fn play(spec: &GameSpec, options: &PlayOptions) -> (GameResult, Option<Vec<Trace
             );
         }
         let phase = format!("{:?}", game.state.phase).to_lowercase();
+        let rolls_before = game.rolls().len();
+        let census_before =
+            (game.state.pending.as_deref() == Some("move")).then(|| unit_census(&game.state));
         let t = Instant::now();
         let result = game.step();
         *phase_ns.entry(phase.clone()).or_default() += t.elapsed().as_nanos();
         steps += 1;
+        if game.rolls().len() > rolls_before {
+            record_rift_rolls(&game, rolls_before, census_before, &mut rift_usage);
+        }
         if let Some(recorder) = recorder.as_mut() {
             recorder.observe(&game.state);
         }
@@ -577,7 +657,13 @@ fn play(spec: &GameSpec, options: &PlayOptions) -> (GameResult, Option<Vec<Trace
             .collect(),
         hash,
         by_subtype: sh.by_subtype.clone(),
-        usage: sh.usage.clone(),
+        usage: {
+            let mut usage = sh.usage.clone();
+            for (k, v) in rift_usage {
+                *usage.entry(k).or_default() += v;
+            }
+            usage
+        },
         scored,
         vp_sources,
         end_counts,

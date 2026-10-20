@@ -504,6 +504,55 @@ pub fn movement_options(player: &PlayerId, movable: &[Movable]) -> Choice {
     Choice::new(player.clone(), "movement", options)
 }
 
+/// Gravity rifts the route of a ship of type `kind` (id `kind_id`) from `origin` to `active`
+/// exits: one die each, `1`-`3` destroys the ship and its cargo (41.2). Zero when the ship ignores
+/// anomalies or rifts, has no route, or the route crosses none. `boosts` is (Gravity Drive,
+/// Ionian Fuel Refinery).
+#[must_use]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the movement search's own inputs"
+)]
+pub fn route_rift_exits(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: &Galaxy,
+    player: &PlayerId,
+    active: &SystemId,
+    origin: &str,
+    kind: &ti4_content::units::UnitType<'_>,
+    kind_id: &str,
+    boosts: (bool, bool),
+) -> usize {
+    let mut rules = MovementRules::with_laws(
+        galaxy,
+        content,
+        sources,
+        active.as_str(),
+        Board::for_player(state, content, sources, player),
+        Some(state),
+    );
+    crate::action_cards::apply_movement_effects(&mut rules, state, player);
+    if rules.anomalies_ignored || rules.rifts_ignored {
+        return 0;
+    }
+    rules
+        .path_from_ship(
+            origin,
+            effective_move_value_with_boosts(
+                state,
+                kind,
+                player,
+                &SystemId::new(origin),
+                boosts.0,
+                boosts.1,
+            ),
+            Some(kind_id),
+        )
+        .map_or(0, |path| crate::transit::rifts_exited(&rules, &path).len())
+}
+
 /// Attach to each ship-move option the exact fleet-supply and transport change the ship makes on
 /// arrival in the active system (OBS-008a2, LRR 37 and 16).
 ///
@@ -524,6 +573,9 @@ pub fn preview_moves(
 ) -> Choice {
     let types = catalogue(content, sources);
     let before = crate::fleet::standing_using(&types, state, content, player, active, None);
+    // Display and policy fact: option id -> gravity rifts the ship's route exits (one die each,
+    // 1-3 destroys it and its cargo). Empty (so absent) on a map without a rift on any route.
+    let mut rift_map = serde_json::Map::new();
     for option in &mut choice.options {
         let Some(kind) = option
             .payload
@@ -566,33 +618,22 @@ pub fn preview_moves(
             .get("unit")
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default();
-        let route_exits_rift = origin.is_some_and(|origin| {
-            let mut rules = MovementRules::with_laws(
-                galaxy,
+        let rift_exits = origin.map_or(0, |origin| {
+            route_rift_exits(
+                state,
                 content,
                 sources,
-                active.as_str(),
-                Board::for_player(state, content, sources, player),
-                Some(state),
-            );
-            crate::action_cards::apply_movement_effects(&mut rules, state, player);
-            let path = rules.path_from_ship(
+                galaxy,
+                player,
+                active,
                 origin,
-                effective_move_value_with_boosts(
-                    state,
-                    &kind,
-                    player,
-                    &SystemId::new(origin),
-                    gravity_drive,
-                    ionian,
-                ),
-                Some(kind_id),
-            );
-            !rules.anomalies_ignored
-                && !rules.rifts_ignored
-                && path.is_some_and(|path| !crate::transit::rifts_exited(&rules, &path).is_empty())
+                &kind,
+                kind_id,
+                (gravity_drive, ionian),
+            )
         });
-        if route_exits_rift {
+        if rift_exits > 0 {
+            rift_map.insert(option.id.clone(), serde_json::Value::from(rift_exits));
             option.preview = Some(Preview::unknown("gravity-rift survival is unresolved"));
             continue;
         }
@@ -618,6 +659,9 @@ pub fn preview_moves(
     let armada = crate::faction_abilities::armada_bonus(state, content, player);
     if armada > 0 {
         fleet_supply["armada"] = serde_json::json!(armada);
+    }
+    if !rift_map.is_empty() {
+        choice = choice.detailed("rift_exits", rift_map);
     }
     choice.detailed("fleet_supply", fleet_supply)
 }
