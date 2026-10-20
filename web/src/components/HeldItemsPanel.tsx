@@ -114,7 +114,7 @@ export const HeldItemsPanel: React.FC<HeldItemsPanelProps> = ({
   onClose,
 }) => {
   const display = usePlayerIdentity();
-  const { held, breakthroughs } = usePublicState();
+  const { held, breakthroughs, thundersEdge } = usePublicState();
   const [subject, setSubject] = useState(initialSubject ?? viewer ?? players[0]?.id ?? "");
   const ref = useRef<HTMLElement | null>(null);
   const titleId = useId();
@@ -138,10 +138,11 @@ export const HeldItemsPanel: React.FC<HeldItemsPanelProps> = ({
         board,
         held,
         breakthrough: breakthroughs[subject] ?? null,
+        breakthroughsOn: thundersEdge,
         options,
         label: (id) => display(id).label,
       }),
-    [players, subject, viewer, board, held, breakthroughs, options, display],
+    [players, subject, viewer, board, held, breakthroughs, thundersEdge, options, display],
   );
   const ordered = useMemo(
     () => [...players].sort((a, b) => Number(b.id === viewer) - Number(a.id === viewer)),
@@ -210,10 +211,10 @@ export function useHeldItemsCount(
   viewer: string | undefined,
   board?: BoardView | null,
 ): number {
-  const { held, breakthroughs } = usePublicState();
+  const { held, breakthroughs, thundersEdge } = usePublicState();
   return useMemo(
-    () => buildHeldItems({ players, subject, viewer, board, held, breakthrough: breakthroughs[subject] ?? null }).total,
-    [players, subject, viewer, board, held, breakthroughs],
+    () => buildHeldItems({ players, subject, viewer, board, held, breakthrough: breakthroughs[subject] ?? null, breakthroughsOn: thundersEdge }).total,
+    [players, subject, viewer, board, held, breakthroughs, thundersEdge],
   );
 }
 

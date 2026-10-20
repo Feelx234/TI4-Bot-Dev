@@ -75,6 +75,8 @@ import { PreparedHintProvider } from "./presentation/PreparedHint.tsx";
 import { GONE_MESSAGE, UNREACHABLE_MESSAGE } from "./protocol/resilience.ts";
 import { ConnectionProblem, ReconnectingChip, useAfterDelay } from "./components/ConnectionNotice.tsx";
 import { readBreakthroughs } from "./presentation/breakthroughs.ts";
+import { readThundersEdge } from "./presentation/expedition.ts";
+import { PassOrderProvider } from "./presentation/passOrder.tsx";
 import { readExplorationLog } from "./presentation/explorationToasts.ts";
 import { agendaOutcomeLabel, readAgendaCasts, readAgendaLog } from "./presentation/agendaToasts.ts";
 import { stateRulesVersion } from "./versionInfo.ts";
@@ -613,7 +615,11 @@ const GameViewContainer: React.FC<{
   const pendingChoice = statusPlan.holding && !prep.dry ? null : prep.shownChoice;
   const paymentDraft = usePaymentDraftState(pendingChoice?.nonce);
   const explorationLog = useMemo(() => readExplorationLog(snapshot?.state), [snapshot?.state]);
-  const breakthroughs = useMemo(() => readBreakthroughs(snapshot?.state), [snapshot?.state]);
+  // Breakthroughs belong to the Thunder's Edge content: a table without it has none to toast.
+  const breakthroughs = useMemo(
+    () => (readThundersEdge(snapshot?.state) ? readBreakthroughs(snapshot?.state) : {}),
+    [snapshot?.state],
+  );
   const agendaLog = useMemo(() => readAgendaLog(snapshot?.state), [snapshot?.state]);
   const agendaCastList = useMemo(() => readAgendaCasts(snapshot?.state), [snapshot?.state]);
   const relicLog = useMemo(() => readRelicLog(snapshot?.state), [snapshot?.state]);
@@ -782,7 +788,8 @@ const GameViewContainer: React.FC<{
     <OddsEngineProvider local={queryEngine}>
     <PlayerIdentityProvider lobby={lobby} seatingOrder={snapshot?.view.seating_order ?? []}>
     <SeatInfoProvider players={snapshot?.view.players} viewerSeat={userSeat}>
-    <PublicStateProvider state={snapshot?.state}>
+    <PublicStateProvider state={snapshot?.state} score={snapshot?.score}>
+    <PassOrderProvider players={snapshot?.view.players} round={snapshot?.view.round} phase={snapshot?.view.phase}>
     <DecisionTableProvider table={snapshot?.view ?? null}>
     <NotificationLogProvider inline>
     <BluffScope
@@ -1145,6 +1152,7 @@ const GameViewContainer: React.FC<{
     </BluffScope>
     </NotificationLogProvider>
     </DecisionTableProvider>
+    </PassOrderProvider>
     </PublicStateProvider>
     </SeatInfoProvider>
     </PlayerIdentityProvider>

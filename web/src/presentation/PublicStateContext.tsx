@@ -3,6 +3,7 @@ import { readBreakthroughs } from "./breakthroughs.ts";
 import { readFrontierTokens } from "./explorationMarks.ts";
 import { EMPTY_HELD_STATE, readHeldState, type HeldState } from "./heldItems.ts";
 import { readExplorationLog, type ExplorationRecordDto } from "./explorationToasts.ts";
+import type { ScoreFacts } from "../protocol/types.ts";
 import { readExpeditionSlices, readThundersEdge } from "./expedition.ts";
 
 /**
@@ -20,6 +21,8 @@ export interface PublicStateFacts {
   thundersEdge: boolean;
   /** Expedition slice to the seat that claimed it. */
   expeditionSlices: Readonly<Record<string, string>>;
+  /** Where each seat's points come from (the snapshot's `score`); null for a server that sends none. */
+  score: ScoreFacts | null;
 }
 
 const EMPTY: PublicStateFacts = {
@@ -29,25 +32,33 @@ const EMPTY: PublicStateFacts = {
   held: EMPTY_HELD_STATE,
   thundersEdge: false,
   expeditionSlices: {},
+  score: null,
 };
 const PublicStateContext = createContext<PublicStateFacts>(EMPTY);
 
-export function publicStateFacts(state: Record<string, unknown> | null | undefined): PublicStateFacts {
+export function publicStateFacts(
+  state: Record<string, unknown> | null | undefined,
+  score: ScoreFacts | null = null,
+): PublicStateFacts {
+  const thundersEdge = readThundersEdge(state);
   return {
-    breakthroughs: readBreakthroughs(state),
+    // Breakthroughs come with the Thunder's Edge content (`thunders_edge` source): without it none shows.
+    breakthroughs: thundersEdge ? readBreakthroughs(state) : {},
     explorations: readExplorationLog(state),
     frontierSystems: new Set(readFrontierTokens(state)),
     held: readHeldState(state),
-    thundersEdge: readThundersEdge(state),
+    thundersEdge,
     expeditionSlices: readExpeditionSlices(state),
+    score,
   };
 }
 
 export const PublicStateProvider: React.FC<{
   state: Record<string, unknown> | null | undefined;
+  score?: ScoreFacts | null;
   children: React.ReactNode;
-}> = ({ state, children }) => {
-  const facts = useMemo(() => publicStateFacts(state), [state]);
+}> = ({ state, score, children }) => {
+  const facts = useMemo(() => publicStateFacts(state, score ?? null), [state, score]);
   return <PublicStateContext.Provider value={facts}>{children}</PublicStateContext.Provider>;
 };
 

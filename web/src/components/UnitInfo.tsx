@@ -190,7 +190,9 @@ export const FactionInfoCard: React.FC<{
   leaders?: Record<string, string>;
   /** Whether the seat holds its breakthrough; omitted when unknown (a faction picker, not a seat). */
   breakthroughHeld?: boolean;
-}> = ({ faction, leaders, breakthroughHeld }) => (
+  /** Show the faction's breakthrough (default); off when the table plays without Thunder's Edge. */
+  showBreakthrough?: boolean;
+}> = ({ faction, leaders, breakthroughHeld, showBreakthrough = true }) => (
   <div className="info-card__body" data-testid="faction-info-card">
     <div className="info-card__title">{faction.name}</div>
     {faction.abilities.length > 0 && (
@@ -215,7 +217,7 @@ export const FactionInfoCard: React.FC<{
         ))}
       </Section>
     )}
-    {faction.breakthrough && (
+    {showBreakthrough && faction.breakthrough && (
       <Section title="Breakthrough">
         <div className="info-card__entry" data-testid="faction-breakthrough">
           <strong>{faction.breakthrough.name}</strong>
@@ -278,7 +280,8 @@ export const FactionInfoButton: React.FC<{
   leaders?: Record<string, string>;
   /** The seat's earned breakthrough alias, or null while it is locked; omit outside a seat. */
   breakthroughHeld?: string | null;
-}> = ({ faction, technologies, leaders, breakthroughHeld }) => {
+  showBreakthrough?: boolean;
+}> = ({ faction, technologies, leaders, breakthroughHeld, showBreakthrough }) => {
   const info = describeFaction(faction, technologies);
   return (
     <InfoPopover
@@ -292,6 +295,7 @@ export const FactionInfoButton: React.FC<{
           faction={info}
           leaders={leaders}
           breakthroughHeld={breakthroughHeld === undefined ? undefined : breakthroughHeld !== null}
+          showBreakthrough={showBreakthrough}
         />
       ) : (
         <div className="info-card__body" data-testid="faction-info-empty">

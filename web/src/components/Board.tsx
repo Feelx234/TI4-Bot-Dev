@@ -16,6 +16,7 @@ import { groupReach, reachVectors } from "../presentation/reachView.ts";
 import type { ReachReply } from "../protocol/client.ts";
 import { Tooltip } from "../primitives/index.ts";
 import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
+import { usePassStatus } from "../presentation/passOrder.tsx";
 import { seatStyle } from "../presentation/playerDisplay.ts";
 import { boardStageStyle } from "./board/boardLayout.ts";
 import { MapOverlayMode } from "../presentation/mapOverlays.ts";
@@ -73,6 +74,7 @@ export const Board: React.FC<BoardProps> = ({
   queryReach,
 }) => {
   const display = usePlayerIdentity();
+  const passStatus = usePassStatus();
   const [uncontrolledSelectedSystemId, setUncontrolledSelectedSystemId] = useState<string | null>(
     null,
   );
@@ -336,6 +338,11 @@ export const Board: React.FC<BoardProps> = ({
       {seatingOrder.map((id, index) => (
         <span key={id} style={{ borderColor: seatStyle(index + 1).color }}>
           <SeatBadge position={index + 1} /> {display(id).label}
+          {passStatus(id).passed && (
+            <span className="passed-chip passed-chip--legend" data-testid="seat-passed" data-place={passStatus(id).place ?? ""}>
+              {passStatus(id).label}
+            </span>
+          )}
         </span>
       ))}
     </div>
