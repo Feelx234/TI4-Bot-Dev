@@ -154,6 +154,7 @@ export const DECISION_CONTAINERS = [
   "agenda-ballot-modal",
   "reaction-status-bar",
   "paused-plan",
+  "retreat-pick-bar",
 ];
 
 // New UI surfaces worth a look by the proctor: the first time one is on screen during a run (and
