@@ -16,7 +16,7 @@ const board = {
     "26": { planets: { lodor: { controlled_by: "me" } }, command_tokens: [], units: [unit("carrier")] },
     "41": { planets: {}, command_tokens: [], units: [] },
   },
-} as unknown as BoardView;
+} as unknown as unknown as BoardView;
 
 const choice = (subtype: string, options: PendingChoiceDto["options"], target?: string): PendingChoiceDto =>
   ({
@@ -37,9 +37,9 @@ const retreatTo = choice(
 );
 const foresight = choice(
   "foresight_destination",
-  [{ id: "system|26", kind: "system", label: "move your ships from 18 to 26" }],
+  [{ id: "system|26", kind: "system", label: "move your ships from 18 to 26", payload: {} }],
 );
-const ralnel = choice("ralnel_retreat_destination", [{ id: "to|26", kind: "retreat", label: "retreat up to 2 ships to 26" }], "18");
+const ralnel = choice("ralnel_retreat_destination", [{ id: "to|26", kind: "retreat", label: "retreat up to 2 ships to 26", payload: {} }], "18");
 
 describe("retreat destination picks", () => {
   it("names the ships and the system they leave in the heading", () => {
@@ -54,7 +54,7 @@ describe("retreat destination picks", () => {
     const big = {
       ...board,
       systems: { ...board.systems, "18": { ...board.systems["18"], units: [unit("cruiser"), unit("carrier"), unit("fighter"), unit("dreadnought")] } },
-    } as BoardView;
+    } as unknown as BoardView;
     expect(describeRetreatPick(retreatTo, big)!.title).toBe("Retreat your fleet (4 units) from Mecatol Rex (System 18)");
   });
 
@@ -76,7 +76,7 @@ describe("retreat destination picks", () => {
 
   it("covers the Ral Nel commander and Skilled Retreat", () => {
     expect(describeRetreatPick(ralnel, board)!.title).toBe("Ral Nel commander: retreat up to 2 ships from Mecatol Rex (System 18)");
-    const skilled = choice("skilled_retreat_choose_system", [{ id: "26", kind: "skilled_retreat", label: "withdraw to 26" }], "18");
+    const skilled = choice("skilled_retreat_choose_system", [{ id: "26", kind: "skilled_retreat", label: "withdraw to 26", payload: {} }], "18");
     expect(describeRetreatPick(skilled, board)!.title).toBe("Skilled Retreat: withdraw 2 cruisers from Mecatol Rex (System 18)");
   });
 
@@ -87,10 +87,10 @@ describe("retreat destination picks", () => {
   });
 
   it("maps prefixed option ids to their system", () => {
-    expect(retreatOptionSystem({ id: "system|26", kind: "system", label: "" })).toBe("26");
-    expect(retreatOptionSystem({ id: "to|26", kind: "retreat", label: "" })).toBe("26");
-    expect(retreatOptionSystem({ id: "26", kind: "retreat_to", label: "" })).toBe("26");
-    expect(retreatOptionSystem({ id: "decline", kind: "decline", label: "" })).toBeNull();
+    expect(retreatOptionSystem({ id: "system|26", kind: "system", label: "", payload: {} })).toBe("26");
+    expect(retreatOptionSystem({ id: "to|26", kind: "retreat", label: "", payload: {} })).toBe("26");
+    expect(retreatOptionSystem({ id: "26", kind: "retreat_to", label: "", payload: {} })).toBe("26");
+    expect(retreatOptionSystem({ id: "decline", kind: "decline", label: "", payload: {} })).toBeNull();
   });
 
   it("makes the destinations a map pick whose click selects the option", () => {
