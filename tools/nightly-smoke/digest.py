@@ -16,6 +16,8 @@ import os
 import re
 import sys
 
+import te_report
+
 SUSPICIOUS = re.compile(
     r"panicked|RUST_BACKTRACE|\bERROR\b|Error:|error\[|rejected:|click failed|pageerror|"
     r"console:|did not advance|no actionable control|never reached|game idle|timed out|✘",
@@ -166,7 +168,7 @@ def main():
     out = []
     p = out.append
     p(f"### Run digest — game seed {meta.get('game_seed')} · click seed {meta.get('click_seed')} · "
-      f"{meta.get('players')} players · policy {meta.get('policy')} · preset {meta.get('preset') or 'none'} · cards {meta.get('card_set') or 'te'}"
+      f"{meta.get('players')} players · policy {meta.get('policy')} · preset {meta.get('preset') or 'none'} · cards {meta.get('card_set') or 'te'} · {te_report.label(meta, report)}"
       + (" · web=build (production bundle)" if meta.get("web") == "build" else "")
       + (f" · commit {str(meta['commit'])[:8]}" + (f" (+{meta['dirty_files']} uncommitted files)" if meta.get("dirty_files") else "")
          if meta.get("commit") else ""))
@@ -180,6 +182,7 @@ def main():
       f"rounds reached: {max(map(int, rounds), default='?') if rounds else (trace[-1]['round'] if trace else '?')}, "
       f"game finished: {report.get('finished', False)}")
     p(f"- final turn status: `{json.dumps(report.get('finalStatus') or snapshot.get('turn_status'))[:300]}`")
+    p(te_report.line(meta, report, state, faction))
     p(f"- repro: `{meta.get('repro', '?')}`")
     if gdir:
         p(f"- server game record: `{gdir}`")

@@ -141,6 +141,33 @@ export function turnBarPool<T extends PolicyCandidate>(candidates: T[]): T[] | n
   return rows.length ? rows : bar;
 }
 
+/** Whether a decision's options offer a Thunder's Edge expedition slice (`component|expedition|<slice>`). */
+export const offersExpedition = (optionIds: readonly string[]): boolean =>
+  optionIds.some((id) => id.startsWith("component|expedition|"));
+
+/** The slice a turn bar row stands for (`turn-bar-item-component|expedition|<slice> | ...`), else null. */
+export function expeditionSliceOfControl(desc: string): string | null {
+  return /^turn-bar-item-component\|expedition\|([a-z_]+)\b/.exec(desc)?.[1] ?? null;
+}
+
+/** Weight of the components button while an expedition slice is payable (a turn bar steered by TE). */
+export const EXPEDITION_MENU_WEIGHT = 16;
+/** Weight of an expedition row inside the open components menu (the other rows weigh 1). */
+export const EXPEDITION_ROW_WEIGHT = 30;
+
+/**
+ * Steering for Thunder's Edge tables: the expedition is committed from the components menu at the
+ * end of a turn, so while a slice is payable (`offered`) the menu is opened far more often than
+ * its 6, and inside it the expedition rows outweigh the other components. Null: no opinion (the
+ * table weights apply), which is every control of a table without the expedition. Only the steered
+ * policy calls this; a payable slice is at most six claims per game, so the run is not flooded.
+ */
+export function expeditionWeight(desc: string, offered: boolean): number | null {
+  if (expeditionSliceOfControl(desc)) return EXPEDITION_ROW_WEIGHT;
+  if (offered && /^turn-bar-components\b/.test(desc)) return EXPEDITION_MENU_WEIGHT;
+  return null;
+}
+
 // Steering weights, first match wins; anything unmatched weighs 1. They push random play toward
 // moving fleets into contested systems and Mecatol Rex instead of passing and trading.
 const STEER_WEIGHTS: [RegExp, number][] = [

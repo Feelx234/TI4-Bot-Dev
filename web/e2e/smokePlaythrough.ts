@@ -12,6 +12,7 @@ import {
   openPlayerGame,
 } from "./lobbyHelpers";
 import type { BoardView } from "../src/protocol/types";
+import { readExpeditionSlices } from "../src/presentation/expedition";
 import { startupRetryable, tolerableConsoleError } from "./smokeBrowserErrors";
 import { basePreset, missingExpected, type Expectation } from "./smokePreset";
 import { SecondaryPrepExercise, emptyPrepReport, prepConfigFromEnv, type PrepReport } from "./smokePrep";
@@ -47,6 +48,9 @@ import {
   EXCLUDED_CONTROLS,
   isReactionSubtype,
   reactionTextProblem,
+  expeditionSliceOfControl,
+  expeditionWeight,
+  offersExpedition,
 } from "./smokePolicy";
 
 /**
@@ -64,6 +68,8 @@ export interface PlaythroughOptions {
   cardSet?: string;
   /** Named map template for the game (default: the server's choice for the table size). */
   mapTemplate?: string;
+  /** Thunder's Edge content on (the table switch; `GameState::thunders_edge`). Default off. */
+  thundersEdge?: boolean;
   /** Decision subtypes the run must have offered (see `parseExpect`); a miss fails the run. */
   expect?: Expectation[];
   /** Stop successfully after this many resolved decisions. */
@@ -83,10 +89,36 @@ export interface PlaythroughOptions {
   traceDir?: string;
 }
 
+/** What the run saw of the Thunder's Edge expedition (the end-of-turn slice claims). */
+export interface ExpeditionReport {
+  /** Questions of the driven seats that offered a slice (an offer repeats every turn while payable). */
+  offers: number;
+  /** Slices the driver claimed through the turn bar, by slice. */
+  claimed: Record<string, number>;
+  /** Slices held at the end of the game (`state.expedition_slices`), by slice to seat. */
+  held: Record<string, string>;
+  /** All six slices claimed: the planet was placed. */
+  completed: boolean;
+  /** Questions of the expedition's own follow-ups (payment choices, system pick, placement tie-break), by subtype. */
+  followUps: Record<string, number>;
+}
+
+export const emptyExpeditionReport = (): ExpeditionReport => ({
+  offers: 0,
+  claimed: {},
+  held: {},
+  completed: false,
+  followUps: {},
+});
+
 export interface PlaythroughReport {
   gameId: string;
   startPreset: string | null;
   cardSet: string | null;
+  /** The table played with Thunder's Edge content (TI4_SMOKE_TE); false: the default table. */
+  thundersEdge: boolean;
+  /** Expedition counts of a Thunder's Edge table (all zero otherwise). */
+  expedition: ExpeditionReport;
   decisions: number;
   clicks: number;
   finished: boolean;
@@ -412,9 +444,17 @@ export function activationWeights(
 // The notes preset wants promissory notes sold, swapped and given: trading is steered up there.
 let tradeBoost = false;
 
+// The current question offers an expedition slice (set by the drivers before each pick).
+let expeditionOffered = false;
+export function setExpeditionOffered(offered: boolean) {
+  expeditionOffered = offered;
+}
+
 function steerWeight(desc: string, hexWeights: Map<string, number>): number {
   const hex = /^system-hex-(\S+) /.exec(desc);
   if (hex) return hexWeights.get(hex[1]) ?? 1;
+  const expedition = expeditionWeight(desc, expeditionOffered);
+  if (expedition !== null) return expedition;
   if (tradeBoost && /^turn-bar-trade\b/.test(desc)) return 6;
   return policySteerWeight(desc);
 }
@@ -551,9 +591,11 @@ export async function randomUiPlaythrough(
     options.startPreset,
     options.cardSet,
     options.mapTemplate,
+    undefined,
+    options.thundersEdge,
   );
   log(
-    `game ${gameId} seed=${options.gameSeed} clickSeed=${options.clickSeed} preset=${options.startPreset ?? "none"} cards=${options.cardSet ?? "default"} map=${options.mapTemplate ?? "default"}`,
+    `game ${gameId} seed=${options.gameSeed} clickSeed=${options.clickSeed} preset=${options.startPreset ?? "none"} cards=${options.cardSet ?? "default"} map=${options.mapTemplate ?? "default"} thunders_edge=${options.thundersEdge ? "on" : "off"}`,
   );
 
   const flags = exerciseFlagsFromEnv();
@@ -717,6 +759,8 @@ export async function randomUiPlaythrough(
     gameId,
     startPreset: options.startPreset ?? null,
     cardSet: options.cardSet ?? null,
+    thundersEdge: options.thundersEdge === true,
+    expedition: emptyExpeditionReport(),
     decisions: 0,
     clicks: 0,
     finished: false,
@@ -771,12 +815,16 @@ export async function randomUiPlaythrough(
   const writeFinal = async () => {
     if (!options.traceDir) return;
     await finishExercisesHook();
-    trace("report.json", report);
     const snapshot = await gameSnapshot(
       request,
       gameId,
       players[0].session,
     ).catch(() => null);
+    if (snapshot) {
+      report.expedition.held = readExpeditionSlices(snapshot.state as Record<string, unknown> | null | undefined);
+      report.expedition.completed = Object.keys(report.expedition.held).length >= 6;
+    }
+    trace("report.json", report);
     if (snapshot) trace("final-snapshot.json", snapshot);
   };
 
@@ -1036,6 +1084,11 @@ export async function randomUiPlaythrough(
           ? activationWeights(actorState.view.board, players[actorIndex].id, basePreset(options.startPreset) === "explore")
           : new Map<string, number>();
       report.subtypes[subtype] = (report.subtypes[subtype] ?? 0) + 1;
+      const offeredSlice = offersExpedition(choice.options.map((o) => o.id));
+      setExpeditionOffered(offeredSlice);
+      if (offeredSlice) report.expedition.offers++;
+      if (/^expedition_/.test(subtype))
+        report.expedition.followUps[subtype] = (report.expedition.followUps[subtype] ?? 0) + 1;
       const offerKey = `${actorIndex}:${subtype}`;
       const techOffersSoFar = techOffers.get(offerKey) ?? 0;
       techOffers.set(offerKey, techOffersSoFar + 1);
@@ -1197,6 +1250,9 @@ export async function randomUiPlaythrough(
         );
         clicks++;
         report.clicks++;
+        const claimedSlice = chosen.commit ? expeditionSliceOfControl(chosen.desc) : null;
+        if (claimedSlice)
+          report.expedition.claimed[claimedSlice] = (report.expedition.claimed[claimedSlice] ?? 0) + 1;
         if (isTurnMenu && isBarControl(chosen.desc) && chosen.commit)
           barControl = chosen.desc
             .split(" | ")[0]

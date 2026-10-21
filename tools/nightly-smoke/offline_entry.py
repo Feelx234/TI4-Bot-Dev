@@ -15,6 +15,8 @@ import os
 import re
 import sys
 
+import te_report
+
 KEYWORDS = re.compile(
     r"custodian|Mecatol|agenda|law|relic|research|scored|objective|combat|retreat|destroy|played|explor|"
     r"produced|trade|promissory|vote|won|victory|game over",
@@ -131,7 +133,7 @@ def main():
     head = (
         f"- offline run (no server, wasm engine, rule bots): seed {meta.get('game_seed')} (click seed {meta.get('click_seed')}), "
         f"{meta.get('players')} players, human seat {seat if seat else '?'} ({report.get('humanFaction') or 'dealt by the seed'}), "
-        f"policy {meta.get('policy')}, viewport {meta.get('viewport')}, rounds reached {last_round}, "
+        f"policy {meta.get('policy')}, viewport {meta.get('viewport')}, {te_report.label(meta, report)}, rounds reached {last_round}, "
         f"decisions {report.get('decisions', len(trace))}, duration {report.get('seconds', '?')} s, "
         f"outcome {report.get('outcome', 'none')}, exit status {exit_code}"
     )
@@ -146,6 +148,7 @@ def main():
     p(f"## Run {name} — {verdict}")
     p(head)
     p(meta_line)
+    p(te_report.line(meta, report))
     p(f"- repro: `{meta.get('repro', '?')}`")
     p(f"- exact replay of the saved game (native, same engine code): `{meta.get('replay', '?')}` (`trace/save.json` is the save blob: seed, setup, every answer, decisions hash)")
     p("")

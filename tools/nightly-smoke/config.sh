@@ -88,6 +88,15 @@ EXPLORE_MAP_PERCENT="${NIGHTLY_EXPLORE_MAP_PERCENT:-30}"
 # Share of runs (percent) that play the Prophecy of Kings strategy cards (`strategy_card_set` "pok")
 # instead of the default Thunder's Edge set (TE Warfare offers an extra redistribute decision).
 POK_PROBABILITY="${NIGHTLY_POK_PROBABILITY:-25}"
+# Thunder's Edge content (the table switch `thunders_edge`, default off in the game; not the `te`
+# strategy card set above). Share of server runs (percent) that play with it on: the expedition at
+# the end of a turn, the TE planets and cards, the extra TE prompts. The click driver then favours
+# the expedition (web/e2e/smokePolicy.ts). TE_EXPEDITION_PRESET_PERCENT of those start from the
+# `expedition` preset (four slices claimed, two left for the first seat to pay: the system pick, the
+# placement tie-break and the planet arriving come early). 0 switches Thunder's Edge runs off. The
+# choice is recorded as "thunders_edge" in meta.json and shown in the digest.
+TE_PROBABILITY="${NIGHTLY_TE_PROBABILITY:-25}"
+TE_EXPEDITION_PRESET_PERCENT="${NIGHTLY_TE_EXPEDITION_PRESET_PERCENT:-30}"
 # Optional UI exercises, each switched on for a share of runs (percent) through an env switch of the
 # harness (web/e2e/smokeExercises.ts): the "ui tour" opens one unit card and the Faction card
 # (TI4_SMOKE_UI_TOUR, about 1 run in 6), the recap toggle is turned on for one random non-host seat
@@ -170,6 +179,9 @@ OFFLINE_STALL_SECONDS="${NIGHTLY_OFFLINE_STALL_SECONDS:-90}"
 # Percent of runs on a phone-sized viewport (390x844) instead of 1440x900.
 OFFLINE_PHONE_PERCENT="${NIGHTLY_OFFLINE_PHONE_PERCENT:-15}"
 OFFLINE_SHOT_CAP="${NIGHTLY_OFFLINE_SHOT_CAP:-30}"
+# Percent of runs (0..100) played with Thunder's Edge content on (the setup form's switch); the
+# rule bots then see the expedition too. Recorded as "thunders_edge" in meta.json.
+OFFLINE_TE_PERCENT="${NIGHTLY_OFFLINE_TE_PERCENT:-25}"
 # Percent of runs that reload the page once at a random question (between decision 8 and 160) and check that the
 # saved game comes back with the same question: the resume path, at every kind of position.
 OFFLINE_RESUME_PERCENT="${NIGHTLY_OFFLINE_RESUME_PERCENT:-25}"

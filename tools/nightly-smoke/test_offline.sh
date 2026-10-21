@@ -40,6 +40,12 @@ check_true "entry has the proctors' sections" bash -c "for s in 'Potential bugs'
 check_true "entry carries repro and replay" bash -c "grep -q 'repro: .REPRO CMD' '$TMP/clean.out' && grep -q 'REPLAY CMD' '$TMP/clean.out'"
 check "severity of a clean run" "$(python3 "$HERE/offline_entry.py" "$TMP/clean" --max-severity)" none
 check_true "digest.md and entry.md are written" test -s "$TMP/clean/digest.md" -a -s "$TMP/clean/entry.md"
+check_true "default offline entry says Thunder's Edge off" bash -c "grep -q \"Thunder's Edge off\" '$TMP/clean.out' && grep -q \"^- Thunder's Edge: off\" '$TMP/clean.out'"
+mk_run "$TMP/te" '{"thundersEdge":true,"expedition":{"offers":6,"claimed":{"trade_goods":1},"held":{"trade_goods":"p1","resources":"p2","influence":"p2","action_cards":"p3"},"completed":false,"followUps":{}}}'
+python3 -c "import json,sys; m=json.load(open(sys.argv[1])); m['thunders_edge']=True; json.dump(m, open(sys.argv[1],'w'))" "$TMP/te/meta.json"
+python3 "$HERE/offline_entry.py" "$TMP/te" > "$TMP/te.out"
+check_true "Thunder's Edge offline entry is labelled" bash -c "grep -q \"Thunder's Edge ON\" '$TMP/te.out'"
+check_true "Thunder's Edge offline entry lists the expedition counts" bash -c "grep -q 'offered to the click-driven seat(s) in 6 questions; claimed by the click driver 1 (trade_goods x1); slices held at the end 4/6' '$TMP/te.out' && grep -q 'completed (planet placed): no' '$TMP/te.out'"
 mk_run "$TMP/stuck" '{"outcome":"stuck","findings":["stuck: no actionable control at decision #5 subtype x"]}'
 echo "stuck on x at decision #5" > "$TMP/stuck/trace/failure.txt"
 python3 "$HERE/offline_entry.py" "$TMP/stuck" > "$TMP/stuck.out"

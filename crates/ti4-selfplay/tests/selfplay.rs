@@ -20,6 +20,7 @@ fn setup(players: usize, seeds: Vec<u64>) -> SetupSpec {
         speaker: "random".to_owned(),
         card_set: None,
         starting_tech: false,
+        thunders_edge: false,
         rules_version: None,
         seeds: Seeds::List(seeds),
     }
@@ -123,6 +124,67 @@ fn starting_technology_is_asked_only_when_the_spec_says_so_and_the_bot_chooses_b
     matrix.bot.insert("bot_version".to_owned(), "2".to_owned());
     let (old, _) = run_matrix(&matrix, 1, false, false, None).unwrap();
     assert_eq!(old.combined.by_subtype["starting_technology"].smart, 0);
+}
+
+/// The expedition claims of a game (`usage`): the slices taken and the questions that offered one.
+fn expedition_usage(s: &ti4_selfplay::stats::Summary) -> (f64, f64) {
+    let sum = |suffix: &str| {
+        s.combined
+            .usage_mean
+            .iter()
+            .filter(|(k, _)| k.starts_with("expedition:s") && k.ends_with(suffix))
+            .map(|(_, v)| *v)
+            .sum::<f64>()
+    };
+    (sum(":offers"), sum(":claims"))
+}
+
+#[test]
+fn thunders_edge_tables_offer_the_expedition_and_default_tables_never_do() {
+    let mut table = setup(4, vec![3]);
+    let mut matrix = Matrix {
+        setups: vec![table.clone()],
+        limits: Limits {
+            max_rounds: 4,
+            ..Limits::default()
+        },
+        bot: BTreeMap::new(),
+    };
+    let (plain, _) = run_matrix(&matrix, 1, false, false, None).unwrap();
+    assert_eq!(
+        expedition_usage(&plain),
+        (0.0, 0.0),
+        "no switch, no expedition"
+    );
+    assert!(
+        !plain.games[0]
+            .spec
+            .command_line()
+            .contains("--thunders-edge")
+    );
+    table.thunders_edge = true;
+    matrix.setups = vec![table];
+    let (with, _) = run_matrix(&matrix, 1, false, false, None).unwrap();
+    let (offers, claims) = expedition_usage(&with);
+    assert!(
+        offers > 0.0,
+        "a Thunder's Edge table offers a slice at the end of a turn"
+    );
+    assert!(
+        claims > 0.0,
+        "the rule bots take slices (by the random pick under the rules)"
+    );
+    assert!(
+        with.games[0].spec.thunders_edge
+            && with.games[0]
+                .spec
+                .command_line()
+                .contains("--thunders-edge")
+    );
+    assert_ne!(plain.games[0].hash, with.games[0].hash);
+    // The switch is part of the spec, so the same seed replays to the same game.
+    let (again, _) = run_matrix(&matrix, 1, false, false, None).unwrap();
+    assert_eq!(with.games[0].hash, again.games[0].hash);
 }
 
 #[test]

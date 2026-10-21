@@ -897,3 +897,16 @@ harness (a rerun fills the cache, ~6 min for 200 tables at 6 workers):
 Expected effects by mechanism (not measured): the agenda and Support for the Throne rules (`vote_rule`, `sftt_rule`, Politics) are the ones whose
 verdict is most likely to change under controllable VP; tech_pick_rule, r1_tech, nekro_tech touch only research and cards, so their controllable
 effect should track the total effect. BOT_VERSION 3 content is unchanged pending the reruns.
+
+## Thunder's Edge tables (`--thunders-edge`)
+
+`selfplay run --thunders-edge` (spec field `thunders_edge`, `GameSpec::command_line` prints it; left out of a spec it is off, so
+every recorded golden set and summary is unchanged) plays the tables with Thunder's Edge content switched on
+(`GameState::thunders_edge`, decks built from the full source set, game sources `FULL`), the table switch of docs/RULES_VERSION.md,
+not the `te` strategy card set. The expedition is then offered at the end of every turn (`component|expedition|<slice>`). The rule
+bot has no rule for it: the question falls through to the random pick under the rules (`random.rs`), which takes a slice often.
+Measured 2026-10-21 (v6, 24 four-player tables, seeds 700 to 723): every table claimed all six slices (144 claims, 24 of each
+slice), about 12 end-of-turn questions per table offered a slice. `usage` of `--games-out` has `expedition:s<seat>:offers|claims` and
+`expedition_slice=<slice>`. So the offline nightly's TE games (`NIGHTLY_OFFLINE_TE_PERCENT`) exercise the whole expedition through
+the bots without a bot knob; no v7 table was needed for it.
+

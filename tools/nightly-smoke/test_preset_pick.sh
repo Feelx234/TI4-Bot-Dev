@@ -23,6 +23,8 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 # The suffix knobs below are checked on their own; everywhere else they stay off so the checks see
 # plain preset names.
 export NIGHTLY_PRESET_FACTIONS_PERCENT=0 NIGHTLY_PRESET_SHORT_PERCENT=0 NIGHTLY_EXPLORE_MAP_PERCENT=0 NIGHTLY_PRESET_AGENDA_PERCENT=0
+# Thunder's Edge runs (and their expedition preset) have their own checks at the end.
+export NIGHTLY_TE_PROBABILITY=0
 
 start 100 "$tmp/always"
 grep -q '"preset": "combat"' "$tmp/always/meta.json" || fail "100% should pick the combat preset"
@@ -238,3 +240,33 @@ builds=0
 for i in $(seq 1 60); do [ "$(web_pick 30 "$tmp/web30-$i")" = build ] && builds=$((builds + 1)); done
 [ "$builds" -ge 5 ] && [ "$builds" -le 35 ] || fail "share 30 picked $builds/60 build runs"
 echo "ok: web build share (30% picked $builds/60)"
+
+# Thunder's Edge content: 0 never, 100 always; recorded in meta.json and the repro; the expedition
+# preset replaces the preset roll for part of the TE runs; the default share is about a quarter.
+te_start() { # te_start <te-probability> <expedition-preset-percent> <run-dir> [preset probability]
+  NIGHTLY_REPO="$tmp" NIGHTLY_TE_PROBABILITY="$1" NIGHTLY_TE_EXPEDITION_PRESET_PERCENT="$2" NIGHTLY_PRESET_PROBABILITY="${4:-100}" \
+    NIGHTLY_PRESET=combat NIGHTLY_PRESET_ROTATE_PERCENT=0 "$tmp/tools/nightly-smoke/run_game.sh" start "$3" > /dev/null
+}
+te_start 0 100 "$tmp/te0"
+grep -q '"thunders_edge": false' "$tmp/te0/meta.json" || fail "TE probability 0 should record thunders_edge false"
+grep -q 'TI4_SMOKE_TE' "$tmp/te0/meta.json" && fail "a table without Thunder's Edge must not mention TI4_SMOKE_TE in the repro"
+grep -q '"preset": "combat"' "$tmp/te0/meta.json" || fail "TE probability 0 must leave the preset roll alone (expedition preset only with TE)"
+te_start 100 0 "$tmp/te100"
+grep -q '"thunders_edge": true' "$tmp/te100/meta.json" || fail "TE probability 100 should record thunders_edge true"
+grep -q 'TI4_SMOKE=1 TI4_SMOKE_PRESET=combat TI4_SMOKE_TE=1 ' "$tmp/te100/meta.json" || fail "the repro should carry TI4_SMOKE_TE=1 after the preset"
+grep -q '"preset": "combat"' "$tmp/te100/meta.json" || fail "0% expedition preset leaves the roll"
+python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$tmp/te100/meta.json" || fail "meta.json must stay valid JSON with thunders_edge"
+te_start 100 100 "$tmp/te-exp"
+grep -q '"preset": "expedition"' "$tmp/te-exp/meta.json" || fail "TE with 100% expedition preset should start from expedition"
+grep -q 'TI4_SMOKE_PRESET=expedition TI4_SMOKE_TE=1 ' "$tmp/te-exp/meta.json" || fail "expedition repro should carry preset and TE"
+te_start 100 100 "$tmp/te-exp-nopreset" 0
+grep -q '"preset": "expedition"' "$tmp/te-exp-nopreset/meta.json" || fail "the expedition preset does not depend on the general preset share"
+te_start 0 100 "$tmp/te-none" 0
+grep -q '"preset": ""' "$tmp/te-none/meta.json" || fail "no TE and no preset share: no preset"
+tes=0
+for i in $(seq 1 120); do
+  env -u NIGHTLY_TE_PROBABILITY NIGHTLY_REPO="$tmp" "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/ted$i" > /dev/null
+  grep -q '"thunders_edge": true' "$tmp/ted$i/meta.json" && tes=$((tes + 1))
+done
+[ "$tes" -ge 12 ] && [ "$tes" -le 55 ] || fail "the default 25% played Thunder's Edge $tes/120 times"
+echo "ok: Thunder's Edge runs (default share $tes/120)"

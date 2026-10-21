@@ -42,6 +42,15 @@ export function mapTemplateFromEnv(value: string | undefined): string | undefine
   return name || undefined;
 }
 
+/**
+ * Reads TI4_SMOKE_TE: "1" (or "true") plays the table with Thunder's Edge content on (the lobby's
+ * switch, `thunders_edge`); unset, empty or "0" keeps the default (off). Not the strategy card set.
+ */
+export function thundersEdgeFromEnv(value: string | undefined): boolean {
+  const text = value?.trim().toLowerCase();
+  return text === "1" || text === "true";
+}
+
 /** The POST /api/games body; `start_preset` is only sent when a preset was asked for. */
 export function createGameBody(
   playerCount: number,
@@ -49,6 +58,7 @@ export function createGameBody(
   preset?: string,
   cardSet?: string,
   mapTemplate?: string,
+  thundersEdge?: boolean,
 ) {
   return {
     player_count: playerCount,
@@ -59,6 +69,8 @@ export function createGameBody(
     ...(cardSet ? { strategy_card_set: cardSet } : {}),
     // A named map (e.g. "3pInPersonHyperlanes", the only default-size map with frontier systems).
     ...(mapTemplate ? { map_template: mapTemplate } : {}),
+    // Thunder's Edge content (the expedition, TE planets and cards); left out: the default, off.
+    ...(thundersEdge ? { thunders_edge: true } : {}),
   };
 }
 

@@ -9,10 +9,19 @@ import {
   collectCandidates,
   escapePaymentDeadEnd,
   mulberry32,
+  emptyExpeditionReport,
   pick,
+  setExpeditionOffered,
   visibleErrors,
+  type ExpeditionReport,
 } from "./smokePlaythrough";
-import { isReactionSubtype, OVERLAY_CLOSE_IDS, reactionTextProblem } from "./smokePolicy";
+import {
+  expeditionSliceOfControl,
+  isReactionSubtype,
+  offersExpedition,
+  OVERLAY_CLOSE_IDS,
+  reactionTextProblem,
+} from "./smokePolicy";
 import { storedRecord } from "./offlineDriver";
 import { preferTechWindowUse, settledGameOverBanner } from "./smokePolicy";
 
@@ -45,6 +54,8 @@ export interface OfflineSweepOptions {
   /** No worker message and no decision for this long means the game is stuck. */
   stallSeconds: number;
   viewport: "desktop" | "phone";
+  /** Play with Thunder's Edge content on (the setup form's switch). Default off. */
+  thundersEdge?: boolean;
   /** Reload the page once at this decision and check that the game comes back (null: never). */
   resumeAt: number | null;
   shotCap: number;
@@ -61,6 +72,10 @@ export interface OfflineSweepReport {
   players: number;
   policy: string;
   viewport: string;
+  /** The game was set up with Thunder's Edge content (TI4_OFFLINE_TE). */
+  thundersEdge: boolean;
+  /** Expedition counts of a Thunder's Edge game: the human's offers and claims, and the slices every seat held at the end. */
+  expedition: ExpeditionReport;
   humanSeat: number | null;
   humanFaction: string | null;
   factions: string[];
@@ -110,6 +125,8 @@ interface AskSummary {
   subtype: string;
   prompt: string;
   source: unknown;
+  /** `state.expedition_slices` of the latest state (slice to seat), when the message carried one. */
+  expeditionSlices?: Record<string, string>;
   options: { id: string; kind?: string; label?: string }[];
   board?: BoardView;
 }
@@ -175,6 +192,7 @@ export function sweepInitScript(arg: { seed: number; autoLone: boolean | null })
           source: choice?.context?.source ?? null,
           options: (choice?.options ?? []).map((o: any) => ({ id: o.id, kind: o.kind, label: o.label })),
           end: m.t === "end" ? (m.envelope?.end ?? null) : undefined,
+          expeditionSlices: view?.state?.expedition_slices ?? undefined,
         };
         summary.events = messages
           .filter((x) => x && x.type === "event" && x.entry)
@@ -225,6 +243,8 @@ export async function playOfflineGame(
     players: options.players,
     policy: options.policy,
     viewport: options.viewport,
+    thundersEdge: options.thundersEdge === true,
+    expedition: emptyExpeditionReport(),
     humanSeat: null,
     humanFaction: null,
     factions: [],
@@ -266,6 +286,7 @@ export async function playOfflineGame(
   await page.exposeBinding("__sweepEvent", (_source, name: string, payload: any) => {
     lastMessageAt = Date.now();
     if (payload?.players?.length) players = payload.players;
+    if (payload?.expeditionSlices) report.expedition.held = payload.expeditionSlices;
     if (name === "ask") {
       if (payload.kind === "end") ended = { stamp: payload.stamp, end: payload.end, players: payload.players };
       else if (payload.statusKind === "game_over" && !payload.subtype.startsWith("prompt:") && payload.subtype === "none") {
@@ -346,6 +367,7 @@ export async function playOfflineGame(
       report.engine = { ...(save.engine ?? {}), wasmSha256: stored?.wasmSha256 ?? (await readWasmHash(page)) };
       if (!report.humanSeat && typeof save.human_seat === "number") report.humanSeat = save.human_seat + 1;
     }
+    report.expedition.completed = Object.keys(report.expedition.held).length >= 6;
     report.finalStandings = players.map((p) => `${p.faction} ${p.vp ?? "?"} VP`);
     report.factions = players.map((p) => p.faction);
     report.finalStatus = ask ? { kind: (ask as AskSummary).statusKind, round: (ask as AskSummary).round, phase: (ask as AskSummary).phase } : null;
@@ -377,6 +399,7 @@ export async function playOfflineGame(
       report.humanFaction = wanted;
       await page.getByTestId(`offline-faction-option-${wanted}`).click();
     }
+    if (options.thundersEdge) await page.getByTestId("offline-thunders-edge").locator("input").check();
     await page.getByTestId("offline-start").click();
     await page.waitForSelector('[data-testid="offline-game"]', { timeout: 90_000 });
   } catch (error) {
@@ -582,6 +605,10 @@ export async function playOfflineGame(
           ? activationWeights(current.board, current.player, false)
           : new Map<string, number>();
       report.subtypes[subtype] = (report.subtypes[subtype] ?? 0) + 1;
+      const offeredSlice = offersExpedition(current.options.map((o) => o.id));
+      setExpeditionOffered(offeredSlice);
+      if (offeredSlice) report.expedition.offers++;
+      if (/^expedition_/.test(subtype)) report.expedition.followUps[subtype] = (report.expedition.followUps[subtype] ?? 0) + 1;
       if (current.round !== null && !(current.round in report.roundStarts)) {
         report.roundStarts[current.round] = report.decisions;
         log(`round ${current.round} reached after ${report.decisions} decisions (${Math.round((Date.now() - started) / 1000)} s)`);
@@ -718,6 +745,8 @@ export async function playOfflineGame(
           hexWeights,
         );
         log(`#${report.decisions} ${subtype} click ${chosen.desc}`);
+        const claimedSlice = chosen.commit ? expeditionSliceOfControl(chosen.desc) : null;
+        if (claimedSlice) report.expedition.claimed[claimedSlice] = (report.expedition.claimed[claimedSlice] ?? 0) + 1;
         const clickStart = Date.now();
         await page
           .locator(`[data-smoke-idx="${chosen.idx}"]`)
