@@ -1,7 +1,7 @@
 {
  "title": "Creuss home system on the board",
  "description": "The Creuss home system (tile 51) has no hex on the ordinary map, and the host never sent it as a map tile, so the board did not draw it: its ships, planet and control could not be seen or clicked (while the engine offered it for activation). The host now sends it as an off-map tile on a free hex beside the Creuss Gate, wherever the Gate is after tile edits (a Muaat supernova shown here). The capture asserts it is drawn in the viewport, is the topmost element at its centre, and that click -> inspector -> Confirm submits 51, desktop and 390x844.",
- "tag": "web/e2e/screenshots/GP-creuss-home",
+ "tag": "web/e2e/screenshots/GQ-creuss-home",
  "shots": [
   { "file": "out/before-desktop.png", "heading": "Before: desktop", "caption": "The Creuss Gate is on the map, but the home system is not drawn anywhere, although it is a legal activation." },
   { "file": "out/after-desktop.png", "heading": "After: desktop", "caption": "Tile 51 sits beside the Gate facing away from the centre, with the Creuss carrier and infantry on it. A Muaat supernova (Nova Seed) is on the map too." },
