@@ -22,6 +22,7 @@ pub mod agendas;
 pub mod error;
 pub mod factions;
 pub mod galaxy;
+pub mod hyperlane;
 pub mod loader;
 pub mod manifest;
 pub mod provenance;

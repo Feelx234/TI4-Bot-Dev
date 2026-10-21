@@ -1162,7 +1162,7 @@ pub struct StartingTechPick {
 /// Station) does not offer the conversion to a seat with no commodities.
 pub const RULES_NO_EMPTY_CONVERT: u32 = 19;
 
-pub const RULES_VERSION: u32 = 21;
+pub const RULES_VERSION: u32 = 22;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
@@ -1274,6 +1274,13 @@ pub const RULES_NOVA_SEED_AFTERMATH: u32 = 20;
 /// activation list (which walks the grid and the board) never named it: the Nexus was adjacent to
 /// every gamma system and could not be entered. Version 21.
 pub const RULES_NEXUS_ACTIVATION: u32 = 21;
+
+/// The first rules version in which the printed lanes of hyperlane tiles decide adjacency: a
+/// hyperlane tile is no neighbour of anything, and two systems that a chain of lanes joins are
+/// adjacent (one step of a move). Before, the engine treated a lane tile as an empty hex a ship
+/// passed through, which cost an extra step and linked the wrong systems -- a ship one lane away
+/// from the active system was refused for range. Version 22.
+pub const RULES_HYPERLANE_LANES: u32 = 22;
 
 /// The whole game, as a value.
 ///
