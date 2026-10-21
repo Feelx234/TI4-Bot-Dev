@@ -177,6 +177,11 @@ export interface BoardEngineFacts {
   nexusUnlocked?: boolean;
   /** `wormhole_tokens`: wormhole kind (GAMMA, ...) -> the system the token sits in. */
   wormholeTokens?: Record<string, unknown>;
+  /**
+   * `fracture_in_play`: the Fracture (Thunder's Edge) is on the table. The host always sends its
+   * tiles; they are drawn only once it is in play (or the engine already holds the system).
+   */
+  fractureInPlay?: boolean;
 }
 
 export const LOCKED_NEXUS = "82a";
@@ -680,7 +685,7 @@ export function buildBoardPresentationModel(
     kinds.add(kind.toUpperCase());
     tokenWormholes.set(at, kinds);
   }
-  const rawTiles: BoardTileView[] = (
+  const allTiles: BoardTileView[] = (
     board.map_tiles && board.map_tiles.length > 0
       ? resolveNexusFace(board.map_tiles, Boolean(facts.nexusUnlocked))
       : Object.keys(systemsMap).map((id, index): BoardTileView => {
@@ -710,6 +715,13 @@ export function buildBoardPresentationModel(
     const added = [...extra].filter((kind) => !have.has(kind));
     return added.length ? { ...tile, wormholes: [...(tile.wormholes ?? []), ...added] } : tile;
   });
+
+  // The Fracture tiles are in every map_tiles list; with Thunder's Edge off, or before the Fracture
+  // enters play, they are not part of the game, so no unused planet row sits under the galaxy.
+  const rawTiles = allTiles.filter(
+    (tile) =>
+      tile.special_area !== "fracture" || facts.fractureInPlay === true || tile.system_id in systemsMap,
+  );
 
   const regularCenters = rawTiles
     .filter((t) => !t.special_area)
