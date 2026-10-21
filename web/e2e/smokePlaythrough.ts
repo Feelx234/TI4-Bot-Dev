@@ -1128,6 +1128,8 @@ export async function randomUiPlaythrough(
             status.round,
             before,
             () => uiVersion(page),
+            status.phase,
+            subtype,
           );
         });
         if (handled === "done") progressed = true;

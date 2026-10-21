@@ -338,6 +338,8 @@ export class SecondaryPrepExercise {
     round: number,
     before: number,
     version: () => Promise<number>,
+    phase = "action",
+    subtype = "",
   ): Promise<"done" | "normal"> {
     const p = this.plans.get(seat);
     if (!p) return "normal";
@@ -379,6 +381,14 @@ export class SecondaryPrepExercise {
       return "normal";
     }
     const first = secondary;
+    // Once the plan's own window was answered, only the card's follow-up steps (technology, planets,
+    // a build, a payment) belong to it. A status-phase decision (gain a command token, score an
+    // objective) or a reaction window is the seat's ordinary game: the plan is over, Auto has nothing
+    // to say about it (s2-05 and s2-10 of the 2026-10-20 sweep reported a missing toast for those).
+    if (p.started && !first && (phase !== "action" || /^reaction_/.test(subtype))) {
+      this.plans.delete(seat);
+      return "normal";
+    }
     if (!first && (choice.prompt === "action phase" || /^end your turn/i.test(choice.prompt ?? ""))) {
       this.plans.delete(seat); // the plan's follow-up steps are over; this is the seat's own turn
       return "normal";

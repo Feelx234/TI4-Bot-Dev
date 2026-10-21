@@ -40,13 +40,15 @@
    row. The preparing banner keeps the top. */
 .secondary-prep:not(.secondary-prep--preparing) {
   top: auto;
-  bottom: 16px;
+  /* Above the turn action bar (its height is published as --bottom-bar-offset): at a fixed 16px the
+     auto-played toast covered the action menu's buttons. */
+  bottom: calc(var(--bottom-bar-offset, 0px) + 16px);
 }
 @media (max-width: 720px) {
   /* The board column is only as tall as the map strip on a phone: dock to the screen. */
   .secondary-prep:not(.secondary-prep--preparing) {
     position: fixed;
-    bottom: 72px;
+    bottom: calc(var(--bottom-bar-offset, 0px) + 72px);
   }
 }
 @media (max-width: 720px) {
