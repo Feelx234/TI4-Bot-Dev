@@ -18,6 +18,7 @@ import { TokenPaymentBar } from "./TokenPaymentBar.tsx";
 import { StrategySecondaryPanel } from "./StrategySecondaryPanel.tsx";
 import { describeTradeReplenish } from "../presentation/tradeReplenish.ts";
 import { TradeReplenishPanel } from "./TradeReplenishPanel.tsx";
+import { systemPickOptionTitle } from "../presentation/systemFacts.ts";
 import { SystemPickConfirmBar, SystemPickMapButton, SystemPickOptionFacts } from "./SystemPickParts.tsx";
 import { RemoveUnitPanel, RemoveUnitOptionNote } from "./RemoveUnitParts.tsx";
 import { UnitAbilityOptionNote } from "./UnitAbilityParts.tsx";
@@ -250,7 +251,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   const replenish = tokens || secondary ? null : describeTradeReplenish(choice);
   const abilityOffer = tokens || secondary || replenish ? null : describeAbilityOffer(choice);
   const offerCard =
-    tokens || secondary || replenish || abilityOffer ? null : describeOfferCard(choice);
+    tokens || secondary || replenish || abilityOffer ? null : describeOfferCard(choice, boardView);
   const voteGoods =
     tokens || secondary || replenish || abilityOffer || offerCard ? null : describeVoteGoods(choice);
   // Action cards with a picker of their own, in place of one radio per answer.
@@ -563,7 +564,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                           style={{ fontWeight: 600, color: isChecked ? "#38bdf8" : "#e2e8f0" }}
                         >
                           <span>
-                            {card ? `${card.initiative}. ${card.name}` : (handCard?.title ?? pickOptionTitle(choice, opt, boardView) ?? describeRemoveUnit(choice, boardView)?.option(opt).title ?? describeUnitAbilityOption(choice, opt, boardView)?.title ?? presentOption(opt))}
+                            {card ? `${card.initiative}. ${card.name}` : (handCard?.title ?? systemPickOptionTitle(choice, opt, boardView) ?? pickOptionTitle(choice, opt, boardView) ?? describeRemoveUnit(choice, boardView)?.option(opt).title ?? describeUnitAbilityOption(choice, opt, boardView)?.title ?? presentOption(opt))}
                           </span>
                           {card && showGoods && <StrategyGoodsBadge option={opt} />}
                         </div>

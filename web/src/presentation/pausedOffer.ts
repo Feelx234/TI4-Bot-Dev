@@ -1,5 +1,5 @@
 import type { PendingChoiceDto } from "../protocol/types.ts";
-import { promptForOption, promptsForSubtype, type PausablePrompt } from "./pausablePrompts.ts";
+import { contentSourceOf, promptForOption, promptsForSubtype, type PausablePrompt } from "./pausablePrompts.ts";
 
 export interface PausedDecline {
   /** The option that declines the question. */
@@ -38,7 +38,7 @@ export function pausedDecline(
     }
   }
 
-  const bySubtype = promptsForSubtype(choice.context?.subtype).filter((p) => isPaused(p.id));
+  const bySubtype = promptsForSubtype(choice.context?.subtype, contentSourceOf(choice)).filter((p) => isPaused(p.id));
   if (bySubtype.length > 0) return { optionId: decline.id, prompts: bySubtype };
   return null;
 }

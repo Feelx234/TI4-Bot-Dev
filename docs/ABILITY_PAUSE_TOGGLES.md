@@ -45,6 +45,7 @@ Storage key `player_ask_<id>` in localStorage, default ask. The registry is `web
 | `firmament_agent` | Firmament | Myru Vos | agent | SYSTEM_ACTIVATED after | owner, any activation; every activation while readied |
 | `ghost_agent` | Creuss | Emissary Taivra (and Ssruu copy) | agent | SYSTEM_ACTIVATED after | owner, any wormhole activation; every wormhole activation while readied |
 | `icarus_drive` | Creuss | Icarus Drive | mech | SYSTEM_ACTIVATED after | owner, any activation; every activation while a mech is on the board |
+| `minister_of_peace` | (law owner) | Minister of Peace | law | offer_discard_law, content source `minister_peace` | owner of the law, after an activation of a system with another player's units; listed on the sheet while the law is held. Shares the subtype with the other ministers, told apart by the question's content source |
 | `laws_order` | Keleres | Laws Order | faction ability | TURN_BEGAN after | owner, every player's turn; every turn start while a law is in play |
 | `pillage` | Mentak | Pillage | faction ability | TRADE_GOODS_GAINED / TRANSACTION_RESOLVED after | owner, neighbors' gains; every neighbor gain or trade with 3+ trade goods |
 | `ambush` | Mentak | Ambush | faction ability | start of space combat (inline question) | owner; every space combat with cruisers/destroyers |

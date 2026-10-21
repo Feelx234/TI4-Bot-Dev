@@ -21,6 +21,19 @@ describe("predict outcome (the riders)", () => {
     expect(describeRider({ ...predict, context: { subtype: "other" } as never })).toBeNull();
   });
 
+  it("shows the Diplomacy Rider as printed when it asks which system, from its card source", () => {
+    const pick = {
+      context: { subtype: "diplomacy_rider_system", source: { ActionCard: "diplo_rider" } } as never,
+      prompt: "Diplomacy Rider: choose a system",
+    };
+    const rider = describeRider(pick);
+    expect(rider?.name).toBe("Diplomacy Rider");
+    expect(rider?.step).toBe("reward");
+    expect(rider?.text).toMatch(/choose 1 system that contains a planet you control/);
+    expect(describeRider(predict)?.step).toBe("predict");
+    expect(describeRider({ ...pick, context: { subtype: "x", source: { ActionCard: "sabotage" } } as never })).toBeNull();
+  });
+
   it("puts an outcome in words: For/Against, a planet, a player", () => {
     expect(describePrediction(predict, { id: "FOR", label: "predict FOR" }, null)).toBe("For");
     expect(describePrediction(predict, { id: "against", label: "" }, null)).toBe("Against");

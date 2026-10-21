@@ -4,6 +4,7 @@ import {
   PAUSABLE_PROMPTS,
   askStorageKey,
   holdsPrompt,
+  lawsOwnedBy,
   pausablePrompt,
   promptForOption,
   promptsForSubtype,
@@ -104,7 +105,7 @@ describe("the pausable prompt registry", () => {
     for (const p of PAUSABLE_PROMPTS) {
       expect(p.id).toMatch(/^[a-z0-9_]+$/);
       expect(Boolean(p.option) || p.subtypes.length > 0, p.id).toBe(true);
-      expect(p.factions.length + p.technologies.length + p.relics.length, p.id).toBeGreaterThan(0);
+      expect(p.factions.length + p.technologies.length + p.relics.length + p.laws.length, p.id).toBeGreaterThan(0);
       expect(p.label.length).toBeGreaterThan(0);
     }
   });
@@ -131,7 +132,7 @@ describe("the pausable prompt registry", () => {
 
   it("recognises the abilities that ask by decision subtype", () => {
     for (const p of SUBTYPE_ONLY) {
-      for (const s of p.subtypes) expect(promptsForSubtype(s).map((x) => x.id)).toContain(p.id);
+      for (const s of p.subtypes) expect(promptsForSubtype(s, p.contentSources[0]).map((x) => x.id)).toContain(p.id);
     }
     expect(promptsForSubtype("self_assembly_mech").map((p) => p.id)).toEqual(["self_assembly_routines"]);
     expect(promptsForSubtype("produce_unit")).toEqual([]);
@@ -176,6 +177,43 @@ describe("the agents and commanders that ask in a combat round", () => {
     expect(promptForOption("leader:sol:solagent:GROUND_COMBAT_ROUND_STARTED:after")?.id).toBe("sol_agent");
     expect(promptsForSubtype("letnev_commander_trade_good").map((p) => p.id)).toEqual(["letnev_commander"]);
     expect(promptsHeldBy({ faction: "letnev" }).map((p) => p.id)).toContain("letnev_agent");
+  });
+});
+
+describe("Minister of Peace", () => {
+  const offer = (alias: string, actor = "p1"): PendingChoiceDto =>
+    ({
+      prompt: "Minister of Peace: discard to end the active player's turn",
+      actor,
+      nonce: "n1",
+      context: { subtype: "offer_discard_law", optional: false, source: { Content: alias } },
+      details: { kind: "offer" },
+      options: [
+        { id: "discard", kind: "law", label: "discard minister_peace" },
+        { id: "decline", kind: "decline", label: "Decline" },
+      ],
+    }) as unknown as PendingChoiceDto;
+
+  it("is told apart from the other ministers that share the discard-offer subtype", () => {
+    expect(promptsOfChoice(offer("minister_peace")).map((p) => p.id)).toEqual(["minister_of_peace"]);
+    expect(promptsOfChoice(offer("minister_war"))).toEqual([]);
+    expect(promptsForSubtype("offer_discard_law")).toEqual([]);
+    expect(askStorageKey("minister_of_peace")).toBe("player_ask_minister_of_peace");
+  });
+
+  it("is declined for the owner only while paused, and never for the other ministers", () => {
+    expect(pausedDecline(offer("minister_peace"), "p1", paused("minister_of_peace"))?.optionId).toBe("decline");
+    expect(pausedDecline(offer("minister_peace"), "p1", paused())).toBeNull();
+    expect(pausedDecline(offer("minister_peace"), "p2", paused("minister_of_peace"))).toBeNull();
+    expect(pausedDecline(offer("minister_war"), "p1", paused("minister_of_peace"))).toBeNull();
+  });
+
+  it("is listed on the sheet of whoever owns the law", () => {
+    const owned = lawsOwnedBy("p1", { minister_peace: "p1", minister_war: "p2", conventions: "for" });
+    expect(owned).toEqual(["minister_peace"]);
+    expect(promptsHeldBy({ faction: "hacan", laws: owned }).map((p) => p.id)).toEqual(["minister_of_peace", "wrath_of_kenara"]);
+    expect(promptsHeldBy({ faction: "hacan", laws: [] }).map((p) => p.id)).not.toContain("minister_of_peace");
+    expect(lawsOwnedBy(null, { minister_peace: "p1" })).toEqual([]);
   });
 });
 

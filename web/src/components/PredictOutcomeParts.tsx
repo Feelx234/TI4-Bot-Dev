@@ -11,7 +11,7 @@ export const PredictOutcomePanel: React.FC<{ choice: PendingChoiceDto }> = ({ ch
   return (
     <div className="politics-panel" data-testid="predict-outcome-panel">
       <div className="politics-panel__title">
-        {rider.name} <span className="politics-panel__tag">predict an outcome</span>
+        {rider.name} <span className="politics-panel__tag">{rider.step === "predict" ? "predict an outcome" : "your prediction was right"}</span>
       </div>
       {rider.text && (
         <p className="politics-panel__text" data-testid="predict-outcome-text">

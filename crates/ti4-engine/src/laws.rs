@@ -586,6 +586,15 @@ pub fn discard_ministry(state: &mut GameState, alias: &str) -> bool {
     state.laws.remove(alias).is_some()
 }
 
+/// Display-only facts of a discard offer (see [`offer_discard`]): never read by the engine.
+#[derive(Debug, Default)]
+pub struct DiscardPresentation {
+    /// What discarding does, as the caption under the discard button.
+    pub effect: String,
+    /// Labelled facts built with the `choice::offer_fact*` helpers (the activated system, who).
+    pub facts: Vec<serde_json::Value>,
+}
+
 /// Offer a "discard this card to ..." law to its owner. `true` if they took it.
 ///
 /// The four ministry cards with a discard trigger all ask the same question and all pay the same
@@ -599,9 +608,22 @@ pub fn offer_discard(
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
     alias: &str,
     prompt: &str,
+    presented: &DiscardPresentation,
 ) -> Option<PlayerId> {
     let owner = PlayerId::new(elected(state, alias)?.clone());
     state.player(&owner)?;
+    let record = content.get(ContentType::Agendas, alias);
+    let text_of = |record: &ti4_content::Record, key: &str| {
+        record.text(key).filter(|text| !text.is_empty()).map(str::to_owned)
+    };
+    let law_name = record
+        .as_ref()
+        .and_then(|record| record.text("name"))
+        .map_or_else(|| alias.to_owned(), str::to_owned);
+    // The printed text of an elected law is the card's "map text" (the text of the elected card).
+    let law_text = record
+        .as_ref()
+        .and_then(|record| text_of(record, "mapText").or_else(|| text_of(record, "text1")));
     let choice = crate::choice::Choice::new(
         owner.clone(),
         prompt.to_owned(),
@@ -620,7 +642,25 @@ pub fn offer_discard(
         "offer_discard_law".to_owned(),
         state.phase,
         state.round,
-    ));
+    ))
+    // Display only: the law as printed, what led to the question, and what each answer does.
+    .offered(
+        crate::choice::offer_card(&law_name, "law", None, law_text.as_deref()),
+        presented.facts.clone(),
+        &[
+            (
+                "discard",
+                crate::choice::offer_caption(
+                    &format!("Discard {law_name}"),
+                    Some(presented.effect.as_str()),
+                ),
+            ),
+            (
+                "decline",
+                crate::choice::offer_caption(&format!("Keep {law_name}"), None),
+            ),
+        ],
+    );
     let answer = table
         .ask_seeing(
             &choice,
@@ -969,6 +1009,51 @@ mod tests {
         let mut state = crate::fixtures::game(&["a", "b"]);
         state.laws.insert(alias.to_owned(), elected.to_owned());
         state
+    }
+
+    /// Minister of Peace's question names the law as printed, the activated system and who
+    /// activated it (display only); declining keeps the card, discarding removes it.
+    #[test]
+    fn minister_of_peace_offer_shows_the_law_the_system_and_the_activator() {
+        let state_with = || enacted("minister_peace", "a");
+        for (answer, kept) in [("decline", true), ("discard", false)] {
+            let mut state = state_with();
+            let (decider, seen) = crate::choice::Capturing::new(Box::new(
+                crate::choice::Scripted::new([answer.to_owned()]),
+            ));
+            let mut table = crate::choice::Table::with_default(Box::new(decider));
+            let taken = super::offer_discard(
+                &mut state,
+                ti4_content::ContentStore::embedded(),
+                ALL_SOURCES,
+                &mut table,
+                None,
+                "minister_peace",
+                "Minister of Peace: discard to end the active player's turn",
+                &super::DiscardPresentation {
+                    effect: "Ends the active player's turn at once".to_owned(),
+                    facts: vec![
+                        crate::choice::offer_fact_system("Activated system", "25"),
+                        crate::choice::offer_fact_seat("Activated by", "b"),
+                    ],
+                },
+            );
+            assert_eq!(taken.is_some(), !kept);
+            assert_eq!(state.laws.contains_key("minister_peace"), kept);
+            let ask = seen.borrow()[0].clone();
+            assert_eq!(ask.ids(), ["discard", "decline"], "ids and order are unchanged");
+            assert_eq!(ask.details["kind"], "offer");
+            assert_eq!(ask.details["card"]["title"], "Minister of Peace");
+            assert!(ask.details["card"]["text"]
+                .as_str()
+                .is_some_and(|text| text.contains("immediately end the active player's turn")));
+            assert_eq!(ask.details["facts"][0]["system"], "25");
+            assert_eq!(ask.details["facts"][1]["seat"], "b");
+            assert_eq!(
+                ask.context.as_ref().map(|c| c.subtype.as_str()),
+                Some("offer_discard_law")
+            );
+        }
     }
 
     /// Core Mining, Senate Sanctuary and Terraforming Initiative change what a planet can pay.

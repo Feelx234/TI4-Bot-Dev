@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { BoardView, PendingChoiceDto } from "../protocol/types.ts";
 import { isMapAnchoredPick, isSystemPickChoice, systemPickOptionSystem } from "../presentation/systemFacts.ts";
 import { describeUnitPickOption } from "../presentation/unitPick.ts";
-import { describeSystem } from "../presentation/systemFacts.ts";
+import { systemOptionLabel } from "../presentation/systemFacts.ts";
 import { useParticipantText } from "../presentation/PlayerIdentity.tsx";
 import { SystemFactsView } from "./SystemFactsView.tsx";
 import "./SystemFacts.css";
@@ -74,7 +74,7 @@ export const SystemPickConfirmBar: React.FC<{
     <div className="system-pick-bar" data-testid="system-pick-bar">
       <span data-testid="system-pick-selected">
         {present(choice.prompt)}:{" "}
-        <strong>{unit ? `${unit.title}, ${unit.where.replace(/^(In the space of |On )/, "")}` : describeSystem(systemId, board).title}</strong>
+        <strong>{unit ? `${unit.title}, ${unit.where.replace(/^(In the space of |On )/, "")}` : systemOptionLabel(systemId, board)}</strong>
       </span>
       <button
         type="button"

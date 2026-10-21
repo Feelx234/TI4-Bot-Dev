@@ -23,6 +23,8 @@ export interface PublicStateFacts {
   expeditionSlices: Readonly<Record<string, string>>;
   /** Where each seat's points come from (the snapshot's `score`); null for a server that sends none. */
   score: ScoreFacts | null;
+  /** Laws in play: agenda alias to its outcome (the elected seat for the ministers). */
+  laws: Readonly<Record<string, string>>;
 }
 
 const EMPTY: PublicStateFacts = {
@@ -32,9 +34,16 @@ const EMPTY: PublicStateFacts = {
   held: EMPTY_HELD_STATE,
   thundersEdge: false,
   expeditionSlices: {},
+  laws: {},
   score: null,
 };
 const PublicStateContext = createContext<PublicStateFacts>(EMPTY);
+
+function readLaws(state: Record<string, unknown> | null | undefined): Record<string, string> {
+  const raw = state?.laws;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  return Object.fromEntries(Object.entries(raw).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+}
 
 export function publicStateFacts(
   state: Record<string, unknown> | null | undefined,
@@ -50,6 +59,7 @@ export function publicStateFacts(
     thundersEdge,
     expeditionSlices: readExpeditionSlices(state),
     score,
+    laws: readLaws(state),
   };
 }
 
