@@ -6,6 +6,7 @@ import {
   useFeedbackAvailable,
   useFeedbackDockActive,
 } from "./FeedbackDockButton.tsx";
+import { getFeedbackOutbox } from "./outbox.ts";
 import "./feedback.css";
 
 export { openFeedback };
@@ -23,6 +24,10 @@ export const FeedbackLauncher: React.FC = () => {
     window.addEventListener(OPEN_FEEDBACK_EVENT, show);
     return () => window.removeEventListener(OPEN_FEEDBACK_EVENT, show);
   }, [show]);
+  // Open the outbox at page load: reports an earlier page could not send go out now.
+  useEffect(() => {
+    void getFeedbackOutbox().catch(() => undefined);
+  }, []);
   // An offline game has no server to ask: reports are queued and sent later, so the button is there.
   if (!available) return null;
   return (

@@ -1,0 +1,20 @@
+{
+  "title": "Feedback outbox: reports survive a lost connection",
+  "description": "What the feedback sheet does when the network is gone (a train, a tunnel, offline singleplayer): the report is saved on the device with its own id and write time, a chip counts what is waiting, and it goes out by itself when the connection is back (or with Send now), once. Mocked game and a mocked /api/feedback; the connection is cut with Playwright's setOffline. Desktop 1440x900 and phone 390x844. Regenerate with npm run screenshots -- GJ.",
+  "tag": "web/e2e/screenshots/GJ-feedback-outbox",
+  "shots": [
+    { "file": "out/1-offline-note-desktop.png", "heading": "Offline: the sheet says so", "caption": "No connection: a note under the form and the button reads Save to send later. The text stays editable." },
+    { "file": "out/1-offline-note-390x844.png", "heading": "Offline, phone", "caption": "The same at 390x844." },
+    { "file": "out/2-saved-offline-desktop.png", "heading": "Saved on this device", "caption": "Submitting offline writes the report to IndexedDB (localStorage if that is blocked) and says: Saved on this device, will be sent when you are back online. The chip counts what is waiting. Nothing went to the server." },
+    { "file": "out/2-saved-offline-390x844.png", "heading": "Saved on this device, phone", "caption": "The same at 390x844." },
+    { "file": "out/3-pending-chip-desktop.png", "heading": "Pending chip and history", "caption": "Reopening the sheet shows the waiting report in the small history (state, preview, age, tries). The game was never blocked." },
+    { "file": "out/3-pending-chip-390x844.png", "heading": "Pending chip, phone", "caption": "The same at 390x844." },
+    { "file": "out/4-failed-send-now-desktop.png", "heading": "Not sent: Send now", "caption": "Back online, but the server refused the report (here a 400): it is marked Not sent and kept, with a 44 px Send now button. Timeouts, 5xx and 429 stay Waiting and retry with backoff (Retry-After honoured); 413 is Not sent at once." },
+    { "file": "out/4-failed-send-now-390x844.png", "heading": "Not sent, phone", "caption": "The same at 390x844." },
+    { "file": "out/5-retry-succeeded-desktop.png", "heading": "Retry succeeded", "caption": "Send now delivered the report: All sent, history says Sent. Every attempt carried the same report_id, so the server stores it once; it also carries client_queued_at (when it was written) and the attempt number." },
+    { "file": "out/5-retry-succeeded-390x844.png", "heading": "Retry succeeded, phone", "caption": "The same at 390x844." }
+  ],
+  "notes": [
+    { "title": "Not shown", "text": "Automatic retry on the online event, on tab visibility and on page load, the backoff, 413 and 429 handling, several tabs (Web Locks plus BroadcastChannel) and gzip storage of a large save are covered by vitest (web/src/feedback/outbox.test.ts); the server's idempotency and client_queued_at by the Rust integration test." }
+  ]
+}

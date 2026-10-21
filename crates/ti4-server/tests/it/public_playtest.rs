@@ -765,3 +765,48 @@ async fn api_404_is_not_the_spa_page_once_authorised() {
     assert!(!r.text().await.unwrap().contains("INDEX"));
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[tokio::test]
+async fn queued_feedback_keeps_the_client_time_and_a_retry_is_idempotent() {
+    let c = reqwest::Client::new();
+    let dir = temp_dir("fbqueued");
+    let mut cfg = public_config(&dir);
+    cfg.rate_limits = None;
+    let base = spawn(cfg).await;
+    let url = format!("http://{base}/api/feedback");
+    let body = json!({ "category": "bug", "text": "lost the connection on the train",
+        "report_id": "r_train_0001", "client_queued_at": "2026-10-20T08:15:00.000Z",
+        "context": { "delivery": { "attempt": 1, "client_build": "web1" } } });
+    let first: Value = c.post(&url).json(&body).send().await.unwrap().json().await.unwrap();
+    assert_eq!(first["duplicate"], false);
+    // The retry (later, other attempt number, other queue time) stores nothing new.
+    let mut again = body.clone();
+    again["client_queued_at"] = json!("2026-10-20T09:00:00.000Z");
+    again["context"]["delivery"]["attempt"] = json!(3);
+    let second: Value = c.post(&url).json(&again).send().await.unwrap().json().await.unwrap();
+    assert_eq!(second["duplicate"], true);
+    assert_eq!(second["id"], first["id"]);
+    let reports = ti4_server::feedback::list_recent(&dir, 10);
+    assert_eq!(reports.len(), 1);
+    let record = &reports[0].1;
+    assert_eq!(record.client_queued_at.as_deref(), Some("2026-10-20T08:15:00.000Z"));
+    assert_eq!(record.report_id.as_deref(), Some("r_train_0001"));
+    let shown = ti4_server::feedback::render(record, false);
+    assert!(shown.contains("written on the device 2026-10-20T08:15:00.000Z"), "{shown}");
+    // The file keeps the field next to received_at, and a report without it still loads.
+    let raw: Value = serde_json::from_slice(&std::fs::read(&reports[0].0).unwrap()).unwrap();
+    assert_eq!(raw["client_queued_at"], "2026-10-20T08:15:00.000Z");
+    assert!(raw["received_at"].is_string());
+    // A malformed time is refused.
+    let mut bad = body.clone();
+    bad["report_id"] = json!("r_train_0002");
+    bad["client_queued_at"] = json!("yesterday\u{1b}[31m");
+    assert_eq!(c.post(&url).json(&bad).send().await.unwrap().status(), StatusCode::BAD_REQUEST);
+    // A report without the field is stored as before.
+    let plain = json!({ "category": "idea", "text": "no field", "report_id": "r_plain_0003" });
+    assert!(c.post(&url).json(&plain).send().await.unwrap().status().is_success());
+    let newest = ti4_server::feedback::list_recent(&dir, 10);
+    assert_eq!(newest.len(), 2);
+    assert!(newest.iter().any(|(_, r)| r.client_queued_at.is_none()));
+    let _ = std::fs::remove_dir_all(dir);
+}
