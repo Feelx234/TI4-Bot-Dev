@@ -363,9 +363,11 @@ mod tests {
             let keep = keep(&choice, &seen, &me());
             assert_eq!(origins(&choice, &keep), vec![plain_of(&hub).to_string()]);
         });
-        // Without the knob nothing is dropped.
-        let seen = observe(&state, &hub);
-        assert!(keep(&choice, &seen, &me()).is_none());
+        // Without the knob (version 5) nothing is dropped.
+        tuning::with(tuning::for_version(5), || {
+            let seen = observe(&state, &hub);
+            assert!(keep(&choice, &seen, &me()).is_none());
+        });
     }
 
     #[test]
