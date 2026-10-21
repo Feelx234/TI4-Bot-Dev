@@ -9,6 +9,7 @@ mod host_history;
 mod host_local;
 mod host_odds;
 mod host_preview;
+mod host_reaction_followup;
 mod host_scenario;
 mod host_script;
 mod host_session;

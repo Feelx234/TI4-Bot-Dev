@@ -385,6 +385,10 @@ pub struct HostSession {
     quiet: usize,
     /// How many decisions of the game a save gives again (`Resume::log`).
     saved_log: usize,
+    /// The first `saved_log` decisions of the engine, kept at the first offer that has them: the
+    /// log above is published late (a card played in a reaction window is announced when its
+    /// window closes), so the check of a replay compares these.
+    engine_log: Vec<DecisionRecord>,
     saved_events: Vec<(String, Option<u64>)>,
     // The end.
     finished: bool,
@@ -468,6 +472,7 @@ impl HostSession {
                 0
             },
             saved_log: resume.log.len(),
+            engine_log: Vec::new(),
             saved_events: resume
                 .event_times
                 .iter()
@@ -515,6 +520,15 @@ impl HostSession {
     }
 
     #[must_use]
+    /// The first `expected` decisions of the game, for the check of a replayed save: the published
+    /// log, or the engine's own when the replay stopped at a question that the log has not caught
+    /// up with (an answer that is announced later, as the card of a reaction window).
+    pub fn decisions_for_check(&self, expected: usize) -> Option<&[DecisionRecord]> {
+        self.decision_log
+            .get(..expected)
+            .or_else(|| self.engine_log.get(..expected))
+    }
+
     pub fn decision_log(&self) -> &[DecisionRecord] {
         &self.decision_log
     }
@@ -688,6 +702,9 @@ impl HostSession {
     /// The engine reaches an offer (before its seat decides): the decisions since the last look
     /// are published, on the position this offer is asked in. `state` is that position.
     pub fn offer(&mut self, records: &[DecisionRecord], state: &GameState) {
+        if self.saved_log > 0 && self.engine_log.is_empty() && records.len() >= self.saved_log {
+            self.engine_log = records[..self.saved_log].to_vec();
+        }
         self.publish_decisions(records, state, true);
     }
 
