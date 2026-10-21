@@ -1051,9 +1051,7 @@ fn endgame(state: &mut GameState, players: &[PlayerId], seed: u64) {
     let mut ranking: Vec<usize> = (0..players.len()).collect();
     ranking.sort_by_key(|i| mix(seed, 800 + *i as u64));
     for (rank, index) in ranking.into_iter().enumerate() {
-        if let Some(seat) = state.player_mut(&players[index]) {
-            seat.victory_points = if rank < 2 { 9 } else { 8 };
-        }
+        set_start_points(state, &players[index], if rank < 2 { 9 } else { 8 });
     }
     state.objective_deck.clear();
     state.round = 5;
@@ -1414,13 +1412,27 @@ fn world_kit(content: &ContentStore, state: &mut GameState, galaxy: &Galaxy, pla
     unlock_leaders(content, state, galaxy, players);
 }
 
+/// Ledger reason of the points a preset hands out at the start.
+const START_POINTS_REASON: &str = "Preset starting points";
+
+/// Gives `player` `points` victory points at the start and writes the ledger row beside them, so
+/// the breakdown names the points instead of leaving them unexplained.
+fn set_start_points(state: &mut GameState, player: &PlayerId, points: i32) {
+    let Some(seat) = state.player_mut(player) else {
+        return;
+    };
+    let delta = points - seat.victory_points;
+    seat.victory_points = points;
+    if delta != 0 {
+        state.note_vp(player, delta, START_POINTS_REASON);
+    }
+}
+
 /// The `+short` suffix: a few victory points each and only three public objectives left, so the
 /// game ends within a few rounds (the thin presets then finish inside a night's budget).
 fn short_game(state: &mut GameState, players: &[PlayerId], seed: u64) {
     for (i, player) in players.iter().enumerate() {
-        if let Some(seat) = state.player_mut(player) {
-            seat.victory_points = 3 + (mix(seed, 1200 + i as u64) % 3) as i32;
-        }
+        set_start_points(state, player, 3 + (mix(seed, 1200 + i as u64) % 3) as i32);
     }
     state.objective_deck.truncate(3);
 }
@@ -2594,6 +2606,19 @@ mod tests {
             let vp = short.player(player).unwrap().victory_points;
             assert!((3..=5).contains(&vp), "{vp}");
         }
+        // Every point has a ledger row, so the breakdown agrees with the total.
+        for player in &list {
+            let vp = short.player(player).unwrap().victory_points;
+            let rows: i32 = short
+                .vp_ledger
+                .iter()
+                .filter(|(who, _, _)| who == player)
+                .map(|(_, delta, _)| delta)
+                .sum();
+            assert_eq!(rows, vp);
+        }
+        let facts = crate::view::score::project_score_facts(&short, content());
+        assert!(facts.unexplained.is_empty(), "{:?}", facts.unexplained);
     }
 
     #[test]
