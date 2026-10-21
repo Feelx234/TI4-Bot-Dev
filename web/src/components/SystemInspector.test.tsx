@@ -55,7 +55,7 @@ describe("SystemInspector Component", () => {
     expect(screen.getByLabelText("6 influence")).toBeInTheDocument();
     expect(screen.getAllByText(/Unknown participant/).length).toBeGreaterThan(0);
     expect(screen.getByTestId("system-inspector").textContent).not.toContain("seat_a");
-    expect(screen.getByText("Attachments: Custodians")).toBeInTheDocument();
+    expect(screen.getByTestId("system-inspector")).toHaveTextContent("Attachments: Custodians");
 
     // Units grouped by player and type, without repeating player info inside unit chips
     expect(screen.getByTestId("inspector-owner-seat_a")).toHaveTextContent("Unknown participant");

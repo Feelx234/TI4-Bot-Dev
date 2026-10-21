@@ -122,6 +122,12 @@ pub struct AttachmentRecord {
     pub name: String,
     pub resources_modifier: i64,
     pub influence_modifier: i64,
+    /// The technology specialties the attachment gives (a research facility), lower-case.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tech_specialties: Vec<String>,
+    /// The printed text of the card that puts it on a planet (display only).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub text: String,
 }
 
 /// One faction sheet: its name and what belongs to it, by id.
@@ -319,6 +325,32 @@ pub struct ContentRecords {
     pub breakthroughs: Vec<BreakthroughRecord>,
 }
 
+/// The printed text of the card that puts attachment `id` on a planet: the explore card (the
+/// `...stat` record of a research facility reads its facility's card), or, for the attachments no
+/// explore card places, the relic, promissory note or leader that does. Empty when there is none.
+fn attachment_text(content: &ContentStore, id: &str) -> String {
+    let base = id.strip_suffix("stat").unwrap_or(id);
+    let card = |kind: ContentType, found: &dyn Fn(&Record) -> bool| {
+        content
+            .records(kind)
+            .iter()
+            .find(|record| found(record))
+            .and_then(|record| record.text("text"))
+    };
+    let (kind, key) = match base {
+        "nanoforge" => (ContentType::Relics, "nanoforge"),
+        "titanspn" => (ContentType::PromissoryNotes, "terraform"),
+        "titanshero" => (ContentType::Leaders, "titanshero"),
+        _ => (ContentType::Explores, base),
+    };
+    card(ContentType::Explores, &|record| {
+        record.text("attachmentId").or_else(|| record.id()) == Some(base)
+    })
+    .or_else(|| card(kind, &|record| record.id() == Some(key)))
+    .unwrap_or_default()
+    .to_owned()
+}
+
 fn text(record: &Record, key: &str) -> String {
     record.text(key).map(ToOwned::to_owned).unwrap_or_default()
 }
@@ -418,6 +450,11 @@ pub fn content_records(content: &ContentStore) -> ContentRecords {
                 name: record.text("name").unwrap_or(id).to_owned(),
                 resources_modifier: record.int("resourcesModifier").unwrap_or(0),
                 influence_modifier: record.int("influenceModifier").unwrap_or(0),
+                tech_specialties: strings(record, "techSpeciality")
+                    .into_iter()
+                    .map(|specialty| specialty.to_ascii_lowercase())
+                    .collect(),
+                text: attachment_text(content, id),
             }
         }),
         factions: every(content, ContentType::Factions, |id, record| FactionRecord {
@@ -518,6 +555,23 @@ mod tests {
 
     fn records() -> ContentRecords {
         content_records(ContentStore::embedded())
+    }
+
+    /// A hover or a held-items line shows an attachment's printed text: every attachment a card
+    /// places (explore card, relic, promissory note) has it, and a research facility says which
+    /// specialty it gives. Only the fake markers (Custodia Vigilia, Helios) and the hero's
+    /// Geoform read their numbers on the client.
+    #[test]
+    fn attachments_carry_their_card_text_and_research_facility_specialties() {
+        let records = records();
+        let find = |id: &str| records.attachments.iter().find(|a| a.id == id).unwrap();
+        for id in ["dmz", "cybernetic", "cyberneticstat", "warfare", "warfarestat", "biotic", "propulsion", "dysonsphere", "nanoforge", "titanspn"] {
+            assert!(!find(id).text.is_empty(), "{id} has no text");
+        }
+        assert!(find("dmz").text.contains("cannot be committed to"));
+        assert_eq!(find("warfare").tech_specialties, vec!["warfare".to_owned()]);
+        assert_eq!(find("cybernetic").tech_specialties, vec!["cybernetic".to_owned()]);
+        assert!(find("warfarestat").tech_specialties.is_empty());
     }
 
     #[test]

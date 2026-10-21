@@ -52,7 +52,7 @@ const rolled = (cursor: number, faces: number[], hitsOn?: number): GameLogEntry 
 });
 
 describe("dice rolls in the event log", () => {
-  it("lists a roll as its own line with the faces, hits marked, and nothing to undo", () => {
+  it("lists a rift roll as its own line with the faces (never marked as hits), and nothing to undo", () => {
     const entries = [decision(1), rolled(1, [2, 9], 4), decision(2)];
     render(
       wrap(entries, {
@@ -61,12 +61,12 @@ describe("dice rolls in the event log", () => {
       }),
     );
     const row = screen.getByTestId("event-log-roll");
-    expect(row).toHaveTextContent("Gravity rift in system 67");
-    expect(row).toHaveTextContent("ship destroyed");
+    expect(row).toHaveTextContent("rolled a 2 at the gravity rift in #67 and the ship was destroyed");
+    expect(row).not.toHaveTextContent(/hit/i);
     const dice = row.querySelectorAll(".event-log__die");
     expect([...dice].map((d) => [d.textContent, d.getAttribute("data-hit")])).toEqual([
-      ["2", "no"],
-      ["9", "yes"],
+      ["2", null],
+      ["9", null],
     ]);
     expect(row.querySelector(".event-log__undo")).toBeNull();
     // The decisions around it keep their undo buttons and are not merged with it.

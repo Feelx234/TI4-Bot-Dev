@@ -7821,79 +7821,101 @@
         "id": "biotic",
         "influence_modifier": 0,
         "name": "Biotic Research Facility",
-        "resources_modifier": 0
+        "resources_modifier": 0,
+        "tech_specialties": [
+          "biotic"
+        ],
+        "text": "This planet has a green technology specialty. If this planet already has a technology specialty, this planet's resource and influence values are each increased by 1 instead."
       },
       {
         "id": "bioticstat",
         "influence_modifier": 1,
         "name": "Biotic Research Facility",
-        "resources_modifier": 1
+        "resources_modifier": 1,
+        "text": "This planet has a green technology specialty. If this planet already has a technology specialty, this planet's resource and influence values are each increased by 1 instead."
       },
       {
         "id": "cybernetic",
         "influence_modifier": 0,
         "name": "Cybernetic Research Facility",
-        "resources_modifier": 0
+        "resources_modifier": 0,
+        "tech_specialties": [
+          "cybernetic"
+        ],
+        "text": "This planet has a yellow technology specialty. If this planet already has a technology specialty, this planet's resource and influence values are each increased by 1 instead."
       },
       {
         "id": "cyberneticstat",
         "influence_modifier": 1,
         "name": "Cybernetic Research Facility",
-        "resources_modifier": 1
+        "resources_modifier": 1,
+        "text": "This planet has a yellow technology specialty. If this planet already has a technology specialty, this planet's resource and influence values are each increased by 1 instead."
       },
       {
         "id": "dmz",
         "influence_modifier": 0,
         "name": "Demilitarized Zone",
-        "resources_modifier": 0
+        "resources_modifier": 0,
+        "text": "Return all structures on this planet to your reinforcements. Then, return all ground forces on this planet to the space area. Attach: Units cannot be committed to, produced on, or placed on this planet. During the agenda phase, this planet's planet card can be traded as part of a transaction."
       },
       {
         "id": "dysonsphere",
         "influence_modifier": 1,
         "name": "Dyson Sphere",
-        "resources_modifier": 2
+        "resources_modifier": 2,
+        "text": "This planet's resource value is increased by 2 and its influence value is increased by 1."
       },
       {
         "id": "lazaxsurvivors",
         "influence_modifier": 2,
         "name": "Lazax Survivors",
-        "resources_modifier": 1
+        "resources_modifier": 1,
+        "text": "This planet's resource value is increased by 1 and its influence value is increased by 2."
       },
       {
         "id": "miningworld",
         "influence_modifier": 0,
         "name": "Mining World",
-        "resources_modifier": 2
+        "resources_modifier": 2,
+        "text": "This planet's resource value is increased by 2."
       },
       {
         "id": "nanoforge",
         "influence_modifier": 2,
         "name": "Nanoforge",
-        "resources_modifier": 2
+        "resources_modifier": 2,
+        "text": "ACTION: Attach this card to a non-legendary, non-home planet you control, its resource and influence values are increased by 2 and it is a legendary planet. This action cannot be performed once attached."
       },
       {
         "id": "paradiseworld",
         "influence_modifier": 2,
         "name": "Paradise World",
-        "resources_modifier": 0
+        "resources_modifier": 0,
+        "text": "This planet's influence value is increased by 2."
       },
       {
         "id": "propulsion",
         "influence_modifier": 0,
         "name": "Propulsion Research Facility",
-        "resources_modifier": 0
+        "resources_modifier": 0,
+        "tech_specialties": [
+          "propulsion"
+        ],
+        "text": "This planet has a blue technology specialty. If this planet already has a technology specialty, this planet's resource and influence values are each increased by 1 instead."
       },
       {
         "id": "propulsionstat",
         "influence_modifier": 1,
         "name": "Propulsion Research Facility",
-        "resources_modifier": 1
+        "resources_modifier": 1,
+        "text": "This planet has a blue technology specialty. If this planet already has a technology specialty, this planet's resource and influence values are each increased by 1 instead."
       },
       {
         "id": "richworld",
         "influence_modifier": 0,
         "name": "Rich World",
-        "resources_modifier": 1
+        "resources_modifier": 1,
+        "text": "This planet's resource value is increased by 1."
       },
       {
         "id": "titanshero",
@@ -7905,25 +7927,32 @@
         "id": "titanspn",
         "influence_modifier": 1,
         "name": "Terraform",
-        "resources_modifier": 1
+        "resources_modifier": 1,
+        "text": "ACTION: Attach this card to a non-home planet you control other than Mecatol Rex. Its resource and influence values are each increased by 1, and it is treated as having all 3 planet traits (cultural, hazardous, and industrial)."
       },
       {
         "id": "tombofemphidia",
         "influence_modifier": 1,
         "name": "Tomb of Emphidia",
-        "resources_modifier": 0
+        "resources_modifier": 0,
+        "text": "This planet's influence value is increased by 1. If the player who has the \"Crown of Emphidia\" relic has control of this planet, they can use that relic to gain 1 VP."
       },
       {
         "id": "warfare",
         "influence_modifier": 0,
         "name": "Warfare Research Facility",
-        "resources_modifier": 0
+        "resources_modifier": 0,
+        "tech_specialties": [
+          "warfare"
+        ],
+        "text": "This planet has a red technology specialty. If this planet already has a technology specialty, this planet's resource and influence values are each increased by 1 instead."
       },
       {
         "id": "warfarestat",
         "influence_modifier": 1,
         "name": "Warfare Research Facility",
-        "resources_modifier": 1
+        "resources_modifier": 1,
+        "text": "This planet has a red technology specialty. If this planet already has a technology specialty, this planet's resource and influence values are each increased by 1 instead."
       },
       {
         "id": "custodiavigilia1",

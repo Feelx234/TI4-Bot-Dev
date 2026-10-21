@@ -1,6 +1,7 @@
 import React from "react";
 import type { TilePresentation } from "../../presentation/boardPresentation.ts";
-import { attachmentLabels, explorationsInSystem } from "../../presentation/explorationMarks.ts";
+import { attachmentTitle } from "../../presentation/attachmentInfo.ts";
+import { explorationsInSystem } from "../../presentation/explorationMarks.ts";
 import { usePublicState } from "../../presentation/PublicStateContext.tsx";
 import { usePlayerIdentity } from "../../presentation/PlayerIdentity.tsx";
 
@@ -26,7 +27,7 @@ export const ExplorationMarkers: React.FC<{ tile: TilePresentation }> = ({ tile 
   const { explorations, frontierSystems } = usePublicState();
   const display = usePlayerIdentity();
   const attachments = tile.planets.flatMap((planet) =>
-    attachmentLabels(planet.attachments).map((label) => `${planet.label}: ${label}`),
+    planet.attachments.map((id) => `${planet.label}: ${attachmentTitle(id)}`),
   );
   const entries = explorationsInSystem(
     explorations,

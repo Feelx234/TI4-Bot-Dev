@@ -240,3 +240,29 @@ describe("breakthrough section follows the table's content", () => {
     expect(keys(false)).not.toContain("breakthrough");
   });
 });
+
+describe("attachments in the held items", () => {
+  it("every attachment the content has shows its name and a non-empty effect text", () => {
+    const ids = Object.keys(ATTACHMENTS);
+    expect(ids.length).toBeGreaterThan(15);
+    const planets = Object.fromEntries(
+      ids.map((id) => [`pl_${id}`, { planet_id: `pl_${id}`, controlled_by: "p1", exhausted: false, attachments: [id] }]),
+    );
+    const everything = { systems: { s1: { system_id: "s1", command_tokens: [], units: [], planets } } } as unknown as BoardView;
+    const model = buildHeldItems({ players, subject: "p1", viewer: "p1", board: everything, held, label });
+    const items = model.sections.find((s) => s.id === "attachments")!.items;
+    expect(items).toHaveLength(ids.length);
+    for (const item of items) {
+      expect(item.name.length, item.key).toBeGreaterThan(0);
+      expect((item.text ?? "").trim().length, `${item.key} has no text`).toBeGreaterThan(10);
+    }
+  });
+
+  it("Demilitarized Zone and the Cybernetic Research Facility say what they do", () => {
+    const text = (id: string) => attachmentInfo(id).text;
+    expect(text("dmz")).toMatch(/cannot be committed to, produced on, or placed on this planet/);
+    expect(text("cybernetic")).toMatch(/yellow technology specialty/);
+    expect(text("cyberneticstat")).toMatch(/increased by 1/);
+    expect(text("warfare")).toMatch(/red technology specialty/);
+  });
+});

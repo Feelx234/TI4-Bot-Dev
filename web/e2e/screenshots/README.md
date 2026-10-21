@@ -175,3 +175,7 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Promissory note text (GD-promissory-note-text)
 
 `GD-promissory-note-text` shows promissory notes read as "<Faction>'s <Note>" with the printed text: the Antivirus reaction, the give-a-note pick and the trade desk with Support for the Throne (exchange, a note ask, the answer screen). The `before-*` PNGs were taken with `TI4_SHOT_PREFIX=before` on commit 80ce1bf1; `npm run screenshots -- GD` regenerates the `after-*` PNGs.
+
+## Attachments, skips, text (GF-attachments-skips-text)
+
+`GF-attachments-skips-text` shows research facilities in the technology picker's skips row, attachment effect text on hover/focus/tap (system inspector, board marker tooltip), the Held items attachment texts (Demilitarized Zone, Cybernetic Research Facility) and the gravity-rift toast and log line. The `before/before-*.png` were taken at 80ce1bf1 (`TI4_SHOT_PREFIX=before`); `npm run screenshots -- GF` regenerates the `after-*` PNGs and asserts the behaviour.

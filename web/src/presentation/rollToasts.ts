@@ -13,6 +13,29 @@ export interface RollToast {
   text: string;
 }
 
+/** The engine tags a gravity-rift die "gravity rift". It is one die per ship, not a hit roll. */
+export function isRiftRoll(roll: PublicRoll): boolean {
+  return roll.reason === "gravity rift";
+}
+
+/** A rift die destroys the ship on 1-3 (41.2); the engine's outcome says which happened. */
+function riftDestroyed(roll: PublicRoll): boolean {
+  if (roll.outcome) return /destroy/i.test(roll.outcome);
+  return (roll.faces[0] ?? 10) <= 3;
+}
+
+/**
+ * "rolled a 2 at the gravity rift in #67 and the ship was destroyed, with anything it carried" /
+ * "rolled a 7 at the gravity rift in #67 and the ship survived" (without the roller). The die is
+ * never worded as a hit: a high face is the ship getting through.
+ */
+export function riftSentence(roll: PublicRoll, board?: BoardView | null): string {
+  const place = roll.system ? ` in ${systemTag(roll.system, board)}` : "";
+  const face = roll.faces[0];
+  const die = face === undefined ? "the die" : `${face === 8 ? "an" : "a"} ${face}`;
+  return `rolled ${die} at the gravity rift${place} and the ship ${riftDestroyed(roll) ? "was destroyed, with anything it carried" : "survived"}`;
+}
+
 /** "Gravity rift in #67 [Gravity Rift]: 2 · ship destroyed" (without the roller). */
 export function rollSentence(roll: PublicRoll, board?: BoardView | null): string {
   const place = roll.system ? ` in ${systemTag(roll.system, board)}` : "";
@@ -23,6 +46,10 @@ export function rollSentence(roll: PublicRoll, board?: BoardView | null): string
 }
 
 function build(id: string, key: string, who: string, rolls: PublicRoll[], board?: BoardView | null): RollToast {
+  // Gravity rifts: one line per ship, each saying what its die did.
+  if (rolls.every(isRiftRoll)) {
+    return { id, key, who, rolls, text: rolls.map((r) => `${who} ${riftSentence(r, board)}`).join("\n") };
+  }
   if (rolls.length === 1) return { id, key, who, rolls, text: `${who} rolled ${rollSentence(rolls[0], board)}` };
   // Several rolls of one kind: show every die, and total the hits when they are hit rolls.
   const merged: PublicRoll = {

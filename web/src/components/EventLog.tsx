@@ -14,6 +14,7 @@ import {
   replayCopyMessage,
   type ReplayCopyState,
 } from "../presentation/replayCopy.ts";
+import { isRiftRoll, riftSentence } from "../presentation/rollToasts.ts";
 import { followTarget, isPinned, nextUnseen, restoreTarget } from "./eventLogScroll.ts";
 
 export interface EventLogProps {
@@ -474,7 +475,10 @@ export const EventLog: React.FC<EventLogProps> = ({
           : actor.label
         : "Unknown participant";
       const eventNumber = entry.id.match(/-(\d+)$/)?.[1];
+      const riftLine =
+        roll && isRiftRoll(roll) ? entry.detail?.match(/^(.*?) rolled /)?.[1] : undefined;
       const text =
+        (riftLine !== undefined && roll ? `${riftLine} ${riftSentence(roll)}` : undefined) ??
         entry.private_detail ??
         entry.detail ??
         (entry.movement
@@ -530,7 +534,7 @@ export const EventLog: React.FC<EventLogProps> = ({
                 <span
                   key={at}
                   className="event-log__die"
-                  data-hit={roll.hits_on === undefined ? undefined : face >= roll.hits_on ? "yes" : "no"}
+                  data-hit={roll.hits_on === undefined || isRiftRoll(roll) ? undefined : face >= roll.hits_on ? "yes" : "no"}
                   data-reroll={roll.rerolled?.includes(at) ? "yes" : undefined}
                 >
                   {face}

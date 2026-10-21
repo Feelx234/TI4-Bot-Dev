@@ -14,7 +14,8 @@ import { AnomalyIconInline } from "./anomaly/AnomalyArt.tsx";
 import { anomalyKind } from "./anomaly/anomalyKind.ts";
 import { describeAnomaly } from "../presentation/anomalyRules.ts";
 import { findPlanetMeta } from "../protocol/contentCatalog.ts";
-import { attachmentLabels, explorationsInSystem } from "../presentation/explorationMarks.ts";
+import { AttachmentInfo } from "./AttachmentInfo.tsx";
+import { explorationsInSystem } from "../presentation/explorationMarks.ts";
 import { usePublicState } from "../presentation/PublicStateContext.tsx";
 import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import {
@@ -300,7 +301,10 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({
 
                 {p.attachments.length > 0 && (
                   <div style={{ marginTop: 4, fontSize: 11, color: "#a78bfa" }}>
-                    Attachments: {attachmentLabels(p.attachments).join(", ")}
+                    Attachments:{" "}
+                    {p.attachments.map((id) => (
+                      <AttachmentInfo key={id} id={id} />
+                    ))}
                   </div>
                 )}
 

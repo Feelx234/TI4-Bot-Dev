@@ -41,7 +41,7 @@ describe("useCornerToasts", () => {
     rerender({ ...base, events: [roll("old", "p2"), roll("mine", "p1")] });
     const dice = result.current.notifications.filter((t) => t.tag === "Dice");
     expect(dice).toHaveLength(1);
-    expect(dice[0].text).toMatch(/rolled Gravity rift in #67.*: 2 \u00b7 ship destroyed/);
+    expect(dice[0].text).toMatch(/rolled a 2 at the gravity rift in #67 and the ship was destroyed/);
     // Muting clears them like every other toast.
     act(() => localStorage.setItem(TOAST_MUTE_KEY, "true"));
   });
