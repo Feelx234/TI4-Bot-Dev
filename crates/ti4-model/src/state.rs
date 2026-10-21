@@ -1162,7 +1162,7 @@ pub struct StartingTechPick {
 /// Station) does not offer the conversion to a seat with no commodities.
 pub const RULES_NO_EMPTY_CONVERT: u32 = 19;
 
-pub const RULES_VERSION: u32 = 19;
+pub const RULES_VERSION: u32 = 20;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
@@ -1260,6 +1260,14 @@ pub const RULES_FACTION_BUGFIXES: u32 = 17;
 /// The first rules version that does not offer Imperial's secondary to a seat whose secret
 /// objectives are all scored and fill the limit (three; the draw could not be kept).
 pub const RULES_IMPERIAL_SECRET_CAP: u32 = 18;
+
+/// The first rules version where the steps after a movement step (space combat, invasion,
+/// production, the blockade check) follow a tile the movement step replaced: the Muaat hero's
+/// Nova Seed swaps the active system for the supernova tile, and from here the post-movement
+/// sequence runs on the supernova (with the map caught up to the swap), so the units that moved
+/// in are the ones it looks at (the Magmus Reactor's PRODUCTION 5 included). Below, it ran on the
+/// replaced tile's id, which no longer holds anything.
+pub const RULES_NOVA_SEED_AFTERMATH: u32 = 20;
 
 /// The whole game, as a value.
 ///

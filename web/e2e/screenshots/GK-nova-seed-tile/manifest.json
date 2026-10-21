@@ -1,0 +1,15 @@
+{
+  "title": "Muaat supernova tile on the map",
+  "description": "The Muaat hero (Adjudicator Ba'al, Nova Seed) replaces a non-home system with the Muaat supernova tile. Before the fix the client kept drawing the setup tiles, so the tile never changed and the units that moved in sat on a system id (81) with no tile. The board view now applies the recorded tile edits. The board JSON is projected by the real engine/host code (cargo example nova_seed_board) from a real 6-player game before and after the edit; the page is the real app on a mocked transport.",
+  "tag": "web/e2e/screenshots/GK-nova-seed-tile",
+  "shots": [
+    { "file": "out/before-desktop.png", "heading": "Before the hero (desktop)", "caption": "A non-home system with planets holds a Muaat war sun, a cruiser and a destroyer, and another player's cruiser." },
+    { "file": "out/after-desktop.png", "heading": "After Nova Seed (desktop)", "caption": "The same hex is the supernova tile; the Muaat fleet is on it, the other player's cruiser is gone, the planets are gone." },
+    { "file": "out/before-390x844.png", "heading": "Before the hero (390x844)", "caption": "The same on a phone." },
+    { "file": "out/after-390x844.png", "heading": "After Nova Seed (390x844)", "caption": "The same on a phone." }
+  ],
+  "notes": [
+    { "title": "Reproduce", "text": "cargo run -p ti4-host --example nova_seed_board -- web/e2e/screenshots/GK-nova-seed-tile/data, then cd web && npm run screenshots -- GK." },
+    { "title": "Not shown", "text": "The hero's prompt in a played game and the production step after it are covered by engine tests (rules version 21)." }
+  ]
+}

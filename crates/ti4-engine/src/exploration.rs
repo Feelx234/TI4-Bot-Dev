@@ -184,7 +184,7 @@ fn convert_commodities(
     crate::supply::gain_trade_goods_announced(state, ctx, player, moved, "exploration");
 }
 
-/// Whether a "convert commodities to trade goods" option is worth offering: from rules version 20
+/// Whether a "convert commodities to trade goods" option is worth offering: from rules version 19
 /// only to a seat holding at least one commodity (older games always offered it).
 fn can_offer_convert(state: &GameState, player: &PlayerId) -> bool {
     state.rules_version < ti4_model::state::RULES_NO_EMPTY_CONVERT

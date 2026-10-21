@@ -171,6 +171,48 @@ pub fn build_board_tiles(content: &ContentStore, galaxy: &Galaxy) -> Vec<BoardTi
     board
 }
 
+/// The map tiles as they stand in `state`: the tile edits the game recorded (a Creuss hero swap,
+/// a Muaat supernova in place of a system) applied to the tiles the game was set up with.
+///
+/// `tiles` are the setup tiles and stay the stored truth; the viewer is shown this, so the board
+/// matches `state.board` (which is keyed by the tile that now stands there). A state with no
+/// recorded edit returns `tiles` unchanged.
+#[must_use]
+pub fn with_recorded_edits(
+    content: &ContentStore,
+    tiles: &[BoardTileView],
+    state: &GameState,
+) -> Vec<BoardTileView> {
+    use ti4_engine::movement::{MapEdit, recorded_map_edits};
+    let mut tiles = tiles.to_vec();
+    let on_grid = |tile: &BoardTileView| tile.special_area.is_none();
+    for edit in recorded_map_edits(state) {
+        match edit {
+            MapEdit::Swap { a, b } => {
+                let at = |tiles: &[BoardTileView], id: &str| {
+                    tiles.iter().position(|t| on_grid(t) && t.system_id == id)
+                };
+                if let (Some(i), Some(j)) = (at(&tiles, &a), at(&tiles, &b)) {
+                    let (qi, ri) = (tiles[i].q, tiles[i].r);
+                    tiles[i].q = tiles[j].q;
+                    tiles[i].r = tiles[j].r;
+                    tiles[j].q = qi;
+                    tiles[j].r = ri;
+                }
+            }
+            MapEdit::Replace { old, new } => {
+                if let Some(i) = tiles.iter().position(|t| on_grid(t) && t.system_id == old)
+                    && let Some(tile) =
+                        system_tile_metadata(content, &new, tiles[i].q, tiles[i].r, None)
+                {
+                    tiles[i] = tile;
+                }
+            }
+        }
+    }
+    tiles
+}
+
 fn system_tile_metadata(
     content: &ContentStore,
     id: &str,
@@ -424,6 +466,46 @@ mod template_tests {
 
     fn players(n: usize) -> Vec<PlayerId> {
         (1..=n).map(|i| PlayerId::new(format!("p{i}"))).collect()
+    }
+
+    /// The Muaat hero puts the supernova on the hex of a system; the board the viewer is sent
+    /// shows it there, and a game with no recorded edit shows the setup tiles untouched.
+    #[test]
+    fn recorded_tile_edits_reach_the_board_the_viewer_is_sent() {
+        let content = ContentStore::embedded();
+        let (mut state, mut galaxy) =
+            create_game_with_template(content, &players(6), 4, Some("6pStandard")).unwrap();
+        let setup = build_board_tiles(content, &galaxy);
+        assert_eq!(with_recorded_edits(content, &setup, &state), setup);
+        let target = setup
+            .iter()
+            .find(|tile| tile.special_area.is_none() && !tile.planets.is_empty() && tile.system_id != "18")
+            .expect("a system with planets");
+        let (old, q, r) = (target.system_id.clone(), target.q, target.r);
+        ti4_engine::movement::apply_map_edit(
+            &mut state,
+            &mut galaxy,
+            content,
+            POK,
+            &ti4_engine::movement::MapEdit::Replace {
+                old: old.clone(),
+                new: ti4_engine::movement::NOVA_SEED.to_owned(),
+            },
+        )
+        .unwrap();
+        let shown = with_recorded_edits(content, &setup, &state);
+        assert_eq!(shown.len(), setup.len());
+        assert!(!shown.iter().any(|tile| tile.system_id == old));
+        let nova = shown
+            .iter()
+            .find(|tile| tile.system_id == ti4_engine::movement::NOVA_SEED)
+            .expect("the supernova is on the board");
+        assert_eq!((nova.q, nova.r), (q, r));
+        assert!(nova.anomalies.iter().any(|kind| kind == "supernova"));
+        assert!(nova.planets.is_empty());
+        // The projection the client reads carries it.
+        let view = crate::projection::project_board_view_with_map(&state, &setup);
+        assert!(view.map_tiles.iter().any(|t| t.system_id == ti4_engine::movement::NOVA_SEED));
     }
 
     #[test]

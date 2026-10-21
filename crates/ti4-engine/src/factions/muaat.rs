@@ -2302,6 +2302,84 @@ mod tests {
         assert!(galaxy.coord_of(centre.as_str()).is_none());
     }
 
+    /// Drive the same tactical action as above at `version`, with trade goods to build with, and
+    /// return the game once the action has been played out.
+    fn nova_seed_game_at(version: u32) -> (crate::game::Game<'static>, SystemId, SystemId) {
+        use crate::game::{Game, TACTICAL_ACTION_ID};
+        let pok = ti4_model::content_types::POK;
+        let mut state = seated_game(&[("a", "muaat"), ("b", "sol")], pok);
+        state.rules_version = version;
+        set_status(&mut state, &a(), HERO, LeaderStatus::Unlocked);
+        let ids: Vec<String> = crate::fixtures::plain_systems(80)
+            .into_iter()
+            .filter(|id| !nova_blocked(content(), pok, id))
+            .take(7)
+            .collect();
+        let hub = crate::fixtures::hub_from(&ids);
+        let (centre, origin) = (
+            SystemId::new(hub.centre.clone()),
+            SystemId::new(hub.outer[0].clone()),
+        );
+        state.phase = Phase::Action;
+        state.active = Some(a());
+        state.player_mut(&a()).unwrap().trade_goods = 8;
+        put(&mut state, &origin, "muaat_warsun", &a(), 1);
+        put(&mut state, &origin, "cruiser", &a(), 1);
+        put(&mut state, &centre, "cruiser", &b(), 1);
+        let table = Table::with_default(Box::new(Scripted::new([
+            TACTICAL_ACTION_ID.to_owned(),
+            centre.to_string(),
+            format!("move|{origin}|0"),
+            format!("move|{origin}|0"),
+            "done_moving".to_owned(),
+            HERO_ABILITY.to_owned(),
+        ])));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table)
+            .with_sources(pok)
+            .with_galaxy(hub.galaxy);
+        for _ in 0..16 {
+            let result = game.step();
+            assert_eq!(result.error, None);
+            if game.events.iter().any(|e| e == "TACTICAL_ACTION_COMPLETE") {
+                break;
+            }
+        }
+        (game, centre, origin)
+    }
+
+    /// The units that moved in with the war sun are on the supernova, the map shows it at once,
+    /// and the steps that follow the movement (invasion, production with the Magmus Reactor's
+    /// PRODUCTION 5) look at the supernova rather than the tile that was replaced.
+    #[test]
+    fn nova_seed_leaves_the_fleet_on_the_supernova_and_the_aftermath_follows_it() {
+        let nova = SystemId::new(crate::movement::NOVA_SEED);
+        let (game, centre, _) = nova_seed_game_at(ti4_model::state::RULES_NOVA_SEED_AFTERMATH);
+        assert_eq!(count(&game.state, &nova, "warsun", &a()), 1);
+        assert_eq!(count(&game.state, &nova, "cruiser", &a()), 1, "the escort survives");
+        assert_eq!(count(&game.state, &nova, "cruiser", &b()), 0);
+        assert!(!game.state.board.contains_key(&centre), "nothing is left on the old id");
+        let galaxy = game.galaxy().expect("the game keeps its map");
+        assert!(
+            galaxy.coord_of(crate::movement::NOVA_SEED).is_some(),
+            "the map shows the supernova without waiting for another step"
+        );
+        assert!(
+            game.events.iter().any(|e| e == "INVASION_BEGAN"),
+            "the post-movement sequence ran on the supernova: {:?}",
+            game.events
+        );
+    }
+
+    #[test]
+    fn nova_seed_below_the_aftermath_version_runs_the_aftermath_on_the_old_id() {
+        let (game, _, _) = nova_seed_game_at(ti4_model::state::RULES_NOVA_SEED_AFTERMATH - 1);
+        assert!(
+            !game.events.iter().any(|e| e == "INVASION_BEGAN"),
+            "legacy: {:?}",
+            game.events
+        );
+    }
+
     // -- Magmus ----------------------------------------------------------------------------------
 
     #[test]
