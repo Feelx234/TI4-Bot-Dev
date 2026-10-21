@@ -945,6 +945,28 @@ are mostly elections the seat could not win (the richest seat takes a Minister a
 leaves neutral (Incentive Program, Travel Ban, Clandestine Operations, Schematics without a war sun owner) stay
 without a vote.
 
+### Second agenda
+
+Measured with bot v5 in `selfplay compare` runs (two 4-player tables of 400 seat-swapped games and a 6-player mix of 600;
+`AGENDA_VOTE_LOG`, 25,581 second-agenda decisions): on the second agenda of a phase the seat casts no vote in 48-50%
+(four players 50% / 46%, six players 48%). Of those zero-vote decisions, 27% found no ready planet (the first agenda spent
+it, or the seat has no influence: 13% of all second-agenda decisions), 66% were "no opinion" with ready influence (the best
+outcome led by less than `agenda_min_margin`, 1.5; 28% of them by less than 0.05, a real indifference), and 7%
+had an opinion and still abstained because no vote changes the outcome probabilities.
+
+The cause is the threshold, not the budget: the second agenda is already priced with `lambda = 0`. The 1.5 point
+margin is a guard against paying influence for a coin flip, but on the **last** agenda of a phase the influence has no
+other use: nothing follows it in the agenda phase, the status phase readies every planet, and trade goods cannot buy
+votes. A vote there costs nothing, so any positive lead is worth taking. (Votes also stay free of side effects: the
+Checks and Balances ready-planets effect and the planet-exhaust rules are priced by the same valuation as on the first
+agenda.)
+
+Knob `agenda_second_vote` (v6 staging, off in v1 to v5): when `agendas_resolved_this_round() > 0`, `plan_vote` replaces
+`agenda_min_margin` by `agenda_second_min_margin` (0.05, a noise floor). Everything else is the first-agenda logic:
+the same valuation, the expected-value search over the reachable vote totals (tie-breaks, rival share, voter-conditional
+agendas), `lambda = 0`, and the planet picker follows the plan. Indifferent seats (lead below 0.05) still abstain, and
+so do seats for which no vote changes the probabilities. The first agenda is untouched. `pick_planet` needs no change.
+
 ### Knobs (all off in bots 1 to 4, all in `tuning.rs`)
 
 | knob | default | meaning |
@@ -956,6 +978,8 @@ without a vote.
 | `agenda_min_margin` | 1.5 | value points the best outcome must lead by, else no opinion |
 | `agenda_rival_share` | 0.6 | reserved: chance a rival without opinion votes against the seat |
 | `agenda_second_prior` | 2.0 | assumed stake of an unknown second agenda |
+| `agenda_second_vote` | false (on in the v6 staging table) | on the second agenda a lead of at least `agenda_second_min_margin` is an opinion (see "Second agenda") |
+| `agenda_second_min_margin` | 0.05 | value points the best outcome must lead by on the second agenda |
 | `rider_min_p` | 0.7 | least probability of the predicted outcome for a rider |
 
 ### Decision for a version 5

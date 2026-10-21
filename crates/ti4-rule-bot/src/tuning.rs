@@ -152,11 +152,13 @@ tuning! {
     agenda_rival_share: f64 = 0.6, "v5: chance that a rival without an opinion votes against the seat";
     agenda_second_prior: f64 = 2.0, "v5: assumed stake of an unknown second agenda, in value points (agenda_budget)";
     rider_min_p: f64 = 0.7, "v5: least probability that the predicted outcome wins for a rider to be played (agenda_riders)";
-    muaat_keeps_note: bool = false, "v6 staging (off in v1-v5): a Muaat seat never gives away its Fires of the Gashlai (the War Sun technology note) in a transaction: it refuses proposals that take it and never proposes it";
-    rift_risk: bool = false, "v6 staging (off in v1-v5): gravity-rift risk model (docs/BOT_GRAVITY_RIFT.md): a ship whose route exits a rift (30% loss per rift, cargo too) moves only when the worth it adds beats the expected loss; safe ships and cheap ones first";
+    muaat_keeps_note: bool = false, "v6 (off in v1-v5): a Muaat seat never gives away its Fires of the Gashlai (the War Sun technology note) in a transaction: it refuses proposals that take it and never proposes it";
+    rift_risk: bool = false, "v6 (off in v1-v5): gravity-rift risk model (docs/BOT_GRAVITY_RIFT.md): a ship whose route exits a rift (30% loss per rift, cargo too) moves only when the worth it adds beats the expected loss; safe ships and cheap ones first";
     rift_gain_scale: f64 = 1.0, "v6 (rift_risk): resources one point of activation worth is taken to be (a planet pays for several rounds); gain = scale * worth added";
     rift_margin: f64 = 3.0, "v6 (rift_risk): the gain must beat the expected loss times this";
     rift_flagship_weight: f64 = 1.0, "v6 (rift_risk): extra weight on the cost of a flagship or war sun that would cross a rift (irreplaceable: one per seat)";
+    agenda_second_vote: bool = false, "v6 (off in v1-v5): on the second agenda of a phase voting is free (nothing follows it, the planets ready next round), so the seat votes for any outcome it values: the no-opinion threshold falls to agenda_second_min_margin (agenda_vote.rs)";
+    agenda_second_min_margin: f64 = 0.05, "v6: value points the best outcome must lead by on the second agenda, else no opinion (agenda_second_vote)";
     land_all: bool = false, "v5 (off in v1-v4): the landing step commits every ground force aboard to a planet of the system (never leaves them in space)";
 }
 
@@ -165,8 +167,8 @@ tuning! {
 /// version it was played with (`ti4_wasm::host_setup::Setup::bot_version`) and is resumed with it.
 pub const BOT_VERSION: u32 = 5;
 
-/// The highest version [`for_version`] knows: version 6 ([`v6`]) is staging (not shipped), version 5
-/// ([`v5`]) is the current bot that new games play ([`BOT_VERSION`]); the `Tuning::default()` table stays version 4.
+/// The highest version [`for_version`] knows: version 6 ([`v6`]) is the current bot that new games play ([`BOT_VERSION`]), version 5
+/// ([`v5`]) the one before it; the `Tuning::default()` table stays version 4.
 pub const MAX_BOT_VERSION: u32 = 6;
 
 /// The tuning of bot version `version` (1 to 6; anything else: the current one).
@@ -193,7 +195,7 @@ pub fn current() -> Tuning {
     for_version(BOT_VERSION)
 }
 
-/// Version 5, the **current bot** ([`BOT_VERSION`], user decision 2026-10-17): version 4 plus the
+/// Version 5 (the current bot from 2026-10-17 to 2026-10-21): version 4 plus the
 /// knobs decided for it. The agenda decisions keep no memory between decisions (they are a pure
 /// function of the observation, so undo / rewind / resume replay them; docs/BOT_AGENDA_VOTING.md). Members: `land_all` (the
 /// landing step commits every ground force aboard) and the three agenda-voting knobs
@@ -211,14 +213,16 @@ pub fn v5() -> Tuning {
     }
 }
 
-/// Version 6, **staging** (not shipped: [`BOT_VERSION`] stays 5 until the user says ship): version
-/// 5 plus `muaat_keeps_note` (a Muaat seat keeps Fires of the Gashlai out of every transaction)
-/// and `rift_risk` (the gravity-rift risk model, docs/BOT_GRAVITY_RIFT.md).
+/// Version 6, the **current bot** ([`BOT_VERSION`], user decision 2026-10-21): version 5 plus `muaat_keeps_note`
+/// (a Muaat seat keeps Fires of the Gashlai out of every transaction), `rift_risk` (the gravity-rift
+/// risk model, docs/BOT_GRAVITY_RIFT.md) and `agenda_second_vote` (the second agenda of a phase is
+/// voted on whenever the seat has any opinion).
 #[must_use]
 pub fn v6() -> Tuning {
     Tuning {
         muaat_keeps_note: true,
         rift_risk: true,
+        agenda_second_vote: true,
         ..v5()
     }
 }
@@ -356,6 +360,8 @@ fn v1() -> Tuning {
         agenda_min_margin: 1.5,
         agenda_rival_share: 0.6,
         agenda_second_prior: 2.0,
+        agenda_second_vote: false,
+        agenda_second_min_margin: 0.05,
         rider_min_p: 0.7,
         land_all: false,
         muaat_keeps_note: false,
@@ -449,6 +455,7 @@ mod tests {
             Tuning {
                 muaat_keeps_note: false,
                 rift_risk: false,
+                agenda_second_vote: false,
                 ..for_version(6)
             },
             for_version(5)
