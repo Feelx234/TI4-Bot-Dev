@@ -13,10 +13,10 @@ use serde::{Deserialize, Serialize};
 use ti4_content::ContentStore;
 use ti4_engine::game::Game;
 use ti4_engine::seating::LOBBY_FACTIONS;
-use ti4_host::map::create_game_with_template_seated;
+use ti4_host::map::create_game_with_template_seated_in;
 use ti4_host::maps::catalog::{self, MapChoice};
 use ti4_host::setup::card_set;
-use ti4_model::content_types::POK;
+use ti4_model::content_types::{FULL, POK};
 use ti4_model::id::PlayerId;
 
 /// The factions the lobby's draw seats, one per seat (`chosen`: `None` for "any").
@@ -56,6 +56,11 @@ pub struct GameSpec {
     /// every summary recorded before the choice was played.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub starting_tech: bool,
+    /// The table switched Thunder's Edge content on (`GameState::thunders_edge`): the decks hold
+    /// its cards and the expedition is offered at the end of a turn. Left out: off, the game
+    /// every summary recorded before the switch was played.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub thunders_edge: bool,
     /// Pins the rules version the game is played with (`GameState::rules_version`). Left out: the
     /// newest the build knows. Old golden benches pin the version their baseline was recorded at,
     /// so they keep proving that the engine still plays the old games.
@@ -80,6 +85,9 @@ impl GameSpec {
         }
         if self.starting_tech {
             line.push_str(" --starting-tech");
+        }
+        if self.thunders_edge {
+            line.push_str(" --thunders-edge");
         }
         if let Some(version) = self.rules_version {
             line.push_str(&format!(" --rules-version {version}"));
@@ -118,14 +126,16 @@ impl GameSpec {
             .zip(lobby_seat_factions(&chosen, self.seed)?)
             .collect();
         // The first seat opens (the speaker is set below).
-        let (mut state, galaxy) = create_game_with_template_seated(
+        let (mut state, galaxy) = create_game_with_template_seated_in(
             content,
             &ids,
             self.seed,
             template,
             &assignments,
             Some(self.card_set.as_deref().unwrap_or(card_set::DEFAULT)),
+            if self.thunders_edge { FULL } else { POK },
         )?;
+        state.thunders_edge = self.thunders_edge;
         if let Some(version) = self.rules_version {
             state.rules_version = version;
         }
@@ -150,7 +160,7 @@ impl GameSpec {
             ti4_engine::starting_tech::open(&mut state, content, POK);
         }
         Ok(Game::with_seeded_random(state, content, self.seed)
-            .with_sources(POK)
+            .with_sources(if self.thunders_edge { FULL } else { POK })
             .with_galaxy(galaxy))
     }
 }
@@ -288,6 +298,9 @@ pub struct SetupSpec {
     /// The games ask for the starting technology ([`GameSpec::starting_tech`]).
     #[serde(default)]
     pub starting_tech: bool,
+    /// Thunder's Edge content is on ([`GameSpec::thunders_edge`]).
+    #[serde(default)]
+    pub thunders_edge: bool,
     /// Pins the rules version of every game ([`GameSpec::rules_version`]).
     #[serde(default)]
     pub rules_version: Option<u32>,
@@ -434,6 +447,7 @@ impl SetupSpec {
                         card_set: self.card_set.clone(),
                         rotation,
                         starting_tech: self.starting_tech,
+                        thunders_edge: self.thunders_edge,
                         rules_version: self.rules_version,
                     });
                 }
@@ -549,6 +563,7 @@ mod tests {
             speaker: "random".to_owned(),
             card_set: None,
             starting_tech: false,
+            thunders_edge: false,
             rules_version: None,
             seeds: Seeds::Text(seeds.to_owned()),
         }

@@ -42,13 +42,14 @@ export async function createStartedGame(
   mapTemplate?: string,
   /** Factions the host sets per seat (in join order) before the start; left out: drawn. */
   factions?: (string | undefined)[],
+  thundersEdge?: boolean,
 ) {
   const created = await request.post(`${backend}/api/games`, {
     // The server draws the opening speaker from the seed by default; these specs drive the host
     // as the first picker, so they pin the first seat. TI4_SMOKE_SPEAKER=random opts back in.
     // The seats are the order of the join, so `players` below is in seat order.
     data: {
-      ...createGameBody(playerCount, seed, startPreset, cardSet, mapTemplate),
+      ...createGameBody(playerCount, seed, startPreset, cardSet, mapTemplate, thundersEdge),
       speaker_order: process.env.TI4_SMOKE_SPEAKER?.trim() || "seat",
     },
   });

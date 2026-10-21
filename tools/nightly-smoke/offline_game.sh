@@ -8,7 +8,7 @@
 # random from the NIGHTLY_OFFLINE_* lists in config.sh (seed, table size, policy, viewport) and can
 # be forced for a reproduction:
 #   OFFLINE_FORCE_SEED, OFFLINE_FORCE_CLICK_SEED, OFFLINE_FORCE_PLAYERS, OFFLINE_FORCE_POLICY,
-#   OFFLINE_FORCE_VIEWPORT (desktop|phone), OFFLINE_FORCE_SEAT, OFFLINE_FORCE_FACTION, OFFLINE_FORCE_RESUME_AT
+#   OFFLINE_FORCE_VIEWPORT (desktop|phone), OFFLINE_FORCE_TE (1|0), OFFLINE_FORCE_SEAT, OFFLINE_FORCE_FACTION, OFFLINE_FORCE_RESUME_AT
 #   (empty value: no resume check)
 # Artifacts in <run-dir> (the layout of a server run where it makes sense):
 #   meta.json  run.log  exit_code  digest.md  entry.md  resources.log
@@ -31,10 +31,14 @@ seat="${OFFLINE_FORCE_SEAT:-random}"
 faction="${OFFLINE_FORCE_FACTION:-random}"
 resume_at="${OFFLINE_FORCE_RESUME_AT:-}"
 if [ -z "${OFFLINE_FORCE_RESUME_AT+x}" ] && [ "$(shuf -i 1-100 -n 1)" -le "$OFFLINE_RESUME_PERCENT" ]; then resume_at=$(shuf -i 8-160 -n 1); fi
+# Thunder's Edge content on (the setup form's switch) for OFFLINE_TE_PERCENT of the games; the rule bots then see the expedition too.
+te="${OFFLINE_FORCE_TE:-}"
+if [ -z "$te" ]; then te=0; [ "$(shuf -i 1-100 -n 1)" -le "$OFFLINE_TE_PERCENT" ] && te=1; fi
+te_env=""; [ "$te" != 1 ] || te_env=" TI4_OFFLINE_TE=1"
 run_id="${OFFLINE_RUN_ID:-$(basename "$run_dir")-$$-$(date +%s)}"
 commit=$(git -C "$GAME_REPO" rev-parse HEAD 2>/dev/null || echo unknown)
 dirty_files=$(git -C "$GAME_REPO" status --porcelain 2>/dev/null | wc -l)
-repro="cd web && TI4_OFFLINE_URL=<vite preview of the offline bundle> TI4_OFFLINE_GAME_SEED=$game_seed TI4_OFFLINE_CLICK_SEED=$click_seed TI4_OFFLINE_PLAYERS=$players TI4_OFFLINE_POLICY=$policy TI4_OFFLINE_VIEWPORT=$viewport TI4_OFFLINE_SEAT=$seat TI4_OFFLINE_FACTION=$faction${resume_at:+ TI4_OFFLINE_RESUME_AT=$resume_at} npm run test:e2e:offline-sweep"
+repro="cd web && TI4_OFFLINE_URL=<vite preview of the offline bundle> TI4_OFFLINE_GAME_SEED=$game_seed TI4_OFFLINE_CLICK_SEED=$click_seed TI4_OFFLINE_PLAYERS=$players TI4_OFFLINE_POLICY=$policy TI4_OFFLINE_VIEWPORT=$viewport TI4_OFFLINE_SEAT=$seat TI4_OFFLINE_FACTION=$faction${te_env}${resume_at:+ TI4_OFFLINE_RESUME_AT=$resume_at} npm run test:e2e:offline-sweep"
 cat > "$run_dir/meta.json" <<JSON
 {
   "mode": "offline",
@@ -48,6 +52,7 @@ cat > "$run_dir/meta.json" <<JSON
   "resume_at": "$resume_at",
   "preset": "",
   "card_set": "",
+  "thunders_edge": $([ "$te" = 1 ] && echo true || echo false),
   "web": "offline",
   "commit": "$commit",
   "dirty_files": $dirty_files,
@@ -64,7 +69,7 @@ cd "$GAME_REPO/web" || { echo 1 > "$run_dir/exit_code"; exit 1; }
 export TI4_OFFLINE_RUN_ID="$run_id"
 export TI4_OFFLINE_URL="$base_url" TI4_OFFLINE_TRACE_DIR="$run_dir/trace" TI4_OFFLINE_PW_OUTPUT="$run_dir/playwright" \
   TI4_OFFLINE_GAME_SEED="$game_seed" TI4_OFFLINE_CLICK_SEED="$click_seed" TI4_OFFLINE_PLAYERS="$players" \
-  TI4_OFFLINE_POLICY="$policy" TI4_OFFLINE_VIEWPORT="$viewport" TI4_OFFLINE_SEAT="$seat" TI4_OFFLINE_FACTION="$faction" TI4_OFFLINE_RESUME_AT="$resume_at" \
+  TI4_OFFLINE_POLICY="$policy" TI4_OFFLINE_VIEWPORT="$viewport" TI4_OFFLINE_SEAT="$seat" TI4_OFFLINE_FACTION="$faction" TI4_OFFLINE_RESUME_AT="$resume_at" TI4_OFFLINE_TE="$te" \
   TI4_OFFLINE_MAX_DECISIONS="$OFFLINE_MAX_DECISIONS" TI4_OFFLINE_MAX_SECONDS="$OFFLINE_MAX_SECONDS" \
   TI4_OFFLINE_STALL_SECONDS="$OFFLINE_STALL_SECONDS" TI4_OFFLINE_SHOT_CAP="$OFFLINE_SHOT_CAP"
 dev_shm_ok && export TI4_E2E_DEV_SHM=1

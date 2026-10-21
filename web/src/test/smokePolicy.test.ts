@@ -23,6 +23,11 @@ import {
   preferTechWindowUse,
   CHAOS_FREE_OFFERS,
   OVERLAY_CLOSE_IDS,
+  offersExpedition,
+  expeditionSliceOfControl,
+  expeditionWeight,
+  EXPEDITION_MENU_WEIGHT,
+  EXPEDITION_ROW_WEIGHT,
 } from "../../e2e/smokePolicy.ts";
 
 const c = (desc: string, checked = false) => ({ desc, checked });
@@ -655,5 +660,38 @@ describe("isPaymentDeadEnd", () => {
   it("leaves a bill that can still be staged alone", () => {
     expect(isPaymentDeadEnd("Stage 2 more to pay")).toBe(false);
     expect(isPaymentDeadEnd(null)).toBe(false);
+  });
+});
+
+describe("Thunder's Edge expedition steering", () => {
+  const row = "turn-bar-item-component|expedition|trade_goods | Thunder's Edge expedition: Spend 3 trade goods";
+
+  it("sees an offered slice among the options of a question", () => {
+    expect(offersExpedition(["tactical", "component|expedition|secret", "end_turn"])).toBe(true);
+    expect(offersExpedition(["tactical", "component|leader|nekroagent"])).toBe(false);
+    expect(offersExpedition([])).toBe(false);
+  });
+
+  it("names the slice of a components-menu row, and nothing else", () => {
+    expect(expeditionSliceOfControl(row)).toBe("trade_goods");
+    expect(expeditionSliceOfControl("turn-bar-item-component|expedition|tech_planet | x")).toBe("tech_planet");
+    expect(expeditionSliceOfControl("turn-bar-item-component|leader|nekroagent | Agent")).toBeNull();
+    expect(expeditionSliceOfControl("turn-bar-components | Components")).toBeNull();
+  });
+
+  it("opens the components menu more often only while a slice is payable, and favours the rows inside", () => {
+    expect(expeditionWeight("turn-bar-components | Components", true)).toBe(EXPEDITION_MENU_WEIGHT);
+    expect(expeditionWeight("turn-bar-components | Components", false)).toBeNull();
+    expect(expeditionWeight(row, true)).toBe(EXPEDITION_ROW_WEIGHT);
+    expect(expeditionWeight(row, false)).toBe(EXPEDITION_ROW_WEIGHT);
+    expect(expeditionWeight("turn-bar-tactical | Tactical", true)).toBeNull();
+    // Above the table's 6, still below ending the turn (20) and the tactical action (30) together.
+    expect(EXPEDITION_MENU_WEIGHT).toBeGreaterThan(steerWeight("turn-bar-components | Components"));
+    expect(EXPEDITION_ROW_WEIGHT).toBeGreaterThan(steerWeight("turn-bar-item-component|leader|x | y"));
+  });
+
+  it("the expedition row is a bar submit that is never read as a take-back", () => {
+    expect(isBarControl(row)).toBe(true);
+    expect(classifyControl(row)).toEqual({ unstage: false, commit: true });
   });
 });

@@ -33,6 +33,7 @@ setup flags (one setup per --players value; or --config FILE for a matrix)
   --rotate none|cyclic|all  play each table with the factions rotated over the seats
   --speaker seat|random|N   (default random)        --card-set pok|te|...
   --starting-tech        the seats that choose a starting technology are asked (bot version 3 chooses by plan)
+  --thunders-edge        Thunder's Edge content on: its cards in the decks, the expedition offered at the end of a turn
 limits
   --max-rounds 50  --max-steps 400000  --max-seconds 300  --loop-steps 5000
 run flags
@@ -54,6 +55,7 @@ impl Args {
             "text",
             "help",
             "starting-tech",
+            "thunders-edge",
             "no-cache",
         ];
         let mut values: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -229,6 +231,7 @@ fn setups_of(args: &Args) -> Result<Vec<SetupSpec>, String> {
                 speaker: args.get("speaker").unwrap_or("random").to_owned(),
                 card_set: args.get("card-set").map(str::to_owned),
                 starting_tech: args.has("starting-tech"),
+                thunders_edge: args.has("thunders-edge"),
                 rules_version: rules_version_of(args)?,
                 seeds: seeds.clone(),
             })
@@ -475,6 +478,7 @@ fn cmd_replay(args: &Args) -> Result<ExitCode, String> {
             speaker: args.get("speaker").unwrap_or("random").to_owned(),
             card_set: args.get("card-set").map(str::to_owned),
             starting_tech: args.has("starting-tech"),
+            thunders_edge: args.has("thunders-edge"),
             rules_version: rules_version_of(args)?,
             seeds: Seeds::List(vec![seed]),
         };

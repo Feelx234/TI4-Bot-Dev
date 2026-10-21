@@ -28,8 +28,14 @@ start)
   click_seed=$(shuf -i 1-2000000000 -n 1)
   players=$(shuf -e $PLAYER_COUNTS -n 1)
   policy=$(shuf -e $POLICIES -n 1)
+  # Thunder's Edge content (the table switch, not the strategy card set): part of the runs, and part
+  # of those start from the `expedition` preset (four slices claimed, two left to pay).
+  te=0
+  [ "$(shuf -i 1-100 -n 1)" -le "$TE_PROBABILITY" ] && te=1
   preset=""
-  if [ "$(shuf -i 1-100 -n 1)" -le "$PRESET_PROBABILITY" ]; then
+  if [ "$te" = 1 ] && [ "$(shuf -i 1-100 -n 1)" -le "$TE_EXPEDITION_PRESET_PERCENT" ]; then
+    preset=expedition
+  elif [ "$(shuf -i 1-100 -n 1)" -le "$PRESET_PROBABILITY" ]; then
     preset=$(shuf -e $PRESET_NAME -n 1)
     preset_base="$preset"
     if [ "$preset" != leaders ] && [ "$(shuf -i 1-100 -n 1)" -le "$PRESET_ROTATE_PERCENT" ]; then
@@ -82,6 +88,8 @@ start)
   [ -z "$map_template" ] || map_env="TI4_SMOKE_MAP_TEMPLATE=$map_template "
   card_set=te
   [ "$(shuf -i 1-100 -n 1)" -le "$POK_PROBABILITY" ] && card_set=pok
+  te_env=""
+  [ "$te" = 0 ] || te_env="TI4_SMOKE_TE=1 "
   card_env=""
   [ "$card_set" = te ] || card_env="TI4_SMOKE_CARD_SET=$card_set "
   exercise_env=""
@@ -137,6 +145,7 @@ PY
   "policy": "$policy",
   "preset": "$preset",
   "card_set": "$card_set",
+  "thunders_edge": $([ "$te" = 1 ] && echo true || echo false),
   "web": "$web",
   "map_template": "$map_template",
   "exercises": "$exercises",
@@ -149,13 +158,13 @@ PY
   "server_data_dir": "/tmp/ti4-playwright-games-$port",
   "started_at": "$(TZ="$NIGHTLY_TZ" date '+%F %T %Z')",
   "deadline": "$(TZ="$NIGHTLY_TZ" date -d "@$deadline" '+%F %T %Z')",
-  "repro": "cd web && ${web_env}TI4_SMOKE=1 ${preset_env}${card_env}${map_env}${exercise_env}TI4_SMOKE_PREP_PROBABILITY=$PREP_PROBABILITY TI4_SMOKE_PREP_AUTO_PROBABILITY=$PREP_AUTO_PROBABILITY TI4_SMOKE_PLAYERS=$players TI4_SMOKE_GAME_SEED=$game_seed TI4_SMOKE_CLICK_SEED=$click_seed TI4_SMOKE_POLICY=$policy TI4_SMOKE_ROUND=$STOP_ROUND TI4_SMOKE_DECISIONS=$MAX_DECISIONS npm run test:e2e:smoke"
+  "repro": "cd web && ${web_env}TI4_SMOKE=1 ${preset_env}${te_env}${card_env}${map_env}${exercise_env}TI4_SMOKE_PREP_PROBABILITY=$PREP_PROBABILITY TI4_SMOKE_PREP_AUTO_PROBABILITY=$PREP_AUTO_PROBABILITY TI4_SMOKE_PLAYERS=$players TI4_SMOKE_GAME_SEED=$game_seed TI4_SMOKE_CLICK_SEED=$click_seed TI4_SMOKE_POLICY=$policy TI4_SMOKE_ROUND=$STOP_ROUND TI4_SMOKE_DECISIONS=$MAX_DECISIONS npm run test:e2e:smoke"
 }
 EOF
   # A new session makes the run its own process group, so `stop` can kill browsers and the
   # Playwright web servers (cargo/vite) together.
   setsid "$NIGHTLY_DIR/_run_inner.sh" "$run_dir" "$players" "$game_seed" "$click_seed" \
-    "$policy" "$port" "$budget" "$preset" "$card_set" "$exercise_env" "$map_template" "$web" </dev/null >/dev/null 2>&1 &
+    "$policy" "$port" "$budget" "$preset" "$card_set" "$exercise_env" "$map_template" "$web" "$te" </dev/null >/dev/null 2>&1 &
   echo $! > "$run_dir/run.pid"
   echo "started run in $run_dir"
   cat "$run_dir/meta.json"

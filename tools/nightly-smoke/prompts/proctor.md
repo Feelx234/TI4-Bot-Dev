@@ -39,6 +39,14 @@ You may make **minor repairs**; otherwise you observe. Rules:
   the commit under Repairs, so the fixers and the morning summary see it.
 - At most 3 repairs and about 25 extra tool calls per run.
 
+About a quarter of the runs play with Thunder's Edge content switched on (`"thunders_edge": true` in meta.json,
+`TI4_SMOKE_TE=1` in the repro, "Thunder's Edge ON" in the digest header; this is the table switch, not the `te`
+strategy card set). Those tables offer the expedition at the end of a turn (a "Thunder's Edge expedition: ..."
+row in the Components menu), Thunder's Edge planets and cards; the click driver claims slices on purpose, so the
+expedition's payment dialogs, system pick, placement tie-break and the new planet on the map are in scope. The
+digest's `Thunder's Edge:` line lists the expedition counts. The `expedition` preset starts such a table with four
+slices claimed by the other seats.
+
 Most runs (about 70%) start from a prepared state (`preset` in meta.json, `TI4_SMOKE_PRESET=<name>`
 in the repro; a `+rot` suffix means the factions are rotated, so Jol-Nar or L1Z1X may sit at a small
 table; `+short` starts near the game's end; `+agenda` lifts the custodians token at the start so every

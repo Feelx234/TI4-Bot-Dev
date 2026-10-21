@@ -317,6 +317,26 @@ impl SelfPlay {
                     .or_default() += n;
             }
         }
+        // Thunder's Edge expedition (docs/RULES_VERSION.md): per seat index, the questions that
+        // offered a slice and the slices claimed; and the claims by slice.
+        if choice
+            .options
+            .iter()
+            .any(|o| o.id.starts_with("component|expedition|"))
+        {
+            let seat = seat_index(choice);
+            *sh.usage
+                .entry(format!("expedition:s{seat}:offers"))
+                .or_default() += 1;
+            if let Some(slice) = option.id.strip_prefix("component|expedition|") {
+                *sh.usage
+                    .entry(format!("expedition:s{seat}:claims"))
+                    .or_default() += 1;
+                *sh.usage
+                    .entry(format!("expedition_slice={slice}"))
+                    .or_default() += 1;
+            }
+        }
         // The same question, from the same seat, answered the same way, over and over.
         let mut hash = 0xcbf2_9ce4_8422_2325_u64;
         for b in choice.prompt.bytes().chain(option.id.bytes()) {
@@ -393,6 +413,7 @@ pub(crate) fn empty_for_tests() -> GameResult {
         card_set: None,
         rotation: None,
         starting_tech: false,
+        thunders_edge: false,
         rules_version: None,
     };
     empty_result(

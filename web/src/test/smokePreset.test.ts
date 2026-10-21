@@ -7,6 +7,7 @@ import {
   missingExpected,
   parseExpect,
   presetFromEnv,
+  thundersEdgeFromEnv,
 } from "../../e2e/smokePreset";
 
 describe("smoke start preset", () => {
@@ -89,5 +90,30 @@ describe("smoke start preset", () => {
     const seen = { a: 3, c: 1, d: 1 };
     const wanted = parseExpect("a,b|c,d|e|f>=2,x");
     expect(missingExpected(seen, wanted)).toEqual(["d|e|f (need 2, saw 1)", "x (need 1, saw 0)"]);
+  });
+});
+
+describe("smoke Thunder's Edge switch", () => {
+  it("reads TI4_SMOKE_TE: only 1 or true turns it on", () => {
+    expect(thundersEdgeFromEnv("1")).toBe(true);
+    expect(thundersEdgeFromEnv(" true ")).toBe(true);
+    for (const off of [undefined, "", "0", "false", "te", "pok"]) expect(thundersEdgeFromEnv(off)).toBe(false);
+  });
+
+  it("puts thunders_edge in the create body only when asked, apart from the strategy card set", () => {
+    expect(createGameBody(3, 7)).not.toHaveProperty("thunders_edge");
+    expect(createGameBody(3, 7, undefined, undefined, undefined, false)).not.toHaveProperty("thunders_edge");
+    expect(createGameBody(3, 7, "expedition", undefined, undefined, true)).toEqual({
+      player_count: 3,
+      seed: 7,
+      nickname: "E2E Host",
+      start_preset: "expedition",
+      thunders_edge: true,
+    });
+    expect(createGameBody(3, 7, undefined, "pok", undefined, true)).toMatchObject({ strategy_card_set: "pok", thunders_edge: true });
+  });
+
+  it("knows the expedition preset", () => {
+    expect(presetFromEnv("expedition")).toBe("expedition");
   });
 });

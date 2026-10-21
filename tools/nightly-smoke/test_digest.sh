@@ -79,6 +79,28 @@ for planet in mr mrte; do
   check_has "[$planet] ground casualty counts as combat" "$out" 'combat decisions: 1'
 done
 
+# Thunder's Edge: the header says so and the expedition counts are listed; a default table says it is off.
+check_has "[te off] header says Thunder's Edge off" "$out" "Thunder's Edge off"
+check_has "[te off] a default table has the off line" "$out" "^- Thunder's Edge: off"
+run="$TMP/run-te"
+make_run "$run" mr 112
+python3 - "$run" <<'PY'
+import json, sys
+run = sys.argv[1]
+meta = json.load(open(f"{run}/meta.json")); meta["thunders_edge"] = True
+json.dump(meta, open(f"{run}/meta.json", "w"))
+report = json.load(open(f"{run}/trace/report.json"))
+report["thundersEdge"] = True
+report["expedition"] = {"offers": 9, "claimed": {"secret": 1, "tech_planet": 1}, "held": {"resources": "pb", "influence": "pb", "trade_goods": "pa", "action_cards": "pa", "secret": "pa", "tech_planet": "pa"},
+                        "completed": True, "followUps": {"expedition_place_system": 1}}
+json.dump(report, open(f"{run}/trace/report.json", "w"))
+PY
+out=$(python3 "$HERE/digest.py" "$run")
+check_has "[te on] header says Thunder's Edge ON" "$out" "Thunder's Edge ON"
+check_has "[te on] offers and claims" "$out" 'offered to the click-driven seat\(s\) in 9 questions; claimed by the click driver 2 \(secret x1, tech_planet x1\)'
+check_has "[te on] slices held per faction" "$out" 'held at the end 6/6 \(hacan: .*sol: influence, resources\)'
+check_has "[te on] completion and follow-ups" "$out" 'completed \(planet placed\): yes; expedition follow-up questions: expedition_place_system x1'
+
 # Run directories of parallel slots are named sK-NN-HHMM; nothing in the digest depends on the name.
 run="$TMP/s2-03-2215"
 make_run "$run" mr 112
