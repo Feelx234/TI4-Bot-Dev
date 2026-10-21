@@ -86,6 +86,28 @@ out=$(python3 "$HERE/digest.py" "$run")
 check_has "[slot run name] digest reads a run named s2-03-2215" "$out" 'controlled by: hacan'
 check_has "[slot run name] decisions are read" "$out" 'combat decisions: 1'
 
+# A run without final-snapshot.json (the harness died): techs and objectives come from the decision log.
+run="$TMP/run-nosnap"
+make_run "$run" mr 112
+rm "$run/trace/final-snapshot.json"
+python3 -I - "$run" <<'PY'
+import json, sys
+path = sys.argv[1] + "/server-data/game_x/history.json"
+data = json.load(open(path))
+ctx = lambda sub: {"subtype": sub}
+data["payload"]["decisions"] += [
+    {"player": "pa", "prompt": "research a technology", "chosen": "pa", "offered": ["pa"], "context": ctx("research_technology")},
+    {"player": "pb", "prompt": "research a technology", "chosen": "decline", "offered": ["decline"], "context": ctx("research_technology")},
+    {"player": "pa", "prompt": "score an objective", "chosen": "te", "offered": ["te", "decline"], "context": ctx("score_objective")},
+    {"player": "pb", "prompt": "score an objective", "chosen": "decline", "offered": ["decline"], "context": ctx("score_objective")},
+]
+json.dump(data, open(path, "w"))
+PY
+out=$(python3 "$HERE/digest.py" "$run")
+check_has "[no snapshot] techs from the decision log" "$out" 'technologies gained: pa: .*decision log'
+check_lacks "[no snapshot] declined research is not a tech" "$out" 'technologies gained:.*pb'
+check_has "[no snapshot] objectives scored from the decision log" "$out" 'objectives scored: .*"pa": \["te"\]'
+
 if [ -n "${1:-}" ]; then
   out=$(python3 "$HERE/digest.py" "$1")
   check_lacks "real run: no ECONNREFUSED in suspicious lines" "$out" 'ECONNREFUSED'
