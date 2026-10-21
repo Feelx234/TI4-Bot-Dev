@@ -222,11 +222,13 @@ fn a_save_without_a_rules_version_resumes_as_a_legacy_game() {
     // Seed 12: the first 27 decisions of seed 11 use Saar's agent, whose boost mark is written
     // differently from rules version 2 on, so a save of it is no longer a legacy game.
     let seed = 12;
-    // Only 3 answers: from rules version 19 a seat with no commodities is not offered Abandoned
+    // Only 2 answers (see below): from rules version 19 a seat with no commodities is not offered Abandoned
     // Warehouses' conversion, so a save that reaches the seat-d warehouse (decision 24) cannot be
     // replayed as version 0, which still asks.
     let first = page(vec![
-        Act::Answer(3),
+        // Two answers only: from the first tactical activation on, a rules version 21 game offers the
+        // Nexus and a legacy replay does not, so a longer script is no longer a legacy-equal game.
+        Act::Answer(2),
         Act::Cmd(json!({ "type": "save_state" })),
         Act::Leave,
     ]);

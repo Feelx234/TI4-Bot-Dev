@@ -163,7 +163,47 @@ export interface TargetHighlightModel {
   movementVectors: MovementVector[];
 }
 
+/** A dashed gamma-wormhole link drawn from a gamma system to a Nexus that can be activated. */
+export interface NexusLink {
+  fromSystemId: string;
+  toSystemId: string;
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+}
+
+/** Engine facts the board needs beside the view (read from the snapshot's raw state). */
+export interface BoardEngineFacts {
+  /** `nexus_unlocked`: the Wormhole Nexus shows its open face (alpha, beta and gamma). */
+  nexusUnlocked?: boolean;
+  /** `wormhole_tokens`: wormhole kind (GAMMA, ...) -> the system the token sits in. */
+  wormholeTokens?: Record<string, unknown>;
+}
+
+export const LOCKED_NEXUS = "82a";
+export const OPEN_NEXUS = "82b";
+
+/**
+ * The host sends both faces of the Wormhole Nexus (82a locked, 82b open) at the same off-map slot.
+ * The engine only ever knows the system as 82a (units, activation, control), so drawing both put
+ * the open face on top of the real one and the activatable tile could not be clicked. One tile is
+ * kept: id 82a, wearing the open face's wormholes once the Nexus has opened.
+ */
+export function resolveNexusFace(
+  tiles: readonly BoardTileView[],
+  unlocked: boolean,
+): BoardTileView[] {
+  const locked = tiles.find((t) => t.system_id === LOCKED_NEXUS);
+  const open = tiles.find((t) => t.system_id === OPEN_NEXUS);
+  if (!locked && !open) return [...tiles];
+  const base = locked ?? { ...open!, system_id: LOCKED_NEXUS };
+  const merged: BoardTileView = unlocked && open ? { ...base, wormholes: open.wormholes } : base;
+  return tiles
+    .filter((t) => t.system_id !== OPEN_NEXUS)
+    .map((t) => (t.system_id === LOCKED_NEXUS ? merged : t));
+}
+
 export interface BoardPresentationModel {
+  nexusLinks: NexusLink[];
   tiles: TilePresentation[];
   viewBox: string;
   ownershipMap: Map<string, PlayerOwnershipStyle>;
@@ -621,6 +661,7 @@ export function buildBoardPresentationModel(
   viewerSeat?: string | null,
   selectedSystemId?: string | null,
   paymentPlanetIds?: readonly string[],
+  facts: BoardEngineFacts = {},
 ): BoardPresentationModel {
   const ownershipMap = deriveOwnershipPalette(seatingOrder, players);
   const targets = deriveActorTargetHighlights(
@@ -632,10 +673,17 @@ export function buildBoardPresentationModel(
   const systemsMap = board.systems || {};
 
   // Build unified tile list from map_tiles, or fallback deterministic spiral coordinates
-  const rawTiles: BoardTileView[] =
+  const tokenWormholes = new Map<string, Set<string>>();
+  for (const [kind, at] of Object.entries(facts.wormholeTokens ?? {})) {
+    if (typeof at !== "string") continue;
+    const kinds = tokenWormholes.get(at) ?? new Set<string>();
+    kinds.add(kind.toUpperCase());
+    tokenWormholes.set(at, kinds);
+  }
+  const rawTiles: BoardTileView[] = (
     board.map_tiles && board.map_tiles.length > 0
-      ? board.map_tiles
-      : Object.keys(systemsMap).map((id, index) => {
+      ? resolveNexusFace(board.map_tiles, Boolean(facts.nexusUnlocked))
+      : Object.keys(systemsMap).map((id, index): BoardTileView => {
           let q = 0;
           let r = 0;
           if (id === "18" || index === 0) {
@@ -654,7 +702,14 @@ export function buildBoardPresentationModel(
             q,
             r,
           };
-        });
+        })
+  ).map((tile) => {
+    const extra = tokenWormholes.get(tile.system_id);
+    if (!extra) return tile;
+    const have = new Set((tile.wormholes ?? []).map((w) => w.toUpperCase()));
+    const added = [...extra].filter((kind) => !have.has(kind));
+    return added.length ? { ...tile, wormholes: [...(tile.wormholes ?? []), ...added] } : tile;
+  });
 
   const regularCenters = rawTiles
     .filter((t) => !t.special_area)
@@ -887,6 +942,23 @@ export function buildBoardPresentationModel(
 
   targets.movementVectors = movementVectors;
 
+  // A Nexus that can be activated is reached through gamma: show which systems it is joined to.
+  const nexusTile = tiles.find((t) => t.systemId === LOCKED_NEXUS);
+  const nexusLinks: NexusLink[] =
+    nexusTile && nexusTile.isCandidateTarget
+      ? tiles
+          .filter(
+            (t) =>
+              t.systemId !== LOCKED_NEXUS && t.wormholes.some((w) => w.kind.toUpperCase() === "GAMMA"),
+          )
+          .map((t) => ({
+            fromSystemId: t.systemId,
+            toSystemId: LOCKED_NEXUS,
+            from: t.center,
+            to: nexusTile.center,
+          }))
+      : [];
+
   const xs = tiles.map((tile) => tile.center.x);
   const ys = tiles.map((tile) => tile.center.y);
   const left = xs.length ? Math.min(...xs) - 100 : -600;
@@ -895,6 +967,7 @@ export function buildBoardPresentationModel(
   const height = ys.length ? Math.max(...ys) - top + 100 : 1000;
 
   return {
+    nexusLinks,
     tiles,
     viewBox: `${left} ${top} ${width} ${height}`,
     ownershipMap,

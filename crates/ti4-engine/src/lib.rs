@@ -64,6 +64,8 @@ pub mod movement;
 pub mod neutral_units;
 pub mod objectives;
 #[cfg(test)]
+mod nexus_reach_tests;
+#[cfg(test)]
 mod objectives_monument_tests;
 pub mod observation;
 pub mod opening;

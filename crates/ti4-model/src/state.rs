@@ -1162,7 +1162,7 @@ pub struct StartingTechPick {
 /// Station) does not offer the conversion to a seat with no commodities.
 pub const RULES_NO_EMPTY_CONVERT: u32 = 19;
 
-pub const RULES_VERSION: u32 = 20;
+pub const RULES_VERSION: u32 = 21;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
@@ -1268,6 +1268,12 @@ pub const RULES_IMPERIAL_SECRET_CAP: u32 = 18;
 /// in are the ones it looks at (the Magmus Reactor's PRODUCTION 5 included). Below, it ran on the
 /// replaced tile's id, which no longer holds anything.
 pub const RULES_NOVA_SEED_AFTERMATH: u32 = 20;
+
+/// The first rules version in which the Wormhole Nexus beside the board is offered as a system to
+/// activate. It lives off the hex grid and has no board entry until a unit is in it, so the
+/// activation list (which walks the grid and the board) never named it: the Nexus was adjacent to
+/// every gamma system and could not be entered. Version 21.
+pub const RULES_NEXUS_ACTIVATION: u32 = 21;
 
 /// The whole game, as a value.
 ///
