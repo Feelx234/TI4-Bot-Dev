@@ -1,4 +1,5 @@
 import { PromptSwitches } from "./PromptSwitch.tsx";
+import { StaleChoiceError } from "../protocol/client.ts";
 import React, { useState, useEffect, useMemo } from "react";
 import { readableEventTypes } from "../presentation/participantText.ts";
 import type {
@@ -186,7 +187,8 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
     try {
       await onSubmit(optionId);
     } catch (error) {
-      setSubmissionError(error instanceof Error ? error.message : String(error));
+      // A click on a question that was already answered is dropped quietly.
+      if (!(error instanceof StaleChoiceError)) setSubmissionError(error instanceof Error ? error.message : String(error));
     } finally {
       setIsSubmitting(false);
     }

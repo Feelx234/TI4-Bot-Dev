@@ -428,7 +428,7 @@ const workflowRenderers = new Map<
         boardView={boardView}
         activeSystemId={activeSystemId}
         activePlayerId={turn?.activePlayer ?? null}
-        onSubmit={onSubmit}
+        onSubmit={(id) => onSubmit(id, choice.nonce)}
         isOpen={!isMinimized}
         onClose={() => onMinimizedChange(true)}
         lastError={lastError}
