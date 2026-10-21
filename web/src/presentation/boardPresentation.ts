@@ -8,7 +8,7 @@ import {
 import { findPlanetMeta } from "../protocol/contentCatalog.ts";
 import { applyBoosts, wireBoosts, type PlanetBoost } from "./planetValues.ts";
 import { SEAT_COLORS } from "./playerDisplay.ts";
-import { isPlanetSelectionChoice } from "./choiceModel.ts";
+import { isPlanetSelectionChoice, isSystemActivationChoice } from "./choiceModel.ts";
 import { isPaymentChoice } from "./paymentDraft.ts";
 import { isSystemPickChoice, systemPickOptionSystem } from "./systemFacts.ts";
 import { describeRetreatPick } from "./retreatPick.ts";
@@ -357,11 +357,7 @@ export function deriveActorTargetHighlights(
     }
   }
 
-  const isActivationMode = Boolean(
-    pendingChoice.context?.subtype === "activate_system" ||
-    (pendingChoice.options.length > 0 &&
-      pendingChoice.options.every((o) => o.kind === "activate")),
-  );
+  const isActivationMode = isSystemActivationChoice(pendingChoice);
   // Invasion decisions keep their own overlay even when they carry planet payloads.
   const isPlanetMode =
     !isActivationMode &&

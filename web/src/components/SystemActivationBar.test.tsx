@@ -185,4 +185,21 @@ describe("SystemActivationBar Component", () => {
     expect(screen.getByText("Activated / Blocked")).toBeInTheDocument();
     expect(screen.getByText(/already contains your command token/i)).toBeInTheDocument();
   });
+
+  it("offers the decline of Z'eu beside the highlighted systems and submits it", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const zeu: PendingChoiceDto = {
+      ...mockChoice,
+      prompt: "Z'eu: perform a tactical action without placing a command token",
+      options: [...mockChoice.options, { id: "decline", label: "Decline", kind: "decline", payload: {} }],
+    };
+    render(<SystemActivationBar choice={zeu} viewerSeat="player1" onSubmit={onSubmit} />);
+    fireEvent.click(screen.getByTestId("decline-activation-btn"));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith("decline"));
+  });
+
+  it("shows no decline button when the question has none", () => {
+    render(<SystemActivationBar choice={mockChoice} viewerSeat="player1" onSubmit={vi.fn()} />);
+    expect(screen.queryByTestId("decline-activation-btn")).not.toBeInTheDocument();
+  });
 });

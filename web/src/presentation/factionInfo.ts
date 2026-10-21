@@ -342,6 +342,31 @@ function breakthroughLine(factionId: string): FactionInfo["breakthrough"] {
   return { id: card.id, name: card.name, synergy: synergyText(card), text: card.text };
 }
 
+/**
+ * The faction sheet lists one printing per leader (Naalu: the Thunder's Edge Z'eu), but a game of
+ * another edition deals the printing of its own (the Prophecy of Kings Z'eu, whose text is also
+ * what the Components menu shows). With the ids the seat actually holds, a sheet leader that was not
+ * dealt is replaced by the dealt one of the same type, so every place prints the same card.
+ */
+export function sheetLeaderIds(
+  faction: Pick<FactionRecord, "id" | "leaders">,
+  dealt?: readonly string[],
+): string[] {
+  if (!dealt || dealt.length === 0) return [...faction.leaders];
+  const held = new Set(dealt);
+  const typeOf = (id: string) => LEADERS[id]?.type;
+  return faction.leaders.map((id) => {
+    if (held.has(id)) return id;
+    const stand = dealt.find(
+      (d) =>
+        LEADERS[d]?.faction === LEADERS[id]?.faction &&
+        typeOf(d) === typeOf(id) &&
+        !faction.leaders.includes(d),
+    );
+    return stand ?? id;
+  });
+}
+
 const LEADER_ORDER = ["agent", "commander", "hero"];
 
 /**
@@ -351,6 +376,7 @@ const LEADER_ORDER = ["agent", "commander", "hero"];
 export function describeFaction(
   factionKey: string | null | undefined,
   ownedTechs: readonly string[] = [],
+  dealtLeaders?: readonly string[],
 ): FactionInfo | undefined {
   const faction = findFactionRecord(factionKey);
   if (!faction) return undefined;
@@ -358,7 +384,7 @@ export function describeFaction(
     const resolved = resolveUnit(type, faction.id, ownedTechs);
     return resolved?.factionSpecific ? describeUnit(resolved) : undefined;
   };
-  const leaders = faction.leaders
+  const leaders = sheetLeaderIds(faction, dealtLeaders)
     .map((id) => LEADERS[id])
     .filter((l): l is LeaderRecord => !!l)
     .sort((a, b) => LEADER_ORDER.indexOf(a.type) - LEADER_ORDER.indexOf(b.type))

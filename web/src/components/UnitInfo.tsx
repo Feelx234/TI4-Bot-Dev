@@ -282,7 +282,7 @@ export const FactionInfoButton: React.FC<{
   breakthroughHeld?: string | null;
   showBreakthrough?: boolean;
 }> = ({ faction, technologies, leaders, breakthroughHeld, showBreakthrough }) => {
-  const info = describeFaction(faction, technologies);
+  const info = describeFaction(faction, technologies, leaders ? Object.keys(leaders) : undefined);
   return (
     <InfoPopover
       label={`${info?.name ?? faction}: faction details`}

@@ -90,6 +90,30 @@ export const SystemActivationBar: React.FC<SystemActivationBarProps> = ({
   };
 
   const errorMessage = submissionError || lastError;
+  const declineOption = choice.options.find((o) => o.id === "decline" || o.kind === "decline");
+  const handleDecline = async () => {
+    if (!declineOption || isSubmitting) return;
+    setIsSubmitting(true);
+    setSubmissionError(null);
+    try {
+      await onSubmit(declineOption.id);
+    } catch (err: unknown) {
+      setSubmissionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+  const declineButton = declineOption ? (
+    <button
+      type="button"
+      className="button button--secondary"
+      data-testid="decline-activation-btn"
+      disabled={isSubmitting}
+      onClick={handleDecline}
+    >
+      {declineOption.label && declineOption.label !== "decline" ? declineOption.label : "Don't use it"}
+    </button>
+  ) : null;
 
   return (
     <aside
@@ -122,6 +146,7 @@ export const SystemActivationBar: React.FC<SystemActivationBarProps> = ({
               >
                 Cancel
               </button>
+              {declineButton}
             </div>
           </div>
         ) : selectedSystemId ? (
@@ -150,6 +175,7 @@ export const SystemActivationBar: React.FC<SystemActivationBarProps> = ({
             <span className="system-activation-bar__hint text-muted">
               (Click a highlighted system hex to activate)
             </span>
+            {declineButton}
           </div>
         ) : (
           <div className="system-activation-bar__prompt-row">
@@ -160,6 +186,7 @@ export const SystemActivationBar: React.FC<SystemActivationBarProps> = ({
             <span className="system-activation-bar__hint text-muted">
               (Click a highlighted system hex)
             </span>
+            {declineButton}
           </div>
         )}
         {errorMessage && (

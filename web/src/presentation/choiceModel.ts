@@ -234,6 +234,19 @@ export function isReadyPlanetChoice(choice: PendingChoiceDto | null | undefined)
   );
 }
 
+/**
+ * The tactical action's activation step: the engine's `activate_system` question, or any question
+ * whose options are all system activations (Warfare's free tactical action) -- optionally with a
+ * decline beside them (Z'eu's `zeu_activate_system`: the Naalu may decline to exhaust the agent).
+ */
+export function isSystemActivationChoice(
+  choice: Pick<PendingChoiceDto, "options" | "context">,
+): boolean {
+  if (choice.context?.subtype === "activate_system") return true;
+  const real = choice.options.filter((o) => !isDeclineOption(o));
+  return real.length > 0 && real.every((o) => o.kind === "activate");
+}
+
 export function deriveChoiceRendererModel(
   choice: PendingChoiceDto | null,
   viewerSeat: string | null,
@@ -304,21 +317,18 @@ export function deriveChoiceRendererModel(
   }
 
   // 2. System Activation
-  if (
-    subtype === "activate_system" ||
-    (choice.options.length > 0 && choice.options.every((o) => o.kind === "activate"))
-  ) {
+  if (isSystemActivationChoice(choice)) {
     return {
       workflow: "system_activation",
       selectionMode: { mode: "single" },
       prompt: choice.prompt,
       actor: choice.actor,
       nonce: choice.nonce,
-      isOptional: false,
+      isOptional: declineOption !== null,
       contextTarget: choice.context?.target ?? null,
       options: choice.options,
       outstanding: [],
-      declineOption: null,
+      declineOption,
       optionsByKind,
       optionsByTarget,
     };
