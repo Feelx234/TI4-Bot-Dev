@@ -207,7 +207,7 @@ describe("INV-03 decision invariant matrix", () => {
       await act(async () => {
         fireEvent.click(button);
       });
-      await waitFor(() => expect(onSubmit).toHaveBeenNthCalledWith(1, option));
+      await waitFor(() => expect(onSubmit.mock.calls[0]?.[0]).toBe(option));
       expect(onSubmit.mock.calls.every(([id]) => choice.options.some((o) => o.id === id))).toBe(
         true,
       );
@@ -509,6 +509,6 @@ describe("INV-03 decision invariant matrix", () => {
     expect(screen.getByTestId("reaction-status-bar")).toBeVisible();
     expect(onSubmit).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByTestId("pass-reaction-btn"));
-    await waitFor(() => expect(onSubmit).toHaveBeenNthCalledWith(2, "decline"));
+    await waitFor(() => expect(onSubmit).toHaveBeenNthCalledWith(2, "decline", expect.anything()));
   });
 });
