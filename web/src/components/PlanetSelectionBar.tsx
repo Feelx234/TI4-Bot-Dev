@@ -139,6 +139,7 @@ export const PlanetSelectionBar: React.FC<PlanetSelectionBarProps> = ({
         boardView={boardView}
         selectedOptionId={selectedOptionId}
         selectedPlanetId={selectedPlanetId}
+        onSelectPlanet={onSelectPlanet}
         onSelectOption={onSelectOption}
         onSubmit={onSubmit}
         lastError={lastError}
