@@ -156,16 +156,27 @@ pub struct Ability {
 /// action phase.
 pub const ACTIVE_DETAIL: &str = "active";
 
-/// The label of a reaction option for the player: the printed name of the faction ability or the
-/// leader behind an ability id such as `ability:empyrean:aetherpassage:SYSTEM_ACTIVATED:after`
-/// or `leader:mentak:mentakagent:PILLAGE_USED:after`, plus the window in words ("after system
-/// activated"). The option's id is never changed; ids that are neither (rules, `reaction:` cards)
+/// The label of a reaction option for the player: the printed name of the faction ability,
+/// leader, breakthrough, technology or unit behind an ability id such as
+/// `ability:empyrean:aetherpassage:SYSTEM_ACTIVATED:after` or
+/// `leader:mentak:mentakagent:PILLAGE_USED:after`, plus the window in words ("after system
+/// activated"). A key with a clause suffix (`empyreanbt_allow`) names its card and the clause
+/// ("Void Tether: allow"). The option's id is never changed; other ids (rules, `reaction:` cards)
 /// keep their id as the label, and a card play replaces it afterwards. Without `content` the
 /// name is the id's own key, capitalised.
 pub(crate) fn ability_label(content: Option<&ti4_content::ContentStore>, id: &str) -> String {
     let parts: Vec<&str> = id.split(':').collect();
     let kind = parts.first().copied().unwrap_or("");
-    if parts.len() < 4 || !matches!(kind, "ability" | "leader") {
+    use ti4_model::content_types::ContentType;
+    let content_type = match kind {
+        "ability" => ContentType::Abilities,
+        "leader" => ContentType::Leaders,
+        "breakthrough" => ContentType::Breakthroughs,
+        "technology" => ContentType::Technologies,
+        "unit" => ContentType::Units,
+        _ => return id.to_owned(),
+    };
+    if parts.len() < 4 {
         return id.to_owned();
     }
     // The last two segments are the window: EVENT_TYPE and when/after.
@@ -173,19 +184,20 @@ pub(crate) fn ability_label(content: Option<&ti4_content::ContentStore>, id: &st
     let event = parts[parts.len() - 2];
     let window = format!("{relation} {}", event.to_lowercase().replace('_', " "));
     let keys = &parts[1..parts.len() - 2];
-    let content_type = if kind == "leader" {
-        ti4_model::content_types::ContentType::Leaders
-    } else {
-        ti4_model::content_types::ContentType::Abilities
+    let printed = |content: &ti4_content::ContentStore, key: &str| {
+        let record = content.get(content_type, key)?;
+        let name = record.text("name")?.to_owned();
+        Some(match (kind, record.text("type")) {
+            ("leader", Some(role)) => format!("{} {name}", capitalised(role)),
+            _ => name,
+        })
     };
     // The key is the last segment that names a record (a copied leader names the owner first).
     let named = content.and_then(|content| {
         keys.iter().rev().find_map(|key| {
-            let record = content.get(content_type, key)?;
-            let name = record.text("name")?.to_owned();
-            Some(match (kind, record.text("type")) {
-                ("leader", Some(role)) => format!("{} {name}", capitalised(role)),
-                _ => name,
+            printed(content, key).or_else(|| {
+                let (card, clause) = key.rsplit_once('_')?;
+                Some(format!("{}: {}", printed(content, card)?, clause))
             })
         })
     });
@@ -1455,6 +1467,38 @@ mod tests {
                 "{label}"
             );
         }
+    }
+
+    // Seen in the 2026-10-21 sweep (o2-04-2335, o3-14-2355 and 35 more runs): the Void Tether
+    // "allow" question showed `breakthrough:empyrean:empyreanbt_allow:SYSTEM_ACTIVATED:after`.
+    #[test]
+    fn breakthrough_technology_and_unit_reactions_get_their_printed_name() {
+        let content = ContentStore::embedded();
+        let label = |id: &str| ability_label(Some(content), id);
+        assert_eq!(
+            label("breakthrough:empyrean:empyreanbt:SYSTEM_ACTIVATED:after"),
+            "Void Tether (after system activated)"
+        );
+        assert_eq!(
+            label("breakthrough:empyrean:empyreanbt_allow:SYSTEM_ACTIVATED:after"),
+            "Void Tether: allow (after system activated)"
+        );
+        assert_eq!(
+            label("technology:empyrean:as:SYSTEM_ACTIVATED:after"),
+            "Aetherstream (after system activated)"
+        );
+        assert_eq!(
+            label("unit:empyrean:empyrean_mech:ACTION_CARD_PLAYED:when"),
+            "Watcher (when action card played)"
+        );
+        // Without content the key is still readable rather than the raw id.
+        assert_eq!(
+            ability_label(
+                None,
+                "breakthrough:empyrean:empyreanbt_allow:SYSTEM_ACTIVATED:after"
+            ),
+            "Empyreanbt allow (after system activated)"
+        );
     }
 
     use std::sync::{
