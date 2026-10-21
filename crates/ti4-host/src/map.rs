@@ -130,6 +130,11 @@ mod tests {
     }
 }
 
+/// [`BoardTileView::special_area`] of a system in play with no hex of its own (an off-map home).
+pub const OFF_MAP_AREA: &str = "off-map";
+
+const HEX_STEPS: [(i32, i32); 6] = [(1, 0), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)];
+
 /// Extracts static geometry and metadata for all tiles in a galaxy.
 #[must_use]
 pub fn build_board_tiles(content: &ContentStore, galaxy: &Galaxy) -> Vec<BoardTileView> {
@@ -149,6 +154,25 @@ pub fn build_board_tiles(content: &ContentStore, galaxy: &Galaxy) -> Vec<BoardTi
         if !board.iter().any(|tile| tile.system_id == id)
             && let Some(tile) = system_tile_metadata(content, id, 0, 0, Some("nexus".to_owned()))
         {
+            board.push(tile);
+        }
+    }
+
+    // Every other system in play beside the board (the Creuss home system). Its hex is chosen per
+    // view by `with_recorded_edits`, next to the Gate wherever the Gate is.
+    for (index, id) in galaxy
+        .off_map_system_ids()
+        .into_iter()
+        .filter(|id| !matches!(*id, "82a" | "82b"))
+        .enumerate()
+    {
+        if let Some(tile) = system_tile_metadata(
+            content,
+            id,
+            i32::try_from(index).unwrap_or(0),
+            0,
+            Some(OFF_MAP_AREA.to_owned()),
+        ) {
             board.push(tile);
         }
     }
@@ -210,7 +234,75 @@ pub fn with_recorded_edits(
             }
         }
     }
+    place_off_map_tiles(content, &mut tiles, state);
     tiles
+}
+
+/// Gives every off-map system a free hex beside the on-grid system its printed wormholes reach (the
+/// Creuss home beside the Gate, wherever the Gate is after an edit), on the side facing away from
+/// the centre. A system in play on `state.board` that the stored tiles lack (a game saved before
+/// off-map homes were sent) is added first.
+fn place_off_map_tiles(content: &ContentStore, tiles: &mut Vec<BoardTileView>, state: &GameState) {
+    for id in state.board.keys() {
+        if !tiles.iter().any(|t| t.system_id == id.as_str())
+            && let Some(tile) =
+                system_tile_metadata(content, id.as_str(), 0, 0, Some(OFF_MAP_AREA.to_owned()))
+        {
+            tiles.push(tile);
+        }
+    }
+    let mut occupied: std::collections::BTreeSet<(i32, i32)> = tiles
+        .iter()
+        .filter(|t| t.special_area.is_none())
+        .map(|t| (t.q, t.r))
+        .collect();
+    let grid: Vec<(String, (i32, i32), Vec<String>)> = tiles
+        .iter()
+        .filter(|t| t.special_area.is_none())
+        .map(|t| (t.system_id.clone(), (t.q, t.r), t.wormholes.clone()))
+        .collect();
+    for tile in tiles
+        .iter_mut()
+        .filter(|t| t.special_area.as_deref() == Some(OFF_MAP_AREA))
+    {
+        let anchor = grid
+            .iter()
+            .filter(|(_, _, kinds)| kinds.iter().any(|k| tile.wormholes.contains(k)))
+            .min_by(|a, b| a.0.cmp(&b.0))
+            .map(|(_, hex, _)| *hex);
+        let hex = free_hex_beside(anchor, &occupied);
+        tile.q = hex.0;
+        tile.r = hex.1;
+        occupied.insert(hex);
+    }
+}
+
+fn free_hex_beside(
+    anchor: Option<(i32, i32)>,
+    occupied: &std::collections::BTreeSet<(i32, i32)>,
+) -> (i32, i32) {
+    let (q, r) = anchor.unwrap_or((0, 0));
+    let flat = |q: i32, r: i32| (q as f32 + r as f32 / 2.0, r as f32 * 0.866);
+    let (ox, oy) = flat(q, r);
+    let mut steps: Vec<(usize, f32)> = HEX_STEPS
+        .iter()
+        .enumerate()
+        .map(|(i, (dq, dr))| {
+            let (x, y) = flat(*dq, *dr);
+            (i, x * ox + y * oy)
+        })
+        .collect();
+    steps.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+    for distance in 1..=12 {
+        for (i, _) in &steps {
+            let (dq, dr) = HEX_STEPS[*i];
+            let hex = (q + dq * distance, r + dr * distance);
+            if !occupied.contains(&hex) {
+                return hex;
+            }
+        }
+    }
+    (q + 12, r)
 }
 
 fn system_tile_metadata(
@@ -293,7 +385,7 @@ fn create_game_with_random_board(
 ) -> Result<(GameState, Galaxy), SeatingError> {
     let mut state =
         start_game_seeded_with_card_set(content, player_ids, deck_sources, None, seed, card_set)
-        .map_err(|e| SeatingError::UnknownPlayer(e.to_string()))?;
+            .map_err(|e| SeatingError::UnknownPlayer(e.to_string()))?;
 
     for (player, faction) in assignments {
         seating::deploy(&mut state, content, player, faction, POK)?;
@@ -479,7 +571,9 @@ mod template_tests {
         assert_eq!(with_recorded_edits(content, &setup, &state), setup);
         let target = setup
             .iter()
-            .find(|tile| tile.special_area.is_none() && !tile.planets.is_empty() && tile.system_id != "18")
+            .find(|tile| {
+                tile.special_area.is_none() && !tile.planets.is_empty() && tile.system_id != "18"
+            })
             .expect("a system with planets");
         let (old, q, r) = (target.system_id.clone(), target.q, target.r);
         ti4_engine::movement::apply_map_edit(
@@ -505,7 +599,74 @@ mod template_tests {
         assert!(nova.planets.is_empty());
         // The projection the client reads carries it.
         let view = crate::projection::project_board_view_with_map(&state, &setup);
-        assert!(view.map_tiles.iter().any(|t| t.system_id == ti4_engine::movement::NOVA_SEED));
+        assert!(
+            view.map_tiles
+                .iter()
+                .any(|t| t.system_id == ti4_engine::movement::NOVA_SEED)
+        );
+    }
+
+    /// The Creuss home system (tile 51) has no hex of the grid. The viewer is still sent it, as an
+    /// off-map tile beside the Gate (tile 17), and a recorded edit that moves the Gate moves it too.
+    #[test]
+    fn the_creuss_home_system_is_on_the_board_the_viewer_is_sent() {
+        let content = ContentStore::embedded();
+        let ids = players(6);
+        let mut seats = seating::seat_in_scope(&ids);
+        seats.insert(ids[0].clone(), ti4_model::id::FactionId::new("ghost"));
+        let (mut state, mut galaxy) =
+            create_game_with_template_seated(content, &ids, 4, Some("6pStandard"), &seats, None)
+                .unwrap();
+        let setup = build_board_tiles(content, &galaxy);
+        let shown = with_recorded_edits(content, &setup, &state);
+        let gate = shown
+            .iter()
+            .find(|t| t.system_id == "17")
+            .expect("the Gate is on the map");
+        let home = shown
+            .iter()
+            .find(|t| t.system_id == "51")
+            .expect("the Creuss home is drawn");
+        assert_eq!(home.special_area.as_deref(), Some("off-map"));
+        assert!(!home.planets.is_empty());
+        let dist = |a: &BoardTileView, b: &BoardTileView| {
+            let (dq, dr) = (a.q - b.q, a.r - b.r);
+            (dq.abs() + dr.abs() + (dq + dr).abs()) / 2
+        };
+        assert_eq!(dist(home, gate), 1, "beside the Gate");
+        assert!(
+            !shown
+                .iter()
+                .any(|t| t.system_id != "51" && (t.q, t.r) == (home.q, home.r)),
+            "on a free hex"
+        );
+        // A Muaat supernova in place of another system leaves it where it is.
+        let target = setup
+            .iter()
+            .find(|t| t.special_area.is_none() && !t.planets.is_empty() && t.system_id != "18")
+            .unwrap()
+            .system_id
+            .clone();
+        ti4_engine::movement::apply_map_edit(
+            &mut state,
+            &mut galaxy,
+            content,
+            POK,
+            &ti4_engine::movement::MapEdit::Replace {
+                old: target,
+                new: ti4_engine::movement::NOVA_SEED.to_owned(),
+            },
+        )
+        .unwrap();
+        let after = with_recorded_edits(content, &setup, &state);
+        assert!(after.iter().any(|t| t.system_id == "51"));
+        assert!(
+            after
+                .iter()
+                .any(|t| t.system_id == ti4_engine::movement::NOVA_SEED)
+        );
+        let view = crate::projection::project_board_view_with_map(&state, &setup);
+        assert!(view.map_tiles.iter().any(|t| t.system_id == "51"));
     }
 
     #[test]
@@ -520,7 +681,8 @@ mod template_tests {
         let content = ContentStore::embedded();
         let (_, a) = create_game_with_template(content, &players(6), 9, None).unwrap();
         let seated = seating::seat_in_scope(&players(6));
-        let (_, b) = create_game_with_random_board(content, &players(6), 9, &seated, None, POK).unwrap();
+        let (_, b) =
+            create_game_with_random_board(content, &players(6), 9, &seated, None, POK).unwrap();
         assert_eq!(
             build_board_tiles(content, &a),
             build_board_tiles(content, &b)
