@@ -112,8 +112,23 @@ pub const SHORT: &str = "+short";
 /// Every preset name the server accepts. Keep in step with `KNOWN_PRESETS` in
 /// `web/e2e/smokePreset.ts` (a test below compares the two).
 pub const KNOWN: &[&str] = &[
-    COMBAT, CARDS, AGENDA, RELICS, INVASION, TECHS, LEADERS, ENDGAME, SIEGE, BOMBARD, CAPTURE,
-    EXPLORE, NOTES, WORLD, EXPEDITION, RESEARCH, RESEARCH_NO_PA,
+    COMBAT,
+    CARDS,
+    AGENDA,
+    RELICS,
+    INVASION,
+    TECHS,
+    LEADERS,
+    ENDGAME,
+    SIEGE,
+    BOMBARD,
+    CAPTURE,
+    EXPLORE,
+    NOTES,
+    WORLD,
+    EXPEDITION,
+    RESEARCH,
+    RESEARCH_NO_PA,
 ];
 
 /// Factions a preset may seat, in the order the seeded walk visits them: the original six, then
@@ -672,8 +687,9 @@ fn research(
                     ti4_engine::planets::in_system(state, content, POK, &system)
                         .into_iter()
                         .find(|planet| {
-                            let specialties =
-                                ti4_engine::planets::tech_specialties_now(state, content, POK, planet);
+                            let specialties = ti4_engine::planets::tech_specialties_now(
+                                state, content, POK, planet,
+                            );
                             let fits = colour.is_none_or(|colour| {
                                 specialties
                                     .iter()
@@ -690,7 +706,9 @@ fn research(
                 })
             };
             if let Some((system, planet)) = take(Some(wanted)).or_else(|| take(None)) {
-                state.system_mut(&system).set_control(planet.clone(), player.clone());
+                state
+                    .system_mut(&system)
+                    .set_control(planet.clone(), player.clone());
                 state.exhaust_planet(planet);
             }
         }
@@ -2707,7 +2725,8 @@ mod tests {
     }
 
     #[test]
-    fn research_presets_exhaust_specialty_planets_and_hand_out_psychoarchaeology_to_every_seat_or_none() {
+    fn research_presets_exhaust_specialty_planets_and_hand_out_psychoarchaeology_to_every_seat_or_none()
+     {
         for (preset, pa) in [(RESEARCH, true), (RESEARCH_NO_PA, false)] {
             let (state, _) = preset_game(content(), &players(4), 11, None, preset).unwrap();
             let mut with_planets = 0;
@@ -2724,7 +2743,10 @@ mod tests {
                     .count();
                 with_planets += usize::from(exhausted_specialty > 0);
             }
-            assert!(with_planets >= 2, "{preset}: seats with exhausted specialty planets");
+            assert!(
+                with_planets >= 2,
+                "{preset}: seats with exhausted specialty planets"
+            );
         }
     }
 

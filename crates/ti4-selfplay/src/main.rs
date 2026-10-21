@@ -132,7 +132,10 @@ fn limits_of(args: &Args, base: Limits) -> Result<Limits, String> {
 /// `--rules-version N`: pins the rules version of the games ([`GameSpec::rules_version`]).
 fn rules_version_of(args: &Args) -> Result<Option<u32>, String> {
     args.get("rules-version")
-        .map(|v| v.parse().map_err(|_| format!("--rules-version {v}: not a number")))
+        .map(|v| {
+            v.parse()
+                .map_err(|_| format!("--rules-version {v}: not a number"))
+        })
         .transpose()
 }
 
