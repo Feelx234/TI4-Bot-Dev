@@ -21,6 +21,8 @@ export interface TransitDiodesPanelProps {
   selectedOptionId?: string;
   /** Planet tapped on the map: picks the source (step 1) or the destination (step 2). */
   selectedPlanetId?: string | null;
+  /** Clears the map pick once used, so tapping the same planet again counts as a new tap. */
+  onSelectPlanet?: (planetId: string | null) => void;
   onSelectOption?: (optionId: string) => void;
   onSubmit: (optionId: string) => Promise<void>;
   lastError?: string | null;
@@ -59,6 +61,7 @@ export const TransitDiodesPanel: React.FC<TransitDiodesPanelProps> = ({
   boardView,
   selectedOptionId,
   selectedPlanetId,
+  onSelectPlanet,
   onSelectOption,
   onSubmit,
   lastError,
@@ -112,6 +115,9 @@ export const TransitDiodesPanel: React.FC<TransitDiodesPanelProps> = ({
     if (selectedPlanetId === lastMapPlanet.current) return;
     lastMapPlanet.current = selectedPlanetId;
     if (!selectedPlanetId) return;
+    // Consumed: a planet two moves share only sets the planet id, so a repeat tap on it would
+    // otherwise change nothing and be lost.
+    onSelectPlanet?.(null);
     if (picked) {
       const destination = picked.force.destinations
         .flatMap((g) => g.items)

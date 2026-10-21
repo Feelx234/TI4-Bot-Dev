@@ -105,6 +105,34 @@ describe("TransitDiodesPanel (via PlanetSelectionBar)", () => {
     expect(screen.getByTestId("transit-picked").textContent).toContain("Tar'Mann");
   });
 
+  it("a second tap on the same map planet still picks it once a force is chosen", () => {
+    // Like App: the map selection lives in the parent, and a tap on a planet two moves share
+    // only sets the planet id (seen in run o3-20-0007: Bakal tapped before the force, then
+    // every later tap on Bakal changed nothing and the game stuck).
+    let tapPlanet: (planetId: string) => void = () => {};
+    function Shell() {
+      const [planet, setPlanet] = React.useState<string | null>(null);
+      tapPlanet = setPlanet;
+      return (
+        <PlanetSelectionBar
+          choice={choice}
+          viewerSeat={actor}
+          boardView={galleryBoard}
+          onSubmit={vi.fn().mockResolvedValue(undefined)}
+          selectedPlanetId={planet}
+          onSelectPlanet={setPlanet}
+        />
+      );
+    }
+    render(<Shell />);
+    act(() => tapPlanet("wellon"));
+    expect(screen.getByTestId("transit-panel").dataset.step).toBe("1");
+    click("transit-force-18|jord|infantry");
+    act(() => tapPlanet("wellon"));
+    expect(screen.getByTestId("transit-panel").dataset.step).toBe("3");
+    expect(screen.getByTestId("transit-destination-wellon").getAttribute("aria-pressed")).toBe("true");
+  });
+
   it("shows the waiting line to other players", () => {
     renderBar({ viewerSeat: "other_seat" });
     expect(screen.queryByTestId("transit-panel")).toBeNull();
