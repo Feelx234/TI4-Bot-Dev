@@ -1,0 +1,73 @@
+{
+ "title": "Hide the unused Fracture row",
+ "description": "The host sends the seven Fracture tiles (Thunder's Edge) in every game's map_tiles and the board drew them in a row under the galaxy, with four planets nobody can use unless the table plays Thunder's Edge. The client now draws them only once the Fracture is in play (state.fracture_in_play) or the engine already holds the system. The Wormhole Nexus row is unchanged. Synthetic fixtures, not captured engine states.",
+ "tag": "web/e2e/screenshots/GP-hide-unused-fracture",
+ "shots": [
+  {
+   "file": "before/before-1-te-off-desktop.png",
+   "heading": "Before, Thunder's Edge off (desktop)",
+   "caption": "Before: the Fracture row (Cocytus, Styx, Lethe, Phlegethon) sits under the galaxy although nothing in the game can reach it."
+  },
+  {
+   "file": "out/after-1-te-off-desktop.png",
+   "heading": "After, Thunder's Edge off (desktop)",
+   "caption": "After: the row is gone; the galaxy uses the room."
+  },
+  {
+   "file": "before/before-2-te-on-fracture-not-yet-desktop.png",
+   "heading": "Before, Thunder's Edge on, Fracture not in play yet (desktop)",
+   "caption": "Before: the same row, already drawn."
+  },
+  {
+   "file": "out/after-2-te-on-fracture-not-yet-desktop.png",
+   "heading": "After, Thunder's Edge on, Fracture not in play yet (desktop)",
+   "caption": "After: still hidden. The engine holds no Fracture system until it enters play, so nothing there can be chosen."
+  },
+  {
+   "file": "before/before-3-te-on-fracture-in-play-desktop.png",
+   "heading": "Before, Thunder's Edge on, Fracture in play (desktop)",
+   "caption": "Before: the row is drawn."
+  },
+  {
+   "file": "out/after-3-te-on-fracture-in-play-desktop.png",
+   "heading": "After, Thunder's Edge on, Fracture in play (desktop)",
+   "caption": "After: unchanged, the row is drawn (state.fracture_in_play)."
+  },
+  {
+   "file": "before/before-1-te-off-390x1300.png",
+   "heading": "Before, Thunder's Edge off (phone, tall viewport so the bottom row is not under the action bar)",
+   "caption": "Before: the Fracture row (Cocytus, Styx, Lethe, Phlegethon) sits under the galaxy although nothing in the game can reach it."
+  },
+  {
+   "file": "out/after-1-te-off-390x1300.png",
+   "heading": "After, Thunder's Edge off (phone, tall viewport so the bottom row is not under the action bar)",
+   "caption": "After: the row is gone; the galaxy uses the room."
+  },
+  {
+   "file": "before/before-2-te-on-fracture-not-yet-390x1300.png",
+   "heading": "Before, Thunder's Edge on, Fracture not in play yet (phone, tall viewport so the bottom row is not under the action bar)",
+   "caption": "Before: the same row, already drawn."
+  },
+  {
+   "file": "out/after-2-te-on-fracture-not-yet-390x1300.png",
+   "heading": "After, Thunder's Edge on, Fracture not in play yet (phone, tall viewport so the bottom row is not under the action bar)",
+   "caption": "After: still hidden. The engine holds no Fracture system until it enters play, so nothing there can be chosen."
+  },
+  {
+   "file": "before/before-3-te-on-fracture-in-play-390x1300.png",
+   "heading": "Before, Thunder's Edge on, Fracture in play (phone, tall viewport so the bottom row is not under the action bar)",
+   "caption": "Before: the row is drawn."
+  },
+  {
+   "file": "out/after-3-te-on-fracture-in-play-390x1300.png",
+   "heading": "After, Thunder's Edge on, Fracture in play (phone, tall viewport so the bottom row is not under the action bar)",
+   "caption": "After: unchanged, the row is drawn (state.fracture_in_play)."
+  }
+ ],
+ "notes": [
+  {
+   "title": "Reproduce. ",
+   "text": "cd web && npm run screenshots -- GP. Before shots: TI4_SHOT_PREFIX=before npm run screenshots -- GP on the base commit, moved into before/ and committed."
+  }
+ ]
+}

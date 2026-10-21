@@ -100,7 +100,9 @@ describe("boardPresentation Presentation Model", () => {
           { system_id: "n", label: "Nexus", q: 0, r: 0, special_area: "nexus" },
         ],
       };
-      const model = buildBoardPresentationModel(board, []);
+      const model = buildBoardPresentationModel(board, [], [], null, null, null, undefined, {
+        fractureInPlay: true,
+      });
       const tiles = model.tiles;
       const south = tiles.find((tile) => tile.systemId === "top")!;
       const f0 = tiles.find((tile) => tile.systemId === "f0")!;
@@ -113,6 +115,28 @@ describe("boardPresentation Presentation Model", () => {
       expect(left).toBeLessThan(nexus.center.x - 70);
       expect(top + height).toBeGreaterThan(f0.center.y + 70);
       expect(left + width).toBeGreaterThan(f1.center.x + 70);
+    });
+    it("draws the Fracture tiles only once the Fracture is in play", () => {
+      const board = {
+        systems: {},
+        map_tiles: [
+          { system_id: "18", label: "Center", q: 0, r: 0 },
+          { system_id: "f0", label: "Fracture A", q: 0, r: 0, special_area: "fracture" },
+          { system_id: "n", label: "Nexus", q: 0, r: 0, special_area: "nexus" },
+        ],
+      };
+      const ids = (facts?: { fractureInPlay?: boolean }) =>
+        buildBoardPresentationModel(board, [], [], null, null, null, undefined, facts).tiles.map(
+          (tile) => tile.systemId,
+        );
+      expect(ids()).toEqual(["18", "n"]);
+      expect(ids({ fractureInPlay: false })).toEqual(["18", "n"]);
+      expect(ids({ fractureInPlay: true })).toEqual(["18", "f0", "n"]);
+      // A system the engine already holds is shown whatever the flag says.
+      const held = { ...board, systems: { f0: { system_id: "f0", command_tokens: [], planets: {}, units: [] } } };
+      expect(
+        buildBoardPresentationModel(held as never, []).tiles.map((tile) => tile.systemId),
+      ).toContain("f0");
     });
     it("computes center and hexagon points for normal axial coordinates", () => {
       const geo = deriveHexGeometry(0, 0);

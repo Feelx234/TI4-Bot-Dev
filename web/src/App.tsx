@@ -617,6 +617,7 @@ const GameViewContainer: React.FC<{
   const boardEngineFacts = useMemo(
     () => ({
       nexusUnlocked: snapshot?.state?.nexus_unlocked === true,
+      fractureInPlay: snapshot?.state?.fracture_in_play === true,
       wormholeTokens: (snapshot?.state?.wormhole_tokens ?? undefined) as Record<string, unknown> | undefined,
     }),
     [snapshot?.state],
