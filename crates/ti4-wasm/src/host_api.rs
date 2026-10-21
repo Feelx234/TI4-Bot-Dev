@@ -396,7 +396,8 @@ pub fn prepare(len: usize) -> Result<Prepared, String> {
             crate::host_setup::SAVE_FORMAT
         ));
     }
-    let mut start: Start = serde_json::from_value(start).map_err(|error| format!("start: {error}"))?;
+    let mut start: Start =
+        serde_json::from_value(start).map_err(|error| format!("start: {error}"))?;
     let bot_version = start.settle_bot_version()?;
     let mut built = start.build()?;
     // A new game plays the current rules; a resumed save (or a restart of this host) plays the
@@ -563,7 +564,7 @@ fn replay_check(session: &HostSession) -> Option<serde_json::Value> {
         return None;
     };
     let log = session.decision_log();
-    let found = log.get(..expected).map(decisions_hash);
+    let found = session.decisions_for_check(expected).map(decisions_hash);
     let ok = found.as_ref() == Some(hash);
     Some(serde_json::json!({
         "ok": ok,
