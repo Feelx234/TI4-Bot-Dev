@@ -1,0 +1,13 @@
+{
+  "title": "Pause strip no longer covers the planet bar",
+  "description": "The pause switch under a question an ability asks itself (here Bio-Stims) floats at the bottom edge and lay over the planet chips of the planet-selection bar (nightly 2026-10-20, runs o4-74-0200 and o1-105-0312). While the strip is shown it now publishes its height as --prompt-strip-room and the bottom-anchored bars lift by it. Before shots re-apply the old layout by cancelling that lift; after shots are the real app. Capture asserts with elementFromPoint that no planet chip is covered.",
+  "tag": "web/e2e/screenshots/GN-pause-strip-bars",
+  "shots": [
+    { "file": "out/before-390x844.png", "heading": "Before (390x844)", "caption": "The strip covers the planet chips." },
+    { "file": "out/after-390x844.png", "heading": "After (390x844)", "caption": "The bar sits above the strip; every chip is reachable." },
+    { "file": "out/before-360x740.png", "heading": "Before (360x740)", "caption": "Small phone, chips under the strip." },
+    { "file": "out/after-360x740.png", "heading": "After (360x740)", "caption": "Bar lifted above the strip." },
+    { "file": "out/before-desktop.png", "heading": "Before (desktop)", "caption": "Old layout on desktop." },
+    { "file": "out/after-desktop.png", "heading": "After (desktop)", "caption": "Bar lifted above the strip." }
+  ]
+}
