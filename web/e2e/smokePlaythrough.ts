@@ -26,6 +26,7 @@ import {
   type ExerciseReport,
 } from "./smokeExercises";
 import {
+  DECISION_CONTAINERS,
   activationWeight,
   coveredBy,
   preferHitConfirm,
@@ -131,30 +132,8 @@ export interface PlaythroughReport {
   pageLoads?: { seat: number; ms: number; requests: number; scripts: number }[];
 }
 
-// Containers that render a decision for the acting seat.
-export const DECISION_CONTAINERS = [
-  "turn-action-bar",
-  "pending-choice-dialog",
-  "system-activation-bar",
-  "planet-selection-bar",
-  "transit-panel",
-  "ready-planets-bar",
-  "tactical-movement-tray",
-  "cargo-loading-tray",
-  "invasion-landing-tray",
-  "invasion-overlay",
-  "payment-drawer",
-  "payment-bar",
-  "token-payment-bar",
-  "production-builder-drawer",
-  "objectives-modal",
-  "technology-modal",
-  "combat-resolution-modal",
-  "trade-desk-modal",
-  "agenda-ballot-modal",
-  "reaction-status-bar",
-  "paused-plan",
-];
+// Containers that render a decision for the acting seat (kept in smokePolicy, unit-tested there).
+export { DECISION_CONTAINERS };
 
 // New UI surfaces worth a look by the proctor: the first time one is on screen during a run (and
 // the first decision of each round), a screenshot of the acting seat's tab lands in
