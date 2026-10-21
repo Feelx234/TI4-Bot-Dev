@@ -70,6 +70,7 @@ import { useSecondaryPrepare, useTokenPrefill, useReadyPrefill } from "./hooks/u
 import { SecondaryPrepHost } from "./components/SecondaryPrepHost.tsx";
 import { StatusTokenPlanContext, StatusTokenPlanHost } from "./components/StatusTokenPlanHost.tsx";
 import { useStatusTokenPlan } from "./hooks/useStatusTokenPlan.ts";
+import { statusPlanAvailable } from "./presentation/statusPlanAvailable.ts";
 import { BluffHoldBar, BluffProvider } from "./components/BluffSelector.tsx";
 import { PreparedHintProvider } from "./presentation/PreparedHint.tsx";
 import { GONE_MESSAGE, UNREACHABLE_MESSAGE } from "./protocol/resilience.ts";
@@ -588,9 +589,11 @@ const GameViewContainer: React.FC<{
   // Status phase: the viewer's prepared token gain and redistribution (a plan for this round's 81.5).
   // The agenda phase follows the status phase, so a plan made then is for the next round's.
   const statusViewPhase = snapshot?.view.phase;
+  // Planning is for waiting on other people: not offered when every other seat is a bot.
+  const statusPlanOn = statusPlanAvailable(lobby, userSeat);
   const statusPlan = useStatusTokenPlan({
-    gameId,
-    viewerSeat: userSeat,
+    gameId: statusPlanOn ? gameId : undefined,
+    viewerSeat: statusPlanOn ? userSeat : undefined,
     round:
       snapshot?.view.round === undefined
         ? undefined
@@ -605,7 +608,8 @@ const GameViewContainer: React.FC<{
   });
   const statusPlanViewer = snapshot?.view.players.find((player) => player.id === userSeat);
   const statusPlanOpen = Boolean(
-    userSeat &&
+    statusPlanOn &&
+      userSeat &&
       statusPlanViewer &&
       !snapshot?.view.finished &&
       turnStatus?.kind !== "game_over" &&
@@ -1099,12 +1103,14 @@ const GameViewContainer: React.FC<{
         prepOverlay={
           <>
             <SecondaryPrepHost prep={prep} busy={historyBusy} />
-            <StatusTokenPlanHost
-              api={statusPlan}
-              viewer={statusPlanViewer}
-              canPlan={statusPlanOpen}
-              busy={historyBusy}
-            />
+            {statusPlanOn && (
+              <StatusTokenPlanHost
+                api={statusPlan}
+                viewer={statusPlanViewer}
+                canPlan={statusPlanOpen}
+                busy={historyBusy}
+              />
+            )}
           </>
         }
         reactionModes={snapshot?.reaction_modes}
