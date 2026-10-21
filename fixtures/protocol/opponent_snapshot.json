@@ -118,7 +118,24 @@
             }
           ]
         }
-      }
+      },
+      "map_tiles": [
+        {
+          "system_id": "18",
+          "label": "Mecatol Rex",
+          "q": 1,
+          "r": 0,
+          "special_area": "off-map",
+          "planets": [
+            {
+              "id": "mr",
+              "label": "Mecatol Rex",
+              "resources": 1,
+              "influence": 6
+            }
+          ]
+        }
+      ]
     },
     "table": {
       "revealed_objectives": [
