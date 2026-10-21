@@ -109,6 +109,24 @@ def vp_ledger_line(state, name):
     return "- VP ledger: " + "; ".join(parts)
 
 
+RESEARCH_SUBTYPES = ("research_technology",)
+SCORE_SUBTYPES = ("score_objective", "imperial_score_objective", "score_secret_objective")
+
+
+def decision_log_picks(decisions, subtypes):
+    """What each seat picked for the given decision subtypes, from the server's decision log
+    (declines left out). Used when the run has no final snapshot to read the state from."""
+    picks = collections.OrderedDict()
+    for d in decisions:
+        if (d.get("context") or {}).get("subtype") not in subtypes:
+            continue
+        chosen = d.get("chosen")
+        if not chosen or chosen in ("decline", "done", "none"):
+            continue
+        picks.setdefault(d.get("player"), []).append(chosen)
+    return picks
+
+
 def game_dir(run_dir, meta, game_id):
     for base in (os.path.join(run_dir, "server-data"), meta.get("server_data_dir", "")):
         if base and game_id:
@@ -283,6 +301,12 @@ def main():
         gained = [t for t in pl.get("technologies", []) if t not in start_tech.get(pl.get("id"), set())]
         if gained:
             researched.append(f"{pl.get('faction')}: {', '.join(named(t) for t in gained)}")
+    if not state:
+        # No final snapshot (the harness died): read the techs from the server's decision log.
+        log_tech = decision_log_picks(decisions, RESEARCH_SUBTYPES)
+        researched = [f"{name(pid)}: {', '.join(named(t) for t in techs)}" for pid, techs in log_tech.items()]
+        if researched:
+            researched.append("(from the decision log; no final snapshot)")
     p(f"- technologies gained: {'; '.join(researched) or 'none'}")
     # Strategy cards
     picks = collections.defaultdict(list)
@@ -297,6 +321,12 @@ def main():
     p(f"- agenda votes cast: {votes}; laws in play: {', '.join(f'{k}={v}' for k, v in laws.items()) or 'none'}")
     # Objectives and score
     scored = state.get("scored_objectives") or {}
+    if not state:
+        # No final snapshot: the objectives scored come from the decision log, VP are unknown.
+        log_scored = decision_log_picks(decisions, SCORE_SUBTYPES)
+        scored = {name(pid): objs for pid, objs in log_scored.items()}
+        if scored:
+            scored["(source)"] = "decision log; no final snapshot"
     p(f"- objectives scored: {json.dumps(scored)[:400] if scored else 'none'}")
     p("- victory points: " + ", ".join(f"{pl.get('faction')} {pl.get('victory_points', 0)}"
                                         for pl in state.get("players", [])))
