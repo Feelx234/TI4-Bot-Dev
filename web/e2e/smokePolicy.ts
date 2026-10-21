@@ -483,4 +483,7 @@ export const DECISION_CONTAINERS = [
   "paused-plan",
   // Retreat, Skilled Retreat, Foresight and Ral Nel destinations: picked on the map, sent by its Confirm.
   "retreat-pick-bar",
+  // Map-anchored system/unit picks with the list minimized: SystemPickConfirmBar in the
+  // minimized-choice-banner, whose Confirm (confirm-activation-btn) sits outside the dialog.
+  "system-pick-bar",
 ];
