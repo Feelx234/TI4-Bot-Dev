@@ -90,6 +90,14 @@
 .production-drawer__unit[data-blocked="true"] .production-drawer__unit-name {
   color: var(--color-text-muted);
 }
+.production-drawer__unit-limit {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.production-drawer__unit-limit[data-at-limit="true"] {
+  color: var(--color-warning);
+}
 .production-drawer__blocked {
   margin: 0;
   font-size: 12px;

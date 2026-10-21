@@ -25,6 +25,17 @@ import {
   readCapacityFacts,
   readCapacityNow,
 } from "../presentation/productionCapacity.ts";
+import {
+  limitOfUnit,
+  limitReachedText,
+  limitUnitName,
+  queuedOfLimit,
+  readUnitLimits,
+  stagedOfLimit,
+  unitLimitText,
+  unitLimitView,
+  type UnitLimitView,
+} from "../presentation/productionUnitLimits.ts";
 import { usePreparedHint } from "../presentation/PreparedHint.tsx";
 import { useSinglePaymentSetting } from "../hooks/useSinglePaymentSetting.ts";
 import { ProductionTotal } from "./ProductionTotal.tsx";
@@ -82,9 +93,11 @@ const BuildOptionCard: React.FC<{
   disabledRemove: boolean;
   /** Units of this build that would not fit the system's capacity and would be removed. */
   capacityOver?: boolean;
+  /** Component limit of this unit's plastic (31.4) with the staged builds subtracted. */
+  limitView?: { base: string; view: UnitLimitView } | null;
   onAdd: () => void;
   onRemove: () => void;
-}> = ({ option, seat, count, blockedReason, disabledAdd, disabledRemove, capacityOver, onAdd, onRemove }) => {
+}> = ({ option, seat, count, blockedReason, disabledAdd, disabledRemove, capacityOver, limitView, onAdd, onRemove }) => {
   const unit = unitKeyOf(option);
   const built = useBuildUnit(unit, seat);
   // The Amalgamation exchange is the same unit bought another way: no resources, one captured
@@ -155,6 +168,18 @@ const BuildOptionCard: React.FC<{
           free: payload.free_this_use === true || exchange,
         }}
       />
+      {limitView && (
+        <p
+          className="production-drawer__unit-limit"
+          data-testid={`produce-limit-${option.id}`}
+          data-at-limit={limitView.view.atLimit ? "true" : undefined}
+        >
+          {unitLimitText(
+            limitUnitName(limitView.base).replace(/^./, (c) => c.toUpperCase()),
+            limitView.view,
+          )}
+        </p>
+      )}
       {capacityOver && (
         <p className="production-drawer__capacity-warning" data-testid={`produce-capacity-warning-${option.id}`}>
           Over capacity: these would be removed.
@@ -165,6 +190,42 @@ const BuildOptionCard: React.FC<{
           {blockedReason}
         </p>
       )}
+    </div>
+  );
+};
+
+/** A unit whose plastic is all on the board: no option is offered, the row says why. */
+const LimitReachedRow: React.FC<{ base: string; unit: string; seat: string; view: UnitLimitView }> = ({
+  base,
+  unit,
+  seat,
+  view,
+}) => {
+  const built = useBuildUnit(unit, seat);
+  const name = built?.name ?? limitUnitName(base);
+  return (
+    <div
+      className="workflow-card production-drawer__unit"
+      data-testid={`produce-limit-row-${base}`}
+      data-blocked="true"
+    >
+      <div className="production-drawer__unit-head">
+        <span className="production-drawer__unit-name">
+          <UnitIcon type={unit} size={22} className="production-drawer__unit-icon" aria-hidden="true" />
+          {name}
+        </span>
+        <div className="workflow-row">
+          <button type="button" className="button button--secondary button--icon" disabled aria-label={`Add ${name}`}>
+            +
+          </button>
+        </div>
+      </div>
+      <p className="production-drawer__unit-limit" data-at-limit="true">
+        {unitLimitText(limitUnitName(base).replace(/^./, (c) => c.toUpperCase()), view)}
+      </p>
+      <p className="production-drawer__blocked" data-testid="produce-blocked">
+        {limitReachedText(base)}
+      </p>
     </div>
   );
 };
@@ -275,6 +336,20 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
   const overCapacityText = capacity
     ? `${capacityMeterText(capacity)}. You may still build them, but the units above the capacity are removed when production ends.`
     : "";
+
+  // Component limits (31.4): the engine states what is on the board and what is left; staged and
+  // queued builds are subtracted here. A unit with nothing left is no longer offered, so it is
+  // listed below with the reason instead of vanishing.
+  const unitLimits = readUnitLimits(choice?.details?.unit_limits);
+  const limitRows = unitLimits.map((l) => ({
+    l,
+    view: unitLimitView(l, stagedOfLimit(l, productionOptions, draft), queuedOfLimit(l, queuedUnits)),
+  }));
+  const missingAtLimit = limitRows.filter(
+    ({ l }) =>
+      l.remaining === 0 &&
+      !productionOptions.some((opt) => l.units.includes(String(opt.payload?.unit ?? opt.id))),
+  );
 
   const optionGroups = groupOptions(productionOptions);
   const multiGroup = optionGroups.length > 1;
@@ -489,7 +564,16 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                                 capacity < 0 || stagedCapacity + capacity > capacityRemaining;
                               const resourceBlocked =
                                 resourceLimit !== null && nextCost > resourceLimit;
-                              const blocked = capacityBlocked
+                              const limitFor = limitOfUnit(unitLimits, unitKeyOf(opt));
+                              const limitRow = limitFor
+                                ? limitRows.find((r) => r.l === limitFor)!
+                                : null;
+                              const placedHere = Number(opt.payload?.placed ?? 1) || 1;
+                              const limitBlocked =
+                                !!limitRow && limitRow.view.left < placedHere;
+                              const blocked = limitBlocked
+                                ? limitReachedText(limitRow!.l.base)
+                                : capacityBlocked
                                 ? "No production capacity left"
                                 : resourceBlocked
                                   ? (
@@ -508,11 +592,13 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                                   disabledAdd={
                                     queued ||
                                     isSubmitting ||
+                                    limitBlocked ||
                                     capacityBlocked ||
                                     resourceLimit === null ||
                                     resourceBlocked
                                   }
                                   disabledRemove={!count || queued || isSubmitting}
+                                  limitView={limitRow ? { base: limitRow.l.base, view: limitRow.view } : null}
                                   capacityOver={
                                     overCapacity &&
                                     count > 0 &&
@@ -532,6 +618,15 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                         </section>
                       ))}
                     </div>
+
+                    {missingAtLimit.length > 0 && (
+                      <section aria-label="At the unit limit" data-testid="production-limit-reached">
+                        <h3 className="production-drawer__group-title">At the unit limit</h3>
+                        {missingAtLimit.map(({ l, view }) => (
+                          <LimitReachedRow key={l.base} base={l.base} unit={l.unit} seat={choice.actor} view={view} />
+                        ))}
+                      </section>
+                    )}
 
                     <div className="production-drawer__footer">
                       <ProductionTotal
