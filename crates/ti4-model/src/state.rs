@@ -1158,7 +1158,11 @@ pub struct StartingTechPick {
 /// The rules version of a new game. Raise it when an engine decision changes in a way that an
 /// older game log would not replay under (and gate the change on
 /// [`GameState::rules_version`]); see `docs/RULES_VERSION.md`.
-pub const RULES_VERSION: u32 = 18;
+/// Version 19: an exploration reward that converts commodities (Abandoned Warehouses, Merchant
+/// Station) does not offer the conversion to a seat with no commodities.
+pub const RULES_NO_EMPTY_CONVERT: u32 = 19;
+
+pub const RULES_VERSION: u32 = 19;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are

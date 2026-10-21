@@ -184,6 +184,29 @@ fn convert_commodities(
     crate::supply::gain_trade_goods_announced(state, ctx, player, moved, "exploration");
 }
 
+/// Whether a "convert commodities to trade goods" option is worth offering: from rules version 20
+/// only to a seat holding at least one commodity (older games always offered it).
+fn can_offer_convert(state: &GameState, player: &PlayerId) -> bool {
+    state.rules_version < ti4_model::state::RULES_NO_EMPTY_CONVERT
+        || state.player(player).is_some_and(|seat| seat.commodities >= 1)
+}
+
+/// [`ask`], except that a single remaining option is taken without a question (only the version
+/// 20 rules ever leave one; older games always asked with both options).
+fn ask_unless_single(
+    ctx: &mut crate::choice::Resolving<'_>,
+    state: &GameState,
+    player: &PlayerId,
+    card: &str,
+    prompt: &str,
+    options: &[(&str, &str)],
+) -> Option<String> {
+    if options.len() == 1 {
+        return Some(options[0].0.to_owned());
+    }
+    ask(ctx, state, player, card, prompt, options)
+}
+
 /// Ask this player one question with the given options.
 fn ask(
     ctx: &mut crate::choice::Resolving<'_>,
@@ -820,16 +843,17 @@ fn resolve_instant(
             return true; // an empty deck gives nothing, which is not a failure
         }
         "aw1" | "aw2" | "aw3" | "aw4" => {
-            let chosen = ask(
+            let mut options = vec![("gain", "gain 2 commodities")];
+            if can_offer_convert(state, player) {
+                options.push(("convert", "convert up to 2 commodities to trade goods"));
+            }
+            let chosen = ask_unless_single(
                 ctx,
                 state,
                 player,
                 "abandoned_warehouses",
                 "Abandoned Warehouses",
-                &[
-                    ("gain", "gain 2 commodities"),
-                    ("convert", "convert up to 2 commodities to trade goods"),
-                ],
+                &options,
             );
             if chosen.as_deref() == Some("convert") {
                 convert_commodities(state, ctx, player, Some(2));
@@ -839,16 +863,17 @@ fn resolve_instant(
             return true;
         }
         "ms1" | "ms2" => {
-            let chosen = ask(
+            let mut options = vec![("replenish", "replenish commodities")];
+            if can_offer_convert(state, player) {
+                options.push(("convert", "convert commodities to trade goods"));
+            }
+            let chosen = ask_unless_single(
                 ctx,
                 state,
                 player,
                 "merchant_station",
                 "Merchant Station",
-                &[
-                    ("replenish", "replenish commodities"),
-                    ("convert", "convert commodities to trade goods"),
-                ],
+                &options,
             );
             if chosen.as_deref() == Some("convert") {
                 convert_commodities(state, ctx, player, None);
@@ -2316,6 +2341,70 @@ mod tests {
             "gained as commodities, not trade goods"
         );
         assert_eq!(seat.trade_goods, 0);
+    }
+
+    /// The option ids of the reward question a card asks a seat at `version` (None: no question).
+    fn reward_options(
+        version: u32,
+        faction: &str,
+        commodities: i32,
+        card: &str,
+    ) -> (Option<Vec<String>>, i32, i32) {
+        let (mut state, planet) = holder(0, commodities);
+        state.rules_version = version;
+        state.player_mut(&player()).unwrap().faction = ti4_model::id::FactionId::new(faction);
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(
+            crate::choice::Scripted::new(["gain".to_owned(), "replenish".to_owned()]),
+        ));
+        let mut table = crate::choice::Table::with_default(Box::new(decider));
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut ctx = crate::choice::Resolving {
+            content: ContentStore::embedded(),
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: None,
+        };
+        state
+            .exploration_decks
+            .insert("CULTURAL".to_owned(), vec![card.to_owned()]);
+        explore_with(&mut state, &mut ctx, &player(), "CULTURAL", Some(&planet));
+        let ids = seen
+            .borrow()
+            .iter()
+            .find(|c| c.context.as_ref().is_some_and(|c| c.subtype.ends_with("_choose_reward")))
+            .map(|c| c.ids().iter().map(|id| (*id).to_owned()).collect());
+        let seat = state.player(&player()).unwrap();
+        (ids, seat.commodities, seat.trade_goods)
+    }
+
+    #[test]
+    fn no_conversion_is_offered_without_commodities() {
+        let both = Some(vec!["gain".to_owned(), "convert".to_owned()]);
+        // Old rules: always both options, even with nothing to convert.
+        assert_eq!(reward_options(17, "sol", 0, "aw1").0, both);
+        // Version 20: nothing to convert, so no question; the gain is taken.
+        let (ids, commodities, goods) = reward_options(20, "sol", 0, "aw1");
+        assert_eq!(ids, None);
+        assert_eq!((commodities, goods), (2, 0));
+        // Some commodities (also fewer than the 2 the card names): both options.
+        assert_eq!(reward_options(20, "sol", 1, "aw1").0, both);
+        assert_eq!(reward_options(20, "sol", 2, "aw1").0, both);
+        // Hacan and Keleres hold commodities the same way.
+        for faction in ["hacan", "keleres_mentak"] {
+            assert_eq!(reward_options(20, faction, 0, "aw1").0, None, "{faction}");
+            assert_eq!(reward_options(20, faction, 1, "aw1").0, both, "{faction}");
+        }
+    }
+
+    #[test]
+    fn merchant_station_offers_convert_only_with_commodities() {
+        let both = Some(vec!["replenish".to_owned(), "convert".to_owned()]);
+        assert_eq!(reward_options(17, "sol", 0, "ms1").0, both);
+        assert_eq!(reward_options(20, "sol", 0, "ms1").0, None);
+        assert_eq!(reward_options(20, "sol", 1, "ms1").0, both);
     }
 
     #[test]
