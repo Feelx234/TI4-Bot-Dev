@@ -1,0 +1,11 @@
+{
+  "title": "Auto-played secondary toast above the action menu",
+  "description": "Auto mode with a prepared secondary: after it went out, the seat's own action menu opens and the \"Auto-played your prepared secondary\" toast is still showing. It used to sit at a fixed 16 px from the bottom, over the menu's buttons (nightly 2026-10-20, run s1-08). It now docks above the turn action bar (--bottom-bar-offset). The before shots use the old fixed offset (TI4_SHOT_PREFIX=before); npm run screenshots -- GO regenerates the after shots and asserts the toast's bottom edge is not below the bar's top edge.",
+  "tag": "web/e2e/screenshots/GO-secondary-toast-clear-of-actions",
+  "shots": [
+    { "file": "before/before-1-toast-desktop.png", "heading": "Before, desktop", "caption": "The toast lies over the Trade/Components/Action cards buttons of the action menu." },
+    { "file": "out/after-1-toast-desktop.png", "heading": "After, desktop", "caption": "The toast sits above the action bar; every button is visible." },
+    { "file": "before/before-1-toast-phone.png", "heading": "Before, phone 390x844", "caption": "The toast covers the action menu." },
+    { "file": "out/after-1-toast-phone.png", "heading": "After, phone 390x844", "caption": "The toast sits above the action bar." }
+  ]
+}
