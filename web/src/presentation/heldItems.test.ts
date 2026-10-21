@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BoardView, PlayerView } from "../protocol/types.ts";
+import { ATTACHMENTS } from "../protocol/contentCatalog.ts";
+import { attachmentInfo } from "./attachmentInfo.ts";
 import { buildHeldItems, readHeldState, type HeldItemsModel, type HeldState } from "./heldItems.ts";
 
 const base = (id: string, faction: string, extra: Partial<PlayerView> = {}): PlayerView => ({

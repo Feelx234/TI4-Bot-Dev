@@ -102,6 +102,7 @@ fn main() -> Result<(), String> {
         // game is made and resumed without the choice, a current game with it, and both replay.
         for (version, choice) in [
             (2_u32, false),
+            (5, true),
             (ti4_rule_bot::tuning::BOT_VERSION, true),
             (ti4_rule_bot::tuning::MAX_BOT_VERSION, true),
         ] {
