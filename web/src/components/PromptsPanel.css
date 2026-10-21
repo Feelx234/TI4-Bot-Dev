@@ -108,3 +108,18 @@
   color: var(--color-text, #f8fafc);
   pointer-events: auto;
 }
+
+/* While the strip is shown (it publishes --prompt-strip-room) the bars anchored to the bottom edge
+   sit above it instead of under it. */
+.choice-banner,
+.choice-minimized-pill {
+  margin-bottom: var(--prompt-strip-room, 0px);
+}
+
+/* Phones: the Players / Events buttons own the bottom edge, so the strip sits above them, where the
+   bars start (the same inset the bars use), and the bars lift above the strip. */
+@media (max-width: 720px) {
+  .prompt-switch-strip {
+    bottom: max(60px, calc(var(--prep-dock, 0px) + 8px));
+  }
+}

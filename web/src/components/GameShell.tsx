@@ -1,7 +1,7 @@
 import { usePublicState } from "../presentation/PublicStateContext.tsx";
 import { gainTokensPrompt } from "../presentation/commandTokens.ts";
 import { optionUnit, produceStep } from "../presentation/productionDraft.ts";
-import React, { useEffect, useState, useMemo, useRef } from "react";
+import React, { useEffect, useLayoutEffect, useState, useMemo, useRef } from "react";
 import { GameLogEntry } from "../hooks/useGameSession.ts";
 import {
   BoardView,
@@ -1046,9 +1046,7 @@ export const ChoiceRendererDispatcher: React.FC<
       {workflow !== "action_card_reaction" &&
         choice.actor === viewerSeat &&
         promptsOfChoice(choice).length > 0 && (
-          <div className="prompt-switch-strip" data-testid="prompt-switch-strip">
-            <PromptSwitches choice={choice} />
-          </div>
+          <PromptSwitchStrip choice={choice} />
         )}
 
       {wrappedWorkflow ? (
@@ -1681,3 +1679,31 @@ export const GameShell: React.FC<GameShellProps> = ({
     </BoardPrepSlotContext.Provider>
   );
 };
+
+/**
+ * The pause switch under a question an ability asks by itself. It floats at the bottom edge, so while
+ * it is shown it publishes its height as --prompt-strip-room and the bottom-anchored bars
+ * (`.choice-banner`, the minimized pill) lift by that much instead of lying under it.
+ */
+function PromptSwitchStrip({ choice }: { choice: PendingChoiceDto }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    const node = ref.current;
+    const publish = () => {
+      if (node) root.style.setProperty("--prompt-strip-room", `${Math.ceil(node.offsetHeight) + 6}px`);
+    };
+    publish();
+    const observer = typeof ResizeObserver === "function" && node ? new ResizeObserver(publish) : null;
+    if (node) observer?.observe(node);
+    return () => {
+      observer?.disconnect();
+      root.style.removeProperty("--prompt-strip-room");
+    };
+  }, []);
+  return (
+    <div ref={ref} className="prompt-switch-strip" data-testid="prompt-switch-strip">
+      <PromptSwitches choice={choice} />
+    </div>
+  );
+}
