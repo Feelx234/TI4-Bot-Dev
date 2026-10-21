@@ -961,7 +961,7 @@ votes. A vote there costs nothing, so any positive lead is worth taking. (Votes 
 Checks and Balances ready-planets effect and the planet-exhaust rules are priced by the same valuation as on the first
 agenda.)
 
-Knob `agenda_second_vote` (v6 staging, off in v1 to v5): when `agendas_resolved_this_round() > 0`, `plan_vote` replaces
+Knob `agenda_second_vote` (v6, off in v1 to v5): when `agendas_resolved_this_round() > 0`, `plan_vote` replaces
 `agenda_min_margin` by `agenda_second_min_margin` (0.05, a noise floor). Everything else is the first-agenda logic:
 the same valuation, the expected-value search over the reachable vote totals (tie-breaks, rival share, voter-conditional
 agendas), `lambda = 0`, and the planet picker follows the plan. Indifferent seats (lead below 0.05) still abstain, and
@@ -978,7 +978,7 @@ so do seats for which no vote changes the probabilities. The first agenda is unt
 | `agenda_min_margin` | 1.5 | value points the best outcome must lead by, else no opinion |
 | `agenda_rival_share` | 0.6 | reserved: chance a rival without opinion votes against the seat |
 | `agenda_second_prior` | 2.0 | assumed stake of an unknown second agenda |
-| `agenda_second_vote` | false (on in the v6 staging table) | on the second agenda a lead of at least `agenda_second_min_margin` is an opinion (see "Second agenda") |
+| `agenda_second_vote` | false (on in v6) | on the second agenda a lead of at least `agenda_second_min_margin` is an opinion (see "Second agenda") |
 | `agenda_second_min_margin` | 0.05 | value points the best outcome must lead by on the second agenda |
 | `rider_min_p` | 0.7 | least probability of the predicted outcome for a rider |
 

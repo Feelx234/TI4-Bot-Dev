@@ -1,7 +1,7 @@
-# Rule bot: gravity-rift risk (bot version 6, staging)
+# Rule bot: gravity-rift risk (bot version 6)
 
 Knobs: `rift_risk` (on in `tuning::v6()`, off in v1 to v5), `rift_gain_scale` (1.0), `rift_margin` (3.0),
-`rift_flagship_weight` (1.0). Code: `crates/ti4-rule-bot/src/rift.rs`. `BOT_VERSION` stays 5.
+`rift_flagship_weight` (1.0). Code: `crates/ti4-rule-bot/src/rift.rs`. `BOT_VERSION` is 6 since 2026-10-21 (on in `v6()`).
 
 ## The rule (as the engine plays it)
 

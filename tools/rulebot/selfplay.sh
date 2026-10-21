@@ -4,6 +4,7 @@
 #
 #   tools/rulebot/selfplay.sh smoke            10 games, about a minute
 #   tools/rulebot/selfplay.sh bench            the golden set (200 games, starting-technology choices on), checked against baseline.json
+#   tools/rulebot/selfplay.sh bench-v5         the same golden set as bot version 5 played it (rules version 18), checked against baseline-v5.json
 #   tools/rulebot/selfplay.sh bench-v4         the same golden set as bot version 4 played it, checked against baseline-v4.json
 #   tools/rulebot/selfplay.sh bench-v1         the same seeds as bot version 1 played them, checked against baseline-v1.json
 #   tools/rulebot/selfplay.sh bench-v2         the same seeds as bot version 2 played them (no choice), checked against baseline-v2.json
@@ -49,6 +50,13 @@ case "$cmd" in
     # decides differently from the recorded baseline (expected only after a deliberate change).
     "$bin" run --config "$here/golden.json" --no-cache "${workers[@]}" --out "$out/bench.json" \
       --verify "$here/baseline.json" "$@" || { rc=$?; [[ $rc -eq 2 ]] && echo "bench: hashes differ from baseline.json (see above)"; exit $rc; }
+    ;;
+  bench-v5)
+    build
+    # Version 5 on the golden set at rules version 18 (golden-v5.json pins it): identical to
+    # baseline-v5.json proves the engine and the version-5 bot still play the old games.
+    "$bin" run --config "$here/golden-v5.json" --bot bot_version=5 --no-cache "${workers[@]}" --out "$out/bench-v5.json" \
+      --verify "$here/baseline-v5.json" "$@" || { rc=$?; [[ $rc -eq 2 ]] && echo "bench-v5: hashes differ from baseline-v5.json (see above)"; exit $rc; }
     ;;
   bench-v4)
     build

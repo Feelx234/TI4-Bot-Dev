@@ -165,7 +165,7 @@ tuning! {
 /// The rule bot's behaviour version that new games play. Version 1 is the bot before the
 /// `v2:` knobs, version 2 the bot before the `v3:` knobs, version 3 adds them, version 4 adds the `v4:` knobs (backward planning) and changes `planner_gap` and `nekro_tech`; a saved offline game records the
 /// version it was played with (`ti4_wasm::host_setup::Setup::bot_version`) and is resumed with it.
-pub const BOT_VERSION: u32 = 5;
+pub const BOT_VERSION: u32 = 6;
 
 /// The highest version [`for_version`] knows: version 6 ([`v6`]) is the current bot that new games play ([`BOT_VERSION`]), version 5
 /// ([`v5`]) the one before it; the `Tuning::default()` table stays version 4.
