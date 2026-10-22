@@ -1278,8 +1278,8 @@ pub const RULES_NEXUS_ACTIVATION: u32 = 21;
 /// The first rules version in which a secret objective written about an event (win a combat in an
 /// anomaly, be the last to pass, ...) can be scored once Classified Document Leaks has made it a
 /// public objective. Its requirement lived only as a feat of the trigger occurrence, so on the
-/// table it was worth nothing to anybody. From 24 it is met by a player who did the feat since the
-/// previous status phase, and it is scored in the status phase like any public objective.
+/// table it was worth nothing to anybody. From 24 it keeps its printed timing: it is offered, like
+/// a held one, to each player who does the feat, when it happens, once per player.
 pub const RULES_LEAKED_EVENT_SECRET: u32 = 24;
 
 const fn is_zero_u64(value: &u64) -> bool {
@@ -1563,8 +1563,9 @@ pub struct GameState {
     /// This sequence affects replay-visible event identity and is included in structural equality.
     #[serde(default)]
     pub feat_occurrence_seq: u64,
-    /// `feat_occurrence_seq` when the current round began: the feats a leaked event secret counts
-    /// are the ones after it. Not written while 0 (rounds below `RULES_LEAKED_EVENT_SECRET`).
+    /// `feat_occurrence_seq` when the current round began: the feats of this round are the ones
+    /// after it (display only: "done this round"). Not written while 0 (rounds below
+    /// `RULES_LEAKED_EVENT_SECRET`).
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub round_feat_floor: u64,
     /// Combat occurrences a player has already used to score a secret objective.
@@ -2450,7 +2451,7 @@ impl GameState {
         FeatOccurrence(self.feat_occurrence_seq)
     }
 
-    /// Whether this player did the feat since the current round began (a leaked event secret).
+    /// Whether this player did the feat since the current round began (display only).
     #[must_use]
     pub fn did_this_round(&self, player: &PlayerId, feat: Feat) -> bool {
         self.player(player).is_some_and(|seat| {
