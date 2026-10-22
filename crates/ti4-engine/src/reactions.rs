@@ -1657,6 +1657,21 @@ mod tests {
         let mut state = crate::fixtures::game(&["a", "b"]);
         state.player_mut(&player()).unwrap().action_cards =
             vec![ActionCardId::new("reveal_prototype")];
+        // Its 4 resources and a unit upgrade to research (rules version 23).
+        state.player_mut(&player()).unwrap().trade_goods = 4;
+        let store = ContentStore::embedded();
+        let basics: Vec<_> = store
+            .records(ti4_model::content_types::ContentType::Technologies)
+            .iter()
+            .filter(|r| r.text("faction").is_none() && r.text("baseUpgrade").is_none())
+            .filter_map(|r| r.id().map(ti4_model::TechnologyId::new))
+            .filter(|t| !crate::technology::is_unit_upgrade(store, t))
+            .collect();
+        state
+            .player_mut(&player())
+            .unwrap()
+            .technologies
+            .extend(basics);
         let round = |n: i64| {
             let mut payload = BTreeMap::new();
             payload.insert("system".to_owned(), "18".to_owned().into());

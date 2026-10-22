@@ -10,7 +10,7 @@ playable.
 
 `GameState::rules_version: u32` (crates/ti4-model/src/state.rs). Constants next to it:
 
-- `RULES_VERSION` (now 22): what a **new** game plays. `GameState::new` sets it, so every way of
+- `RULES_VERSION` (now 23): what a **new** game plays. `GameState::new` sets it, so every way of
   creating a game (server, lobby, wasm host, selfplay, tests) gets the latest.
 - `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ENIGMATIC_DEVICE = 5`, `RULES_TECH_PAYMENT_CHOICE = 6`, `RULES_BRIBERY_PER_PLAYER = 7`, `RULES_MUNITIONS_AFTER_ROLL = 8`, `RULES_TECH_RIDER = 9`, `RULES_ACTION_CARD_TARGETS = 10`, `RULES_RETREAT_HAZARDS = 11`, `RULES_COMMAND_TOKEN_POOL = 12`, `RULES_SELF_ASSEMBLY = 13`, `RULES_AGENDA_GRANT_REVEAL = 14`, `RULES_TECH_EFFECTS = 15`): the first version with one gated change.
 A state without the field is **version 0**, the legacy rules (what the alpha ran until 2026-10-16).
@@ -224,9 +224,11 @@ Version 19 = no empty conversion (`RULES_NO_EMPTY_CONVERT`). Abandoned Warehouse
 
 Version < 19: always both options; older logs replay unchanged.
 
+Version 21 = Nexus activation (`test-nexus-gamma-reach`, `RULES_NEXUS_ACTIVATION`, `tactical::nexus_candidate`). The Wormhole Nexus lives beside the board (off the hex grid) and has no board entry until a unit is in it, so the activation list never named it although it is adjacent to every gamma system. From 21 it is offered as a system to activate. Below 21: not offered; older logs replay unchanged.
+
 Version 22 = Hyperlane lanes (`fix-ghost-carrier-rigel`, `RULES_HYPERLANE_LANES`, `Galaxy::hyperlane_lanes`, `ti4_content::hyperlane`). Alpha report fb_1792614224_b9e447ad: on a hyperlane map the Ghosts' home carrier could not go to Rigel. The engine treated a hyperlane tile as an empty hex a ship passes through (one extra step, and the wrong systems linked), so the lane in 87a that joins Centauri (34) and Rigel (76) did not exist and home -> gate -> 34 -> 76 counted four systems. From 22 `Galaxy::adjacent` follows the printed lanes (same table and rule as the web's display network, `docs/HYPERLANE_NETWORK.md`): a lane tile is no neighbour of anything, and two systems a chain of lanes joins are adjacent, one step. `laws::apply_to_galaxy` sets the switch from the state's rules version. Below 22: the empty-hex approximation, so older logs replay unchanged (the reported game is version 21 and still refuses the move).
 
-Version 21 = Nexus activation (`test-nexus-gamma-reach`, `RULES_NEXUS_ACTIVATION`, `tactical::nexus_candidate`). The Wormhole Nexus lives beside the board (off the hex grid) and has no board entry until a unit is in it, so the activation list never named it although it is adjacent to every gamma system. From 21 it is offered as a system to activate. Below 21: not offered; older logs replay unchanged.
+Version 23 = action card costs (`fix-action-card-cost-gating`, `RULES_ACTION_CARD_COSTS`). A card that makes its player pay was offered to a seat that could not (Plagiarize with no influence took the payment attempt and did nothing). From 23 `action_cards::is_playable` (component actions) and `action_cards::reaction_can_matter` (reaction windows) call `cost_is_payable`: Focused Research (4 trade goods and a researchable technology), Impersonation (3 influence), Plagiarize (5 influence and a neighbour's non-faction technology you lack), Mercenary Contract (2 trade goods and an empty non-home planet), Pirate Fleet (3 resources and a free non-home system), Divert Funding (a returnable technology), Reveal Prototype (4 resources and a researchable unit upgrade), Bribery (at least 1 trade good). Payment counts `production::available` (exhausted planets excluded, trade goods, Keleres agent commodities). Below 23: offered as before; older logs replay unchanged.
 
 ## Not a rules version: the Thunder's Edge switch (`GameState::thunders_edge`)
 
