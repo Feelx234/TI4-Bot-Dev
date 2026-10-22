@@ -1162,7 +1162,7 @@ pub struct StartingTechPick {
 /// Station) does not offer the conversion to a seat with no commodities.
 pub const RULES_NO_EMPTY_CONVERT: u32 = 19;
 
-pub const RULES_VERSION: u32 = 21;
+pub const RULES_VERSION: u32 = 23;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
@@ -1274,6 +1274,14 @@ pub const RULES_NOVA_SEED_AFTERMATH: u32 = 20;
 /// activation list (which walks the grid and the board) never named it: the Nexus was adjacent to
 /// every gamma system and could not be entered. Version 21.
 pub const RULES_NEXUS_ACTIVATION: u32 = 21;
+
+/// The first rules version in which an action card that makes its player pay is only offered to a
+/// seat that can (Plagiarize's 5 influence, Impersonation's 3, Focused Research's 4 trade goods,
+/// Mercenary Contract's 2, Pirate Fleet's 3 resources, Reveal Prototype's 4 resources, Bribery's
+/// trade goods) and that has something to act on (Divert Funding's technology, a neighbour's
+/// technology, an empty planet or system). Version 23 (22 is reserved by another branch;
+/// renumbered at merge).
+pub const RULES_ACTION_CARD_COSTS: u32 = 23;
 
 /// The whole game, as a value.
 ///
