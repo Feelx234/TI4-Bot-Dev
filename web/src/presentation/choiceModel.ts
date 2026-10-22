@@ -168,6 +168,31 @@ export function isGrantReallocationGain(subtype: string | undefined | null): boo
   return subtype === GRANT_REALLOCATION_SUBTYPE;
 }
 
+/**
+ * Plagiarize ("spend 5 influence and choose a non-faction technology owned by 1 of your
+ * neighbors; gain that technology") pays first, then asks which technology with `technology`
+ * options whose ids are `<neighbour>|<technology>`. Only the technologies it offers are takeable.
+ */
+export const PLAGIARIZE_SUBTYPE = "plagiarize_pick_technology";
+
+export function isPlagiarizeSteal(subtype: string | undefined | null): boolean {
+  return subtype === PLAGIARIZE_SUBTYPE;
+}
+
+/** The technology id inside a Plagiarize option id (`<neighbour>|<technology>`). */
+export function plagiarizeTechId(optionId: string): string {
+  const bar = optionId.indexOf("|");
+  return bar < 0 ? optionId : optionId.slice(bar + 1);
+}
+
+/**
+ * The one flag for "gain a technology outright" (no prerequisites, no cost): Plagiarize or
+ * Research Grant Reallocation. Both ask with `technology` options and use the research dialog.
+ */
+export function isFreeTechnologyGain(subtype: string | undefined | null): boolean {
+  return isGrantReallocationGain(subtype) || isPlagiarizeSteal(subtype);
+}
+
 const PLANET_SELECTION_EXCLUDED_SUBTYPES = new Set([
   "pay_resources",
   "pay_influence",
@@ -481,7 +506,7 @@ export function deriveChoiceRendererModel(
   if (
     subtype === "research_technology" ||
     isEnigmaticDeviceResearch(subtype) ||
-    isGrantReallocationGain(subtype) ||
+    isFreeTechnologyGain(subtype) ||
     // An engine-built offer card (Deepwrought's "reduce by 1") is not a technology pick.
     (choice.details?.kind !== "offer" &&
       choice.options.length > 0 &&

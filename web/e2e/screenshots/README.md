@@ -179,3 +179,5 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Attachments, skips, text (GF-attachments-skips-text)
 
 `GF-attachments-skips-text` shows research facilities in the technology picker's skips row, attachment effect text on hover/focus/tap (system inspector, board marker tooltip), the Held items attachment texts (Demilitarized Zone, Cybernetic Research Facility) and the gravity-rift toast and log line. The `before/before-*.png` were taken at 80ce1bf1 (`TI4_SHOT_PREFIX=before`); `npm run screenshots -- GF` regenerates the `after-*` PNGs and asserts the behaviour.
+
+`GU-plagiarize-dialogs` shows Plagiarize: the unchanged influence payment dialog and the technology pick, which is now the technology dialog with only the offered cards (before shots in `before/` taken with `TI4_SHOT_PREFIX=before`); `npm run screenshots -- GU` regenerates the `after-*` PNGs and asserts the offered cards are pickable, the rest absent, and no skip row.

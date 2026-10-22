@@ -5,6 +5,9 @@ import type { BoardView, PlayerView, PendingChoiceDto } from "../protocol/types.
 import {
   isEnigmaticDeviceResearch,
   isGrantReallocationGain,
+  isFreeTechnologyGain,
+  isPlagiarizeSteal,
+  plagiarizeTechId,
   type ChoiceRendererModel,
 } from "../presentation/choiceModel.ts";
 import { Dialog } from "../primitives/index.ts";
@@ -119,7 +122,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
       choice &&
       (choice.context?.subtype === "research_technology" ||
         isEnigmaticDeviceResearch(choice.context?.subtype) ||
-        isGrantReallocationGain(choice.context?.subtype) ||
+        isFreeTechnologyGain(choice.context?.subtype) ||
         choice.options.some((o) => o.kind === "research")),
     );
 
@@ -220,15 +223,26 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
     return counts;
   }, [viewerPlayer?.technologies]);
 
+  // Plagiarize ("spend 5 influence, gain a non-faction technology a neighbour owns") steals a
+  // technology outright: no prerequisites, no resources. The engine's list is the only set of cards
+  // shown; the influence was already paid in the standard planet dialog.
+  const isPlagiarize = isPlagiarizeSteal(choice?.context?.subtype);
+  // Either free gain (Plagiarize, Research Grant Reallocation): the engine's list is what can be
+  // taken, with no prerequisites and no cost.
+  const isFreeGain = isFreeTechnologyGain(choice?.context?.subtype);
+
   const legalOptionIds = useMemo(() => {
     if (choice?.options) {
       // The Enigmatic Device's list is `technology` options; every other research is `research`.
       const kind =
         isEnigmaticDeviceResearch(choice.context?.subtype) ||
-        isGrantReallocationGain(choice.context?.subtype)
+        isFreeTechnologyGain(choice.context?.subtype)
           ? "technology"
           : "research";
-      return choice.options.filter((o) => o.kind === kind).map((o) => o.id);
+      return choice.options
+        .filter((o) => o.kind === kind)
+        // Plagiarize's options are `<neighbour>|<technology>`: the card matches on the technology.
+        .map((o) => (isPlagiarize ? plagiarizeTechId(o.id) : o.id));
     }
     return selectableTechIds ?? null;
   }, [choice?.options, selectableTechIds]);
@@ -257,7 +271,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
       }
       // The engine's list is authoritative for the first pick (version 15+): it knows every
       // waiver (AI Development Algorithm, Research Teams, relics, Publicize).
-      if (isGrantGain || (trustEngineList && choice?.options)) return true;
+      if (isFreeGain || (trustEngineList && choice?.options)) return true;
       return checkTechPrerequisites(
         tech,
         ownedTrackCounts,
@@ -266,7 +280,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
         waivers,
       );
     },
-    [legalOptionIds, ownedTrackCounts, usableSkipCounts, viewerPlayer, waivers, trustEngineList, isGrantGain, choice?.options],
+    [legalOptionIds, ownedTrackCounts, usableSkipCounts, viewerPlayer, waivers, trustEngineList, isFreeGain, choice?.options],
   );
 
   /**
@@ -441,7 +455,10 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
       }
     } else {
       if (onSubmit) {
-        await onSubmit(selectedTechs[0]);
+        const stolen = isPlagiarize
+          ? choice?.options.find((o) => techMatches(plagiarizeTechId(o.id), selectedTechs[0]))
+          : undefined;
+        await onSubmit(stolen ? stolen.id : selectedTechs[0]);
         setIsSubmitting(false);
       } else if (onConfirmResearch) {
         onConfirmResearch(selectedTechs[0]);
@@ -537,6 +554,8 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
       : undefined;
   };
   const shown = (tech: HydratedTech): boolean =>
+    // Plagiarize: a card the engine does not offer is not on the table at all.
+    (!isPlagiarize || Boolean(legalOptionIds?.some((optId) => techMatches(optId, tech.id)))) &&
     matchesTechFilter(tech, filter, !filter.availableOnly || isAvailableNow(tech));
 
   const standardVisible = TECH_TIERS.some((tierGroup) =>
@@ -601,13 +620,15 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                       borderRadius: 12,
                     }}
                   >
-                    {isGrantGain ? "Research Grant" : "Select Research"}
+                    {isGrantGain ? "Research Grant" : isPlagiarize ? "Plagiarize" : "Select Research"}
                   </span>
                 )}
               </Dialog.Title>
               <div className="technology-modal__subtitle">
                 {isGrantGain
                   ? "Research Grant Reallocation: choose any technology to gain. Prerequisites are not needed; you then return 1 fleet token per prerequisite on it."
+                  : isPlagiarize
+                  ? "Plagiarize: choose a technology a neighbour owns to gain. No prerequisites needed; the 5 influence is already paid."
                   : activeResearchMode
                   ? "Choose technology to research. Available resources and tech skips are shown below."
                   : "Public color technologies and unit upgrades"}
@@ -656,7 +677,8 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
           {/* Research Mode Controls Panel (Tech Skips + Available Resources + Cost) */}
           {activeResearchMode && (
             <div className="technology-modal__research-panel" data-testid="tech-research-controls">
-              {/* Tech Skips Row */}
+              {/* Tech Skips Row (a stolen technology has no prerequisites to skip) */}
+              {!isPlagiarize && (
               <div className="technology-modal__skips-row">
                 <div className="technology-modal__skips-header">
                   <span className="technology-modal__skips-title">🪐 Tech Skips:</span>
@@ -795,10 +817,12 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                   )}
                 </div>
               </div>
+              )}
 
               {/* Resources & Decision Actions */}
               <div className="technology-modal__research-footer">
                 <div className="technology-modal__status-line">
+                {!isPlagiarize && (
                 <div
                   className="technology-modal__resources-bar"
                   data-testid="tech-available-resources"
@@ -817,6 +841,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                     ({availableResources.planet} planet + {availableResources.tradeGoods} TG)
                   </span>
                 </div>
+                )}
 
                 <div className="technology-modal__selection-status">
                   {isPrimaryTechnology ? (
@@ -906,7 +931,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                       ? "Confirming..."
                       : selectedTechs.length === 0
                         ? "Select Technology"
-                        : isGrantGain
+                        : isFreeGain
                           ? "Gain Technology (Free)"
                           : isPrimaryTechnology
                           ? selectedTechs.length === 2
