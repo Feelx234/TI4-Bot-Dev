@@ -290,6 +290,15 @@ pub struct PublicRoll {
     /// What it did ("ship destroyed", "2 hits").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outcome: Option<String>,
+    /// The unit type that rolled it, for Space Cannon ("pds2", or "attachment" for a planet's own).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    /// The planet that unit stands on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planet: Option<String>,
+    /// The system the unit fires from when it is not the roll's own (a PDS II next door).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit_system: Option<String>,
 }
 
 /// Rolls whose face decides a hidden draw. Showing the die would show which card was taken.
@@ -340,6 +349,9 @@ pub fn public_roll(
         rerolled: roll.rerolled.iter().copied().collect(),
         system: roll.system.clone().or_else(|| active.map(str::to_owned)),
         outcome,
+        unit: roll.source.as_ref().map(|s| s.unit.clone()),
+        planet: roll.source.as_ref().and_then(|s| s.planet.clone()),
+        unit_system: roll.source.as_ref().and_then(|s| s.system.clone()),
     })
 }
 
@@ -1045,6 +1057,7 @@ mod roll_tests {
             by: Some("p1".to_owned()),
             system: None,
             outcome: None,
+            source: None,
         }
     }
 
