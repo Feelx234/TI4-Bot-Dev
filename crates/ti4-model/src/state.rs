@@ -1162,7 +1162,12 @@ pub struct StartingTechPick {
 /// Station) does not offer the conversion to a seat with no commodities.
 pub const RULES_NO_EMPTY_CONVERT: u32 = 19;
 
-pub const RULES_VERSION: u32 = 21;
+/// The first rules version in which Minister of Industry opens the ordinary production window
+/// (`production::resolve`, the Produce units dialog) in the system of a placed space dock. Below,
+/// it asked a series of single-unit "which unit" questions (`produce_one`). Version 25.
+pub const RULES_MINISTER_INDUSTRY_WINDOW: u32 = 25;
+
+pub const RULES_VERSION: u32 = 25;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are

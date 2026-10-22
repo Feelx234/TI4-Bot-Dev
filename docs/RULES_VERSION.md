@@ -10,7 +10,7 @@ playable.
 
 `GameState::rules_version: u32` (crates/ti4-model/src/state.rs). Constants next to it:
 
-- `RULES_VERSION` (now 21): what a **new** game plays. `GameState::new` sets it, so every way of
+- `RULES_VERSION` (now 25): what a **new** game plays. `GameState::new` sets it, so every way of
   creating a game (server, lobby, wasm host, selfplay, tests) gets the latest.
 - `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ENIGMATIC_DEVICE = 5`, `RULES_TECH_PAYMENT_CHOICE = 6`, `RULES_BRIBERY_PER_PLAYER = 7`, `RULES_MUNITIONS_AFTER_ROLL = 8`, `RULES_TECH_RIDER = 9`, `RULES_ACTION_CARD_TARGETS = 10`, `RULES_RETREAT_HAZARDS = 11`, `RULES_COMMAND_TOKEN_POOL = 12`, `RULES_SELF_ASSEMBLY = 13`, `RULES_AGENDA_GRANT_REVEAL = 14`, `RULES_TECH_EFFECTS = 15`): the first version with one gated change.
 A state without the field is **version 0**, the legacy rules (what the alpha ran until 2026-10-16).
@@ -275,3 +275,5 @@ Do not use it for bug fixes that a replay cannot observe (a view, a label, a pre
 hashed), only for changes of offers, results or event order.
 
 Version 20 = Nova Seed aftermath (`fix-muaat-supernova-tile`, `RULES_NOVA_SEED_AFTERMATH`). The Muaat hero replaces the active system's tile in the MOVEMENT_FINISHED window, but `Game::finish_tactical_inner` had captured the old system id and the pre-edit map: the invasion, space cannon, production (Magmus Reactor's PRODUCTION 5) and blockade steps then ran on a tile that no longer holds anything, so the fleet that moved in was ignored. From 20 the game replays the recorded map edits onto its own map right after that window and the rest of the step uses `state.active_system`. Below 20: unchanged. Also (view only, all versions): `ti4_host::map::with_recorded_edits` applies the recorded Swap and Replace edits to the `map_tiles` of every `BoardView`, so the client draws the supernova (and a Creuss swap) where it now stands; before, `map_tiles` stayed the setup tiles and the units of system 81 had no tile to be drawn on.
+
+Version 25 = Minister of Industry production window (`ui-minister-industry-production`, `RULES_MINISTER_INDUSTRY_WINDOW`). The law's "units in that system may use their PRODUCTION abilities" after a space dock is placed now runs the ordinary `production::resolve` window (batch Produce units dialog: capacity, unit limits, payment). Below 25: a loop of single-unit `produce_one` questions up to the system's capacity; older logs replay unchanged. (22-24 are taken by other branches.)
