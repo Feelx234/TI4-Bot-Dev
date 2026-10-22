@@ -156,6 +156,18 @@ export function isEnigmaticDeviceResearch(subtype: string | undefined | null): b
   return Boolean(subtype && ENIGMATIC_DEVICE_RESEARCH_SUBTYPES.has(subtype));
 }
 
+/**
+ * Research Grant Reallocation ("the elected player gains any 1 technology of their choice") asks
+ * with plain `technology` options, every technology the seat does not own and its faction may
+ * have. It is a gain, not a research: no prerequisites, no cost, so the dialog is the research one
+ * with every offered card pickable.
+ */
+export const GRANT_REALLOCATION_SUBTYPE = "grant_reallocation_choose_technology";
+
+export function isGrantReallocationGain(subtype: string | undefined | null): boolean {
+  return subtype === GRANT_REALLOCATION_SUBTYPE;
+}
+
 const PLANET_SELECTION_EXCLUDED_SUBTYPES = new Set([
   "pay_resources",
   "pay_influence",
@@ -469,6 +481,7 @@ export function deriveChoiceRendererModel(
   if (
     subtype === "research_technology" ||
     isEnigmaticDeviceResearch(subtype) ||
+    isGrantReallocationGain(subtype) ||
     // An engine-built offer card (Deepwrought's "reduce by 1") is not a technology pick.
     (choice.details?.kind !== "offer" &&
       choice.options.length > 0 &&
