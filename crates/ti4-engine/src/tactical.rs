@@ -458,8 +458,11 @@ pub fn movable_into(
 /// read "move dreadnought from 01", so nothing choosing between them could see which was which.
 #[must_use]
 pub fn movement_options(player: &PlayerId, movable: &[Movable]) -> Choice {
-    let mut seen = std::collections::BTreeSet::new();
+    let mut seen = std::collections::BTreeMap::new();
     let mut options: Vec<ChoiceOption> = Vec::new();
+    // Display only: how many hulls each option stands for. Not every ship of a type in a system
+    // reaches (Captain Mendosa raises one), and the option alone cannot say how many do.
+    let mut hulls = serde_json::Map::new();
     for candidate in movable {
         let key = (
             candidate.unit.type_id.to_string(),
@@ -468,7 +471,10 @@ pub fn movement_options(player: &PlayerId, movable: &[Movable]) -> Choice {
             candidate.gravity_drive,
             candidate.ionian,
         );
-        if !seen.insert(key) {
+        if let Some(id) = seen.get(&key) {
+            if let Some(count) = hulls.get_mut(id) {
+                *count = serde_json::Value::from(count.as_u64().unwrap_or(0) + 1);
+            }
             continue;
         }
         let damaged = if candidate.unit.sustained_damage {
@@ -511,6 +517,8 @@ pub fn movement_options(player: &PlayerId, movable: &[Movable]) -> Choice {
         if candidate.ionian {
             option = option.with("ionian", true);
         }
+        hulls.insert(option.id.clone(), serde_json::Value::from(1));
+        seen.insert(key, option.id.clone());
         options.push(option);
     }
     // 89.2b: the player may choose to move nothing.
@@ -519,7 +527,11 @@ pub fn movement_options(player: &PlayerId, movable: &[Movable]) -> Choice {
         crate::choice::DECLINE_KIND,
         "finish movement",
     ));
-    Choice::new(player.clone(), "movement", options)
+    let choice = Choice::new(player.clone(), "movement", options);
+    if hulls.is_empty() {
+        return choice;
+    }
+    choice.detailed("movable", hulls)
 }
 
 /// Gravity rifts the route of a ship of type `kind` (id `kind_id`) from `origin` to `active`
@@ -1516,6 +1528,24 @@ mod tests {
 
         let choice = movement_options(&player(), &found);
         assert_eq!(choice.options.len(), 2, "one move, plus finish movement");
+    }
+
+    #[test]
+    fn the_movement_choice_counts_the_hulls_behind_each_move() {
+        // Run o4-34-0029: Captain Mendosa raised one of three carriers to move 2. The one option
+        // "move carrier" did not say only one hull reaches, so the client staged all three and
+        // the batch was refused at the second carrier.
+        let (mut state, galaxy, ids) = fixture();
+        for _ in 0..3 {
+            state.system_mut(&ids[1]).units.push(ship("cruiser"));
+        }
+        activate(&mut state, &player(), &ids[0]).unwrap();
+        let found = movable(&state, ContentStore::embedded(), POK, &galaxy, &player());
+
+        let all = movement_options(&player(), &found);
+        assert_eq!(all.details["movable"][&all.options[0].id], 3);
+        let one = movement_options(&player(), &found[..1]);
+        assert_eq!(one.details["movable"][&one.options[0].id], 1);
     }
 
     #[test]
