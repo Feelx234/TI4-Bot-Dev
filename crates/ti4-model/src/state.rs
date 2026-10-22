@@ -1162,7 +1162,7 @@ pub struct StartingTechPick {
 /// Station) does not offer the conversion to a seat with no commodities.
 pub const RULES_NO_EMPTY_CONVERT: u32 = 19;
 
-pub const RULES_VERSION: u32 = 21;
+pub const RULES_VERSION: u32 = 24;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
@@ -1274,6 +1274,17 @@ pub const RULES_NOVA_SEED_AFTERMATH: u32 = 20;
 /// activation list (which walks the grid and the board) never named it: the Nexus was adjacent to
 /// every gamma system and could not be entered. Version 21.
 pub const RULES_NEXUS_ACTIVATION: u32 = 21;
+
+/// The first rules version in which a secret objective written about an event (win a combat in an
+/// anomaly, be the last to pass, ...) can be scored once Classified Document Leaks has made it a
+/// public objective. Its requirement lived only as a feat of the trigger occurrence, so on the
+/// table it was worth nothing to anybody. From 24 it is met by a player who did the feat since the
+/// previous status phase, and it is scored in the status phase like any public objective.
+pub const RULES_LEAKED_EVENT_SECRET: u32 = 24;
+
+const fn is_zero_u64(value: &u64) -> bool {
+    *value == 0
+}
 
 /// The whole game, as a value.
 ///
@@ -1552,6 +1563,10 @@ pub struct GameState {
     /// This sequence affects replay-visible event identity and is included in structural equality.
     #[serde(default)]
     pub feat_occurrence_seq: u64,
+    /// `feat_occurrence_seq` when the current round began: the feats a leaked event secret counts
+    /// are the ones after it. Not written while 0 (rounds below `RULES_LEAKED_EVENT_SECRET`).
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub round_feat_floor: u64,
     /// Combat occurrences a player has already used to score a secret objective.
     #[serde(default)]
     pub scored_feat_occurrences: BTreeSet<(PlayerId, FeatOccurrence)>,
@@ -1856,6 +1871,7 @@ impl PartialEq for GameState {
             && self.thunders_edge == other.thunders_edge
             && self.starting_tech_picks == other.starting_tech_picks
             && self.feat_occurrence_seq == other.feat_occurrence_seq
+            && self.round_feat_floor == other.round_feat_floor
             && self.scored_feat_occurrences == other.scored_feat_occurrences
             && self.combat_draw_round == other.combat_draw_round
             && self.fighters_produced_this_use == other.fighters_produced_this_use
@@ -2006,6 +2022,7 @@ impl GameState {
             rules_version: RULES_VERSION,
             thunders_edge: false,
             feat_occurrence_seq: 0,
+            round_feat_floor: 0,
             scored_feat_occurrences: BTreeSet::new(),
             vp_ledger: Vec::new(),
             combat_draw_round: None,
@@ -2431,6 +2448,16 @@ impl GameState {
             .checked_add(1)
             .expect("feat occurrence sequence exhausted");
         FeatOccurrence(self.feat_occurrence_seq)
+    }
+
+    /// Whether this player did the feat since the current round began (a leaked event secret).
+    #[must_use]
+    pub fn did_this_round(&self, player: &PlayerId, feat: Feat) -> bool {
+        self.player(player).is_some_and(|seat| {
+            seat.event_feats
+                .iter()
+                .any(|(done, at)| *done == feat && at.0 > self.round_feat_floor)
+        })
     }
 
     /// Record a feat against one concrete trigger occurrence.

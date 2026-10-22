@@ -155,6 +155,9 @@ pub fn begin_next_round(state: &mut GameState, strategy_cards: Vec<ti4_model::id
         .expect("validated diplomacy state settles deterministically");
     crate::diplomacy::decay_relationships(state);
     state.round += 1;
+    if state.rules_version >= ti4_model::state::RULES_LEAKED_EVENT_SECRET {
+        state.round_feat_floor = state.feat_occurrence_seq;
+    }
     state.action_turn = 0;
     state.active = None;
     // The Naalu "0" token (and Gift of Prescience's transfer of it) lasts one game round.
