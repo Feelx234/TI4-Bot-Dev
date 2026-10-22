@@ -353,6 +353,21 @@ describe("choiceModel", () => {
       expect(deriveChoiceRendererModel(maw, "seat_1")?.workflow).not.toBe("technology_research");
     });
 
+    it("routes the Research Grant Reallocation question to the technology workflow", () => {
+      const grant: PendingChoiceDto = {
+        ...baseChoice,
+        prompt: "gain which technology",
+        context: partialContext({
+          subtype: "grant_reallocation_choose_technology",
+          source: { Content: "grant_reallocation" },
+        }),
+        options: [{ id: "hm", label: "gain hm", kind: "technology", payload: {} }],
+      };
+      const model = deriveChoiceRendererModel(grant, "seat_1");
+      expect(model?.workflow).toBe("technology_research");
+      expect(model?.selectionMode).toEqual({ mode: "single" });
+    });
+
     it("keeps an engine-built offer card out of the technology workflow", () => {
       const offer: PendingChoiceDto = {
         ...baseChoice,

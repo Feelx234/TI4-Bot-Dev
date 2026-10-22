@@ -4,6 +4,7 @@ import { PlanetValue, ValueText } from "./PlanetValueIcons.tsx";
 import type { BoardView, PlayerView, PendingChoiceDto } from "../protocol/types.ts";
 import {
   isEnigmaticDeviceResearch,
+  isGrantReallocationGain,
   type ChoiceRendererModel,
 } from "../presentation/choiceModel.ts";
 import { Dialog } from "../primitives/index.ts";
@@ -118,6 +119,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
       choice &&
       (choice.context?.subtype === "research_technology" ||
         isEnigmaticDeviceResearch(choice.context?.subtype) ||
+        isGrantReallocationGain(choice.context?.subtype) ||
         choice.options.some((o) => o.kind === "research")),
     );
 
@@ -222,11 +224,18 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
     if (choice?.options) {
       // The Enigmatic Device's list is `technology` options; every other research is `research`.
       const kind =
-        isEnigmaticDeviceResearch(choice.context?.subtype) ? "technology" : "research";
+        isEnigmaticDeviceResearch(choice.context?.subtype) ||
+        isGrantReallocationGain(choice.context?.subtype)
+          ? "technology"
+          : "research";
       return choice.options.filter((o) => o.kind === kind).map((o) => o.id);
     }
     return selectableTechIds ?? null;
   }, [choice?.options, selectableTechIds]);
+
+  // Research Grant Reallocation gains a technology outright: the engine's list is every technology
+  // the seat may take, whatever its prerequisites.
+  const isGrantGain = isGrantReallocationGain(choice?.context?.subtype);
 
   const effectiveTrackCounts = useMemo(() => {
     const counts = { ...ownedTrackCounts };
@@ -248,7 +257,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
       }
       // The engine's list is authoritative for the first pick (version 15+): it knows every
       // waiver (AI Development Algorithm, Research Teams, relics, Publicize).
-      if (trustEngineList && choice?.options) return true;
+      if (isGrantGain || (trustEngineList && choice?.options)) return true;
       return checkTechPrerequisites(
         tech,
         ownedTrackCounts,
@@ -257,7 +266,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
         waivers,
       );
     },
-    [legalOptionIds, ownedTrackCounts, usableSkipCounts, viewerPlayer, waivers, trustEngineList, choice?.options],
+    [legalOptionIds, ownedTrackCounts, usableSkipCounts, viewerPlayer, waivers, trustEngineList, isGrantGain, choice?.options],
   );
 
   /**
@@ -592,12 +601,14 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                       borderRadius: 12,
                     }}
                   >
-                    Select Research
+                    {isGrantGain ? "Research Grant" : "Select Research"}
                   </span>
                 )}
               </Dialog.Title>
               <div className="technology-modal__subtitle">
-                {activeResearchMode
+                {isGrantGain
+                  ? "Research Grant Reallocation: choose any technology to gain. Prerequisites are not needed; you then return 1 fleet token per prerequisite on it."
+                  : activeResearchMode
                   ? "Choose technology to research. Available resources and tech skips are shown below."
                   : "Public color technologies and unit upgrades"}
               </div>
@@ -895,7 +906,9 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                       ? "Confirming..."
                       : selectedTechs.length === 0
                         ? "Select Technology"
-                        : isPrimaryTechnology
+                        : isGrantGain
+                          ? "Gain Technology (Free)"
+                          : isPrimaryTechnology
                           ? selectedTechs.length === 2
                             ? <ValueText text={`Confirm Research (2 Techs - ${secondPickCost} resources)`} />
                             : "Confirm Research (1 Tech - Free)"
