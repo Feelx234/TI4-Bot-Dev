@@ -110,6 +110,8 @@
 
 .auto-resolve-toast.dismissing {
   animation: slideOutLeft 0.3s ease-in forwards;
+  /* Going away: never catch a tap meant for the controls underneath, even if it lingers. */
+  pointer-events: none;
 }
 
 /* Swipe to dismiss: horizontal drags belong to the toast, vertical ones still scroll the page. */
