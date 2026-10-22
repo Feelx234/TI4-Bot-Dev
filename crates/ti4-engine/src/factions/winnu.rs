@@ -766,6 +766,23 @@ fn secondary_waived(
 
 // -- Berekar Berekon -----------------------------------------------------------------------------
 
+/// Berekar Berekon is ready for `player` (its owner).
+pub(crate) fn agent_ready(state: &GameState, player: &PlayerId) -> bool {
+    leader_status(state, player, AGENT) == Some(LeaderStatus::Readied)
+}
+
+/// Exhaust Berekar Berekon for `player` and add its 2 to the use's discount pool. False (nothing
+/// changes) when it is not ready.
+pub(crate) fn exhaust_agent_for_production(state: &mut GameState, player: &PlayerId) -> bool {
+    if agent_ready(state, player) && crate::leaders::exhaust(state, player, &LeaderId::new(AGENT))
+    {
+        state.production_discount_remaining += 2;
+        true
+    } else {
+        false
+    }
+}
+
 fn agent(owner_name: &str, seat: &PlayerId) -> Ability {
     let (owner, condition_seat) = (seat.clone(), seat.clone());
     Ability::stateful(
@@ -784,7 +801,14 @@ fn agent(owner_name: &str, seat: &PlayerId) -> Ability {
         }),
     )
     .with_optional(true)
-    .with_stateful_condition(Arc::new(move |_event, _, context| {
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        // From RULES_WINNU_AGENT_PRODUCTION the owner's own production offers the discount inside
+        // the production dialog; this window is for another player's production.
+        if context.state.rules_version >= ti4_model::state::RULES_WINNU_AGENT_PRODUCTION
+            && event.text("player") == Some(condition_seat.as_str())
+        {
+            return false;
+        }
         leader_status(context.state, &condition_seat, AGENT) == Some(LeaderStatus::Readied)
     }))
 }

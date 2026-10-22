@@ -187,3 +187,7 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 `GR-no-status-plan-singleplayer` shows the status-phase board strip before and after hiding the "Plan status tokens" chip when every other seat is a rule bot (singleplayer), and that a table with another human seat still shows it, desktop and 390x844. The `before/` PNGs were taken with `TI4_SHOT_PREFIX=before` on the base commit; `npm run screenshots -- GR` regenerates the `after-*` PNGs and asserts the chip and dialog are absent in singleplayer and present with another human.
 
 `GW-toast-swipe-ghost-box` (letter renamed from GS at merge, which `GS-grant-reallocation-research` keeps) shows that a swiped-away vote toast leaves no invisible clickable box, phone and desktop; the `before/` PNGs were taken with `TI4_SHOT_PREFIX=before`; `npm run screenshots -- GW` regenerates the `after-*` PNGs and asserts nothing is left.
+
+## Berekar Berekon in the production dialog (HA-berekar-production)
+
+`HA-berekar-production` shows the Winnu agent as a toggle in the owner's own production dialog (total lowered by 2, the exhaust sent before the builds) and as a button of its own when nothing is within reach without it, desktop and 390x844. Synthetic fixtures through the mocked server; no `before/` (the card was a reaction question ahead of the dialog). `npm run screenshots -- HA`.

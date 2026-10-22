@@ -1167,7 +1167,14 @@ pub const RULES_NO_EMPTY_CONVERT: u32 = 19;
 /// it asked a series of single-unit "which unit" questions (`produce_one`). Version 25.
 pub const RULES_MINISTER_INDUSTRY_WINDOW: u32 = 25;
 
-pub const RULES_VERSION: u32 = 25;
+/// The first rules version in which Berekar Berekon (the Winnu agent) is offered inside its owner's
+/// own production dialog ("exhaust: -2 cost", a `production_agent` option of the production
+/// question) instead of as a separate reaction window, and in every non-ability use of PRODUCTION
+/// (Warfare, Construction and Minister of Industry never fired the old window). Another player's
+/// production still opens the reaction window. Version 26.
+pub const RULES_WINNU_AGENT_PRODUCTION: u32 = 26;
+
+pub const RULES_VERSION: u32 = 26;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are

@@ -354,7 +354,11 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
     if let Some(index) = pick_secondary(choice, observed, &me) {
         return Some(index);
     }
-    if choice.options.iter().any(|o| o.kind == "produce") {
+    if choice
+        .options
+        .iter()
+        .any(|o| o.kind == "produce" || o.kind == ti4_engine::production::AGENT_OPTION_KIND)
+    {
         return pick_produce_biased(choice, observed, &me, &planner::Bias::of(seen, &me));
     }
     if choice.options.iter().all(|o| o.kind == "pay") {
@@ -2772,6 +2776,15 @@ fn pick_produce_biased(
     me: &PlayerId,
     bias: &planner::Bias,
 ) -> Option<usize> {
+    // Berekar Berekon's -2 in the owner's own production dialog: the bot used the same card
+    // whenever the old reaction window offered it, so it takes this offer before buying.
+    if let Some(index) = choice
+        .options
+        .iter()
+        .position(|option| option.kind == ti4_engine::production::AGENT_OPTION_KIND)
+    {
+        return Some(index);
+    }
     let (ships, ground) = own_counts(seen, me);
     let enough_ground = enough_ground(seen, me);
     let carriers = seen
@@ -3932,6 +3945,37 @@ mod tests {
             .with("available_resources", available)
             .with("fleet_excess_after", 0)
             .with("capacity_excess_after", 0)
+    }
+
+    #[test]
+    fn production_takes_berekar_berekons_discount_before_buying() {
+        let (state, hub, _, _) = board();
+        let seen = observe(&state, &hub);
+        let agent = ChoiceOption::labelled(
+            ti4_engine::production::AGENT_OPTION_ID,
+            ti4_engine::production::AGENT_OPTION_KIND,
+            "Exhaust Berekar Berekon: -2 cost",
+        );
+        let choice = Choice::new(
+            me(),
+            "produce",
+            vec![
+                build("carrier", 1, 3, 3),
+                agent.clone(),
+                ChoiceOption::labelled("done_producing", "decline", "done"),
+            ],
+        );
+        assert_eq!(pick_produce(&choice, &seen, &me()), Some(1));
+        // Nothing within reach without it: the offer is still the one thing worth taking.
+        let only = Choice::new(
+            me(),
+            "produce",
+            vec![
+                agent,
+                ChoiceOption::labelled("done_producing", "decline", "done"),
+            ],
+        );
+        assert_eq!(pick_produce(&only, &seen, &me()), Some(0));
     }
 
     #[test]

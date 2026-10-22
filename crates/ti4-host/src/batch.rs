@@ -146,6 +146,8 @@ enum ProductionStep {
         #[serde(default)]
         exchange: bool,
     },
+    /// Berekar Berekon's -2, taken before the first build.
+    ExhaustAgent,
     DoneProducing,
 }
 
@@ -277,6 +279,7 @@ impl From<ProductionStep> for MovementStep {
                 count,
                 exchange,
             },
+            ProductionStep::ExhaustAgent => Self::ExhaustAgent,
             ProductionStep::DoneProducing => Self::DoneProducing,
         }
     }
@@ -361,6 +364,7 @@ pub enum MovementStep {
         count: u32,
         exchange: bool,
     },
+    ExhaustAgent,
     DoneProducing,
     Sustain {
         unit: String,
@@ -409,7 +413,7 @@ impl MovementStep {
             Self::Load { .. } | Self::DoneLoading => "load_cargo",
             Self::Exhaust { .. } | Self::TradeGood => "pay_resources",
             Self::VotePlanet { .. } | Self::DoneVoting => "vote_exhaust_planet",
-            Self::Produce { .. } | Self::DoneProducing => "produce_unit",
+            Self::Produce { .. } | Self::ExhaustAgent | Self::DoneProducing => "produce_unit",
             Self::Sustain { .. } => "sustain_damage",
             Self::Destroy { .. } => "assign_casualty",
             Self::Pool { .. } => "gain_command_token",
@@ -475,6 +479,7 @@ impl MovementStep {
             Self::VotePlanet { planet } => option.kind == "vote_planet" && option.id == *planet,
             Self::DoneVoting => option.id == "decline",
             Self::DoneProducing => option.id == "done_producing",
+            Self::ExhaustAgent => option.kind == ti4_engine::production::AGENT_OPTION_KIND,
             Self::Pool { pool } => option.kind == "pool" && option.id == *pool,
             Self::ReadyPlanet { planet } => option.kind == "ready" && option.id == *planet,
             Self::Purchase { buy } => {
@@ -1334,10 +1339,12 @@ fn plan_problem(plan: &MovementPlan) -> Option<String> {
         BatchKind::Production => (!plan.steps.iter().all(|s| {
             matches!(
                 s,
-                MovementStep::Produce { count: 1..=100, .. } | MovementStep::DoneProducing
+                MovementStep::Produce { count: 1..=100, .. }
+                    | MovementStep::ExhaustAgent
+                    | MovementStep::DoneProducing
             )
         }))
-        .then_some("a production plan may only contain produce steps with a count of 1 to 100 and done_producing")
+        .then_some("a production plan may only contain produce steps with a count of 1 to 100, exhaust_agent and done_producing")
         .or_else(|| {
             body.iter()
                 .any(|s| matches!(s, MovementStep::DoneProducing))
@@ -2037,6 +2044,20 @@ mod tests {
             )],
         );
         assert!(decider.choose(&hold).is_err());
+    }
+
+    #[test]
+    fn the_exhaust_agent_step_matches_only_berekar_berekons_production_option() {
+        let agent = ChoiceOption::labelled(
+            ti4_engine::production::AGENT_OPTION_ID,
+            ti4_engine::production::AGENT_OPTION_KIND,
+            "Exhaust Berekar Berekon: -2 cost",
+        );
+        let build = ChoiceOption::labelled("build|carrier|1", "produce", "carrier");
+        assert!(MovementStep::ExhaustAgent.matches_option(&agent));
+        assert!(!MovementStep::ExhaustAgent.matches_option(&build));
+        assert!(!MovementStep::DoneProducing.matches_option(&agent));
+        assert_eq!(MovementStep::ExhaustAgent.subtype(), "produce_unit");
     }
 
     #[test]

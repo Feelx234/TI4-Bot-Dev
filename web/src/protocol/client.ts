@@ -145,6 +145,7 @@ export type BasketPlan =
       destination: string;
       steps: (
         | { kind: "produce"; unit: string; count: number; exchange?: boolean }
+        | { kind: "exhaust_agent" }
         | { kind: "done_producing" }
       )[];
     }

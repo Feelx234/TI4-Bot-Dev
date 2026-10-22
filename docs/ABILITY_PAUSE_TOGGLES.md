@@ -66,7 +66,7 @@ Storage key `player_ask_<id>` in localStorage, default ask. The registry is `web
 | `titans_agent` | Titans | Tellurian | agent | HITS_TO_ASSIGN when | owner, any hit; every hit assignment while readied |
 | `titans_commander` | Titans | Tungstantus | commander | PRODUCTION_USED when | owner, own production; every production |
 | `hegemonic_trade_policy` | Winnu | Hegemonic Trade Policy | technology | PRODUCTION_USED after | owner, own production; every production while ready |
-| `winnu_agent` | Winnu | Berekar Berekon (and Ssruu copy) | agent | PRODUCTION_USED after | owner, anyone's production; every production while readied |
+| `winnu_agent` | Winnu | Berekar Berekon (and Ssruu copy) | agent | PRODUCTION_USED after | owner, others' production (own production: the "Exhaust Berekar Berekon" option of the production dialog from rules version 26); every production while readied |
 | `yin_spinner` | Yin | Yin Spinner Omega | technology | UNITS_PRODUCED after | owner, own production; every production |
 | `yin_agent` | Yin | Brother Milor (and Ssruu copy) | agent | SHIP_DESTROYED / GROUND_FORCE_DESTROYED after | owner, anyone's combat losses; every combat loss while readied |
 | `indoctrination` | Yin | Indoctrination | faction ability | start of ground combat (inline question) | owner; every ground combat against infantry |
