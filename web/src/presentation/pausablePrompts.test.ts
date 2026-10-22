@@ -274,3 +274,20 @@ describe("pausedDecline", () => {
     expect(pausedDecline(forced, "p1", paused("aetherpassage"))).toBeNull();
   });
 });
+
+describe("Acquiescence is never auto-declined by the pause switches", () => {
+  it("leaves a secondary that offers Acquiescence open even with every ability paused", () => {
+    const choice = {
+      actor: "p1",
+      nonce: "n",
+      prompt: "spend a strategy token to research",
+      options: [
+        { id: "no", label: "decline", kind: "decline", payload: {} },
+        { id: "yes", label: "follow", kind: "strategy", payload: {} },
+        { id: "follow|waived|3|acq", label: "resolve the secondary using Acquiescence", kind: "strategy", payload: {} },
+      ],
+      details: { kind: "strategy_secondary", card: "pok7technology", played_by: "p2" },
+    } as unknown as Parameters<typeof pausedDecline>[0];
+    expect(pausedDecline(choice, "p1", () => true)).toBeNull();
+  });
+});
