@@ -120,7 +120,7 @@ fn a_game_without_the_switch_never_offers_the_expedition() {
 #[test]
 fn the_expedition_is_offered_at_the_end_of_the_turn_and_plays_through_to_the_planet() {
     let _serial = serial();
-    let mut table = setup(12, 3);
+    let mut table = setup(13, 3);
     table["thunders_edge"] = json!(true);
     table["preset"] = json!("expedition");
     let seen = play(&table, 6, 4000);
