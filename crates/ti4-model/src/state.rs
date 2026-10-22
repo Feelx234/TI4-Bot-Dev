@@ -1162,7 +1162,7 @@ pub struct StartingTechPick {
 /// Station) does not offer the conversion to a seat with no commodities.
 pub const RULES_NO_EMPTY_CONVERT: u32 = 19;
 
-pub const RULES_VERSION: u32 = 23;
+pub const RULES_VERSION: u32 = 24;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
@@ -1288,6 +1288,13 @@ pub const RULES_HYPERLANE_LANES: u32 = 22;
 /// trade goods) and that has something to act on (Divert Funding's technology, a neighbour's
 /// technology, an empty planet or system). Version 23.
 pub const RULES_ACTION_CARD_COSTS: u32 = 23;
+
+/// The first rules version in which a secret objective written about an event (win a combat in an
+/// anomaly, be the last to pass, ...) can be scored once Classified Document Leaks has made it a
+/// public objective. Its requirement lived only as a feat of the trigger occurrence, so on the
+/// table it was worth nothing to anybody. From 24 it keeps its printed timing: it is offered, like
+/// a held one, to each player who does the feat, when it happens, once per player.
+pub const RULES_LEAKED_EVENT_SECRET: u32 = 24;
 
 /// The whole game, as a value.
 ///

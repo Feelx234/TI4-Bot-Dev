@@ -1802,6 +1802,9 @@ fn satisfied(position: &Position<'_>, alias: &ObjectiveId) -> bool {
         return check(position);
     }
     let secret = ti4_model::id::SecretObjectiveId::new(alias.as_str());
+    // A secret written about an event has no position to read, only a feat of the trigger
+    // occurrence, so here (the status window) it is never met: a leaked one keeps its printed
+    // timing and is offered when the event happens (`secrets::scoreable_event`).
     crate::secrets::requirement_for(&secret).is_some_and(|check| {
         check(&crate::secrets::Position {
             state: position.state,
@@ -2550,6 +2553,20 @@ mod tests {
             imagined.imagined_spending_bonus(crate::production::Spend::Resources),
             abyz
         );
+    }
+
+    #[test]
+    fn a_leaked_event_secret_is_never_met_in_the_status_phase() {
+        // Brave the Void keeps its printed (action) timing once it is public: it is offered right
+        // after the combat (`secrets::scoreable_event`), not in the status window.
+        let players = ids(&["a", "b"]);
+        let a = players[0].clone();
+        let mut state = game(&players);
+        let btv = ObjectiveId::new("btv");
+        state.revealed_objectives.push(btv.clone());
+        let occurrence = state.begin_feat_occurrence();
+        state.record_event_feat(&a, ti4_model::state::Feat::WonInAnAnomaly, occurrence);
+        assert!(!scoreable(&state, ContentStore::embedded(), POK, &a).contains(&btv));
     }
 
     fn game(players: &[PlayerId]) -> GameState {
@@ -4079,6 +4096,45 @@ mod tests {
                 .is_none(),
             "the occurrence cap applies after the first secret"
         );
+    }
+
+    #[test]
+    fn a_leaked_event_secret_is_scored_in_the_window_after_the_combat_for_one_vp() {
+        let players = ids(&["a", "b"]);
+        let (a, b) = (players[0].clone(), players[1].clone());
+        let mut state = game(&players);
+        let btv = ObjectiveId::new("btv");
+        state.revealed_objectives.push(btv.clone());
+        let before = state.player(&a).unwrap().victory_points;
+        let occurrence = state.begin_feat_occurrence();
+        state.record_event_feat(&a, ti4_model::state::Feat::WonInAnAnomaly, occurrence);
+        let mut window = ScoringWindow::for_occurrence(
+            &players,
+            crate::secrets::Timing::Action,
+            occurrence,
+            EventScoreLimit::OnePerPlayer,
+        );
+        let content = ContentStore::embedded();
+        let choice = window
+            .pending_choice(&state, content, POK)
+            .expect("a is asked, b is skipped");
+        assert_eq!(choice.player, a);
+        window
+            .resolve(
+                &mut state,
+                content,
+                POK,
+                choice.option("btv").unwrap().clone(),
+            )
+            .unwrap();
+        assert!(window.pending_choice(&state, content, POK).is_none());
+        assert_eq!(state.player(&a).unwrap().victory_points, before + 1);
+        assert!(state.scored_by(&a).contains(&btv));
+        assert!(
+            state.revealed_objectives.contains(&btv),
+            "still on the table for the others"
+        );
+        assert!(state.scored_by(&b).is_empty());
     }
 
     #[test]
