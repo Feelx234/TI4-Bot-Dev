@@ -16,7 +16,7 @@
       "map_policy": "cycle",
       "seeds": "1..101",
       "starting_tech": true,
-      "rules_version": 21
+      "rules_version": 23
     },
     {
       "name": "6p",
@@ -28,7 +28,7 @@
       "map_policy": "cycle",
       "seeds": "1..101",
       "starting_tech": true,
-      "rules_version": 21
+      "rules_version": 23
     }
   ]
 }
