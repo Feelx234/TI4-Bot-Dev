@@ -412,6 +412,8 @@ export function useCornerToasts({
       setRecaps((prev) => prev.filter((r) => r.id !== id));
       setInvasionToasts((prev) => prev.filter((t) => t.id !== id));
       setAgendaToasts((prev) => prev.filter((t) => t.id !== id));
+      // Vote-cast toasts live in their own list; missing here they stayed forever as an invisible, clickable box.
+      setCastToasts((prev) => prev.filter((t) => t.id !== id));
       setRelicToasts((prev) => prev.filter((t) => t.id !== id));
       setRollToasts((prev) => prev.filter((t) => t.id !== id));
       setNotices((prev) => prev.filter((t) => t.id !== id));
