@@ -185,3 +185,5 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## No status-token plan in singleplayer (GR-no-status-plan-singleplayer)
 
 `GR-no-status-plan-singleplayer` shows the status-phase board strip before and after hiding the "Plan status tokens" chip when every other seat is a rule bot (singleplayer), and that a table with another human seat still shows it, desktop and 390x844. The `before/` PNGs were taken with `TI4_SHOT_PREFIX=before` on the base commit; `npm run screenshots -- GR` regenerates the `after-*` PNGs and asserts the chip and dialog are absent in singleplayer and present with another human.
+
+`GW-toast-swipe-ghost-box` (letter renamed from GS at merge, which `GS-grant-reallocation-research` keeps) shows that a swiped-away vote toast leaves no invisible clickable box, phone and desktop; the `before/` PNGs were taken with `TI4_SHOT_PREFIX=before`; `npm run screenshots -- GW` regenerates the `after-*` PNGs and asserts nothing is left.
