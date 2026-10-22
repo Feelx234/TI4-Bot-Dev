@@ -36,6 +36,39 @@ describe("ProductionBuilderDrawer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Confirm builds" }));
     expect(onQueueProduction).toHaveBeenCalledWith(["fighter"]);
   });
+  it("renders the Minister of Industry window as the ordinary builder with its capacity", () => {
+    render(
+      <ProductionBuilderDrawer
+        choice={{
+          actor: "seat_1",
+          nonce: "minister",
+          prompt: "produce in 18 (4 left)",
+          context: partialContext({
+            subtype: "produce_unit",
+            target: { System: "18" },
+            outstanding: [{ amount: 4, paid: 0 }],
+          }),
+          options: [
+            {
+              id: "build|infantry|2",
+              kind: "produce",
+              label: "produce 2x infantry for 1",
+              payload: { unit: "infantry", production_spent: 2, cost: 1, count: 2, available_resources: 3 },
+            },
+            { id: "done_producing", kind: "decline", label: "Done producing", payload: {} },
+          ],
+        }}
+        viewerSeat="seat_1"
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+        isOpen
+        onQueueProduction={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("production-builder-drawer")).toBeInTheDocument();
+    expect(screen.getByTestId("produce-unit-btn-build|infantry|2")).toBeInTheDocument();
+    expect(screen.getByText("Done producing")).toBeInTheDocument();
+  });
   it("stages production with +/- and reset before submitting and shows available resources", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     const onClose = vi.fn();
