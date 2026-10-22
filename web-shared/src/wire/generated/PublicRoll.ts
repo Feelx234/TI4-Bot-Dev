@@ -41,4 +41,16 @@ system?: string,
 /**
  * What it did ("ship destroyed", "2 hits").
  */
-outcome?: string, };
+outcome?: string, 
+/**
+ * The unit type that rolled it, for Space Cannon ("pds2", or "attachment" for a planet's own).
+ */
+unit?: string, 
+/**
+ * The planet that unit stands on.
+ */
+planet?: string, 
+/**
+ * The system the unit fires from when it is not the roll's own (a PDS II next door).
+ */
+unit_system?: string, };

@@ -487,7 +487,7 @@ export function useCornerToasts({
           decisionType: "",
           selectedValue: "",
           text: t.text,
-          tag: "Dice",
+          tag: t.tag ?? "Dice",
         }),
       ),
       ...notices.map(
