@@ -177,6 +177,14 @@ fn a_save_after_a_free_form_deal_plays_again() {
         });
     }
     let end = crate::common::resume(&save);
-    assert!(end["end"]["error"].is_null(), "the save played again: {end}");
-    assert_eq!(asked.lock().unwrap().as_deref(), Some(prompt.as_str()), "{}", end["end"]);
+    assert!(
+        end["end"]["error"].is_null(),
+        "the save played again: {end}"
+    );
+    assert_eq!(
+        asked.lock().unwrap().as_deref(),
+        Some(prompt.as_str()),
+        "{}",
+        end["end"]
+    );
 }
