@@ -556,7 +556,12 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
   const shown = (tech: HydratedTech): boolean =>
     // Plagiarize: a card the engine does not offer is not on the table at all.
     (!isPlagiarize || Boolean(legalOptionIds?.some((optId) => techMatches(optId, tech.id)))) &&
-    matchesTechFilter(tech, filter, !filter.availableOnly || isAvailableNow(tech));
+    matchesTechFilter(
+      tech,
+      filter,
+      !filter.availableOnly || isAvailableNow(tech),
+      !filter.ownedOnly || Boolean(viewerPlayer && hasResearchedTech(viewerPlayer, tech.id)),
+    );
 
   const standardVisible = TECH_TIERS.some((tierGroup) =>
     tierGroup.rows.some((row) => row.some((id) => shown(hydrateTech(id)))),
@@ -1264,7 +1269,7 @@ const TechFilterBar: React.FC<{
     const right = left + pressed.offsetWidth;
     if (left < row.scrollLeft) row.scrollLeft = Math.max(0, left - 12);
     else if (right > row.scrollLeft + row.clientWidth) row.scrollLeft = right - row.clientWidth + 12;
-  }, [filter.color, filter.availableOnly]);
+  }, [filter.color, filter.availableOnly, filter.ownedOnly]);
   return (
   <div ref={rowRef} className="technology-filter" role="group" aria-label="Filter technologies" data-testid="tech-filter">
     <button
@@ -1295,9 +1300,20 @@ const TechFilterBar: React.FC<{
         className="technology-filter__chip technology-filter__chip--available"
         aria-pressed={filter.availableOnly}
         data-testid="tech-filter-available"
-        onClick={() => onChange({ ...filter, availableOnly: !filter.availableOnly })}
+        onClick={() => onChange({ ...filter, availableOnly: !filter.availableOnly, ownedOnly: false })}
       >
         Can research now
+      </button>
+    )}
+    {canFilterAvailable && (
+      <button
+        type="button"
+        className="technology-filter__chip technology-filter__chip--available"
+        aria-pressed={filter.ownedOnly}
+        data-testid="tech-filter-owned"
+        onClick={() => onChange({ ...filter, ownedOnly: !filter.ownedOnly, availableOnly: false })}
+      >
+        Owned
       </button>
     )}
   </div>

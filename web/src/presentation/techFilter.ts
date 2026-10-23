@@ -8,12 +8,14 @@ export interface TechFilter {
   color: TechColorFilter | null;
   /** Show only technologies the viewer can research right now. */
   availableOnly: boolean;
+  /** Show only technologies the viewer already owns (exclusive with availableOnly). */
+  ownedOnly: boolean;
 }
 
-export const NO_TECH_FILTER: TechFilter = { color: null, availableOnly: false };
+export const NO_TECH_FILTER: TechFilter = { color: null, availableOnly: false, ownedOnly: false };
 
 export const isTechFilterActive = (filter: TechFilter): boolean =>
-  filter.color !== null || filter.availableOnly;
+  filter.color !== null || filter.availableOnly || filter.ownedOnly;
 
 /** The colour a technology belongs to (faction technologies carry theirs in their types). */
 export function techColor(tech: HydratedTech): TechColorFilter | null {
@@ -27,9 +29,10 @@ export function techColor(tech: HydratedTech): TechColorFilter | null {
   return null;
 }
 
-/** Whether a card stays visible under the filter; `available` says if the viewer can research it now. */
-export function matchesTechFilter(tech: HydratedTech, filter: TechFilter, available: boolean): boolean {
+/** Whether a card stays visible under the filter; `available` says if the viewer can research it now, `owned` if they already have it. */
+export function matchesTechFilter(tech: HydratedTech, filter: TechFilter, available: boolean, owned = false): boolean {
   if (filter.color !== null && techColor(tech) !== filter.color) return false;
   if (filter.availableOnly && !available) return false;
+  if (filter.ownedOnly && !owned) return false;
   return true;
 }

@@ -951,5 +951,19 @@ describe("TechnologyModal", () => {
       // A prerequisite-free technology the viewer lacks stays.
       expect(screen.getByTestId("tech-card-nm")).toBeInTheDocument();
     });
+
+    it("has an Owned chip last that shows only the viewer's technologies and excludes Can research now", () => {
+      renderWithIdentity(
+        <TechnologyModal isOpen={true} onClose={vi.fn()} players={mockPlayers} viewerSeat="player1" />,
+      );
+      const chips = within(screen.getByTestId("tech-filter")).getAllByRole("button");
+      expect(chips[chips.length - 1]).toBe(screen.getByTestId("tech-filter-owned"));
+      fireEvent.click(screen.getByTestId("tech-filter-owned"));
+      expect(screen.getByTestId("tech-card-amd")).toBeInTheDocument();
+      expect(screen.queryByTestId("tech-card-nm")).toBeNull();
+      fireEvent.click(screen.getByTestId("tech-filter-available"));
+      expect(screen.getByTestId("tech-filter-owned")).toHaveAttribute("aria-pressed", "false");
+      expect(screen.queryByTestId("tech-card-amd")).toBeNull();
+    });
   });
 });
