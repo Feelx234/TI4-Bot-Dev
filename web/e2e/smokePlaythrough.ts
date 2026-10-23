@@ -481,7 +481,7 @@ export function pick(
   hexWeights: Map<string, number>,
 ): Candidate {
   // The turn bar has no staging step: choose one of its controls by weight (or uniformly).
-  const bar = turnBarPool(candidates);
+  const bar = turnBarPool(candidates, clicks);
   if (bar) {
     if (policy === "random") return bar[Math.floor(rng() * bar.length)];
     return weightedPick(bar, (c) => steerWeight(c.full, hexWeights), rng);

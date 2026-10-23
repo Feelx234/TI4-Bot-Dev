@@ -268,5 +268,5 @@ for i in $(seq 1 120); do
   env -u NIGHTLY_TE_PROBABILITY NIGHTLY_REPO="$tmp" "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/ted$i" > /dev/null
   grep -q '"thunders_edge": true' "$tmp/ted$i/meta.json" && tes=$((tes + 1))
 done
-[ "$tes" -ge 12 ] && [ "$tes" -le 55 ] || fail "the default 25% played Thunder's Edge $tes/120 times"
+[ "$tes" -ge 25 ] && [ "$tes" -le 75 ] || fail "the default 40% played Thunder's Edge $tes/120 times"
 echo "ok: Thunder's Edge runs (default share $tes/120)"

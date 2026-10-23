@@ -164,6 +164,14 @@ Procedure:
    Distinguish real bugs from harness noise (e.g. a click that missed because an animation
    moved an element, then succeeded on retry, is noise; the same decision failing 40 times is
    not). Keep investigation brief: at most ~10 extra tool calls.
+   Before you blame a control ("Pass does nothing", "the click never reached the server"), count
+   the clicks in `{{RUN_DIR}}/run.log` (`#<n> <subtype> seat<k> click <control>`): the digest prints
+   the controls clicked on the last decision. A stall with no click on that control is the click
+   policy, not the control (2026-10-22: 5 runs toggled "Components 0 usable" 40+ times and never
+   clicked Pass). Known harness noise, not findings: `/api/catalog could not be reached` right at
+   startup (the vite clock is UTC, not Berlin), a teardown error ("Target page, context or browser
+   has been closed") when the exit code is 124 (the deadline), a missing report.json after a
+   deadline kill, and `Slot K waiting for memory` lines.
 4. Your final answer (and nothing else) is a markdown report entry in exactly this shape:
 
 ## Run {{RUN_NAME}} — <one-line verdict: "clean" or the most severe problem>

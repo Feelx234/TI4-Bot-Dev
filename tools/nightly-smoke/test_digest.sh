@@ -101,6 +101,23 @@ check_has "[te on] offers and claims" "$out" 'offered to the click-driven seat\(
 check_has "[te on] slices held per faction" "$out" 'held at the end 6/6 \(hacan: .*sol: influence, resources\)'
 check_has "[te on] completion and follow-ups" "$out" 'completed \(planet placed\): yes; expedition follow-up questions: expedition_place_system x1'
 
+# Known harness noise: the startup catalog error is not suspicious; a teardown error at the deadline
+# is labelled; a decision with only menu clicks says Pass was never clicked.
+run="$TMP/run-noise"
+make_run "$run" mr 112
+{
+  echo "[frontend] 1:03:57 AM [vite] (client) [console.error] No catalog of the printed cards: CatalogError: /api/catalog could not be reached: TypeError: Failed to fetch"
+  for _ in $(seq 1 12); do echo "#313 action_menu seat2 click turn-bar-components | ComponentsC0 usable"; done
+} >> "$run/run.log"
+echo "unexpected error: apiRequestContext.get: Target page, context or browser has been closed" > "$run/trace/failure.txt"
+out=$(python3 "$HERE/digest.py" "$run")
+check_lacks "[noise] catalog startup error is not suspicious" "$out" 'No catalog of the printed cards'
+check_has "[noise] teardown at the deadline is labelled" "$out" 'Teardown error at the deadline .*known harness noise'
+check_has "[noise] Pass never clicked is stated" "$out" 'turn-bar-components x12\. \*\*Pass was never clicked'
+echo "#313 action_menu seat2 click turn-bar-pass | Pass" >> "$run/run.log"
+out=$(python3 "$HERE/digest.py" "$run")
+check_lacks "[noise] no Pass-never-clicked note once Pass was clicked" "$out" 'Pass was never clicked'
+
 # Run directories of parallel slots are named sK-NN-HHMM; nothing in the digest depends on the name.
 run="$TMP/s2-03-2215"
 make_run "$run" mr 112

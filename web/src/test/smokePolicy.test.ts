@@ -26,6 +26,8 @@ import {
   offersExpedition,
   expeditionSliceOfControl,
   expeditionWeight,
+  EMPTY_MENU_WEIGHT,
+  MENU_TOGGLE_CAP,
   EXPEDITION_MENU_WEIGHT,
   EXPEDITION_ROW_WEIGHT,
 } from "../../e2e/smokePolicy.ts";
@@ -688,6 +690,28 @@ describe("Thunder's Edge expedition steering", () => {
     // Above the table's 6, still below ending the turn (20) and the tactical action (30) together.
     expect(EXPEDITION_MENU_WEIGHT).toBeGreaterThan(steerWeight("turn-bar-components | Components"));
     expect(EXPEDITION_ROW_WEIGHT).toBeGreaterThan(steerWeight("turn-bar-item-component|leader|x | y"));
+  });
+
+  it("an empty components menu (0 usable, no expedition) weighs less than Pass", () => {
+    const empty = "turn-bar-components | Components 0 usable C";
+    const pass = steerWeight("turn-bar-pass | Pass");
+    expect(steerWeight(empty)).toBeLessThan(pass);
+    // The harness log prints the label with its icon text fused: "ComponentsC0 usable".
+    expect(steerWeight("turn-bar-components | ComponentsC0 usable")).toBeLessThan(pass);
+    expect(steerWeight("turn-bar-components | ComponentsC10 usable")).toBeGreaterThan(pass);
+    expect(expeditionWeight(empty, false)).toBe(EMPTY_MENU_WEIGHT);
+    // A payable slice still opens the menu; a usable count keeps the table weight.
+    expect(expeditionWeight(empty, true)).toBe(EXPEDITION_MENU_WEIGHT);
+    expect(steerWeight("turn-bar-components | Components 3 usable")).toBeGreaterThan(pass);
+  });
+
+  it("drops the menu toggles from the bar pool after a few clicks, unless nothing else is left", () => {
+    const comp = c("turn-bar-components | Components 0 usable");
+    const cards = c("turn-bar-cards | Action cards");
+    const pass = c("turn-bar-pass | Pass");
+    expect(turnBarPool([comp, cards, pass], MENU_TOGGLE_CAP - 1)).toEqual([comp, cards, pass]);
+    expect(turnBarPool([comp, cards, pass], MENU_TOGGLE_CAP)).toEqual([pass]);
+    expect(turnBarPool([comp], MENU_TOGGLE_CAP + 5)).toEqual([comp]);
   });
 
   it("the expedition row is a bar submit that is never read as a take-back", () => {

@@ -366,6 +366,7 @@ export class RedoExercise {
     this.d.finding(`Turn redo aborted: ${why}`);
     this.report.outcome = `aborted: ${why}`;
     const st = await this.status();
+    await this.closeLog(this.d.pages[Math.max(this.seatIndex, 0)]);
     if (st) {
       const page = this.d.pages[this.seatIndex];
       const ok = await this.click(page, "turn-redo-restore");
@@ -476,13 +477,14 @@ export class RedoExercise {
     if (!(await page.getByTestId("turn-redo-btn").first().isVisible().catch(() => false))) {
       const toggle = page.getByTestId("event-log-toggle").first();
       if ((await toggle.getAttribute("aria-expanded").catch(() => "true")) !== "true") {
-        await toggle.click({ timeout: 3_000 }).catch(() => {});
+        this.openedLog = await toggle.click({ timeout: 3_000 }).then(() => true, () => false);
       }
     }
     const btn = page.getByTestId("turn-redo-btn").first();
     const enabled = await btn.waitFor({ state: "visible", timeout: 5_000 }).then(() => btn.isEnabled()).catch(() => false);
     if (!enabled) {
       this.phase = "done";
+      await this.closeLog(page);
       this.d.finding("Turn redo: the 'Redo my last turn' button was not visible/enabled in the event log at a calm moment");
       this.report.outcome = "aborted: button not available";
       return "retry";
@@ -492,7 +494,21 @@ export class RedoExercise {
     this.phase = "requested";
     this.startErrorSampler();
     await btn.click({ timeout: 5_000 });
+    // The expanded log squeezes the board to ~170 px (s2-10: "no actionable control"); the redo
+    // bar is its own element, so the log is not needed any more.
+    await this.closeLog(page);
     return "retry";
+  }
+
+  /** Whether this exercise expanded the Event Log (and so has to collapse it again). */
+  private openedLog = false;
+
+  private async closeLog(page: Page) {
+    if (!this.openedLog) return;
+    this.openedLog = false;
+    const toggle = page.getByTestId("event-log-toggle").first();
+    if ((await toggle.getAttribute("aria-expanded").catch(() => "false")) === "true")
+      await toggle.click({ timeout: 3_000 }).catch(() => {});
   }
 
   private async awaitRewind(): Promise<"go" | "retry"> {
