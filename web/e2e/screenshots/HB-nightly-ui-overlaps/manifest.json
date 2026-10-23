@@ -11,7 +11,7 @@
     { "file": "out/after-2-stacked-desktop.png", "heading": "After: bar not dismissed, desktop", "caption": "The Prepared bar docks above the ready-planets bar; both Confirm buttons are reachable." },
     { "file": "before/before-2-stacked-phone.png", "heading": "Before: bar not dismissed, phone", "caption": "Covered Confirm on a phone." },
     { "file": "out/after-2-stacked-phone.png", "heading": "After: bar not dismissed, phone", "caption": "Stacked above the ready-planets bar." },
-    { "file": "before/before-1-inspector-close.png", "heading": "Before: inspector close button, phone", "caption": "The 'Prompt skipped' chip lies over the inspector's close button." },
+    { "file": "before/before-1-inspector-close.png", "heading": "Before: inspector close button, phone", "caption": "The 'Prompt skipped' chip lies over the inspector's top edge and title (in the sweep run the header was one row taller and the chip covered the close button itself)." },
     { "file": "out/after-1-inspector-close.png", "heading": "After: inspector close button, phone", "caption": "The inspector starts below the header chips; the close button is the topmost element." },
     { "file": "before/before-2-free-tactical.png", "heading": "Before: free tactical action, phone", "caption": "The inspector stays open over the map that the question needs." },
     { "file": "out/after-2-free-tactical.png", "heading": "After: free tactical action, phone", "caption": "The inspector closes; the map shows the highlighted systems." }
