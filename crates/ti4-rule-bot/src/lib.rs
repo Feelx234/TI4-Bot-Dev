@@ -3429,6 +3429,17 @@ fn pick_answer(choice: &Choice, keeps_fires: bool) -> Option<usize> {
     {
         return refuse;
     }
+    // An unscored secret objective is victory points in the hand: the engine prices it at one
+    // trade good, so a deal composed by a person (offline free-form trades) could buy it
+    // cheaply. The bot never hands one over.
+    if choice
+        .prompt
+        .split(" for ")
+        .skip(1)
+        .any(|part| part.contains("the secret objective"))
+    {
+        return refuse;
+    }
     let net = accept.and_then(|i| payload_f64(&choice.options[i], "net"));
     match (accept, net) {
         (Some(index), Some(net)) if net >= tuning::accept_net() => Some(index),
@@ -5311,6 +5322,34 @@ mod tests {
             vec![offer("greedy", 3.0, -1.0), ChoiceOption::decline()],
         );
         assert_eq!(pick_proposal(&none, false), Some(1));
+    }
+
+    /// A deal composed by a person (offline free-form trades) is judged by the price the engine
+    /// puts on the accept option, and the bot never gives away a secret objective.
+    #[test]
+    fn a_composed_deal_is_judged_by_its_price_and_the_bot_keeps_its_secret() {
+        let answer = |prompt: &str, net: f64| {
+            Choice::new(
+                me(),
+                prompt,
+                vec![
+                    ChoiceOption::labelled("accept", "transaction", "accept").with("net", net),
+                    ChoiceOption::labelled("refuse", "decline", "refuse"),
+                    ChoiceOption::labelled("counter", "transaction", "counter-offer"),
+                ],
+            )
+        };
+        let sold = "hacan gives 5 trade goods for the secret objective sb";
+        assert_eq!(pick_answer(&answer(sold, 4.0), false), Some(1));
+        let bought = "hacan gives the secret objective sb for 5 trade goods";
+        assert_eq!(pick_answer(&answer(bought, 4.0), false), Some(0));
+        assert_eq!(
+            pick_answer(
+                &answer("hacan gives 4 trade goods for 2 commodities", -0.5),
+                false
+            ),
+            Some(1)
+        );
     }
 
     /// Bot version 6: the Muaat bot never gives away Fires of the Gashlai; any other trade (and

@@ -536,6 +536,12 @@ pub fn ask(choice: &Choice, nonce: &str, state: &GameState) -> Option<i32> {
     None
 }
 
+/// The free-form answer (a deal) that the page just gave: the place it was answered with is past
+/// the last option of the choice.
+pub fn take_free_form() -> Option<String> {
+    session().as_mut()?.take_free_form()
+}
+
 /// The game waits before `choice` of a seat that the page does not play, and the page is shown
 /// it as `viewer`. Returns the answer of the play loop when the page is not asked.
 pub fn paused(choice: &Choice, viewer: Option<&PlayerId>, state: &GameState) -> Option<i32> {

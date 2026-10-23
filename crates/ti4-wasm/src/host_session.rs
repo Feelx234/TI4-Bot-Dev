@@ -361,6 +361,9 @@ pub struct HostSession {
     resuming: bool,
     /// The option the person submitted, until its decision is recorded.
     awaiting: Option<String>,
+    /// The id of a free-form answer (a deal composed on the trade desk) that the play loop has
+    /// yet to take; see [`HostSession::take_free_form`].
+    free_form_answer: Option<String>,
     /// The next question starts with a full `initial_snapshot` (a new run, an undo).
     fresh: bool,
     /// Notes of the game's auto-resolved single-option steps, for the next update.
@@ -456,6 +459,7 @@ impl HostSession {
             undoing: None,
             resuming: false,
             awaiting: None,
+            free_form_answer: None,
             fresh: true,
             auto_resolved: Vec::new(),
             undone: resume.undone.clone(),
@@ -1041,7 +1045,7 @@ impl HostSession {
         self.state.clone_from(state);
         self.version += 1;
         self.viewer.clone_from(&choice.player);
-        self.pending = Some((offline_choice(choice), nonce.to_owned()));
+        self.pending = Some((choice.clone(), nonce.to_owned()));
         self.waiting = None;
         // An answer whose decision is still held back (a card declared in a reaction window of
         // rules version 3 is announced later) was accepted all the same: say so before the
@@ -1084,7 +1088,7 @@ impl HostSession {
             self.viewer.clone_from(viewer);
         }
         self.pending = None;
-        self.waiting = Some(offline_choice(choice));
+        self.waiting = Some(choice.clone());
         self.can_undo = self.undo_start().is_some();
         self.show();
         None
@@ -1403,13 +1407,23 @@ impl HostSession {
                 .position(|option| option.id == option_id)
         });
         if place.is_none() {
-            // A free-form answer (a deal) has no place among the options, and the engine is
-            // answered by place.
-            self.reject(RejectionReason::ValidationFailed {
-                message: "free-form answers are not available in an offline game".to_owned(),
-            });
+            // A free-form answer (a deal) has no place among the options: it is answered with
+            // the place after the last one, and the id waits in `free_form_answer` for the play
+            // loop (`take_free_form`). `check_submission` has seen that the choice takes it.
+            let count = self
+                .pending
+                .as_ref()
+                .map(|(choice, _)| choice.options.len())?;
+            self.free_form_answer = Some(option_id.to_owned());
+            return Some(count);
         }
         place
+    }
+
+    /// The free-form answer that the last [`Resume::Answer`] stands for, taken by the play loop
+    /// when the place it was given is past the last option.
+    pub fn take_free_form(&mut self) -> Option<String> {
+        self.free_form_answer.take()
     }
 
     /// Sends `script` to the game: the pending choice and the choices after it are answered
@@ -2141,31 +2155,4 @@ pub struct SaveSeat {
 #[must_use]
 pub fn decisions_hash(records: &[DecisionRecord]) -> String {
     ti4_host::export::decisions_hash(records)
-}
-
-/// The choice as the page is shown it. The engine is answered by place here, so a free-form
-/// answer (a composed deal) is always refused: the page is not told that the choice takes one,
-/// and the trade desk offers only the listed deals instead of a Propose button that never works.
-fn offline_choice(choice: &Choice) -> Choice {
-    let mut shown = choice.clone();
-    shown.free_form = None;
-    shown.details.remove("free_form");
-    shown
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_free_form_choice_is_shown_without_free_form() {
-        // Run o1-34-0026: the desk composed `x;...` deals that the offline host refused, and the
-        // proposer clicked Propose Deal 80 times.
-        let choice =
-            Choice::new(PlayerId::new("a"), "transaction with b", vec![]).accepting_free_form("x;");
-        let shown = offline_choice(&choice);
-        assert!(shown.free_form.is_none());
-        assert!(!shown.details.contains_key("free_form"));
-        assert_eq!(shown.prompt, choice.prompt);
-    }
 }

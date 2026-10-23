@@ -881,7 +881,7 @@ day included. The page adds the hash of the wasm file to what it stores.
 One `state_update` per question of the person (and one at the end), not per engine step; no
 separate `pending_choice` message; undo is the engine checkpoint (32 deep), and its track has the
 local rules (only a switch of the seats cuts, no barriers); redo and
-rewind are by replay; free-form answers (transaction deals) are refused; the splice preview, turn
+rewind are by replay; free-form answers (transaction deals, `x;...`) are taken like the server's: the host answers the engine with the place after the last option and hands the id over (`HostSession::take_free_form`), so the engine reads it through `Choice::answer_for` (the rule bot on the other side answers by the price the engine puts on the deal; an illegal deal ends the negotiation); the splice preview, turn
 redo (`ti4_host::history`, offered only by the server) and bluff holds do not exist; the page is one connection, so the staged work of a seat is
 told to it only while it is shown as that seat; a secondary preview is for the seat the page is
 shown as (the server: the seat of the connection), and it has no rate limit. The opening of a
