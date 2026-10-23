@@ -75,6 +75,10 @@ fn payment_context(
 pub const PAY_KIND: &str = "pay";
 /// The choice kind for producing one unit.
 pub const PRODUCE_KIND: &str = "produce";
+
+/// Kind and id of the option that exhausts Berekar Berekon for -2 on this use's combined cost.
+pub const AGENT_OPTION_KIND: &str = "production_agent";
+pub const AGENT_OPTION_ID: &str = "exhaust_agent|winnuagent";
 /// The choice kind for placing a produced unit.
 pub const PLACE_KIND: &str = "place";
 /// The id standing for a system's space area.
@@ -2120,6 +2124,11 @@ pub struct ProductionWindow {
     only_unit: Option<String>,
     /// Whether the current placement batch has opened its pre-placement ground-force window.
     placement_timing_done: bool,
+    /// A unit was bought (or exchanged) in this use. Berekar Berekon reduces "the combined cost of
+    /// the produced units", which is decided before the first purchase.
+    purchased: bool,
+    /// Berekar Berekon was exhausted in this use.
+    agent_spent: bool,
 }
 
 impl ProductionWindow {
@@ -2213,6 +2222,8 @@ impl ProductionWindow {
             max_unit_cost: None,
             only_unit: None,
             placement_timing_done: false,
+            purchased: false,
+            agent_spent: false,
         }
     }
 
@@ -2650,6 +2661,49 @@ impl ProductionWindow {
         serde_json::Value::Object(limits)
     }
 
+    /// Berekar Berekon (Winnu agent): "When 1 or more of a player's units use PRODUCTION: you may
+    /// exhaust this card to reduce the combined cost of the produced units by 2." Offered to its
+    /// owner inside the production question, before the first purchase of a use of PRODUCTION (not
+    /// of an ability that produces units). Not below [`RULES_WINNU_AGENT_PRODUCTION`].
+    fn agent_offerable(&self, state: &GameState) -> bool {
+        state.rules_version >= ti4_model::state::RULES_WINNU_AGENT_PRODUCTION
+            && !self.ability
+            && !self.purchased
+            && !self.agent_spent
+            && !self.free_this_use
+            && crate::factions::winnu::agent_ready(state, &self.player)
+    }
+
+    /// What the player may pick while choosing: the builds, and Berekar Berekon's discount when
+    /// it is offerable and either some build is on offer or the 2 would bring one within reach.
+    fn choosing_options(
+        &self,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+    ) -> Vec<ChoiceOption> {
+        let mut options = self.build_options(state, content, sources);
+        if self.agent_offerable(state) && (self.remaining > 0 || self.small_unit_exemptions > 0) {
+            let reaches = !options.is_empty() || {
+                let mut probe = self.clone();
+                probe.discount_remaining += 2;
+                !probe.build_options(state, content, sources).is_empty()
+            };
+            if reaches {
+                options.push(
+                    ChoiceOption::labelled(
+                        AGENT_OPTION_ID,
+                        AGENT_OPTION_KIND,
+                        "Exhaust Berekar Berekon: -2 cost",
+                    )
+                    .with("leader", "winnuagent")
+                    .with("discount_offered", 2_i64),
+                );
+            }
+        }
+        options
+    }
+
     /// Options for what to build now: affordable, placeable, one per unit type.
     #[allow(
         clippy::too_many_lines,
@@ -3005,7 +3059,7 @@ impl Window for ProductionWindow {
                 if self.remaining <= 0 && self.small_unit_exemptions <= 0 {
                     return None;
                 }
-                let mut options = self.build_options(state, content, sources);
+                let mut options = self.choosing_options(state, content, sources);
                 if options.is_empty() {
                     return None;
                 }
@@ -3137,6 +3191,13 @@ impl Window for ProductionWindow {
             Stage::Choosing => {
                 if option.is_decline() {
                     self.stage = Stage::Done;
+                } else if option.kind == AGENT_OPTION_KIND {
+                    // Berekar Berekon: exhausted for the use's combined cost, which every build
+                    // offered next already shows reduced. The question is asked again.
+                    if crate::factions::winnu::exhaust_agent_for_production(state, &self.player) {
+                        self.discount_remaining += 2;
+                        self.agent_spent = true;
+                    }
                 } else if let Some(rest) = option.id.strip_prefix("build|") {
                     let mut parts = rest.split('|');
                     let Some(id) = parts.next() else {
@@ -3153,6 +3214,7 @@ impl Window for ProductionWindow {
                     // Spent for real only for the option actually chosen: `build_options` offered
                     // this discount to every option shown, and only one could ever be taken.
                     self.spend_discount(discount_used);
+                    self.purchased = true;
                     // A purchase the credit covers outright goes straight to placing. Entering the
                     // paying stage owing nothing would ask `payment_options` for a bill of zero,
                     // which has no options, and the stage would abort with the unit unplaced.
@@ -3188,6 +3250,7 @@ impl Window for ProductionWindow {
                         self.stage = Stage::Done;
                         return Ok(());
                     }
+                    self.purchased = true;
                     self.stage = Stage::Placing {
                         id: id.to_owned(),
                         made: 1,
@@ -3452,7 +3515,7 @@ impl ProductionWindow {
                 }
                 Stage::Choosing => {
                     if (self.remaining <= 0 && self.small_unit_exemptions <= 0)
-                        || self.build_options(state, content, sources).is_empty()
+                        || self.choosing_options(state, content, sources).is_empty()
                     {
                         self.stage = Stage::Done;
                     }
@@ -3504,6 +3567,11 @@ pub fn resolve_timed(
     system: &SystemId,
 ) -> Result<ProductionReport, IllegalChoice> {
     let mut window = ProductionWindow::new(state, content, sources, player, system);
+    if state.rules_version >= ti4_model::state::RULES_WINNU_AGENT_PRODUCTION {
+        // This use reads no discount an earlier tactical action left unspent; the window shows
+        // (and Berekar Berekon adds to) the value the game keeps for the current use.
+        state.production_discount_remaining = 0;
+    }
     // Harrugh Gefhara (Hacan hero): "When 1 or more of your units use PRODUCTION" -- every use, not
     // only the tactical action's. Warfare's secondary and Construction produce through here, where
     // the hero was never offered. Gated on the hero being ready so a production nobody can make
@@ -5215,6 +5283,105 @@ mod tests {
                 .and_then(serde_json::Value::as_i64),
             Some(1)
         );
+    }
+
+    /// Berekar Berekon is an option of the owner's production question until the first purchase:
+    /// taking it exhausts the card and lowers every build's cost by 2.
+    #[test]
+    fn berekar_berekon_is_a_dialog_option_before_the_first_purchase_only() {
+        let content = ContentStore::embedded();
+        let (mut state, system, planet) = seated();
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), player());
+        put_on_planet(&mut state, &system, &planet, "spacedock", &player(), 1);
+        let agent = ti4_model::id::LeaderId::new("winnuagent");
+        state
+            .player_mut(&player())
+            .unwrap()
+            .leaders
+            .insert(agent.clone(), ti4_model::state::LeaderStatus::Readied);
+        let cost_of = |choice: &Choice, id: &str| {
+            choice
+                .options
+                .iter()
+                .find(|option| option.id == id)
+                .and_then(|option| option.payload.get("cost").and_then(serde_json::Value::as_i64))
+        };
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut table = Table::new();
+        let mut ctx = Resolving {
+            content,
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: None,
+        };
+
+        let mut window = ProductionWindow::new(&state, content, POK, &player(), &system);
+        window.credit = 10;
+        let choice = window.pending_choice(&state, content, POK).expect("choice");
+        let offer = choice
+            .options
+            .iter()
+            .find(|option| option.kind == AGENT_OPTION_KIND)
+            .expect("the agent is offered")
+            .clone();
+        assert_eq!(offer.id, AGENT_OPTION_ID);
+        assert_eq!(cost_of(&choice, "build|carrier|1"), Some(3));
+        // The offer comes before "done producing".
+        assert_eq!(choice.options.last().map(|o| o.id.as_str()), Some("done_producing"));
+
+        window.resolve(&mut state, &mut ctx, offer).unwrap();
+        assert_eq!(
+            state.player(&player()).unwrap().leaders.get(&agent),
+            Some(&ti4_model::state::LeaderStatus::Exhausted)
+        );
+        let choice = window.pending_choice(&state, content, POK).expect("choice");
+        assert_eq!(cost_of(&choice, "build|carrier|1"), Some(1));
+        assert!(choice.options.iter().all(|o| o.kind != AGENT_OPTION_KIND));
+
+        // A purchase closes the offer: the discount is for the combined cost of the whole use.
+        state
+            .player_mut(&player())
+            .unwrap()
+            .leaders
+            .insert(agent, ti4_model::state::LeaderStatus::Readied);
+        let mut window = ProductionWindow::new(&state, content, POK, &player(), &system);
+        window.credit = 10;
+        let carrier = window
+            .pending_choice(&state, content, POK)
+            .unwrap()
+            .options
+            .into_iter()
+            .find(|option| option.id == "build|carrier|1")
+            .unwrap();
+        window.resolve(&mut state, &mut ctx, carrier).unwrap();
+        while let Some(choice) = window.pending_choice(&state, content, POK) {
+            assert!(choice.options.iter().all(|o| o.kind != AGENT_OPTION_KIND));
+            let next = choice
+                .options
+                .iter()
+                .find(|o| o.id.starts_with("place|"))
+                .or_else(|| choice.options.last())
+                .cloned()
+                .unwrap();
+            window.resolve(&mut state, &mut ctx, next).unwrap();
+        }
+
+        // Production by an ability is not a use of PRODUCTION.
+        let ability =
+            ProductionWindow::for_ability(&state, content, POK, &player(), &system, Some(2));
+        let choice = ability.pending_choice(&state, content, POK).expect("choice");
+        assert!(choice.options.iter().all(|o| o.kind != AGENT_OPTION_KIND));
+
+        // Below the gate the dialog never carries it.
+        state.rules_version = ti4_model::state::RULES_WINNU_AGENT_PRODUCTION - 1;
+        let old = ProductionWindow::new(&state, content, POK, &player(), &system);
+        let choice = old.pending_choice(&state, content, POK).expect("choice");
+        assert!(choice.options.iter().all(|o| o.kind != AGENT_OPTION_KIND));
     }
 
     /// One use of PRODUCTION has one combined discount, exactly as one combined cost: the second

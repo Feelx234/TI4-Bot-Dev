@@ -1,0 +1,16 @@
+{
+  "title": "Berekar Berekon in the production dialog",
+  "description": "The Winnu agent (exhaust to reduce the combined cost of the produced units by 2) is now offered inside its owner's own production dialog, before the first purchase: a toggle that lowers the displayed total by 2 and is sent first when the builds are confirmed. Before, it was only a separate reaction question ahead of the dialog, and never appeared for Warfare, Construction or Minister of Industry production. Synthetic fixtures through a mocked server (rules version 26); the engine side is covered by its own tests.",
+  "tag": "web/e2e/screenshots/HA-berekar-production",
+  "shots": [
+    { "file": "out/toggle-off-desktop.png", "heading": "Toggle off, carrier staged", "caption": "The new row 'Exhaust Berekar Berekon: -2 cost' sits above the builds. With a carrier staged the total is 3." },
+    { "file": "out/toggle-on-desktop.png", "heading": "Toggle on", "caption": "The total drops to 1 and the bill shows a cost reduction of -2. Confirm sends the exhaust first, then the carrier; the card exhausts and the carrier is priced at 1." },
+    { "file": "out/only-card-desktop.png", "heading": "Nothing in reach without the card", "caption": "When no build is affordable but the 2 would bring one within reach, the card is a button of its own; taking it exhausts the card and the dialog asks again with the builds at the new prices." },
+    { "file": "out/toggle-on-phone.png", "heading": "Toggle on, phone 390x844", "caption": "Same at phone width." }
+  ],
+  "notesHeading": "Design notes",
+  "notes": [
+    { "title": "Only before the first purchase", "text": "The card reduces the combined cost of the produced units, so it is offered until the first unit is bought in a use of PRODUCTION, and not at all for production by an ability." },
+    { "title": "Other players' production", "text": "The reaction window stays for another player's production, where the owner cannot see a dialog of their own." }
+  ]
+}

@@ -693,6 +693,7 @@ pub fn nexus_wormholes_suppressed(state: &GameState) -> bool {
 /// Applied to the owned map rather than threaded through movement: every route query already reads
 /// the galaxy, so setting it here means no movement path can consult the wrong one.
 pub fn apply_to_galaxy(state: &GameState, galaxy: &mut ti4_content::galaxy::Galaxy) {
+    galaxy.hyperlane_lanes = state.rules_version >= ti4_model::state::RULES_HYPERLANE_LANES;
     galaxy.wormholes_off = wormholes_suppressed(state);
     galaxy.wormholes_all_linked = wormholes_all_connected(state);
     galaxy.wormhole_star_links = state
@@ -883,6 +884,21 @@ mod tests {
 
         apply_to_galaxy(&crate::fixtures::game(&["a"]), &mut galaxy);
         assert!(!galaxy.wormholes_off && !galaxy.wormholes_all_linked);
+    }
+
+    #[test]
+    fn the_hyperlane_lanes_are_modelled_from_rules_version_22() {
+        let mut galaxy = crate::fixtures::plain_hub().galaxy;
+        let mut state = crate::fixtures::game(&["a"]);
+        assert_eq!(state.rules_version, ti4_model::state::RULES_VERSION);
+        apply_to_galaxy(&state, &mut galaxy);
+        assert!(galaxy.hyperlane_lanes);
+        state.rules_version = ti4_model::state::RULES_HYPERLANE_LANES - 1;
+        apply_to_galaxy(&state, &mut galaxy);
+        assert!(
+            !galaxy.hyperlane_lanes,
+            "older games keep the empty-hex lane tile"
+        );
     }
 
     #[test]

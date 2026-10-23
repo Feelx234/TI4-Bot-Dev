@@ -631,6 +631,7 @@ pub fn apply_reroll_dice(
             by: None,
             system: None,
             outcome: None,
+            source: None,
         };
         let again = dice.reroll(rng, &original, [*die], Some(reason));
         entry.faces = again.faces;
@@ -2273,6 +2274,51 @@ pub fn space_cannon_guns(
     }
 }
 
+/// Where each unit that could fire in the space cannon offense of `system` stands: the planet
+/// (none in space) and the system when it is not `system` itself. Presentation only.
+fn gun_places(
+    state: &GameState,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    system: &SystemId,
+) -> Vec<(Unit, Option<String>, Option<String>)> {
+    let mut found = Vec::new();
+    let mut scan = |id: &SystemId, from: Option<String>| {
+        let board = state.system_state(id);
+        found.extend(board.units.iter().map(|u| (u.clone(), None, from.clone())));
+        for (planet, units) in &board.planet_units {
+            found.extend(
+                units
+                    .iter()
+                    .map(|u| (u.clone(), Some(planet.to_string()), from.clone())),
+            );
+        }
+    };
+    scan(system, None);
+    if let Some(galaxy) = galaxy {
+        for neighbour in galaxy.adjacent(system.as_str()) {
+            scan(&SystemId::new(neighbour), Some(neighbour.to_owned()));
+        }
+    }
+    found
+}
+
+/// Takes the place of `unit` out of `places`, so two identical guns get two places.
+fn claim_place(
+    places: &mut Vec<(Unit, Option<String>, Option<String>)>,
+    unit: &Unit,
+) -> crate::dice::RollSource {
+    let at = places.iter().position(|(candidate, ..)| candidate == unit);
+    let (planet, system) = at.map_or((None, None), |at| {
+        let (_, planet, system) = places.remove(at);
+        (planet, system)
+    });
+    crate::dice::RollSource {
+        unit: unit.type_id.to_string(),
+        planet,
+        system,
+    }
+}
+
 pub fn space_cannon_offense(
     state: &mut GameState,
     content: &ContentStore,
@@ -2288,6 +2334,7 @@ pub fn space_cannon_offense(
         attachments: attachment_guns,
     } = space_cannon_guns(state, content, sources, system, active, galaxy);
     let types = catalogue(content, sources);
+    let mut places = gun_places(state, galaxy, system);
     // The player the active player's guns fire at (Assail reads it below).
     let opponent = opponent_with_ships(state, content, sources, active, system);
 
@@ -2358,6 +2405,7 @@ pub fn space_cannon_offense(
             Some(u32::try_from(value).unwrap_or(u32::MAX)),
             &unit.owner,
         );
+        dice.annotate_source(claim_place(&mut places, &unit));
         let entry = RerollEntry {
             unit: unit.type_id.to_string(),
             planet: None,
@@ -2375,6 +2423,11 @@ pub fn space_cannon_offense(
     }
     for (owner, planet, value, count) in attachment_guns {
         let roll = dice.roll_by(rng, count, "space cannon", Some(value), &owner);
+        dice.annotate_source(crate::dice::RollSource {
+            unit: "attachment".to_owned(),
+            planet: Some(planet.to_string()),
+            system: None,
+        });
         let entry = RerollEntry {
             unit: format!("planet cannon {planet}"),
             planet: None,
@@ -7991,6 +8044,7 @@ mod tests {
             by: None,
             system: None,
             outcome: None,
+            source: None,
         };
         let rerolled = reroll_munitions_misses(&state, &mut dice, &mut rng, &attacker(), &original);
 
@@ -8044,6 +8098,37 @@ mod tests {
             fired.iter().all(|(owner, _, _)| owner == &defender()),
             "only the non-active player shoots"
         );
+    }
+
+    #[test]
+    fn a_space_cannon_roll_says_which_unit_and_planet_fired() {
+        let (mut state, system) = arena();
+        let planet = ti4_model::id::PlanetId::new("mecatol_rex");
+        state
+            .system_mut(&system)
+            .planet_units
+            .entry(planet)
+            .or_default()
+            .push(Unit::new(UnitTypeId::new(a_cannon_unit()), defender()));
+        put(&mut state, &system, "cruiser", &attacker(), 1);
+        let (_, mut dice, mut rng) = kit();
+
+        let _ = space_cannon_offense(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            &mut dice,
+            &mut rng,
+            &system,
+            &attacker(),
+            None,
+        );
+
+        let roll = dice.history().last().expect("one roll").clone();
+        let source = roll.source.expect("the roll names its gun");
+        assert_eq!(source.unit, a_cannon_unit());
+        assert_eq!(source.planet.as_deref(), Some("mecatol_rex"));
+        assert_eq!(source.system, None, "the gun stands in the system itself");
     }
 
     #[test]

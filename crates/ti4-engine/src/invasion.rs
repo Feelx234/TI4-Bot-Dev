@@ -4830,6 +4830,11 @@ fn space_cannon_defense(
             Some(u32::try_from(value).unwrap_or(u32::MAX)),
             &unit.owner,
         );
+        ctx.dice.annotate_source(crate::dice::RollSource {
+            unit: unit.type_id.to_string(),
+            planet: Some(planet.to_string()),
+            system: None,
+        });
         hits += roll.hits();
         for face in roll.faces {
             rolled.push(InvasionDie {
@@ -4851,6 +4856,11 @@ fn space_cannon_defense(
         let roll = ctx
             .dice
             .roll_by(ctx.rng, dice, "space cannon defense", Some(value), &owner);
+        ctx.dice.annotate_source(crate::dice::RollSource {
+            unit: "attachment".to_owned(),
+            planet: Some(planet.to_string()),
+            system: None,
+        });
         hits += roll.hits();
     }
     let hits = ground_hits_window(

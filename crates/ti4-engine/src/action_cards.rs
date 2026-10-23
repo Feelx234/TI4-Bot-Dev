@@ -488,11 +488,124 @@ pub fn is_playable(
         return !jamming_systems(state, content, sources, galaxy, player).is_empty()
             && state.players.len() > 1;
     }
+    // Rules version 23: a card that makes its player pay is not offered to a seat that cannot.
+    if state.rules_version >= ti4_model::state::RULES_ACTION_CARD_COSTS
+        && !cost_is_payable(state, content, sources, player, alias)
+    {
+        return false;
+    }
     // Rules version 10: a component action whose card has no legal target is not offered.
     if state.rules_version >= ti4_model::state::RULES_ACTION_CARD_TARGETS {
         return has_legal_target(state, content, sources, player, alias);
     }
     true
+}
+
+/// Whether `player` could pay `amount` of `kind` right now, counting what a readied Keleres agent
+/// would let commodities add (the payment window offers it before the bill is read).
+fn can_spend(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    amount: i64,
+    kind: crate::production::Spend,
+) -> bool {
+    crate::production::available(state, content, sources, player, kind) >= amount
+        || crate::factions::keleres::with_agent_granted(state, player, |granted| {
+            crate::production::available(granted, content, sources, player, kind) >= amount
+        })
+        .unwrap_or(false)
+}
+
+/// Rules version 23: whether the printed cost of an action card (and the thing it would do with
+/// the payment) can be met by `player` now. A card with no cost, or one this does not list, is
+/// payable. Each arm mirrors the effect's own payment and candidate list, so a card is never
+/// offered that would take the payment and then find nothing to act on.
+fn cost_is_payable(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    alias: &ActionCardId,
+) -> bool {
+    use crate::production::Spend;
+    match alias.as_str() {
+        // Spend 4 trade goods to research 1 technology.
+        "f_researched" => {
+            crate::supply::potential_goods(state, player) >= i64::from(FOCUSED_RESEARCH_COST)
+                && !crate::technology::researchable(state, content, sources, player).is_empty()
+        }
+        // Spend 3 influence to draw 1 secret objective.
+        "impersonation" => can_spend(state, content, sources, player, 3, Spend::Influence),
+        // Spend 5 influence and gain a neighbour's non-faction technology.
+        "plagiarize" => {
+            can_spend(state, content, sources, player, 5, Spend::Influence)
+                && neighbors(state, player).iter().any(|neighbour| {
+                    state.player(neighbour).is_some_and(|seat| {
+                        seat.technologies.iter().any(|tech| {
+                            !state
+                                .player(player)
+                                .is_some_and(|me| me.technologies.contains(tech))
+                                && content
+                                    .get(ContentType::Technologies, tech.as_str())
+                                    .is_some_and(|record| record.text("faction").is_none())
+                        })
+                    })
+                })
+        }
+        // Spend 2 trade goods to place 2 neutral infantry on an empty non-home planet.
+        "mercenarycontract" => {
+            crate::supply::potential_goods(state, player) >= 2
+                && !mercenary_planets(state, content, sources).is_empty()
+        }
+        // Spend 3 resources to place a neutral fleet in a non-home system without ships.
+        "piratefleet" => {
+            can_spend(state, content, sources, player, 3, Spend::Resources)
+                && !pirate_systems_off_homes(state, content, sources).is_empty()
+        }
+        // Return a non-unit-upgrade, non-faction technology you own, then research another.
+        "divert_funding" => state.player(player).is_some_and(|seat| {
+            seat.technologies.iter().any(|tech| {
+                !crate::technology::is_unit_upgrade(content, tech)
+                    && content
+                        .get(ContentType::Technologies, tech.as_str())
+                        .is_some_and(|record| record.text("faction").is_none())
+            })
+        }),
+        // Spend any number of trade goods: playing it with none does nothing.
+        "bribery" => crate::supply::potential_goods(state, player) >= 1,
+        // Spend 4 resources to research a unit upgrade.
+        "reveal_prototype" => {
+            can_spend(state, content, sources, player, 4, Spend::Resources)
+                && crate::technology::researchable(state, content, sources, player)
+                    .iter()
+                    .any(|tech| crate::technology::is_unit_upgrade(content, tech))
+        }
+        _ => true,
+    }
+}
+
+/// The empty planets Mercenary Contract may land on: off the home systems, no units on them.
+fn mercenary_planets(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+) -> Vec<(ti4_model::id::SystemId, ti4_model::id::PlanetId)> {
+    let homes = ti4_content::galaxy::home_systems(content, sources);
+    let all = ti4_content::galaxy::all_planets(content, sources);
+    let mut spots = Vec::new();
+    for (system, board) in &state.board {
+        if homes.contains(system.as_str()) {
+            continue;
+        }
+        for (planet, units) in &board.planet_units {
+            if units.is_empty() && all.contains_key(planet.as_str()) {
+                spots.push((system.clone(), planet.clone()));
+            }
+        }
+    }
+    spots
 }
 
 /// Whether a component-action card (window "Action") has anything to act on right now. Only
@@ -588,6 +701,13 @@ pub fn reaction_can_matter(
             .get(ContentType::Units, unit.type_id.as_str())
             .map(UnitType::new)
     };
+    // Rules version 23: the printed cost comes first, and these windows (a vote, a combat) need not
+    // name a system.
+    if state.rules_version >= ti4_model::state::RULES_ACTION_CARD_COSTS
+        && !cost_is_payable(state, content, SourceSet::all(), player, alias)
+    {
+        return false;
+    }
     let actor = event.text("player");
     let is_actor = actor == Some(player.as_str());
     let Some(system) = event.text("system").map(ti4_model::id::SystemId::new) else {
@@ -5183,26 +5303,16 @@ fn mercenary_contract_spend(context: &mut crate::timing::TimingContext<'_>, play
     if crate::supply::spendable_goods(context.state, player) < 2 {
         return;
     }
-    let homes = ti4_content::galaxy::home_systems(context.content, context.sources);
-    let all = ti4_content::galaxy::all_planets(context.content, context.sources);
-    let mut options: Vec<(String, String)> = Vec::new();
-    for (system, board) in &context.state.board {
-        if homes.contains(system.as_str()) {
-            continue;
-        }
-        for (planet, units) in &board.planet_units {
-            if !units.is_empty() {
-                continue;
-            }
-            if !all.contains_key(planet.as_str()) {
-                continue; // a planet the map does not know about is not on offer
-            }
-            options.push((
-                format!("{system}|{planet}"),
-                format!("{planet} in {system}"),
-            ));
-        }
-    }
+    let options: Vec<(String, String)> =
+        mercenary_planets(context.state, context.content, context.sources)
+            .into_iter()
+            .map(|(system, planet)| {
+                (
+                    format!("{system}|{planet}"),
+                    format!("{planet} in {system}"),
+                )
+            })
+            .collect();
     if options.is_empty() {
         return;
     }
@@ -9438,8 +9548,8 @@ mod tests {
 
     /// A card whose printed window makes it a component action.
     fn a_component_action_card() -> ActionCardId {
-        // One with no target requirement (see `has_legal_target`), so it is offered on a bare board.
-        let card = ActionCardId::new("f_researched");
+        // One with no target or cost requirement, so it is offered on a bare board.
+        let card = ActionCardId::new("industrial_initiative");
         assert!(is_component_action(ContentStore::embedded(), &card));
         card
     }
@@ -13759,5 +13869,207 @@ mod hidden_hands {
                 assert_eq!(after, (before.0, before.1 + 3, before.2));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod cost_gating {
+    //! Rules version 23: an action card that makes its player pay is only offered to a seat that can.
+    use super::*;
+    use ti4_model::content_types::POK;
+    use ti4_model::state::{RULES_ACTION_CARD_COSTS, RULES_VERSION};
+
+    fn offered(state: &GameState, me: &PlayerId, alias: &str) -> bool {
+        is_playable(
+            state,
+            ContentStore::embedded(),
+            POK,
+            None,
+            me,
+            &ActionCardId::new(alias),
+        )
+    }
+
+    /// Every non-faction, non-upgrade technology: enough prerequisites to research anything.
+    fn all_basic_techs(state: &mut GameState, who: &PlayerId) {
+        let store = ContentStore::embedded();
+        let techs: Vec<_> = store
+            .records(ContentType::Technologies)
+            .iter()
+            .filter(|r| r.text("faction").is_none() && r.text("baseUpgrade").is_none())
+            .filter_map(|r| r.id().map(ti4_model::TechnologyId::new))
+            .filter(|t| !crate::technology::is_unit_upgrade(store, t))
+            .collect();
+        state.player_mut(who).unwrap().technologies.extend(techs);
+    }
+
+    fn broke(state: &mut GameState, who: &PlayerId) {
+        let seat = state.player_mut(who).unwrap();
+        seat.trade_goods = 0;
+        seat.commodities = 0;
+    }
+
+    /// A planet with at least `n` influence (and its resources), by the larger face.
+    fn planet_worth(n: i64, resources: bool) -> (ti4_model::id::SystemId, ti4_model::id::PlanetId) {
+        let store = ContentStore::embedded();
+        ti4_content::galaxy::all_planets(store, POK)
+            .iter()
+            .find_map(|(id, p)| {
+                let value = if resources {
+                    p.resources()
+                } else {
+                    p.influence()
+                };
+                let system = p.system_id()?;
+                (i64::from(value) >= n && !p.is_placed_during_play()).then(|| {
+                    (
+                        ti4_model::id::SystemId::new(system),
+                        ti4_model::id::PlanetId::new(*id),
+                    )
+                })
+            })
+            .expect("a planet that big exists")
+    }
+
+    #[test]
+    fn plagiarize_is_not_offered_without_five_influence() {
+        // The reported bug: offered with nothing to pay for it.
+        let me = PlayerId::new("a");
+        let them = PlayerId::new("b");
+        let store = ContentStore::embedded();
+        let tech = store
+            .records(ContentType::Technologies)
+            .iter()
+            .find(|r| r.text("faction").is_none() && r.id().is_some())
+            .and_then(|r| r.id().map(ti4_model::TechnologyId::new))
+            .unwrap();
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        broke(&mut state, &me);
+        state.player_mut(&them).unwrap().technologies.insert(tech);
+        assert!(!offered(&state, &me, "plagiarize"));
+        state.rules_version = RULES_ACTION_CARD_COSTS - 1;
+        assert!(
+            offered(&state, &me, "plagiarize"),
+            "legacy games keep the old offer"
+        );
+        state.rules_version = RULES_VERSION;
+        state.player_mut(&me).unwrap().trade_goods = 5;
+        assert!(offered(&state, &me, "plagiarize"));
+        state.player_mut(&me).unwrap().trade_goods = 4;
+        assert!(!offered(&state, &me, "plagiarize"));
+    }
+
+    #[test]
+    fn spent_planets_do_not_count() {
+        let me = PlayerId::new("a");
+        let (system, planet) = planet_worth(3, false);
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        broke(&mut state, &me);
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), me.clone());
+        assert!(offered(&state, &me, "impersonation"));
+        state.exhaust_planet(planet.clone());
+        assert!(
+            !offered(&state, &me, "impersonation"),
+            "an exhausted planet pays nothing"
+        );
+    }
+
+    #[test]
+    fn every_costed_card_needs_its_cost() {
+        let me = PlayerId::new("a");
+        let them = PlayerId::new("b");
+        let store = ContentStore::embedded();
+        let tech = store
+            .records(ContentType::Technologies)
+            .iter()
+            .find(|r| r.text("faction").is_none() && r.id().is_some())
+            .and_then(|r| r.id().map(ti4_model::TechnologyId::new))
+            .unwrap();
+        // (card, goods that make it payable, set up whatever else it acts on)
+        let cases: [(&str, i64); 4] = [
+            ("f_researched", 4),
+            ("impersonation", 3),
+            ("plagiarize", 5),
+            ("mercenarycontract", 2),
+        ];
+        for (card, goods) in cases {
+            let mut state = crate::fixtures::game(&["a", "b"]);
+            broke(&mut state, &me);
+            state
+                .player_mut(&them)
+                .unwrap()
+                .technologies
+                .insert(tech.clone());
+            let (system, planet) = planet_worth(1, false);
+            state
+                .system_mut(&system)
+                .planet_units
+                .entry(planet)
+                .or_default();
+            assert!(
+                !offered(&state, &me, card),
+                "{card}: not offered with nothing"
+            );
+            state.player_mut(&me).unwrap().trade_goods = i32::try_from(goods - 1).unwrap();
+            assert!(!offered(&state, &me, card), "{card}: not offered one short");
+            state.player_mut(&me).unwrap().trade_goods = i32::try_from(goods).unwrap();
+            assert!(offered(&state, &me, card), "{card}: offered with {goods}");
+        }
+    }
+
+    #[test]
+    fn pirate_fleet_needs_three_resources_and_a_system() {
+        let me = PlayerId::new("a");
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        broke(&mut state, &me);
+        let (system, _) = planet_worth(1, false);
+        state.system_mut(&system);
+        assert!(!offered(&state, &me, "piratefleet"));
+        state.player_mut(&me).unwrap().trade_goods = 3;
+        assert!(offered(&state, &me, "piratefleet"));
+        state.player_mut(&me).unwrap().trade_goods = 2;
+        assert!(!offered(&state, &me, "piratefleet"));
+    }
+
+    #[test]
+    fn divert_funding_needs_a_technology_to_return() {
+        let me = PlayerId::new("a");
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.player_mut(&me).unwrap().technologies.clear();
+        assert!(!offered(&state, &me, "divert_funding"));
+        all_basic_techs(&mut state, &me);
+        assert!(offered(&state, &me, "divert_funding"));
+    }
+
+    #[test]
+    fn reaction_cards_with_a_cost_need_it() {
+        let me = PlayerId::new("a");
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        broke(&mut state, &me);
+        all_basic_techs(&mut state, &me);
+        let event =
+            crate::event::Event::new(1, "COMBAT_STARTED", std::collections::BTreeMap::new());
+        let can = |state: &GameState, card: &str| {
+            reaction_can_matter(
+                state,
+                ContentStore::embedded(),
+                &me,
+                &ActionCardId::new(card),
+                &event,
+            )
+        };
+        assert!(!can(&state, "reveal_prototype"));
+        assert!(!can(&state, "bribery"));
+        state.player_mut(&me).unwrap().trade_goods = 4;
+        assert!(can(&state, "reveal_prototype"));
+        assert!(can(&state, "bribery"));
+        state.rules_version = RULES_ACTION_CARD_COSTS - 1;
+        broke(&mut state, &me);
+        assert!(
+            can(&state, "reveal_prototype"),
+            "legacy games keep the old offer"
+        );
     }
 }

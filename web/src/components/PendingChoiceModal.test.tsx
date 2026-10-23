@@ -431,6 +431,22 @@ describe("PendingChoiceModal strategy secondary", () => {
     expect(screen.getByTestId("secondary-skip-btn")).toBeEnabled();
   });
 
+  it("adds a Use Acquiescence button beside Follow and Skip, sending the engine's waiver id", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const choice = secondaryChoice();
+    choice.options.push({ id: "follow|waived|3|acq", label: "resolve the secondary using Acquiescence", kind: "strategy", payload: {} });
+    render(<PendingChoiceModal choice={choice} onSubmit={onSubmit} />);
+    expect(screen.getByTestId("secondary-yes-btn")).toBeEnabled();
+    expect(screen.getByTestId("secondary-skip-btn")).toBeEnabled();
+    expect(screen.getByTestId("secondary-waiver-btn")).toHaveTextContent("Use Acquiescence");
+    expect(screen.getByTestId("secondary-waiver-text")).toHaveTextContent(/do not have to spend or place a command token/i);
+    expect(screen.queryByTestId("choice-option")).not.toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("secondary-waiver-btn"));
+    });
+    expect(onSubmit).toHaveBeenLastCalledWith("follow|waived|3|acq");
+  });
+
   it("keeps the plain list for a decision without the server's details", () => {
     render(
       <PendingChoiceModal

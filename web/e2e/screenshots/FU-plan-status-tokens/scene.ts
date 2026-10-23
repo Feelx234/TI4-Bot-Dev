@@ -13,7 +13,7 @@ export const HELD = { tactic: 3, fleet: 3, strategic: 2 };
 const ROUND = 3;
 
 /** The status phase of round 3: another seat is deciding, the viewer waits and holds 8 tokens. */
-export async function openStatusWaiting(page: Page, size: Size, mode?: "auto" | "review"): Promise<MockedGame> {
+export async function openStatusWaiting(page: Page, size: Size, mode?: "auto" | "review", bots?: string[]): Promise<MockedGame> {
   await page.setViewportSize(size.viewport);
   if (mode) {
     await page.addInitScript((value) => localStorage.setItem("player_secondary_prep_mode", value), mode);
@@ -21,6 +21,7 @@ export async function openStatusWaiting(page: Page, size: Size, mode?: "auto" | 
   const game = await openMockedGame(page, {
     round: ROUND,
     phase: "status",
+    bots,
     players: [
       playerWithHand({ tactic_tokens: HELD.tactic, fleet_tokens: HELD.fleet, strategic_tokens: HELD.strategic, strategy_cards: ["pok8imperial"] }),
       { ...opponent, strategy_cards: ["pok7technology"] },

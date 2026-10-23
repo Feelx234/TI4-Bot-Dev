@@ -1,5 +1,7 @@
 import type { BoardView, GameEvent, PublicRoll } from "../protocol/types.ts";
 import { isPublicEvent } from "../protocol/eventVisibility.ts";
+import { humanizeId } from "../protocol/contentCatalog.ts";
+import { planetName } from "./invasionSteps.ts";
 import { systemTag } from "./systemFacts.ts";
 
 /** A die roll as a short corner notification. */
@@ -11,6 +13,53 @@ export interface RollToast {
   who: string;
   rolls: PublicRoll[];
   text: string;
+  /** Corner tag; the generic one ("Dice") when absent. */
+  tag?: string;
+}
+
+/** Space Cannon Offense and Defense: the guns' dice, told apart from the generic roll. */
+export function isSpaceCannonRoll(roll: PublicRoll): boolean {
+  return roll.reason === "space cannon" || roll.reason === "space cannon defense";
+}
+
+const UNIT_NAMES: Record<string, string> = { pds: "PDS", pds2: "PDS II", attachment: "Planet cannon" };
+
+function gunName(roll: PublicRoll): string | null {
+  if (!roll.unit) return null;
+  const name = UNIT_NAMES[roll.unit] ?? humanizeId(roll.unit);
+  const planet = roll.planet ? ` on ${planetName(roll.planet)}` : "";
+  const away = roll.unit_system && roll.unit_system !== roll.system ? ` (adjacent #${roll.unit_system})` : "";
+  return `${name}${planet}${away}`;
+}
+
+const hitsText = (n: number) => (n === 0 ? "no hits" : n === 1 ? "1 hit" : `${n} hits`);
+
+/**
+ * A Space Cannon volley as lines: the header names the firing player and the system, one line
+ * per gun (its unit and planet when the engine said, what it needed, each die marked hit or miss)
+ * and, when several guns fired, the total.
+ */
+export function spaceCannonText(
+  who: string,
+  rolls: readonly PublicRoll[],
+  board?: BoardView | null,
+): string {
+  const defense = rolls[0].reason === "space cannon defense";
+  const system = rolls[0].system ? ` in ${systemTag(rolls[0].system, board)}` : "";
+  const lines = [`${who}'s Space Cannon ${defense ? "Defense" : "Offense"}${system}`];
+  let total = 0;
+  for (const roll of rolls) {
+    const on = roll.hits_on;
+    const marks = roll.faces.map((f) => (on === undefined ? `${f}` : `${f} ${f >= on ? "hit" : "miss"}`));
+    const hits = on === undefined ? 0 : roll.faces.filter((f) => f >= on).length;
+    total += hits;
+    const gun = gunName(roll);
+    const needs = on === undefined ? "" : ` (needs ${on}+)`;
+    const rerolled = roll.rerolled?.length ? " (reroll)" : "";
+    lines.push(`${gun ?? "Space Cannon"}${needs}${rerolled}: ${marks.join(", ")} - ${hitsText(hits)}`);
+  }
+  if (rolls.length > 1) lines.push(`Total: ${hitsText(total)}`);
+  return lines.join("\n");
 }
 
 /** The engine tags a gravity-rift die "gravity rift". It is one die per ship, not a hit roll. */
@@ -49,6 +98,9 @@ function build(id: string, key: string, who: string, rolls: PublicRoll[], board?
   // Gravity rifts: one line per ship, each saying what its die did.
   if (rolls.every(isRiftRoll)) {
     return { id, key, who, rolls, text: rolls.map((r) => `${who} ${riftSentence(r, board)}`).join("\n") };
+  }
+  if (rolls.every(isSpaceCannonRoll)) {
+    return { id, key, who, rolls, text: spaceCannonText(who, rolls, board), tag: "Space Cannon" };
   }
   if (rolls.length === 1) return { id, key, who, rolls, text: `${who} rolled ${rollSentence(rolls[0], board)}` };
   // Several rolls of one kind: show every die, and total the hits when they are hit rolls.
