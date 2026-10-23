@@ -1,0 +1,21 @@
+{
+  "title": "Technology viewer: Owned filter",
+  "description": "A new last chip, Owned, in the technology filter row shows only the technologies the viewer already has. It combines with the colour chips and is exclusive with Can research now (an owned technology can never be researched). Synthetic fixtures through a mocked server; the viewer owns Antimass Deflectors, Sarween Tools and Neural Motivator.",
+  "tag": "web/e2e/screenshots/HC-tech-owned-filter",
+  "shots": [
+    { "file": "out/before-chips-desktop.png", "heading": "Before, desktop", "caption": "The filter row ends with Can research now." },
+    { "file": "out/after-chips-desktop.png", "heading": "After, desktop", "caption": "Owned is the last chip." },
+    { "file": "out/after-owned-desktop.png", "heading": "Owned on, desktop", "caption": "Only the viewer's three technologies remain." },
+    { "file": "out/after-owned-green-desktop.png", "heading": "Owned and Biotic, desktop", "caption": "Colour and Owned combine." },
+    { "file": "out/before-chips-phone.png", "heading": "Before, phone 390x844", "caption": "The chip row scrolls sideways." },
+    { "file": "out/after-chips-phone.png", "heading": "After, phone", "caption": "Owned is the last chip in the scrolling row." },
+    { "file": "out/after-owned-phone.png", "heading": "Owned on, phone", "caption": "The pressed chip is scrolled into view; only owned technologies show." },
+    { "file": "out/after-owned-green-phone.png", "heading": "Owned and Biotic, phone", "caption": "Same combination on a phone." }
+  ],
+  "notesHeading": "Design notes",
+  "notes": [
+    { "title": "Exclusive with Can research now", "text": "Pressing one turns the other off, since the two sets never overlap." },
+    { "title": "Not persisted", "text": "Like the other technology filters, the choice lives only while the dialog is open." },
+    { "title": "Research dialogs", "text": "Owned technologies are not offered there, so the filter shows an empty list with the usual no-match message." }
+  ]
+}
