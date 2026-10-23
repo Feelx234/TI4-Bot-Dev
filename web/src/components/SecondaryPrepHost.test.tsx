@@ -461,6 +461,29 @@ describe("review mode (the default): the prepared answer in the real decision", 
     expect(submit).not.toHaveBeenCalled();
   });
 
+  it("keeps 'Choose myself' for the follow-up decision of the same secondary window", async () => {
+    const board = boardWith([
+      { system: "18", planet: "jord", owner: "b", exhausted: true },
+      { system: "26", planet: "lodor", owner: "b", exhausted: true },
+    ]);
+    const ctx = setup({ players: players("pok2diplomacy"), events: playedLog("Diplomacy"), board });
+    open();
+    click("secondary-yes-btn");
+    click("map-click-jord");
+    await act(async () => {
+      click("ready-bar-confirm");
+    });
+    ctx.again({ history: hist(6), choice: secondaryChoice("pok2diplomacy") });
+    click("secondary-prepared-dismiss");
+    expect(screen.queryByTestId("secondary-prepared-bar")).toBeNull();
+    ctx.again({
+      history: hist(7),
+      choice: stepChoice("ready_planet", [option("jord", "ready", "ready jord"), option("lodor", "ready", "ready lodor")], "ready-1"),
+    });
+    expect(screen.getByTestId("ready-planets-bar")).toBeInTheDocument();
+    expect(screen.queryByTestId("secondary-prepared-bar")).toBeNull();
+  });
+
   it("uses the faction waiver option when that is what the engine offers", async () => {
     const { submit } = await arrive(
       secondaryChoice("pok7technology", {}, [option("no"), option("follow|waived|0|w", "strategy", "free")]),

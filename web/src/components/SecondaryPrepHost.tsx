@@ -36,6 +36,10 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
   // it stops covering the map while the stand-in question is minimized. Reset whenever it closes.
   const [folded, setFolded] = useState(false);
   const nonce = mine && realChoice ? realChoice.nonce : null;
+  // "Choose myself" is the answer for the whole secondary window (card + round), not for one decision:
+  // the follow-up question of the same secondary (Diplomacy's ready step after its window) must not
+  // bring the bar back. The action key identifies the window; without an action the decision stands.
+  const windowKey = action ? `${action.key}|${action.round}` : nonce;
 
   const confirm = async () => {
     setSending(true);
@@ -58,7 +62,7 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
     resolution.kind === "ready";
   const showBar =
     nonce !== null &&
-    dismissed !== nonce &&
+    dismissed !== windowKey &&
     !pending &&
     !holding &&
     (actionable || resolution.kind === "review");
@@ -273,7 +277,7 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
               type="button"
               className="button button--secondary button--sm"
               data-testid="secondary-prepared-dismiss"
-              onClick={() => setDismissed(nonce)}
+              onClick={() => setDismissed(windowKey)}
             >
               Choose myself
             </button>

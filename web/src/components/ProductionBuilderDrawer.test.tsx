@@ -639,6 +639,24 @@ describe("ProductionBuilderDrawer", () => {
       });
     });
 
+    it("locks Remove and Done producing while the confirmed batch is in flight (o1-201-0530: stale nonce)", async () => {
+      let finish: () => void = () => undefined;
+      const onSubmitBatch = vi.fn().mockReturnValue(new Promise<void>((resolve) => (finish = resolve)));
+      const onSubmit = vi.fn().mockResolvedValue(undefined);
+      open({ onSubmitBatch, onSubmit });
+      fireEvent.click(screen.getByTestId("produce-unit-btn-build|carrier|1"));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Confirm builds" }));
+      });
+      const done = screen.queryByTestId("done-producing-btn");
+      const remove = screen.getByRole("button", { name: /^Remove 1x carrier/ });
+      expect(remove).toBeDisabled();
+      if (done) expect(done).toBeDisabled();
+      await act(async () => {
+        finish();
+      });
+    });
+
     it("queues an exchange under its own key so it is never mistaken for the paid build", () => {
       const onQueueProduction = vi.fn();
       open({ onQueueProduction });

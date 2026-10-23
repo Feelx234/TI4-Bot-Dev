@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
+import { useBannerRoom } from "../hooks/useBannerRoom.ts";
 import type { BoardView, PendingChoiceDto } from "../protocol/types.ts";
 import type { BasketPlan } from "../protocol/client.ts";
 import { PlanetValuePair, ValueUnit } from "./PlanetValueIcons.tsx";
@@ -72,6 +73,8 @@ export const ReadyPlanetsBar: React.FC<ReadyPlanetsBarProps> = ({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
+  const barRef = useRef<HTMLElement | null>(null);
+  useBannerRoom(barRef, Boolean(view));
   if (!view) return null;
   const hints = readReadyHints(choice.details);
   const isActor = Boolean(viewerSeat && choice.actor === viewerSeat);
@@ -96,6 +99,7 @@ export const ReadyPlanetsBar: React.FC<ReadyPlanetsBarProps> = ({
   const shownError = error ?? lastError;
   return (
     <aside
+      ref={barRef}
       data-testid="ready-planets-bar"
       className="choice-banner panel system-activation-bar ready-bar"
       aria-label="Ready planets"

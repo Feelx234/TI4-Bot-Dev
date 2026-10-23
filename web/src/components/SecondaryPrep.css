@@ -362,3 +362,14 @@
   align-items: center;
   margin: 0;
 }
+
+/* A decision banner at the bottom edge (the Diplomacy ready-planets bar publishes --decision-banner-room) keeps its
+   Confirm free: the answer bars and toasts dock above it (s2-07-0228 2026-10-22). */
+.secondary-prep:not(.secondary-prep--preparing) {
+  bottom: max(calc(var(--bottom-bar-offset, 0px) + 16px), var(--decision-banner-room, 0px));
+}
+@media (max-width: 720px) {
+  .secondary-prep:not(.secondary-prep--preparing) {
+    bottom: max(calc(var(--bottom-bar-offset, 0px) + 72px), var(--decision-banner-room, 0px));
+  }
+}

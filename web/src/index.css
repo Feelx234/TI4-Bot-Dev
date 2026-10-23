@@ -2197,7 +2197,7 @@ html,
     padding-bottom: 0 !important;
   }
   .detail-panel {
-    top: 55px !important;
+    top: max(55px, calc(var(--app-header-bottom, 0px) + 4px)) !important;
     right: 8px !important;
     bottom: max(85px, var(--bar-clear, 0px)) !important;
     width: min(340px, calc(100vw - 16px));

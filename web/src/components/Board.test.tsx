@@ -343,6 +343,42 @@ describe("Board Component", () => {
     }
   });
 
+  it("closes an open inspector when Warfare's free tactical action asks for a system on a phone", () => {
+    // o1-211-0549 (2026-10-22): warfare_free_tactical (all options are activations) left the
+    // inspector over the map and the player with nothing to tap.
+    const free = {
+      nonce: "nonce_free",
+      actor: "p1",
+      prompt: "Warfare: a tactical action without a command token",
+      context: partialContext({ subtype: "warfare_free_tactical" }),
+      options: [{ id: "18", label: "Mecatol Rex", kind: "activate", payload: { system: "18" } }],
+    };
+    const other = {
+      nonce: "nonce_other",
+      actor: "p1",
+      prompt: "something else",
+      options: [{ id: "done", kind: "decline", label: "done", payload: {} }],
+    };
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes("max-width: 720px"),
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    })) as unknown as typeof window.matchMedia;
+    try {
+      const { rerender } = render(
+        <Board board={mockBoard} seatingOrder={["p1", "p2"]} pendingChoice={other} viewerSeat="p1" />,
+      );
+      fireEvent.click(screen.getByTestId("system-hex-34"));
+      expect(screen.getByTestId("system-inspector")).toBeInTheDocument();
+      rerender(<Board board={mockBoard} seatingOrder={["p1", "p2"]} pendingChoice={free} viewerSeat="p1" />);
+      expect(screen.queryByTestId("system-inspector")).not.toBeInTheDocument();
+    } finally {
+      window.matchMedia = original;
+    }
+  });
+
   it("renders activation target reticles during system activation mode", () => {
     const activationChoice = {
       nonce: "nonce_act",
