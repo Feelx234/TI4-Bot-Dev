@@ -1,7 +1,7 @@
 {
   "title": "Nightly 2026-10-22 UI overlaps",
   "description": "Overlaps from the 2026-10-22 sweep. (1) Diplomacy: 'Choose myself' on the prepared secondary now holds for the whole secondary window, so the follow-up ready-planets question no longer brings the 'Prepared / Confirm' bar back over its Confirm; a bar that is up anyway docks above the ready-planets bar. (2) Phone: the system inspector starts below the header chips (the paused-prompts chip covered its close button), and Warfare's free tactical action closes an open inspector like the normal activation does. Synthetic fixtures through a mocked server. The before shots are taken with TI4_SHOT_PREFIX=before on the commit without the change.",
-  "tag": "web/e2e/screenshots/HB-nightly-ui-overlaps",
+  "tag": "web/e2e/screenshots/HE-nightly-ui-overlaps",
   "shots": [
     { "file": "before/before-1-chose-myself-desktop.png", "heading": "Before: after Choose myself, desktop", "caption": "The follow-up ready question brought the Prepared bar back over the ready-planets bar." },
     { "file": "out/after-1-chose-myself-desktop.png", "heading": "After: after Choose myself, desktop", "caption": "Only the ready-planets bar; its Confirm is the topmost element." },
