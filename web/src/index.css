@@ -5756,3 +5756,25 @@ select:focus-visible,
     justify-content: stretch;
   }
 }
+.player-chip {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 100%;
+  vertical-align: middle;
+}
+.player-chip__name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.trade-parties {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin: 0 0 8px;
+}
+.trade-parties__arrow {
+  color: var(--text-muted, #94a3b8);
+}

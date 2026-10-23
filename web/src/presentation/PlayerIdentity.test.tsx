@@ -184,7 +184,7 @@ it("keeps trade target and submitted choice IDs internal while displaying the cu
     </PlayerIdentityProvider>,
   );
   expect(screen.getByTestId("trade-desk-title")).toHaveTextContent("Propose a trade");
-  expect(screen.getByText("With Sam (▲ Position 2)")).toBeInTheDocument();
+  expect(screen.getByTestId("trade-header-partner")).toHaveTextContent("Sam (▲ Position 2)");
   expect(container.textContent).not.toContain("player_a");
   rerender(
     <PlayerIdentityProvider
@@ -205,7 +205,7 @@ it("keeps trade target and submitted choice IDs internal while displaying the cu
       />
     </PlayerIdentityProvider>,
   );
-  expect(screen.getByText("With Robin")).toBeInTheDocument();
+  expect(screen.getByTestId("trade-header-partner")).toHaveTextContent("Robin");
   fireEvent.click(screen.getByTestId("trade-opt-offer-1"));
   await act(async () => {
     fireEvent.click(screen.getByTestId("propose-trade-btn"));

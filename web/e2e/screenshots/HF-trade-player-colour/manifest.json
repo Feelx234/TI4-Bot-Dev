@@ -1,0 +1,19 @@
+{
+  "title": "Player Colour in the Trade Dialog",
+  "description": "Request: in the trade dialog the player colour should be shown. The trade dialog (propose desk and answer screen) named the partner as plain text. Now the partner is shown as a PlayerChip: the same seat badge the player sheet, board legend and reaction bar use (colour fill, shape symbol and seat number) followed by the name, which stays the primary text. The chip sits in the header line (With <chip>), in the 'You receive / From <chip>' column subtitle of the propose desk, and in both column subtitles of the answer screen. The colour is never the only channel: the name, the shape and the number are always there, and the tooltip names the colour (red, position 4). Seats outside 1-8 and ids without a seat render the plain name. Fixture: four seats, the viewer at position 1 (blue) and the partner Rina at position 4 (red). Before shots were taken with TI4_SHOT_PREFIX=before on the base commit (consolidated-2026-10-23) and are committed under before/; npm run screenshots -- HF regenerates the after shots and asserts the chip text, badge, colour and that nothing overflows sideways. Synthetic fixtures through a mocked server, not captured engine states.",
+  "tag": "web/e2e/screenshots/HF-trade-player-colour",
+  "shots": [
+    { "file": "before/before-propose-desktop.png", "heading": "Before: propose a trade (desktop)", "caption": "The partner is plain text: 'With Rina'." },
+    { "file": "out/after-propose-desktop.png", "heading": "After: propose a trade (desktop)", "caption": "'With' + red seat badge (diamond, 4) + Rina; the You receive column says 'From' the same chip." },
+    { "file": "before/before-answer-desktop.png", "heading": "Before: answer a trade offer (desktop)", "caption": "Proposer named only in text." },
+    { "file": "out/after-answer-desktop.png", "heading": "After: answer a trade offer (desktop)", "caption": "The proposer's colour badge in the header and in both column subtitles." },
+    { "file": "before/before-propose-390x844.png", "heading": "Before: propose, phone 390x844", "caption": "Plain text partner." },
+    { "file": "out/after-propose-390x844.png", "heading": "After: propose, phone 390x844", "caption": "Chip wraps with the name; no horizontal overflow." },
+    { "file": "before/before-answer-390x844.png", "heading": "Before: answer, phone 390x844", "caption": "Plain text proposer." },
+    { "file": "out/after-answer-390x844.png", "heading": "After: answer, phone 390x844", "caption": "Header chip and column subtitles carry the colour." },
+    { "file": "before/before-propose-360x740.png", "heading": "Before: propose, phone 360x740", "caption": "Plain text partner." },
+    { "file": "out/after-propose-360x740.png", "heading": "After: propose, phone 360x740", "caption": "Smallest phone: still one line of header plus chip." },
+    { "file": "before/before-answer-360x740.png", "heading": "Before: answer, phone 360x740", "caption": "Plain text proposer." },
+    { "file": "out/after-answer-360x740.png", "heading": "After: answer, phone 360x740", "caption": "Chips stay inside the stacked columns." }
+  ]
+}

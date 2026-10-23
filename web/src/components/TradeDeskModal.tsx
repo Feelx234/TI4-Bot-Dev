@@ -8,7 +8,7 @@ import { Dialog } from "../primitives/index.ts";
 import { ChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { humanizeOfferPrompt } from "../presentation/tradeNames.ts";
 import { WorkflowShell } from "./WorkflowShell.tsx";
-import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
+import { PlayerChip, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { DecisionHeader } from "./DecisionHeader.tsx";
 import {
   Staged,
@@ -153,7 +153,7 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
             instruction={shownPrompt}
             progress={
               partnerSeat && display(partnerSeat).position
-                ? `With ${display(partnerSeat).label}`
+                ? <>With <PlayerChip id={partnerSeat} testId="trade-header-partner" /></>
                 : undefined
             }
             onMinimize={onClose}
@@ -180,6 +180,7 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
                       <TradeOfferColumns
                         staged={offered.staged}
                         proposerLabel={partnerLabel}
+                        proposerSeat={partnerSeat}
                         myFaction={viewer?.faction ?? null}
                         proposerFaction={partner?.faction ?? null}
                         net={typeof acceptNet === "number" ? acceptNet : undefined}
@@ -245,6 +246,7 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
                         setPrefilled(false);
                       }}
                       partnerLabel={partnerLabel}
+                      partnerSeat={partnerSeat}
                       partnerFaction={partner?.faction ?? null}
                       myFaction={viewer?.faction ?? null}
                       myHoldings={holdings(viewer)}

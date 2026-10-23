@@ -13,6 +13,7 @@ import {
   whyNoDeal,
 } from "../presentation/tradeStaging.ts";
 import { printedCardName } from "../presentation/tradeNames.ts";
+import { PlayerChip } from "../presentation/PlayerIdentity.tsx";
 import { TradeItemDisplay } from "./TradeItemDisplay.tsx";
 
 export interface Holdings {
@@ -89,7 +90,7 @@ const ItemToggle: React.FC<{
 
 interface ColumnProps {
   title: string;
-  subtitle?: string;
+  subtitle?: React.ReactNode;
   testId: string;
   type: "offer" | "receive";
   side: StagedSide;
@@ -252,6 +253,8 @@ export interface TradeStagingDeskProps {
   staged: Staged;
   onChange: (s: Staged) => void;
   partnerLabel: string;
+  /** The partner's seat id: shown with their seat colour. */
+  partnerSeat?: string | null;
   partnerFaction?: string | null;
   /** The viewer's own faction id: whose Support for the Throne the "give" column swaps. */
   myFaction?: string | null;
@@ -268,6 +271,7 @@ export const TradeStagingDesk: React.FC<TradeStagingDeskProps> = ({
   staged,
   onChange,
   partnerLabel,
+  partnerSeat,
   partnerFaction,
   myFaction,
   myHoldings,
@@ -283,7 +287,16 @@ export const TradeStagingDesk: React.FC<TradeStagingDeskProps> = ({
     () => (match || isStagedEmpty(staged) ? [] : nearestDeals(staged, deals, 3)),
     [match, staged, deals],
   );
-  const partnerName = partnerFaction ? `${partnerLabel} (${partnerFaction})` : partnerLabel;
+  const partnerName = partnerSeat ? (
+    <>
+      <PlayerChip id={partnerSeat} testId="stage-partner" />
+      {partnerFaction ? ` (${partnerFaction})` : ""}
+    </>
+  ) : partnerFaction ? (
+    `${partnerLabel} (${partnerFaction})`
+  ) : (
+    partnerLabel
+  );
 
   return (
     <div className="trade-desk" data-testid="trade-staging-desk">
@@ -305,7 +318,7 @@ export const TradeStagingDesk: React.FC<TradeStagingDeskProps> = ({
         />
         <Column
           title="You receive"
-          subtitle={`From ${partnerName}`}
+          subtitle={<>From {partnerName}</>}
           testId="stage-receive"
           type="receive"
           side={staged.receive}
@@ -386,11 +399,13 @@ export const TradeStagingDesk: React.FC<TradeStagingDeskProps> = ({
 export const TradeOfferColumns: React.FC<{
   staged: Staged;
   proposerLabel: string;
+  /** The proposer's seat id: shown with their seat colour. */
+  proposerSeat?: string | null;
   net?: number;
   /** Faction ids of the viewer and the proposer, for whose Support for the Throne is swapped. */
   myFaction?: string | null;
   proposerFaction?: string | null;
-}> = ({ staged, proposerLabel, net, myFaction, proposerFaction }) => {
+}> = ({ staged, proposerLabel, proposerSeat, net, myFaction, proposerFaction }) => {
   const side = (s: StagedSide, type: "offer" | "receive") => {
     const items: React.ReactNode[] = [];
     const mine = type === "offer";
@@ -430,6 +445,7 @@ export const TradeOfferColumns: React.FC<{
     if (!items.length) items.push(<p key="none" className="trade-column__none">Nothing.</p>);
     return items;
   };
+  const who = proposerSeat ? <PlayerChip id={proposerSeat} testId="offer-proposer" /> : proposerLabel;
   const give = sideLines(staged.give);
   const receive = sideLines(staged.receive);
   return (
@@ -441,7 +457,7 @@ export const TradeOfferColumns: React.FC<{
           aria-label="You give"
         >
           <h4 className="trade-section__title">You give</h4>
-          <p className="trade-column__subtitle">What {proposerLabel} asks of you</p>
+          <p className="trade-column__subtitle">What {who} asks of you</p>
           {side(staged.give, "offer")}
         </section>
         <section
@@ -450,7 +466,7 @@ export const TradeOfferColumns: React.FC<{
           aria-label="You receive"
         >
           <h4 className="trade-section__title">You receive</h4>
-          <p className="trade-column__subtitle">What {proposerLabel} gives you</p>
+          <p className="trade-column__subtitle">What {who} gives you</p>
           {side(staged.receive, "receive")}
         </section>
       </div>

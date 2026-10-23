@@ -16,6 +16,8 @@ export const SEAT_COLORS = [
   "#F5D90A", // yellow
   "#A855F7", // purple
 ] as const;
+/** Plain names of SEAT_COLORS, for tooltips and screen readers (the badge never relies on hue alone). */
+export const SEAT_COLOR_NAMES = ["blue", "green", "cyan", "red", "pink", "orange", "yellow", "purple"] as const;
 export const SEAT_INK_DARK = "#0b1220";
 export const SEAT_INK_LIGHT = "#ffffff";
 

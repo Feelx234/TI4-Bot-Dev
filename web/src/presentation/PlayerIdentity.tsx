@@ -1,6 +1,6 @@
 import React, { createContext, useContext } from "react";
 import type { LobbyDto } from "../protocol/types.ts";
-import { playerDisplay, seatInk, seatStyle } from "./playerDisplay.ts";
+import { playerDisplay, seatInk, seatStyle, SEAT_COLOR_NAMES } from "./playerDisplay.ts";
 import { participantReferences, participantText } from "./participantText.ts";
 
 const PlayerContext = createContext<{ lobby: LobbyDto | null; seatingOrder: readonly string[] }>({
@@ -67,6 +67,26 @@ export const SeatBadge: React.FC<{ position: number }> = ({ position }) => {
         </text>
       </svg>
       <span>{position}</span>
+    </span>
+  );
+};
+
+/**
+ * A participant named with their seat colour: the badge (colour, shape and number) followed by the
+ * name, which stays the primary text. Unseated or unknown ids render the name alone.
+ */
+export const PlayerChip: React.FC<{ id: string | null | undefined; testId?: string }> = ({ id, testId }) => {
+  const who = usePlayerIdentity()(id);
+  const colorName = who.position ? SEAT_COLOR_NAMES[who.position - 1] : undefined;
+  return (
+    <span
+      className="player-chip"
+      data-testid={testId}
+      data-seat-color={who.position ? who.color : undefined}
+      title={colorName ? `${who.label}: ${colorName}, position ${who.position}` : undefined}
+    >
+      {who.position != null && who.position >= 1 && who.position <= 8 && <SeatBadge position={who.position} />}
+      <span className="player-chip__name">{who.label}</span>
     </span>
   );
 };
