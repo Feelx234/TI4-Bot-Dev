@@ -195,6 +195,29 @@ describe("engineLink", () => {
     expect(other.events).toEqual([{ kind: "fatal", message: "trap" }]);
   });
 
+  it("tells a saved game that does not play again as fatal (run o1-03-2334)", () => {
+    // The replay of a save stopped at a decision the engine does not offer: the run ended
+    // without a question, and the page waited at "Loading the game…" for good.
+    const { port, events } = open();
+    port.emit({
+      t: "end",
+      envelope: envelope("end", {
+        end: {
+          finished: false,
+          left: true,
+          error: null,
+          decisions: 371,
+          answers: 43,
+          diverged: 'decision 372 of 426 was "x;gn=cf:saar;", but "transaction with ghost" of seat a offers decline',
+        },
+      }),
+      save: null,
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0].kind).toBe("fatal");
+    expect((events[0] as { message: string }).message).toContain("decision 372 of 426");
+  });
+
   it("holds a question and what follows until its gate opens", async () => {
     let open_!: () => void;
     const { port, events } = open(() => new Promise<void>((resolve) => (open_ = resolve)));
