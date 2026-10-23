@@ -574,7 +574,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                             type="button"
                             className="button button--secondary"
                             data-testid="production-agent-button"
-                            disabled={queued || isSubmitting || preparing}
+                            disabled={queued || isSubmitting || batchRunning || preparing}
                             onClick={() => submitDirect(agentOption.id)}
                           >
                             {agentOption.label}
@@ -634,13 +634,14 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                                   blockedReason={blocked}
                                   disabledAdd={
                                     queued ||
+                                    batchRunning ||
                                     isSubmitting ||
                                     limitBlocked ||
                                     capacityBlocked ||
                                     resourceLimit === null ||
                                     resourceBlocked
                                   }
-                                  disabledRemove={!count || queued || isSubmitting}
+                                  disabledRemove={!count || queued || isSubmitting || batchRunning}
                                   limitView={limitRow ? { base: limitRow.l.base, view: limitRow.view } : null}
                                   capacityOver={
                                     overCapacity &&
@@ -699,7 +700,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                       <button
                         type="button"
                         className="button button--secondary"
-                        disabled={!stagedBatches || queued || isSubmitting}
+                        disabled={!stagedBatches || queued || isSubmitting || batchRunning}
                         onClick={() => setDraft({})}
                       >
                         Reset selection
@@ -785,7 +786,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                           type="button"
                           data-testid="done-producing-btn"
                           onClick={() => submitDirect(declineOption.id)}
-                          disabled={isSubmitting || queued || stagedBatches > 0}
+                          disabled={isSubmitting || queued || batchRunning || stagedBatches > 0}
                           className="button button--primary production-drawer__done"
                         >
                           {declineOption.label || "Done Producing"}

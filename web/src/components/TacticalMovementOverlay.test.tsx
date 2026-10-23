@@ -1041,6 +1041,44 @@ describe("TacticalMovementOverlay Component", () => {
     });
   });
 
+  it("counts only the hulls the engine says reach, not every ship of the type on the board", () => {
+    // Run o4-34-0029: Captain Mendosa raised one of three carriers; the row offered all three and
+    // the batch was refused at the second carrier.
+    const choice: PendingChoiceDto = {
+      prompt: "movement",
+      actor: "p1",
+      nonce: "nonce_movable",
+      context: partialContext({ subtype: "movement_step", target: { System: "18" } }),
+      details: { movable: { "move|15|0": 1 } },
+      options: [
+        { id: "move|15|0", label: "carrier", kind: "move", payload: { origin: "15", unit: "carrier", capacity: 4 } },
+        { id: "done_moving", label: "Finish Movement", kind: "decline", payload: {} },
+      ],
+    };
+    const carrier = { owner: "p1", unit_type: "carrier", damaged: false };
+    render(
+      <TacticalMovementOverlay
+        choice={choice}
+        board={
+          {
+            systems: {
+              "15": { system_id: "15", command_tokens: [], planets: {}, units: [carrier, carrier, carrier] },
+            },
+          } as any
+        }
+        activeSystemId="18"
+        player={mockPlayer}
+        onSubmit={vi.fn()}
+        isOpen
+        onClose={vi.fn()}
+      />,
+    );
+    const inc = screen.getByTestId("rally-inc-15-carrier");
+    fireEvent.click(inc);
+    expect(screen.getByTestId("rally-count-15-carrier")).toHaveTextContent("1");
+    expect(inc).toBeDisabled();
+  });
+
   describe("All from here", () => {
     const allBoard = {
       systems: {

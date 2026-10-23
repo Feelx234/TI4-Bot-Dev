@@ -11,6 +11,7 @@ import {
   PLAYER_PALETTE,
 } from "../presentation/boardPresentation.ts";
 import { SystemInspector, type InspectorTab } from "./SystemInspector.tsx";
+import { isSystemActivationChoice } from "../presentation/choiceModel.ts";
 import { SystemReachTab } from "./SystemReachTab.tsx";
 import { useReachQuery } from "../hooks/useReachQuery.ts";
 import { groupReach, reachVectors } from "../presentation/reachView.ts";
@@ -164,7 +165,7 @@ export const Board: React.FC<BoardProps> = ({
   // A decision that is answered by tapping the map (activating a system) arrives while a system the
   // player opened to look at is still inspected: on a phone the inspector covers the map, so it
   // closes (offline runs o2-124, o3-147, o1-167, o2-270, o1-325, o3-340).
-  const needsMapTap = pendingChoice?.context?.subtype === "activate_system";
+  const needsMapTap = Boolean(pendingChoice && isSystemActivationChoice(pendingChoice));
   useEffect(() => {
     if (compactLayout && needsMapTap) setSelectedSystemId(null);
     // Only a new decision closes it; a system tapped afterwards to answer it may stay open.

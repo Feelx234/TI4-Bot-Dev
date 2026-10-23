@@ -1041,7 +1041,7 @@ impl HostSession {
         self.state.clone_from(state);
         self.version += 1;
         self.viewer.clone_from(&choice.player);
-        self.pending = Some((choice.clone(), nonce.to_owned()));
+        self.pending = Some((offline_choice(choice), nonce.to_owned()));
         self.waiting = None;
         // An answer whose decision is still held back (a card declared in a reaction window of
         // rules version 3 is announced later) was accepted all the same: say so before the
@@ -1084,7 +1084,7 @@ impl HostSession {
             self.viewer.clone_from(viewer);
         }
         self.pending = None;
-        self.waiting = Some(choice.clone());
+        self.waiting = Some(offline_choice(choice));
         self.can_undo = self.undo_start().is_some();
         self.show();
         None
@@ -2141,4 +2141,31 @@ pub struct SaveSeat {
 #[must_use]
 pub fn decisions_hash(records: &[DecisionRecord]) -> String {
     ti4_host::export::decisions_hash(records)
+}
+
+/// The choice as the page is shown it. The engine is answered by place here, so a free-form
+/// answer (a composed deal) is always refused: the page is not told that the choice takes one,
+/// and the trade desk offers only the listed deals instead of a Propose button that never works.
+fn offline_choice(choice: &Choice) -> Choice {
+    let mut shown = choice.clone();
+    shown.free_form = None;
+    shown.details.remove("free_form");
+    shown
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_free_form_choice_is_shown_without_free_form() {
+        // Run o1-34-0026: the desk composed `x;...` deals that the offline host refused, and the
+        // proposer clicked Propose Deal 80 times.
+        let choice =
+            Choice::new(PlayerId::new("a"), "transaction with b", vec![]).accepting_free_form("x;");
+        let shown = offline_choice(&choice);
+        assert!(shown.free_form.is_none());
+        assert!(!shown.details.contains_key("free_form"));
+        assert_eq!(shown.prompt, choice.prompt);
+    }
 }

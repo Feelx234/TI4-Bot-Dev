@@ -175,6 +175,20 @@ describe("parseOfferPrompt", () => {
     expect(parsed?.staged.give.commodities).toBe(0);
   });
 
+  it("reads a Support for the Throne swap as the listed swap, so a counter can propose it", () => {
+    // Run o1-34-0026: the counter-offer desk was pre-filled with two plain notes, which match no
+    // listed deal; offline (no free-form deals) that pre-fill could never be proposed.
+    const parsed = parseOfferPrompt("nekro gives support:nekro for support:naalu -- accept?");
+    expect(parsed?.staged.give).toMatchObject({ support: true, note: null });
+    expect(parsed?.staged.receive).toMatchObject({ support: true, note: null });
+    expect(stagedToDealId(parsed!.staged, stageableDeals([offer("ss")]))).toBe("ss");
+  });
+
+  it("keeps a one-sided Support note a note", () => {
+    const parsed = parseOfferPrompt("nekro gives support:nekro for 2 trade goods -- accept?");
+    expect(parsed?.staged.receive).toMatchObject({ support: false, note: "support:nekro" });
+  });
+
   it("returns null for any other prompt", () => {
     expect(parseOfferPrompt("something else entirely")).toBeNull();
   });

@@ -1457,6 +1457,26 @@ export const GameShell: React.FC<GameShellProps> = ({
 
   const feedbackInDock = useFeedbackDock();
 
+  // The header grows with its chips (paused prompts, active effects, agenda): publish where it ends so
+  // the phone's detail panel starts below it instead of under the chips (o1-211-0549 2026-10-22).
+  const headerRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const root = document.documentElement;
+    const publish = () =>
+      root.style.setProperty("--app-header-bottom", `${Math.max(0, Math.ceil(el.getBoundingClientRect().bottom))}px`);
+    publish();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(publish);
+    observer?.observe(el);
+    window.addEventListener("resize", publish);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", publish);
+      root.style.removeProperty("--app-header-bottom");
+    };
+  }, []);
+
   const [prepSlot, setPrepSlot] = useState<HTMLElement | null>(null);
   const prepSlotValue = useMemo(() => ({ slot: prepSlot, setSlot: setPrepSlot }), [prepSlot]);
 
@@ -1467,7 +1487,7 @@ export const GameShell: React.FC<GameShellProps> = ({
     {/* Around the board too: the map offers no planets for a payment the plan answers. */}
     <ProductionPaymentProvider value={productionPayApi}>
     <div data-testid="game-container" className="app-shell">
-      <div className="app-shell__header">
+      <div className="app-shell__header" ref={headerRef}>
         {header}
         {agenda && <AgendaStrip strip={agenda} />}
         <ActiveEffectsStrip effects={activeEffects} viewerSeat={viewerSeat} />

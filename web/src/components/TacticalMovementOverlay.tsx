@@ -397,6 +397,18 @@ export const TacticalMovementOverlay: React.FC<
         group.totalAvailable = Math.min(group.totalAvailable, 1);
       }
     }
+    // The engine says how many hulls each option stands for: not every ship of a type reaches
+    // (Captain Mendosa raises one), so the board count alone overstates the row.
+    const movable = choice.details?.movable as Record<string, unknown> | undefined;
+    if (movable && typeof movable === "object") {
+      for (const group of groupMap.values()) {
+        const counts = group.options.map((option) => movable[option.id]);
+        if (counts.every((n) => typeof n === "number")) {
+          const reach = (counts as number[]).reduce((a, b) => a + b, 0);
+          group.totalAvailable = Math.min(group.totalAvailable, reach);
+        }
+      }
+    }
     return Array.from(groupMap.values());
   }, [choice, board, isCargoStep]);
 

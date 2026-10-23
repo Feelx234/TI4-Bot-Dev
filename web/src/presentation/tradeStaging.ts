@@ -309,6 +309,16 @@ export function parseOfferPrompt(prompt: string): { proposer: string; staged: St
   if (cut < 0) return null;
   const proposerGives = parseSide(rest.slice(0, cut));
   const proposerGets = parseSide(rest.slice(cut + " for ".length));
+  // Support for the Throne for Support for the Throne is the listed swap (`ss`), staged as the
+  // Support flag on both sides rather than as two notes that match no listed deal.
+  const onlySupport = (s: StagedSide) =>
+    !!s.note?.startsWith("support:") && isSideEmpty({ ...s, note: null });
+  if (onlySupport(proposerGives) && onlySupport(proposerGets)) {
+    for (const side of [proposerGives, proposerGets]) {
+      side.note = null;
+      side.support = true;
+    }
+  }
   return { proposer, staged: { give: proposerGets, receive: proposerGives } };
 }
 
