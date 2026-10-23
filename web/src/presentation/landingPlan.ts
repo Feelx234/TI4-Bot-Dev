@@ -22,6 +22,27 @@ export interface Landing {
   planet: string;
   unit: string;
   damaged: boolean;
+  /**
+   * Where the force starts when it is not in the space area: a faction's extra commit source (G'hom
+   * Sek'kus commits a ground force from a planet in the active or an adjacent system). Absent for the
+   * ordinary source. The engine's offer carries it as `from_system` / `from_planet`.
+   */
+  fromSystem?: string;
+  fromPlanet?: string;
+}
+
+/** Two landings are the same offer: same unit, target and starting place. */
+export const sameLanding = (a: Landing, b: Landing) =>
+  a.planet === b.planet &&
+  a.unit === b.unit &&
+  a.damaged === b.damaged &&
+  a.fromSystem === b.fromSystem &&
+  a.fromPlanet === b.fromPlanet;
+
+/** "infantry (damaged) from Lodor → Jord": one staged landing in words, origin included. */
+export function landingText(item: Landing): string {
+  const from = item.fromPlanet ? ` from ${humanizeId(item.fromPlanet)}` : "";
+  return `${item.unit}${item.damaged ? " (damaged)" : ""}${from} → ${item.planet}`;
 }
 
 export interface PlanPlanet {
@@ -151,7 +172,7 @@ function sortLandings(landings: Landing[], sorted: PlanPlanet[]): Landing[] {
 /** Whether two drafts hold the same landings per planet/unit (order ignored). */
 export function sameDraft(a: Landing[], b: Landing[]): boolean {
   if (a.length !== b.length) return false;
-  const key = (l: Landing) => `${l.planet}|${l.unit}|${l.damaged}`;
+  const key = (l: Landing) => `${l.planet}|${l.unit}|${l.damaged}|${l.fromSystem ?? ""}|${l.fromPlanet ?? ""}`;
   const counts = new Map<string, number>();
   for (const l of a) counts.set(key(l), (counts.get(key(l)) ?? 0) + 1);
   for (const l of b) {

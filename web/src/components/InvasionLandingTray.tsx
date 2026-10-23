@@ -9,6 +9,8 @@ import { DecisionHeader } from "./DecisionHeader.tsx";
 import { UnitIcon, getUnitDisplayName } from "./UnitIcon.tsx";
 import { PlanetValue } from "./PlanetValueIcons.tsx";
 import { WorkflowShell } from "./WorkflowShell.tsx";
+import { systemNamedLabel } from "../presentation/systemFacts.ts";
+import { humanizeId } from "../protocol/contentCatalog.ts";
 import { InfoPopover } from "./InfoPopover.tsx";
 import { AttachmentInfo } from "./AttachmentInfo.tsx";
 import {
@@ -18,13 +20,14 @@ import {
   planetInvasionInfo,
   planetStanding,
   sameDraft,
+  sameLanding,
+  landingText,
   type Landing,
   type PlanPlanet,
 } from "../presentation/landingPlan.ts";
 
 export type { Landing };
-const same = (a: Landing, b: Landing) =>
-  a.planet === b.planet && a.unit === b.unit && a.damaged === b.damaged;
+const same = sameLanding;
 const fromOption = (option: PendingChoiceDto["options"][number]): Landing | null =>
   typeof option.payload?.planet === "string" && typeof option.payload.unit === "string"
     ? {
@@ -33,6 +36,14 @@ const fromOption = (option: PendingChoiceDto["options"][number]): Landing | null
         damaged:
           option.payload.damaged === true ||
           (option.payload.damaged === undefined && option.label.includes("(damaged)")),
+        ...(typeof option.payload.from_planet === "string"
+          ? {
+              fromPlanet: option.payload.from_planet,
+              ...(typeof option.payload.from_system === "string"
+                ? { fromSystem: option.payload.from_system }
+                : {}),
+            }
+          : {}),
       }
     : null;
 
@@ -116,6 +127,7 @@ export const InvasionLandingTray: React.FC<{
     };
   };
 
+  // A force from another planet (G'hom Sek'kus) is one unit on its own offer, not part of the space stock.
   const stock = (unit: string, damaged: boolean) =>
     board?.systems[system]?.units.filter(
       (piece) =>
@@ -141,14 +153,16 @@ export const InvasionLandingTray: React.FC<{
       };
     });
     const seen = new Set<string>();
-    const stocks = options.flatMap(({ landing }) => {
+    // The default plan only uses the space area; an extra source is the player's own choice.
+    const spaceOptions = options.filter(({ landing }) => !landing.fromPlanet);
+    const stocks = spaceOptions.flatMap(({ landing }) => {
       const key = `${landing.unit}|${landing.damaged}`;
       if (seen.has(key)) return [];
       seen.add(key);
       return [{ unit: landing.unit, damaged: landing.damaged, count: stock(landing.unit, landing.damaged) }];
     });
     return planDefaultLanding(planPlanets, stocks, (planet, unit, damaged) =>
-      options.some(
+      spaceOptions.some(
         ({ landing }) => landing.planet === planet && landing.unit === unit && landing.damaged === damaged,
       ),
     );
@@ -324,8 +338,15 @@ export const InvasionLandingTray: React.FC<{
 
   const visibleOdds = odds?.key === previewKey ? odds.value : "loading";
   const available = (landing: Landing) =>
-    stock(landing.unit, landing.damaged) -
-    draft.filter((item) => item.unit === landing.unit && item.damaged === landing.damaged).length;
+    landing.fromPlanet
+      ? // "up to 1 ground force from each planet": the planet's one pick is gone once any force of it is staged.
+        draft.some((item) => item.fromPlanet === landing.fromPlanet && item.fromSystem === landing.fromSystem)
+        ? 0
+        : 1
+      : stock(landing.unit, landing.damaged) -
+        draft.filter(
+          (item) => !item.fromPlanet && item.unit === landing.unit && item.damaged === landing.damaged,
+        ).length;
 
   const content = (
     <WorkflowShell
@@ -367,7 +388,10 @@ export const InvasionLandingTray: React.FC<{
                 const planetDraftCount = draft.filter((item) => item.planet === name).length;
                 const info = planetInfo(name);
                 const isCurrentSelected = planet === name;
-                const planetOptions = options.filter(({ landing }) => landing.planet === name);
+                const planetOptions = options
+                  .filter(({ landing }) => landing.planet === name)
+                  // Space-area forces first, then the extra sources, which are stable in the engine's order.
+                  .sort((a, b) => Number(!!a.landing.fromPlanet) - Number(!!b.landing.fromPlanet));
                 const defense = planetDefense(board, system, name, choice.actor, players);
 
                 return (
@@ -543,12 +567,7 @@ export const InvasionLandingTray: React.FC<{
 
                     <div className="decision-frame__options invasion-landing-units-list">
                       {planetOptions.map(({ option, landing }) => {
-                        const count = draft.filter(
-                          (item) =>
-                            item.planet === name &&
-                            item.unit === landing.unit &&
-                            item.damaged === landing.damaged,
-                        ).length;
+                        const count = draft.filter((item) => same(item, landing)).length;
                         const avail = available(landing);
                         return (
                           <div className="workflow-card invasion-landing-row" key={option.id}>
@@ -559,8 +578,17 @@ export const InvasionLandingTray: React.FC<{
                                   {getUnitDisplayName(landing.unit)}
                                   {landing.damaged ? " (damaged)" : ""}
                                 </strong>
-                                <div className="text-muted invasion-landing-row__avail">
-                                  {Math.max(0, avail)} in space
+                                <div
+                                  className="text-muted invasion-landing-row__avail"
+                                  data-testid={landing.fromPlanet ? "invasion-landing-origin" : undefined}
+                                >
+                                  {landing.fromPlanet
+                                    ? `from ${humanizeId(landing.fromPlanet)}${
+                                        landing.fromSystem && landing.fromSystem !== system
+                                          ? ` · adjacent ${systemNamedLabel(landing.fromSystem, board)}`
+                                          : " · this system"
+                                      } · G'hom Sek'kus`
+                                    : `${Math.max(0, avail)} in space`}
                                 </div>
                               </div>
                             </div>
@@ -589,7 +617,11 @@ export const InvasionLandingTray: React.FC<{
                               <button
                                 type="button"
                                 className="button button--secondary button--icon invasion-stepper-btn"
-                                aria-label={`${option.label} · ${Math.max(0, avail)} in space`}
+                                aria-label={
+                                  landing.fromPlanet
+                                    ? `${option.label} from ${humanizeId(landing.fromPlanet)}`
+                                    : `${option.label} · ${Math.max(0, avail)} in space`
+                                }
                                 disabled={running || avail <= 0}
                                 onClick={() => {
                                   setError(null);
@@ -613,7 +645,7 @@ export const InvasionLandingTray: React.FC<{
               <p className="invasion-draft-summary">
                 Remaining draft:{" "}
                 {draft
-                  .map((item) => `${item.unit}${item.damaged ? " (damaged)" : ""} → ${item.planet}`)
+                  .map(landingText)
                   .join(", ")}
               </p>
             )}

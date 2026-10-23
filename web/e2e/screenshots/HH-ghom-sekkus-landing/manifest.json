@@ -1,0 +1,16 @@
+{
+  "title": "G'hom Sek'kus: landing from other planets",
+  "description": "The ground force landing tray when the N'orr player holds the commander G'hom Sek'kus (the Sardakk N'orr commander, not L1Z1X's): the engine offers one ground force from each planet of the active system and of adjacent systems without the player's command token, next to the forces in space. Synthetic mocked state (Jord invaded, an infantry and a mech on Lodor, an infantry on Arcturus). The before shots were taken with TI4_SHOT_PREFIX=before on 6cfb3271; npm run screenshots -- HH regenerates the after shots.",
+  "tag": "web/e2e/screenshots/HH-ghom-sekkus-landing",
+  "shots": [
+    { "file": "before/before-offered-desktop.png", "heading": "Offered landings, desktop: before", "caption": "Identical 'Infantry' rows that say how many are 'in space' (counting the space stock for forces that stand on another planet), with + disabled when none are in space: the commander's forces cannot be told apart or chosen, and nothing says which planet they come from." },
+    { "file": "out/after-offered-desktop.png", "heading": "Offered landings, desktop: after", "caption": "Space forces first, then one row per commander force that names its origin ('from Lodor, adjacent System 26, G'hom Sek'kus') and is enabled." },
+    { "file": "before/before-offered-phone.png", "heading": "Offered landings, 390x844: before", "caption": "Same on a phone." },
+    { "file": "out/after-offered-phone.png", "heading": "Offered landings, 390x844: after", "caption": "Same rows on a phone." },
+    { "file": "out/after-staged-desktop.png", "heading": "One staged from Lodor, desktop", "caption": "The infantry from Lodor is staged; the Lodor mech is now disabled (up to 1 ground force from each planet) and the draft line reads 'infantry from Lodor to jord'." },
+    { "file": "out/after-staged-phone.png", "heading": "One staged from Lodor, 390x844", "caption": "Same on a phone." }
+  ],
+  "notes": [
+    { "title": "Scope", "text": "UI only; the engine already offered these landings with from_system and from_planet and moved the units correctly. Landings are keyed by their origin so the confirmed option is the commander's, and each planet's single pick is enforced while staging." }
+  ]
+}

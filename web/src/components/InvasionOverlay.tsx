@@ -19,6 +19,7 @@ import { HitAssignmentPanel } from "./HitAssignmentPanel.tsx";
 import { GroundCombatResultSummary } from "./GroundCombatResultSummary.tsx";
 import { summarizeGroundCombat } from "../presentation/groundCombatSummary.ts";
 import { InvasionLandingTray, type Landing } from "./InvasionLandingTray.tsx";
+import { landingText } from "../presentation/landingPlan.ts";
 import { UnitStatsTip } from "./UnitInfo.tsx";
 import { UnitIcon, getUnitDisplayName } from "./UnitIcon.tsx";
 import { InvasionStepCard } from "./InvasionStepCard.tsx";
@@ -544,10 +545,7 @@ export const InvasionOverlay: React.FC<{
           <div className="invasion-draft-banner__text">
             <strong>Landing paused</strong> · remaining draft:{" "}
             {landingDraft
-              .map(
-                (item) =>
-                  `${item.unit}${item.damaged ? " (damaged)" : ""} → ${item.planet}`,
-              )
+              .map(landingText)
               .join(", ")}
           </div>
         </div>
