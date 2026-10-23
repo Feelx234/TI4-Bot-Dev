@@ -169,3 +169,11 @@ Storage key `player_ask_<id>` in localStorage, default ask. The registry is `web
 - A chip `N prompts skipped` under the top bar while anything is paused; click opens the list.
 
 Screens: `web/e2e/screenshots/FV-ability-pause-toggles/` (`npm run screenshots -- FV`).
+
+## "Only in my turn" (third choice)
+
+Each switch has a third value besides Ask and Skipped: `ownturn` (stored as that string in `player_ask_<id>`; `true` and `false` still mean Ask and Skip, and a reader that only knows the boolean treats `ownturn` as asking). The client declines the question while another seat is the active player of the action phase and asks it otherwise; outside the action phase nobody has the turn and nothing is skipped (the same rule the server uses for the action card mode, see `crates/ti4-host/src/view/reaction_modes.rs`). The toast then reads `<ability> skipped (not your turn)`.
+
+The registry field `turns` says in whose turns an ability comes up. Only `both` (the default) gets the choice; `own` (asked only for the owner's own activation, production or turn end: Scanlink Drone Network, Spatial Conduit Cylinders, Bio-Stims, Predictive Intelligence, Self-Assembly Routines, AI Development Algorithm, Agency Supply Network, Titans Tungstantus, Hegemonic Trade Policy, Yin Spinner Omega) and `others` (asked only after another player activates or moves: Nullification Field, Arborec Dirzuga Rophal, Empyrean Xuange, Void Tether, Foresight, Yssaril So Ata) would make it the same as Ask or Skipped. A stale `ownturn` on such an ability asks.
+
+Action cards: the per-game mode (`reaction_card_modes`, server) already knew `ownturn`; the web now exposes it for the reaction cards whose printed window comes up in both turns (`web/src/presentation/actionCardTurns.ts`): a `My turn` button on the player sheet and a second checkbox in the reaction window.

@@ -14,7 +14,8 @@ import { ChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { firstSentence, useCardTextPrefs, type CardTextPrefs } from "../presentation/cardTextPrefs.ts";
 import { describeReaction, type ReactionCard } from "../presentation/reactionModel.ts";
-import { humanizeId } from "../protocol/contentCatalog.ts";
+import { findActionCardByName, humanizeId } from "../protocol/contentCatalog.ts";
+import { offersOwnTurnForCard } from "../presentation/actionCardTurns.ts";
 import { DecisionHeader } from "./DecisionHeader.tsx";
 import "./ReactionStatusBar.css";
 
@@ -361,6 +362,25 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
                         }}
                       />
                       Never offer {row.card.name} again this game
+                    </label>
+                  )}
+                  {row.card && onSetReactionMode && activePlayerId && offersOwnTurnForCard(findActionCardByName(row.card.name)) && (
+                    <label className="reaction-status-bar__never">
+                      <input
+                        type="checkbox"
+                        data-testid={`reaction-inspect-ownturn-${row.card.name}`}
+                        checked={reactionModes?.[row.card.name] === "ownturn"}
+                        disabled={isSubmitting}
+                        onChange={(e) => {
+                          const name = row.card!.name;
+                          onSetReactionMode(name, e.target.checked ? "ownturn" : "always");
+                          // Not your turn: this one is skipped now, like every later one while another player has the turn.
+                          if (e.target.checked && activePlayerId !== viewerSeat && reaction.reactions.length === 1 && declineOption) {
+                            void handleAction(declineOption.id);
+                          }
+                        }}
+                      />
+                      Only offer {row.card.name} in my own turn
                     </label>
                   )}
                 </li>

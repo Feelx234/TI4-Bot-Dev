@@ -1,6 +1,7 @@
 import React from "react";
 import { Dialog } from "../primitives/index.ts";
-import { holdsPrompt, promptsHeldBy, PAUSABLE_PROMPTS, type PausablePrompt, type PromptHolder } from "../presentation/pausablePrompts.ts";
+import type { AskMode } from "../hooks/askSetting.ts";
+import { holdsPrompt, offersOwnTurnMode, promptsHeldBy, PAUSABLE_PROMPTS, type PausablePrompt, type PromptHolder } from "../presentation/pausablePrompts.ts";
 import { askSettingFor, usePausedPrompts } from "../hooks/promptSettings.ts";
 import { closePromptsPanel, openPromptsPanel, usePromptsPanelOpen } from "../hooks/promptsPanel.ts";
 import "./PromptsPanel.css";
@@ -11,10 +12,17 @@ export function listedPrompts(holder: PromptHolder | null | undefined, paused: r
   return [...held, ...PAUSABLE_PROMPTS.filter((p) => paused.includes(p) && !held.includes(p))];
 }
 
+const MODES: ReadonlyArray<readonly [AskMode, string, string]> = [
+  ["ask", "Ask", "Ask every time"],
+  ["ownturn", "My turn", "Ask only in your own turn; declined for you while another player has the turn"],
+  ["skip", "Skip", "Never ask; declined for you"],
+];
+
 const Row: React.FC<{ prompt: PausablePrompt; mine: boolean }> = ({ prompt, mine }) => {
-  const { ask, toggle } = askSettingFor(prompt.id).useSetting();
+  const { ask, mode, setMode, toggle } = askSettingFor(prompt.id).useSetting();
+  const withOwnTurn = offersOwnTurnMode(prompt);
   return (
-    <li className="prompts-panel__row" data-testid={`prompt-row-${prompt.id}`} data-paused={!ask || undefined}>
+    <li className="prompts-panel__row" data-testid={`prompt-row-${prompt.id}`} data-paused={mode !== "ask" || undefined}>
       <div className="prompts-panel__text">
         <div className="prompts-panel__name">{prompt.label}</div>
         <div className="prompts-panel__when">
@@ -22,16 +30,34 @@ const Row: React.FC<{ prompt: PausablePrompt; mine: boolean }> = ({ prompt, mine
           {!mine && " (not yours in this game)"}
         </div>
       </div>
-      <button
-        type="button"
-        className="prompts-panel__switch"
-        data-testid={`prompt-toggle-${prompt.id}`}
-        aria-pressed={!ask}
-        aria-label={`${prompt.label}: ${ask ? "asked, press to skip" : "skipped, press to ask again"}`}
-        onClick={toggle}
-      >
-        {ask ? "Ask" : "Skipped"}
-      </button>
+      {withOwnTurn ? (
+        <div className="prompts-panel__modes" role="group" aria-label={`${prompt.label}: when to ask`}>
+          {MODES.map(([value, text, hint]) => (
+            <button
+              key={value}
+              type="button"
+              className="prompts-panel__mode"
+              data-testid={`prompt-mode-${prompt.id}-${value}`}
+              aria-pressed={mode === value}
+              title={hint}
+              onClick={() => setMode(value)}
+            >
+              {text}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="prompts-panel__switch"
+          data-testid={`prompt-toggle-${prompt.id}`}
+          aria-pressed={!ask}
+          aria-label={`${prompt.label}: ${ask ? "asked, press to skip" : "skipped, press to ask again"}`}
+          onClick={toggle}
+        >
+          {ask ? "Ask" : "Skipped"}
+        </button>
+      )}
     </li>
   );
 };
@@ -61,8 +87,9 @@ export const PromptsPanel: React.FC<{ holder: PromptHolder | null | undefined }>
           </header>
           <p className="prompts-panel__note">
             The game asks about each of these abilities every time it can be used. Set one to Skipped and this
-            browser declines it for you, in all games on this browser, until you set it back to Ask. The game still
-            asks, and an undo brings the question back.
+            browser declines it for you, in all games on this browser, until you set it back to Ask. Where an ability
+            also comes up in other players' turns, My turn asks only while you have the turn. The game still asks,
+            and an undo brings the question back.
           </p>
           {rows.length === 0 ? (
             <p className="prompts-panel__empty">Your faction has no ability that can be switched off.</p>

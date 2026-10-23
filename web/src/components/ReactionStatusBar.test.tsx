@@ -593,6 +593,53 @@ describe("ReactionStatusBar", () => {
       expect(onSubmit).not.toHaveBeenCalled();
     });
 
+    it("offers 'only in my own turn' during the action phase and passes at once in another seat's turn", async () => {
+      const onSubmit = vi.fn().mockResolvedValue(undefined);
+      const onSetReactionMode = vi.fn();
+      render(
+        <ReactionStatusBar
+          isOpen
+          choice={sabotage}
+          viewerSeat="seat_1"
+          activePlayerId="seat_2"
+          onSubmit={onSubmit}
+          onSetReactionMode={onSetReactionMode}
+        />,
+      );
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("reaction-inspect-ownturn-Sabotage"));
+      });
+      expect(onSetReactionMode).toHaveBeenCalledWith("Sabotage", "ownturn");
+      expect(onSubmit).toHaveBeenCalledWith("decline");
+    });
+
+    it("keeps this window open when it is the viewer's own turn, and shows no such choice outside the action phase", async () => {
+      const onSubmit = vi.fn().mockResolvedValue(undefined);
+      const onSetReactionMode = vi.fn();
+      const { rerender } = render(
+        <ReactionStatusBar
+          isOpen
+          choice={sabotage}
+          viewerSeat="seat_1"
+          activePlayerId="seat_1"
+          onSubmit={onSubmit}
+          reactionModes={{ Sabotage: "ownturn" }}
+          onSetReactionMode={onSetReactionMode}
+        />,
+      );
+      const box = screen.getByTestId("reaction-inspect-ownturn-Sabotage");
+      expect(box).toBeChecked();
+      await act(async () => {
+        fireEvent.click(box);
+      });
+      expect(onSetReactionMode).toHaveBeenCalledWith("Sabotage", "always");
+      expect(onSubmit).not.toHaveBeenCalled();
+      rerender(
+        <ReactionStatusBar isOpen choice={sabotage} viewerSeat="seat_1" onSubmit={onSubmit} onSetReactionMode={onSetReactionMode} />,
+      );
+      expect(screen.queryByTestId("reaction-inspect-ownturn-Sabotage")).toBeNull();
+    });
+
     it("has no control for a viewer who cannot change modes, and keeps the play and pass ids", () => {
       render(<ReactionStatusBar isOpen choice={sabotage} viewerSeat="seat_1" onSubmit={vi.fn()} />);
       expect(screen.queryByTestId("reaction-inspect-never-Sabotage")).toBeNull();

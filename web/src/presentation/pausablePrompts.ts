@@ -40,9 +40,25 @@ export interface PausablePrompt {
    * abilities that share a decision subtype with others (the discard offers of the ministers).
    */
   contentSources: readonly string[];
+  /**
+   * In whose turns the question can come up: `own` (only while the owner is the active player,
+   * e.g. their own activation or production), `others` (only while another seat is the active
+   * player) or `both`. Only `both` gets the "Only in my turn" choice; for the other two it would
+   * be the same as Ask or as Skipped.
+   */
+  turns: PromptTurns;
+}
+
+export type PromptTurns = "both" | "own" | "others";
+
+/** Whether the "Only in my turn" choice says something for this ability. */
+export function offersOwnTurnMode(entry: Pick<PausablePrompt, "turns">): boolean {
+  return entry.turns === "both";
 }
 
 interface PromptSpec {
+  /** Default `both`; see `PausablePrompt.turns`. */
+  turns?: PromptTurns;
   source: string;
   when: string;
   factions?: readonly string[];
@@ -70,6 +86,7 @@ function prompt(id: string, label: string, spec: PromptSpec): void {
     subtypes: spec.subtypes ?? [],
     laws: spec.laws ?? [],
     contentSources: spec.contentSources ?? [],
+    turns: spec.turns ?? "both",
   });
 }
 
@@ -106,6 +123,7 @@ prompt("instinct_training", "Instinct Training", {
   subtypes: ["instinct_training_cancel"],
 });
 prompt("nullification_field", "Nullification Field", {
+  turns: "others",
   source: "Xxcha technology",
   when: "after another player activates a system with your ships",
   factions: ["xxcha"],
@@ -113,6 +131,7 @@ prompt("nullification_field", "Nullification Field", {
   subtypes: ["nullification_field_end_turn"],
 });
 prompt("arborec_commander", "Dirzuga Rophal", {
+  turns: "others",
   source: "Arborec commander",
   when: "after another player activates a system with your producing units",
   factions: ["arborec"],
@@ -191,6 +210,7 @@ prompt("empyrean_agent", "Acamar", {
   option: ["leader", "empyreanagent"],
 });
 prompt("empyrean_commander", "Xuange", {
+  turns: "others",
   source: "Empyrean commander",
   when: "after another player moves ships into a system with your command token",
   factions: ["empyrean"],
@@ -209,6 +229,7 @@ prompt("watcher", "Watcher", {
   option: ["unit", "empyrean_mech"],
 });
 prompt("void_tether", "Void Tether", {
+  turns: "others",
   source: "Empyrean breakthrough",
   when: "after another player activates a system",
   factions: ["empyrean"],
@@ -263,6 +284,7 @@ prompt("naalu_agent", "Z'eu", {
   option: ["leader", "naaluagent-te"],
 });
 prompt("foresight", "Foresight", {
+  turns: "others",
   source: "Naalu faction ability",
   when: "after another player's movement",
   factions: ["naalu"],
@@ -341,12 +363,14 @@ prompt("titans_agent", "Tellurian", {
   option: ["leader", "titansagent"],
 });
 prompt("titans_commander", "Tungstantus", {
+  turns: "own",
   source: "Titans commander",
   when: "when your units use PRODUCTION",
   factions: ["titans"],
   option: ["leader", "titanscommander"],
 });
 prompt("hegemonic_trade_policy", "Hegemonic Trade Policy", {
+  turns: "own",
   source: "Winnu technology",
   when: "when your units use PRODUCTION",
   factions: ["winnu"],
@@ -359,6 +383,7 @@ prompt("winnu_agent", "Berekar Berekon", {
   option: ["leader", "winnuagent"],
 });
 prompt("yin_spinner", "Yin Spinner Omega", {
+  turns: "own",
   source: "Yin technology",
   when: "after you produce units",
   factions: ["yin"],
@@ -371,6 +396,7 @@ prompt("yin_agent", "Brother Milor", {
   option: ["leader", "yinagent"],
 });
 prompt("yssaril_commander", "So Ata", {
+  turns: "others",
   source: "Yssaril commander",
   when: "after another player activates a system with your units",
   factions: ["yssaril"],
@@ -415,30 +441,35 @@ prompt("wrath_of_kenara", "Wrath of Kenara", {
   subtypes: ["wrath_of_kenara_bump"],
 });
 prompt("self_assembly_routines", "Self-Assembly Routines", {
+  turns: "own",
   source: "technology",
   when: "after your units use PRODUCTION",
   technologies: ["sar"],
   subtypes: ["self_assembly_mech"],
 });
 prompt("ai_development_algorithm", "AI Development Algorithm", {
+  turns: "own",
   source: "technology",
   when: "when your units use PRODUCTION",
   technologies: ["aida"],
   subtypes: ["exhaust_for_production_discount"],
 });
 prompt("agency_supply_network", "Agency Supply Network", {
+  turns: "own",
   source: "Keleres technology",
   when: "when your units use PRODUCTION",
   technologies: ["asn"],
   subtypes: ["asn_system"],
 });
 prompt("scanlink_drone_network", "Scanlink Drone Network", {
+  turns: "own",
   source: "technology",
   when: "when you activate a system",
   technologies: ["sdn"],
   subtypes: ["scanlink_explore"],
 });
 prompt("spatial_conduit_cylinders", "Spatial Conduit Cylinders", {
+  turns: "own",
   source: "Jol-Nar technology",
   when: "after you activate a system",
   factions: ["jolnar"],
@@ -446,12 +477,14 @@ prompt("spatial_conduit_cylinders", "Spatial Conduit Cylinders", {
   subtypes: ["spatial_conduit_link"],
 });
 prompt("bio_stims", "Bio-Stims", {
+  turns: "own",
   source: "technology",
   when: "at the end of your turn",
   technologies: ["bs"],
   subtypes: ["bio_stims_ready"],
 });
 prompt("predictive_intelligence", "Predictive Intelligence", {
+  turns: "own",
   source: "technology",
   when: "at the end of your turn and when you vote",
   technologies: ["pi"],

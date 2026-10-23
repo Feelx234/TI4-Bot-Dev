@@ -345,6 +345,32 @@ describe("PlayerSheet reaction mode toggle", () => {
     expect(onSetReactionMode).toHaveBeenLastCalledWith(name, "always");
   });
 
+  it("offers 'only in my turn' for a card that comes up in both turns, and keeps the old toggle", () => {
+    const onSetReactionMode = vi.fn();
+    const { rerender } = render(
+      <PlayerSheet players={mockPlayers} userSeat="p1" onSetReactionMode={onSetReactionMode} />,
+    );
+    fireEvent.click(screen.getByTestId("reaction-inspect-ownturn-direct_hit"));
+    expect(onSetReactionMode).toHaveBeenLastCalledWith(name, "ownturn");
+    rerender(
+      <PlayerSheet
+        players={mockPlayers}
+        userSeat="p1"
+        reactionModes={{ [name]: "ownturn" }}
+        onSetReactionMode={onSetReactionMode}
+      />,
+    );
+    const own = screen.getByTestId("reaction-inspect-ownturn-direct_hit");
+    expect(own).toHaveAttribute("aria-pressed", "true");
+    // The check mark still goes to never.
+    const mode = screen.getByTestId("reaction-inspect-mode-direct_hit");
+    expect(mode).toHaveAttribute("data-reaction-mode", "ownturn");
+    fireEvent.click(mode);
+    expect(onSetReactionMode).toHaveBeenLastCalledWith(name, "never");
+    fireEvent.click(own);
+    expect(onSetReactionMode).toHaveBeenLastCalledWith(name, "always");
+  });
+
   it("has no toggle for a viewer who cannot change modes or for another seat's cards", () => {
     render(<PlayerSheet players={mockPlayers} userSeat="p1" />);
     expect(screen.queryByTestId("reaction-inspect-mode-direct_hit")).toBeNull();
