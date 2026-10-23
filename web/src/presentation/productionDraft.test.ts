@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { ChoiceOption, PendingChoiceDto } from "../protocol/types.ts";
 import { buildCosts } from "./productionPayment.ts";
-import { optionUnit, planBuilds, produceStep, stepUnitKey } from "./productionDraft.ts";
+import {
+  agentDiscount,
+  draftResourceCost,
+  optionUnit,
+  planBuilds,
+  produceStep,
+  productionTotal,
+  stepUnitKey,
+} from "./productionDraft.ts";
 
 const build: ChoiceOption = {
   id: "build|carrier|1",
@@ -40,5 +48,34 @@ describe("exchange vs paid build of one unit type", () => {
   });
   it("costs an exchange as nothing", () => {
     expect(buildCosts(choice, ["carrier", "exchange|carrier"])).toEqual([3, 0]);
+  });
+});
+
+describe("Berekar Berekon's discount in the draft", () => {
+  const agent: ChoiceOption = {
+    id: "exhaust_agent|winnuagent",
+    kind: "production_agent",
+    label: "Exhaust Berekar Berekon: -2 cost",
+    payload: { leader: "winnuagent", discount_offered: 2 },
+  };
+  it("takes 2 off the combined bill, never below zero", () => {
+    expect(draftResourceCost([build], { [build.id]: 1 })).toBe(3);
+    expect(draftResourceCost([build], { [build.id]: 1 }, 2)).toBe(1);
+    expect(draftResourceCost([build], { [build.id]: 2 }, 2)).toBe(4);
+    const cheap = { ...build, id: "build|fighter|1", payload: { ...build.payload, cost: 1, printed_cost: 1 } };
+    expect(draftResourceCost([cheap], { [cheap.id]: 1 }, 2)).toBe(0);
+  });
+  it("adds to a discount the use already has and shows it as the cost reduction", () => {
+    const sarween = { ...build, payload: { ...build.payload, cost: 2, discount: 1 } };
+    expect(draftResourceCost([sarween], { [sarween.id]: 1 }, 2)).toBe(0);
+    const total = productionTotal([build], { [build.id]: 1 }, 2);
+    expect(total.total).toBe(1);
+    expect(total.discount).toBe(2);
+  });
+  it("reads what the option offers and is not a build", () => {
+    expect(agentDiscount({ ...choice, options: [build, agent] } as PendingChoiceDto)).toBe(2);
+    expect(agentDiscount(choice as PendingChoiceDto)).toBe(0);
+    const planned = planBuilds({ ...choice, options: [build, agent] } as PendingChoiceDto, ["carrier"]);
+    expect(planned.ok).toBe(true);
   });
 });

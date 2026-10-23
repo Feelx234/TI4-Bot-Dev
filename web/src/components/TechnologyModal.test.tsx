@@ -318,6 +318,85 @@ describe("TechnologyModal", () => {
     await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledWith("sr"));
   });
 
+  it("shows Research Grant Reallocation as the research dialog with every offered technology pickable", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const researchPlayers: PlayerView[] = mockPlayers.map((p) =>
+      p.id === "player1" ? { ...p, technologies: ["amd"] } : p,
+    );
+    // gd, cr2 and x89c4 lack prerequisites for a seat with one technology and no specialties.
+    const offered = ["gd", "cr2", "ws", "x89c4", "sr"];
+    const choice: PendingChoiceDto = {
+      nonce: "n1",
+      actor: "player1",
+      prompt: "gain which technology",
+      context: partialContext({
+        subtype: "grant_reallocation_choose_technology",
+        source: { Content: "grant_reallocation" },
+      }),
+      options: offered.map((id) => ({ id, label: `gain ${id}`, kind: "technology", payload: {} })),
+    };
+    renderWithIdentity(
+      <TechnologyModal
+        isOpen={true}
+        onClose={vi.fn()}
+        players={researchPlayers}
+        viewerSeat="player1"
+        choice={choice}
+        onSubmit={onSubmit}
+      />,
+    );
+    expect(screen.getByText("Research Grant")).toBeInTheDocument();
+    expect(screen.getByTestId("tech-research-controls")).toBeInTheDocument();
+    for (const id of offered) {
+      expect(screen.getByTestId(`tech-card-${id}`)).toHaveAttribute("data-selectable", "true");
+    }
+    // Owned and not offered: not pickable.
+    expect(screen.getByTestId("tech-card-amd")).toHaveAttribute("data-selectable", "false");
+    expect(screen.getByTestId("tech-card-ps")).toHaveAttribute("data-selectable", "false");
+    expect(screen.getByTestId("confirm-research-btn")).toBeDisabled();
+    fireEvent.click(screen.getByTestId("tech-card-gd"));
+    expect(screen.getByTestId("confirm-research-btn")).toHaveTextContent("Gain Technology");
+    fireEvent.click(screen.getByTestId("confirm-research-btn"));
+    await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledWith("gd"));
+  });
+
+  it("shows Plagiarize as the technology dialog with only the offered cards, no skips, and submits the option id", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const choice: PendingChoiceDto = {
+      nonce: "n1",
+      actor: "player1",
+      prompt: "Plagiarize: which technology to steal",
+      context: partialContext({
+        subtype: "plagiarize_pick_technology",
+        source: { ActionCard: "plagiarize" },
+      }),
+      options: [
+        { id: "player2|gd", label: "player2's Gravity Drive", kind: "technology", payload: {} },
+        { id: "player2|hm", label: "player2's Hyper Metabolism", kind: "technology", payload: {} },
+      ],
+    };
+    renderWithIdentity(
+      <TechnologyModal
+        isOpen={true}
+        onClose={vi.fn()}
+        players={mockPlayers.map((p) => (p.id === "player1" ? { ...p, technologies: ["amd"] } : p))}
+        viewerSeat="player1"
+        choice={choice}
+        onSubmit={onSubmit}
+      />,
+    );
+    expect(screen.getByTestId("tech-card-gd")).toHaveAttribute("data-selectable", "true");
+    expect(screen.getByTestId("tech-card-hm")).toHaveAttribute("data-selectable", "true");
+    // Everything else is gone, not dimmed.
+    expect(screen.queryByTestId("tech-card-sr")).toBeNull();
+    expect(screen.queryByTestId("tech-card-ps")).toBeNull();
+    expect(screen.queryByTestId("tech-skips-list")).toBeNull();
+    expect(screen.queryByTestId("tech-available-resources")).toBeNull();
+    fireEvent.click(screen.getByTestId("tech-card-hm"));
+    fireEvent.click(screen.getByTestId("confirm-research-btn"));
+    await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledWith("player2|hm"));
+  });
+
   it("renders faction technologies first at the top of modal body for Sol", () => {
     const researchPlayers: PlayerView[] = [
       {

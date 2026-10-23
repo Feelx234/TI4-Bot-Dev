@@ -380,6 +380,14 @@ pub struct Galaxy {
     wormholes: BTreeMap<String, BTreeSet<String>>,
     /// System ids flagged `isHyperlane`, whose paths this module does not model.
     hyperlanes: BTreeSet<String>,
+    /// Which systems the printed lanes of the hyperlane tiles join (both directions), derived from
+    /// the placement by [`crate::hyperlane::links`]. Used only while `hyperlane_lanes` is set.
+    lane_links: BTreeMap<String, BTreeSet<String>>,
+    /// Rules version 22 (`RULES_HYPERLANE_LANES`): adjacency follows the printed lanes. A
+    /// hyperlane tile is then no hex neighbour of anything, and two systems a chain of lanes
+    /// joins are adjacent. Off, a hyperlane tile is an empty hex a ship passes through (the
+    /// older approximation). Set by the game each step, like the law switches.
+    pub hyperlane_lanes: bool,
     /// Laws in play may switch wormholes off entirely or link them all together. Set by
     /// the game rather than read from it, so a `Galaxy` stays a plain value.
     pub wormholes_off: bool,
@@ -451,11 +459,13 @@ impl Galaxy {
             }
         }
 
-        Ok(Self {
+        let mut galaxy = Self {
             placement,
             coords,
             wormholes,
             hyperlanes,
+            lane_links: BTreeMap::new(),
+            hyperlane_lanes: false,
             wormholes_off: false,
             token_wormholes: BTreeMap::new(),
             nexus_wormholes_off: false,
@@ -463,7 +473,9 @@ impl Galaxy {
             wormhole_star_links: false,
             extra_links: BTreeMap::new(),
             edits_applied: 0,
-        })
+        };
+        galaxy.refresh_lane_links();
+        Ok(galaxy)
     }
 
     /// Place systems onto a spiral from the centre outwards.
@@ -516,11 +528,13 @@ impl Galaxy {
             }
         }
 
-        Ok(Self {
+        let mut galaxy = Self {
             placement,
             coords,
             wormholes,
             hyperlanes,
+            lane_links: BTreeMap::new(),
+            hyperlane_lanes: false,
             wormholes_off: false,
             token_wormholes: BTreeMap::new(),
             nexus_wormholes_off: false,
@@ -528,7 +542,9 @@ impl Galaxy {
             wormhole_star_links: false,
             extra_links: BTreeMap::new(),
             edits_applied: 0,
-        })
+        };
+        galaxy.refresh_lane_links();
+        Ok(galaxy)
     }
 
     /// Register a system that is in play but not on the hex grid.
@@ -558,6 +574,7 @@ impl Galaxy {
         if system.is_hyperlane() {
             self.hyperlanes.insert(system_id.to_owned());
         }
+        self.refresh_lane_links();
         Ok(())
     }
 
@@ -628,6 +645,7 @@ impl Galaxy {
         self.coords.insert(a.to_owned(), hex_b);
         self.coords.insert(b.to_owned(), hex_a);
         self.edits_applied += 1;
+        self.refresh_lane_links();
         Ok(())
     }
 
@@ -669,6 +687,7 @@ impl Galaxy {
             self.hyperlanes.insert(new.to_owned());
         }
         self.edits_applied += 1;
+        self.refresh_lane_links();
         Ok(())
     }
 
@@ -749,6 +768,7 @@ impl Galaxy {
         // than on it -- so it has no hex neighbours but keeps its wormholes. Returning early on a
         // missing coord made that one-directional: an on-map tile listed the Nexus as a
         // wormhole partner while the Nexus listed nothing, so ships could move in and not out.
+        let lanes = self.hyperlane_lanes && !self.hyperlanes.is_empty();
         let mut neighbours: BTreeSet<&str> =
             self.coords
                 .get(system_id)
@@ -756,8 +776,19 @@ impl Galaxy {
                     here.neighbours()
                         .into_iter()
                         .filter_map(|n| self.system_at(n))
+                        // With the lanes modelled a lane tile is no neighbour: the lanes carry
+                        // the ship across it to the system at their far end.
+                        .filter(|n| !lanes || !self.hyperlanes.contains(*n))
                         .collect()
                 });
+        if lanes {
+            if self.hyperlanes.contains(system_id) {
+                return BTreeSet::new();
+            }
+            if let Some(joined) = self.lane_links.get(system_id) {
+                neighbours.extend(joined.iter().map(String::as_str));
+            }
+        }
         if !self.wormholes_off {
             neighbours.extend(self.wormhole_partners(system_id));
         }
@@ -766,6 +797,15 @@ impl Galaxy {
         }
         neighbours.remove(system_id);
         neighbours
+    }
+
+    /// Recompute which systems the lanes join, after the placement changed.
+    fn refresh_lane_links(&mut self) {
+        self.lane_links = if self.hyperlanes.is_empty() {
+            BTreeMap::new()
+        } else {
+            crate::hyperlane::links(&self.placement, |id| self.hyperlanes.contains(id))
+        };
     }
 
     #[must_use]

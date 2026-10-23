@@ -179,3 +179,15 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Attachments, skips, text (GF-attachments-skips-text)
 
 `GF-attachments-skips-text` shows research facilities in the technology picker's skips row, attachment effect text on hover/focus/tap (system inspector, board marker tooltip), the Held items attachment texts (Demilitarized Zone, Cybernetic Research Facility) and the gravity-rift toast and log line. The `before/before-*.png` were taken at 80ce1bf1 (`TI4_SHOT_PREFIX=before`); `npm run screenshots -- GF` regenerates the `after-*` PNGs and asserts the behaviour.
+
+`GU-plagiarize-dialogs` shows Plagiarize: the unchanged influence payment dialog and the technology pick, which is now the technology dialog with only the offered cards (before shots in `before/` taken with `TI4_SHOT_PREFIX=before`); `npm run screenshots -- GU` regenerates the `after-*` PNGs and asserts the offered cards are pickable, the rest absent, and no skip row.
+
+## No status-token plan in singleplayer (GR-no-status-plan-singleplayer)
+
+`GR-no-status-plan-singleplayer` shows the status-phase board strip before and after hiding the "Plan status tokens" chip when every other seat is a rule bot (singleplayer), and that a table with another human seat still shows it, desktop and 390x844. The `before/` PNGs were taken with `TI4_SHOT_PREFIX=before` on the base commit; `npm run screenshots -- GR` regenerates the `after-*` PNGs and asserts the chip and dialog are absent in singleplayer and present with another human.
+
+`GW-toast-swipe-ghost-box` (letter renamed from GS at merge, which `GS-grant-reallocation-research` keeps) shows that a swiped-away vote toast leaves no invisible clickable box, phone and desktop; the `before/` PNGs were taken with `TI4_SHOT_PREFIX=before`; `npm run screenshots -- GW` regenerates the `after-*` PNGs and asserts nothing is left.
+
+## Berekar Berekon in the production dialog (HA-berekar-production)
+
+`HA-berekar-production` shows the Winnu agent as a toggle in the owner's own production dialog (total lowered by 2, the exhaust sent before the builds) and as a button of its own when nothing is within reach without it, desktop and 390x844. Synthetic fixtures through the mocked server; no `before/` (the card was a reaction question ahead of the dialog). `npm run screenshots -- HA`.

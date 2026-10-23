@@ -2071,7 +2071,17 @@ pub(crate) fn place_structure_step(
     // units in that system may use their PRODUCTION abilities." A space dock specifically, so a
     // PDS placed under the same law produces nothing.
     if kind == "spacedock" && crate::laws::industry_produces_on_placement(state, player) {
-        produce_all(state, content, sources, galaxy, table, player, &system)?;
+        if state.rules_version >= ti4_model::state::RULES_MINISTER_INDUSTRY_WINDOW {
+            // From 25 the law opens the ordinary production window (the batch dialog with
+            // capacity, limits and payment) instead of a series of single-unit questions.
+            if crate::production::capacity(state, content, sources, player, &system) > 0 {
+                crate::production::resolve(
+                    state, content, sources, galaxy, table, player, &system,
+                )?;
+            }
+        } else {
+            produce_all(state, content, sources, galaxy, table, player, &system)?;
+        }
     }
     Ok(Some(system))
 }
@@ -3851,6 +3861,64 @@ mod tests {
             run(true) > run(false),
             "the placed dock produces under the law"
         );
+    }
+
+    #[test]
+    fn minister_of_industry_opens_the_ordinary_production_window_from_25() {
+        let content = ContentStore::embedded();
+        let run = |version: u32| {
+            let mut state = game(&["a"]);
+            state.rules_version = version;
+            let player = PlayerId::new("a");
+            let (system, planet) = a_placed_planet();
+            state
+                .system_mut(&system)
+                .set_control(planet.clone(), player.clone());
+            state.player_mut(&player).unwrap().trade_goods = 10;
+            state
+                .laws
+                .insert("minister_industry".to_owned(), "a".to_owned());
+            let spot = format!("spacedock|{system}|{planet}");
+            let subtypes = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+            struct Rec(
+                std::collections::VecDeque<String>,
+                std::rc::Rc<std::cell::RefCell<Vec<String>>>,
+            );
+            impl crate::choice::Decider for Rec {
+                fn choose(
+                    &mut self,
+                    choice: &crate::choice::Choice,
+                ) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice>
+                {
+                    self.1.borrow_mut().push(
+                        choice
+                            .context
+                            .as_ref()
+                            .map_or(String::new(), |c| c.subtype.clone())
+                            + "/"
+                            + &choice.prompt,
+                    );
+                    let wanted = self.0.pop_front();
+                    Ok(wanted
+                        .and_then(|id| choice.option(&id).cloned())
+                        .unwrap_or_else(|| choice.options.last().cloned().unwrap()))
+                }
+            }
+            let mut table = Table::with_default(Box::new(Rec([spot].into(), subtypes.clone())));
+            place_structure(&mut state, content, POK, None, &mut table, &player, false).unwrap();
+            let seen = subtypes.borrow().clone();
+            seen
+        };
+        let has = |seen: &[String], subtype: &str| {
+            seen.iter()
+                .any(|ask| ask.starts_with(&format!("{subtype}/")))
+        };
+        let new = run(25);
+        assert!(has(&new, "produce_unit"), "{new:?}");
+        assert!(!has(&new, ""), "{new:?}");
+        let old = run(24);
+        assert!(has(&old, ""), "no context, a generic list: {old:?}");
+        assert!(!has(&old, "produce_unit"), "{old:?}");
     }
 
     // -- "when you would place a PDS ... you may place ... instead" ---------------------------------

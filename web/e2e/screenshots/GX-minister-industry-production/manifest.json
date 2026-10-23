@@ -1,0 +1,18 @@
+{
+  "title": "Minister of Industry uses the production dialog",
+  "description": "After a space dock is placed, the law's PRODUCTION window is the ordinary Produce units dialog (capacity, unit limits, payment) instead of a repeated single-unit list.",
+  "tag": "web/e2e/screenshots/GX-minister-industry-production",
+  "shots": [
+    { "file": "out/1-before-desktop.png", "heading": "Before, desktop", "caption": "Rules below 25: one generic 'produce one unit' question with a plain option list and no capacity, limits or batch; it came back once per unit." },
+    { "file": "out/2-after-desktop.png", "heading": "After, desktop", "caption": "Rules 25 and up: the same Produce units dialog as a tactical action, with the dock system's capacity, stats per unit and Done producing." },
+    { "file": "out/2b-after-staged.png", "heading": "After, staged builds", "caption": "Several units are staged in one batch, then paid with the standard planet payment step." },
+    { "file": "out/3-before-phone.png", "heading": "Before, phone (390 px)", "caption": "The old list at phone width." },
+    { "file": "out/3b-after-phone.png", "heading": "After, phone (390 px)", "caption": "The production dialog in one column." }
+  ],
+  "notesHeading": "Notes",
+  "notes": [
+    { "title": "Rule. ", "text": "Minister of Industry: when the owner places a space dock in a system, their units in that system may use their PRODUCTION abilities. Only the dock system, only after a space dock (not a PDS)." },
+    { "title": "Engine. ", "text": "The change is engine-side (RULES_MINISTER_INDUSTRY_WINDOW = 25): the law now asks the ordinary produce_unit question, which the client already renders as the builder. No web code changed." },
+    { "title": "Fixtures. ", "text": "Synthetic mocked game with the choice shapes the engine emits before and after; not an engine capture." }
+  ]
+}

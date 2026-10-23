@@ -1164,7 +1164,8 @@ pub fn scoreable_event(
         galaxy,
         imagined: crate::objectives::Imagined::NONE,
     };
-    seat.secret_objectives
+    let mut offered: Vec<SecretObjectiveId> = seat
+        .secret_objectives
         .iter()
         .filter(|alias| timing(content, alias) == when)
         .filter(|alias| !already.contains(&ti4_model::id::ObjectiveId::new(alias.as_str())))
@@ -1174,7 +1175,26 @@ pub fn scoreable_event(
                 || requirement_for(alias).is_some_and(|check| check(&position))
         })
         .cloned()
-        .collect()
+        .collect();
+    // A secret made public (Classified Document Leaks) keeps its printed timing, on the owner's
+    // ruling: an event secret is scored the moment the event happens, unlike a normal public
+    // objective. Each player may score it once, as it stays on the table afterwards.
+    if state.rules_version >= ti4_model::state::RULES_LEAKED_EVENT_SECRET {
+        let leaked: Vec<SecretObjectiveId> = state
+            .revealed_objectives
+            .iter()
+            .filter(|alias| !already.contains(*alias))
+            .map(|alias| SecretObjectiveId::new(alias.as_str()))
+            .filter(|alias| !offered.contains(alias))
+            .filter(|alias| timing(content, alias) == when)
+            .filter(|alias| {
+                feat_for(alias.as_str())
+                    .is_some_and(|feat| state.did_at_occurrence(player, feat, occurrence))
+            })
+            .collect();
+        offered.extend(leaked);
+    }
+    offered
 }
 
 /// Whether `player`, who does not hold `alias`, fulfils the requirement of a secret objective that
@@ -2889,6 +2909,43 @@ mod tests {
             .is_empty(),
             "a fight won on turn 7 does not pay out on turn 8"
         );
+    }
+
+    #[test]
+    fn a_leaked_event_secret_is_offered_at_its_event_to_the_one_who_did_it_once() {
+        let mut state = game(&["a", "b"]);
+        let (a, b) = (player(), PlayerId::new("b"));
+        let btv = ti4_model::id::ObjectiveId::new("btv");
+        state.revealed_objectives.push(btv.clone());
+        let content = ContentStore::embedded();
+
+        let combat = state.begin_feat_occurrence();
+        state.record_event_feat(&a, Feat::WonInAnAnomaly, combat);
+        let offered = |state: &GameState, who: &PlayerId, at| {
+            scoreable_event(state, content, POK, who, Timing::Action, at, None)
+        };
+        assert_eq!(
+            offered(&state, &a, combat),
+            vec![SecretObjectiveId::new("btv")]
+        );
+        assert!(offered(&state, &b, combat).is_empty(), "b won nothing");
+        // Not in the status window: it is scored when it happens, not with the public ones.
+        assert!(offered(&state, &a, combat).len() == 1);
+
+        // The card stays on the table, so b may score it at b's own win; a only once.
+        let later = state.begin_feat_occurrence();
+        state.record_event_feat(&b, Feat::WonInAnAnomaly, later);
+        assert_eq!(
+            offered(&state, &b, later),
+            vec![SecretObjectiveId::new("btv")]
+        );
+        state.record_score(&a, btv);
+        state.record_event_feat(&a, Feat::WonInAnAnomaly, later);
+        assert!(offered(&state, &a, later).is_empty(), "a scored it already");
+
+        // Nothing changes below the gate.
+        state.rules_version = ti4_model::state::RULES_LEAKED_EVENT_SECRET - 1;
+        assert!(offered(&state, &b, later).is_empty());
     }
 
     #[test]

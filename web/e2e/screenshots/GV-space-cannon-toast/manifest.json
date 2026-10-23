@@ -1,0 +1,17 @@
+{
+  "title": "Space Cannon toast",
+  "description": "Every Space Cannon roll (offense and defense) now has a corner toast, shown to all seats and kept in the toast history: who fired, in which system, which PDS on which planet, what it needed, each die marked hit or miss and the total. Before, the volley was only a line in the event log, so a PDS that fired and missed went unnoticed (alpha feedback fb_1792657246_8ad0c866). All shots are the real app against a mocked game.",
+  "tag": "web/e2e/screenshots/GV-space-cannon-toast",
+  "shots": [
+    { "file": "out/1-miss-desktop.png", "heading": "A miss", "caption": "One PDS II on Lodor rolls a 1 against a 5: the toast says the gun fired, where, what it needed and that nothing was hit. This is the case from the feedback." },
+    { "file": "out/1-miss-390x844.png", "heading": "A miss, on a phone", "caption": "The same toast at 390x844." },
+    { "file": "out/2-hit-desktop.png", "heading": "A hit", "caption": "The same gun rolls a 5: the die is marked hit." },
+    { "file": "out/2-hit-390x844.png", "heading": "A hit, on a phone", "caption": "At 390x844." },
+    { "file": "out/3-several-guns-desktop.png", "heading": "A volley of several guns", "caption": "A PDS II with two dice, a PDS and an adjacent Xxcha mech fire in one Space Cannon Offense: one toast, a line per gun with each die marked, and the total." },
+    { "file": "out/3-several-guns-390x844.png", "heading": "A volley, on a phone", "caption": "At 390x844." },
+    { "file": "out/4-defense.png", "heading": "Space Cannon Defense", "caption": "The guns on an invaded planet read the same way." }
+  ],
+  "notes": [
+    { "title": "Not shown", "text": "A PDS in range that is not allowed to fire (Solar Flare, Disable and the like) rolls no dice and the engine logs nothing for it, so there is no toast for it. The invasion's own Space Cannon Defense summary toast is unchanged and still appears beside this one." }
+  ]
+}

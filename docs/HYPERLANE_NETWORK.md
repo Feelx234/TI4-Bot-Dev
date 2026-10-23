@@ -2,8 +2,9 @@
 
 Code: `web/src/components/hyperlane/` (`hyperlaneNetwork.ts` analysis, `HyperlaneArt.tsx` drawing).
 
-- Lane data (`hyperlaneGeometry.ts`) is draw-only. The engine does not model hyperlane paths
-  (`crates/ti4-content/src/galaxy.rs`), so it has no adjacency to compare with. The web tests check
+- Lane data (`hyperlaneGeometry.ts`) is draw-only. The engine has its own copy of the lane table and
+  the rule (`crates/ti4-content/src/hyperlane.rs`, from rules version 22, `RULES_HYPERLANE_LANES`;
+  keep the two tables equal). Games below 22 treat a lane tile as an empty hex. The web tests check
   the routes against an independent union-find over lane ports on every community map snapshot.
 - Algorithm (header of `hyperlaneNetwork.ts`): ports per hex edge, lanes join ports inside a tile,
   matching lane ends join across a shared edge, a depth-first search from every system edge finds

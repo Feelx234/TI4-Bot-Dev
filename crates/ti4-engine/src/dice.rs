@@ -39,6 +39,21 @@ pub struct Roll {
     /// only: nothing reads it back.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outcome: Option<String>,
+    /// The unit whose dice these are, for the guns that say (Space Cannon). Presentation only:
+    /// nothing reads it back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<RollSource>,
+}
+
+/// The unit behind a roll: its type, the planet it stands on, and the system when that is not
+/// the roll's own (a PDS II firing from next door).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RollSource {
+    pub unit: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planet: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system: Option<String>,
 }
 
 impl Roll {
@@ -154,6 +169,7 @@ impl Dice {
             by: None,
             system: self.scene.clone(),
             outcome: None,
+            source: None,
         };
         self.history.push(record.clone());
         record
@@ -242,6 +258,7 @@ impl Dice {
             by: roll.by.clone(),
             system: roll.system.clone(),
             outcome: None,
+            source: None,
         };
         self.history.push(record.clone());
         record
@@ -253,6 +270,13 @@ impl Dice {
         if let Some(last) = self.history.last_mut() {
             last.system = system.map(str::to_owned);
             last.outcome = outcome.map(str::to_owned);
+        }
+    }
+
+    /// Say which unit the latest roll belongs to. Presentation only, like [`Dice::annotate_last`].
+    pub fn annotate_source(&mut self, source: RollSource) {
+        if let Some(last) = self.history.last_mut() {
+            last.source = Some(source);
         }
     }
 
@@ -350,6 +374,7 @@ mod tests {
             by: None,
             system: None,
             outcome: None,
+            source: None,
         };
         assert_eq!(roll.hits(), 2, "7 and 10");
         assert_eq!(roll.missed(None), vec![0, 1]);
@@ -366,6 +391,7 @@ mod tests {
             by: None,
             system: None,
             outcome: None,
+            source: None,
         };
         assert_eq!(roll.hits(), 0);
         assert!(roll.missed(None).is_empty());
@@ -381,6 +407,7 @@ mod tests {
             by: None,
             system: None,
             outcome: None,
+            source: None,
         };
         assert_eq!(roll.missed(Some(&BTreeSet::from([0, 1]))), vec![0]);
     }

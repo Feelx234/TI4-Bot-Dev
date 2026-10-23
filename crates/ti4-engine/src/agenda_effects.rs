@@ -2939,6 +2939,58 @@ mod tests {
     }
 
     #[test]
+    fn grant_reallocation_offers_every_technology_the_elected_player_lacks() {
+        let mut state = grant_game(ti4_model::state::RULES_AGENDA_GRANT_REVEAL);
+        let owned: Vec<String> = state
+            .player(&b())
+            .unwrap()
+            .technologies
+            .iter()
+            .map(|t| t.as_str().to_owned())
+            .collect();
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(crate::choice::FirstOption));
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut table = crate::choice::Table::with_default(Box::new(decider));
+        let mut ctx = crate::choice::Resolving {
+            content: ContentStore::embedded(),
+            sources: ti4_model::content_types::POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: None,
+        };
+        resolve_with(
+            &mut state,
+            &mut ctx,
+            None,
+            "grant_reallocation",
+            "b",
+            &Ballot::default(),
+        );
+        let seen = seen.borrow();
+        let choice = &seen[0];
+        assert_eq!(
+            choice.context.as_ref().unwrap().subtype,
+            "grant_reallocation_choose_technology"
+        );
+        assert!(
+            choice
+                .options
+                .iter()
+                .all(|option| option.kind == "technology")
+        );
+        let ids: Vec<&str> = choice.options.iter().map(|o| o.id.as_str()).collect();
+        // No prerequisites needed: a three-prerequisite technology, a unit upgrade and a
+        // prerequisite-free one are all offered to a seat that owns none of the colours.
+        for any in ["hm", "nm", "dd2", "ws"] {
+            assert!(ids.contains(&any), "{any} should be offered, got {ids:?}");
+        }
+        // Owned technologies are the only ones left out (plus other factions' own).
+        assert!(ids.iter().all(|id| !owned.iter().any(|o| o == id)));
+    }
+
+    #[test]
     fn grant_reallocation_without_prerequisites_costs_no_token() {
         let mut state = grant_game(ti4_model::state::RULES_AGENDA_GRANT_REVEAL);
         let before = state

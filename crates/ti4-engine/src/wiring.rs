@@ -492,8 +492,8 @@ fn a_turn_can_play_a_component_action_card() {
     state.phase = ti4_model::state::Phase::Action;
     state.active = Some(PlayerId::new("a"));
 
-    // One with no target requirement, so it is offered on any board.
-    let card = ti4_model::id::ActionCardId::new("f_researched");
+    // One with no target or cost requirement, so it is offered on any board.
+    let card = ti4_model::id::ActionCardId::new("industrial_initiative");
     state.player_mut(&PlayerId::new("a")).unwrap().action_cards = vec![card.clone()];
 
     let table = Table::with_default(Box::new(Scripted::new(["action_card|0".to_owned()])));
