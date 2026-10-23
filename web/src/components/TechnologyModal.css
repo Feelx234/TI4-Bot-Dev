@@ -821,6 +821,9 @@
   margin-left: auto;
   --chip-accent: #4ade80;
 }
+.technology-filter__chip--available + .technology-filter__chip--available {
+  margin-left: 0;
+}
 .technology-filter__empty {
   color: #94a3b8;
   text-align: center;
