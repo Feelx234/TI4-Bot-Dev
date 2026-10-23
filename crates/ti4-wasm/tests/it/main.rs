@@ -5,6 +5,7 @@ mod catalog_fixture;
 mod common;
 mod feedback_offline;
 mod host_batch;
+mod host_free_form;
 mod host_history;
 mod host_local;
 mod host_odds;

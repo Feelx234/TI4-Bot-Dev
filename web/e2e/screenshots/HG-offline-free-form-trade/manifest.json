@@ -1,0 +1,13 @@
+{
+  "title": "Offline play: free-form trades",
+  "description": "Offline games (wasm engine, rule bots) accept deals composed on the trade desk. Before, the offline host answered the engine by place and refused every unlisted id, so commit 551c598a hid details.free_form from the desk and only the engine's listed deals could be proposed. Now the host passes the free-form id to the engine, and the rule bot answers by the engine's price of the deal. Synthetic fixtures through a mocked server (the offline host speaks the server's protocol); the native tests play the real exchange.",
+  "tag": "web/e2e/screenshots/HG-offline-free-form-trade",
+  "shots": [
+    { "file": "out/1-before-closed-list.png", "heading": "Before: closed list", "caption": "A decision without details.free_form: 2 trade goods for 1 commodity is not a listed deal, so Propose stays disabled." },
+    { "file": "out/2-free-form.png", "heading": "After: any amounts", "caption": "The same staging with details.free_form: the desk says the deal is custom and Propose is enabled." },
+    { "file": "out/3-phone.png", "heading": "After, phone 390x844", "caption": "The same desk on a phone." }
+  ],
+  "notes": [
+    { "title": "How a bot answers", "text": "The rule bot accepts when the engine's net for it (what it receives minus what giving costs it: trade goods 1, commodities 0.2 when given, notes by their worth, action card and secret 1, planet 100) is at least the bot's accept threshold, otherwise it refuses; it never counters and never gives away a Support for the Throne, a secret objective or (Muaat) Fires of the Gashlai. A random bot answers at random. An illegal deal (not neighbours, cannot pay, empty) ends the negotiation with nothing exchanged, as on the server." }
+  ]
+}

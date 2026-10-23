@@ -891,11 +891,16 @@ fn ask_host(choice: &Choice) -> Result<Option<ChoiceOption>, IllegalChoice> {
             LEFT
         }));
     };
-    let option = choice
-        .options
-        .get(index)
-        .cloned()
-        .ok_or_else(|| failed("the host answered with an index that is no option"))?;
+    let option = choice.options.get(index).cloned().or_else(|| {
+        // The place after the last option stands for a free-form answer: a deal composed on the
+        // trade desk, which the engine accepts by its id (`Choice::answer_for`).
+        (index == choice.options.len())
+            .then(host_api::take_free_form)
+            .flatten()
+            .and_then(|id| choice.answer_for(&id))
+    });
+    let option =
+        option.ok_or_else(|| failed("the host answered with an index that is no option"))?;
     host.recent.push_back((nonce, option.id.clone(), false));
     Ok(Some(option))
 }
