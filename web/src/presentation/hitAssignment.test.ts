@@ -16,6 +16,7 @@ import {
   stagedHits,
   sustainDestroyableFromOptions,
   strandedCargo,
+  sustainCountsFromDetails,
   type HitContext,
 } from "./hitAssignment.ts";
 import type { PlacedUnitView } from "../protocol/types.ts";
@@ -314,5 +315,45 @@ describe("canStageHits", () => {
         sustainTypes: new Set(["dreadnought"]),
       }),
     ).toBe(true);
+  });
+});
+
+describe("sustainers the engine counts", () => {
+  const cruisers = [unit("cruiser"), unit("cruiser"), unit("destroyer")];
+  const cavalry = (extra: Partial<HitContext> = {}): HitContext => ({
+    units: spaceHitUnits(cruisers, "p1"),
+    sustainTypes: new Set(["cruiser"]),
+    sustainCounts: { cruiser: 1 },
+    ...extra,
+  });
+
+  it("lets only as many ships of a type sustain as the decision counts", () => {
+    // The Cavalry: the decision offers "cruiser" once, but only one cruiser can sustain.
+    const rows = buildHitRows(cavalry());
+    expect(rows.filter((r) => r.canSustain)).toHaveLength(1);
+    const plain = rows.filter((r) => r.unitType === "cruiser" && !r.canSustain);
+    expect(plain).toHaveLength(1);
+  });
+
+  it("auto-assigns two hits as one sustain and one loss, never two sustains", () => {
+    const c = cavalry();
+    const rows = buildHitRows(c);
+    const plan = casualtyPlan(rows, autoFill(rows, {}, 2, c));
+    expect(plan.filter((s) => s.kind === "sustain")).toHaveLength(1);
+    expect(plan).toHaveLength(2);
+  });
+
+  it("takes every ship of an offered type to sustain when the decision has no count", () => {
+    const rows = buildHitRows(cavalry({ sustainCounts: null }));
+    expect(rows.filter((r) => r.canSustain)).toHaveLength(2);
+  });
+
+  it("reads the counts from the decision's details", () => {
+    expect(sustainCountsFromDetails({ sustainers: { cruiser: 1, dreadnought: 2 } })).toEqual({
+      cruiser: 1,
+      dreadnought: 2,
+    });
+    expect(sustainCountsFromDetails({})).toBeNull();
+    expect(sustainCountsFromDetails(undefined)).toBeNull();
   });
 });

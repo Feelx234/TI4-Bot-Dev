@@ -23,6 +23,8 @@ export interface HitAssignmentPanelProps {
   hits: number;
   units: PlacedUnitView[];
   sustainTypes: Set<string>;
+  /** How many of a type can sustain in a row (`sustainCountsFromDetails`). */
+  sustainCounts?: Record<string, number> | null;
   destroyable?: Set<string> | null;
   onlyFighters?: boolean;
   /** Fighters and ground forces in space against the fleet's transport capacity. */
@@ -40,6 +42,7 @@ export const HitAssignmentPanel: React.FC<HitAssignmentPanelProps> = ({
   hits,
   units,
   sustainTypes,
+  sustainCounts,
   destroyable,
   onlyFighters,
   cargo,
@@ -48,8 +51,8 @@ export const HitAssignmentPanel: React.FC<HitAssignmentPanelProps> = ({
   onSubmitPlan,
 }) => {
   const ctx: HitContext = useMemo(
-    () => ({ units, sustainTypes, destroyable, onlyFighters }),
-    [units, sustainTypes, destroyable, onlyFighters],
+    () => ({ units, sustainTypes, sustainCounts, destroyable, onlyFighters }),
+    [units, sustainTypes, sustainCounts, destroyable, onlyFighters],
   );
   const rows = useMemo(() => buildHitRows(ctx), [ctx]);
   const [staging, setStaging] = useState<HitStaging>({});

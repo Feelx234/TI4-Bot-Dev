@@ -43,6 +43,7 @@ import {
   spaceCargo,
   spaceHitUnits,
   sustainDestroyableFromOptions,
+  sustainCountsFromDetails,
   sustainTypesFromOptions,
 } from "../presentation/hitAssignment.ts";
 import type { BasketPlan } from "../protocol/client.ts";
@@ -339,6 +340,9 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
     sustainTypes: isSustainStage
       ? sustainTypesFromOptions(choice?.options ?? [])
       : new Set<string>(),
+    sustainCounts: isSustainStage
+      ? sustainCountsFromDetails(choice?.details)
+      : null,
     destroyable: isCasualtyStage
       ? destroyableFromOptions(choice?.options ?? [])
       : isSustainStage
@@ -1578,6 +1582,7 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                         hits={hitsOwed ?? 1}
                         units={hitPanelContext.units}
                         sustainTypes={hitPanelContext.sustainTypes}
+                        sustainCounts={hitPanelContext.sustainCounts}
                         destroyable={hitPanelContext.destroyable}
                         onlyFighters={hitPanelContext.onlyFighters}
                         cargo={{

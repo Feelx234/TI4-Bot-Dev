@@ -2734,6 +2734,63 @@ fn assignable_to_hit(
         )
 }
 
+/// How many sustains of each unit type the seat can use in a row, for the display-only
+/// `sustainers` detail of a sustain question. The question lists one option per unit *type*, so a
+/// client cannot tell two cruisers from one cruiser that The Cavalry lets sustain (once one of
+/// the type is damaged no other can); without the count it plans a sustain on both.
+///
+/// Types that sustain by themselves count every ship. A type that only a card grants it is played
+/// out on a copy of the game, ship by ship, until none is offered any more.
+fn sustainer_counts(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    system: &SystemId,
+    player: &PlayerId,
+    in_combat: bool,
+    available: &[(String, Unit)],
+) -> serde_json::Value {
+    let types = catalogue(content, sources);
+    let mut counts: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
+    for (_, unit) in available {
+        *counts.entry(unit.type_id.to_string()).or_insert(0) += 1;
+    }
+    for (kind_id, count) in &mut counts {
+        let Some(kind) = types.get(kind_id.as_str()) else {
+            continue;
+        };
+        let by_itself = kind.is_ship()
+            && (kind.sustain_damage()
+                || (crate::relics::grants_sustain(state, player) && !kind.is_fighter()));
+        let in_space = available
+            .iter()
+            .filter(|(_, unit)| unit.type_id.as_str() == kind_id.as_str())
+            .all(|(location, _)| !location.starts_with("planet:"));
+        if *count < 2 || by_itself || !in_space {
+            continue;
+        }
+        let mut played = state.clone();
+        let mut used = 0_u64;
+        loop {
+            let next = played
+                .system_state(system)
+                .units
+                .iter()
+                .position(|unit| {
+                    unit.type_id.as_str() == kind_id.as_str()
+                        && sustains_in_space(
+                            &played, content, sources, system, player, unit, kind, in_combat,
+                        )
+                });
+            let Some(index) = next else { break };
+            played.system_mut(system).units[index].sustained_damage = true;
+            used += 1;
+        }
+        *count = used.max(1);
+    }
+    serde_json::to_value(counts).unwrap_or(serde_json::Value::Null)
+}
+
 /// Offer every available SUSTAIN DAMAGE until the hits run out or the player takes them.
 ///
 /// Only units that could actually be assigned a hit of `origin` are offered.
@@ -2877,7 +2934,17 @@ fn offer_sustain(
         }
         options.push(take);
 
+        let sustainers = sustainer_counts(
+            state,
+            content,
+            sources,
+            system,
+            player,
+            during_space_combat,
+            &available,
+        );
         let choice = Choice::new(player.clone(), format!("cancel a hit at {system}"), options)
+            .detailed("sustainers", sustainers)
             .contextualized(
                 DecisionContext::new(
                     player.clone(),
@@ -5837,6 +5904,15 @@ impl Window for CombatWindow {
                 // Space choices preserve the one-option-per-type stream. Planetary Naaz variants
                 // retain their exact canonical location so different fresh unit states remain
                 // selectable without changing the first variant's legacy id.
+                let sustainers = sustainer_counts(
+                    state,
+                    content,
+                    sources,
+                    &self.system,
+                    &front.player,
+                    true,
+                    &available,
+                );
                 let mut seen = std::collections::BTreeSet::new();
                 let mut options = Vec::new();
                 for (index, unit) in available {
@@ -5888,6 +5964,7 @@ impl Window for CombatWindow {
                         format!("cancel a hit at {}", self.system),
                         options,
                     )
+                    .detailed("sustainers", sustainers)
                     .contextualized(
                         DecisionContext::new(
                             front.player.clone(),
@@ -10327,6 +10404,46 @@ mod space_routes_tests {
 
     fn b() -> PlayerId {
         PlayerId::new("b")
+    }
+
+    /// The sustain question lists one option per type; its `sustainers` detail tells a client how
+    /// many sustains of the type it can plan. Two cruisers under The Cavalry are one sustain (the
+    /// second plan step the client used to send was refused by the engine), two dreadnoughts two.
+    #[test]
+    fn the_sustainer_count_tells_two_cavalry_cruisers_from_two_dreadnoughts() {
+        let content = ContentStore::embedded();
+        let system = SystemId::new("18");
+        let mut state = crate::fixtures::seated_game(&[("a", "nomad"), ("b", "sol")], POK);
+        crate::promissory::take(&mut state, content, &b(), "cavalry:nomad");
+        state.promissory_faceup.insert("cavalry:nomad".to_owned());
+        state
+            .faction_marks
+            .insert("nomad:cavalry:b".to_owned(), "18|cruiser".to_owned());
+        crate::fixtures::put(&mut state, &system, "cruiser", &b(), 2);
+        crate::fixtures::put(&mut state, &system, "dreadnought", &b(), 2);
+        let types = catalogue(content, POK);
+        let available: Vec<(String, Unit)> = state
+            .system_state(&system)
+            .units
+            .iter()
+            .enumerate()
+            .filter(|(_, unit)| {
+                sustains_in_space(
+                    &state,
+                    content,
+                    POK,
+                    &system,
+                    &b(),
+                    unit,
+                    types.get(unit.type_id.as_str()).unwrap(),
+                    true,
+                )
+            })
+            .map(|(index, unit)| (index.to_string(), unit.clone()))
+            .collect();
+        assert_eq!(available.len(), 4, "both cruisers are offered at first");
+        let counts = sustainer_counts(&state, content, POK, &system, &b(), true, &available);
+        assert_eq!(counts, serde_json::json!({ "cruiser": 1, "dreadnought": 2 }));
     }
 
     #[test]

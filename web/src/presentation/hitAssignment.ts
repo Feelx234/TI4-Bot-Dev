@@ -56,6 +56,12 @@ export interface HitContext {
   units: PlacedUnitView[];
   /** Unit types offered for sustaining in the current decision. */
   sustainTypes: Set<string>;
+  /**
+   * How many units of a sustaining type can sustain in a row, when the decision says (its
+   * `sustainers` detail). The decision lists one option per type, so two cruisers that The
+   * Cavalry lets sustain once look like two sustainers without it.
+   */
+  sustainCounts?: Record<string, number> | null;
   /** (type, damaged) pairs the engine offers to destroy, when the decision lists them. */
   destroyable?: Set<string> | null;
   /** Anti-fighter barrage: only fighters can be hit. */
@@ -119,11 +125,17 @@ export function buildHitRows(ctx: HitContext): HitRow[] {
   const rows: HitRow[] = [];
   const groups = new Map<string, HitRow>();
   const counters = new Map<string, number>();
+  const sustainsLeft = new Map(Object.entries(ctx.sustainCounts ?? {}));
   for (const unit of ctx.units) {
     if (ctx.onlyFighters && getUnitBaseType(unit.unit_type) !== "fighter")
       continue;
     const capacity = getBaseCapacity(unit.unit_type);
-    const canSustain = !unit.damaged && ctx.sustainTypes.has(unit.unit_type);
+    const canSustain =
+      !unit.damaged &&
+      ctx.sustainTypes.has(unit.unit_type) &&
+      (!ctx.sustainCounts || (sustainsLeft.get(unit.unit_type) ?? 0) > 0);
+    if (canSustain)
+      sustainsLeft.set(unit.unit_type, (sustainsLeft.get(unit.unit_type) ?? 0) - 1);
     // Only ships that can sustain ever carry damage, so a damaged ship is one of them too.
     if (canSustain || capacity > 0 || unit.damaged) {
       const n = (counters.get(unit.unit_type) ?? 0) + 1;
@@ -363,6 +375,23 @@ export function sustainDestroyableFromOptions(
       destroyKey(u.unit_type, true),
     ]),
   );
+}
+
+/**
+ * The `sustainers` detail of a sustain decision: per unit type, how many sustains can be used in
+ * a row. Null when the decision does not say (an older engine), so every unit of an offered type
+ * is taken to sustain.
+ */
+export function sustainCountsFromDetails(
+  details: Record<string, unknown> | undefined,
+): Record<string, number> | null {
+  const raw = details?.sustainers;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const counts: Record<string, number> = {};
+  for (const [type, count] of Object.entries(raw)) {
+    if (typeof count === "number" && Number.isFinite(count)) counts[type] = count;
+  }
+  return counts;
 }
 
 /** Unit types a sustain decision offers. */

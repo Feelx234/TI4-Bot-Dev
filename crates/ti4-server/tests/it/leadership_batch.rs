@@ -225,6 +225,46 @@ fn a_plan_with_purchases_and_assignments_applies_atomically() {
     std::fs::remove_dir_all(&table.path).unwrap();
 }
 
+/// Three purchases spend all nine influence, so the engine never asks the closing question the plan
+/// ends with (a client counts the headline influence, which can be more than the listed planets
+/// and goods pay: Archon's Gift counts a planet at its larger face). The "no" is not an answer to
+/// anything: the batch ends there with the three purchases applied.
+#[test]
+fn a_closing_no_the_engine_never_asks_is_not_an_error() {
+    let table = at_leadership("lead_closed", 0);
+    let pending = current(&table.session);
+    let before = table.session.current_state();
+    let p1 = PlayerId::new("p1");
+    let mut steps = two_purchases();
+    steps.truncate(12);
+    steps.extend([
+        buy(true),
+        MovementStep::TradeGood,
+        MovementStep::TradeGood,
+        MovementStep::TradeGood,
+        pool("tactic_tokens"),
+        buy(false),
+    ]);
+    let result = table
+        .registry
+        .submit_batch(
+            "lead_closed",
+            &table.p1_token,
+            request("closed", &pending, steps),
+        )
+        .expect("the closing no may go unasked");
+    assert!(result.interrupted.is_none());
+    let after = live(&table, "lead_closed").current_state();
+    let (b, a) = (before.player(&p1).unwrap(), after.player(&p1).unwrap());
+    assert_eq!(
+        a.tactic_tokens + a.fleet_tokens + a.strategic_tokens,
+        b.tactic_tokens + b.fleet_tokens + b.strategic_tokens + 3 + 3,
+        "three free tokens and three bought ones"
+    );
+    table.session.stop();
+    std::fs::remove_dir_all(&table.path).unwrap();
+}
+
 #[test]
 fn plans_the_engine_would_not_accept_change_nothing() {
     let table = at_leadership("lead_bad", 0);
@@ -272,25 +312,10 @@ fn plans_the_engine_would_not_accept_change_nothing() {
         },
         pool("tactic_tokens"),
     ];
-    // Three purchases spend all nine influence, so the engine never asks the closing question.
-    let trailing_no_never_asked = {
-        let mut steps = two_purchases();
-        steps.truncate(12);
-        steps.extend([
-            buy(true),
-            MovementStep::TradeGood,
-            MovementStep::TradeGood,
-            MovementStep::TradeGood,
-            pool("tactic_tokens"),
-            buy(false),
-        ]);
-        steps
-    };
     for (name, steps) in [
         ("unaffordable", unaffordable),
         ("extra_free_token", extra_free_token),
         ("wrong_payment", wrong_payment),
-        ("trailing_no_never_asked", trailing_no_never_asked),
     ] {
         let rejected = table.registry.submit_batch(
             "lead_bad",
