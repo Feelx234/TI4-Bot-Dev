@@ -56,7 +56,7 @@ check_true "engine trap is a blocker, category engine error" bash -c "python3 '$
 mk_run "$TMP/err" '{"consoleErrors":["TypeError: x is undefined (http://h/a.js)"],"findings":["layout: page scrolls sideways"]}'
 check_true "console errors are high" bash -c "python3 '$HERE/offline_entry.py' '$TMP/err' --max-severity | grep -q '^high '"
 mk_run "$TMP/cap" '{"outcome":"time-cap"}'
-check_true "time cap is medium" bash -c "python3 '$HERE/offline_entry.py' '$TMP/cap' --max-severity | grep -q '^medium '"
+check_true "time cap is low (known harness noise)" bash -c "python3 '$HERE/offline_entry.py' '$TMP/cap' --max-severity | grep -q '^low '"
 python3 "$HERE/offline_entry.py" "$TMP/clean" --terminated SIGTERM > "$TMP/term.out"
 check_true "terminated entry says so" bash -c "sed -n 1p '$TMP/term.out' | grep -q 'sweep terminated mid-run (SIGTERM)'"
 mkdir -p "$TMP/empty"; echo '{}' > "$TMP/empty/meta.json"

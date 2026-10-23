@@ -134,12 +134,25 @@ const isBarRow = (desc: string): boolean => /^turn-bar-(item|open)-/.test(desc);
  * The controls to choose among while the turn bar is up, or `null` when it is not. An open menu
  * must be answered first (its rows, never a second toggle), otherwise every enabled bar button.
  */
-export function turnBarPool<T extends PolicyCandidate>(candidates: T[]): T[] | null {
+export function turnBarPool<T extends PolicyCandidate>(candidates: T[], clicks = 0): T[] | null {
   const bar = candidates.filter((c) => isBarControl(c.desc));
   if (!bar.length) return null;
   const rows = bar.filter((c) => isBarRow(c.desc));
-  return rows.length ? rows : bar;
+  if (rows.length) return rows;
+  // A decision that has already taken MENU_TOGGLE_CAP clicks without leaving the bar drops the
+  // menu toggles (components, action cards) while anything else is enabled: a table whose only
+  // legal answer is Pass otherwise opens and closes the empty components menu for 40+ clicks.
+  if (clicks >= MENU_TOGGLE_CAP) {
+    const rest = bar.filter((c) => !isMenuToggle(c.desc));
+    if (rest.length) return rest;
+  }
+  return bar;
 }
+
+/** Clicks one decision may spend on the bar before its menu toggles drop out of the pool. */
+export const MENU_TOGGLE_CAP = 6;
+/** The components and action cards buttons, which only open a menu. */
+export const isMenuToggle = (desc: string): boolean => /^turn-bar-(components|cards)\b/.test(desc);
 
 /** Whether a decision's options offer a Thunder's Edge expedition slice (`component|expedition|<slice>`). */
 export const offersExpedition = (optionIds: readonly string[]): boolean =>
@@ -149,6 +162,11 @@ export const offersExpedition = (optionIds: readonly string[]): boolean =>
 export function expeditionSliceOfControl(desc: string): string | null {
   return /^turn-bar-item-component\|expedition\|([a-z_]+)\b/.exec(desc)?.[1] ?? null;
 }
+
+/** The components button of a bar whose menu holds nothing anyone can use ("Components 0 usable"; the label text runs together as "ComponentsC0 usable"). */
+const NO_USABLE_COMPONENTS = /^turn-bar-components\b.*(?<!\d)0 usable/;
+/** Weight of that button: far below Pass (0.3), since opening the empty menu gets nothing. */
+export const EMPTY_MENU_WEIGHT = 0.02;
 
 /** Weight of the components button while an expedition slice is payable (a turn bar steered by TE). */
 export const EXPEDITION_MENU_WEIGHT = 16;
@@ -164,6 +182,7 @@ export const EXPEDITION_ROW_WEIGHT = 30;
  */
 export function expeditionWeight(desc: string, offered: boolean): number | null {
   if (expeditionSliceOfControl(desc)) return EXPEDITION_ROW_WEIGHT;
+  if (!offered && NO_USABLE_COMPONENTS.test(desc)) return EMPTY_MENU_WEIGHT;
   if (offered && /^turn-bar-components\b/.test(desc)) return EXPEDITION_MENU_WEIGHT;
   return null;
 }
@@ -311,6 +330,7 @@ export function strongUnselected<T extends PolicyCandidate>(
 
 /** Steering weight of one control, by its description (`<testid> | <label>`). */
 export function steerWeight(desc: string): number {
+  if (NO_USABLE_COMPONENTS.test(desc)) return EMPTY_MENU_WEIGHT;
   return STEER_WEIGHTS.find(([pattern]) => pattern.test(desc))?.[1] ?? 1;
 }
 

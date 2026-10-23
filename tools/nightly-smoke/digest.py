@@ -26,8 +26,15 @@ SUSPICIOUS = re.compile(
 # advisor runs in the smoke setup, and websocket reconnects reset sockets. Neither affects play.
 NOISE = re.compile(
     r"\[frontend\].*(ECONNREFUSED|ECONNRESET|socket has been ended|ws proxy error|http proxy error)"
-    r"|\[vite\] (ws |http )?proxy error|/advisor",
+    r"|\[vite\] (ws |http )?proxy error|/advisor"
+    # The first page loads before the backend answers /api/catalog; CatalogProvider retries (2026-10-22:
+    # in almost every server run, always at the start, and the vite clock is UTC).
+    r"|\[frontend\].*No catalog of the printed cards: CatalogError: /api/catalog could not be reached",
 )
+# A teardown error when the deadline kills the run (exit 124): the browser is closed under the harness.
+TEARDOWN = re.compile(r"has been closed|Target page, context or browser|Test ended|browserContext\.close")
+CLICK_LINE = re.compile(r"^#(\d+) .*? seat(\d+) click (turn-bar-[\w-]+)")
+
 COMBAT = {
     "sustain_damage", "assign_casualty", "announce_retreat", "retreat_to",
     "fight_ground_combat_round", "assign_ground_casualty", "commit_ground_forces",
@@ -138,6 +145,36 @@ def game_dir(run_dir, meta, game_id):
     return None
 
 
+def bar_click_note(run_dir):
+    """Which turn bar controls the harness clicked on the last decision, from run.log.
+
+    The proctors read an unfinished decision as "Pass does nothing" when the harness had only
+    toggled the Components menu (2026-10-22, s2-03 and s1-06: 40+ Components clicks, no Pass click).
+    This states what was clicked so that the diagnosis rests on the log.
+    """
+    last, counts = None, collections.Counter()
+    try:
+        with open(os.path.join(run_dir, "run.log"), errors="replace") as handle:
+            for line in handle:
+                m = CLICK_LINE.match(line.strip())
+                if not m:
+                    continue
+                if m.group(1) != last:
+                    last, counts = m.group(1), collections.Counter()
+                counts[m.group(3)] += 1
+    except OSError:
+        return ""
+    total = sum(counts.values())
+    if total < 10:
+        return ""
+    top = ", ".join(f"{k} x{v}" for k, v in counts.most_common(4))
+    note = f"- Turn bar clicks on the last decision (#{last}, from run.log): {top}."
+    if not counts.get("turn-bar-pass"):
+        note += (" **Pass was never clicked on it**: a stall here is the click policy (menu toggles), "
+                 "not a Pass that does nothing.")
+    return note
+
+
 def main():
     run_dir = sys.argv[1]
     meta = load(os.path.join(run_dir, "meta.json"), {})
@@ -207,11 +244,20 @@ def main():
     p("")
 
     p("#### Potential bugs (raw evidence)")
-    if failure:
+    if failure and exit_code == "124" and TEARDOWN.search(str(failure)) and not report.get("findings"):
+        p("- Teardown error at the deadline (exit 124, the browser was closed under the harness): "
+          "known harness noise, not a finding. `" + str(failure).strip()[:160].replace("`", "'") + "`")
+    elif failure:
         p("- **Harness failure** (game could not continue or UI broke):")
         p("```")
         p(str(failure).strip()[:3000])
         p("```")
+    elif not report and exit_code == "124":
+        p("- No report.json: the deadline killed the run before Playwright wrote it (known harness noise when "
+          "nothing else is listed here; the trace and run.log still hold the evidence).")
+    stall_note = bar_click_note(run_dir)
+    if stall_note:
+        p(stall_note)
     if browser_errors:
         p(f"- **Browser errors** ({len(browser_errors)}):")
         for line in browser_errors[:20]:

@@ -72,7 +72,11 @@ def bugs_of(report, failure, exit_code, terminated):
         out.append(("blocker", "stuck game", failure.strip().splitlines()[0] if failure.strip() else "the game stopped advancing"))
     elif outcome == "setup-failed":
         out.append(("blocker", "setup", failure.strip().splitlines()[0] if failure.strip() else "the offline game did not start"))
-    elif outcome in ("decision-cap", "time-cap"):
+    elif outcome == "time-cap":
+        # The batch window or the per-game time limit cut a healthy game (o2-67-0127): not a hang.
+        out.append(("low", "harness", f"known harness noise, not a finding: the game was cut at the time cap: {report.get('decisions')} decisions in {report.get('seconds')} s, "
+                                    f"round {(report.get('finalStatus') or {}).get('round')} (the batch window or the per-game limit ended, nothing hung)"))
+    elif outcome == "decision-cap":
         out.append(("medium", "harness", f"the game did not end ({outcome}): {report.get('decisions')} decisions in {report.get('seconds')} s, "
                                        f"round {(report.get('finalStatus') or {}).get('round')}"))
     for text in report.get("findings", []):

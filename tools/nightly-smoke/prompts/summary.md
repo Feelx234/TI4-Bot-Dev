@@ -25,6 +25,8 @@ If it says no agenda phase happened, make that the first finding of the TL;DR: t
 suffix and the custodians are the first suspects. In "## Coverage" add an "agenda phase: N runs"
 line, and name which runs had votes and with which preset.
 
+Known harness noise is not a finding. List it, if at all, as one line under "## Harness / sweep issues": `/api/catalog could not be reached` at a run's start (vite log times are UTC), a teardown error ("Target page, context or browser has been closed") or a missing report at the deadline (exit 124), an offline `time-cap` (the batch window ended), and the "waiting for memory" lines (give a count per slot, not line numbers). Check any proctor diagnosis of a stuck control against the digest's "Turn bar clicks on the last decision" line: a control that was never clicked cannot "do nothing".
+
 Output only the morning summary in markdown, starting with a 3–5 line TL;DR, then
 "## Findings" (ranked), "## Suggested fixes", "## Coverage", "## Harness / sweep issues".
 
