@@ -1174,7 +1174,12 @@ pub const RULES_MINISTER_INDUSTRY_WINDOW: u32 = 25;
 /// production still opens the reaction window. Version 26.
 pub const RULES_WINNU_AGENT_PRODUCTION: u32 = 26;
 
-pub const RULES_VERSION: u32 = 26;
+/// The first rules version in which the Mirage frontier card resolves: it places the Mirage planet
+/// in the system of the frontier token it was drawn for. Below, it was drawn with no planet, found
+/// no "this system" and always came up "could not be resolved". Version 27.
+pub const RULES_MIRAGE_FRONTIER: u32 = 27;
+
+pub const RULES_VERSION: u32 = 27;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are

@@ -805,14 +805,23 @@ fn resolve_instant(
             //
             // The system comes from the planet being explored, which is the only "this system"
             // there is: exploration always happens on a planet, and Mirage joins it on its tile.
-            let Some(here) = planet else {
-                return false; // 22.3: no planet explored means no system to place it in
+            //
+            // Mirage is a frontier card, so it is normally drawn with no planet at all: "this
+            // system" is the one the frontier token was in (RULES_MIRAGE_FRONTIER). Before that
+            // version only a planet gave a system, so the card always came up unresolved.
+            let system = match planet {
+                Some(here) => ti4_content::galaxy::planet(content, here.as_str(), sources)
+                    .and_then(|record| record.system_id())
+                    .map(ti4_model::id::SystemId::new),
+                None if state.rules_version >= ti4_model::state::RULES_MIRAGE_FRONTIER => state
+                    .exploration_log
+                    .last()
+                    .and_then(|record| record.system.as_deref())
+                    .map(ti4_model::id::SystemId::new),
+                None => None,
             };
-            let Some(system) = ti4_content::galaxy::planet(content, here.as_str(), sources)
-                .and_then(|record| record.system_id())
-                .map(ti4_model::id::SystemId::new)
-            else {
-                return false;
+            let Some(system) = system else {
+                return false; // 22.3: no planet or frontier system means nowhere to place it
             };
             return crate::planets::place(state, &system, &PlanetId::new("mirage"), player);
         }
@@ -1161,7 +1170,7 @@ pub fn explore_frontier(
     }
     state.frontier_tokens.remove(system);
     let logged = state.exploration_log.len();
-    let outcome = explore_with(state, ctx, player, FRONTIER, None);
+    let outcome = explore_in(state, ctx, player, FRONTIER, None, Some(system));
     if let Some(record) = state.exploration_log.get_mut(logged) {
         record.system = Some(system.to_string());
     }
@@ -1205,11 +1214,24 @@ pub fn explore_with(
     deck: &str,
     planet: Option<&PlanetId>,
 ) -> Option<Explored> {
+    explore_in(state, ctx, player, deck, planet, None)
+}
+
+/// [`explore_with`] that also knows the system a frontier token was explored in ("this system"
+/// for a card drawn without a planet).
+fn explore_in(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    player: &PlayerId,
+    deck: &str,
+    planet: Option<&PlanetId>,
+    system: Option<&SystemId>,
+) -> Option<Explored> {
     let logged = state.exploration_log.len();
     let before = Holdings::of(state, player, planet);
     let wormholes_before = state.wormhole_tokens.clone();
     let ion_before = state.ion_storm.clone();
-    let outcome = explore_drawn(state, ctx, player, deck, planet)?;
+    let outcome = explore_drawn(state, ctx, player, deck, planet, system)?;
     // UI-01: the record `explore_drawn` opened gets its outcome now that it is known.
     let text = match &outcome {
         Explored::Fragment { .. } => "fragment".to_owned(),
@@ -1463,6 +1485,7 @@ fn explore_drawn(
     player: &PlayerId,
     deck: &str,
     planet: Option<&PlanetId>,
+    system: Option<&SystemId>,
 ) -> Option<Explored> {
     let content = ctx.content;
     // The deck is already ordered. A draw need not touch the RNG, but its
@@ -1507,7 +1530,7 @@ fn explore_drawn(
             card: card.clone(),
             planet: planet.cloned(),
             outcome: String::new(),
-            system: None,
+            system: system.map(ToString::to_string),
             result: String::new(),
             gains: Default::default(),
             placed: Vec::new(),
@@ -2079,6 +2102,43 @@ mod tests {
             !state.exhausted_planets.contains(&mirage),
             "readied, as the card says"
         );
+    }
+
+    /// The Mirage card is a frontier card: drawn for a token it lands in the token's system.
+    #[test]
+    fn mirage_drawn_from_a_frontier_token_is_placed_in_its_system() {
+        let gate = ti4_model::state::RULES_MIRAGE_FRONTIER;
+        for (version, resolves) in [(gate, true), (gate - 1, false)] {
+            let (mut state, _) = holder(0, 0);
+            state.rules_version = version;
+            let system = SystemId::new("39");
+            state.board.entry(system.clone()).or_default();
+            state.frontier_tokens.insert(system.clone());
+            state
+                .exploration_decks
+                .insert(FRONTIER.to_owned(), vec!["mirage".to_owned()]);
+            let mut table = crate::choice::Table::new();
+            let mut dice = crate::dice::Dice::new();
+            let mut rng = crate::rng::GameRng::new(1);
+            let mut ctx = crate::choice::Resolving {
+                content: ContentStore::embedded(),
+                sources: POK,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: None,
+            };
+            crate::fixtures::put(&mut state, &system, "cruiser", &player(), 1);
+            let outcome = explore_frontier(&mut state, &mut ctx, &player(), &system);
+            let mirage = PlanetId::new("mirage");
+            if resolves {
+                assert!(matches!(outcome, Some(Explored::Resolved { .. })));
+                assert_eq!(state.placed_planets.get(&mirage), Some(&system));
+            } else {
+                assert!(matches!(outcome, Some(Explored::Unresolved { .. })));
+                assert!(!state.placed_planets.contains_key(&mirage));
+            }
+        }
     }
 
     /// A gamma token makes its system adjacent to the other gamma systems.
