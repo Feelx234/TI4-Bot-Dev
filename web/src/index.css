@@ -2881,6 +2881,24 @@ select:focus-visible,
   background: #0b1222;
 }
 
+/* Phone: the combat panel sits in the page flow under the map (the overlays container is
+   position: relative here, see above), so the page is the one scroll container. A panel scroll
+   of its own (max-height + overflow) nested inside the page scroll trapped the touch drag and
+   left the last card behind the fixed Players / Events dock and the browser's bottom bar. The
+   panel is full width, grows with its content and ends with room for the dock, the browser bar
+   and the home indicator, so its last item scrolls fully into view. */
+@media (max-width: 720px) {
+  .combat-dialog .combat-arena-panel {
+    width: 100%;
+    max-width: none;
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    border-radius: 0;
+    padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
 .combat-arena-panel:has(.combat-action-area) .combat-action-area {
   order: 1;
 }
