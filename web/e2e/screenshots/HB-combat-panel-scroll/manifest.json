@@ -1,0 +1,13 @@
+{
+  "title": "Combat panel scrolls to its end on a phone",
+  "description": "On a phone the space combat panel sits under the map and the page scrolls. The panel used to be a scroll box of its own inside that page scroll and had no room under its last card for the fixed Players / Events dock and the browser's bottom bar, so the lower content could not be reached. It is now one page scroll, and the panel ends with room for the dock, the browser bar and the home indicator. Each shot is scrolled as far down as it goes.",
+  "tag": "web/e2e/screenshots/HB-combat-panel-scroll",
+  "shots": [
+    { "file": "out/before-end-390x700.png", "heading": "Before, 390x700 (browser bars showing)", "caption": "Scrolled to the end: the panel's own scroll box and the page scroll fight, the header is half scrolled away, and the last card runs 43 px under the dock." },
+    { "file": "out/after-end-390x700.png", "heading": "After, 390x700", "caption": "One scroll. The last card ends 33 px above the dock, with the whole panel (attacker, odds, defender, status line) in reach." },
+    { "file": "out/before-end-360x640.png", "heading": "Before, 360x640", "caption": "Small phone with bars showing: the last card ends under the dock." },
+    { "file": "out/after-end-360x640.png", "heading": "After, 360x640", "caption": "The last card ends above the dock." },
+    { "file": "out/before-end-430x850.png", "heading": "Before, 430x850", "caption": "Taller phone, still a nested scroll box." },
+    { "file": "out/after-end-430x850.png", "heading": "After, 430x850", "caption": "Same panel, single scroll, clear of the dock." }
+  ]
+}
