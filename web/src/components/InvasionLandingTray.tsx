@@ -9,7 +9,6 @@ import { DecisionHeader } from "./DecisionHeader.tsx";
 import { UnitIcon, getUnitDisplayName } from "./UnitIcon.tsx";
 import { PlanetValue } from "./PlanetValueIcons.tsx";
 import { WorkflowShell } from "./WorkflowShell.tsx";
-import { systemNamedLabel } from "../presentation/systemFacts.ts";
 import { humanizeId } from "../protocol/contentCatalog.ts";
 import { InfoPopover } from "./InfoPopover.tsx";
 import { AttachmentInfo } from "./AttachmentInfo.tsx";
@@ -585,7 +584,7 @@ export const InvasionLandingTray: React.FC<{
                                   {landing.fromPlanet
                                     ? `from ${humanizeId(landing.fromPlanet)}${
                                         landing.fromSystem && landing.fromSystem !== system
-                                          ? ` · adjacent ${systemNamedLabel(landing.fromSystem, board)}`
+                                          ? ` · adjacent system ${landing.fromSystem}`
                                           : " · this system"
                                       } · G'hom Sek'kus`
                                     : `${Math.max(0, avail)} in space`}

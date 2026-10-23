@@ -4,7 +4,7 @@
   "tag": "web/e2e/screenshots/HH-ghom-sekkus-landing",
   "shots": [
     { "file": "before/before-offered-desktop.png", "heading": "Offered landings, desktop: before", "caption": "Identical 'Infantry' rows that say how many are 'in space' (counting the space stock for forces that stand on another planet), with + disabled when none are in space: the commander's forces cannot be told apart or chosen, and nothing says which planet they come from." },
-    { "file": "out/after-offered-desktop.png", "heading": "Offered landings, desktop: after", "caption": "Space forces first, then one row per commander force that names its origin ('from Lodor, adjacent System 26, G'hom Sek'kus') and is enabled." },
+    { "file": "out/after-offered-desktop.png", "heading": "Offered landings, desktop: after", "caption": "Space forces first, then one row per commander force that names its origin ('from Lodor, adjacent system 26, G'hom Sek'kus') and is enabled." },
     { "file": "before/before-offered-phone.png", "heading": "Offered landings, 390x844: before", "caption": "Same on a phone." },
     { "file": "out/after-offered-phone.png", "heading": "Offered landings, 390x844: after", "caption": "Same rows on a phone." },
     { "file": "out/after-staged-desktop.png", "heading": "One staged from Lodor, desktop", "caption": "The infantry from Lodor is staged; the Lodor mech is now disabled (up to 1 ground force from each planet) and the draft line reads 'infantry from Lodor to jord'." },
