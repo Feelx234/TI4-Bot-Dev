@@ -879,7 +879,18 @@ impl PrivateDecider {
             && script.steps[index..]
                 .iter()
                 .all(|s| matches!(s, MovementStep::Exhaust { .. } | MovementStep::TradeGood));
-        if matches.len() != 1 && payment_settled {
+        // A token plan ends with "no, nothing further" when the client expects the engine to ask
+        // again. The engine asks again only while the real balance (an Archon's Gift face, say,
+        // counts at its larger value in the headline figure but not in the listed planets) still
+        // pays for one more, so it can end the loop first. Not being asked the closing "no" means
+        // the plan's answer is already given: the batch ends here, with every purchase applied.
+        let purchase_closed = script.kind == BatchKind::Tokens
+            && index > 0
+            && !(own_seat && offered_subtype.as_deref() == Some("buy_token_with_influence"))
+            && script.steps[index..]
+                .iter()
+                .all(|s| matches!(s, MovementStep::Purchase { buy: false }));
+        if matches.len() != 1 && (payment_settled || purchase_closed) {
             script.steps.truncate(index);
             script.finished = true;
             return Err(IllegalChoice::DeciderFailed {
@@ -2874,6 +2885,45 @@ mod tests {
         assert!(script.failure.is_none());
         assert_eq!(script.next, 5);
         assert_eq!(script.selected.len(), 2);
+    }
+
+    #[test]
+    fn a_closing_no_the_engine_never_asks_ends_the_batch_without_failing() {
+        // The client planned another "ask again" after the purchase, but the engine's real
+        // balance no longer pays for one and it goes on to the next decision.
+        let mut decider = decider(
+            BatchKind::Tokens,
+            vec![
+                buy(true),
+                exhaust("arcturus"),
+                pool("tactic_tokens"),
+                buy(false),
+            ],
+        );
+        assert_eq!(decider.choose(&buy_ask()).unwrap().id, "yes");
+        assert_eq!(decider.choose(&pay_ask()).unwrap().id, "exhaust|arcturus");
+        assert_eq!(decider.choose(&gain_ask()).unwrap().id, "tactic_tokens");
+        let next = offered(
+            "action_menu",
+            vec![ChoiceOption::labelled("pass", "action", "pass")],
+        );
+        assert!(decider.choose(&next).is_err());
+        let script = decider.0.lock().unwrap();
+        assert!(script.failure.is_none(), "{:?}", script.failure);
+        assert!(script.finished);
+        assert_eq!(script.selected.len(), 3);
+        assert_eq!(script.steps.len(), 3);
+    }
+
+    #[test]
+    fn a_closing_no_is_still_answered_when_the_engine_asks_again() {
+        let mut decider = decider(
+            BatchKind::Tokens,
+            vec![buy(true), pool("tactic_tokens"), buy(false)],
+        );
+        assert_eq!(decider.choose(&buy_ask()).unwrap().id, "yes");
+        assert_eq!(decider.choose(&gain_ask()).unwrap().id, "tactic_tokens");
+        assert_eq!(decider.choose(&buy_ask()).unwrap().id, "no");
     }
 
     #[test]

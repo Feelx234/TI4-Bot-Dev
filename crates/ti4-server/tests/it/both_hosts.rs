@@ -49,7 +49,14 @@ fn in_the_page(setup: &TableSetup, seats: &Seats, saved: &[DecisionRecord]) -> V
     let log: Vec<&str> = saved.iter().map(|record| record.chosen.as_str()).collect();
     let start = serde_json::json!({
         "table": request(setup, seats),
-        "resume": { "log": log },
+        // The rules and the bot the server plays: a resume without versions is a game from before
+        // they existed (rules version 0, bot version 1), and the page then plays those old
+        // games (one system less to activate, another planet to ready).
+        "resume": {
+            "log": log,
+            "rules_version": ti4_model::state::RULES_VERSION,
+            "bot_version": ti4_rule_bot::tuning::BOT_VERSION,
+        },
     });
     let len = ti4_wasm::host_api::put_input(&start.to_string());
     let status = ti4_wasm::ti4_host_start(u32::try_from(len).expect("a short request"));
@@ -149,7 +156,9 @@ fn slow_a_table_of_a_seed_is_the_same_game_in_the_page_and_on_the_server() {
             ],
         ),
     ];
-    for (setup, seats) in tables {
+    for (mut setup, seats) in tables {
+        // New games of the current bot choose a starting technology (the page sets it for them).
+        setup.starting_tech = true;
         let page = in_the_page(&setup, seats, &[]);
         assert!(
             page.len() > 100,
