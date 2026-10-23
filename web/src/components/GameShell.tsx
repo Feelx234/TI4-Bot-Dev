@@ -1168,6 +1168,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   usePausedPromptAutoDecline({
     choice,
     viewerSeat,
+    turn,
     history,
     busy: pipelineRunner.isRunning || Boolean(historyBusy),
     submit: onSubmitChoice,

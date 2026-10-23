@@ -71,6 +71,43 @@
   color: #fcd34d;
 }
 
+/* The three-way choice (Ask / My turn / Skip) of an ability that also comes up in other players' turns. */
+.prompts-panel__modes {
+  flex: none;
+  display: inline-flex;
+  border: 1px solid #94a3b8;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.prompts-panel__mode {
+  min-height: 36px;
+  min-width: 56px;
+  padding: 4px 10px;
+  border: 0;
+  border-left: 1px solid #475569;
+  background: transparent;
+  color: #cbd5e1;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.prompts-panel__mode:first-child {
+  border-left: 0;
+}
+.prompts-panel__mode[aria-pressed="true"] {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fcd34d;
+}
+.prompts-panel__mode[aria-pressed="true"]:first-child {
+  background: rgba(148, 163, 184, 0.22);
+  color: #f8fafc;
+}
+@media (max-width: 480px) {
+  .prompts-panel__row {
+    flex-wrap: wrap;
+  }
+}
+
 /* The paused-prompts chip under the top bar. */
 .paused-prompts-chip {
   display: flex;

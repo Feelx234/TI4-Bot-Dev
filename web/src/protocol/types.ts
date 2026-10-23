@@ -16,8 +16,8 @@ export * from "@ti4/shared/wire/index.ts";
 /** Who looks at the game; a player's own connection also holds its session token. */
 export type ViewerRole = WireViewerRole & { playerSession?: string };
 
-/** The modes web offers for a reaction card; the server also knows `ownturn`. */
-export type ReactionModeSetting = Exclude<ReactionMode, "ownturn">;
+/** The modes web offers for a reaction card: always, never, or only in the viewer's own turn (`ownturn`). */
+export type ReactionModeSetting = ReactionMode;
 
 /** The viewing seat's own choices by printed card name; a card that is not there is "always". */
 export type ReactionModes = Record<string, ReactionMode>;

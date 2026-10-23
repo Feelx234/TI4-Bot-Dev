@@ -15,8 +15,8 @@ for (const size of Object.keys(SIZES) as SizeName[]) {
     await expect(page.getByTestId("prompt-row-thunders_paradox")).toHaveAttribute("data-paused", "true");
     await shot(page, testInfo, `9-chip-opens-list-${size}`);
     // Switching the last two back on removes the chip.
-    await page.getByTestId("prompt-toggle-thunders_paradox").click();
-    await page.getByTestId("prompt-toggle-nomad_mercer").click();
+    await page.getByTestId("prompt-mode-thunders_paradox-ask").click();
+    await page.getByTestId("prompt-mode-nomad_mercer-ask").click();
     await page.getByTestId("prompts-panel-close").click();
     await expect(chip).toHaveCount(0);
   });

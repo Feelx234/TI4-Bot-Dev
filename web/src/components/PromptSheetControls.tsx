@@ -1,6 +1,6 @@
 import React from "react";
 import type { PromptHolder } from "../presentation/pausablePrompts.ts";
-import { type PausablePrompt } from "../presentation/pausablePrompts.ts";
+import { offersOwnTurnMode, type PausablePrompt } from "../presentation/pausablePrompts.ts";
 import { askSettingFor, usePausedPrompts } from "../hooks/promptSettings.ts";
 import { openPromptsPanel } from "../hooks/promptsPanel.ts";
 import { listedPrompts } from "./PromptsPanel.tsx";
@@ -20,21 +20,25 @@ const buttonStyle = (active: boolean): React.CSSProperties => ({
 });
 
 const AskButton: React.FC<{ prompt: PausablePrompt }> = ({ prompt }) => {
-  const { ask, toggle } = askSettingFor(prompt.id).useSetting();
+  const { mode, cycle } = askSettingFor(prompt.id).useSetting();
+  const withOwnTurn = offersOwnTurnMode(prompt);
+  const ask = mode === "ask";
   return (
     <button
       type="button"
       data-testid={`${prompt.id}-ask-btn`}
       aria-pressed={ask}
       title={
-        ask
+        mode === "ownturn"
+          ? `${prompt.label} (${prompt.when}) is asked only in your own turn and declined for you in other players' turns, in all games on this browser (the game still asks). Click to be asked every time.`
+          : ask
           ? `You are asked about ${prompt.label} (${prompt.source}, ${prompt.when}). Click to skip it automatically (kept in this browser for all games until you switch it back on).`
-          : `${prompt.label} is declined for you (${prompt.when}), in all games on this browser (the game still asks). Click to be asked again.`
+          : `${prompt.label} is declined for you (${prompt.when}), in all games on this browser (the game still asks). ${withOwnTurn ? "Click to ask only in your own turn." : "Click to be asked again."}`
       }
-      onClick={toggle}
+      onClick={() => cycle(withOwnTurn)}
       style={buttonStyle(!ask)}
     >
-      {ask ? `${prompt.label} ask` : `${prompt.label} skipped`}
+      {mode === "ownturn" ? `${prompt.label} my turn only` : ask ? `${prompt.label} ask` : `${prompt.label} skipped`}
     </button>
   );
 };

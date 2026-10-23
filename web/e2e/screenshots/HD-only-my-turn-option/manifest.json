@@ -1,0 +1,37 @@
+{
+  "title": "Only in my turn option for prompts and action cards",
+  "description": "The per-browser prompt switches (Ask / Skipped) get a third choice, Only in my turn, for the abilities that come up both in your own turn and in other players' turns: asked while you have the turn, declined for you while another player has it. The per-game action card mode (Always / Never) gets the same choice for the reaction cards that can be played in both. Abilities and cards that can only come up in one context keep their old switch. Client only; the engine still asks every question. Mocked game; regenerate with npm run screenshots -- HD.",
+  "tag": "web/e2e/screenshots/HD-only-my-turn-option",
+  "shots": [
+    { "file": "out/1-offer-desktop.png", "heading": "Offer with two checkboxes, desktop", "caption": "Captain Mendosa (Saar agent, after any system activation) comes up in every turn, so the offer has the old 'Don't ask' checkbox and a new 'Only ask ... in my own turn' one." },
+    { "file": "out/1-offer-390x844.png", "heading": "Offer with two checkboxes, phone", "caption": "Same at 390 px wide." },
+    { "file": "out/2-offer-ticked-desktop.png", "heading": "Only in my turn ticked, desktop", "caption": "Ticking it stores player_ask_saar_agent = ownturn; the first checkbox clears (they exclude each other). The open question is left to the player." },
+    { "file": "out/2-offer-ticked-390x844.png", "heading": "Only in my turn ticked, phone", "caption": "Same at 390 px wide." },
+    { "file": "out/3-offer-one-context.png", "heading": "An ability of one context keeps one checkbox", "caption": "Bio-Stims is only asked at the end of your own turn, so Only in my turn would equal Ask: the offer shows the single checkbox as before." },
+    { "file": "out/4-panel-all-ask-desktop.png", "heading": "Prompts list, all asking, desktop", "caption": "Rows with the choice show Ask / My turn / Skip. Bio-Stims (own turn only) and Xuange (other players' moves only) keep the two-state Ask / Skipped button." },
+    { "file": "out/4-panel-all-ask-390x844.png", "heading": "Prompts list, all asking, phone", "caption": "Same at 390 px wide; the three buttons wrap under the name." },
+    { "file": "out/5-panel-mixed-desktop.png", "heading": "Prompts list, mixed, desktop", "caption": "Dynamo and Aetherstream on My turn, Watcher on Skip; the rows are highlighted like a skipped prompt." },
+    { "file": "out/5-panel-mixed-390x844.png", "heading": "Prompts list, mixed, phone", "caption": "Same at 390 px wide." },
+    { "file": "out/6-chip-desktop.png", "heading": "Chip, desktop", "caption": "Anything that is not Ask counts for the chip: '3 prompts skipped'." },
+    { "file": "out/6-chip-390x844.png", "heading": "Chip, phone", "caption": "Same at 390 px wide." },
+    { "file": "out/7-old-values.png", "heading": "Settings stored by the first version", "caption": "A stored 'false' reads as Skip and 'true' or nothing as Ask; nothing is migrated or rewritten." },
+    { "file": "out/8-sheet-my-turn-only.png", "heading": "Sheet button after two clicks", "caption": "The button of a seat with few abilities cycles Ask, Skipped, My turn only, Ask (the first click is still Skipped)." },
+    { "file": "out/9-chip-others-turns.png", "heading": "Chip with one ability on My turn", "caption": "With a single ability the chip says 'Prompt skipped in others' turns: I48S'." },
+    { "file": "out/10-declined-others-turn.png", "heading": "Declined in another player's turn", "caption": "Another player has the turn: the client sends the pass after the short pause and shows 'Captain Mendosa skipped (not your turn)'." },
+    { "file": "out/11-asked-own-turn.png", "heading": "Asked in your own turn", "caption": "With the same setting the offer stays open when you have the turn; its checkbox shows the current choice." },
+    { "file": "out/12-skip-own-turn.png", "heading": "Skip still declines everywhere", "caption": "Plain Skip declines in your own turn too, with the old toast text 'switched off'." },
+    { "file": "out/13-sheet-cards.png", "heading": "Action cards on the sheet", "caption": "Sabotage, Direct Hit and Skilled Retreat can be played in both turns and have a My turn button next to the check mark (Direct Hit is on My turn, Skilled Retreat on Never). Decoy Operation only comes up when another player activates, so it has none." },
+    { "file": "out/14-window-desktop.png", "heading": "Reaction window, Sabotage, desktop", "caption": "A second checkbox, 'Only offer Sabotage in my own turn', sits under 'Never offer Sabotage again this game'." },
+    { "file": "out/14-window-390x844.png", "heading": "Reaction window, Sabotage, phone", "caption": "Same at 390 px wide." },
+    { "file": "out/15-window-ticked-desktop.png", "heading": "Reaction window, ticked, desktop", "caption": "Ticked: the mode is sent to the server (ownturn). Because another player has the turn, this window is passed at once when it is the only card, like Never." },
+    { "file": "out/15-window-ticked-390x844.png", "heading": "Reaction window, ticked, phone", "caption": "Same at 390 px wide." }
+  ],
+  "notesHeading": "Decisions",
+  "notes": [
+    { "title": "What counts as your turn", "text": "The action phase with you as the active player. In another player's turn the prompt is declined for you; outside the action phase (strategy, status, agenda) nobody has the turn and Only in my turn skips nothing. This is the rule the server already uses for the action card mode." },
+    { "title": "Added (prompt switches)", "text": "50 of 66 abilities: every one that can come up in your own turn and in other players' turns (combat rounds, destroyed units, any activation, turn start or end, trade goods, command tokens, ...)." },
+    { "title": "Not sensible, own turn only (10)", "text": "Scanlink Drone Network, Spatial Conduit Cylinders, Bio-Stims, Predictive Intelligence, Self-Assembly Routines, AI Development Algorithm, Agency Supply Network, Titans commander Tungstantus, Hegemonic Trade Policy, Yin Spinner Omega: only asked about your own activation, production or turn end." },
+    { "title": "Not sensible, other players' turns only (6)", "text": "Nullification Field, Arborec commander Dirzuga Rophal, Empyrean commander Xuange, Void Tether (allow), Foresight, Yssaril commander So Ata: only asked after another player activates or moves." },
+    { "title": "Persistence", "text": "Same key and place as before (localStorage player_ask_<id>, this browser, all games). New value 'ownturn'; 'true' and 'false' keep meaning Ask and Skip. A reader that only knows the boolean treats 'ownturn' as asking." }
+  ]
+}

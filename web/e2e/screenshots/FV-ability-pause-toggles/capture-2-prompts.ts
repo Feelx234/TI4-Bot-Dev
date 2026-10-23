@@ -16,13 +16,13 @@ for (const size of Object.keys(SIZES) as SizeName[]) {
     await button.click();
     const panel = page.getByTestId("prompts-panel");
     await expect(panel).toBeVisible();
-    await expect(page.getByTestId("prompt-toggle-aetherpassage")).toHaveText("Ask");
+    await expect(page.getByTestId("prompt-mode-aetherpassage-ask")).toHaveAttribute("aria-pressed", "true");
     await shot(page, testInfo, `4-panel-all-ask-${size}`);
 
-    await page.getByTestId("prompt-toggle-aetherpassage").click();
-    await page.getByTestId("prompt-toggle-dynamo").click();
-    await page.getByTestId("prompt-toggle-watcher").click();
-    await expect(page.getByTestId("prompt-toggle-dynamo")).toHaveText("Skipped");
+    await page.getByTestId("prompt-mode-aetherpassage-skip").click();
+    await page.getByTestId("prompt-mode-dynamo-skip").click();
+    await page.getByTestId("prompt-mode-watcher-skip").click();
+    await expect(page.getByTestId("prompt-mode-dynamo-skip")).toHaveAttribute("aria-pressed", "true");
     expect(await page.evaluate(() => localStorage.getItem("player_ask_aetherpassage"))).toBe("false");
     expect(await page.evaluate(() => localStorage.getItem("player_ask_dynamo"))).toBe("false");
     await shot(page, testInfo, `5-panel-some-skipped-${size}`);

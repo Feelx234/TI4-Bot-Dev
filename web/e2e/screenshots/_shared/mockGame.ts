@@ -174,8 +174,8 @@ export async function openMockedGame(page: Page, options: MockGameOptions = {}):
     connected = resolve;
   });
   // Like the real server: a seat's reaction modes live on the server, `set_reaction_mode` changes
-  // them and the seat's next state update carries the result (only "never" is listed).
-  const reactionModes: Record<string, "never"> = {};
+  // them and the seat's next state update carries the result (a card that is "always" is not listed).
+  const reactionModes: Record<string, "never" | "ownturn"> = {};
   await page.routeWebSocket(`**/ws/games/${GAME_ID}`, (socket) => {
     socket.onMessage((data) => {
       const message = JSON.parse(String(data)) as ClientMessage;
@@ -183,7 +183,7 @@ export async function openMockedGame(page: Page, options: MockGameOptions = {}):
         socket.send(JSON.stringify(snapshot));
         connected(socket);
       } else if (message.type === "set_reaction_mode" && !options.spectator) {
-        if (message.mode === "never") reactionModes[message.card] = "never";
+        if (message.mode === "never" || message.mode === "ownturn") reactionModes[message.card] = message.mode;
         else delete reactionModes[message.card];
         const { events: _events, ...update } = snapshot;
         socket.send(

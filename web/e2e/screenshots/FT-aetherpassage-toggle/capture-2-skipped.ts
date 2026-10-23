@@ -10,10 +10,10 @@ test("Aetherpassage skipped after switching off", async ({ page }, testInfo) => 
   await expect(page.getByTestId("prompts-btn")).toContainText("Prompts (7)");
   await shot(page, testInfo, "2-sheet-ask", { of: sheetTop, pad: 40 });
   await page.getByTestId("prompts-btn").click();
-  const toggle = page.getByTestId("prompt-toggle-aetherpassage");
-  await expect(toggle).toHaveText("Ask");
-  await toggle.click();
-  await expect(toggle).toHaveText("Skipped");
+  const skip = page.getByTestId("prompt-mode-aetherpassage-skip");
+  await expect(page.getByTestId("prompt-mode-aetherpassage-ask")).toHaveAttribute("aria-pressed", "true");
+  await skip.click();
+  await expect(skip).toHaveAttribute("aria-pressed", "true");
   await shot(page, testInfo, "3-sheet-skipped");
   await page.getByTestId("prompts-panel-close").click();
   advance(1, null);
@@ -40,7 +40,7 @@ test("Aetherpassage switch inside the offer", async ({ page }, testInfo) => {
 test("Aetherpassage asked again after an undo", async ({ page }, testInfo) => {
   const { advance, submissions } = await openScene(page);
   await page.getByTestId("prompts-btn").click();
-  await page.getByTestId("prompt-toggle-aetherpassage").click();
+  await page.getByTestId("prompt-mode-aetherpassage-skip").click();
   await page.getByTestId("prompts-panel-close").click();
   advance(3, null);
   advance(2, aetherOffer("aether-4"), 1);

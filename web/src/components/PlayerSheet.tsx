@@ -2,6 +2,7 @@ import { ARMADA_BONUS, ARMADA_TEXT, hasArmada } from "../presentation/commandTok
 import React, { useState } from "react";
 import { PlanetValue } from "./PlanetValueIcons.tsx";
 import { BoardView, ChoiceOption, PlayerView, ReactionModes, ReactionModeSetting, TableView } from "../protocol/types.ts";
+import { offersOwnTurnForCard } from "../presentation/actionCardTurns.ts";
 import { BluffSelector, useBluffControls } from "./BluffSelector.tsx";
 import {
   getStrategyCardMeta,
@@ -228,8 +229,10 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
   }, [players, userSeat, seatingOrder]);
 
   // Per printed card name and per game, held by the server: every copy of a card shares it.
-  const getReactionMode = (cardName: string): ReactionModeSetting =>
-    reactionModes?.[cardName] === "never" ? "never" : "always";
+  const getReactionMode = (cardName: string): ReactionModeSetting => {
+    const mode = reactionModes?.[cardName];
+    return mode === "never" || mode === "ownturn" ? mode : "always";
+  };
 
   return (
     <aside
@@ -764,12 +767,15 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                         const meta = getActionCardMeta(cardId);
                         const tooltipText = `${meta.name} (${meta.phase ?? "Action"})\n\n${meta.description}`;
                         const mode = getReactionMode(meta.name);
-                        const modeLabel = mode === "always" ? "✓" : "✕";
-                        const modeColor = mode === "always" ? "#4ade80" : "#ef4444";
+                        const modeLabel = mode === "never" ? "✕" : "✓";
+                        const modeColor = mode === "never" ? "#ef4444" : "#4ade80";
+                        const ownTurnCard = offersOwnTurnForCard(meta);
                         const modeTitle =
-                          mode === "always"
-                            ? `${meta.name} is offered when it fits a window (click to never offer it this game)`
-                            : `${meta.name} is never offered this game (click to offer it again)`;
+                          mode === "ownturn"
+                            ? `${meta.name} is offered only in your own turn this game (click to never offer it)`
+                            : mode === "always"
+                              ? `${meta.name} is offered when it fits a window (click to never offer it this game)`
+                              : `${meta.name} is never offered this game (click to offer it again)`;
 
                         return (
                           <li
@@ -847,7 +853,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                                   e.stopPropagation();
                                   onSetReactionMode(
                                     meta.name,
-                                    mode === "always" ? "never" : "always",
+                                    mode === "never" ? "always" : "never",
                                   );
                                 }}
                                 style={{
@@ -864,6 +870,36 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                                 }}
                               >
                                 {modeLabel}
+                              </button>
+                            )}
+                            {isSelf && onSetReactionMode && ownTurnCard && (
+                              <button
+                                type="button"
+                                title={
+                                  mode === "ownturn"
+                                    ? `${meta.name} is offered only in your own turn (click to offer it in every turn)`
+                                    : `Offer ${meta.name} only in your own turn this game (it is skipped while another player has the turn)`
+                                }
+                                aria-label={`${meta.name}: only in my turn`}
+                                aria-pressed={mode === "ownturn"}
+                                data-testid={`reaction-inspect-ownturn-${cardId}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onSetReactionMode(meta.name, mode === "ownturn" ? "always" : "ownturn");
+                                }}
+                                style={{
+                                  background: mode === "ownturn" ? "rgba(245, 158, 11, 0.18)" : "transparent",
+                                  border: `1px solid ${mode === "ownturn" ? "#f59e0b" : "#94a3b8"}`,
+                                  color: mode === "ownturn" ? "#fcd34d" : "#94a3b8",
+                                  fontSize: 11,
+                                  fontWeight: "bold",
+                                  padding: "2px 6px",
+                                  borderRadius: 4,
+                                  cursor: "pointer",
+                                  flexShrink: 0,
+                                }}
+                              >
+                                My turn
                               </button>
                             )}
                           </li>
