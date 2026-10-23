@@ -104,4 +104,73 @@ describe("dice roll toasts", () => {
       "np rolled an 8 at the gravity rift in #67 and the ship survived\nnp rolled a 3 at the gravity rift in #67 and the ship was destroyed, with anything it carried",
     );
   });
+
+  describe("Space Cannon", () => {
+    const cannon = (extra: Partial<PublicRoll>): PublicRoll => ({
+      index: 40,
+      roller: "p1",
+      reason: "space cannon",
+      label: "Space cannon",
+      faces: [1],
+      hits_on: 5,
+      hits: 0,
+      system: "18",
+      outcome: "no hits",
+      unit: "pds2",
+      planet: "lodor",
+      ...extra,
+    });
+
+    it("tells a missed volley: the system, the gun, the planet, what it needed and the die", () => {
+      const [toast] = rollToasts([rolled(cannon({}))], label);
+      expect(toast.tag).toBe("Space Cannon");
+      expect(toast.text.split("\n")).toEqual([
+        "p1's Space Cannon Offense in #18 [Mecatol Rex]",
+        "PDS II on Lodor (needs 5+): 1 miss - no hits",
+      ]);
+    });
+
+    it("marks a hit", () => {
+      const [toast] = rollToasts([rolled(cannon({ index: 41, faces: [5], hits: 1, outcome: "1 hit" }))], label);
+      expect(toast.text).toContain("PDS II on Lodor (needs 5+): 5 hit - 1 hit");
+    });
+
+    it("groups the guns and dice of one volley into one toast with a total", () => {
+      const toasts = rollToasts(
+        [
+          rolled(cannon({ index: 42, faces: [2, 9], hits: 1 })),
+          rolled(cannon({ index: 43, unit: "pds", planet: "mecatol_rex", faces: [3], hits: 0 })),
+          rolled(cannon({ index: 44, unit: "xxcha_mech", planet: undefined, unit_system: "19", faces: [8], hits_on: 8, hits: 1 })),
+        ],
+        label,
+      );
+      expect(toasts).toHaveLength(1);
+      expect(toasts[0].text.split("\n")).toEqual([
+        "p1's Space Cannon Offense in #18 [Mecatol Rex]",
+        "PDS II on Lodor (needs 5+): 2 miss, 9 hit - 1 hit",
+        "PDS on Mecatol Rex (needs 5+): 3 miss - no hits",
+        "Xxcha Mech (adjacent #19) (needs 8+): 8 hit - 1 hit",
+        "Total: 2 hits",
+      ]);
+    });
+
+    it("names Space Cannon Defense, and copes with a roll that names no gun", () => {
+      const [toast] = rollToasts(
+        [rolled(cannon({ index: 45, reason: "space cannon defense", unit: undefined, planet: undefined, faces: [6], hits: 1 }))],
+        label,
+      );
+      expect(toast.text.split("\n")).toEqual([
+        "p1's Space Cannon Defense in #18 [Mecatol Rex]",
+        "Space Cannon (needs 5+): 6 hit - 1 hit",
+      ]);
+    });
+
+    it("keeps joining the guns of one volley that arrive one by one", () => {
+      const first = rollToasts([rolled(cannon({ index: 46 }))], label);
+      const second = rollToasts([rolled(cannon({ index: 47, faces: [6], hits: 1 }))], label);
+      const [toast] = mergeRollToasts(first, second, 3);
+      expect(toast.text.split("\n").slice(-1)[0]).toBe("Total: 1 hit");
+      expect(toast.id).toBe(first[0].id);
+    });
+  });
 });

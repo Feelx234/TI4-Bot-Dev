@@ -1,0 +1,11 @@
+{
+  "title": "Swiped toast leaves no invisible box",
+  "description": "Swiping away an agenda vote-cast toast on a phone (or dragging it on desktop) left an invisible, still clickable box in the corner that swallowed taps meant for the controls below. The dismiss handler removed the toast from every toast list except the vote-cast one, so the faded-out button stayed in the DOM. It is now removed, and a toast that is on its way out no longer takes pointer events. The capture swipes both vote toasts away, asserts that none is left and that elementFromPoint at the old spot is not a toast. The before shots (TI4_SHOT_PREFIX=before, fix stashed) mark the leftover elements in red. The phone case runs with reduced motion, where the toast does not slide away and so stays where it was; with animations the slide-out parks it off screen on a phone, but on desktop it stays on screen.",
+  "tag": "web/e2e/screenshots/GW-toast-swipe-ghost-box",
+  "shots": [
+    { "file": "before/before-1-swiped-phone.png", "heading": "Before, phone 390x844 (touch swipe, reduced motion)", "caption": "Both toasts swiped away with a finger. With reduced motion on (no slide-out) the invisible, still tappable toast buttons (red dashed, drawn here to show where they are) stay in the corner and take every tap over the map and bottom buttons." },
+    { "file": "out/after-1-swiped-phone.png", "heading": "After, phone 390x844", "caption": "Nothing is left in the corner; the hit-test finds the page underneath." },
+    { "file": "before/before-1-swiped-desktop.png", "heading": "Before, desktop (mouse drag)", "caption": "Both toasts dragged to the right: the slide-out parks them 120% to the right, still on screen and over the map, invisible (red dashed) and tappable." },
+    { "file": "out/after-1-swiped-desktop.png", "heading": "After, desktop", "caption": "Clean." }
+  ]
+}

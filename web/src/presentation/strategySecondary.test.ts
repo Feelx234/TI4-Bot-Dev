@@ -40,7 +40,7 @@ describe("describeStrategySecondary", () => {
     expect(view?.playedBy).toBe("seat_b");
     expect(view?.secondaryText).toBeTruthy();
     expect(view?.tokensLeft).toBe(3);
-    expect(view?.yes.id).toBe("yes");
+    expect(view?.yes?.id).toBe("yes");
     expect(view?.no.id).toBe("no");
     expect(view?.yesLabel).toBe("Spend 1 strategy token to draw two action cards");
   });
@@ -70,5 +70,32 @@ describe("describeStrategySecondary", () => {
     });
     expect(trade?.commodities).toEqual({ have: 1, max: 4, tradeGoods: 0 });
     expect(describeStrategySecondary(choice)?.commodities).toBeNull();
+  });
+});
+
+describe("Acquiescence beside the normal secondary", () => {
+  const base = {
+    prompt: "spend a strategy token to draw two action cards",
+    details: { kind: "strategy_secondary", card: "pok3politics", played_by: "a", tokens_left: 2, costs_token: true },
+  };
+  const acq = { id: "follow|waived|3|acq", label: "resolve the secondary using Acquiescence", kind: "strategy", payload: {} };
+
+  it("keeps Follow and Skip and adds a Use Acquiescence option with the card text", () => {
+    const view = describeStrategySecondary({ ...base, options: [...options, acq] });
+    expect(view?.yes?.id).toBe("yes");
+    expect(view?.waivers).toHaveLength(1);
+    expect(view?.waivers[0].option.id).toBe("follow|waived|3|acq");
+    expect(view?.waivers[0].label).toBe("Use Acquiescence");
+    expect(view?.waivers[0].note?.text).toMatch(/do not have to spend or place a command token/i);
+  });
+
+  it("with no strategy token left offers only Acquiescence and Skip", () => {
+    const view = describeStrategySecondary({ ...base, options: [options[0], acq] });
+    expect(view?.yes).toBeNull();
+    expect(view?.waivers.map((w) => w.option.id)).toEqual(["follow|waived|3|acq"]);
+  });
+
+  it("an unrelated extra option is still not a secondary", () => {
+    expect(describeStrategySecondary({ ...base, options: [...options, acq, { ...acq, id: "zzz" }] })).toBeNull();
   });
 });

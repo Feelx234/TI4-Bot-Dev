@@ -5,6 +5,7 @@ import {
   getMovementPayload,
   getTradePayload,
   getCombatPayload,
+  plagiarizeTechId,
 } from "./choiceModel.ts";
 import { PendingChoiceDto } from "../protocol/types.ts";
 import { partialContext } from "../test/wire.ts";
@@ -320,6 +321,23 @@ describe("choiceModel", () => {
       expect(model?.isOptional).toBe(true);
     });
 
+    it("routes the Plagiarize technology pick to the technology workflow", () => {
+      const plagiarize: PendingChoiceDto = {
+        ...baseChoice,
+        prompt: "Plagiarize: which technology to steal",
+        context: partialContext({
+          subtype: "plagiarize_pick_technology",
+          source: { ActionCard: "plagiarize" },
+        }),
+        options: [
+          { id: "seat_2|gd", label: "seat_2's Gravity Drive", kind: "technology", payload: {} },
+          { id: "seat_3|sr", label: "seat_3's Sarween Tools", kind: "technology", payload: {} },
+        ],
+      };
+      expect(deriveChoiceRendererModel(plagiarize, "seat_1")?.workflow).toBe("technology_research");
+      expect(plagiarizeTechId("seat_2|gd")).toBe("gd");
+    });
+
     it("routes the Enigmatic Device question to the technology workflow, not Maw of Worlds", () => {
       const options = [
         { id: "gd", label: "gain gd", kind: "technology", payload: {} },
@@ -351,6 +369,21 @@ describe("choiceModel", () => {
         }),
       };
       expect(deriveChoiceRendererModel(maw, "seat_1")?.workflow).not.toBe("technology_research");
+    });
+
+    it("routes the Research Grant Reallocation question to the technology workflow", () => {
+      const grant: PendingChoiceDto = {
+        ...baseChoice,
+        prompt: "gain which technology",
+        context: partialContext({
+          subtype: "grant_reallocation_choose_technology",
+          source: { Content: "grant_reallocation" },
+        }),
+        options: [{ id: "hm", label: "gain hm", kind: "technology", payload: {} }],
+      };
+      const model = deriveChoiceRendererModel(grant, "seat_1");
+      expect(model?.workflow).toBe("technology_research");
+      expect(model?.selectionMode).toEqual({ mode: "single" });
     });
 
     it("keeps an engine-built offer card out of the technology workflow", () => {

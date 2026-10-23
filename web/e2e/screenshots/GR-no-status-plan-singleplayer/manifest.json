@@ -1,0 +1,47 @@
+{
+ "title": "No status-token plan in singleplayer",
+ "description": "The plan-the-status-phase-tokens chip and dialog exist so a person can decide while other people act. When every other seat is an in-process bot (random/smart lobby slot, as in offline singleplayer) nobody is waited on, so the chip, the dialog and the stored-plan auto-play are not offered. Tables with another human seat (or an MLP bot) keep it. Synthetic fixtures through a mocked server; regenerate with npm run screenshots -- GR.",
+ "tag": "web/e2e/screenshots/GR-no-status-plan-singleplayer",
+ "shots": [
+  {
+   "file": "before/before-solo-desktop.png",
+   "heading": "Before: singleplayer, desktop",
+   "caption": "Every other seat is a rule bot, yet the 'Plan status tokens' chip is offered although nobody is waited on."
+  },
+  {
+   "file": "out/after-solo-desktop.png",
+   "heading": "After: singleplayer, desktop",
+   "caption": "The chip is gone; the board strip has nothing to plan."
+  },
+  {
+   "file": "before/before-multi-desktop.png",
+   "heading": "Before: multiplayer, desktop",
+   "caption": "Another human seat: the chip is shown."
+  },
+  {
+   "file": "out/after-multi-desktop.png",
+   "heading": "After: multiplayer, desktop",
+   "caption": "Unchanged: the chip is still shown, so a person can plan while others act."
+  },
+  {
+   "file": "before/before-solo-phone.png",
+   "heading": "Before: singleplayer, 390x844",
+   "caption": "Every other seat is a rule bot, yet the 'Plan status tokens' chip is offered although nobody is waited on."
+  },
+  {
+   "file": "out/after-solo-phone.png",
+   "heading": "After: singleplayer, 390x844",
+   "caption": "The chip is gone; the board strip has nothing to plan."
+  },
+  {
+   "file": "before/before-multi-phone.png",
+   "heading": "Before: multiplayer, 390x844",
+   "caption": "Another human seat: the chip is shown."
+  },
+  {
+   "file": "out/after-multi-phone.png",
+   "heading": "After: multiplayer, 390x844",
+   "caption": "Unchanged: the chip is still shown, so a person can plan while others act."
+  }
+ ]
+}

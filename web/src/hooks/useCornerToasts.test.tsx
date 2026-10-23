@@ -134,6 +134,20 @@ describe("useCornerToasts", () => {
     expect(result.current.history.filter((h) => h.tag === "Vote")).toHaveLength(3);
   });
 
+  it("removes a dismissed vote-cast toast for good (a swiped toast left an invisible box behind)", () => {
+    const c1: AgendaCastDto = { player: "p2", outcome: "for", votes: 7 };
+    const c2: AgendaCastDto = { player: "p1", outcome: "against", votes: 3 };
+    const { result, rerender } = renderHook((p: Props) => useCornerToasts(p), { initialProps: { ...base, agendaCasts: [] as AgendaCastDto[] } });
+    rerender({ ...base, agendaCasts: [c1, c2] });
+    expect(result.current.notifications).toHaveLength(2);
+    act(() => result.current.dismiss(result.current.notifications[0].id));
+    expect(result.current.notifications).toHaveLength(1);
+    act(() => result.current.dismiss(result.current.notifications[0].id));
+    expect(result.current.notifications).toHaveLength(0);
+    // The history keeps both.
+    expect(result.current.history.filter((h) => h.tag === "Vote")).toHaveLength(2);
+  });
+
   it("toasts a relic gain once for every seat, highlighting the viewer's own, and lists it in the history", () => {
     const mine: RelicGainDto = { round: 2, player: "p1", relic: "nanoforge" };
     const theirs: RelicGainDto = { round: 2, player: "p2", relic: "shard", victory_points: 1 };

@@ -1018,6 +1018,76 @@ fn winnuagent_1_berekar_cuts_any_players_production_by_two_and_readies_at_status
     }
 }
 
+/// Winnu's own production with 1 trade good: a carrier (cost 3) is out of reach until Berekar
+/// Berekon's -2 is taken inside the production question.
+fn winnu_own_production(rules: u32, script: &[&str]) -> (Game<'static>, Seen) {
+    let mut state = winnu_game();
+    state.rules_version = rules;
+    broke(&mut state, &a());
+    state.player_mut(&a()).unwrap().trade_goods = 1;
+    state.player_mut(&a()).unwrap().fleet_tokens = 10;
+    let home = state.player(&a()).unwrap().home_system.clone().unwrap();
+    let mut answers = vec![TACTICAL_ACTION_ID, home.as_str(), "done_moving"];
+    answers.extend_from_slice(script);
+    let (mut game, seen) = action_game(state, "a", Some(plain_hub().galaxy), &answers);
+    steps(&mut game, 12);
+    (game, seen)
+}
+
+#[test]
+fn winnuagent_2_berekar_is_offered_in_the_owners_own_production_dialog() {
+    let (game, seen) = winnu_own_production(
+        ti4_model::state::RULES_VERSION,
+        &["exhaust_agent|winnuagent", "build|carrier|1", "done_producing"],
+    );
+    let home = game.state.player(&a()).unwrap().home_system.clone().unwrap();
+    let before = ships(&winnu_game(), &home, &a(), "carrier");
+    // No separate reaction window for the owner's own production.
+    assert!(
+        !was_offered(&seen, "leader:winnu:winnuagent:PRODUCTION_USED:after"),
+        "{:?}",
+        asked(&seen)
+    );
+    assert!(was_offered(&seen, "exhaust_agent|winnuagent"), "{:?}", asked(&seen));
+    // 3 - 2 = 1 trade good paid; the carrier was out of reach without the discount.
+    assert_eq!(game.state.player(&a()).unwrap().trade_goods, 0);
+    assert_eq!(ships(&game.state, &home, &a(), "carrier"), before + 1);
+    assert_eq!(
+        leader_status(&game.state, &a(), "winnuagent"),
+        Some(LeaderStatus::Exhausted)
+    );
+}
+
+#[test]
+fn winnuagent_2_berekar_stays_ready_when_the_owner_does_not_use_it() {
+    let (game, seen) = winnu_own_production(
+        ti4_model::state::RULES_VERSION,
+        &["build|fighter|2", "done_producing"],
+    );
+    assert!(was_offered(&seen, "exhaust_agent|winnuagent"), "{:?}", asked(&seen));
+    assert_eq!(
+        leader_status(&game.state, &a(), "winnuagent"),
+        Some(LeaderStatus::Readied)
+    );
+}
+
+#[test]
+fn winnuagent_2_legacy_games_keep_the_reaction_window_and_no_dialog_option() {
+    let (game, seen) = winnu_own_production(
+        ti4_model::state::RULES_WINNU_AGENT_PRODUCTION - 1,
+        &[
+            "leader:winnu:winnuagent:PRODUCTION_USED:after",
+            "build|carrier|1",
+            "done_producing",
+        ],
+    );
+    let home = game.state.player(&a()).unwrap().home_system.clone().unwrap();
+    assert!(was_offered(&seen, "leader:winnu:winnuagent:PRODUCTION_USED:after"));
+    assert!(!was_offered(&seen, "exhaust_agent|winnuagent"), "{:?}", asked(&seen));
+    let before = ships(&winnu_game(), &home, &a(), "carrier");
+    assert_eq!(ships(&game.state, &home, &a(), "carrier"), before + 1);
+}
+
 /// A system holding a legendary planet.
 fn legendary_system() -> SystemId {
     use ti4_model::content_types::POK;

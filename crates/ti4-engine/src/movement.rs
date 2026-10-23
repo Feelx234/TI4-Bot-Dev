@@ -2203,4 +2203,92 @@ mod tests {
             "home out through the gate to its neighbour: two systems entered"
         );
     }
+
+    /// The hyperlane map of the alpha report fb_1792614224_b9e447ad (round 1, seat c, Ghosts of
+    /// Creuss): the home carrier in 51 could not go to Rigel (76). The lane in 87a joins Centauri
+    /// (34) and Rigel, and 23 joins Rigel too, so home -> gate (17) -> 34 -> 76 is three systems.
+    fn rigel_map() -> Galaxy {
+        let content = ContentStore::embedded();
+        let tiles: &[(&str, i32, i32)] = &[
+            ("11", -3, 0),
+            ("28", -3, 1),
+            ("83a180", -3, 2),
+            ("85a180", -3, 3),
+            ("33", -2, -1),
+            ("74", -2, 0),
+            ("88a180", -2, 1),
+            ("19", -2, 2),
+            ("84a180", -2, 3),
+            ("31", -1, -2),
+            ("21", -1, -1),
+            ("65", -1, 0),
+            ("86a180", -1, 1),
+            ("87a180", -1, 2),
+            ("60", -1, 3),
+            ("17", 0, -3),
+            ("34", 0, -2),
+            ("72", 0, -1),
+            ("18", 0, 0),
+            ("61", 0, 1),
+            ("32", 0, 2),
+            ("58", 0, 3),
+            ("23", 1, -3),
+            ("87a", 1, -2),
+            ("86a", 1, -1),
+            ("27", 1, 0),
+            ("62", 1, 1),
+            ("63", 1, 2),
+            ("84a", 2, -3),
+            ("76", 2, -2),
+            ("88a", 2, -1),
+            ("29", 2, 0),
+            ("24", 2, 1),
+            ("85a", 3, -3),
+            ("83a", 3, -2),
+            ("59", 3, -1),
+            ("55", 3, 0),
+        ];
+        let placed: Vec<(&str, ti4_model::hex::Hex)> = tiles
+            .iter()
+            .map(|(id, q, r)| (*id, ti4_model::hex::Hex::new(*q, *r)))
+            .collect();
+        let mut galaxy = Galaxy::placed(content, &placed, FULL).unwrap();
+        crate::seating::place_creuss_home(&mut galaxy, content, FULL).unwrap();
+        galaxy
+    }
+
+    #[test]
+    fn the_lanes_join_rigel_to_centauri_and_not_by_hex_alone() {
+        let mut galaxy = rigel_map();
+        // Older rules: the lane tile 87a is an empty hex, 34 and 76 are two steps apart.
+        assert!(!galaxy.are_adjacent("34", "76"));
+        galaxy.hyperlane_lanes = true;
+        assert!(galaxy.are_adjacent("34", "76") && galaxy.are_adjacent("76", "34"));
+        assert!(galaxy.are_adjacent("23", "76"), "the lane in 84a");
+        assert!(galaxy.are_adjacent("72", "76"), "two lanes in a row");
+        assert!(
+            galaxy.adjacent("87a").is_empty(),
+            "a lane tile is no system and no neighbour"
+        );
+        assert!(
+            !galaxy.adjacent("34").contains("87a"),
+            "a lane tile is not a hex neighbour either"
+        );
+    }
+
+    #[test]
+    fn the_home_carrier_reaches_rigel_with_gravity_drive_over_the_lanes() {
+        let content = ContentStore::embedded();
+        let mut galaxy = rigel_map();
+        let reach = |galaxy: &Galaxy, value: i32| {
+            MovementRules::new(galaxy, content, FULL, "76", Board::default())
+                .can_reach(crate::seating::CREUSS_HOME, value)
+        };
+        // Older rules: four systems (gate, 34, the empty lane hex, 76), so even Gravity Drive's
+        // 2 + 1 fell short.
+        assert!(!reach(&galaxy, 3) && reach(&galaxy, 4));
+        galaxy.hyperlane_lanes = true;
+        assert!(!reach(&galaxy, 2), "a move of 2 still stops at 34");
+        assert!(reach(&galaxy, 3), "gate, 34, Rigel");
+    }
 }

@@ -16,9 +16,11 @@ export const StrategySecondaryPanel: React.FC<{
   const display = usePlayerIdentity();
   const player = view.playedBy ? display(view.playedBy) : null;
   const hint = usePreparedHint();
-  const preparedYes = hint?.optionId === view.yes.id;
+  const preparedYes = view.yes !== null && hint?.optionId === view.yes.id;
   const preparedNo = hint?.optionId === view.no.id;
-  const cantPay = view.costsToken && view.tokensLeft !== null && view.tokensLeft < 1;
+  const cantPay =
+    view.costsToken && view.tokensLeft !== null && view.tokensLeft < 1;
+  const yes = view.yes;
   return (
     <div className="secondary-panel" data-testid="strategy-secondary-panel">
       <div className="secondary-panel__card">
@@ -28,7 +30,10 @@ export const StrategySecondaryPanel: React.FC<{
           <span className="secondary-panel__tag">secondary</span>
         </div>
         {player && (
-          <div className="secondary-panel__meta" data-testid="secondary-played-by">
+          <div
+            className="secondary-panel__meta"
+            data-testid="secondary-played-by"
+          >
             Played by {player.label}
           </div>
         )}
@@ -43,29 +48,78 @@ export const StrategySecondaryPanel: React.FC<{
         <div className="secondary-panel__tokens" data-testid="secondary-tokens">
           <span>Strategy tokens</span>
           <span className="secondary-panel__pips" aria-hidden="true">
-            {Array.from({ length: Math.max(view.tokensLeft, 0) }, (_, index) => (
-              <i key={index} className="secondary-panel__pip" />
-            ))}
+            {Array.from(
+              { length: Math.max(view.tokensLeft, 0) },
+              (_, index) => (
+                <i key={index} className="secondary-panel__pip" />
+              ),
+            )}
           </span>
           <strong>
             {view.tokensLeft}
-            {view.costsToken && view.tokensLeft > 0 ? ` (${view.tokensLeft - 1} after)` : ""}
+            {view.costsToken && view.tokensLeft > 0
+              ? ` (${view.tokensLeft - 1} after)`
+              : ""}
           </strong>
         </div>
       )}
-      {view.commodities && <CommodityStandingFacts standing={view.commodities} />}
+      {view.commodities && (
+        <CommodityStandingFacts standing={view.commodities} />
+      )}
+      {view.waivers.map(
+        (waiver) =>
+          waiver.note?.text && (
+            <p
+              key={waiver.option.id}
+              className="secondary-panel__text"
+              data-testid="secondary-waiver-text"
+            >
+              <strong>{waiver.note.name}:</strong> {waiver.note.text}
+            </p>
+          ),
+      )}
       <div className="secondary-panel__actions">
-        <button
-          type="button"
-          className="button button--primary"
-          data-testid="secondary-yes-btn"
-          data-prepared={preparedYes || undefined}
-          disabled={disabled || cantPay}
-          onClick={() => onChoose(view.yes.id)}
-        >
-          <ValueText text={view.yesLabel} />
-          {preparedYes && <span className="secondary-panel__prepared"> (prepared)</span>}
-        </button>
+        {yes && (
+          <button
+            type="button"
+            className="button button--primary"
+            data-testid="secondary-yes-btn"
+            data-prepared={preparedYes || undefined}
+            disabled={disabled || cantPay}
+            onClick={() => onChoose(yes.id)}
+          >
+            <ValueText text={view.yesLabel} />
+            {preparedYes && (
+              <span className="secondary-panel__prepared"> (prepared)</span>
+            )}
+          </button>
+        )}
+        {view.waivers.map((waiver) => {
+          const prepared = hint?.optionId === waiver.option.id;
+          return (
+            <button
+              key={waiver.option.id}
+              type="button"
+              className={
+                yes ? "button button--secondary" : "button button--primary"
+              }
+              data-testid="secondary-waiver-btn"
+              data-prepared={prepared || undefined}
+              title={waiver.note?.text ?? undefined}
+              disabled={disabled}
+              onClick={() => onChoose(waiver.option.id)}
+            >
+              {waiver.label}
+              <span className="secondary-panel__free">
+                {" "}
+                (no strategy token)
+              </span>
+              {prepared && (
+                <span className="secondary-panel__prepared"> (prepared)</span>
+              )}
+            </button>
+          );
+        })}
         <button
           type="button"
           className="button button--secondary"
@@ -75,7 +129,9 @@ export const StrategySecondaryPanel: React.FC<{
           onClick={() => onChoose(view.no.id)}
         >
           {view.noLabel}
-          {preparedNo && <span className="secondary-panel__prepared"> (prepared)</span>}
+          {preparedNo && (
+            <span className="secondary-panel__prepared"> (prepared)</span>
+          )}
         </button>
       </div>
     </div>

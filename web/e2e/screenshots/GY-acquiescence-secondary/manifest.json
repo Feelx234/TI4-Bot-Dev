@@ -1,0 +1,53 @@
+{
+ "title": "Acquiescence in the secondary panel",
+ "description": "A Winnu Acquiescence held by a follower is offered by the engine as a third option on the strategy secondary question. The client only recognised yes/no pairs, so it dropped to a plain option list. It now keeps the normal secondary panel and adds a Use Acquiescence button (with the card text) beside Follow and Skip; the engine option id is unchanged. Synthetic fixtures through a mocked server.",
+ "tag": "web/e2e/screenshots/GY-acquiescence-secondary",
+ "shots": [
+  {
+   "file": "before/before-with-token-desktop.png",
+   "heading": "Before, with a strategy token (desktop)",
+   "caption": "A bare option list: decline, follow, and the raw engine label 'resolve the secondary using Acquiescence'. No card, token count or Follow/Skip layout."
+  },
+  {
+   "file": "out/after-with-token-desktop.png",
+   "heading": "After, with a strategy token (desktop)",
+   "caption": "The normal secondary panel: card, played by, secondary text, strategy tokens, Follow and Skip, plus 'Use Acquiescence (no strategy token)' with the printed note text."
+  },
+  {
+   "file": "before/before-with-token-390x844.png",
+   "heading": "Before, with a strategy token (phone 390x844)",
+   "caption": "A bare option list: decline, follow, and the raw engine label 'resolve the secondary using Acquiescence'. No card, token count or Follow/Skip layout."
+  },
+  {
+   "file": "out/after-with-token-390x844.png",
+   "heading": "After, with a strategy token (phone 390x844)",
+   "caption": "The normal secondary panel: card, played by, secondary text, strategy tokens, Follow and Skip, plus 'Use Acquiescence (no strategy token)' with the printed note text."
+  },
+  {
+   "file": "before/before-no-token-desktop.png",
+   "heading": "Before, no strategy token left (desktop)",
+   "caption": "Only decline and the raw Acquiescence label in the bare option list."
+  },
+  {
+   "file": "out/after-no-token-desktop.png",
+   "heading": "After, no strategy token left (desktop)",
+   "caption": "Follow is gone (no token to spend); 'Use Acquiescence' is the primary button beside Skip, with the note text above."
+  },
+  {
+   "file": "before/before-no-token-390x844.png",
+   "heading": "Before, no strategy token left (phone 390x844)",
+   "caption": "Only decline and the raw Acquiescence label in the bare option list."
+  },
+  {
+   "file": "out/after-no-token-390x844.png",
+   "heading": "After, no strategy token left (phone 390x844)",
+   "caption": "Follow is gone (no token to spend); 'Use Acquiescence' is the primary button beside Skip, with the note text above."
+  }
+ ],
+ "notes": [
+  {
+   "title": "Reproduce. ",
+   "text": "cd web && npm run screenshots -- GY. Before shots: TI4_SHOT_PREFIX=before npm run screenshots -- GY on the base commit, moved into before/."
+  }
+ ]
+}

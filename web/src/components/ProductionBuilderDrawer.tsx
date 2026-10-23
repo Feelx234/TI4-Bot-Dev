@@ -11,7 +11,9 @@ import { MechInfoRow, UnitInfoButton } from "./UnitInfo.tsx";
 import { UnitIcon, getUnitBaseType } from "./UnitIcon.tsx";
 import { UnitBuildStats, useBuildUnit } from "./UnitBuildStats.tsx";
 import {
+  agentDiscount,
   draftResourceCost,
+  isAgentDiscountOption,
   productionTotal,
   isExchangeOption,
   optionUnit,
@@ -246,6 +248,8 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
   const display = usePlayerIdentity();
   const { enabled: singlePayment, setEnabled: setSinglePayment } = useSinglePaymentSetting();
   const [draft, setDraft] = useState<Record<string, number>>({});
+  // Berekar Berekon's -2, staged like a build: sent first when the builds are confirmed.
+  const [useAgent, setUseAgent] = useState(false);
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchError, setBatchError] = useState<string | null>(null);
   // A prepared Warfare secondary opens the real builder with its planned builds already staged;
@@ -255,6 +259,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
     const planned =
       choice && prepared?.builds?.length ? planBuilds(choice, prepared.builds) : null;
     setDraft(planned?.ok ? planned.draft : {});
+    setUseAgent(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [choice?.nonce, prepared?.builds?.join(",")]);
   // While preparing, the stand-in is answered into the plan: there is no build queue to run.
@@ -265,8 +270,13 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
 
   const productionOptions = useMemo(() => {
     if (!choice) return [];
-    return choice.options.filter((o) => o.id !== "decline" && o.kind !== "decline");
+    return choice.options.filter(
+      (o) => o.id !== "decline" && o.kind !== "decline" && !isAgentDiscountOption(o),
+    );
   }, [choice]);
+  const agentOption = choice?.options.find(isAgentDiscountOption) ?? null;
+  const agentOffered = agentDiscount(choice);
+  const stagedAgent = useAgent && !!agentOption && productionOptions.length > 0 ? agentOffered : 0;
 
   const constraints = model?.outstanding?.[0] ?? choice?.context?.outstanding?.[0];
   const capacityLimit =
@@ -282,8 +292,8 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
       (draft[opt.id] ?? 0) * optionCapacity(opt),
     0,
   );
-  const stagedCost = draftResourceCost(productionOptions, draft);
-  const total = productionTotal(productionOptions, draft);
+  const stagedCost = draftResourceCost(productionOptions, draft, stagedAgent);
+  const total = productionTotal(productionOptions, draft, stagedAgent);
   const availableResources = productionOptions.find(
     (opt) => typeof opt.payload?.available_resources === "number",
   )?.payload?.available_resources;
@@ -541,6 +551,38 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
 
                     <MechInfoRow seat={choice.actor} />
 
+                    {agentOption && (
+                      <label
+                        className="production-drawer__setting production-drawer__agent"
+                        data-testid="production-agent-toggle-row"
+                      >
+                        {productionOptions.length > 0 ? (
+                          <>
+                            <input
+                              type="checkbox"
+                              data-testid="production-agent-toggle"
+                              checked={useAgent}
+                              disabled={queued || isSubmitting || batchRunning || preparing}
+                              onChange={(event) => setUseAgent(event.target.checked)}
+                            />{" "}
+                            {agentOption.label}
+                          </>
+                        ) : (
+                          // Nothing is within reach yet: the card is the only thing to take, so it
+                          // is sent at once and the builds it brings within reach appear next.
+                          <button
+                            type="button"
+                            className="button button--secondary"
+                            data-testid="production-agent-button"
+                            disabled={queued || isSubmitting || preparing}
+                            onClick={() => submitDirect(agentOption.id)}
+                          >
+                            {agentOption.label}
+                          </button>
+                        )}
+                      </label>
+                    )}
+
                     {/* Build options, grouped by where the unit fights */}
                     <div data-testid="production-options-grid" className="production-drawer__groups">
                       {optionGroups.map((group) => (
@@ -556,10 +598,11 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                             {group.options.map((opt) => {
                               const capacity = optionCapacity(opt);
                               const count = draft[opt.id] ?? 0;
-                              const nextCost = draftResourceCost(productionOptions, {
-                                ...draft,
-                                [opt.id]: count + 1,
-                              });
+                              const nextCost = draftResourceCost(
+                                productionOptions,
+                                { ...draft, [opt.id]: count + 1 },
+                                stagedAgent,
+                              );
                               const capacityBlocked =
                                 capacity < 0 || stagedCapacity + capacity > capacityRemaining;
                               const resourceBlocked =
@@ -689,11 +732,15 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                               await onSubmitBatch({
                                 kind: "production",
                                 destination: systemId,
-                                steps: productionOptions.flatMap((opt) =>
-                                  Array.from({ length: draft[opt.id] ?? 0 }, () => produceStep(opt)),
-                                ),
+                                steps: [
+                                  ...(stagedAgent ? [{ kind: "exhaust_agent" as const }] : []),
+                                  ...productionOptions.flatMap((opt) =>
+                                    Array.from({ length: draft[opt.id] ?? 0 }, () => produceStep(opt)),
+                                  ),
+                                ],
                               });
                               setDraft({});
+                              setUseAgent(false);
                             } catch (error) {
                               setBatchError(error instanceof Error ? error.message : String(error));
                             } finally {
@@ -706,6 +753,17 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                               optionUnit(opt),
                             ),
                           );
+                          // The queue and the single answer below are separate decisions: the
+                          // card goes first, then the builds are asked again at the new prices.
+                          if (stagedAgent && agentOption) {
+                            try {
+                              await onSubmit(agentOption.id);
+                            } catch (error) {
+                              setBatchError(error instanceof Error ? error.message : String(error));
+                              return;
+                            }
+                            setUseAgent(false);
+                          }
                           if (onQueueProduction) onQueueProduction(units);
                           else
                             void submitDirect(

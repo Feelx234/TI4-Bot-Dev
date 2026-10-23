@@ -53,6 +53,8 @@ export interface MockGameOptions {
   spectator?: boolean;
   /** Lobby nicknames by seat id; seats without an entry keep "You" / "Player N". */
   nicknames?: Record<string, string>;
+  /** Seat ids that are in-process rule bots (the lobby slot carries `bot: "smart"`). */
+  bots?: string[];
   /** The lobby host (default: the viewing seat, who then sees the host-only controls). */
   host?: string;
   /** Sees every client message the mocked server does not answer itself; `reply` pushes one back. */
@@ -148,6 +150,7 @@ export async function openMockedGame(page: Page, options: MockGameOptions = {}):
       ready: true,
       connected: true,
       can_take_over: false,
+      ...(options.bots?.includes(p.id) ? { bot: "smart" } : {}),
     })),
   };
   // The printed cards: the page asks the server (`GET /api/catalog`); the repository's fixture is

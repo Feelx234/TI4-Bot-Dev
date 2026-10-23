@@ -36,6 +36,39 @@ describe("ProductionBuilderDrawer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Confirm builds" }));
     expect(onQueueProduction).toHaveBeenCalledWith(["fighter"]);
   });
+  it("renders the Minister of Industry window as the ordinary builder with its capacity", () => {
+    render(
+      <ProductionBuilderDrawer
+        choice={{
+          actor: "seat_1",
+          nonce: "minister",
+          prompt: "produce in 18 (4 left)",
+          context: partialContext({
+            subtype: "produce_unit",
+            target: { System: "18" },
+            outstanding: [{ amount: 4, paid: 0 }],
+          }),
+          options: [
+            {
+              id: "build|infantry|2",
+              kind: "produce",
+              label: "produce 2x infantry for 1",
+              payload: { unit: "infantry", production_spent: 2, cost: 1, count: 2, available_resources: 3 },
+            },
+            { id: "done_producing", kind: "decline", label: "Done producing", payload: {} },
+          ],
+        }}
+        viewerSeat="seat_1"
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+        isOpen
+        onQueueProduction={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("production-builder-drawer")).toBeInTheDocument();
+    expect(screen.getByTestId("produce-unit-btn-build|infantry|2")).toBeInTheDocument();
+    expect(screen.getByText("Done producing")).toBeInTheDocument();
+  });
   it("stages production with +/- and reset before submitting and shows available resources", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     const onClose = vi.fn();
@@ -858,5 +891,94 @@ describe("ProductionBuilderDrawer capacity meter", () => {
     const row = screen.getByTestId("produce-limit-row-flagship");
     expect(row).toHaveTextContent("Limit reached: no flagship left in reinforcements");
     expect(within(row).getByRole("button")).toBeDisabled();
+  });
+
+  describe("Berekar Berekon (Winnu agent) discount", () => {
+    const agentChoice = (): PendingChoiceDto => ({
+      actor: "seat_1",
+      nonce: "berekar",
+      prompt: "produce in 07 (5 left)",
+      context: partialContext({
+        subtype: "produce_unit",
+        target: { System: "07" },
+        outstanding: [{ amount: 5, paid: 0 }],
+      }),
+      options: [
+        {
+          id: "build|carrier|1",
+          kind: "produce",
+          label: "produce 1x carrier for 3",
+          payload: { unit: "carrier", count: 1, production_spent: 1, cost: 3, printed_cost: 3, discount: 0, available_resources: 3 },
+        },
+        {
+          id: "exhaust_agent|winnuagent",
+          kind: "production_agent",
+          label: "Exhaust Berekar Berekon: -2 cost",
+          payload: { leader: "winnuagent", discount_offered: 2 },
+        },
+        { id: "done_producing", kind: "decline", label: "Done producing", payload: {} },
+      ],
+    });
+
+    it("offers the exhaust as a toggle that lowers the displayed total by 2", () => {
+      render(
+        <ProductionBuilderDrawer choice={agentChoice()} viewerSeat="seat_1" onSubmit={vi.fn()} onClose={vi.fn()} isOpen onSubmitBatch={vi.fn()} />,
+      );
+      const toggle = screen.getByTestId("production-agent-toggle");
+      expect(screen.getByTestId("production-agent-toggle-row")).toHaveTextContent("Exhaust Berekar Berekon: -2 cost");
+      // The agent option is not a build.
+      expect(screen.queryByTestId("produce-unit-btn-exhaust_agent|winnuagent")).toBeNull();
+      fireEvent.click(screen.getByTestId("produce-unit-btn-build|carrier|1"));
+      expect(screen.getByTestId("production-total-sum")).toHaveTextContent("3");
+      fireEvent.click(toggle);
+      expect(screen.getByTestId("production-total-sum")).toHaveTextContent("1");
+      expect(screen.getByTestId("production-total-discount")).toHaveTextContent("−2");
+      fireEvent.click(toggle);
+      expect(screen.getByTestId("production-total-sum")).toHaveTextContent("3");
+    });
+
+    it("sends the exhaust first, then the builds", async () => {
+      const onSubmitBatch = vi.fn().mockResolvedValue(undefined);
+      render(
+        <ProductionBuilderDrawer choice={agentChoice()} viewerSeat="seat_1" onSubmit={vi.fn()} onClose={vi.fn()} isOpen onSubmitBatch={onSubmitBatch} />,
+      );
+      fireEvent.click(screen.getByTestId("production-agent-toggle"));
+      fireEvent.click(screen.getByTestId("produce-unit-btn-build|carrier|1"));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Confirm builds" }));
+      });
+      expect(onSubmitBatch).toHaveBeenCalledWith({
+        kind: "production",
+        destination: "07",
+        steps: [
+          { kind: "exhaust_agent" },
+          { kind: "produce", unit: "carrier", count: 1 },
+        ],
+      });
+    });
+
+    it("sends only the builds while the toggle is off", async () => {
+      const onSubmitBatch = vi.fn().mockResolvedValue(undefined);
+      render(
+        <ProductionBuilderDrawer choice={agentChoice()} viewerSeat="seat_1" onSubmit={vi.fn()} onClose={vi.fn()} isOpen onSubmitBatch={onSubmitBatch} />,
+      );
+      fireEvent.click(screen.getByTestId("produce-unit-btn-build|carrier|1"));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Confirm builds" }));
+      });
+      expect(onSubmitBatch.mock.calls[0][0].steps).toEqual([{ kind: "produce", unit: "carrier", count: 1 }]);
+    });
+
+    it("is a button of its own when nothing is within reach before the discount", () => {
+      const onSubmit = vi.fn().mockResolvedValue(undefined);
+      const choice = agentChoice();
+      choice.options = choice.options.filter((o) => o.kind !== "produce");
+      render(
+        <ProductionBuilderDrawer choice={choice} viewerSeat="seat_1" onSubmit={onSubmit} onClose={vi.fn()} isOpen onSubmitBatch={vi.fn()} />,
+      );
+      expect(screen.queryByTestId("production-agent-toggle")).toBeNull();
+      fireEvent.click(screen.getByTestId("production-agent-button"));
+      expect(onSubmit).toHaveBeenCalledWith("exhaust_agent|winnuagent");
+    });
   });
 });
