@@ -345,9 +345,11 @@ pub fn may_receive(state: &GameState, receiver: &PlayerId, note: &str) -> bool {
     !(alias_of(note) == "an" && crate::factions::mahact::is_mahact(state, receiver))
 }
 
-/// This player's Support for the Throne, if they still hold it.
+/// This player's Support for the Throne, if they still hold it. An id with no seat (the neutral
+/// owner of Pirate Contract ships) has none.
 #[must_use]
 pub fn available_support(state: &GameState, player: &PlayerId) -> Option<String> {
+    state.player(player)?;
     let name = faction_name(state, player);
     (!state.support_holders.contains_key(player)).then(|| support(&name))
 }
@@ -1423,6 +1425,19 @@ mod tests {
 
         assert_eq!(state.player(&b()).unwrap().victory_points, with_it - 1);
         assert!(state.support_holders.is_empty());
+    }
+
+    #[test]
+    fn the_neutral_force_holds_no_support_for_the_throne() {
+        // Seen in nightly run o3-01-2330: the Mentak commander, winning against a Pirate
+        // Contract destroyer, asked the neutral owner to give a note it does not have.
+        let state = game_hacan_jolnar();
+
+        assert_eq!(
+            available_support(&state, &crate::neutral_units::owner()),
+            None
+        );
+        assert_eq!(available_support(&state, &a()), Some(support("hacan")));
     }
 
     #[test]

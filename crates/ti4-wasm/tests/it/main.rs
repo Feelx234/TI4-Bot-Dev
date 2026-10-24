@@ -8,6 +8,7 @@ mod host_batch;
 mod host_free_form;
 mod host_history;
 mod host_local;
+mod host_neutral_opponent;
 mod host_odds;
 mod host_preview;
 mod host_reaction_followup;
