@@ -11956,7 +11956,7 @@ mod tests {
             .and_then(|record| record.id().map(ti4_model::TechnologyId::new))
             .expect("the corpus has a non-faction technology");
 
-        let asked = |version: u32| {
+        let stolen = |version: u32| {
             let mut state = crate::fixtures::game(&["a", "b"]);
             state.rules_version = version;
             state.player_mut(&me).unwrap().trade_goods = 5;
@@ -11968,13 +11968,13 @@ mod tests {
                     .technologies
                     .insert(tech.clone());
             }
-            let seen = resolve_card_capturing(&mut state, "plagiarize", &me, &[]);
-            let asked = !seen.borrow().is_empty();
-            asked
+            resolve_card(&mut state, "plagiarize", &me, &[]);
+            // Offered (and, as the only option, taken) means it left the neighbour.
+            !state.player(&neighbor).unwrap().technologies.contains(&tech)
         };
-        assert!(!asked(ti4_model::state::RULES_PLAGIARIZE_OWNED));
+        assert!(!stolen(ti4_model::state::RULES_PLAGIARIZE_OWNED));
         assert!(
-            asked(ti4_model::state::RULES_PLAGIARIZE_OWNED - 1),
+            stolen(ti4_model::state::RULES_PLAGIARIZE_OWNED - 1),
             "below 28 the owned technology is still offered"
         );
     }
