@@ -68,7 +68,20 @@ export const Popover: React.FC<PopoverProps> = ({
       return;
     }
     const place = () => {
-      const trigger = triggerRef.current?.getBoundingClientRect();
+      // The trigger was hidden while the card was open (a landing tray kept mounted under
+      // `hidden` once its decision is answered): nothing is left for the card to explain, and pinned
+      // it would cover the next panel's controls. Close it.
+      const element = triggerRef.current;
+      if (
+        element &&
+        (!element.isConnected ||
+          !!element.closest("[hidden]") ||
+          (typeof element.checkVisibility === "function" && !element.checkVisibility()))
+      ) {
+        setIsOpen(false);
+        return;
+      }
+      const trigger = element?.getBoundingClientRect();
       const card = popoverRef.current?.getBoundingClientRect();
       if (!trigger || !card) return;
       // The trigger scrolled out of view (a hover or focus card of a chip in a scrolling panel): the
@@ -107,7 +120,11 @@ export const Popover: React.FC<PopoverProps> = ({
     place();
     window.addEventListener("resize", place);
     window.addEventListener("scroll", place, true);
+    // Hiding the trigger fires no scroll or resize, but its box collapses.
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(place) : null;
+    if (triggerRef.current) observer?.observe(triggerRef.current);
     return () => {
+      observer?.disconnect();
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };

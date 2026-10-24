@@ -265,6 +265,38 @@ describe("Accessible Primitives Suite", () => {
         Object.defineProperty(window, "innerHeight", { configurable: true, value: innerHeight });
       }
     });
+
+    it("closes a pinned portalled card when its trigger is hidden (run o1-30-0034: a landing tray's attachment card sat over \"Fight next round\")", () => {
+      const observers: Array<() => void> = [];
+      const original = globalThis.ResizeObserver;
+      globalThis.ResizeObserver = class {
+        constructor(callback: () => void) {
+          observers.push(callback);
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      } as unknown as typeof ResizeObserver;
+      try {
+        const Tray = ({ hidden }: { hidden: boolean }) => (
+          <div hidden={hidden}>
+            <Popover portal content={<p>Dyson Sphere</p>}>
+              <button type="button" data-testid="attachment-trigger">Dyson Sphere</button>
+            </Popover>
+          </div>
+        );
+        const { rerender } = render(<Tray hidden={false} />);
+        fireEvent.click(screen.getByTestId("attachment-trigger"));
+        expect(screen.getByTestId("accessible-popover")).toBeTruthy();
+        // The landing decision is answered: the tray stays mounted but hidden, and the trigger's
+        // box collapses to nothing.
+        rerender(<Tray hidden />);
+        act(() => observers.forEach((callback) => callback()));
+        expect(screen.queryByTestId("accessible-popover")).toBeNull();
+      } finally {
+        globalThis.ResizeObserver = original;
+      }
+    });
   });
 
   describe("SvgButton Primitive", () => {
