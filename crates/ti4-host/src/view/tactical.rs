@@ -365,11 +365,21 @@ pub fn project_tactical_facts(
     let player = &choice.player;
     match choice.context.as_ref()?.subtype.as_str() {
         ACTIVATION_SUBTYPE => Some(TacticalFacts::Activation(activation(
-            state, content, sources, galaxy, player, choice,
+            state,
+            content,
+            sources,
+            &as_the_engine_sees_it(state, content, sources, galaxy),
+            player,
+            choice,
         ))),
-        MOVEMENT_SUBTYPE => {
-            movement(state, content, sources, galaxy, player).map(TacticalFacts::Movement)
-        }
+        MOVEMENT_SUBTYPE => movement(
+            state,
+            content,
+            sources,
+            &as_the_engine_sees_it(state, content, sources, galaxy),
+            player,
+        )
+        .map(TacticalFacts::Movement),
         INVASION_SUBTYPE => {
             invasion(state, content, sources, player, choice).map(TacticalFacts::Invasion)
         }
@@ -378,6 +388,25 @@ pub fn project_tactical_facts(
         }
         _ => None,
     }
+}
+
+/// The map as the engine routes on it at `state`. The engine's own map is changed by the game as
+/// it goes (wormhole tokens, the ion storm's face, a Spatial Conduit, Lost Star Chart, the tiles a
+/// faction effect swapped or replaced), and a client of the host holds only the map the game
+/// started with. Routes read from that one disagree with the moves the engine offers: ships that
+/// a gamma token put in range were reported out of range (nightly 2026-10-23, run s1-04-0102).
+fn as_the_engine_sees_it(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: &Galaxy,
+) -> Galaxy {
+    let mut galaxy = galaxy.clone();
+    ti4_engine::laws::apply_to_galaxy(state, &mut galaxy);
+    // A recorded edit that no longer applies is a broken game; the engine stops on it, a view
+    // keeps the map it has.
+    let _ = ti4_engine::movement::replay_map_edits(state, &mut galaxy, content, sources);
+    galaxy
 }
 
 fn activation(

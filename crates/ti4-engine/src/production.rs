@@ -5306,7 +5306,12 @@ mod tests {
                 .options
                 .iter()
                 .find(|option| option.id == id)
-                .and_then(|option| option.payload.get("cost").and_then(serde_json::Value::as_i64))
+                .and_then(|option| {
+                    option
+                        .payload
+                        .get("cost")
+                        .and_then(serde_json::Value::as_i64)
+                })
         };
         let mut dice = crate::dice::Dice::new();
         let mut rng = crate::rng::GameRng::new(0);
@@ -5332,7 +5337,10 @@ mod tests {
         assert_eq!(offer.id, AGENT_OPTION_ID);
         assert_eq!(cost_of(&choice, "build|carrier|1"), Some(3));
         // The offer comes before "done producing".
-        assert_eq!(choice.options.last().map(|o| o.id.as_str()), Some("done_producing"));
+        assert_eq!(
+            choice.options.last().map(|o| o.id.as_str()),
+            Some("done_producing")
+        );
 
         window.resolve(&mut state, &mut ctx, offer).unwrap();
         assert_eq!(
@@ -5374,7 +5382,9 @@ mod tests {
         // Production by an ability is not a use of PRODUCTION.
         let ability =
             ProductionWindow::for_ability(&state, content, POK, &player(), &system, Some(2));
-        let choice = ability.pending_choice(&state, content, POK).expect("choice");
+        let choice = ability
+            .pending_choice(&state, content, POK)
+            .expect("choice");
         assert!(choice.options.iter().all(|o| o.kind != AGENT_OPTION_KIND));
 
         // Below the gate the dialog never carries it.
@@ -5788,11 +5798,13 @@ mod tests {
         assert_eq!(carrier["remaining"].as_i64(), Some(2));
         // Structures are not production options, so they have no entry.
         assert!(choice.details["unit_limits"].get("spacedock").is_none());
-        assert!(carrier["units"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|u| u == "carrier"));
+        assert!(
+            carrier["units"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|u| u == "carrier")
+        );
         assert!(choice.details["unit_limits"].get("fighter").is_none());
         assert!(option_field(&choice, "carrier", "cost").is_some());
         // Two more carriers empty the box: the offer goes, the limit stays visible.

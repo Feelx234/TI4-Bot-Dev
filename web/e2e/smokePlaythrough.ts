@@ -1017,22 +1017,32 @@ export async function randomUiPlaythrough(
         // game into a replacement session before it is published; until then readers see the
         // stopped session, which has no pending decision and an unchanged version. On a debug
         // build late in a game that takes longer than 10 s (run 4, round 6, 916 decisions).
+        //
+        // The version is not the only sign of life: a replacement session that is still replaying
+        // reports the new version with no pending decision, and the decision appears later at the
+        // very same version (run s1-03-0039, round 4). So a change of the public status counts as
+        // movement as well.
         const moved = await expect
           .poll(
-            async () =>
-              (await gameSnapshot(request, gameId, players[0].session))
-                .game_version,
+            async () => {
+              const latest = await gameSnapshot(request, gameId, players[0].session);
+              return (
+                latest.game_version > state.game_version ||
+                latest.turn_status.kind !== status.kind
+              );
+            },
             {
               timeout: 45_000,
             },
           )
-          .toBeGreaterThan(state.game_version)
+          .toBe(true)
           .then(() => true)
           .catch(() => false);
         if (!moved) {
           // The game may have ended (objective decks exhausted) after the snapshot above was taken.
           const latest = await gameSnapshot(request, gameId, players[0].session);
           if (latest.turn_status.kind === "game_over") continue;
+          if (latest.turn_status.kind !== status.kind) continue;
           await fail(
             undefined,
             `game idle without a decision: ${JSON.stringify(status)}`,

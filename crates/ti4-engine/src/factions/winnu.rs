@@ -774,8 +774,7 @@ pub(crate) fn agent_ready(state: &GameState, player: &PlayerId) -> bool {
 /// Exhaust Berekar Berekon for `player` and add its 2 to the use's discount pool. False (nothing
 /// changes) when it is not ready.
 pub(crate) fn exhaust_agent_for_production(state: &mut GameState, player: &PlayerId) -> bool {
-    if agent_ready(state, player) && crate::leaders::exhaust(state, player, &LeaderId::new(AGENT))
-    {
+    if agent_ready(state, player) && crate::leaders::exhaust(state, player, &LeaderId::new(AGENT)) {
         state.production_discount_remaining += 2;
         true
     } else {

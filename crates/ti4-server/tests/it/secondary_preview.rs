@@ -137,11 +137,13 @@ fn pay_if_asked(table: &Table) {
     if seat != table.p1 {
         return;
     }
-    let option = choice.options.first().expect("a payment is offered").id.clone();
-    table
-        .c1
-        .submit(&nonce, version, &option)
-        .expect("p1 pays");
+    let option = choice
+        .options
+        .first()
+        .expect("a payment is offered")
+        .id
+        .clone();
+    table.c1.submit(&nonce, version, &option).expect("p1 pays");
     thread::sleep(Duration::from_millis(150));
 }
 

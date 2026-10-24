@@ -642,15 +642,24 @@ impl GameSession {
     /// The decision log together with the worker's newest step-boundary copy of the game, read
     /// under one lock so the two belong to the same moment. The copy is only a hint: a batch
     /// check uses it when `StepSnapshot::is_valid_for` accepts it and replays in full otherwise.
+    ///
+    /// The second part is the answers the table has recorded but not published yet (see
+    /// `SessionShared::held_back`): the question on the table was asked after them, so a check
+    /// that replays only the published log meets an older question than the one the player saw.
     #[must_use]
     pub fn batch_basis(
         &self,
     ) -> (
         Vec<DecisionRecord>,
+        Vec<(DecisionRecord, Option<ti4_engine::choice::ChoiceOption>)>,
         Option<Arc<step_snapshot::StepSnapshot>>,
     ) {
         let lock = self.shared.lock().expect("shared lock");
-        (lock.decision_log.clone(), lock.step_snapshot.clone())
+        (
+            lock.decision_log.clone(),
+            lock.held_back.clone(),
+            lock.step_snapshot.clone(),
+        )
     }
 
     /// How many of the game's dice the worker has published (the next one's history index).

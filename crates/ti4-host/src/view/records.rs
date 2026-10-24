@@ -565,12 +565,26 @@ mod tests {
     fn attachments_carry_their_card_text_and_research_facility_specialties() {
         let records = records();
         let find = |id: &str| records.attachments.iter().find(|a| a.id == id).unwrap();
-        for id in ["dmz", "cybernetic", "cyberneticstat", "warfare", "warfarestat", "biotic", "propulsion", "dysonsphere", "nanoforge", "titanspn"] {
+        for id in [
+            "dmz",
+            "cybernetic",
+            "cyberneticstat",
+            "warfare",
+            "warfarestat",
+            "biotic",
+            "propulsion",
+            "dysonsphere",
+            "nanoforge",
+            "titanspn",
+        ] {
             assert!(!find(id).text.is_empty(), "{id} has no text");
         }
         assert!(find("dmz").text.contains("cannot be committed to"));
         assert_eq!(find("warfare").tech_specialties, vec!["warfare".to_owned()]);
-        assert_eq!(find("cybernetic").tech_specialties, vec!["cybernetic".to_owned()]);
+        assert_eq!(
+            find("cybernetic").tech_specialties,
+            vec!["cybernetic".to_owned()]
+        );
         assert!(find("warfarestat").tech_specialties.is_empty());
     }
 

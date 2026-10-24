@@ -3258,7 +3258,9 @@ mod tests {
                 used.insert(*id);
                 let system = ti4_model::id::SystemId::new(record.system_id().unwrap());
                 let planet = PlanetId::new(*id);
-                state.system_mut(&system).set_control(planet.clone(), player());
+                state
+                    .system_mut(&system)
+                    .set_control(planet.clone(), player());
                 match via {
                     "facility" => {
                         state

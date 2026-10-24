@@ -603,7 +603,12 @@ mod tests {
             state
                 .action_card_deck
                 .iter()
-                .chain(state.players.iter().flat_map(|seat| seat.action_cards.iter()))
+                .chain(
+                    state
+                        .players
+                        .iter()
+                        .flat_map(|seat| seat.action_cards.iter()),
+                )
                 .any(|card| te_cards.contains(card.as_str()))
         };
         for switched in [false, true] {
@@ -619,7 +624,11 @@ mod tests {
         let old: TableSetup =
             serde_json::from_str(r#"{"player_count":4,"seed":5}"#).expect("a table without it");
         assert!(!old.thunders_edge);
-        assert!(!serde_json::to_string(&old).unwrap().contains("thunders_edge"));
+        assert!(
+            !serde_json::to_string(&old)
+                .unwrap()
+                .contains("thunders_edge")
+        );
     }
 
     #[test]
