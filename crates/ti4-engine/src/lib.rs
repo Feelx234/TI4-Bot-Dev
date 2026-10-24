@@ -62,9 +62,9 @@ pub mod magen_defense;
 pub mod map_feasibility;
 pub mod movement;
 pub mod neutral_units;
-pub mod objectives;
 #[cfg(test)]
 mod nexus_reach_tests;
+pub mod objectives;
 #[cfg(test)]
 mod objectives_monument_tests;
 pub mod observation;

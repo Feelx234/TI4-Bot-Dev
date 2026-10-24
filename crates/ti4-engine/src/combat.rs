@@ -2772,16 +2772,12 @@ fn sustainer_counts(
         let mut played = state.clone();
         let mut used = 0_u64;
         loop {
-            let next = played
-                .system_state(system)
-                .units
-                .iter()
-                .position(|unit| {
-                    unit.type_id.as_str() == kind_id.as_str()
-                        && sustains_in_space(
-                            &played, content, sources, system, player, unit, kind, in_combat,
-                        )
-                });
+            let next = played.system_state(system).units.iter().position(|unit| {
+                unit.type_id.as_str() == kind_id.as_str()
+                    && sustains_in_space(
+                        &played, content, sources, system, player, unit, kind, in_combat,
+                    )
+            });
             let Some(index) = next else { break };
             played.system_mut(system).units[index].sustained_damage = true;
             used += 1;
@@ -7514,7 +7510,10 @@ mod tests {
                 assert!(said_nothing_to_hit, "some seed hits and says so");
             }
         }
-        assert!(roll_counts.iter().all(|n| *n == roll_counts[0]), "same dice either way");
+        assert!(
+            roll_counts.iter().all(|n| *n == roll_counts[0]),
+            "same dice either way"
+        );
     }
 
     #[test]
@@ -10443,7 +10442,10 @@ mod space_routes_tests {
             .collect();
         assert_eq!(available.len(), 4, "both cruisers are offered at first");
         let counts = sustainer_counts(&state, content, POK, &system, &b(), true, &available);
-        assert_eq!(counts, serde_json::json!({ "cruiser": 1, "dreadnought": 2 }));
+        assert_eq!(
+            counts,
+            serde_json::json!({ "cruiser": 1, "dreadnought": 2 })
+        );
     }
 
     #[test]

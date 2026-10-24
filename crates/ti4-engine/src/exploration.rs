@@ -188,7 +188,9 @@ fn convert_commodities(
 /// only to a seat holding at least one commodity (older games always offered it).
 fn can_offer_convert(state: &GameState, player: &PlayerId) -> bool {
     state.rules_version < ti4_model::state::RULES_NO_EMPTY_CONVERT
-        || state.player(player).is_some_and(|seat| seat.commodities >= 1)
+        || state
+            .player(player)
+            .is_some_and(|seat| seat.commodities >= 1)
 }
 
 /// [`ask`], except that a single remaining option is taken without a question (only the version
@@ -2413,9 +2415,11 @@ mod tests {
         let (mut state, planet) = holder(0, commodities);
         state.rules_version = version;
         state.player_mut(&player()).unwrap().faction = ti4_model::id::FactionId::new(faction);
-        let (decider, seen) = crate::choice::Capturing::new(Box::new(
-            crate::choice::Scripted::new(["gain".to_owned(), "replenish".to_owned()]),
-        ));
+        let (decider, seen) =
+            crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new([
+                "gain".to_owned(),
+                "replenish".to_owned(),
+            ])));
         let mut table = crate::choice::Table::with_default(Box::new(decider));
         let mut dice = crate::dice::Dice::new();
         let mut rng = crate::rng::GameRng::new(0);
@@ -2434,7 +2438,11 @@ mod tests {
         let ids = seen
             .borrow()
             .iter()
-            .find(|c| c.context.as_ref().is_some_and(|c| c.subtype.ends_with("_choose_reward")))
+            .find(|c| {
+                c.context
+                    .as_ref()
+                    .is_some_and(|c| c.subtype.ends_with("_choose_reward"))
+            })
             .map(|c| c.ids().iter().map(|id| (*id).to_owned()).collect());
         let seat = state.player(&player()).unwrap();
         (ids, seat.commodities, seat.trade_goods)
