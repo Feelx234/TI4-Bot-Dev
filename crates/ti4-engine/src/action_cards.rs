@@ -4454,7 +4454,11 @@ fn plagiarize(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId)
                     tech.as_str(),
                 )
                 .is_some_and(|record| record.text("faction").is_none());
-            if !non_faction {
+            let already_mine = context
+                .state
+                .player(player)
+                .is_some_and(|me| me.technologies.contains(tech));
+            if !non_faction || already_mine {
                 continue;
             }
             let name = context
