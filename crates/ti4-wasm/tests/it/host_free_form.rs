@@ -107,6 +107,18 @@ fn a_free_form_deal_that_cannot_be_paid_ends_the_negotiation() {
 /// same game again, up to the question it was taken at.
 #[test]
 fn a_save_after_a_free_form_deal_plays_again() {
+    a_save_taken_after_the_deal_plays_again(10);
+}
+
+/// The same, saved at the very question that follows the deal (the deal is the last recorded
+/// answer of the save).
+#[test]
+fn a_save_right_after_a_free_form_deal_plays_again() {
+    a_save_taken_after_the_deal_plays_again(1);
+}
+
+/// Saves at the `n`th question after the deal and checks that the save plays again to it.
+fn a_save_taken_after_the_deal_plays_again(n: u32) {
     let _serial = serial();
     let page = Arc::new(Mutex::new(Page::default()));
     let table = Arc::new(Mutex::new(Table::default()));
@@ -130,7 +142,7 @@ fn a_save_after_a_free_form_deal_plays_again() {
             let mut table = table.lock().unwrap();
             if table.sent.is_some() {
                 after += 1;
-                if after == 10 {
+                if after == n {
                     let save = send(&json!({ "type": "save_state" }))["save"].clone();
                     *saved.lock().unwrap() = Some((save, choice.prompt.clone()));
                     return -1;
