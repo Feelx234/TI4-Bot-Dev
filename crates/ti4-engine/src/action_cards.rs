@@ -4454,10 +4454,12 @@ fn plagiarize(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId)
                     tech.as_str(),
                 )
                 .is_some_and(|record| record.text("faction").is_none());
-            let already_mine = context
-                .state
-                .player(player)
-                .is_some_and(|me| me.technologies.contains(tech));
+            let already_mine = context.state.rules_version
+                >= ti4_model::state::RULES_PLAGIARIZE_OWNED
+                && context
+                    .state
+                    .player(player)
+                    .is_some_and(|me| me.technologies.contains(tech));
             if !non_faction || already_mine {
                 continue;
             }
@@ -11939,6 +11941,41 @@ mod tests {
                 .technologies
                 .contains(&tech),
             "and it is gone from the neighbor"
+        );
+    }
+
+    #[test]
+    fn plagiarize_skips_owned_technologies_from_rules_version_28() {
+        let me = PlayerId::new("a");
+        let neighbor = PlayerId::new("b");
+        let store = ContentStore::embedded();
+        let tech = store
+            .records(ti4_model::content_types::ContentType::Technologies)
+            .iter()
+            .find(|record| record.text("faction").is_none() && record.id().is_some())
+            .and_then(|record| record.id().map(ti4_model::TechnologyId::new))
+            .expect("the corpus has a non-faction technology");
+
+        let asked = |version: u32| {
+            let mut state = crate::fixtures::game(&["a", "b"]);
+            state.rules_version = version;
+            state.player_mut(&me).unwrap().trade_goods = 5;
+            state.promissory_notes.retain(|_, owner| *owner != me);
+            for id in [&me, &neighbor] {
+                state
+                    .player_mut(id)
+                    .unwrap()
+                    .technologies
+                    .insert(tech.clone());
+            }
+            let seen = resolve_card_capturing(&mut state, "plagiarize", &me, &[]);
+            let asked = !seen.borrow().is_empty();
+            asked
+        };
+        assert!(!asked(ti4_model::state::RULES_PLAGIARIZE_OWNED));
+        assert!(
+            asked(ti4_model::state::RULES_PLAGIARIZE_OWNED - 1),
+            "below 28 the owned technology is still offered"
         );
     }
 
