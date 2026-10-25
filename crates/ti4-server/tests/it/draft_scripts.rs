@@ -147,6 +147,7 @@ pub(crate) fn movement_script(
             damaged: ship.damaged,
             gravity_drive: plan.gravity_drive,
             ionian: plan.ionian,
+            route: None,
         }),
         DraftStep::Step(PlanStep::DoneLoading),
         DraftStep::Step(PlanStep::DoneMoving),
@@ -287,6 +288,7 @@ fn a_script_that_the_game_would_refuse_changes_nothing() {
         damaged: false,
         gravity_drive: false,
         ionian: false,
+        route: None,
     }));
     wrong.push(DraftStep::Step(PlanStep::DoneMoving));
     let stopped = session

@@ -150,6 +150,7 @@ export type { ReactionOffer } from "./ReactionOffer.ts";
 export type { RejectionReason } from "./RejectionReason.ts";
 export type { RelicId } from "./RelicId.ts";
 export type { RelicRecord } from "./RelicRecord.ts";
+export type { RouteFact } from "./RouteFact.ts";
 export type { SaveSeat } from "./SaveSeat.ts";
 export type { Scenario } from "./Scenario.ts";
 export type { ScenarioMap } from "./ScenarioMap.ts";

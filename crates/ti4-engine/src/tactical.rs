@@ -702,6 +702,9 @@ pub fn preview_moves(
     if !rift_map.is_empty() {
         choice = choice.detailed("rift_exits", rift_map);
     }
+    if state.rules_version >= ti4_model::state::RULES_MOVEMENT_ROUTES {
+        choice = attach_routes(state, content, sources, galaxy, player, active, choice);
+    }
     choice.detailed("fleet_supply", fleet_supply)
 }
 
@@ -715,6 +718,9 @@ pub enum MoveSelection {
         gravity_drive: bool,
         /// Exhausts the Ionian Fuel Refinery for this ship's +1.
         ionian: bool,
+        /// The route of the option's route list (`details.routes`) the answer chose; 0 is the
+        /// default route, the one the engine always took before rules version 29.
+        route: usize,
     },
     /// 89.2b: move nothing further.
     Done,
@@ -729,7 +735,8 @@ pub fn read_move(choice: &Choice, answer: ChoiceOption) -> Result<MoveSelection,
     if option.is_decline() {
         return Ok(MoveSelection::Done);
     }
-    let mut parts = option.id.splitn(3, '|');
+    let (base_id, route) = route_suffix(&option.id).unwrap_or((option.id.as_str(), 0));
+    let mut parts = base_id.splitn(3, '|');
     let (Some(verb), Some(origin), Some(index)) = (parts.next(), parts.next(), parts.next()) else {
         return Err(IllegalChoice::NotOffered {
             player: choice.player.clone(),
@@ -753,9 +760,392 @@ pub fn read_move(choice: &Choice, answer: ChoiceOption) -> Result<MoveSelection,
                 index,
                 gravity_drive: matches!(verb, "move_gd" | "move_gd_ion"),
                 ionian: matches!(verb, "move_ion" | "move_gd_ion"),
+                route,
             })
         },
     )
+}
+
+// -- routes (rules version 29) -------------------------------------------------------------------
+
+/// The key of [`Choice::details`] that lists, per move option id, the routes the ship may take.
+pub const ROUTES_DETAIL: &str = "routes";
+
+/// How many routes one ship is offered at most (the default included). Long-range ships have
+/// hundreds of ways; a player chooses between a handful that differ in what they do.
+pub const MAX_ROUTES: usize = 5;
+
+/// One way for a ship to get to the active system, with what it does on the way.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MoveRoute {
+    /// The systems the ship enters, from its origin to the active system, both included.
+    pub path: Vec<String>,
+    /// The id that answers with this route: the option's id for the default route, else the id
+    /// with `|r<k>` (see [`route_suffix`]).
+    pub answer: String,
+    /// The route the engine takes when the answer names none (route 0, always).
+    pub default: bool,
+    /// Taking this route spends Gravity Drive (the ship cannot arrive without it, or the route
+    /// is worth the +1).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub gravity_drive: bool,
+    /// Taking this route exhausts the Ionian Fuel Refinery.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ionian: bool,
+    /// The gravity rifts the ship leaves on this route; it rolls one die for each (1-3 destroys
+    /// the ship and what it carries).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rifts: Vec<String>,
+    /// Hops through a wormhole instead of across a border.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub wormholes: u32,
+    /// Systems between origin and the active system that are anomalies (a rift, a nebula...).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub anomalies: Vec<String>,
+    /// Systems between origin and the active system where a transport could pick up units.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pickups: Vec<String>,
+}
+
+// serde needs a function path for skip_serializing_if.
+#[allow(clippy::trivially_copy_pass_by_ref, reason = "serde's signature")]
+const fn is_zero_u32(value: &u32) -> bool {
+    *value == 0
+}
+
+/// Split a route answer into the id of the option and the number of the route: `move|206|0|r2` is
+/// route 2 of `move|206|0`. `None` for an id without a route (the default route).
+#[must_use]
+pub fn route_suffix(id: &str) -> Option<(&str, usize)> {
+    let (base, tail) = id.rsplit_once("|r")?;
+    let number: usize = tail.parse().ok()?;
+    (number > 0 && tail == number.to_string()).then_some((base, number))
+}
+
+/// The routes that a choice lists for one of its options (empty: one route only, the default).
+#[must_use]
+pub fn routes_of(choice: &Choice, option_id: &str) -> Vec<MoveRoute> {
+    choice
+        .details
+        .get(ROUTES_DETAIL)
+        .and_then(|routes| routes.get(option_id))
+        .and_then(|list| serde_json::from_value(list.clone()).ok())
+        .unwrap_or_default()
+}
+
+/// How many routes the choice lists for `option_id`.
+#[must_use]
+pub fn route_count(choice: &Choice, option_id: &str) -> usize {
+    choice
+        .details
+        .get(ROUTES_DETAIL)
+        .and_then(|routes| routes.get(option_id))
+        .and_then(serde_json::Value::as_array)
+        .map_or(0, Vec::len)
+}
+
+/// The routes a ship may take to the active system: the default first, at most [`MAX_ROUTES`].
+///
+/// Route 0 is the route [`MovementRules::path_from_ship`] finds for the option's own boosts, which
+/// is the route the engine took before rules version 29; so a client that names no route gets
+/// what it always got. The others are chosen from the legal routes ([`MovementRules::
+/// all_routes_from_ship`]) for what they do differently:
+///
+/// 1. the default;
+/// 2. a route that costs a boost (Gravity Drive, the Ionian Fuel Refinery, not yet spent) and
+///    leaves fewer gravity rifts than every route without one -- the safe way round;
+/// 3. the shortest route of each other combination of rift exits, wormhole hops, anomalies passed
+///    and systems to pick up from, plain routes before boosted ones;
+/// 4. the remaining plain routes, fewest systems first, each with a set of systems not yet shown.
+///
+/// Ties are broken by the ids of the systems, so the list is the same wherever it is asked.
+/// Empty when the ship has no route at all.
+#[must_use]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the movement search's own inputs"
+)]
+#[expect(clippy::too_many_lines, reason = "one selection, read top to bottom")]
+pub fn ship_routes(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: &Galaxy,
+    rules: &MovementRules<'_>,
+    player: &PlayerId,
+    origin: &SystemId,
+    index: usize,
+    hull: &Unit,
+    base: (bool, bool),
+    option_id: &str,
+) -> Vec<MoveRoute> {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let types = catalogue(content, sources);
+    let Some(kind) = types.get(hull.type_id.as_str()) else {
+        return Vec::new();
+    };
+    let ship_type = Some(hull.type_id.as_str());
+    let value = |boosts: (bool, bool)| {
+        effective_move_value_for_ship(state, kind, player, origin, Some(index), boosts.0, boosts.1)
+    };
+    let Some(default_path) = rules.path_from_ship(origin.as_str(), value(base), ship_type) else {
+        return Vec::new();
+    };
+
+    // The boosts that could still be added to the option's own: one resource at a time.
+    let gravity = crate::technology::gravity_drive_available(state, player);
+    let ionian = crate::legendary::ionian_available(state, player);
+    let mut tiers = vec![base];
+    if !base.0 && gravity {
+        tiers.push((true, base.1));
+    }
+    if !base.1 && ionian {
+        tiers.push((base.0, true));
+    }
+
+    let rolls = !rules.anomalies_ignored && !rules.rifts_ignored;
+    let carries = kind.capacity() > 0;
+    let mut pickup_cache: BTreeMap<String, bool> = BTreeMap::new();
+    let mut describe = |path: Vec<String>, boosts: (bool, bool)| -> MoveRoute {
+        let between = if path.len() > 2 {
+            path[1..path.len() - 1].to_vec()
+        } else {
+            Vec::new()
+        };
+        let pickups = if carries {
+            between
+                .iter()
+                .filter(|system| {
+                    *pickup_cache.entry((*system).clone()).or_insert_with(|| {
+                        !crate::transit::loadable(
+                            state,
+                            content,
+                            sources,
+                            player,
+                            &SystemId::new((*system).clone()),
+                        )
+                        .is_empty()
+                    })
+                })
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
+        MoveRoute {
+            answer: option_id.to_owned(),
+            default: false,
+            gravity_drive: boosts.0,
+            ionian: boosts.1,
+            rifts: if rolls {
+                crate::transit::rifts_exited(rules, &path)
+            } else {
+                Vec::new()
+            },
+            wormholes: crate::game::wormhole_hops(state, galaxy, player, origin.as_str(), &path),
+            anomalies: between
+                .iter()
+                .filter(|system| rules.is_anomalous(system))
+                .cloned()
+                .collect(),
+            pickups,
+            path,
+        }
+    };
+
+    let default = {
+        let mut route = describe(default_path.clone(), base);
+        route.default = true;
+        route
+    };
+    // Candidates by tier: the cheapest tier that makes a path legal names its boosts.
+    let mut plain: Vec<MoveRoute> = Vec::new();
+    let mut boosted: Vec<MoveRoute> = Vec::new();
+    let mut seen: BTreeSet<Vec<String>> = BTreeSet::from([default_path.clone()]);
+    for (tier, boosts) in tiers.iter().enumerate() {
+        for path in rules.all_routes_from_ship(origin.as_str(), value(*boosts), ship_type) {
+            if !seen.insert(path.clone()) {
+                continue;
+            }
+            let route = describe(path, *boosts);
+            if tier == 0 {
+                plain.push(route);
+            } else {
+                boosted.push(route);
+            }
+        }
+    }
+
+    let profile = |route: &MoveRoute| {
+        let mut anomalies = route.anomalies.clone();
+        anomalies.sort();
+        let mut pickups = route.pickups.clone();
+        pickups.sort();
+        (route.rifts.len(), route.wormholes, anomalies, pickups)
+    };
+    let systems = |route: &MoveRoute| route.path.iter().cloned().collect::<BTreeSet<_>>();
+    let mut chosen = vec![default];
+    let new_system_set =
+        |chosen: &[MoveRoute], route: &MoveRoute| !chosen.iter().any(|c| systems(c) == systems(route));
+    let new_profile =
+        |chosen: &[MoveRoute], route: &MoveRoute| !chosen.iter().any(|c| profile(c) == profile(route));
+
+    // 2. The safe way round, for a boost.
+    let fewest_plain = plain
+        .iter()
+        .map(|route| route.rifts.len())
+        .chain(std::iter::once(chosen[0].rifts.len()))
+        .min()
+        .unwrap_or(0);
+    if let Some(route) = boosted.iter().find(|route| route.rifts.len() < fewest_plain) {
+        chosen.push(route.clone());
+    }
+    // 3. One route of each kind of consequence.
+    for route in plain.iter().chain(boosted.iter()) {
+        if chosen.len() >= MAX_ROUTES {
+            break;
+        }
+        if new_profile(&chosen, route) && new_system_set(&chosen, route) {
+            chosen.push(route.clone());
+        }
+    }
+    // 4. Fill up with other plain routes.
+    for route in &plain {
+        if chosen.len() >= MAX_ROUTES {
+            break;
+        }
+        if new_system_set(&chosen, route) && !chosen.contains(route) {
+            chosen.push(route.clone());
+        }
+    }
+    for (number, route) in chosen.iter_mut().enumerate() {
+        if number > 0 {
+            route.answer = format!("{option_id}|r{number}");
+        }
+    }
+    chosen
+}
+
+/// [`ship_routes`] for a ship of `player` in `origin` towards `active`, building the movement
+/// rules the engine builds for the move. For a caller that has the position and no rules at hand
+/// (a policy asking about a system that is not activated yet).
+#[must_use]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the movement search's own inputs"
+)]
+pub fn routes_into(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: &Galaxy,
+    player: &PlayerId,
+    active: &SystemId,
+    origin: &SystemId,
+    index: usize,
+    boosts: (bool, bool),
+) -> Vec<MoveRoute> {
+    let Some(hull) = state.ships_of(player, origin).get(index).copied() else {
+        return Vec::new();
+    };
+    let mut rules = MovementRules::with_laws(
+        galaxy,
+        content,
+        sources,
+        active.as_str(),
+        Board::for_player(state, content, sources, player),
+        Some(state),
+    );
+    crate::action_cards::apply_movement_effects(&mut rules, state, player);
+    let id = format!(
+        "{}|{origin}|{index}",
+        match boosts {
+            (false, false) => "move",
+            (true, false) => "move_gd",
+            (false, true) => "move_ion",
+            (true, true) => "move_gd_ion",
+        }
+    );
+    ship_routes(
+        state, content, sources, galaxy, &rules, player, origin, index, hull, boosts, &id,
+    )
+}
+
+/// The index of the ship an option stands for: the last part of `move|<origin>|<index>`.
+fn option_ship_index(option_id: &str) -> Option<usize> {
+    option_id.rsplit('|').next()?.parse().ok()
+}
+
+/// Attach `details.routes` to a movement choice: for every move option with more than one route,
+/// its routes. Nothing when no option has a choice of route (the choice is then what it was).
+fn attach_routes(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: &Galaxy,
+    player: &PlayerId,
+    active: &SystemId,
+    mut choice: Choice,
+) -> Choice {
+    let mut rules = MovementRules::with_laws(
+        galaxy,
+        content,
+        sources,
+        active.as_str(),
+        Board::for_player(state, content, sources, player),
+        Some(state),
+    );
+    crate::action_cards::apply_movement_effects(&mut rules, state, player);
+    let mut listed = serde_json::Map::new();
+    for option in &choice.options {
+        if option.kind != MOVE_KIND {
+            continue;
+        }
+        let (Some(origin), Some(index)) = (
+            option
+                .payload
+                .get("origin")
+                .and_then(serde_json::Value::as_str),
+            option_ship_index(&option.id),
+        ) else {
+            continue;
+        };
+        let origin = SystemId::new(origin);
+        let Some(hull) = state.ships_of(player, &origin).get(index).copied() else {
+            continue;
+        };
+        let flag = |key: &str| {
+            option
+                .payload
+                .get(key)
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+        };
+        let routes = ship_routes(
+            state,
+            content,
+            sources,
+            galaxy,
+            &rules,
+            player,
+            &origin,
+            index,
+            hull,
+            (flag("gravity_drive"), flag("ionian")),
+            &option.id,
+        );
+        if routes.len() > 1 {
+            listed.insert(
+                option.id.clone(),
+                serde_json::to_value(&routes).unwrap_or_default(),
+            );
+        }
+    }
+    if !listed.is_empty() {
+        choice = choice.detailed(ROUTES_DETAIL, listed);
+    }
+    choice
 }
 
 #[cfg(test)]
@@ -1018,6 +1408,393 @@ mod tests {
             choice.options[0].preview.as_ref().unwrap().outcome,
             crate::preview::Outcome::Unknown { .. }
         ));
+    }
+
+    // -- routes (rules version 29) -----------------------------------------------------------
+
+    /// A line `origin - rift - active` with a second way round it: `origin - side - far - active`.
+    ///
+    /// ```text
+    ///   origin(0,0)  rift(1,0)  active(2,0)
+    ///   side(0,1)  far(1,1)
+    /// ```
+    /// A cruiser (move 2) goes through the rift; Gravity Drive (move 3) goes round it.
+    struct RiftMap {
+        galaxy: Galaxy,
+        origin: SystemId,
+        rift: SystemId,
+        active: SystemId,
+        side: SystemId,
+        far: SystemId,
+    }
+
+    fn rift_map() -> RiftMap {
+        let content = ContentStore::embedded();
+        let rift = crate::fixtures::a_system_where("gravity rift");
+        let plain = crate::fixtures::plain_systems(4);
+        let galaxy = Galaxy::placed(
+            content,
+            &[
+                (plain[0].as_str(), ti4_model::hex::Hex::new(0, 0)),
+                (rift.as_str(), ti4_model::hex::Hex::new(1, 0)),
+                (plain[1].as_str(), ti4_model::hex::Hex::new(2, 0)),
+                (plain[2].as_str(), ti4_model::hex::Hex::new(0, 1)),
+                (plain[3].as_str(), ti4_model::hex::Hex::new(1, 1)),
+            ],
+            POK,
+        )
+        .unwrap();
+        RiftMap {
+            galaxy,
+            origin: SystemId::new(&plain[0]),
+            rift: SystemId::new(rift),
+            active: SystemId::new(&plain[1]),
+            side: SystemId::new(&plain[2]),
+            far: SystemId::new(&plain[3]),
+        }
+    }
+
+    fn routes_state(map: &RiftMap, gravity_drive: bool, rules_version: u32) -> GameState {
+        let player = player();
+        let mut state = crate::fixtures::game(&["a"]);
+        state.rules_version = rules_version;
+        crate::fixtures::put(&mut state, &map.origin, "cruiser", &player, 1);
+        if gravity_drive {
+            state
+                .player_mut(&player)
+                .unwrap()
+                .technologies
+                .insert(ti4_model::id::TechnologyId::new("gd"));
+        }
+        activate(&mut state, &player, &map.active).unwrap();
+        state
+    }
+
+    fn movement_choice_of(state: &GameState, map: &RiftMap) -> Choice {
+        let player = player();
+        let moves = movable(state, ContentStore::embedded(), POK, &map.galaxy, &player);
+        preview_moves(
+            state,
+            ContentStore::embedded(),
+            POK,
+            &map.galaxy,
+            &player,
+            &map.active,
+            movement_options(&player, &moves),
+        )
+    }
+
+    fn names(path: &[&SystemId]) -> Vec<String> {
+        path.iter().map(ToString::to_string).collect()
+    }
+
+    /// The Atlas case of `docs/BOT_CUSTODIANS_R2.md`: the plain move goes through the rift, and the
+    /// safe route round it needs Gravity Drive. Both are offered, the plain one is the default.
+    #[test]
+    fn the_rift_route_and_the_gravity_drive_route_round_it_are_both_offered() {
+        let map = rift_map();
+        let state = routes_state(&map, true, ti4_model::state::RULES_VERSION);
+        let choice = movement_choice_of(&state, &map);
+        let id = format!("move|{}|0", map.origin);
+        assert_eq!(
+            choice.options[0].id, id,
+            "the plain move is still the option"
+        );
+        let routes = routes_of(&choice, &id);
+        assert!(routes.len() >= 2, "{routes:?}");
+        // Route 0 is the engine's old route: through the rift, rolling for it.
+        assert!(routes[0].default);
+        assert_eq!(routes[0].answer, id);
+        assert_eq!(
+            routes[0].path,
+            names(&[&map.origin, &map.rift, &map.active])
+        );
+        assert_eq!(routes[0].rifts, vec![map.rift.to_string()]);
+        assert!(!routes[0].gravity_drive);
+        // Route 1 is the safe way round, for the drive.
+        assert!(!routes[1].default);
+        assert_eq!(routes[1].answer, format!("{id}|r1"));
+        assert_eq!(
+            routes[1].path,
+            names(&[&map.origin, &map.side, &map.far, &map.active])
+        );
+        assert!(routes[1].rifts.is_empty());
+        assert!(routes[1].gravity_drive && !routes[1].ionian);
+        assert_eq!(routes.iter().filter(|route| route.default).count(), 1);
+        // Every listed answer is accepted and read back as its route.
+        for (number, route) in routes.iter().enumerate() {
+            let answer = choice.answer_for(&route.answer).expect("offered");
+            match read_move(&choice, answer).unwrap() {
+                MoveSelection::Ship { route: chosen, .. } => assert_eq!(chosen, number),
+                other @ MoveSelection::Done => panic!("{other:?}"),
+            }
+        }
+        // A route that is not listed is not an answer.
+        assert!(
+            choice
+                .answer_for(&format!("{id}|r{}", routes.len()))
+                .is_none()
+        );
+        assert!(choice.answer_for(&format!("{id}|r0")).is_none());
+    }
+
+    #[test]
+    fn without_gravity_drive_the_safe_route_is_not_offered() {
+        let map = rift_map();
+        let state = routes_state(&map, false, ti4_model::state::RULES_VERSION);
+        let choice = movement_choice_of(&state, &map);
+        let id = format!("move|{}|0", map.origin);
+        let routes = routes_of(&choice, &id);
+        assert!(
+            routes
+                .iter()
+                .all(|route| !route.gravity_drive && !route.rifts.is_empty()),
+            "{routes:?}"
+        );
+    }
+
+    #[test]
+    fn a_ship_with_one_way_only_has_no_route_list() {
+        let content = ContentStore::embedded();
+        let plain = crate::fixtures::plain_systems(2);
+        let galaxy = Galaxy::placed(
+            content,
+            &[
+                (plain[0].as_str(), ti4_model::hex::Hex::new(0, 0)),
+                (plain[1].as_str(), ti4_model::hex::Hex::new(1, 0)),
+            ],
+            POK,
+        )
+        .unwrap();
+        let player = player();
+        let mut state = crate::fixtures::game(&["a"]);
+        crate::fixtures::put(&mut state, &SystemId::new(&plain[0]), "cruiser", &player, 1);
+        activate(&mut state, &player, &SystemId::new(&plain[1])).unwrap();
+        let moves = movable(&state, content, POK, &galaxy, &player);
+        let choice = preview_moves(
+            &state,
+            content,
+            POK,
+            &galaxy,
+            &player,
+            &SystemId::new(&plain[1]),
+            movement_options(&player, &moves),
+        );
+        assert!(
+            !choice.details.contains_key(ROUTES_DETAIL),
+            "{:?}",
+            choice.details
+        );
+    }
+
+    /// Below rules version 29 the choice is what it was: no routes, no suffixed answers.
+    #[test]
+    fn below_rules_version_29_no_routes_are_offered() {
+        let map = rift_map();
+        let state = routes_state(&map, true, ti4_model::state::RULES_MOVEMENT_ROUTES - 1);
+        let choice = movement_choice_of(&state, &map);
+        assert!(!choice.details.contains_key(ROUTES_DETAIL));
+        let id = format!("move|{}|0", map.origin);
+        assert!(choice.answer_for(&format!("{id}|r1")).is_none());
+        assert_eq!(choice.options[0].id, id);
+    }
+
+    /// A block of plain systems, five columns by four rows.
+    fn block() -> (Galaxy, Vec<String>) {
+        let plain = crate::fixtures::plain_systems(20);
+        let mut placed = Vec::new();
+        let mut next = 0;
+        for q in 0..5_i32 {
+            for r in 0..4_i32 {
+                placed.push((plain[next].as_str(), ti4_model::hex::Hex::new(q, r)));
+                next += 1;
+            }
+        }
+        let galaxy = Galaxy::placed(ContentStore::embedded(), &placed, POK).unwrap();
+        (galaxy, plain)
+    }
+
+    fn rules_for<'a>(
+        galaxy: &'a Galaxy,
+        state: &GameState,
+        active: &SystemId,
+    ) -> MovementRules<'a> {
+        let content = ContentStore::embedded();
+        let mut rules = MovementRules::with_laws(
+            galaxy,
+            content,
+            POK,
+            active.as_str(),
+            Board::for_player(state, content, POK, &player()),
+            Some(state),
+        );
+        crate::action_cards::apply_movement_effects(&mut rules, state, &player());
+        rules
+    }
+
+    /// A ship with a long reach has far more ways than the cap: the enumeration is sorted and
+    /// bounded, the list is capped, route 0 is the engine's own route, and the others differ.
+    #[test]
+    fn a_long_range_ship_is_offered_the_default_and_at_most_the_cap() {
+        let content = ContentStore::embedded();
+        let (galaxy, plain) = block();
+        let player = player();
+        let origin = SystemId::new(&plain[0]);
+        let active = SystemId::new(&plain[11]); // (2,3): five hexes away
+        let mut state = crate::fixtures::game(&["a"]);
+        crate::fixtures::put(&mut state, &origin, "cruiser", &player, 1);
+        activate(&mut state, &player, &active).unwrap();
+        let rules = rules_for(&galaxy, &state, &active);
+        let hull = state.ships_of(&player, &origin)[0].clone();
+
+        // A ship of move 5 (more than a cruiser has; asked of the search directly).
+        let all = rules.all_routes_from_ship(origin.as_str(), 5, Some("cruiser"));
+        assert!(all.len() > MAX_ROUTES, "{} routes", all.len());
+        assert!(
+            all.windows(2)
+                .all(|pair| (pair[0].len(), &pair[0]) <= (pair[1].len(), &pair[1])),
+            "sorted by length, then by ids"
+        );
+        for route in &all {
+            assert_eq!(route.first().map(String::as_str), Some(origin.as_str()));
+            assert_eq!(route.last().map(String::as_str), Some(active.as_str()));
+            let unique: std::collections::BTreeSet<_> = route.iter().collect();
+            assert_eq!(unique.len(), route.len(), "no system twice: {route:?}");
+            assert!(route.len() <= 6, "at most five moves: {route:?}");
+        }
+        let repeated = rules.all_routes_from_ship(origin.as_str(), 5, Some("cruiser"));
+        assert_eq!(all, repeated, "deterministic");
+
+        // The offer: a cruiser with Flank Speed (3) and the drive (4) is 4 short of... enough to
+        // reach a nearer system. Take the nearer one so the ship arrives.
+        let near = SystemId::new(&plain[5]); // (1,1): two hexes
+        let mut state = crate::fixtures::game(&["a"]);
+        crate::fixtures::put(&mut state, &origin, "cruiser", &player, 1);
+        state.player_mut(&player).unwrap().technologies.insert(
+            ti4_model::id::TechnologyId::new("gd"),
+        );
+        activate(&mut state, &player, &near).unwrap();
+        state.player_mut(&player).unwrap().move_bonus_activation = Some(state.activation_seq);
+        let rules = rules_for(&galaxy, &state, &near);
+        let routes = ship_routes(
+            &state,
+            content,
+            POK,
+            &galaxy,
+            &rules,
+            &player,
+            &origin,
+            0,
+            &hull,
+            (false, false),
+            "id",
+        );
+        assert_eq!(routes.len(), MAX_ROUTES, "{routes:?}");
+        let legacy = rules
+            .path_from_ship(origin.as_str(), 3, Some("cruiser"))
+            .unwrap();
+        assert_eq!(routes[0].path, legacy);
+        assert!(routes[0].default && routes[1..].iter().all(|route| !route.default));
+        let distinct: std::collections::BTreeSet<_> =
+            routes.iter().map(|route| route.path.clone()).collect();
+        assert_eq!(distinct.len(), routes.len());
+        assert!(routes.iter().all(|route| route.path.len() <= 4));
+        let answers: Vec<_> = routes.iter().map(|route| route.answer.as_str()).collect();
+        assert_eq!(answers, ["id", "id|r1", "id|r2", "id|r3", "id|r4"]);
+    }
+
+    /// The enumeration agrees with the search the engine always used: a ship has a route exactly
+    /// when the search finds one, and the engine's own route is as short as the shortest listed.
+    #[test]
+    fn the_enumeration_agrees_with_the_legacy_search_everywhere() {
+        let map = rift_map();
+        let (block_galaxy, plain) = block();
+        let mut cases: Vec<(&Galaxy, Vec<SystemId>)> = vec![(
+            &map.galaxy,
+            vec![
+                map.origin.clone(),
+                map.rift.clone(),
+                map.active.clone(),
+                map.side.clone(),
+                map.far.clone(),
+            ],
+        )];
+        cases.push((&block_galaxy, plain.iter().take(12).map(SystemId::new).collect()));
+        let state = crate::fixtures::game(&["a"]);
+        let mut checked = 0;
+        for (galaxy, systems) in cases {
+            for active in &systems {
+                let rules = rules_for(galaxy, &state, active);
+                for origin in systems.iter().filter(|origin| *origin != active) {
+                    for value in 1..=4 {
+                        let legacy = rules.path_from_ship(origin.as_str(), value, Some("cruiser"));
+                        let all =
+                            rules.all_routes_from_ship(origin.as_str(), value, Some("cruiser"));
+                        assert_eq!(legacy.is_some(), !all.is_empty(), "{origin}>{active} {value}");
+                        if let Some(legacy) = legacy {
+                            assert_eq!(
+                                all[0].len(),
+                                legacy.len(),
+                                "the shortest listed is as short as the engine's: {origin}>{active} {value}"
+                            );
+                            assert!(all.contains(&legacy) || all.len() >= 512, "{legacy:?} in {all:?}");
+                        }
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        assert!(checked > 300);
+    }
+
+    /// A route through a nebula or other anomaly says so, and a wormhole hop is counted.
+    #[test]
+    fn a_route_reports_the_anomalies_it_passes() {
+        let content = ContentStore::embedded();
+        let asteroid = crate::fixtures::a_system_where("asteroid field");
+        let plain = crate::fixtures::plain_systems(4);
+        let galaxy = Galaxy::placed(
+            content,
+            &[
+                (plain[0].as_str(), ti4_model::hex::Hex::new(0, 0)),
+                (asteroid.as_str(), ti4_model::hex::Hex::new(1, 0)),
+                (plain[1].as_str(), ti4_model::hex::Hex::new(2, 0)),
+                (plain[2].as_str(), ti4_model::hex::Hex::new(0, 1)),
+                (plain[3].as_str(), ti4_model::hex::Hex::new(1, 1)),
+            ],
+            POK,
+        )
+        .unwrap();
+        let player = player();
+        let origin = SystemId::new(&plain[0]);
+        let active = SystemId::new(&plain[1]);
+        let mut state = crate::fixtures::game(&["a"]);
+        crate::fixtures::put(&mut state, &origin, "cruiser", &player, 1);
+        // Antimass Deflectors let ships through asteroid fields: now two ways, one through it.
+        state.player_mut(&player).unwrap().technologies.insert(
+            ti4_model::id::TechnologyId::new("amd"),
+        );
+        state.player_mut(&player).unwrap().move_bonus_activation = Some(state.activation_seq + 1);
+        activate(&mut state, &player, &active).unwrap();
+        let rules = rules_for(&galaxy, &state, &active);
+        let hull = state.ships_of(&player, &origin)[0].clone();
+        let routes = ship_routes(
+            &state,
+            content,
+            POK,
+            &galaxy,
+            &rules,
+            &player,
+            &origin,
+            0,
+            &hull,
+            (false, false),
+            "id",
+        );
+        assert!(!routes.is_empty());
+        assert_eq!(routes[0].path.len(), 3);
+        assert_eq!(routes[0].anomalies, vec![asteroid.clone()], "{routes:?}");
+        assert!(routes[0].rifts.is_empty(), "an asteroid field rolls nothing");
     }
 
     use ti4_model::content_types::POK;
@@ -1596,6 +2373,7 @@ mod tests {
                 index: 0,
                 gravity_drive: false,
                 ionian: false,
+                route: 0,
             }
         );
     }

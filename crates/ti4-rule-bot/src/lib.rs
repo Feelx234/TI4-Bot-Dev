@@ -197,6 +197,34 @@ pub fn choose_explained(
     (smart.unwrap_or(random_pick), smart.is_some(), rng)
 }
 
+/// The route (rules version 29: `details.routes` of a movement choice, see
+/// `ti4_engine::tactical::ship_routes`) that the bot takes for the move option `picked`: the
+/// number of the route in the option's list, 0 being the default, the route the engine took
+/// before routes existed.
+///
+/// Always the default for now: the bot's strategy does not weigh routes yet, and choosing the
+/// default keeps every game it played identical. This is the hook where a bot that does (the safe
+/// Gravity Drive route round a rift, a route that passes units to pick up) would decide, with
+/// `seen.observed().ship_routes_into(..)` for the same facts the choice lists.
+#[must_use]
+pub fn pick_route(choice: &Choice, picked: usize, seen: &SeatObservation<'_>) -> usize {
+    let _ = (choice, picked, seen);
+    0
+}
+
+/// The id to answer `choice` with when the bot picked option `picked`: the option's own id for the
+/// default route, else the id of the route [`pick_route`] names (`ti4_engine::tactical::
+/// route_suffix`). A choice without routes is answered with the option's id.
+#[must_use]
+pub fn answer_id(choice: &Choice, picked: usize, seen: &SeatObservation<'_>) -> String {
+    let option = &choice.options[picked];
+    let route = pick_route(choice, picked, seen);
+    let routes = ti4_engine::tactical::routes_of(choice, &option.id);
+    routes
+        .get(route)
+        .map_or_else(|| option.id.clone(), |route| route.answer.clone())
+}
+
 /// The smart answer to `choice`, or `None` to keep the random pick.
 #[must_use]
 pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -> Option<usize> {

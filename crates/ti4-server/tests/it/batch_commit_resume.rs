@@ -134,6 +134,7 @@ fn scenario(step_snapshots: bool) -> Outcome {
             origin: option.payload["origin"].as_str().unwrap().to_owned(),
             unit: option.payload["unit"].as_str().unwrap().to_owned(),
             damaged: option.payload["damaged"].as_bool().unwrap(),
+            route: None,
         });
         if option.payload["capacity"].as_i64().unwrap_or(0) > 0 {
             steps.push(MovementStep::DoneLoading);

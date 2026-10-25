@@ -83,6 +83,7 @@ fn movement_batch_is_atomic_idempotent_and_undoable() {
             origin,
             unit,
             damaged,
+            route: None,
         }];
         if option.payload["capacity"].as_i64().unwrap_or(0) > 0 {
             steps.push(MovementStep::DoneLoading);
@@ -96,6 +97,7 @@ fn movement_batch_is_atomic_idempotent_and_undoable() {
                 origin: "missing".into(),
                 unit: "carrier".into(),
                 damaged: false,
+                route: None,
             },
             MovementStep::DoneMoving,
         ];
@@ -158,6 +160,7 @@ fn movement_batch_is_atomic_idempotent_and_undoable() {
             origin: "missing".into(),
             unit: "carrier".into(),
             damaged: false,
+            route: None,
         },
     );
     assert_eq!(
@@ -342,6 +345,7 @@ fn excess_fleet_batch_replays_at_the_next_choice_and_recovers_its_state() {
             origin: origin.to_string(),
             unit: "destroyer".into(),
             damaged: false,
+            route: None,
         };
         4
     ];
@@ -524,6 +528,7 @@ fn fiftieth_movement_step_failure_preserves_the_durable_redo_branch() {
             origin: origin.to_string(),
             unit: "destroyer".into(),
             damaged: false,
+            route: None,
         };
         49
     ];
@@ -531,6 +536,7 @@ fn fiftieth_movement_step_failure_preserves_the_durable_redo_branch() {
         origin: "missing".into(),
         unit: "destroyer".into(),
         damaged: false,
+        route: None,
     });
     steps.push(MovementStep::DoneMoving);
     let error = registry
@@ -769,6 +775,7 @@ fn movement_batch_survives_a_declined_cargo_hold_for_ground_forces_in_the_active
                     origin: origin.to_string(),
                     unit: "carrier".into(),
                     damaged: false,
+                    route: None,
                 },
                 MovementStep::DoneMoving,
             ],
@@ -874,6 +881,7 @@ fn move_carrier(origin: &str) -> MovementStep {
         origin: origin.into(),
         unit: "carrier".into(),
         damaged: false,
+        route: None,
     }
 }
 
@@ -1038,6 +1046,7 @@ fn movement_batch_with_an_illegal_second_step_is_rejected_without_a_reaction_in_
                     origin: "999".into(),
                     unit: "carrier".into(),
                     damaged: false,
+                    route: None,
                 },
                 MovementStep::DoneMoving,
             ],

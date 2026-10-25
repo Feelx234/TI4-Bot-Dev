@@ -62,6 +62,7 @@ fn step_of(option: &ChoiceOption) -> Option<(BatchKind, MovementStep)> {
                 origin: text("origin")?,
                 unit: text("unit")?,
                 damaged,
+                route: None,
             },
         ),
         ("load", _) => (
@@ -204,6 +205,7 @@ fn plans_for(choice: &Choice, destination: &str) -> Vec<MovementPlan> {
                         origin: "nowhere".into(),
                         unit: "ghost".into(),
                         damaged: false,
+                        route: None,
                     },
                     MovementStep::DoneMoving,
                 ],

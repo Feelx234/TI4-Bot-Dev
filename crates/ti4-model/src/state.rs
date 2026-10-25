@@ -1184,7 +1184,13 @@ pub const RULES_MIRAGE_FRONTIER: u32 = 27;
 /// stalled the card. Version 28.
 pub const RULES_PLAGIARIZE_OWNED: u32 = 28;
 
-pub const RULES_VERSION: u32 = 28;
+/// The first rules version in which a ship with more than one legal way to the active system is
+/// offered a limited set of routes with one marked default (`tactical::ship_routes`), and the
+/// chosen route decides its en-route consequences (rift dice, pickups, wormhole hops). Below, the
+/// engine picked the route itself. Version 29.
+pub const RULES_MOVEMENT_ROUTES: u32 = 29;
+
+pub const RULES_VERSION: u32 = 29;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
