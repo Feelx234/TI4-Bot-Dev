@@ -240,6 +240,8 @@ export const TokenPaymentBar: React.FC<TokenPaymentBarProps> = ({ view, onConfir
             className="button button--secondary"
             data-testid="resume-choice-button"
             aria-label="Open token panel"
+            // Reopening the panel mid-send would let it send a second, different confirmation.
+            disabled={busy}
             onClick={onOpenPanel}
           >
             Panel
