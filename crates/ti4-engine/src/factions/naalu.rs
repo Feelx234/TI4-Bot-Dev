@@ -538,8 +538,9 @@ fn foresight(owner_name: &str, seat: &PlayerId) -> Ability {
             )
             .contextualized(
                 // The system the ships leave, for the map (read-only: not part of any answer).
-                decision(context.state, &owner, "foresight", "destination")
-                    .about(crate::decision_context::DecisionTarget::System(from.clone())),
+                decision(context.state, &owner, "foresight", "destination").about(
+                    crate::decision_context::DecisionTarget::System(from.clone()),
+                ),
             );
             let answer = context
                 .ask_seeing(&choice)

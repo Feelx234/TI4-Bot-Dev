@@ -274,7 +274,9 @@ fn ralnel_ask(
             context.state.round,
         )
         // The system the ships retreat from, for the map (read-only display fact).
-        .about(crate::decision_context::DecisionTarget::System(from.clone())),
+        .about(crate::decision_context::DecisionTarget::System(
+            from.clone(),
+        )),
     );
     context.ask_seeing(&choice)
 }

@@ -215,11 +215,13 @@ pub fn load_saved(dir: &Path) -> Result<Source, String> {
     let history: GameHistory =
         serde_json::from_value(payload("history.json")?).map_err(|e| format!("history: {e}"))?;
     let seed = init.seed.ok_or_else(|| "no seed".to_owned())?;
-    let (_, galaxy) = ti4_host::map::create_game_with_template(
+    // The factions the opening state seats lay the board out (a start preset can rotate them).
+    let galaxy = ti4_host::map::rebuild_galaxy(
         ContentStore::embedded(),
         &init.player_ids,
         seed,
         init.map_template.as_deref(),
+        &init.initial_state,
     )?;
     Ok(Source {
         name: format!("{}:{}", dir.display(), history.decisions.len()),

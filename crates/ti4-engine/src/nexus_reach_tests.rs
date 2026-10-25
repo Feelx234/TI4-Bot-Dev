@@ -85,7 +85,10 @@ fn a_ship_in_the_nexus_opens_it_and_leaves_through_gamma_and_alpha_beta() {
     let at = nexus();
     state.system_mut(&SystemId::new(&from)).units.clear();
     put(&mut state, &at, "cruiser", &a(), 1);
-    assert!(crate::seating::nexus_is_triggered(&state), "a unit in it opens it");
+    assert!(
+        crate::seating::nexus_is_triggered(&state),
+        "a unit in it opens it"
+    );
     state.nexus_unlocked = true;
     crate::laws::apply_to_galaxy(&state, &mut galaxy);
     let kinds = galaxy.wormhole_kinds("82a");
@@ -107,6 +110,9 @@ fn a_gamma_token_that_moves_updates_adjacency() {
         .wormhole_tokens
         .insert("GAMMA".to_owned(), SystemId::new(&other));
     crate::laws::apply_to_galaxy(&state, &mut galaxy);
-    assert!(!galaxy.are_adjacent(&from, "82a"), "the old holder is cut off");
+    assert!(
+        !galaxy.are_adjacent(&from, "82a"),
+        "the old holder is cut off"
+    );
     assert!(galaxy.are_adjacent(&other, "82a"));
 }

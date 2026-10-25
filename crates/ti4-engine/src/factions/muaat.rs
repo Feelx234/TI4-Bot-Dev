@@ -2355,9 +2355,16 @@ mod tests {
         let nova = SystemId::new(crate::movement::NOVA_SEED);
         let (game, centre, _) = nova_seed_game_at(ti4_model::state::RULES_NOVA_SEED_AFTERMATH);
         assert_eq!(count(&game.state, &nova, "warsun", &a()), 1);
-        assert_eq!(count(&game.state, &nova, "cruiser", &a()), 1, "the escort survives");
+        assert_eq!(
+            count(&game.state, &nova, "cruiser", &a()),
+            1,
+            "the escort survives"
+        );
         assert_eq!(count(&game.state, &nova, "cruiser", &b()), 0);
-        assert!(!game.state.board.contains_key(&centre), "nothing is left on the old id");
+        assert!(
+            !game.state.board.contains_key(&centre),
+            "nothing is left on the old id"
+        );
         let galaxy = game.galaxy().expect("the game keeps its map");
         assert!(
             galaxy.coord_of(crate::movement::NOVA_SEED).is_some(),

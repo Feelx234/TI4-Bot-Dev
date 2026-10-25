@@ -1038,9 +1038,19 @@ fn winnu_own_production(rules: u32, script: &[&str]) -> (Game<'static>, Seen) {
 fn winnuagent_2_berekar_is_offered_in_the_owners_own_production_dialog() {
     let (game, seen) = winnu_own_production(
         ti4_model::state::RULES_VERSION,
-        &["exhaust_agent|winnuagent", "build|carrier|1", "done_producing"],
+        &[
+            "exhaust_agent|winnuagent",
+            "build|carrier|1",
+            "done_producing",
+        ],
     );
-    let home = game.state.player(&a()).unwrap().home_system.clone().unwrap();
+    let home = game
+        .state
+        .player(&a())
+        .unwrap()
+        .home_system
+        .clone()
+        .unwrap();
     let before = ships(&winnu_game(), &home, &a(), "carrier");
     // No separate reaction window for the owner's own production.
     assert!(
@@ -1048,7 +1058,11 @@ fn winnuagent_2_berekar_is_offered_in_the_owners_own_production_dialog() {
         "{:?}",
         asked(&seen)
     );
-    assert!(was_offered(&seen, "exhaust_agent|winnuagent"), "{:?}", asked(&seen));
+    assert!(
+        was_offered(&seen, "exhaust_agent|winnuagent"),
+        "{:?}",
+        asked(&seen)
+    );
     // 3 - 2 = 1 trade good paid; the carrier was out of reach without the discount.
     assert_eq!(game.state.player(&a()).unwrap().trade_goods, 0);
     assert_eq!(ships(&game.state, &home, &a(), "carrier"), before + 1);
@@ -1064,7 +1078,11 @@ fn winnuagent_2_berekar_stays_ready_when_the_owner_does_not_use_it() {
         ti4_model::state::RULES_VERSION,
         &["build|fighter|2", "done_producing"],
     );
-    assert!(was_offered(&seen, "exhaust_agent|winnuagent"), "{:?}", asked(&seen));
+    assert!(
+        was_offered(&seen, "exhaust_agent|winnuagent"),
+        "{:?}",
+        asked(&seen)
+    );
     assert_eq!(
         leader_status(&game.state, &a(), "winnuagent"),
         Some(LeaderStatus::Readied)
@@ -1081,9 +1099,22 @@ fn winnuagent_2_legacy_games_keep_the_reaction_window_and_no_dialog_option() {
             "done_producing",
         ],
     );
-    let home = game.state.player(&a()).unwrap().home_system.clone().unwrap();
-    assert!(was_offered(&seen, "leader:winnu:winnuagent:PRODUCTION_USED:after"));
-    assert!(!was_offered(&seen, "exhaust_agent|winnuagent"), "{:?}", asked(&seen));
+    let home = game
+        .state
+        .player(&a())
+        .unwrap()
+        .home_system
+        .clone()
+        .unwrap();
+    assert!(was_offered(
+        &seen,
+        "leader:winnu:winnuagent:PRODUCTION_USED:after"
+    ));
+    assert!(
+        !was_offered(&seen, "exhaust_agent|winnuagent"),
+        "{:?}",
+        asked(&seen)
+    );
     let before = ships(&winnu_game(), &home, &a(), "carrier");
     assert_eq!(ships(&game.state, &home, &a(), "carrier"), before + 1);
 }

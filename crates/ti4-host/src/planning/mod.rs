@@ -518,12 +518,20 @@ mod tests {
         let gain = status_token_question(
             &player,
             "gain_command_token",
-            vec![pool_option("tactic"), pool_option("fleet"), pool_option("strategic")],
+            vec![
+                pool_option("tactic"),
+                pool_option("fleet"),
+                pool_option("strategic"),
+            ],
         );
         let redistribute = status_token_question(
             &player,
             "status_redistribute_tokens",
-            vec![arrangement("4|4|2"), arrangement("5|3|2"), arrangement("3|5|2")],
+            vec![
+                arrangement("4|4|2"),
+                arrangement("5|3|2"),
+                arrangement("3|5|2"),
+            ],
         );
         let planned = vec![
             RecordedDecision::from_answer(&gain, &pool_option("tactic")),
@@ -551,7 +559,10 @@ mod tests {
         replay.choose(&gain).unwrap();
         assert!(replay.choose(&other_total).is_err());
         let progress = progress.lock().unwrap();
-        assert_eq!(progress.stop_reason(), Some(ReplayStopReason::SelectionMissing));
+        assert_eq!(
+            progress.stop_reason(),
+            Some(ReplayStopReason::SelectionMissing)
+        );
         assert_eq!(progress.remaining().len(), 1);
     }
 }

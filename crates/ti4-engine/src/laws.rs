@@ -614,7 +614,10 @@ pub fn offer_discard(
     state.player(&owner)?;
     let record = content.get(ContentType::Agendas, alias);
     let text_of = |record: &ti4_content::Record, key: &str| {
-        record.text(key).filter(|text| !text.is_empty()).map(str::to_owned)
+        record
+            .text(key)
+            .filter(|text| !text.is_empty())
+            .map(str::to_owned)
     };
     let law_name = record
         .as_ref()
@@ -1034,9 +1037,10 @@ mod tests {
         let state_with = || enacted("minister_peace", "a");
         for (answer, kept) in [("decline", true), ("discard", false)] {
             let mut state = state_with();
-            let (decider, seen) = crate::choice::Capturing::new(Box::new(
-                crate::choice::Scripted::new([answer.to_owned()]),
-            ));
+            let (decider, seen) =
+                crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new([
+                    answer.to_owned()
+                ])));
             let mut table = crate::choice::Table::with_default(Box::new(decider));
             let taken = super::offer_discard(
                 &mut state,
@@ -1057,12 +1061,18 @@ mod tests {
             assert_eq!(taken.is_some(), !kept);
             assert_eq!(state.laws.contains_key("minister_peace"), kept);
             let ask = seen.borrow()[0].clone();
-            assert_eq!(ask.ids(), ["discard", "decline"], "ids and order are unchanged");
+            assert_eq!(
+                ask.ids(),
+                ["discard", "decline"],
+                "ids and order are unchanged"
+            );
             assert_eq!(ask.details["kind"], "offer");
             assert_eq!(ask.details["card"]["title"], "Minister of Peace");
-            assert!(ask.details["card"]["text"]
-                .as_str()
-                .is_some_and(|text| text.contains("immediately end the active player's turn")));
+            assert!(
+                ask.details["card"]["text"]
+                    .as_str()
+                    .is_some_and(|text| text.contains("immediately end the active player's turn"))
+            );
             assert_eq!(ask.details["facts"][0]["system"], "25");
             assert_eq!(ask.details["facts"][1]["seat"], "b");
             assert_eq!(
