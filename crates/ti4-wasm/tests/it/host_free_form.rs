@@ -101,3 +101,90 @@ fn a_free_form_deal_that_cannot_be_paid_ends_the_negotiation() {
     let notes = table.notes.expect("a question followed the deal");
     assert!(notes["cf:ghost"] == "b", "nothing changed hands: {notes}");
 }
+
+/// Run o1-03-2334: the page was reloaded some questions after the person had put a composed deal
+/// to a rule bot, and the game never came back. A save taken after a free-form deal plays the
+/// same game again, up to the question it was taken at.
+#[test]
+fn a_save_after_a_free_form_deal_plays_again() {
+    let _serial = serial();
+    let page = Arc::new(Mutex::new(Page::default()));
+    let table = Arc::new(Mutex::new(Table::default()));
+    // After the deal, ten more questions, then the save and a leave (the reload).
+    let saved: Arc<Mutex<Option<(Value, String)>>> = Arc::default();
+    {
+        let page = page.clone();
+        let table = table.clone();
+        let saved = saved.clone();
+        let mut after = 0;
+        ti4_wasm::set_native_host(move |text: &str| {
+            let envelope: Value = serde_json::from_str(text).expect("the output is JSON");
+            let mut page = page.lock().unwrap();
+            if envelope["kind"] != "ask" {
+                return host_api::CONTINUE;
+            }
+            page.messages
+                .extend(envelope["messages"].as_array().unwrap().clone());
+            let (nonce, version, choice, cursor) =
+                pending(&page.messages).expect("an ask has a pending choice");
+            let mut table = table.lock().unwrap();
+            if table.sent.is_some() {
+                after += 1;
+                if after == 10 {
+                    let save = send(&json!({ "type": "save_state" }))["save"].clone();
+                    *saved.lock().unwrap() = Some((save, choice.prompt.clone()));
+                    return -1;
+                }
+            }
+            let option = if table.sent.is_none() && choice.free_form.is_some() {
+                table.sent = Some("x;gn=cf:saar;".to_owned());
+                "x;gn=cf:saar;".to_owned()
+            } else if table.sent.is_none()
+                && let Some(open) = choice.options.iter().find(|o| o.kind == OPEN_KIND)
+            {
+                open.id.clone()
+            } else {
+                let (picked, _) = ti4_rule_bot::choose(&choice, None, 11, 0, cursor);
+                choice.options[picked].id.clone()
+            };
+            let answered = send(&json!({
+                "type": "submit_choice", "protocol_version": 4, "game_id": GAME,
+                "nonce": nonce, "expected_version": version, "option_id": option,
+            }));
+            page.messages
+                .extend(answered["messages"].as_array().unwrap().clone());
+            i32::try_from(answered["resume"].as_i64().expect("an answer resumes")).unwrap()
+        });
+    }
+    let end = start(&setup(11, 4), None);
+    assert!(end["end"]["left"] == true, "the page left: {end}");
+    let (save, prompt) = saved.lock().unwrap().take().expect("a save was taken");
+
+    let asked: Arc<Mutex<Option<String>>> = Arc::default();
+    {
+        let asked = asked.clone();
+        let messages: Arc<Mutex<Vec<Value>>> = Arc::default();
+        ti4_wasm::set_native_host(move |text: &str| {
+            let envelope: Value = serde_json::from_str(text).expect("the output is JSON");
+            if envelope["kind"] != "ask" {
+                return host_api::CONTINUE;
+            }
+            let mut messages = messages.lock().unwrap();
+            messages.extend(envelope["messages"].as_array().unwrap().clone());
+            let (_, _, choice, _) = pending(&messages).expect("an ask has a pending choice");
+            *asked.lock().unwrap() = Some(choice.prompt.clone());
+            -1
+        });
+    }
+    let end = crate::common::resume(&save);
+    assert!(
+        end["end"]["error"].is_null(),
+        "the save played again: {end}"
+    );
+    assert_eq!(
+        asked.lock().unwrap().as_deref(),
+        Some(prompt.as_str()),
+        "{}",
+        end["end"]
+    );
+}

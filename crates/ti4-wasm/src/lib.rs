@@ -644,7 +644,13 @@ fn saved(choice: &Choice, ours: bool, rule: bool) -> Result<ChoiceOption, Illega
         (host.decided, host.saved)
     };
     let wanted = host_api::saved_decision(index).ok_or_else(|| failed(LEFT))?;
-    let Some(option) = choice.option(&wanted).cloned() else {
+    // A free-form answer (a deal composed on the trade desk) is no listed option: the engine
+    // takes it by its id, as it did when it was given (`Choice::answer_for`).
+    let option = choice
+        .option(&wanted)
+        .cloned()
+        .or_else(|| choice.answer_for(&wanted));
+    let Some(option) = option else {
         // Another build of the engine asks another question here, or offers other options. The
         // game ends, and the host is told why (`end.diverged`).
         let text = format!(

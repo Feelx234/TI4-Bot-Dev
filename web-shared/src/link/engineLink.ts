@@ -154,7 +154,8 @@ export function engineLink(
           all.tell({ kind: "save", save: message.save });
         }
         tell(message.envelope.messages);
-        const error = message.envelope.end?.error;
+        // A saved game that does not play again ends without a question: as fatal as an error.
+        const error = message.envelope.end?.error ?? message.envelope.end?.diverged;
         if (error) {
           fail(error);
           return;
