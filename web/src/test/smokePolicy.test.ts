@@ -21,6 +21,7 @@ import {
   isReactionSubtype,
   reactionTextProblem,
   preferTechWindowUse,
+  preferTechCards,
   CHAOS_FREE_OFFERS,
   OVERLAY_CLOSE_IDS,
   offersExpedition,
@@ -605,6 +606,60 @@ describe("preferTechWindowUse (optional technology windows)", () => {
   it("leaves other subtypes and a disabled policy alone", () => {
     expect(preferTechWindowUse("draft_strategy_card", "", options, 99)).toBe(options);
     expect(preferTechWindowUse("chaos_mapping_choose_system", "", options, 99, false)).toBe(options);
+  });
+});
+
+describe("preferTechCards and the Transit Diodes panel (smoke harness)", () => {
+  const descs = (cs: { desc: string }[]) => cs.map((x) => x.desc);
+
+  it("drops the filter chips while a technology card can be picked", () => {
+    const pool = [
+      c("tech-filter-green | Green"),
+      c("tech-filter-available | Can research now"),
+      c("tech-filter-owned | Owned"),
+      c("tech-card-st | Sarween Tools"),
+      c("decline-research-btn | Decline"),
+    ];
+    expect(descs(preferTechCards(pool))).toEqual(["tech-card-st | Sarween Tools", "decline-research-btn | Decline"]);
+  });
+
+  it("keeps the chips when no card is clickable, so a hidden list can be recovered", () => {
+    const pool = [c("tech-filter-all | All colours"), c("tech-filter-green | Green")];
+    expect(preferTechCards(pool)).toBe(pool);
+  });
+
+  it("confirms the research as soon as it is enabled", () => {
+    const confirm = c("confirm-research-btn | Confirm");
+    expect(preferTechCards([c("tech-card-st | x"), c("tech-filter-red | Red"), confirm])).toEqual([confirm]);
+  });
+
+  it("does not take a picked card back while another control can make progress", () => {
+    const picked = { desc: "tech-card-st | Sarween Tools", unstage: true };
+    const other = { desc: "tech-card-ac2 | AC2", unstage: false };
+    expect(preferTechCards([picked, other, c("tech-filter-red | Red")])).toEqual([other]);
+    // A picked card that is the only way forward stays in the pool.
+    expect(preferTechCards([picked, c("tech-filter-red | Red")])).toEqual([picked]);
+  });
+
+  it("confirms Transit Diodes once a destination is picked", () => {
+    const confirm = c("transit-confirm | Confirm");
+    const pool = [
+      c("transit-destination-jord | Jord"),
+      c("transit-back | Back"),
+      c("transit-decline | Skip"),
+      confirm,
+    ];
+    expect(preferTechWindowUse("transit_diodes_redeploy", "x (4 left)", pool, 0)).toEqual([confirm]);
+    expect(preferTechWindowUse("transit_diodes_redeploy", "x (3 left)", pool, 0)).toEqual([confirm]);
+    // Without a destination (Confirm disabled, so not a candidate) the old rules apply.
+    expect(descs(preferTechWindowUse("transit_diodes_redeploy", "x (4 left)", pool.slice(0, 3), 0))).toEqual([
+      "transit-destination-jord | Jord",
+      "transit-back | Back",
+    ]);
+  });
+
+  it("never clicks the Transit Diodes collapse toggle", () => {
+    expect(EXCLUDED_CONTROLS.test("transit-collapse")).toBe(true);
   });
 });
 

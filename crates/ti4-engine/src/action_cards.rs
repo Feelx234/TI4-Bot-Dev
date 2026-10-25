@@ -4421,21 +4421,6 @@ fn impersonation(context: &mut crate::timing::TimingContext<'_>, player: &Player
 /// is one the corpus tags with a `faction`; everything else a neighbour owns is fair prey, and
 /// gaining it leaves it no longer in the neighbour's play area.
 fn plagiarize(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let paid = crate::production::pay(
-        context.state,
-        context.content,
-        context.sources,
-        context.table,
-        player,
-        5,
-        crate::production::Spend::Influence,
-    );
-    let Ok(paid) = paid else {
-        return;
-    };
-    if !paid {
-        return;
-    }
     let mut options: Vec<(
         String,
         String,
@@ -4478,6 +4463,29 @@ fn plagiarize(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId)
                 tech.clone(),
             ));
         }
+    }
+    // Rules version 23 already refuses to offer the card with nothing to steal; the same check
+    // comes before the payment so the five influence are never spent for nothing. Older games
+    // paid first.
+    if options.is_empty()
+        && context.state.rules_version >= ti4_model::state::RULES_ACTION_CARD_COSTS
+    {
+        return;
+    }
+    let paid = crate::production::pay(
+        context.state,
+        context.content,
+        context.sources,
+        context.table,
+        player,
+        5,
+        crate::production::Spend::Influence,
+    );
+    let Ok(paid) = paid else {
+        return;
+    };
+    if !paid {
+        return;
     }
     if options.is_empty() {
         return;
@@ -11908,6 +11916,30 @@ mod tests {
     }
 
     #[test]
+    fn plagiarize_does_not_take_the_influence_when_nothing_can_be_stolen() {
+        let me = PlayerId::new("a");
+        let them = PlayerId::new("b");
+        let store = ContentStore::embedded();
+        let tech = store
+            .records(ti4_model::content_types::ContentType::Technologies)
+            .iter()
+            .find(|record| record.text("faction").is_none() && record.id().is_some())
+            .and_then(|record| record.id().map(ti4_model::TechnologyId::new))
+            .expect("the corpus has a non-faction technology");
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.player_mut(&me).unwrap().trade_goods = 5;
+        state.promissory_notes.retain(|_, owner| *owner != me);
+        state
+            .player_mut(&them)
+            .unwrap()
+            .technologies
+            .insert(tech.clone());
+        state.player_mut(&me).unwrap().technologies.insert(tech);
+        resolve_card(&mut state, "plagiarize", &me, &[]);
+        assert_eq!(state.player(&me).unwrap().trade_goods, 5, "nothing is paid");
+    }
+
+    #[test]
     fn plagiarize_steals_the_neighbor_non_faction_technology() {
         let me = PlayerId::new("a");
         let neighbor = PlayerId::new("b");
@@ -13970,6 +14002,29 @@ mod cost_gating {
                 })
             })
             .expect("a planet that big exists")
+    }
+
+    #[test]
+    fn plagiarize_is_not_offered_when_the_player_owns_every_neighbour_technology() {
+        let me = PlayerId::new("a");
+        let them = PlayerId::new("b");
+        let store = ContentStore::embedded();
+        let tech = store
+            .records(ContentType::Technologies)
+            .iter()
+            .find(|r| r.text("faction").is_none() && r.id().is_some())
+            .and_then(|r| r.id().map(ti4_model::TechnologyId::new))
+            .unwrap();
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.player_mut(&me).unwrap().trade_goods = 5;
+        state
+            .player_mut(&them)
+            .unwrap()
+            .technologies
+            .insert(tech.clone());
+        assert!(offered(&state, &me, "plagiarize"), "something to steal");
+        state.player_mut(&me).unwrap().technologies.insert(tech);
+        assert!(!offered(&state, &me, "plagiarize"), "nothing left to steal");
     }
 
     #[test]

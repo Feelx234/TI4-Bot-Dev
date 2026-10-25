@@ -112,6 +112,22 @@ export function preferTradeDesk<T extends PolicyCandidate>(candidates: T[], rng?
 /** How often a desk that could be pushed through is declined instead. */
 export const TRADE_DECLINE_CHANCE = 0.15;
 
+/**
+ * The technology cards (Research, Plagiarize, the Technology primary). While a card can be picked
+ * the colour and "Can research now"/"Owned" filter chips are dropped: they only hide the cards
+ * (23 of 25 clicks of s2-04-0153, and the stalls in Plagiarize of s1-06-0159 and o2-108-0232,
+ * ended on "No technology matches this filter"). Confirm is pressed as soon as it is enabled. A
+ * picked card is not clicked again while something else can be, so the pick is not taken back.
+ */
+export function preferTechCards<T extends PolicyCandidate & { unstage?: boolean }>(candidates: T[]): T[] {
+  if (!candidates.some((c) => /^tech-card-/.test(c.desc))) return candidates;
+  const confirm = candidates.find((c) => /^confirm-research-btn\b/.test(c.desc));
+  if (confirm) return [confirm];
+  const kept = candidates.filter((c) => !/^tech-filter-/.test(c.desc));
+  const fresh = kept.filter((c) => !(c.unstage && /^tech-card-/.test(c.desc)));
+  return fresh.length ? fresh : kept;
+}
+
 /** How often the harness buys one more Leadership token while the panel offers it. */
 export const TOKEN_BUY_CHANCE = 0.35;
 
@@ -268,7 +284,7 @@ export function isUnstage(desc: string): boolean {
 export const OVERLAY_CLOSE_IDS = ["close-inspector-button", "turn-bar-menu-close", "agenda-peek-close"] as const;
 
 export const EXCLUDED_CONTROLS =
-  /minimi[sz]e|close|cancel|undo|redo|history|search-input|trade-tab|pin-reaction|inspect|paused-plan-dismiss|ask[- ]each[- ](payment|build)|^(unit|faction)-info|: (unit|faction) details|^planet-effect-info|^(secondary-prep|prepare-|prep-|detail-panel-fold)|^top-menu|^ready-bar-(collapse|clear)|^agenda-strip/i;
+  /minimi[sz]e|close|cancel|undo|redo|history|search-input|trade-tab|pin-reaction|inspect|paused-plan-dismiss|ask[- ]each[- ](payment|build)|^(unit|faction)-info|: (unit|faction) details|^planet-effect-info|^(secondary-prep|prepare-|prep-|detail-panel-fold)|^top-menu|^ready-bar-(collapse|clear)|^agenda-strip|^transit-collapse/i;
 
 /** Whether a decision subtype is a reaction window, its inner card pick or a reaction ability. */
 export function isReactionSubtype(subtype: string): boolean {
@@ -444,6 +460,13 @@ export function preferTechWindowUse<T extends PolicyCandidate>(
   offersSoFar: number,
   enabled = true,
 ): T[] {
+  // Transit Diodes' panel enables Confirm only once a destination is picked. Any other click then
+  // takes the pick back (the same destination again, a source on the map, Back), so Confirm it
+  // (found by smoke s1-05-0157, which never confirmed).
+  if (enabled && subtype === "transit_diodes_redeploy") {
+    const confirm = candidates.find((c) => /^transit-confirm\b/.test(c.desc));
+    if (confirm) return [confirm];
+  }
   if (!enabled || !candidates.some((c) => DECLINE_OPTION.test(c.desc))) return candidates;
   const withoutDecline = candidates.filter((c) => !DECLINE_OPTION.test(c.desc));
   const onlyDecline = candidates.filter((c) => !OPTION.test(c.desc) || DECLINE_OPTION.test(c.desc));

@@ -34,6 +34,7 @@ import {
   preferPayment,
   preferReadyConfirm,
   preferTechWindowUse,
+  preferTechCards,
   isPaymentDeadEnd,
   preferTokenConfirm,
   preferTradeDesk,
@@ -487,7 +488,7 @@ export function pick(
     return weightedPick(bar, (c) => steerWeight(c.full, hexWeights), rng);
   }
   candidates = preferTokenConfirm(
-    preferTradeDesk(preferHitConfirm(preferReadyConfirm(preferPayment(candidates))), rng),
+    preferTradeDesk(preferHitConfirm(preferReadyConfirm(preferPayment(preferTechCards(candidates)))), rng),
     rng,
   );
   const resume = candidates.filter((c) => c.resume);

@@ -124,6 +124,7 @@ export const TransitDiodesPanel: React.FC<TransitDiodesPanelProps> = ({
         .find((d) => d.planetId === selectedPlanetId);
       if (destination) {
         setOptionId(destination.optionId);
+        onSelectOption?.(destination.optionId);
         return;
       }
     }

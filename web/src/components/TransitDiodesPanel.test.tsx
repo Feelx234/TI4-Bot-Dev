@@ -133,6 +133,25 @@ describe("TransitDiodesPanel (via PlanetSelectionBar)", () => {
     expect(screen.getByTestId("transit-destination-wellon").getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("a map tap on a destination reports the option like a tap in the list", () => {
+    const onSelectOption = vi.fn();
+    const { rerender, onSubmit } = renderBar({ onSelectOption, selectedPlanetId: null });
+    click("transit-force-18|jord|infantry");
+    onSelectOption.mockClear();
+    rerender(
+      <PlanetSelectionBar
+        choice={choice}
+        viewerSeat={actor}
+        boardView={galleryBoard}
+        onSubmit={onSubmit}
+        onSelectOption={onSelectOption}
+        selectedPlanetId="wellon"
+      />,
+    );
+    expect(screen.getByTestId("transit-panel").dataset.step).toBe("3");
+    expect(onSelectOption).toHaveBeenLastCalledWith("transit|18|jord|infantry|19|wellon");
+  });
+
   it("shows the waiting line to other players", () => {
     renderBar({ viewerSeat: "other_seat" });
     expect(screen.queryByTestId("transit-panel")).toBeNull();
