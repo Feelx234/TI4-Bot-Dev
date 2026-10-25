@@ -3,7 +3,13 @@
 /**
  * One step of a movement, of the landings of an invasion, or of a production.
  */
-export type PlanStep = { "kind": "move", origin: string, unit: string, damaged: boolean, gravity_drive: boolean, ionian: boolean, } | { "kind": "load", 
+export type PlanStep = { "kind": "move", origin: string, unit: string, damaged: boolean, gravity_drive: boolean, ionian: boolean, 
+/**
+ * The route of the ship's route list (`MoveFact::routes`) that it takes: its place in
+ * that list. Absent: the default route, the one the game takes when no route is named
+ * (so a plan from before rules version 29 is unchanged).
+ */
+route?: number, } | { "kind": "load", 
 /**
  * The system that the ship starts in.
  */

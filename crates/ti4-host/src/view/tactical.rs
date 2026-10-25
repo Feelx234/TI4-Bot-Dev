@@ -68,6 +68,36 @@ pub struct MoveFact {
     pub path: Vec<String>,
     /// The gravity rifts that the ship leaves on this path. It rolls once for each.
     pub rifts: Vec<String>,
+    /// The other ways to the active system, from rules version 29 on, when the ship has more than
+    /// one: up to `ti4_engine::tactical::MAX_ROUTES`, the default (the path above) first. A move
+    /// names one by its place in this list (`PlanStep::Move::route`). Empty: the path above is the
+    /// only route.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub routes: Vec<RouteFact>,
+}
+
+/// One route of a ship to the active system and what the ship does on it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct RouteFact {
+    /// The systems that the ship enters, in order; the origin first, the active system last.
+    pub path: Vec<String>,
+    /// The route that the engine takes when a move names none.
+    pub default: bool,
+    /// The route spends Gravity Drive.
+    pub gravity_drive: bool,
+    /// The route exhausts the Ionian Fuel Refinery.
+    pub ionian: bool,
+    /// The gravity rifts that the ship leaves on this route. It rolls once for each.
+    pub rifts: Vec<String>,
+    /// The hops of the route through a wormhole.
+    pub wormholes: u32,
+    /// The systems between the origin and the active system that are anomalies.
+    pub anomalies: Vec<String>,
+    /// What the ship can load on this route: places in [`MovementFacts::cargo`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub loads: Vec<usize>,
 }
 
 /// Why a ship cannot move to the active system.
@@ -605,6 +635,52 @@ fn movement(
                         pools.len() - 1
                     }));
                 }
+                // Rules version 29: the other ways of the ship, each with what it can load. One
+                // route (the default) is no choice and is not listed.
+                let mut routes = if state.rules_version >= ti4_model::state::RULES_MOVEMENT_ROUTES
+                {
+                    ti4_engine::tactical::ship_routes(
+                        state,
+                        content,
+                        sources,
+                        galaxy,
+                        &rules,
+                        player,
+                        origin,
+                        index,
+                        hull,
+                        (found.gravity_drive, found.ionian),
+                        "",
+                    )
+                } else {
+                    Vec::new()
+                };
+                if routes.len() < 2 {
+                    routes.clear();
+                }
+                let routes = routes
+                    .into_iter()
+                    .map(|route| RouteFact {
+                        loads: pools_of(state, content, sources, player, origin, hull, &route.path)
+                            .into_iter()
+                            .map(|key| {
+                                pools.iter().position(|known| *known == key).unwrap_or_else(
+                                    || {
+                                        pools.push(key);
+                                        pools.len() - 1
+                                    },
+                                )
+                            })
+                            .collect(),
+                        path: route.path,
+                        default: route.default,
+                        gravity_drive: route.gravity_drive,
+                        ionian: route.ionian,
+                        rifts: route.rifts,
+                        wormholes: route.wormholes,
+                        anomalies: route.anomalies,
+                    })
+                    .collect();
                 MoveFact {
                     gravity_drive: found.gravity_drive,
                     ionian: found.ionian,
@@ -614,6 +690,7 @@ fn movement(
                         Vec::new()
                     },
                     path,
+                    routes,
                 }
             });
             let blocked = r#move.is_none().then(|| {

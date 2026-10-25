@@ -129,6 +129,15 @@ export function originCargoBlockedByToken(
   return (board?.systems?.[system]?.command_tokens ?? []).includes(actor);
 }
 
+/** The key of the staged route of a ship group: where it stands, what it is, whether it is damaged. */
+export function shipRouteKey(ship: {
+  origin: string;
+  unit: string;
+  damaged: boolean;
+}): string {
+  return `${ship.origin}:${ship.unit}${ship.damaged ? ":damaged" : ""}`;
+}
+
 /**
  * The systems on the way that the engine lets a ship from `origin` pick up from, read from the
  * host's movement facts (`ShipFact.loads` points into `MovementFacts.cargo`; the engine computed
@@ -139,13 +148,17 @@ export function factPickupSystems(
   facts: MovementFacts | null | undefined,
   origin: string,
   destination: string,
+  chosenRoutes?: Record<string, number>,
 ): string[] | null {
   if (!facts || facts.active !== destination) return null;
   const ships = facts.ships.filter((ship) => ship.origin === origin);
   if (!ships.some((ship) => ship.move)) return null;
   const found = new Set<string>();
   for (const ship of ships) {
-    for (const index of ship.loads ?? []) {
+    // A ship on a route other than the default loads along that route (rules version 29).
+    const route = chosenRoutes?.[shipRouteKey(ship)] ?? 0;
+    const loads = route > 0 ? ship.move?.routes?.[route]?.loads : undefined;
+    for (const index of loads ?? ship.loads ?? []) {
       const system = facts.cargo[index]?.system;
       if (system && system !== origin && system !== destination) found.add(system);
     }
@@ -160,9 +173,10 @@ export function routePickupSystems(
   origin: string,
   destination: string,
   actor: string,
+  chosenRoutes?: Record<string, number>,
 ): string[] {
   return (
-    factPickupSystems(facts, origin, destination) ??
+    factPickupSystems(facts, origin, destination, chosenRoutes) ??
     enRoutePickupSystems(board, origin, destination, actor)
   );
 }

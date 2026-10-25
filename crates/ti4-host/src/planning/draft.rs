@@ -769,6 +769,7 @@ mod tests {
             damaged: ship.damaged,
             gravity_drive: plan.gravity_drive,
             ionian: plan.ionian,
+            route: None,
         }));
         script.push(step(PlanStep::DoneLoading));
         script.push(step(PlanStep::DoneMoving));
@@ -1108,6 +1109,7 @@ mod tests {
             damaged: ship.damaged,
             gravity_drive: plan.gravity_drive,
             ionian: plan.ionian,
+            route: None,
         }));
         script.push(step(PlanStep::DoneLoading));
         script.push(step(PlanStep::DoneMoving));
@@ -1227,6 +1229,7 @@ mod tests {
                 damaged: false,
                 gravity_drive: false,
                 ionian: false,
+                route: None,
             }),
             step(PlanStep::DoneMoving),
         ];
@@ -1377,6 +1380,7 @@ mod tests {
                 damaged: ship.damaged,
                 gravity_drive: plan.gravity_drive,
                 ionian: plan.ionian,
+                route: None,
             }),
             step(PlanStep::Load {
                 origin: ship.origin.clone(),

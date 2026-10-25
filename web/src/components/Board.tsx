@@ -30,6 +30,8 @@ import { getHyperlaneNetwork } from "./hyperlane/hyperlaneNetwork.ts";
 import { BoardTile } from "./board/BoardTile.tsx";
 import { BoardTooltip, HoveredTileInfo } from "./board/BoardTooltip.tsx";
 import { MovementVectorsOverlay } from "./board/MovementVectorsOverlay.tsx";
+import { RoutePreviewOverlay } from "./board/RoutePreviewOverlay.tsx";
+import { useRoutePreview } from "../presentation/RoutePreviewContext.tsx";
 import {
   EMPTY_PAYMENT_DRAFT,
   derivePaymentMarks,
@@ -193,6 +195,13 @@ export const Board: React.FC<BoardProps> = ({
     const centers = new Map(presentation.tiles.map((t) => [t.systemId, t.center] as const));
     return reachVectors(reachGroups, selectedSystemId, centers, reachFocus);
   }, [reachActive, selectedSystemId, reach.status, reachGroups, reachFocus, presentation.tiles]);
+
+  // The routes the staged ships take (rules version 29), drawn over the movement arrows.
+  const routePreviews = useRoutePreview()?.previews ?? [];
+  const routeCenters = useMemo(
+    () => new Map(presentation.tiles.map((t) => [t.systemId, t.center] as const)),
+    [presentation.tiles],
+  );
 
   // Only the standard overlay draws clickable planets for every system, so a pending planet pick
   // shows it regardless of the chosen overlay; the preference returns afterwards.
@@ -539,6 +548,9 @@ export const Board: React.FC<BoardProps> = ({
           {/* Movement Vector Overlays */}
           <MovementVectorsOverlay vectors={presentation.targets.movementVectors} />
           {reachArrows.length > 0 && <MovementVectorsOverlay vectors={reachArrows} />}
+          {routePreviews.length > 0 && (
+            <RoutePreviewOverlay previews={routePreviews} centers={routeCenters} />
+          )}
         </g>
       </svg>
       </div>

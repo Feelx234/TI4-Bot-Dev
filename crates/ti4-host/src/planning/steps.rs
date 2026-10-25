@@ -19,6 +19,11 @@ pub enum PlanStep {
         damaged: bool,
         gravity_drive: bool,
         ionian: bool,
+        /// The route of the ship's route list (`MoveFact::routes`) that it takes: its place in
+        /// that list. Absent: the default route, the one the game takes when no route is named
+        /// (so a plan from before rules version 29 is unchanged).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        route: Option<usize>,
     },
     Load {
         /// The system that the ship starts in.
@@ -100,6 +105,7 @@ impl PlanStep {
                 damaged,
                 gravity_drive,
                 ionian,
+                ..
             } => {
                 option.kind == ti4_engine::tactical::MOVE_KIND
                     && text("origin") == Some(origin)
@@ -182,6 +188,7 @@ impl PlanStep {
                 damaged: flag("damaged"),
                 gravity_drive: flag("gravity_drive"),
                 ionian: flag("ionian"),
+                route: None,
             },
             ti4_engine::transit::LOAD_KIND => Self::Load {
                 origin: text("system")?,
@@ -287,11 +294,26 @@ pub fn plan_answer(
             .iter()
             .filter(|option| step.matches_option(option));
         match (found.next(), found.next()) {
-            (Some(option), None) => PlanAnswer::Answer {
-                option: option.clone(),
-                next: at,
-                steps: None,
-            },
+            (Some(option), None) => {
+                // A move on another route than the default answers with the route's id.
+                let routed = match step {
+                    PlanStep::Move {
+                        route: Some(route), ..
+                    } if *route > 0 => choice.answer_for(&format!("{}|r{route}", option.id)),
+                    _ => Some(option.clone()),
+                };
+                match routed {
+                    Some(option) => PlanAnswer::Answer {
+                        option,
+                        next: at,
+                        steps: None,
+                    },
+                    None => PlanAnswer::Mismatch {
+                        step: index,
+                        reason: format!("The game does not offer to {} on that route.", step.describe()),
+                    },
+                }
+            }
             (first, _) => PlanAnswer::Mismatch {
                 step: index,
                 reason: format!(

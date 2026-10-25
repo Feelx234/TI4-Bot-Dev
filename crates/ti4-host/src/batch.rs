@@ -105,6 +105,10 @@ enum MovementOnlyStep {
         origin: String,
         unit: String,
         damaged: bool,
+        /// The route of the ship's route list the ship takes (rules version 29); absent: the
+        /// default route.
+        #[serde(default)]
+        route: Option<usize>,
     },
     Load {
         origin: String,
@@ -226,10 +230,12 @@ impl From<MovementOnlyStep> for MovementStep {
                 origin,
                 unit,
                 damaged,
+                route,
             } => Self::Move {
                 origin,
                 unit,
                 damaged,
+                route,
             },
             MovementOnlyStep::Load {
                 origin,
@@ -336,6 +342,10 @@ pub enum MovementStep {
         origin: String,
         unit: String,
         damaged: bool,
+        /// The route of the ship's route list the ship takes (rules version 29); absent: the
+        /// default route.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        route: Option<usize>,
     },
     Load {
         origin: String,
@@ -429,6 +439,7 @@ impl MovementStep {
                 origin,
                 unit,
                 damaged,
+                ..
             } => {
                 option.kind == "move"
                     && value("origin") == Some(origin.as_str())
@@ -922,7 +933,33 @@ impl PrivateDecider {
                 reason: "batch step rejected".into(),
             });
         }
-        let selected = (*matches[0]).clone();
+        let mut selected = (*matches[0]).clone();
+        // A move that names a route other than the default answers with the route's id; the
+        // game lists it among the option's routes (`details.routes`) or the step is refused.
+        if let MovementStep::Move {
+            route: Some(route), ..
+        } = step
+            && *route > 0
+        {
+            let routed = format!("{}|r{route}", selected.id);
+            let Some(answer) = choice.answer_for(&routed) else {
+                script.failure = Some(step_rejection(
+                    choice,
+                    own_seat,
+                    "route unavailable",
+                    index,
+                    expected,
+                    0,
+                    script.steps.len(),
+                ));
+                return Err(IllegalChoice::DeciderFailed {
+                    player: choice.player.clone(),
+                    prompt: choice.prompt.clone(),
+                    reason: "batch step rejected".into(),
+                });
+            };
+            selected = answer;
+        }
         if script.kind == BatchKind::Payment && script.payment_subtype.is_none() {
             script.payment_subtype = choice.context.as_ref().map(|c| c.subtype.clone());
         }
@@ -2004,6 +2041,7 @@ mod tests {
                     origin: "20".into(),
                     unit: "carrier".into(),
                     damaged: false,
+                    route: None,
                 },
                 MovementStep::DoneMoving,
             ],
@@ -2295,6 +2333,7 @@ mod tests {
             origin: origin.into(),
             unit: "carrier".into(),
             damaged: false,
+            route: None,
         };
         for seat in ["p1", "p2"] {
             let mut decider = decider(

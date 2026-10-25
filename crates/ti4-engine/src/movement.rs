@@ -87,6 +87,20 @@ impl Board {
     }
 }
 
+/// How many systems [`MovementRules::all_routes_from_ship`] visits before it stops.
+pub const ROUTE_SEARCH_NODES: usize = 20_000;
+/// How many routes [`MovementRules::all_routes_from_ship`] collects before it stops.
+pub const ROUTE_SEARCH_ROUTES: usize = 512;
+
+/// The state of one [`MovementRules::all_routes_from_ship`] search.
+struct RouteWalk<'a> {
+    origin: &'a str,
+    ship_type: Option<&'a str>,
+    past_ships: bool,
+    found: Vec<Vec<String>>,
+    nodes: usize,
+}
+
 /// Reachability for one player's ships towards one active system.
 ///
 /// The flag count is the oracle's, not an accident of design: each is a distinct printed
@@ -448,6 +462,14 @@ impl<'a> MovementRules<'a> {
         self.is_gravity_rift(system_id)
     }
 
+    /// Whether a system is an anomaly (nebula, supernova, asteroid field, gravity rift), printed or
+    /// created. For describing a route; the movement rules read the kinds themselves.
+    #[must_use]
+    pub fn is_anomalous(&self, system_id: &str) -> bool {
+        self.system(system_id).is_some_and(System::is_anomaly)
+            || self.gravity_rift_systems.contains(system_id)
+    }
+
     fn is_gravity_rift(&self, system_id: &str) -> bool {
         self.system(system_id).is_some_and(System::is_gravity_rift)
             || self.gravity_rift_systems.contains(system_id)
@@ -613,6 +635,52 @@ impl<'a> MovementRules<'a> {
             })
     }
 
+    /// The systems one step from `current` for a ship of `ship_type`: map adjacency plus every
+    /// extra link this mover has (wormhole tokens, faction links, the conduit, Void Tether's
+    /// removals). The one place both route searches read, so they cannot disagree.
+    fn step_neighbours(&self, current: &str, ship_type: Option<&str>) -> BTreeSet<String> {
+        let mut neighbours: BTreeSet<String> = self
+            .galaxy
+            .adjacent(current)
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .collect();
+        if self.token_wormhole_systems.contains(current) {
+            neighbours.extend(
+                self.token_wormhole_systems
+                    .iter()
+                    .filter(|id| id.as_str() != current)
+                    .cloned(),
+            );
+        }
+        if let Some(extra) = self.extra_adjacency.get(current) {
+            neighbours.extend(extra.iter().cloned());
+        }
+        // A ship treated as adjacent to some systems (Nomad Memoria) is, wherever it stands.
+        if let Some(near) = ship_type.and_then(|kind| self.ship_adjacent.get(kind)) {
+            neighbours.extend(near.iter().filter(|id| id.as_str() != current).cloned());
+        }
+        // The conduit joins the active system to the listed ones in both directions: a
+        // route out of one of them is what the card buys.
+        if self.also_adjacent.contains(current) {
+            neighbours.insert(self.active_system.clone());
+        } else if current == self.active_system.as_str() {
+            neighbours.extend(self.also_adjacent.iter().cloned());
+        }
+        // Void Tether: a tethered border is not an adjacency for this mover.
+        if !self.blocked_edges.is_empty() {
+            neighbours.retain(|other| {
+                let edge = if current < other.as_str() {
+                    (current.to_owned(), other.clone())
+                } else {
+                    (other.clone(), current.to_owned())
+                };
+                !self.blocked_edges.contains(&edge)
+            });
+        }
+        neighbours
+    }
+
     fn search_path(
         &self,
         origin: &str,
@@ -691,45 +759,7 @@ impl<'a> MovementRules<'a> {
                 continue;
             }
 
-            let mut neighbours: BTreeSet<String> = self
-                .galaxy
-                .adjacent(&current)
-                .into_iter()
-                .map(ToOwned::to_owned)
-                .collect();
-            if self.token_wormhole_systems.contains(&current) {
-                neighbours.extend(
-                    self.token_wormhole_systems
-                        .iter()
-                        .filter(|id| *id != &current)
-                        .cloned(),
-                );
-            }
-            if let Some(extra) = self.extra_adjacency.get(&current) {
-                neighbours.extend(extra.iter().cloned());
-            }
-            // A ship treated as adjacent to some systems (Nomad Memoria) is, wherever it stands.
-            if let Some(near) = ship_type.and_then(|kind| self.ship_adjacent.get(kind)) {
-                neighbours.extend(near.iter().filter(|id| **id != current).cloned());
-            }
-            // The conduit joins the active system to the listed ones in both directions: a
-            // route out of one of them is what the card buys.
-            if self.also_adjacent.contains(&current) {
-                neighbours.insert(self.active_system.clone());
-            } else if current == self.active_system {
-                neighbours.extend(self.also_adjacent.iter().cloned());
-            }
-            // Void Tether: a tethered border is not an adjacency for this mover.
-            if !self.blocked_edges.is_empty() {
-                neighbours.retain(|other| {
-                    let edge = if current.as_str() < other.as_str() {
-                        (current.clone(), other.clone())
-                    } else {
-                        (other.clone(), current.clone())
-                    };
-                    !self.blocked_edges.contains(&edge)
-                });
-            }
+            let neighbours = self.step_neighbours(&current, ship_type);
 
             for neighbour in neighbours {
                 let ends_here = neighbour == self.active_system;
@@ -758,6 +788,115 @@ impl<'a> MovementRules<'a> {
         }
 
         None
+    }
+
+    /// Every legal simple route (no system twice) from `origin` to the active system within
+    /// `move_value`, under the same rules as [`Self::path_from_ship`]: the same neighbours, the
+    /// same passing bars, the same budget (nebula cap, the printed gravity-rift step, the Crucible
+    /// step, the Luminous steps). Sorted by number of systems, then by system ids, so the order is
+    /// deterministic. Bounded: the search stops after [`ROUTE_SEARCH_NODES`] systems or
+    /// [`ROUTE_SEARCH_ROUTES`] routes, whichever comes first, so a long-range ship costs a bounded
+    /// amount. Empty when [`Self::path_from_ship`] finds no route.
+    ///
+    /// Every route starts with `origin` and ends with the active system, like the path.
+    #[must_use]
+    pub fn all_routes_from_ship(
+        &self,
+        origin: &str,
+        move_value: i32,
+        ship_type: Option<&str>,
+    ) -> Vec<Vec<String>> {
+        // Myru Vos only matters when no route avoids other players' ships.
+        let past_ships = self.unladen_pass
+            && self
+                .search_path(origin, move_value, ship_type, false)
+                .is_none();
+        if !self.may_depart_ship(origin, ship_type) {
+            return Vec::new();
+        }
+        let budget = if self.nebula_caps(origin) {
+            1
+        } else {
+            move_value
+        };
+        if budget <= 0 {
+            return Vec::new();
+        }
+        let mut walk = RouteWalk {
+            origin,
+            ship_type,
+            past_ships,
+            found: Vec::new(),
+            nodes: 0,
+        };
+        let mut route = vec![origin.to_owned()];
+        self.extend_routes(&mut walk, &mut route, 0, budget, false, BTreeSet::new());
+        walk.found
+            .sort_by(|a, b| a.len().cmp(&b.len()).then_with(|| a.cmp(b)));
+        walk.found
+    }
+
+    /// One system of [`Self::all_routes_from_ship`]: judge the budget as [`Self::search_path`]
+    /// does when it pops a system, then try every neighbour.
+    fn extend_routes(
+        &self,
+        walk: &mut RouteWalk<'_>,
+        route: &mut Vec<String>,
+        entered: i32,
+        mut allowance: i32,
+        mut bonus_used: bool,
+        mut earned: BTreeSet<String>,
+    ) {
+        walk.nodes += 1;
+        if walk.nodes > ROUTE_SEARCH_NODES || walk.found.len() >= ROUTE_SEARCH_ROUTES {
+            return;
+        }
+        let current = route.last().cloned().unwrap_or_default();
+        if self.is_gravity_rift(&current) && !self.anomalies_ignored {
+            allowance += 1;
+            if !bonus_used && self.rift_extra_steps > 0 {
+                allowance += self.rift_extra_steps;
+                bonus_used = true;
+            }
+        }
+        if entered > 0
+            && walk
+                .ship_type
+                .is_some_and(|kind| self.own_passage_types.contains(kind))
+            && self.own_unit_systems.contains(&current)
+            && earned.insert(current.clone())
+        {
+            allowance += 1;
+        }
+        if allowance - entered <= 0 {
+            return;
+        }
+        for neighbour in self.step_neighbours(&current, walk.ship_type) {
+            if route.contains(&neighbour) {
+                continue;
+            }
+            if neighbour == self.active_system {
+                if self.can_enter(&neighbour) {
+                    let mut arrived = route.clone();
+                    arrived.push(neighbour);
+                    walk.found.push(arrived);
+                }
+                continue;
+            }
+            if !self.passes(&neighbour, Some(walk.origin), walk.ship_type, walk.past_ships) {
+                continue;
+            }
+            route.push(neighbour);
+            self.extend_routes(
+                walk,
+                route,
+                entered + 1,
+                allowance,
+                bonus_used,
+                earned.clone(),
+            );
+            route.pop();
+        }
     }
 
     /// Which systems ships of this move value could reach the active system from.

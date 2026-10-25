@@ -1,6 +1,12 @@
 import { ARMADA_TEXT, readFleetSupply } from "../presentation/commandTokens.ts";
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { PendingChoiceDto, PlayerView, BoardView, MovementFacts } from "../protocol/types.ts";
+import {
+  PendingChoiceDto,
+  PlayerView,
+  BoardView,
+  MovementFacts,
+  RouteFact,
+} from "../protocol/types.ts";
 import {
   getMovementPayload,
   ChoiceRendererModel,
@@ -13,6 +19,8 @@ import {
   originCargoBlockedByToken,
   ridesFree,
 } from "../presentation/enRoutePickup.ts";
+import { RoutePicker } from "./RoutePicker.tsx";
+import { useRoutePreview } from "../presentation/RoutePreviewContext.tsx";
 import { systemTag } from "../presentation/systemFacts.ts";
 import {
   fighterMovesAlone,
@@ -303,6 +311,9 @@ export const TacticalMovementOverlay: React.FC<
 }) => {
   // Map of key -> count to move
   const [stagedMoves, setStagedMoves] = useState<Record<string, number>>({});
+  // Rules version 29: the route a ship group takes, by its place in the ship's route list (the
+  // engine's default, 0, when absent). Kept per group: the ships of one group travel together.
+  const [routeByGroup, setRouteByGroup] = useState<Record<string, number>>({});
   const [isDirectSubmitting, setIsDirectSubmitting] = useState(false);
   const [isExecuting, setIsExecuting] = useState(
     () => executionPlan?.current.active ?? false,
@@ -429,6 +440,61 @@ export const TacticalMovementOverlay: React.FC<
       ? choice.context.target.System
       : null);
 
+  // Rules version 29: the ways the ships of a group can take (the engine's facts; the default
+  // first). Only when this is the activation the facts were made for.
+  const routesOfGroup = (g: OriginShipGroup): RouteFact[] => {
+    if (!facts || facts.active !== destinationSystemId) return [];
+    const ship = facts.ships.find(
+      (f) =>
+        f.origin === g.originSystemId &&
+        f.unit === g.unitType &&
+        f.damaged === g.damaged &&
+        (f.move?.routes?.length ?? 0) > 1,
+    );
+    return ship?.move?.routes ?? [];
+  };
+  // A route that spends Gravity Drive or the Ionian Fuel Refinery serves one ship, once per action.
+  const routeBoostReason = (
+    key: string,
+    count: number,
+    route: RouteFact,
+  ): string | undefined => {
+    if (!route.gravity_drive && !route.ionian) return undefined;
+    const what = route.gravity_drive ? "Gravity Drive" : "the Ionian Fuel Refinery";
+    if (count > 1) return `${what} moves one ship: stage a single ship for this route`;
+    const elsewhere = shipGroups.some(
+      (other) =>
+        shipKey(other) !== key &&
+        (stagedMoves[shipKey(other)] ?? 0) > 0 &&
+        (gravityDriveKeys.has(shipKey(other)) ||
+          routesOfGroup(other)[routeByGroup[shipKey(other)] ?? 0]?.[
+            route.gravity_drive ? "gravity_drive" : "ionian"
+          ]),
+    );
+    return elsewhere ? `${what} is already used by another ship` : undefined;
+  };
+
+  // The map shows the route of every staged group that has a choice of routes.
+  const routePreview = useRoutePreview();
+  const publishRoutes = routePreview?.setPreviews;
+  useEffect(() => {
+    if (!publishRoutes) return;
+    publishRoutes(
+      isCargoStep
+        ? []
+        : shipGroups.flatMap((g) => {
+            const key = shipKey(g);
+            const routes = routesOfGroup(g);
+            const route = routes[routeByGroup[key] ?? 0];
+            return (stagedMoves[key] ?? 0) > 0 && routes.length > 1 && route
+              ? [{ key, path: route.path, risky: route.rifts.length > 0 }]
+              : [];
+          }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [publishRoutes, shipGroups, stagedMoves, routeByGroup, facts, isCargoStep]);
+  useEffect(() => () => publishRoutes?.([]), [publishRoutes]);
+
   // Discover cargo (ground forces + fighters) in origin systems where ships can move from, and in
   // the systems such a ship moves through (95.1)
   const originCargoGroups = useMemo(() => {
@@ -486,6 +552,7 @@ export const TacticalMovementOverlay: React.FC<
           origin,
           destinationSystemId,
           choice.actor,
+          routeByGroup,
         );
         for (const pickup of route) {
           for (const u of board.systems[pickup]?.units ?? []) {
@@ -534,12 +601,21 @@ export const TacticalMovementOverlay: React.FC<
     }
 
     return Array.from(cargoMap.values());
-  }, [choice, board, facts, shipGroups, isCargoStep, destinationSystemId]);
+  }, [
+    choice,
+    board,
+    facts,
+    shipGroups,
+    isCargoStep,
+    destinationSystemId,
+    routeByGroup,
+  ]);
 
   // Reset staging on choice nonce change only when NOT actively executing
   useEffect(() => {
     if (!planRef.current.active) {
       setStagedMoves({});
+      setRouteByGroup({});
       setIsDirectSubmitting(false);
       setLocalError(null);
     }
@@ -1093,6 +1169,7 @@ export const TacticalMovementOverlay: React.FC<
             ship.origin,
             destinationSystemId,
             choice?.actor ?? "",
+            routeByGroup,
           )) {
             for (const u of board?.systems?.[pickup]?.units ?? []) {
               if (u.owner !== choice?.actor) continue;
@@ -1113,11 +1190,17 @@ export const TacticalMovementOverlay: React.FC<
       }
 
       for (const ship of ships) {
+        const route =
+          routeByGroup[
+            `${ship.origin}:${ship.unitType}${ship.damaged ? ":damaged" : ""}`
+          ] ?? 0;
         steps.push({
           kind: "move",
           origin: ship.origin,
           unit: ship.unitType,
           damaged: ship.damaged,
+          // Only a route other than the default is named: the game takes the default itself.
+          ...(route > 0 ? { route } : {}),
         });
         const candidatesBefore = remainingCandidatesByOrigin[ship.origin] ?? 0;
         const freeBefore = freeCandidatesByOrigin[ship.origin] ?? 0;
@@ -1177,6 +1260,7 @@ export const TacticalMovementOverlay: React.FC<
       try {
         await onSubmitBatch(destinationSystemId, steps);
         setStagedMoves({});
+        setRouteByGroup({});
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         // The engine moved on from the plan, so sending the same plan again is rejected again.
@@ -1387,9 +1471,11 @@ export const TacticalMovementOverlay: React.FC<
                             )?.move_value
                           : undefined;
 
+                        const routes = routesOfGroup(g);
+                        const chosenRoute = routeByGroup[key] ?? 0;
                         return (
+                          <React.Fragment key={key}>
                           <div
-                            key={key}
                             data-testid={`rally-row-${g.originSystemId}-${g.unitType}`}
                             className="workflow-card workflow-card--row"
                             style={{
@@ -1481,6 +1567,23 @@ export const TacticalMovementOverlay: React.FC<
                               </button>
                             </div>
                           </div>
+                          {count > 0 && routes.length > 1 && (
+                            <RoutePicker
+                              testKey={`${g.originSystemId}-${g.unitType}`}
+                              routes={routes}
+                              selected={chosenRoute}
+                              facts={facts}
+                              board={board}
+                              disabled={isExecuting || isDirectSubmitting}
+                              disabledReason={(route) =>
+                                routeBoostReason(key, count, route)
+                              }
+                              onSelect={(index) =>
+                                setRouteByGroup((prev) => ({ ...prev, [key]: index }))
+                              }
+                            />
+                          )}
+                          </React.Fragment>
                         );
                       })}
                     </>
@@ -1613,7 +1716,10 @@ export const TacticalMovementOverlay: React.FC<
           <button
             type="button"
             className="button button--secondary"
-            onClick={() => setStagedMoves({})}
+            onClick={() => {
+              setStagedMoves({});
+              setRouteByGroup({});
+            }}
           >
             Reset selection
           </button>

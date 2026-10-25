@@ -279,6 +279,16 @@ impl Choice {
         if let Some(listed) = self.option(option_id) {
             return Some(listed.clone());
         }
+        // A movement answer that names one of the routes `details.routes` lists for an option: the
+        // option itself, under the id of the route (rules version 29, `tactical::route_suffix`).
+        if let Some((base, number)) = crate::tactical::route_suffix(option_id)
+            && number < crate::tactical::route_count(self, base)
+            && let Some(listed) = self.option(base)
+        {
+            let mut routed = listed.clone();
+            routed.id = option_id.to_owned();
+            return Some(routed);
+        }
         let prefix = self.free_form.as_deref()?;
         (option_id.starts_with(prefix) && option_id.len() > prefix.len())
             .then(|| ChoiceOption::labelled(option_id, "offer", option_id))
@@ -892,6 +902,36 @@ impl<'a> Observed<'a> {
             Some(self.state),
         )
         .can_reach(origin.as_str(), move_value)
+    }
+
+    /// The routes (rules version 29, [`crate::tactical::ship_routes`]) the ship at `index` of
+    /// `player`'s ships in `origin` may take to `destination` if it were activated, the default
+    /// first; with the boosts (Gravity Drive, Ionian Fuel Refinery) of the move option they belong
+    /// to. Empty without a map or without a route. A bot that names no route gets the default, so
+    /// reading this is for a bot that weighs the rift on the way or the units it could pick up.
+    #[must_use]
+    pub fn ship_routes_into(
+        &self,
+        player: &PlayerId,
+        origin: &SystemId,
+        index: usize,
+        boosts: (bool, bool),
+        destination: &SystemId,
+    ) -> Vec<crate::tactical::MoveRoute> {
+        let Some(galaxy) = self.galaxy else {
+            return Vec::new();
+        };
+        crate::tactical::routes_into(
+            self.state,
+            self.content,
+            self.sources,
+            galaxy,
+            player,
+            destination,
+            origin,
+            index,
+            boosts,
+        )
     }
 
     /// Every ship of this player that could reach `destination` if it were activated.

@@ -91,6 +91,7 @@ import {
   useCommandTokenDraft,
 } from "./presentation/CommandTokenDraftContext.tsx";
 import { ReadyPlanetsDraftProvider, useReadyPlanetsDraft } from "./presentation/ReadyPlanetsDraftContext.tsx";
+import { RoutePreviewProvider } from "./presentation/RoutePreviewContext.tsx";
 
 const DevDecisionGallery = import.meta.env.DEV
   ? React.lazy(() =>
@@ -828,6 +829,7 @@ const GameViewContainer: React.FC<{
       <PlanetInfluenceContext.Provider value={planetInfluence}>
       <PlanetBoostContext.Provider value={planetBoosts}>
       <CommandTokenDraftProvider value={tokenDraft}>
+      <RoutePreviewProvider>
       <ReadyPlanetsDraftProvider value={readyDraft}>
       <StatusTokenPlanContext.Provider value={statusPlan}>
       {undoRequest && (
@@ -1158,6 +1160,7 @@ const GameViewContainer: React.FC<{
       />
       </StatusTokenPlanContext.Provider>
       </ReadyPlanetsDraftProvider>
+      </RoutePreviewProvider>
       </CommandTokenDraftProvider>
       </PlanetBoostContext.Provider>
       </PlanetInfluenceContext.Provider>

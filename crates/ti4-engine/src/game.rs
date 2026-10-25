@@ -4245,7 +4245,8 @@ impl<'a> Game<'a> {
                     index,
                     gravity_drive,
                     ionian,
-                } => self.begin_one_move(window, &origin, index, gravity_drive, ionian),
+                    route,
+                } => self.begin_one_move(window, &origin, index, gravity_drive, ionian, route),
             },
             TacticalStage::Loading {
                 origin,
@@ -4372,6 +4373,40 @@ impl<'a> Game<'a> {
         let _ = self.emit_typed("SHIP_MOVED", payload);
     }
 
+    /// The route the engine always took for a ship: the fewest systems, with the boosts of its
+    /// move option. The same value and type as the offer (`tactical::movable_into`), so a ship a
+    /// faction module lets move further or pass ships is not refused here.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the movement search's own inputs"
+    )]
+    fn default_route(
+        &self,
+        rules: &MovementRules<'_>,
+        player: &PlayerId,
+        ship: &Unit,
+        origin: &SystemId,
+        index: usize,
+        gravity_drive: bool,
+        ionian: bool,
+    ) -> Option<Vec<String>> {
+        let types = ti4_content::units::catalogue(self.content, self.sources);
+        let kind = types.get(ship.type_id.as_str())?;
+        rules.path_from_ship(
+            origin.as_str(),
+            crate::tactical::effective_move_value_for_ship(
+                &self.state,
+                kind,
+                player,
+                origin,
+                Some(index),
+                gravity_drive,
+                ionian,
+            ),
+            Some(ship.type_id.as_str()),
+        )
+    }
+
     /// Select one ship and open its hold.
     ///
     /// The route is computed once, here, and carried through loading. Cargo cannot change which
@@ -4388,6 +4423,7 @@ impl<'a> Game<'a> {
         index: usize,
         gravity_drive: bool,
         ionian: bool,
+        route: usize,
     ) -> Result<StepResult, GameError> {
         let galaxy = self.galaxy.clone().ok_or(TacticalError::NoActiveSystem)?;
         let active = self
@@ -4411,26 +4447,38 @@ impl<'a> Game<'a> {
             Some(&self.state),
         );
         crate::action_cards::apply_movement_effects(&mut rules, &self.state, &window.player);
-        let path = ti4_content::units::catalogue(self.content, self.sources)
-            .get(ship.type_id.as_str())
-            .and_then(|kind| {
-                // The same per-ship value and route the offer used (`tactical::movable_into`), so a
-                // ship a faction module lets move further or pass ships is not refused here.
-                rules.path_from_ship(
-                    origin.as_str(),
-                    crate::tactical::effective_move_value_for_ship(
-                        &self.state,
-                        kind,
-                        &window.player,
-                        origin,
-                        Some(index),
-                        gravity_drive,
-                        ionian,
-                    ),
-                    Some(ship.type_id.as_str()),
-                )
-            })
-            .ok_or_else(|| TacticalError::UnknownSystem(origin.clone()))?;
+        let (path, gravity_drive, ionian) = if route == 0 {
+            (
+                self.default_route(&rules, &window.player, &ship, origin, index, gravity_drive, ionian)
+                    .ok_or_else(|| TacticalError::UnknownSystem(origin.clone()))?,
+                gravity_drive,
+                ionian,
+            )
+        } else {
+            // A route of the list the offer carried (`tactical::ship_routes`, asked of the same
+            // position): its boosts are part of it.
+            let routes = crate::tactical::ship_routes(
+                &self.state,
+                self.content,
+                self.sources,
+                &galaxy,
+                &rules,
+                &window.player,
+                origin,
+                index,
+                &ship,
+                (gravity_drive, ionian),
+                "",
+            );
+            let chosen = routes.into_iter().nth(route).ok_or_else(|| {
+                TacticalError::IllegalChoice(IllegalChoice::NotOffered {
+                    player: window.player.clone(),
+                    chosen: format!("move|{origin}|{index}|r{route}"),
+                    offered: Vec::new(),
+                })
+            })?;
+            (chosen.path, chosen.gravity_drive, chosen.ionian)
+        };
 
         if gravity_drive && !crate::technology::use_gravity_drive(&mut self.state, &window.player) {
             return Err(TacticalError::IllegalChoice(IllegalChoice::NotOffered {
@@ -7310,7 +7358,7 @@ impl<'a> Game<'a> {
 /// technologies and faction abilities that are not wormholes, so classify against a map without
 /// those links; Quantum Entanglement is the Creuss exception that joins alpha to beta even when a
 /// law disables ordinary wormhole movement.
-fn wormhole_hops(
+pub(crate) fn wormhole_hops(
     state: &GameState,
     galaxy: &Galaxy,
     player: &PlayerId,
@@ -10576,6 +10624,223 @@ mod tests {
         assert!(
             game.state.frontier_tokens.contains(&ids[0]),
             "the arrival did not consume the frontier token"
+        );
+    }
+
+    // -- movement routes (rules version 29) -------------------------------------------------------
+
+    /// `origin(0,0) - rift(1,0) - active(2,0)` with the way round `side(0,1) - far(1,1)`; player a
+    /// has a cruiser (move 2) or a carrier (with Flank Speed) at the origin and Gravity Drive.
+    struct RouteGame {
+        game: Game<'static>,
+        origin: ti4_model::id::SystemId,
+        active: ti4_model::id::SystemId,
+        far: ti4_model::id::SystemId,
+    }
+
+    fn route_game(rules_version: u32, ship: &str, script: &[&str], faces: u32) -> RouteGame {
+        let content = ContentStore::embedded();
+        let rift = crate::fixtures::a_system_where("gravity rift");
+        let plain = crate::fixtures::plain_systems(4);
+        let galaxy = ti4_content::galaxy::Galaxy::placed(
+            content,
+            &[
+                (plain[0].as_str(), ti4_model::hex::Hex::new(0, 0)),
+                (rift.as_str(), ti4_model::hex::Hex::new(1, 0)),
+                (plain[1].as_str(), ti4_model::hex::Hex::new(2, 0)),
+                (plain[2].as_str(), ti4_model::hex::Hex::new(0, 1)),
+                (plain[3].as_str(), ti4_model::hex::Hex::new(1, 1)),
+            ],
+            POK,
+        )
+        .unwrap();
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        let mut state = start_game(content, &[a.clone(), b], POK, None).unwrap();
+        state.rules_version = rules_version;
+        state.phase = Phase::Action;
+        state.active = Some(a.clone());
+        let origin = SystemId::new(&plain[0]);
+        let active = SystemId::new(&plain[1]);
+        let far = SystemId::new(&plain[3]);
+        crate::fixtures::put(&mut state, &origin, ship, &a, 1);
+        crate::fixtures::put(&mut state, &far, "infantry", &a, 1);
+        let next_activation = state.activation_seq + 1;
+        let seat = state.player_mut(&a).unwrap();
+        seat.technologies
+            .insert(ti4_model::id::TechnologyId::new("gd"));
+        if ship == "carrier" {
+            // Flank Speed: a carrier's 1 becomes 2, so the rift route is in reach without the drive.
+            seat.move_bonus_activation = Some(next_activation);
+        }
+        let ids: Vec<String> = [TACTICAL_ACTION_ID.to_owned(), active.to_string()]
+            .into_iter()
+            .chain(script.iter().map(|id| (*id).replace("{o}", origin.as_str())))
+            .collect();
+        let table = Table::with_default(Box::new(Scripted::new(ids)));
+        let mut game = Game::with_table(state, content, table).with_galaxy(galaxy);
+        game.dice = Dice::from_faces(vec![faces; 24]);
+        RouteGame {
+            game,
+            origin,
+            active,
+            far,
+        }
+    }
+
+    fn run_tactical(game: &mut Game<'_>) {
+        for _ in 0..40 {
+            let result = game.step();
+            assert_eq!(result.error, None, "log {:?}", game.events);
+            if game.events.iter().any(|e| e == "TACTICAL_ACTION_COMPLETE") {
+                return;
+            }
+        }
+        panic!("the action did not complete: {:?}", game.events);
+    }
+
+    fn has_event(game: &Game<'_>, name: &str) -> bool {
+        game.events.iter().any(|event| event == name)
+    }
+
+    /// The default answer takes the route through the rift, as before routes existed: a roll of 1
+    /// destroys the ship.
+    #[test]
+    fn the_plain_move_id_takes_the_default_route_through_the_rift() {
+        let mut fixture = route_game(
+            ti4_model::state::RULES_VERSION,
+            "cruiser",
+            &["move|{o}|0", "done_moving"],
+            1,
+        );
+        run_tactical(&mut fixture.game);
+        assert!(has_event(&fixture.game, "SHIP_LOST_TO_GRAVITY_RIFT"));
+        assert!(
+            crate::technology::gravity_drive_available(&fixture.game.state, &PlayerId::new("a")),
+            "the drive was not spent"
+        );
+    }
+
+    /// The route round the rift needs the drive: no die is rolled, the ship arrives and the drive
+    /// is spent.
+    #[test]
+    fn the_chosen_route_decides_the_rift_dice_and_spends_gravity_drive() {
+        let mut fixture = route_game(
+            ti4_model::state::RULES_VERSION,
+            "cruiser",
+            &["move|{o}|0|r1", "done_moving"],
+            1,
+        );
+        run_tactical(&mut fixture.game);
+        let game = &fixture.game;
+        assert!(!has_event(game, "SHIP_LOST_TO_GRAVITY_RIFT"));
+        assert!(has_event(game, "SHIP_MOVED"));
+        assert!(
+            game.state
+                .system_state(&fixture.active)
+                .units
+                .iter()
+                .any(|unit| unit.type_id.as_str() == "cruiser"),
+            "the cruiser arrived"
+        );
+        assert!(!crate::technology::gravity_drive_available(
+            &game.state,
+            &PlayerId::new("a")
+        ));
+        assert_eq!(
+            game.table.log.records.iter().map(|r| r.chosen.as_str()).collect::<Vec<_>>()
+                [2],
+            format!("move|{}|0|r1", fixture.origin),
+            "the record keeps the route"
+        );
+        assert_eq!(game.dice.count(), 0, "nothing was rolled");
+    }
+
+    /// Cargo is offered from the systems of the chosen route: the infantry waiting in the system
+    /// on the way round, not on the way through the rift.
+    #[test]
+    fn the_chosen_route_decides_what_can_be_picked_up_on_the_way() {
+        let hold_after = |answer: &str| {
+            let mut fixture =
+                route_game(ti4_model::state::RULES_VERSION, "carrier", &[answer], 6);
+            // The action, the activation, the move.
+            for _ in 0..3 {
+                assert_eq!(fixture.game.step().error, None);
+            }
+            let far = fixture.far.to_string();
+            let choice = fixture.game.legal_options().expect("a question is open");
+            let offers_far = choice.options.iter().any(|option| {
+                option.kind == crate::transit::LOAD_KIND && {
+                    option.payload.get("pickup_system").and_then(|v| v.as_str())
+                        == Some(far.as_str())
+                }
+            });
+            (choice.prompt, offers_far)
+        };
+        let (prompt, offers) = hold_after("move|{o}|0");
+        assert!(
+            !offers && prompt == "movement",
+            "through the rift nothing waits: the carrier sailed ({prompt})"
+        );
+        let (prompt, offers) = hold_after("move|{o}|0|r1");
+        assert!(offers, "round it the infantry waits in the hold ({prompt})");
+    }
+
+    /// A game at the previous rules version has no routes, offers no suffixed answer, and plays the
+    /// plain answer exactly as a game of the current version does with the same answer.
+    #[test]
+    fn below_rules_version_29_the_game_plays_as_before() {
+        let script = ["move|{o}|0", "done_moving"];
+        let mut old = route_game(ti4_model::state::RULES_MOVEMENT_ROUTES - 1, "cruiser", &script, 6);
+        let mut new = route_game(ti4_model::state::RULES_VERSION, "cruiser", &script, 6);
+        run_tactical(&mut old.game);
+        run_tactical(&mut new.game);
+        assert_eq!(old.game.events, new.game.events);
+        let mut state = new.game.state.clone();
+        state.rules_version = ti4_model::state::RULES_MOVEMENT_ROUTES - 1;
+        assert!(state == old.game.state, "same state but the version");
+
+        // The old game does not know the suffix: the answer is refused.
+        let mut refused = route_game(
+            ti4_model::state::RULES_MOVEMENT_ROUTES - 1,
+            "cruiser",
+            &["move|{o}|0|r1", "done_moving"],
+            6,
+        );
+        let errors = (0..5).filter_map(|_| refused.game.step().error).count();
+        assert!(errors > 0, "the suffixed answer is not offered below version 29");
+    }
+
+    /// A log recorded with a route replays: the recorded answers are accepted by a fresh game.
+    #[test]
+    fn a_log_with_a_route_replays_identically() {
+        let script = ["move|{o}|0|r1", "done_moving"];
+        let mut first = route_game(ti4_model::state::RULES_VERSION, "cruiser", &script, 1);
+        run_tactical(&mut first.game);
+        let log: Vec<String> = first
+            .game
+            .table
+            .log
+            .records
+            .iter()
+            .map(|r| r.chosen.clone())
+            .collect();
+        let mut again = route_game(ti4_model::state::RULES_VERSION, "cruiser", &[], 1);
+        again.game.table = Table::with_default(Box::new(ScriptedDecider {
+            script: log.clone().into(),
+        }));
+        run_tactical(&mut again.game);
+        assert_eq!(again.game.events, first.game.events);
+        assert!(again.game.state == first.game.state);
+        assert_eq!(
+            again
+                .game
+                .table
+                .log
+                .records
+                .iter()
+                .map(|r| r.chosen.clone())
+                .collect::<Vec<_>>(),
+            log
         );
     }
 
@@ -17261,10 +17526,7 @@ mod tests {
         ) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
             let wanted = self.script.pop_front().unwrap_or_default();
             choice
-                .options
-                .iter()
-                .find(|o| o.id == wanted)
-                .cloned()
+                .answer_for(&wanted)
                 .ok_or_else(|| crate::choice::IllegalChoice::NoOptions {
                     player: choice.player.clone(),
                     prompt: format!("replay wanted {wanted:?}, offered {:?}", choice.options),
