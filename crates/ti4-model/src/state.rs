@@ -1179,7 +1179,12 @@ pub const RULES_WINNU_AGENT_PRODUCTION: u32 = 26;
 /// no "this system" and always came up "could not be resolved". Version 27.
 pub const RULES_MIRAGE_FRONTIER: u32 = 27;
 
-pub const RULES_VERSION: u32 = 27;
+/// The first rules version in which Plagiarize offers only technologies the paying player does not
+/// already own. Below, a neighbour's technology the player already had was offered, and picking it
+/// stalled the card. Version 28.
+pub const RULES_PLAGIARIZE_OWNED: u32 = 28;
+
+pub const RULES_VERSION: u32 = 28;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
