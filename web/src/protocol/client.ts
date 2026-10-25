@@ -117,7 +117,17 @@ export type HistoryChange =
   | { cursor: number };
 
 export type MovementStep =
-  | { kind: "move"; origin: string; unit: string; damaged: boolean }
+  | {
+      kind: "move";
+      origin: string;
+      unit: string;
+      damaged: boolean;
+      /**
+       * Rules version 29: the route of the ship's route list (`MoveFact.routes`) it takes, by its
+       * place in the list. Absent or 0: the default route, what the game takes when none is named.
+       */
+      route?: number;
+    }
   | {
       kind: "load";
       origin: string;

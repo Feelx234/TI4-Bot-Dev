@@ -1,0 +1,67 @@
+{
+  "title": "Movement routes",
+  "description": "Rules version 29: a ship with more than one legal way to the active system is offered a limited list of routes (at most 5), the default first. The default is the route the engine always took; the others differ in what they do on the way (rift dice, wormholes, anomalies, units to pick up), and a route that avoids a rift for Gravity Drive or the Ionian Fuel Refinery is listed beside the plain route through it. The movement tray shows the choice under a staged ship, the default preselected, each route with its consequences, and the map draws the chosen route. A ship with one way shows no selector. Synthetic fixtures with the shape of the host's movement facts (MoveFact.routes); reproduce with npm run screenshots -- HI.",
+  "tag": "web/e2e/screenshots/HI-movement-routes",
+  "shots": [
+    {
+      "file": "out/desktop-1-single-route.png",
+      "heading": "One way: no selector",
+      "caption": "A cruiser with a single route to Mecatol Rex: the tray shows no route choice (desktop). The map's arrow joins origin and destination as before."
+    },
+    {
+      "file": "out/desktop-2-default-selected.png",
+      "heading": "Two ways, default preselected",
+      "caption": "The default goes through the gravity rift and says it rolls for destruction (1-3); the way round needs Gravity Drive. The default is marked and selected, and the map draws it dashed red."
+    },
+    {
+      "file": "out/desktop-3-safe-route-selected.png",
+      "heading": "Safe route chosen",
+      "caption": "The route round the rift is selected: no die is rolled, Gravity Drive is spent, and the map draws the route through #25 and #26."
+    },
+    {
+      "file": "out/desktop-4-five-routes.png",
+      "heading": "Five ways (the cap)",
+      "caption": "The most a ship is offered: the default, the safe route for the drive, and routes that differ in what they do (a wormhole hop, other systems passed)."
+    },
+    {
+      "file": "out/phone-1-single-route.png",
+      "heading": "Phone: one way",
+      "caption": "390x844: no selector."
+    },
+    {
+      "file": "out/phone-2-default-selected.png",
+      "heading": "Phone: two ways",
+      "caption": "390x844: the routes stack under the staged ship, each at least 44 px high."
+    },
+    {
+      "file": "out/phone-3-safe-route-selected.png",
+      "heading": "Phone: safe route chosen",
+      "caption": "390x844: the way round the rift selected."
+    },
+    {
+      "file": "out/phone-4-five-routes.png",
+      "heading": "Phone: five ways",
+      "caption": "390x844: the capped list, scrolled in the tray."
+    },
+    {
+      "file": "out/desktop-5-map-safe-route.png",
+      "heading": "Map: safe route",
+      "caption": "Tray minimised: the chosen route is a solid line through #25 and #26 to Mecatol Rex."
+    },
+    {
+      "file": "out/desktop-6-map-default-route.png",
+      "heading": "Map: default route through the rift",
+      "caption": "The default route is drawn dashed red because it leaves a gravity rift (a die per rift)."
+    },
+    {
+      "file": "out/phone-5-map-safe-route.png",
+      "heading": "Phone: map, safe route",
+      "caption": "390x844, tray minimised."
+    },
+    {
+      "file": "out/phone-6-map-default-route.png",
+      "heading": "Phone: map, default route",
+      "caption": "390x844, tray minimised."
+    }
+  ]
+}
