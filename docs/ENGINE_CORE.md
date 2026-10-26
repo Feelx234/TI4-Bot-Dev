@@ -1,4 +1,4 @@
-# A typed engine core under the string engine: feasibility, design, prototype (2026-10-26)
+# A typed engine core under the string engine: design, prototype and the first five stages (2026-10-26)
 
 The idea (the user's): a new crate, `ti4-engine-core`, that knows **no string ids at all**. Inside it,
 factions, systems, planets, units, technologies, cards, objectives and seats are compact typed ids
@@ -17,7 +17,66 @@ Overview page (private artifact): https://claude.ai/artifact/UMvrB8SYndBvGEc6wSj
 **Measured** = a number from a run described in section 4 (reproducible with the tools listed there).
 **Estimated** = derived from profile shares or from the prototype's ratios; always labelled.
 
-## Summary
+## 0. The port so far (stages 1-5, landed 2026-10-26 evening)
+
+The morning's study (sections 1-7 below, kept as written) recommended a staged strangler port. Five
+stages of it landed the same day on this branch, one commit each, each passing the whole gate
+(`tools/engine_core/verify_stage.sh`): the dual run (`core_equivalence`, extended per stage), the
+model/content/engine/host/rule-bot/selfplay/core/bridge/xtask tests and wasm `--features ts`,
+`cargo xtask gen-cards --check`, the wasm build, all six benches 200/200 with the core on and `bench`
+200/200 with it off, and the 20-golden-game CPU A/B against `8f2d03e3` (3 interleaved runs).
+
+| Stage | Commit | What moved to the core | Dual run added (0 differences each) | 20 golden games vs `8f2d03e3` |
+|---|---|---|---|---|
+| 1 | `8665470d` | `typed-core` on by default (off: `--features ti4-engine/string-movement`); every movement route search (`movable_into`, rift exits, ship routes, the real move's route, `Observed::can_reach`) | 7.3 M route queries, 93 k route sets, 1.5 M adjacency sets over 3 099 positions | -8.7% |
+| 2 | `a0db38bc` | per-seat typed movement rules retargeted per destination (`core_adapter::SeatReach`) and a per-seat fleet (`tactical::SeatFleet`) in `Observed`: the bot stops building `MovementRules` per destination | 1.09 M field-by-field rule comparisons, 14.9 M `Observed` answers | **-25.3%** |
+| 3 | `b8eb5e39` | merge of `card-generator`: the core runs on the generated `System`/`Unit`/`Planet` enums and rows; ids from the generated adapter tables; prototype `build.rs` and `names` feature removed | (same counts, on the generated tables) | -26.4% |
+| 4 | `389d1be6` | LRR 60 neighbours (`transactions::present_together`) on the core's adjacency | 492 k neighbour answers (each seat pair, six map-switch variants) | -25.6% (inside the noise of stage 3) |
+| 5 | `f8434afd` | printed planet values, technology specialties, space stations from the generated rows (per-scope resolution tables; run-time content stays on the record path) | every planet and system id x BASE/POK/FULL | -29.4% |
+
+**Cumulative, measured on the final commit** (`f8434afd`, CPU time):
+
+| Workload | `8f2d03e3` | final | Change |
+|---|---:|---:|---:|
+| 20 golden games (`profile-20.json`), median of 5 interleaved runs, 4 workers | 50.0 s | 36.5 s | **-27.0%**, 20/20 hashes |
+| 10 golden 4p games, 1 worker, user time; peak RSS | 17.6 s; 59.0 MB | 12.5 s; 56.9 MB | -29%; -3.5% |
+| six benches, sum of CPU (not interleaved, 6 workers, shared machine) | 2 751 s (morning run) | 2 233 s | about -19% |
+| 4 golden 4p games with views (`engine_profile game`, 2 runs each, core off vs on in the same build) | bot 4.96 s, views 6.74 s, replay 3.67 s | bot 3.04 s, views 6.48 s, replay 3.63 s | bot -38%, views -4%, replay ~-1% (noise); view JSON identical size (299.9 KiB per boundary) |
+| solo bench native (random seats, no bot), 6 runs each, core off vs on | 1.60 s median | 1.62 s median | 0% (noise) |
+| wasm (`wasm-release` + `wasm-opt` as `build-wasm.mjs`) raw / gzip / brotli | 5 857 817 / 1 829 366 / 1 313 584 B | 5 933 830 / 1 859 210 / 1 332 503 B | +76 KB (+1.3%) / +29.8 KB (+1.6%) / +18.9 KB (+1.4%) |
+| compile, release `ti4-engine` lib after touching `lib.rs` | 86.4 s | 93.8 s | +8.6% (one run each, shared machine); `ti4-engine-core` with 550 KB of generated source: 1.2 s |
+
+The wasm size gate (`scripts/wasm-size-gate.mjs`) **fails before and after**: its gzip and brotli
+budgets (1.80 / 1.30 MB) were already exceeded at `8f2d03e3`; the core adds 30 KB gzip. The budget was
+not raised here (a decision for the user).
+
+**Profile after stage 2** (perf, frame pointers, 10 golden 4p games): the bot's movement/reach bucket
+fell from 27.5% to **3.7%** of a game. The top items now: bot other decision logic 24.8%, objective
+evaluation 20.3% (`Observed::revealed_objective_progress_imagining` 15.8% inclusive), automatic
+engine steps 17.9%, checkpoints 17.7% (`Resolver::checkpoint` 9.6%, `BTreeMap` clones of logs),
+content lookups (`ContentStore::get` + `resolve_id`, 11% inclusive, spread over planets, units and
+technologies), memcmp 18% of leaf samples.
+
+**What is left, in the order the profile suggests** (each its own stage with its own dual run):
+
+1. Objective evaluation onto typed board/control data (est. -8..-12%). Objectives are card records;
+   wait until `card-p1-fixes` and `card-text-fields-to-enums` are merged.
+2. Checkpoints without whole-log copies (ENGINE_OPTIMIZATION #8; not a core change; est. -8..-12%).
+3. Unit and technology content lookups on the generated rows (est. -3..-5%; technology waits for the
+   card branches, `technology.rs` is in their diff).
+4. The string search in `MovementRules` can be deleted after a nightly with the core on; the
+   `string-movement` switch then goes too.
+5. Stage "core owns the state" (the morning's stage 5) was not started, as instructed.
+
+**Merge notes**: stage 1 changes `Game::default_route` in `game.rs` (one call) and stage 2
+`choice.rs`/`tactical.rs`; `card-p1-fixes` also edits `game.rs`, so a small textual conflict is
+possible there. Stage 5 edits `production.rs`, `planets.rs`, `space_stations.rs`; none of the
+card-branch files (`reactions.rs`, `vote.rs`, `leaders.rs`, `technology.rs`, `strategy_cards.rs`,
+`deck.rs`, `agenda_effects.rs`, laws, `state.rs`) is touched. No `RULES_VERSION` change, no wire,
+TS type, view or fixture change (`cargo test -p ti4-wasm --features ts` checks the generated wire
+types and fixtures).
+
+## Summary (the study, morning of 2026-10-26)
 
 - **Feasible, and the prototype says the typed representation pays where it is used**: a typed
   movement slice (`crates/ti4-engine-core`: typed ids, generated content tables, bitset adjacency, the
@@ -510,7 +569,7 @@ is est. ~0.75 us per question (~9.5x), which is what typed hooks (stage 2) would
    checkpoint fix (#8), the profile still shows string work as the top item and the alpha's rule
    fixes have slowed. Otherwise the 4-7 months are better spent elsewhere.
 
-**Decisions needed from the user:**
+**Decisions needed from the user** (the evening's port applied the recommended answer to each as the default; see section 0):
 
 1. Stage 1 as the next step, with `typed-core` becoming the default after one nightly with it on?
 2. (Decided: generator with committed output, `--check`.) When `card-generator` lands, should the
@@ -555,24 +614,32 @@ target/release/core_equivalence templates --routes
 target/release/core_equivalence golden tools/engine_profile/profile-20.json 20 10
 tools/engine_core/ab_movement.sh target/release/core_movement_bench legacy core
 tools/engine_core/ab_movement.sh target/release/core_movement_bench legacy-search core-search
-cargo build --release -p ti4-selfplay && cp target/release/selfplay /tmp/selfplay-A
-cargo build --release -p ti4-selfplay --features ti4-engine/typed-core && cp target/release/selfplay /tmp/selfplay-B
-tools/engine_profile/ab_time.sh /tmp/selfplay-A /tmp/selfplay-B tools/engine_profile/profile-20.json 3 4
-tools/engine_profile/verify_benches.sh /tmp/selfplay-B                # all six: 200 identical
+cargo build --release -p ti4-selfplay && cp target/release/selfplay /tmp/selfplay-on
+cargo build --release -p ti4-selfplay --features ti4-engine/string-movement && cp target/release/selfplay /tmp/selfplay-off
+tools/engine_profile/ab_time.sh /tmp/selfplay-off /tmp/selfplay-on tools/engine_profile/profile-20.json 3 4
+tools/engine_profile/verify_benches.sh /tmp/selfplay-on               # all six: 200 identical
 cargo test -p ti4-engine-core -p ti4-engine-core-bridge
 cargo test -p ti4-engine --features typed-core
 python3 -I tools/engine_core/boundary_inventory.py
 ```
 
-Build `ti4-selfplay` and the bridge in separate cargo invocations: the bridge enables `typed-core` on
-`ti4-engine`, and features unify within one invocation.
+`typed-core` is a default feature of `ti4-engine`; to compare with the string engine build with
+`--features ti4-engine/string-movement` (the off switch). The whole gate of a stage:
+`CARGO_TARGET_DIR=... WASM_OPT=<binaryen wasm-opt> tools/engine_core/verify_stage.sh OUT BASE_SELFPLAY`.
 
 ## Files
 
-- `crates/ti4-engine-core/` (core: `build.rs`, `src/{ids,bits,tables,hex,galaxy,board,movement}.rs`)
+- `crates/ti4-engine-core/` (core: `src/{ids,bits,tables,hex,galaxy,board,movement}.rs`, `src/generated/`; the prototype `build.rs` was replaced by the generator in stage 3)
 - `crates/ti4-engine/src/core_adapter.rs` (adapter, feature `typed-core`); call sites in
   `tactical.rs` (`movable_into`, `route_rift_exits`) and `choice.rs` (`Observed::can_reach`);
   `movement.rs` (`MovementRules::parts`, `MovementParts`)
 - `crates/ti4-engine-core-bridge/` (`src/check.rs`, `src/workload.rs`, `src/bin/core_equivalence.rs`,
   `src/bin/core_movement_bench.rs`, `tests/equivalence.rs`)
-- `tools/engine_core/ab_movement.sh`, `tools/engine_core/boundary_inventory.py`
+- `tools/engine_core/ab_movement.sh`, `tools/engine_core/boundary_inventory.py`,
+  `tools/engine_core/verify_stage.sh` (the gate of a stage)
+- Stages 2-5: `crates/ti4-engine/src/core_adapter.rs` (`SeatReach`, `SeatCache`, `present_together`,
+  `planet_in_scope`, `system_in_scope`, `planet_value`, `printed_specialties`, `stations_in`),
+  `tactical.rs` (`SeatFleet`, `search_path`, `search_all_routes`), `choice.rs` (`Observed`'s typed
+  queries), `transactions.rs`, `production.rs`, `planets.rs`, `space_stations.rs`; generated code from
+  `card-generator` in `crates/ti4-engine-core/src/generated/`, `crates/ti4-engine-core/names/`,
+  `crates/ti4-engine/src/generated/`
