@@ -120,10 +120,37 @@ pub fn outcomes(
     {
         return strategy_card_candidates(state);
     }
-    // "Elect Scored Secret Objective" draws from the one place a secret is public (61.17).
-    // Not modelled here, so there is no candidate and the caller must discard rather than hold
-    // an empty vote.
+    // Classified Document Leaks: "Elect Scored Secret Objective". A scored secret is the one kind
+    // that is public (61.17); one already made public by an earlier leak is no longer a secret
+    // objective. Rules version 32; below it there was never a candidate.
+    if elects.contains("Secret Objective")
+        && state.rules_version >= ti4_model::state::RULES_CLASSIFIED_LEAKS
+    {
+        return scored_secret_candidates(state, content);
+    }
+    // Nothing else elects anything this engine models: no candidate, and the caller must discard
+    // rather than hold an empty vote.
     Vec::new()
+}
+
+/// Every secret objective some player has scored and that is not already a public objective,
+/// sorted: what "Elect Scored Secret Objective" elects.
+fn scored_secret_candidates(state: &GameState, content: &ContentStore) -> Vec<String> {
+    let mut secrets: Vec<String> = state
+        .scored_objectives
+        .values()
+        .flatten()
+        .filter(|objective| !state.revealed_objectives.contains(objective))
+        .filter(|objective| {
+            content
+                .get(ContentType::SecretObjectives, objective.as_str())
+                .is_some()
+        })
+        .map(ToString::to_string)
+        .collect();
+    secrets.sort_unstable();
+    secrets.dedup();
+    secrets
 }
 
 /// The strategy cards of this game, lowest initiative first: what "Elect Strategy Card" elects.

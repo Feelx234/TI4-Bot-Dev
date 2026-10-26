@@ -1203,7 +1203,13 @@ pub const RULES_OFFICIAL_ACTION_DECK: u32 = 30;
 /// and was discarded on reveal. Version 31.
 pub const RULES_CRISIS_PACT: u32 = 31;
 
-pub const RULES_VERSION: u32 = 31;
+/// The first rules version in which Classified Document Leaks ("Elect Scored Secret Objective") is
+/// voted on when a secret objective has been scored: its candidates are the scored secrets not
+/// already public. Below, it never had a candidate and was discarded on reveal in every game, so
+/// its effect never ran. Version 32.
+pub const RULES_CLASSIFIED_LEAKS: u32 = 32;
+
+pub const RULES_VERSION: u32 = 32;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are

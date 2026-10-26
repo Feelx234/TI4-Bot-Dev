@@ -9947,6 +9947,52 @@ mod tests {
     }
 
     #[test]
+    fn classified_document_leaks_elects_a_scored_secret_from_rules_version_32() {
+        // Card audit I03: "Elect Scored Secret Objective" never had a candidate, so the card was
+        // discarded even with secrets scored and its effect never ran.
+        let scored = |game: &mut Game<'static>| {
+            for (seat, secret) in [("a", "ans"), ("b", "btgk")] {
+                game.state
+                    .scored_objectives
+                    .entry(PlayerId::new(seat))
+                    .or_default()
+                    .insert(ti4_model::id::ObjectiveId::new(secret));
+            }
+        };
+        let mut game = quash_game(0, &[]);
+        scored(&mut game);
+        let (alias, choices) = game
+            .reveal_agenda("classified")
+            .expect("revealed")
+            .expect("a vote");
+        assert_eq!(alias, "classified");
+        assert_eq!(choices, ["ans", "btgk"]);
+
+        game.resolve_agenda_outcome("classified", "btgk", &crate::vote::Ballot::default());
+        assert!(
+            game.state
+                .revealed_objectives
+                .contains(&ti4_model::id::ObjectiveId::new("btgk")),
+            "the elected secret is public"
+        );
+        assert_eq!(game.state.revealed_objectives.iter().filter(|o| o.as_str() == "btgk").count(), 1);
+        // A secret already made public is no longer a candidate.
+        assert_eq!(
+            crate::vote::outcomes(&game.state, game.content, game.sources, "classified"),
+            ["ans"]
+        );
+
+        let mut game = quash_game(0, &[]);
+        scored(&mut game);
+        game.state.rules_version = ti4_model::state::RULES_CLASSIFIED_LEAKS - 1;
+        let (alias, _) = game
+            .reveal_agenda("classified")
+            .expect("revealed")
+            .expect("the replacement goes to a vote");
+        assert_eq!(alias, "committee", "the old discard on reveal");
+    }
+
+    #[test]
     fn an_agenda_with_nothing_to_elect_is_just_dropped_below_rules_version_14() {
         let mut game = quash_game(0, &[]);
         game.state.rules_version = ti4_model::state::RULES_AGENDA_GRANT_REVEAL - 1;
