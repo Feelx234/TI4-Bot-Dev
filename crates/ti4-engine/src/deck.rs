@@ -351,8 +351,10 @@ mod tests {
     #[test]
     fn a_new_game_draws_from_the_official_action_deck() {
         // I01: the corpus has three Vetos (veto, veto3, veto4); every printed deck has one.
-        for (sources, deck, size) in [(FULL, "action_cards_te", 140), (POK, "action_cards_pok", 120)]
-        {
+        for (sources, deck, size) in [
+            (FULL, "action_cards_te", 140),
+            (POK, "action_cards_pok", 120),
+        ] {
             let mut state = new_game(sources, ti4_model::state::RULES_VERSION);
             let built = state.action_card_deck.clone();
             assert_eq!(built.len(), size + 2, "setup still builds the corpus deck");
@@ -389,8 +391,14 @@ mod tests {
         use ti4_model::id::{ActionCardId, PlayerId};
         let a = PlayerId::new("a");
         for (version, expected) in [
-            (ti4_model::state::RULES_OFFICIAL_ACTION_DECK, ["sabotage", "veto"]),
-            (ti4_model::state::RULES_OFFICIAL_ACTION_DECK - 1, ["veto3", "sabotage"]),
+            (
+                ti4_model::state::RULES_OFFICIAL_ACTION_DECK,
+                ["sabotage", "veto"],
+            ),
+            (
+                ti4_model::state::RULES_OFFICIAL_ACTION_DECK - 1,
+                ["veto3", "sabotage"],
+            ),
         ] {
             let mut state = crate::fixtures::game(&["a", "b"]);
             state.rules_version = version;
@@ -398,11 +406,13 @@ mod tests {
                 .into_iter()
                 .map(ActionCardId::new)
                 .collect();
-            let mut table = crate::choice::Table::with_default(Box::new(
-                crate::choice::Scripted::new(Vec::<String>::new()),
-            ));
-            let drawn = crate::action_cards::draw(&mut state, content(), &mut table, &a, 2)
-                .expect("drawn");
+            let mut table =
+                crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(Vec::<
+                    String,
+                >::new(
+                ))));
+            let drawn =
+                crate::action_cards::draw(&mut state, content(), &mut table, &a, 2).expect("drawn");
             let drawn: Vec<&str> = drawn.iter().map(ActionCardId::as_str).collect();
             assert_eq!(drawn, expected, "version {version}");
         }

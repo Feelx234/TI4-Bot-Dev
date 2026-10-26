@@ -10031,7 +10031,14 @@ mod tests {
                 .contains(&ti4_model::id::ObjectiveId::new("btgk")),
             "the elected secret is public"
         );
-        assert_eq!(game.state.revealed_objectives.iter().filter(|o| o.as_str() == "btgk").count(), 1);
+        assert_eq!(
+            game.state
+                .revealed_objectives
+                .iter()
+                .filter(|o| o.as_str() == "btgk")
+                .count(),
+            1
+        );
         // A secret already made public is no longer a candidate.
         assert_eq!(
             crate::vote::outcomes(&game.state, game.content, game.sources, "classified"),
@@ -15106,13 +15113,18 @@ mod tests {
             "a out-votes b"
         );
         assert!(
-            !events.iter().any(|e| e.starts_with("AGENDA_REVEALED:secret")),
+            !events
+                .iter()
+                .any(|e| e.starts_with("AGENDA_REVEALED:secret")),
             "the face-down card is never revealed"
         );
         assert_eq!(state.agenda_deck, ["prophecy"]);
         // The hidden agenda's election is a real one: a is the elected player.
         assert!(elected_by_an_agenda(&state, &PlayerId::new("a")));
-        assert!(state.covert_agenda.is_none(), "cleared when the vote closes");
+        assert!(
+            state.covert_agenda.is_none(),
+            "cleared when the vote closes"
+        );
         let listed: Vec<&str> = state.agenda_log.iter().map(|r| r.agenda.as_str()).collect();
         assert_eq!(listed, ["covert", "secret", "conventions"]);
     }
@@ -15146,7 +15158,9 @@ mod tests {
         );
         assert!(!events.iter().any(|e| e.starts_with("COVERT_AGENDA")));
         assert!(
-            events.iter().any(|e| e.starts_with("AGENDA_RESOLVED:conventions:")),
+            events
+                .iter()
+                .any(|e| e.starts_with("AGENDA_RESOLVED:conventions:")),
             "Conventions of War is the phase's second agenda"
         );
         let listed: Vec<&str> = state.agenda_log.iter().map(|r| r.agenda.as_str()).collect();
@@ -15161,20 +15175,33 @@ mod tests {
         state.covert_agenda = Some("committee".to_owned());
         let choices = vec!["a".to_owned(), "b".to_owned()];
         let window = crate::vote::VoteWindow::new(&state, "covert", choices.clone());
-        let first = window.pending_choice(&state, content, POK).expect("b votes first");
+        let first = window
+            .pending_choice(&state, content, POK)
+            .expect("b votes first");
         assert_eq!(first.player, PlayerId::new("b"));
         assert!(!first.details.contains_key("covert_agenda"));
-        assert!(first.details.contains_key("agenda"), "Covert Legislation itself is shown");
+        assert!(
+            first.details.contains_key("agenda"),
+            "Covert Legislation itself is shown"
+        );
 
         // With b unable to vote, the speaker is asked first.
         state
             .agenda_predictions
             .insert(PlayerId::new("b"), "none|political_secret".to_owned());
         let window = crate::vote::VoteWindow::new(&state, "covert", choices);
-        let speaker = window.pending_choice(&state, content, POK).expect("a votes");
+        let speaker = window
+            .pending_choice(&state, content, POK)
+            .expect("a votes");
         assert_eq!(speaker.player, PlayerId::new("a"));
-        let hidden = speaker.details.get("covert_agenda").expect("the speaker sees it");
-        assert_eq!(hidden.get("name").and_then(|v| v.as_str()), Some("Committee Formation"));
+        let hidden = speaker
+            .details
+            .get("covert_agenda")
+            .expect("the speaker sees it");
+        assert_eq!(
+            hidden.get("name").and_then(|v| v.as_str()),
+            Some("Committee Formation")
+        );
     }
 
     /// The position [`agenda_run`] plays from.

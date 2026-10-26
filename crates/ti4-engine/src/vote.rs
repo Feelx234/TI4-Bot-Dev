@@ -189,7 +189,12 @@ pub const COVERT: &str = "covert";
 /// printed name, everything else (players, planets, laws, For/Against) as the outcome itself, as
 /// before. Under Covert Legislation the outcomes are the hidden agenda's. Display only.
 #[must_use]
-pub fn outcome_label(state: &GameState, content: &ContentStore, alias: &str, outcome: &str) -> String {
+pub fn outcome_label(
+    state: &GameState,
+    content: &ContentStore,
+    alias: &str,
+    outcome: &str,
+) -> String {
     let category = match elects(content, voted_agenda(state, alias)) {
         Some(head) if head.contains("Strategy Card") => ContentType::StrategyCards,
         Some(head) if head.contains("Secret Objective") => ContentType::SecretObjectives,
@@ -652,11 +657,12 @@ impl VoteWindow {
                 // Covert Legislation: the speaker drew the face-down agenda and knows it; nobody
                 // else is shown it.
                 match &state.covert_agenda {
-                    Some(hidden) if self.alias == COVERT && choice.player == state.speaker => choice
-                        .detailed(
+                    Some(hidden) if self.alias == COVERT && choice.player == state.speaker => {
+                        choice.detailed(
                             "covert_agenda",
                             crate::strategy_cards::agenda_details(content, hidden),
-                        ),
+                        )
+                    }
                     _ => choice,
                 }
             })

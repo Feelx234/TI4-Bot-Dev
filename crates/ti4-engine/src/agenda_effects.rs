@@ -992,9 +992,9 @@ pub fn resolve_with(
             let card = ti4_model::id::StrategyCardId::new(outcome);
             if state.card_initiative.contains_key(&card) {
                 for player in state.clockwise_from(&state.speaker) {
-                    let Some(choice) =
-                        crate::strategy::crisis_pact_choice(state, content, sources, &card, &player)
-                    else {
+                    let Some(choice) = crate::strategy::crisis_pact_choice(
+                        state, content, sources, &card, &player,
+                    ) else {
                         continue;
                     };
                     let Ok(answer) = ctx.ask_seeing(state, &choice) else {
@@ -3092,7 +3092,11 @@ mod crisis_pact_tests {
     }
 
     fn hand(state: &GameState, seat: &str) -> usize {
-        state.player(&PlayerId::new(seat)).unwrap().action_cards.len()
+        state
+            .player(&PlayerId::new(seat))
+            .unwrap()
+            .action_cards
+            .len()
     }
 
     fn strategy_tokens(state: &GameState, seat: &str) -> i32 {
@@ -3110,7 +3114,10 @@ mod crisis_pact_tests {
         assert_eq!(outcomes.len(), 8, "{outcomes:?}");
         assert_eq!(outcomes[0], "pok1leadership", "initiative order");
         assert_eq!(outcomes[2], POLITICS);
-        assert_eq!(crate::vote::outcome_label(&state, content, "crisis", POLITICS), "Politics");
+        assert_eq!(
+            crate::vote::outcome_label(&state, content, "crisis", POLITICS),
+            "Politics"
+        );
 
         state.rules_version = RULES_CRISIS_PACT - 1;
         assert!(crate::vote::outcomes(&state, content, POK, "crisis").is_empty());
@@ -3127,7 +3134,11 @@ mod crisis_pact_tests {
         let asked = resolve_pact(&mut state, POLITICS, &["yes", "no"]);
 
         assert_eq!(asked, [PlayerId::new("b"), PlayerId::new("a")]);
-        assert_eq!(hand(&state, "b"), before.1 + 2, "Politics' secondary: two action cards");
+        assert_eq!(
+            hand(&state, "b"),
+            before.1 + 2,
+            "Politics' secondary: two action cards"
+        );
         assert_eq!(hand(&state, "a"), before.0, "a declined");
         assert_eq!(
             (strategy_tokens(&state, "a"), strategy_tokens(&state, "b")),
@@ -3164,8 +3175,14 @@ mod crisis_pact_tests {
         );
         let ids: Vec<&str> = choice.options.iter().map(|o| o.id.as_str()).collect();
         assert_eq!(ids, ["no", "yes"]);
-        assert_eq!(choice.details.get("kind").and_then(|v| v.as_str()), Some("strategy_secondary"));
-        assert_eq!(choice.details.get("costs_token"), Some(&serde_json::Value::Bool(false)));
+        assert_eq!(
+            choice.details.get("kind").and_then(|v| v.as_str()),
+            Some("strategy_secondary")
+        );
+        assert_eq!(
+            choice.details.get("costs_token"),
+            Some(&serde_json::Value::Bool(false))
+        );
         assert!(!choice.details.contains_key("played_by"));
         assert!(!choice.details.contains_key("tokens_left"));
     }

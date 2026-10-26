@@ -1622,7 +1622,8 @@ pub(crate) fn demilitarize(
             .get(unit.type_id.as_str())
             .is_some_and(ti4_content::units::UnitType::is_ground_force)
     };
-    let structures: Vec<ti4_model::units::Unit> = standing.iter().filter(|u| structure(u)).cloned().collect();
+    let structures: Vec<ti4_model::units::Unit> =
+        standing.iter().filter(|u| structure(u)).cloned().collect();
     let ground_forces: Vec<ti4_model::units::Unit> = standing
         .iter()
         .filter(|u| !structure(u) && ground(u))
@@ -3554,7 +3555,9 @@ mod dmz_tests {
         let (system, planet) = a_placed_planet();
         let mut state = crate::fixtures::game(&["a", "b"]);
         state.rules_version = version;
-        state.system_mut(&system).set_control(planet.clone(), a.clone());
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), a.clone());
         for (kind, count) in [("spacedock", 1), ("pds", 1), ("infantry", 2), ("mech", 1)] {
             put_on_planet(&mut state, &system, &planet, kind, &a, count);
         }
@@ -3562,8 +3565,17 @@ mod dmz_tests {
         state
             .exploration_decks
             .insert("CULTURAL".to_owned(), vec!["dmz".to_owned()]);
-        let outcome = explore(&mut state, ContentStore::embedded(), &a, "CULTURAL", Some(&planet));
-        assert!(matches!(outcome, Some(Explored::Attached { .. })), "{outcome:?}");
+        let outcome = explore(
+            &mut state,
+            ContentStore::embedded(),
+            &a,
+            "CULTURAL",
+            Some(&planet),
+        );
+        assert!(
+            matches!(outcome, Some(Explored::Attached { .. })),
+            "{outcome:?}"
+        );
         (state, system, planet)
     }
 
@@ -3571,7 +3583,10 @@ mod dmz_tests {
     fn structures_go_home_and_ground_forces_to_space() {
         let (state, system, planet) = explored(RULES_DMZ_EXPLORATION);
         let board = state.system_state(&system);
-        assert!(board.on_planet(&planet).is_empty(), "nothing stays on the planet");
+        assert!(
+            board.on_planet(&planet).is_empty(),
+            "nothing stays on the planet"
+        );
         assert_eq!(
             kinds(&board.units),
             ["carrier", "infantry", "infantry", "mech"],
@@ -3582,7 +3597,10 @@ mod dmz_tests {
             Some(&PlayerId::new("a")),
             "the planet stays controlled"
         );
-        assert_eq!(state.planet_attachments.get(&planet), Some(&vec!["dmz".to_owned()]));
+        assert_eq!(
+            state.planet_attachments.get(&planet),
+            Some(&vec!["dmz".to_owned()])
+        );
         assert!(crate::laws::planet_is_demilitarized(&state, &planet));
     }
 
@@ -3606,7 +3624,10 @@ mod dmz_tests {
             ["infantry", "infantry", "mech", "pds", "spacedock"]
         );
         assert_eq!(kinds(&board.units), ["carrier"]);
-        assert_eq!(state.planet_attachments.get(&planet), Some(&vec!["dmz".to_owned()]));
+        assert_eq!(
+            state.planet_attachments.get(&planet),
+            Some(&vec!["dmz".to_owned()])
+        );
         assert!(!crate::laws::planet_is_demilitarized(&state, &planet));
     }
 }

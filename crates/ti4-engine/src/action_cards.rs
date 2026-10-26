@@ -2320,7 +2320,8 @@ pub(crate) fn predicted_outcome(
                 prompt,
                 many.iter()
                     .map(|outcome| {
-                        let named = crate::vote::outcome_label(context.state, content, &agenda, outcome);
+                        let named =
+                            crate::vote::outcome_label(context.state, content, &agenda, outcome);
                         crate::choice::ChoiceOption::labelled(
                             outcome.clone(),
                             "prediction",

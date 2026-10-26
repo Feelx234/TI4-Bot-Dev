@@ -3569,7 +3569,10 @@ mod tests {
         let planets = ti4_content::galaxy::all_planets(content, POK);
         let placed = |id: &str| {
             let record = planets.get(id).expect("a corpus planet");
-            (SystemId::new(record.system_id().expect("placed")), PlanetId::new(id))
+            (
+                SystemId::new(record.system_id().expect("placed")),
+                PlanetId::new(id),
+            )
         };
         let mut by_system: std::collections::BTreeMap<String, Vec<String>> = Default::default();
         for (id, record) in &planets {
@@ -3578,10 +3581,16 @@ mod tests {
                 && record.homeworld_of().is_none()
                 && system != "18"
             {
-                by_system.entry(system.to_owned()).or_default().push((*id).to_owned());
+                by_system
+                    .entry(system.to_owned())
+                    .or_default()
+                    .push((*id).to_owned());
             }
         }
-        let pair = by_system.values().find(|ids| ids.len() == 2).expect("a two-planet system");
+        let pair = by_system
+            .values()
+            .find(|ids| ids.len() == 2)
+            .expect("a two-planet system");
         let (system, first) = placed(&pair[0]);
         let (_, second) = placed(&pair[1]);
         let (elsewhere_system, elsewhere) = by_system
@@ -3600,24 +3609,31 @@ mod tests {
                 (&system, &second),
                 (&elsewhere_system, &elsewhere),
             ] {
-                state.system_mut(at).set_control(planet.clone(), player.clone());
+                state
+                    .system_mut(at)
+                    .set_control(planet.clone(), player.clone());
                 state.exhaust_planet(planet.clone());
             }
             state
         };
         let play = |state: &mut GameState, script: Vec<String>| {
-            let mut table =
-                Table::with_default(Box::new(crate::choice::Scripted::new(script)));
+            let mut table = Table::with_default(Box::new(crate::choice::Scripted::new(script)));
             primary(state, content, POK, None, &mut table, &player, "base2").unwrap();
             table.log.records.len()
         };
 
         let mut state = setup(ti4_model::state::RULES_BASE_DIPLOMACY);
         let asked = play(&mut state, vec![system.to_string()]);
-        assert_eq!(asked, 1, "only the system is asked; the readying is not a choice");
+        assert_eq!(
+            asked, 1,
+            "only the system is asked; the readying is not a choice"
+        );
         assert!(!state.exhausted_planets.contains(&first));
         assert!(!state.exhausted_planets.contains(&second));
-        assert!(state.exhausted_planets.contains(&elsewhere), "not in the chosen system");
+        assert!(
+            state.exhausted_planets.contains(&elsewhere),
+            "not in the chosen system"
+        );
 
         // Below 35: up to two exhausted planets anywhere, as the PoK card.
         let mut state = setup(ti4_model::state::RULES_BASE_DIPLOMACY - 1);
