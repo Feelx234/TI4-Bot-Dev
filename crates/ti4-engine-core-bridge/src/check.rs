@@ -13,7 +13,7 @@ use ti4_content::ContentStore;
 use ti4_engine::movement::{Board, MovementRules};
 use ti4_engine_core::galaxy::Adjacency;
 use ti4_engine_core::movement::CoreRules;
-use ti4_engine_core::names::SYSTEM_NAMES;
+use ti4_engine::generated::systems::SYSTEM_IDS as SYSTEM_NAMES;
 
 use crate::adapter::{
     self, MoverFlags, Seats, board_from_state, galaxy_from_legacy, is_plain, route_text,

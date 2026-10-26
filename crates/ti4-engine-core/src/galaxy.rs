@@ -10,7 +10,10 @@
 use crate::bits::SysSet;
 use crate::hex::{Grid, Hex};
 use crate::ids::SystemIx;
-use crate::tables::{SYSTEM_COUNT, SYSTEMS, SystemFlags, WH_ALPHA, WH_ALPHA_BETA, WH_BETA, WORMHOLE_KIND_COUNT};
+use crate::tables::{
+    LaneTable, SYSTEM_COUNT, WH_ALPHA, WH_ALPHA_BETA, WH_BETA, WORMHOLE_KIND_COUNT, is_nexus,
+    printed_wormholes,
+};
 
 /// Why a placement was refused (the string galaxy's `GalaxyError`, minus unknown ids, which cannot
 /// be expressed here: the adapter refuses them before they become indices).
@@ -22,6 +25,8 @@ pub enum PlaceError {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoreGalaxy {
+    /// The printed lanes of every hyperlane tile (by system index), from the adapter.
+    lanes: &'static LaneTable,
     coord: Vec<Option<Hex>>,
     grid: Grid,
     /// Placed on the grid or off it: the keys of the string galaxy's `wormholes` map.
@@ -42,11 +47,6 @@ pub struct CoreGalaxy {
     pub extra_links: Vec<(SystemIx, SysSet)>,
 }
 
-impl Default for CoreGalaxy {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 /// Every system's neighbours on one board, computed once ([`CoreGalaxy::adjacency`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,9 +85,11 @@ fn sparse_entry(list: &mut Vec<(SystemIx, SysSet)>, key: SystemIx) -> &mut SysSe
 }
 
 impl CoreGalaxy {
+    /// An empty board; `lanes` is the printed lane table of the hyperlane tiles.
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(lanes: &'static LaneTable) -> Self {
         Self {
+            lanes,
             coord: vec![None; SYSTEM_COUNT],
             grid: Grid::default(),
             in_play: SysSet::EMPTY,
@@ -134,10 +136,9 @@ impl CoreGalaxy {
     }
 
     fn join(&mut self, system: SystemIx) {
-        let data = &SYSTEMS[system.index()];
         self.in_play.insert(system.index());
-        self.wormholes[system.index()] = data.wormholes;
-        if data.has(SystemFlags::HYPERLANE) {
+        self.wormholes[system.index()] = printed_wormholes(system);
+        if system.data().hyperlane {
             self.hyperlanes.insert(system.index());
         }
     }
@@ -178,7 +179,7 @@ impl CoreGalaxy {
     pub fn wormhole_kinds(&self, system: SystemIx) -> u8 {
         let i = system.index();
         let mut kinds = self.wormholes[i] | self.token_wormholes[i];
-        if self.nexus_wormholes_off && SYSTEMS[i].has(SystemFlags::NEXUS) {
+        if self.nexus_wormholes_off && is_nexus(system) {
             kinds &= !WH_ALPHA_BETA;
         }
         kinds
@@ -195,14 +196,14 @@ impl CoreGalaxy {
             if !self.hyperlanes.contains(system.index()) {
                 return None;
             }
-            SYSTEMS[system.index()].lanes
+            self.lanes.get(system.index()).copied().flatten()
         };
         let mut links: Vec<(SystemIx, SysSet)> = Vec::new();
         let placed: Vec<(SystemIx, Hex)> = self
             .coord
             .iter()
             .enumerate()
-            .filter_map(|(i, h)| h.map(|h| (SystemIx(i as u16), h)))
+            .filter_map(|(i, h)| h.map(|h| (crate::ids::system_at(i), h)))
             .collect();
         if !placed.iter().any(|(_, h)| lanes_at(*h).is_some()) {
             return;
@@ -237,7 +238,7 @@ impl CoreGalaxy {
     fn holders(&self) -> [SysSet; WORMHOLE_KIND_COUNT] {
         let mut by_kind = [SysSet::EMPTY; WORMHOLE_KIND_COUNT];
         for i in 0..SYSTEM_COUNT {
-            let kinds = self.wormhole_kinds(SystemIx(i as u16));
+            let kinds = self.wormhole_kinds(crate::ids::system_at(i));
             if kinds == 0 {
                 continue;
             }
@@ -317,7 +318,7 @@ impl CoreGalaxy {
         let holders = self.holders();
         Adjacency {
             adjacent: (0..SYSTEM_COUNT)
-                .map(|i| self.adjacent_with(SystemIx(i as u16), &holders))
+                .map(|i| self.adjacent_with(crate::ids::system_at(i), &holders))
                 .collect(),
             hyperlanes: self.hyperlanes,
         }

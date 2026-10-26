@@ -1,7 +1,7 @@
 //! The typed rules core: a prototype slice (docs/ENGINE_CORE.md).
 //!
 //! This crate knows no string ids. Systems, planets, unit types, seats and wormhole kinds are small
-//! integers; sets of them are bitsets. The corpus is compiled in as typed tables (`build.rs`), with
+//! integers; sets of them are bitsets. The corpus is compiled in as the generated typed tables (`generated/`), with
 //! ids numbered in the text order of the id, so integer order is the string order the engine's
 //! `BTreeMap`s iterate in.
 //!
@@ -19,11 +19,8 @@ pub mod ids;
 pub mod movement;
 pub mod tables;
 
-#[cfg(feature = "names")]
-pub mod names {
-    //! Id text of every table index, for the adapter (feature `names`). The core never reads it.
-    include!(concat!(env!("OUT_DIR"), "/names.rs"));
-}
+#[rustfmt::skip]
+pub mod generated;
 
 pub use bits::{SysSet, UnitSet};
 pub use ids::{PlanetIx, Seat, SystemIx, UnitIx};

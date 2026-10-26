@@ -8,12 +8,16 @@ use std::collections::BTreeSet;
 use ti4_content::ContentStore;
 use ti4_content::galaxy::{Galaxy, System, all_systems};
 use ti4_engine_core::hex::Hex;
-use ti4_engine_core::names::{PLANET_NAMES, SYSTEM_NAMES, UNIT_NAMES};
-use ti4_engine_core::tables::{PLANETS, SYSTEMS, SystemFlags, UNITS};
+use ti4_engine::generated::IdStr;
+use ti4_engine::generated::planets::PLANET_IDS as PLANET_NAMES;
+use ti4_engine::generated::systems::SYSTEM_IDS as SYSTEM_NAMES;
+use ti4_engine::generated::units::UNIT_IDS as UNIT_NAMES;
+use ti4_engine_core::SystemIx;
+use ti4_engine_core::tables::{Flags, SystemFlags, is_nexus, moves_as_ship};
 use ti4_engine_core_bridge::adapter::{galaxy_from_legacy, galaxy_native, scope, system_ix};
 use ti4_engine_core_bridge::check::{Report, check_adjacency, check_galaxy_variants, check_position};
 use ti4_engine_core_bridge::workload::template_openings;
-use ti4_model::content_types::{ContentType, FULL, POK};
+use ti4_model::content_types::{FULL, POK};
 
 fn sorted_unique(names: &[&str]) -> bool {
     names.windows(2).all(|w| w[0] < w[1])
@@ -39,7 +43,7 @@ fn system_table_matches_the_corpus() {
     assert_eq!(full.len(), SYSTEM_NAMES.len());
     for (i, id) in SYSTEM_NAMES.iter().enumerate() {
         let s: &System<'_> = &full[id];
-        let t = &SYSTEMS[i];
+        let t = SystemIx::ALL[i].data();
         assert_eq!(t.has(SystemFlags::NEBULA), s.is_nebula(), "{id}");
         assert_eq!(t.has(SystemFlags::SUPERNOVA), s.is_supernova(), "{id}");
         assert_eq!(t.has(SystemFlags::ASTEROID_FIELD), s.is_asteroid_field(), "{id}");
@@ -47,10 +51,11 @@ fn system_table_matches_the_corpus() {
         assert_eq!(t.has(SystemFlags::HYPERLANE), s.is_hyperlane(), "{id}");
         assert_eq!(t.has(SystemFlags::SCAR), s.is_scar(), "{id}");
         let planets: Vec<&str> = t.planets.iter().map(|p| PLANET_NAMES[p.index()]).collect();
+        assert_eq!(is_nexus(SystemIx::ALL[i]), id.starts_with("82"), "{id}");
         assert_eq!(planets, s.planets(), "{id}");
         if s.is_hyperlane() {
             assert_eq!(
-                t.lanes.map(<[_]>::to_vec),
+                ti4_engine_core_bridge::adapter::lane_table()[i].map(<[_]>::to_vec),
                 ti4_content::hyperlane::lanes_of(id),
                 "{id}"
             );
@@ -61,7 +66,7 @@ fn system_table_matches_the_corpus() {
     let mask = scope(POK);
     for (i, id) in SYSTEM_NAMES.iter().enumerate() {
         assert_eq!(
-            mask.system(ti4_engine_core::SystemIx(i as u16)).is_some(),
+            mask.system(SystemIx::ALL[i]).is_some(),
             pok.contains_key(id),
             "{id}"
         );
@@ -69,22 +74,19 @@ fn system_table_matches_the_corpus() {
 }
 
 #[test]
-fn planet_and_unit_tables_match_the_corpus() {
+fn unit_flags_the_movement_slice_reads_match_the_corpus() {
+    // The planet and unit data as a whole are tested by the generator (ti4-engine-core/tests/adapter.rs).
     let store = ContentStore::embedded();
-    for (i, id) in PLANET_NAMES.iter().enumerate() {
-        let p = ti4_content::galaxy::Planet::new(store.get(ContentType::Planets, id).unwrap());
-        let t = &PLANETS[i];
-        assert_eq!(t.system.map(|s| SYSTEM_NAMES[s.index()]), p.system_id(), "{id}");
-        assert_eq!((t.resources, t.influence), (p.resources(), p.influence()), "{id}");
-        assert_eq!(t.space_station, p.is_space_station(), "{id}");
-    }
     let units = ti4_content::units::catalogue(store, FULL);
     for (i, id) in UNIT_NAMES.iter().enumerate() {
+        let data = ti4_engine_core::UnitIx::ALL[i].data();
         if let Some(u) = units.get(id) {
-            assert_eq!(UNITS[i].is_ship, u.is_ship(), "{id}");
-            assert_eq!(UNITS[i].moves_as_ship, u.moves_as_ship(), "{id}");
+            assert_eq!(data.ship, u.is_ship(), "{id}");
+            assert_eq!(moves_as_ship(data), u.moves_as_ship(), "{id}");
         }
     }
+    assert_eq!(<SystemIx as IdStr>::from_id("18"), Some(SystemIx::MecatolRex18));
+    let _ = PLANET_NAMES;
 }
 
 #[test]

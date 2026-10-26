@@ -4123,7 +4123,6 @@ dependencies = [
 name = "ti4-engine-core"
 version = "0.1.0"
 dependencies = [
- "strum",
  "ti4-content",
  "ti4-model",
 ]

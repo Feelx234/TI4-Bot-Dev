@@ -1,0 +1,1276 @@
+{
+ "_doc": "Hand-made judgements for card_audit.py. classes: id | gameplay | gameplay-text (rules outcome decided by parsing a free-form string) | scope (source tag: deck and scope filtering) | engine-label (the engine reads it only to label a choice, an event or an offer card) | bot (bot heuristics only) | ui (host catalog / web display only) | unused (no runtime reader). Evidence is 'file:line ~ pattern'; the script fails if the pattern is no longer within 3 lines of that line.",
+ "fields": {
+  "*.source": {
+   "class": "scope",
+   "use": "parsed at load into Record::source; ContentStore::from_sources filters every deck, catalogue and lookup by it",
+   "evidence": [
+    "crates/ti4-content/src/record.rs:69 ~ fields.get(\"source\")"
+   ]
+  },
+  "*.notes": {
+   "class": "unused",
+   "use": "upstream bot notes; no reader"
+  },
+  "*.shrinkName": {
+   "class": "unused",
+   "use": "upstream image layout hint"
+  },
+  "*.shortName": {
+   "class": "unused",
+   "use": "no runtime reader (two training/report examples only)"
+  },
+  "*.flavorText": {
+   "class": "unused",
+   "use": "no reader except for explores (see explores.flavorText)"
+  },
+  "*.flavourText": {
+   "class": "unused",
+   "use": "no reader except the explores fallback in the host catalog"
+  },
+  "action_cards.alias": {
+   "class": "id",
+   "use": "identity; effect_for / REGISTERED_ALIASES match on it, one alias per physical copy (mb1..mb4)",
+   "evidence": [
+    "crates/ti4-engine/src/action_cards.rs:7395 ~ pub fn effect_for"
+   ]
+  },
+  "action_cards.name": {
+   "class": "engine-label",
+   "use": "printed name; the engine also uses it to merge copies into one option (first_of_each keys the hand by name) and to label discard choices, so it is not purely display; reaction_preview::PREVIEWED and web actionCardTurns BY_NAME key on it",
+   "evidence": [
+    "crates/ti4-engine/src/action_cards.rs:35 ~ record.text(\"name\")",
+    "crates/ti4-engine/src/action_cards.rs:44 ~ first_of_each",
+    "crates/ti4-engine/src/reaction_preview.rs:29 ~ PREVIEWED"
+   ]
+  },
+  "action_cards.window": {
+   "class": "gameplay-text",
+   "use": "the printed timing sentence is the key of reactions::window_table (exact string, trimmed) that binds a card to an engine event; 'Action' marks a component action (is_component_action, keleres::has_component_action); content::action_cards::timing_of groups ~50 texts by hand",
+   "evidence": [
+    "crates/ti4-engine/src/reactions.rs:628 ~ record.text(\"window\")",
+    "crates/ti4-engine/src/reactions.rs:633 ~ window_table().get(printed.trim())",
+    "crates/ti4-engine/src/action_cards.rs:462 ~ window.trim() == \"Action\"",
+    "crates/ti4-engine/src/factions/keleres.rs:662 ~ eq_ignore_ascii_case(\"action\")"
+   ]
+  },
+  "action_cards.phase": {
+   "class": "ui",
+   "use": "host catalog phase; content::action_cards::timing_of groups by it; web offersOwnTurnForCard reads it",
+   "evidence": [
+    "crates/ti4-host/src/view/records.rs:408 ~ phase: text(record, \"phase\")"
+   ]
+  },
+  "action_cards.text": {
+   "class": "ui",
+   "use": "host catalog text",
+   "evidence": [
+    "crates/ti4-host/src/view/records.rs:410 ~ text: text(record, \"text\")"
+   ]
+  },
+  "action_cards.automationID": {
+   "class": "ui",
+   "use": "host catalog automation_id; web indexes cards by it too. The engine does not read it: it lists every copy alias by hand",
+   "evidence": [
+    "crates/ti4-host/src/view/records.rs:411 ~ automationID"
+   ]
+  },
+  "action_cards.playTiming": {
+   "class": "unused",
+   "use": "upstream enum-like timing (AGENDA_WHEN, ...) on 16 cards; would be a better key than the window sentence but nothing reads it"
+  },
+  "action_cards.wildWildText": {
+   "class": "unused",
+   "use": "Wild Wild Galaxy galactic-event printing; galactic events are not implemented"
+  },
+  "action_cards.wildWildWindow": {
+   "class": "unused",
+   "use": "as wildWildText"
+  },
+  "action_cards.affectedByWildWildGalaxy": {
+   "class": "unused",
+   "use": "as wildWildText"
+  },
+  "agendas.alias": {
+   "class": "id",
+   "use": "identity; agenda_effects::resolve_with and laws match on it",
+   "evidence": [
+    "crates/ti4-engine/src/agenda_effects.rs:35 ~ registered_aliases"
+   ]
+  },
+  "agendas.type": {
+   "class": "gameplay",
+   "use": "'Law' vs 'Directive' decides whether a passed outcome stays in play (8.20)",
+   "evidence": [
+    "crates/ti4-engine/src/vote.rs:229 ~ record.text(\"type\")",
+    "crates/ti4-engine/src/laws.rs:808 ~ Some(\"Law\")"
+   ]
+  },
+  "agendas.target": {
+   "class": "gameplay-text",
+   "use": "the free-form 'Elect ...' sentence is parsed (split at '(' then substring 'Player' / 'Planet' / 'Non-Home' / 'Other Than Mecatol' / 'Law') to decide the outcome set; 'Elect Scored Secret Objective' and 'Elect Strategy Card' yield no candidates; game.rs uses starts_with(\"Elect Player\") for Committee Formation",
+   "evidence": [
+    "crates/ti4-engine/src/vote.rs:82 ~ record.text(\"target\")",
+    "crates/ti4-engine/src/vote.rs:83 ~ split('(')",
+    "crates/ti4-engine/src/vote.rs:117 ~ Neither is modelled",
+    "crates/ti4-engine/src/game.rs:5819 ~ starts_with(\"Elect Player\")"
+   ]
+  },
+  "agendas.name": {
+   "class": "engine-label",
+   "use": "names in law-discard prompts and agenda details payloads",
+   "evidence": [
+    "crates/ti4-engine/src/laws.rs:624 ~ record.text(\"name\")",
+    "crates/ti4-engine/src/game.rs:6780 ~ record.text(\"name\")"
+   ]
+  },
+  "agendas.text1": {
+   "class": "engine-label",
+   "use": "For/elected text: engine copies it into AGENDA payloads (strategy_cards::agenda_details) and law prompts; host catalog/score views",
+   "evidence": [
+    "crates/ti4-engine/src/strategy_cards.rs:1835 ~ \"text1\"",
+    "crates/ti4-engine/src/laws.rs:629 ~ mapText"
+   ]
+  },
+  "agendas.text2": {
+   "class": "engine-label",
+   "use": "Against text, same paths as text1",
+   "evidence": [
+    "crates/ti4-engine/src/strategy_cards.rs:1836 ~ \"text2\""
+   ]
+  },
+  "agendas.mapText": {
+   "class": "engine-label",
+   "use": "text of an elected law, preferred over text1 in the law-discard prompt",
+   "evidence": [
+    "crates/ti4-engine/src/laws.rs:629 ~ mapText"
+   ]
+  },
+  "agendas.forEmoji": {
+   "class": "unused"
+  },
+  "agendas.againstEmoji": {
+   "class": "unused"
+  },
+  "promissory_notes.alias": {
+   "class": "id",
+   "use": "identity; generic notes are '<color>_cf' etc. and the engine names them by the bare alias (promissory::GENERIC = cf, ps, ta, an) plus the prefix; Support for the Throne is keyed 'support:<faction>'",
+   "evidence": [
+    "crates/ti4-engine/src/promissory.rs:26 ~ GENERIC",
+    "crates/ti4-engine/src/promissory.rs:29 ~ GENERIC_PREFIX"
+   ]
+  },
+  "promissory_notes.playArea": {
+   "class": "gameplay",
+   "use": "whether a received note goes face up in the play area (and so its effect is active)",
+   "evidence": [
+    "crates/ti4-engine/src/promissory.rs:61 ~ record.flag(\"playArea\")"
+   ]
+  },
+  "promissory_notes.faction": {
+   "class": "gameplay",
+   "use": "owner faction of a faction note (play-area check, faction asset ledger)",
+   "evidence": [
+    "crates/ti4-engine/src/promissory.rs:58 ~ r.text(\"faction\")",
+    "crates/ti4-engine/src/factions/mod.rs:869 ~ text(\"faction\")"
+   ]
+  },
+  "promissory_notes.name": {
+   "class": "ui",
+   "use": "host catalog",
+   "evidence": [
+    "crates/ti4-host/src/view/records.rs:529 ~ name: text(record, \"name\")"
+   ]
+  },
+  "promissory_notes.text": {
+   "class": "ui",
+   "use": "host catalog",
+   "evidence": [
+    "crates/ti4-host/src/view/records.rs:531 ~ text: text(record, \"text\")"
+   ]
+  },
+  "promissory_notes.playImmediately": {
+   "class": "unused",
+   "use": "would be gameplay (note resolves on receipt); the engine encodes that per note in code"
+  },
+  "promissory_notes.attachment": {
+   "class": "unused",
+   "use": "token/attachment the note places (Terraform...); engine uses its own ids (attachments 'titanspn')"
+  },
+  "promissory_notes.color": {
+   "class": "unused"
+  },
+  "relics.alias": {
+   "class": "id",
+   "use": "identity; relics::use_relic / registered_aliases match on it",
+   "evidence": [
+    "crates/ti4-engine/src/relics.rs:34 ~ registered_aliases"
+   ]
+  },
+  "relics.isFakeRelic": {
+   "class": "gameplay",
+   "use": "keeps a pseudo-relic out of the relic deck",
+   "evidence": [
+    "crates/ti4-engine/src/deck.rs:113 ~ isFakeRelic"
+   ]
+  },
+  "relics.name": {
+   "class": "ui",
+   "use": "host catalog",
+   "evidence": [
+    "crates/ti4-host/src/view/records.rs:539 ~ name: text(record, \"name\")"
+   ]
+  },
+  "relics.text": {
+   "class": "ui",
+   "use": "host catalog",
+   "evidence": [
+    "crates/ti4-host/src/view/records.rs:540 ~ text: text(record, \"text\")"
+   ]
+  },
+  "relics.flavourText": {
+   "class": "unused",
+   "use": "host reads flavourText only for explores"
+  },
+  "leaders.id": {
+   "class": "id",
+   "use": "identity; leaders::dispatch_leader / registered_abilities / faction modules match on it",
+   "evidence": [
+    "crates/ti4-engine/src/leaders.rs:229 ~ record.text(\"id\")"
+   ]
+  },
+  "leaders.faction": {
+   "class": "gameplay",
+   "use": "which faction is dealt the leader (for_faction, with keleres tag rules)",
+   "evidence": [
+    "crates/ti4-engine/src/leaders.rs:189 ~ record.text(\"faction\")"
+   ]
+  },
+  "leaders.type": {
+   "class": "gameplay",
+   "use": "agent / commander / hero: readied vs locked at start, unlock rules (51.2a, 51.7), Alliance note, Yin commander",
+   "evidence": [
+    "crates/ti4-engine/src/leaders.rs:175 ~ record.text(\"type\")",
+    "crates/ti4-engine/src/promissory.rs:681 ~ record.text(\"type\")"
+   ]
+  },
+  "leaders.homebrewReplacesID": {
+   "class": "gameplay",
+   "use": "a reprint (xxchahero-te) removes the record it replaces from the deal",
+   "evidence": [
+    "crates/ti4-engine/src/leaders.rs:196 ~ homebrewReplacesID"
+   ]
+  },
+  "leaders.abilityWindow": {
+   "class": "gameplay-text",
+   "use": "printed window parsed: starts_with('ACTION') or 'During the action phase' decides whether a leader is offered as an action-phase ability and whether using it ends the turn; also copied into offer cards",
+   "evidence": [
+    "crates/ti4-engine/src/leaders.rs:465 ~ abilityWindow",
+    "crates/ti4-engine/src/leaders.rs:467 ~ starts_with(\"ACTION\")",
+    "crates/ti4-engine/src/leaders.rs:482 ~ abilityWindow"
+   ]
+  },
+  "leaders.abilityText": {
+   "class": "engine-label",
+   "use": "copied into offer-card payloads (strategy_cards::leader_card); host catalog",
+   "evidence": [
+    "crates/ti4-engine/src/strategy_cards.rs:2133 ~ abilityText"
+   ]
+  },
+  "leaders.name": {
+   "class": "engine-label",
+   "use": "choice labels and offer cards; host catalog",
+   "evidence": [
+    "crates/ti4-engine/src/leaders.rs:674 ~ record.text(\"name\")"
+   ]
+  },
+  "leaders.title": {
+   "class": "ui",
+   "use": "host catalog"
+  },
+  "leaders.abilityName": {
+   "class": "ui",
+   "use": "host catalog"
+  },
+  "leaders.unlockCondition": {
+   "class": "ui",
+   "use": "host catalog only; the unlock rule of every commander is code (leaders::commander_unlocks)",
+   "evidence": [
+    "crates/ti4-host/src/view/records.rs:513 ~ unlockCondition"
+   ]
+  },
+  "leaders.imageBackURL": {
+   "class": "unused",
+   "use": "upstream image URL, 16.9 KB"
+  },
+  "leaders.tfImageURL": {
+   "class": "unused",
+   "use": "Twilight's Fall image URL"
+  },
+  "leaders.tfName": {
+   "class": "unused",
+   "use": "Twilight's Fall printing"
+  },
+  "leaders.tfTitle": {
+   "class": "unused"
+  },
+  "leaders.tfShortName": {
+   "class": "unused"
+  },
+  "leaders.tfShrinkName": {
+   "class": "unused"
+  },
+  "leaders.tfAbilityText": {
+   "class": "unused"
+  },
+  "leaders.tfAbilityWindow": {
+   "class": "unused"
+  },
+  "breakthroughs.alias": {
+   "class": "id",
+   "use": "identity; breakthroughs::registered_aliases and faction modules",
+   "evidence": [
+    "crates/ti4-engine/src/breakthroughs.rs:71 ~ text(\"alias\")"
+   ]
+  },
+  "breakthroughs.faction": {
+   "class": "gameplay",
+   "use": "which faction owns the breakthrough",
+   "evidence": [
+    "crates/ti4-engine/src/breakthroughs.rs:68 ~ text(\"faction\")"
+   ]
+  },
+  "breakthroughs.synergy": {
+   "class": "gameplay",
+   "use": "the two technology colours that count as one another (synergy.rs, fracture.rs)",
+   "evidence": [
+    "crates/ti4-engine/src/synergy.rs:61 ~ strings(\"synergy\")",
+    "crates/ti4-engine/src/fracture.rs:225 ~ strings(\"synergy\")"
+   ]
+  },
+  "breakthroughs.text": {
+   "class": "engine-label",
+   "use": "first sentence copied into the invasion offer card (breakthrough_card)",
+   "evidence": [
+    "crates/ti4-engine/src/invasion.rs:2144 ~ first_sentence"
+   ]
+  },
+  "breakthroughs.name": {
+   "class": "engine-label",
+   "use": "offer-card title; host catalog",
+   "evidence": [
+    "crates/ti4-engine/src/invasion.rs:2149 ~ field(\"name\")"
+   ]
+  },
+  "public_objectives.alias": {
+   "class": "id",
+   "use": "identity; objectives::requirement_for / cost_of match on it (thresholds are Rust literals)",
+   "evidence": [
+    "crates/ti4-engine/src/objectives.rs:1234 ~ pub fn requirement_for",
+    "crates/ti4-engine/src/objectives.rs:1512 ~ pub fn cost_of"
+   ]
+  },
+  "public_objectives.points": {
+   "class": "gameplay",
+   "use": "1 = stage I, 2 = stage II when the deck is built; victory points awarded (points_for)",
+   "evidence": [
+    "crates/ti4-engine/src/deck.rs:68 ~ int(\"points\")",
+    "crates/ti4-engine/src/objectives.rs:1897 ~ int(\"points\")"
+   ]
+  },
+  "public_objectives.phase": {
+   "class": "ui",
+   "use": "host catalog only; public objectives score in the status phase by rule, not by this field"
+  },
+  "public_objectives.name": {
+   "class": "ui",
+   "use": "host catalog / score view"
+  },
+  "public_objectives.text": {
+   "class": "ui",
+   "use": "host catalog; the requirement it states is duplicated as Rust literals (see threshold_check)"
+  },
+  "secret_objectives.alias": {
+   "class": "id",
+   "use": "identity; secrets.rs match arms (counting_progress, nine_ground_forces, Feat bytes)",
+   "evidence": [
+    "crates/ti4-engine/src/secrets.rs:1062 ~ registered_aliases"
+   ]
+  },
+  "secret_objectives.phase": {
+   "class": "gameplay",
+   "use": "Action / Status / Agenda: when the secret may be scored",
+   "evidence": [
+    "crates/ti4-engine/src/secrets.rs:37 ~ record.text(\"phase\")"
+   ]
+  },
+  "secret_objectives.points": {
+   "class": "gameplay",
+   "use": "victory points awarded (always 1 in the corpus); bot value",
+   "evidence": [
+    "crates/ti4-engine/src/secrets.rs:1284 ~ int(\"points\")"
+   ]
+  },
+  "secret_objectives.name": {
+   "class": "engine-label",
+   "use": "a Thunder's Edge choice label; host catalog",
+   "evidence": [
+    "crates/ti4-engine/src/thunders_edge.rs:221 ~ record.text(\"name\")"
+   ]
+  },
+  "secret_objectives.text": {
+   "class": "ui",
+   "use": "host catalog"
+  },
+  "technologies.alias": {
+   "class": "id",
+   "use": "identity; ownership is checked by exact id (TechnologyId::new(\"gd\")) in ~300 places",
+   "evidence": [
+    "crates/ti4-engine/src/technology.rs:78 ~ TechnologyId::new(\"gd\")"
+   ]
+  },
+  "technologies.types": {
+   "class": "gameplay",
+   "use": "colour(s) or UNITUPGRADE: prerequisites satisfied, unit-upgrade rules, objectives counting colours, leader effects; bots value colours",
+   "evidence": [
+    "crates/ti4-engine/src/technology.rs:959 ~ strings(\"types\")",
+    "crates/ti4-engine/src/objectives.rs:442 ~ strings(\"types\")"
+   ]
+  },
+  "technologies.requirements": {
+   "class": "gameplay",
+   "use": "prerequisites as a letter string ('GG', 'BR'; 'null'/'None' spelled out); parsed letter by letter",
+   "evidence": [
+    "crates/ti4-engine/src/technology.rs:936 ~ text(\"requirements\")"
+   ]
+  },
+  "technologies.faction": {
+   "class": "gameplay",
+   "use": "faction technology belongs to that faction only (90.11); faction asset ledger",
+   "evidence": [
+    "crates/ti4-engine/src/technology.rs:979 ~ text(\"faction\")"
+   ]
+  },
+  "technologies.baseUpgrade": {
+   "class": "gameplay",
+   "use": "the generic unit upgrade a faction upgrade replaces (makes the generic unresearchable for that faction)",
+   "evidence": [
+    "crates/ti4-engine/src/technology.rs:997 ~ baseUpgrade"
+   ]
+  },
+  "technologies.text": {
+   "class": "gameplay-text",
+   "use": "researchability: a card whose text contains 'cannot be researched' is skipped (2 Obsidian cards); host catalog",
+   "evidence": [
+    "crates/ti4-engine/src/technology.rs:1133 ~ cannot be researched",
+    "crates/ti4-engine/src/factions/deepwrought.rs:391 ~ cannot be researched"
+   ]
+  },
+  "technologies.name": {
+   "class": "engine-label",
+   "use": "choice labels (research, action-card targets); host catalog",
+   "evidence": [
+    "crates/ti4-engine/src/technology.rs:67 ~ record.text(\"name\")"
+   ]
+  },
+  "technologies.initials": {
+   "class": "unused"
+  },
+  "abilities.id": {
+   "class": "id",
+   "use": "identity; faction_abilities::registered and faction modules",
+   "evidence": [
+    "crates/ti4-engine/src/faction_abilities.rs:1107 ~ pub fn registered"
+   ]
+  },
+  "abilities.faction": {
+   "class": "ui",
+   "use": "host catalog; the engine takes a faction's abilities from factions.json 'abilities', not from this field"
+  },
+  "abilities.name": {
+   "class": "engine-label",
+   "use": "ability offer card (faction_abilities::ability_card)",
+   "evidence": [
+    "crates/ti4-engine/src/faction_abilities.rs:815 ~ field(\"name\")"
+   ]
+  },
+  "abilities.window": {
+   "class": "engine-label",
+   "use": "ability offer card; host catalog",
+   "evidence": [
+    "crates/ti4-engine/src/faction_abilities.rs:816 ~ field(\"window\")"
+   ]
+  },
+  "abilities.windowEffect": {
+   "class": "engine-label",
+   "use": "ability offer card; host catalog",
+   "evidence": [
+    "crates/ti4-engine/src/faction_abilities.rs:817 ~ windowEffect"
+   ]
+  },
+  "abilities.permanentEffect": {
+   "class": "ui",
+   "use": "host catalog and reaction view"
+  },
+  "explores.id": {
+   "class": "id",
+   "use": "identity; exploration::resolve_instant matches on it",
+   "evidence": [
+    "crates/ti4-engine/src/exploration.rs:720 ~ record.text(\"id\")"
+   ]
+  },
+  "explores.type": {
+   "class": "gameplay",
+   "use": "which exploration deck (cultural/hazardous/industrial/frontier), compared case-insensitively",
+   "evidence": [
+    "crates/ti4-engine/src/deck.rs:100 ~ text(\"type\")"
+   ]
+  },
+  "explores.resolution": {
+   "class": "gameplay",
+   "use": "Instant / Fragment / Attach / Token decides the resolution path; Fragment and Attach need no handler",
+   "evidence": [
+    "crates/ti4-engine/src/exploration.rs:123 ~ text(\"resolution\")",
+    "crates/ti4-engine/src/exploration.rs:719 ~ Fragment"
+   ]
+  },
+  "explores.attachmentId": {
+   "class": "gameplay",
+   "use": "the attachment an Attach card puts on a planet; '{id}stat' naming convention picks the research-facility variant",
+   "evidence": [
+    "crates/ti4-engine/src/exploration.rs:136 ~ attachmentId"
+   ]
+  },
+  "explores.name": {
+   "class": "engine-label",
+   "use": "offer label in exploration choices",
+   "evidence": [
+    "crates/ti4-engine/src/exploration.rs:361 ~ text(\"name\")"
+   ]
+  },
+  "explores.text": {
+   "class": "engine-label",
+   "use": "printed text in exploration offer; host catalog",
+   "evidence": [
+    "crates/ti4-engine/src/exploration.rs:371 ~ text(\"text\")"
+   ]
+  },
+  "explores.flavorText": {
+   "class": "ui",
+   "use": "host catalog flavor_text",
+   "evidence": [
+    "crates/ti4-host/src/view/records.rs:433 ~ flavorText"
+   ]
+  },
+  "attachments.id": {
+   "class": "id",
+   "use": "identity; planets carry attachment ids"
+  },
+  "attachments.resourcesModifier": {
+   "class": "gameplay",
+   "use": "planet resource bonus",
+   "evidence": [
+    "crates/ti4-engine/src/production.rs:277 ~ resourcesModifier"
+   ]
+  },
+  "attachments.influenceModifier": {
+   "class": "gameplay",
+   "use": "planet influence bonus",
+   "evidence": [
+    "crates/ti4-engine/src/production.rs:278 ~ influenceModifier"
+   ]
+  },
+  "attachments.techSpeciality": {
+   "class": "gameplay",
+   "use": "technology specialty given to the planet",
+   "evidence": [
+    "crates/ti4-engine/src/planets.rs:154 ~ techSpeciality"
+   ]
+  },
+  "attachments.planetTypes": {
+   "class": "gameplay",
+   "use": "traits added to the planet (Dyson Sphere?)",
+   "evidence": [
+    "crates/ti4-engine/src/planets.rs:183 ~ planetTypes"
+   ]
+  },
+  "attachments.spaceCannonHitsOn": {
+   "class": "gameplay",
+   "use": "planet SPACE CANNON granted by the attachment",
+   "evidence": [
+    "crates/ti4-engine/src/planets.rs:222 ~ spaceCannonHitsOn"
+   ]
+  },
+  "attachments.spaceCannonDieCount": {
+   "class": "gameplay",
+   "use": "as spaceCannonHitsOn",
+   "evidence": [
+    "crates/ti4-engine/src/planets.rs:223 ~ spaceCannonDieCount"
+   ]
+  },
+  "attachments.name": {
+   "class": "engine-label",
+   "use": "production breakdown label; host catalog",
+   "evidence": [
+    "crates/ti4-engine/src/production.rs:280 ~ text(\"name\")"
+   ]
+  },
+  "attachments.isFakeAttachment": {
+   "class": "ui",
+   "use": "host exploration view only"
+  },
+  "attachments.token": {
+   "class": "unused"
+  },
+  "attachments.isLegendary": {
+   "class": "unused",
+   "use": "would be gameplay (legendary attachment); nothing reads it"
+  },
+  "strategy_cards.id": {
+   "class": "id",
+   "use": "identity; but behaviour dispatches on the printed name (see name), except te4construction / te6warfare which are matched by id",
+   "evidence": [
+    "crates/ti4-engine/src/strategy_cards.rs:2526 ~ te6warfare"
+   ]
+  },
+  "strategy_cards.name": {
+   "class": "gameplay-text",
+   "use": "strategy_cards::card_name feeds `match name.as_str()` (\"Leadership\" => ...) for primaries and secondaries; base2 and pok2diplomacy, base4/pok4construction/te4construction share a name",
+   "evidence": [
+    "crates/ti4-engine/src/strategy_cards.rs:54 ~ record.text(\"name\")",
+    "crates/ti4-engine/src/strategy_cards.rs:2653 ~ match name.as_str()",
+    "crates/ti4-engine/src/strategy.rs:95 ~ Some(\"Leadership\")"
+   ]
+  },
+  "strategy_cards.initiative": {
+   "class": "gameplay",
+   "use": "turn order and the dealt set; sort key",
+   "evidence": [
+    "crates/ti4-engine/src/setup.rs:94 ~ int(\"initiative\")"
+   ]
+  },
+  "strategy_cards.primaryTexts": {
+   "class": "ui",
+   "use": "host catalog"
+  },
+  "strategy_cards.secondaryTexts": {
+   "class": "ui",
+   "use": "host catalog"
+  },
+  "strategy_cards.imageFileName": {
+   "class": "unused"
+  },
+  "strategy_cards.colourHexCode": {
+   "class": "unused"
+  },
+  "strategy_cards.botSCAutomationID": {
+   "class": "unused"
+  },
+  "galactic_events.alias": {
+   "class": "id",
+   "use": "no reader: galactic events are not implemented"
+  },
+  "galactic_events.name": {
+   "class": "unused"
+  },
+  "galactic_events.text": {
+   "class": "unused"
+  },
+  "galactic_events.complexity": {
+   "class": "unused",
+   "use": "the two content sites the pattern finds are faction complexity"
+  },
+  "genericcards.alias": {
+   "class": "id",
+   "use": "the five plot cards are named in code (ti4_model::plots::CARDS, firmament_plots consts)"
+  },
+  "genericcards.cardType": {
+   "class": "unused",
+   "use": "'plot'; read only by a test"
+  },
+  "genericcards.name": {
+   "class": "unused"
+  },
+  "genericcards.text": {
+   "class": "unused",
+   "use": "not in the host catalog either: the web has no printed text for plot cards from the corpus"
+  }
+ },
+ "exclude_sites": [
+  {
+   "site": "crates/ti4-engine/src/factions/mentak.rs:654",
+   "why": "event payload key 'target', not the agenda field"
+  },
+  {
+   "site": "crates/ti4-engine/src/factions/mentak.rs:663",
+   "why": "event payload"
+  },
+  {
+   "site": "crates/ti4-engine/src/factions/mentak.rs:678",
+   "why": "event payload"
+  },
+  {
+   "site": "crates/ti4-engine/src/factions/mentak.rs:698",
+   "why": "event payload"
+  },
+  {
+   "site": "crates/ti4-content/src/factions.rs:222",
+   "why": "faction complexity"
+  },
+  {
+   "site": "crates/ti4-content/src/loader.rs:521",
+   "why": "faction complexity"
+  },
+  {
+   "site": "crates/ti4-content/src/galaxy.rs:184",
+   "why": "planet planetTypes"
+  },
+  {
+   "site": "crates/ti4-content/src/units.rs:233",
+   "why": "unit spaceCannonHitsOn"
+  },
+  {
+   "site": "crates/ti4-content/src/units.rs:239",
+   "why": "unit spaceCannonDieCount"
+  }
+ ],
+ "extra_sites": {
+  "public_objectives.points": [
+   "crates/ti4-engine/src/objectives.rs:1897"
+  ],
+  "public_objectives.name": [
+   "crates/ti4-host/src/view/records.rs:382"
+  ],
+  "public_objectives.text": [
+   "crates/ti4-host/src/view/records.rs:385"
+  ],
+  "public_objectives.phase": [
+   "crates/ti4-host/src/view/records.rs:383"
+  ],
+  "secret_objectives.name": [
+   "crates/ti4-host/src/view/records.rs:382"
+  ],
+  "secret_objectives.text": [
+   "crates/ti4-host/src/view/records.rs:385"
+  ]
+ },
+ "implementation": {
+  "action_cards:*": {
+   "mechanism": "id-matched effect (action_cards::effect_for, one arm per copy alias) + reaction window bound by the printed window sentence",
+   "data_fields": [
+    "window",
+    "name"
+   ]
+  },
+  "agendas:*": {
+   "mechanism": "id-matched effect (agenda_effects::resolve_with) or standing rule (laws::enforced_aliases); outcome set parsed from target; law/directive from type",
+   "data_fields": [
+    "type",
+    "target"
+   ]
+  },
+  "promissory_notes:*": {
+   "mechanism": "id-matched (promissory.rs consts and faction modules); play area from data",
+   "data_fields": [
+    "playArea",
+    "faction"
+   ]
+  },
+  "relics:*": {
+   "mechanism": "id-matched (relics::use_relic, registered_aliases)",
+   "data_fields": [
+    "isFakeRelic"
+   ]
+  },
+  "leaders:*": {
+   "mechanism": "id-matched (leaders::dispatch_leader, faction modules, leaders::modifiers); deal and lock state from data; action-ness parsed from abilityWindow",
+   "data_fields": [
+    "faction",
+    "type",
+    "homebrewReplacesID",
+    "abilityWindow"
+   ]
+  },
+  "breakthroughs:*": {
+   "mechanism": "id-matched (breakthroughs.rs, faction modules); synergy colours from data",
+   "data_fields": [
+    "faction",
+    "synergy"
+   ]
+  },
+  "public_objectives:*": {
+   "mechanism": "id-matched predicate or price with thresholds as Rust literals; stage and VP from points",
+   "data_fields": [
+    "points"
+   ]
+  },
+  "secret_objectives:*": {
+   "mechanism": "id-matched predicate (secrets.rs); scoring phase and VP from data",
+   "data_fields": [
+    "phase",
+    "points"
+   ]
+  },
+  "technologies:*": {
+   "mechanism": "effects id-matched (ownership by exact id); research rules data-driven (types, requirements, faction, baseUpgrade); unit upgrades data-driven through units.json requiredTechId",
+   "data_fields": [
+    "types",
+    "requirements",
+    "faction",
+    "baseUpgrade",
+    "text"
+   ]
+  },
+  "abilities:*": {
+   "mechanism": "id-matched (faction_abilities::registered, faction modules); the faction's list comes from factions.json",
+   "data_fields": []
+  },
+  "explores:*": {
+   "mechanism": "deck and resolution path from data; Instant cards id-matched (exploration::resolve_instant); Attach cards data-driven via attachmentId + attachments.json",
+   "data_fields": [
+    "type",
+    "resolution",
+    "attachmentId"
+   ]
+  },
+  "attachments:*": {
+   "mechanism": "data-driven: planet value, specialty, traits and space cannon read from the record",
+   "data_fields": [
+    "resourcesModifier",
+    "influenceModifier",
+    "techSpeciality",
+    "planetTypes",
+    "spaceCannonHitsOn",
+    "spaceCannonDieCount"
+   ]
+  },
+  "strategy_cards:*": {
+   "mechanism": "dispatch on printed name ('Leadership' => ...), id only for the two Thunder's Edge variants; initiative from data; dealt set from strategy_card_sets.json",
+   "data_fields": [
+    "name",
+    "initiative"
+   ]
+  },
+  "galactic_events:*": {
+   "mechanism": "not implemented: no reader anywhere",
+   "data_fields": []
+  },
+  "genericcards:*": {
+   "mechanism": "plot cards id-matched in factions/firmament_plots.rs; mutated_* twins unused",
+   "data_fields": []
+  }
+ },
+ "issues": [
+  {
+   "id": "I01",
+   "priority": "P1",
+   "kind": "deck",
+   "title": "Two extra Veto copies are dealt: the action deck is 142 cards, not 140",
+   "detail": "deck::build_starting_decks takes every action-card record in scope. veto3 and veto4 are source 'base' records that no official deck in decks.json lists (action_cards_te has 140 ids, action_cards_basegame 80); the dealt deck has three Vetos.",
+   "cards": [
+    "action_cards:veto3",
+    "action_cards:veto4"
+   ],
+   "evidence": [
+    "crates/ti4-engine/src/deck.rs:122 ~ let mut action_cards = ids(content, ContentType::ActionCards, sources)",
+    "crates/ti4-content/content/decks.json:1"
+   ],
+   "basis": "measured: registry_dump decks_seed1.action_cards has 142 ids incl. veto3/veto4; set difference with decks.json action_cards_te"
+  },
+  {
+   "id": "I02",
+   "priority": "P1",
+   "kind": "silently-ignored",
+   "title": "Galactic Crisis Pact (agenda 'crisis') is always discarded and has no effect",
+   "detail": "Its target is 'Elect Strategy Card'; vote::outcomes returns no candidates for it ('Neither is modelled'), so Game::reveal_agenda discards it and reveals the next card. agenda_effects lists it as an 'availability-only' standing rule, but the corpus types it a Directive and nothing else in the engine names it. The registry counts it implemented.",
+   "cards": [
+    "agendas:crisis"
+   ],
+   "evidence": [
+    "crates/ti4-engine/src/vote.rs:117 ~ Neither is modelled",
+    "crates/ti4-engine/src/game.rs:6014 ~ let choices = outcomes",
+    "crates/ti4-engine/src/agenda_effects.rs:987 ~ \"covert\" | \"crisis\" => {}"
+   ],
+   "basis": "read: code path; content type 'Directive' measured"
+  },
+  {
+   "id": "I03",
+   "priority": "P1",
+   "kind": "silently-ignored",
+   "title": "Classified Document Leaks is always discarded, even when secrets are scored",
+   "detail": "Target 'Elect Scored Secret Objective (...)' yields no candidates in vote::outcomes in every state, so the card is discarded on reveal; the effect code (laws::classified_leak via game.rs) is unreachable. The test an_agenda_with_nothing_to_elect_is_replaced_by_the_next_card only covers the no-secret case.",
+   "cards": [
+    "agendas:classified"
+   ],
+   "evidence": [
+    "crates/ti4-engine/src/vote.rs:116 ~ Elect Scored Secret Objective",
+    "crates/ti4-engine/src/game.rs:6429 ~ if alias == \"classified\""
+   ],
+   "basis": "read"
+  },
+  {
+   "id": "I04",
+   "priority": "P1",
+   "kind": "partial",
+   "title": "Covert Legislation is voted as a plain For/Against agenda with no effect",
+   "detail": "Its target is a rules sentence ('When this agenda is revealed, the speaker draws ...'), which vote::outcomes reads as For/Against; the effect arm is empty and the comment says the driver applies it, but no other code names 'covert'.",
+   "cards": [
+    "agendas:covert"
+   ],
+   "evidence": [
+    "crates/ti4-engine/src/agenda_effects.rs:983 ~ Covert Operations and Crisis",
+    "crates/ti4-engine/src/vote.rs:83 ~ split('(')"
+   ],
+   "basis": "measured: no production reference outside agenda_effects.rs"
+  },
+  {
+   "id": "I05",
+   "priority": "P1",
+   "kind": "partial",
+   "title": "Demilitarized Zone exploration attachment does nothing beyond attaching",
+   "detail": "explores 'dmz' (Attach, attachmentId 'dmz') attaches a record with no modifiers. Its text (return structures and ground forces; units cannot be committed to, produced on or placed on the planet) has no implementation: no production code names 'dmz'. laws::planet_is_demilitarized covers only the base agenda 'demilitarized_zone'. The exploration ledger counts every Attach card as implemented.",
+   "cards": [
+    "explores:dmz",
+    "attachments:dmz"
+   ],
+   "evidence": [
+    "crates/ti4-engine/src/exploration.rs:719 ~ Fragment",
+    "crates/ti4-engine/src/laws.rs:169 ~ demilitarized_zone"
+   ],
+   "basis": "measured: grep of engine production code for \"dmz\" finds nothing"
+  },
+  {
+   "id": "I06",
+   "priority": "P2",
+   "kind": "text-parsed",
+   "title": "Reaction windows are bound by the exact printed sentence",
+   "detail": "reactions::window_for looks the trimmed `window` text up in window_table; content::action_cards::timing_of repeats ~50 of the same sentences. An errata or a whitespace change in the JSON unbinds a card (the engine then treats it as not a reaction). The upstream `playTiming` enum (16 cards) is unused.",
+   "cards": [
+    "action_cards:*"
+   ],
+   "evidence": [
+    "crates/ti4-engine/src/reactions.rs:633 ~ window_table().get(printed.trim())",
+    "crates/ti4-content/src/action_cards.rs:70 ~ pub fn timing_of"
+   ],
+   "basis": "measured: every printed window is bound today (registry_dump)"
+  },
+  {
+   "id": "I07",
+   "priority": "P2",
+   "kind": "text-parsed",
+   "title": "Agenda elections are parsed from the `target` prose",
+   "detail": "vote::outcomes splits target at '(' and searches for 'Player', 'Planet', 'Non-Home', 'Other Than Mecatol', 'Law'; game.rs checks starts_with(\"Elect Player\") separately. Unknown shapes fall back to For/Against (Covert) or to no candidates (Classified, Crisis).",
+   "cards": [
+    "agendas:*"
+   ],
+   "evidence": [
+    "crates/ti4-engine/src/vote.rs:82 ~ record.text(\"target\")",
+    "crates/ti4-engine/src/game.rs:5819 ~ starts_with(\"Elect Player\")"
+   ],
+   "basis": "read"
+  },
+  {
+   "id": "I08",
+   "priority": "P2",
+   "kind": "text-parsed",
+   "title": "Whether a leader is an action and ends the turn is parsed from `abilityWindow`",
+   "detail": "starts_with('ACTION') / 'During the action phase'; the doc comment records an earlier bug where no PoK agent printed for the action phase was ever offered.",
+   "cards": [
+    "leaders:*"
+   ],
+   "evidence": [
+    "crates/ti4-engine/src/leaders.rs:467 ~ starts_with(\"ACTION\")",
+    "crates/ti4-engine/src/leaders.rs:482 ~ abilityWindow"
+   ],
+   "basis": "read"
+  },
+  {
+   "id": "I09",
+   "priority": "P2",
+   "kind": "name-keyed",
+   "title": "Strategy cards are dispatched on the printed name",
+   "detail": "strategy_cards::card_name feeds `match name.as_str()`; base2 and pok2diplomacy are both 'Diplomacy' (base2 in the base_game set prints 'ready each exhausted planet you control in that system', the engine readies up to 2), base4 / pok4construction / te4construction are all 'Construction' (te4 and te6 are special-cased by id).",
+   "cards": [
+    "strategy_cards:base2",
+    "strategy_cards:base4",
+    "strategy_cards:pok2diplomacy",
+    "strategy_cards:pok4construction",
+    "strategy_cards:te4construction",
+    "strategy_cards:te6warfare"
+   ],
+   "evidence": [
+    "crates/ti4-engine/src/strategy_cards.rs:2653 ~ match name.as_str()",
+    "crates/ti4-engine/src/strategy_cards.rs:2667 ~ diplomacy_primary",
+    "crates/ti4-engine/src/strategy_cards.rs:2526 ~ te6warfare"
+   ],
+   "basis": "read; texts compared from strategy_cards.json"
+  },
+  {
+   "id": "I10",
+   "priority": "P2",
+   "kind": "text-parsed",
+   "title": "Technology researchability depends on the substring 'cannot be researched'",
+   "detail": "Checked in two places with their own copy of the test; it affects the two Obsidian cards today.",
+   "cards": [
+    "technologies:planesplitter-obs",
+    "technologies:parasite-obs"
+   ],
+   "evidence": [
+    "crates/ti4-engine/src/technology.rs:1133 ~ cannot be researched",
+    "crates/ti4-engine/src/factions/deepwrought.rs:391 ~ cannot be researched"
+   ],
+   "basis": "measured: the two records whose text contains it"
+  },
+  {
+   "id": "I11",
+   "priority": "P2",
+   "kind": "deck",
+   "title": "Deck composition uses four different mechanisms",
+   "detail": "Action cards and explores: every record in scope. Agendas: in scope minus the hard-coded SUPERSEDED_BY_POK list. Relics: in scope minus isFakeRelic. Technologies: decks.json techs_pok_c4 (plus TE) regardless of scope, so a base-only game is offered PoK technologies. The other 23 decks of decks.json are unused.",
+   "cards": [
+    "agendas:*",
+    "technologies:*",
+    "action_cards:*",
+    "relics:*"
+   ],
+   "evidence": [
+    "crates/ti4-engine/src/deck.rs:156 ~ const SUPERSEDED_BY_POK",
+    "crates/ti4-engine/src/technology.rs:39 ~ techs_pok_c4",
+    "crates/ti4-engine/src/deck.rs:113 ~ isFakeRelic"
+   ],
+   "basis": "read"
+  },
+  {
+   "id": "I12",
+   "priority": "P2",
+   "kind": "duplication",
+   "title": "Objective thresholds and prices are Rust literals beside the printed text",
+   "detail": "objectives::counting_progress and cost_of hold the numbers (6 planets, 8 resources ...); the printed text is display only. threshold_check in cards.csv compares them mechanically: all public objectives agree today.",
+   "cards": [
+    "public_objectives:*",
+    "secret_objectives:*"
+   ],
+   "evidence": [
+    "crates/ti4-engine/src/objectives.rs:1129 ~ expand_borders",
+    "crates/ti4-engine/src/objectives.rs:1512 ~ pub fn cost_of"
+   ],
+   "basis": "measured (threshold_check)"
+  },
+  {
+   "id": "I13",
+   "priority": "P2",
+   "kind": "guard",
+   "title": "The hard-coded-id test skips 12,005 production lines and merges every category's ids",
+   "detail": "tests/content_ids_resolve.rs cuts each file at the first `#[cfg(test)]`, which is often a test-only function in the middle of the file (game.rs: 5,448 lines skipped, combat.rs 2,812, timing.rs 838, hooks_cards.rs 775 ...). It also accepts a literal that is an id of any category, so a wrong-category id (36 ids are spelled the same in two categories) passes. Running its rule over the skipped lines finds no dangling id today.",
+   "cards": [],
+   "evidence": [
+    "crates/ti4-engine/tests/content_ids_resolve.rs:179 ~ split(\"#[cfg(test)]\")",
+    "crates/ti4-engine/tests/content_ids_resolve.rs:145 ~ let mut known"
+   ],
+   "basis": "measured"
+  },
+  {
+   "id": "I14",
+   "priority": "P2",
+   "kind": "ids",
+   "title": "36 ids are spelled the same in two categories",
+   "detail": "e.g. technology 'mr' and planet Mecatol Rex 'mr', promissory 'ps' (Political Secret, bare alias) and technology 'ps' (Plasma Scoring), agenda and action card 'crisis', relic and attachment 'nanoforge', ability and public objective 'galvanize', technology and secret 'sar'. Literal-reference counts for these ids are ambiguous (secrets.rs b\"sar\" is the secret, not the technology). A shared string-id namespace or enum would have to stay category-scoped.",
+   "cards": [
+    "technologies:mr",
+    "promissory_notes:<color>_ps",
+    "technologies:ps",
+    "agendas:crisis",
+    "action_cards:crisis",
+    "relics:nanoforge",
+    "attachments:nanoforge",
+    "abilities:galvanize",
+    "public_objectives:galvanize",
+    "technologies:sar",
+    "secret_objectives:sar"
+   ],
+   "evidence": [
+    "docs/card_audit/id_refs.json:1"
+   ],
+   "basis": "measured (id_collisions_across_categories)"
+  },
+  {
+   "id": "I15",
+   "priority": "P3",
+   "kind": "typo",
+   "title": "faction_abilities::blocked names 'your_ships_have_no_shields', which is no ability id",
+   "detail": "The other four entries are abilities; this one matches no record of any category, so the filter that drops blocked entries once a module implements them can never apply to it.",
+   "cards": [],
+   "evidence": [
+    "crates/ti4-engine/src/faction_abilities.rs:50 ~ your_ships_have_no_shields"
+   ],
+   "basis": "measured (dangling literal)"
+  },
+  {
+   "id": "I16",
+   "priority": "P3",
+   "kind": "consistency",
+   "title": "The same field is compared in different ways",
+   "detail": "window 'Action': trim() == \"Action\" in action_cards.rs, eq_ignore_ascii_case(\"action\") in keleres.rs; agenda type: eq_ignore_ascii_case(\"law\") in vote.rs, == Some(\"Law\") in laws.rs.",
+   "cards": [],
+   "evidence": [
+    "crates/ti4-engine/src/action_cards.rs:462 ~ window.trim() == \"Action\"",
+    "crates/ti4-engine/src/factions/keleres.rs:662 ~ eq_ignore_ascii_case(\"action\")",
+    "crates/ti4-engine/src/laws.rs:808 ~ Some(\"Law\")",
+    "crates/ti4-engine/src/vote.rs:231 ~ eq_ignore_ascii_case(\"law\")"
+   ],
+   "basis": "read"
+  },
+  {
+   "id": "I17",
+   "priority": "P3",
+   "kind": "architecture",
+   "title": "The engine reads display text to build labels and offer cards",
+   "detail": "62 'Display only' sites (choice::offer_card, agenda_details, leader_card, ability_card, breakthrough_card, exploration offers) copy names, windows and texts into payloads, so the engine cannot drop display text today. Prompts that embed a name are part of the V2 decision fingerprint; payload facts are not.",
+   "cards": [],
+   "evidence": [
+    "crates/ti4-engine/src/choice.rs:194 ~ pub fn offer_card",
+    "crates/ti4-engine/src/strategy_cards.rs:1820 ~ let field",
+    "crates/ti4-engine/src/fingerprint.rs:209 ~ Display facts"
+   ],
+   "basis": "measured: grep count of 'Display only' in engine production code"
+  },
+  {
+   "id": "I18",
+   "priority": "P3",
+   "kind": "name-keyed",
+   "title": "Card names are copied by hand into code",
+   "detail": "reaction_preview::PREVIEWED and preview_for match on ~38 printed action-card names; strategy_cards::registered_cards lists names; web actionCardTurns BY_NAME keys 8 names and classifies windows by regex; web pausablePrompts repeats ~60 names as labels; laws::planet_value_bonus_sources repeats three agenda names with their numbers.",
+   "cards": [],
+   "evidence": [
+    "crates/ti4-engine/src/reaction_preview.rs:29 ~ PREVIEWED",
+    "web/src/presentation/actionCardTurns.ts:14 ~ BY_NAME",
+    "crates/ti4-engine/src/laws.rs:215 ~ Core Mining"
+   ],
+   "basis": "measured (name_keyed_sites)"
+  },
+  {
+   "id": "I19",
+   "priority": "P3",
+   "kind": "duplication",
+   "title": "Id lists that duplicate the corpus",
+   "detail": "ti4_model::plots::CARDS (the five plot ids), promissory::GENERIC (cf, ps, ta, an), deck::SUPERSEDED_BY_POK (13 agendas), content::agendas/public_objectives/secret_objectives group_of tables (tests catch a missing id, not a wrong group).",
+   "cards": [],
+   "evidence": [
+    "crates/ti4-model/src/plots.rs:27 ~ pub const CARDS",
+    "crates/ti4-engine/src/promissory.rs:26 ~ GENERIC",
+    "crates/ti4-engine/src/deck.rs:156 ~ SUPERSEDED_BY_POK"
+   ],
+   "basis": "read"
+  },
+  {
+   "id": "I20",
+   "priority": "P3",
+   "kind": "not-implemented",
+   "title": "Galactic events and Wild Wild Galaxy printings are not implemented",
+   "detail": "No code reads galactic_events.json (20 Thunder's Edge cards) and nothing reads the wildWild* fields of 36 action cards; War Machine documents that its WILD WILD printing is not modelled. Nothing offers them either, so this is scope, not a silent bug.",
+   "cards": [
+    "galactic_events:*"
+   ],
+   "evidence": [
+    "crates/ti4-engine/src/action_cards.rs:3387 ~ WILD WILD"
+   ],
+   "basis": "measured: no reader"
+  },
+  {
+   "id": "I21",
+   "priority": "P3",
+   "kind": "dead-data",
+   "title": "Content records that are never dealt",
+   "detail": "leaders redcreussagent/commander/hero (unofficial variants under source 'pok'), orlandohero (a Bastion hero tagged source 'pok' although Bastion is a Thunder's Edge faction); promissory 'rider' (superseded by ridera/riderm/riderx); technologies x89_base, x89, md_base, md_c1 (superseded printings); genericcards mutated_* (5).",
+   "cards": [
+    "leaders:redcreussagent",
+    "leaders:redcreusscommander",
+    "leaders:redcreusshero",
+    "leaders:orlandohero",
+    "promissory_notes:rider",
+    "technologies:x89_base",
+    "technologies:x89",
+    "technologies:md_base",
+    "technologies:md_c1",
+    "genericcards:mutated_enervate",
+    "genericcards:mutated_siphon",
+    "genericcards:mutated_seethe",
+    "genericcards:mutated_assail",
+    "genericcards:mutated_extract"
+   ],
+   "evidence": [
+    "crates/ti4-engine/src/leaders.rs:198 ~ unofficial variants"
+   ],
+   "basis": "measured (status not-dealt)"
+  },
+  {
+   "id": "I22",
+   "priority": "P3",
+   "kind": "dead-data",
+   "title": "Gameplay-shaped fields nobody reads",
+   "detail": "promissory_notes.playImmediately (11) and .attachment (7), attachments.isLegendary and .token, action_cards.playTiming (16), strategy_cards.botSCAutomationID; the engine encodes those facts per card in code instead.",
+   "cards": [],
+   "evidence": [
+    "docs/card_audit/fields.csv:1"
+   ],
+   "basis": "measured"
+  },
+  {
+   "id": "I23",
+   "priority": "P3",
+   "kind": "ledger",
+   "title": "Coverage ledgers report 100% where some cards do nothing",
+   "detail": "registry::ledger / coverage_report count a registered alias as implemented; availability-only agenda arms (crisis, covert) and every Attach exploration card count. Combined with I02-I05 the ledgers overstate coverage by at least four cards.",
+   "cards": [
+    "agendas:crisis",
+    "agendas:covert",
+    "agendas:classified",
+    "explores:dmz"
+   ],
+   "evidence": [
+    "crates/ti4-engine/src/registry.rs:135 ~ agenda effects"
+   ],
+   "basis": "measured: registry_dump shows no unimplemented card in any registry"
+  }
+ ],
+ "non_id_literals": {
+  "_doc": "Literals the dangling-id scan finds in card dispatch functions that were read and are decision kinds, option ids or payload keys, not card ids.",
+  "literals": [
+   "abandoned_warehouses",
+   "ability",
+   "agenda",
+   "commodities",
+   "construction_rider_planet",
+   "cost",
+   "diplomacy_rider_system",
+   "elect",
+   "functioning_base",
+   "ion_storm",
+   "keep",
+   "leader_hacanagent_branch",
+   "leader_jolnarhero_swap",
+   "leader_l1z1xhero_destination",
+   "leader_xxchaagent_infantry",
+   "leader_xxchaagent_ready_planet",
+   "leader_xxchaagent_remove_infantry",
+   "leader_xxchahero_te_place",
+   "leader_xxchahero_te_planet",
+   "leader_xxchahero_te_stop",
+   "local_fabricators",
+   "mercenary_outfit",
+   "merchant_station",
+   "munitions_choose",
+   "munitions_reroll_die",
+   "munitions_reserves_reroll",
+   "planet",
+   "redistribution_choose_settler",
+   "remove",
+   "self",
+   "stop",
+   "system",
+   "trade",
+   "unconventional_measures",
+   "warfare_rider_system"
+  ]
+ }
+}

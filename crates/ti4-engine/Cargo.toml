@@ -17,8 +17,7 @@ sha2.workspace = true
 thiserror.workspace = true
 ts-rs = { workspace = true, optional = true }
 # The typed core (docs/ENGINE_CORE.md), behind `typed-core` (on by default).
-ti4-engine-core = { workspace = true, features = ["names"], optional = true }
-strum = { workspace = true, optional = true }
+ti4-engine-core = { workspace = true, optional = true }
 
 # The TypeScript types of the wire (`ti4_wasm::wire_ts`); off but in the tests of the browser game.
 [features]
@@ -26,7 +25,7 @@ ts = ["dep:ts-rs", "ti4-model/ts"]
 # Movement and adjacency answered by the typed core (`core_adapter`; docs/ENGINE_CORE.md). On by
 # default; same answers by construction and by the dual run (`core_equivalence`).
 default = ["typed-core"]
-typed-core = ["dep:ti4-engine-core", "dep:strum"]
+typed-core = ["dep:ti4-engine-core"]
 # The off switch: with it, every call site uses the string search again although `typed-core`
 # (a default feature, which a dependent cannot turn off) is compiled in. For A/B and spot checks:
 # `cargo build -p ti4-selfplay --features ti4-engine/string-movement`.

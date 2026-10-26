@@ -17,7 +17,8 @@ use crate::bits::{SysSet, UnitSet};
 use crate::board::CoreBoard;
 use crate::galaxy::Adjacency;
 use crate::ids::{Seat, SystemIx, UnitIx};
-use crate::tables::{SYSTEM_COUNT, Scope, SystemData, SystemFlags};
+use crate::generated::SystemData;
+use crate::tables::{Flags, SYSTEM_COUNT, Scope, SystemFlags};
 
 /// `movement::ROUTE_SEARCH_NODES`.
 pub const ROUTE_SEARCH_NODES: usize = 20_000;
@@ -387,7 +388,7 @@ impl CoreRules {
                 continue;
             }
             for n in self.step_neighbours(current, ship_type).iter() {
-                let neighbour = SystemIx(n as u16);
+                let neighbour = crate::ids::system_at(n);
                 let ends_here = neighbour == self.active;
                 if ends_here && !self.can_enter(neighbour) {
                     continue;
@@ -472,7 +473,7 @@ impl CoreRules {
             return;
         }
         for n in self.step_neighbours(current, walk.ship_type).iter() {
-            let neighbour = SystemIx(n as u16);
+            let neighbour = crate::ids::system_at(n);
             if route.contains(&neighbour) {
                 continue;
             }

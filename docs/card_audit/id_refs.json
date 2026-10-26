@@ -1,0 +1,700 @@
+{
+ "named_in_code_not_in_content": [
+  {
+   "category": "action_cards",
+   "literal": "planet",
+   "site": "crates/ti4-engine/src/action_cards.rs:2749",
+   "shape": "arm in asked_rider_payoff",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "action_cards",
+   "literal": "construction_rider_planet",
+   "site": "crates/ti4-engine/src/action_cards.rs:2750",
+   "shape": "arm in asked_rider_payoff",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "action_cards",
+   "literal": "system",
+   "site": "crates/ti4-engine/src/action_cards.rs:2791",
+   "shape": "arm in asked_rider_payoff",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "action_cards",
+   "literal": "diplomacy_rider_system",
+   "site": "crates/ti4-engine/src/action_cards.rs:2792",
+   "shape": "arm in asked_rider_payoff",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "action_cards",
+   "literal": "system",
+   "site": "crates/ti4-engine/src/action_cards.rs:2823",
+   "shape": "arm in asked_rider_payoff",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "action_cards",
+   "literal": "warfare_rider_system",
+   "site": "crates/ti4-engine/src/action_cards.rs:2824",
+   "shape": "arm in asked_rider_payoff",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "agendas",
+   "literal": "elect",
+   "site": "crates/ti4-engine/src/agenda_effects.rs:572",
+   "shape": "arm in resolve_with",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "agendas",
+   "literal": "redistribution_choose_settler",
+   "site": "crates/ti4-engine/src/agenda_effects.rs:581",
+   "shape": "arm in resolve_with",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "agendas",
+   "literal": "agenda",
+   "site": "crates/ti4-engine/src/agenda_effects.rs:837",
+   "shape": "arm in resolve_with",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "agendas",
+   "literal": "agenda",
+   "site": "crates/ti4-engine/src/agenda_effects.rs:916",
+   "shape": "arm in resolve_with",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "agendas",
+   "literal": "unconventional_measures",
+   "site": "crates/ti4-engine/src/agenda_effects.rs:1344",
+   "shape": "arm in resolve_with",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "explores",
+   "literal": "ion_storm",
+   "site": "crates/ti4-engine/src/exploration.rs:783",
+   "shape": "arm in resolve_instant",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "explores",
+   "literal": "abandoned_warehouses",
+   "site": "crates/ti4-engine/src/exploration.rs:865",
+   "shape": "arm in resolve_instant",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "explores",
+   "literal": "merchant_station",
+   "site": "crates/ti4-engine/src/exploration.rs:885",
+   "shape": "arm in resolve_instant",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "explores",
+   "literal": "functioning_base",
+   "site": "crates/ti4-engine/src/exploration.rs:914",
+   "shape": "arm in resolve_instant",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "explores",
+   "literal": "local_fabricators",
+   "site": "crates/ti4-engine/src/exploration.rs:958",
+   "shape": "arm in resolve_instant",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "explores",
+   "literal": "mercenary_outfit",
+   "site": "crates/ti4-engine/src/exploration.rs:987",
+   "shape": "arm in resolve_instant",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "leaders",
+   "literal": "planet",
+   "site": "crates/ti4-engine/src/leaders.rs:1144",
+   "shape": "arm in dispatch_leader",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "leaders",
+   "literal": "leader_xxchaagent_ready_planet",
+   "site": "crates/ti4-engine/src/leaders.rs:1162",
+   "shape": "arm in dispatch_leader",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "leaders",
+   "literal": "remove",
+   "site": "crates/ti4-engine/src/leaders.rs:1221",
+   "shape": "arm in dispatch_leader",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "leaders",
+   "literal": "leader_xxchaagent_infantry",
+   "site": "crates/ti4-engine/src/leaders.rs:1222",
+   "shape": "arm in dispatch_leader",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "leaders",
+   "literal": "keep",
+   "site": "crates/ti4-engine/src/leaders.rs:1226",
+   "shape": "arm in dispatch_leader",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "leaders",
+   "literal": "leader_xxchaagent_infantry",
+   "site": "crates/ti4-engine/src/leaders.rs:1227",
+   "shape": "arm in dispatch_leader",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "leaders",
+   "literal": "leader_xxchaagent_remove_infantry",
+   "site": "crates/ti4-engine/src/leaders.rs:1238",
+   "shape": "arm in dispatch_leader",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "leaders",
+   "literal": "leader_xxchahero_te_place",
+   "site": "crates/ti4-engine/src/leaders.rs:1350",
+   "shape": "arm in dispatch_leader",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "leaders",
+   "literal": "leader_xxchahero_te_place",
+   "site": "crates/ti4-engine/src/leaders.rs:1357",
+   "shape": "arm in dispatch_leader",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "leaders",
+   "literal": "stop",
+   "site": "crates/ti4-engine/src/leaders.rs:1363",
+   "shape": "arm in dispatch_leader",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "leaders",
+   "literal": "leader_xxchahero_te_stop",
+   "site": "crates/ti4-engine/src/leaders.rs:1364",
+   "shape": "arm in dispatch_leader",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "leaders",
+   "literal": "leader_xxchahero_te_place",
+   "site": "crates/ti4-engine/src/leaders.rs:1377",
+   "shape": "arm in dispatch_leader",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "leaders",
+   "literal": "leader_xxchahero_te_planet",
+   "site": "crates/ti4-engine/src/leaders.rs:1404",
+   "shape": "arm in dispatch_leader",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "leaders",
+   "literal": "leader_xxchahero_te_planet",
+   "site": "crates/ti4-engine/src/leaders.rs:1421",
+   "shape": "arm in dispatch_leader",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "leaders",
+   "literal": "self",
+   "site": "crates/ti4-engine/src/leaders.rs:1469",
+   "shape": "arm in dispatch_leader",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "leaders",
+   "literal": "leader_hacanagent_branch",
+   "site": "crates/ti4-engine/src/leaders.rs:1470",
+   "shape": "arm in dispatch_leader",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "leaders",
+   "literal": "leader_hacanagent_branch",
+   "site": "crates/ti4-engine/src/leaders.rs:1476",
+   "shape": "arm in dispatch_leader",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "leaders",
+   "literal": "leader_hacanagent_branch",
+   "site": "crates/ti4-engine/src/leaders.rs:1485",
+   "shape": "arm in dispatch_leader",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "leaders",
+   "literal": "commodities",
+   "site": "crates/ti4-engine/src/leaders.rs:1491",
+   "shape": "arm in dispatch_leader",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "leaders",
+   "literal": "system",
+   "site": "crates/ti4-engine/src/leaders.rs:1606",
+   "shape": "arm in dispatch_leader",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "leaders",
+   "literal": "leader_l1z1xhero_destination",
+   "site": "crates/ti4-engine/src/leaders.rs:1618",
+   "shape": "arm in dispatch_leader",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "leaders",
+   "literal": "leader_jolnarhero_swap",
+   "site": "crates/ti4-engine/src/leaders.rs:1814",
+   "shape": "arm in dispatch_leader",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "leaders",
+   "literal": "leader_jolnarhero_swap",
+   "site": "crates/ti4-engine/src/leaders.rs:1820",
+   "shape": "arm in dispatch_leader",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "leaders",
+   "literal": "leader_jolnarhero_swap",
+   "site": "crates/ti4-engine/src/leaders.rs:1830",
+   "shape": "arm in dispatch_leader",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "abilities",
+   "literal": "your_ships_have_no_shields",
+   "site": "crates/ti4-engine/src/faction_abilities.rs:50",
+   "shape": "arm in blocked",
+   "verdict": "UNREVIEWED: no record has this id"
+  },
+  {
+   "category": "abilities",
+   "literal": "trade",
+   "site": "crates/ti4-engine/src/faction_abilities.rs:315",
+   "shape": "arm in secondary_is_free",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "abilities",
+   "literal": "ability",
+   "site": "crates/ti4-engine/src/faction_abilities.rs:881",
+   "shape": "arm in munitions_offer",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "abilities",
+   "literal": "cost",
+   "site": "crates/ti4-engine/src/faction_abilities.rs:895",
+   "shape": "arm in munitions_offer",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "abilities",
+   "literal": "munitions_reserves_reroll",
+   "site": "crates/ti4-engine/src/faction_abilities.rs:901",
+   "shape": "arm in munitions_offer",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "abilities",
+   "literal": "ability",
+   "site": "crates/ti4-engine/src/faction_abilities.rs:986",
+   "shape": "arm in munitions_roll_offer",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "abilities",
+   "literal": "munitions_choose",
+   "site": "crates/ti4-engine/src/faction_abilities.rs:994",
+   "shape": "arm in munitions_roll_offer",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "abilities",
+   "literal": "ability",
+   "site": "crates/ti4-engine/src/faction_abilities.rs:995",
+   "shape": "arm in munitions_roll_offer",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "abilities",
+   "literal": "cost",
+   "site": "crates/ti4-engine/src/faction_abilities.rs:1010",
+   "shape": "arm in munitions_roll_offer",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "abilities",
+   "literal": "munitions_reserves_reroll",
+   "site": "crates/ti4-engine/src/faction_abilities.rs:1018",
+   "shape": "arm in munitions_roll_offer",
+   "verdict": "decision kind / option id (reviewed)"
+  },
+  {
+   "category": "abilities",
+   "literal": "munitions_reroll_die",
+   "site": "crates/ti4-engine/src/faction_abilities.rs:1043",
+   "shape": "arm in munitions_roll_offer",
+   "verdict": "decision kind / option id (reviewed)"
+  }
+ ],
+ "in_content_never_named_in_production_code": {
+  "action_cards": [],
+  "agendas": [],
+  "promissory_notes": [
+   "<color>_an",
+   "<color>_cf",
+   "<color>_ps",
+   "<color>_ta"
+  ],
+  "relics": [],
+  "leaders": [
+   "orlandohero",
+   "redcreussagent",
+   "redcreusscommander",
+   "redcreusshero"
+  ],
+  "breakthroughs": [],
+  "public_objectives": [],
+  "secret_objectives": [],
+  "technologies": [],
+  "abilities": [],
+  "explores": [
+   "crf4",
+   "crf5",
+   "crf6",
+   "crf7",
+   "crf8",
+   "crf9",
+   "dmz",
+   "hrf3",
+   "hrf4",
+   "hrf5",
+   "hrf6",
+   "hrf7",
+   "irf3",
+   "irf4",
+   "irf5",
+   "ls",
+   "urf3"
+  ],
+  "attachments": [
+   "bioticstat",
+   "custodiavigilia1",
+   "custodiavigilia2",
+   "cyberneticstat",
+   "dmz",
+   "dysonsphere",
+   "helios1",
+   "lazaxsurvivors",
+   "miningworld",
+   "paradiseworld",
+   "propulsionstat",
+   "richworld",
+   "warfarestat"
+  ],
+  "strategy_cards": [
+   "base2",
+   "base4"
+  ],
+  "galactic_events": [
+   "advent_war_sun",
+   "age_commerce",
+   "age_exploration",
+   "age_fighters",
+   "call_of_the_void",
+   "civilized_society",
+   "cosmic_phenomenae",
+   "cowabunga",
+   "cultural_exchange",
+   "dangerous_wilds",
+   "hidden_agenda",
+   "mercenaries",
+   "minor_factions",
+   "mobilization",
+   "monuments_ages",
+   "stellar_atomics",
+   "total_war",
+   "weird_wormholes",
+   "wild_wild_galaxy",
+   "zealous_orthodoxy"
+  ],
+  "genericcards": [
+   "mutated_assail",
+   "mutated_enervate",
+   "mutated_extract",
+   "mutated_seethe",
+   "mutated_siphon"
+  ]
+ },
+ "id_collisions_across_categories": {
+  "crisis": [
+   "action_cards",
+   "agendas"
+  ],
+  "nexus": [
+   "agendas",
+   "planets",
+   "systems"
+  ],
+  "ps": [
+   "promissory_notes",
+   "technologies"
+  ],
+  "ragh": [
+   "planets",
+   "promissory_notes",
+   "systems"
+  ],
+  "cavalry": [
+   "promissory_notes",
+   "units"
+  ],
+  "sever": [
+   "promissory_notes",
+   "tokens"
+  ],
+  "nanoforge": [
+   "attachments",
+   "relics"
+  ],
+  "emelpar": [
+   "planets",
+   "relics",
+   "systems"
+  ],
+  "stellarconverter": [
+   "relics",
+   "tokens"
+  ],
+  "obsidian": [
+   "factions",
+   "relics",
+   "systems"
+  ],
+  "titanshero": [
+   "attachments",
+   "leaders"
+  ],
+  "muaatbt": [
+   "breakthroughs",
+   "planets"
+  ],
+  "galvanize": [
+   "abilities",
+   "public_objectives"
+  ],
+  "mp": [
+   "planets",
+   "secret_objectives",
+   "systems"
+  ],
+  "sar": [
+   "secret_objectives",
+   "technologies"
+  ],
+  "te": [
+   "planets",
+   "secret_objectives",
+   "strategy_card_sets"
+  ],
+  "nm": [
+   "colors",
+   "technologies"
+  ],
+  "ws": [
+   "technologies",
+   "units"
+  ],
+  "pds2": [
+   "technologies",
+   "units"
+  ],
+  "mi": [
+   "planets",
+   "technologies"
+  ],
+  "mr": [
+   "planets",
+   "systems",
+   "technologies"
+  ],
+  "ds": [
+   "explores",
+   "technologies"
+  ],
+  "gr": [
+   "systems",
+   "technologies"
+  ],
+  "vpw": [
+   "colors",
+   "technologies"
+  ],
+  "helios2": [
+   "attachments",
+   "technologies"
+  ],
+  "sorrow": [
+   "abilities",
+   "systems"
+  ],
+  "dw": [
+   "colors",
+   "explores"
+  ],
+  "dmz": [
+   "attachments",
+   "explores",
+   "tokens"
+  ],
+  "ls": [
+   "explores",
+   "systems"
+  ],
+  "warfare": [
+   "attachments",
+   "explores"
+  ],
+  "biotic": [
+   "attachments",
+   "explores"
+  ],
+  "cybernetic": [
+   "attachments",
+   "explores"
+  ],
+  "propulsion": [
+   "attachments",
+   "explores"
+  ],
+  "gamma": [
+   "explores",
+   "tokens"
+  ],
+  "ion": [
+   "explores",
+   "tokens"
+  ],
+  "mirage": [
+   "explores",
+   "planets",
+   "tokens"
+  ]
+ },
+ "unattributed_field_sites": {
+  "name": [
+   "crates/ti4-bridge/src/import.rs:591",
+   "crates/ti4-content/src/galaxy.rs:53",
+   "crates/ti4-content/src/galaxy.rs:138",
+   "crates/ti4-content/src/units.rs:52",
+   "crates/ti4-host/src/view/components.rs:307",
+   "crates/ti4-host/src/view/components.rs:578",
+   "crates/ti4-host/src/view/records.rs:382",
+   "crates/ti4-host/src/view/score.rs:95",
+   "crates/ti4-mlp/examples/llm_seat_game.rs:268",
+   "crates/ti4-review/src/lib.rs:1554",
+   "crates/ti4-review/src/view.rs:405",
+   "crates/ti4-selfplay/src/main.rs:200",
+   "crates/ti4-server/src/feedback.rs:459",
+   "crates/ti4-training/examples/objective_report.rs:111",
+   "crates/ti4-training/examples/revealed_objectives.rs:84",
+   "crates/ti4-training/examples/tech_and_trade.rs:68",
+   "crates/ti4-training/examples/tech_owned.rs:78",
+   "crates/ti4-training/examples/vp_where.rs:110"
+  ],
+  "shortName": [
+   "crates/ti4-content/src/factions.rs:157",
+   "crates/ti4-review/src/lib.rs:1555",
+   "crates/ti4-review/src/view.rs:406"
+  ],
+  "source": [
+   "crates/ti4-content/src/record.rs:70",
+   "crates/ti4-engine/src/factions/nomad_agents.rs:151",
+   "crates/ti4-engine/src/production.rs:713",
+   "crates/ti4-host/src/planning/steps.rs:129",
+   "crates/ti4-host/src/planning/steps.rs:197",
+   "crates/ti4-host/src/view/tactical.rs:561",
+   "crates/ti4-policy/src/tactical_plan.rs:1135",
+   "crates/ti4-review/src/lib.rs:2038",
+   "crates/ti4-training/examples/trait_check.rs:21"
+  ],
+  "faction": [
+   "crates/ti4-content/src/units.rs:57",
+   "crates/ti4-server/src/feedback.rs:433",
+   "crates/ti4-server/src/feedback.rs:460"
+  ],
+  "alias": [
+   "crates/ti4-engine/src/exploration.rs:720",
+   "crates/ti4-engine/src/faction_abilities.rs:1057",
+   "crates/ti4-engine/src/leaders.rs:229",
+   "crates/ti4-engine/src/leaders.rs:237",
+   "crates/ti4-engine/examples/coverage_report.rs:129",
+   "crates/ti4-policy/src/bot.rs:694",
+   "crates/ti4-training/examples/objective_report.rs:109",
+   "crates/ti4-training/examples/revealed_objectives.rs:82",
+   "crates/ti4-training/examples/tech_and_trade.rs:67",
+   "crates/ti4-training/examples/tech_owned.rs:77",
+   "crates/ti4-training/examples/vp_where.rs:109"
+  ],
+  "type": [
+   "crates/ti4-engine/src/factions/mentak.rs:427",
+   "crates/ti4-engine/src/supply.rs:328",
+   "crates/ti4-engine/src/supply.rs:358",
+   "crates/ti4-engine/src/supply.rs:407",
+   "crates/ti4-host/src/view/components.rs:581",
+   "crates/ti4-legacy/src/converter.rs:250",
+   "crates/ti4-wasm/src/host_api.rs:720"
+  ],
+  "id": [
+   "crates/ti4-engine/src/factions/mod.rs:871",
+   "crates/ti4-engine/src/leaders.rs:237",
+   "crates/ti4-rule-bot/src/answers.rs:182",
+   "crates/ti4-training/examples/filter_pool.rs:115",
+   "crates/ti4-training/examples/generate_pool.rs:184",
+   "crates/ti4-training/examples/objective_supply.rs:36",
+   "crates/ti4-training/examples/trait_check.rs:20"
+  ],
+  "text": [
+   "crates/ti4-host/src/view/components.rs:308",
+   "crates/ti4-host/src/view/records.rs:385",
+   "crates/ti4-training/examples/objective_report.rs:115"
+  ],
+  "phase": [
+   "crates/ti4-host/src/view/records.rs:383"
+  ],
+  "points": [
+   "crates/ti4-host/src/view/records.rs:384",
+   "crates/ti4-training/examples/objective_report.rs:112",
+   "crates/ti4-training/examples/revealed_objectives.rs:85",
+   "crates/ti4-training/examples/vp_where.rs:113"
+  ]
+ }
+}

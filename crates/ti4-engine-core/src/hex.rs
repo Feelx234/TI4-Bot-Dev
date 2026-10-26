@@ -69,7 +69,7 @@ impl Grid {
     #[must_use]
     pub fn get(&self, hex: Hex) -> Option<SystemIx> {
         let v = self.cells[Self::slot(hex)?];
-        (v != NONE).then_some(SystemIx(v))
+        (v != NONE).then(|| crate::ids::system_at(usize::from(v)))
     }
 
     /// Place; `false` when the hex is outside the grid.
@@ -77,7 +77,7 @@ impl Grid {
         let Some(slot) = Self::slot(hex) else {
             return false;
         };
-        self.cells[slot] = system.map_or(NONE, |s| s.0);
+        self.cells[slot] = system.map_or(NONE, |s| s as u16);
         true
     }
 }

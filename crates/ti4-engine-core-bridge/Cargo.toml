@@ -6,7 +6,7 @@ rust-version.workspace = true
 description = "Prototype adapter (docs/ENGINE_CORE.md): string ids <-> the typed core for the movement slice, its equivalence tests and benchmark."
 
 [dependencies]
-ti4-engine-core = { workspace = true, features = ["names"] }
+ti4-engine-core.workspace = true
 ti4-model.workspace = true
 ti4-content.workspace = true
 ti4-engine = { workspace = true, features = ["typed-core"] }

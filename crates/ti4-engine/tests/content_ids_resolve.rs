@@ -23,7 +23,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use ti4_content::ContentStore;
-use ti4_model::content_types::FULL;
+use ti4_model::content_types::{ContentType, FULL};
 
 /// Lines that touch a content id in a way a wrong literal would silently break.
 const ID_CONTEXTS: [&str; 6] = [
@@ -128,12 +128,121 @@ fn source_files(dir: &Path, into: &mut Vec<PathBuf>) {
     };
     for entry in entries.flatten() {
         let path = entry.path();
+        // `src/generated/` is the content generator's adapter output (id and text tables, not
+        // compiled into the engine yet): data, not code that handles ids.
+        if path.is_dir() && path.file_name().is_some_and(|n| n == "generated") {
+            continue;
+        }
         if path.is_dir() {
             source_files(&path, into);
         } else if path.extension().is_some_and(|e| e == "rs") {
             into.push(path);
         }
     }
+}
+
+/// The file with every `#[cfg(test)]` item replaced by blank lines (line numbers are kept).
+///
+/// An earlier version cut each file at its first `#[cfg(test)]`, which is often a test-only helper
+/// in the middle of the file: 12,005 production lines were never scanned (game.rs alone 5,448).
+/// The item after the attribute ends at its `;` when that comes before any `{`, else at the brace
+/// that closes the first `{`. Braces inside string and char literals and comments are skipped.
+fn production_code(text: &str) -> String {
+    const ATTR: &str = "#[cfg(test)]";
+    let bytes = text.as_bytes();
+    let mut keep = vec![true; bytes.len()];
+    let mut search = 0;
+    while let Some(found) = text[search..].find(ATTR) {
+        let start = search + found;
+        let end = item_end(bytes, start + ATTR.len());
+        keep[start..end].iter_mut().for_each(|k| *k = false);
+        search = end;
+    }
+    text.char_indices()
+        .map(|(i, c)| if keep[i] || c == '\n' { c } else { ' ' })
+        .collect()
+}
+
+/// The end (exclusive) of the item starting at `from`.
+fn item_end(bytes: &[u8], from: usize) -> usize {
+    let mut i = from;
+    let mut depth = 0usize;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'/' if bytes.get(i + 1) == Some(&b'/') => {
+                while i < bytes.len() && bytes[i] != b'\n' {
+                    i += 1;
+                }
+                continue;
+            }
+            b'r' if (bytes.get(i + 1) == Some(&b'"') || bytes.get(i + 1) == Some(&b'#'))
+                && (i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_')) =>
+            {
+                // A raw string `r#"..."#`: ends at a quote followed by as many hashes.
+                let mut j = i + 1;
+                let mut hashes = 0;
+                while bytes.get(j) == Some(&b'#') {
+                    hashes += 1;
+                    j += 1;
+                }
+                if bytes.get(j) == Some(&b'"') {
+                    j += 1;
+                    while j < bytes.len()
+                        && !(bytes[j] == b'"'
+                            && bytes[j + 1..]
+                                .iter()
+                                .take(hashes)
+                                .filter(|b| **b == b'#')
+                                .count()
+                                == hashes)
+                    {
+                        j += 1;
+                    }
+                    i = j + hashes;
+                }
+            }
+            b'"' => {
+                i += 1;
+                while i < bytes.len() && bytes[i] != b'"' {
+                    if bytes[i] == b'\\' {
+                        i += 1;
+                    }
+                    i += 1;
+                }
+            }
+            // A char literal (`'{'`, `'\''`); a lifetime (`'a`) has no closing quote nearby.
+            b'\'' if bytes.get(i + 2) == Some(&b'\'') => i += 2,
+            b'\'' if bytes.get(i + 1) == Some(&b'\\') && bytes.get(i + 3) == Some(&b'\'') => i += 3,
+            b';' if depth == 0 => return i + 1,
+            b'{' => depth += 1,
+            b'}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return i + 1;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    bytes.len()
+}
+
+#[test]
+fn test_items_are_blanked_wherever_they_sit() {
+    let text = "fn a() {}\n#[cfg(test)]\nfn helper() { let s = \"}\"; let c = '{'; }\nfn b() { x(\"kept\") }\n#[cfg(test)]\nuse foo;\n#[cfg(test)]\nmod tests {\n    fn t() { \"gone\" }\n}\nfn c() {}\n";
+    let production = production_code(text);
+    assert_eq!(production.lines().count(), text.lines().count());
+    assert!(
+        production.contains("fn a()")
+            && production.contains("\"kept\"")
+            && production.contains("fn c()")
+    );
+    assert!(
+        !production.contains("helper")
+            && !production.contains("gone")
+            && !production.contains("use foo")
+    );
 }
 
 #[test]
@@ -174,9 +283,9 @@ fn every_hardcoded_content_id_resolves_in_the_corpus() {
         let Ok(text) = std::fs::read_to_string(file) else {
             continue;
         };
-        // Tests sit at the end of a file in this codebase; a fixture may name something the
-        // corpus does not carry, and that is its business.
-        let production = text.split("#[cfg(test)]").next().unwrap_or(&text);
+        // A fixture may name something the corpus does not carry, and that is its business:
+        // every `#[cfg(test)]` item is blanked, wherever it sits in the file.
+        let production = production_code(&text);
         let name = file.file_name().and_then(|n| n.to_str()).unwrap_or("?");
         for (number, line) in production.lines().enumerate() {
             let trimmed = line.trim_start();
@@ -204,6 +313,88 @@ fn every_hardcoded_content_id_resolves_in_the_corpus() {
         "content ids that match nothing in the corpus -- a comparison against one is always \
          false and a construction of one names a planet or system that does not exist:\n  {}",
         dead.join("\n  ")
+    );
+}
+
+/// A file that is compiled only for tests: under a `*_tests/` directory (declared by a
+/// `#[cfg(test)] mod`), `fixtures.rs`, or a file that starts with `#![cfg(test)]`.
+fn is_test_only_file(path: &Path) -> bool {
+    path.components().any(|c| {
+        c.as_os_str()
+            .to_str()
+            .is_some_and(|s| s.ends_with("_tests"))
+    }) || path.file_name().is_some_and(|n| n == "fixtures.rs")
+        || std::fs::read_to_string(path).is_ok_and(|t| t.contains("#![cfg(test)]"))
+}
+
+/// Typed id constructors and the categories their literal must come from.
+const TYPED_CONSTRUCTORS: [(&str, &[ContentType]); 12] = [
+    ("PlanetId::new(\"", &[ContentType::Planets]),
+    ("SystemId::new(\"", &[ContentType::Systems]),
+    ("LeaderId::new(\"", &[ContentType::Leaders]),
+    ("UnitTypeId::new(\"", &[ContentType::Units]),
+    ("TechnologyId::new(\"", &[ContentType::Technologies]),
+    ("ActionCardId::new(\"", &[ContentType::ActionCards]),
+    ("FactionId::new(\"", &[ContentType::Factions]),
+    (
+        "SecretObjectiveId::new(\"",
+        &[ContentType::SecretObjectives],
+    ),
+    (
+        "ObjectiveId::new(\"",
+        &[ContentType::PublicObjectives, ContentType::SecretObjectives],
+    ),
+    ("StrategyCardId::new(\"", &[ContentType::StrategyCards]),
+    ("BreakthroughId::new(\"", &[ContentType::Breakthroughs]),
+    ("RelicId::new(\"", &[ContentType::Relics]),
+];
+
+/// A literal passed to a typed id constructor in production code is an id of *that* category.
+///
+/// The test above accepts an id of any category, and 36 ids are spelled the same in two
+/// categories (`mr` is a technology and a planet, `sar` a technology and a secret), so a
+/// `TechnologyId::new("mr")` meant as a planet would pass it. This one checks the category.
+#[test]
+fn typed_id_literals_name_their_own_category() {
+    let content = ContentStore::embedded();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    source_files(&root, &mut files);
+    let mut wrong = Vec::new();
+    let mut checked = 0;
+    for file in files.iter().filter(|f| !is_test_only_file(f)) {
+        let Ok(text) = std::fs::read_to_string(file) else {
+            continue;
+        };
+        let production = production_code(&text);
+        let name = file.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+        for (constructor, categories) in TYPED_CONSTRUCTORS {
+            for (at, _) in production.match_indices(constructor) {
+                // `FactionId::new(` must not also match inside `SecretObjectiveId::new(` etc.
+                let before = production[..at].chars().next_back();
+                if before.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_') {
+                    continue;
+                }
+                let rest = &production[at + constructor.len()..];
+                let literal = &rest[..rest.find('"').unwrap_or(0)];
+                checked += 1;
+                if !categories
+                    .iter()
+                    .any(|c| content.get(*c, literal).is_some())
+                {
+                    let line = production[..at].lines().count();
+                    wrong.push(format!(
+                        "{name}:{line}  {constructor}{literal}\") not in {categories:?}"
+                    ));
+                }
+            }
+        }
+    }
+    assert!(checked > 0, "no typed id literals found to check");
+    assert!(
+        wrong.is_empty(),
+        "typed id literals that are not ids of their category:\n  {}",
+        wrong.join("\n  ")
     );
 }
 
@@ -236,7 +427,7 @@ fn every_action_card_decision_source_names_an_action_card() {
         let Ok(text) = std::fs::read_to_string(file) else {
             continue;
         };
-        let production = text.split("#[cfg(test)]").next().unwrap_or(&text);
+        let production = production_code(&text);
         let name = file.file_name().and_then(|n| n.to_str()).unwrap_or("?");
         for constructor in ACTION_CARD_SOURCES {
             for (at, _) in production.match_indices(constructor) {

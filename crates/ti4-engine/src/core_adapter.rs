@@ -15,17 +15,17 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use strum::IntoEnumIterator;
 use ti4_content::galaxy::Galaxy;
 use crate::movement::MovementRules;
 use ti4_engine_core::board::CoreBoard;
 use ti4_engine_core::galaxy::{Adjacency, CoreGalaxy};
 use ti4_engine_core::hex::Hex;
 use ti4_engine_core::movement::CoreRules;
-use ti4_engine_core::names::{SYSTEM_NAMES, UNIT_NAMES, WORMHOLE_KIND_NAMES};
-use ti4_engine_core::tables::{Scope, UNITS};
+use crate::generated::IdStr;
+use ti4_engine_core::generated::{Source as CoreSource, Wormhole};
+use ti4_engine_core::tables::Scope;
 use ti4_engine_core::{Seat, SysSet, SystemIx, UnitIx, UnitSet};
-use ti4_model::content_types::{Source, SourceSet};
+use ti4_model::content_types::SourceSet;
 use ti4_model::state::GameState;
 
 /// Something the typed core cannot express; the caller falls back to the string engine.
@@ -43,40 +43,55 @@ pub enum Unmapped {
 
 #[must_use]
 pub fn system_ix(id: &str) -> Option<SystemIx> {
-    SYSTEM_NAMES
-        .binary_search(&id)
-        .ok()
-        .map(|i| SystemIx(i as u16))
+    <SystemIx as IdStr>::from_id(id)
 }
 
 #[must_use]
 pub fn system_id(ix: SystemIx) -> &'static str {
-    SYSTEM_NAMES[ix.index()]
+    ix.as_str()
 }
 
 #[must_use]
 pub fn unit_ix(id: &str) -> Option<UnitIx> {
-    UNIT_NAMES.binary_search(&id).ok().map(|i| UnitIx(i as u16))
+    <UnitIx as IdStr>::from_id(id)
 }
 
 #[must_use]
 pub fn unit_id(ix: UnitIx) -> &'static str {
-    UNIT_NAMES[ix.index()]
+    ix.as_str()
+}
+
+/// The printed lanes of every hyperlane tile, by system index, for the core's galaxy
+/// (`ti4_content::hyperlane::lanes_of` of each hyperlane record; built once).
+#[must_use]
+pub fn lane_table() -> &'static ti4_engine_core::tables::LaneTable {
+    static TABLE: std::sync::OnceLock<Vec<Option<&'static [(u8, u8)]>>> = std::sync::OnceLock::new();
+    TABLE.get_or_init(|| {
+        SystemIx::ALL
+            .iter()
+            .map(|s| {
+                (s.data().hyperlane)
+                    .then(|| ti4_content::hyperlane::lanes_of(s.as_str()))
+                    .flatten()
+                    .map(|l| &*Box::leak(l.into_boxed_slice()))
+            })
+            .collect()
+    })
 }
 
 fn sys(id: &str) -> Result<SystemIx, Unmapped> {
     system_ix(id).ok_or_else(|| Unmapped::System(id.to_owned()))
 }
 
-/// The scope mask of a source set: bit `i` for the `i`-th `Source` variant, as `build.rs` tags
-/// records.
+/// The scope mask of a source set: the core's bit of each source (`tables::source_bit`), matched
+/// by the source's id text.
 #[must_use]
 pub fn scope(sources: SourceSet) -> Scope {
     Scope(
-        Source::iter()
-            .enumerate()
-            .filter(|(_, s)| sources.contains(*s))
-            .fold(0, |mask, (i, _)| mask | (1 << i)),
+        sources
+            .iter()
+            .filter_map(|s| <CoreSource as IdStr>::from_id(&s.to_string()))
+            .fold(0, |mask, s| mask | ti4_engine_core::tables::source_bit(s)),
     )
 }
 
@@ -87,10 +102,9 @@ pub fn scope(sources: SourceSet) -> Scope {
 pub fn wormhole_mask<'k>(kinds: impl IntoIterator<Item = &'k str>) -> Result<u8, Unmapped> {
     let mut mask = 0;
     for kind in kinds {
-        let bit = WORMHOLE_KIND_NAMES
-            .binary_search(&kind)
-            .map_err(|_| Unmapped::WormholeKind(kind.to_owned()))?;
-        mask |= 1 << bit;
+        let k = <Wormhole as IdStr>::from_id(kind)
+            .ok_or_else(|| Unmapped::WormholeKind(kind.to_owned()))?;
+        mask |= ti4_engine_core::tables::wormhole_bit(k);
     }
     Ok(mask)
 }
@@ -145,7 +159,7 @@ pub fn ship_type(id: Option<&str>) -> Result<Option<UnitIx>, Unmapped> {
 /// # Errors
 /// An id or hex the core cannot hold.
 pub fn galaxy_from_legacy(galaxy: &Galaxy) -> Result<CoreGalaxy, Unmapped> {
-    let mut raw = CoreGalaxy::new();
+    let mut raw = CoreGalaxy::new(lane_table());
     for id in galaxy.system_ids() {
         let ix = sys(id)?;
         let hex = galaxy
@@ -162,7 +176,7 @@ pub fn galaxy_from_legacy(galaxy: &Galaxy) -> Result<CoreGalaxy, Unmapped> {
     }
     // Kinds as the string galaxy reports them: that already merges what the raw galaxy would
     // otherwise split (printed, token, a copy's retained or suppressed kinds, the Nexus switch).
-    let in_play: Vec<SystemIx> = raw.in_play().iter().map(|i| SystemIx(i as u16)).collect();
+    let in_play: Vec<SystemIx> = raw.in_play().iter().map(ti4_engine_core::ids::system_at).collect();
     for ix in in_play {
         raw.set_wormholes(ix, wormhole_mask(galaxy.wormhole_kinds(system_id(ix)))?);
     }
@@ -173,8 +187,8 @@ pub fn galaxy_from_legacy(galaxy: &Galaxy) -> Result<CoreGalaxy, Unmapped> {
         }
     }
     let hyperlanes: BTreeSet<&str> = galaxy.hyperlanes().into_iter().collect();
-    for id in SYSTEM_NAMES {
-        let ix = sys(id)?;
+    for ix in SystemIx::ALL {
+        let id = ix.as_str();
         if raw.is_hyperlane(ix) != hyperlanes.contains(id) {
             return Err(Unmapped::System(id.to_owned()));
         }
@@ -198,7 +212,7 @@ pub fn galaxy_from_legacy(galaxy: &Galaxy) -> Result<CoreGalaxy, Unmapped> {
 /// # Errors
 /// An id or hex the core cannot hold.
 pub fn galaxy_native(tiles: &[(&str, Hex)], off_map: &[&str]) -> Result<CoreGalaxy, Unmapped> {
-    let mut raw = CoreGalaxy::new();
+    let mut raw = CoreGalaxy::new(lane_table());
     for (id, hex) in tiles {
         raw.place(sys(id)?, *hex)
             .map_err(|_| Unmapped::Duplicate((*id).to_owned()))?;
@@ -271,7 +285,7 @@ pub fn board_from_state(
             board.unit_owners[ix] |= bit;
             // A type the corpus (in scope) does not carry is not a ship, as in the string board.
             if unit_ix(unit.type_id.as_str())
-                .is_some_and(|t| UNITS[t.index()].is_ship && UNITS[t.index()].source & scope.0 != 0)
+                .is_some_and(|t| scope.unit(t).is_some_and(|u| u.ship))
             {
                 board.ship_owners[ix] |= bit;
             }

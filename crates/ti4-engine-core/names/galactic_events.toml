@@ -1,0 +1,23 @@
+# Frozen id -> variant name mapping for `galactic_events` (docs/CONTENT_GENERATOR.md).
+# `cargo xtask gen-cards` appends entries for new ids and never changes an existing one.
+# Editing a name here is a deliberate override (the enum variant is renamed).
+"advent_war_sun" = "AdventOfTheWarSun"
+"age_commerce" = "AgeOfCommerce"
+"age_exploration" = "AgeOfExploration"
+"age_fighters" = "AgeOfFighters"
+"call_of_the_void" = "CallOfTheVoid"
+"civilized_society" = "CivilizedSociety"
+"cosmic_phenomenae" = "CosmicPhenomenae"
+"cowabunga" = "ConventionsOfWarAbandoned"
+"cultural_exchange" = "CulturalExchangeProgram"
+"dangerous_wilds" = "DangerousWilds"
+"hidden_agenda" = "HiddenAgenda"
+"mercenaries" = "MercenariesForHire"
+"minor_factions" = "MinorFactions"
+"mobilization" = "RapidMobilization"
+"monuments_ages" = "MonumentsToTheAges"
+"stellar_atomics" = "StellarAtomics"
+"total_war" = "TotalWar"
+"weird_wormholes" = "WeirdWormholes"
+"wild_wild_galaxy" = "WildWildGalaxy"
+"zealous_orthodoxy" = "ZealousOrthodoxy"

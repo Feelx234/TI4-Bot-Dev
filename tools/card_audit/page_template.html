@@ -1,0 +1,263 @@
+<title>TI4 Card Usage Audit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Public+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a header with category tiles, then three tabbed panes (cards / fields / issues), each a filter bar over a scrolling table. */
+:root {
+  --bg: #f6f7f8; --surface: #ffffff; --fg: #1d2429; --muted: #5d6a73; --line: #d9dee2;
+  --accent: #1f6f78; --accent-soft: #dcefef;
+  --ok: #2f7d4f; --warn: #a96b00; --bad: #b2342a; --info: #3d5aa8;
+  --ok-bg: #e2f2e7; --warn-bg: #fbefd6; --bad-bg: #f9e0dd; --info-bg: #e3e9f8;
+  --display: "Fraunces", Georgia, serif;
+  --body: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #12171a; --surface: #192024; --fg: #e3e8eb; --muted: #95a3ab; --line: #2c363c;
+  --accent: #6cc3cb; --accent-soft: #1d3638;
+  --ok: #7fd09b; --warn: #e6b456; --bad: #f08a80; --info: #9db2f0;
+  --ok-bg: #1d3326; --warn-bg: #3a2e14; --bad-bg: #3d2120; --info-bg: #222c45; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #12171a; --surface: #192024; --fg: #e3e8eb; --muted: #95a3ab; --line: #2c363c;
+  --accent: #6cc3cb; --accent-soft: #1d3638;
+  --ok: #7fd09b; --warn: #e6b456; --bad: #f08a80; --info: #9db2f0;
+  --ok-bg: #1d3326; --warn-bg: #3a2e14; --bad-bg: #3d2120; --info-bg: #222c45; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 14px/1.5 var(--body); }
+.wrap { max-width: 1280px; margin: 0 auto; padding-inline: 16px; padding-block: 24px 48px; display: grid; gap: 20px; }
+h1 { font: 600 clamp(24px, 4vw, 34px)/1.15 var(--display); margin: 0; text-wrap: balance; }
+.lede { color: var(--muted); max-width: 70ch; margin: 6px 0 0; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; cursor: pointer; text-align: left; color: inherit; font: inherit; display: grid; gap: 2px; }
+.tile:hover, .tile:focus-visible { border-color: var(--accent); outline: none; }
+.tile b { font-family: var(--mono); font-size: 12px; font-weight: 500; }
+.tile .n { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12px; }
+.bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--line); }
+.bar span { display: block; height: 100%; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.tabs button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 12px; font: 600 14px var(--body); color: var(--muted); cursor: pointer; }
+.tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+.tabs button:focus-visible { outline: 2px solid var(--accent); }
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.filters label { display: grid; gap: 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+select, input[type="search"] { font: 13px var(--body); color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; min-width: 0; }
+input[type="search"] { width: min(260px, 70vw); }
+.count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; margin-left: auto; }
+.scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; max-height: 72vh; overflow-y: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { position: sticky; top: 0; background: var(--surface); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); z-index: 1; cursor: pointer; white-space: nowrap; }
+td.mono, .mono { font-family: var(--mono); font-size: 12px; }
+td.num { font-variant-numeric: tabular-nums; text-align: right; }
+td.wide { min-width: 220px; max-width: 420px; }
+tr.row { cursor: pointer; }
+tr.row:hover td { background: var(--accent-soft); }
+tr.detail td { background: var(--bg); font-size: 12px; }
+.pill { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.s-registered, .c-gameplay, .c-id, .c-scope { background: var(--ok-bg); color: var(--ok); }
+.s-referenced, .s-data-driven, .c-engine-label { background: var(--info-bg); color: var(--info); }
+.s-name-keyed, .s-not-dealt, .c-gameplay-text, .c-bot { background: var(--warn-bg); color: var(--warn); }
+.s-none, .s-unreferenced { background: var(--bad-bg); color: var(--bad); }
+.c-ui { background: var(--accent-soft); color: var(--accent); }
+.c-unused { background: var(--line); color: var(--muted); }
+.p-P1 { background: var(--bad-bg); color: var(--bad); }
+.p-P2 { background: var(--warn-bg); color: var(--warn); }
+.p-P3 { background: var(--line); color: var(--muted); }
+.iss { display: inline-block; font-family: var(--mono); font-size: 11px; margin-right: 4px; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.issues { display: grid; gap: 10px; }
+.issue { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; display: grid; gap: 6px; }
+.issue h3 { margin: 0; font-size: 15px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; text-wrap: balance; }
+.issue p { margin: 0; max-width: 90ch; }
+.issue .ev { font-family: var(--mono); font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); }
+.legend span { display: inline-flex; gap: 5px; align-items: center; }
+.legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.muted { color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>TI4 Card Usage Audit</h1>
+    <p class="lede" id="lede"></p>
+  </header>
+  <section aria-label="Categories">
+    <div class="tiles" id="tiles"></div>
+    <div class="legend" id="legend" style="margin-top:8px"></div>
+  </section>
+  <nav class="tabs" role="tablist">
+    <button role="tab" id="tab-cards" aria-selected="true" data-pane="cards">Cards</button>
+    <button role="tab" id="tab-fields" aria-selected="false" data-pane="fields">Fields</button>
+    <button role="tab" id="tab-issues" aria-selected="false" data-pane="issues">Issues</button>
+  </nav>
+
+  <section id="pane-cards">
+    <div class="filters">
+      <label>Category <select id="f-cat"></select></label>
+      <label>Status <select id="f-status"></select></label>
+      <label>Field class <select id="f-class">
+        <option value="">any</option>
+        <option value="gameplay">has a gameplay field</option>
+        <option value="text">has a text-parsed field</option>
+        <option value="pure">pure id (no gameplay field)</option>
+        <option value="name">name-keyed somewhere</option>
+        <option value="partial">partial-implementation marker</option>
+        <option value="collide">id collides with another category</option>
+      </select></label>
+      <label>Issue <select id="f-issue"></select></label>
+      <label>Search <input type="search" id="f-q" placeholder="id, name, field, file"></label>
+      <span class="count" id="c-count"></span>
+    </div>
+    <div class="scroll" style="margin-top:8px"><table id="t-cards"></table></div>
+    <p class="muted" style="font-size:12px">Click a row for the evidence. Refs = string literals equal to the id in production code (engine / host / bot / web).</p>
+  </section>
+
+  <section id="pane-fields" hidden>
+    <div class="filters">
+      <label>Category <select id="g-cat"></select></label>
+      <label>Class <select id="g-class"></select></label>
+      <label>Search <input type="search" id="g-q" placeholder="field or use"></label>
+      <span class="count" id="g-count"></span>
+    </div>
+    <div class="scroll" style="margin-top:8px"><table id="t-fields"></table></div>
+    <p class="muted" style="font-size:12px">Bytes: <span class="mono">"field":value,</span> in the minified JSON. Web counts are reads of the host catalog field; for generic names (name, text, kind) they are upper bounds.</p>
+  </section>
+
+  <section id="pane-issues" hidden>
+    <div class="filters">
+      <label>Priority <select id="i-prio"><option value="">all</option><option>P1</option><option>P2</option><option>P3</option></select></label>
+      <span class="count" id="i-count"></span>
+    </div>
+    <div class="issues" id="issues" style="margin-top:8px"></div>
+  </section>
+</div>
+
+<script>
+const D = /*DATA*/null;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const cards = D.cards.map((r) => Object.fromEntries(D.cardKeys.map((k, i) => [k, r[i]])));
+const fields = D.fields.map((r) => Object.fromEntries(D.fieldKeys.map((k, i) => [k, r[i]])));
+const cats = Object.keys(D.perCategory);
+const CLASS_ORDER = ["id", "scope", "gameplay", "gameplay-text", "engine-label", "ui", "unused"];
+const CLASS_VAR = { id: "--ok", scope: "--ok", gameplay: "--ok", "gameplay-text": "--warn", "engine-label": "--info", ui: "--accent", unused: "--muted" };
+
+$("lede").textContent = `${cards.length} card records in ${cats.length} categories, ${fields.length} category × field pairs, ${(D.bytesTotal / 1000).toFixed(1)} KB of minified JSON. ` +
+  `Each card's implementation status comes from the engine's own registries or a scan of the sources; each field is classified by who reads it. ${D.issues.length} issues, ${D.issues.filter((i) => i.priority === "P1").length} of them P1.`;
+
+// Tiles: per-category bytes by class.
+$("tiles").innerHTML = cats.map((c) => {
+  const v = D.perCategory[c], tot = Object.values(v.bytes).reduce((a, b) => a + b, 0);
+  const segs = CLASS_ORDER.filter((k) => v.bytes[k]).map((k) => `<span style="width:${(100 * v.bytes[k] / tot).toFixed(1)}%;background:var(${CLASS_VAR[k]})" title="${k} ${v.bytes[k]} B"></span>`).join("");
+  return `<button class="tile" data-cat="${c}"><b>${c}</b><span class="n">${v.cards} cards · ${(tot / 1000).toFixed(1)} KB · ${v.text_parsed ? v.text_parsed + " text-parsed" : v.pure_id + " pure id"}</span><span class="bar">${segs}</span></button>`;
+}).join("");
+$("legend").innerHTML = "Bytes by field class: " + CLASS_ORDER.map((k) => `<span><i style="background:var(${CLASS_VAR[k]})"></i>${k} ${((D.bytesByClass[k] || 0) / 1000).toFixed(1)} KB</span>`).join("");
+document.querySelectorAll(".tile").forEach((b) => b.addEventListener("click", () => { $("f-cat").value = b.dataset.cat; $("g-cat").value = b.dataset.cat; renderCards(); renderFields(); }));
+
+const opts = (sel, values, all = "all") => { sel.innerHTML = `<option value="">${all}</option>` + values.map((v) => `<option>${esc(v)}</option>`).join(""); };
+opts($("f-cat"), cats); opts($("g-cat"), cats);
+opts($("f-status"), [...new Set(cards.map((c) => c.status))].sort());
+opts($("g-class"), CLASS_ORDER);
+opts($("f-issue"), ["(any issue)", ...D.issues.map((i) => i.id + " " + i.title.slice(0, 50))]);
+
+let sortKey = null, sortDir = 1;
+const CARD_COLS = [["category", "Category"], ["id", "Id"], ["name", "Name"], ["source", "Source"], ["status", "Status"], ["gameplay_fields", "Gameplay fields"], ["refs", "Refs e/h/b/w"], ["issues", "Issues"]];
+
+function cardMatches(c) {
+  const cat = $("f-cat").value, st = $("f-status").value, cl = $("f-class").value, is = $("f-issue").value, q = $("f-q").value.trim().toLowerCase();
+  if (cat && c.category !== cat) return false;
+  if (st && c.status !== st) return false;
+  if (cl === "gameplay" && !c.gameplay_fields) return false;
+  if (cl === "text" && !c.text_parsed_fields) return false;
+  if (cl === "pure" && c.gameplay_fields) return false;
+  if (cl === "name" && !c.name_keyed_sites) return false;
+  if (cl === "partial" && !c.partial_markers) return false;
+  if (cl === "collide" && !c.id_collides_with) return false;
+  if (is === "(any issue)" && !c.issues) return false;
+  if (is && is !== "(any issue)" && !c.issues.split(" ").includes(is.split(" ")[0])) return false;
+  if (q && !Object.values(c).some((v) => String(v).toLowerCase().includes(q))) return false;
+  return true;
+}
+
+function renderCards() {
+  let rows = cards.filter(cardMatches);
+  if (sortKey) rows = rows.slice().sort((a, b) => {
+    const va = sortKey === "refs" ? +a.refs_engine : a[sortKey], vb = sortKey === "refs" ? +b.refs_engine : b[sortKey];
+    return (va > vb ? 1 : va < vb ? -1 : 0) * sortDir;
+  });
+  $("c-count").textContent = `${rows.length} of ${cards.length} cards`;
+  const head = "<thead><tr>" + CARD_COLS.map(([k, l]) => `<th data-k="${k}">${l}${sortKey === k ? (sortDir > 0 ? " ▲" : " ▼") : ""}</th>`).join("") + "</tr></thead>";
+  const body = rows.map((c, i) => `<tr class="row" data-i="${cards.indexOf(c)}">
+    <td class="mono">${esc(c.category)}</td><td class="mono">${esc(c.id)}</td><td>${esc(c.name)}</td><td class="mono">${esc(c.source)}</td>
+    <td><span class="pill s-${esc(c.status)}">${esc(c.status)}</span></td>
+    <td class="mono">${esc(c.gameplay_fields)}${c.text_parsed_fields ? ` <span class="pill c-gameplay-text">text: ${esc(c.text_parsed_fields)}</span>` : ""}</td>
+    <td class="num">${c.refs_engine}/${c.refs_host}/${c.refs_bot}/${c.refs_web}</td>
+    <td>${c.issues.split(" ").filter(Boolean).map((x) => `<span class="iss" data-issue="${x}">${x}</span>`).join("")}</td></tr>`).join("");
+  $("t-cards").innerHTML = head + "<tbody>" + body + "</tbody>";
+}
+
+function cardDetail(c) {
+  const line = (l, v) => v ? `<div><b>${l}:</b> <span class="mono">${esc(v)}</span></div>` : "";
+  const impl = D.implementation[c.category + ":*"] || {};
+  return `<tr class="detail"><td colspan="${CARD_COLS.length}">
+    ${line("status detail", c.status_detail)}${line("mechanism (category)", impl.mechanism)}
+    ${line("fields present", c.fields)}${line("first engine ref", c.first_engine_ref)}
+    ${line("partial markers", c.partial_markers)}${line("name-keyed sites", c.name_keyed_sites)}
+    ${line("threshold check", c.threshold_check)}${line("id also in", c.id_collides_with)}</td></tr>`;
+}
+
+$("t-cards").addEventListener("click", (e) => {
+  const th = e.target.closest("th");
+  if (th) { const k = th.dataset.k; sortDir = sortKey === k ? -sortDir : 1; sortKey = k; renderCards(); return; }
+  const iss = e.target.closest(".iss");
+  if (iss) { showIssue(iss.dataset.issue); return; }
+  const tr = e.target.closest("tr.row");
+  if (!tr) return;
+  const next = tr.nextElementSibling;
+  if (next && next.classList.contains("detail")) { next.remove(); return; }
+  tr.insertAdjacentHTML("afterend", cardDetail(cards[+tr.dataset.i]));
+});
+
+function renderFields() {
+  const cat = $("g-cat").value, cl = $("g-class").value, q = $("g-q").value.trim().toLowerCase();
+  const rows = fields.filter((f) => (!cat || f.category === cat) && (!cl || f.classification === cl) && (!q || (f.field + " " + f.use + " " + f.evidence).toLowerCase().includes(q)));
+  $("g-count").textContent = `${rows.length} of ${fields.length} fields · ${(rows.reduce((a, f) => a + f.bytes, 0) / 1000).toFixed(1)} KB`;
+  $("t-fields").innerHTML = "<thead><tr><th>Category</th><th>Field</th><th>Records</th><th>Bytes</th><th>Class</th><th>Engine</th><th>Host</th><th>Bot</th><th>Web</th><th>Use</th><th>Evidence</th></tr></thead><tbody>" +
+    rows.map((f) => `<tr><td class="mono">${esc(f.category)}</td><td class="mono">${esc(f.field)}</td><td class="num">${f.records}/${f.of}</td><td class="num">${f.bytes}</td>
+      <td><span class="pill c-${esc(f.classification)}">${esc(f.classification)}</span></td><td class="num">${f.engine || ""}</td><td class="num">${f.host || ""}</td><td class="num">${f.bot || ""}</td>
+      <td class="num">${f.web_sites || ""}</td><td class="wide">${esc(f.use)}</td><td class="mono wide">${esc(f.evidence)}</td></tr>`).join("") + "</tbody>";
+}
+
+function renderIssues() {
+  const p = $("i-prio").value;
+  const rows = D.issues.filter((i) => !p || i.priority === p);
+  $("i-count").textContent = `${rows.length} issues`;
+  $("issues").innerHTML = rows.map((i) => `<article class="issue" id="issue-${i.id}">
+    <h3><span class="mono">${i.id}</span><span class="pill p-${i.priority}">${i.priority}</span><span class="pill c-unused">${esc(i.kind)}</span>${esc(i.title)}</h3>
+    <p>${esc(i.detail)}</p>
+    ${i.cards.length ? `<p class="mono" style="font-size:12px">Cards: ${i.cards.map(esc).join(", ")}</p>` : ""}
+    <div class="ev">${i.evidence.map(esc).join("<br>")}</div>
+    <p class="muted" style="font-size:12px">Basis: ${esc(i.basis)} · <span class="iss" data-cards="${i.id}">show cards</span></p></article>`).join("");
+}
+$("issues").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-cards]");
+  if (!b) return;
+  const opt = [...$("f-issue").options].find((o) => o.value.startsWith(b.dataset.cards + " "));
+  if (opt) $("f-issue").value = opt.value;
+  $("f-cat").value = ""; $("f-status").value = ""; $("f-class").value = ""; $("f-q").value = "";
+  setTab("cards"); renderCards();
+});
+function showIssue(id) { setTab("issues"); $("i-prio").value = ""; renderIssues(); const el = $("issue-" + id); if (el) el.scrollIntoView({ block: "start" }); }
+
+function setTab(name) {
+  document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.pane === name)));
+  ["cards", "fields", "issues"].forEach((p) => { $("pane-" + p).hidden = p !== name; });
+}
+document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.pane)));
+["f-cat", "f-status", "f-class", "f-issue"].forEach((id) => $(id).addEventListener("change", renderCards));
+$("f-q").addEventListener("input", renderCards);
+["g-cat", "g-class"].forEach((id) => $(id).addEventListener("change", renderFields));
+$("g-q").addEventListener("input", renderFields);
+$("i-prio").addEventListener("change", renderIssues);
+renderCards(); renderFields(); renderIssues();
+if (["cards", "fields", "issues"].includes(location.hash.slice(1))) setTab(location.hash.slice(1));
+</script>

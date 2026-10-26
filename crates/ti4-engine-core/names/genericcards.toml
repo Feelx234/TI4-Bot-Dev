@@ -1,0 +1,13 @@
+# Frozen id -> variant name mapping for `genericcards` (docs/CONTENT_GENERATOR.md).
+# `cargo xtask gen-cards` appends entries for new ids and never changes an existing one.
+# Editing a name here is a deliberate override (the enum variant is renamed).
+"assail" = "Assail"
+"enervate" = "Enervate"
+"extract" = "Extract"
+"mutated_assail" = "MutatedAssail"
+"mutated_enervate" = "MutatedEnervate"
+"mutated_extract" = "MutatedExtract"
+"mutated_seethe" = "MutatedSeethe"
+"mutated_siphon" = "MutatedSiphon"
+"seethe" = "Seethe"
+"siphon" = "Siphon"

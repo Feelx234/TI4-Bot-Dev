@@ -1,45 +1,19 @@
-//! Typed ids: indices into the generated tables (or into a game's seat table).
-//!
-//! `Ord` is the index order, which `build.rs` makes equal to the text order of the ids, so a
-//! sorted collection of indices is sorted the way the string engine sorts the ids.
+//! Typed ids: the generated per-category enums (integer order = text order of the id), plus the
+//! per-game seat index.
 
-/// A system of the corpus (`tables::SYSTEMS`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct SystemIx(pub u16);
+pub use crate::generated::{Planet as PlanetIx, System as SystemIx, Unit as UnitIx};
 
-/// A planet of the corpus (`tables::PLANETS`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct PlanetIx(pub u16);
-
-/// A unit type of the corpus (`tables::UNITS`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct UnitIx(pub u16);
+/// The system with this integer value (an index into a [`crate::SysSet`]).
+#[inline]
+#[must_use]
+pub fn system_at(index: usize) -> SystemIx {
+    SystemIx::from_index(index).expect("a system index is in range")
+}
 
 /// A seat (or any unit owner) of one game: an index into that game's owner table, which the
 /// adapter builds in text order of the owner ids. At most 16 per game.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Seat(pub u8);
-
-impl SystemIx {
-    #[must_use]
-    pub const fn index(self) -> usize {
-        self.0 as usize
-    }
-}
-
-impl UnitIx {
-    #[must_use]
-    pub const fn index(self) -> usize {
-        self.0 as usize
-    }
-}
-
-impl PlanetIx {
-    #[must_use]
-    pub const fn index(self) -> usize {
-        self.0 as usize
-    }
-}
 
 impl Seat {
     #[must_use]
