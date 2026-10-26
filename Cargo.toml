@@ -169,11 +169,82 @@ split-debuginfo = "packed"
 # halves save_history/load_history and the per-decision commit wait without touching the debug
 # checks of our own code. `debug = false` drops dependency debug info (smaller target dir and
 # faster links); backtraces keep file:line for our code. Profile settings do not change Cargo.lock.
-# build scripts and proc-macros are covered by `build-override` (opt-level 0 by default), so the
-# extra compile time is only the final dependency code.
+# `"*"` also matches proc-macro crates and build-script dependencies (it beats `build-override`);
+# those are put back to opt-level 0 below.
 [profile.dev.package."*"]
 opt-level = 3
 debug = false
+
+# Measured (docs/BUILD_SIZES_AND_TIMES.md): `package."*"` takes precedence over `build-override`, so
+# the proc-macro crates and the libraries only they use (syn twice, proc-macro2, quote, darling,
+# serde_derive, the icu derives, ...) were compiled with opt-level 3 too: code that only ever runs
+# inside rustc, and a large share of a clean build's CPU time. A specific package beats `"*"`,
+# so they are listed here at opt-level 0, the proc-macro crates of the whole lock file. A new
+# proc-macro crate in the tree costs only compile time until it is added.
+[profile.dev.package]
+async-recursion.opt-level = 0
+async-trait.opt-level = 0
+bincode_derive.opt-level = 0
+bumpalo.opt-level = 0
+bytemuck_derive.opt-level = 0
+const-random-macro.opt-level = 0
+darling.opt-level = 0
+darling_core.opt-level = 0
+darling_macro.opt-level = 0
+displaydoc.opt-level = 0
+document-features.opt-level = 0
+enumflags2_derive.opt-level = 0
+enumset_derive.opt-level = 0
+fnv.opt-level = 0
+foreign-types-macros.opt-level = 0
+futures-macro.opt-level = 0
+heck.opt-level = 0
+ident_case.opt-level = 0
+jni-macros.opt-level = 0
+jni-sys-macros.opt-level = 0
+litrs.opt-level = 0
+num_enum_derive.opt-level = 0
+paste.opt-level = 0
+phf_generator.opt-level = 0
+phf_macros.opt-level = 0
+pin-project-internal.opt-level = 0
+proc-macro-crate.opt-level = 0
+proc-macro2.opt-level = 0
+quick-xml.opt-level = 0
+quote.opt-level = 0
+rustc_version.opt-level = 0
+rustversion.opt-level = 0
+semver.opt-level = 0
+seq-macro.opt-level = 0
+serde_derive.opt-level = 0
+serde_repr.opt-level = 0
+strum_macros.opt-level = 0
+syn.opt-level = 0
+synstructure.opt-level = 0
+termcolor.opt-level = 0
+thiserror-impl.opt-level = 0
+tiny-keccak.opt-level = 0
+tokio-macros.opt-level = 0
+toml_datetime.opt-level = 0
+toml_edit.opt-level = 0
+toml_parser.opt-level = 0
+tracing-attributes.opt-level = 0
+ts-rs-macros.opt-level = 0
+unicode-ident.opt-level = 0
+virtue.opt-level = 0
+wasm-bindgen-macro.opt-level = 0
+wasm-bindgen-macro-support.opt-level = 0
+wayland-scanner.opt-level = 0
+winapi-util.opt-level = 0
+windows-implement.opt-level = 0
+windows-interface.opt-level = 0
+yoke-derive.opt-level = 0
+zbus-lockstep-macros.opt-level = 0
+zbus_macros.opt-level = 0
+zerocopy-derive.opt-level = 0
+zerofrom-derive.opt-level = 0
+zerovec-derive.opt-level = 0
+zvariant_derive.opt-level = 0
 
 [profile.debugger]
 inherits = "dev"
