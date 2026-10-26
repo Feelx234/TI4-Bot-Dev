@@ -15,14 +15,6 @@ rand = { version = "0.9", default-features = false }
 rand_chacha.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
-anyhow.workspace = true
-tracing.workspace = true
-smallvec.workspace = true
-hashbrown.workspace = true
-indexmap.workspace = true
-bitflags.workspace = true
-enumset.workspace = true
-itertools.workspace = true
 ts-rs = { workspace = true, optional = true }
 
 # The TypeScript types of the wire (`ti4_wasm::wire_ts`); off but in the tests of the browser game.
