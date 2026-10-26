@@ -50,8 +50,7 @@ impl Config {
             adapter_out: root.join("crates/ti4-engine/src/generated"),
             names_dir: root.join("crates/ti4-engine-core/names"),
             core_path: "ti4_engine_core::generated".to_owned(),
-            // Stage 1 (cards); widened to every category once the extension landed.
-            only: Some(spec::CARD_KEYS.iter().map(|k| (*k).to_owned()).collect()),
+            only: None,
         }
     }
 

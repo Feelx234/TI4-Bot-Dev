@@ -441,6 +441,35 @@ fn explore_target(rec: &Rec, ctx: &Ctx) -> Result<(Option<String>, Option<String
     }
 }
 
+/// References the corpus makes to records it does not carry, accepted by name: (category, record
+/// id, field, referenced id, why). Any other unresolved reference fails the generator.
+pub const DANGLING: &[(&str, &str, &str, &str, &str)] = &[(
+    "units",
+    "ghemina_carrier2",
+    "requiredTechId",
+    "dsghemcv",
+    "a Discordant Stars (homebrew) technology; the Ghemina units are leftovers of that extraction",
+)];
+
+fn required_technology(rec: &Rec, ctx: &Ctx) -> Result<String> {
+    let Some(id) = str_field(rec, "requiredTechId") else {
+        return Ok("Requirement::None".to_owned());
+    };
+    if ctx.has("technologies", id) {
+        return Ok(format!(
+            "Requirement::Known({})",
+            ctx.variant("technologies", id)?
+        ));
+    }
+    if DANGLING
+        .iter()
+        .any(|d| d.0 == "units" && d.1 == rec.id && d.2 == "requiredTechId" && d.3 == id)
+    {
+        return Ok("Requirement::NotInCorpus".to_owned());
+    }
+    bail!("no technologies record has the id {id:?} (add it to spec::DANGLING if that is intended)")
+}
+
 fn token_space(rec: &Rec, _: &Ctx) -> Result<String> {
     match str_field(rec, "spaceOrPlanet") {
         Some("space") => Ok("true".to_owned()),
@@ -1258,8 +1287,11 @@ pub fn categories() -> Vec<Cat> {
                 ),
                 col(
                     "required_technology",
-                    "The technology that unlocks this unit (`requiredTechId`).",
-                    reference("requiredTechId", "technologies", Opt),
+                    "The technology that unlocks this unit (`requiredTechId`); `NotInCorpus` for a reference listed in the generator's `DANGLING`.",
+                    Conv::Custom {
+                        ty: "Requirement<Technology>",
+                        f: required_technology,
+                    },
                 ),
                 col(
                     "replaces",
@@ -1297,6 +1329,17 @@ pub struct Prerequisites {
     pub yellow: u8,
 }
 
+/// A reference that may be absent, or name a record the corpus does not carry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Requirement<T> {
+    /// Nothing required.
+    None,
+    Known(T),
+    /// The corpus names something it does not have (see the generator's `DANGLING` list): the
+    /// requirement can never be met.
+    NotInCorpus,
+}
+
 /// The anomaly flags of a tile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[allow(clippy::struct_excessive_bools)]
@@ -1316,27 +1359,6 @@ impl Anomalies {
     }
 }
 ";
-
-/// The categories the cards-only first stage generated (kept for the docs and tests).
-pub const CARD_KEYS: &[&str] = &[
-    "abilities",
-    "action_cards",
-    "agendas",
-    "attachments",
-    "breakthroughs",
-    "explores",
-    "galactic_events",
-    "genericcards",
-    "leaders",
-    "promissory_notes",
-    "public_objectives",
-    "relics",
-    "secret_objectives",
-    "strategy_cards",
-    "technologies",
-    // Not a card, but exploration cards place tokens.
-    "tokens",
-];
 
 #[cfg(test)]
 mod tests {
