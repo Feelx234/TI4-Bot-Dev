@@ -1223,7 +1223,13 @@ pub const RULES_COVERT_LEGISLATION: u32 = 33;
 /// attached. Version 34.
 pub const RULES_DMZ_EXPLORATION: u32 = 34;
 
-pub const RULES_VERSION: u32 = 34;
+/// The first rules version in which the base-game Diplomacy card (`base2`, the `base_game` card
+/// set) readies what it prints: "each exhausted planet you control in that system" (the chosen
+/// system). Below, it readied up to 2 exhausted planets anywhere, as the Prophecy of Kings card
+/// does. Version 35.
+pub const RULES_BASE_DIPLOMACY: u32 = 35;
+
+pub const RULES_VERSION: u32 = 35;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
