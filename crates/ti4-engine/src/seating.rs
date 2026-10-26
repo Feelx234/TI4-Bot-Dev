@@ -46,7 +46,7 @@ pub fn mecatol_for(content: &ContentStore, sources: SourceSet) -> &'static str {
 /// The Mecatol Rex tile on this board (the base tile when neither is present).
 #[must_use]
 pub fn mecatol_on(state: &GameState) -> &'static str {
-    if state.board.contains_key(&SystemId::new(MECATOL_TE)) {
+    if state.board.contains_key(ti4_model::id::text(&MECATOL_TE)) {
         MECATOL_TE
     } else {
         MECATOL
@@ -891,7 +891,7 @@ pub fn place_crimson_home(
 pub fn nexus_is_triggered(state: &ti4_model::state::GameState) -> bool {
     let occupied = state
         .board
-        .get(&SystemId::new(LOCKED_NEXUS))
+        .get(ti4_model::id::text(&LOCKED_NEXUS))
         .is_some_and(|here| !here.units.is_empty() || !here.planet_units.is_empty());
     let held = state.board.values().any(|here| {
         here.planet_control
@@ -1100,18 +1100,18 @@ mod tests {
         let state = seated(&[("a", "sol")]);
         let player = state.player(&PlayerId::new("a")).unwrap();
         assert!(!player.technologies.is_empty());
-        assert!(player.technologies.contains(&TechnologyId::new("amd")));
+        assert!(player.technologies.contains(ti4_model::id::text(&"amd")));
     }
 
     #[test]
     fn the_nekro_begins_with_both_valefar_assimilators() {
         let state = seated(&[("a", "nekro"), ("b", "sol")]);
         let nekro = state.player(&PlayerId::new("a")).unwrap();
-        assert!(nekro.technologies.contains(&TechnologyId::new("vax")));
-        assert!(nekro.technologies.contains(&TechnologyId::new("vay")));
-        assert!(nekro.technologies.contains(&TechnologyId::new("dxa")));
+        assert!(nekro.technologies.contains(ti4_model::id::text(&"vax")));
+        assert!(nekro.technologies.contains(ti4_model::id::text(&"vay")));
+        assert!(nekro.technologies.contains(ti4_model::id::text(&"dxa")));
         let other = state.player(&PlayerId::new("b")).unwrap();
-        assert!(!other.technologies.contains(&TechnologyId::new("vax")));
+        assert!(!other.technologies.contains(ti4_model::id::text(&"vax")));
     }
 
     #[test]
@@ -1526,7 +1526,7 @@ mod tests {
     #[test]
     fn home_systems_are_read_from_the_faction_records() {
         let homes = home_systems(content(), &assignments(&[("a", "sol"), ("b", "hacan")])).unwrap();
-        assert!(homes.contains(&SystemId::new("01")), "Sol's home is 01");
+        assert!(homes.contains(&ti4_model::id::SystemId::new("01")), "Sol's home is 01");
         assert_eq!(homes.len(), 2);
     }
 
@@ -1536,7 +1536,7 @@ mod tests {
         assert_eq!(filler.len(), 6);
         let systems = all_systems(content(), POK);
         assert!(
-            !filler.contains(&SystemId::new(MECATOL)),
+            !filler.contains(&ti4_model::id::SystemId::new(MECATOL)),
             "Mecatol is not filler"
         );
         for id in &filler {

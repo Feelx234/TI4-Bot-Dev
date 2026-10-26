@@ -1731,7 +1731,7 @@ mod relocation_tests {
         let content = ContentStore::embedded();
         let ids: Vec<String> = crate::fixtures::plain_systems(12)
             .into_iter()
-            .filter(|id| !state.board.contains_key(&SystemId::new(id.as_str())))
+            .filter(|id| !state.board.contains_key(ti4_model::id::text(&id.as_str())))
             .take(8)
             .collect();
         let mut tiles = vec!["18"];
@@ -1808,7 +1808,7 @@ mod relocation_tests {
         let supernova = crate::fixtures::a_system_where("supernova");
         let plain: Vec<String> = crate::fixtures::plain_systems(12)
             .into_iter()
-            .filter(|id| !state.board.contains_key(&SystemId::new(id.as_str())))
+            .filter(|id| !state.board.contains_key(ti4_model::id::text(&id.as_str())))
             .take(5)
             .collect();
         let mut tiles = vec!["18", supernova.as_str()];

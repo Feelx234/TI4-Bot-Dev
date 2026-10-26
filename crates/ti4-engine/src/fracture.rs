@@ -726,7 +726,7 @@ mod tests {
         assert!(
             state
                 .ingress_tokens
-                .contains(&SystemId::new(crate::seating::MECATOL))
+                .contains(ti4_model::id::text(&crate::seating::MECATOL))
         );
     }
 

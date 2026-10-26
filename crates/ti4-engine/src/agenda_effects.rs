@@ -2913,7 +2913,7 @@ mod tests {
                 .player(&b())
                 .unwrap()
                 .technologies
-                .contains(&ti4_model::id::TechnologyId::new("hm"))
+                .contains(ti4_model::id::text(&"hm"))
         );
 
         run_with(&mut state, None, "grant_reallocation", "b", &["hm"]);
@@ -2921,7 +2921,7 @@ mod tests {
         let seat = state.player(&b()).unwrap();
         assert!(
             seat.technologies
-                .contains(&ti4_model::id::TechnologyId::new("hm"))
+                .contains(ti4_model::id::text(&"hm"))
         );
         assert_eq!(
             seat.tokens(ti4_model::state::TokenPool::Fleet),
@@ -3001,7 +3001,7 @@ mod tests {
         let seat = state.player(&b()).unwrap();
         assert!(
             seat.technologies
-                .contains(&ti4_model::id::TechnologyId::new("nm"))
+                .contains(ti4_model::id::text(&"nm"))
         );
         assert_eq!(seat.tokens(ti4_model::state::TokenPool::Fleet), before);
     }
@@ -3018,7 +3018,7 @@ mod tests {
         assert!(
             !seat
                 .technologies
-                .contains(&ti4_model::id::TechnologyId::new("hm"))
+                .contains(ti4_model::id::text(&"hm"))
         );
         assert_eq!(seat.tokens(ti4_model::state::TokenPool::Fleet), before - 1);
     }

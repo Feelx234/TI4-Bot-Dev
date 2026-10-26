@@ -19,7 +19,7 @@ fn empyrean_ready(state: &GameState, owner: &PlayerId, mover: Option<&str>, syst
         && crate::promissory::has_commander_ability(state, owner, EMPYREAN)
         && state
             .board
-            .get(&SystemId::new(system))
+            .get(ti4_model::id::text(&system))
             .is_some_and(|board| board.command_tokens.contains(owner))
 }
 
@@ -209,7 +209,7 @@ mod tests {
             state
                 .system_state(&system)
                 .command_tokens
-                .contains(&PlayerId::new("b"))
+                .contains(ti4_model::id::text(&"b"))
         );
     }
 
@@ -224,7 +224,7 @@ mod tests {
         for found in
             ti4_content::galaxy::planets_in(ContentStore::embedded(), system.as_str(), DEFAULT)
         {
-            assert!(planets.contains(&PlanetId::new(found.id())));
+            assert!(planets.contains(&ti4_model::id::PlanetId::new(found.id())));
         }
     }
 

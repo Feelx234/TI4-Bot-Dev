@@ -2098,7 +2098,7 @@ fn mahactbt_1_vaults_of_the_heir_purges_a_technology_for_a_relic_then_readies_at
         let outcome = (
             was_offered(&seen, vaults),
             seat.technologies
-                .contains(&ti4_model::id::TechnologyId::new("pi")),
+                .contains(ti4_model::id::text(&"pi")),
             seat.relics.len() - relics,
         );
         (game, outcome)
@@ -2346,7 +2346,7 @@ fn tcs_1_the_nomad_readies_another_players_agent_the_moment_it_is_exhausted() {
                 .player(&a())
                 .unwrap()
                 .exhausted_technologies
-                .contains(&ti4_model::id::TechnologyId::new("tcs")),
+                .contains(ti4_model::id::text(&"tcs")),
         )
     };
     assert_eq!(

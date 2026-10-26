@@ -597,7 +597,7 @@ fn gr_1_binds_a_voter_to_an_outcome_or_costs_them_a_fleet_token() {
             .player(&a())
             .unwrap()
             .exhausted_technologies
-            .contains(&ti4_model::id::TechnologyId::new("gr"))
+            .contains(ti4_model::id::text(&"gr"))
     );
     let tokens = state.player(&b()).unwrap().fleet_tokens;
     pick(&mut window, &mut state, "tribute|token");
@@ -828,7 +828,7 @@ fn vay_2_the_card_gains_the_text_of_the_technology_with_its_token() {
     ));
     let exhausted = &state.player(&a()).unwrap().exhausted_technologies;
     assert!(
-        exhausted.contains(&ti4_model::id::TechnologyId::new("vay")),
+        exhausted.contains(ti4_model::id::text(&"vay")),
         "it exhausts the Valefar card"
     );
 }

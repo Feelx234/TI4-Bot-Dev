@@ -403,7 +403,7 @@ fn ospha_ship(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usi
             let (unit, system) = rest.split_once(" in ")?;
             let unit = unit.trim_end_matches(" (damaged)");
             let kind = unit_type(seen, unit)?;
-            let tokened = tokens.contains(&SystemId::new(system));
+            let tokened = tokens.contains(&ti4_model::id::SystemId::new(system));
             let carrier = kind.capacity() >= 4;
             // Lowest is best: not a carrier, not tokened, cheapest.
             #[expect(clippy::cast_possible_truncation, reason = "unit costs are small")]

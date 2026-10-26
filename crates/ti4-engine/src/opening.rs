@@ -368,7 +368,7 @@ mod tests {
             ContentStore::embedded(),
             ti4_model::content_types::DEFAULT,
         )
-        .remove(&PlayerId::new("a"))
+        .remove(ti4_model::id::text(&"a"))
         .expect("a is seated")
     }
 

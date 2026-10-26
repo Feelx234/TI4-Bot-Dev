@@ -458,13 +458,13 @@ fn timing_abilities(state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec
     // Copied end windows are registered from the static roster, then check borrowability live.
     if state
         .player(seat)
-        .is_some_and(|source| source.leaders.contains_key(&LeaderId::new("sardakkagent")))
+        .is_some_and(|source| source.leaders.contains_key(ti4_model::id::text(&"sardakkagent")))
     {
         for borrower in &state.players {
             if &borrower.id != seat
                 && borrower
                     .leaders
-                    .contains_key(&LeaderId::new("yssarilagent"))
+                    .contains_key(ti4_model::id::text(&"yssarilagent"))
             {
                 abilities.push(borrowed_agent(owner_name, seat, &borrower.id));
             }
@@ -1602,7 +1602,7 @@ mod tests {
             .player_mut(&a())
             .unwrap()
             .technologies
-            .remove(&TechnologyId::new("exo2"));
+            .remove(ti4_model::id::text(&"exo2"));
         round_ended(&mut state, &mut scripted(&[EXO, "ship|0", "ship|0"]), &home);
         assert_eq!(count(&state, &home, &b(), "cruiser"), 3, "no exo2");
 

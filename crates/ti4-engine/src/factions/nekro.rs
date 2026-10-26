@@ -127,7 +127,7 @@ pub fn is_nekro(state: &GameState, player: &PlayerId) -> bool {
 fn owns(state: &GameState, player: &PlayerId, technology: &str) -> bool {
     state
         .player(player)
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new(technology)))
+        .is_some_and(|seat| seat.technologies.contains(ti4_model::id::text(&technology)))
 }
 
 fn z_mark(player: &PlayerId) -> String {
@@ -137,7 +137,7 @@ fn z_mark(player: &PlayerId) -> String {
 /// Whether a seat other than `player` owns `technology`.
 fn owned_by_another(state: &GameState, player: &PlayerId, technology: &str) -> bool {
     state.players.iter().any(|seat| {
-        seat.id != *player && seat.technologies.contains(&TechnologyId::new(technology))
+        seat.id != *player && seat.technologies.contains(ti4_model::id::text(&technology))
     })
 }
 
@@ -869,7 +869,7 @@ mod tests {
             .player(who)
             .unwrap()
             .technologies
-            .contains(&TechnologyId::new(tech))
+            .contains(ti4_model::id::text(&tech))
     }
 
     fn tokens(state: &GameState, who: &PlayerId) -> u32 {
@@ -1252,14 +1252,14 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .exhausted_technologies
-                .contains(&TechnologyId::new("vax"))
+                .contains(ti4_model::id::text(&"vax"))
         );
         assert!(
             !state
                 .player(&b())
                 .unwrap()
                 .exhausted_technologies
-                .contains(&TechnologyId::new("mi"))
+                .contains(ti4_model::id::text(&"mi"))
         );
         assert!(!mageon(&state));
 
@@ -1273,7 +1273,7 @@ mod tests {
             .player_mut(&b())
             .unwrap()
             .technologies
-            .remove(&TechnologyId::new("mi"));
+            .remove(ti4_model::id::text(&"mi"));
         assert!(!crate::technology::has_technology_text(&state, &a(), "mi"));
     }
 
@@ -1306,7 +1306,7 @@ mod tests {
             .player_mut(&b())
             .unwrap()
             .technologies
-            .remove(&TechnologyId::new("nes"));
+            .remove(ti4_model::id::text(&"nes"));
         assert!(!crate::combat::non_euclidean_shielding(&state, &a()));
     }
 
@@ -1360,7 +1360,7 @@ mod tests {
             .player_mut(&a())
             .unwrap()
             .technologies
-            .remove(&TechnologyId::new("aida"));
+            .remove(ti4_model::id::text(&"aida"));
         let ids = |state: &GameState| -> Vec<String> {
             assimilation_options(state, content, DEFAULT, &a(), &b())
                 .into_iter()

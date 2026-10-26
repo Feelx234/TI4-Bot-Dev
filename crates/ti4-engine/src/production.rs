@@ -3577,7 +3577,7 @@ pub fn resolve_timed(
     // the hero was never offered. Gated on the hero being ready so a production nobody can make
     // free keeps its sequence untouched.
     let hero_ready = state.player(player).is_some_and(|seat| {
-        seat.leaders.get(&ti4_model::id::LeaderId::new("hacanhero"))
+        seat.leaders.get(ti4_model::id::text(&"hacanhero"))
             == Some(&ti4_model::state::LeaderStatus::Unlocked)
     });
     if hero_ready && capacity(state, content, sources, player, system) > 0 {
@@ -6305,7 +6305,7 @@ mod tests {
         ids.extend(
             crate::fixtures::plain_systems(14)
                 .into_iter()
-                .filter(|id| !state.board.contains_key(&SystemId::new(id.as_str())))
+                .filter(|id| !state.board.contains_key(ti4_model::id::text(&id.as_str())))
                 .take(6),
         );
         let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
@@ -7114,7 +7114,7 @@ mod tests {
                 .player(&player())
                 .unwrap()
                 .exhausted_technologies
-                .contains(&ti4_model::id::TechnologyId::new("sar"))
+                .contains(ti4_model::id::text(&"sar"))
         );
     }
 

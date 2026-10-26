@@ -2074,7 +2074,7 @@ mod tests {
             .player_mut(&a())
             .unwrap()
             .technologies
-            .remove(&ti4_model::id::TechnologyId::new("cm"));
+            .remove(ti4_model::id::text(&"cm"));
         assert!(!barred(&state, &b()), "no technology");
         state
             .player_mut(&a())

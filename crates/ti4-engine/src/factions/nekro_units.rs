@@ -133,7 +133,7 @@ fn illegal(error: IllegalChoice) -> TimingError {
 fn owns_technology(state: &GameState, player: &PlayerId, alias: &str) -> bool {
     state
         .player(player)
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new(alias)))
+        .is_some_and(|seat| seat.technologies.contains(ti4_model::id::text(&alias)))
 }
 
 fn technology_ready(state: &GameState, player: &PlayerId, alias: &str) -> bool {
@@ -146,7 +146,7 @@ fn technology_ready(state: &GameState, player: &PlayerId, alias: &str) -> bool {
 fn leader_status(state: &GameState, player: &PlayerId, leader: &str) -> Option<LeaderStatus> {
     state
         .player(player)
-        .and_then(|seat| seat.leaders.get(&LeaderId::new(leader)).copied())
+        .and_then(|seat| seat.leaders.get(ti4_model::id::text(&leader)).copied())
 }
 
 fn took_part(event: &Event, player: &PlayerId) -> bool {
@@ -492,7 +492,7 @@ pub(crate) fn commander_unlocked(
     let seat = state.player(player)?;
     let assimilators = ASSIMILATORS
         .iter()
-        .filter(|card| seat.technologies.contains(&TechnologyId::new(**card)))
+        .filter(|card| seat.technologies.contains(ti4_model::id::text(&**card)))
         .count();
     let counting = seat.technologies.len() - assimilators
         + super::nekro::assimilators_with_tokens(state, player);
@@ -1561,7 +1561,7 @@ mod tests {
             .player_mut(&b())
             .unwrap()
             .technologies
-            .remove(&TechnologyId::new("ac2"));
+            .remove(ti4_model::id::text(&"ac2"));
         assert_eq!(bonus(&state, MECH, None), 0);
     }
 
@@ -2040,7 +2040,7 @@ mod tests {
             .player(&a())
             .unwrap()
             .exhausted_technologies
-            .contains(&TechnologyId::new(ERROR_ERROR))
+            .contains(ti4_model::id::text(&ERROR_ERROR))
     }
 
     fn ids(state: &GameState) -> Vec<String> {
@@ -2223,7 +2223,7 @@ mod tests {
         technologies(&mut state, &["dxa", "gd"]);
         let unlocked = |state: &mut GameState| {
             crate::leaders::check_unlocks(state, ContentStore::embedded(), DEFAULT, None, &a())
-                .contains(&LeaderId::new(COMMANDER))
+                .contains(&ti4_model::id::LeaderId::new(COMMANDER))
         };
         assert!(!unlocked(&mut state), "two technologies");
         technologies(&mut state, &["dxa", "gd", "ac2"]);
@@ -2233,7 +2233,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new(COMMANDER)),
+                .get(ti4_model::id::text(&COMMANDER)),
             Some(&LeaderStatus::Unlocked)
         );
     }

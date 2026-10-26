@@ -508,7 +508,7 @@ type PoolKey = (String, Option<String>, String, bool, bool);
 
 fn pool_count(state: &GameState, player: &PlayerId, key: &PoolKey) -> usize {
     let (system, source, unit, damaged, galvanized) = key;
-    let Some(system) = state.board.get(&SystemId::new(system.clone())) else {
+    let Some(system) = state.board.get(ti4_model::id::text(&system.clone())) else {
         return 0;
     };
     let same = |candidate: &&Unit| {

@@ -3478,7 +3478,7 @@ mod tests {
         let seen = Observed::new(&state, ContentStore::embedded(), POK, None);
         let rival = seen.seat(&pid("b")).expect("b is seated");
         assert_eq!(rival.relics, [RelicId::new("codex")]);
-        assert!(rival.exhausted_relics.contains(&RelicId::new("codex")));
+        assert!(rival.exhausted_relics.contains(ti4_model::id::text(&"codex")));
         assert_eq!(rival.exploration_cards, ["ed1".to_owned()]);
         assert_eq!(rival.relic_fragments.get("CULTURAL"), Some(&2));
         assert_eq!(rival.breakthrough, Some(&BreakthroughId::new("letnevbt")));

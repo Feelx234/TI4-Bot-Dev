@@ -280,7 +280,7 @@ Gain is per workload; "est." means derived from profile shares, not measured.
 | 9 | Bot reachability per position: one search per (seat, ship, origin) giving every reachable destination, cached in `Observed`, instead of `movable_into` per destination with a fresh `MovementRules` each | est. -20..-25% bot games (movement queries are 28% now) | medium | medium: `MovementRules` depends on the destination (active-system rules, `PassSite`); needs an equivalence test over all positions of the benches | describe only |
 | 10 | Reuse one `MovementRules` per (seat, position) across destinations in `movable_into` (retarget `active_system`) | est. -6..-8% bot games | small-medium | low-medium (same caveat as 9, smaller) | describe only |
 | 11 | Views: compute the viewer-independent parts (table view and objective progress, board, exploration facts) once per update and share them across subscribers; build the redacted view from `&state` instead of cloning `GameState` per viewer | est. -40..-60% of view time with 5 viewers | medium | low (pure projections; wire unchanged) | describe only |
-| 12 | Interned ids: `PlayerId`/`SystemId`/`PlanetId`/`UnitTypeId` as small integers or `Arc<str>` with pointer equality, serialized as today's strings | est. -20..-30% everywhere (memcmp 16-23% plus allocation of id copies) | very high (every crate) | medium; wire format can stay identical via serde | describe only |
+| 12 | Other id representations (section 4): stage 0 `Arc<str>` ids + `&str` probes | measured -7.6% bot, -22% views, -17% resume | small | low | **done (section 4)**; later stages described |
 | 13 | Typed content records (structs parsed once from the corpus) instead of `serde_json::Map` reads | est. -5..-9% | high | low | describe only |
 | 14 | Cache `Galaxy::adjacent` per galaxy version (adjacency table rebuilt when the map changes) | est. -3..-6% bot, -5% solo | medium (Galaxy has pub fields mutated in place) | low-medium | describe only |
 | 15 | Hooks evaluated per system in `with_laws` (`blocks_passage` for every system and seat): ask once whether any seat has the technology | est. -2..-3% bot | small | low | describe only |
@@ -330,9 +330,153 @@ Why each is identical:
 - mimalloc: only the allocator of the `selfplay` binary (the library, tests and examples keep the system
   allocator). Nothing decides from addresses.
 
+## 4. String ids: other representations (2026-10-26, follow-up)
+
+Question: could the engine use interned integers, enums or cheap-clone strings for its ids
+internally and keep the old string ids everywhere outside (wire, saves, replays, option ids, JSON
+views, bots, UI, wasm API, fixtures)? Before = branch head `799194e7` (sections 1-3 applied);
+after = the prototype commit on this branch. Same machine, CPU time, interleaved A/B.
+
+### 4.1 Inventory (measured)
+
+- **24 newtypes** in `crates/ti4-model/src/id.rs`, all `struct XId(String)` with
+  `#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]`,
+  `#[serde(transparent)]`, `new(impl Into<String>)`, `as_str()`, `Display`; `PlanetId` alone had
+  `Borrow<str>`. 16 of them carry `ts_rs::TS` (TypeScript `string`). One `UNSEATED` const (unused).
+  Outside `id.rs` there is one more (`ti4-server` `LobbySlotId(pub String)`).
+- Mentions (whole workspace, all crates, tests included) / `::new(` constructions in source:
+
+  | Type | Mentions | `::new(` sites | Kind |
+  |---|---:|---:|---|
+  | PlayerId | 8868 | 2931 | dynamic (seat names `a`..`h`; server seat ids) |
+  | SystemId | 3589 | 1627 | static tiles, plus generated (hyperlanes, Fracture, created systems) |
+  | PlanetId | 1674 | 702 | static, plus created planets (`placed_planets`) |
+  | FactionId | 970 | 337 | static |
+  | LeaderId | 844 | 640 | static |
+  | TechnologyId | 691 | 483 | static (with TE replacements / faction variants) |
+  | UnitTypeId | 677 | 502 | static (generic + faction units) |
+  | ActionCardId | 457 | 310 | static |
+  | ObjectiveId / SecretObjectiveId | 310 / 261 | 218 / 190 | static |
+  | StrategyCardId | 298 | 130 | static |
+  | BreakthroughId / RelicId | 129 / 116 | 104 / 76 | static |
+  | CommandId, and 9 more (Token, Agenda, Law, Event, Choice, Option, Fragment, ExplorationCard, ExpeditionTile, PromissoryNote) | 3-20 each | 0 | nearly unused |
+
+  Per crate (all id types): engine 13 488, training 728, rule bot 716, policy 685, mlp 554, host 832,
+  server 758, model 478, review 197, replayer 166, others under 100.
+- **Many ids are not typed at all**: `ChoiceOption.id/kind/label`, `Choice.prompt`,
+  `DecisionRecord.{chosen, offered}`, option payload keys, `faction_marks` keys (548 uses, built with
+  `format!`), `laws`, `exploration_decks`, `agenda_deck`, `Game::events`, content ids inside
+  `ti4-content` (`BTreeMap<String, usize>` per category) and every `Record` field name
+  (`serde_json::Map<String, Value>`). The newtypes are only part of the string traffic.
+- **Constructions at run time (measured)**: a uprobe on the constructor of a prototype that interned
+  every id counted **40.1 M id constructions in 10 golden 4p games, 2290 per decision**. Most are
+  temporaries made to look something up (`seat.technologies.contains(&TechnologyId::new("amd"))`,
+  `board.get(&SystemId::new(text))`): 428 such lookup sites in engine, rule bot and host.
+- **Where the string compares are (estimated from the fp profile, memcmp = 15.9% of a bot game before
+  sections 1-3, 22.7% after)**: the leaf `memcmp` loses its direct caller under frame-pointer unwinding,
+  so the frame above it is the function doing the lookup; grouped by the key type those functions
+  compare: system ids (movement search, adjacency, `with_laws`, neighbours) ~19% of the memcmp,
+  content ids and record field names (`resolve_id`, `Record::text`, the old `planets_in`) ~14%,
+  technology ids (`has_technology_text`, `can_research`) ~10%, player ids (`unit.owner == player`
+  filters, presence) ~8%, planet ids ~6%, sorting by id ~6%, the remaining ~37% spread over functions
+  under 0.15% each. Player ids are one letter, so `==` on two different seats still calls `memcmp`
+  (equal lengths).
+
+### 4.2 Options
+
+**(c) Cheap-clone strings (`Arc<str>`) with string semantics — prototyped.**
+`struct XId(Arc<str>)`; `Eq`, `Ord`, `Hash` are the text's (with a pointer-equality shortcut, which
+cannot change a result); `Debug` prints `XId("a")` exactly as before; serde writes and reads a plain
+string (hand-written impls replace `#[serde(transparent)]`, same JSON); `Borrow<str>` on every id so
+maps and sets are probed with `&str`. `Arc`, not `Rc`: games, snapshots and states cross threads
+(server session workers, `fork_for_worker`, rayon). Ordering, iteration order of every `BTreeMap`,
+fingerprints and replays are unchanged by construction. Costs: `new()` copies the text once (as
+before); a clone is an atomic increment instead of a heap copy; an id is 16 bytes instead of 24
+(`Unit` 40 instead of 56 bytes).
+
+**(a) Interned ids (global or thread-local interner), u32 handles or canonical `Arc<str>`.**
+- Equality becomes a pointer or integer compare. Ordering must stay the text's: interning order is
+  first-come and differs between runs and processes, so an `Ord` by handle would reorder every
+  `BTreeMap<XId, _>` (board, players' sets, scored objectives, ...) and with it iteration-dependent
+  decisions, option order, fingerprints and replays. So `Ord` must still compare text (or a rank, see b).
+- A thread-local interner breaks equality across threads (a state built on one thread compared on
+  another); it must be global, which means a lock or a concurrent map on every construction.
+- Measured: interning every construction (thread-local cache in front of a global `Mutex<HashSet>`)
+  made the 20 golden games **26% slower** (53.2 → 67.0 s CPU, hashes identical) because of the 2290
+  constructions per decision. Interning only pays after the temporaries are gone (stage 1 below).
+- wasm: single-threaded, a global interner is fine; never freed memory is bounded by the id universe
+  (content names, seats, generated tiles), but the server is long-running and seat ids come from lobbies.
+
+**(b) Compile-time enums or generated constants for static content ids.**
+- `build.rs` of `ti4-content` can emit one constant per id of the corpus, in sorted text order, so an
+  index compare equals the text compare (`rank(a) < rank(b)` iff `a < b`) for every corpus id.
+- Not closed: faction and TE variants, generated systems/planets, and tests that build their own
+  `ContentStore` (not the embedded one) need an `Other(Arc<str>)` fallback, and a mixed compare must
+  fall back to text; a property test must prove `Ord` = text order over all pairs.
+- Serialization, `Display`, ts types: through the text (a table lookup), so the wire is unchanged.
+- Biggest win (memcmp mostly disappears for content ids, maps can become arrays/bitsets indexed by
+  rank), biggest effort: every `match` on id text, every `format!` that builds an id, the content
+  loader, the bots' feature code.
+
+### 4.3 Prototype (stage 0): `Arc<str>` ids + `&str` probes — measured, all benches identical
+
+Changes (`crates/ti4-model/src/id.rs` and 94 files of mechanical call-site edits):
+- the 24 newtypes hold `Arc<str>`; `new(impl AsRef<str>)` (every existing caller compiles unchanged);
+  `Eq`/`Ord` with a pointer shortcut, `Hash` of the text, serde as plain string, `Borrow<str>` for all;
+- 428 lookups `map.get(&XId::new(text))` / `set.contains(&XId::new(text))` became
+  `map.get(ti4_model::id::text(&text))` (sites whose collection is a `Vec` keep the old form);
+- the unused `UNSEATED` const is gone (an `Arc` cannot be `const`).
+
+Before (head `799194e7`) → after, interleaved where noted:
+
+| Workload | Before | After | Change |
+|---|---:|---:|---:|
+| 20 golden games, CPU, median of 3 interleaved | 53.7 s | 49.6 s | **-7.6%** |
+| of that: `Arc<str>` alone | 54.8 s | 52.3 s | -4.6% |
+| of that: pointer shortcut on top | 52.3 s | 51.3 s | -1.8% (noise level) |
+| Solo bench native (3 runs each) | 1.75-1.88 s | 1.53-1.58 s | -12% |
+| Browser resume, native (3 runs each) | 1.17-1.23 s | 0.96-1.01 s | -17% |
+| Server replay `replay_session`, 4 games (2 runs) | 4.19-4.41 s | 3.70-3.76 s | -12% |
+| Server views, 4 games x 5 viewers (2 runs) | 8.51-8.64 s | 6.68-6.72 s | **-22%** |
+| JSON of those views | 1.90-1.94 s, 300 KiB/question | 1.87-1.90 s, 300 KiB/question | 0 (same bytes) |
+| Solo bench wasm (Node, 2 runs) | 3.91-4.03 s | 3.70-3.79 s | -5% (same sha256) |
+| Browser resume wasm (3 runs) | 1.79-2.08 s | 1.72-1.90 s | -2..-4% (resume check ok) |
+| Peak RSS, 10 4p games 1 worker / resume | 62.5 / 104.4 MB | 59.2 / 99.7 MB | -5% |
+| wasm file size | 7 096 776 B | 7 147 998 B | +0.7% |
+| `bench`, `bench-v1..v5` | 200/200 each | **200/200 each** | identical |
+
+Tests: model 94, content 146, engine 3918, host 299, rule bot 190, selfplay, wasm `--features ts`
+(10 lib + 49 integration, the TypeScript wire types included) pass. Not compiled here (libtorch):
+`ti4-mlp`, `ti4-tensor`, `ti4-advisor`, `ti4-replayer`, `ti4-review`; a grep finds none of the patterns
+that broke elsewhere (`XId::new(x.into())`, `UNSEATED`), but `Borrow<str>` can make a
+`contains(&&id)` ambiguous (one such test line needed a `*` here), so they need a compile before a merge.
+
+Wasm gains less than native: atomics are plain operations there, but the remaining cost is dlmalloc
+and the engine's own work, and the views are not on the wasm hot path.
+
+### 4.4 Migration plan
+
+| Stage | What | Effort | Risk | Gain |
+|---|---|---|---|---|
+| 0 | `Arc<str>` newtypes with string `Ord`/`Hash`/serde, `Borrow<str>`, `&str` probes (this prototype) | done (1 day incl. review) | low; wire, order and hashes unchanged by construction, all benches identical | measured: bot -7.6%, views -22%, resume -17%, replay -12%, solo -12% native / -5% wasm, memory -5% |
+| 1 | Remove the remaining temporary ids and `format!` keys on hot paths (2290 constructions per decision before stage 0; count again with `count_calls.sh` on `XId::new` after stage 0); typed keys for `faction_marks` lookups | 2-4 days | low | est. -5..-10% |
+| 2 | Generated rank tables for static content ids (sorted, so rank order = text order) with an `Other(Arc<str>)` fallback; `Ord` by rank when both are corpus ids, else text; property test over all pairs | 1-2 weeks | medium (custom stores in tests, TE/faction variants, every text `match`) | est. -10..-15% (most of memcmp's 23%), enables array/bitset maps |
+| 3 | `PlayerId` as a seat index where the table is fixed (`a`..`h`), text at the boundary | 1 week | medium (server seat ids, lobby) | est. -3..-5% |
+| 4 | Typed content records (no `serde_json::Map` field lookups) | 1-2 weeks | low | est. -5..-9% |
+
+Not recommended: interning at every construction (measured +26% CPU), a thread-local interner
+(cross-thread equality), `Ord` by intern handle (changes `BTreeMap` order and therefore play).
+
+**Recommendation**: take stage 0 (it is on this branch, behaviour-identical, measured gains on every
+workload; compile the libtorch crates once before merging). Do stage 1 next. Stage 2 only after the
+larger, cheaper items of section 3 (checkpoint log copies #8, bot reachability #9, shared view parts
+#11), because those remove more time per day of work; revisit ids when memcmp is the top item again.
+
 ## Files
 
 - `tools/engine_profile/profile.sh` (entry point), `categorize.py`, `count_calls.sh`, `ab_time.sh`,
   `verify_benches.sh`, `module_graph.py`, `wasm_resume.mjs`, `profile-4p.json`, `profile-6p.json`,
   `profile-20.json`.
 - `crates/ti4-selfplay/examples/engine_profile.rs` (game with views and replays, solo, resume).
+- Section 4: `crates/ti4-model/src/id.rs` (the `Arc<str>` ids); call counts of id constructions with
+  `COUNT_FUNCS="<mangled fn>" tools/engine_profile/count_calls.sh BIN -- BIN run ...`.

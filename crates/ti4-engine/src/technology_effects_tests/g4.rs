@@ -56,7 +56,7 @@ fn perform(state: &mut GameState, player: &str, id: &str, answers: &[&str]) -> b
 }
 
 fn units_in(state: &GameState, system: &str, kind: &str) -> usize {
-    state.board.get(&SystemId::new(system)).map_or(0, |board| {
+    state.board.get(ti4_model::id::text(&system)).map_or(0, |board| {
         board
             .units
             .iter()
@@ -68,8 +68,8 @@ fn units_in(state: &GameState, system: &str, kind: &str) -> usize {
 fn on_planet(state: &GameState, system: &str, planet: &str, kind: &str) -> usize {
     state
         .board
-        .get(&SystemId::new(system))
-        .and_then(|board| board.planet_units.get(&PlanetId::new(planet)))
+        .get(ti4_model::id::text(&system))
+        .and_then(|board| board.planet_units.get(ti4_model::id::text(&planet)))
         .map_or(0, |units| {
             units.iter().filter(|u| u.type_id.as_str() == kind).count()
         })
@@ -151,7 +151,7 @@ fn nf_1_ends_the_activating_players_turn_for_a_token_and_exhausts() {
     assert_eq!(seat.strategic_tokens, 1);
     assert!(
         seat.exhausted_technologies
-            .contains(&TechnologyId::new("nf"))
+            .contains(ti4_model::id::text(&"nf"))
     );
 
     // Without the technology nothing is offered.
@@ -160,7 +160,7 @@ fn nf_1_ends_the_activating_players_turn_for_a_token_and_exhausts() {
     bare.player_mut(&pid("b"))
         .unwrap()
         .technologies
-        .remove(&TechnologyId::new("nf"));
+        .remove(ti4_model::id::text(&"nf"));
     let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
     assert_eq!(
         crate::faction_techs::offer_nullification_field(
@@ -205,7 +205,7 @@ fn yso_1_places_two_infantry_after_producing() {
     bare.player_mut(&pid("a"))
         .unwrap()
         .technologies
-        .remove(&TechnologyId::new("yso"));
+        .remove(ti4_model::id::text(&"yso"));
     emit(&mut bare, &[], "UNITS_PRODUCED", &produced("a"));
     assert_eq!(on_planet(&bare, "03", "darien", "infantry"), before);
     emit(&mut state, &[], "UNITS_PRODUCED", &produced("b"));
@@ -254,7 +254,7 @@ fn tp_1_passed_players_cannot_play_action_cards_on_the_owners_turn() {
         .player_mut(&pid("a"))
         .unwrap()
         .technologies
-        .remove(&TechnologyId::new("tp"));
+        .remove(ti4_model::id::text(&"tp"));
     assert!(!crate::laws::action_cards_forbidden(&state, &pid("b")));
 }
 
@@ -455,7 +455,7 @@ fn executiveorder_1_draws_the_top_or_bottom_agenda_and_exhausts() {
             .player(&pid("a"))
             .unwrap()
             .exhausted_technologies
-            .contains(&TechnologyId::new("executiveorder"))
+            .contains(ti4_model::id::text(&"executiveorder"))
     );
     assert_eq!(
         crate::factions::keleres::take_executive_order(&mut state),
@@ -558,7 +558,7 @@ fn nekroc4r_1_places_a_pds_on_a_controlled_planet_and_exhausts() {
             .player(&pid("a"))
             .unwrap()
             .exhausted_technologies
-            .contains(&TechnologyId::new("nekroc4r"))
+            .contains(ti4_model::id::text(&"nekroc4r"))
     );
     assert!(
         !perform(&mut state, "a", "faction|nekro|c4r|pds", &[]),
@@ -1446,7 +1446,7 @@ fn planesplitter_obs_1_moves_an_ingress_token_next_to_the_owners_units() {
     );
     run(&mut bare, &[]);
     assert!(
-        bare.ingress_tokens.contains(&SystemId::new(from)),
+        bare.ingress_tokens.contains(ti4_model::id::text(&from)),
         "no card, no move"
     );
 }
@@ -1455,8 +1455,8 @@ fn planesplitter_obs_1_moves_an_ingress_token_next_to_the_owners_units() {
 fn planesplitter_obs_2_cannot_be_researched() {
     let state = obsidian_game();
     let open = crate::technology::researchable(&state, content(), DEFAULT, &pid("a"));
-    assert!(!open.contains(&TechnologyId::new("planesplitter-obs")));
-    assert!(!open.contains(&TechnologyId::new("parasite-obs")));
+    assert!(!open.contains(&ti4_model::id::TechnologyId::new("planesplitter-obs")));
+    assert!(!open.contains(&ti4_model::id::TechnologyId::new("parasite-obs")));
     assert!(!crate::technology::can_research(
         &state,
         content(),

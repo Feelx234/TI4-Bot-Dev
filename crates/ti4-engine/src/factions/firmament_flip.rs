@@ -491,11 +491,11 @@ mod tests {
         let hollow = SystemId::new("96b");
         let board = state.system_state(&hollow);
         assert_eq!(
-            board.planet_control.get(&PlanetId::new("cronoshollow")),
+            board.planet_control.get(ti4_model::id::text(&"cronoshollow")),
             Some(&a())
         );
         assert_eq!(
-            board.planet_control.get(&PlanetId::new("tallinhollow")),
+            board.planet_control.get(ti4_model::id::text(&"tallinhollow")),
             Some(&a())
         );
         assert!(board.planet_control.get(&cronos()).is_none());
@@ -540,11 +540,11 @@ mod tests {
         assert!(
             !state
                 .exhausted_planets
-                .contains(&PlanetId::new("cronoshollow"))
+                .contains(ti4_model::id::text(&"cronoshollow"))
         );
         assert!(!state.exhausted_planets.contains(&cronos()));
         assert_eq!(
-            state.planet_attachments.get(&PlanetId::new("tallinhollow")),
+            state.planet_attachments.get(ti4_model::id::text(&"tallinhollow")),
             Some(&vec!["attachment".to_owned()])
         );
         // The map follows through the recorded edit.
@@ -560,16 +560,16 @@ mod tests {
             ("obsidiancommander", LeaderStatus::Locked),
             ("obsidianhero", LeaderStatus::Locked),
         ] {
-            assert_eq!(seat.leaders.get(&LeaderId::new(id)), Some(&status), "{id}");
+            assert_eq!(seat.leaders.get(ti4_model::id::text(&id)), Some(&status), "{id}");
         }
         // Technologies keep their exhaustion; the breakthrough keeps its goods.
         assert!(
             seat.technologies
-                .contains(&TechnologyId::new("planesplitter-obs"))
+                .contains(ti4_model::id::text(&"planesplitter-obs"))
         );
         assert!(
             seat.technologies
-                .contains(&TechnologyId::new("parasite-obs"))
+                .contains(ti4_model::id::text(&"parasite-obs"))
         );
         assert_eq!(seat.technologies.len(), 2);
         assert_eq!(
@@ -662,13 +662,13 @@ mod tests {
         assert!(act(&mut state, &galaxy, &a()));
         let board = state.system_state(&SystemId::new("96b"));
         assert_eq!(
-            board.planet_control.get(&PlanetId::new("cronoshollow")),
+            board.planet_control.get(ti4_model::id::text(&"cronoshollow")),
             Some(&b())
         );
         assert!(
             state
                 .exhausted_planets
-                .contains(&PlanetId::new("cronoshollow")),
+                .contains(ti4_model::id::text(&"cronoshollow")),
             "exhaustion follows the planet; only controlled Hollows are readied"
         );
     }

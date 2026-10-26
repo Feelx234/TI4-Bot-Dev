@@ -260,7 +260,7 @@ mod tests {
         assert!(move_placed(&mut state, &planet, &to));
         assert_eq!(state.board[&to].planet_control.get(&planet), Some(&owner));
         assert_eq!(state.board[&to].on_planet(&planet).len(), 1);
-        assert!(state.board[&to].coexisting[&planet].contains(&ti4_model::id::PlayerId::new("b")));
+        assert!(state.board[&to].coexisting[&planet].contains(ti4_model::id::text(&"b")));
         assert!(state.exhausted_planets.contains(&planet));
         assert!(
             state

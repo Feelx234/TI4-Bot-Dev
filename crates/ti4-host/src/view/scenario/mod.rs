@@ -339,7 +339,7 @@ fn late_game(
     galaxy
         .replace_system(content, at::REPLACED, at::ASTEROIDS, sources)
         .map_err(|error| error.to_string())?;
-    state.board.remove(&SystemId::new(at::REPLACED));
+    state.board.remove(ti4_model::id::text(&at::REPLACED));
     state.system_mut(&SystemId::new(at::ASTEROIDS));
 
     // The action phase of round 4: every seat has a card, and seat A is first.
@@ -371,7 +371,7 @@ fn late_game(
         // Sol starts with Antimass Deflectors, and the engine now gives it its effect: the game
         // without deflectors takes them off, so that its asteroid field is closed.
         for technology in ["amd", "lwd"] {
-            seat.technologies.remove(&TechnologyId::new(technology));
+            seat.technologies.remove(ti4_model::id::text(&technology));
         }
     }
     for technology in technologies {
@@ -1747,18 +1747,18 @@ mod tests {
         );
         assert!(
             view.exhausted_technologies
-                .contains(&TechnologyId::new("bs"))
+                .contains(ti4_model::id::text(&"bs"))
         );
         assert_eq!(view.relics.len(), 2);
         assert!(
             view.exhausted_relics
-                .contains(&RelicId::new("prophetstears"))
+                .contains(ti4_model::id::text(&"prophetstears"))
         );
-        assert!(!state.relic_deck.contains(&RelicId::new("dynamiscore")));
+        assert!(!state.relic_deck.contains(&ti4_model::id::RelicId::new("dynamiscore")));
 
         // A planet of each deck is free: the two of the free system, one next to seat B, and
         // the one where every other seat has a token.
-        let explores = |planet: &str| facts.explores.get(&PlanetId::new(planet)).cloned();
+        let explores = |planet: &str| facts.explores.get(ti4_model::id::text(&planet)).cloned();
         assert_eq!(explores("abyz"), Some(vec!["HAZARDOUS".to_owned()]));
         assert_eq!(explores("abaddon"), Some(vec!["CULTURAL".to_owned()]));
         assert_eq!(explores("perimeter"), Some(vec!["INDUSTRIAL".to_owned()]));

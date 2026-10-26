@@ -1138,7 +1138,7 @@ fn bastioncommander_3_nip_and_tuck_bars_the_nekro_from_placing_assimilator_token
             .player_mut(&a())
             .unwrap()
             .technologies
-            .remove(&ti4_model::id::TechnologyId::new("aida"));
+            .remove(ti4_model::id::text(&"aida"));
         if unlocked {
             set_leader(&mut state, &b(), "bastioncommander", LeaderStatus::Unlocked);
         }
@@ -1993,7 +1993,7 @@ fn plotsplots_1_and_2_scoring_another_players_secret_places_a_facedown_plot_for_
     );
     assert!(
         seat.plot_objectives
-            .contains(&ti4_model::id::SecretObjectiveId::new("fwm"))
+            .contains(ti4_model::id::text(&"fwm"))
     );
     // A Firmament that does not meet the requirement is not offered it; nor is anyone else.
     let mut poor = state.clone();
@@ -2443,7 +2443,7 @@ fn planesplitter_firm_2_and_parasite_firm_2_the_cards_flip_when_the_faction_beco
             .player(&a())
             .unwrap()
             .exhausted_technologies
-            .contains(&ti4_model::id::TechnologyId::new("parasite-obs")),
+            .contains(ti4_model::id::text(&"parasite-obs")),
         "exhaustion is kept on the flipped card"
     );
 }
@@ -2560,12 +2560,12 @@ fn bladesorchestra_1_coming_into_play_flips_the_home_the_plots_and_readies_the_h
             state
                 .system_state(&sys("96b"))
                 .planet_control
-                .get(&PlanetId::new(hollow)),
+                .get(ti4_model::id::text(&hollow)),
             Some(&a()),
             "{hollow}"
         );
         assert!(
-            !state.exhausted_planets.contains(&PlanetId::new(hollow)),
+            !state.exhausted_planets.contains(ti4_model::id::text(&hollow)),
             "{hollow} is ready"
         );
     }
@@ -2769,7 +2769,7 @@ fn obsidianhero_2_sharsiss_hollow_readies_every_planet_and_is_purged() {
     assert!(
         game.state
             .exhausted_planets
-            .contains(&PlanetId::new("jord")),
+            .contains(ti4_model::id::text(&"jord")),
         "only its own planets"
     );
     assert_eq!(
@@ -3345,7 +3345,7 @@ fn oceanbound_ocean_cards_pay_for_things_like_planets_and_exhaust() {
     let (state, offered, log) = build(true);
     assert!(offered, "{log:?}");
     assert!(
-        state.exhausted_planets.contains(&PlanetId::new("ocean1")),
+        state.exhausted_planets.contains(ti4_model::id::text(&"ocean1")),
         "the ocean card was exhausted to pay: {log:?}"
     );
     let (_, offered, _) = build(false);

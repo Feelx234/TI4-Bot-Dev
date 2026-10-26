@@ -597,7 +597,7 @@ fn can_resolve_action(
                                         && r.text("alias").is_some_and(|a| {
                                             !seat
                                                 .technologies
-                                                .contains(&ti4_model::id::TechnologyId::new(a))
+                                                .contains(ti4_model::id::text(&a))
                                         })
                                 })
                         })
@@ -2892,7 +2892,7 @@ mod tests {
             let board = state.system_state(&ti4_model::id::SystemId::new(id.clone()));
             assert!(!board.command_tokens.contains(&player()), "yours came back");
             assert!(
-                board.command_tokens.contains(&PlayerId::new("b")),
+                board.command_tokens.contains(ti4_model::id::text(&"b")),
                 "and nobody else's moved"
             );
         }
@@ -2953,11 +2953,11 @@ mod tests {
         // not a gap, and reporting it as one trains the reader to ignore the list.
         let missing = unimplemented(ContentStore::embedded(), &["xxcha"]);
         assert!(
-            !missing.contains(&LeaderId::new("xxchacommander")),
+            !missing.contains(&ti4_model::id::LeaderId::new("xxchacommander")),
             "its effect lives in elder_qanoj"
         );
         assert!(
-            !missing.contains(&LeaderId::new("xxchahero")),
+            !missing.contains(&ti4_model::id::LeaderId::new("xxchahero")),
             "and the hero's effect lives in combines_planet_values"
         );
         // The half that keeps this test honest: a leader nothing handles is still reported, so
@@ -2965,7 +2965,7 @@ mod tests {
         // until Z'eu was delivered (2026-10-12); across every faction one is still left (the
         // Keleres' Orlando hero, 2026-10-12), so the whole roster stands in now.
         assert!(
-            !unimplemented(ContentStore::embedded(), &["naalu"]).contains(&LeaderId::new(ZEU)),
+            !unimplemented(ContentStore::embedded(), &["naalu"]).contains(&ti4_model::id::LeaderId::new(ZEU)),
             "Z'eu is delivered by the game"
         );
         let all: Vec<&str> =
@@ -3079,7 +3079,7 @@ mod tests {
         let unlocked = check_unlocks(&mut state, content, POK, None, &player());
 
         assert!(
-            unlocked.contains(&LeaderId::new("hacancommander")),
+            unlocked.contains(&ti4_model::id::LeaderId::new("hacancommander")),
             "nothing has been scored, and it still unlocked"
         );
         assert_eq!(
@@ -3087,7 +3087,7 @@ mod tests {
                 .player(&player())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new("hacancommander")),
+                .get(ti4_model::id::text(&"hacancommander")),
             Some(&LeaderStatus::Unlocked)
         );
     }
@@ -4084,7 +4084,7 @@ mod tests {
         let placed_a: Vec<String> = state
             .system_state(&ti4_model::id::SystemId::new(system_a))
             .planet_units
-            .get(&ti4_model::id::PlanetId::new(planet_a))
+            .get(ti4_model::id::text(&planet_a))
             .map(|units| {
                 units
                     .iter()
@@ -4105,7 +4105,7 @@ mod tests {
         let placed_b: Vec<String> = state
             .system_state(&ti4_model::id::SystemId::new(system_b))
             .planet_units
-            .get(&ti4_model::id::PlanetId::new(planet_b))
+            .get(ti4_model::id::text(&planet_b))
             .map(|units| {
                 units
                     .iter()

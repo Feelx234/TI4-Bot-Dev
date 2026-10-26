@@ -106,7 +106,7 @@ fn argenthero_2_flock_migration_moves_a_ship_and_the_hero_is_purged() {
     let content = ContentStore::embedded();
     let ids: Vec<String> = crate::fixtures::plain_systems(14)
         .into_iter()
-        .filter(|id| !state.board.contains_key(&SystemId::new(id.as_str())))
+        .filter(|id| !state.board.contains_key(ti4_model::id::text(&id.as_str())))
         .take(6)
         .collect();
     let mut tiles = vec!["18"];
@@ -218,7 +218,7 @@ fn commander_board(commander: bool) -> (crate::game::Game<'static>, SystemId) {
         .iter()
         .filter(|(_, s)| !s.is_anomaly() && !s.is_hyperlane())
         .map(|(id, _)| (*id).to_owned())
-        .filter(|id| !state.board.contains_key(&SystemId::new(id.as_str())))
+        .filter(|id| !state.board.contains_key(ti4_model::id::text(&id.as_str())))
         .take(7)
         .collect();
     let refs: Vec<&str> = ids.iter().map(String::as_str).collect();

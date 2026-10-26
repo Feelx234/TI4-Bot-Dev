@@ -385,13 +385,13 @@ fn timing_abilities(state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec
     ];
     if state
         .player(seat)
-        .is_some_and(|source| source.leaders.contains_key(&LeaderId::new(AGENT)))
+        .is_some_and(|source| source.leaders.contains_key(ti4_model::id::text(&AGENT)))
     {
         for candidate in &state.players {
             if candidate.id != *seat
                 && candidate
                     .leaders
-                    .contains_key(&LeaderId::new("yssarilagent"))
+                    .contains_key(ti4_model::id::text(&"yssarilagent"))
             {
                 abilities.push(borrowed_suffi_an(owner_name, seat, &candidate.id));
             }
@@ -2080,7 +2080,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new(AGENT)),
+                .get(ti4_model::id::text(&AGENT)),
             Some(&LeaderStatus::Exhausted)
         );
         assert_eq!(state.player(&a()).unwrap().action_cards.len(), hand_a + 1);
@@ -2101,7 +2101,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new(AGENT)),
+                .get(ti4_model::id::text(&AGENT)),
             Some(&LeaderStatus::Readied)
         );
         assert_eq!(state.player(&a()).unwrap().action_cards.len(), hand_a);
@@ -2290,7 +2290,7 @@ mod tests {
             .player_mut(&a())
             .unwrap()
             .leaders
-            .remove(&LeaderId::new(COMMANDER));
+            .remove(ti4_model::id::text(&COMMANDER));
         assert!(crate::promissory::grant_commander_ability(
             &mut state,
             ContentStore::embedded(),
@@ -2388,7 +2388,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new(HERO)),
+                .get(ti4_model::id::text(&HERO)),
             Some(&LeaderStatus::Purged)
         );
         emit(
@@ -2450,7 +2450,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new(HERO)),
+                .get(ti4_model::id::text(&HERO)),
             Some(&LeaderStatus::Unlocked)
         );
         emit(

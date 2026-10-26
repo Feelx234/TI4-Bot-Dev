@@ -219,7 +219,7 @@ pub(crate) fn leader_status(
     state
         .player(who)?
         .leaders
-        .get(&LeaderId::new(leader))
+        .get(ti4_model::id::text(&leader))
         .copied()
 }
 
@@ -1577,7 +1577,7 @@ fn matriarch_fight(mut state: GameState, flagship_present: bool) -> (usize, usiz
         .player_mut(&a())
         .unwrap()
         .technologies
-        .remove(&ti4_model::id::TechnologyId::new("dxa"));
+        .remove(ti4_model::id::text(&"dxa"));
     state.system_mut(&system).set_control(planet.clone(), b());
     put_on_planet(&mut state, &system, &planet, "infantry", &b(), 1);
     let fighter = if state.player(&a()).unwrap().faction.as_str() == "naalu" {
@@ -2022,7 +2022,7 @@ fn vax_2_and_vay_2_an_assimilated_technology_is_played_as_text_exhausting_the_va
         );
         assert!(
             seat.exhausted_technologies
-                .contains(&ti4_model::id::TechnologyId::new(card)),
+                .contains(ti4_model::id::text(&card)),
             "{card}: the Valefar card is the one exhausted"
         );
     }
@@ -2054,7 +2054,7 @@ fn bombard_profile(faction: &str, kind: &str) -> (Option<u32>, usize) {
         .player_mut(&a())
         .unwrap()
         .technologies
-        .remove(&ti4_model::id::TechnologyId::new("ps"));
+        .remove(ti4_model::id::text(&"ps"));
     let (system, planet) = one_planet();
     state.system_mut(&system).set_control(planet.clone(), b());
     put_on_planet(&mut state, &system, &planet, "infantry", &b(), 1);
@@ -2310,7 +2310,7 @@ fn unit_l1z1x_mech_1_anihilator_bombards_the_other_planets_of_its_system_but_not
             .player_mut(&a())
             .unwrap()
             .technologies
-            .remove(&ti4_model::id::TechnologyId::new("ps"));
+            .remove(ti4_model::id::text(&"ps"));
         let (system, first, second) = two_planet_system();
         state.system_mut(&system).set_control(first.clone(), b());
         put_on_planet(&mut state, &system, &first, "infantry", &b(), 1);

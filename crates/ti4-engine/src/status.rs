@@ -1,6 +1,6 @@
 //! Structural status-phase bookkeeping.
 
-use ti4_model::id::{ObjectiveId, PlanetId, PlayerId, StrategyCardId, SystemId, TechnologyId};
+use ti4_model::id::{ObjectiveId, PlanetId, PlayerId, StrategyCardId, SystemId};
 use ti4_model::state::{GameState, Phase};
 
 /// The observable structural changes made during one status phase.
@@ -111,7 +111,7 @@ pub fn resolve_before_token_gain_with(
         let mut requested_draws = 1 + usize::from(
             state
                 .player(&player_id)
-                .is_some_and(|player| player.technologies.contains(&TechnologyId::new("nm"))),
+                .is_some_and(|player| player.technologies.contains(ti4_model::id::text(&"nm"))),
         );
         if let Some((content, table)) = draw_effects.as_mut() {
             if let Err(error) = crate::factions::hooks_economy::action_card_draw_requested(

@@ -3150,7 +3150,7 @@ pub fn apply_movement_effects(
     // ships." Held, not played, so it applies to every move.
     if seat
         .technologies
-        .contains(&ti4_model::id::TechnologyId::new("lwd"))
+        .contains(ti4_model::id::text(&"lwd"))
     {
         rules.ignore_enemy_ships = true;
     }
@@ -3733,7 +3733,7 @@ fn pull_and_land(
                 .state
                 .system_mut(&ti4_model::id::SystemId::new(&source_system))
                 .planet_units
-                .get_mut(&ti4_model::id::PlanetId::new(planet_part))
+                .get_mut(ti4_model::id::text(&planet_part))
                 .expect("the unit was there")
                 .swap_remove(index);
         }
@@ -4629,7 +4629,7 @@ fn divert_funding(context: &mut crate::timing::TimingContext<'_>, player: &Playe
     };
     if let Some(seat) = context.state.player_mut(player) {
         seat.technologies
-            .remove(&ti4_model::TechnologyId::new(&alias));
+            .remove(ti4_model::id::text(&alias));
     }
     // Doctor Carrina's window: the research half is a research (see `deepwrought_research.rs`).
     crate::factions::deepwrought_research::around(
@@ -4934,7 +4934,7 @@ fn refit_troops(context: &mut crate::timing::TimingContext<'_>, player: &PlayerI
                 .state
                 .system_mut(&ti4_model::id::SystemId::new(&source_system))
                 .planet_units
-                .get_mut(&ti4_model::id::PlanetId::new(planet_part))
+                .get_mut(ti4_model::id::text(&planet_part))
                 .expect("the infantry was there");
             units.remove(index);
             units.push(ti4_model::units::Unit::new(mech.clone(), player.clone()));
@@ -8447,7 +8447,7 @@ mod tests {
         assert_eq!(
             state
                 .agenda_predictions
-                .get(&PlayerId::new("b"))
+                .get(ti4_model::id::text(&"b"))
                 .map(String::as_str),
             Some("none|assassin"),
         );
@@ -8465,7 +8465,7 @@ mod tests {
         assert_eq!(
             state
                 .agenda_predictions
-                .get(&PlayerId::new("b"))
+                .get(ti4_model::id::text(&"b"))
                 .map(String::as_str),
             Some("FOR|lead_rider"),
         );
@@ -8575,11 +8575,11 @@ mod tests {
 
         let tokens = state.system_state(&system).command_tokens.clone();
         assert!(
-            tokens.contains(&PlayerId::new("b")),
+            tokens.contains(ti4_model::id::text(&"b")),
             "b has a token to place"
         );
         assert!(
-            tokens.contains(&PlayerId::new("c")),
+            tokens.contains(ti4_model::id::text(&"c")),
             "c has a token to place"
         );
         assert_eq!(
@@ -8639,13 +8639,13 @@ mod tests {
         assert!(
             state
                 .exhausted_planets
-                .contains(&ti4_model::id::PlanetId::new(*cultural_id)),
+                .contains(ti4_model::id::text(&*cultural_id)),
             "the cultural planet is exhausted"
         );
         assert!(
             !state
                 .exhausted_planets
-                .contains(&ti4_model::id::PlanetId::new(*barren_id)),
+                .contains(ti4_model::id::text(&*barren_id)),
             "an industrial planet is not"
         );
     }
@@ -10906,7 +10906,7 @@ mod tests {
                 .player(&researcher)
                 .unwrap()
                 .technologies
-                .contains(&ti4_model::id::TechnologyId::new("dxa")),
+                .contains(ti4_model::id::text(&"dxa")),
             "researched past the prerequisite"
         );
         assert_eq!(state.player(&researcher).unwrap().trade_goods, 2);
@@ -12612,7 +12612,7 @@ mod tests {
                 .player(&other)
                 .unwrap()
                 .strategy_cards
-                .contains(&ti4_model::StrategyCardId::new("pok5trade")),
+                .contains(&ti4_model::id::StrategyCardId::new("pok5trade")),
             "the card stays in its owner's hand"
         );
     }

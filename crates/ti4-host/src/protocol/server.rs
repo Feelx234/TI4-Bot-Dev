@@ -981,7 +981,7 @@ pub fn verified_decision_facts(
         && state
             .scored_objectives
             .get(&record.player)
-            .is_some_and(|scored| scored.contains(&ti4_model::id::ObjectiveId::new(&option.id)))
+            .is_some_and(|scored| scored.contains(ti4_model::id::text(&option.id)))
     {
         // A scored secret is revealed; an offered but unscored secret is not.
         detail = Some(format!("{} scored objective {}", record.player, option.id));

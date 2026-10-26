@@ -723,7 +723,7 @@ pub fn research_pick(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Opt
     }
     let owned = |alias: &str| {
         seen.seat(me)
-            .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new(alias)))
+            .is_some_and(|seat| seat.technologies.contains(ti4_model::id::text(&alias)))
     };
     let own_list = seat_plan(seen, me).map_or(&[][..], |plan| plan.techs);
     let order: Vec<&str> = own_list.iter().chain(GENERAL).copied().collect();
@@ -806,7 +806,7 @@ pub fn best_technology(
     };
     candidates
         .iter()
-        .filter(|(_, alias)| !seat.technologies.contains(&TechnologyId::new(*alias)))
+        .filter(|(_, alias)| !seat.technologies.contains(ti4_model::id::text(&*alias)))
         .min_by_key(|(index, alias)| (rank(alias), *index))
         .map(|(index, _)| *index)
 }

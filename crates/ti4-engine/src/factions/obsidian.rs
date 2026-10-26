@@ -537,7 +537,7 @@ fn viper(owner_name: &str, seat: &PlayerId) -> Ability {
 fn agent_ready(state: &GameState, owner: &PlayerId) -> bool {
     state
         .player(owner)
-        .is_some_and(|seat| seat.leaders.get(&LeaderId::new(AGENT)) == Some(&LeaderStatus::Readied))
+        .is_some_and(|seat| seat.leaders.get(ti4_model::id::text(&AGENT)) == Some(&LeaderStatus::Readied))
 }
 
 /// A ship destroyed in a space combat: the system, whose it was and its type.
@@ -941,7 +941,7 @@ fn reaping_space(owner_name: &str, seat: &PlayerId) -> Ability {
                     .decode::<Vec<String>>("opponents")
                     .unwrap_or_default()
                     .iter()
-                    .any(|loser| firmament::puppeted(state, who).contains(&PlayerId::new(loser)))
+                    .any(|loser| firmament::puppeted(state, who).contains(ti4_model::id::text(&loser)))
         };
     Ability::stateful(
         format!("breakthrough:{owner_name}:{BREAKTHROUGH}:SPACE_COMBAT_WON:after"),
@@ -983,7 +983,7 @@ fn reaping_ground(owner_name: &str, seat: &PlayerId) -> Ability {
             .flatten()
             .find(|side| *side != condition_owner.as_str());
         loser.is_some_and(|loser| {
-            firmament::puppeted(context.state, &condition_owner).contains(&PlayerId::new(loser))
+            firmament::puppeted(context.state, &condition_owner).contains(ti4_model::id::text(&loser))
         })
     }))
 }
@@ -1078,7 +1078,7 @@ mod tests {
             .player(who)
             .unwrap()
             .leaders
-            .get(&LeaderId::new(leader))
+            .get(ti4_model::id::text(&leader))
             .copied()
     }
 
@@ -1307,13 +1307,13 @@ mod tests {
         assert!(
             !state
                 .exhausted_planets
-                .contains(&PlanetId::new("cronoshollow")),
+                .contains(ti4_model::id::text(&"cronoshollow")),
             "a Hollow the Obsidian controls is readied"
         );
         assert!(
             state
                 .exhausted_planets
-                .contains(&PlanetId::new("tallinhollow")),
+                .contains(ti4_model::id::text(&"tallinhollow")),
             "a Hollow it does not control is not"
         );
         assert!(
@@ -2210,7 +2210,7 @@ mod tests {
             .set_control(elsewhere.clone(), a());
         state.exhausted_planets.insert(elsewhere.clone());
         state.exhausted_planets.insert(PlanetId::new("jord"));
-        assert!(crate::leaders::usable(&state, content(), &a()).contains(&LeaderId::new(HERO)));
+        assert!(crate::leaders::usable(&state, content(), &a()).contains(&ti4_model::id::LeaderId::new(HERO)));
         let mut table = scripted(&[]);
         let used =
             crate::fixtures::with_context(&mut state, DEFAULT, None, &mut table, |context| {
@@ -2220,16 +2220,16 @@ mod tests {
         assert!(
             !state
                 .exhausted_planets
-                .contains(&PlanetId::new("cronoshollow"))
+                .contains(ti4_model::id::text(&"cronoshollow"))
         );
         assert!(
             !state
                 .exhausted_planets
-                .contains(&PlanetId::new("tallinhollow"))
+                .contains(ti4_model::id::text(&"tallinhollow"))
         );
         assert!(!state.exhausted_planets.contains(&elsewhere));
         assert!(
-            state.exhausted_planets.contains(&PlanetId::new("jord")),
+            state.exhausted_planets.contains(ti4_model::id::text(&"jord")),
             "only its own planets"
         );
         assert_eq!(
@@ -2240,7 +2240,7 @@ mod tests {
 
     #[test]
     fn sharsiss_hollow_is_offered_only_when_unlocked_and_something_is_exhausted() {
-        assert!(!crate::leaders::usable(&game(), content(), &a()).contains(&LeaderId::new(HERO)));
+        assert!(!crate::leaders::usable(&game(), content(), &a()).contains(&ti4_model::id::LeaderId::new(HERO)));
         let mut ready = hero_game();
         ready.exhausted_planets.clear();
         assert_eq!(
@@ -2678,10 +2678,10 @@ mod tests {
         // Plasma Scoring and Self-Assembly Routines qualify; Mageon Implants is a faction technology.
         flush(&mut state, &galaxy, &["sar"]);
         let mine = &state.player(&a()).unwrap().technologies;
-        assert!(mine.contains(&TechnologyId::new("sar")), "{mine:?}");
-        assert!(!mine.contains(&TechnologyId::new("ps")));
+        assert!(mine.contains(ti4_model::id::text(&"sar")), "{mine:?}");
+        assert!(!mine.contains(ti4_model::id::text(&"ps")));
         assert!(
-            !mine.contains(&TechnologyId::new("mi")),
+            !mine.contains(ti4_model::id::text(&"mi")),
             "a faction technology"
         );
         assert!(
@@ -2689,7 +2689,7 @@ mod tests {
                 .player(&b())
                 .unwrap()
                 .technologies
-                .contains(&TechnologyId::new("sar")),
+                .contains(ti4_model::id::text(&"sar")),
             "gained, not taken"
         );
         // One candidate is gained without a question.
@@ -2702,7 +2702,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .technologies
-                .contains(&TechnologyId::new("ps"))
+                .contains(ti4_model::id::text(&"ps"))
         );
     }
 
@@ -2730,7 +2730,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .technologies
-                .contains(&TechnologyId::new("ps"))
+                .contains(ti4_model::id::text(&"ps"))
         );
         assert_eq!(goods(&state, &a()), before - 4, "four resources were spent");
         // A may: declined, nothing changes.
@@ -2749,7 +2749,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .technologies
-                .contains(&TechnologyId::new("ps"))
+                .contains(ti4_model::id::text(&"ps"))
         );
         assert_eq!(goods(&declined, &a()), 5);
     }
@@ -2766,7 +2766,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .technologies
-                .contains(&TechnologyId::new("mi"))
+                .contains(ti4_model::id::text(&"mi"))
         );
         // Three resources are not four.
         let mut poor = obsidian_with(&[("extract", "b")]);
@@ -2778,7 +2778,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .technologies
-                .contains(&TechnologyId::new("ps"))
+                .contains(ti4_model::id::text(&"ps"))
         );
         // c has no token on the card.
         let mut stranger = obsidian_with(&[("extract", "b")]);
@@ -2796,7 +2796,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .technologies
-                .contains(&TechnologyId::new("ps"))
+                .contains(ti4_model::id::text(&"ps"))
         );
     }
 
@@ -2918,7 +2918,7 @@ mod tests {
                 .player_mut(&b())
                 .unwrap()
                 .technologies
-                .remove(&ti4_model::id::TechnologyId::new("amd"));
+                .remove(ti4_model::id::text(&"amd"));
             // Every die shows 5; a PDS hits on 6.
             let mut dice = crate::dice::Dice::from_faces(std::iter::repeat_n(5, 12));
             let mut rng = crate::rng::GameRng::new(0);

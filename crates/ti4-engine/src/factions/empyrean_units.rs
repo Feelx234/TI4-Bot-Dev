@@ -391,7 +391,7 @@ fn watcher(owner_name: &str, seat: &PlayerId) -> Ability {
 fn agent_ready(state: &GameState, player: &PlayerId) -> bool {
     state
         .player(player)
-        .is_some_and(|seat| seat.leaders.get(&LeaderId::new(AGENT)) == Some(&LeaderStatus::Readied))
+        .is_some_and(|seat| seat.leaders.get(ti4_model::id::text(&AGENT)) == Some(&LeaderStatus::Readied))
 }
 
 /// The player who moved ships into a system with no planets, for Acamar's window.
@@ -1072,7 +1072,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new(AGENT)),
+                .get(ti4_model::id::text(&AGENT)),
             Some(&LeaderStatus::Exhausted)
         );
         // The mover, not the Empyrean, was asked for the pool.

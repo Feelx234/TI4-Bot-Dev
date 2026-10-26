@@ -1873,7 +1873,7 @@ mod tests {
 
         let options = activatable(&state, &galaxy, &player());
 
-        assert!(!options.contains(&SystemId::new(&lane)), "{options:?}");
+        assert!(!options.contains(&ti4_model::id::SystemId::new(&lane)), "{options:?}");
         assert_eq!(options.len(), 6, "the six real systems stay offered");
         let choice = activation_options(&state, &galaxy, &player()).unwrap();
         assert!(choice.options.iter().all(|option| option.id != lane));

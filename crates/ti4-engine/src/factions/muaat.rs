@@ -85,7 +85,7 @@ fn has_technology(state: &GameState, player: &PlayerId, alias: &str) -> bool {
 fn leader_status(state: &GameState, player: &PlayerId, leader: &str) -> Option<LeaderStatus> {
     state
         .player(player)
-        .and_then(|seat| seat.leaders.get(&LeaderId::new(leader)).copied())
+        .and_then(|seat| seat.leaders.get(ti4_model::id::text(&leader)).copied())
 }
 
 fn tokens(state: &GameState, player: &PlayerId, pool: TokenPool) -> i32 {
@@ -1198,7 +1198,7 @@ fn stellar_placement(context: &TimingContext<'_>, owner: &PlayerId) -> Vec<Syste
     if context
         .state
         .placed_planets
-        .contains_key(&PlanetId::new("avernus"))
+        .contains_key(ti4_model::id::text(&"avernus"))
     {
         return Vec::new();
     }
@@ -1238,7 +1238,7 @@ fn stellar_move(event: &Event, context: &TimingContext<'_>, owner: &PlayerId) ->
     let origin = context
         .state
         .placed_planets
-        .get(&PlanetId::new("avernus"))?;
+        .get(ti4_model::id::text(&"avernus"))?;
     if *origin == destination
         || ti4_content::galaxy::is_home_system(
             context.content,
@@ -1611,7 +1611,7 @@ mod tests {
                 ],
             );
             assert_eq!(
-                state.placed_planets.get(&PlanetId::new("avernus")),
+                state.placed_planets.get(ti4_model::id::text(&"avernus")),
                 Some(&from)
             );
         }
@@ -2155,7 +2155,7 @@ mod tests {
             assert!(
                 !state
                     .board
-                    .contains_key(&SystemId::new(crate::movement::NOVA_SEED))
+                    .contains_key(ti4_model::id::text(&crate::movement::NOVA_SEED))
             );
         };
         // The hero is not unlocked.
@@ -2712,7 +2712,7 @@ mod tests {
             );
             // The bill is the produced-for player's: a paid it, b paid nothing.
             assert!(
-                state.exhausted_planets.contains(&PlanetId::new("muaat")),
+                state.exhausted_planets.contains(ti4_model::id::text(&"muaat")),
                 "a cruiser costs 4; the chosen player paid it"
             );
             assert_eq!(state.player(&a()).unwrap().trade_goods, goods_a);
@@ -2883,7 +2883,7 @@ mod tests {
             .player_mut(&b())
             .unwrap()
             .leaders
-            .remove(&LeaderId::new("yssarilagent"));
+            .remove(ti4_model::id::text(&"yssarilagent"));
         assert_eq!(
             leader_action(&state, content(), &b(), &LeaderId::new(UMBAT)),
             Some(false)
@@ -2968,7 +2968,7 @@ mod tests {
             .player_mut(&a())
             .unwrap()
             .leaders
-            .remove(&LeaderId::new(COMMANDER));
+            .remove(ti4_model::id::text(&COMMANDER));
         assert!(crate::promissory::grant_commander_ability(
             &mut state,
             content(),

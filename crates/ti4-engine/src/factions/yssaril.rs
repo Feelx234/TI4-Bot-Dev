@@ -1267,7 +1267,7 @@ mod tests {
             .player_mut(&a())
             .unwrap()
             .technologies
-            .remove(&TechnologyId::new("tp"));
+            .remove(ti4_model::id::text(&"tp"));
         assert!(!crate::laws::action_cards_forbidden(&state, &b()));
     }
 
@@ -1416,7 +1416,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .exhausted_technologies
-                .contains(&TechnologyId::new("mi"))
+                .contains(ti4_model::id::text(&"mi"))
         );
         assert!(
             hooks_cards::revealed_to(&state, &a()).is_empty(),

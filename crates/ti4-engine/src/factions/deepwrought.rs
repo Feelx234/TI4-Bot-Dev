@@ -444,7 +444,7 @@ pub fn agent_holders(state: &GameState, researcher: &PlayerId) -> Vec<PlayerId> 
         .filter(|holder| {
             state
                 .player(holder)
-                .and_then(|seat| seat.leaders.get(&LeaderId::new(AGENT)).copied())
+                .and_then(|seat| seat.leaders.get(ti4_model::id::text(&AGENT)).copied())
                 == Some(LeaderStatus::Readied)
         })
         .cloned()
@@ -1058,7 +1058,7 @@ pub(crate) mod testkit {
     pub(crate) fn owned(state: &GameState, who: &PlayerId, tech: &str) -> bool {
         state.player(who).is_some_and(|seat| {
             seat.technologies
-                .contains(&ti4_model::id::TechnologyId::new(tech))
+                .contains(ti4_model::id::text(&tech))
         })
     }
 }
@@ -1089,8 +1089,8 @@ mod tests {
             oceans(&state, &a()),
             vec![PlanetId::new("ocean1"), PlanetId::new("ocean2")]
         );
-        assert!(state.exhausted_planets.contains(&PlanetId::new("ocean1")));
-        assert!(!state.exhausted_planets.contains(&PlanetId::new("ocean2")));
+        assert!(state.exhausted_planets.contains(ti4_model::id::text(&"ocean1")));
+        assert!(!state.exhausted_planets.contains(ti4_model::id::text(&"ocean2")));
         // Units already coexisting on a planet do not begin again: no card, and no second answer.
         assert!(!begin_coexisting(&mut state, &a(), &spots[0].0, &spots[0].1, None).unwrap());
         assert_eq!(oceans(&state, &a()).len(), 2);
@@ -1183,7 +1183,7 @@ mod tests {
         assert_eq!(plans.len(), 1);
         assert_eq!(plans[0].planets, vec![PlanetId::new("ocean1")]);
         assert!(crate::payment::apply(&mut state, &a(), &plans[0]));
-        assert!(state.exhausted_planets.contains(&PlanetId::new("ocean1")));
+        assert!(state.exhausted_planets.contains(ti4_model::id::text(&"ocean1")));
         assert!(
             crate::payment::plans(
                 &state,

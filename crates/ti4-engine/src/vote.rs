@@ -1275,10 +1275,10 @@ mod tests {
         }
 
         assert!(
-            !asked.contains(&PlayerId::new("b")),
+            !asked.contains(&ti4_model::id::PlayerId::new("b")),
             "b predicted, so b does not vote; asked {asked:?}"
         );
-        assert!(asked.contains(&PlayerId::new("a")), "a still votes");
+        assert!(asked.contains(&ti4_model::id::PlayerId::new("a")), "a still votes");
     }
 
     /// Feedback fb_1792235794_f7d819ff: an Xxcha player with Elder Qanoj unlocked kept voting

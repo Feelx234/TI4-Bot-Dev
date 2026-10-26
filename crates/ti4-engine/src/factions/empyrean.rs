@@ -539,10 +539,10 @@ fn tether_options(
     let presence = crate::transactions::presence(state, owner);
     let adjacency = crate::movement::PlayerAdjacency::new(state, content, sources, galaxy, owner);
     let neighbours = adjacency.neighbours(system);
-    let here = presence.contains(&SystemId::new(system))
+    let here = presence.contains(ti4_model::id::text(&system))
         || neighbours
             .iter()
-            .any(|other| presence.contains(&SystemId::new(other.as_str())));
+            .any(|other| presence.contains(ti4_model::id::text(&other.as_str())));
     if !here {
         return Vec::new();
     }
@@ -682,7 +682,7 @@ fn tether_relevant(
     let presence = crate::transactions::presence(state, player);
     borders.iter().any(|(a, b)| {
         [a, b].into_iter().any(|end| {
-            presence.contains(&SystemId::new(end.as_str()))
+            presence.contains(ti4_model::id::text(&end.as_str()))
                 || galaxy
                     .distance(system, end)
                     .is_some_and(|distance| distance <= TETHER_REACH)
@@ -1445,7 +1445,7 @@ mod tests {
             crate::exploration::frontier_systems(content, DEFAULT, &ring.galaxy)
                 .into_iter()
                 .collect();
-        assert!(expected.contains(&SystemId::new(nebula.as_str())));
+        assert!(expected.contains(ti4_model::id::text(&nebula.as_str())));
         assert!(planetless.len() <= expected.len());
         // One token already on the board must not be duplicated or lost.
         state.frontier_tokens.clear();

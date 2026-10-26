@@ -399,7 +399,7 @@ fn infantry_to_galvanize(
 fn leader_readied(state: &GameState, owner: &PlayerId, leader: &str) -> bool {
     state
         .player(owner)
-        .and_then(|seat| seat.leaders.get(&LeaderId::new(leader)))
+        .and_then(|seat| seat.leaders.get(ti4_model::id::text(&leader)))
         == Some(&LeaderStatus::Readied)
 }
 
@@ -494,7 +494,7 @@ fn lyra_keen(owner_name: &str, seat: &PlayerId, event_type: &'static str) -> Abi
                          who: &PlayerId| {
         state
             .player(who)
-            .and_then(|seat| seat.leaders.get(&LeaderId::new(HERO)))
+            .and_then(|seat| seat.leaders.get(ti4_model::id::text(&HERO)))
             == Some(&LeaderStatus::Unlocked)
             && event.text("player") == Some(who.as_str())
             && event.boolean("galvanized") == Some(true)

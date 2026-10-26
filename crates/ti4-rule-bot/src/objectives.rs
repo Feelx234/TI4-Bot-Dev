@@ -242,13 +242,13 @@ pub fn goals(seen: &SeatObservation<'_>, me: &PlayerId, imagined: &Imagined<'_>)
     let mut out: Vec<Goal> = observed
         .revealed_objective_progress_imagining(me, imagined)
         .into_iter()
-        .filter(|card| !scored.contains(&ObjectiveId::new(&card.alias)))
+        .filter(|card| !scored.contains(ti4_model::id::text(&card.alias)))
         .map(|card| goal_of(observed, card, false))
         .collect();
     out.extend(
         seen.held_secret_progress_imagining(imagined)
             .into_iter()
-            .filter(|card| !scored.contains(&ObjectiveId::new(&card.alias)))
+            .filter(|card| !scored.contains(ti4_model::id::text(&card.alias)))
             .map(|card| goal_of(observed, card, true)),
     );
     out

@@ -4289,7 +4289,7 @@ mod tests {
                 .player(&owner)
                 .unwrap()
                 .leaders
-                .get(&ti4_model::id::LeaderId::new("jolnaragent")),
+                .get(ti4_model::id::text(&"jolnaragent")),
             Some(&ti4_model::state::LeaderStatus::Exhausted),
             "the agent is exhausted"
         );
@@ -4409,7 +4409,7 @@ mod tests {
                 .player(&researcher)
                 .unwrap()
                 .leaders
-                .get(&ti4_model::id::LeaderId::new("yssarilagent")),
+                .get(ti4_model::id::text(&"yssarilagent")),
             Some(&ti4_model::state::LeaderStatus::Exhausted),
             "the copy is what was spent"
         );
@@ -4418,7 +4418,7 @@ mod tests {
                 .player(&owner)
                 .unwrap()
                 .leaders
-                .get(&ti4_model::id::LeaderId::new("jolnaragent")),
+                .get(ti4_model::id::text(&"jolnaragent")),
             Some(&ti4_model::state::LeaderStatus::Exhausted),
             "the copied agent was already exhausted and is left alone"
         );
@@ -4551,7 +4551,7 @@ mod tests {
                 .player(&researcher)
                 .unwrap()
                 .leaders
-                .get(&ti4_model::id::LeaderId::new("yssarilagent")),
+                .get(ti4_model::id::text(&"yssarilagent")),
             Some(&ti4_model::state::LeaderStatus::Exhausted),
             "Ssruu is the card spent"
         );
@@ -4560,7 +4560,7 @@ mod tests {
                 .player(&owner)
                 .unwrap()
                 .leaders
-                .get(&ti4_model::id::LeaderId::new("jolnaragent")),
+                .get(ti4_model::id::text(&"jolnaragent")),
             Some(&ti4_model::state::LeaderStatus::Readied),
             "the exact source card is unchanged"
         );
@@ -4631,7 +4631,7 @@ mod tests {
                 .player(&owner)
                 .unwrap()
                 .leaders
-                .get(&ti4_model::id::LeaderId::new("jolnaragent")),
+                .get(ti4_model::id::text(&"jolnaragent")),
             Some(&ti4_model::state::LeaderStatus::Readied),
             "a declined agent is not spent"
         );
@@ -4640,7 +4640,7 @@ mod tests {
                 .player(&researcher)
                 .unwrap()
                 .leaders
-                .get(&ti4_model::id::LeaderId::new("yssarilagent")),
+                .get(ti4_model::id::text(&"yssarilagent")),
             Some(&ti4_model::state::LeaderStatus::Exhausted),
             "the copy is"
         );
@@ -4699,7 +4699,7 @@ mod tests {
                 .player(&researcher)
                 .unwrap()
                 .leaders
-                .get(&ti4_model::id::LeaderId::new("yssarilagent")),
+                .get(ti4_model::id::text(&"yssarilagent")),
             Some(&ti4_model::state::LeaderStatus::Readied),
             "an unopened window does not spend the card"
         );
@@ -4848,7 +4848,7 @@ mod tests {
                 .player(&researcher)
                 .unwrap()
                 .leaders
-                .get(&ti4_model::id::LeaderId::new("yssarilagent")),
+                .get(ti4_model::id::text(&"yssarilagent")),
             Some(&ti4_model::state::LeaderStatus::Exhausted),
             "and the copy is what paid for it"
         );
@@ -5782,8 +5782,8 @@ mod tests {
                 .any(|prompt| prompt == "spend 2 more influence for a command token"),
             "the retained fourth influence reduces the next instalment: {prompts:?}"
         );
-        assert!(state.exhausted_planets.contains(&PlanetId::new("arcturus")));
-        assert!(state.exhausted_planets.contains(&PlanetId::new("arinam")));
+        assert!(state.exhausted_planets.contains(ti4_model::id::text(&"arcturus")));
+        assert!(state.exhausted_planets.contains(ti4_model::id::text(&"arinam")));
         assert_eq!(
             state.player(&actor).unwrap().strategic_tokens,
             before + 2,

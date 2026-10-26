@@ -15,7 +15,7 @@
 //! [`super::mecatol_two_step`] when the one-step plan is not likely.
 
 use ti4_engine::choice::{Observed, SeatObservation};
-use ti4_model::id::{PlanetId, PlayerId};
+use ti4_model::id::PlayerId;
 
 use super::{Cost, MecatolState, Plan, PlanCtx, Steer};
 use crate::tuning;
@@ -30,7 +30,7 @@ pub fn state(seen: &Observed<'_>, me: &PlayerId) -> MecatolState {
     let rival_holds = system.as_ref().is_some_and(|s| {
         seen.system(s)
             .planet_control
-            .get(&PlanetId::new(crate::MECATOL))
+            .get(ti4_model::id::text(&crate::MECATOL))
             .is_some_and(|owner| owner != me)
     });
     MecatolState {

@@ -2476,7 +2476,7 @@ impl<'a> Game<'a> {
         let second_action = self.actions_this_turn < 2
             && self.state.player(player).is_some_and(|seat| {
                 seat.technologies
-                    .contains(&ti4_model::id::TechnologyId::new("fl"))
+                    .contains(ti4_model::id::text(&"fl"))
             });
         if let Some(turn) = self.turn_options() {
             for option in turn.options {
@@ -5048,7 +5048,7 @@ impl<'a> Game<'a> {
         let tro_window = self.state.players.iter().any(|seat| {
             // Also Field Marshal Mercer (`nomadagentmercer`), which reads the same moment.
             ["sardakkagent", "nomadagentmercer"].iter().any(|agent| {
-                seat.leaders.get(&ti4_model::id::LeaderId::new(*agent))
+                seat.leaders.get(ti4_model::id::text(&*agent))
                     == Some(&ti4_model::state::LeaderStatus::Readied)
             }) || crate::factions::hooks_cards::borrowable_agents(
                 &self.state,
@@ -9347,7 +9347,7 @@ mod tests {
         );
         assert_eq!(
             seat.leaders
-                .get(&ti4_model::id::LeaderId::new("naaluagent")),
+                .get(ti4_model::id::text(&"naaluagent")),
             Some(&ti4_model::state::LeaderStatus::Exhausted)
         );
     }
@@ -9385,7 +9385,7 @@ mod tests {
                 .player(&a)
                 .unwrap()
                 .leaders
-                .get(&ti4_model::id::LeaderId::new("naaluagent")),
+                .get(ti4_model::id::text(&"naaluagent")),
             Some(&ti4_model::state::LeaderStatus::Readied)
         );
         let menu = game.legal_options().expect("a is asked again");
@@ -11334,7 +11334,7 @@ mod tests {
         assert!(
             xxcha
                 .exhausted_technologies
-                .contains(&ti4_model::id::TechnologyId::new("it"))
+                .contains(ti4_model::id::text(&"it"))
         );
     }
 
@@ -12368,7 +12368,7 @@ mod tests {
                 .player(holder)
                 .unwrap()
                 .technologies
-                .contains(&ti4_model::id::TechnologyId::new("cv2"))
+                .contains(ti4_model::id::text(&"cv2"))
         );
         let carriers: Vec<String> = game
             .state
@@ -13221,7 +13221,7 @@ mod tests {
             state
                 .system_state(&SystemId::new("01"))
                 .planet_units
-                .get(&PlanetId::new("jord"))
+                .get(ti4_model::id::text(&"jord"))
                 .map(|units| {
                     units
                         .iter()
@@ -13234,7 +13234,7 @@ mod tests {
             state
                 .system_state(&SystemId::new("01"))
                 .coexisting
-                .get(&PlanetId::new("jord"))
+                .get(ti4_model::id::text(&"jord"))
                 .map(|players| players.iter().map(ToString::to_string).collect())
                 .unwrap_or_default()
         };
@@ -15330,13 +15330,13 @@ mod tests {
         assert!(
             state
                 .exhausted_planets
-                .contains(&PlanetId::new(a_planets[0].as_str())),
+                .contains(ti4_model::id::text(&a_planets[0].as_str())),
             "the planet a voted with is exhausted by the vote itself"
         );
         assert!(
             state
                 .exhausted_planets
-                .contains(&PlanetId::new(a_planets[1].as_str())),
+                .contains(ti4_model::id::text(&a_planets[1].as_str())),
             "the planet a kept ready is exhausted by the card's tail; log {events:?}"
         );
     }
@@ -18351,7 +18351,7 @@ mod tests {
                 .player(&borrower)
                 .unwrap()
                 .leaders
-                .get(&ti4_model::id::LeaderId::new("yssarilagent")),
+                .get(ti4_model::id::text(&"yssarilagent")),
             Some(&ti4_model::state::LeaderStatus::Readied)
         );
         assert_eq!(
@@ -18359,7 +18359,7 @@ mod tests {
                 .player(&source)
                 .unwrap()
                 .leaders
-                .get(&ti4_model::id::LeaderId::new("letnevagent")),
+                .get(ti4_model::id::text(&"letnevagent")),
             Some(&ti4_model::state::LeaderStatus::Readied),
             "a failed borrow never changes the source agent"
         );
@@ -18374,7 +18374,7 @@ mod tests {
                 .player(&borrower)
                 .unwrap()
                 .leaders
-                .get(&ti4_model::id::LeaderId::new("yssarilagent")),
+                .get(ti4_model::id::text(&"yssarilagent")),
             Some(&ti4_model::state::LeaderStatus::Exhausted)
         );
         assert_eq!(
@@ -18382,7 +18382,7 @@ mod tests {
                 .player(&source)
                 .unwrap()
                 .leaders
-                .get(&ti4_model::id::LeaderId::new("letnevagent")),
+                .get(ti4_model::id::text(&"letnevagent")),
             Some(&ti4_model::state::LeaderStatus::Readied)
         );
         assert!(
@@ -18476,7 +18476,7 @@ mod tests {
                 .player(&borrower)
                 .unwrap()
                 .leaders
-                .get(&ti4_model::id::LeaderId::new("yssarilagent")),
+                .get(ti4_model::id::text(&"yssarilagent")),
             Some(&ti4_model::state::LeaderStatus::Readied)
         );
         assert_eq!(
@@ -18484,7 +18484,7 @@ mod tests {
                 .player(&source)
                 .unwrap()
                 .leaders
-                .get(&ti4_model::id::LeaderId::new("solagent")),
+                .get(ti4_model::id::text(&"solagent")),
             Some(&ti4_model::state::LeaderStatus::Readied),
             "a failed borrow never changes the source agent"
         );
@@ -18495,7 +18495,7 @@ mod tests {
                 .player(&borrower)
                 .unwrap()
                 .leaders
-                .get(&ti4_model::id::LeaderId::new("yssarilagent")),
+                .get(ti4_model::id::text(&"yssarilagent")),
             Some(&ti4_model::state::LeaderStatus::Exhausted)
         );
         assert_eq!(
@@ -18503,7 +18503,7 @@ mod tests {
                 .player(&source)
                 .unwrap()
                 .leaders
-                .get(&ti4_model::id::LeaderId::new("solagent")),
+                .get(ti4_model::id::text(&"solagent")),
             Some(&ti4_model::state::LeaderStatus::Readied)
         );
         assert!(

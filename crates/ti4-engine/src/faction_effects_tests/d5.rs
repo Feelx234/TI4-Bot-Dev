@@ -526,7 +526,7 @@ fn owns_tech(state: &GameState, who: &PlayerId, tech: &str) -> bool {
         .player(who)
         .expect("seat")
         .technologies
-        .contains(&ti4_model::id::TechnologyId::new(tech))
+        .contains(ti4_model::id::text(&tech))
 }
 
 #[test]
@@ -642,7 +642,7 @@ fn vtx_1_the_vortex_action_captures_a_unit_from_another_players_reinforcements()
                     .player(&a())
                     .unwrap()
                     .exhausted_technologies
-                    .contains(&ti4_model::id::TechnologyId::new("vtx")),
+                    .contains(ti4_model::id::text(&"vtx")),
                 "the card exhausts"
             );
         }
@@ -905,7 +905,7 @@ fn cabalbt_1_the_fracture_enters_play_without_a_roll_and_ingress_tokens_move() {
         .state
         .ingress_tokens
         .iter()
-        .filter(|system| !before.contains(system))
+        .filter(|system| !before.contains(*system))
         .count();
     assert!(
         (1..=2).contains(&moved),
@@ -1710,7 +1710,7 @@ fn ralnelhero_2_director_nel_takes_back_the_last_pass_for_two_command_tokens_and
     assert_eq!(seat.action_cards.len(), 1, "one action card");
     assert_eq!(
         seat.leaders
-            .get(&ti4_model::id::LeaderId::new("ralnelhero")),
+            .get(ti4_model::id::text(&"ralnelhero")),
         Some(&LeaderStatus::Purged)
     );
     assert_eq!(

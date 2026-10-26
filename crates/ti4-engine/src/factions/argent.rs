@@ -964,13 +964,13 @@ fn timing_abilities(state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec
         abilities.extend(wing_transfer_timing(owner_name, seat));
         if state
             .player(seat)
-            .is_some_and(|source| source.leaders.contains_key(&LeaderId::new("argentagent")))
+            .is_some_and(|source| source.leaders.contains_key(ti4_model::id::text(&"argentagent")))
         {
             for candidate in &state.players {
                 if candidate.id != *seat
                     && candidate
                         .leaders
-                        .contains_key(&LeaderId::new("yssarilagent"))
+                        .contains_key(ti4_model::id::text(&"yssarilagent"))
                 {
                     abilities.push(borrowed_argent_agent(owner_name, seat, &candidate.id));
                 }
@@ -982,7 +982,7 @@ fn timing_abilities(state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec
 
 fn agent_ready(state: &GameState, seat: &PlayerId) -> bool {
     state.player(seat).is_some_and(|player| {
-        player.leaders.get(&LeaderId::new("argentagent")) == Some(&LeaderStatus::Readied)
+        player.leaders.get(ti4_model::id::text(&"argentagent")) == Some(&LeaderStatus::Readied)
     })
 }
 
@@ -1225,7 +1225,7 @@ fn strike_wing_hits(
     let owns_upgrade = context.state.player(seat).is_some_and(|player| {
         player
             .technologies
-            .contains(&ti4_model::id::TechnologyId::new("swa2"))
+            .contains(ti4_model::id::text(&"swa2"))
     });
     let set = context.state.reroll_staging.get(seat)?;
     if !owns_upgrade || set.kind != "anti_fighter_barrage" {
@@ -1559,7 +1559,7 @@ mod tests {
         ids.extend(
             crate::fixtures::plain_systems(14)
                 .into_iter()
-                .filter(|id| !state.board.contains_key(&SystemId::new(id.as_str())))
+                .filter(|id| !state.board.contains_key(ti4_model::id::text(&id.as_str())))
                 .take(6),
         );
         let tile_refs: Vec<&str> = ids.iter().map(String::as_str).collect();
@@ -2144,7 +2144,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new("argentcommander"))
+                .get(ti4_model::id::text(&"argentcommander"))
                 == Some(&LeaderStatus::Unlocked)
         );
     }
@@ -2167,7 +2167,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new("argentcommander")),
+                .get(ti4_model::id::text(&"argentcommander")),
             Some(&LeaderStatus::Locked),
             "borrowed rights do not unlock the recipient's native leader record"
         );
@@ -2352,7 +2352,7 @@ mod tests {
         let content = ContentStore::embedded();
         let ids: Vec<String> = crate::fixtures::plain_systems(14)
             .into_iter()
-            .filter(|id| !state.board.contains_key(&SystemId::new(id.as_str())))
+            .filter(|id| !state.board.contains_key(ti4_model::id::text(&id.as_str())))
             .take(6)
             .collect();
         let mut tiles = vec!["18"];
@@ -2492,7 +2492,7 @@ mod tests {
         let content = ContentStore::embedded();
         let ids: Vec<String> = crate::fixtures::plain_systems(14)
             .into_iter()
-            .filter(|id| !state.board.contains_key(&SystemId::new(id.as_str())))
+            .filter(|id| !state.board.contains_key(ti4_model::id::text(&id.as_str())))
             .take(6)
             .collect();
         let mut tiles = vec!["18"];

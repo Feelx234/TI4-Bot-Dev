@@ -16,7 +16,7 @@ use std::sync::Arc;
 use ti4_content::ContentStore;
 use ti4_content::units::UnitType;
 use ti4_model::content_types::SourceSet;
-use ti4_model::id::{ActionCardId, LeaderId, PlanetId, PlayerId, SystemId, TechnologyId};
+use ti4_model::id::{ActionCardId, LeaderId, PlanetId, PlayerId, SystemId};
 use ti4_model::state::GameState;
 use ti4_model::units::Unit;
 
@@ -49,7 +49,7 @@ fn skim_key(player: &PlayerId) -> String {
 fn owns_nanomachines(state: &GameState, player: &PlayerId) -> bool {
     state
         .player(player)
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new(NANOMACHINES)))
+        .is_some_and(|seat| seat.technologies.contains(ti4_model::id::text(&NANOMACHINES)))
 }
 
 fn nanomachines_ready(state: &GameState, player: &PlayerId) -> bool {

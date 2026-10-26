@@ -1018,18 +1018,18 @@ fn resolve(
                 (Some("technology"), Some(id)) => {
                     if let Some(seat) = state.player_mut(player) {
                         seat.exhausted_technologies
-                            .remove(&ti4_model::id::TechnologyId::new(id));
+                            .remove(ti4_model::id::text(&id));
                     }
                 }
                 (Some("relic"), Some(id)) => {
                     if let Some(seat) = state.player_mut(player) {
                         seat.exhausted_relics
-                            .remove(&ti4_model::id::RelicId::new(id));
+                            .remove(ti4_model::id::text(&id));
                     }
                 }
                 (Some("legendary"), Some(id)) => {
                     if let Some(seat) = state.player_mut(player) {
-                        seat.exhausted_legendary.remove(&PlanetId::new(id));
+                        seat.exhausted_legendary.remove(ti4_model::id::text(&id));
                     }
                 }
                 (Some("leader"), Some(id)) => {
@@ -1616,7 +1616,7 @@ mod tests {
         let placed = state
             .system_state(&ti4_model::id::SystemId::new("45"))
             .planet_units
-            .get(&PlanetId::new("primor"))
+            .get(ti4_model::id::text(&"primor"))
             .cloned()
             .unwrap_or_default();
         assert_eq!(placed.len(), 2, "two infantry: {placed:?}");

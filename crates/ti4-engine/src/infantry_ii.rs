@@ -321,7 +321,7 @@ mod tests {
             .player_mut(&a())
             .unwrap()
             .technologies
-            .remove(&TechnologyId::new("inf2"));
+            .remove(ti4_model::id::text(&"inf2"));
         let before = infantry_at_home(&state);
         turn_began(&mut state);
         assert_eq!(units_on_card(&state, &a()), 0);

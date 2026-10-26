@@ -1443,13 +1443,13 @@ fn timing_abilities(state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec
     // below sees agents readied or exhausted after resolver construction.
     if state
         .player(seat)
-        .is_some_and(|source| source.leaders.contains_key(&LeaderId::new(AGENT)))
+        .is_some_and(|source| source.leaders.contains_key(ti4_model::id::text(&AGENT)))
     {
         for candidate in &state.players {
             if &candidate.id != seat
                 && candidate
                     .leaders
-                    .contains_key(&LeaderId::new("yssarilagent"))
+                    .contains_key(ti4_model::id::text(&"yssarilagent"))
             {
                 abilities.push(borrowed_agent(owner_name, seat, &candidate.id));
             }
@@ -2268,7 +2268,7 @@ mod tests {
                     .player_mut(&a())
                     .unwrap()
                     .leaders
-                    .remove(&LeaderId::new(AGENT));
+                    .remove(ti4_model::id::text(&AGENT));
             } else if let Some(status) = source_status {
                 state
                     .player_mut(&a())
@@ -2287,7 +2287,7 @@ mod tests {
                     .player_mut(&b())
                     .unwrap()
                     .leaders
-                    .remove(&LeaderId::new("yssarilagent"));
+                    .remove(ti4_model::id::text(&"yssarilagent"));
             }
             emit(
                 &mut state,
@@ -2524,7 +2524,7 @@ mod tests {
         state
             .unclaimed_strategy_cards
             .push(StrategyCardId::new("te6warfare"));
-        assert!(hero_cards(&state).contains(&StrategyCardId::new("te6warfare")));
+        assert!(hero_cards(&state).contains(&ti4_model::id::StrategyCardId::new("te6warfare")));
         assert_eq!(
             leader_action(&state, content, &a(), &LeaderId::new("winnuhero")),
             Some(true)
@@ -2630,7 +2630,7 @@ mod tests {
             .leaders
             .insert(LeaderId::new("winnuhero"), LeaderStatus::Unlocked);
         let cards = hero_cards(&state);
-        assert!(cards.contains(&StrategyCardId::new("pok1leadership")));
+        assert!(cards.contains(&ti4_model::id::StrategyCardId::new("pok1leadership")));
         assert!(
             cards.contains(&state.unclaimed_strategy_cards[0])
                 || state.unclaimed_strategy_cards.is_empty()

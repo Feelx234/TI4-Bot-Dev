@@ -20,7 +20,7 @@ fn empty_system(state: &ti4_model::state::GameState) -> SystemId {
         .find(|id| {
             state
                 .board
-                .get(&SystemId::new(id.as_str()))
+                .get(ti4_model::id::text(&id.as_str()))
                 .is_none_or(|s| s.units.is_empty() && s.planet_units.values().all(Vec::is_empty))
         })
         .expect("an empty system");
@@ -583,7 +583,7 @@ fn cm_1_chaos_mapping_bars_other_players_from_activating_your_asteroid_field() {
     let mut state = crate::fixtures::game(&["a", "b"]);
     let barred = |state: &GameState, who: &str| {
         !crate::tactical::activatable_with(state, content(), POK, &hub.galaxy, &pid(who))
-            .contains(&SystemId::new(field.as_str()))
+            .contains(&ti4_model::id::SystemId::new(field.as_str()))
     };
     put(
         &mut state,
@@ -1288,7 +1288,7 @@ fn it_1_instinct_training_cancels_another_players_action_card() {
     assert_eq!(seat.strategic_tokens, 1, "a strategy token is spent");
     assert!(
         seat.exhausted_technologies
-            .contains(&TechnologyId::new("it"))
+            .contains(ti4_model::id::text(&"it"))
     );
     assert!(!play(false).0, "no technology, no cancel");
 }
@@ -1441,7 +1441,7 @@ fn vax_2_valefar_assimilator_x_gains_the_text_of_the_technology_it_sits_on() {
         .player_mut(&pid("b"))
         .unwrap()
         .technologies
-        .remove(&TechnologyId::new("mi"));
+        .remove(ti4_model::id::text(&"mi"));
     assert!(
         !crate::technology::has_technology_text(&state, &pid("a"), "mi"),
         "lost with its owner's technology"

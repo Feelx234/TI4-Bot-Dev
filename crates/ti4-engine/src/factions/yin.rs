@@ -327,13 +327,13 @@ fn timing_abilities(state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec
     if is_yin(state, seat)
         && state
             .player(seat)
-            .is_some_and(|source| source.leaders.contains_key(&LeaderId::new("yinagent")))
+            .is_some_and(|source| source.leaders.contains_key(ti4_model::id::text(&"yinagent")))
     {
         for borrower in &state.players {
             if &borrower.id != seat
                 && borrower
                     .leaders
-                    .contains_key(&LeaderId::new("yssarilagent"))
+                    .contains_key(ti4_model::id::text(&"yssarilagent"))
             {
                 abilities.push(borrowed_milor_ship(owner_name, seat, &borrower.id));
                 abilities.push(borrowed_milor_ground(owner_name, seat, &borrower.id));
@@ -816,7 +816,7 @@ fn van_hauge(owner_name: &str, seat: &PlayerId) -> Ability {
 /// Whether Brother Milor is readied in `owner`'s hand.
 fn agent_ready(state: &GameState, owner: &PlayerId) -> bool {
     state.player(owner).is_some_and(|seat| {
-        seat.leaders.get(&LeaderId::new("yinagent")) == Some(&LeaderStatus::Readied)
+        seat.leaders.get(ti4_model::id::text(&"yinagent")) == Some(&LeaderStatus::Readied)
     })
 }
 
@@ -2290,8 +2290,8 @@ mod tests {
     fn home_infantry(state: &GameState) -> usize {
         state
             .board
-            .get(&SystemId::new("03"))
-            .and_then(|board| board.planet_units.get(&PlanetId::new("darien")))
+            .get(ti4_model::id::text(&"03"))
+            .and_then(|board| board.planet_units.get(ti4_model::id::text(&"darien")))
             .map_or(0, |units| {
                 units
                     .iter()
@@ -2596,7 +2596,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new("yinagent")),
+                .get(ti4_model::id::text(&"yinagent")),
             Some(&LeaderStatus::Exhausted)
         );
         // Exhausted now: a second destruction offers nothing.
@@ -2650,7 +2650,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new("yinagent")),
+                .get(ti4_model::id::text(&"yinagent")),
             Some(&LeaderStatus::Readied),
             "an unmet trigger does not exhaust the agent"
         );
@@ -2789,7 +2789,7 @@ mod tests {
                 .player(&b())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new("yssarilagent")),
+                .get(ti4_model::id::text(&"yssarilagent")),
             Some(&LeaderStatus::Readied),
             "an unmet trigger does not spend Ssruu"
         );
@@ -2974,7 +2974,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new("yinagent")),
+                .get(ti4_model::id::text(&"yinagent")),
             Some(&LeaderStatus::Readied)
         );
     }
@@ -3416,7 +3416,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new("yinagent")),
+                .get(ti4_model::id::text(&"yinagent")),
             Some(&LeaderStatus::Exhausted),
             "Brother Milor saw the ground-force casualty window",
         );
@@ -3425,7 +3425,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new("yinhero"))
+                .get(ti4_model::id::text(&"yinhero"))
                 == Some(&LeaderStatus::Purged),
             "the hero is purged once after resolution",
         );

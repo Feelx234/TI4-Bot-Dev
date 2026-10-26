@@ -1298,7 +1298,7 @@ fn roll_ground(
 fn x89_multiplier(state: &GameState, player: &PlayerId) -> usize {
     if state.player(player).is_some_and(|seat| {
         seat.technologies
-            .contains(&ti4_model::id::TechnologyId::new("x89c4"))
+            .contains(ti4_model::id::text(&"x89c4"))
     }) {
         2
     } else {
@@ -6850,7 +6850,7 @@ mod tests {
                 .player(&invader())
                 .unwrap()
                 .leaders
-                .get(&ti4_model::id::LeaderId::new("titansagent"))
+                .get(ti4_model::id::text(&"titansagent"))
                 .copied();
             (left, agent)
         };
@@ -8091,7 +8091,7 @@ mod tests {
                 .player(&a)
                 .unwrap()
                 .leaders
-                .get(&ti4_model::id::LeaderId::new("nomadagentthundarian"))
+                .get(ti4_model::id::text(&"nomadagentthundarian"))
                 .copied();
             (
                 asks,
@@ -8671,7 +8671,7 @@ mod every_committed_force_lands {
         let on = |planet: &str| {
             board
                 .planet_units
-                .get(&PlanetId::new(planet))
+                .get(ti4_model::id::text(&planet))
                 .map_or(0, Vec::len)
         };
         let left_in_space = board
@@ -9318,7 +9318,7 @@ mod ground_routes {
             .into_iter()
             .map(PlanetId::new)
             .collect();
-        assert!(planets.contains(&PlanetId::new("maaluuk")) && planets.len() >= 2);
+        assert!(planets.contains(&ti4_model::id::PlanetId::new("maaluuk")) && planets.len() >= 2);
         let target = planets
             .iter()
             .find(|planet| planet.as_str() != "maaluuk")

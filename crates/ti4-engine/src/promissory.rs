@@ -635,7 +635,7 @@ pub fn has_commander_ability(state: &GameState, player: &PlayerId, commander: &s
         .faction_marks
         .contains_key(&commander_ability_mark(player, commander))
         || state.player(player).is_some_and(|seat| {
-            seat.leaders.get(&ti4_model::id::LeaderId::new(commander))
+            seat.leaders.get(ti4_model::id::text(&commander))
                 == Some(&ti4_model::state::LeaderStatus::Unlocked)
         })
     {
@@ -656,7 +656,7 @@ pub fn has_commander_ability(state: &GameState, player: &PlayerId, commander: &s
                 .is_some_and(|owner| {
                     owner != *player
                         && state.player(&owner).is_some_and(|seat| {
-                            seat.leaders.get(&ti4_model::id::LeaderId::new(commander))
+                            seat.leaders.get(ti4_model::id::text(&commander))
                                 == Some(&ti4_model::state::LeaderStatus::Unlocked)
                         })
                 })

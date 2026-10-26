@@ -33,7 +33,9 @@ use std::sync::Arc;
 use ti4_content::ContentStore;
 use ti4_content::units::catalogue;
 use ti4_model::content_types::SourceSet;
-use ti4_model::id::{LeaderId, PlayerId, TechnologyId};
+use ti4_model::id::{LeaderId, PlayerId};
+#[cfg(test)]
+use ti4_model::id::TechnologyId;
 use ti4_model::state::{GameState, LeaderStatus, TransientFlags};
 
 use super::hooks_cards::CardHooks;
@@ -100,7 +102,7 @@ fn leader_status(state: &GameState, player: &PlayerId, leader: &str) -> Option<L
 fn holds_technology(state: &GameState, player: &PlayerId, alias: &str) -> bool {
     state
         .player(player)
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new(alias)))
+        .is_some_and(|seat| seat.technologies.contains(ti4_model::id::text(&alias)))
 }
 
 /// A technology that is owned and not exhausted.
@@ -630,17 +632,17 @@ mod tests {
             "nomadagentthundarian",
         ] {
             assert_eq!(
-                nomad.leaders.get(&LeaderId::new(agent)),
+                nomad.leaders.get(ti4_model::id::text(&agent)),
                 Some(&LeaderStatus::Readied),
                 "{agent}"
             );
         }
         assert_eq!(
-            nomad.leaders.get(&LeaderId::new(COMMANDER)),
+            nomad.leaders.get(ti4_model::id::text(&COMMANDER)),
             Some(&LeaderStatus::Locked)
         );
         assert_eq!(
-            nomad.leaders.get(&LeaderId::new(HERO)),
+            nomad.leaders.get(ti4_model::id::text(&HERO)),
             Some(&LeaderStatus::Locked)
         );
         assert_eq!(nomad.leaders.len(), 5);
@@ -988,7 +990,7 @@ mod tests {
             state.record_score(&a(), ObjectiveId::new(format!("scored_{n}")));
         }
         let unlocked = crate::leaders::check_unlocks(state, content(), DEFAULT, None, &a());
-        assert!(unlocked.contains(&LeaderId::new(HERO)));
+        assert!(unlocked.contains(&ti4_model::id::LeaderId::new(HERO)));
     }
 
     fn hero_offered(state: &GameState) -> bool {
@@ -1327,7 +1329,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .exhausted_technologies
-                .contains(&TechnologyId::new(TCS))
+                .contains(ti4_model::id::text(&TCS))
         );
         // Exhausted: the next exhaustion is not offered.
         set_status(
@@ -1495,7 +1497,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .exhausted_technologies
-                .contains(&TechnologyId::new(TCS)),
+                .contains(ti4_model::id::text(&TCS)),
             "the card is not left exhausted"
         );
         assert_eq!(

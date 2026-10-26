@@ -6,7 +6,9 @@
 
 use ti4_content::ContentStore;
 use ti4_model::content_types::SourceSet;
-use ti4_model::id::{PlayerId, SystemId, TechnologyId};
+use ti4_model::id::{PlayerId, SystemId};
+#[cfg(test)]
+use ti4_model::id::TechnologyId;
 use ti4_model::state::{GameState, TokenPool};
 
 use crate::choice::{Choice, ChoiceOption, Observed, Table};
@@ -452,7 +454,7 @@ pub fn dacxive_animators(
 ) -> bool {
     if !state
         .player(winner)
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new("dxa")))
+        .is_some_and(|seat| seat.technologies.contains(ti4_model::id::text(&"dxa")))
     {
         return false;
     }
@@ -493,7 +495,7 @@ pub fn offer_scanlink(
 ) -> Option<ti4_model::id::PlanetId> {
     if !state
         .player(active)
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new("sdn")))
+        .is_some_and(|seat| seat.technologies.contains(ti4_model::id::text(&"sdn")))
     {
         return None;
     }
@@ -642,7 +644,7 @@ mod tests {
         assert_eq!(seat.strategic_tokens, 1);
         assert!(
             seat.exhausted_technologies
-                .contains(&TechnologyId::new("nf"))
+                .contains(ti4_model::id::text(&"nf"))
         );
 
         // Exhausted, it is not offered again.

@@ -2425,7 +2425,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new("arboreccommander")),
+                .get(ti4_model::id::text(&"arboreccommander")),
             Some(&LeaderStatus::Locked)
         );
     }

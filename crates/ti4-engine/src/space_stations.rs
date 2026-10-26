@@ -138,7 +138,7 @@ mod tests {
         state
             .system_state(system)
             .planet_control
-            .get(&PlanetId::new(WATCHTOWER))
+            .get(ti4_model::id::text(&WATCHTOWER))
             .cloned()
     }
 
@@ -277,7 +277,7 @@ mod tests {
             state
                 .system_state(&system)
                 .planet_control
-                .get(&PlanetId::new("tsionstation")),
+                .get(ti4_model::id::text(&"tsionstation")),
             Some(&b),
             "B is the only seat with ships, so B takes the station (2a)"
         );

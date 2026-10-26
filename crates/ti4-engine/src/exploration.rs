@@ -1768,7 +1768,7 @@ mod tests {
 
         let systems = frontier_systems(content, ALL_SOURCES, &galaxy);
         assert!(
-            systems.contains(&SystemId::new("117")),
+            systems.contains(&ti4_model::id::SystemId::new("117")),
             "117 holds only a space station, so rule 14 puts a frontier token there: {systems:?}"
         );
     }
@@ -2281,7 +2281,7 @@ mod tests {
                 .player(&player())
                 .unwrap()
                 .technologies
-                .contains(&TechnologyId::new(&wanted)),
+                .contains(ti4_model::id::text(&wanted)),
             "and it is the exact technology the chosen option named"
         );
         assert_eq!(
@@ -2707,7 +2707,7 @@ mod tests {
                 .player(&player())
                 .unwrap()
                 .technologies
-                .contains(&TechnologyId::new("gd"))
+                .contains(ti4_model::id::text(&"gd"))
         );
         assert!(
             table

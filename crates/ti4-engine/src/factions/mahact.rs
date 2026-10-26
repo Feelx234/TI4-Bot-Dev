@@ -234,7 +234,7 @@ fn decision(state: &GameState, player: &PlayerId, card: &str, subtype: &str) -> 
 fn leader_status(state: &GameState, player: &PlayerId, leader: &str) -> Option<LeaderStatus> {
     state
         .player(player)
-        .and_then(|seat| seat.leaders.get(&LeaderId::new(leader)).copied())
+        .and_then(|seat| seat.leaders.get(ti4_model::id::text(&leader)).copied())
 }
 
 /// Put one question to `who`. Every Mahact choice (Edict's opponent, the Scepter's system) is
@@ -1184,7 +1184,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .exhausted_technologies
-                .contains(&TechnologyId::new(RECOMBINATION))
+                .contains(ti4_model::id::text(&RECOMBINATION))
         );
         let q = window.pending_choice(&state, content(), DEFAULT).unwrap();
         assert_eq!(q.player, b());
@@ -1235,7 +1235,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .exhausted_technologies
-                .contains(&TechnologyId::new(RECOMBINATION))
+                .contains(ti4_model::id::text(&RECOMBINATION))
         );
         // Without the technology nobody is asked.
         let plain = game();

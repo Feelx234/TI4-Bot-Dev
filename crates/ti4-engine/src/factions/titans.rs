@@ -1751,7 +1751,7 @@ mod tests {
             .player_mut(&b())
             .unwrap()
             .technologies
-            .remove(&ti4_model::id::TechnologyId::new("amd"));
+            .remove(ti4_model::id::text(&"amd"));
         crate::fixtures::put(&mut state, &centre, "cruiser", &b(), 1);
         crate::fixtures::put_on_planet(&mut state, &beside, &planet, "titans_pds2", &a(), 1);
         assert_eq!(
@@ -2206,7 +2206,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .technologies
-                .contains(&ti4_model::id::TechnologyId::new("sdn")),
+                .contains(ti4_model::id::text(&"sdn")),
             "the Titans start with Scanlink"
         );
         crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &a(), 1);

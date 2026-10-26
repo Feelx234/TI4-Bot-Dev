@@ -1473,7 +1473,7 @@ fn vortex_targets(
     let mut targets: Vec<(PlayerId, UnitTypeId)> = Vec::new();
     for dock in own_dock_systems(state, content, sources, player) {
         for neighbour in galaxy.adjacent(dock.as_str()) {
-            let Some(seat) = state.board.get(&SystemId::new(neighbour)) else {
+            let Some(seat) = state.board.get(ti4_model::id::text(&neighbour)) else {
                 continue;
             };
             let present = seat
@@ -2490,7 +2490,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .exhausted_technologies
-                .contains(&TechnologyId::new(VORTEX)),
+                .contains(ti4_model::id::text(&VORTEX)),
             "the card is exhausted by the action"
         );
         assert!(
@@ -3801,7 +3801,7 @@ mod tests {
         crate::fixtures::put_on_planet(&mut state, &system, &planet, "cabal_spacedock", &a(), 1);
         {
             let seat = state.player_mut(&a()).unwrap();
-            seat.technologies.remove(&TechnologyId::new("dt2"));
+            seat.technologies.remove(ti4_model::id::text(&"dt2"));
             seat.technologies.insert(TechnologyId::new("st"));
             seat.technologies.insert(TechnologyId::new("sdn"));
         }

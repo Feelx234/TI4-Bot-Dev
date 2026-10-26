@@ -101,7 +101,7 @@ pub(crate) fn timing_abilities(
 fn agent_ready(state: &GameState, player: &PlayerId, agent: &str) -> bool {
     state
         .player(player)
-        .is_some_and(|seat| seat.leaders.get(&LeaderId::new(agent)) == Some(&LeaderStatus::Readied))
+        .is_some_and(|seat| seat.leaders.get(ti4_model::id::text(&agent)) == Some(&LeaderStatus::Readied))
 }
 
 /// The one question every Nomad ability here asks. `ability` names the card for the decision
@@ -456,7 +456,7 @@ fn mercer(owner_name: &str, seat: &PlayerId) -> Ability {
 pub fn watches_roll_step(state: &GameState) -> bool {
     let holds = |seat: &ti4_model::state::Player, status: &[LeaderStatus]| {
         seat.leaders
-            .get(&LeaderId::new(THUNDARIAN))
+            .get(ti4_model::id::text(&THUNDARIAN))
             .is_some_and(|held| status.contains(held))
     };
     state
@@ -464,7 +464,7 @@ pub fn watches_roll_step(state: &GameState) -> bool {
         .iter()
         .any(|seat| holds(seat, &[LeaderStatus::Readied]))
         || (state.players.iter().any(|seat| {
-            seat.leaders.get(&LeaderId::new("yssarilagent")) == Some(&LeaderStatus::Readied)
+            seat.leaders.get(ti4_model::id::text(&"yssarilagent")) == Some(&LeaderStatus::Readied)
         }) && state
             .players
             .iter()
@@ -784,7 +784,7 @@ mod tests {
     fn status(state: &GameState, player: &PlayerId, leader: &str) -> Option<LeaderStatus> {
         state
             .player(player)
-            .and_then(|seat| seat.leaders.get(&LeaderId::new(leader)).copied())
+            .and_then(|seat| seat.leaders.get(ti4_model::id::text(&leader)).copied())
     }
     fn set_status(state: &mut GameState, player: &PlayerId, leader: &str, to: LeaderStatus) {
         state

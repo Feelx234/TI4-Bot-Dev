@@ -368,7 +368,7 @@ impl<'a> MovementRules<'a> {
                     .filter(|system_id| {
                         state
                             .board
-                            .get(&SystemId::new(system_id.as_str()))
+                            .get(ti4_model::id::text(&system_id.as_str()))
                             .is_some_and(|system| {
                                 // At least one foreign ship, all of them allowing: an entry with
                                 // none was put there by another hook and is not ours to clear.
@@ -2254,7 +2254,7 @@ mod tests {
         assert!(galaxy.coord_of(target.as_str()).is_none());
         let nova = state.system_state(&SystemId::new(NOVA_SEED));
         assert_eq!(nova.units, vec![ship], "the war sun stands on the new tile");
-        assert!(nova.command_tokens.contains(&PlayerId::new("a")));
+        assert!(nova.command_tokens.contains(ti4_model::id::text(&"a")));
         assert!(
             !state.board.contains_key(&target),
             "the old tile's entry is gone"

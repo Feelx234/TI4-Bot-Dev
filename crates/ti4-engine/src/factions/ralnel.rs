@@ -866,7 +866,7 @@ fn director_nel(owner_name: &str, seat: &PlayerId) -> Ability {
     .with_stateful_condition(Arc::new(move |_event, _, context| {
         is_ralnel(context.state, &condition_owner)
             && context.state.player(&condition_owner).is_some_and(|seat| {
-                seat.leaders.get(&LeaderId::new(HERO)) == Some(&LeaderStatus::Unlocked)
+                seat.leaders.get(ti4_model::id::text(&HERO)) == Some(&LeaderStatus::Unlocked)
             })
             && context.state.all_passed()
     }))
@@ -981,7 +981,7 @@ mod tests {
         state
             .system_state(&sid(system))
             .planet_units
-            .get(&PlanetId::new(planet))
+            .get(ti4_model::id::text(&planet))
             .map_or(0, |units| {
                 units
                     .iter()
@@ -1501,7 +1501,7 @@ mod tests {
         assert_eq!(seat.tactic_tokens, tokens + 2, "two command tokens");
         assert_eq!(seat.action_cards.len(), 1, "one action card");
         assert_eq!(
-            seat.leaders.get(&LeaderId::new(HERO)),
+            seat.leaders.get(ti4_model::id::text(&HERO)),
             Some(&LeaderStatus::Purged)
         );
     }
@@ -1534,7 +1534,7 @@ mod tests {
                 .player(&ralnel())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new(HERO)),
+                .get(ti4_model::id::text(&HERO)),
             Some(&LeaderStatus::Unlocked),
             "not the last pass: no question"
         );
@@ -1995,7 +1995,7 @@ mod tests {
             "the turn stays with the un-passed seat"
         );
         assert_eq!(
-            seat.leaders.get(&LeaderId::new(HERO)),
+            seat.leaders.get(ti4_model::id::text(&HERO)),
             Some(&LeaderStatus::Purged)
         );
     }

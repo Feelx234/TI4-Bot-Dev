@@ -386,7 +386,7 @@ pub fn offer_starlancer(
 fn unlocked(state: &GameState, player: &PlayerId) -> bool {
     state
         .player(player)
-        .is_some_and(|seat| seat.leaders.get(&LeaderId::new(HERO)) == Some(&LeaderStatus::Unlocked))
+        .is_some_and(|seat| seat.leaders.get(ti4_model::id::text(&HERO)) == Some(&LeaderStatus::Unlocked))
 }
 
 /// Whether the hero's combat is being fought: neither player can retreat or resolve an ability that

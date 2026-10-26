@@ -94,7 +94,7 @@ pub(crate) fn timing_abilities(
 fn agent_ready(state: &GameState, player: &PlayerId) -> bool {
     state
         .player(player)
-        .is_some_and(|seat| seat.leaders.get(&LeaderId::new(AGENT)) == Some(&LeaderStatus::Readied))
+        .is_some_and(|seat| seat.leaders.get(ti4_model::id::text(&AGENT)) == Some(&LeaderStatus::Readied))
 }
 
 /// Tellurian: "Before a hit would be assigned: You may exhaust this card to cancel that hit."
@@ -687,7 +687,7 @@ mod tests {
         state
             .system_mut(&SystemId::new("55"))
             .planet_control
-            .remove(&PlanetId::new(ELYSIUM));
+            .remove(ti4_model::id::text(&ELYSIUM));
         assert!(!offered(&state), "no Elysium to attach to");
     }
 
@@ -740,7 +740,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new(HERO)),
+                .get(ti4_model::id::text(&HERO)),
             Some(&LeaderStatus::Purged)
         );
         assert!(
@@ -1048,7 +1048,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new(AGENT)),
+                .get(ti4_model::id::text(&AGENT)),
             Some(&LeaderStatus::Exhausted)
         );
     }

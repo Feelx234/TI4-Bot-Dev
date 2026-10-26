@@ -38,7 +38,7 @@ pub(crate) fn give(state: &mut GameState, player: &str, alias: &str) {
 pub(crate) fn owns(state: &GameState, player: &str, alias: &str) -> bool {
     state
         .player(&pid(player))
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new(alias)))
+        .is_some_and(|seat| seat.technologies.contains(ti4_model::id::text(&alias)))
 }
 
 /// A seated, deployed game (home systems, starting units) of `(seat, faction)` pairs at POK.

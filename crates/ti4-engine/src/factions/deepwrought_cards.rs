@@ -658,7 +658,7 @@ mod tests {
     fn agent_status(state: &GameState) -> Option<LeaderStatus> {
         state
             .player(&a())
-            .and_then(|seat| seat.leaders.get(&LeaderId::new(AGENT)).copied())
+            .and_then(|seat| seat.leaders.get(ti4_model::id::text(&AGENT)).copied())
     }
     fn component(state: &GameState, who: &PlayerId) -> Vec<String> {
         crate::factions::component_actions(state, content(), who)
@@ -1144,7 +1144,7 @@ mod tests {
                 ti4_model::content_types::DEFAULT,
                 &c()
             )
-            .contains(&TechnologyId::new("nm")),
+            .contains(&ti4_model::id::TechnologyId::new("nm")),
             "out of every deck"
         );
         assert_eq!(
@@ -1152,7 +1152,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new(HERO)),
+                .get(ti4_model::id::text(&HERO)),
             Some(&LeaderStatus::Purged)
         );
     }
@@ -1178,7 +1178,7 @@ mod tests {
                 .all(|tech| !crate::technology::is_unit_upgrade(content(), tech))
         );
         assert!(
-            !candidates.contains(&TechnologyId::new("dxa")),
+            !candidates.contains(&ti4_model::id::TechnologyId::new("dxa")),
             "already purged"
         );
     }

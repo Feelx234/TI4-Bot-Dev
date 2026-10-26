@@ -307,7 +307,7 @@ mod tests {
             .player(&PlayerId::new(player))
             .unwrap()
             .technologies
-            .contains(&TechnologyId::new(tech))
+            .contains(ti4_model::id::text(&tech))
     }
 
     #[test]

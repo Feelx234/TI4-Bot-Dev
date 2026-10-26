@@ -476,7 +476,7 @@ pub fn held_on_card(
 fn hero_ready(state: &GameState, player: &PlayerId) -> bool {
     state
         .player(player)
-        .is_some_and(|seat| seat.leaders.get(&LeaderId::new(HERO)) == Some(&LeaderStatus::Unlocked))
+        .is_some_and(|seat| seat.leaders.get(ti4_model::id::text(&HERO)) == Some(&LeaderStatus::Unlocked))
 }
 
 /// Offer the hero card as a placement spot for a produced ship (called by
@@ -1241,7 +1241,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new(super::super::crimson::COMMANDER)),
+                .get(ti4_model::id::text(&super::super::crimson::COMMANDER)),
             Some(&LeaderStatus::Unlocked)
         );
         assert_eq!(
@@ -1578,7 +1578,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new(HERO)),
+                .get(ti4_model::id::text(&HERO)),
             Some(&LeaderStatus::Purged)
         );
     }

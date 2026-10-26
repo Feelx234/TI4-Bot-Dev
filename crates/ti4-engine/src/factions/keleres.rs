@@ -211,7 +211,7 @@ fn has_technology(state: &GameState, player: &PlayerId, alias: &str) -> bool {
 fn leader_status(state: &GameState, player: &PlayerId, leader: &str) -> Option<LeaderStatus> {
     state
         .player(player)
-        .and_then(|seat| seat.leaders.get(&LeaderId::new(leader)).copied())
+        .and_then(|seat| seat.leaders.get(ti4_model::id::text(&leader)).copied())
 }
 
 /// Whether `player` holds I.I.H.Q. Modernization in either printing: the technology or the
@@ -230,11 +230,11 @@ pub fn has_iihq(state: &GameState, player: &PlayerId) -> bool {
 fn near_mecatol(state: &GameState, galaxy: &Galaxy, player: &PlayerId) -> bool {
     let mecatol = crate::seating::mecatol_in_galaxy(galaxy);
     let presence = crate::transactions::presence(state, player);
-    presence.contains(&SystemId::new(mecatol))
+    presence.contains(ti4_model::id::text(&mecatol))
         || galaxy
             .adjacent(mecatol)
             .into_iter()
-            .any(|adjacent| presence.contains(&SystemId::new(adjacent)))
+            .any(|adjacent| presence.contains(ti4_model::id::text(&adjacent)))
 }
 
 /// "You are neighbors with all players that have units or control planets in or adjacent to the
@@ -1712,7 +1712,7 @@ mod tests {
         assert_eq!(seat.trade_goods, 1, "two goods were two votes");
         assert!(
             seat.exhausted_technologies
-                .contains(&TechnologyId::new(EXECUTIVE_ORDER))
+                .contains(ti4_model::id::text(&EXECUTIVE_ORDER))
         );
         assert_eq!(game.state.agenda_deck, ["mutiny"], "the top card was drawn");
         assert_eq!(

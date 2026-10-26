@@ -91,7 +91,7 @@ fn tech_exhausted(state: &GameState, who: &PlayerId, alias: &str) -> bool {
         .player(who)
         .expect("seat")
         .exhausted_technologies
-        .contains(&ti4_model::id::TechnologyId::new(alias))
+        .contains(ti4_model::id::text(&alias))
 }
 
 /// `(hits_on, dice)` of the first space-combat roll `kind` of seat `a` makes against one Sol
@@ -230,7 +230,7 @@ fn owns(state: &GameState, who: &PlayerId, tech: &str) -> bool {
         .player(who)
         .expect("seat")
         .technologies
-        .contains(&ti4_model::id::TechnologyId::new(tech))
+        .contains(ti4_model::id::text(&tech))
 }
 
 /// `faction` in seat a with no technologies at all, against a Hacan seat b.
@@ -2125,7 +2125,7 @@ fn cannon_rolls_at(hub: &Hub, place: impl Fn(&mut GameState)) -> Vec<(Option<u32
         .player_mut(&b())
         .unwrap()
         .technologies
-        .remove(&ti4_model::id::TechnologyId::new("amd"));
+        .remove(ti4_model::id::text(&"amd"));
     blank_hub(&mut state, hub);
     put(&mut state, &sys(&target), "cruiser", &b(), 1);
     place(&mut state);

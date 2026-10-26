@@ -209,7 +209,7 @@ fn trade_goods_count_as_resources_and_planets_are_used_first() {
     assert!(
         state
             .exhausted_planets
-            .contains(&PlanetId::new(five.as_str()))
+            .contains(ti4_model::id::text(&five.as_str()))
     );
 
     // Trade goods alone also pay (8 goods, no planets).

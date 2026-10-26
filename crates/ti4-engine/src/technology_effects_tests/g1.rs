@@ -323,7 +323,7 @@ fn sr_1_action_produces_one_ship_at_a_space_dock() {
             .player(&a)
             .unwrap()
             .exhausted_technologies
-            .contains(&TechnologyId::new("sr"))
+            .contains(ti4_model::id::text(&"sr"))
     );
     assert!(
         crate::technology::component_actions(&state, content(), POK, &a).is_empty(),
@@ -533,7 +533,7 @@ fn bs_1_ready_an_exhausted_specialty_planet_or_another_technology() {
             .player(&a)
             .unwrap()
             .exhausted_technologies
-            .contains(&TechnologyId::new("bs")),
+            .contains(ti4_model::id::text(&"bs")),
         "Bio-Stims exhausts itself"
     );
     // The technology branch.
@@ -552,7 +552,7 @@ fn bs_1_ready_an_exhausted_specialty_planet_or_another_technology() {
             .player(&a)
             .unwrap()
             .exhausted_technologies
-            .contains(&TechnologyId::new("sr"))
+            .contains(ti4_model::id::text(&"sr"))
     );
     // Control: without the card nothing is offered.
     let mut state = game(&["a"]);
@@ -575,7 +575,7 @@ fn bs_1_ready_an_exhausted_specialty_planet_or_another_technology() {
             .player(&a)
             .unwrap()
             .exhausted_technologies
-            .contains(&TechnologyId::new("sr"))
+            .contains(ti4_model::id::text(&"sr"))
     );
 }
 
@@ -583,15 +583,15 @@ fn bs_1_ready_an_exhausted_specialty_planet_or_another_technology() {
 fn assert_superseded(alias: &str) {
     let active = crate::technology::active_aliases(content(), POK);
     assert!(
-        !active.contains(&TechnologyId::new(alias)),
+        !active.contains(ti4_model::id::text(&alias)),
         "{alias} is a superseded printing"
     );
     let mut state = game(&["a"]);
     for colour_tech in ["x89c4", "md"] {
-        assert!(active.contains(&TechnologyId::new(colour_tech)));
+        assert!(active.contains(ti4_model::id::text(&colour_tech)));
     }
     let offered = crate::technology::researchable(&state, content(), POK, &pid("a"));
-    assert!(!offered.contains(&TechnologyId::new(alias)));
+    assert!(!offered.contains(&ti4_model::id::TechnologyId::new(alias)));
     let _ = &mut state;
 }
 
@@ -1030,7 +1030,7 @@ fn aida_1_ignores_one_prerequisite_when_researching_a_unit_upgrade() {
             .player(&a)
             .unwrap()
             .exhausted_technologies
-            .contains(&TechnologyId::new("aida"))
+            .contains(ti4_model::id::text(&"aida"))
     );
 }
 
@@ -1088,7 +1088,7 @@ fn aida_1_only_for_unit_upgrades_once_and_only_from_the_new_version() {
             .player(&a)
             .unwrap()
             .exhausted_technologies
-            .contains(&TechnologyId::new("aida")),
+            .contains(ti4_model::id::text(&"aida")),
         "not needed, not spent"
     );
 }
@@ -1142,7 +1142,7 @@ fn aida_2_exhaust_to_reduce_production_cost_by_owned_unit_upgrades() {
             .player(&pid("a"))
             .unwrap()
             .exhausted_technologies
-            .contains(&TechnologyId::new("aida"))
+            .contains(ti4_model::id::text(&"aida"))
     );
 }
 
@@ -1349,7 +1349,7 @@ fn td_1_redeploy_up_to_four_ground_forces_at_turn_start() {
                 .player(&a)
                 .unwrap()
                 .exhausted_technologies
-                .contains(&TechnologyId::new("td")),
+                .contains(ti4_model::id::text(&"td")),
         )
     };
     assert_eq!(run(true), (2, true), "two moved, card exhausted");
@@ -1444,7 +1444,7 @@ fn pi_1_redistribute_command_tokens_at_the_end_of_the_turn() {
         (
             (seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens),
             seat.exhausted_technologies
-                .contains(&TechnologyId::new("pi")),
+                .contains(ti4_model::id::text(&"pi")),
         )
     };
     assert_eq!(run(true), ((2, 3, 3), true));
@@ -1543,7 +1543,7 @@ fn pi_2_three_additional_votes() {
             .player(&pid("a"))
             .unwrap()
             .exhausted_technologies
-            .contains(&TechnologyId::new("pi"));
+            .contains(ti4_model::id::text(&"pi"));
         (window.winner().map(ToOwned::to_owned), exhausted, asked)
     };
     let now = ti4_model::state::RULES_TECH_EFFECTS;

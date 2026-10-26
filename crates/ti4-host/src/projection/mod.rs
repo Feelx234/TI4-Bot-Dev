@@ -1425,20 +1425,20 @@ mod tests {
         let p1_progress = table.objective_progress.get(&p1).expect("p1 progress");
 
         let trade_routes = p1_progress
-            .get(&ObjectiveId::new("trade_routes"))
+            .get(ti4_model::id::text(&"trade_routes"))
             .expect("trade_routes");
         assert_eq!(trade_routes.have, 5);
         assert_eq!(trade_routes.threshold, 5);
         assert!(trade_routes.satisfied);
 
         let centralize = p1_progress
-            .get(&ObjectiveId::new("centralize_trade"))
+            .get(ti4_model::id::text(&"centralize_trade"))
             .expect("centralize");
         assert_eq!(centralize.have, 7);
         assert_eq!(centralize.threshold, 10);
         assert!(!centralize.satisfied);
 
-        let lead = p1_progress.get(&ObjectiveId::new("lead")).expect("lead");
+        let lead = p1_progress.get(ti4_model::id::text(&"lead")).expect("lead");
         assert_eq!(lead.have, 3);
         assert_eq!(lead.threshold, 3);
         assert!(lead.satisfied);

@@ -884,7 +884,7 @@ fn mitosis_1_arborec_space_docks_cannot_produce_infantry() {
             .player_mut(&a())
             .unwrap()
             .technologies
-            .remove(&ti4_model::id::TechnologyId::new("md"));
+            .remove(ti4_model::id::text(&"md"));
         production_menu(state, hub, &centre)
     };
     let sol = menu("sol");
@@ -1383,7 +1383,7 @@ fn bombard_with(
         .player_mut(&a())
         .unwrap()
         .technologies
-        .remove(&ti4_model::id::TechnologyId::new("ps"));
+        .remove(ti4_model::id::text(&"ps"));
     let table = opening_then(
         &[TACTICAL_ACTION_ID, centre.as_str()],
         &["move|", "done_loading", "done_moving"],
@@ -1532,7 +1532,7 @@ fn nomadic_1_saar_may_score_without_controlling_the_planets_in_their_home_system
     assert!(
         game.state
             .scored_by(&a())
-            .contains(&ObjectiveId::new("trade_routes"))
+            .contains(ti4_model::id::text(&"trade_routes"))
     );
     assert!(
         game.state.scored_by(&b()).is_empty(),

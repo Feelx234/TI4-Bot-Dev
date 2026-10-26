@@ -160,7 +160,7 @@ pub fn status_tokens(
     // Hyper Metabolism: "During the status phase, gain 3 command tokens instead of 2."
     let hyper = state.player(player).is_some_and(|seat| {
         seat.technologies
-            .contains(&ti4_model::id::TechnologyId::new("hm"))
+            .contains(ti4_model::id::text(&"hm"))
     });
     let count = count
         + i32::from(hyper)
@@ -1653,7 +1653,7 @@ mod tests {
         assert_eq!((seat.trade_goods, seat.strategic_tokens), (4, 0));
         assert!(
             seat.exhausted_technologies
-                .contains(&TechnologyId::new("pm"))
+                .contains(ti4_model::id::text(&"pm"))
         );
         assert_eq!(state.player(&other).unwrap().trade_goods, 2);
         assert!(

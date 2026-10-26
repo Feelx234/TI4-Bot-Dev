@@ -657,7 +657,7 @@ pub fn contact_scope(ctx: &CandidateContext<'_>, physical: bool) -> super::build
                 .galaxy
                 .adjacent(system.as_str())
                 .into_iter()
-                .any(|adjacent| other.contains(&ti4_model::SystemId::new(adjacent)))
+                .any(|adjacent| other.contains(ti4_model::id::text(&adjacent)))
     };
     let mut systems: Vec<ti4_model::SystemId> = mine
         .iter()
@@ -699,7 +699,7 @@ fn relevant_attack_targets(ctx: &CandidateContext<'_>) -> Vec<PlayerId> {
                         .adjacent(system.as_str())
                         .into_iter()
                         .any(|adjacent| {
-                            target_presence.contains(&ti4_model::SystemId::new(adjacent))
+                            target_presence.contains(ti4_model::id::text(&adjacent))
                         })
                 })
         })
@@ -745,7 +745,7 @@ pub fn generate_signal_statements(ctx: &CandidateContext<'_>) -> Vec<ti4_model::
                         .adjacent(system.as_str())
                         .into_iter()
                         .any(|adjacent| {
-                            recipient_presence.contains(&ti4_model::SystemId::new(adjacent))
+                            recipient_presence.contains(ti4_model::id::text(&adjacent))
                         })
             })
             .collect();
@@ -1052,7 +1052,7 @@ fn enrich_candidate_features(ctx: &CandidateContext<'_>, candidate: &mut Candida
         ctx.galaxy
             .adjacent(system.as_str())
             .into_iter()
-            .any(|adjacent| victim.contains(&ti4_model::SystemId::new(adjacent)))
+            .any(|adjacent| victim.contains(ti4_model::id::text(&adjacent)))
     }) {
         0.5
     } else {

@@ -1122,7 +1122,7 @@ pub fn scoreable_on(
     seat.secret_objectives
         .iter()
         .filter(|alias| timing(content, alias) == Timing::Status)
-        .filter(|alias| !already.contains(&ti4_model::id::ObjectiveId::new(alias.as_str())))
+        .filter(|alias| !already.contains(ti4_model::id::text(&alias.as_str())))
         .filter(|alias| requirement_for(alias).is_some_and(|check| check(&position)))
         .cloned()
         .collect()
@@ -1168,7 +1168,7 @@ pub fn scoreable_event(
         .secret_objectives
         .iter()
         .filter(|alias| timing(content, alias) == when)
-        .filter(|alias| !already.contains(&ti4_model::id::ObjectiveId::new(alias.as_str())))
+        .filter(|alias| !already.contains(ti4_model::id::text(&alias.as_str())))
         .filter(|alias| {
             feat_for(alias.as_str())
                 .is_some_and(|feat| state.did_at_occurrence(player, feat, occurrence))
@@ -1799,7 +1799,7 @@ mod tests {
 
     fn can_score(state: &GameState, alias: &str) -> bool {
         scoreable(state, ContentStore::embedded(), POK, &player())
-            .contains(&SecretObjectiveId::new(alias))
+            .contains(&ti4_model::id::SecretObjectiveId::new(alias))
     }
 
     /// A position with the map attached.
@@ -2788,7 +2788,7 @@ mod tests {
         assert!(
             state
                 .scored_by(&player())
-                .contains(&ti4_model::id::ObjectiveId::new("eap"))
+                .contains(ti4_model::id::text(&"eap"))
         );
     }
 

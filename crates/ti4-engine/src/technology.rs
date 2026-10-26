@@ -23,7 +23,7 @@ pub const COLOURS: [&str; 4] = ["BIOTIC", "CYBERNETIC", "PROPULSION", "WARFARE"]
 pub fn plasma_scoring(state: &GameState, player: &PlayerId) -> bool {
     state
         .player(player)
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new("ps")))
+        .is_some_and(|seat| seat.technologies.contains(ti4_model::id::text(&"ps")))
 }
 
 /// Technologies in the authoritative current PoK/Codex deck.
@@ -75,7 +75,7 @@ pub fn gravity_drive_available(state: &GameState, player: &PlayerId) -> bool {
     let Some(seat) = state.player(player) else {
         return false;
     };
-    seat.technologies.contains(&TechnologyId::new("gd"))
+    seat.technologies.contains(ti4_model::id::text(&"gd"))
         && seat.gravity_drive_used_activation != Some(state.activation_seq)
 }
 
@@ -84,7 +84,7 @@ pub fn gravity_drive_available(state: &GameState, player: &PlayerId) -> bool {
 pub fn owns_det(state: &GameState, player: &PlayerId) -> bool {
     state
         .player(player)
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new("det")))
+        .is_some_and(|seat| seat.technologies.contains(ti4_model::id::text(&"det")))
 }
 
 /// Whether this player holds the technology with this id.
@@ -92,7 +92,7 @@ pub fn owns_det(state: &GameState, player: &PlayerId) -> bool {
 pub fn owns_technology(state: &GameState, player: &PlayerId, id: &str) -> bool {
     state
         .player(player)
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new(id)))
+        .is_some_and(|seat| seat.technologies.contains(ti4_model::id::text(&id)))
 }
 
 /// Spend Gravity Drive's once-per-tactical-action movement bonus.
@@ -152,7 +152,7 @@ pub fn perform_component(
     if option.id != "component|tech|sr"
         || !state
             .player(player)
-            .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new("sr")))
+            .is_some_and(|seat| seat.technologies.contains(ti4_model::id::text(&"sr")))
     {
         return Ok(false);
     }
@@ -186,7 +186,7 @@ pub fn start_turn(
     // specialty planet may be converted once; declining preserves it for a later use.
     if state
         .player(player)
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new("pa")))
+        .is_some_and(|seat| seat.technologies.contains(ti4_model::id::text(&"pa")))
     {
         loop {
             let candidates: Vec<PlanetId> = state
@@ -526,7 +526,7 @@ pub fn end_turn(
                     && let Some(seat) = state.player_mut(player)
                 {
                     seat.exhausted_technologies
-                        .remove(&TechnologyId::new(technology));
+                        .remove(ti4_model::id::text(&technology));
                 }
                 if let Some(seat) = state.player_mut(player) {
                     seat.exhausted_technologies.insert(bio_stims);
@@ -744,7 +744,7 @@ pub(crate) fn timing_abilities(owner_name: &str, seat: &PlayerId) -> Vec<crate::
                 && context
                     .state
                     .player(&condition_owner)
-                    .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new("sar")))
+                    .is_some_and(|seat| seat.technologies.contains(ti4_model::id::text(&"sar")))
                 && event.text("unit").is_some_and(|unit| {
                     crate::supply::base_type_of(
                         context.content,
@@ -780,7 +780,7 @@ pub fn control_gained(
 ) -> Result<bool, IllegalChoice> {
     if !state
         .player(player)
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new("ie")))
+        .is_some_and(|seat| seat.technologies.contains(ti4_model::id::text(&"ie")))
     {
         return Ok(false);
     }
@@ -900,7 +900,7 @@ fn take_transit_unit(
     let units = if source == "space" {
         &mut board.units
     } else {
-        board.planet_units.get_mut(&PlanetId::new(source))?
+        board.planet_units.get_mut(ti4_model::id::text(&source))?
     };
     units
         .iter()
@@ -1337,7 +1337,7 @@ pub fn researchable(
 pub fn has_technology_text(state: &GameState, player: &PlayerId, alias: &str) -> bool {
     state
         .player(player)
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new(alias)))
+        .is_some_and(|seat| seat.technologies.contains(ti4_model::id::text(&alias)))
         || crate::factions::nekro::assimilated_card(state, player, alias).is_some()
 }
 
@@ -1356,7 +1356,7 @@ pub fn technology_text_ready(state: &GameState, player: &PlayerId, alias: &str) 
     crate::factions::nekro::assimilated_card(state, player, alias).is_some_and(|card| {
         !seat
             .exhausted_technologies
-            .contains(&TechnologyId::new(card))
+            .contains(ti4_model::id::text(&card))
     })
 }
 
@@ -2041,7 +2041,7 @@ mod tests {
                 .player(&player())
                 .unwrap()
                 .exhausted_technologies
-                .contains(&TechnologyId::new("td"))
+                .contains(ti4_model::id::text(&"td"))
         );
     }
 
@@ -2168,8 +2168,8 @@ mod tests {
         .unwrap();
 
         let exhausted = &state.player(&player()).unwrap().exhausted_technologies;
-        assert!(!exhausted.contains(&TechnologyId::new("td")));
-        assert!(exhausted.contains(&TechnologyId::new("bs")));
+        assert!(!exhausted.contains(ti4_model::id::text(&"td")));
+        assert!(exhausted.contains(ti4_model::id::text(&"bs")));
     }
 
     /// Predictive Intelligence moves one token per decision; the question carries the pools and the
@@ -2316,7 +2316,7 @@ mod tests {
                 .player(&player())
                 .unwrap()
                 .exhausted_technologies
-                .contains(&TechnologyId::new("aida")),
+                .contains(ti4_model::id::text(&"aida")),
             "accepting exhausts the card"
         );
     }
@@ -2345,7 +2345,7 @@ mod tests {
                 .player(&player())
                 .unwrap()
                 .exhausted_technologies
-                .contains(&TechnologyId::new("aida")),
+                .contains(ti4_model::id::text(&"aida")),
             "declining leaves it ready for its other ability"
         );
     }
@@ -2619,14 +2619,14 @@ mod tests {
     fn researchable_uses_the_authoritative_current_printings() {
         let content = ContentStore::embedded();
         let active = active_aliases(content, POK);
-        assert!(active.contains(&TechnologyId::new("md")));
-        assert!(!active.contains(&TechnologyId::new("md_base")));
-        assert!(!active.contains(&TechnologyId::new("md_c1")));
+        assert!(active.contains(ti4_model::id::text(&"md")));
+        assert!(!active.contains(ti4_model::id::text(&"md_base")));
+        assert!(!active.contains(ti4_model::id::text(&"md_c1")));
 
         let offered = researchable(&game(&["a"]), content, POK, &player());
         assert!(!offered.is_empty());
-        assert!(!offered.contains(&TechnologyId::new("md_base")));
-        assert!(!offered.contains(&TechnologyId::new("md_c1")));
+        assert!(!offered.contains(&ti4_model::id::TechnologyId::new("md_base")));
+        assert!(!offered.contains(&ti4_model::id::TechnologyId::new("md_c1")));
     }
 
     #[test]
@@ -2642,15 +2642,15 @@ mod tests {
             "linkship2",
         ] {
             assert!(
-                !pok.contains(&TechnologyId::new(alias)),
+                !pok.contains(ti4_model::id::text(&alias)),
                 "{alias} under PoK"
             );
-            assert!(full.contains(&TechnologyId::new(alias)), "{alias} under TE");
+            assert!(full.contains(ti4_model::id::text(&alias)), "{alias} under TE");
         }
         // The PoK-only set is exactly the deck, and TE only adds to it.
         assert!(pok.is_subset(&full));
         assert!(
-            pok.contains(&TechnologyId::new("md")) && !full.contains(&TechnologyId::new("md_base"))
+            pok.contains(ti4_model::id::text(&"md")) && !full.contains(ti4_model::id::text(&"md_base"))
         );
         assert!(pok.len() < full.len());
     }
@@ -3075,7 +3075,7 @@ mod tests {
         assert!(seat.technologies.contains(&war_sun));
         assert!(
             seat.exhausted_technologies
-                .contains(&TechnologyId::new("is"))
+                .contains(ti4_model::id::text(&"is"))
         );
         assert_eq!(seat.trade_goods, 0, "the 2 resources were paid");
         assert!(
@@ -3152,7 +3152,7 @@ mod tests {
 
         assert!(!open.is_empty(), "some technologies need nothing");
         assert!(
-            !open.contains(&TechnologyId::new("ws")),
+            !open.contains(&ti4_model::id::TechnologyId::new("ws")),
             "a war sun needs four prerequisites"
         );
         for alias in &open {

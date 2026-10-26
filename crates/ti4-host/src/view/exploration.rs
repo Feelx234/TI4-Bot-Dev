@@ -13,7 +13,9 @@ use ti4_content::ContentStore;
 use ti4_content::galaxy::{self, Galaxy};
 use ti4_engine::deck::{EXPLORATION_TRAITS, build_starting_decks};
 use ti4_model::content_types::{ContentType, SourceSet};
-use ti4_model::id::{PlanetId, SystemId};
+use ti4_model::id::PlanetId;
+#[cfg(test)]
+use ti4_model::id::SystemId;
 use ti4_model::state::{ExplorationRecord, GameState};
 
 /// The exploration as every player at the table sees it.
@@ -98,7 +100,7 @@ pub fn project_exploration_facts(
         let Some(system) = galaxy::system(content, system_id, sources) else {
             continue;
         };
-        let held = state.board.get(&SystemId::new(system_id));
+        let held = state.board.get(ti4_model::id::text(&system_id));
         for planet in system.planets() {
             let planet = PlanetId::new(planet);
             if held.is_some_and(|held| {
@@ -227,13 +229,13 @@ mod tests {
             }
         }
         // A home planet has no deck, and it is controlled.
-        assert!(!facts.explores.contains_key(&PlanetId::new("jord")));
+        assert!(!facts.explores.contains_key(ti4_model::id::text(&"jord")));
         assert_eq!(
-            facts.explores.get(&PlanetId::new("abyz")),
+            facts.explores.get(ti4_model::id::text(&"abyz")),
             Some(&vec!["HAZARDOUS".to_owned()])
         );
         assert_eq!(
-            facts.explores.get(&PlanetId::new("mecatol")),
+            facts.explores.get(ti4_model::id::text(&"mecatol")),
             None,
             "Mecatol Rex has no deck"
         );
@@ -256,7 +258,7 @@ mod tests {
         let after = project_exploration_facts(&state, content, POK, &galaxy);
 
         assert!(!after.explores.contains_key(&planet));
-        assert!(after.explores.contains_key(&PlanetId::new("fria")));
+        assert!(after.explores.contains_key(ti4_model::id::text(&"fria")));
         assert_eq!(after.drawn.len(), 1);
         assert_eq!(after.drawn[0].card, top);
         assert_eq!(after.drawn[0].planet, Some(planet));

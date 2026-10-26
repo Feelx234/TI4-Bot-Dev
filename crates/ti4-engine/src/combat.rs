@@ -1154,7 +1154,7 @@ fn duranium_armor(state: &mut GameState, system: &SystemId, player: &PlayerId, b
     if before.is_empty()
         || !state.player(player).is_some_and(|seat| {
             seat.technologies
-                .contains(&ti4_model::id::TechnologyId::new("da"))
+                .contains(ti4_model::id::text(&"da"))
         })
     {
         return;
@@ -5075,7 +5075,7 @@ impl CombatWindow {
                 .filter(|(holder, _)| {
                     state.player(holder).is_some_and(|seat| {
                         seat.technologies
-                            .contains(&ti4_model::id::TechnologyId::new("asc"))
+                            .contains(ti4_model::id::text(&"asc"))
                     }) && non_fighter_ships(state, content, sources, holder, &self.system).len()
                         >= 3
                 })
@@ -10375,7 +10375,7 @@ mod space_routes_tests {
     use serde_json::Value;
     use ti4_content::ContentStore;
     use ti4_model::content_types::POK;
-    use ti4_model::id::{ActionCardId, LeaderId, PlayerId, SystemId, UnitTypeId};
+    use ti4_model::id::{ActionCardId, PlayerId, SystemId, UnitTypeId};
     use ti4_model::state::{GameState, LeaderStatus};
     use ti4_model::units::Unit;
 
@@ -10714,7 +10714,7 @@ mod space_routes_tests {
                 .player(&a())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new("yinagent")),
+                .get(ti4_model::id::text(&"yinagent")),
             Some(&LeaderStatus::Readied)
         );
         assert_eq!(
@@ -11469,7 +11469,7 @@ mod space_routes_tests {
                     .player(&a())
                     .unwrap()
                     .leaders
-                    .get(&ti4_model::id::LeaderId::new("titansagent"))
+                    .get(ti4_model::id::text(&"titansagent"))
                     .copied();
                 (ships, agent, crate::combat::cancellable_hits(&state, &a()))
             })

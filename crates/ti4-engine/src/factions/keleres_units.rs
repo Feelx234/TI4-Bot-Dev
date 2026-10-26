@@ -132,7 +132,7 @@ fn ask(
 /// Whether `player` holds `leader` unlocked.
 fn unlocked(state: &GameState, player: &PlayerId, leader: &str) -> bool {
     state.player(player).is_some_and(|seat| {
-        seat.leaders.get(&LeaderId::new(leader)) == Some(&LeaderStatus::Unlocked)
+        seat.leaders.get(ti4_model::id::text(&leader)) == Some(&LeaderStatus::Unlocked)
     })
 }
 
@@ -870,7 +870,7 @@ mod tests {
             .player(player)
             .unwrap()
             .leaders
-            .get(&LeaderId::new(hero))
+            .get(ti4_model::id::text(&hero))
             .copied()
     }
 
@@ -1052,7 +1052,7 @@ mod tests {
         broke(&mut poor, &b());
         let options = activatable(&poor, &hub, &b());
         assert!(!options.contains(&ring), "cannot pay, not offered");
-        assert!(options.contains(&SystemId::new(&hub.outer[1])), "elsewhere");
+        assert!(options.contains(&ti4_model::id::SystemId::new(&hub.outer[1])), "elsewhere");
         // The owner pays nothing.
         assert!(activatable(&poor, &hub, &a()).contains(&ring));
         // One trade good is one influence: still short. Two are enough.

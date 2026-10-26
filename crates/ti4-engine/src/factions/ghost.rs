@@ -81,7 +81,7 @@ fn technology_ready(state: &GameState, player: &PlayerId, alias: &str) -> bool {
 fn leader_status(state: &GameState, player: &PlayerId, leader: &str) -> Option<LeaderStatus> {
     state
         .player(player)
-        .and_then(|seat| seat.leaders.get(&LeaderId::new(leader)).copied())
+        .and_then(|seat| seat.leaders.get(ti4_model::id::text(&leader)).copied())
 }
 
 fn agent_ready(state: &GameState, owner: &PlayerId) -> bool {
@@ -774,13 +774,13 @@ fn timing_abilities(state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec
     // readiness through `borrowable_agents`, so a resolver survives card exhaustion/readying.
     if state
         .player(seat)
-        .is_some_and(|source| source.leaders.contains_key(&LeaderId::new("ghostagent")))
+        .is_some_and(|source| source.leaders.contains_key(ti4_model::id::text(&"ghostagent")))
     {
         for candidate in &state.players {
             if &candidate.id != seat
                 && candidate
                     .leaders
-                    .contains_key(&LeaderId::new("yssarilagent"))
+                    .contains_key(ti4_model::id::text(&"yssarilagent"))
             {
                 abilities.push(borrowed_emissary_taivra(owner_name, seat, &candidate.id));
             }
@@ -1630,7 +1630,7 @@ mod tests {
             .player_mut(&a())
             .unwrap()
             .technologies
-            .remove(&TechnologyId::new("ds"));
+            .remove(ti4_model::id::text(&"ds"));
         assert_eq!(
             splice(&mut without, &mut never(), "39", CombatMoment::CombatStart),
             ProducedHits::NONE,
@@ -1695,7 +1695,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .exhausted_technologies
-                .contains(&TechnologyId::new("wg"))
+                .contains(ti4_model::id::text(&"wg"))
         );
         assert!(
             component_actions(&state, content(), &a()).is_empty(),
@@ -2199,7 +2199,7 @@ mod tests {
                     .player_mut(&a())
                     .unwrap()
                     .leaders
-                    .remove(&LeaderId::new("ghostagent"));
+                    .remove(ti4_model::id::text(&"ghostagent"));
             } else if let Some(status) = source_status {
                 state
                     .player_mut(&a())
@@ -2218,7 +2218,7 @@ mod tests {
                     .player_mut(&b())
                     .unwrap()
                     .leaders
-                    .remove(&LeaderId::new("yssarilagent"));
+                    .remove(ti4_model::id::text(&"yssarilagent"));
             }
             activate(&mut state, &c(), system);
             let before = state.clone();
@@ -2378,7 +2378,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .leaders
-                .contains_key(&LeaderId::new("ghostcommander"))
+                .contains_key(ti4_model::id::text(&"ghostcommander"))
         );
     }
 

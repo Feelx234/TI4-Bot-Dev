@@ -199,7 +199,7 @@ fn siphon(owner_name: &str, seat: &PlayerId) -> Ability {
     )
     .with_stateful_condition(Arc::new(move |event, _, context| {
         event.text("player").is_some_and(|gainer| {
-            puppets(context.state, &condition_owner, SIPHON).contains(&PlayerId::new(gainer))
+            puppets(context.state, &condition_owner, SIPHON).contains(ti4_model::id::text(&gainer))
         }) && event.integer("amount").is_some_and(|amount| amount > 0)
     }))
 }

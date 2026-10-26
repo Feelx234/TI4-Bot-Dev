@@ -201,7 +201,7 @@ pub fn has_owner_space_round_agent(state: &GameState) -> bool {
     state.rules_version >= ti4_model::state::RULES_FACTION_BUGFIXES
         && state.players.iter().any(|seat| {
             seat.faction.as_str() == "letnev"
-                && seat.leaders.get(&LeaderId::new(LETNEV_AGENT))
+                && seat.leaders.get(ti4_model::id::text(&LETNEV_AGENT))
                     == Some(&ti4_model::state::LeaderStatus::Readied)
         })
 }
@@ -213,7 +213,7 @@ pub fn has_owner_round_agent(state: &GameState) -> bool {
     state.rules_version >= ti4_model::state::RULES_FACTION_EFFECTS
         && state.players.iter().any(|seat| {
             seat.faction.as_str() == "sol"
-                && seat.leaders.get(&LeaderId::new(SOL_AGENT))
+                && seat.leaders.get(ti4_model::id::text(&SOL_AGENT))
                     == Some(&ti4_model::state::LeaderStatus::Readied)
         })
 }
@@ -298,7 +298,7 @@ fn source_is_borrowable(
                 (seat.faction.as_str() == "sol"
                     || (seat.faction.as_str() == "letnev"
                         && state.rules_version >= ti4_model::state::RULES_FACTION_BUGFIXES))
-                    && seat.leaders.get(&LeaderId::new(source_agent))
+                    && seat.leaders.get(ti4_model::id::text(&source_agent))
                         == Some(&ti4_model::state::LeaderStatus::Readied)
             });
     }
@@ -778,7 +778,7 @@ mod tests {
             .player_mut(&source)
             .unwrap()
             .leaders
-            .remove(&LeaderId::new(LETNEV_AGENT));
+            .remove(ti4_model::id::text(&LETNEV_AGENT));
         assert!(
             copy_plan(
                 &state,
@@ -950,7 +950,7 @@ mod tests {
             .player_mut(&source)
             .unwrap()
             .leaders
-            .remove(&LeaderId::new(LETNEV_AGENT));
+            .remove(ti4_model::id::text(&LETNEV_AGENT));
         assert_eq!(source_status, Some(LeaderStatus::Exhausted));
         state
             .player_mut(&source)
@@ -1009,7 +1009,7 @@ mod tests {
             .player_mut(&source)
             .unwrap()
             .leaders
-            .remove(&LeaderId::new(LETNEV_AGENT));
+            .remove(ti4_model::id::text(&LETNEV_AGENT));
         state
             .player_mut(&source)
             .unwrap()
@@ -1287,7 +1287,7 @@ mod tests {
             .player_mut(&source)
             .unwrap()
             .leaders
-            .remove(&LeaderId::new(LETNEV_AGENT));
+            .remove(ti4_model::id::text(&LETNEV_AGENT));
         assert_eq!(prior_source_status, Some(LeaderStatus::Exhausted));
         state
             .player_mut(&source)

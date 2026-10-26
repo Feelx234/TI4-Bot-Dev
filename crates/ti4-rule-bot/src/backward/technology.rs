@@ -314,7 +314,7 @@ pub fn model(seen: &Observed<'_>, me: &PlayerId) -> Option<(Vec<Tech>, Vec<Tech>
         .records(ContentType::Technologies)
         .iter()
         .filter_map(|r| r.text("alias"))
-        .filter(|a| active.contains(&TechnologyId::new(*a)) && !have.contains(a))
+        .filter(|a| active.contains(ti4_model::id::text(&*a)) && !have.contains(a))
         .filter(|a| {
             let id = TechnologyId::new(*a);
             ti4_engine::technology::faction_of(content, &id).is_none_or(|f| f == faction)

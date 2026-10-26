@@ -890,7 +890,7 @@ mod tests {
                 .player(&PlayerId::new("a"))
                 .unwrap()
                 .leaders
-                .contains_key(&LeaderId::new("titanscommander"))
+                .contains_key(ti4_model::id::text(&"titanscommander"))
         );
     }
     #[test]

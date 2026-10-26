@@ -462,7 +462,7 @@ mod tests {
             .player_mut(&player())
             .unwrap()
             .technologies
-            .remove(&ti4_model::id::TechnologyId::new("mc"));
+            .remove(ti4_model::id::text(&"mc"));
         assert!(
             plans(&state, content, POK, &player(), 3, Spend::Influence).is_empty(),
             "without the technology two goods pay two"

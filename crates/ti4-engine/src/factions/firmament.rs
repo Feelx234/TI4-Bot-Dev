@@ -637,7 +637,7 @@ fn myru_vos_tracks(owner_name: &str, seat: &PlayerId) -> Ability {
         context
             .state
             .player(&condition_owner)
-            .is_some_and(|seat| seat.leaders.contains_key(&LeaderId::new(AGENT)))
+            .is_some_and(|seat| seat.leaders.contains_key(ti4_model::id::text(&AGENT)))
             && event
                 .text("player")
                 .is_some_and(|mover| agent_covers(context.state, &PlayerId::new(mover)))
@@ -679,7 +679,7 @@ pub fn unladen_route_forbids_cargo(
     path[1..path.len() - 1].iter().any(|step| {
         state
             .board
-            .get(&SystemId::new(step.as_str()))
+            .get(ti4_model::id::text(&step.as_str()))
             .is_some_and(|system| {
                 system.units.iter().any(|unit| {
                     &unit.owner != player
@@ -715,7 +715,7 @@ fn has_ship_outside(
 fn agent_ready(state: &GameState, owner: &PlayerId) -> bool {
     state
         .player(owner)
-        .is_some_and(|seat| seat.leaders.get(&LeaderId::new(AGENT)) == Some(&LeaderStatus::Readied))
+        .is_some_and(|seat| seat.leaders.get(ti4_model::id::text(&AGENT)) == Some(&LeaderStatus::Readied))
 }
 
 fn agent_window(
@@ -899,7 +899,7 @@ fn planesplitter(owner_name: &str, seat: &PlayerId) -> Ability {
             && event.text("technology") == Some(PLANESPLITTER)
             && context.state.player(&condition_owner).is_some_and(|seat| {
                 seat.technologies
-                    .contains(&ti4_model::id::TechnologyId::new(PLANESPLITTER))
+                    .contains(ti4_model::id::text(&PLANESPLITTER))
             })
             && !context.state.fracture_in_play
     }))
@@ -1433,10 +1433,10 @@ mod tests {
         );
         assert!(
             seat.plot_objectives
-                .contains(&SecretObjectiveId::new("fwm"))
+                .contains(ti4_model::id::text(&"fwm"))
         );
         assert!(
-            !state.scored_by(&a()).contains(&ObjectiveId::new("fwm")),
+            !state.scored_by(&a()).contains(ti4_model::id::text(&"fwm")),
             "a plot is not a scored objective (ruling 2026-10-08)"
         );
         assert!(
@@ -2216,7 +2216,7 @@ mod tests {
             .player(&a())
             .unwrap()
             .leaders
-            .get(&LeaderId::new(AGENT))
+            .get(ti4_model::id::text(&AGENT))
             .copied()
     }
 
@@ -2570,7 +2570,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new(HERO)),
+                .get(ti4_model::id::text(&HERO)),
             Some(&LeaderStatus::Purged)
         );
     }
@@ -2641,7 +2641,7 @@ mod tests {
                 .player(&a())
                 .unwrap()
                 .leaders
-                .get(&LeaderId::new(HERO)),
+                .get(ti4_model::id::text(&HERO)),
             Some(&LeaderStatus::Purged)
         );
     }
@@ -2649,8 +2649,8 @@ mod tests {
     #[test]
     fn sharsiss_can_be_used_as_the_leaders_action_only_by_the_unlocked_firmament() {
         let state = hero_game();
-        assert!(crate::leaders::usable(&state, content(), &a()).contains(&LeaderId::new(HERO)));
-        assert!(!crate::leaders::usable(&game(), content(), &a()).contains(&LeaderId::new(HERO)));
+        assert!(crate::leaders::usable(&state, content(), &a()).contains(&ti4_model::id::LeaderId::new(HERO)));
+        assert!(!crate::leaders::usable(&game(), content(), &a()).contains(&ti4_model::id::LeaderId::new(HERO)));
     }
 
     // -- neutrality -------------------------------------------------------------------------------

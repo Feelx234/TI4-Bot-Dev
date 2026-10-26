@@ -1512,7 +1512,7 @@ fn pick_site_of(
                 Site::Colony => colony_planet(content, id).is_some(),
                 Site::Traited => traited_planet(content, id).is_some(),
                 Site::Frontier => ti4_engine::exploration::frontier_systems(content, POK, galaxy)
-                    .contains(&SystemId::new(*id)),
+                    .contains(&ti4_model::id::SystemId::new(*id)),
             })
             .collect();
         if !eligible.is_empty() {
@@ -1551,7 +1551,7 @@ fn traited_planet(content: &ContentStore, system: &str) -> Option<PlanetId> {
 fn eligible_in_mecatol(state: &GameState) -> bool {
     state
         .board
-        .get(&SystemId::new(MECATOL))
+        .get(ti4_model::id::text(&MECATOL))
         .is_none_or(|board| {
             board.units.is_empty() && board.planet_units.values().all(Vec::is_empty)
         })
@@ -1581,7 +1581,7 @@ fn eligible(
     if (system.is_anomaly() && !anomaly_ok) || system.is_hyperlane() {
         return false;
     }
-    state.board.get(&SystemId::new(id)).is_none_or(|board| {
+    state.board.get(ti4_model::id::text(&id)).is_none_or(|board| {
         board.units.is_empty() && board.planet_units.values().all(Vec::is_empty)
     })
 }
@@ -2156,7 +2156,7 @@ mod tests {
             let owned = &techs.player(player).unwrap().technologies;
             for id in TECH_POOL {
                 assert!(
-                    owned.contains(&TechnologyId::new(*id)),
+                    owned.contains(ti4_model::id::text(&*id)),
                     "{player} lacks {id}"
                 );
             }
@@ -2313,7 +2313,7 @@ mod tests {
                 );
                 for player in &list {
                     let seat = state.player(player).unwrap();
-                    assert!(seat.technologies.contains(&TechnologyId::new("asc")));
+                    assert!(seat.technologies.contains(ti4_model::id::text(&"asc")));
                     assert!(!seat.action_cards.is_empty());
                 }
             }
@@ -2368,7 +2368,7 @@ mod tests {
                     .collect();
                 assert_eq!(cabal.len(), 1, "{n}p seed {seed}");
                 let seat = state.player(cabal[0]).unwrap();
-                assert!(seat.technologies.contains(&TechnologyId::new("vtx")));
+                assert!(seat.technologies.contains(ti4_model::id::text(&"vtx")));
                 assert!(seat.captured_units.len() >= n - 1);
                 // Somebody else's fleet is next to the Cabal's home dock.
                 let assignments = BTreeMap::from([(cabal[0].clone(), seat.faction.clone())]);
@@ -2379,7 +2379,7 @@ mod tests {
                 assert!(
                     adjacent.iter().any(|id| state
                         .board
-                        .get(&SystemId::new(*id))
+                        .get(ti4_model::id::text(&*id))
                         .is_some_and(|b| b.units.iter().any(|u| &u.owner != cabal[0]))),
                     "{n}p seed {seed}: no raider beside the Cabal"
                 );
@@ -2563,7 +2563,7 @@ mod tests {
             let mut frontier_ships = 0;
             for player in &list {
                 let seat = state.player(player).unwrap();
-                assert!(seat.technologies.contains(&TechnologyId::new("det")));
+                assert!(seat.technologies.contains(ti4_model::id::text(&"det")));
                 assert!(!seat.relic_fragments.is_empty());
                 for (id, board) in &state.board {
                     let has = |kind: &str| {
@@ -2731,7 +2731,7 @@ mod tests {
             let (state, _) = preset_game(content(), &players(4), 11, None, preset).unwrap();
             let mut with_planets = 0;
             for seat in &state.players {
-                assert_eq!(seat.technologies.contains(&TechnologyId::new("pa")), pa);
+                assert_eq!(seat.technologies.contains(ti4_model::id::text(&"pa")), pa);
                 let exhausted_specialty = state
                     .controlled_planets(&seat.id)
                     .into_iter()

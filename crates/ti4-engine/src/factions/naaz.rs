@@ -1436,13 +1436,13 @@ fn timing_abilities(state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec
     ];
     if state
         .player(seat)
-        .is_some_and(|source| source.leaders.contains_key(&LeaderId::new(AGENT)))
+        .is_some_and(|source| source.leaders.contains_key(ti4_model::id::text(&AGENT)))
     {
         for candidate in &state.players {
             if &candidate.id != seat
                 && candidate
                     .leaders
-                    .contains_key(&LeaderId::new("yssarilagent"))
+                    .contains_key(ti4_model::id::text(&"yssarilagent"))
             {
                 abilities.push(borrowed_agent(owner_name, seat, &candidate.id));
             }
@@ -2360,7 +2360,7 @@ mod tests {
                         .player_mut(&b())
                         .unwrap()
                         .leaders
-                        .remove(&LeaderId::new("yssarilagent"));
+                        .remove(ti4_model::id::text(&"yssarilagent"));
                 }
             }
             emit(
@@ -2384,7 +2384,7 @@ mod tests {
             .player_mut(&a())
             .unwrap()
             .leaders
-            .remove(&LeaderId::new(AGENT));
+            .remove(ti4_model::id::text(&AGENT));
         state
             .player_mut(&b())
             .unwrap()
@@ -2477,7 +2477,7 @@ mod tests {
             .player_mut(&a())
             .unwrap()
             .leaders
-            .remove(&LeaderId::new(COMMANDER));
+            .remove(ti4_model::id::text(&COMMANDER));
         let planet = take_explorable(&mut state, &a());
         assert!(crate::promissory::grant_commander_ability(
             &mut state,

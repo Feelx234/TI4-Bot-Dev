@@ -849,10 +849,10 @@ fn timing_abilities(state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec
         if candidate.id != *seat
             && candidate
                 .leaders
-                .contains_key(&LeaderId::new("yssarilagent"))
+                .contains_key(ti4_model::id::text(&"yssarilagent"))
             && state
                 .player(seat)
-                .is_some_and(|source| source.leaders.contains_key(&LeaderId::new(AGENT)))
+                .is_some_and(|source| source.leaders.contains_key(ti4_model::id::text(&AGENT)))
         {
             abilities.push(borrowed_agent(owner_name, seat, &candidate.id));
         }
@@ -1165,7 +1165,7 @@ mod tests {
         let content = ContentStore::embedded();
         let ids: Vec<String> = crate::fixtures::plain_systems(12)
             .into_iter()
-            .filter(|id| !state.board.contains_key(&SystemId::new(id.as_str())))
+            .filter(|id| !state.board.contains_key(ti4_model::id::text(&id.as_str())))
             .take(8)
             .collect();
         let mut tiles = vec!["18"];
@@ -2060,7 +2060,7 @@ mod tests {
         crate::promissory::deal(&mut state, content, DEFAULT);
         let ids: Vec<String> = crate::fixtures::plain_systems(12)
             .into_iter()
-            .filter(|id| !state.board.contains_key(&SystemId::new(id.as_str())))
+            .filter(|id| !state.board.contains_key(ti4_model::id::text(&id.as_str())))
             .take(8)
             .collect();
         let mut tiles = vec!["18"];
