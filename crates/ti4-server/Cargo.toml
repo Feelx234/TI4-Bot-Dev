@@ -36,6 +36,11 @@ ti4-policy = { workspace = true }
 # so every alias of `.cargo/config.toml` builds the same features and the server binary has none.
 ti4-wasm = { path = "../ti4-wasm", features = ["ts"] }
 tokio-tungstenite = "0.26"
+# Held at 1.1.0 on purpose: 1.2 swaps the unicode-rs crates for the ICU4X stack (icu_*, yoke, zerovec,
+# displaydoc, ... about 30 crates and 4 proc-macro crates) that reqwest -> url -> idna would
+# otherwise compile for a test client that only ever opens http://127.0.0.1. Nothing is linked into
+# the server binary either way. Not used by any source file.
+idna_adapter = "=1.1.0"
 reqwest = { version = "0.12", default-features = false, features = ["json"] }
 
 # The binary has no tests; without this it is linked a second time as an empty test executable.
