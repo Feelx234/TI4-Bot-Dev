@@ -1,0 +1,4082 @@
+{
+  "abilities": {
+    "registered": [
+      "aetherpassage",
+      "amalgamation",
+      "ambush",
+      "analytical",
+      "arbiters",
+      "armada",
+      "assimilate",
+      "awaken",
+      "bladesorchestra",
+      "blood_ties",
+      "brilliant",
+      "coalescence",
+      "council_patronage",
+      "crafty",
+      "creuss_gate",
+      "dark_whispers",
+      "devotion",
+      "devour",
+      "distant_suns",
+      "edict",
+      "fabrication",
+      "foresight",
+      "fragile",
+      "future_sight",
+      "galactic_threat",
+      "galvanize",
+      "gashlai_physiology",
+      "guild_ships",
+      "harrow",
+      "hubris",
+      "imperia",
+      "incursion",
+      "indoctrination",
+      "laws_order",
+      "liberate",
+      "marionettes",
+      "master_of_trade",
+      "miniaturization",
+      "mitosis",
+      "munitions",
+      "nocturne",
+      "nomadic",
+      "oceanbound",
+      "orbital_drop",
+      "peace_accords",
+      "phoenixstandard",
+      "pillage",
+      "plotsplots",
+      "propagation",
+      "puppetsoftheblade",
+      "quantum_entanglement",
+      "quash",
+      "raid_formation",
+      "reclamation",
+      "researchteam",
+      "riftmeld",
+      "scavenge",
+      "scheming",
+      "slipstream",
+      "sorrow",
+      "stall_tactics",
+      "star_forge",
+      "sundered",
+      "survivalinstinct",
+      "technological_singularity",
+      "telepathic",
+      "terragenesis",
+      "the_company",
+      "the_tribuni",
+      "unrelenting",
+      "versatile",
+      "voidborn",
+      "zeal"
+    ],
+    "unimplemented": []
+  },
+  "action_cards": {
+    "reaction_reachable": [
+      "abs",
+      "assassin",
+      "blackmarketdealing",
+      "blitz",
+      "bribery",
+      "bunker",
+      "confounding",
+      "confusing",
+      "const_rider",
+      "counterstroke",
+      "coup",
+      "courageous",
+      "crashlanding",
+      "crisis",
+      "deadly_plot",
+      "decoy",
+      "dh1",
+      "dh2",
+      "dh3",
+      "dh4",
+      "diplo_rider",
+      "disable",
+      "disgrace",
+      "distinguished",
+      "dp1",
+      "dp2",
+      "dp3",
+      "dp4",
+      "emergency",
+      "experimental",
+      "extremeduress",
+      "f_prototype",
+      "fire_team",
+      "fs1",
+      "fs2",
+      "fs3",
+      "fs4",
+      "fsb",
+      "ghost_squad",
+      "hack",
+      "harness",
+      "imp_rider",
+      "infiltrate",
+      "insider",
+      "intercept",
+      "investments",
+      "lead_rider",
+      "lieinwait",
+      "lost_star",
+      "master_plan",
+      "mb1",
+      "mb2",
+      "mb3",
+      "mb4",
+      "mjets1",
+      "mjets2",
+      "mjets3",
+      "mjets4",
+      "nav_suite",
+      "parley",
+      "politic_rider",
+      "puppetsonastring",
+      "rally",
+      "reflective",
+      "reparations",
+      "rescue",
+      "reveal_prototype",
+      "reverse_engineer",
+      "rout",
+      "s_retreat1",
+      "s_retreat2",
+      "s_retreat3",
+      "s_retreat4",
+      "sabo1",
+      "sabo2",
+      "sabo3",
+      "sabo4",
+      "salvage",
+      "sanction",
+      "scramble",
+      "sh1",
+      "sh2",
+      "sh3",
+      "sh4",
+      "silence_space",
+      "solar_flare",
+      "stability",
+      "summit",
+      "tech_rider",
+      "trade_rider",
+      "upgrade",
+      "veto",
+      "veto3",
+      "veto4",
+      "war_machine1",
+      "war_machine2",
+      "war_machine3",
+      "war_machine4",
+      "war_rider",
+      "waylay"
+    ],
+    "registered": [
+      "abs",
+      "arch_expedition",
+      "assassin",
+      "blackmarketdealing",
+      "blitz",
+      "bribery",
+      "brilliance",
+      "bunker",
+      "confounding",
+      "confusing",
+      "const_rider",
+      "counterstroke",
+      "coup",
+      "courageous",
+      "crashlanding",
+      "cripple",
+      "crisis",
+      "deadly_plot",
+      "decoy",
+      "dh1",
+      "dh2",
+      "dh3",
+      "dh4",
+      "diplo_rider",
+      "disable",
+      "disgrace",
+      "distinguished",
+      "divert_funding",
+      "dp1",
+      "dp2",
+      "dp3",
+      "dp4",
+      "economic_initiative",
+      "emergency",
+      "exchangeprogram",
+      "experimental",
+      "extremeduress",
+      "f_conscription",
+      "f_deployment",
+      "f_prototype",
+      "f_researched",
+      "fire_team",
+      "fs1",
+      "fs2",
+      "fs3",
+      "fs4",
+      "fsb",
+      "ghost_ship",
+      "ghost_squad",
+      "hack",
+      "harness",
+      "imp_rider",
+      "impersonation",
+      "industrial_initiative",
+      "infiltrate",
+      "insider",
+      "insub",
+      "intercept",
+      "investments",
+      "jamming",
+      "lead_rider",
+      "lieinwait",
+      "lost_star",
+      "lucky",
+      "master_plan",
+      "mb1",
+      "mb2",
+      "mb3",
+      "mb4",
+      "meltdown",
+      "mercenarycontract",
+      "messiah",
+      "mining_initiative",
+      "mjets1",
+      "mjets2",
+      "mjets3",
+      "mjets4",
+      "nav_suite",
+      "overrule",
+      "parley",
+      "piratecontract1",
+      "piratecontract2",
+      "piratecontract3",
+      "piratecontract4",
+      "piratefleet",
+      "plagiarize",
+      "plague",
+      "politic_rider",
+      "probe",
+      "puppetsonastring",
+      "rally",
+      "refit",
+      "reflective",
+      "reparations",
+      "repeal",
+      "rescue",
+      "reveal_prototype",
+      "reverse_engineer",
+      "rout",
+      "s_retreat1",
+      "s_retreat2",
+      "s_retreat3",
+      "s_retreat4",
+      "sabo1",
+      "sabo2",
+      "sabo3",
+      "sabo4",
+      "salvage",
+      "sanction",
+      "scramble",
+      "scuttle",
+      "seize",
+      "sh1",
+      "sh2",
+      "sh3",
+      "sh4",
+      "silence_space",
+      "solar_flare",
+      "spy",
+      "stability",
+      "strategize1",
+      "strategize2",
+      "strategize3",
+      "strategize4",
+      "summit",
+      "tactical",
+      "tech_rider",
+      "trade_rider",
+      "unexpected",
+      "unstable",
+      "upgrade",
+      "uprising",
+      "veto",
+      "veto3",
+      "veto4",
+      "war_effort",
+      "war_machine1",
+      "war_machine2",
+      "war_machine3",
+      "war_machine4",
+      "war_rider",
+      "waylay"
+    ],
+    "unimplemented": [],
+    "windows": {
+      "abs": {
+        "bound_event": "AGENDA_PHASE_BEGAN",
+        "has_effect": true,
+        "printed_window": "At the start of the agenda phase"
+      },
+      "arch_expedition": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "assassin": {
+        "bound_event": "AGENDA_REVEALED",
+        "has_effect": true,
+        "printed_window": "After an agenda is revealed"
+      },
+      "blackmarketdealing": {
+        "bound_event": "TRANSACTION_OPENED",
+        "has_effect": true,
+        "printed_window": "When you are negotiating a transaction"
+      },
+      "blitz": {
+        "bound_event": "INVASION_BEGAN",
+        "has_effect": true,
+        "printed_window": "At the start of an invasion"
+      },
+      "bribery": {
+        "bound_event": "VOTES_CAST",
+        "has_effect": true,
+        "printed_window": "After the speaker votes on an agenda"
+      },
+      "brilliance": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "bunker": {
+        "bound_event": "INVASION_BEGAN",
+        "has_effect": true,
+        "printed_window": "At the start of an invasion"
+      },
+      "confounding": {
+        "bound_event": "AGENDA_RESOLVED",
+        "has_effect": true,
+        "printed_window": "When another player is elected as the outcome of an agenda"
+      },
+      "confusing": {
+        "bound_event": "AGENDA_RESOLVED",
+        "has_effect": true,
+        "printed_window": "When you are elected as the outcome of an agenda"
+      },
+      "const_rider": {
+        "bound_event": "AGENDA_REVEALED",
+        "has_effect": true,
+        "printed_window": "After an agenda is revealed"
+      },
+      "counterstroke": {
+        "bound_event": "SYSTEM_ACTIVATED",
+        "has_effect": true,
+        "printed_window": "After another player activates a system that contains 1 of your command tokens"
+      },
+      "coup": {
+        "bound_event": "STRATEGIC_ACTION_BEGAN",
+        "has_effect": true,
+        "printed_window": "When another player would perform a strategic action"
+      },
+      "courageous": {
+        "bound_event": "SHIP_DESTROYED",
+        "has_effect": true,
+        "printed_window": "After 1 of your ships is destroyed during a space combat"
+      },
+      "crashlanding": {
+        "bound_event": "SHIP_DESTROYED",
+        "has_effect": true,
+        "printed_window": "When your last ship in the active system is destroyed"
+      },
+      "cripple": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "crisis": {
+        "bound_event": "TURN_PASSED",
+        "has_effect": true,
+        "printed_window": "At the end of any players turn, if there are at least 2 players who have not passed"
+      },
+      "deadly_plot": {
+        "bound_event": "AGENDA_RESOLVED",
+        "has_effect": true,
+        "printed_window": "During the agenda phase when an outcome would be resolved"
+      },
+      "decoy": {
+        "bound_event": "SYSTEM_ACTIVATED",
+        "has_effect": true,
+        "printed_window": "After another player activates a system that contains 1 or more of your structures"
+      },
+      "dh1": {
+        "bound_event": "SUSTAIN_DAMAGE_USED",
+        "has_effect": true,
+        "printed_window": "After another player's ship uses SUSTAIN DAMAGE to cancel a hit produced by your units or abilities"
+      },
+      "dh2": {
+        "bound_event": "SUSTAIN_DAMAGE_USED",
+        "has_effect": true,
+        "printed_window": "After another player's ship uses SUSTAIN DAMAGE to cancel a hit produced by your units or abilities"
+      },
+      "dh3": {
+        "bound_event": "SUSTAIN_DAMAGE_USED",
+        "has_effect": true,
+        "printed_window": "After another player's ship uses SUSTAIN DAMAGE to cancel a hit produced by your units or abilities"
+      },
+      "dh4": {
+        "bound_event": "SUSTAIN_DAMAGE_USED",
+        "has_effect": true,
+        "printed_window": "After another player's ship uses SUSTAIN DAMAGE to cancel a hit produced by your units or abilities"
+      },
+      "diplo_rider": {
+        "bound_event": "AGENDA_REVEALED",
+        "has_effect": true,
+        "printed_window": "After an agenda is revealed"
+      },
+      "disable": {
+        "bound_event": "INVASION_BEGAN",
+        "has_effect": true,
+        "printed_window": "At the start of an invasion in a system that contains 1 or more of your opponents' PDS units"
+      },
+      "disgrace": {
+        "bound_event": "STRATEGY_CARD_CHOSEN",
+        "has_effect": true,
+        "printed_window": "When another player chooses a strategy card during the strategy phase"
+      },
+      "distinguished": {
+        "bound_event": "VOTES_CAST",
+        "has_effect": true,
+        "printed_window": "After you cast votes on an outcome of an agenda"
+      },
+      "divert_funding": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "dp1": {
+        "bound_event": "AGENDA_REVEALED",
+        "has_effect": true,
+        "printed_window": "When an agenda is revealed"
+      },
+      "dp2": {
+        "bound_event": "AGENDA_REVEALED",
+        "has_effect": true,
+        "printed_window": "When an agenda is revealed"
+      },
+      "dp3": {
+        "bound_event": "AGENDA_REVEALED",
+        "has_effect": true,
+        "printed_window": "When an agenda is revealed"
+      },
+      "dp4": {
+        "bound_event": "AGENDA_REVEALED",
+        "has_effect": true,
+        "printed_window": "When an agenda is revealed"
+      },
+      "economic_initiative": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "emergency": {
+        "bound_event": "COMBAT_ROUND_STARTED",
+        "has_effect": true,
+        "printed_window": "At the start or end of a combat round"
+      },
+      "exchangeprogram": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "experimental": {
+        "bound_event": "SHIP_MOVED",
+        "has_effect": true,
+        "printed_window": "After the active player moves ships into the active system during a tactical action"
+      },
+      "extremeduress": {
+        "bound_event": "TURN_BEGAN",
+        "has_effect": true,
+        "printed_window": "At the start of another player's turn, if they have a readied strategy card"
+      },
+      "f_conscription": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "f_deployment": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "f_prototype": {
+        "bound_event": "SPACE_COMBAT_STARTED",
+        "has_effect": true,
+        "printed_window": "At the start of the first round of a space combat"
+      },
+      "f_researched": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "fire_team": {
+        "bound_event": "GROUND_ROLLS_MADE",
+        "has_effect": true,
+        "printed_window": "After your ground forces make combat rolls during a round of ground combat"
+      },
+      "fs1": {
+        "bound_event": "SYSTEM_ACTIVATED",
+        "has_effect": true,
+        "printed_window": "After you activate a system"
+      },
+      "fs2": {
+        "bound_event": "SYSTEM_ACTIVATED",
+        "has_effect": true,
+        "printed_window": "After you activate a system"
+      },
+      "fs3": {
+        "bound_event": "SYSTEM_ACTIVATED",
+        "has_effect": true,
+        "printed_window": "After you activate a system"
+      },
+      "fs4": {
+        "bound_event": "SYSTEM_ACTIVATED",
+        "has_effect": true,
+        "printed_window": "After you activate a system"
+      },
+      "fsb": {
+        "bound_event": "SYSTEM_ACTIVATED",
+        "has_effect": true,
+        "printed_window": "After another player activates a system that contains your units"
+      },
+      "ghost_ship": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "ghost_squad": {
+        "bound_event": "UNITS_COMMITTED",
+        "has_effect": true,
+        "printed_window": "After another player commits units to land on a planet you control"
+      },
+      "hack": {
+        "bound_event": "AGENDA_REVEALED",
+        "has_effect": true,
+        "printed_window": "After an agenda is revealed"
+      },
+      "harness": {
+        "bound_event": "SYSTEM_ACTIVATED",
+        "has_effect": true,
+        "printed_window": "After you activate an anomaly"
+      },
+      "imp_rider": {
+        "bound_event": "AGENDA_REVEALED",
+        "has_effect": true,
+        "printed_window": "After an agenda is revealed"
+      },
+      "impersonation": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "industrial_initiative": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "infiltrate": {
+        "bound_event": "PLANET_CONTROL_GAINED",
+        "has_effect": true,
+        "printed_window": "When you gain control of a planet"
+      },
+      "insider": {
+        "bound_event": "AGENDA_REVEALED",
+        "has_effect": true,
+        "printed_window": "After an agenda is revealed"
+      },
+      "insub": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "intercept": {
+        "bound_event": "RETREAT_DECLARED",
+        "has_effect": true,
+        "printed_window": "After your opponent declares a retreat during a space combat"
+      },
+      "investments": {
+        "bound_event": "STRATEGY_PHASE_BEGAN",
+        "has_effect": true,
+        "printed_window": "At the start of the strategy phase"
+      },
+      "jamming": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "lead_rider": {
+        "bound_event": "AGENDA_REVEALED",
+        "has_effect": true,
+        "printed_window": "After an agenda is revealed"
+      },
+      "lieinwait": {
+        "bound_event": "TRANSACTION_RESOLVED",
+        "has_effect": true,
+        "printed_window": "After 2 of your neighbors resolve a transaction"
+      },
+      "lost_star": {
+        "bound_event": "SYSTEM_ACTIVATED",
+        "has_effect": true,
+        "printed_window": "After you activate a system"
+      },
+      "lucky": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "master_plan": {
+        "bound_event": "ACTION_COMPLETED",
+        "has_effect": true,
+        "printed_window": "After you perform an action"
+      },
+      "mb1": {
+        "bound_event": "COMBAT_ROUND_STARTED",
+        "has_effect": true,
+        "printed_window": "At the start of a combat round"
+      },
+      "mb2": {
+        "bound_event": "COMBAT_ROUND_STARTED",
+        "has_effect": true,
+        "printed_window": "At the start of a combat round"
+      },
+      "mb3": {
+        "bound_event": "COMBAT_ROUND_STARTED",
+        "has_effect": true,
+        "printed_window": "At the start of a combat round"
+      },
+      "mb4": {
+        "bound_event": "COMBAT_ROUND_STARTED",
+        "has_effect": true,
+        "printed_window": "At the start of a combat round"
+      },
+      "meltdown": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "mercenarycontract": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "messiah": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "mining_initiative": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "mjets1": {
+        "bound_event": "SPACE_CANNON_HITS",
+        "has_effect": true,
+        "printed_window": "Before you assign hits produced by another player's SPACE CANNON roll"
+      },
+      "mjets2": {
+        "bound_event": "SPACE_CANNON_HITS",
+        "has_effect": true,
+        "printed_window": "Before you assign hits produced by another player's SPACE CANNON roll"
+      },
+      "mjets3": {
+        "bound_event": "SPACE_CANNON_HITS",
+        "has_effect": true,
+        "printed_window": "Before you assign hits produced by another player's SPACE CANNON roll"
+      },
+      "mjets4": {
+        "bound_event": "SPACE_CANNON_HITS",
+        "has_effect": true,
+        "printed_window": "Before you assign hits produced by another player's SPACE CANNON roll"
+      },
+      "nav_suite": {
+        "bound_event": "SYSTEM_ACTIVATED",
+        "has_effect": true,
+        "printed_window": "After you activate a system"
+      },
+      "overrule": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "parley": {
+        "bound_event": "UNITS_COMMITTED",
+        "has_effect": true,
+        "printed_window": "After another player commits units to land on a planet you control"
+      },
+      "piratecontract1": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "piratecontract2": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "piratecontract3": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "piratecontract4": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "piratefleet": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "plagiarize": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "plague": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "politic_rider": {
+        "bound_event": "AGENDA_REVEALED",
+        "has_effect": true,
+        "printed_window": "After an agenda is revealed"
+      },
+      "probe": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "puppetsonastring": {
+        "bound_event": "PLAYER_PASSED",
+        "has_effect": true,
+        "printed_window": "At the end of a player's turn, if you have passed"
+      },
+      "rally": {
+        "bound_event": "SYSTEM_ACTIVATED",
+        "has_effect": true,
+        "printed_window": "After you activate a system that contains another player's ships"
+      },
+      "refit": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "reflective": {
+        "bound_event": "SUSTAIN_DAMAGE_USED",
+        "has_effect": true,
+        "printed_window": "When one of your ships uses SUSTAIN DAMAGE during combat"
+      },
+      "reparations": {
+        "bound_event": "PLANET_CONTROL_GAINED",
+        "has_effect": true,
+        "printed_window": "After another player gains control of a planet you control"
+      },
+      "repeal": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "rescue": {
+        "bound_event": "SHIP_MOVED",
+        "has_effect": true,
+        "printed_window": "After a player moves ships into a system that contains your ships"
+      },
+      "reveal_prototype": {
+        "bound_event": "COMBAT_ROUND_STARTED",
+        "has_effect": true,
+        "printed_window": "At the start of a combat"
+      },
+      "reverse_engineer": {
+        "bound_event": "ACTION_CARD_DISCARDED",
+        "has_effect": true,
+        "printed_window": "After another player discards an action card that has a component action"
+      },
+      "rout": {
+        "bound_event": "RETREAT_STEP_STARTED",
+        "has_effect": true,
+        "printed_window": "At the start of the 'Announce Retreats' step of space combat, if you are the defender"
+      },
+      "s_retreat1": {
+        "bound_event": "COMBAT_ROUND_STARTED",
+        "has_effect": true,
+        "printed_window": "At the start of a combat round"
+      },
+      "s_retreat2": {
+        "bound_event": "COMBAT_ROUND_STARTED",
+        "has_effect": true,
+        "printed_window": "At the start of a combat round"
+      },
+      "s_retreat3": {
+        "bound_event": "COMBAT_ROUND_STARTED",
+        "has_effect": true,
+        "printed_window": "At the start of a combat round"
+      },
+      "s_retreat4": {
+        "bound_event": "COMBAT_ROUND_STARTED",
+        "has_effect": true,
+        "printed_window": "At the start of a combat round"
+      },
+      "sabo1": {
+        "bound_event": "ACTION_CARD_PLAYED",
+        "has_effect": true,
+        "printed_window": "When another player plays an action card other than 'Sabotage'"
+      },
+      "sabo2": {
+        "bound_event": "ACTION_CARD_PLAYED",
+        "has_effect": true,
+        "printed_window": "When another player plays an action card other than 'Sabotage'"
+      },
+      "sabo3": {
+        "bound_event": "ACTION_CARD_PLAYED",
+        "has_effect": true,
+        "printed_window": "When another player plays an action card other than 'Sabotage'"
+      },
+      "sabo4": {
+        "bound_event": "ACTION_CARD_PLAYED",
+        "has_effect": true,
+        "printed_window": "When another player plays an action card other than 'Sabotage'"
+      },
+      "salvage": {
+        "bound_event": "SPACE_COMBAT_WON",
+        "has_effect": true,
+        "printed_window": "After you win a space combat"
+      },
+      "sanction": {
+        "bound_event": "AGENDA_REVEALED",
+        "has_effect": true,
+        "printed_window": "After an agenda is revealed"
+      },
+      "scramble": {
+        "bound_event": "UNIT_ABILITY_ROLLED",
+        "has_effect": true,
+        "printed_window": "After another player makes a BOMBARDMENT, SPACE CANNON, or ANTI-FIGHTER BARRAGE roll"
+      },
+      "scuttle": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "seize": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "sh1": {
+        "bound_event": "HITS_TO_ASSIGN",
+        "has_effect": true,
+        "printed_window": "Before you assign hits to your ships during a space combat"
+      },
+      "sh2": {
+        "bound_event": "HITS_TO_ASSIGN",
+        "has_effect": true,
+        "printed_window": "Before you assign hits to your ships during a space combat"
+      },
+      "sh3": {
+        "bound_event": "HITS_TO_ASSIGN",
+        "has_effect": true,
+        "printed_window": "Before you assign hits to your ships during a space combat"
+      },
+      "sh4": {
+        "bound_event": "HITS_TO_ASSIGN",
+        "has_effect": true,
+        "printed_window": "Before you assign hits to your ships during a space combat"
+      },
+      "silence_space": {
+        "bound_event": "SYSTEM_ACTIVATED",
+        "has_effect": true,
+        "printed_window": "After you activate a system"
+      },
+      "solar_flare": {
+        "bound_event": "SYSTEM_ACTIVATED",
+        "has_effect": true,
+        "printed_window": "After you activate a system"
+      },
+      "spy": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "stability": {
+        "bound_event": "STRATEGY_CARDS_WOULD_RETURN",
+        "has_effect": true,
+        "printed_window": "When you would return your strategy card(s) during the status phase"
+      },
+      "strategize1": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "strategize2": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "strategize3": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "strategize4": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "summit": {
+        "bound_event": "STRATEGY_PHASE_BEGAN",
+        "has_effect": true,
+        "printed_window": "At the start of the strategy phase"
+      },
+      "tactical": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "tech_rider": {
+        "bound_event": "AGENDA_REVEALED",
+        "has_effect": true,
+        "printed_window": "After an agenda is revealed"
+      },
+      "trade_rider": {
+        "bound_event": "AGENDA_REVEALED",
+        "has_effect": true,
+        "printed_window": "After an agenda is revealed"
+      },
+      "unexpected": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "unstable": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "upgrade": {
+        "bound_event": "SYSTEM_ACTIVATED",
+        "has_effect": true,
+        "printed_window": "After you activate a system that contains 1 or more of your ships"
+      },
+      "uprising": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "veto": {
+        "bound_event": "AGENDA_REVEALED",
+        "has_effect": true,
+        "printed_window": "When an agenda is revealed"
+      },
+      "veto3": {
+        "bound_event": "AGENDA_REVEALED",
+        "has_effect": true,
+        "printed_window": "When an agenda is revealed"
+      },
+      "veto4": {
+        "bound_event": "AGENDA_REVEALED",
+        "has_effect": true,
+        "printed_window": "When an agenda is revealed"
+      },
+      "war_effort": {
+        "bound_event": null,
+        "has_effect": true,
+        "printed_window": "Action"
+      },
+      "war_machine1": {
+        "bound_event": "PRODUCTION_USED",
+        "has_effect": true,
+        "printed_window": "When 1 or more of your units use PRODUCTION"
+      },
+      "war_machine2": {
+        "bound_event": "PRODUCTION_USED",
+        "has_effect": true,
+        "printed_window": "When 1 or more of your units use PRODUCTION"
+      },
+      "war_machine3": {
+        "bound_event": "PRODUCTION_USED",
+        "has_effect": true,
+        "printed_window": "When 1 or more of your units use PRODUCTION"
+      },
+      "war_machine4": {
+        "bound_event": "PRODUCTION_USED",
+        "has_effect": true,
+        "printed_window": "When 1 or more of your units use PRODUCTION"
+      },
+      "war_rider": {
+        "bound_event": "AGENDA_REVEALED",
+        "has_effect": true,
+        "printed_window": "After an agenda is revealed"
+      },
+      "waylay": {
+        "bound_event": "ANTI_FIGHTER_BARRAGE_STARTED",
+        "has_effect": true,
+        "printed_window": "Before you roll dice for ANTI-FIGHTER BARRAGE"
+      }
+    }
+  },
+  "agendas": {
+    "laws_unenforced": [],
+    "registered": [
+      "abolishment",
+      "arbiter",
+      "arms_reduction",
+      "articles_war",
+      "artifact",
+      "censure",
+      "checks",
+      "cladenstine",
+      "classified",
+      "committee",
+      "conscription",
+      "constitution",
+      "conventions",
+      "core_mining",
+      "covert",
+      "crisis",
+      "crown_of_emphidia",
+      "crown_of_thalnos",
+      "defense_act",
+      "demilitarized_zone",
+      "disarmament",
+      "economic_equality",
+      "execution",
+      "grant_reallocation",
+      "holy_planet_of_ixth",
+      "incentive",
+      "minister_antiquities",
+      "minister_commerce",
+      "minister_exploration",
+      "minister_industry",
+      "minister_peace",
+      "minister_policy",
+      "minister_sciences",
+      "minister_war",
+      "miscount",
+      "mutiny",
+      "nexus",
+      "plowshares",
+      "prophecy",
+      "rearmament",
+      "redistribution",
+      "regulations",
+      "rep_govt",
+      "representative_government",
+      "revolution",
+      "rt_biotic",
+      "rt_cybernetic",
+      "rt_propulsion",
+      "rt_warfare",
+      "sanctions",
+      "schematics",
+      "secret",
+      "seed_empire",
+      "senate_sanctuary",
+      "shard_of_the_throne",
+      "shared_research",
+      "standardization",
+      "terraforming_initiative",
+      "travel_ban",
+      "unconventional",
+      "warrant",
+      "wormhole_recon",
+      "wormhole_research"
+    ],
+    "unimplemented": []
+  },
+  "breakthroughs": {
+    "module_claimed": [
+      "arborecbt",
+      "argentbt",
+      "bastionbt",
+      "cabalbt",
+      "crimsonbt",
+      "deepwroughtbt",
+      "empyreanbt",
+      "firmamentbt",
+      "ghostbt",
+      "keleresbt",
+      "mahactbt",
+      "mentakbt",
+      "muaatbt",
+      "naalubt",
+      "naazbt",
+      "nekrobt",
+      "nomadbt",
+      "obsidianbt",
+      "ralnelbt",
+      "saarbt",
+      "sardakkbt",
+      "titansbt",
+      "winnubt",
+      "yinbt",
+      "yssarilbt"
+    ],
+    "registered": [
+      "arborecbt",
+      "argentbt",
+      "bastionbt",
+      "cabalbt",
+      "crimsonbt",
+      "deepwroughtbt",
+      "empyreanbt",
+      "firmamentbt",
+      "ghostbt",
+      "hacanbt",
+      "jolnarbt",
+      "keleresbt",
+      "l1z1xbt",
+      "letnevbt",
+      "mahactbt",
+      "mentakbt",
+      "muaatbt",
+      "naalubt",
+      "naazbt",
+      "nekrobt",
+      "nomadbt",
+      "obsidianbt",
+      "ralnelbt",
+      "saarbt",
+      "sardakkbt",
+      "solbt",
+      "titansbt",
+      "winnubt",
+      "xxchabt",
+      "yinbt",
+      "yssarilbt"
+    ]
+  },
+  "decks_seed1": {
+    "action_cards": [
+      "abs",
+      "arch_expedition",
+      "assassin",
+      "blackmarketdealing",
+      "blitz",
+      "bribery",
+      "brilliance",
+      "bunker",
+      "confounding",
+      "confusing",
+      "const_rider",
+      "counterstroke",
+      "coup",
+      "courageous",
+      "crashlanding",
+      "cripple",
+      "crisis",
+      "deadly_plot",
+      "decoy",
+      "dh1",
+      "dh2",
+      "dh3",
+      "dh4",
+      "diplo_rider",
+      "disable",
+      "disgrace",
+      "distinguished",
+      "divert_funding",
+      "dp1",
+      "dp2",
+      "dp3",
+      "dp4",
+      "economic_initiative",
+      "emergency",
+      "exchangeprogram",
+      "experimental",
+      "extremeduress",
+      "f_conscription",
+      "f_deployment",
+      "f_prototype",
+      "f_researched",
+      "fire_team",
+      "fs1",
+      "fs2",
+      "fs3",
+      "fs4",
+      "fsb",
+      "ghost_ship",
+      "ghost_squad",
+      "hack",
+      "harness",
+      "imp_rider",
+      "impersonation",
+      "industrial_initiative",
+      "infiltrate",
+      "insider",
+      "insub",
+      "intercept",
+      "investments",
+      "jamming",
+      "lead_rider",
+      "lieinwait",
+      "lost_star",
+      "lucky",
+      "master_plan",
+      "mb1",
+      "mb2",
+      "mb3",
+      "mb4",
+      "meltdown",
+      "mercenarycontract",
+      "messiah",
+      "mining_initiative",
+      "mjets1",
+      "mjets2",
+      "mjets3",
+      "mjets4",
+      "nav_suite",
+      "overrule",
+      "parley",
+      "piratecontract1",
+      "piratecontract2",
+      "piratecontract3",
+      "piratecontract4",
+      "piratefleet",
+      "plagiarize",
+      "plague",
+      "politic_rider",
+      "probe",
+      "puppetsonastring",
+      "rally",
+      "refit",
+      "reflective",
+      "reparations",
+      "repeal",
+      "rescue",
+      "reveal_prototype",
+      "reverse_engineer",
+      "rout",
+      "s_retreat1",
+      "s_retreat2",
+      "s_retreat3",
+      "s_retreat4",
+      "sabo1",
+      "sabo2",
+      "sabo3",
+      "sabo4",
+      "salvage",
+      "sanction",
+      "scramble",
+      "scuttle",
+      "seize",
+      "sh1",
+      "sh2",
+      "sh3",
+      "sh4",
+      "silence_space",
+      "solar_flare",
+      "spy",
+      "stability",
+      "strategize1",
+      "strategize2",
+      "strategize3",
+      "strategize4",
+      "summit",
+      "tactical",
+      "tech_rider",
+      "trade_rider",
+      "unexpected",
+      "unstable",
+      "upgrade",
+      "uprising",
+      "veto",
+      "veto3",
+      "veto4",
+      "war_effort",
+      "war_machine1",
+      "war_machine2",
+      "war_machine3",
+      "war_machine4",
+      "war_rider",
+      "waylay"
+    ],
+    "agendas": [
+      "abolishment",
+      "arbiter",
+      "arms_reduction",
+      "articles_war",
+      "artifact",
+      "censure",
+      "checks",
+      "cladenstine",
+      "classified",
+      "committee",
+      "conscription",
+      "constitution",
+      "conventions",
+      "covert",
+      "crisis",
+      "defense_act",
+      "disarmament",
+      "economic_equality",
+      "execution",
+      "grant_reallocation",
+      "incentive",
+      "minister_antiquities",
+      "minister_commerce",
+      "minister_exploration",
+      "minister_industry",
+      "minister_peace",
+      "minister_policy",
+      "minister_sciences",
+      "minister_war",
+      "miscount",
+      "mutiny",
+      "nexus",
+      "plowshares",
+      "prophecy",
+      "rearmament",
+      "redistribution",
+      "regulations",
+      "rep_govt",
+      "revolution",
+      "sanctions",
+      "schematics",
+      "secret",
+      "seed_empire",
+      "shared_research",
+      "standardization",
+      "travel_ban",
+      "unconventional",
+      "warrant",
+      "wormhole_recon",
+      "wormhole_research"
+    ],
+    "exploration": {
+      "CULTURAL": [
+        "crf1",
+        "crf2",
+        "crf3",
+        "crf4",
+        "crf5",
+        "crf6",
+        "crf7",
+        "crf8",
+        "crf9",
+        "dmz",
+        "ds",
+        "frln1",
+        "frln2",
+        "frln3",
+        "gw",
+        "mo1",
+        "mo2",
+        "mo3",
+        "pw",
+        "toe"
+      ],
+      "FRONTIER": [
+        "dv1",
+        "dv2",
+        "dw",
+        "ed1",
+        "ed2",
+        "ent",
+        "gamma",
+        "ion",
+        "kel1",
+        "kel2",
+        "lc1",
+        "lc2",
+        "majent",
+        "minent",
+        "mirage",
+        "ms1",
+        "ms2",
+        "urf1",
+        "urf2",
+        "urf3"
+      ],
+      "HAZARDOUS": [
+        "cm1",
+        "cm2",
+        "cm3",
+        "exp1",
+        "exp2",
+        "exp3",
+        "hrf1",
+        "hrf2",
+        "hrf3",
+        "hrf4",
+        "hrf5",
+        "hrf6",
+        "hrf7",
+        "ls",
+        "mw",
+        "rw",
+        "vfs1",
+        "vfs2",
+        "vfs3",
+        "warfare"
+      ],
+      "INDUSTRIAL": [
+        "aw1",
+        "aw2",
+        "aw3",
+        "aw4",
+        "biotic",
+        "cybernetic",
+        "fb1",
+        "fb2",
+        "fb3",
+        "fb4",
+        "irf1",
+        "irf2",
+        "irf3",
+        "irf4",
+        "irf5",
+        "lf1",
+        "lf2",
+        "lf3",
+        "lf4",
+        "propulsion"
+      ]
+    },
+    "relics": [
+      "bookoflatvinia",
+      "circletofthevoid",
+      "codex",
+      "dominusorb",
+      "dynamiscore",
+      "emelpar",
+      "emphidia",
+      "heartofixth",
+      "lightrailordnance",
+      "mawofworlds",
+      "metalivoidarmaments",
+      "metalivoidshielding",
+      "nanoforge",
+      "neuraloop",
+      "obsidian",
+      "prophetstears",
+      "quantumcore",
+      "shard",
+      "stellarconverter",
+      "thalnos",
+      "thesilverflame",
+      "thetriad",
+      "titanprototype"
+    ],
+    "secrets": [
+      "ans",
+      "baf",
+      "bam",
+      "btgk",
+      "btv",
+      "csl",
+      "ctr",
+      "dfat",
+      "dhw",
+      "dp",
+      "dtd",
+      "dtgs",
+      "dts",
+      "dyp",
+      "eap",
+      "eh",
+      "faa",
+      "fc",
+      "fsn",
+      "fwm",
+      "fwp",
+      "gamf",
+      "hrm",
+      "lsc",
+      "mew",
+      "mlp",
+      "mp",
+      "mrm",
+      "mtm",
+      "ose",
+      "otf",
+      "pe",
+      "pem",
+      "sai",
+      "sar",
+      "sb",
+      "syc",
+      "te",
+      "ttfd",
+      "uf"
+    ]
+  },
+  "explores": {
+    "unimplemented": []
+  },
+  "faction_assets": {
+    "arborec": [
+      {
+        "id": "mitosis",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "bio",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "lw2",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "arborec_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "arborec_infantry",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "arborec_infantry2",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "arborec_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "stymie",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "arborecagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "arboreccommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "arborechero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "arborecbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "argent": [
+      {
+        "id": "raid_formation",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "zeal",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "ah",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "swa2",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "argent_destroyer",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "argent_destroyer2",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "argent_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "argent_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "ambuscade",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "argentagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "argentcommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "argenthero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "argentbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "bastion": [
+      {
+        "id": "galvanize",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "liberate",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "phoenixstandard",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "helios2",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "proxima",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "bastion_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "bastion_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "bastion_spacedock",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "bastion_spacedock2",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "raisethestandard",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "bastionagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "bastioncommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "bastionhero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "bastionbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "cabal": [
+      {
+        "id": "amalgamation",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "devour",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "riftmeld",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "dt2",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "vtx",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "cabal_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "cabal_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "cabal_spacedock",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "cabal_spacedock2",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "crucible",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "cabalagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "cabalcommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "cabalhero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "cabalbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "crimson": [
+      {
+        "id": "incursion",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "sorrow",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "sundered",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "exile2",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "subatomic",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "crimson_destroyer",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "crimson_destroyer2",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "crimson_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "crimson_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "sever",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "crimsonagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "crimsoncommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "crimsonhero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "crimsonbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "deepwrought": [
+      {
+        "id": "oceanbound",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "researchteam",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "hydrothermal",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "radical",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "deepwrought_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "deepwrought_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "shareknowledge",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "deepwroughtagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "deepwroughtcommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "deepwroughthero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "deepwroughtbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "empyrean": [
+      {
+        "id": "aetherpassage",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "dark_whispers",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "voidborn",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "as",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "vw",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "empyrean_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "empyrean_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "blood_pact",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "dark_pact",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "empyreanagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "empyreancommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "empyreanhero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "empyreanbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "firmament": [
+      {
+        "id": "plotsplots",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "puppetsoftheblade",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "parasite-firm",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "planesplitter-firm",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "firmament_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "firmament_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "blackops",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "firmamentagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "firmamentcommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "firmamenthero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "firmamentbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "ghost": [
+      {
+        "id": "creuss_gate",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "quantum_entanglement",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "slipstream",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "ds",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "wg",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "ghost_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "ghost_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "iff",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "ghostagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "ghostcommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "ghosthero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "ghostbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "hacan": [
+      {
+        "id": "arbiters",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "guild_ships",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "master_of_trade",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "pm",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "qdn",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "hacan_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "hacan_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "convoys",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "hacanagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "hacancommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "hacanhero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "hacanbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "jolnar": [
+      {
+        "id": "analytical",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "brilliant",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "fragile",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "ers",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "scc",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "jolnar_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "jolnar_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "ra",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "jolnaragent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "jolnarcommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "jolnarhero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "jolnarbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "keleresa": [
+      {
+        "id": "council_patronage",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "laws_order",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "the_tribuni",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "asn",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "executiveorder",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "iihq",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "keleres_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "keleres_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "ridera",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "keleresagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "kelerescommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "keleresherokuuasi",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "keleresbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "keleresm": [
+      {
+        "id": "council_patronage",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "laws_order",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "the_tribuni",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "asn",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "executiveorder",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "iihq",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "keleres_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "keleres_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "riderm",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "keleresagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "kelerescommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "keleresheroharka",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "keleresbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "keleresx": [
+      {
+        "id": "council_patronage",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "laws_order",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "the_tribuni",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "asn",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "executiveorder",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "iihq",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "keleres_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "keleres_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "riderx",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "keleresagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "kelerescommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "keleresheroodlynn",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "keleresbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "l1z1x": [
+      {
+        "id": "assimilate",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "harrow",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "is",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "sdn2",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "l1z1x_dreadnought",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "l1z1x_dreadnought2",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "l1z1x_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "l1z1x_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "ce",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "l1z1xagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "l1z1xcommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "l1z1xhero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "l1z1xbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "letnev": [
+      {
+        "id": "armada",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "munitions",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "l4",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "nes",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "letnev_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "letnev_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "war_funding",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "letnevagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "letnevcommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "letnevhero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "letnevbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "mahact": [
+      {
+        "id": "edict",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "hubris",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "imperia",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "cl2",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "gr",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "mahact_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "mahact_infantry",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "mahact_infantry2",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "mahact_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "scepter",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "mahactagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "mahactcommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "mahacthero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "mahactbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "mentak": [
+      {
+        "id": "ambush",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "pillage",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "mc",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "so",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "mentak_cruiser3",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "mentak_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "mentak_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "pop",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "mentakagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "mentakcommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "mentakhero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "mentakbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "muaat": [
+      {
+        "id": "gashlai_physiology",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "star_forge",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "mr",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "pws2",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "muaat_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "muaat_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "muaat_warsun",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "muaat_warsun2",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "fires",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "muaatagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "muaatcommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "muaathero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "muaatbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "naalu": [
+      {
+        "id": "foresight",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "telepathic",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "hcf2",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "ng",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "naalu_fighter",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "naalu_fighter2",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "naalu_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "naalu_mech_te",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "gift",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "naaluagent-te",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "naalucommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "naaluhero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "naalubt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "naaz": [
+      {
+        "id": "distant_suns",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "fabrication",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "pfa",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "sc",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "naaz_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "naaz_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "naaz_mech_space",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "naaz_voltron",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "bmf",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "naazagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "naazcommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "naazhero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "naazbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "nekro": [
+      {
+        "id": "galactic_threat",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "propagation",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "technological_singularity",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "vax",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "vay",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "nekro_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "nekro_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "antivirus",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "nekroagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "nekrocommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "nekrohero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "nekrobt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "neutral": [],
+    "nomad": [
+      {
+        "id": "future_sight",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "the_company",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "m2",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "tcs",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "nomad_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "nomad_flagship2",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "nomad_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "cavalry",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "nomadagentartuno",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "nomadagentmercer",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "nomadagentthundarian",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "nomadcommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "nomadhero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "nomadbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "obsidian": [
+      {
+        "id": "bladesorchestra",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "marionettes",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "nocturne",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "parasite-obs",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "planesplitter-obs",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "obsidian_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "obsidian_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "malevolency",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "obsidianagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "obsidiancommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "obsidianhero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "obsidianbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "ralnel": [
+      {
+        "id": "miniaturization",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "survivalinstinct",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "linkship2",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "nanomachines",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "ralnel_destroyer",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "ralnel_destroyer2",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "ralnel_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "ralnel_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "nanolink",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "ralnelagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "ralnelcommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "ralnelhero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "ralnelbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "saar": [
+      {
+        "id": "nomadic",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "scavenge",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "cm",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "ffac2",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "saar_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "saar_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "saar_spacedock",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "saar_spacedock2",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "ragh",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "saaragent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "saarcommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "saarhero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "saarbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "sardakk": [
+      {
+        "id": "unrelenting",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "exo2",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "vpw",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "sardakk_dreadnought",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "sardakk_dreadnought2",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "sardakk_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "sardakk_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "tekklar",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "sardakkagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "sardakkcommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "sardakkhero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "sardakkbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "sol": [
+      {
+        "id": "orbital_drop",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "versatile",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "ac2",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "so2",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "sol_carrier",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "sol_carrier2",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "sol_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "sol_infantry",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "sol_infantry2",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "sol_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "ms",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "solagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "solcommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "solhero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "solbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "titans": [
+      {
+        "id": "awaken",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "coalescence",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "terragenesis",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "ht2",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "se2",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "titans_cruiser",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "titans_cruiser2",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "titans_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "titans_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "titans_pds",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "titans_pds2",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "terraform",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "titansagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "titanscommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "titanshero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "titansbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "winnu": [
+      {
+        "id": "blood_ties",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "reclamation",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "htp",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "lgf",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "winnu_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "winnu_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "acq",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "winnuagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "winnucommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "winnuhero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "winnubt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "xxcha": [
+      {
+        "id": "peace_accords",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "quash",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "it",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "nf",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "xxcha_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "xxcha_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "favor",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "xxchaagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "xxchacommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "xxchahero-te",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "xxchabt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "yin": [
+      {
+        "id": "devotion",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "indoctrination",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "ic",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "yso",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "yin_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "yin_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "greyfire",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "yinagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "yincommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "yinhero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "yinbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ],
+    "yssaril": [
+      {
+        "id": "crafty",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "scheming",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "stall_tactics",
+        "implemented": true,
+        "kind": "Ability"
+      },
+      {
+        "id": "mi",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "tp",
+        "implemented": true,
+        "kind": "Technology"
+      },
+      {
+        "id": "yssaril_flagship",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "yssaril_mech",
+        "implemented": true,
+        "kind": "Unit"
+      },
+      {
+        "id": "spynet",
+        "implemented": true,
+        "kind": "Promissory"
+      },
+      {
+        "id": "yssarilagent",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "yssarilcommander",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "yssarilhero",
+        "implemented": true,
+        "kind": "Leader"
+      },
+      {
+        "id": "yssarilbt",
+        "implemented": true,
+        "kind": "Breakthrough"
+      }
+    ]
+  },
+  "leaders": {
+    "modifiers": [
+      "hacancommander",
+      "jolnaragent",
+      "l1z1xcommander",
+      "xxchacommander",
+      "xxchahero"
+    ],
+    "registered": [
+      "arborecagent",
+      "arboreccommander",
+      "arborechero",
+      "argentagent",
+      "argentcommander",
+      "argenthero",
+      "bastionagent",
+      "bastioncommander",
+      "bastionhero",
+      "cabalagent",
+      "cabalcommander",
+      "cabalhero",
+      "crimsonagent",
+      "crimsoncommander",
+      "crimsonhero",
+      "deepwroughtagent",
+      "deepwroughtcommander",
+      "deepwroughthero",
+      "empyreanagent",
+      "empyreancommander",
+      "empyreanhero",
+      "firmamentagent",
+      "firmamentcommander",
+      "firmamenthero",
+      "ghostagent",
+      "ghostcommander",
+      "ghosthero",
+      "hacanagent",
+      "hacanhero",
+      "jolnaragent",
+      "jolnarcommander",
+      "jolnarhero",
+      "keleresagent",
+      "kelerescommander",
+      "keleresheroharka",
+      "keleresherokuuasi",
+      "keleresheroodlynn",
+      "l1z1xagent",
+      "l1z1xhero",
+      "letnevagent",
+      "letnevcommander",
+      "letnevhero",
+      "mahactagent",
+      "mahactcommander",
+      "mahacthero",
+      "mentakagent",
+      "mentakcommander",
+      "mentakhero",
+      "muaatagent",
+      "muaatcommander",
+      "muaathero",
+      "naaluagent",
+      "naaluagent-te",
+      "naalucommander",
+      "naaluhero",
+      "naazagent",
+      "naazcommander",
+      "naazhero",
+      "nekroagent",
+      "nekrocommander",
+      "nekrohero",
+      "nomadagentartuno",
+      "nomadagentmercer",
+      "nomadagentthundarian",
+      "nomadcommander",
+      "nomadhero",
+      "obsidianagent",
+      "obsidiancommander",
+      "obsidianhero",
+      "ralnelagent",
+      "ralnelcommander",
+      "ralnelhero",
+      "saaragent",
+      "saarcommander",
+      "saarhero",
+      "sardakkagent",
+      "sardakkcommander",
+      "sardakkhero",
+      "solagent",
+      "solcommander",
+      "solhero",
+      "titansagent",
+      "titanscommander",
+      "titanshero",
+      "winnuagent",
+      "winnucommander",
+      "winnuhero",
+      "xxchaagent",
+      "xxchahero",
+      "xxchahero-te",
+      "yinagent",
+      "yincommander",
+      "yinhero",
+      "yssarilagent",
+      "yssarilcommander",
+      "yssarilhero"
+    ],
+    "unimplemented_all_factions": [
+      "orlandohero"
+    ]
+  },
+  "public_objectives": {
+    "bought": [
+      "amass_wealth",
+      "centralize_trade",
+      "galvanize",
+      "golden_age",
+      "lead",
+      "manipulate_law",
+      "monument",
+      "sway_council",
+      "trade_routes",
+      "vast_reserves"
+    ],
+    "per_card": {
+      "amass_wealth": {
+        "cost": true,
+        "requirement": false
+      },
+      "ancient_monuments": {
+        "cost": false,
+        "requirement": true
+      },
+      "become_legend": {
+        "cost": false,
+        "requirement": true
+      },
+      "brain_trust": {
+        "cost": false,
+        "requirement": true
+      },
+      "build_defenses": {
+        "cost": false,
+        "requirement": true
+      },
+      "centralize_trade": {
+        "cost": true,
+        "requirement": false
+      },
+      "command_armada": {
+        "cost": false,
+        "requirement": true
+      },
+      "conquer": {
+        "cost": false,
+        "requirement": true
+      },
+      "control_borderlands": {
+        "cost": false,
+        "requirement": true
+      },
+      "corner": {
+        "cost": false,
+        "requirement": true
+      },
+      "deep_space": {
+        "cost": false,
+        "requirement": true
+      },
+      "develop": {
+        "cost": false,
+        "requirement": true
+      },
+      "distant_lands": {
+        "cost": false,
+        "requirement": true
+      },
+      "diversify": {
+        "cost": false,
+        "requirement": true
+      },
+      "engineer_marvel": {
+        "cost": false,
+        "requirement": true
+      },
+      "expand_borders": {
+        "cost": false,
+        "requirement": true
+      },
+      "galvanize": {
+        "cost": true,
+        "requirement": false
+      },
+      "golden_age": {
+        "cost": true,
+        "requirement": false
+      },
+      "infrastructure": {
+        "cost": false,
+        "requirement": true
+      },
+      "intimidate": {
+        "cost": false,
+        "requirement": true
+      },
+      "lead": {
+        "cost": true,
+        "requirement": false
+      },
+      "lost_outposts": {
+        "cost": false,
+        "requirement": true
+      },
+      "make_history": {
+        "cost": false,
+        "requirement": true
+      },
+      "manipulate_law": {
+        "cost": true,
+        "requirement": false
+      },
+      "massive_cities": {
+        "cost": false,
+        "requirement": true
+      },
+      "master_science": {
+        "cost": false,
+        "requirement": true
+      },
+      "monument": {
+        "cost": true,
+        "requirement": false
+      },
+      "outer_rim": {
+        "cost": false,
+        "requirement": true
+      },
+      "protect_border": {
+        "cost": false,
+        "requirement": true
+      },
+      "push_boundaries": {
+        "cost": false,
+        "requirement": true
+      },
+      "raise_fleet": {
+        "cost": false,
+        "requirement": true
+      },
+      "research_outposts": {
+        "cost": false,
+        "requirement": true
+      },
+      "revolutionize": {
+        "cost": false,
+        "requirement": true
+      },
+      "subdue": {
+        "cost": false,
+        "requirement": true
+      },
+      "supremacy": {
+        "cost": false,
+        "requirement": true
+      },
+      "sway_council": {
+        "cost": true,
+        "requirement": false
+      },
+      "trade_routes": {
+        "cost": true,
+        "requirement": false
+      },
+      "unify_colonies": {
+        "cost": false,
+        "requirement": true
+      },
+      "vast_reserves": {
+        "cost": true,
+        "requirement": false
+      },
+      "vast_territories": {
+        "cost": false,
+        "requirement": true
+      }
+    },
+    "registered": [
+      "ancient_monuments",
+      "become_legend",
+      "brain_trust",
+      "build_defenses",
+      "command_armada",
+      "conquer",
+      "control_borderlands",
+      "corner",
+      "deep_space",
+      "develop",
+      "distant_lands",
+      "diversify",
+      "engineer_marvel",
+      "expand_borders",
+      "infrastructure",
+      "intimidate",
+      "lost_outposts",
+      "make_history",
+      "massive_cities",
+      "master_science",
+      "outer_rim",
+      "protect_border",
+      "push_boundaries",
+      "raise_fleet",
+      "research_outposts",
+      "revolutionize",
+      "subdue",
+      "supremacy",
+      "unify_colonies",
+      "vast_territories"
+    ]
+  },
+  "relics": {
+    "registered": [
+      "bookoflatvinia",
+      "circletofthevoid",
+      "codex",
+      "dominusorb",
+      "dynamiscore",
+      "emelpar",
+      "emphidia",
+      "enigmaticdevice",
+      "heartofixth",
+      "lightrailordnance",
+      "mawofworlds",
+      "metalivoidarmaments",
+      "metalivoidshielding",
+      "nanoforge",
+      "neuraloop",
+      "obsidian",
+      "prophetstears",
+      "quantumcore",
+      "shard",
+      "stellarconverter",
+      "thalnos",
+      "thesilverflame",
+      "thetriad",
+      "titanprototype"
+    ],
+    "unimplemented": []
+  },
+  "secret_objectives": {
+    "registered": [
+      "ans",
+      "baf",
+      "bam",
+      "btgk",
+      "btv",
+      "csl",
+      "ctr",
+      "dfat",
+      "dhw",
+      "dp",
+      "dtd",
+      "dtgs",
+      "dts",
+      "dyp",
+      "eap",
+      "eh",
+      "faa",
+      "fc",
+      "fsn",
+      "fwm",
+      "fwp",
+      "gamf",
+      "hrm",
+      "lsc",
+      "mew",
+      "mlp",
+      "mp",
+      "mrm",
+      "mtm",
+      "ose",
+      "otf",
+      "pe",
+      "pem",
+      "sai",
+      "sar",
+      "sb",
+      "syc",
+      "te",
+      "ttfd",
+      "uf"
+    ],
+    "unimplemented": []
+  },
+  "sources": "DEFAULT"
+}
