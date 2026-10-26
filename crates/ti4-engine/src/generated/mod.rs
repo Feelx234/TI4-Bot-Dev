@@ -40,7 +40,15 @@ pub mod strategy_cards;
 #[rustfmt::skip]
 pub mod technologies;
 #[rustfmt::skip]
+pub mod factions;
+#[rustfmt::skip]
+pub mod planets;
+#[rustfmt::skip]
+pub mod systems;
+#[rustfmt::skip]
 pub mod tokens;
+#[rustfmt::skip]
+pub mod units;
 
 /// The id string of a generated enum. Ids are stored in byte order, so `from_id` is a binary
 /// search, and `as_str` an array index.

@@ -128,3 +128,19 @@ column or the id itself is the discriminator is for the core to decide.
 | Technology | pok7technology |
 | Trade | pok5trade |
 
+## factions.startingFleet
+
+- **TODO**: the opening fleet is a text (`"cv, cr, 2 ff, 4 inf n, pds n, sd n"`) read by
+`factions::parse_fleet`: counts, unit `asyncId` codes and planet letter codes resolved
+against the home planets. Typing it means a `[(Unit, count, Option<Planet>)]` column;
+the grammar (and its unit/planet resolution) is engine code, so it stays text for now
+(adapter `FactionText::starting_fleet`).
+
+## units.ability
+
+- **TODO**: `UnitType::fighter_support` reads "up to N ... fighter" out of the printed
+ability (space docks, Dimensional Tear). Candidates by that rule: bastion_spacedock, bastion_spacedock2, cabal_spacedock, cabal_spacedock2, spacedock, spacedock2. A typed
+`fighter_support: u8` column needs the rule confirmed per unit first.
+- Not text, but noted: `UnitType::is_ground_force` decides by base type plus two Titans
+ids, not by the printed `isGroundForce` flag (the core column carries the flag as printed).
+

@@ -487,3 +487,221 @@ fn tokens_agree() {
             "tokenPlanetName" => token_planet_name);
     }
 }
+
+// ------------------------------------------------------------------ factions, planets, systems, units
+
+#[test]
+fn other_ids_agree_with_the_corpus() {
+    ids_agree::<Faction>(ContentType::Factions);
+    ids_agree::<Planet>(ContentType::Planets);
+    ids_agree::<System>(ContentType::Systems);
+    ids_agree::<Unit>(ContentType::Units);
+    order_and_round_trip::<TileBack>("TileBack");
+    order_and_round_trip::<UnitBaseType>("UnitBaseType");
+    // The typed catalogues of ti4-content see the same ids.
+    let full = ti4_model::content_types::FULL;
+    let planets: Vec<&str> = ti4_content::all_planets(store(), full)
+        .into_keys()
+        .collect();
+    assert_eq!(planets, Planet::IDS);
+    let systems: Vec<&str> = ti4_content::all_systems(store(), full)
+        .into_keys()
+        .collect();
+    assert_eq!(systems, System::IDS);
+    let units: Vec<&str> = ti4_content::unit_catalogue(store(), full)
+        .keys()
+        .copied()
+        .collect();
+    assert_eq!(units, Unit::IDS);
+    let factions: Vec<&str> = ti4_content::factions::catalogue(store(), full)
+        .into_keys()
+        .collect();
+    assert_eq!(factions, Faction::IDS);
+}
+
+#[test]
+fn factions_agree() {
+    for (r, v) in each::<Faction>(ContentType::Factions) {
+        let d = v.data();
+        source_of(r, d.source);
+        let f = ti4_content::Faction::new(r);
+        assert_eq!(opt_str(d.home_system), f.home_system());
+        assert_eq!(strs(d.home_planets), f.home_planets());
+        assert_eq!(i32::from(d.commodities), f.commodities());
+        assert_eq!(strs(d.starting_tech), f.starting_tech());
+        assert_eq!(strs(d.starting_tech_options), f.starting_tech_options());
+        assert_eq!(d.starting_tech_amount, f.starting_tech_amount());
+        assert_eq!(strs(d.faction_tech), f.faction_tech());
+        assert_eq!(strs(d.abilities), f.abilities());
+        assert_eq!(strs(d.leaders), f.leaders());
+        assert_eq!(strs(d.promissory_notes), f.promissory_notes());
+        assert_eq!(strs(d.units), r.strings("units"));
+        let t = adapter::factions::text(v);
+        assert_eq!(Some(t.faction_name), f.name());
+        assert_eq!(t.starting_fleet, f.starting_fleet());
+        text_agrees!(r, t, "factionName" => faction_name, "shortName" => short_name,
+            "shortTag" => short_tag, "complexity" => complexity, "startingFleet" => starting_fleet);
+    }
+}
+
+#[test]
+fn faction_tags_name_their_factions() {
+    for tag in FactionTag::ALL {
+        match Faction::from_id(tag.as_str()) {
+            Some(faction) => assert_eq!(tag.factions(), [faction]),
+            None => assert!(
+                tag.factions()
+                    .iter()
+                    .all(|f| f.as_str().starts_with(tag.as_str()))
+            ),
+        }
+    }
+    let keleres: Vec<&str> = strs(FactionTag::Keleres.factions());
+    assert_eq!(keleres, ["keleresa", "keleresm", "keleresx"]);
+    assert!(
+        FactionTag::Ghemina.factions().is_empty(),
+        "a homebrew leftover: no faction record"
+    );
+}
+
+#[test]
+fn planets_agree() {
+    let full = ti4_model::content_types::FULL;
+    for (r, v) in each::<Planet>(ContentType::Planets) {
+        let d = v.data();
+        source_of(r, d.source);
+        let p = ti4_content::Planet::new(r);
+        assert_eq!(i64::from(d.resources), p.resources());
+        assert_eq!(i64::from(d.influence), p.influence());
+        let traits: Vec<String> = p
+            .planet_types()
+            .iter()
+            .map(|t| t.to_ascii_uppercase())
+            .collect();
+        assert_eq!(strs(d.traits), traits);
+        let specialties: Vec<&str> = p
+            .tech_specialties()
+            .into_iter()
+            .filter(|s| *s != "NONE")
+            .collect();
+        assert_eq!(strs(d.specialties), specialties);
+        assert_eq!(d.legendary, p.is_legendary());
+        assert_eq!(opt_str(d.system), p.system_id());
+        assert_eq!(opt_str(d.homeworld_of), p.homeworld_of());
+        assert_eq!(
+            d.space_cannon.map(|c| i64::from(c.hits_on)),
+            int(r, "spaceCannonHitsOn")
+        );
+        assert_eq!(
+            ti4_content::galaxy::planet(store(), v.as_str(), full).map(|p| p.id()),
+            Some(v.as_str())
+        );
+        let t = adapter::planets::text(v);
+        assert_eq!(Some(t.name), p.name());
+        text_agrees!(r, t, "name" => name, "shortName" => short_name,
+            "legendaryAbilityName" => legendary_ability_name,
+            "legendaryAbilityText" => legendary_ability_text, "flavourText" => flavour_text,
+            "aliases" => aliases);
+    }
+}
+
+#[test]
+fn systems_agree() {
+    let full = ti4_model::content_types::FULL;
+    let homes = ti4_content::galaxy::home_systems(store(), full);
+    for (r, v) in each::<System>(ContentType::Systems) {
+        let d = v.data();
+        source_of(r, d.source);
+        let s = ti4_content::System::new(r);
+        assert_eq!(strs(d.planets), s.planets());
+        let wormholes: BTreeSet<&str> = strs(d.wormholes).into_iter().collect();
+        assert_eq!(wormholes, s.wormholes());
+        let a = d.anomalies;
+        assert_eq!(a.asteroid_field, s.is_asteroid_field());
+        assert_eq!(a.gravity_rift, s.is_gravity_rift());
+        assert_eq!(a.nebula, s.is_nebula());
+        assert_eq!(a.supernova, s.is_supernova());
+        assert_eq!(a.scar, s.is_scar());
+        assert_eq!(a.any(), s.is_anomaly());
+        assert_eq!(d.hyperlane, s.is_hyperlane());
+        assert_eq!(opt_str(d.tile_back), r.text("tileBack"));
+        assert_eq!(
+            d.home_system,
+            ti4_content::galaxy::is_home_system(store(), v.as_str(), full)
+        );
+        assert_eq!(d.home_system, homes.contains(v.as_str()));
+        let t = adapter::systems::text(v);
+        assert_eq!(Some(t.name), s.name());
+        text_agrees!(r, t, "name" => name, "aliases" => aliases);
+    }
+}
+
+#[test]
+fn units_agree() {
+    let full = ti4_model::content_types::FULL;
+    let catalogue = ti4_content::unit_catalogue(store(), full);
+    for (r, v) in each::<Unit>(ContentType::Units) {
+        let d = v.data();
+        source_of(r, d.source);
+        let u = catalogue[v.as_str()];
+        assert_eq!(d.base_type.as_str(), u.base_type());
+        assert_eq!(opt_str(d.faction), u.faction());
+        assert!((f64::from(d.cost_halves.unwrap_or(0)) / 2.0 - u.cost()).abs() < 1e-9);
+        assert_eq!(i64::from(d.movement.unwrap_or(0)), u.move_value());
+        assert_eq!(i64::from(d.capacity.unwrap_or(0)), u.capacity());
+        assert_eq!(i64::from(d.capacity_used.unwrap_or(0)), u.capacity_cost());
+        let roll = |r: Option<Roll>| r.map(|r| i64::from(r.hits_on));
+        let dice = |r: Option<Roll>, default: i64| r.map_or(default, |r| i64::from(r.dice));
+        assert_eq!(roll(d.combat), u.combat_hits_on());
+        assert_eq!(dice(d.combat, u.combat_dice()), u.combat_dice());
+        assert_eq!(roll(d.anti_fighter_barrage), u.afb_hits_on());
+        assert_eq!(dice(d.anti_fighter_barrage, u.afb_dice()), u.afb_dice());
+        assert_eq!(roll(d.bombardment), u.bombard_hits_on());
+        assert_eq!(dice(d.bombardment, u.bombard_dice()), u.bombard_dice());
+        assert_eq!(roll(d.space_cannon), u.space_cannon_hits_on());
+        assert_eq!(
+            dice(d.space_cannon, u.space_cannon_dice()),
+            u.space_cannon_dice()
+        );
+        assert_eq!(d.production.is_some(), u.has_production());
+        for resources in [0, 3] {
+            let generated = d.production.map_or(0, |p| {
+                i64::from(p.value)
+                    + if p.plus_planet_resources {
+                        resources
+                    } else {
+                        0
+                    }
+            });
+            assert_eq!(generated, u.production(resources), "{v:?}");
+        }
+        assert_eq!(d.ship, u.is_ship());
+        assert_eq!(d.structure, u.is_structure());
+        assert_eq!(d.structure && d.space_only, u.is_space_only_structure());
+        assert_eq!(d.ground_force, r.flag("isGroundForce"));
+        assert_eq!(d.sustain_damage, u.sustain_damage());
+        assert_eq!(d.planetary_shield, u.planetary_shield());
+        assert_eq!(d.can_be_direct_hit, u.can_be_direct_hit());
+        assert_eq!(d.deep_space_cannon, r.flag("deepSpaceCannon"));
+        assert_eq!(
+            d.disables_planetary_shield,
+            r.flag("disablesPlanetaryShield")
+        );
+        assert_eq!(opt_str(d.upgrades_to), u.upgrades_to());
+        assert_eq!(opt_str(d.upgrades_from), u.upgrades_from());
+        match d.required_technology {
+            Requirement::None => assert_eq!(u.required_technology(), None),
+            Requirement::Known(t) => assert_eq!(u.required_technology(), Some(t.as_str())),
+            Requirement::NotInCorpus => {
+                let id = u.required_technology().unwrap();
+                assert!(store().get(ContentType::Technologies, id).is_none());
+            }
+        }
+        assert_eq!(opt_str(d.replaces), r.text("homebrewReplacesID"));
+        let t = adapter::units::text(v);
+        assert_eq!(t.async_id, u.async_id());
+        assert_eq!(t.ability, u.ability_text());
+        text_agrees!(r, t, "name" => name, "subtitle" => subtitle, "ability" => ability,
+            "asyncId" => async_id);
+    }
+}

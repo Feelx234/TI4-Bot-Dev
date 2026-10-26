@@ -41,6 +41,7 @@ pub static FACTION_TAG_KEYS: [&str; FactionTag::COUNT] = [
     "deepwrought",
     "empyrean",
     "firmament",
+    "ghemina",
     "ghost",
     "hacan",
     "jolnar",
@@ -56,6 +57,7 @@ pub static FACTION_TAG_KEYS: [&str; FactionTag::COUNT] = [
     "naalu",
     "naaz",
     "nekro",
+    "neutral",
     "nomad",
     "obsidian",
     "ralnel",
@@ -267,8 +269,13 @@ impl IdStr for StrategyCardKind {
 /// The corpus id of each [`PlanetTrait`], indexed by its integer value.
 pub static PLANET_TRAIT_KEYS: [&str; PlanetTrait::COUNT] = [
     "CULTURAL",
+    "FACTION",
+    "FAKE",
     "HAZARDOUS",
     "INDUSTRIAL",
+    "LIGHTNING",
+    "MR",
+    "SPACESTATION",
 ];
 
 impl IdStr for PlanetTrait {
@@ -287,11 +294,61 @@ impl IdStr for PlanetTrait {
 pub static WORMHOLE_KEYS: [&str; Wormhole::COUNT] = [
     "ALPHA",
     "BETA",
+    "DELTA",
+    "EPSILON",
     "GAMMA",
 ];
 
 impl IdStr for Wormhole {
     const IDS: &'static [&'static str] = &WORMHOLE_KEYS;
+    #[inline]
+    fn nth(index: usize) -> Option<Self> {
+        Self::from_index(index)
+    }
+    #[inline]
+    fn index(self) -> usize {
+        self as usize
+    }
+}
+
+/// The corpus id of each [`TileBack`], indexed by its integer value.
+pub static TILE_BACK_KEYS: [&str; TileBack::COUNT] = [
+    "black",
+    "blue",
+    "fracture",
+    "green",
+    "red",
+];
+
+impl IdStr for TileBack {
+    const IDS: &'static [&'static str] = &TILE_BACK_KEYS;
+    #[inline]
+    fn nth(index: usize) -> Option<Self> {
+        Self::from_index(index)
+    }
+    #[inline]
+    fn index(self) -> usize {
+        self as usize
+    }
+}
+
+/// The corpus id of each [`UnitBaseType`], indexed by its integer value.
+pub static UNIT_BASE_TYPE_KEYS: [&str; UnitBaseType::COUNT] = [
+    "carrier",
+    "cruiser",
+    "destroyer",
+    "dreadnought",
+    "fighter",
+    "flagship",
+    "infantry",
+    "mech",
+    "pds",
+    "spacedock",
+    "warsun",
+];
+
+impl IdStr for UnitBaseType {
+    const IDS: &'static [&'static str] = &UNIT_BASE_TYPE_KEYS;
     #[inline]
     fn nth(index: usize) -> Option<Self> {
         Self::from_index(index)

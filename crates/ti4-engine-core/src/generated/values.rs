@@ -29,6 +29,17 @@ pub struct Prerequisites {
     pub yellow: u8,
 }
 
+/// A reference that may be absent, or name a record the corpus does not carry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Requirement<T> {
+    /// Nothing required.
+    None,
+    Known(T),
+    /// The corpus names something it does not have (see the generator's `DANGLING` list): the
+    /// requirement can never be met.
+    NotInCorpus,
+}
+
 /// The anomaly flags of a tile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[allow(clippy::struct_excessive_bools)]
@@ -101,37 +112,39 @@ pub enum FactionTag {
     Deepwrought = 5,
     Empyrean = 6,
     Firmament = 7,
-    Ghost = 8,
-    Hacan = 9,
-    Jolnar = 10,
-    Keleres = 11,
-    Keleresa = 12,
-    Keleresm = 13,
-    Keleresx = 14,
-    L1z1x = 15,
-    Letnev = 16,
-    Mahact = 17,
-    Mentak = 18,
-    Muaat = 19,
-    Naalu = 20,
-    Naaz = 21,
-    Nekro = 22,
-    Nomad = 23,
-    Obsidian = 24,
-    Ralnel = 25,
-    Saar = 26,
-    Sardakk = 27,
-    Sol = 28,
-    Titans = 29,
-    Winnu = 30,
-    Xxcha = 31,
-    Yin = 32,
-    Yssaril = 33,
+    Ghemina = 8,
+    Ghost = 9,
+    Hacan = 10,
+    Jolnar = 11,
+    Keleres = 12,
+    Keleresa = 13,
+    Keleresm = 14,
+    Keleresx = 15,
+    L1z1x = 16,
+    Letnev = 17,
+    Mahact = 18,
+    Mentak = 19,
+    Muaat = 20,
+    Naalu = 21,
+    Naaz = 22,
+    Nekro = 23,
+    Neutral = 24,
+    Nomad = 25,
+    Obsidian = 26,
+    Ralnel = 27,
+    Saar = 28,
+    Sardakk = 29,
+    Sol = 30,
+    Titans = 31,
+    Winnu = 32,
+    Xxcha = 33,
+    Yin = 34,
+    Yssaril = 35,
 }
 
 impl FactionTag {
     /// The number of variants.
-    pub const COUNT: usize = 34;
+    pub const COUNT: usize = 36;
     /// Every variant, in integer order.
     pub const ALL: [Self; Self::COUNT] = [
         Self::Arborec,
@@ -142,6 +155,7 @@ impl FactionTag {
         Self::Deepwrought,
         Self::Empyrean,
         Self::Firmament,
+        Self::Ghemina,
         Self::Ghost,
         Self::Hacan,
         Self::Jolnar,
@@ -157,6 +171,7 @@ impl FactionTag {
         Self::Naalu,
         Self::Naaz,
         Self::Nekro,
+        Self::Neutral,
         Self::Nomad,
         Self::Obsidian,
         Self::Ralnel,
@@ -510,18 +525,28 @@ impl StrategyCardKind {
 #[repr(u8)]
 pub enum PlanetTrait {
     Cultural = 0,
-    Hazardous = 1,
-    Industrial = 2,
+    Faction = 1,
+    Fake = 2,
+    Hazardous = 3,
+    Industrial = 4,
+    Lightning = 5,
+    Mr = 6,
+    Spacestation = 7,
 }
 
 impl PlanetTrait {
     /// The number of variants.
-    pub const COUNT: usize = 3;
+    pub const COUNT: usize = 8;
     /// Every variant, in integer order.
     pub const ALL: [Self; Self::COUNT] = [
         Self::Cultural,
+        Self::Faction,
+        Self::Fake,
         Self::Hazardous,
         Self::Industrial,
+        Self::Lightning,
+        Self::Mr,
+        Self::Spacestation,
     ];
 
     /// The integer value, as an index into the tables.
@@ -544,16 +569,20 @@ impl PlanetTrait {
 pub enum Wormhole {
     Alpha = 0,
     Beta = 1,
-    Gamma = 2,
+    Delta = 2,
+    Epsilon = 3,
+    Gamma = 4,
 }
 
 impl Wormhole {
     /// The number of variants.
-    pub const COUNT: usize = 3;
+    pub const COUNT: usize = 5;
     /// Every variant, in integer order.
     pub const ALL: [Self; Self::COUNT] = [
         Self::Alpha,
         Self::Beta,
+        Self::Delta,
+        Self::Epsilon,
         Self::Gamma,
     ];
 
@@ -571,3 +600,134 @@ impl Wormhole {
     }
 }
 
+/// Tile back colour (`tileBack`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u8)]
+pub enum TileBack {
+    Black = 0,
+    Blue = 1,
+    Fracture = 2,
+    Green = 3,
+    Red = 4,
+}
+
+impl TileBack {
+    /// The number of variants.
+    pub const COUNT: usize = 5;
+    /// Every variant, in integer order.
+    pub const ALL: [Self; Self::COUNT] = [
+        Self::Black,
+        Self::Blue,
+        Self::Fracture,
+        Self::Green,
+        Self::Red,
+    ];
+
+    /// The integer value, as an index into the tables.
+    #[must_use]
+    #[inline]
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+
+    /// The variant with this integer value.
+    #[must_use]
+    pub const fn from_index(index: usize) -> Option<Self> {
+        if index < Self::COUNT { Some(Self::ALL[index]) } else { None }
+    }
+}
+
+/// Unit `baseType`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u8)]
+pub enum UnitBaseType {
+    Carrier = 0,
+    Cruiser = 1,
+    Destroyer = 2,
+    Dreadnought = 3,
+    Fighter = 4,
+    Flagship = 5,
+    Infantry = 6,
+    Mech = 7,
+    Pds = 8,
+    Spacedock = 9,
+    Warsun = 10,
+}
+
+impl UnitBaseType {
+    /// The number of variants.
+    pub const COUNT: usize = 11;
+    /// Every variant, in integer order.
+    pub const ALL: [Self; Self::COUNT] = [
+        Self::Carrier,
+        Self::Cruiser,
+        Self::Destroyer,
+        Self::Dreadnought,
+        Self::Fighter,
+        Self::Flagship,
+        Self::Infantry,
+        Self::Mech,
+        Self::Pds,
+        Self::Spacedock,
+        Self::Warsun,
+    ];
+
+    /// The integer value, as an index into the tables.
+    #[must_use]
+    #[inline]
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+
+    /// The variant with this integer value.
+    #[must_use]
+    pub const fn from_index(index: usize) -> Option<Self> {
+        if index < Self::COUNT { Some(Self::ALL[index]) } else { None }
+    }
+}
+
+impl FactionTag {
+    /// The factions this tag stands for: the faction with this id, else every faction whose id
+    /// starts with the tag (`keleres` stands for the three Keleres factions).
+    #[must_use]
+    pub const fn factions(self) -> &'static [Faction] {
+        match self {
+            Self::Arborec => &[Faction::TheArborec],
+            Self::Argent => &[Faction::TheArgentFlight],
+            Self::Bastion => &[Faction::LastBastion],
+            Self::Cabal => &[Faction::TheVuilraithCabal],
+            Self::Crimson => &[Faction::TheCrimsonRebellion],
+            Self::Deepwrought => &[Faction::TheDeepwroughtScholarate],
+            Self::Empyrean => &[Faction::TheEmpyrean],
+            Self::Firmament => &[Faction::TheFirmament],
+            Self::Ghemina => &[],
+            Self::Ghost => &[Faction::TheGhostsOfCreuss],
+            Self::Hacan => &[Faction::TheEmiratesOfHacan],
+            Self::Jolnar => &[Faction::TheUniversitiesOfJolNar],
+            Self::Keleres => &[Faction::TheCouncilKeleresArgent, Faction::TheCouncilKeleresMentak, Faction::TheCouncilKeleresXxcha],
+            Self::Keleresa => &[Faction::TheCouncilKeleresArgent],
+            Self::Keleresm => &[Faction::TheCouncilKeleresMentak],
+            Self::Keleresx => &[Faction::TheCouncilKeleresXxcha],
+            Self::L1z1x => &[Faction::TheL1Z1XMindnet],
+            Self::Letnev => &[Faction::TheBaronyOfLetnev],
+            Self::Mahact => &[Faction::TheMahactGeneSorcerers],
+            Self::Mentak => &[Faction::TheMentakCoalition],
+            Self::Muaat => &[Faction::TheEmbersOfMuaat],
+            Self::Naalu => &[Faction::TheNaaluCollective],
+            Self::Naaz => &[Faction::TheNaazRokhaAlliance],
+            Self::Nekro => &[Faction::TheNekroVirus],
+            Self::Neutral => &[Faction::Neutral],
+            Self::Nomad => &[Faction::TheNomad],
+            Self::Obsidian => &[Faction::TheObsidian],
+            Self::Ralnel => &[Faction::TheRalNelConsortium],
+            Self::Saar => &[Faction::TheClanOfSaar],
+            Self::Sardakk => &[Faction::SardakkNorr],
+            Self::Sol => &[Faction::TheFederationOfSol],
+            Self::Titans => &[Faction::TheTitansOfUl],
+            Self::Winnu => &[Faction::TheWinnu],
+            Self::Xxcha => &[Faction::TheXxchaKingdom],
+            Self::Yin => &[Faction::TheYinBrotherhood],
+            Self::Yssaril => &[Faction::TheYssarilTribes],
+        }
+    }
+}

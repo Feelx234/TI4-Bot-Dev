@@ -40,7 +40,15 @@ pub mod strategy_cards;
 #[rustfmt::skip]
 pub mod technologies;
 #[rustfmt::skip]
+pub mod factions;
+#[rustfmt::skip]
+pub mod planets;
+#[rustfmt::skip]
+pub mod systems;
+#[rustfmt::skip]
 pub mod tokens;
+#[rustfmt::skip]
+pub mod units;
 
 pub use values::*;
 pub use abilities::{Ability, AbilityData, ABILITY_DATA};
@@ -58,4 +66,8 @@ pub use relics::{Relic, RelicData, RELIC_DATA};
 pub use secret_objectives::{SecretObjective, SecretObjectiveData, SECRET_OBJECTIVE_DATA};
 pub use strategy_cards::{StrategyCard, StrategyCardData, STRATEGY_CARD_DATA};
 pub use technologies::{Technology, TechnologyData, TECHNOLOGY_DATA};
+pub use factions::{Faction, FactionData, FACTION_DATA};
+pub use planets::{Planet, PlanetData, PLANET_DATA};
+pub use systems::{System, SystemData, SYSTEM_DATA};
 pub use tokens::{Token, TokenData, TOKEN_DATA};
+pub use units::{Unit, UnitData, UNIT_DATA};
