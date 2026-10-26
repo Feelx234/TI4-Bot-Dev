@@ -1567,6 +1567,11 @@ fn explore_drawn(
                 .entry(planet.clone())
                 .or_default()
                 .push(attachment);
+            if card == crate::laws::DMZ_ATTACHMENT
+                && state.rules_version >= ti4_model::state::RULES_DMZ_EXPLORATION
+            {
+                demilitarize(state, content, ctx.sources, planet);
+            }
             Explored::Attached { card }
         }
         // Instant and token cards need per-card handlers. Those this engine has are resolved;
@@ -1581,6 +1586,51 @@ fn explore_drawn(
         }
     };
     Some(outcome)
+}
+
+/// Demilitarized Zone (exploration, rules version 34): "Return all structures on this planet to
+/// your reinforcements. Then, return all ground forces on this planet to the space area." The
+/// attachment that follows ("Units cannot be committed to, produced on, or placed on this
+/// planet") is [`crate::laws::planet_is_demilitarized`].
+///
+/// A unit that is both (the Titans' PDS) is a structure and goes to reinforcements. The ground
+/// forces keep their owner and damage; the planet stays controlled by its controller.
+pub(crate) fn demilitarize(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    planet: &PlanetId,
+) {
+    let types = ti4_content::units::catalogue(content, sources);
+    let Some(system) = state
+        .board
+        .iter()
+        .find(|(_, board)| board.planet_units.contains_key(planet))
+        .map(|(system, _)| system.clone())
+    else {
+        return;
+    };
+    let board = state.system_mut(&system);
+    let standing = board.on_planet(planet).to_vec();
+    let structure = |unit: &ti4_model::units::Unit| {
+        types
+            .get(unit.type_id.as_str())
+            .is_some_and(ti4_content::units::UnitType::is_structure)
+    };
+    let ground = |unit: &ti4_model::units::Unit| {
+        types
+            .get(unit.type_id.as_str())
+            .is_some_and(ti4_content::units::UnitType::is_ground_force)
+    };
+    let structures: Vec<ti4_model::units::Unit> = standing.iter().filter(|u| structure(u)).cloned().collect();
+    let ground_forces: Vec<ti4_model::units::Unit> = standing
+        .iter()
+        .filter(|u| !structure(u) && ground(u))
+        .cloned()
+        .collect();
+    board.remove_from_planet(planet, &structures);
+    board.remove_from_planet(planet, &ground_forces);
+    board.add(&ground_forces);
 }
 
 /// Add one relic fragment of a trait to a player's play area.
@@ -3478,5 +3528,85 @@ mod bf_f3_tests {
         );
         assert_eq!(asked, 0);
         assert_eq!(after, (before.0, before.1, before.2 + 2));
+    }
+}
+
+/// Demilitarized Zone, the exploration card (card audit I05, rules version 34).
+#[cfg(test)]
+mod dmz_tests {
+    use ti4_content::ContentStore;
+    use ti4_model::id::PlayerId;
+    use ti4_model::state::RULES_DMZ_EXPLORATION;
+
+    use super::*;
+    use crate::fixtures::{a_placed_planet, put, put_on_planet};
+
+    fn kinds(units: &[ti4_model::units::Unit]) -> Vec<&str> {
+        let mut kinds: Vec<&str> = units.iter().map(|u| u.type_id.as_str()).collect();
+        kinds.sort_unstable();
+        kinds
+    }
+
+    /// Explore `dmz` on a planet `a` holds with a space dock, a PDS, two infantry and a mech,
+    /// beside a carrier in space, at `version`.
+    fn explored(version: u32) -> (GameState, SystemId, PlanetId) {
+        let a = PlayerId::new("a");
+        let (system, planet) = a_placed_planet();
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.rules_version = version;
+        state.system_mut(&system).set_control(planet.clone(), a.clone());
+        for (kind, count) in [("spacedock", 1), ("pds", 1), ("infantry", 2), ("mech", 1)] {
+            put_on_planet(&mut state, &system, &planet, kind, &a, count);
+        }
+        put(&mut state, &system, "carrier", &a, 1);
+        state
+            .exploration_decks
+            .insert("CULTURAL".to_owned(), vec!["dmz".to_owned()]);
+        let outcome = explore(&mut state, ContentStore::embedded(), &a, "CULTURAL", Some(&planet));
+        assert!(matches!(outcome, Some(Explored::Attached { .. })), "{outcome:?}");
+        (state, system, planet)
+    }
+
+    #[test]
+    fn structures_go_home_and_ground_forces_to_space() {
+        let (state, system, planet) = explored(RULES_DMZ_EXPLORATION);
+        let board = state.system_state(&system);
+        assert!(board.on_planet(&planet).is_empty(), "nothing stays on the planet");
+        assert_eq!(
+            kinds(&board.units),
+            ["carrier", "infantry", "infantry", "mech"],
+            "the ground forces are in the space area, the structures in reinforcements"
+        );
+        assert_eq!(
+            board.planet_control.get(&planet),
+            Some(&PlayerId::new("a")),
+            "the planet stays controlled"
+        );
+        assert_eq!(state.planet_attachments.get(&planet), Some(&vec!["dmz".to_owned()]));
+        assert!(crate::laws::planet_is_demilitarized(&state, &planet));
+    }
+
+    #[test]
+    fn nothing_may_land_be_produced_or_placed_on_the_planet() {
+        // The agenda's checks: invasion (commit), production and placement all ask
+        // `planet_is_demilitarized`.
+        let (state, _, planet) = explored(RULES_DMZ_EXPLORATION);
+        assert!(crate::laws::planet_is_demilitarized(&state, &planet));
+        let mut old = state.clone();
+        old.rules_version = RULES_DMZ_EXPLORATION - 1;
+        assert!(!crate::laws::planet_is_demilitarized(&old, &planet));
+    }
+
+    #[test]
+    fn below_rules_version_34_the_card_only_attaches() {
+        let (state, system, planet) = explored(RULES_DMZ_EXPLORATION - 1);
+        let board = state.system_state(&system);
+        assert_eq!(
+            kinds(board.on_planet(&planet)),
+            ["infantry", "infantry", "mech", "pds", "spacedock"]
+        );
+        assert_eq!(kinds(&board.units), ["carrier"]);
+        assert_eq!(state.planet_attachments.get(&planet), Some(&vec!["dmz".to_owned()]));
+        assert!(!crate::laws::planet_is_demilitarized(&state, &planet));
     }
 }

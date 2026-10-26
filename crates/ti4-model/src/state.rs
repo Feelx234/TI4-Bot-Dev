@@ -1216,7 +1216,14 @@ pub const RULES_CLASSIFIED_LEAKS: u32 = 32;
 /// Version 33.
 pub const RULES_COVERT_LEGISLATION: u32 = 33;
 
-pub const RULES_VERSION: u32 = 33;
+/// The first rules version in which the Demilitarized Zone exploration card does what it prints:
+/// the explorer's structures on the planet return to reinforcements, its ground forces to the
+/// space area, and while the attachment is on the planet no unit may be committed to, produced
+/// on or placed on it (the same checks as the Demilitarized Zone agenda). Below, the card only
+/// attached. Version 34.
+pub const RULES_DMZ_EXPLORATION: u32 = 34;
+
+pub const RULES_VERSION: u32 = 34;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
