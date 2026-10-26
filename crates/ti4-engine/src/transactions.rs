@@ -283,6 +283,23 @@ fn present_together(
     here: &BTreeSet<SystemId>,
     there: &BTreeSet<SystemId>,
 ) -> bool {
+    // The typed core's adjacency (docs/ENGINE_CORE.md, stage 4); the text form when an id is not
+    // mapped or the core is switched off.
+    #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
+    if let Some(answer) = crate::core_adapter::present_together(galaxy, here, there) {
+        return answer;
+    }
+    present_together_text(galaxy, here, there)
+}
+
+/// [`present_together`] on the string galaxy: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn present_together_text(
+    galaxy: &Galaxy,
+    here: &BTreeSet<SystemId>,
+    there: &BTreeSet<SystemId>,
+) -> bool {
     if here.intersection(there).next().is_some() {
         return true;
     }

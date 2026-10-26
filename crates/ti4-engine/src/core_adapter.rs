@@ -660,3 +660,24 @@ impl SeatCache {
         }
     }
 }
+
+/// `transactions::present_together` (LRR 60: two presences share a system or occupy adjacent ones)
+/// on the core's adjacency; `None` when an id is not mapped.
+#[must_use]
+pub fn present_together(
+    galaxy: &Galaxy,
+    here: &BTreeSet<ti4_model::id::SystemId>,
+    there: &BTreeSet<ti4_model::id::SystemId>,
+) -> Option<bool> {
+    let here_set = sys_set(here.iter().map(ti4_model::id::SystemId::as_str)).ok()?;
+    let there_set = sys_set(there.iter().map(ti4_model::id::SystemId::as_str)).ok()?;
+    if here_set.intersects(&there_set) {
+        return Some(true);
+    }
+    let adjacency = adjacency_for(galaxy)?;
+    Some(
+        here_set
+            .iter()
+            .any(|s| adjacency.of(ti4_engine_core::ids::system_at(s)).intersects(&there_set)),
+    )
+}

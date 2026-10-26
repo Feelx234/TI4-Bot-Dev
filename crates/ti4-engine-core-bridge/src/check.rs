@@ -41,6 +41,8 @@ pub struct Report {
     pub seat_rules: usize,
     /// Stage 2: `Observed` answers compared (movable ships, can_reach, rift exits).
     pub observed_answers: usize,
+    /// Stage 4: neighbour (presence) questions compared.
+    pub neighbour_answers: usize,
     pub mismatches: Vec<String>,
 }
 
@@ -60,6 +62,7 @@ impl Report {
         self.unmapped += other.unmapped;
         self.seat_rules += other.seat_rules;
         self.observed_answers += other.observed_answers;
+        self.neighbour_answers += other.neighbour_answers;
         self.mismatches.extend(other.mismatches.iter().cloned());
     }
 
@@ -415,6 +418,45 @@ pub fn check_observed(position: &Position, report: &mut Report) {
                             position.label, player.id, ship.type_id, ship.origin
                         ));
                     }
+                }
+            }
+        }
+    }
+}
+
+/// Stage 4: `transactions::present_together` on the core equals the string galaxy's answer, for
+/// every ordered pair of seats' presences, on the position's map and on its switch variants.
+pub fn check_neighbours(position: &Position, report: &mut Report) {
+    let state = &position.state;
+    let presences: Vec<_> = state
+        .players
+        .iter()
+        .map(|p| ti4_engine::transactions::presence(state, &p.id))
+        .collect();
+    let mut galaxies = vec![position.galaxy.clone()];
+    for bits in [1u32, 2, 4, 8, 16, 31] {
+        let mut g = position.galaxy.clone();
+        g.hyperlane_lanes = bits & 1 != 0;
+        g.wormholes_off = bits & 2 != 0;
+        g.wormholes_all_linked = bits & 4 != 0;
+        g.wormhole_star_links = bits & 8 != 0;
+        g.nexus_wormholes_off = bits & 16 != 0;
+        galaxies.push(g);
+    }
+    for galaxy in &galaxies {
+        for (i, a) in presences.iter().enumerate() {
+            for (j, b) in presences.iter().enumerate() {
+                if i == j {
+                    continue;
+                }
+                let want = ti4_engine::transactions::present_together_text(galaxy, a, b);
+                let got = adapter::present_together(galaxy, a, b);
+                report.neighbour_answers += 1;
+                if got != Some(want) {
+                    report.miss(format!(
+                        "{}: present_together seats {i},{j}: {want} vs {got:?}",
+                        position.label
+                    ));
                 }
             }
         }
