@@ -4119,6 +4119,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ti4-engine-core"
+version = "0.1.0"
+dependencies = [
+ "ti4-content",
+ "ti4-model",
+]
+
+[[package]]
 name = "ti4-host"
 version = "0.1.0"
 dependencies = [

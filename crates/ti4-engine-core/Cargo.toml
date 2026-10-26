@@ -1,0 +1,19 @@
+# PLACEHOLDER crate: holds the generator's core output until the real `ti4-engine-core` (designed
+# on branch `engine-raw-core-design`) exists and absorbs `src/generated/` and `names/`.
+# Nothing in the workspace depends on it.
+[package]
+name = "ti4-engine-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+
+[dev-dependencies]
+# Only the tests compare the generated tables with the content store.
+ti4-content.workspace = true
+ti4-model.workspace = true
+
+[lints]
+workspace = true
