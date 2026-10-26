@@ -980,8 +980,10 @@ pub fn resolve_with(
         //   outcome is recorded by `game` (the law enters play) before this effect runs.
         // - Checks: the Against half is a standing cap on planet readiness at the end of the
         //   agenda phase, which the driver owns.
-        // - Covert Operations and Crisis are standing rules of the agenda and turn phases; the
-        //   driver applies them, the vote only puts the law in play.
+        // - Covert Legislation is played by the driver (rules version 33): its vote is on a
+        //   face-down agenda, and that agenda's effect is what resolves (`Game::close_vote`), so
+        //   its own arm has nothing to do. Below 33 it was a plain vote with no effect.
+        // - Galactic Crisis Pact below rules version 31 (see its arm above).
         // Galactic Crisis Pact (rules version 31): "Each player may perform the secondary ability
         // of the elected strategy card without spending a command token". Asked speaker first,
         // then clockwise. The clause about command tokens "placed by the ability" has nothing to
@@ -3108,7 +3110,7 @@ mod crisis_pact_tests {
         assert_eq!(outcomes.len(), 8, "{outcomes:?}");
         assert_eq!(outcomes[0], "pok1leadership", "initiative order");
         assert_eq!(outcomes[2], POLITICS);
-        assert_eq!(crate::vote::outcome_label(content, "crisis", POLITICS), "Politics");
+        assert_eq!(crate::vote::outcome_label(&state, content, "crisis", POLITICS), "Politics");
 
         state.rules_version = RULES_CRISIS_PACT - 1;
         assert!(crate::vote::outcomes(&state, content, POK, "crisis").is_empty());

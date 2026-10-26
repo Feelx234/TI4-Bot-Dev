@@ -172,12 +172,25 @@ fn elects(content: &ContentStore, alias: &str) -> Option<String> {
     head.starts_with("Elect").then(|| head.to_owned())
 }
 
+/// The agenda whose outcomes are voted on when `alias` is the agenda in play: the face-down
+/// agenda under Covert Legislation (rules version 33), else `alias` itself.
+#[must_use]
+pub fn voted_agenda<'a>(state: &'a GameState, alias: &'a str) -> &'a str {
+    match &state.covert_agenda {
+        Some(hidden) if alias == COVERT => hidden,
+        _ => alias,
+    }
+}
+
+/// Covert Legislation's alias.
+pub const COVERT: &str = "covert";
+
 /// How an outcome of `alias` is named to a player: a strategy card or a secret objective by its
 /// printed name, everything else (players, planets, laws, For/Against) as the outcome itself, as
-/// before. Display only.
+/// before. Under Covert Legislation the outcomes are the hidden agenda's. Display only.
 #[must_use]
-pub fn outcome_label(content: &ContentStore, alias: &str, outcome: &str) -> String {
-    let category = match elects(content, alias) {
+pub fn outcome_label(state: &GameState, content: &ContentStore, alias: &str, outcome: &str) -> String {
+    let category = match elects(content, voted_agenda(state, alias)) {
         Some(head) if head.contains("Strategy Card") => ContentType::StrategyCards,
         Some(head) if head.contains("Secret Objective") => ContentType::SecretObjectives,
         _ => return outcome.to_owned(),
@@ -635,7 +648,17 @@ impl VoteWindow {
         self.pending_choice_bare(state, content, sources)
             .map(|choice| {
                 let agenda = crate::strategy_cards::agenda_details(content, &self.alias);
-                choice.detailed(AGENDA_DETAIL, agenda)
+                let choice = choice.detailed(AGENDA_DETAIL, agenda);
+                // Covert Legislation: the speaker drew the face-down agenda and knows it; nobody
+                // else is shown it.
+                match &state.covert_agenda {
+                    Some(hidden) if self.alias == COVERT && choice.player == state.speaker => choice
+                        .detailed(
+                            "covert_agenda",
+                            crate::strategy_cards::agenda_details(content, hidden),
+                        ),
+                    _ => choice,
+                }
             })
     }
 
@@ -654,13 +677,13 @@ impl VoteWindow {
                 // effect. `Ballot` lives on this window, not on `GameState`, so nothing an
                 // `Observed` builds from state alone could recover it; each option's own running
                 // tally closes that gap through the existing generic payload-number pipeline.
-                let planet_outcomes = elects_planet(content, &self.alias);
+                let planet_outcomes = elects_planet(content, voted_agenda(state, &self.alias));
                 let mut options: Vec<ChoiceOption> = self
                     .choices
                     .iter()
                     .map(|outcome| {
                         let tally = self.ballot.counts.get(outcome).copied().unwrap_or(0);
-                        let label = outcome_label(content, &self.alias, outcome);
+                        let label = outcome_label(state, content, &self.alias, outcome);
                         let option = ChoiceOption::labelled(outcome, VOTE_KIND, label)
                             .with("current_votes", tally);
                         locate_outcome(option, planet_outcomes, state, content, sources)
@@ -927,7 +950,7 @@ impl VoteWindow {
             }
             Stage::Tiebreak => {
                 let candidates = tiebreak_candidates(&self.ballot, &self.choices);
-                let planet_outcomes = elects_planet(content, &self.alias);
+                let planet_outcomes = elects_planet(content, voted_agenda(state, &self.alias));
                 Some(
                     Choice::new(
                         state.speaker.clone(),
@@ -939,7 +962,7 @@ impl VoteWindow {
                                     ChoiceOption::labelled(
                                         outcome,
                                         TIEBREAK_KIND,
-                                        outcome_label(content, &self.alias, outcome),
+                                        outcome_label(state, content, &self.alias, outcome),
                                     ),
                                     planet_outcomes,
                                     state,

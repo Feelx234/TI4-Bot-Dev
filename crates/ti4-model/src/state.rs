@@ -1209,7 +1209,14 @@ pub const RULES_CRISIS_PACT: u32 = 31;
 /// its effect never ran. Version 32.
 pub const RULES_CLASSIFIED_LEAKS: u32 = 32;
 
-pub const RULES_VERSION: u32 = 32;
+/// The first rules version in which Covert Legislation is played as printed: when it is revealed
+/// the next agenda is drawn face down ([`GameState::covert_agenda`]), players vote on that
+/// agenda's outcomes under Covert Legislation's name, and the hidden agenda is resolved with the
+/// winning outcome. Below, Covert Legislation was a plain For/Against vote with no effect.
+/// Version 33.
+pub const RULES_COVERT_LEGISLATION: u32 = 33;
+
+pub const RULES_VERSION: u32 = 33;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
@@ -1755,6 +1762,12 @@ pub struct GameState {
     /// the vote window. In-flight resolution data — not compared.
     #[serde(default)]
     pub agenda_veto_replacement: Option<String>,
+    /// Covert Legislation (rules version 33): the agenda the speaker drew face down when it was
+    /// revealed. Players vote on this agenda's outcomes while Covert Legislation is the agenda in
+    /// play, and the vote resolves this one. Set from the reveal to the close of that vote; hidden
+    /// information, not compared and not written while empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub covert_agenda: Option<String>,
     /// Confusing / Confounding Legal Text: the player who is the elected player after the
     /// card redirects the outcome. Consumed and cleared by the vote driver before it applies
     /// the agenda's own effect. In-flight resolution data — not compared.
@@ -2096,6 +2109,7 @@ impl GameState {
             pending_reflective_hits: None,
             last_strategy_choice: None,
             agenda_veto_replacement: None,
+            covert_agenda: None,
             agenda_elected_override: None,
             agenda_votes: BTreeMap::new(),
             transient_flags: TransientFlags::default(),
