@@ -11,7 +11,6 @@ workspace = true
 ti4-model = { workspace = true }
 ti4-content = { workspace = true }
 ti4-engine = { workspace = true }
-ti4-policy = { workspace = true }
 ti4-rule-bot = { workspace = true }
 ti4-host = { workspace = true }
 serde = { workspace = true }
@@ -30,6 +29,8 @@ futures-util = "0.3"
 sha2 = { workspace = true }
 
 [dev-dependencies]
+# Only the survey test (tests/it/smart_bot_survey.rs) reads ti4-policy; the server does not use it.
+ti4-policy = { workspace = true }
 # The wasm host as a native library, for the test that both hosts play the same game.
 # Its `ts` feature: the tests write and check the TypeScript types of the wire. A dev-dependency,
 # so every alias of `.cargo/config.toml` builds the same features and the server binary has none.
