@@ -16,10 +16,16 @@ rand_chacha.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 ts-rs = { workspace = true, optional = true }
+# Prototype of the typed core (docs/ENGINE_CORE.md), behind `typed-core`; off by default.
+ti4-engine-core = { workspace = true, features = ["names"], optional = true }
+strum = { workspace = true, optional = true }
 
 # The TypeScript types of the wire (`ti4_wasm::wire_ts`); off but in the tests of the browser game.
 [features]
 ts = ["dep:ts-rs", "ti4-model/ts"]
+# Movement reach answered by the typed core (`core_adapter`): the first strangler stage, measured
+# in docs/ENGINE_CORE.md. Same answers by construction and by test; off by default.
+typed-core = ["dep:ti4-engine-core", "dep:strum"]
 
 [dev-dependencies]
 strum.workspace = true

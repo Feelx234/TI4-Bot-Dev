@@ -76,6 +76,8 @@ pub mod preview;
 pub mod production;
 pub mod promissory;
 pub mod reach_query;
+#[cfg(feature = "typed-core")]
+pub mod core_adapter;
 pub mod reaction_preview;
 pub mod reactions;
 pub mod registry;

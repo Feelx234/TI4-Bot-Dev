@@ -87,6 +87,25 @@ impl Board {
     }
 }
 
+/// The private inputs of a [`MovementRules`], borrowed ([`MovementRules::parts`]). The public
+/// modifier fields are read from the rules themselves.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy)]
+pub struct MovementParts<'r> {
+    pub galaxy: &'r Galaxy,
+    pub active_system: &'r str,
+    pub board: &'r Board,
+    pub extra_adjacency: &'r BTreeMap<String, BTreeSet<String>>,
+    pub passing_ship_types: &'r BTreeSet<String>,
+    pub own_passage_types: &'r BTreeSet<String>,
+    pub own_unit_systems: &'r BTreeSet<String>,
+    pub ship_adjacent: &'r BTreeMap<String, BTreeSet<String>>,
+    pub token_free_types: &'r BTreeSet<String>,
+    pub nebulae_ignored: bool,
+    pub blocked_edges: &'r BTreeSet<(String, String)>,
+    pub unladen_pass: bool,
+}
+
 /// How many systems [`MovementRules::all_routes_from_ship`] visits before it stops.
 pub const ROUTE_SEARCH_NODES: usize = 20_000;
 /// How many routes [`MovementRules::all_routes_from_ship`] collects before it stops.
@@ -455,6 +474,29 @@ impl<'a> MovementRules<'a> {
 
     fn system(&self, system_id: &str) -> Option<&System<'a>> {
         self.systems.get(system_id)
+    }
+
+    /// Every input of the route search, read-only: the map (after the faction modules' copies),
+    /// the board facts and each modifier, private ones included. For `ti4-engine-core-bridge`,
+    /// which translates a built set of rules into the typed core (docs/ENGINE_CORE.md) and
+    /// proves both answer the same; nothing in the engine calls it.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn parts(&self) -> MovementParts<'_> {
+        MovementParts {
+            galaxy: &self.galaxy,
+            active_system: &self.active_system,
+            board: &self.board,
+            extra_adjacency: &self.extra_adjacency,
+            passing_ship_types: &self.passing_ship_types,
+            own_passage_types: &self.own_passage_types,
+            own_unit_systems: &self.own_unit_systems,
+            ship_adjacent: &self.ship_adjacent,
+            token_free_types: &self.token_free_types,
+            nebulae_ignored: self.nebulae_ignored,
+            blocked_edges: &self.blocked_edges,
+            unladen_pass: self.unladen_pass,
+        }
     }
 
     /// Whether a system is a gravity rift, printed or created.

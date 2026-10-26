@@ -893,15 +893,26 @@ impl<'a> Observed<'a> {
             return false;
         };
         let board = Board::for_player(self.state, self.content, self.sources, player);
-        MovementRules::with_laws(
+        let rules = MovementRules::with_laws(
             galaxy,
             self.content,
             self.sources,
             destination.as_str(),
             board,
             Some(self.state),
+        );
+        // Prototype (feature `typed-core`, docs/ENGINE_CORE.md): the typed search.
+        #[cfg(feature = "typed-core")]
+        return crate::core_adapter::path_from_ship(
+            &rules,
+            self.sources,
+            origin.as_str(),
+            move_value,
+            None,
         )
-        .can_reach(origin.as_str(), move_value)
+        .is_some();
+        #[cfg(not(feature = "typed-core"))]
+        rules.can_reach(origin.as_str(), move_value)
     }
 
     /// The routes (rules version 29, [`crate::tactical::ship_routes`]) the ship at `index` of

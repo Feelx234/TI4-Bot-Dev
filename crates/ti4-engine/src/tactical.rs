@@ -379,6 +379,27 @@ pub fn movable_into(
         Some(state),
     );
     crate::action_cards::apply_movement_effects(&mut rules, state, player);
+    // Prototype (feature `typed-core`, off by default; docs/ENGINE_CORE.md): the same rules,
+    // translated once, searched by the typed core. An id it cannot express falls back to the string
+    // search for that question.
+    #[cfg(feature = "typed-core")]
+    let adjacency = crate::core_adapter::adjacency_for(rules.parts().galaxy);
+    #[cfg(feature = "typed-core")]
+    let raw = adjacency
+        .as_deref()
+        .and_then(|a| crate::core_adapter::rules_from_legacy(&rules, sources, a).ok());
+    let can_reach_ship = |origin: &str, move_value: i32, ship_type: Option<&str>| -> bool {
+        #[cfg(feature = "typed-core")]
+        if let Some(raw) = &raw
+            && let (Some(from), Ok(kind)) = (
+                crate::core_adapter::system_ix(origin),
+                crate::core_adapter::ship_type(ship_type),
+            )
+        {
+            return raw.can_reach_ship(from, move_value, kind);
+        }
+        rules.can_reach_ship(origin, move_value, ship_type)
+    };
 
     let mut found = Vec::new();
     for origin in state.systems_with_units_of(player) {
@@ -409,14 +430,14 @@ pub fn movable_into(
             // renewable one is strictly the smaller commitment.
             let gravity = crate::technology::gravity_drive_available(state, player);
             let ionian = crate::legendary::ionian_available(state, player);
-            let boosts = if rules.can_reach_ship(origin.as_str(), move_value, ship_type) {
+            let boosts = if can_reach_ship(origin.as_str(), move_value, ship_type) {
                 Some((false, false))
             } else {
                 [(true, false), (false, true), (true, true)]
                     .into_iter()
                     .filter(|(gd, ion)| (!gd || gravity) && (!ion || ionian))
                     .find(|(gd, ion)| {
-                        rules.can_reach_ship(
+                        can_reach_ship(
                             origin.as_str(),
                             effective_move_value_for_ship(
                                 state,
@@ -567,20 +588,20 @@ pub fn route_rift_exits(
     if rules.anomalies_ignored || rules.rifts_ignored {
         return 0;
     }
-    rules
-        .path_from_ship(
-            origin,
-            effective_move_value_with_boosts(
-                state,
-                kind,
-                player,
-                &SystemId::new(origin),
-                boosts.0,
-                boosts.1,
-            ),
-            Some(kind_id),
-        )
-        .map_or(0, |path| crate::transit::rifts_exited(&rules, &path).len())
+    let move_value = effective_move_value_with_boosts(
+        state,
+        kind,
+        player,
+        &SystemId::new(origin),
+        boosts.0,
+        boosts.1,
+    );
+    // Prototype (feature `typed-core`, docs/ENGINE_CORE.md): the typed search, same route.
+    #[cfg(feature = "typed-core")]
+    let path = crate::core_adapter::path_from_ship(&rules, sources, origin, move_value, Some(kind_id));
+    #[cfg(not(feature = "typed-core"))]
+    let path = rules.path_from_ship(origin, move_value, Some(kind_id));
+    path.map_or(0, |path| crate::transit::rifts_exited(&rules, &path).len())
 }
 
 /// Attach to each ship-move option the exact fleet-supply and transport change the ship makes on

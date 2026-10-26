@@ -1,0 +1,29 @@
+//! The typed rules core: a prototype slice (docs/ENGINE_CORE.md).
+//!
+//! This crate knows no string ids. Systems, planets, unit types, seats and wormhole kinds are small
+//! integers; sets of them are bitsets. The corpus is compiled in as typed tables (`build.rs`), with
+//! ids numbered in the text order of the id, so integer order is the string order the engine's
+//! `BTreeMap`s iterate in.
+//!
+//! The slice covers what the bots ask most: the board's adjacency ([`galaxy`]) and movement
+//! reachability ([`movement`]: the route search of `ti4_engine::movement::MovementRules`, the same
+//! budget, bars and modifiers). Everything that speaks strings, the wire, saves, option ids, the
+//! faction hooks that decide the modifiers, stays in the string engine; `ti4-engine-core-bridge`
+//! translates at the boundary.
+
+pub mod bits;
+pub mod board;
+pub mod galaxy;
+pub mod hex;
+pub mod ids;
+pub mod movement;
+pub mod tables;
+
+#[cfg(feature = "names")]
+pub mod names {
+    //! Id text of every table index, for the adapter (feature `names`). The core never reads it.
+    include!(concat!(env!("OUT_DIR"), "/names.rs"));
+}
+
+pub use bits::{SysSet, UnitSet};
+pub use ids::{PlanetIx, Seat, SystemIx, UnitIx};

@@ -4114,8 +4114,35 @@ dependencies = [
  "strum",
  "thiserror 2.0.20",
  "ti4-content",
+ "ti4-engine-core",
  "ti4-model",
  "ts-rs",
+]
+
+[[package]]
+name = "ti4-engine-core"
+version = "0.1.0"
+dependencies = [
+ "strum",
+ "ti4-content",
+ "ti4-model",
+]
+
+[[package]]
+name = "ti4-engine-core-bridge"
+version = "0.1.0"
+dependencies = [
+ "mimalloc",
+ "serde_json",
+ "strum",
+ "ti4-content",
+ "ti4-engine",
+ "ti4-engine-core",
+ "ti4-host",
+ "ti4-model",
+ "ti4-rule-bot",
+ "ti4-selfplay",
+ "ti4-wasm",
 ]
 
 [[package]]

@@ -4,6 +4,8 @@ members = [
     "crates/ti4-model",
     "crates/ti4-content",
     "crates/ti4-engine",
+    "crates/ti4-engine-core",
+    "crates/ti4-engine-core-bridge",
     "crates/ti4-policy",
     "crates/ti4-sim",
     "crates/ti4-calc",
@@ -35,6 +37,7 @@ rust-version = "1.94"
 ti4-model = { path = "crates/ti4-model" }
 ti4-content = { path = "crates/ti4-content" }
 ti4-engine = { path = "crates/ti4-engine" }
+ti4-engine-core = { path = "crates/ti4-engine-core" }
 ti4-policy = { path = "crates/ti4-policy" }
 ti4-sim = { path = "crates/ti4-sim" }
 ti4-calc = { path = "crates/ti4-calc" }

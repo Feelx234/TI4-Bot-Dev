@@ -1,0 +1,23 @@
+[package]
+name = "ti4-engine-core-bridge"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Prototype adapter (docs/ENGINE_CORE.md): string ids <-> the typed core for the movement slice, its equivalence tests and benchmark."
+
+[dependencies]
+ti4-engine-core = { workspace = true, features = ["names"] }
+ti4-model.workspace = true
+ti4-content.workspace = true
+ti4-engine = { workspace = true, features = ["typed-core"] }
+strum.workspace = true
+# The golden games and the benchmark play bot games exactly as `selfplay run` does.
+ti4-selfplay = { path = "../ti4-selfplay" }
+ti4-rule-bot.workspace = true
+ti4-host.workspace = true
+ti4-wasm = { path = "../ti4-wasm" }
+serde_json.workspace = true
+mimalloc.workspace = true
+
+[lints]
+workspace = true
