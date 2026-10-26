@@ -727,7 +727,10 @@ fn the_facts_show_no_hand_of_another_seat_and_no_order_of_a_deck() {
                 "{agenda} for {viewer:?}"
             );
         }
-        assert_eq!(update["action_cards"]["deck"], state.action_card_deck.len());
+        assert_eq!(
+            update["action_cards"]["deck"],
+            ti4_engine::deck::action_deck_len(&state)
+        );
         assert_eq!(update["secret_objectives"]["deck"], state.secret_deck.len());
         // An exploration deck is sent as what it holds, sorted: its order is not.
         let mut shuffled = false;

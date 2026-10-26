@@ -592,7 +592,7 @@ fn nekroc4r_3_discards_an_action_card_to_draw_one() {
     with_c4r(&mut state);
     state.player_mut(&pid("a")).unwrap().action_cards =
         vec![ti4_model::id::ActionCardId::new("sabo1")];
-    let deck = state.action_card_deck.len();
+    let deck = crate::deck::action_deck_len(&state);
     assert!(perform(&mut state, "a", "faction|nekro|c4r|draw", &[]));
     let seat = state.player(&pid("a")).unwrap();
     assert_eq!(seat.action_cards.len(), 1, "discarded 1, drew 1");
@@ -1189,7 +1189,7 @@ fn nanomachines_3_discards_an_action_card_to_draw_one() {
     let mut state = ralnel();
     state.player_mut(&pid("a")).unwrap().action_cards =
         vec![ti4_model::id::ActionCardId::new("sabo1")];
-    let deck = state.action_card_deck.len();
+    let deck = crate::deck::action_deck_len(&state);
     assert!(perform(
         &mut state,
         "a",

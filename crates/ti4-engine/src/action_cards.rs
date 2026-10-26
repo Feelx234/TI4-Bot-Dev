@@ -70,6 +70,7 @@ pub fn draw(
             state, content, table, player, count,
         )?;
     }
+    crate::deck::drop_unofficial_action_cards(state);
     let mut drawn = Vec::new();
     // Yssaril Scheming: "When you draw 1 or more action cards, draw 1 additional action card."
     // Asked once, before the first card leaves the deck, and only for a real draw.
@@ -2919,6 +2920,7 @@ fn rider_payoff(
             if let Some((content, table)) = table {
                 let _ = draw(state, content, table, player, 3);
             } else {
+                crate::deck::drop_unofficial_action_cards(state);
                 for _ in 0..3 {
                     let Some(top) = ti4_model::deck_reserve::take_top(
                         &mut state.deck_reserve,
@@ -3035,13 +3037,15 @@ fn rider_payoff(
         Some(crate::factions::keleres_units::RIDER_ALIAS) => {
             if let Some((content, table)) = table {
                 let _ = draw(state, content, table, player, 1);
-            } else if let Some(top) = ti4_model::deck_reserve::take_top(
-                &mut state.deck_reserve,
-                "action_card",
-                &mut state.action_card_deck,
-                Some(player.as_str()),
-            ) {
-                if let Some(seat) = state.player_mut(player) {
+            } else {
+                crate::deck::drop_unofficial_action_cards(state);
+                if let Some(top) = ti4_model::deck_reserve::take_top(
+                    &mut state.deck_reserve,
+                    "action_card",
+                    &mut state.action_card_deck,
+                    Some(player.as_str()),
+                ) && let Some(seat) = state.player_mut(player)
+                {
                     seat.action_cards.push(top);
                 }
             }

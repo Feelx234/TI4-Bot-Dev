@@ -1190,7 +1190,14 @@ pub const RULES_PLAGIARIZE_OWNED: u32 = 28;
 /// engine picked the route itself. Version 29.
 pub const RULES_MOVEMENT_ROUTES: u32 = 29;
 
-pub const RULES_VERSION: u32 = 29;
+/// The first rules version whose action deck is the official one: 140 cards with Thunder's Edge,
+/// 120 without. The corpus carries two extra copies of Veto (`veto3`, `veto4`) that no printed
+/// deck has; from this version they are taken out of the deck before an action card is drawn
+/// (`deck::drop_unofficial_action_cards`), so the other cards keep their shuffled order. Below,
+/// the deck had 142 (or 122) cards and three Vetos. Version 30.
+pub const RULES_OFFICIAL_ACTION_DECK: u32 = 30;
+
+pub const RULES_VERSION: u32 = 30;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are

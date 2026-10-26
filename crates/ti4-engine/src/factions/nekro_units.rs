@@ -2142,7 +2142,7 @@ mod tests {
         let mut state = game();
         with_error_error(&mut state);
         give_card(&mut state, &a(), "sabo1");
-        let deck = state.action_card_deck.len();
+        let deck = crate::deck::action_deck_len(&state);
         assert!(perform(&mut state, C4R_DRAW, &[]));
         let seat = state.player(&a()).unwrap();
         assert_eq!(seat.action_cards.len(), 1, "discarded 1, drew 1");
