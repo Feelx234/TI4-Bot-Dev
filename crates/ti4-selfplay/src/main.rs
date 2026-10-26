@@ -1,6 +1,13 @@
 //! `selfplay`: games with the rule bot on every seat, no server, no browser.
 //! Run `selfplay help`, or read `docs/RULE_BOT_OPTIMISATION.md`.
 
+/// About 40% of a bot game's CPU time was glibc malloc/free (docs/ENGINE_OPTIMIZATION.md, "bot-only
+/// games"); mimalloc's thread-local heaps make the same games markedly cheaper. Declared on the
+/// binary only: the library (and the tests and examples that link it) keep the system allocator.
+/// The allocator never changes a decision: the bench hashes stay identical.
+#[global_allocator]
+static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::ExitCode;

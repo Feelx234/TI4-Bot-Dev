@@ -28,7 +28,7 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use ti4_content::ContentStore;
-use ti4_content::galaxy::{Galaxy, System, all_systems};
+use ti4_content::galaxy::{Galaxy, System};
 use ti4_model::content_types::SourceSet;
 use ti4_model::id::{PlayerId, SystemId};
 use ti4_model::state::GameState;
@@ -118,7 +118,7 @@ pub struct MovementRules<'a> {
     galaxy: Cow<'a, Galaxy>,
     /// Resolved once. Looking a system up per search step rebuilt an index over the whole
     /// system corpus, which is how the objective predicates first went quadratic.
-    systems: BTreeMap<&'a str, System<'a>>,
+    systems: Cow<'a, BTreeMap<&'a str, System<'a>>>,
     active_system: String,
     board: Board,
 
@@ -227,7 +227,7 @@ impl<'a> MovementRules<'a> {
     ) -> Self {
         let mut rules = Self {
             galaxy: Cow::Borrowed(galaxy),
-            systems: all_systems(content, sources),
+            systems: ti4_content::galaxy::systems_index(content, sources),
             active_system: active_system.to_owned(),
             board,
             // Shared Research is the law that opens them; without it this stays false.
@@ -301,7 +301,11 @@ impl<'a> MovementRules<'a> {
         sources: SourceSet,
     ) {
         use crate::factions::hooks_movement as hooks;
-        if hooks::any(|table| table.extra_wormholes.is_some()) {
+        // Copy the map only when a module adds a wormhole it does not have yet: the copy was
+        // made for every set of rules (about 15 per decision) and dropped unchanged nearly always.
+        if hooks::any(|table| table.extra_wormholes.is_some())
+            && hooks::adds_extra_wormholes(state, &self.galaxy)
+        {
             let mut owned = (*self.galaxy).clone();
             if hooks::apply_extra_wormholes(state, &mut owned) {
                 self.galaxy = Cow::Owned(owned);

@@ -262,6 +262,28 @@ pub fn all_systems(store: &ContentStore, sources: SourceSet) -> BTreeMap<&str, S
         .collect()
 }
 
+/// [`all_systems`], shared: borrowed for the compiled-in corpus (built once per source scope),
+/// owned for any other store. For hot paths that only read the map (movement rules are built
+/// about 15 times per decision; rebuilding this map each time was 2% of a bot game).
+#[must_use]
+pub fn systems_index(
+    store: &ContentStore,
+    sources: SourceSet,
+) -> std::borrow::Cow<'_, BTreeMap<&str, System<'_>>> {
+    static EMBEDDED: [std::sync::OnceLock<BTreeMap<&'static str, System<'static>>>; 128] =
+        [const { std::sync::OnceLock::new() }; 128];
+    if store.is_embedded() {
+        let embedded = ContentStore::embedded();
+        if let Some(slot) = usize::try_from(sources.as_u32())
+            .ok()
+            .and_then(|bits| EMBEDDED.get(bits))
+        {
+            return std::borrow::Cow::Borrowed(slot.get_or_init(|| all_systems(embedded, sources)));
+        }
+    }
+    std::borrow::Cow::Owned(all_systems(store, sources))
+}
+
 /// Whether `id` names a space station, in this source scope.
 ///
 /// A point lookup, so it is safe to call per option in a choice. An unknown id is not a station:
@@ -311,6 +333,30 @@ pub fn planets_in<'a>(
     system_id: &str,
     sources: SourceSet,
 ) -> Vec<Planet<'a>> {
+    // The compiled-in corpus is indexed by tile once per source scope (same planets, same
+    // order: the index is built by the scan below). The scan of the whole planet corpus, a
+    // string-keyed field lookup per planet, was 3% of a bot game (docs/ENGINE_OPTIMIZATION.md).
+    type ByTile = BTreeMap<&'static str, Vec<Planet<'static>>>;
+    static EMBEDDED: [std::sync::OnceLock<ByTile>; 128] =
+        [const { std::sync::OnceLock::new() }; 128];
+    if store.is_embedded() {
+        let embedded = ContentStore::embedded();
+        if let Some(slot) = usize::try_from(sources.as_u32())
+            .ok()
+            .and_then(|bits| EMBEDDED.get(bits))
+        {
+            let index = slot.get_or_init(|| {
+                let mut index: ByTile = BTreeMap::new();
+                for record in embedded.from_sources(ContentType::Planets, sources) {
+                    if let Some(tile) = record.text("tileId") {
+                        index.entry(tile).or_default().push(Planet::new(record));
+                    }
+                }
+                index
+            });
+            return index.get(system_id).cloned().unwrap_or_default();
+        }
+    }
     store
         .from_sources(ContentType::Planets, sources)
         .filter(|r| r.text("tileId") == Some(system_id))

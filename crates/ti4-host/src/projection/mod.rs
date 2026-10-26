@@ -489,6 +489,27 @@ fn canonical_objective_alias<'a>(content: &'a ContentStore, raw: &'a str) -> Opt
 /// objective's progress — Push Boundaries, Intimidate Council, Learn the Secrets and the rest.
 #[must_use]
 pub fn placed_galaxy(map_tiles: &[BoardTileView]) -> Option<Galaxy> {
+    // A pure function of the tiles, asked for twice per view and once per viewer at every
+    // update (docs/ENGINE_OPTIMIZATION.md: 12% of building a view). The last answer is kept per
+    // thread and handed out again for the same tiles; a copy is much cheaper than the build.
+    thread_local! {
+        static LAST: std::cell::RefCell<Option<(Vec<BoardTileView>, Option<Galaxy>)>> =
+            const { std::cell::RefCell::new(None) };
+    }
+    if let Some(hit) = LAST.with(|last| {
+        last.borrow()
+            .as_ref()
+            .filter(|(tiles, _)| tiles.as_slice() == map_tiles)
+            .map(|(_, galaxy)| galaxy.clone())
+    }) {
+        return hit;
+    }
+    let galaxy = build_placed_galaxy(map_tiles);
+    LAST.with(|last| *last.borrow_mut() = Some((map_tiles.to_vec(), galaxy.clone())));
+    galaxy
+}
+
+fn build_placed_galaxy(map_tiles: &[BoardTileView]) -> Option<Galaxy> {
     let mut taken = std::collections::BTreeSet::new();
     let tiles: Vec<_> = map_tiles
         .iter()

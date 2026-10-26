@@ -24,3 +24,5 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
+# The binary's allocator (src/main.rs): a bot game is allocation-bound (docs/ENGINE_OPTIMIZATION.md).
+mimalloc = { workspace = true }

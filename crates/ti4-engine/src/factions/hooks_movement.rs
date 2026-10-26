@@ -445,6 +445,16 @@ fn extra_wormholes_by(
     found
 }
 
+/// Whether [`apply_extra_wormholes`] would add anything to `galaxy` (it returns exactly this).
+pub(crate) fn adds_extra_wormholes(state: &GameState, galaxy: &Galaxy) -> bool {
+    extra_wormholes(state).iter().any(|(system, kinds)| {
+        let held = galaxy.token_wormholes.get(system);
+        kinds
+            .iter()
+            .any(|kind| !held.is_some_and(|held| held.contains(kind)))
+    })
+}
+
 /// Merge the modules' wormholes into the galaxy's token wormholes. Additive and idempotent, so it
 /// may run after `laws::apply_to_galaxy` has rebuilt the token map from the state. Returns whether
 /// anything was added (so `MovementRules` clones the map only when it must).

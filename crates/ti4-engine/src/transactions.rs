@@ -273,15 +273,24 @@ pub fn are_neighbours(state: &GameState, galaxy: &Galaxy, a: &PlayerId, b: &Play
     if crate::factions::keleres::mecatol_neighbours(state, galaxy, a, b) {
         return true;
     }
-    let (here, there) = (presence(state, a), presence(state, b));
-    if here.intersection(&there).next().is_some() {
+    present_together(galaxy, &presence(state, a), &presence(state, b))
+}
+
+/// The map half of [`are_neighbours`], on the two seats' [`presence`]: a shared or an adjacent
+/// system. Split out so [`neighbours`] computes the asking seat's presence once, not per seat.
+fn present_together(
+    galaxy: &Galaxy,
+    here: &BTreeSet<SystemId>,
+    there: &BTreeSet<SystemId>,
+) -> bool {
+    if here.intersection(there).next().is_some() {
         return true;
     }
+    // Probed by `&str` on the adjacency set: building a `SystemId` for every adjacent system to
+    // look it up in `there` was an allocation per probe.
     here.iter().any(|system| {
-        galaxy
-            .adjacent(system.as_str())
-            .into_iter()
-            .any(|adjacent| there.contains(&SystemId::new(adjacent)))
+        let adjacent = galaxy.adjacent(system.as_str());
+        there.iter().any(|other| adjacent.contains(other.as_str()))
     })
 }
 
@@ -310,10 +319,21 @@ pub fn neighbours_who_transacted(
 /// Everyone this player may transact with.
 #[must_use]
 pub fn neighbours(state: &GameState, galaxy: &Galaxy, player: &PlayerId) -> Vec<PlayerId> {
+    // `are_neighbours(player, other)` for each seat, with the player's presence computed once.
+    let mut here = None;
     state
         .seating_order
         .iter()
-        .filter(|other| are_neighbours(state, galaxy, player, other))
+        .filter(|other| {
+            if player == *other {
+                return false;
+            }
+            if crate::factions::keleres::mecatol_neighbours(state, galaxy, player, other) {
+                return true;
+            }
+            let here = here.get_or_insert_with(|| presence(state, player));
+            present_together(galaxy, here, &presence(state, other))
+        })
         .cloned()
         .collect()
 }
@@ -359,10 +379,26 @@ pub fn may_transact(
     proposer: &PlayerId,
     partner: &PlayerId,
 ) -> bool {
+    // Exactly `reach || are_neighbours(p, q) || partners(p).contains(q) || partners(q).contains(p)`
+    // without listing every seat's neighbours: `partners(x)` is the whole table but `x` for a seat
+    // that reaches past adjacency, and `neighbours(x)` otherwise, so each `contains` is one
+    // seat's test. Listing them cost a presence scan of the board per seat and pair, a fifth of
+    // the engine's time in a game of random seats (docs/ENGINE_OPTIMIZATION.md).
+    let wide = |seat: &PlayerId| {
+        crate::faction_abilities::ignores_neighbours(state, content, seat)
+            || crate::promissory::reaches_anyone(state, seat)
+    };
+    let seated = |seat: &PlayerId| state.seating_order.contains(seat);
     crate::factions::hooks_cards::transaction_reach(state, content, proposer, partner)
         || are_neighbours(state, galaxy, proposer, partner)
-        || partners(state, content, galaxy, proposer).contains(partner)
-        || partners(state, content, galaxy, partner).contains(proposer)
+        // partners(proposer).contains(partner); its `neighbours` half is the test just made.
+        || (wide(proposer) && partner != proposer && seated(partner))
+        // partners(partner).contains(proposer)
+        || (if wide(partner) {
+            proposer != partner && seated(proposer)
+        } else {
+            seated(proposer) && are_neighbours(state, galaxy, partner, proposer)
+        })
 }
 
 /// The key a relic fragment is held under: its trait upper-cased, as exploration stores it

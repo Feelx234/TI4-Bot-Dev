@@ -312,16 +312,21 @@ const fn positive(value: Option<i64>) -> Option<i64> {
 }
 
 /// Every unit type in scope, keyed by id.
+///
+/// Borrowed for the compiled-in corpus (built once per source scope and shared), owned for any
+/// other store. Measured (docs/ENGINE_OPTIMIZATION.md): the engine and the rule bot ask for this
+/// map about 120 times per decision; copying the cached map each time was 4-5% of a bot game.
 #[must_use]
-pub fn catalogue(store: &ContentStore, sources: SourceSet) -> BTreeMap<&str, UnitType<'_>> {
+pub fn catalogue(
+    store: &ContentStore,
+    sources: SourceSet,
+) -> std::borrow::Cow<'_, BTreeMap<&str, UnitType<'_>>> {
     fn build(store: &ContentStore, sources: SourceSet) -> BTreeMap<&str, UnitType<'_>> {
         store
             .by_id_in_sources(ContentType::Units, sources)
             .map(|(id, r)| (id, UnitType::new(r)))
             .collect()
     }
-    // The engine asks for this map many times per step. For the compiled-in corpus (the one every
-    // game runs on) it is built once per source scope; a copy costs no comparisons.
     static EMBEDDED: [std::sync::OnceLock<BTreeMap<&'static str, UnitType<'static>>>; 128] =
         [const { std::sync::OnceLock::new() }; 128];
     if store.is_embedded() {
@@ -330,10 +335,10 @@ pub fn catalogue(store: &ContentStore, sources: SourceSet) -> BTreeMap<&str, Uni
             .ok()
             .and_then(|bits| EMBEDDED.get(bits))
         {
-            return slot.get_or_init(|| build(embedded, sources)).clone();
+            return std::borrow::Cow::Borrowed(slot.get_or_init(|| build(embedded, sources)));
         }
     }
-    build(store, sources)
+    std::borrow::Cow::Owned(build(store, sources))
 }
 
 /// One unit type by id, within a source scope.
@@ -370,8 +375,9 @@ pub fn faction_unit<'a>(
 #[must_use]
 pub fn generic_types(store: &ContentStore, sources: SourceSet) -> BTreeMap<&str, UnitType<'_>> {
     catalogue(store, sources)
-        .into_iter()
+        .iter()
         .filter(|(_, unit)| unit.faction().is_none())
+        .map(|(id, unit)| (*id, *unit))
         .collect()
 }
 
@@ -665,7 +671,7 @@ mod tests {
 
     #[test]
     fn every_unit_in_the_catalogue_has_a_base_type() {
-        for (id, unit) in catalogue(store(), FULL) {
+        for (id, unit) in catalogue(store(), FULL).iter() {
             assert!(!unit.base_type().is_empty(), "{id} has no base type");
         }
     }
