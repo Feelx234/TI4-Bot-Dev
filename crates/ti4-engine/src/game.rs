@@ -4392,7 +4392,9 @@ impl<'a> Game<'a> {
     ) -> Option<Vec<String>> {
         let types = ti4_content::units::catalogue(self.content, self.sources);
         let kind = types.get(ship.type_id.as_str())?;
-        rules.path_from_ship(
+        crate::tactical::search_path(
+            rules,
+            self.sources,
             origin.as_str(),
             crate::tactical::effective_move_value_for_ship(
                 &self.state,

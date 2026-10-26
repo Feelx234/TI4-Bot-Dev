@@ -331,6 +331,43 @@ pub fn effective_move_value_for_ship(
     }
 }
 
+/// The route search every movement question goes through: the typed core (`core_adapter`,
+/// docs/ENGINE_CORE.md) unless the `string-movement` switch is on. Same route either way.
+#[must_use]
+pub fn search_path(
+    rules: &MovementRules<'_>,
+    sources: SourceSet,
+    origin: &str,
+    move_value: i32,
+    ship_type: Option<&str>,
+) -> Option<Vec<String>> {
+    #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
+    return crate::core_adapter::path_from_ship(rules, sources, origin, move_value, ship_type);
+    #[cfg(not(all(feature = "typed-core", not(feature = "string-movement"))))]
+    {
+        let _ = sources;
+        rules.path_from_ship(origin, move_value, ship_type)
+    }
+}
+
+/// [`search_path`] for every simple route (`MovementRules::all_routes_from_ship`).
+#[must_use]
+pub fn search_all_routes(
+    rules: &MovementRules<'_>,
+    sources: SourceSet,
+    origin: &str,
+    move_value: i32,
+    ship_type: Option<&str>,
+) -> Vec<Vec<String>> {
+    #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
+    return crate::core_adapter::all_routes_from_ship(rules, sources, origin, move_value, ship_type);
+    #[cfg(not(all(feature = "typed-core", not(feature = "string-movement"))))]
+    {
+        let _ = sources;
+        rules.all_routes_from_ship(origin, move_value, ship_type)
+    }
+}
+
 /// Every ship that could reach the active system, with where it stands.
 ///
 /// Ships already in the active system are skipped: 58.4e's leave-and-return is legal but is not
@@ -382,14 +419,14 @@ pub fn movable_into(
     // Prototype (feature `typed-core`, off by default; docs/ENGINE_CORE.md): the same rules,
     // translated once, searched by the typed core. An id it cannot express falls back to the string
     // search for that question.
-    #[cfg(feature = "typed-core")]
+    #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
     let adjacency = crate::core_adapter::adjacency_for(rules.parts().galaxy);
-    #[cfg(feature = "typed-core")]
+    #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
     let raw = adjacency
         .as_deref()
         .and_then(|a| crate::core_adapter::rules_from_legacy(&rules, sources, a).ok());
     let can_reach_ship = |origin: &str, move_value: i32, ship_type: Option<&str>| -> bool {
-        #[cfg(feature = "typed-core")]
+        #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
         if let Some(raw) = &raw
             && let (Some(from), Ok(kind)) = (
                 crate::core_adapter::system_ix(origin),
@@ -596,12 +633,7 @@ pub fn route_rift_exits(
         boosts.0,
         boosts.1,
     );
-    // Prototype (feature `typed-core`, docs/ENGINE_CORE.md): the typed search, same route.
-    #[cfg(feature = "typed-core")]
-    let path = crate::core_adapter::path_from_ship(&rules, sources, origin, move_value, Some(kind_id));
-    #[cfg(not(feature = "typed-core"))]
-    let path = rules.path_from_ship(origin, move_value, Some(kind_id));
-    path.map_or(0, |path| crate::transit::rifts_exited(&rules, &path).len())
+    search_path(&rules, sources, origin, move_value, Some(kind_id)).map_or(0, |path| crate::transit::rifts_exited(&rules, &path).len())
 }
 
 /// Attach to each ship-move option the exact fleet-supply and transport change the ship makes on
@@ -910,7 +942,7 @@ pub fn ship_routes(
     let value = |boosts: (bool, bool)| {
         effective_move_value_for_ship(state, kind, player, origin, Some(index), boosts.0, boosts.1)
     };
-    let Some(default_path) = rules.path_from_ship(origin.as_str(), value(base), ship_type) else {
+    let Some(default_path) = search_path(rules, sources, origin.as_str(), value(base), ship_type) else {
         return Vec::new();
     };
 
@@ -985,7 +1017,7 @@ pub fn ship_routes(
     let mut boosted: Vec<MoveRoute> = Vec::new();
     let mut seen: BTreeSet<Vec<String>> = BTreeSet::from([default_path.clone()]);
     for (tier, boosts) in tiers.iter().enumerate() {
-        for path in rules.all_routes_from_ship(origin.as_str(), value(*boosts), ship_type) {
+        for path in search_all_routes(rules, sources, origin.as_str(), value(*boosts), ship_type) {
             if !seen.insert(path.clone()) {
                 continue;
             }

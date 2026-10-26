@@ -901,18 +901,7 @@ impl<'a> Observed<'a> {
             board,
             Some(self.state),
         );
-        // Prototype (feature `typed-core`, docs/ENGINE_CORE.md): the typed search.
-        #[cfg(feature = "typed-core")]
-        return crate::core_adapter::path_from_ship(
-            &rules,
-            self.sources,
-            origin.as_str(),
-            move_value,
-            None,
-        )
-        .is_some();
-        #[cfg(not(feature = "typed-core"))]
-        rules.can_reach(origin.as_str(), move_value)
+        crate::tactical::search_path(&rules, self.sources, origin.as_str(), move_value, None).is_some()
     }
 
     /// The routes (rules version 29, [`crate::tactical::ship_routes`]) the ship at `index` of

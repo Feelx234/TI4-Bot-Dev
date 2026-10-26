@@ -480,3 +480,28 @@ pub fn path_from_ship(
     })();
     typed.unwrap_or_else(|| rules.path_from_ship(origin, move_value, ship_type))
 }
+
+/// `rules.all_routes_from_ship(origin, move_value, ship_type)`, searched by the typed core (same
+/// routes, same order, same bounds); the string search answers when anything is unmapped.
+#[must_use]
+pub fn all_routes_from_ship(
+    rules: &MovementRules<'_>,
+    sources: SourceSet,
+    origin: &str,
+    move_value: i32,
+    ship_type: Option<&str>,
+) -> Vec<Vec<String>> {
+    let typed = (|| {
+        let adjacency = adjacency_for(rules.parts().galaxy)?;
+        let raw = rules_from_legacy(rules, sources, &adjacency).ok()?;
+        let from = system_ix(origin)?;
+        let kind = self::ship_type(ship_type).ok()?;
+        Some(
+            raw.all_routes_from_ship(from, move_value, kind)
+                .iter()
+                .map(|r| route_text(r))
+                .collect(),
+        )
+    })();
+    typed.unwrap_or_else(|| rules.all_routes_from_ship(origin, move_value, ship_type))
+}
