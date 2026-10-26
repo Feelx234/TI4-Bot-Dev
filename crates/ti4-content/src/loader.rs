@@ -41,105 +41,121 @@ const SOURCE_SUFFIXES: [&str; 2] = ["-te", "_te"];
 /// Ordered newest-first, and Thunder's Edge is newer than the Codex Omega printings.
 const NEWER_PRINTINGS: [&str; 4] = ["-te", "_te", "_omega", "-omega"];
 
+/// A `content/` file as the build script wrote it to `$OUT_DIR/min/` (`build.rs`): the same JSON
+/// without the whitespace between tokens.
+macro_rules! min_json {
+    ($file:literal) => {
+        include_str!(concat!(env!("OUT_DIR"), "/min/", $file))
+    };
+}
+
+/// `map_templates.json`, compiled in once: the map-template loader of `ti4-host` reads it from here
+/// (it used to `include_str!` the same file a second time, 174 KB twice in every binary).
+const MAP_TEMPLATES_TEXT: &str = min_json!("map_templates.json");
+
+/// See [`MAP_TEMPLATES_TEXT`]; a `static`, so that a crate that reads it points at this one copy
+/// instead of getting a copy of its own.
+pub static MAP_TEMPLATES_JSON: &str = MAP_TEMPLATES_TEXT;
+
 /// The corpus, compiled in. Order matches [`ALL_CONTENT_TYPES`].
 const EMBEDDED: [(ContentType, &str); 28] = [
     (
         ContentType::Abilities,
-        include_str!("../content/abilities.json"),
+        min_json!("abilities.json"),
     ),
     (
         ContentType::ActionCards,
-        include_str!("../content/action_cards.json"),
+        min_json!("action_cards.json"),
     ),
     (
         ContentType::Agendas,
-        include_str!("../content/agendas.json"),
+        min_json!("agendas.json"),
     ),
     (
         ContentType::Attachments,
-        include_str!("../content/attachments.json"),
+        min_json!("attachments.json"),
     ),
     (
         ContentType::Breakthroughs,
-        include_str!("../content/breakthroughs.json"),
+        min_json!("breakthroughs.json"),
     ),
-    (ContentType::Colors, include_str!("../content/colors.json")),
+    (ContentType::Colors, min_json!("colors.json")),
     (
         ContentType::CombatModifiers,
-        include_str!("../content/combat_modifiers.json"),
+        min_json!("combat_modifiers.json"),
     ),
-    (ContentType::Decks, include_str!("../content/decks.json")),
+    (ContentType::Decks, min_json!("decks.json")),
     (
         ContentType::Explores,
-        include_str!("../content/explores.json"),
+        min_json!("explores.json"),
     ),
     (
         ContentType::Factions,
-        include_str!("../content/factions.json"),
+        min_json!("factions.json"),
     ),
     (
         ContentType::FrankenErrata,
-        include_str!("../content/franken_errata.json"),
+        min_json!("franken_errata.json"),
     ),
     (
         ContentType::GalacticEvents,
-        include_str!("../content/galactic_events.json"),
+        min_json!("galactic_events.json"),
     ),
     (
         ContentType::GenericCards,
-        include_str!("../content/genericcards.json"),
+        min_json!("genericcards.json"),
     ),
     (
         ContentType::Leaders,
-        include_str!("../content/leaders.json"),
+        min_json!("leaders.json"),
     ),
     (
         ContentType::MapTemplates,
-        include_str!("../content/map_templates.json"),
+        MAP_TEMPLATES_TEXT,
     ),
     (
         ContentType::Planets,
-        include_str!("../content/planets.json"),
+        min_json!("planets.json"),
     ),
     (
         ContentType::PromissoryNotes,
-        include_str!("../content/promissory_notes.json"),
+        min_json!("promissory_notes.json"),
     ),
     (
         ContentType::PublicObjectives,
-        include_str!("../content/public_objectives.json"),
+        min_json!("public_objectives.json"),
     ),
-    (ContentType::Relics, include_str!("../content/relics.json")),
-    (ContentType::Rules, include_str!("../content/rules.json")),
+    (ContentType::Relics, min_json!("relics.json")),
+    (ContentType::Rules, min_json!("rules.json")),
     (
         ContentType::SecretObjectives,
-        include_str!("../content/secret_objectives.json"),
+        min_json!("secret_objectives.json"),
     ),
     (
         ContentType::Sources,
-        include_str!("../content/sources.json"),
+        min_json!("sources.json"),
     ),
     (
         ContentType::StrategyCardSets,
-        include_str!("../content/strategy_card_sets.json"),
+        min_json!("strategy_card_sets.json"),
     ),
     (
         ContentType::StrategyCards,
-        include_str!("../content/strategy_cards.json"),
+        min_json!("strategy_cards.json"),
     ),
     (
         ContentType::Systems,
-        include_str!("../content/systems.json"),
+        min_json!("systems.json"),
     ),
     (
         ContentType::Technologies,
-        include_str!("../content/technologies.json"),
+        min_json!("technologies.json"),
     ),
-    (ContentType::Tokens, include_str!("../content/tokens.json")),
-    (ContentType::Units, include_str!("../content/units.json")),
+    (ContentType::Tokens, min_json!("tokens.json")),
+    (ContentType::Units, min_json!("units.json")),
 ];
 
-const EMBEDDED_MANIFEST: &str = include_str!("../content/manifest.json");
+const EMBEDDED_MANIFEST: &str = min_json!("manifest.json");
 
 static STORE: OnceLock<ContentStore> = OnceLock::new();
 

@@ -37,7 +37,7 @@ pub use agendas::{AgendaGroup, group_of as agenda_group};
 pub use error::{ContentError, ReferenceError};
 pub use factions::{Deployment, Faction, FleetError, Placement};
 pub use galaxy::{Galaxy, GalaxyError, Planet, System, all_planets, all_systems};
-pub use loader::ContentStore;
+pub use loader::{ContentStore, MAP_TEMPLATES_JSON};
 pub use manifest::{CategoryCounts, Manifest, Totals, Upstream};
 pub use provenance::{CorpusDigest, digest_of, embedded_digest};
 pub use public_objectives::{PublicObjectiveGroup, group_of as public_objective_group};
