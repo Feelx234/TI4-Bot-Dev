@@ -41,6 +41,17 @@ use ti4_model::state::GameState;
 /// The stations printed in one system, if any.
 #[must_use]
 pub fn stations_in(content: &ContentStore, sources: SourceSet, system: &SystemId) -> Vec<PlanetId> {
+    #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
+    if let Some(found) = crate::core_adapter::stations_in(content, sources, system.as_str()) {
+        return found;
+    }
+    stations_in_text(content, sources, system)
+}
+
+/// [`stations_in`] from the content records: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn stations_in_text(content: &ContentStore, sources: SourceSet, system: &SystemId) -> Vec<PlanetId> {
     ti4_content::galaxy::system(content, system.as_str(), sources).map_or_else(Vec::new, |tile| {
         tile.planets()
             .into_iter()

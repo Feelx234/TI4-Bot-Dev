@@ -681,3 +681,118 @@ pub fn present_together(
             .any(|s| adjacency.of(ti4_engine_core::ids::system_at(s)).intersects(&there_set)),
     )
 }
+
+/// The planet a corpus id names in a source scope (`ContentStore::resolve_id`, newer printings
+/// included), from a table built once per scope by asking `resolve_id` for every corpus planet.
+/// `None` when the core cannot answer: a store other than the compiled-in one (`from_dir`, test
+/// stores: run-time content stays on the string engine), or an id the corpus does not carry.
+/// `Some(None)`: the id is a corpus planet but nothing of it is in scope.
+#[must_use]
+pub fn planet_in_scope(
+    content: &ti4_content::ContentStore,
+    id: &str,
+    sources: SourceSet,
+) -> Option<Option<ti4_engine_core::PlanetIx>> {
+    use ti4_engine_core::PlanetIx;
+    static TABLES: [std::sync::OnceLock<Vec<Option<PlanetIx>>>; 128] =
+        [const { std::sync::OnceLock::new() }; 128];
+    if !content.is_embedded() {
+        return None;
+    }
+    let planet = <PlanetIx as IdStr>::from_id(id)?;
+    let slot = TABLES.get(usize::try_from(sources.as_u32()).ok()?)?;
+    let table = slot.get_or_init(|| {
+        PlanetIx::ALL
+            .iter()
+            .map(|p| {
+                content
+                    .resolve_id(ti4_model::content_types::ContentType::Planets, p.as_str(), sources)
+                    .and_then(<PlanetIx as IdStr>::from_id)
+            })
+            .collect()
+    });
+    // A resolution to a planet outside the enum cannot happen for the compiled-in corpus (every
+    // record has a variant); `table` holds `None` only for "not in scope".
+    Some(table[planet.index()])
+}
+
+/// The system a corpus id names in a source scope (`galaxy::system`), as [`planet_in_scope`].
+#[must_use]
+pub fn system_in_scope(
+    content: &ti4_content::ContentStore,
+    id: &str,
+    sources: SourceSet,
+) -> Option<Option<SystemIx>> {
+    static TABLES: [std::sync::OnceLock<Vec<Option<SystemIx>>>; 128] =
+        [const { std::sync::OnceLock::new() }; 128];
+    if !content.is_embedded() {
+        return None;
+    }
+    let system = <SystemIx as IdStr>::from_id(id)?;
+    let slot = TABLES.get(usize::try_from(sources.as_u32()).ok()?)?;
+    let table = slot.get_or_init(|| {
+        SystemIx::ALL
+            .iter()
+            .map(|s| {
+                content
+                    .resolve_id(ti4_model::content_types::ContentType::Systems, s.as_str(), sources)
+                    .and_then(<SystemIx as IdStr>::from_id)
+            })
+            .collect()
+    });
+    Some(table[system.index()])
+}
+
+/// `production::planet_value` (the printed resources or influence) from the generated row.
+#[must_use]
+pub fn planet_value(
+    content: &ti4_content::ContentStore,
+    sources: SourceSet,
+    planet: &str,
+    resources: bool,
+) -> Option<i64> {
+    Some(planet_in_scope(content, planet, sources)?.map_or(0, |p| {
+        let d = p.data();
+        i64::from(if resources { d.resources } else { d.influence })
+    }))
+}
+
+/// The printed technology specialties of a planet, lower case (`tech_specialties_now`'s printed
+/// part), from the generated row.
+#[must_use]
+pub fn printed_specialties(
+    content: &ti4_content::ContentStore,
+    sources: SourceSet,
+    planet: &str,
+) -> Option<Vec<String>> {
+    Some(planet_in_scope(content, planet, sources)?.map_or_else(Vec::new, |p| {
+        p.data()
+            .specialties
+            .iter()
+            .map(|t| t.as_str().to_ascii_lowercase())
+            .collect()
+    }))
+}
+
+/// `space_stations::stations_in` from the generated rows: the space stations printed on a tile.
+#[must_use]
+pub fn stations_in(
+    content: &ti4_content::ContentStore,
+    sources: SourceSet,
+    system: &str,
+) -> Option<Vec<ti4_model::id::PlanetId>> {
+    use ti4_engine_core::generated::PlanetTrait;
+    let Some(tile) = system_in_scope(content, system, sources)? else {
+        return Some(Vec::new());
+    };
+    let mut out = Vec::new();
+    for p in tile.data().planets {
+        // `galaxy::is_space_station` resolves the planet id in scope first.
+        let station = planet_in_scope(content, p.as_str(), sources)?
+            .is_some_and(|r| r.data().traits.contains(&PlanetTrait::Spacestation));
+        if station {
+            out.push(ti4_model::id::PlanetId::new(p.as_str()));
+        }
+    }
+    Some(out)
+}

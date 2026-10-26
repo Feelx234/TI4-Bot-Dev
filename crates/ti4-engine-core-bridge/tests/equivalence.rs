@@ -143,3 +143,11 @@ fn a_small_hand_built_board_matches() {
         .collect();
     assert!(partners.contains("26"), "the alpha pair");
 }
+
+#[test]
+fn planet_and_system_rows_answer_what_the_records_answer() {
+    let mut report = Report::default();
+    ti4_engine_core_bridge::check::check_content(&mut report);
+    assert!(report.mismatches.is_empty(), "{:#?}", report.mismatches);
+    assert!(report.content_answers > 1000);
+}

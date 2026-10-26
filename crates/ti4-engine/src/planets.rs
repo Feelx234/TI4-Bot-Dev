@@ -125,6 +125,26 @@ pub fn move_placed(state: &mut GameState, planet: &PlanetId, destination: &Syste
     true
 }
 
+/// The printed specialties of a planet, lower case, from the content record: the oracle of the
+/// dual run for the generated rows.
+#[doc(hidden)]
+#[must_use]
+pub fn printed_specialties_text(
+    content: &ContentStore,
+    sources: SourceSet,
+    planet: &PlanetId,
+) -> Vec<String> {
+    ti4_content::galaxy::planet(content, planet.as_str(), sources)
+        .map(|record| {
+            record
+                .tech_specialties()
+                .into_iter()
+                .map(str::to_ascii_lowercase)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// A planet's technology specialties as they now stand: those printed on its card plus any an
 /// attachment gave it (a research facility on a planet without one, LRR 35.8), lower-case.
 ///
@@ -137,15 +157,12 @@ pub fn tech_specialties_now(
     sources: SourceSet,
     planet: &PlanetId,
 ) -> Vec<String> {
-    let mut found: Vec<String> = ti4_content::galaxy::planet(content, planet.as_str(), sources)
-        .map(|record| {
-            record
-                .tech_specialties()
-                .into_iter()
-                .map(str::to_ascii_lowercase)
-                .collect()
-        })
-        .unwrap_or_default();
+    #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
+    let typed = crate::core_adapter::printed_specialties(content, sources, planet.as_str());
+    #[cfg(not(all(feature = "typed-core", not(feature = "string-movement"))))]
+    let typed = None;
+    let mut found: Vec<String> =
+        typed.unwrap_or_else(|| printed_specialties_text(content, sources, planet));
     for id in state.planet_attachments.get(planet).into_iter().flatten() {
         let Some(record) = content.get(ti4_model::content_types::ContentType::Attachments, id)
         else {

@@ -43,6 +43,8 @@ pub struct Report {
     pub observed_answers: usize,
     /// Stage 4: neighbour (presence) questions compared.
     pub neighbour_answers: usize,
+    /// Stage 5: planet and system content answers compared.
+    pub content_answers: usize,
     pub mismatches: Vec<String>,
 }
 
@@ -63,6 +65,7 @@ impl Report {
         self.seat_rules += other.seat_rules;
         self.observed_answers += other.observed_answers;
         self.neighbour_answers += other.neighbour_answers;
+        self.content_answers += other.content_answers;
         self.mismatches.extend(other.mismatches.iter().cloned());
     }
 
@@ -458,6 +461,53 @@ pub fn check_neighbours(position: &Position, report: &mut Report) {
                         position.label
                     ));
                 }
+            }
+        }
+    }
+}
+
+/// Stage 5: the generated planet and system rows answer what the content records answer, for every
+/// planet and system id of the corpus (and ids it does not carry), in every scope a game uses.
+pub fn check_content(report: &mut Report) {
+    use ti4_engine::production::{Spend, planet_value, planet_value_text};
+    use ti4_model::content_types::{BASE, FULL, POK};
+    let content = ContentStore::embedded();
+    let planets: Vec<String> = ti4_engine::generated::planets::PLANET_IDS
+        .iter()
+        .map(|s| (*s).to_owned())
+        .chain(["nonesuch".to_owned(), "MR".to_owned(), String::new()])
+        .collect();
+    let systems: Vec<String> = SYSTEM_NAMES
+        .iter()
+        .map(|s| (*s).to_owned())
+        .chain(["nowhere".to_owned(), "0g".to_owned()])
+        .collect();
+    for sources in [BASE, POK, FULL] {
+        for id in &planets {
+            let planet = ti4_model::id::PlanetId::new(id.as_str());
+            for kind in [Spend::Resources, Spend::Influence] {
+                let want = planet_value_text(content, sources, &planet, kind);
+                let got = planet_value(content, sources, &planet, kind);
+                report.content_answers += 1;
+                if want != got {
+                    report.miss(format!("planet_value {id} {kind:?}: {want} vs {got}"));
+                }
+            }
+            let want = ti4_engine::planets::printed_specialties_text(content, sources, &planet);
+            let got = adapter::printed_specialties(content, sources, id)
+                .unwrap_or_else(|| want.clone());
+            report.content_answers += 1;
+            if want != got {
+                report.miss(format!("specialties {id}: {want:?} vs {got:?}"));
+            }
+        }
+        for id in &systems {
+            let system = ti4_model::id::SystemId::new(id.as_str());
+            let want = ti4_engine::space_stations::stations_in_text(content, sources, &system);
+            let got = ti4_engine::space_stations::stations_in(content, sources, &system);
+            report.content_answers += 1;
+            if want != got {
+                report.miss(format!("stations_in {id}: {want:?} vs {got:?}"));
             }
         }
     }

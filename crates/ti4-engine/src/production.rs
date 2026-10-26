@@ -225,6 +225,28 @@ pub fn planet_value(
     planet: &PlanetId,
     kind: Spend,
 ) -> i64 {
+    // The generated row (docs/ENGINE_CORE.md, stage 5); the record when the core cannot answer.
+    #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
+    if let Some(value) = crate::core_adapter::planet_value(
+        content,
+        sources,
+        planet.as_str(),
+        matches!(kind, Spend::Resources),
+    ) {
+        return value;
+    }
+    planet_value_text(content, sources, planet, kind)
+}
+
+/// [`planet_value`] from the content record: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn planet_value_text(
+    content: &ContentStore,
+    sources: SourceSet,
+    planet: &PlanetId,
+    kind: Spend,
+) -> i64 {
     // A point lookup, not the whole catalogue: this is called once per payment face, inside
     // `payment_options`' per-planet affordability guard, which is itself O(planets squared).
     ti4_content::galaxy::planet(content, planet.as_str(), sources).map_or(0, |record| match kind {
