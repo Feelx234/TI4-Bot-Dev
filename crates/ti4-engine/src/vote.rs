@@ -113,10 +113,52 @@ pub fn outcomes(
     if elects.contains("Law") {
         return state.laws_in_play().into_iter().cloned().collect();
     }
-    // "Elect Scored Secret Objective" draws from the one place a secret is public (61.17),
-    // and "Elect Strategy Card" from the cards in play. Neither is modelled here, so there
-    // is no candidate and the caller must discard rather than hold an empty vote.
+    // Galactic Crisis Pact: any of the game's strategy cards, in initiative order (rules version
+    // 31; below it nothing was a candidate and the agenda was discarded on reveal).
+    if elects.contains("Strategy Card")
+        && state.rules_version >= ti4_model::state::RULES_CRISIS_PACT
+    {
+        return strategy_card_candidates(state);
+    }
+    // "Elect Scored Secret Objective" draws from the one place a secret is public (61.17).
+    // Not modelled here, so there is no candidate and the caller must discard rather than hold
+    // an empty vote.
     Vec::new()
+}
+
+/// The strategy cards of this game, lowest initiative first: what "Elect Strategy Card" elects.
+fn strategy_card_candidates(state: &GameState) -> Vec<String> {
+    let mut cards: Vec<(i32, String)> = state
+        .card_initiative
+        .iter()
+        .map(|(card, initiative)| (*initiative, card.to_string()))
+        .collect();
+    cards.sort();
+    cards.into_iter().map(|(_, card)| card).collect()
+}
+
+/// What an agenda elects, as printed before any parenthetical rule: `"Elect Player"`, ... or
+/// `None` for a For/Against agenda (and one the corpus does not know).
+fn elects(content: &ContentStore, alias: &str) -> Option<String> {
+    let target = content.get(ContentType::Agendas, alias)?.text("target")?;
+    let head = target.split('(').next().unwrap_or(target).trim();
+    head.starts_with("Elect").then(|| head.to_owned())
+}
+
+/// How an outcome of `alias` is named to a player: a strategy card or a secret objective by its
+/// printed name, everything else (players, planets, laws, For/Against) as the outcome itself, as
+/// before. Display only.
+#[must_use]
+pub fn outcome_label(content: &ContentStore, alias: &str, outcome: &str) -> String {
+    let category = match elects(content, alias) {
+        Some(head) if head.contains("Strategy Card") => ContentType::StrategyCards,
+        Some(head) if head.contains("Secret Objective") => ContentType::SecretObjectives,
+        _ => return outcome.to_owned(),
+    };
+    content
+        .get(category, outcome)
+        .and_then(|record| record.text("name"))
+        .map_or_else(|| outcome.to_owned(), ToOwned::to_owned)
 }
 
 /// Whether this agenda elects a planet, read off the printed `target` exactly as [`outcomes`]
@@ -591,7 +633,8 @@ impl VoteWindow {
                     .iter()
                     .map(|outcome| {
                         let tally = self.ballot.counts.get(outcome).copied().unwrap_or(0);
-                        let option = ChoiceOption::labelled(outcome, VOTE_KIND, outcome)
+                        let label = outcome_label(content, &self.alias, outcome);
+                        let option = ChoiceOption::labelled(outcome, VOTE_KIND, label)
                             .with("current_votes", tally);
                         locate_outcome(option, planet_outcomes, state, content, sources)
                     })
@@ -866,7 +909,11 @@ impl VoteWindow {
                             .iter()
                             .map(|outcome| {
                                 locate_outcome(
-                                    ChoiceOption::labelled(outcome, TIEBREAK_KIND, outcome),
+                                    ChoiceOption::labelled(
+                                        outcome,
+                                        TIEBREAK_KIND,
+                                        outcome_label(content, &self.alias, outcome),
+                                    ),
                                     planet_outcomes,
                                     state,
                                     content,

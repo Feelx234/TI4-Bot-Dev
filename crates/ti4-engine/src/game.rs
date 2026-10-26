@@ -9925,6 +9925,28 @@ mod tests {
     }
 
     #[test]
+    fn galactic_crisis_pact_is_voted_on_from_rules_version_31() {
+        // Card audit I02: "Elect Strategy Card" had no candidate, so the card was always
+        // discarded on reveal and the next agenda took its place.
+        let mut game = quash_game(0, &[]);
+        let (alias, choices) = game
+            .reveal_agenda("crisis")
+            .expect("revealed")
+            .expect("a vote");
+        assert_eq!(alias, "crisis");
+        assert_eq!(choices.len(), 8);
+        assert_eq!(game.state.agenda_deck.len(), 2, "nothing replaced it");
+
+        let mut game = quash_game(0, &[]);
+        game.state.rules_version = ti4_model::state::RULES_CRISIS_PACT - 1;
+        let (alias, _) = game
+            .reveal_agenda("crisis")
+            .expect("revealed")
+            .expect("the replacement goes to a vote");
+        assert_eq!(alias, "committee", "the old discard on reveal");
+    }
+
+    #[test]
     fn an_agenda_with_nothing_to_elect_is_just_dropped_below_rules_version_14() {
         let mut game = quash_game(0, &[]);
         game.state.rules_version = ti4_model::state::RULES_AGENDA_GRANT_REVEAL - 1;

@@ -982,6 +982,36 @@ pub fn resolve_with(
         //   agenda phase, which the driver owns.
         // - Covert Operations and Crisis are standing rules of the agenda and turn phases; the
         //   driver applies them, the vote only puts the law in play.
+        // Galactic Crisis Pact (rules version 31): "Each player may perform the secondary ability
+        // of the elected strategy card without spending a command token". Asked speaker first,
+        // then clockwise. The clause about command tokens "placed by the ability" has nothing to
+        // apply to: no secondary this engine resolves places a command token.
+        "crisis" if state.rules_version >= ti4_model::state::RULES_CRISIS_PACT => {
+            let card = ti4_model::id::StrategyCardId::new(outcome);
+            if state.card_initiative.contains_key(&card) {
+                for player in state.clockwise_from(&state.speaker) {
+                    let Some(choice) =
+                        crate::strategy::crisis_pact_choice(state, content, sources, &card, &player)
+                    else {
+                        continue;
+                    };
+                    let Ok(answer) = ctx.ask_seeing(state, &choice) else {
+                        continue;
+                    };
+                    if crate::strategy::crisis_pact_accepted(&answer) {
+                        let _ = crate::strategy_cards::secondary(
+                            state,
+                            content,
+                            sources,
+                            galaxy,
+                            ctx.table,
+                            &player,
+                            card.as_str(),
+                        );
+                    }
+                }
+            }
+        }
         "committee" | "arbiter" | "minister_commerce" | "minister_industry" | "minister_peace"
         | "minister_sciences" | "minister_war" | "prophecy" | "crown_of_thalnos" | "checks"
         | "covert" | "crisis" => {}
@@ -3021,5 +3051,130 @@ mod tests {
                 .contains(&ti4_model::id::TechnologyId::new("hm"))
         );
         assert_eq!(seat.tokens(ti4_model::state::TokenPool::Fleet), before - 1);
+    }
+}
+
+/// Galactic Crisis Pact (card audit I02, rules version 31).
+#[cfg(test)]
+mod crisis_pact_tests {
+    use ti4_content::ContentStore;
+    use ti4_model::content_types::POK;
+    use ti4_model::id::PlayerId;
+    use ti4_model::state::{RULES_CRISIS_PACT, TokenPool};
+
+    use super::*;
+
+    const POLITICS: &str = "pok3politics";
+
+    fn table(answers: &[&str]) -> crate::choice::Table {
+        crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(
+            answers.iter().map(|answer| (*answer).to_owned()),
+        )))
+    }
+
+    /// Resolve Galactic Crisis Pact for `card` and return who was asked, in order.
+    fn resolve_pact(state: &mut GameState, card: &str, answers: &[&str]) -> Vec<PlayerId> {
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut table = table(answers);
+        let mut ctx = crate::choice::Resolving {
+            content: ContentStore::embedded(),
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: None,
+        };
+        resolve_with(state, &mut ctx, None, "crisis", card, &Ballot::default());
+        table.log.records.iter().map(|r| r.player.clone()).collect()
+    }
+
+    fn hand(state: &GameState, seat: &str) -> usize {
+        state.player(&PlayerId::new(seat)).unwrap().action_cards.len()
+    }
+
+    fn strategy_tokens(state: &GameState, seat: &str) -> i32 {
+        state
+            .player(&PlayerId::new(seat))
+            .unwrap()
+            .tokens(TokenPool::Strategic)
+    }
+
+    #[test]
+    fn the_strategy_cards_of_the_game_are_its_candidates() {
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        let content = ContentStore::embedded();
+        let outcomes = crate::vote::outcomes(&state, content, POK, "crisis");
+        assert_eq!(outcomes.len(), 8, "{outcomes:?}");
+        assert_eq!(outcomes[0], "pok1leadership", "initiative order");
+        assert_eq!(outcomes[2], POLITICS);
+        assert_eq!(crate::vote::outcome_label(content, "crisis", POLITICS), "Politics");
+
+        state.rules_version = RULES_CRISIS_PACT - 1;
+        assert!(crate::vote::outcomes(&state, content, POK, "crisis").is_empty());
+    }
+
+    #[test]
+    fn each_player_may_follow_the_elected_card_without_a_token_speaker_first() {
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.speaker = PlayerId::new("b");
+        let before = (hand(&state, "a"), hand(&state, "b"));
+        let tokens = (strategy_tokens(&state, "a"), strategy_tokens(&state, "b"));
+
+        // b (the speaker) is asked first and follows; a declines.
+        let asked = resolve_pact(&mut state, POLITICS, &["yes", "no"]);
+
+        assert_eq!(asked, [PlayerId::new("b"), PlayerId::new("a")]);
+        assert_eq!(hand(&state, "b"), before.1 + 2, "Politics' secondary: two action cards");
+        assert_eq!(hand(&state, "a"), before.0, "a declined");
+        assert_eq!(
+            (strategy_tokens(&state, "a"), strategy_tokens(&state, "b")),
+            tokens,
+            "no command token is spent"
+        );
+    }
+
+    #[test]
+    fn a_seat_with_no_strategy_token_is_still_asked() {
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.speaker = PlayerId::new("a");
+        for seat in ["a", "b"] {
+            let seat = state.player_mut(&PlayerId::new(seat)).unwrap();
+            let held = seat.tokens(TokenPool::Strategic);
+            seat.gain_token_uncapped(TokenPool::Strategic, -held);
+        }
+        let asked = resolve_pact(&mut state, POLITICS, &["yes", "yes"]);
+        assert_eq!(asked.len(), 2);
+        assert_eq!(strategy_tokens(&state, "a"), 0);
+    }
+
+    #[test]
+    fn the_question_is_the_secondary_without_its_token_cost() {
+        let state = crate::fixtures::game(&["a", "b"]);
+        let content = ContentStore::embedded();
+        let card = ti4_model::id::StrategyCardId::new(POLITICS);
+        let choice =
+            crate::strategy::crisis_pact_choice(&state, content, POK, &card, &PlayerId::new("a"))
+                .expect("asked");
+        assert_eq!(
+            choice.prompt,
+            "Galactic Crisis Pact: perform the Politics secondary without spending a command token"
+        );
+        let ids: Vec<&str> = choice.options.iter().map(|o| o.id.as_str()).collect();
+        assert_eq!(ids, ["no", "yes"]);
+        assert_eq!(choice.details.get("kind").and_then(|v| v.as_str()), Some("strategy_secondary"));
+        assert_eq!(choice.details.get("costs_token"), Some(&serde_json::Value::Bool(false)));
+        assert!(!choice.details.contains_key("played_by"));
+        assert!(!choice.details.contains_key("tokens_left"));
+    }
+
+    #[test]
+    fn below_rules_version_31_the_pact_does_nothing() {
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.rules_version = RULES_CRISIS_PACT - 1;
+        let before = (hand(&state, "a"), hand(&state, "b"));
+        let asked = resolve_pact(&mut state, POLITICS, &["yes", "yes"]);
+        assert!(asked.is_empty());
+        assert_eq!((hand(&state, "a"), hand(&state, "b")), before);
     }
 }

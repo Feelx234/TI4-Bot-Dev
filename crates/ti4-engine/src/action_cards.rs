@@ -2313,15 +2313,18 @@ pub(crate) fn predicted_outcome(
         [] => None,
         [only] => Some(only.clone()),
         many => {
+            let agenda = context.state.agenda_in_play.clone().unwrap_or_default();
+            let content = context.content;
             let choice = crate::choice::Choice::new(
                 player.clone(),
                 prompt,
                 many.iter()
                     .map(|outcome| {
+                        let named = crate::vote::outcome_label(content, &agenda, outcome);
                         crate::choice::ChoiceOption::labelled(
                             outcome.clone(),
                             "prediction",
-                            format!("predict {outcome}"),
+                            format!("predict {named}"),
                         )
                     })
                     .collect(),

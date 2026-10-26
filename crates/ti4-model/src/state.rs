@@ -1197,7 +1197,13 @@ pub const RULES_MOVEMENT_ROUTES: u32 = 29;
 /// the deck had 142 (or 122) cards and three Vetos. Version 30.
 pub const RULES_OFFICIAL_ACTION_DECK: u32 = 30;
 
-pub const RULES_VERSION: u32 = 30;
+/// The first rules version in which Galactic Crisis Pact ("Elect Strategy Card") is voted on: its
+/// candidates are the game's strategy cards, and the elected card's secondary is offered to each
+/// player, speaker first, without spending a command token. Below, the agenda elected nothing
+/// and was discarded on reveal. Version 31.
+pub const RULES_CRISIS_PACT: u32 = 31;
+
+pub const RULES_VERSION: u32 = 31;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
