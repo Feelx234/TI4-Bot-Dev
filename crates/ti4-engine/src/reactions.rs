@@ -37,7 +37,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use ti4_content::ContentStore;
+use ti4_content::{ActionCardWindow, ContentStore};
 use ti4_model::content_types::{ContentType, SourceSet};
 use ti4_model::id::{ActionCardId, PlayerId, SystemId};
 use ti4_model::state::{GameState, Player};
@@ -291,16 +291,17 @@ const fn guarded(event: &'static str, relation: Relation, guard: Guard) -> Windo
     }
 }
 
-/// Printed window text to where it hooks.
+/// Printed window to where it hooks.
 ///
-/// Keyed by the exact corpus string, which is why [`unmapped_windows`] exists: a typo or a
-/// reworded card would otherwise silently produce a card that can never be played, which is the
-/// state this module exists to end.
+/// Keyed by [`ActionCardWindow`], the typed reading of the printed sentence
+/// (`ti4_content::card_fields`): a reworded card fails the corpus load there instead of silently
+/// unbinding here. [`unmapped_windows`] still reports a reaction window with no entry in this
+/// table, which would be a card that can never be played, the state this module exists to end.
 ///
 /// Built once per process: the engine looks windows up several times per step.
 #[must_use]
-pub fn window_table() -> &'static BTreeMap<&'static str, Window> {
-    static TABLE: std::sync::LazyLock<BTreeMap<&'static str, Window>> =
+pub fn window_table() -> &'static BTreeMap<ActionCardWindow, Window> {
+    static TABLE: std::sync::LazyLock<BTreeMap<ActionCardWindow, Window>> =
         std::sync::LazyLock::new(build_window_table);
     &TABLE
 }
@@ -309,98 +310,94 @@ pub fn window_table() -> &'static BTreeMap<&'static str, Window> {
     clippy::too_many_lines,
     reason = "one row per printed window: the table is the point, and splitting it hides the set"
 )]
-fn build_window_table() -> BTreeMap<&'static str, Window> {
+fn build_window_table() -> BTreeMap<ActionCardWindow, Window> {
+    use ActionCardWindow as W;
     use Relation::{After, When};
     [
+        (W::AfterAgendaRevealed, window("AGENDA_REVEALED", After)),
+        (W::WhenAgendaRevealed, window("AGENDA_REVEALED", When)),
+        (W::StartOfAgendaPhase, window("AGENDA_PHASE_BEGAN", After)),
         (
-            "After an agenda is revealed",
-            window("AGENDA_REVEALED", After),
-        ),
-        (
-            "When an agenda is revealed",
-            window("AGENDA_REVEALED", When),
-        ),
-        (
-            "At the start of the agenda phase",
-            window("AGENDA_PHASE_BEGAN", After),
-        ),
-        (
-            "At the start of a combat round",
+            W::StartOfCombatRound,
             guarded("COMBAT_ROUND_STARTED", After, combatant),
         ),
         (
-            "At the start or end of a combat round",
+            W::StartOrEndOfCombatRound,
             guarded("COMBAT_ROUND_STARTED", After, combatant),
         ),
         (
-            "At the start of the first round of a space combat",
+            W::StartOfFirstSpaceCombatRound,
             guarded("SPACE_COMBAT_STARTED", After, combatant),
         ),
         (
-            "After you activate a system",
+            W::AfterYouActivateSystem,
             guarded("SYSTEM_ACTIVATED", After, actor_is),
         ),
         (
-            "After you activate a system that contains 1 or more of your ships",
+            W::AfterYouActivateSystemWithYourShips,
             // Which ships are in the system is a content question (Upgrade needs a cruiser):
             // `action_cards::reaction_can_matter`.
             guarded("SYSTEM_ACTIVATED", After, actor_is),
         ),
         (
-            "When another player plays an action card other than 'Sabotage'",
-            guarded("ACTION_CARD_PLAYED", When, another_players_card_is_not_sabotage),
+            W::WhenOtherPlaysActionCardNotSabotage,
+            guarded(
+                "ACTION_CARD_PLAYED",
+                When,
+                another_players_card_is_not_sabotage,
+            ),
         ),
         // Activation, seen from either chair. Five printed windows, one event: what separates
         // them is whose activation it was, which is exactly what the guard is for.
         (
-            "After you activate a system that contains another player's ships",
+            W::AfterYouActivateSystemWithOtherShips,
             // Another player's ships: `action_cards::reaction_can_matter` (Rally).
             guarded("SYSTEM_ACTIVATED", After, actor_is),
         ),
         (
-            "After you activate an anomaly",
+            W::AfterYouActivateAnomaly,
             guarded("SYSTEM_ACTIVATED", After, actor_is),
         ),
         (
-            "After another player activates a system that contains your units",
+            W::AfterOtherActivatesSystemWithYourUnits,
             guarded("SYSTEM_ACTIVATED", After, |e, p, s| {
                 actor_is_not(e, p, s) && system_contains_player_units(e, p, s)
             }),
         ),
         (
-            "After another player activates a system that contains 1 of your command tokens",
+            W::AfterOtherActivatesSystemWithYourCommandToken,
             guarded("SYSTEM_ACTIVATED", After, |e, p, s| {
                 actor_is_not(e, p, s) && system_contains_player_command_token(e, p, s)
             }),
         ),
         (
-            "After another player activates a system that contains 1 or more of your structures",
+            W::AfterOtherActivatesSystemWithYourStructures,
             guarded("SYSTEM_ACTIVATED", After, |e, p, s| {
                 actor_is_not(e, p, s) && system_contains_player_structures(e, p, s)
             }),
         ),
         (
-            "At the start of a combat",
+            W::StartOfCombat,
             guarded("COMBAT_ROUND_STARTED", After, combatant_in_first_round),
         ),
         (
-            "When another player chooses a strategy card during the strategy phase",
+            W::WhenOtherChoosesStrategyCard,
             guarded("STRATEGY_CARD_CHOSEN", After, actor_is_not),
         ),
         (
-            "At the start of an invasion in a system that contains 1 or more of your opponents' PDS units",
+            W::StartOfInvasionAgainstPds,
             window("INVASION_BEGAN", After),
         ),
         (
-            "After the active player moves ships into the active system during a tactical action",
+            W::AfterActivePlayerMovesIntoActiveSystem,
             guarded("SHIP_MOVED", After, actor_is),
         ),
         (
-            "After a player moves ships into a system that contains your ships",
+            W::AfterShipsMoveIntoSystemWithYourShips,
             guarded("SHIP_MOVED", After, anyone),
         ),
         (
-            "At the start of another player's turn, if they have a readied strategy card",
+            W::StartOfOtherTurnWithReadiedStrategyCard,
             guarded(
                 "TURN_BEGAN",
                 After,
@@ -408,75 +405,64 @@ fn build_window_table() -> BTreeMap<&'static str, Window> {
             ),
         ),
         (
-            "When you would return your strategy card(s) during the status phase",
+            W::WhenYouWouldReturnStrategyCards,
             guarded("STRATEGY_CARDS_WOULD_RETURN", When, holds_strategy_cards),
         ),
-        ("At the end of a player's turn, if you have passed", guarded("PLAYER_PASSED", After, actor_is)),
         (
-            "When you are elected as the outcome of an agenda",
+            W::EndOfTurnIfYouPassed,
+            guarded("PLAYER_PASSED", After, actor_is),
+        ),
+        (
+            W::WhenYouAreElected,
             guarded("AGENDA_RESOLVED", When, actor_is),
         ),
         (
-            "When another player is elected as the outcome of an agenda",
+            W::WhenOtherIsElected,
             guarded("AGENDA_RESOLVED", When, another_player_elected),
         ),
         (
-            "During the agenda phase when an outcome would be resolved",
-            guarded(
-                "AGENDA_RESOLVED",
-                When,
-                voted_or_predicted_another_outcome,
-            ),
+            W::WhenOutcomeWouldBeResolved,
+            guarded("AGENDA_RESOLVED", When, voted_or_predicted_another_outcome),
         ),
         (
-            "When another player would perform a strategic action",
+            W::WhenOtherPerformsStrategicAction,
             guarded("STRATEGIC_ACTION_BEGAN", When, actor_is_not),
         ),
         (
-            "At the end of any players turn, if there are at least 2 players who have not passed",
-            guarded(
-                "TURN_PASSED",
-                After,
-                at_least_two_players_have_not_passed,
-            ),
+            W::EndOfTurnIfTwoNotPassed,
+            guarded("TURN_PASSED", After, at_least_two_players_have_not_passed),
         ),
         (
-            "After you perform an action",
+            W::AfterYouPerformAction,
             guarded("ACTION_COMPLETED", After, actor_is),
         ),
         (
-            "When you gain control of a planet",
+            W::WhenYouGainPlanet,
             guarded("PLANET_CONTROL_GAINED", When, actor_is),
         ),
         (
-            "After another player gains control of a planet you control",
+            W::AfterOtherGainsYourPlanet,
             guarded("PLANET_CONTROL_GAINED", After, |e, p, s| {
                 actor_is_not(e, p, s) && e.text("previous_owner") == Some(p.as_str())
             }),
         ),
+        (W::AfterYouCastVotes, guarded("VOTES_CAST", After, actor_is)),
+        (W::AfterSpeakerVotes, window("VOTES_CAST", After)),
+        (W::StartOfInvasion, window("INVASION_BEGAN", After)),
         (
-            "After you cast votes on an outcome of an agenda",
-            guarded("VOTES_CAST", After, actor_is),
-        ),
-        ("After the speaker votes on an agenda", window("VOTES_CAST", After)),
-        (
-            "At the start of an invasion",
-            window("INVASION_BEGAN", After),
-        ),
-        (
-            "After you win a space combat",
+            W::AfterYouWinSpaceCombat,
             guarded("SPACE_COMBAT_WON", After, actor_is),
         ),
         (
-            "After another player discards an action card that has a component action",
+            W::AfterOtherDiscardsComponentActionCard,
             guarded("ACTION_CARD_DISCARDED", After, actor_is_not),
         ),
         (
-            "When you are negotiating a transaction",
+            W::WhenNegotiatingTransaction,
             guarded("TRANSACTION_OPENED", When, party_to_transaction),
         ),
         (
-            "When 1 or more of your units use PRODUCTION",
+            W::WhenYourUnitsUseProduction,
             guarded("PRODUCTION_USED", After, actor_is),
         ),
         // The eleven windows that had no moment. Each event names the player the window is written
@@ -486,7 +472,7 @@ fn build_window_table() -> BTreeMap<&'static str, Window> {
         // `When` for a window that must resolve *before* the event's ordinary effect -- assigning
         // hits, losing the last ship -- and `After` for one that reacts to it having happened.
         (
-            "After 1 of your ships is destroyed during a space combat",
+            W::AfterOwnShipDestroyedInSpaceCombat,
             guarded(
                 "SHIP_DESTROYED",
                 After,
@@ -494,51 +480,51 @@ fn build_window_table() -> BTreeMap<&'static str, Window> {
             ),
         ),
         (
-            "When your last ship in the active system is destroyed",
+            W::WhenYourLastShipIsDestroyed,
             guarded("SHIP_DESTROYED", When, your_last_ship),
         ),
         (
-            "When one of your ships uses SUSTAIN DAMAGE during combat",
+            W::WhenYourShipSustainsDamage,
             guarded("SUSTAIN_DAMAGE_USED", When, actor_is),
         ),
         (
-            "After another player's ship uses SUSTAIN DAMAGE to cancel a hit produced by your units or abilities",
+            W::AfterOtherSustainsAgainstYourHit,
             guarded("SUSTAIN_DAMAGE_USED", After, direct_hit_guard),
         ),
         (
-            "Before you roll dice for ANTI-FIGHTER BARRAGE",
+            W::BeforeAntiFighterBarrageRoll,
             guarded("ANTI_FIGHTER_BARRAGE_STARTED", When, actor_is),
         ),
         (
-            "At the start of the strategy phase",
+            W::StartOfStrategyPhase,
             window("STRATEGY_PHASE_BEGAN", After),
         ),
         (
-            "Before you assign hits to your ships during a space combat",
+            W::BeforeAssigningSpaceCombatHits,
             guarded("HITS_TO_ASSIGN", When, actor_is),
         ),
         (
-            "Before you assign hits produced by another player's SPACE CANNON roll",
+            W::BeforeAssigningSpaceCannonHits,
             guarded("SPACE_CANNON_HITS", When, actor_is),
         ),
         (
-            "After your opponent declares a retreat during a space combat",
+            W::AfterOpponentDeclaresRetreat,
             guarded("RETREAT_DECLARED", After, actor_is_not),
         ),
         (
-            "At the start of the 'Announce Retreats' step of space combat, if you are the defender",
+            W::StartOfAnnounceRetreatsAsDefender,
             guarded("RETREAT_STEP_STARTED", After, actor_is),
         ),
         (
-            "After your ground forces make combat rolls during a round of ground combat",
+            W::AfterYourGroundForcesRoll,
             guarded("GROUND_ROLLS_MADE", After, actor_is),
         ),
         (
-            "After another player makes a BOMBARDMENT, SPACE CANNON, or ANTI-FIGHTER BARRAGE roll",
+            W::AfterOtherRollsUnitAbility,
             guarded("UNIT_ABILITY_ROLLED", After, actor_is_not),
         ),
         (
-            "After another player commits units to land on a planet you control",
+            W::AfterOtherCommitsToYourPlanet,
             guarded("UNITS_COMMITTED", After, commit_on_your_planet),
         ),
         // Lie in Wait. `anyone`, deliberately: the window is about *neighbours* transacting, so
@@ -546,7 +532,7 @@ fn build_window_table() -> BTreeMap<&'static str, Window> {
         // and `actor_is_not` would let any non-party play it. Whether two neighbours have actually
         // traded is the card's own question, answered from the round's record.
         (
-            "After 2 of your neighbors resolve a transaction",
+            W::AfterNeighborsTransact,
             guarded("TRANSACTION_RESOLVED", After, anyone),
         ),
     ]
@@ -625,11 +611,11 @@ pub fn unsupported_windows() -> BTreeMap<&'static str, &'static str> {
 pub fn window_for(content: &ContentStore, alias: &ActionCardId) -> Option<Window> {
     let printed = content
         .get(ContentType::ActionCards, alias.as_str())
-        .and_then(|record| record.text("window"))?;
-    if printed.trim() == "Action" {
+        .and_then(ti4_content::Record::action_card_window)?;
+    if printed.is_component_action() {
         return None; // a component action, handled as a turn action
     }
-    window_table().get(printed.trim()).copied()
+    window_table().get(&printed).copied()
 }
 
 /// Cards in hand that could be played into this event's window, right now.
@@ -1243,11 +1229,15 @@ pub fn reachable(content: &ContentStore, sources: SourceSet) -> Vec<ActionCardId
     let table = window_table();
     content
         .from_sources(ContentType::ActionCards, sources)
-        .filter(|record| record.text("window").is_some_and(|w| w.trim() != "Action"))
         .filter(|record| {
             record
-                .text("window")
-                .is_some_and(|w| table.contains_key(w.trim()))
+                .action_card_window()
+                .is_some_and(|w| !w.is_component_action())
+        })
+        .filter(|record| {
+            record
+                .action_card_window()
+                .is_some_and(|w| table.contains_key(&w))
         })
         .filter_map(|record| record.text("alias").map(ActionCardId::new))
         .collect()
@@ -1262,13 +1252,13 @@ pub fn unmapped_windows(content: &ContentStore, sources: SourceSet) -> BTreeMap<
     let table = window_table();
     let mut found: BTreeMap<String, usize> = BTreeMap::new();
     for record in content.from_sources(ContentType::ActionCards, sources) {
-        let Some(printed) = record.text("window") else {
+        let Some(printed) = record.action_card_window() else {
             continue;
         };
-        if printed.trim() == "Action" || table.contains_key(printed.trim()) {
+        if printed.is_component_action() || table.contains_key(&printed) {
             continue;
         }
-        *found.entry(printed.trim().to_owned()).or_insert(0) += 1;
+        *found.entry(printed.printed().to_owned()).or_insert(0) += 1;
     }
     found
 }
@@ -1741,7 +1731,7 @@ mod tests {
 
         for key in window_table().keys() {
             assert!(
-                printed.contains(*key),
+                printed.contains(key.printed()),
                 "{key:?} is in the table but no card prints it"
             );
         }
@@ -1758,7 +1748,7 @@ mod tests {
             "these printed windows have no table entry and their cards can never be played: {missing:?}"
         );
         for key in window_table().keys() {
-            assert!(!missing.contains_key(*key));
+            assert!(!missing.contains_key(key.printed()));
         }
     }
 

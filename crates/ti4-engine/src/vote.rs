@@ -12,8 +12,8 @@ use std::collections::BTreeMap;
 /// Key of the display-only `details` entry that names the agenda being voted on.
 const AGENDA_DETAIL: &str = "agenda";
 
-use ti4_content::ContentStore;
 use ti4_content::galaxy::all_planets;
+use ti4_content::{ContentStore, ElectType};
 use ti4_model::content_types::{ContentType, SourceSet};
 use ti4_model::id::{PlanetId, PlayerId, TechnologyId};
 use ti4_model::state::GameState;
@@ -76,20 +76,26 @@ pub fn outcomes(
         return vec![FOR.to_owned(), AGAINST.to_owned()];
     };
     // The corpus has no `electType` field — it is null on every card. What is elected is
-    // read off the printed `target`, up to any parenthetical special rule, exactly as the
-    // oracle's `Agenda.elects` does. Reading a field that does not exist would have made
-    // every agenda a silent For/Against and no election would ever have been offered.
-    let target = record.text("target").unwrap_or("For/Against");
-    let head = target.split('(').next().unwrap_or(target).trim();
-    if !head.starts_with("Elect") {
-        return vec![FOR.to_owned(), AGAINST.to_owned()];
+    // the printed `target`, mapped once to an `ElectType` when the corpus loads
+    // (`ti4_content::card_fields`, which tables every printed target). Reading a field that does
+    // not exist would have made every agenda a silent For/Against and no election would ever have
+    // been offered.
+    let elects = record.elect_type().unwrap_or(ElectType::ForAgainst);
+    match elects {
+        // Covert Legislation prints a rules sentence, not an "Elect ..." target: For/Against.
+        ElectType::ForAgainst | ElectType::HiddenNextAgenda => {
+            return vec![FOR.to_owned(), AGAINST.to_owned()];
+        }
+        ElectType::Player => {
+            return state.players.iter().map(|p| p.id.to_string()).collect();
+        }
+        ElectType::Planet
+        | ElectType::NonHomeNonMecatolPlanet
+        | ElectType::Law
+        | ElectType::ScoredSecretObjective
+        | ElectType::StrategyCard => {}
     }
-    let elects = head;
-
-    if elects.contains("Player") {
-        return state.players.iter().map(|p| p.id.to_string()).collect();
-    }
-    if elects.contains("Planet") {
+    if elects.elects_planet() {
         // 8.11: only a planet somebody controls may be elected.
         let mut planets: Vec<String> = state
             .board
@@ -99,7 +105,7 @@ pub fn outcomes(
             .collect();
         planets.sort_unstable();
         planets.dedup();
-        if elects.contains("Non-Home") || elects.contains("Other Than Mecatol") {
+        if elects == ElectType::NonHomeNonMecatolPlanet {
             let catalogue = all_planets(content, sources);
             planets.retain(|planet| {
                 !crate::seating::is_mecatol_planet(planet)
@@ -110,7 +116,7 @@ pub fn outcomes(
         }
         return planets;
     }
-    if elects.contains("Law") {
+    if elects == ElectType::Law {
         return state.laws_in_play().into_iter().cloned().collect();
     }
     // "Elect Scored Secret Objective" draws from the one place a secret is public (61.17),
@@ -119,15 +125,13 @@ pub fn outcomes(
     Vec::new()
 }
 
-/// Whether this agenda elects a planet, read off the printed `target` exactly as [`outcomes`]
-/// reads it. Only used to tell a map UI that an outcome is a planet (`payload.planet`).
+/// Whether this agenda elects a planet, from its [`ElectType`] exactly as [`outcomes`] reads it.
+/// Only used to tell a map UI that an outcome is a planet (`payload.planet`).
 fn elects_planet(content: &ContentStore, alias: &str) -> bool {
-    let Some(record) = content.get(ContentType::Agendas, alias) else {
-        return false;
-    };
-    let target = record.text("target").unwrap_or("For/Against");
-    let head = target.split('(').next().unwrap_or(target).trim();
-    head.starts_with("Elect") && !head.contains("Player") && head.contains("Planet")
+    content
+        .get(ContentType::Agendas, alias)
+        .and_then(ti4_content::Record::elect_type)
+        .is_some_and(ElectType::elects_planet)
 }
 
 /// An outcome option, carrying `planet`/`system` when the agenda elects a planet.

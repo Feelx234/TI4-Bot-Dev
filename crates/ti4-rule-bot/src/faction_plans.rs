@@ -22,6 +22,7 @@
 use crate::tuning;
 use std::collections::BTreeMap;
 
+use ti4_content::StrategyCardKind;
 use ti4_content::units::UnitType;
 use ti4_engine::choice::{Choice, Observed};
 use ti4_model::id::{PlayerId, TechnologyId};
@@ -55,7 +56,7 @@ pub struct Plan {
     pub ships: [usize; 2],
     /// Strategy cards it takes from round 3 when no rule of the rule bot decides (no Imperial
     /// to score, no card with trade goods on it), by name, best first.
-    pub cards: &'static [&'static str],
+    pub cards: &'static [StrategyCardKind],
 }
 
 /// The research order every faction falls back on once its own list is done or out of reach:
@@ -111,7 +112,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("fighter", 0.8, 0.8, 0, 0),
         ],
         ships: [7, 9],
-        cards: &["Construction", "Warfare"],
+        cards: &[StrategyCardKind::Construction, StrategyCardKind::Warfare],
     },
     Plan {
         factions: &["ghost"],
@@ -123,7 +124,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("flagship", 1.0, 1.3, 0, 1),
         ],
         ships: [8, 10],
-        cards: &["Leadership", "Warfare"],
+        cards: &[StrategyCardKind::Leadership, StrategyCardKind::Warfare],
     },
     Plan {
         factions: &["hacan"],
@@ -137,7 +138,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("flagship", 1.0, 1.3, 0, 1),
         ],
         ships: [8, 10],
-        cards: &["Trade", "Technology"],
+        cards: &[StrategyCardKind::Trade, StrategyCardKind::Technology],
     },
     Plan {
         factions: &["jolnar"],
@@ -154,7 +155,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("flagship", 1.0, 1.2, 0, 1),
         ],
         ships: [7, 9],
-        cards: &["Technology", "Leadership"],
+        cards: &[StrategyCardKind::Technology, StrategyCardKind::Leadership],
     },
     Plan {
         factions: &["l1z1x"],
@@ -170,7 +171,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("destroyer", 0.8, 0.8, 0, 0),
         ],
         ships: [9, 11],
-        cards: &["Warfare", "Technology"],
+        cards: &[StrategyCardKind::Warfare, StrategyCardKind::Technology],
     },
     Plan {
         factions: &["letnev"],
@@ -182,7 +183,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("flagship", 1.0, 1.4, 0, 1),
         ],
         ships: [9, 11],
-        cards: &["Warfare", "Leadership"],
+        cards: &[StrategyCardKind::Warfare, StrategyCardKind::Leadership],
     },
     Plan {
         factions: &["mentak"],
@@ -195,7 +196,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("flagship", 1.0, 1.3, 0, 1),
         ],
         ships: [8, 10],
-        cards: &["Technology", "Warfare"],
+        cards: &[StrategyCardKind::Technology, StrategyCardKind::Warfare],
     },
     Plan {
         factions: &["muaat"],
@@ -209,7 +210,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("fighter", 1.2, 1.2, 0, 0),
         ],
         ships: [7, 9],
-        cards: &["Warfare", "Technology"],
+        cards: &[StrategyCardKind::Warfare, StrategyCardKind::Technology],
     },
     Plan {
         factions: &["naalu"],
@@ -224,7 +225,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("destroyer", 0.8, 0.8, 0, 0),
         ],
         ships: [7, 9],
-        cards: &["Technology", "Leadership"],
+        cards: &[StrategyCardKind::Technology, StrategyCardKind::Leadership],
     },
     Plan {
         // Propagation: the Nekro never research, so only the units matter.
@@ -237,7 +238,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("mech", 1.1, 1.1, 0, 0),
         ],
         ships: [8, 10],
-        cards: &["Technology", "Warfare"],
+        cards: &[StrategyCardKind::Technology, StrategyCardKind::Warfare],
     },
     Plan {
         factions: &["saar"],
@@ -249,7 +250,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("dreadnought", 1.0, 1.3, 1, 2),
         ],
         ships: [8, 10],
-        cards: &["Construction", "Leadership"],
+        cards: &[StrategyCardKind::Construction, StrategyCardKind::Leadership],
     },
     Plan {
         factions: &["sardakk"],
@@ -263,7 +264,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("flagship", 1.0, 1.4, 0, 1),
         ],
         ships: [8, 10],
-        cards: &["Warfare", "Leadership"],
+        cards: &[StrategyCardKind::Warfare, StrategyCardKind::Leadership],
     },
     Plan {
         factions: &["sol"],
@@ -275,7 +276,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("dreadnought", 1.0, 1.3, 1, 2),
         ],
         ships: [8, 10],
-        cards: &["Leadership", "Warfare"],
+        cards: &[StrategyCardKind::Leadership, StrategyCardKind::Warfare],
     },
     Plan {
         factions: &["winnu"],
@@ -289,7 +290,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("flagship", 1.0, 1.3, 0, 1),
         ],
         ships: [8, 10],
-        cards: &["Leadership", "Technology"],
+        cards: &[StrategyCardKind::Leadership, StrategyCardKind::Technology],
     },
     Plan {
         factions: &["xxcha"],
@@ -303,7 +304,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("flagship", 1.0, 1.3, 0, 1),
         ],
         ships: [8, 10],
-        cards: &["Politics", "Diplomacy"],
+        cards: &[StrategyCardKind::Politics, StrategyCardKind::Diplomacy],
     },
     Plan {
         factions: &["yin"],
@@ -318,7 +319,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("dreadnought", 1.0, 1.3, 1, 2),
         ],
         ships: [8, 10],
-        cards: &["Construction", "Warfare"],
+        cards: &[StrategyCardKind::Construction, StrategyCardKind::Warfare],
     },
     Plan {
         factions: &["yssaril"],
@@ -333,7 +334,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("flagship", 1.0, 1.3, 0, 1),
         ],
         ships: [8, 10],
-        cards: &["Politics", "Technology"],
+        cards: &[StrategyCardKind::Politics, StrategyCardKind::Technology],
     },
     Plan {
         factions: &["keleresm", "keleresx", "keleresa"],
@@ -346,7 +347,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("flagship", 1.0, 1.3, 0, 1),
         ],
         ships: [8, 10],
-        cards: &["Politics", "Leadership"],
+        cards: &[StrategyCardKind::Politics, StrategyCardKind::Leadership],
     },
     Plan {
         factions: &["argent"],
@@ -360,7 +361,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("flagship", 1.0, 1.3, 0, 1),
         ],
         ships: [9, 11],
-        cards: &["Politics", "Warfare"],
+        cards: &[StrategyCardKind::Politics, StrategyCardKind::Warfare],
     },
     Plan {
         factions: &["cabal"],
@@ -374,7 +375,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("flagship", 1.2, 1.5, 0, 1),
         ],
         ships: [8, 10],
-        cards: &["Warfare", "Technology"],
+        cards: &[StrategyCardKind::Warfare, StrategyCardKind::Technology],
     },
     Plan {
         factions: &["empyrean"],
@@ -386,7 +387,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("flagship", 1.0, 1.3, 0, 1),
         ],
         ships: [8, 10],
-        cards: &["Diplomacy", "Leadership"],
+        cards: &[StrategyCardKind::Diplomacy, StrategyCardKind::Leadership],
     },
     Plan {
         factions: &["mahact"],
@@ -399,7 +400,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("flagship", 1.2, 1.5, 0, 1),
         ],
         ships: [8, 10],
-        cards: &["Warfare", "Technology"],
+        cards: &[StrategyCardKind::Warfare, StrategyCardKind::Technology],
     },
     Plan {
         factions: &["naaz"],
@@ -413,7 +414,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("dreadnought", 1.0, 1.3, 1, 2),
         ],
         ships: [7, 9],
-        cards: &["Construction", "Technology"],
+        cards: &[StrategyCardKind::Construction, StrategyCardKind::Technology],
     },
     Plan {
         factions: &["nomad"],
@@ -424,7 +425,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("flagship", 1.3, 1.5, 1, 1),
         ],
         ships: [8, 10],
-        cards: &["Leadership", "Technology"],
+        cards: &[StrategyCardKind::Leadership, StrategyCardKind::Technology],
     },
     Plan {
         factions: &["titans"],
@@ -436,7 +437,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("flagship", 1.0, 1.3, 0, 1),
         ],
         ships: [8, 10],
-        cards: &["Construction", "Technology"],
+        cards: &[StrategyCardKind::Construction, StrategyCardKind::Technology],
     },
     Plan {
         factions: &["bastion"],
@@ -449,7 +450,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("flagship", 1.0, 1.3, 0, 1),
         ],
         ships: [8, 10],
-        cards: &["Warfare", "Technology"],
+        cards: &[StrategyCardKind::Warfare, StrategyCardKind::Technology],
     },
     Plan {
         factions: &["deepwrought"],
@@ -473,7 +474,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("flagship", 1.0, 1.3, 0, 1),
         ],
         ships: [8, 10],
-        cards: &["Technology", "Leadership"],
+        cards: &[StrategyCardKind::Technology, StrategyCardKind::Leadership],
     },
     Plan {
         factions: &["firmament", "obsidian"],
@@ -497,7 +498,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("flagship", 1.0, 1.3, 0, 1),
         ],
         ships: [8, 10],
-        cards: &["Politics", "Leadership"],
+        cards: &[StrategyCardKind::Politics, StrategyCardKind::Leadership],
     },
     Plan {
         factions: &["crimson"],
@@ -519,7 +520,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("flagship", 1.0, 1.3, 0, 1),
         ],
         ships: [8, 10],
-        cards: &["Warfare", "Leadership"],
+        cards: &[StrategyCardKind::Warfare, StrategyCardKind::Leadership],
     },
     Plan {
         factions: &["ralnel"],
@@ -540,7 +541,7 @@ pub const PLANS: &[Plan] = &[
             Emphasis("carrier", 1.0, 1.0, 1, 2),
         ],
         ships: [8, 10],
-        cards: &["Leadership", "Warfare"],
+        cards: &[StrategyCardKind::Leadership, StrategyCardKind::Warfare],
     },
 ];
 
@@ -567,7 +568,11 @@ pub const PLANS_V2: &[Plan] = &[
             Emphasis("flagship", 1.0, 1.3, 0, 1),
         ],
         ships: [8, 10],
-        cards: &["Leadership", "Technology", "Warfare"],
+        cards: &[
+            StrategyCardKind::Leadership,
+            StrategyCardKind::Technology,
+            StrategyCardKind::Warfare,
+        ],
     },
     Plan {
         factions: &["l1z1x"],
@@ -584,7 +589,11 @@ pub const PLANS_V2: &[Plan] = &[
             Emphasis("infantry", 0.8, 0.8, 0, 0),
         ],
         ships: [9, 11],
-        cards: &["Leadership", "Warfare", "Technology"],
+        cards: &[
+            StrategyCardKind::Leadership,
+            StrategyCardKind::Warfare,
+            StrategyCardKind::Technology,
+        ],
     },
     Plan {
         factions: &["nekro"],
@@ -597,7 +606,11 @@ pub const PLANS_V2: &[Plan] = &[
             Emphasis("mech", 1.1, 1.1, 0, 0),
         ],
         ships: [8, 10],
-        cards: &["Leadership", "Technology", "Warfare"],
+        cards: &[
+            StrategyCardKind::Leadership,
+            StrategyCardKind::Technology,
+            StrategyCardKind::Warfare,
+        ],
     },
     Plan {
         factions: &["hacan"],
@@ -611,7 +624,11 @@ pub const PLANS_V2: &[Plan] = &[
             Emphasis("flagship", 1.0, 1.3, 0, 1),
         ],
         ships: [8, 10],
-        cards: &["Trade", "Leadership", "Technology"],
+        cards: &[
+            StrategyCardKind::Trade,
+            StrategyCardKind::Leadership,
+            StrategyCardKind::Technology,
+        ],
     },
     Plan {
         factions: &["arborec"],
@@ -626,7 +643,11 @@ pub const PLANS_V2: &[Plan] = &[
             Emphasis("fighter", 0.8, 0.8, 0, 0),
         ],
         ships: [7, 9],
-        cards: &["Construction", "Leadership", "Warfare"],
+        cards: &[
+            StrategyCardKind::Construction,
+            StrategyCardKind::Leadership,
+            StrategyCardKind::Warfare,
+        ],
     },
 ];
 
@@ -879,9 +900,9 @@ pub fn ships_wanted(seen: &Observed<'_>, me: &PlayerId) -> usize {
 pub fn preferred_card(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
     phase(seen.round())?;
     let plan = seat_plan(seen, me)?;
-    plan.cards.iter().find_map(|name| {
+    plan.cards.iter().find_map(|kind| {
         choice.options.iter().position(|o| {
-            ti4_engine::strategy_cards::card_name(seen.content(), &o.id).as_deref() == Some(*name)
+            ti4_engine::strategy_cards::card_kind(seen.content(), &o.id) == Some(*kind)
         })
     })
 }
@@ -1121,15 +1142,15 @@ mod tests {
             preferred_card(&draft, &observe(&state, &hub), &me()),
             Some(2)
         );
-        // Every name a plan lists is a strategy card's name.
-        let names: Vec<String> = ContentStore::embedded()
+        // Every card a plan lists is a strategy card of the corpus.
+        let kinds: Vec<StrategyCardKind> = ContentStore::embedded()
             .records(ContentType::StrategyCards)
             .iter()
-            .filter_map(|r| r.text("name").map(str::to_owned))
+            .filter_map(ti4_content::Record::strategy_card_kind)
             .collect();
         for plan in PLANS {
             for card in plan.cards {
-                assert!(names.iter().any(|n| n == card), "{card}");
+                assert!(kinds.contains(card), "{card:?}");
             }
         }
     }

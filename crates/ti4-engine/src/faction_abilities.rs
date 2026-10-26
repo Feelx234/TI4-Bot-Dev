@@ -213,10 +213,11 @@ pub fn substitutes_primary(
     state: &GameState,
     content: &ContentStore,
     player: &PlayerId,
-    card: &str,
+    card: Option<ti4_content::StrategyCardKind>,
 ) -> bool {
     of_player(state, content, player).iter().any(|ability| {
-        matches!(ability.as_str(), "brilliant") && card.eq_ignore_ascii_case("technology")
+        matches!(ability.as_str(), "brilliant")
+            && card == Some(ti4_content::StrategyCardKind::Technology)
     }) || crate::factions::substitutes_primary(state, content, player, card)
 }
 
@@ -307,12 +308,12 @@ pub fn secondary_is_free(
     state: &GameState,
     content: &ContentStore,
     player: &PlayerId,
-    card: &str,
+    card: Option<ti4_content::StrategyCardKind>,
 ) -> bool {
     of_player(state, content, player).iter().any(|ability| {
         match ability.as_str() {
             // Xxcha's Peace Accords are about Diplomacy; Hacan's Masters of Trade waive Trade.
-            "master_of_trade" => card.eq_ignore_ascii_case("trade"),
+            "master_of_trade" => card == Some(ti4_content::StrategyCardKind::Trade),
             _ => false,
         }
     }) || crate::factions::secondary_is_free(state, content, player, card)
@@ -650,11 +651,11 @@ pub fn annexable(
 pub fn strategy_resolved(
     context: &mut crate::timing::TimingContext<'_>,
     player: &PlayerId,
-    card: &str,
+    card: Option<ti4_content::StrategyCardKind>,
 ) {
     crate::factions::strategy_resolved(context, player, card);
     if !has(context.state, context.content, player, "peace_accords")
-        || !card.eq_ignore_ascii_case("diplomacy")
+        || card != Some(ti4_content::StrategyCardKind::Diplomacy)
     {
         return;
     }
@@ -1873,7 +1874,11 @@ mod tests {
         let mut table = crate::choice::Table::with_default(Box::new(crate::choice::AlwaysDecline));
 
         with_table_context(&mut state, Some(&hub.galaxy), &mut table, |context| {
-            strategy_resolved(context, &player, "Diplomacy");
+            strategy_resolved(
+                context,
+                &player,
+                Some(ti4_content::StrategyCardKind::Diplomacy),
+            );
         });
 
         assert_eq!(state.controlled_planets(&player).len(), before);
@@ -1912,7 +1917,11 @@ mod tests {
         let mut table = crate::choice::Table::with_default(Box::new(decider));
 
         with_table_context(&mut state, Some(&hub.galaxy), &mut table, |context| {
-            strategy_resolved(context, &player, "Diplomacy");
+            strategy_resolved(
+                context,
+                &player,
+                Some(ti4_content::StrategyCardKind::Diplomacy),
+            );
         });
 
         let ask = seen.borrow();

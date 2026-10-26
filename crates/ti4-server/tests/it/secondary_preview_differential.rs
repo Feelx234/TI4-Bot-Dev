@@ -290,7 +290,8 @@ fn walk(source: &Source, per_card: &mut BTreeMap<String, Tally>) {
             }
         }
         // The follow-ups the real flow asked this seat in that step, in order.
-        let own = follow_up_subtypes(&card_name(&card));
+        let own = ti4_engine::strategy_cards::card_kind(ContentStore::embedded(), &card)
+            .map_or(&[][..], follow_up_subtypes);
         let Some(answer) = records.first().filter(|r| r.player == follower) else {
             continue;
         };

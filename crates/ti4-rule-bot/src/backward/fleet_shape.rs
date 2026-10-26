@@ -214,8 +214,10 @@ fn fleet_in_one_system(seen: &Observed<'_>, ctx: &PlanCtx, n: usize) -> Option<P
         return None;
     }
     let card = match source {
-        prep::Source::Construction => Some("Construction"),
-        prep::Source::WarfarePrimary | prep::Source::DockWithWarfare => Some("Warfare"),
+        prep::Source::Construction => Some(ti4_content::StrategyCardKind::Construction),
+        prep::Source::WarfarePrimary | prep::Source::DockWithWarfare => {
+            Some(ti4_content::StrategyCardKind::Warfare)
+        }
         _ => None,
     };
     let mut systems = Vec::new();
@@ -233,8 +235,8 @@ fn fleet_in_one_system(seen: &Observed<'_>, ctx: &PlanCtx, n: usize) -> Option<P
         Steer {
             systems,
             builds: vec![ship.id().to_owned()],
-            cards: card.map(str::to_owned).into_iter().collect(),
-            play: card.map(str::to_owned).into_iter().collect(),
+            cards: card.into_iter().collect(),
+            play: card.into_iter().collect(),
             gather: if dock { vec![home] } else { Vec::new() },
             ..Steer::default()
         },
@@ -279,8 +281,10 @@ fn build_flagship(seen: &Observed<'_>, ctx: &PlanCtx) -> Option<(String, f64, Pr
         prep::Source::Dock | prep::Source::DockWithWarfare | prep::Source::WarfarePrimary
     );
     let card = match source {
-        prep::Source::Construction => Some("Construction".to_owned()),
-        prep::Source::WarfarePrimary | prep::Source::DockWithWarfare => Some("Warfare".to_owned()),
+        prep::Source::Construction => Some(ti4_content::StrategyCardKind::Construction),
+        prep::Source::WarfarePrimary | prep::Source::DockWithWarfare => {
+            Some(ti4_content::StrategyCardKind::Warfare)
+        }
         _ => None,
     };
     Some((

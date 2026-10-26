@@ -1,6 +1,6 @@
 //! Structural strategy-card actions.
 
-use ti4_content::ContentStore;
+use ti4_content::{ContentStore, StrategyCardKind};
 use ti4_model::content_types::SourceSet;
 use ti4_model::id::{PlayerId, StrategyCardId};
 use ti4_model::state::{GameState, TokenPool};
@@ -92,7 +92,9 @@ fn secondary_choice(
 ) -> Choice {
     let tokens_left = state.player(player).map_or(0, |seat| seat.strategic_tokens);
     let mut question = secondary_question(content, card, player, costs_token);
-    if crate::strategy_cards::card_name(content, card.as_str()).as_deref() == Some("Leadership") {
+    if crate::strategy_cards::card_kind(content, card.as_str())
+        == Some(StrategyCardKind::Leadership)
+    {
         // The window's question is the purchase question itself: typed like the loop's later
         // asks, and carrying what a client needs to plan every purchase at once.
         question = question.contextualized(crate::decision_context::DecisionContext::new(
@@ -109,13 +111,14 @@ fn secondary_choice(
                 .detailed("purchase", purchase);
         }
     }
-    if crate::strategy_cards::card_name(content, card.as_str()).as_deref() == Some("Diplomacy") {
+    if crate::strategy_cards::card_kind(content, card.as_str()) == Some(StrategyCardKind::Diplomacy)
+    {
         question = question.detailed(
             "ready_hints",
             crate::strategy_cards::ready_hints(state, content, sources, player),
         );
     }
-    if crate::strategy_cards::card_name(content, card.as_str()).as_deref() == Some("Trade") {
+    if crate::strategy_cards::card_kind(content, card.as_str()) == Some(StrategyCardKind::Trade) {
         // Display only: the follower's commodities now and at the limit the replenish fills to.
         question = question.detailed(
             "commodities",
@@ -136,12 +139,11 @@ fn secondary_question(
     player: &PlayerId,
     costs_token: bool,
 ) -> Choice {
-    let name = crate::strategy_cards::card_name(content, card.as_str())
-        .unwrap_or_else(|| card.to_string());
+    let kind = crate::strategy_cards::card_kind(content, card.as_str());
     // Leadership has no strategy-token gate and no decline/follow prompt (LRR 52.3):
     // affordability is the only gate, so the window's question *is* the oracle
     // influence-purchase question itself.
-    if name == "Leadership" {
+    if kind == Some(StrategyCardKind::Leadership) {
         let n = crate::strategy_cards::INFLUENCE_PER_TOKEN;
         return Choice::new(
             player.clone(),
@@ -158,38 +160,38 @@ fn secondary_question(
             "decline",
             "place",
         )),
-        _ => match name.as_str() {
-            "Trade" => Some((
+        _ => match kind {
+            Some(StrategyCardKind::Trade) => Some((
                 "spend a strategy token to replenish commodities",
                 "decline",
                 "replenish",
             )),
-            "Construction" => Some((
+            Some(StrategyCardKind::Construction) => Some((
                 "spend a strategy token to build a structure",
                 "decline",
                 "build",
             )),
-            "Warfare" => Some((
+            Some(StrategyCardKind::Warfare) => Some((
                 "spend a strategy token to produce at home",
                 "decline",
                 "produce",
             )),
-            "Technology" => Some((
+            Some(StrategyCardKind::Technology) => Some((
                 "spend a strategy token and 4 resources to research",
                 "decline",
                 "spend",
             )),
-            "Imperial" => Some((
+            Some(StrategyCardKind::Imperial) => Some((
                 "spend a strategy token to draw a secret objective",
                 "decline",
                 "draw",
             )),
-            "Diplomacy" => Some((
+            Some(StrategyCardKind::Diplomacy) => Some((
                 "spend a strategy token to ready two planets",
                 "decline",
                 "ready",
             )),
-            "Politics" => Some((
+            Some(StrategyCardKind::Politics) => Some((
                 "spend a strategy token to draw two action cards",
                 "decline",
                 "draw",
@@ -248,7 +250,7 @@ fn with_waivers(
             state,
             player,
             primary_player,
-            crate::strategy_cards::card_name(content, card.as_str()).as_deref(),
+            crate::strategy_cards::card_kind(content, card.as_str()),
         ) {
             choice.options.push(ChoiceOption::labelled(
                 crate::factions::firmament_plots::PRIMARY_INSTEAD_ID,
@@ -280,9 +282,8 @@ fn waiver_options(
     primary: &PlayerId,
     card: &StrategyCardId,
 ) -> Vec<ChoiceOption> {
-    let name = crate::strategy_cards::card_name(content, card.as_str())
-        .unwrap_or_else(|| card.to_string());
-    crate::factions::hooks_strategy::secondary_waivers(state, content, follower, primary, &name)
+    let kind = crate::strategy_cards::card_kind(content, card.as_str());
+    crate::factions::hooks_strategy::secondary_waivers(state, content, follower, primary, kind)
         .into_iter()
         .map(|(index, waiver)| {
             ChoiceOption::labelled(
@@ -401,9 +402,8 @@ impl StrategySecondaryWindow {
         if self.eligible(state, content, sources, follower) {
             return None;
         }
-        let name = crate::strategy_cards::card_name(content, self.card.as_str())
-            .unwrap_or_else(|| self.card.to_string());
-        if name == "Leadership" {
+        let kind = crate::strategy_cards::card_kind(content, self.card.as_str());
+        if kind == Some(StrategyCardKind::Leadership) {
             return Some(SecondaryBlocker::CannotAffordInfluence);
         }
         let paid = state.player(follower).is_some_and(|seat| {
@@ -414,17 +414,17 @@ impl StrategySecondaryWindow {
         if !paid {
             return Some(SecondaryBlocker::NoStrategyToken);
         }
-        Some(match name.as_str() {
-            "Technology" => {
+        Some(match kind {
+            Some(StrategyCardKind::Technology) => {
                 if crate::technology::researchable(state, content, sources, follower).is_empty() {
                     SecondaryBlocker::NothingToResearch
                 } else {
                     SecondaryBlocker::CannotPayResources
                 }
             }
-            "Diplomacy" => SecondaryBlocker::NoExhaustedPlanet,
-            "Trade" => SecondaryBlocker::CommoditiesFull,
-            "Warfare" => SecondaryBlocker::NoProduction,
+            Some(StrategyCardKind::Diplomacy) => SecondaryBlocker::NoExhaustedPlanet,
+            Some(StrategyCardKind::Trade) => SecondaryBlocker::CommoditiesFull,
+            Some(StrategyCardKind::Warfare) => SecondaryBlocker::NoProduction,
             _ => SecondaryBlocker::Other,
         })
     }
@@ -609,11 +609,11 @@ impl StrategySecondaryWindow {
                 state,
                 player,
                 &self.primary_player,
-                crate::strategy_cards::card_name(content, self.card.as_str()).as_deref(),
+                crate::strategy_cards::card_kind(content, self.card.as_str()),
             )
             || (secondary_costs_token(content, &self.card)
-                && crate::strategy_cards::card_name(content, self.card.as_str()).as_deref()
-                    != Some("Leadership")
+                && crate::strategy_cards::card_kind(content, self.card.as_str())
+                    != Some(StrategyCardKind::Leadership)
                 && !waiver_options(state, content, player, &self.primary_player, &self.card)
                     .is_empty()
                 && secondary_can_do_something(state, content, sources, player, &self.card))
@@ -631,7 +631,7 @@ impl StrategySecondaryWindow {
 }
 
 fn secondary_costs_token(content: &ContentStore, card: &StrategyCardId) -> bool {
-    crate::strategy_cards::card_name(content, card.as_str()).as_deref() != Some("Leadership")
+    crate::strategy_cards::card_kind(content, card.as_str()) != Some(StrategyCardKind::Leadership)
 }
 
 fn secondary_is_free(
@@ -640,9 +640,8 @@ fn secondary_is_free(
     player: &PlayerId,
     card: &StrategyCardId,
 ) -> bool {
-    crate::strategy_cards::card_name(content, card.as_str()).is_some_and(|name| {
-        crate::faction_abilities::secondary_is_free(state, content, player, &name)
-    })
+    let kind = crate::strategy_cards::card_kind(content, card.as_str());
+    kind.is_some() && crate::faction_abilities::secondary_is_free(state, content, player, kind)
 }
 
 fn secondary_eligible(
@@ -652,7 +651,9 @@ fn secondary_eligible(
     player: &PlayerId,
     card: &StrategyCardId,
 ) -> bool {
-    if crate::strategy_cards::card_name(content, card.as_str()).as_deref() == Some("Leadership") {
+    if crate::strategy_cards::card_kind(content, card.as_str())
+        == Some(StrategyCardKind::Leadership)
+    {
         // 52.3 costs influence rather than a strategy token: unaffordable seats make no
         // decision at all (oracle `_leadership_secondary`).
         return crate::strategy_cards::leadership_influence_eligible(
@@ -701,15 +702,15 @@ fn secondary_can_do_something(
     player: &PlayerId,
     card: &StrategyCardId,
 ) -> bool {
-    let Some(name) = crate::strategy_cards::card_name(content, card.as_str()) else {
+    let Some(kind) = crate::strategy_cards::card_kind(content, card.as_str()) else {
         return true;
     };
-    match name.as_str() {
-        "Technology" => {
+    match kind {
+        StrategyCardKind::Technology => {
             if crate::technology::researchable(state, content, sources, player).is_empty() {
                 return false;
             }
-            crate::faction_abilities::substitutes_primary(state, content, player, &name)
+            crate::faction_abilities::substitutes_primary(state, content, player, Some(kind))
                 // Jol-Nar's Specialist Compounds pays with a planet rather than resources, so a
                 // seat holding it can research however little it can afford. Without this the
                 // window would be closed on the price the card exists to avoid.
@@ -742,19 +743,21 @@ fn secondary_can_do_something(
         // Imperial's secondary draws a secret objective. A seat whose every secret is already
         // scored (three, or four with the Obsidian) can neither keep the card (45.4) nor hand an
         // unscored one back, so the draw gains nothing and costs the token.
-        "Imperial" if state.rules_version >= ti4_model::state::RULES_IMPERIAL_SECRET_CAP => {
+        StrategyCardKind::Imperial
+            if state.rules_version >= ti4_model::state::RULES_IMPERIAL_SECRET_CAP =>
+        {
             !crate::secrets::hand_is_all_scored(state, content, player)
         }
-        "Diplomacy" => state
+        StrategyCardKind::Diplomacy => state
             .controlled_planets(player)
             .into_iter()
             .any(|(_, planet)| state.exhausted_planets.contains(planet)),
-        "Trade" => state.player(player).is_some_and(|seat| {
+        StrategyCardKind::Trade => state.player(player).is_some_and(|seat| {
             seat.commodities < crate::strategy_cards::commodity_limit(state, content, player)
         }),
         // Warfare's secondary produces from the units in the seat's home system; `home_production`
         // no-ops when that system has no production capacity, i.e. no space dock.
-        "Warfare" => state
+        StrategyCardKind::Warfare => state
             .player(player)
             .and_then(|seat| seat.home_system.clone())
             .is_some_and(|home| {
@@ -1884,7 +1887,10 @@ mod bf00d_tests {
 
         let hooks = StrategyHooks {
             secondary_waivers: Some(|_, _, follower, primary, card| {
-                if follower.as_str() == "b" && primary.as_str() == "a" && card == "Imperial" {
+                if follower.as_str() == "b"
+                    && primary.as_str() == "a"
+                    && card == Some(StrategyCardKind::Imperial)
+                {
                     vec![SecondaryWaiver {
                         id: "acq".to_owned(),
                         label: "follow using Acquiescence".to_owned(),

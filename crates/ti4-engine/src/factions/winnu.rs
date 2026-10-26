@@ -736,7 +736,7 @@ fn secondary_waivers(
     _content: &ContentStore,
     follower: &PlayerId,
     primary: &PlayerId,
-    _card: &str,
+    _card: Option<ti4_content::StrategyCardKind>,
 ) -> Vec<SecondaryWaiver> {
     let held = state.promissory_notes.get(ACQUIESCENCE) == Some(follower);
     if held && follower != primary && is_winnu(state, primary) {
@@ -1658,7 +1658,16 @@ mod tests {
             before.production_discount_remaining
         );
         assert_eq!(state.board, before.board);
-        assert!(secondary_waivers(&state, content, &a(), &b(), "Trade").is_empty());
+        assert!(
+            secondary_waivers(
+                &state,
+                content,
+                &a(),
+                &b(),
+                Some(ti4_content::StrategyCardKind::Trade)
+            )
+            .is_empty()
+        );
     }
 
     // -- Blood Ties ------------------------------------------------------------------------------
@@ -2035,21 +2044,51 @@ mod tests {
         let mut state = game();
         let content = ContentStore::embedded();
         assert!(
-            secondary_waivers(&state, content, &b(), &a(), "Trade").is_empty(),
+            secondary_waivers(
+                &state,
+                content,
+                &b(),
+                &a(),
+                Some(ti4_content::StrategyCardKind::Trade)
+            )
+            .is_empty(),
             "not held"
         );
         state.promissory_notes.insert(ACQUIESCENCE.to_owned(), b());
         assert_eq!(
-            secondary_waivers(&state, content, &b(), &a(), "Trade").len(),
+            secondary_waivers(
+                &state,
+                content,
+                &b(),
+                &a(),
+                Some(ti4_content::StrategyCardKind::Trade)
+            )
+            .len(),
             1
         );
         assert!(
-            secondary_waivers(&state, content, &a(), &b(), "Trade").is_empty(),
+            secondary_waivers(
+                &state,
+                content,
+                &a(),
+                &b(),
+                Some(ti4_content::StrategyCardKind::Trade)
+            )
+            .is_empty(),
             "wrong primary"
         );
         secondary_waived(&mut state, content, &b(), &a(), "acq");
         assert_eq!(state.promissory_notes.get(ACQUIESCENCE), Some(&a()));
-        assert!(secondary_waivers(&state, content, &b(), &a(), "Trade").is_empty());
+        assert!(
+            secondary_waivers(
+                &state,
+                content,
+                &b(),
+                &a(),
+                Some(ti4_content::StrategyCardKind::Trade)
+            )
+            .is_empty()
+        );
     }
 
     // -- Berekar Berekon -------------------------------------------------------------------------

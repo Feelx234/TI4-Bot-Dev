@@ -5,9 +5,11 @@
 //! one. The groups are written by hand here, beside the corpus and not in it: the files of
 //! `content/` are copies of the oracle.
 //!
-//! The key is the printed window and not the card, so the copies of a card and the cards of one
-//! timing cannot disagree. A window that is not listed has no group; the test of this module
-//! fails for it.
+//! The key is the printed window (its [`ActionCardWindow`]) and not the card, so the copies of a
+//! card and the cards of one timing cannot disagree. A window that is not listed has no group; the
+//! test of this module fails for it.
+
+use crate::card_fields::ActionCardWindow;
 
 /// The group of the timing of an action card.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -69,6 +71,7 @@ impl ActionCardTiming {
 #[must_use]
 pub fn timing_of(phase: &str, window: &str) -> Option<ActionCardTiming> {
     use ActionCardTiming as T;
+    use ActionCardWindow as W;
     match phase {
         "Agenda" => return Some(T::AgendaPhase),
         "Strategy" => return Some(T::StrategyPhase),
@@ -76,55 +79,52 @@ pub fn timing_of(phase: &str, window: &str) -> Option<ActionCardTiming> {
         "Any" => return Some(T::AnyTime),
         _ => {}
     }
+    let Ok(window) = ActionCardWindow::parse(window) else {
+        return None;
+    };
     Some(match window {
-        "Action" => T::Action,
+        W::Action => T::Action,
 
-        "After you activate a system"
-        | "After you activate a system that contains 1 or more of your ships"
-        | "After you activate a system that contains another player's ships"
-        | "After you activate an anomaly" => T::OwnActivation,
+        W::AfterYouActivateSystem
+        | W::AfterYouActivateSystemWithYourShips
+        | W::AfterYouActivateSystemWithOtherShips
+        | W::AfterYouActivateAnomaly => T::OwnActivation,
 
-        "After another player activates a system that contains 1 of your command tokens"
-        | "After another player activates a system that contains 1 or more of your structures"
-        | "After another player activates a system that contains your units"
-        | "After a player moves ships into a system that contains your ships"
-        | "After the active player moves ships into the active system during a tactical action" => {
-            T::OtherActivation
-        }
+        W::AfterOtherActivatesSystemWithYourCommandToken
+        | W::AfterOtherActivatesSystemWithYourStructures
+        | W::AfterOtherActivatesSystemWithYourUnits
+        | W::AfterShipsMoveIntoSystemWithYourShips
+        | W::AfterActivePlayerMovesIntoActiveSystem => T::OtherActivation,
 
-        "At the start of a combat"
-        | "At the start of a combat round"
-        | "At the start or end of a combat round"
-        | "At the start of the first round of a space combat"
-        | "At the start of the 'Announce Retreats' step of space combat, if you are the defender"
-        | "After your opponent declares a retreat during a space combat"
-        | "Before you assign hits to your ships during a space combat"
-        | "When one of your ships uses SUSTAIN DAMAGE during combat"
-        | "After another player's ship uses SUSTAIN DAMAGE to cancel a hit produced by your units or abilities"
-        | "After 1 of your ships is destroyed during a space combat"
-        | "When your last ship in the active system is destroyed"
-        | "After you win a space combat"
-        | "Before you assign hits produced by another player's SPACE CANNON roll"
-        | "Before you roll dice for ANTI-FIGHTER BARRAGE"
-        | "After another player makes a BOMBARDMENT, SPACE CANNON, or ANTI-FIGHTER BARRAGE roll" => {
-            T::Combat
-        }
+        W::StartOfCombat
+        | W::StartOfCombatRound
+        | W::StartOrEndOfCombatRound
+        | W::StartOfFirstSpaceCombatRound
+        | W::StartOfAnnounceRetreatsAsDefender
+        | W::AfterOpponentDeclaresRetreat
+        | W::BeforeAssigningSpaceCombatHits
+        | W::WhenYourShipSustainsDamage
+        | W::AfterOtherSustainsAgainstYourHit
+        | W::AfterOwnShipDestroyedInSpaceCombat
+        | W::WhenYourLastShipIsDestroyed
+        | W::AfterYouWinSpaceCombat
+        | W::BeforeAssigningSpaceCannonHits
+        | W::BeforeAntiFighterBarrageRoll
+        | W::AfterOtherRollsUnitAbility => T::Combat,
 
-        "At the start of an invasion"
-        | "At the start of an invasion in a system that contains 1 or more of your opponents' PDS units"
-        | "After another player commits units to land on a planet you control"
-        | "After your ground forces make combat rolls during a round of ground combat"
-        | "When you gain control of a planet"
-        | "After another player gains control of a planet you control" => T::Invasion,
+        W::StartOfInvasion
+        | W::StartOfInvasionAgainstPds
+        | W::AfterOtherCommitsToYourPlanet
+        | W::AfterYourGroundForcesRoll
+        | W::WhenYouGainPlanet
+        | W::AfterOtherGainsYourPlanet => T::Invasion,
 
-        "After you perform an action"
-        | "When another player would perform a strategic action"
-        | "When 1 or more of your units use PRODUCTION"
-        | "At the start of another player's turn, if they have a readied strategy card"
-        | "At the end of a player's turn, if you have passed"
-        | "At the end of any players turn, if there are at least 2 players who have not passed" => {
-            T::Turn
-        }
+        W::AfterYouPerformAction
+        | W::WhenOtherPerformsStrategicAction
+        | W::WhenYourUnitsUseProduction
+        | W::StartOfOtherTurnWithReadiedStrategyCard
+        | W::EndOfTurnIfYouPassed
+        | W::EndOfTurnIfTwoNotPassed => T::Turn,
 
         _ => return None,
     })

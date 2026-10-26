@@ -458,8 +458,8 @@ const SALVAGE_PREFIX: &str = "action_card|salvaged|";
 pub fn is_component_action(content: &ContentStore, alias: &ActionCardId) -> bool {
     content
         .get(ContentType::ActionCards, alias.as_str())
-        .and_then(|record| record.text("window"))
-        .is_some_and(|window| window.trim() == "Action")
+        .and_then(ti4_content::Record::action_card_window)
+        .is_some_and(ti4_content::ActionCardWindow::is_component_action)
 }
 
 /// 22.3: whether this card could be played right now.
@@ -1964,7 +1964,8 @@ fn crashlanding(context: &mut crate::timing::TimingContext<'_>, player: &PlayerI
     if kinds.is_empty() {
         return; // nothing to land
     }
-    // Where it can land: the system's planets, other than Mecatol Rex.
+    // Where it can land: the system's planets, other than Mecatol Rex (by id, not by the printed
+    // name: `seating::the_planets_named_mecatol_rex_are_the_mecatol_ids`).
     let planets: Vec<ti4_model::id::PlanetId> =
         crate::planets::in_system(context.state, context.content, context.sources, &system)
             .into_iter()
@@ -1972,7 +1973,7 @@ fn crashlanding(context: &mut crate::timing::TimingContext<'_>, player: &PlayerI
                 context
                     .content
                     .get(ContentType::Planets, planet.as_str())
-                    .is_none_or(|record| record.text("name") != Some("Mecatol Rex"))
+                    .is_none_or(|_| !crate::seating::is_mecatol_planet(planet.as_str()))
             })
             .collect();
     if planets.is_empty() {

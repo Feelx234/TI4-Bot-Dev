@@ -801,7 +801,7 @@ fn secondary_waivers(
     _content: &ContentStore,
     follower: &PlayerId,
     primary: &PlayerId,
-    _card: &str,
+    _card: Option<ti4_content::StrategyCardKind>,
 ) -> Vec<SecondaryWaiver> {
     if follower == primary || !crate::breakthroughs::holds(state, follower, "naalubt") {
         return Vec::new();
@@ -1245,7 +1245,14 @@ mod tests {
         }
         assert!(state == before, "no Naalu window changed the game");
         assert!(
-            secondary_waivers(&state, ContentStore::embedded(), &a(), &b(), "Trade").is_empty()
+            secondary_waivers(
+                &state,
+                ContentStore::embedded(),
+                &a(),
+                &b(),
+                Some(ti4_content::StrategyCardKind::Trade)
+            )
+            .is_empty()
         );
     }
 
@@ -1562,9 +1569,24 @@ mod tests {
     fn mindsieve_offers_one_waiver_per_note_in_hand_and_hands_the_note_over() {
         let mut state = game();
         let content = ContentStore::embedded();
-        assert!(secondary_waivers(&state, content, &a(), &b(), "Trade").is_empty());
+        assert!(
+            secondary_waivers(
+                &state,
+                content,
+                &a(),
+                &b(),
+                Some(ti4_content::StrategyCardKind::Trade)
+            )
+            .is_empty()
+        );
         grant_bt(&mut state);
-        let offered = secondary_waivers(&state, content, &a(), &b(), "Trade");
+        let offered = secondary_waivers(
+            &state,
+            content,
+            &a(),
+            &b(),
+            Some(ti4_content::StrategyCardKind::Trade),
+        );
         assert_eq!(
             offered.len(),
             crate::promissory::held_by(&state, &a()).len()
@@ -1584,8 +1606,26 @@ mod tests {
         let mut state = game();
         let content = ContentStore::embedded();
         grant_bt(&mut state);
-        assert!(secondary_waivers(&state, content, &a(), &a(), "Trade").is_empty());
-        assert!(secondary_waivers(&state, content, &b(), &a(), "Trade").is_empty());
+        assert!(
+            secondary_waivers(
+                &state,
+                content,
+                &a(),
+                &a(),
+                Some(ti4_content::StrategyCardKind::Trade)
+            )
+            .is_empty()
+        );
+        assert!(
+            secondary_waivers(
+                &state,
+                content,
+                &b(),
+                &a(),
+                Some(ti4_content::StrategyCardKind::Trade)
+            )
+            .is_empty()
+        );
     }
 
     // -- The Oracle ------------------------------------------------------------------------------

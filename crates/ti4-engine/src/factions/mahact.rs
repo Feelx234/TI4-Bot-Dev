@@ -453,7 +453,7 @@ fn secondary_waivers(
     _content: &ContentStore,
     follower: &PlayerId,
     primary: &PlayerId,
-    _card: &str,
+    _card: Option<ti4_content::StrategyCardKind>,
 ) -> Vec<SecondaryWaiver> {
     if follower == primary
         || !is_mahact(state, follower)
@@ -1257,7 +1257,13 @@ mod tests {
         let mut state = game();
         let sys = SystemId::new("27");
         state.system_mut(&sys).command_tokens.insert(b());
-        let waivers = secondary_waivers(&state, content(), &a(), &b(), "Trade");
+        let waivers = secondary_waivers(
+            &state,
+            content(),
+            &a(),
+            &b(),
+            Some(ti4_content::StrategyCardKind::Trade),
+        );
         assert_eq!(waivers.len(), 1);
         assert_eq!(waivers[0].id, "agent|27");
         assert!(
@@ -1265,8 +1271,26 @@ mod tests {
             "the system is named by its planets: {}",
             waivers[0].label
         );
-        assert!(secondary_waivers(&state, content(), &c(), &b(), "Trade").is_empty());
-        assert!(secondary_waivers(&state, content(), &a(), &a(), "Trade").is_empty());
+        assert!(
+            secondary_waivers(
+                &state,
+                content(),
+                &c(),
+                &b(),
+                Some(ti4_content::StrategyCardKind::Trade)
+            )
+            .is_empty()
+        );
+        assert!(
+            secondary_waivers(
+                &state,
+                content(),
+                &a(),
+                &a(),
+                Some(ti4_content::StrategyCardKind::Trade)
+            )
+            .is_empty()
+        );
         let tokens = state.player(&a()).unwrap().strategic_tokens;
         secondary_waived(&mut state, content(), &a(), &b(), "agent|27");
         assert!(!state.system_state(&sys).command_tokens.contains(&b()));
@@ -1275,7 +1299,16 @@ mod tests {
             LeaderStatus::Exhausted
         );
         assert_eq!(state.player(&a()).unwrap().strategic_tokens, tokens);
-        assert!(secondary_waivers(&state, content(), &a(), &b(), "Trade").is_empty());
+        assert!(
+            secondary_waivers(
+                &state,
+                content(),
+                &a(),
+                &b(),
+                Some(ti4_content::StrategyCardKind::Trade)
+            )
+            .is_empty()
+        );
     }
 
     // -- the commander -------------------------------------------------------------------------

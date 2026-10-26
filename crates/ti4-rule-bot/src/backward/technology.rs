@@ -328,8 +328,8 @@ pub fn model(seen: &Observed<'_>, me: &PlayerId) -> Option<(Vec<Tech>, Vec<Tech>
 }
 
 fn technology_card(seen: &Observed<'_>, card: &ti4_model::id::StrategyCardId) -> bool {
-    ti4_engine::strategy_cards::card_name(seen.content(), card.as_str()).as_deref()
-        == Some("Technology")
+    ti4_engine::strategy_cards::card_kind(seen.content(), card.as_str())
+        == Some(ti4_content::StrategyCardKind::Technology)
 }
 
 /// The researches before the status phase for the seat.
@@ -482,7 +482,7 @@ impl ObjectivePlanner for Technology {
             cost,
             steer: Steer {
                 cards: if own_card {
-                    vec!["Technology".to_owned()]
+                    vec![ti4_content::StrategyCardKind::Technology]
                 } else {
                     Vec::new()
                 },

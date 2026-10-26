@@ -974,6 +974,19 @@ mod tests {
         ContentStore::embedded()
     }
 
+    #[test]
+    fn the_planets_named_mecatol_rex_are_the_mecatol_ids() {
+        // Crash Landing excludes Mecatol Rex by id; it used to compare the printed name.
+        for record in content().records(ti4_model::content_types::ContentType::Planets) {
+            let id = record.id().unwrap();
+            assert_eq!(
+                record.text("name") == Some("Mecatol Rex"),
+                is_mecatol_planet(id),
+                "{id}"
+            );
+        }
+    }
+
     fn assignments(pairs: &[(&str, &str)]) -> BTreeMap<PlayerId, FactionId> {
         pairs
             .iter()

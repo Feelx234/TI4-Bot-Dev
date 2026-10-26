@@ -240,7 +240,7 @@ impl ObjectivePlanner for Production {
                     },
                     steer: Steer {
                         cards: if own_open {
-                            vec!["Construction".to_owned()]
+                            vec![ti4_content::StrategyCardKind::Construction]
                         } else {
                             Vec::new()
                         },
