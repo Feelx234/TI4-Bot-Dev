@@ -7,6 +7,8 @@
 LIBTORCH = { value = "out/libtorch-2.9.1-cpu", relative = true }
 
 [alias]
+# `cargo xtask gen-cards [--check]`: the content generator (docs/CONTENT_GENERATOR.md).
+xtask = "run -q -p xtask --"
 # The crates the browser game is made of, and nothing else: no libtorch, no policy or training
 # crates. One fixed package set, and every alias builds test targets, so all of them resolve the
 # same dependency features and share one build of the engine. A command with another package set
