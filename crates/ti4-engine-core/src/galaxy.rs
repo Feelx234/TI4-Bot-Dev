@@ -49,7 +49,7 @@ impl Default for CoreGalaxy {
 }
 
 /// Every system's neighbours on one board, computed once ([`CoreGalaxy::adjacency`]).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Adjacency {
     adjacent: Vec<SysSet>,
     hyperlanes: SysSet,

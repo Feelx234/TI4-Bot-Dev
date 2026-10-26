@@ -72,7 +72,7 @@ fn answer_legacy(rules: &MovementRules<'_>, ship: &ShipQuery) -> u8 {
     }
 }
 
-fn answer_raw(rules: &CoreRules<'_>, origin: SystemIx, kind: Option<UnitIx>, mv: i32) -> u8 {
+fn answer_raw(rules: &CoreRules, origin: SystemIx, kind: Option<UnitIx>, mv: i32) -> u8 {
     if rules.can_reach_ship(origin, mv, kind) {
         1
     } else if rules.can_reach_ship(origin, mv + 1, kind) {
@@ -163,7 +163,7 @@ fn main() {
                 "adapter" => {
                     let t = thread_cpu_ns();
                     let raw_galaxy = galaxy_from_legacy(&p.galaxy).expect("mapped");
-                    let adjacency = raw_galaxy.adjacency();
+                    let adjacency = std::rc::Rc::new(raw_galaxy.adjacency());
                     for (si, (player, fleet, _)) in prep.seats.iter().enumerate() {
                         let mapped: Vec<(SystemIx, Option<UnitIx>)> = fleet
                             .iter()
@@ -177,9 +177,7 @@ fn main() {
                             let adj = if uses_galaxy(&legacy, &p.galaxy) {
                                 &adjacency
                             } else {
-                                own = galaxy_from_legacy(legacy.parts().galaxy)
-                                    .expect("mapped")
-                                    .adjacency();
+                                own = std::rc::Rc::new(galaxy_from_legacy(legacy.parts().galaxy).expect("mapped").adjacency());
                                 &own
                             };
                             let rules = rules_from_legacy(&legacy, p.sources, adj).expect("mapped");
@@ -199,7 +197,7 @@ fn main() {
                 "core" => {
                     let t = thread_cpu_ns();
                     let raw_galaxy = galaxy_from_legacy(&p.galaxy).expect("mapped");
-                    let adjacency = raw_galaxy.adjacency();
+                    let adjacency = std::rc::Rc::new(raw_galaxy.adjacency());
                     let seats = Seats::of(&p.state).expect("seats");
                     let board = board_from_state(&p.state, &seats, p.sources).expect("board");
                     let scope = adapter::scope(p.sources);
@@ -238,7 +236,7 @@ fn main() {
                             })
                             .collect();
                         for (di, &dest) in dests.iter().enumerate() {
-                            let mut rules = CoreRules::with_board(&adjacency, scope, dest, enemy, tokens);
+                            let mut rules = CoreRules::with_board(adjacency.clone(), scope, dest, enemy, tokens);
                             flags.apply(&mut rules);
                             for (k, ship) in fleet.iter().enumerate() {
                                 let (o, kind) = mapped[k];
@@ -256,22 +254,22 @@ fn main() {
                 "legacy-search" | "core-search" => {
                     // Rules for the whole position built untimed; one timed block of searches.
                     let raw_galaxy = galaxy_from_legacy(&p.galaxy).expect("mapped");
-                    let adjacency = raw_galaxy.adjacency();
+                    let adjacency = std::rc::Rc::new(raw_galaxy.adjacency());
                     let mut legacy_all = Vec::new();
                     for (player, _, _) in &prep.seats {
                         for dest in &prep.destinations {
                             legacy_all.push(legacy_rules(p, player, dest));
                         }
                     }
-                    let copies: Vec<Option<ti4_engine_core::galaxy::Adjacency>> = legacy_all
+                    let copies: Vec<Option<std::rc::Rc<ti4_engine_core::galaxy::Adjacency>>> = legacy_all
                         .iter()
                         .map(|l| {
                             (!uses_galaxy(l, &p.galaxy)).then(|| {
-                                galaxy_from_legacy(l.parts().galaxy).expect("mapped").adjacency()
+                                std::rc::Rc::new(galaxy_from_legacy(l.parts().galaxy).expect("mapped").adjacency())
                             })
                         })
                         .collect();
-                    let raw_all: Vec<CoreRules<'_>> = legacy_all
+                    let raw_all: Vec<CoreRules> = legacy_all
                         .iter()
                         .zip(&copies)
                         .map(|(l, c)| {

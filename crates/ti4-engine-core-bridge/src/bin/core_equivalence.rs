@@ -8,7 +8,7 @@
 //! ```
 //! Exit status 1 when any answer differs.
 
-use ti4_engine_core_bridge::check::{Report, check_galaxy_variants, check_position};
+use ti4_engine_core_bridge::check::{Report, check_galaxy_variants, check_observed, check_position};
 use ti4_engine_core_bridge::workload::{golden_positions, template_openings};
 
 #[global_allocator]
@@ -17,7 +17,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 fn print(report: &Report) {
     println!(
         "positions {} | adjacency checks {} | rules built {} (plain {}, with hook state {}, board facts changed by a hook {}, hook map copies {}) | \
-         path queries {} (reachable {}, plain-builder queries {}) | route sets {} | unmapped {} | \
+         path queries {} (reachable {}, plain-builder queries {}) | route sets {} | seat rules {} | observed answers {} | unmapped {} | \
          mismatches {}",
         report.positions,
         report.adjacency_checks,
@@ -30,6 +30,8 @@ fn print(report: &Report) {
         report.reachable,
         report.plain_queries,
         report.route_sets,
+        report.seat_rules,
+        report.observed_answers,
         report.unmapped,
         report.mismatches.len()
     );
@@ -48,6 +50,7 @@ fn main() {
             for p in &positions {
                 check_galaxy_variants(p, &mut report);
                 check_position(p, routes, &mut report);
+                check_observed(p, &mut report);
             }
             println!("templates built {}, refused {}", positions.len(), refused.len());
             for r in refused {
@@ -64,6 +67,7 @@ fn main() {
             }
             for p in &positions {
                 check_position(p, routes, &mut report);
+                check_observed(p, &mut report);
             }
         }
         Some("sizes") => {
@@ -71,7 +75,7 @@ fn main() {
             println!(
                 "size_of: MovementRules {} | CoreRules {} | Galaxy {} | CoreGalaxy {} | Adjacency per board {} B | Unit {} | typed unit (u16 type, u8 owner, 2 flags) 5 | SystemId {} | SystemIx {} | SysSet {}",
                 size_of::<ti4_engine::movement::MovementRules<'_>>(),
-                size_of::<ti4_engine_core::movement::CoreRules<'_>>(),
+                size_of::<ti4_engine_core::movement::CoreRules>(),
                 size_of::<ti4_content::galaxy::Galaxy>(),
                 size_of::<ti4_engine_core::galaxy::CoreGalaxy>(),
                 ti4_engine_core::tables::SYSTEM_COUNT * size_of::<ti4_engine_core::SysSet>(),

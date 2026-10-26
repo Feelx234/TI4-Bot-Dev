@@ -11,6 +11,7 @@
 //! a mover that has none of them.
 
 use std::collections::{HashMap, VecDeque};
+use std::rc::Rc;
 
 use crate::bits::{SysSet, UnitSet};
 use crate::board::CoreBoard;
@@ -24,9 +25,9 @@ pub const ROUTE_SEARCH_NODES: usize = 20_000;
 pub const ROUTE_SEARCH_ROUTES: usize = 512;
 
 /// Reachability for one mover towards one active system. Field for field the string rules.
-#[derive(Debug, Clone)]
-pub struct CoreRules<'a> {
-    pub adjacency: &'a Adjacency,
+#[derive(Debug, Clone, PartialEq)]
+pub struct CoreRules {
+    pub adjacency: Rc<Adjacency>,
     /// Systems of the corpus in the game's source scope (`systems_index`).
     pub scope: Scope,
     pub active: SystemIx,
@@ -46,6 +47,10 @@ pub struct CoreRules<'a> {
     pub barred_transit: SysSet,
     pub gravity_rift_systems: SysSet,
     pub rift_extra_steps: i32,
+    /// `MovementRules::rifts_ignored` (Circlet of the Void, Crucible): no roll for any rift.
+    pub rifts_ignored: bool,
+    /// `MovementRules::rift_roll_exempt`: created rifts this mover does not roll for.
+    pub rift_roll_exempt: SysSet,
     pub passing_ship_types: UnitSet,
     pub own_passage_types: UnitSet,
     pub own_unit_systems: SysSet,
@@ -82,12 +87,12 @@ impl Trail {
     }
 }
 
-impl<'a> CoreRules<'a> {
+impl CoreRules {
     /// Rules with only the board facts set: what `MovementRules::new` builds (no laws, no hooks),
     /// plus whatever the caller sets on the public flags afterwards.
     #[must_use]
     pub fn plain(
-        adjacency: &'a Adjacency,
+        adjacency: Rc<Adjacency>,
         scope: Scope,
         active: SystemIx,
         board: &CoreBoard,
@@ -105,7 +110,7 @@ impl<'a> CoreRules<'a> {
     /// [`Self::plain`] from already computed board facts (one per mover, shared by destinations).
     #[must_use]
     pub fn with_board(
-        adjacency: &'a Adjacency,
+        adjacency: Rc<Adjacency>,
         scope: Scope,
         active: SystemIx,
         enemy_ships: SysSet,
@@ -131,6 +136,8 @@ impl<'a> CoreRules<'a> {
             barred_transit: SysSet::EMPTY,
             gravity_rift_systems: SysSet::EMPTY,
             rift_extra_steps: 0,
+            rifts_ignored: false,
+            rift_roll_exempt: SysSet::EMPTY,
             passing_ship_types: UnitSet::EMPTY,
             own_passage_types: UnitSet::EMPTY,
             own_unit_systems: SysSet::EMPTY,
@@ -160,6 +167,19 @@ impl<'a> CoreRules<'a> {
 
     const fn nebulae_are_open(&self) -> bool {
         self.nebulae_open || self.anomalies_ignored || self.nebulae_ignored
+    }
+
+    /// `transit::rifts_exited(..).len()`: the rifts a route leaves (every system but the last) that
+    /// this mover rolls for.
+    #[must_use]
+    pub fn rifts_exited(&self, path: &[SystemIx]) -> usize {
+        let Some((_, before)) = path.split_last() else {
+            return 0;
+        };
+        before
+            .iter()
+            .filter(|s| self.is_gravity_rift(**s) && !self.rift_roll_exempt.contains(s.index()))
+            .count()
     }
 
     #[must_use]

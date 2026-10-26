@@ -661,6 +661,9 @@ pub struct Observed<'a> {
     movable: std::cell::RefCell<BTreeMap<(PlayerId, SystemId), Vec<crate::tactical::Movable>>>,
     /// [`Self::rift_exits_into`] answers, for the same reason.
     rift_exits: std::cell::RefCell<BTreeMap<RiftKey, usize>>,
+    /// Per seat, the typed movement rules and fleet of this position (docs/ENGINE_CORE.md, stage 2).
+    #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
+    seats: std::cell::RefCell<crate::core_adapter::SeatCache>,
 }
 
 /// (player, destination, origin, unit type, Gravity Drive, Ionian) of a cached rift count.
@@ -693,7 +696,107 @@ impl<'a> Observed<'a> {
             galaxy,
             movable: std::cell::RefCell::new(BTreeMap::new()),
             rift_exits: std::cell::RefCell::new(BTreeMap::new()),
+            #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
+            seats: std::cell::RefCell::new(crate::core_adapter::SeatCache::new()),
         }
+    }
+
+    /// The typed rules template of `player` for this position (`effects`: with the cards in play).
+    #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
+    fn seat_reach(
+        &self,
+        player: &PlayerId,
+        effects: bool,
+    ) -> Option<std::rc::Rc<crate::core_adapter::SeatReach>> {
+        let galaxy = self.galaxy?;
+        let key = (player.clone(), effects);
+        if let Some(known) = self.seats.borrow().reach.get(&key) {
+            return known.clone();
+        }
+        let built = crate::core_adapter::SeatReach::new(
+            self.state,
+            self.content,
+            self.sources,
+            galaxy,
+            player,
+            effects,
+        )
+        .map(std::rc::Rc::new);
+        self.seats.borrow_mut().reach.insert(key, built.clone());
+        built
+    }
+
+    #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
+    fn seat_fleet(&self, player: &PlayerId) -> std::rc::Rc<crate::tactical::SeatFleet> {
+        if let Some(known) = self.seats.borrow().fleets.get(player) {
+            return known.clone();
+        }
+        let built = std::rc::Rc::new(crate::tactical::SeatFleet::new(
+            self.state,
+            self.content,
+            self.sources,
+            player,
+        ));
+        self.seats
+            .borrow_mut()
+            .fleets
+            .insert(player.clone(), built.clone());
+        built
+    }
+
+    /// [`Self::rift_exits_into`] on the typed core (`tactical::route_rift_exits`); `None` when
+    /// something is not mapped.
+    #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn typed_rift_exits(
+        &self,
+        player: &PlayerId,
+        origin: &SystemId,
+        unit_type: &str,
+        boosts: (bool, bool),
+        destination: &SystemId,
+    ) -> Option<usize> {
+        let Some(kind) = ti4_content::units::unit_type(self.content, unit_type, self.sources) else {
+            return Some(0);
+        };
+        let rules = self.seat_reach(player, true)?.rules_for(
+            self.state,
+            self.content,
+            self.sources,
+            destination,
+        )?;
+        if rules.anomalies_ignored || rules.rifts_ignored {
+            return Some(0);
+        }
+        let from = crate::core_adapter::system_ix(origin.as_str())?;
+        let ship = crate::core_adapter::ship_type(Some(unit_type)).ok()?;
+        let value = crate::tactical::effective_move_value_with_boosts(
+            self.state, &kind, player, origin, boosts.0, boosts.1,
+        );
+        Some(
+            rules
+                .path_from_ship(from, value, ship)
+                .map_or(0, |path| rules.rifts_exited(&path)),
+        )
+    }
+
+    /// [`Self::movable_into`] on the typed core; `None` when something is not mapped.
+    #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn typed_movable_into(
+        &self,
+        player: &PlayerId,
+        destination: &SystemId,
+    ) -> Option<Vec<crate::tactical::Movable>> {
+        let rules = self.seat_reach(player, true)?.rules_for(
+            self.state,
+            self.content,
+            self.sources,
+            destination,
+        )?;
+        self.seat_fleet(player).movable(&rules, destination)
     }
 
     /// The content corpus this game is played from.
@@ -892,6 +995,13 @@ impl<'a> Observed<'a> {
         let Some(galaxy) = self.galaxy else {
             return false;
         };
+        #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
+        if let Some(rules) = self.seat_reach(player, false).and_then(|reach| {
+            reach.rules_for(self.state, self.content, self.sources, destination)
+        }) && let Some(from) = crate::core_adapter::system_ix(origin.as_str())
+        {
+            return rules.can_reach_ship(from, move_value, None);
+        }
         let board = Board::for_player(self.state, self.content, self.sources, player);
         let rules = MovementRules::with_laws(
             galaxy,
@@ -956,14 +1066,20 @@ impl<'a> Observed<'a> {
         if let Some(known) = self.movable.borrow().get(&key) {
             return known.clone();
         }
-        let found = crate::tactical::movable_into(
-            self.state,
-            self.content,
-            self.sources,
-            galaxy,
-            player,
-            destination,
-        );
+        #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
+        let typed = self.typed_movable_into(player, destination);
+        #[cfg(not(all(feature = "typed-core", not(feature = "string-movement"))))]
+        let typed = None;
+        let found = typed.unwrap_or_else(|| {
+            crate::tactical::movable_into(
+                self.state,
+                self.content,
+                self.sources,
+                galaxy,
+                player,
+                destination,
+            )
+        });
         self.movable.borrow_mut().insert(key, found.clone());
         found
     }
@@ -994,7 +1110,11 @@ impl<'a> Observed<'a> {
         if let Some(known) = self.rift_exits.borrow().get(&key) {
             return *known;
         }
-        let found = ti4_content::units::unit_type(self.content, unit_type, self.sources).map_or(
+        #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
+        let typed = self.typed_rift_exits(player, origin, unit_type, boosts, destination);
+        #[cfg(not(all(feature = "typed-core", not(feature = "string-movement"))))]
+        let typed = None;
+        let found = typed.unwrap_or_else(|| ti4_content::units::unit_type(self.content, unit_type, self.sources).map_or(
             0,
             |kind| {
                 crate::tactical::route_rift_exits(
@@ -1010,7 +1130,7 @@ impl<'a> Observed<'a> {
                     boosts,
                 )
             },
-        );
+        ));
         self.rift_exits.borrow_mut().insert(key, found);
         found
     }

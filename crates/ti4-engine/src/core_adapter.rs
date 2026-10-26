@@ -310,11 +310,11 @@ fn names(set: &BTreeSet<String>) -> impl Iterator<Item = &str> {
 ///
 /// # Errors
 /// An id the tables do not know where the search could visit it.
-pub fn rules_from_legacy<'a>(
+pub fn rules_from_legacy(
     rules: &MovementRules<'_>,
     sources: SourceSet,
-    adjacency: &'a Adjacency,
-) -> Result<CoreRules<'a>, Unmapped> {
+    adjacency: &std::rc::Rc<Adjacency>,
+) -> Result<CoreRules, Unmapped> {
     let p = rules.parts();
     let mut blocked: Vec<(SystemIx, SysSet)> = Vec::new();
     for (a, b) in p.blocked_edges {
@@ -339,7 +339,7 @@ pub fn rules_from_legacy<'a>(
         .map(|(k, v)| Ok((k, sys_set(v.iter().map(String::as_str))?)))
         .collect::<Result<Vec<_>, Unmapped>>()?;
     Ok(CoreRules {
-        adjacency,
+        adjacency: adjacency.clone(),
         scope: scope(sources),
         active: sys(p.active_system)?,
         enemy_ships: sys_set_lossy(names(&p.board.enemy_ships)),
@@ -360,6 +360,8 @@ pub fn rules_from_legacy<'a>(
         barred_transit: sys_set_lossy(names(&rules.barred_transit)),
         gravity_rift_systems: sys_set_lossy(names(&rules.gravity_rift_systems)),
         rift_extra_steps: rules.rift_extra_steps,
+        rifts_ignored: rules.rifts_ignored,
+        rift_roll_exempt: sys_set_lossy(names(&rules.rift_roll_exempt)),
         passing_ship_types: unit_set_lossy(names(p.passing_ship_types)),
         own_passage_types: unit_set_lossy(names(p.own_passage_types)),
         own_unit_systems: sys_set_lossy(names(p.own_unit_systems)),
@@ -419,7 +421,7 @@ impl MoverFlags {
         }
     }
 
-    pub fn apply(&self, rules: &mut CoreRules<'_>) {
+    pub fn apply(&self, rules: &mut CoreRules) {
         rules.nebulae_open = self.nebulae_open;
         rules.asteroid_fields_open = self.asteroid_fields_open;
         rules.command_tokens_ignored = self.command_tokens_ignored;
@@ -504,4 +506,143 @@ pub fn all_routes_from_ship(
         )
     })();
     typed.unwrap_or_else(|| rules.all_routes_from_ship(origin, move_value, ship_type))
+}
+
+/// One seat's movement rules for every destination of one position (docs/ENGINE_CORE.md, stage 2).
+///
+/// `MovementRules::with_laws` depends on the destination in one place only: the hooks that take a
+/// `PassSite` (which ship types may pass other players' ships, and which earn steps through the
+/// mover's own systems; Mentak's Corsair reads the active system). Everything else (the board facts,
+/// laws, technologies, cards, the other hooks, the map copies) is the same for every destination.
+/// So the string rules are built **once** per seat and translated, and each destination gets a
+/// copy with its active system and those two sets asked again. The dual run checks, for every
+/// seat and destination of the checked positions, that this equals translating `with_laws` built
+/// for that destination, field by field.
+#[derive(Debug, Clone)]
+pub struct SeatReach {
+    template: CoreRules,
+    player: ti4_model::id::PlayerId,
+    /// The mover's unit types on the board, as `with_laws` collects them for the `PassSite` hooks.
+    types: Vec<String>,
+    /// Systems holding any of the mover's units (`own_unit_systems` when a type earns steps).
+    own_unit_systems: SysSet,
+    site_hooks: bool,
+}
+
+impl SeatReach {
+    /// `effects`: also `action_cards::apply_movement_effects` (what a real move and `movable_into`
+    /// use); without it, the rules `Observed::can_reach` builds (laws only, no cards in hand).
+    #[must_use]
+    pub fn new(
+        state: &GameState,
+        content: &ti4_content::ContentStore,
+        sources: SourceSet,
+        galaxy: &Galaxy,
+        player: &ti4_model::id::PlayerId,
+        effects: bool,
+    ) -> Option<Self> {
+        use crate::factions::hooks_movement as hooks;
+        let any_destination = galaxy.system_ids_holding_things().into_iter().next()?;
+        let board = crate::movement::Board::for_player(state, content, sources, player);
+        let mut rules =
+            MovementRules::with_laws(galaxy, content, sources, any_destination, board, Some(state));
+        if effects {
+            crate::action_cards::apply_movement_effects(&mut rules, state, player);
+        }
+        let adjacency = adjacency_for(rules.parts().galaxy)?;
+        let template = rules_from_legacy(&rules, sources, &adjacency).ok()?;
+        let site_hooks = hooks::any(|table| {
+            table.may_move_through_ships.is_some()
+                || table.own_unit_passage.is_some()
+                || table.unit_adjacent_systems.is_some()
+                || table.ignores_command_tokens.is_some()
+        });
+        let types: Vec<String> = state
+            .board
+            .values()
+            .flat_map(|system| system.units.iter())
+            .filter(|unit| &unit.owner == player)
+            .map(|unit| unit.type_id.as_str())
+            .collect::<BTreeSet<&str>>()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let own_unit_systems = sys_set_lossy(
+            state
+                .board
+                .iter()
+                .filter(|(_, b)| {
+                    b.units
+                        .iter()
+                        .chain(b.planet_units.values().flatten())
+                        .any(|unit| &unit.owner == player)
+                })
+                .map(|(system, _)| system.as_str()),
+        );
+        Some(Self {
+            template,
+            player: player.clone(),
+            types,
+            own_unit_systems,
+            site_hooks,
+        })
+    }
+
+    /// The rules for moving into `destination`; `None` when it is not a corpus system.
+    #[must_use]
+    pub fn rules_for(
+        &self,
+        state: &GameState,
+        content: &ti4_content::ContentStore,
+        sources: SourceSet,
+        destination: &ti4_model::id::SystemId,
+    ) -> Option<CoreRules> {
+        use crate::factions::hooks_movement as hooks;
+        let mut rules = self.template.clone();
+        rules.active = system_ix(destination.as_str())?;
+        rules.passing_ship_types = UnitSet::EMPTY;
+        rules.own_passage_types = UnitSet::EMPTY;
+        rules.own_unit_systems = SysSet::EMPTY;
+        if self.site_hooks {
+            for ship_type in &self.types {
+                let site = hooks::PassSite {
+                    player: &self.player,
+                    active: destination,
+                    ship_type,
+                };
+                if let Some(kind) = unit_ix(ship_type) {
+                    if hooks::may_move_through_ships(state, content, sources, &site) {
+                        rules.passing_ship_types.insert(kind.index());
+                    }
+                    if hooks::own_unit_passage(state, content, sources, &site) {
+                        rules.own_passage_types.insert(kind.index());
+                    }
+                }
+            }
+            if !rules.own_passage_types.is_empty() {
+                rules.own_unit_systems = self.own_unit_systems;
+            }
+        }
+        Some(rules)
+    }
+}
+
+/// What one position's `Observed` keeps for the typed queries: per seat the rules template (with
+/// and without the cards in play) and the fleet.
+#[derive(Debug, Default)]
+pub struct SeatCache {
+    pub reach: BTreeMap<(ti4_model::id::PlayerId, bool), Option<std::rc::Rc<SeatReach>>>,
+    #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
+    pub fleets: BTreeMap<ti4_model::id::PlayerId, std::rc::Rc<crate::tactical::SeatFleet>>,
+}
+
+impl SeatCache {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            reach: BTreeMap::new(),
+            #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
+            fleets: BTreeMap::new(),
+        }
+    }
 }

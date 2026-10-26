@@ -37,6 +37,10 @@ pub struct Report {
     /// Rules with faction-hook state beyond the board facts and per-mover flags.
     pub hooked: usize,
     pub unmapped: usize,
+    /// Stage 2: (seat, destination) pairs whose per-seat typed rules were compared field by field.
+    pub seat_rules: usize,
+    /// Stage 2: `Observed` answers compared (movable ships, can_reach, rift exits).
+    pub observed_answers: usize,
     pub mismatches: Vec<String>,
 }
 
@@ -54,6 +58,8 @@ impl Report {
         self.board_differs += other.board_differs;
         self.hooked += other.hooked;
         self.unmapped += other.unmapped;
+        self.seat_rules += other.seat_rules;
+        self.observed_answers += other.observed_answers;
         self.mismatches.extend(other.mismatches.iter().cloned());
     }
 
@@ -95,7 +101,7 @@ pub fn check_position(position: &Position, routes: bool, report: &mut Report) {
         report.unmapped += 1;
         return;
     };
-    let adjacency = raw_galaxy.adjacency();
+    let adjacency = std::rc::Rc::new(raw_galaxy.adjacency());
     check_adjacency(&position.label, galaxy, &adjacency, report);
     let (Ok(seats), scope) = (Seats::of(state), adapter::scope(sources)) else {
         report.unmapped += 1;
@@ -126,7 +132,7 @@ pub fn check_position(position: &Position, routes: bool, report: &mut Report) {
                 report.hook_copies += 1;
                 match galaxy_from_legacy(legacy.parts().galaxy) {
                     Ok(copy) => {
-                        own = copy.adjacency();
+                        own = std::rc::Rc::new(copy.adjacency());
                         &own
                     }
                     Err(_) => {
@@ -171,7 +177,7 @@ pub fn check_position(position: &Position, routes: bool, report: &mut Report) {
                 report.hooked += 1;
             }
             let plain = (hook_free && board_same).then(|| {
-                let mut rules = CoreRules::with_board(&adjacency, scope, active, enemy, tokens);
+                let mut rules = CoreRules::with_board(adjacency.clone(), scope, active, enemy, tokens);
                 MoverFlags::of(&legacy).apply(&mut rules);
                 rules
             });
@@ -299,6 +305,118 @@ pub fn check_galaxy_variants(position: &Position, report: &mut Report) {
                 report,
             ),
             Err(e) => report.miss(format!("{} {name}: unmapped {e:?}", position.label)),
+        }
+    }
+}
+
+/// Stage 2 (docs/ENGINE_CORE.md): the per-seat rules template retargeted to each destination equals
+/// the translation of `with_laws` built for that destination (field by field, with and without the
+/// cards in play), and every typed `Observed` answer equals the string engine's.
+pub fn check_observed(position: &Position, report: &mut Report) {
+    use ti4_engine::core_adapter::SeatReach;
+    let content = ContentStore::embedded();
+    let (state, galaxy, sources) = (&position.state, &position.galaxy, position.sources);
+    let observed = ti4_engine::choice::Observed::new(state, content, sources, Some(galaxy));
+    for player in &state.players {
+        let reach = [false, true].map(|effects| {
+            SeatReach::new(state, content, sources, galaxy, &player.id, effects)
+        });
+        let fleet = ships(state, content, sources, &player.id);
+        for dest in galaxy.system_ids_holding_things() {
+            let dest_id = ti4_model::id::SystemId::new(dest);
+            for (effects, reach) in [false, true].into_iter().zip(&reach) {
+                let Some(reach) = reach else {
+                    report.unmapped += 1;
+                    continue;
+                };
+                let board = Board::for_player(state, content, sources, &player.id);
+                let mut legacy =
+                    MovementRules::with_laws(galaxy, content, sources, dest, board, Some(state));
+                if effects {
+                    ti4_engine::action_cards::apply_movement_effects(&mut legacy, state, &player.id);
+                }
+                let Some(adjacency) = adapter::adjacency_for(legacy.parts().galaxy) else {
+                    report.unmapped += 1;
+                    continue;
+                };
+                let want = rules_from_legacy(&legacy, sources, &adjacency).ok();
+                let got = reach.rules_for(state, content, sources, &dest_id);
+                report.seat_rules += 1;
+                if want != got {
+                    report.miss(format!(
+                        "{}: seat rules {} to {dest} (effects {effects}) differ",
+                        position.label, player.id
+                    ));
+                }
+                if !effects {
+                    // Observed::can_reach (laws only) for every ship origin and value.
+                    for ship in &fleet {
+                        for mv in [ship.move_value, ship.move_value + 1] {
+                            let want = legacy.can_reach(ship.origin.as_str(), mv);
+                            let got = observed.can_reach(&player.id, &ship.origin, &dest_id, mv);
+                            report.observed_answers += 1;
+                            if want != got {
+                                report.miss(format!(
+                                    "{}: can_reach {} {}->{dest} mv {mv}: {want} vs {got}",
+                                    position.label, player.id, ship.origin
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+            let want = ti4_engine::tactical::movable_into(
+                state, content, sources, galaxy, &player.id, &dest_id,
+            );
+            let got = observed.typed_movable_into(&player.id, &dest_id);
+            report.observed_answers += 1;
+            if got.as_ref() != Some(&want) {
+                report.miss(format!(
+                    "{}: movable_into {} -> {dest}: {} vs {:?} ships",
+                    position.label,
+                    player.id,
+                    want.len(),
+                    got.map(|g| g.len())
+                ));
+            }
+            for ship in &fleet {
+                if ship.origin.as_str() == dest {
+                    continue;
+                }
+                let Some(kind) =
+                    ti4_content::units::unit_type(content, &ship.type_id, sources)
+                else {
+                    continue;
+                };
+                for boosts in [(false, false), (true, false)] {
+                    let want = ti4_engine::tactical::route_rift_exits(
+                        state,
+                        content,
+                        sources,
+                        galaxy,
+                        &player.id,
+                        &dest_id,
+                        ship.origin.as_str(),
+                        &kind,
+                        &ship.type_id,
+                        boosts,
+                    );
+                    let got = observed.typed_rift_exits(
+                        &player.id,
+                        &ship.origin,
+                        &ship.type_id,
+                        boosts,
+                        &dest_id,
+                    );
+                    report.observed_answers += 1;
+                    if got != Some(want) {
+                        report.miss(format!(
+                            "{}: rift exits {} {} {}->{dest} {boosts:?}: {want} vs {got:?}",
+                            position.label, player.id, ship.type_id, ship.origin
+                        ));
+                    }
+                }
+            }
         }
     }
 }
