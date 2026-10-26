@@ -213,6 +213,8 @@ export interface ChoiceRendererDispatcherProps {
   onSetReactionMode?: GameShellProps["onSetReactionMode"];
   /** A decision the client is answering for the seat; its dialog stays closed (movement, nothing movable). */
   autoAnswerNonce?: string | null;
+  /** A decision the client is declining for the seat (a switched-off ability); its offer takes no click. */
+  autoDeclineNonce?: string | null;
   onSubmitMovementBatch?: GameShellProps["onSubmitMovementBatch"];
   onSubmitBasketBatch?: GameShellProps["onSubmitBasketBatch"];
   lastError?: string | null;
@@ -415,8 +417,10 @@ const workflowRenderers = new Map<
       onShowSystem,
       reactionModes,
       onSetReactionMode,
+      autoDeclineNonce,
     }) => (
       <ReactionStatusBar
+        autoDeclining={autoDeclineNonce != null && autoDeclineNonce === choice.nonce}
         players={players}
         onShowSystem={onShowSystem}
         reactionModes={reactionModes}
@@ -741,6 +745,7 @@ export const ChoiceRendererDispatcher: React.FC<
   reactionModes,
   onSetReactionMode,
   autoAnswerNonce,
+  autoDeclineNonce,
 }) => {
   const present = useParticipantText();
   const publicFacts = usePublicState();
@@ -983,6 +988,7 @@ export const ChoiceRendererDispatcher: React.FC<
     onShowSystem,
     reactionModes,
     onSetReactionMode,
+    autoDeclineNonce,
   });
 
   return (
@@ -1165,7 +1171,7 @@ export const GameShell: React.FC<GameShellProps> = ({
     submit: onSubmitChoice,
     onNotice: onAutoSubmitNotice,
   });
-  usePausedPromptAutoDecline({
+  const { decliningNonce } = usePausedPromptAutoDecline({
     choice,
     viewerSeat,
     turn,
@@ -1639,6 +1645,7 @@ export const GameShell: React.FC<GameShellProps> = ({
             key={`${history?.generation ?? 0}:${boardView?.invasion?.invasion_seq ?? "none"}`}
             choice={choice}
             autoAnswerNonce={answeringNonce}
+            autoDeclineNonce={decliningNonce}
             viewerSeat={viewerSeat}
             players={playersMap}
             boardView={boardView}

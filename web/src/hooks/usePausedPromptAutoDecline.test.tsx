@@ -74,6 +74,27 @@ describe("usePausedPromptAutoDecline", () => {
   });
 });
 
+describe("usePausedPromptAutoDecline while sending", () => {
+  beforeEach(() => localStorage.clear());
+
+  // Nightly 2026-10-25 (o2-133-0508 and six more): the offer stayed clickable while its decline was sent.
+  it("reports the question it is declining until the answer is sent, and forgets it when the send fails", async () => {
+    vi.useFakeTimers();
+    localStorage.setItem("player_ask_saar_agent", "false");
+    let finish: (error?: Error) => void = () => undefined;
+    const submit = vi.fn(() => new Promise<void>((resolve, reject) => (finish = (e) => (e ? reject(e) : resolve()))));
+    const r = renderHook((p) => usePausedPromptAutoDecline(p), { initialProps: props(1, null, submit) });
+    r.rerender(props(2, offer("a"), submit));
+    expect(r.result.current?.decliningNonce ?? null).toBeNull();
+    act(() => void vi.advanceTimersByTime(OFFER_DECLINE_DELAY_MS + 10));
+    expect(submit).toHaveBeenCalledWith("decline", "a");
+    expect(r.result.current?.decliningNonce).toBe("a");
+    await act(async () => finish(new Error("rejected")));
+    expect(r.result.current?.decliningNonce ?? null).toBeNull();
+    vi.useRealTimers();
+  });
+});
+
 describe("the prompt controls", () => {
   beforeEach(() => localStorage.clear());
 
