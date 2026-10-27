@@ -41,6 +41,8 @@ pub struct Report {
     pub seat_rules: usize,
     /// Stage 2: `Observed` answers compared (movable ships, can_reach, rift exits).
     pub observed_answers: usize,
+    /// A2: per-ship move values, free-cargo and activation-bar answers of the hook table compared.
+    pub hook_answers: usize,
     /// Stage 4: neighbour (presence) questions compared.
     pub neighbour_answers: usize,
     /// Stage 5: planet and system content answers compared.
@@ -327,6 +329,14 @@ pub fn check_observed(position: &Position, report: &mut Report) {
         report.unmapped += 1;
         return;
     };
+    let mut hooks = ti4_engine::reach_check::ReachCheck::default();
+    ti4_engine::reach_check::compare(&position.label, state, galaxy, sources, &mut hooks);
+    report.seat_rules += hooks.rules as usize;
+    report.unmapped += hooks.unmapped as usize;
+    report.hook_answers += (hooks.ship_values + hooks.unit_hooks) as usize;
+    for m in hooks.mismatches {
+        report.miss(m);
+    }
     for player in &state.players {
         let reach = [false, true].map(|effects| SeatReach::new(&pos, &player.id, effects));
         let fleet = ships(state, content, sources, &player.id);

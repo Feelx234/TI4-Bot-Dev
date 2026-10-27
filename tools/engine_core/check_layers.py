@@ -33,6 +33,9 @@ CORE_LAYER = {
     'driver': 5,
 }
 FACTIONS_LAYER = 6
+# Files that sit above their directory's layer: the movement rules builder is a query by shape (a pure
+# read of `&CoreState`) but reads the hook table, so it is an L3 module (package A2).
+FILE_LAYER = {('query', 'reach'): 3}
 
 # --- the string engine's tiers (4.2) ---
 TIERS = {
@@ -101,7 +104,7 @@ def check_core(core_root, factions_root):
             if head in ('lib', 'main', 'mod'):
                 continue
             if floor is None:
-                layer = CORE_LAYER.get(head)
+                layer = FILE_LAYER.get((head, sub), CORE_LAYER.get(head))
                 if layer is None:
                     bad.append(f'{os.path.relpath(path, REPO)}: module `{head}` has no layer (add it to CORE_LAYER)')
                     continue
