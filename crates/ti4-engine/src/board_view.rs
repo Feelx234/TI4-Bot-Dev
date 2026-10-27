@@ -370,3 +370,47 @@ impl BoardView {
         Some(query::laws::bombardment_forbidden(&self.view, self.blanked, self.scope, typed(planet.as_str())?))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ti4_engine_core::generated::Unit;
+
+    #[test]
+    fn constants_and_tables_match_the_string_engine() {
+        assert_eq!(query::laws::RULES_DMZ_EXPLORATION, ti4_model::state::RULES_DMZ_EXPLORATION);
+        assert_eq!(query::economy::TOKENS_PER_FACTION, ti4_model::state::TOKENS_PER_FACTION);
+        assert_eq!(query::fleet::UNLIMITED_FLEET_BILL, crate::fleet::UNLIMITED_FLEET_BILL);
+        let content = ti4_content::ContentStore::embedded();
+        let types = ti4_content::units::catalogue(content, ti4_model::content_types::FULL);
+        for u in Unit::ALL {
+            let Some(t) = types.get(u.as_str()) else { continue };
+            assert_eq!(query::fleet::fighter_support(u), t.fighter_support(), "{u:?}");
+            assert_eq!(query::fleet::capacity(u), t.capacity(), "{u:?}");
+            assert_eq!(query::fleet::capacity_cost(u), t.capacity_cost(), "{u:?}");
+            assert_eq!(query::fleet::counts_against_supply(u), crate::fleet::counts_against_supply(t), "{u:?}");
+            assert_eq!(query::fleet::consumes_capacity(u), t.consumes_capacity(), "{u:?}");
+        }
+        for base in ti4_engine_core::generated::UnitBaseType::ALL {
+            assert_eq!(query::fleet::plastic(base), crate::supply::plastic(base.as_str()), "{base:?}");
+        }
+    }
+
+    #[test]
+    fn law_aliases_name_the_agendas_the_string_engine_reads() {
+        use query::laws::*;
+        for (law, alias) in [
+            (FLEET_REGULATIONS, "regulations"), (SANCTIONS, "sanctions"), (CENSURE, "censure"),
+            (SHARED_RESEARCH, "shared_research"), (DEFENSE_ACT, "defense_act"), (CONVENTIONS, "conventions"),
+            (DEMILITARIZED_ZONE, "demilitarized_zone"), (HOLY_PLANET_OF_IXTH, "holy_planet_of_ixth"),
+            (CORE_MINING, "core_mining"), (SENATE_SANCTUARY, "senate_sanctuary"),
+            (TERRAFORMING_INITIATIVE, "terraforming_initiative"), (CONSCRIPTION, "conscription"),
+            (REP_GOVT, "rep_govt"), (REPRESENTATIVE_GOVERNMENT, "representative_government"),
+            (TRAVEL_BAN, "travel_ban"), (WORMHOLE_RECON, "wormhole_recon"),
+            (MINISTER_EXPLORATION, "minister_exploration"), (MINISTER_POLICY, "minister_policy"),
+        ] {
+            assert_eq!(law.as_str(), alias);
+        }
+        assert_eq!(ti4_engine_core::generated::Attachment::DemilitarizedZone.as_str(), crate::laws::DMZ_ATTACHMENT);
+    }
+}
