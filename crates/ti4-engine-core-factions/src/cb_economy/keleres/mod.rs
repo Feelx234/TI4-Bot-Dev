@@ -4,26 +4,22 @@
 
 use ti4_engine_core::hooks::HookTable;
 
-mod observe;
-mod offer;
-mod query;
+pub mod observe;
+pub mod offer;
+pub mod query;
 
-/// Keleres is three string modules (`MODULE_M`, `MODULE_X`, `MODULE_A`); each registers its own part.
+/// Keleres is three string modules (`MODULE_M`, `MODULE_X`, `MODULE_A`) in the `MODULES` order, but only
+/// `MODULE_M` carries the hooks (`HOOKS`); X and A "claim only" (`hooks: Hooks::NONE`). Registering the
+/// hooks in all three would triple every summed slot, so X and A register nothing: their string order position
+/// is kept by the `Id`s, which is what the dispatch order needs.
 pub fn register_m(t: &mut HookTable) {
     query::register(t);
     observe::register(t);
     offer::register(t);
 }
 
-pub fn register_x(t: &mut HookTable) {
-    query::register(t);
-    observe::register(t);
-    offer::register(t);
-}
+/// `MODULE_X`: claims only (no hooks).
+pub fn register_x(_: &mut HookTable) {}
 
-pub fn register_a(t: &mut HookTable) {
-    query::register(t);
-    observe::register(t);
-    offer::register(t);
-}
-
+/// `MODULE_A`: claims only (no hooks).
+pub fn register_a(_: &mut HookTable) {}
