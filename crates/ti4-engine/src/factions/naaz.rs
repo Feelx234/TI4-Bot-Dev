@@ -472,7 +472,7 @@ fn explored(
 }
 
 fn explored_text(
-ut GameState,
+    state: &mut GameState,
     _content: &ContentStore,
     _sources: SourceSet,
     player: &PlayerId,
