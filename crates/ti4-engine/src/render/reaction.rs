@@ -44,9 +44,9 @@ impl Family for Fam {
     }
 
     fn parse(r: &Render, _: &Ask, id: &str) -> Option<Opt> {
-        // An ability id: `kind:...:EVENT:when|after`, known to the interner (registered).
+        // An ability id: `kind:...:EVENT:when|after|produce`, known to the interner (registered).
         let parts: Vec<&str> = id.split(':').collect();
-        if parts.len() < 4 || !matches!(parts[parts.len() - 1], "when" | "after") {
+        if parts.len() < 4 {
             return None;
         }
         r.find_code(id)?;

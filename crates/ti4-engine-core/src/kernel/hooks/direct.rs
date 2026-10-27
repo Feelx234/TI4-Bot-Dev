@@ -89,6 +89,9 @@ hook_group! {
         /// Non-home systems with planets the player controls (Bastion objective count). String: `choice`.
         call bastion_units_non_home_systems_with_planets(s: &CoreState, k: &Kernel, who: Seat) -> usize;
 
+        /// Last Bastion commander: the player's action cards cannot be cancelled by Sabotage. String: `reactions`.
+        call bastion_commander_blocks_sabotage(s: &CoreState, who: Seat) -> bool;
+
         // ---- Borrowed agents -------------------------------------------------------------------------
         /// Extra dice from a borrowed round agent. String: `combat`, `invasion`.
         call borrowed_round_agents_extra_die_for(s: &CoreState, k: &Kernel, system: System, planet: Option<Planet>, who: Seat, unit: Unit, unit_index: usize, round_seq: u32) -> i64;

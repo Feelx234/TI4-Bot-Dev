@@ -11,7 +11,7 @@ use crate::containers::SmallList;
 use crate::generated::{ActionCard, Agenda, Leader, Planet, StrategyCard, System, Technology, Unit};
 use crate::ids::Seat;
 
-use super::Code;
+use super::{Code, Outcome};
 
 /// A payload key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -186,6 +186,8 @@ pub enum Val {
     Agenda(Agenda),
     Leader(Leader),
     Tech(Technology),
+    /// An agenda outcome (`AGENDA_RESOLVED`'s `player`: a seat, `for`/`against`, a law, a planet).
+    Outcome(Outcome),
     Int(i64),
     Flag(bool),
     /// A text outside every closed set (adapter-interned).
@@ -256,6 +258,7 @@ impl Payload {
         agenda, Agenda, Agenda;
         leader, Leader, Leader;
         tech, Tech, Technology;
+        outcome, Outcome, Outcome;
         int, Int, i64;
         flag, Flag, bool;
         code, Code, Code;
