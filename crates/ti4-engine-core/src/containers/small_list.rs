@@ -13,6 +13,7 @@ enum Repr<T: Copy, const N: usize> {
     Empty,
     Inline { len: u8, items: [T; N] },
     /// Boxed so the spill costs one pointer in the enum, not three words.
+    #[allow(clippy::box_collection, reason = "keeps the enum at 16 bytes")]
     Heap(Box<Vec<T>>),
 }
 
