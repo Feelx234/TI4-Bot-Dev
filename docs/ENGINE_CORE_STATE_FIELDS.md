@@ -31,7 +31,7 @@ behind one `Cow`; `LeaderSlot[4]` became a `SortedMap<Leader, LeaderStatus, 5>` 
 | active_system | `meta.active_system` | |
 | pending (`Option<String>`, only `"move"`) | `pending.tag: PendingTag` | the window stack is new (`pending.stack`) |
 | exhausted_planets | `PlanetCell.flags.EXHAUSTED` | |
-| revealed_objectives | `objectives.revealed` | |
+| revealed_objectives | `objectives.revealed: SmallList<ObjectiveRef>` | `ObjectiveRef` = public id, or a secret id made public (Classified Document Leaks) |
 | objective_deck | `decks.objective` | |
 | scored_objectives | `objectives.scored[seat]` (`ObjectiveSet`) + `scored_present` | public/secret classes merge by text outside the core |
 | finished | `meta.finished` | |
@@ -39,7 +39,7 @@ behind one `Cow`; `LeaderSlot[4]` became a `SortedMap<Leader, LeaderStatus, 5>` 
 | planet_attachments | `PlanetCell.attach` | `flags.ATTACH_ENTRY` |
 | exploration_log | `explore.log: Log<ExploreRec>` | `outcome`, `result`, gain keys, `placed` are `Code` |
 | legacy_device_ids | `meta.flags.LEGACY_DEVICE_IDS` | |
-| starting_tech_picks | `transient.misc.starting_tech_picks` | |
+| starting_tech_picks | `transient.misc.starting_tech_picks` | `Listed` keeps the faction-sheet order (`TechList`, at most 24) |
 | agenda_log | `agenda.log` | `AgendaRec`; `name` is derived text (not stored); `discard_reason` is `Code` |
 | agenda_casts | `agenda.casts` | |
 | relic_log | `ledger.relics` | |
@@ -77,6 +77,7 @@ behind one `Cow`; `LeaderSlot[4]` became a `SortedMap<Leader, LeaderStatus, 5>` 
 | last_reroll_player, last_committed_unit, last_sustain, last_ship_destroyed, last_control_gained, last_combat_sides, last_action_discarded, pending_reflective_hits | `transient.combat.*` | |
 | pending_destructions | `transient.combat.pending_destructions` | reason = `Code` |
 | action_card_plays, declared_card_plays | `transient.misc.*` | |
+| combat dice (`CombatDie.unit`) | `Code` | a unit type or a pooled group text such as `carrier+fighter` |
 | active_space_combat | `transient.combat.active_space_combat` | |
 | active_invasion | `transient.invasion.active` | `phase`, step `kind`, die `group` are `Code` |
 | combat_round_hits / combat_round_dice / combat_presentation | `transient.combat.*` | `phase` is `Code` |

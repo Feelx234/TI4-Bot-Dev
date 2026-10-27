@@ -36,7 +36,7 @@ pub use ledger::{EventKind, EventRec, Ledger, LedgerReason, RelicRec, RollPurpos
 pub use map::MapSlice;
 pub use marks::{MarkFamily, MarkKey, MarkVal, Marks};
 pub use meta::{Meta, MetaFlags, Phase};
-pub use objectives::{ObjectiveSet, Objectives};
+pub use objectives::{ObjectiveRef, ObjectiveSet, Objectives};
 pub use pending::{DriverFlags, Pending, PendingAsk, PendingTag, Window, WindowKind};
 pub use piece::Piece;
 pub use player::{
