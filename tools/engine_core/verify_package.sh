@@ -75,9 +75,16 @@ if [[ -n "$dual" ]]; then
   sed 's/^/     /' "$out/dual-golden.log" | head -12 | tee -a "$out/summary.txt"
   if [[ "$area" == board ]]; then
     check dual-templates "$target/release/board_equivalence" templates
-    note "     $(tail -1 "$out/dual-templates.log")"
+    note "     $(grep '^board queries' "$out/dual-templates.log" | tail -1)"
     check dual-positions "$target/release/board_equivalence" golden tools/engine_profile/profile-20.json 20 10
-    note "     $(tail -1 "$out/dual-positions.log")"
+    note "     $(grep '^board queries' "$out/dual-positions.log" | tail -1)"
+  fi
+  if [[ "$area" == strategy ]]; then
+    # B8: the strategy reads next to the string functions (the same bin prints both summaries).
+    check dual-templates "$target/release/board_equivalence" templates
+    note "     $(grep '^strategy reads' "$out/dual-templates.log" | tail -1)"
+    check dual-positions "$target/release/board_equivalence" golden tools/engine_profile/profile-20.json 20 10
+    note "     $(grep '^strategy reads' "$out/dual-positions.log" | tail -1)"
   fi
   if [[ "$area" == movement ]]; then
     check dual-templates "$target/release/core_equivalence" templates --routes
