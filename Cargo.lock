@@ -4133,6 +4133,7 @@ version = "0.1.0"
 dependencies = [
  "mimalloc",
  "serde_json",
+ "sha2",
  "strum",
  "ti4-content",
  "ti4-engine",
@@ -4142,6 +4143,7 @@ dependencies = [
  "ti4-rule-bot",
  "ti4-selfplay",
  "ti4-wasm",
+ "zstd 0.13.3",
 ]
 
 [[package]]
