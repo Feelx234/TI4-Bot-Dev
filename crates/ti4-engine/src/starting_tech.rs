@@ -103,19 +103,10 @@ pub fn options(
                 .filter(|t| crate::technology::faction_of(content, t).is_none())
                 .collect()
         }
-        StartingTechSource::Researchable => crate::technology::active_aliases(content, sources)
-            .into_iter()
-            .filter(|t| {
-                crate::technology::can_research(state, content, sources, &pick.player, t)
-                    && crate::technology::prerequisites_met(
-                        state,
-                        content,
-                        sources,
-                        &pick.player,
-                        t,
-                    )
-            })
-            .collect(),
+        // Researchable with the prerequisites met: the seat's holdings are read once, not per card.
+        StartingTechSource::Researchable => {
+            crate::technology::researchable_by_prerequisites(state, content, sources, &pick.player)
+        }
     };
     open.retain(|t| !me.technologies.contains(t));
     open.sort();

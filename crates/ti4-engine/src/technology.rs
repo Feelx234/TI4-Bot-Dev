@@ -35,6 +35,22 @@ pub fn plasma_scoring(state: &GameState, player: &PlayerId) -> bool {
 /// `sources` adds the Thunder's Edge technologies (all faction cards) when that expansion is in play.
 #[must_use]
 pub fn active_aliases(content: &ContentStore, sources: SourceSet) -> BTreeSet<TechnologyId> {
+    #[cfg(feature = "typed-core")]
+    let typed = || Some(crate::technology_core::active_aliases(sources));
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Technology,
+        "technology::active_aliases",
+        typed(),
+        active_aliases_text(content, sources)
+    )
+}
+
+/// [`active_aliases`] from the content records and the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn active_aliases_text(content: &ContentStore, sources: SourceSet) -> BTreeSet<TechnologyId> {
     let mut active: BTreeSet<TechnologyId> = content
         .get(ContentType::Decks, "techs_pok_c4")
         .map(|deck| {
@@ -925,7 +941,23 @@ pub fn colour_of(letter: char) -> Option<&'static str> {
 
 /// What a technology needs, as counts per colour.
 #[must_use]
-pub fn prerequisites(
+pub fn prerequisites(content: &ContentStore, alias: &TechnologyId) -> BTreeMap<&'static str, usize> {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::technology_core::prerequisites(alias);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Technology,
+        "technology::prerequisites",
+        typed(),
+        prerequisites_text(content, alias)
+    )
+}
+
+/// [`prerequisites`] from the content records and the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn prerequisites_text(
     content: &ContentStore,
     alias: &TechnologyId,
 ) -> BTreeMap<&'static str, usize> {
@@ -955,6 +987,22 @@ pub fn prerequisites(
 /// The colour a technology itself counts as, if any.
 #[must_use]
 pub fn colour_type(content: &ContentStore, alias: &TechnologyId) -> Option<&'static str> {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::technology_core::colour_type(alias);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Technology,
+        "technology::colour_type",
+        typed(),
+        colour_type_text(content, alias)
+    )
+}
+
+/// [`colour_type`] from the content records and the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn colour_type_text(content: &ContentStore, alias: &TechnologyId) -> Option<&'static str> {
     let record = content.get(ContentType::Technologies, alias.as_str())?;
     let types = record.strings("types");
     COLOURS
@@ -966,6 +1014,22 @@ pub fn colour_type(content: &ContentStore, alias: &TechnologyId) -> Option<&'sta
 /// Whether this is a unit upgrade, which has no colour (90.7b).
 #[must_use]
 pub fn is_unit_upgrade(content: &ContentStore, alias: &TechnologyId) -> bool {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::technology_core::is_unit_upgrade(alias);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Technology,
+        "technology::is_unit_upgrade",
+        typed(),
+        is_unit_upgrade_text(content, alias)
+    )
+}
+
+/// [`is_unit_upgrade`] from the content records and the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn is_unit_upgrade_text(content: &ContentStore, alias: &TechnologyId) -> bool {
     content
         .get(ContentType::Technologies, alias.as_str())
         .is_some_and(|record| record.strings("types").contains(&"UNITUPGRADE"))
@@ -974,6 +1038,22 @@ pub fn is_unit_upgrade(content: &ContentStore, alias: &TechnologyId) -> bool {
 /// The faction a technology belongs to, if it is faction-specific (90.11).
 #[must_use]
 pub fn faction_of<'a>(content: &'a ContentStore, alias: &TechnologyId) -> Option<&'a str> {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::technology_core::faction_of(alias);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Technology,
+        "technology::faction_of",
+        typed(),
+        faction_of_text(content, alias)
+    )
+}
+
+/// [`faction_of`] from the content records and the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn faction_of_text<'a>(content: &'a ContentStore, alias: &TechnologyId) -> Option<&'a str> {
     content
         .get(ContentType::Technologies, alias.as_str())
         .and_then(|record| record.text("faction"))
@@ -986,6 +1066,22 @@ pub fn faction_of<'a>(content: &'a ContentStore, alias: &TechnologyId) -> Option
 /// `baseUpgrade` on a faction technology names the generic unit upgrade it replaces.
 #[must_use]
 pub fn replaced_for_faction(content: &ContentStore, faction: &str, alias: &TechnologyId) -> bool {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::technology_core::replaced_for_faction(faction, alias);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Technology,
+        "technology::replaced_for_faction",
+        typed(),
+        replaced_for_faction_text(content, faction, alias)
+    )
+}
+
+/// [`replaced_for_faction`] from the content records and the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn replaced_for_faction_text(content: &ContentStore, faction: &str, alias: &TechnologyId) -> bool {
     if faction.is_empty() {
         return false;
     }
@@ -1000,7 +1096,23 @@ pub fn replaced_for_faction(content: &ContentStore, faction: &str, alias: &Techn
 
 /// How many technologies of each colour this player owns (90.7a).
 #[must_use]
-pub fn owned_colours(
+pub fn owned_colours(state: &GameState, content: &ContentStore, player: &PlayerId) -> BTreeMap<&'static str, usize> {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::technology_core::owned_colours(state, player);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Technology,
+        "technology::owned_colours",
+        typed(),
+        owned_colours_text(state, content, player)
+    )
+}
+
+/// [`owned_colours`] from the content records and the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn owned_colours_text(
     state: &GameState,
     content: &ContentStore,
     player: &PlayerId,
@@ -1030,7 +1142,23 @@ pub fn psychoarchaeology_frees_specialties(state: &GameState, player: &PlayerId)
 /// A specialty stands in for one prerequisite of its colour (90.8), which is most of why a
 /// planet with one is worth taking.
 #[must_use]
-pub fn specialties(
+pub fn specialties(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId) -> BTreeMap<&'static str, usize> {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::technology_core::specialties_map(state, sources, player);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Technology,
+        "technology::specialties",
+        typed(),
+        specialties_text(state, content, sources, player)
+    )
+}
+
+/// [`specialties`] from the content records and the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn specialties_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1050,6 +1178,13 @@ pub fn specialties(
         }
     }
     found
+}
+
+/// The index of the research track a module names (the position in [`COLOURS`]).
+#[must_use]
+pub(crate) fn track_index(name: &str) -> Option<usize> {
+    let track = track_named(name)?;
+    COLOURS.iter().position(|c| *c == track)
 }
 
 /// The research track a module names by track or by colour (`"green"` is BIOTIC).
@@ -1109,7 +1244,23 @@ pub(crate) fn faction_waiver_required(
 
 /// Whether this player may research a technology now.
 #[must_use]
-pub fn can_research(
+pub fn can_research(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, alias: &TechnologyId) -> bool {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::technology_core::can_research(state, content, sources, player, alias);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Technology,
+        "technology::can_research",
+        typed(),
+        can_research_text(state, content, sources, player, alias)
+    )
+}
+
+/// [`can_research`] from the content records and the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn can_research_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1211,7 +1362,23 @@ fn aida_waiver(
 }
 
 /// [`prerequisites_met`], optionally leaving out AI Development Algorithm's waiver.
-fn prerequisites_met_with(
+fn prerequisites_met_with(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, alias: &TechnologyId, with_aida: bool) -> bool {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::technology_core::prerequisites_met(state, content, sources, player, alias, with_aida);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Technology,
+        "technology::prerequisites_met",
+        typed(),
+        prerequisites_met_with_text(state, content, sources, player, alias, with_aida)
+    )
+}
+
+/// [`prerequisites_met_with`] from the content records and the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn prerequisites_met_with_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1272,7 +1439,23 @@ fn prerequisites_met_with(
 /// (rules version `RULES_ENIGMATIC_DEVICE`). Waiver-only technologies (Inheritance Systems, faction
 /// waivers) are left out: those charge a second price, and the card's six resources are the price.
 #[must_use]
-pub fn researchable_by_prerequisites(
+pub fn researchable_by_prerequisites(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId) -> Vec<TechnologyId> {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::technology_core::researchable_by_prerequisites(state, content, sources, player);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Technology,
+        "technology::researchable_by_prerequisites",
+        typed(),
+        researchable_by_prerequisites_text(state, content, sources, player)
+    )
+}
+
+/// [`researchable_by_prerequisites`] from the content records and the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn researchable_by_prerequisites_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1305,7 +1488,23 @@ pub fn research_chosen(
 /// `technologies.json` — choice option order must not follow corpus extraction order
 /// (F-M08-019-1; the oracle sorted here too).
 #[must_use]
-pub fn researchable(
+pub fn researchable(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId) -> Vec<TechnologyId> {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::technology_core::researchable(state, content, sources, player);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Technology,
+        "technology::researchable",
+        typed(),
+        researchable_text(state, content, sources, player)
+    )
+}
+
+/// [`researchable`] from the content records and the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn researchable_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,

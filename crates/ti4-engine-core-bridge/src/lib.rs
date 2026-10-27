@@ -4,3 +4,4 @@
 pub use ti4_engine::core_adapter as adapter;
 pub mod check;
 pub mod workload;
+pub mod check_tech;
