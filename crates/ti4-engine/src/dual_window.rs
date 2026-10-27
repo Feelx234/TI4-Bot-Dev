@@ -4,7 +4,7 @@
 //!
 //! * [`start`] / [`finish`]: while a recording runs, [`note_ask`] (called by `Table::ask*`) and
 //!   [`leave_emit`] (called when an outermost `Resolver::emit*` returns) append to it. Questions and emits
-//!   that happen inside an emission (a reaction window's decisions, the events an ability causes) are not
+//!   that happen inside an emission of the window (a reaction window's decisions, the events an ability causes) are not
 //!   the window's own and are left out: the A5 reaction dual (`kernel_sync::shim`) covers them. Costs one
 //!   thread-local read per ask and per emit outside a recording.
 //! * [`drive`]: runs a core [`Window`] through the [`Driver`], rendering each question, comparing nothing
@@ -47,6 +47,9 @@ pub struct Asked {
 pub struct Recording {
     pub questions: Vec<Asked>,
     pub emits: Vec<Event>,
+    /// The emission depth the window started at: a window may itself run inside an emission (an ability's
+    /// effect opens a combat), and its own level is that depth, not zero.
+    base: u32,
 }
 
 thread_local! {
@@ -61,7 +64,7 @@ pub fn start() -> bool {
         if r.is_some() {
             return false;
         }
-        *r = Some(Recording::default());
+        *r = Some(Recording { base: DEPTH.with(Cell::get), ..Recording::default() });
         true
     })
 }
@@ -73,31 +76,31 @@ pub fn finish() -> Recording {
 
 /// A question was put (`Table::ask*`).
 pub fn note_ask(choice: &Choice, outcome: &Result<ChoiceOption, IllegalChoice>) {
-    if DEPTH.with(Cell::get) != 0 {
-        return;
-    }
+    let depth = DEPTH.with(Cell::get);
     REC.with(|r| {
-        if let Some(rec) = r.borrow_mut().as_mut() {
+        if let Some(rec) = r.borrow_mut().as_mut().filter(|rec| rec.base == depth) {
             rec.questions.push(Asked { choice: choice.clone(), answer: outcome.as_ref().ok().map(|o| o.id.clone()) });
         }
     });
 }
 
-/// An emission begins; the token says whether it is the outermost one.
+/// An emission begins; the token is the depth it begins at.
 #[must_use]
-pub fn enter_emit() -> bool {
+pub fn enter_emit() -> u32 {
     DEPTH.with(|d| {
-        d.set(d.get() + 1);
-        d.get() == 1
+        let before = d.get();
+        d.set(before + 1);
+        before
     })
 }
 
-/// The emission ended (`done`: the finished event, `None` on an error).
-pub fn leave_emit(outermost: bool, done: Option<&Event>) {
-    DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
-    if let (true, Some(event)) = (outermost, done) {
+/// The emission that began at depth `began` ended (`done`: the finished event, `None` on an error). It is
+/// the window's own when it began at the recording's base depth.
+pub fn leave_emit(began: u32, done: Option<&Event>) {
+    DEPTH.with(|d| d.set(began));
+    if let Some(event) = done {
         REC.with(|r| {
-            if let Some(rec) = r.borrow_mut().as_mut() {
+            if let Some(rec) = r.borrow_mut().as_mut().filter(|rec| rec.base == began) {
                 rec.emits.push(event.clone());
             }
         });
