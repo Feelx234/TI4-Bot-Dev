@@ -267,13 +267,13 @@ pub trait Host {
 
     /// Whether this ability participates at all (a fork binding that stops a seat's reactions). Checked
     /// before the condition. Default: yes.
-    fn participates(&self, _ability: &AbilityDef) -> bool {
+    fn participates(&mut self, _ability: &AbilityDef) -> bool {
         true
     }
 
     /// Political Secret (version 17): no faction ability, no action card, for this seat. Checked for
     /// `ability:` slots before the condition. Default: not barred.
-    fn bars_faction_abilities(&self, _who: Seat) -> bool {
+    fn bars_faction_abilities(&mut self, _who: Seat) -> bool {
         false
     }
 
@@ -413,6 +413,28 @@ impl Resolver {
     pub fn sync_lifecycle(&mut self, round_number: u32, turn_number: u32) {
         self.round_number = u64::from(round_number);
         self.turn_number = u64::from(turn_number);
+    }
+
+    /// Set the frequency counters outright (restoring a resolver from another representation).
+    pub fn set_counters(&mut self, round_number: u64, turn_number: u64) {
+        self.round_number = round_number;
+        self.turn_number = turn_number;
+    }
+
+    /// Mark a frequency key as spent (restoring the used keys of another representation, in order).
+    pub fn spend(&mut self, ability: AbilityId, scope: UsedScope, counter: u64) {
+        let scope = match scope {
+            UsedScope::Trigger => Scope::Trigger(counter),
+            UsedScope::Turn => Scope::Turn(counter),
+            UsedScope::Round => Scope::Round(counter),
+        };
+        self.used.insert((ability, scope));
+    }
+
+    /// The maximum simultaneous event depth.
+    #[must_use]
+    pub const fn maximum_depth(&self) -> usize {
+        self.maximum_depth
     }
 
     /// Advance the turn counter and change the active player.
@@ -811,5 +833,237 @@ impl SeatBits {
         let new = !self.has(s);
         self.0 |= s.bit();
         new
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::choice::reaction::AbilityKind;
+
+    fn id(n: u16) -> AbilityId {
+        AbilityId { kind: AbilityKind::Other, key: Code(n) }
+    }
+
+    fn ev(id: u64, kind: EventKind) -> EventRec {
+        EventRec { id, kind, payload: crate::state::Payload::new(), cancelled: false }
+    }
+
+    /// A host that records effects, answers conditions from a set, and picks by script.
+    #[derive(Default)]
+    struct Script {
+        state: CoreState,
+        effects: Vec<(Seat, AbilityId)>,
+        false_conditions: Vec<AbilityId>,
+        answers: Vec<usize>,
+        asked: Vec<usize>,
+        cancel_on: Option<AbilityId>,
+        nested: Option<(AbilityId, EventKind)>,
+    }
+
+    impl Host for Script {
+        fn state(&self) -> &CoreState {
+            &self.state
+        }
+        fn condition(&mut self, a: &AbilityDef, _: &EventRec, _: &Resolver) -> bool {
+            !self.false_conditions.contains(&a.id)
+        }
+        fn forbids(&mut self, c: &CannotDef, e: &EventRec) -> bool {
+            (c.arg == 1 && e.kind == EventKind::ShipMoved)
+        }
+        fn effect(&mut self, a: &AbilityDef, e: &mut EventRec, r: &mut Resolver) -> Result<(), TimingError> {
+            self.effects.push((a.owner, a.id));
+            if self.cancel_on == Some(a.id) {
+                e.cancelled = true;
+            }
+            if let Some((who, kind)) = self.nested.filter(|(w, _)| *w == a.id) {
+                let _ = who;
+                self.nested = None;
+                r.emit(self, ev(e.id + 100, kind), |_, _, _| {})?;
+            }
+            Ok(())
+        }
+        fn decide(&mut self, choice: &Choice, _: &EventRec, _: &[u64]) -> Pick {
+            let i = if self.answers.is_empty() { choice.opts.len() - 1 } else { self.answers.remove(0) };
+            self.asked.push(choice.opts.len());
+            choice.pick(i).unwrap()
+        }
+    }
+
+    fn def(n: u16, owner: u8, kind: EventKind, rel: Relation) -> AbilityDef {
+        AbilityDef::new(id(n), Seat(owner), kind, rel)
+    }
+
+    fn resolver() -> Resolver {
+        Resolver::new(&[Seat(0), Seat(1), Seat(2)], Some(Seat(0)))
+    }
+
+    #[test]
+    fn registration_is_partitioned_by_event_and_relation_without_reordering() {
+        let mut r = resolver();
+        r.register([
+            def(1, 0, EventKind::ShipMoved, Relation::After),
+            def(2, 1, EventKind::ShipMoved, Relation::When),
+            def(3, 2, EventKind::ShipMoved, Relation::After),
+            def(4, 0, EventKind::TurnBegan, Relation::After),
+        ]);
+        let after: Vec<_> = r.for_event(EventKind::ShipMoved, Relation::After).map(|a| a.id).collect();
+        assert_eq!(after, vec![id(1), id(3)]);
+        assert_eq!(r.for_event(EventKind::TurnBegan, Relation::When).count(), 0);
+    }
+
+    #[test]
+    fn when_precedes_resolution_precedes_after_and_players_go_in_initiative_order() {
+        let mut r = resolver();
+        r.set_active_player(Some(Seat(1)));
+        r.register([
+            def(1, 0, EventKind::ShipMoved, Relation::After),
+            def(2, 1, EventKind::ShipMoved, Relation::After),
+            def(3, 2, EventKind::ShipMoved, Relation::When),
+        ]);
+        let mut h = Script::default();
+        let mut order = Vec::new();
+        r.emit(&mut h, ev(1, EventKind::ShipMoved), |_, h, _| order.push(h.effects.len())).unwrap();
+        // WHEN effect first (1 effect done at resolution), then AFTER from seat 1, then seat 2's turn
+        // comes before seat 0 (rotation 1,2,0).
+        assert_eq!(order, vec![1]);
+        assert_eq!(h.effects, vec![(Seat(2), id(3)), (Seat(1), id(2)), (Seat(0), id(1))]);
+        assert_eq!(r.applied_events().len(), 1);
+        assert!(matches!(r.log()[0], Line::Emit { id: 1, .. }));
+    }
+
+    #[test]
+    fn strategy_and_agenda_windows_rotate_from_the_speaker() {
+        let mut r = resolver();
+        r.set_phase(Phase::Agenda);
+        r.set_seating_order(&[Seat(0), Seat(1), Seat(2)]);
+        r.set_speaker(Some(Seat(2)));
+        assert_eq!(r.player_order().as_slice(), &[Seat(2), Seat(0), Seat(1)]);
+        r.set_speaker(Some(Seat(7)));
+        assert_eq!(r.player_order().as_slice(), &[Seat(7), Seat(0), Seat(1), Seat(2)]);
+    }
+
+    #[test]
+    fn a_pass_is_reoffered_after_another_player_resolves() {
+        let mut r = resolver();
+        let opt = |n, o| def(n, o, EventKind::TurnBegan, Relation::After).with_optional(true).with_frequency(Frequency::Unlimited).with_repeatable(true);
+        r.register([opt(1, 0), opt(2, 1)]);
+        // seat 0 declines (index 1 = decline), seat 1 resolves, seat 0 is offered nothing more (passed).
+        let mut h = Script { answers: vec![1, 0, 1], ..Script::default() };
+        r.emit(&mut h, ev(1, EventKind::TurnBegan), |_, _, _| {}).unwrap();
+        assert_eq!(h.effects[0], (Seat(1), id(2)));
+        assert!(r.log().iter().any(|l| matches!(l, Line::Declines { who: Seat(0), .. })));
+    }
+
+    #[test]
+    fn a_when_cancellation_skips_resolution_and_after() {
+        let mut r = resolver();
+        r.register([
+            def(1, 0, EventKind::ShipMoved, Relation::When),
+            def(2, 0, EventKind::ShipMoved, Relation::After),
+        ]);
+        let mut h = Script { cancel_on: Some(id(1)), ..Script::default() };
+        let mut resolved = false;
+        let out = r.emit(&mut h, ev(1, EventKind::ShipMoved), |_, _, _| resolved = true).unwrap();
+        assert!(out.cancelled && !resolved);
+        assert_eq!(h.effects.len(), 1);
+        assert!(matches!(r.log().last(), Some(Line::Cancelled { id: 1, .. })));
+    }
+
+    #[test]
+    fn a_cannot_cancels_the_event_before_resolution() {
+        let mut r = resolver();
+        r.forbid(CannotDef { label: Code(9), arg: 1 });
+        r.register([def(2, 0, EventKind::ShipMoved, Relation::After)]);
+        let mut h = Script::default();
+        let mut resolved = false;
+        let out = r.emit(&mut h, ev(1, EventKind::ShipMoved), |_, _, _| resolved = true).unwrap();
+        assert!(out.cancelled && !resolved && h.effects.is_empty());
+        assert!(matches!(r.log().last(), Some(Line::Forbidden { label: Code(9), .. })));
+    }
+
+    #[test]
+    fn nested_events_resolve_depth_first_and_depth_is_bounded() {
+        let mut r = resolver();
+        r.register([
+            def(1, 0, EventKind::ShipMoved, Relation::When),
+            def(2, 0, EventKind::TurnBegan, Relation::When),
+        ]);
+        let mut h = Script { nested: Some((id(1), EventKind::TurnBegan)), ..Script::default() };
+        r.emit(&mut h, ev(1, EventKind::ShipMoved), |_, _, _| {}).unwrap();
+        assert_eq!(h.effects, vec![(Seat(0), id(1)), (Seat(0), id(2))]);
+        let journal: Vec<u64> = r.applied_events().iter().map(|e| e.id).collect();
+        assert_eq!(journal, vec![1, 101], "the parent keeps its place ahead of the nested event");
+
+        let mut r = resolver();
+        r.set_maximum_depth(1);
+        r.register([def(1, 0, EventKind::ShipMoved, Relation::When)]);
+        let mut h = Script { nested: Some((id(1), EventKind::TurnBegan)), ..Script::default() };
+        let err = r.emit(&mut h, ev(1, EventKind::ShipMoved), |_, _, _| {}).unwrap_err();
+        assert!(matches!(err, TimingError::NestedEmissionDepthExceeded { maximum_depth: 1, .. }));
+        assert!(r.applied_events().is_empty() && r.emission_stack().is_empty());
+    }
+
+    #[test]
+    fn frequency_scopes_lapse_with_their_counters() {
+        let mut r = resolver();
+        let once = |n, f| def(n, 0, EventKind::TurnBegan, Relation::After).with_frequency(f);
+        r.register([once(1, Frequency::OncePerTrigger), once(2, Frequency::OncePerTurn), once(3, Frequency::OncePerRound), once(4, Frequency::Unlimited)]);
+        let mut h = Script::default();
+        r.emit(&mut h, ev(1, EventKind::TurnBegan), |_, _, _| {}).unwrap();
+        assert_eq!(h.effects.len(), 4);
+        h.effects.clear();
+        r.emit(&mut h, ev(2, EventKind::TurnBegan), |_, _, _| {}).unwrap();
+        // trigger-scoped lapses with a new event id; turn and round keys persist; unlimited fires again
+        let mut got = h.effects.iter().map(|e| e.1).collect::<Vec<_>>();
+        got.sort();
+        assert_eq!(got, vec![id(1), id(4)]);
+        h.effects.clear();
+        r.begin_turn(Seat(1)).unwrap();
+        r.emit(&mut h, ev(3, EventKind::TurnBegan), |_, _, _| {}).unwrap();
+        assert!(h.effects.iter().any(|e| e.1 == id(2)) && !h.effects.iter().any(|e| e.1 == id(3)));
+        h.effects.clear();
+        r.begin_round().unwrap();
+        r.emit(&mut h, ev(4, EventKind::TurnBegan), |_, _, _| {}).unwrap();
+        assert!(h.effects.iter().any(|e| e.1 == id(3)));
+    }
+
+    #[test]
+    fn a_false_condition_or_a_political_secret_removes_the_ability() {
+        let mut r = resolver();
+        r.register([
+            def(1, 0, EventKind::TurnBegan, Relation::After).with_condition(),
+            AbilityDef::new(AbilityId { kind: AbilityKind::Ability, key: Code(2) }, Seat(0), EventKind::TurnBegan, Relation::After),
+        ]);
+        let mut h = Script { false_conditions: vec![id(1)], ..Script::default() };
+        r.emit(&mut h, ev(1, EventKind::TurnBegan), |_, _, _| {}).unwrap();
+        assert_eq!(h.effects.len(), 1, "the unconditional ability only");
+    }
+
+    #[test]
+    fn checkpoint_undoes_what_was_added_after_it() {
+        let mut r = resolver();
+        r.register([def(1, 0, EventKind::TurnBegan, Relation::After)]);
+        let mut h = Script::default();
+        let cp = r.checkpoint();
+        r.register([def(2, 1, EventKind::TurnBegan, Relation::After)]);
+        r.forbid(CannotDef { label: Code(1), arg: 5 });
+        r.emit(&mut h, ev(1, EventKind::TurnBegan), |_, _, _| {}).unwrap();
+        assert_eq!(r.registry().len(), 2);
+        r.restore(cp);
+        assert_eq!(r.registry().len(), 1);
+        assert!(r.registry().cannots().is_empty());
+        assert!(r.log().is_empty() && r.applied_events().is_empty() && r.used_keys().is_empty());
+        assert_eq!(r.for_event(EventKind::TurnBegan, Relation::After).count(), 1);
+    }
+
+    #[test]
+    fn one_mandatory_ability_is_not_asked_but_a_choice_is() {
+        let mut r = resolver();
+        r.register([def(1, 0, EventKind::TurnBegan, Relation::After), def(2, 0, EventKind::TurnBegan, Relation::After)]);
+        let mut h = Script { answers: vec![1], ..Script::default() };
+        r.emit(&mut h, ev(1, EventKind::TurnBegan), |_, _, _| {}).unwrap();
+        assert_eq!(h.asked, vec![2]);
+        assert_eq!(h.effects[0].1, id(2));
     }
 }

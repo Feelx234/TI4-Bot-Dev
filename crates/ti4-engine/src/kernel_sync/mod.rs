@@ -3,4 +3,6 @@
 //! the string resolver's trace through the core `Resolver` (docs/ENGINE_CORE_STATE.md 3.3).
 
 pub mod text;
+pub mod shim;
+pub mod trace;
 pub use text::{ability_id, ability_text, event_kind, event_text, key_of, key_text};
