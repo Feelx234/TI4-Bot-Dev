@@ -21,7 +21,7 @@ use crate::core_sync::{CoreView, Ctx, Sources};
 use crate::generated::IdStr;
 
 /// What the production reads need.
-pub const READS: SliceSet = SliceSet::of(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Agenda, Slice::Marks]);
+pub const READS: SliceSet = SliceSet::of(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Agenda, Slice::Marks, Slice::Strategy, Slice::Cards, Slice::Trade, Slice::Transient]);
 
 /// The typed view of one position.
 pub struct ProdView<'a> {
@@ -36,22 +36,16 @@ pub struct ProdView<'a> {
 /// The factions whose string modules still answer production questions with hooks the typed seams do not
 /// carry yet (package CB): the typed reads decline and the caller keeps the string answer.
 fn unported_economy(state: &GameState) -> bool {
-    use crate::factions::{arborec, argent, bastion, cabal, crimson, ghost, keleres, muaat, naaz, ralnel, saar, winnu};
+    use crate::factions::{arborec, bastion, crimson, ghost, muaat, naaz, ralnel, saar};
     let held = [
         arborec::MODULE.alias,
-        argent::MODULE.alias,
         bastion::MODULE.alias,
-        cabal::MODULE.alias,
         crimson::MODULE.alias,
         ghost::MODULE.alias,
-        keleres::MODULE_M.alias,
-        keleres::MODULE_X.alias,
-        keleres::MODULE_A.alias,
         muaat::MODULE.alias,
         naaz::MODULE.alias,
         ralnel::MODULE.alias,
         saar::MODULE.alias,
-        winnu::MODULE.alias,
     ];
     state.players.iter().any(|p| held.contains(&p.faction.as_str()))
 }
@@ -62,6 +56,8 @@ fn kernel() -> &'static Kernel {
     static KERNEL: std::sync::OnceLock<Kernel> = std::sync::OnceLock::new();
     KERNEL.get_or_init(|| {
         let mut k = crate::core_adapter::kernel_for(ti4_model::content_types::FULL).clone();
+        k.hooks = ti4_engine_core::hooks::HookTable::new();
+        ti4_engine_core_factions::register_all(&mut k.hooks);
         ti4_engine_core::kernel::seam::providers::register_core(&mut k.hooks);
         ti4_engine_core::kernel::seam::adapters::bridge_legacy(&mut k.hooks.seam);
         k
