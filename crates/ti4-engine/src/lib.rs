@@ -29,6 +29,8 @@ pub mod decision_context;
 pub mod deck;
 pub mod dice;
 pub mod dual;
+#[cfg(feature = "typed-core")]
+#[doc(hidden)]
 pub mod core_factions;
 pub mod dual_window;
 pub mod diplomacy;
