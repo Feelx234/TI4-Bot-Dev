@@ -285,11 +285,16 @@ fn present_together(
 ) -> bool {
     // The typed core's adjacency (docs/ENGINE_CORE.md, stage 4); the text form when an id is not
     // mapped or the core is switched off.
-    #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
-    if let Some(answer) = crate::core_adapter::present_together(galaxy, here, there) {
-        return answer;
-    }
-    present_together_text(galaxy, here, there)
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::core_adapter::present_together(galaxy, here, there);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Movement,
+        "transactions::present_together",
+        typed(),
+        present_together_text(galaxy, here, there)
+    )
 }
 
 /// [`present_together`] on the string galaxy: the oracle of the dual run.

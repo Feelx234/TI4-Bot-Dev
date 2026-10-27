@@ -219,6 +219,10 @@ fn init_default() {
                 Err(error) => eprintln!("TI4_AREAS ignored: {error}"),
             }
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        if std::env::var("TI4_DUAL_FAIL_FAST").is_ok_and(|v| v != "0") {
+            FAIL_FAST.store(true, Ordering::Relaxed);
+        }
         // A binary that already called `set_default_mask` keeps its value.
         let _ = DEFAULT_CORE.compare_exchange(u64::MAX, pack(mask), Ordering::Relaxed, Ordering::Relaxed);
     });
@@ -841,6 +845,38 @@ pub fn run_dual_query<R: PartialEq + Debug>(
     note_call(area);
     compare_value(area, label, &s, &c);
     s
+}
+
+/// The `Dual` path of [`dual_typed!`]: the string answer, compared with the typed one when it has
+/// one (`None`: the core could not express the question and the string answer stands).
+pub fn run_dual_typed<R: PartialEq + Debug>(
+    area: Area,
+    label: &str,
+    typed: impl FnOnce() -> Option<R>,
+    string: impl FnOnce() -> R,
+) -> R {
+    let s = string();
+    if let Some(c) = typed() {
+        note_call(area);
+        compare_value(area, label, &s, &c);
+    }
+    s
+}
+
+/// A call site where the core may decline (`None` = not mapped, fall back to the string side):
+/// `dual_typed!(Area::X, "label", typed_expr_option, string_expr)`. Each expression is evaluated
+/// only on its backend; `Dual` evaluates both and compares when the core answered.
+#[macro_export]
+macro_rules! dual_typed {
+    ($area:expr, $label:expr, $typed:expr, $string:expr) => {
+        match $crate::dual::backend($area) {
+            $crate::dual::Backend::String => $string,
+            $crate::dual::Backend::Core => ($typed).unwrap_or_else(|| $string),
+            $crate::dual::Backend::Dual => {
+                $crate::dual::run_dual_typed($area, $label, || $typed, || $string)
+            }
+        }
+    };
 }
 
 /// A stateful call site: `dual!(Area::X, "label", state, |s| string side, |s| core side)`, both
