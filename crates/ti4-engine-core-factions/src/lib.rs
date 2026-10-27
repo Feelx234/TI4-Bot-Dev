@@ -4,14 +4,15 @@
 //! A faction module is a function `fn(&mut HookTable)` that pushes the module's hook functions into the
 //! slots of `ti4_engine_core::kernel::hooks::HookTable`; [`register_all`] runs them in the string
 //! engine's `factions::MODULES` order, which is the order of [`Id`]. That order fixes the dice stream
-//! (a fold or a sum visits the modules in it), so it is **not** the order of the shards.
+//! (a fold or a sum visits the modules in it), so it is **not** the order of the packages.
 //!
 //! # Layout (disjoint file ownership)
 //!
-//! One directory per shard (`c1_movement/`, ...): the shard adds `<faction>.rs` files to its own
-//! directory and lists them in its own `mod.rs` (`MODULES`, a table of `(Id, register)`). This file, the
-//! [`Id`] list and [`SHARDS`] are written once here and not touched by a shard, so six shards merge
-//! without a conflict.
+//! Five packages CA to CE, one directory each (`ca_combat/` ... `ce_movement/`), one sub-directory per
+//! faction, one file per tier (`movement.rs` for package A2's slots, then `query.rs` tier Q, `observe.rs`
+//! tier O, `offer.rs` tier W). A package edits only the files of its own directory; this file, [`common`]
+//! and the [`Id`] list are the steward's (package C0) and do not change when a package merges, so five
+//! branches merge in any order without a conflict. Which package owns which faction is [`PACKAGES`].
 //!
 //! # Rules
 //!
@@ -20,15 +21,18 @@
 //! * A hook is called for every seat: it checks its own condition (`faction == ..` or the card held)
 //!   and returns the neutral value otherwise. See `ti4_engine_core::kernel::hooks`.
 //! * One slot function per string `Hooks` entry, same name, same condition, same order of effects.
+//! * Providers that are not factions (laws, relics, technology, promissory notes, leaders) register on the
+//!   same seams through `ti4_engine_core::kernel::seam`; they live with the package that owns the area.
 
-use ti4_engine_core::kernel::hooks::HookTable;
+use ti4_engine_core::hooks::HookTable;
 
-pub mod c1_movement;
-pub mod c2_economy;
-pub mod c3_combat;
-pub mod c4_strategy;
-pub mod c5_cross;
-pub mod c6_late;
+pub mod common;
+
+pub mod ca_combat;
+pub mod cb_economy;
+pub mod cc_ground;
+pub mod cd_registry;
+pub mod ce_movement;
 
 /// A registered module: one entry of the string engine's `factions::MODULES` (Keleres has three).
 /// The discriminant is the position in that array; [`Id::Borrowed`] is last and registers only the
@@ -100,36 +104,56 @@ impl Id {
     ];
 }
 
-/// What a shard exports: its modules and their registration functions.
+/// What a package exports: its modules and their registration functions.
 pub type Modules = &'static [(Id, fn(&mut HookTable))];
 
-/// The six shards, `C1` to `C6`.
-pub const SHARDS: [Modules; 6] = [
-    c1_movement::MODULES,
-    c2_economy::MODULES,
-    c3_combat::MODULES,
-    c4_strategy::MODULES,
-    c5_cross::MODULES,
-    c6_late::MODULES,
+/// The five packages, `CA` to `CE`: all their tiers.
+pub const PACKAGES: [Modules; 5] = [
+    ca_combat::MODULES,
+    cb_economy::MODULES,
+    cc_ground::MODULES,
+    cd_registry::MODULES,
+    ce_movement::MODULES,
 ];
 
-/// The modules no shard provides yet (empty when wave C is done).
+/// The movement slots only (package A2), per package.
+const MOVEMENT: [Modules; 5] = [
+    ca_combat::MOVEMENT,
+    cb_economy::MOVEMENT,
+    cc_ground::MOVEMENT,
+    cd_registry::MOVEMENT,
+    ce_movement::MOVEMENT,
+];
+
+/// The modules no package provides yet (empty when wave C is done).
 #[must_use]
 pub fn missing() -> Vec<Id> {
-    Id::ALL.into_iter().filter(|id| !SHARDS.iter().any(|s| s.iter().any(|(i, _)| i == id))).collect()
+    Id::ALL.into_iter().filter(|id| !PACKAGES.iter().any(|s| s.iter().any(|(i, _)| i == id))).collect()
 }
 
-/// Fill `table` with every ported faction module, in [`Id`] order whichever shard provides it.
-pub fn register_all(table: &mut HookTable) {
+fn register_in_order(table: &mut HookTable, packages: &[Modules]) {
     for id in Id::ALL {
-        for shard in SHARDS {
-            for (i, register) in shard {
+        for package in packages {
+            for (i, register) in *package {
                 if *i == id {
                     register(table);
                 }
             }
         }
     }
+}
+
+/// Fill `table` with every faction module, in [`Id`] order whichever package provides it.
+pub fn register_all(table: &mut HookTable) {
+    register_in_order(table, &PACKAGES);
+}
+
+/// A table with the movement slots of every faction filled (package A2), in [`Id`] order.
+#[must_use]
+pub fn movement_table() -> HookTable {
+    let mut table = HookTable::new();
+    register_in_order(&mut table, &MOVEMENT);
+    table
 }
 
 #[cfg(test)]
@@ -139,23 +163,30 @@ mod tests {
     #[test]
     fn no_module_has_two_providers() {
         for id in Id::ALL {
-            let n = SHARDS.iter().flat_map(|s| s.iter()).filter(|(i, _)| *i == id).count();
+            let n = PACKAGES.iter().flat_map(|s| s.iter()).filter(|(i, _)| *i == id).count();
             assert!(n <= 1, "{id:?} is provided {n} times");
         }
     }
 
     #[test]
-    fn registration_follows_the_dispatch_order_not_the_shard_order() {
-        // C1 holds Muaat and C3 holds nothing yet; a table filled by register_all has Muaat's slots.
-        let mut t = HookTable::new();
-        register_all(&mut t);
-        assert!(t.movement.may_enter_supernova.len() <= 1);
-    }
-
-    /// The last shard to merge removes `#[ignore]`: all 28 modules are provided.
-    #[test]
-    #[ignore = "wave C is not finished"]
     fn every_module_is_provided() {
         assert_eq!(missing(), Vec::<Id>::new());
+    }
+
+    #[test]
+    fn the_movement_table_is_the_movement_part_of_the_full_table() {
+        let mut full = HookTable::new();
+        register_all(&mut full);
+        let movement = movement_table();
+        assert_eq!(full.registered(), movement.registered(), "no other slot is filled yet");
+        assert_eq!(MOVEMENT.iter().map(|m| m.len()).sum::<usize>(), 14, "A2 ports 14 factions");
+    }
+
+    #[test]
+    fn registration_follows_the_dispatch_order_not_the_package_order() {
+        // Ids are registered in `Id::ALL` order: each movement list is a subsequence of it.
+        for m in MOVEMENT {
+            assert!(m.windows(2).all(|w| w[0].0 < w[1].0), "a package lists its modules in dispatch order");
+        }
     }
 }
