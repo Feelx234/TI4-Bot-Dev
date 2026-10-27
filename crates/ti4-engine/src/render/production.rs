@@ -44,7 +44,7 @@ impl Family for Fam {
     fn prompt(_: &Render, a: &Ask) -> String {
         match a {
             Ask::Pay(p) => format!("pay {} more {}", p.owed, name(p.kind)),
-            Ask::Choose(_) => "produce units".to_owned(),
+            Ask::Choose(c) => format!("produce in {} ({} left)", <System as IdStr>::as_str(c.system), c.remaining),
             Ask::Place(p) => format!("place the {}", unit_id(p.unit)),
         }
     }
@@ -97,7 +97,7 @@ impl Family for Fam {
                         Delta::new(Quantity::TradeGoods, goods, goods - 1),
                     ]))
             }
-            Opt::Build { .. } | Opt::Exchange { .. } | Opt::Place { .. } => unreachable!("builds are asked by Ask::Choose"),
+            Opt::Build { .. } | Opt::Exchange { .. } | Opt::Place { .. } | Opt::Stop => unreachable!("builds are asked by Ask::Choose"),
             Opt::Commodity { shown } => {
                 let worth = i64::from(shown.worth);
                 ChoiceOption::labelled("commodity", crate::production::PAY_KIND, "spend a commodity as a trade good")
@@ -106,6 +106,13 @@ impl Family for Fam {
                     .with("kind", name(kind))
                     .previewed(Preview::certain(vec![Delta::new(quantity(kind), pool, pool - worth)]))
             }
+        }
+    }
+
+    fn details(r: &Render, a: &Ask) -> serde_json::Map<String, serde_json::Value> {
+        match a {
+            Ask::Choose(c) => choose_details(r, c).unwrap_or_default(),
+            _ => serde_json::Map::new(),
         }
     }
 
@@ -163,7 +170,8 @@ fn unit_id(u: Unit) -> &'static str {
     <Unit as IdStr>::as_str(u)
 }
 
-fn spot_text(s: Spot) -> String {
+#[must_use]
+pub fn spot_text(s: Spot) -> String {
     match s {
         Spot::Space => crate::production::SPACE.to_owned(),
         Spot::Planet(p) => planet_id(p).to_owned(),
@@ -177,6 +185,9 @@ fn spot_text(s: Spot) -> String {
 }
 
 fn parse_build(id: &str) -> Option<Opt> {
+    if id == "done_producing" {
+        return Some(Opt::Stop);
+    }
     if let Some(rest) = id.strip_prefix("build|") {
         let (unit, made) = rest.split_once('|')?;
         return Some(Opt::Build { unit: <Unit as IdStr>::from_id(unit)?, made: made.parse().ok()? });
@@ -229,6 +240,7 @@ fn capacity_facts(option: ChoiceOption, unit: Unit, placed: usize, spots: &[Stri
 /// A Choosing option, with the numbers the position gives (see `production_view::choosing_info`).
 fn build_option(r: &Render, ask: &ChooseAsk, o: &Opt) -> ChoiceOption {
     let (unit, exchange) = match *o {
+        Opt::Stop => return ChoiceOption::labelled("done_producing", "decline", "produce nothing further"),
         Opt::Build { unit, .. } => (unit, false),
         Opt::Exchange { unit } => (unit, true),
         _ => unreachable!("payment options are asked by Ask::Pay"),
@@ -325,4 +337,70 @@ fn place_option(r: &Render, ask: &PlaceAsk, o: &Opt) -> ChoiceOption {
         &info.after,
     )
     .previewed(Preview::certain(limit_deltas(&info.before, &info.after).to_vec()))
+}
+
+/// `Choice.details` of the Choosing question: fleet supply, this system's capacity, the box limits.
+fn choose_details(r: &Render, c: &ChooseAsk) -> Option<serde_json::Map<String, serde_json::Value>> {
+    use ti4_engine_core::generated::UnitBaseType;
+    use ti4_engine_core::query::{board, fleet as fl};
+    let pos = r.position()?;
+    let core: &ti4_engine_core::state::CoreState = &pos.state;
+    let scope = ti4_engine_core::tables::Scope(u32::from(pos.kernel.sources.0));
+    let cx = ti4_engine_core::rules::production::Cx::new(core, pos.kernel, scope, ti4_engine_core::query::reach::blanked(core));
+    let standing = ti4_engine_core::rules::production::standing_before(&cx, c.who, c);
+    let mut fleet_supply = serde_json::json!({ "used": standing.fleet_charged, "limit": standing.fleet_limit });
+    if fl::is_unlimited(core, c.who) {
+        fleet_supply["unlimited"] = serde_json::Value::Bool(true);
+    }
+    if c.armada > 0 {
+        fleet_supply["armada"] = serde_json::json!(c.armada);
+    }
+    let fighters_here: i64 = board::space_units(core, c.system)
+        .iter()
+        .filter(|p| p.owner() == c.who && p.kind().data().base_type == UnitBaseType::Fighter)
+        .map(|p| fl::capacity_cost(p.kind()))
+        .sum();
+    let support: i64 = board::planets_of(core, c.system)
+        .map(|pl| board::planet_units(core, pl).iter().filter(|p| p.owner() == c.who).map(|p| fl::fighter_support(p.kind())).sum::<i64>())
+        .sum();
+    let capacity = serde_json::json!({
+        "transport": standing.transport,
+        "consumed": standing.consumed,
+        "fighters": fighters_here,
+        "unused_support": (support - fighters_here).max(0),
+    });
+    let mut limits = serde_json::Map::new();
+    for unit in c.buildable.iter().flatten() {
+        let base = unit.data().base_type;
+        let Some(limit) = fl::plastic(base) else { continue };
+        let id = unit_id(*unit);
+        let base_text = <UnitBaseType as IdStr>::as_str(base);
+        if let Some(entry) = limits.get_mut(base_text) {
+            entry["units"].as_array_mut().expect("units array").push(serde_json::json!(id));
+            continue;
+        }
+        let held = fl::held_on_board(core, scope, c.who, base);
+        limits.insert(
+            base_text.to_owned(),
+            serde_json::json!({ "units": [id], "limit": limit, "held": held, "remaining": (limit - held).max(0) }),
+        );
+    }
+    let mut out = serde_json::Map::new();
+    out.insert("fleet_supply".to_owned(), fleet_supply);
+    out.insert("capacity".to_owned(), capacity);
+    out.insert("unit_limits".to_owned(), serde_json::Value::Object(limits));
+    Some(out)
+}
+
+/// The spot a report text (`space`, a planet id or `system@at`) names.
+#[must_use]
+pub fn spot_of(text: &str) -> Option<Spot> {
+    match text.split_once(crate::production::REMOTE_SEPARATOR) {
+        Some((system, rest)) => Some(Spot::Remote(
+            <System as IdStr>::from_id(system)?,
+            if rest == crate::production::SPACE { None } else { Some(<Planet as IdStr>::from_id(rest)?) },
+        )),
+        None if text == crate::production::SPACE => Some(Spot::Space),
+        None => Some(Spot::Planet(<Planet as IdStr>::from_id(text)?)),
+    }
 }

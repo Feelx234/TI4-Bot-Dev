@@ -233,6 +233,8 @@ pub fn structure_allowed(cx: &Cx<'_>, who: Seat, planet: Planet, base: UnitBaseT
     structure_limit(base).is_none_or(|cap| structures_on(cx, who, planet, base) < cap)
 }
 
+pub mod window;
+
 pub use crate::choice::production::Spot;
 
 /// `production::placements` (68.2 to 68.4).
@@ -625,11 +627,11 @@ pub fn build_for(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, unit: Unit, ex: &Extra
 
 /// The Choosing question's options: for each buildable unit the paid build, then the exchange.
 #[must_use]
-pub fn build_opts(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, buildable: &[Unit], ex: &Extras<'_>) -> SmallList<PayOpt, 18> {
+pub fn build_opts(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, ex: &Extras<'_>) -> SmallList<PayOpt, 18> {
     let before = standing_at(cx, who, ask, ask.system, None);
     let spendable = available(cx, who, Spend::Resources, ex);
     let mut out = SmallList::new();
-    for unit in buildable {
+    for unit in ask.buildable.iter().flatten() {
         let Some(info) = build_for(cx, who, ask, *unit, ex, &before, spendable) else { continue };
         if info.affordable {
             out.push(PayOpt::Build { unit: *unit, made: u8::try_from(info.made).unwrap_or(u8::MAX) });

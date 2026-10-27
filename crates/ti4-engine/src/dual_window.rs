@@ -209,7 +209,7 @@ pub fn drive<W: Window>(
 }
 
 /// The tables a core half needs, for one position. `None`: more than 16 owners.
-fn tables(gs: &GameState) -> Option<(Ctx, Render)> {
+pub(crate) fn tables(gs: &GameState) -> Option<(Ctx, Render)> {
     let cx = Ctx::of(gs).ok()?;
     let r = Render::new(cx.owners.ids().to_vec());
     Some((cx, r))

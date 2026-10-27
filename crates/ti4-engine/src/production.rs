@@ -3040,6 +3040,7 @@ impl ProductionWindow {
                 only_unit: self.only_unit.as_deref(),
                 max_unit_cost: self.max_unit_cost,
                 produced: self.report.produced.iter().map(|(unit, _)| unit.as_str()).collect(),
+                armada: i64::from(crate::faction_abilities::armada_bonus(state, content, &self.player)),
             };
             let buildable = buildable_for(state, content, sources, &self.player);
             crate::production_view::ProdView::of(state, content, sources)?.build_options(&self.player, &inputs, &buildable)
@@ -3524,9 +3525,25 @@ impl Window for ProductionWindow {
         ctx: &mut Resolving<'_>,
         answer: ChoiceOption,
     ) -> Result<(), IllegalChoice> {
+        if self.resolve_step(state, ctx, answer)? {
+            self.finish_use(state, ctx)?;
+        }
+        Ok(())
+    }
+}
+
+impl ProductionWindow {
+    /// [`Window::resolve`] without the end-of-use effects: the answer, then `settle`. `true` when it reached
+    /// `settle`, so the caller runs [`Self::finish_use`].
+    pub(crate) fn resolve_step(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        answer: ChoiceOption,
+    ) -> Result<bool, IllegalChoice> {
         let (content, sources) = (ctx.content, ctx.sources);
         let Some(choice) = self.pending_choice(state, content, sources) else {
-            return Ok(());
+            return Ok(false);
         };
         let option = crate::choice::validate(&choice, answer)?;
 
@@ -3545,7 +3562,7 @@ impl Window for ProductionWindow {
                 } else if let Some(rest) = option.id.strip_prefix("build|") {
                     let mut parts = rest.split('|');
                     let Some(id) = parts.next() else {
-                        return Ok(());
+                        return Ok(false);
                     };
                     let made = parts
                         .next()
@@ -3592,7 +3609,7 @@ impl Window for ProductionWindow {
                         id,
                     ) {
                         self.stage = Stage::Done;
-                        return Ok(());
+                        return Ok(false);
                     }
                     self.purchased = true;
                     self.stage = Stage::Placing {
@@ -3622,7 +3639,7 @@ impl Window for ProductionWindow {
                     &option,
                 ) else {
                     self.stage = Stage::Done; // unreachable for validated answers: abort
-                    return Ok(());
+                    return Ok(false);
                 };
                 let owed = owed - worth;
                 let paid = paid + worth;
@@ -3656,6 +3673,17 @@ impl Window for ProductionWindow {
             }
         }
         self.settle(state, content, sources, ctx)?;
+        Ok(true)
+    }
+
+    /// The effects at the end of a use of PRODUCTION: Auto-Factories, the Prophecy of Ixth, the announcement and
+    /// Self-Assembly Routines. Run once, where the use reaches `Done`.
+    pub(crate) fn finish_use(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+    ) -> Result<(), IllegalChoice> {
+        let (content, sources) = (ctx.content, ctx.sources);
         // After `settle`, not before: the loop inside it can be what reaches `Done`, and a check
         // ahead of it would miss exactly the uses that ended without another question.
         //
@@ -3693,6 +3721,118 @@ impl Window for ProductionWindow {
             }
         }
         Ok(())
+    }
+}
+
+/// What a production window says about itself between two questions, for the window dual: the stage and the
+/// fields a step changes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowSnap {
+    pub stage: String,
+    pub remaining: i64,
+    pub free_capacity: i64,
+    pub small_exemptions: i64,
+    pub credit: i64,
+    pub discount_remaining: i64,
+    pub purchased: bool,
+    pub placement_timing_done: bool,
+    pub produced: Vec<(String, String)>,
+}
+
+impl ProductionWindow {
+    pub(crate) fn snap(&self) -> WindowSnap {
+        WindowSnap {
+            stage: match &self.stage {
+                Stage::Choosing => "choosing".to_owned(),
+                Stage::Paying { id, owed, made, cost, paid } => format!("paying|{id}|{owed}|{made}|{cost}|{paid}"),
+                Stage::Placing { id, made } => format!("placing|{id}|{made}"),
+                Stage::Done => "done".to_owned(),
+            },
+            remaining: self.remaining,
+            free_capacity: self.free_capacity,
+            small_exemptions: self.small_unit_exemptions,
+            credit: self.credit,
+            discount_remaining: self.discount_remaining,
+            purchased: self.purchased,
+            placement_timing_done: self.placement_timing_done,
+            produced: self.report.produced.iter().map(|(u, w)| (u.as_str().to_owned(), w.clone())).collect(),
+        }
+    }
+
+    /// The window as the core window starts from it (`None`: something is outside what the core holds).
+    #[cfg(feature = "typed-core")]
+    pub(crate) fn to_core(
+        &self,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        seat: ti4_engine_core::Seat,
+        emit_timing: bool,
+    ) -> Option<ti4_engine_core::rules::production::window::ProductionWindow> {
+        use ti4_engine_core::generated::{System, Unit};
+        use ti4_engine_core::rules::production::window as cw;
+        let unit = |id: &str| <Unit as crate::generated::IdStr>::from_id(id);
+        if self.ability || self.settled || self.fixed_limit.is_some() || self.agent_spent {
+            return None;
+        }
+        let narrow = |n: i64| i32::try_from(n).ok();
+        let fleet_limit = if crate::fleet::is_unlimited(state, &self.player) {
+            crate::fleet::UNLIMITED_FLEET_BILL
+        } else {
+            i64::from(crate::fleet::limit(state, content, &self.player)).max(0)
+        };
+        let buildable_ids = crate::production_view::buildable_for(state, content, sources, &self.player)?;
+        if buildable_ids.len() > 9 {
+            return None;
+        }
+        let mut buildable = [None; 9];
+        for (slot, id) in buildable.iter_mut().zip(&buildable_ids) {
+            *slot = Some(unit(id)?);
+        }
+        let mut produced = ti4_engine_core::containers::SmallList::new();
+        for (id, at) in &self.report.produced {
+            produced.push((unit(id.as_str())?, crate::render::production::spot_of(at)?));
+        }
+        let stage = match &self.stage {
+            Stage::Choosing => cw::Stage::Choosing,
+            Stage::Paying { id, owed, made, cost, paid } => cw::Stage::Paying {
+                unit: unit(id)?,
+                owed: narrow(*owed)?,
+                made: u8::try_from(*made).ok()?,
+                cost: narrow(*cost)?,
+                paid: narrow(*paid)?,
+            },
+            Stage::Placing { id, made } => cw::Stage::Placing { unit: unit(id)?, made: u8::try_from(*made).ok()? },
+            Stage::Done => cw::Stage::Done,
+        };
+        Some(cw::ProductionWindow {
+            who: seat,
+            system: <System as crate::generated::IdStr>::from_id(self.system.as_str())?,
+            stage,
+            limit: narrow(self.limit)?,
+            remaining: narrow(self.remaining)?,
+            free_capacity: narrow(self.free_capacity)?,
+            small_exemptions: narrow(self.small_unit_exemptions)?,
+            credit: narrow(self.credit)?,
+            discount_remaining: narrow(self.discount_remaining)?,
+            fleet_limit: narrow(fleet_limit)?,
+            armada: i32::try_from(crate::faction_abilities::armada_bonus(state, content, &self.player)).ok()?,
+            free_this_use: self.free_this_use,
+            flagship_free: crate::promissory::has_commander_ability(state, &self.player, "nomadcommander"),
+            only_unit: match &self.only_unit {
+                Some(id) => Some(unit(id)?),
+                None => None,
+            },
+            max_unit_cost: match self.max_unit_cost {
+                Some(m) => Some(narrow(m)?),
+                None => None,
+            },
+            buildable,
+            produced,
+            purchased: self.purchased,
+            placement_timing_done: self.placement_timing_done,
+            emit_timing,
+        })
     }
 }
 
@@ -3975,31 +4115,41 @@ pub fn resolve_timed(
     // here; the tactical action's production step does the same in `game.rs`).
     agency_supply_network(state, &mut ctx, galaxy, player, system)?;
     while let Some(choice) = window.pending_choice(state, content, sources) {
-        let answer = match ctx
-            .table
-            .ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))
-        {
-            Ok(answer) => answer,
-            Err(error) => {
-                crate::factions::observe(
-                    state,
-                    crate::factions::Obs::AgentDestinationsSpent {
-                        player,
-                        system,
-                    },
-                );
-                if agent_window {
-                    crate::factions::observe(
-                        state,
-                        crate::factions::Obs::PaymentWindowClosed {
-                            player,
-                        },
-                    );
+        // One question and its answer is also a step of the core window: on `production=dual` both run from
+        // this position and are compared (question, answer, state, events, the window's fields).
+        #[cfg(feature = "typed-core")]
+        let before = window.clone();
+        let emit_timing = ctx.timing.is_some();
+        let mut finish = false;
+        let mut outcome: Result<(), IllegalChoice> = Ok(());
+        crate::dual_window!(
+            crate::dual::Area::Production,
+            "ProductionWindow::step",
+            state,
+            |s: &mut GameState| {
+                outcome = ctx
+                    .table
+                    .ask_seeing(&choice, &Observed::new(s, content, sources, galaxy))
+                    .and_then(|answer| window.resolve_step(s, &mut ctx, answer))
+                    .map(|reached_settle| finish = reached_settle);
+                crate::dual::Run::new(window.snap())
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                #[cfg(feature = "typed-core")]
+                {
+                    crate::production_window_dual::step(&before, s, content, sources, player, script, emit_timing)
                 }
-                return Err(error);
+                #[cfg(not(feature = "typed-core"))]
+                {
+                    let _ = (s, script, emit_timing);
+                    None
+                }
             }
-        };
-        if let Err(error) = window.resolve(state, &mut ctx, answer) {
+        );
+        if outcome.is_ok() && finish {
+            outcome = window.finish_use(state, &mut ctx);
+        }
+        if let Err(error) = outcome {
             crate::factions::observe(
                 state,
                 crate::factions::Obs::AgentDestinationsSpent {
@@ -6648,6 +6798,28 @@ mod tests {
         .unwrap();
 
         assert!(report.produced.is_empty());
+    }
+
+    #[test]
+    fn production_steps_run_in_lockstep_on_the_core_window() {
+        let (mut state, system, planet) = seated();
+        state.player_mut(&player()).unwrap().faction = ti4_model::id::FactionId::new("sol");
+        state.player_mut(&PlayerId::new("b")).unwrap().faction = ti4_model::id::FactionId::new("sardakk");
+        state.promissory_notes.clear();
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), player());
+        put_on_planet(&mut state, &system, &planet, "spacedock", &player(), 1);
+        state.player_mut(&player()).unwrap().trade_goods = 10;
+        let mut table = Table::new();
+        let mask = crate::dual::AreaMask::parse("production=dual", crate::dual::AreaMask::STRING).unwrap();
+        let fail_fast = crate::dual::fail_fast();
+        crate::dual::set_fail_fast(true);
+        let report = crate::dual::with_mask(mask, || {
+            resolve(&mut state, ContentStore::embedded(), POK, None, &mut table, &player(), &system).unwrap()
+        });
+        crate::dual::set_fail_fast(fail_fast);
+        assert!(!report.produced.is_empty(), "the dock built something");
     }
 
     #[test]

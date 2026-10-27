@@ -52,9 +52,26 @@ fn unported_economy(state: &GameState) -> bool {
     state.players.iter().any(|p| held.contains(&p.faction.as_str()))
 }
 
+/// The factions that can change a use of PRODUCTION in ways the typed window does not carry yet (offers,
+/// exchanges, agents, spendable commodities, ocean cards) on top of [`unported_economy`].
+pub(crate) fn unported_window(state: &GameState) -> bool {
+    use crate::factions::{argent, cabal, deepwrought, keleres, winnu, yssaril};
+    let held = [
+        argent::MODULE.alias,
+        cabal::MODULE.alias,
+        deepwrought::MODULE.alias,
+        keleres::MODULE_M.alias,
+        keleres::MODULE_X.alias,
+        keleres::MODULE_A.alias,
+        winnu::MODULE.alias,
+        yssaril::MODULE.alias,
+    ];
+    unported_economy(state) || state.players.iter().any(|p| held.contains(&p.faction.as_str()))
+}
+
 /// The kernel of the production reads: the seams of the laws and relics, and the bridge to the legacy
 /// hook slots (empty here: every faction that fills one is declined by [`unported_economy`]). Built once.
-fn kernel() -> &'static Kernel {
+pub(crate) fn kernel() -> &'static Kernel {
     static KERNEL: std::sync::OnceLock<Kernel> = std::sync::OnceLock::new();
     KERNEL.get_or_init(|| {
         let mut k = crate::core_adapter::kernel_for(ti4_model::content_types::FULL).clone();
@@ -326,6 +343,7 @@ pub struct ChooseInputs<'a> {
     pub max_unit_cost: Option<i64>,
     /// Ids of the units produced so far in this use.
     pub produced: Vec<&'a str>,
+    pub armada: i64,
 }
 
 impl ProdView<'_> {
@@ -361,9 +379,19 @@ impl ProdView<'_> {
                 None => None,
             },
             produced,
+            armada: i32::try_from(inp.armada).ok()?,
+            buildable: {
+                let mut slots = [None; 9];
+                for (slot, id) in slots.iter_mut().zip(buildable) {
+                    *slot = Some(typed::<Unit>(id)?);
+                }
+                if buildable.len() > 9 {
+                    return None;
+                }
+                slots
+            },
         };
-        let units = buildable.iter().map(|id| typed::<Unit>(id)).collect::<Option<Vec<_>>>()?;
-        let opts = self.with_extras(who, |cx, ex| rules::build_opts(cx, who, &ask, &units, ex));
+        let opts = self.with_extras(who, |cx, ex| rules::build_opts(cx, who, &ask, ex));
         let render = crate::render::Render::default();
         let position = crate::render::Position { state: self.view.clone(), kernel: self.kernel };
         let ask = CoreAsk::Production(cp::Ask::Choose(ask));

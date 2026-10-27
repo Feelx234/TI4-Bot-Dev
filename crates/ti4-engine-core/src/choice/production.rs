@@ -97,6 +97,10 @@ pub struct ChooseAsk {
     pub max_unit_cost: Option<i32>,
     /// Units produced so far in this use, per unit base type (`UnitBaseType` order).
     pub produced: [u8; 11],
+    /// Letnev's Armada, already inside the fleet limit (display only).
+    pub armada: i32,
+    /// What the seat may produce at all (`buildable_for`), in option order.
+    pub buildable: [Option<Unit>; 9],
 }
 
 /// What the area asks. Parameters only; the option list is derived by `rules::production::pay_opts`.
@@ -125,6 +129,8 @@ pub enum Opt {
     Exchange { unit: Unit },
     /// Place the produced unit at a spot (`place|spot`).
     Place { spot: Spot },
+    /// Produce nothing further (`done_producing`).
+    Stop,
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).

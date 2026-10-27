@@ -93,6 +93,8 @@ pub mod technology_core;
 pub mod board_view;
 #[cfg(feature = "typed-core")]
 pub mod production_view;
+#[cfg(feature = "typed-core")]
+pub mod production_window_dual;
 /// The offline dual of Area::BoardQueries.
 #[cfg(feature = "typed-core")]
 #[doc(hidden)]
