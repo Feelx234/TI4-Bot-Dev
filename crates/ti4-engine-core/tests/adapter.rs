@@ -15,7 +15,7 @@ mod adapter;
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 
-use adapter::{IdRef, IdStr};
+use adapter::{IdRef, IdStr, Printed};
 use ti4_content::{ContentStore, Record};
 use ti4_engine_core::generated::*;
 use ti4_model::content_types::ContentType;
@@ -162,6 +162,7 @@ fn card_ids_agree_with_the_corpus() {
 #[test]
 fn value_enums_are_sorted_and_round_trip() {
     order_and_round_trip::<Source>("Source");
+    order_and_round_trip::<Timing>("Timing");
     order_and_round_trip::<FactionTag>("FactionTag");
     order_and_round_trip::<TechType>("TechType");
     order_and_round_trip::<AgendaType>("AgendaType");
@@ -236,6 +237,13 @@ fn action_cards_agree() {
             d.component_action,
             r.text("window").unwrap().trim() == "Action"
         );
+        assert_eq!(d.component_action, d.timing == Timing::Action);
+        // The timing is the printed sentence, and the same variant `ti4-content` maps it to.
+        assert_eq!(d.timing.as_str(), r.text("window").unwrap().trim());
+        assert_eq!(
+            format!("{:?}", d.timing),
+            format!("{:?}", r.action_card_window().unwrap())
+        );
         let t = adapter::action_cards::text(v);
         text_agrees!(r, t, "name" => name, "window" => window, "phase" => phase,
             "text" => text, "automationID" => automation_id);
@@ -258,20 +266,20 @@ fn agendas_agree() {
         let d = v.data();
         source_of(r, d.source);
         assert_eq!(Some(d.kind.as_str()), r.text("type"));
-        // `vote::outcomes`.
+        // The variant `ti4-content` maps the printed target to, and the printed value table.
         let target = r.text("target").unwrap();
-        let head = target.split('(').next().unwrap().trim();
-        match d.elects {
-            AgendaElects::ForAgainst => assert!(!head.starts_with("Elect"), "{target}"),
-            elects => assert_eq!(head, format!("Elect {}", elects.as_str())),
-        }
+        assert_eq!(
+            format!("{:?}", d.elects),
+            format!("{:?}", r.elect_type().unwrap())
+        );
+        assert_eq!(AgendaElects::from_printed(target), Some(d.elects));
         let t = adapter::agendas::text(v);
         text_agrees!(r, t, "name" => name, "target" => target, "text1" => text1,
             "text2" => text2, "mapText" => map_text);
     }
     assert_eq!(
         Agenda::CovertLegislation.data().elects,
-        AgendaElects::ForAgainst
+        AgendaElects::HiddenNextAgenda
     );
     assert_eq!(
         Agenda::GalacticCrisisPact.data().elects,
@@ -376,6 +384,11 @@ fn leaders_agree() {
             "{window}"
         );
         assert_eq!(d.window != LeaderWindow::Other, action_window, "{window}");
+        assert_eq!(
+            format!("{:?}", d.window),
+            format!("{:?}", r.leader_ability_kind().unwrap())
+        );
+        assert_eq!(LeaderWindow::from_printed(window), Some(d.window));
         let t = adapter::leaders::text(v);
         text_agrees!(r, t, "name" => name, "title" => title, "abilityName" => ability_name,
             "abilityWindow" => ability_window, "abilityText" => ability_text,
@@ -428,6 +441,10 @@ fn strategy_cards_agree() {
         let d = v.data();
         source_of(r, d.source);
         assert_eq!(Some(d.kind.as_str()), r.text("name"));
+        assert_eq!(
+            format!("{:?}", d.kind),
+            format!("{:?}", r.strategy_card_kind().unwrap())
+        );
         assert_eq!(Some(i64::from(d.initiative)), r.int("initiative"));
         text_agrees!(r, adapter::strategy_cards::text(v), "name" => name,
             "primaryTexts" => primary_texts, "secondaryTexts" => secondary_texts);
@@ -704,4 +721,71 @@ fn units_agree() {
         text_agrees!(r, t, "name" => name, "subtitle" => subtitle, "ability" => ability,
             "asyncId" => async_id);
     }
+}
+
+// ------------------------------------------------------------------ name ranks
+
+/// Rank of each record's printed name: a bijection onto `0..COUNT` that sorts like the names
+/// (byte order), ties by id.
+fn ranks_follow_names<T: IdStr + Copy>(
+    category: ContentType,
+    name_field: &str,
+    rank: fn(T) -> u16,
+    ranks: &[u16],
+) {
+    assert_eq!(ranks.len(), T::IDS.len());
+    let mut sorted = ranks.to_vec();
+    sorted.sort_unstable();
+    assert!(
+        sorted.iter().enumerate().all(|(i, r)| usize::from(*r) == i),
+        "{category:?}: ranks are not a bijection"
+    );
+    let mut by_rank: Vec<(u16, &str, &str)> = each::<T>(category)
+        .map(|(r, v)| {
+            let name = r.text(name_field).unwrap_or_else(|| r.id().unwrap());
+            (rank(v), name, r.id().unwrap())
+        })
+        .collect();
+    by_rank.sort_unstable();
+    for pair in by_rank.windows(2) {
+        let (a, b) = (pair[0], pair[1]);
+        assert!(
+            (a.1, a.2) < (b.1, b.2),
+            "{category:?}: {a:?} must sort before {b:?}"
+        );
+    }
+}
+
+#[test]
+fn name_ranks_follow_the_printed_names() {
+    ranks_follow_names::<ActionCard>(
+        ContentType::ActionCards,
+        "name",
+        ActionCard::name_rank,
+        &ACTION_CARD_NAME_RANK,
+    );
+    ranks_follow_names::<Agenda>(
+        ContentType::Agendas,
+        "name",
+        Agenda::name_rank,
+        &AGENDA_NAME_RANK,
+    );
+    ranks_follow_names::<Technology>(
+        ContentType::Technologies,
+        "name",
+        Technology::name_rank,
+        &TECHNOLOGY_NAME_RANK,
+    );
+    ranks_follow_names::<Faction>(
+        ContentType::Factions,
+        "factionName",
+        Faction::name_rank,
+        &FACTION_NAME_RANK,
+    );
+    ranks_follow_names::<Planet>(
+        ContentType::Planets,
+        "name",
+        Planet::name_rank,
+        &PLANET_NAME_RANK,
+    );
 }

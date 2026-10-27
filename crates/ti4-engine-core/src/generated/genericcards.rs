@@ -58,6 +58,15 @@ impl GenericCard {
     pub fn data(self) -> &'static GenericCardData {
         &GENERIC_CARD_DATA[self as usize]
     }
+
+    /// The rank of the printed name among all records of the category: 0 is the first in the byte
+    /// order of the name, ties (equal names) by id. A sort by display name or label is a sort by
+    /// this integer ([`GENERIC_CARD_NAME_RANK`]); the core never sees the text.
+    #[must_use]
+    #[inline]
+    pub const fn name_rank(self) -> u16 {
+        GENERIC_CARD_NAME_RANK[self as usize]
+    }
 }
 
 /// Gameplay data of a [`GenericCard`].
@@ -109,4 +118,10 @@ pub static GENERIC_CARD_DATA: [GenericCardData; GenericCard::COUNT] = [
     GenericCardData {
         source: Source::ThundersEdge,
     },
+];
+
+/// The rank of each [`GenericCard`]'s printed name (`name`) in byte order, ties by id; indexed by its
+/// integer value. A bijection onto `0..COUNT`.
+pub static GENERIC_CARD_NAME_RANK: [u16; GenericCard::COUNT] = [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
 ];

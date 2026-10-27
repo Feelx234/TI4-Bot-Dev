@@ -198,6 +198,15 @@ impl Explore {
     pub fn data(self) -> &'static ExploreData {
         &EXPLORE_DATA[self as usize]
     }
+
+    /// The rank of the printed name among all records of the category: 0 is the first in the byte
+    /// order of the name, ties (equal names) by id. A sort by display name or label is a sort by
+    /// this integer ([`EXPLORE_NAME_RANK`]); the core never sees the text.
+    #[must_use]
+    #[inline]
+    pub const fn name_rank(self) -> u16 {
+        EXPLORE_NAME_RANK[self as usize]
+    }
 }
 
 /// Gameplay data of a [`Explore`].
@@ -857,4 +866,14 @@ pub static EXPLORE_DATA: [ExploreData; Explore::COUNT] = [
         attachment: Some(Attachment::WarfareResearchFacility),
         token: None,
     },
+];
+
+/// The rank of each [`Explore`]'s printed name (`name`) in byte order, ties by id; indexed by its
+/// integer value. A bijection onto `0..COUNT`.
+pub static EXPLORE_NAME_RANK: [u16; Explore::COUNT] = [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+    16, 17, 19, 22, 20, 21, 18, 23, 24, 25, 26, 27, 28, 32, 33, 34,
+    35, 29, 30, 31, 36, 37, 38, 39, 40, 41, 42, 43, 44, 50, 45, 46,
+    47, 48, 49, 51, 52, 58, 59, 54, 55, 56, 57, 53, 60, 67, 68, 61,
+    62, 63, 64, 65, 66, 70, 69, 71, 72, 73, 74, 75, 76, 77, 78, 79,
 ];

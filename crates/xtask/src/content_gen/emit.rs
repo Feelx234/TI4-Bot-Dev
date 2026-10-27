@@ -98,8 +98,8 @@ pub fn core_mod(cats: &[Cat]) -> String {
     for cat in cats {
         let _ = writeln!(
             out,
-            "pub use {}::{{{}, {}Data, {}_DATA}};",
-            cat.key, cat.ty, cat.ty, cat.upper
+            "pub use {}::{{{}, {}Data, {}_DATA, {}_NAME_RANK}};",
+            cat.key, cat.ty, cat.ty, cat.upper, cat.upper
         );
     }
     out
@@ -147,7 +147,7 @@ pub fn core_category(cat: &Cat, ctx: &Ctx, rows: &[Vec<String>]) -> String {
     enum_block(&mut out, cat.ty, cat.doc, &variants, "");
     let _ = writeln!(
         out,
-        "\n    /// The gameplay row.\n    #[must_use]\n    #[inline]\n    pub fn data(self) -> &'static {ty}Data {{\n        &{up}_DATA[self as usize]\n    }}\n}}\n",
+        "\n    /// The gameplay row.\n    #[must_use]\n    #[inline]\n    pub fn data(self) -> &'static {ty}Data {{\n        &{up}_DATA[self as usize]\n    }}\n\n    /// The rank of the printed name among all records of the category: 0 is the first in the byte\n    /// order of the name, ties (equal names) by id. A sort by display name or label is a sort by\n    /// this integer ([`{up}_NAME_RANK`]); the core never sees the text.\n    #[must_use]\n    #[inline]\n    pub const fn name_rank(self) -> u16 {{\n        {up}_NAME_RANK[self as usize]\n    }}\n}}\n",
         ty = cat.ty,
         up = cat.upper
     );
@@ -175,7 +175,38 @@ pub fn core_category(cat: &Cat, ctx: &Ctx, rows: &[Vec<String>]) -> String {
         out.push_str("    },\n");
     }
     out.push_str("];\n");
+    name_rank(&mut out, cat, ctx);
     out
+}
+
+/// `<UP>_NAME_RANK`: the rank of each record's printed name (`name_field`, else the id) in byte
+/// order, ties by id (= by integer value, as the records are in id order).
+fn name_rank(out: &mut String, cat: &Cat, ctx: &Ctx) {
+    let recs = ctx.records(cat.key);
+    let name_of = |r: &Rec| -> String {
+        r.fields
+            .get(cat.name_field)
+            .and_then(Value::as_str)
+            .map_or_else(|| r.id.clone(), str::to_owned)
+    };
+    let mut order: Vec<usize> = (0..recs.len()).collect();
+    order.sort_by(|&a, &b| name_of(&recs[a]).cmp(&name_of(&recs[b])).then(a.cmp(&b)));
+    let mut rank = vec![0usize; recs.len()];
+    for (r, &i) in order.iter().enumerate() {
+        rank[i] = r;
+    }
+    let _ = writeln!(
+        out,
+        "\n/// The rank of each [`{ty}`]'s printed name (`{field}`) in byte order, ties by id; indexed by its\n/// integer value. A bijection onto `0..COUNT`.\npub static {up}_NAME_RANK: [u16; {ty}::COUNT] = [",
+        ty = cat.ty,
+        up = cat.upper,
+        field = cat.name_field
+    );
+    for chunk in rank.chunks(16) {
+        let line: Vec<String> = chunk.iter().map(ToString::to_string).collect();
+        let _ = writeln!(out, "    {},", line.join(", "));
+    }
+    out.push_str("];\n");
 }
 
 pub fn core_values(ctx: &Ctx, faction_tags: bool) -> String {
@@ -184,7 +215,14 @@ pub fn core_values(ctx: &Ctx, faction_tags: bool) -> String {
     out.push_str(SHARED_TYPES);
     out.push('\n');
     for enm in VALUE_ENUMS {
-        let variants: Vec<&str> = ctx.values[enm.name].values().map(String::as_str).collect();
+        let variants: Vec<&str> = if let Some(layout) = ctx.layouts.get(enm.name) {
+            layout.iter().map(|(v, _)| v.as_str()).collect()
+        } else {
+            ctx.values
+                .get(enm.name)
+                .map(|m| m.values().map(String::as_str).collect())
+                .unwrap_or_default()
+        };
         if variants.is_empty() {
             continue; // used only by categories this run does not generate
         }
@@ -254,6 +292,22 @@ pub trait IdStr: Copy + Sized + 'static {{
     #[must_use]
     fn from_id(id: &str) -> Option<Self> {{
         Self::IDS.binary_search(&id).ok().and_then(Self::nth)
+    }}
+}}
+
+/// A value enum read from a printed corpus value (a window sentence, an agenda target, ...)
+/// through a committed table, `card_fields.json`.
+pub trait Printed: Copy + Sized + 'static {{
+    /// Every printed value of the corpus with its variant, sorted by printed value.
+    const PRINTED: &'static [(&'static str, Self)];
+    /// The variant of a printed value (compared trimmed), `None` for a value the table does not list.
+    #[must_use]
+    fn from_printed(printed: &str) -> Option<Self> {{
+        let printed = printed.trim();
+        Self::PRINTED
+            .binary_search_by(|(p, _)| (*p).cmp(printed))
+            .ok()
+            .map(|i| Self::PRINTED[i].1)
     }}
 }}
 
@@ -421,14 +475,42 @@ pub fn adapter_values(ctx: &Ctx, core: &str) -> String {
     let mut out = header("The adapter's strings of the value enums (the corpus keys).");
     let _ = writeln!(
         out,
-        "#[allow(unused_imports)]\nuse {core}::*;\n\nuse super::IdStr;\n"
+        "#[allow(unused_imports)]\nuse {core}::*;\n\nuse super::{{IdStr, Printed}};\n"
     );
     for enm in VALUE_ENUMS {
+        let table = format!("{}_KEYS", super::emit::snake(enm.name).to_ascii_uppercase());
+        if let Some(layout) = ctx.layouts.get(enm.name) {
+            // Table-driven: the key of a variant is its printed value when there is one per
+            // variant, else its name; the printed values of the corpus map to variants through
+            // `*_PRINTED` (sorted by printed value, so `from_printed` is a binary search).
+            let keys: Vec<&str> = layout.iter().map(|(_, k)| k.as_str()).collect();
+            ids_impl(&mut out, enm.name, &table, &keys);
+            let rows = &ctx.values[enm.name];
+            let printed_table = format!(
+                "{}_PRINTED",
+                super::emit::snake(enm.name).to_ascii_uppercase()
+            );
+            let _ = writeln!(
+                out,
+                "/// Every printed value of the corpus with its [`{enm}`], sorted by printed value.\npub static {printed_table}: [(&str, {enm}); {n}] = [",
+                enm = enm.name,
+                n = rows.len()
+            );
+            for (printed, variant) in rows {
+                let _ = writeln!(out, "    ({printed:?}, {}::{variant}),", enm.name);
+            }
+            out.push_str("];\n\n");
+            let _ = writeln!(
+                out,
+                "impl Printed for {enm} {{\n    const PRINTED: &'static [(&'static str, Self)] = &{printed_table};\n}}\n",
+                enm = enm.name
+            );
+            continue;
+        }
         let keys: Vec<&str> = ctx.values[enm.name].keys().map(String::as_str).collect();
         if keys.is_empty() {
             continue;
         }
-        let table = format!("{}_KEYS", super::emit::snake(enm.name).to_ascii_uppercase());
         ids_impl(&mut out, enm.name, &table, &keys);
     }
     out

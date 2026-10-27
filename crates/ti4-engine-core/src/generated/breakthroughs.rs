@@ -100,6 +100,15 @@ impl Breakthrough {
     pub fn data(self) -> &'static BreakthroughData {
         &BREAKTHROUGH_DATA[self as usize]
     }
+
+    /// The rank of the printed name among all records of the category: 0 is the first in the byte
+    /// order of the name, ties (equal names) by id. A sort by display name or label is a sort by
+    /// this integer ([`BREAKTHROUGH_NAME_RANK`]); the core never sees the text.
+    #[must_use]
+    #[inline]
+    pub const fn name_rank(self) -> u16 {
+        BREAKTHROUGH_NAME_RANK[self as usize]
+    }
 }
 
 /// Gameplay data of a [`Breakthrough`].
@@ -301,4 +310,11 @@ pub static BREAKTHROUGH_DATA: [BreakthroughData; Breakthrough::COUNT] = [
         faction: FactionTag::Yssaril,
         synergy: &[TechType::Biotic, TechType::Cybernetic],
     },
+];
+
+/// The rank of each [`Breakthrough`]'s printed name (`name`) in byte order, ties by id; indexed by its
+/// integer value. A bijection onto `0..COUNT`.
+pub static BREAKTHROUGH_NAME_RANK: [u16; Breakthrough::COUNT] = [
+    15, 29, 20, 1, 16, 27, 28, 22, 14, 3, 18, 10, 8, 9, 26, 23,
+    19, 12, 0, 25, 24, 21, 5, 7, 13, 4, 17, 11, 2, 30, 6,
 ];

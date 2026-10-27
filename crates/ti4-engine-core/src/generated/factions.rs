@@ -106,6 +106,15 @@ impl Faction {
     pub fn data(self) -> &'static FactionData {
         &FACTION_DATA[self as usize]
     }
+
+    /// The rank of the printed name among all records of the category: 0 is the first in the byte
+    /// order of the name, ties (equal names) by id. A sort by display name or label is a sort by
+    /// this integer ([`FACTION_NAME_RANK`]); the core never sees the text.
+    #[must_use]
+    #[inline]
+    pub const fn name_rank(self) -> u16 {
+        FACTION_NAME_RANK[self as usize]
+    }
 }
 
 /// Gameplay data of a [`Faction`].
@@ -649,4 +658,12 @@ pub static FACTION_DATA: [FactionData; Faction::COUNT] = [
         promissory_notes: &[PromissoryNote::SpyNet],
         units: &[Unit::FighterI, Unit::DestroyerI, Unit::CruiserI, Unit::CarrierI, Unit::DreadnoughtI, Unit::YsiaYssrila, Unit::InfantryI, Unit::BlackshadeInfiltrator, Unit::PDSI, Unit::SpaceDockI],
     },
+];
+
+/// The rank of each [`Faction`]'s printed name (`factionName`) in byte order, ties by id; indexed by its
+/// integer value. A bijection onto `0..COUNT`.
+pub static FACTION_NAME_RANK: [u16; Faction::COUNT] = [
+    3, 4, 0, 29, 10, 11, 14, 16, 17, 13, 28, 7, 8, 9, 18, 5,
+    19, 20, 12, 21, 22, 23, 1, 24, 25, 26, 6, 2, 15, 27, 30, 31,
+    32, 33,
 ];

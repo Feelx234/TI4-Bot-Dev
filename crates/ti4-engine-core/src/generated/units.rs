@@ -310,6 +310,15 @@ impl Unit {
     pub fn data(self) -> &'static UnitData {
         &UNIT_DATA[self as usize]
     }
+
+    /// The rank of the printed name among all records of the category: 0 is the first in the byte
+    /// order of the name, ties (equal names) by id. A sort by display name or label is a sort by
+    /// this integer ([`UNIT_NAME_RANK`]); the core never sees the text.
+    #[must_use]
+    #[inline]
+    pub const fn name_rank(self) -> u16 {
+        UNIT_NAME_RANK[self as usize]
+    }
 }
 
 /// Gameplay data of a [`Unit`].
@@ -4177,4 +4186,18 @@ pub static UNIT_DATA: [UnitData; Unit::COUNT] = [
         required_technology: Requirement::None,
         replaces: None,
     },
+];
+
+/// The rank of each [`Unit`]'s printed name (`name`) in byte order, ties by id; indexed by its
+/// integer value. A bijection onto `0..COUNT`.
+pub static UNIT_NAME_RANK: [u16; Unit::COUNT] = [
+    132, 29, 66, 67, 65, 113, 114, 97, 5, 120, 2, 0, 1, 122, 99, 25,
+    26, 13, 14, 118, 119, 36, 37, 98, 101, 20, 21, 22, 32, 23, 24, 27,
+    28, 31, 129, 42, 43, 48, 125, 40, 15, 16, 53, 56, 130, 93, 61, 62,
+    63, 106, 9, 89, 115, 116, 135, 7, 8, 30, 10, 18, 19, 112, 41, 17,
+    46, 74, 121, 35, 94, 95, 54, 55, 71, 57, 58, 59, 127, 33, 133, 34,
+    117, 75, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 72, 73, 96,
+    88, 49, 126, 91, 92, 68, 69, 64, 6, 107, 105, 44, 45, 38, 39, 12,
+    123, 3, 4, 47, 110, 111, 134, 108, 109, 103, 104, 90, 50, 51, 52, 128,
+    102, 100, 70, 60, 124, 76, 131, 11,
 ];

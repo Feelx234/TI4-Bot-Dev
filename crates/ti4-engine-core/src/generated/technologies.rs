@@ -242,6 +242,15 @@ impl Technology {
     pub fn data(self) -> &'static TechnologyData {
         &TECHNOLOGY_DATA[self as usize]
     }
+
+    /// The rank of the printed name among all records of the category: 0 is the first in the byte
+    /// order of the name, ties (equal names) by id. A sort by display name or label is a sort by
+    /// this integer ([`TECHNOLOGY_NAME_RANK`]); the core never sees the text.
+    #[must_use]
+    #[inline]
+    pub const fn name_rank(self) -> u16 {
+        TECHNOLOGY_NAME_RANK[self as usize]
+    }
 }
 
 /// Gameplay data of a [`Technology`].
@@ -257,7 +266,7 @@ pub struct TechnologyData {
     pub faction: Option<FactionTag>,
     /// The generic unit upgrade this faction upgrade replaces (`baseUpgrade`).
     pub base_upgrade: Option<Technology>,
-    /// False when the printed `text` contains `cannot be researched` (case-insensitive), the rule of `technology.rs` and `deepwrought.rs`.
+    /// False when the printed `text` ends in the line `This technology cannot be researched.` (the rule of `ResearchRestriction`; any other mention fails the generator; the ids are listed in `card_fields.json`).
     pub researchable: bool,
 }
 
@@ -1181,4 +1190,16 @@ pub static TECHNOLOGY_DATA: [TechnologyData; Technology::COUNT] = [
         base_upgrade: None,
         researchable: true,
     },
+];
+
+/// The rank of each [`Technology`]'s printed name (`name`) in byte order, ties by id; indexed by its
+/// integer value. A bijection onto `0..COUNT`.
+pub static TECHNOLOGY_NAME_RANK: [u16; Technology::COUNT] = [
+    4, 5, 3, 8, 6, 9, 7, 11, 10, 14, 13, 15, 12, 22, 18, 17,
+    21, 19, 20, 16, 23, 24, 25, 26, 27, 29, 28, 32, 31, 30, 35, 0,
+    37, 34, 33, 36, 39, 43, 38, 40, 41, 42, 44, 45, 48, 46, 47, 54,
+    55, 51, 49, 50, 52, 53, 56, 1, 2, 61, 62, 60, 57, 72, 58, 59,
+    63, 67, 68, 64, 65, 69, 71, 66, 70, 73, 74, 79, 87, 82, 81, 78,
+    86, 77, 75, 83, 80, 76, 85, 84, 88, 89, 90, 91, 92, 93, 95, 94,
+    97, 96, 99, 98, 100, 101,
 ];

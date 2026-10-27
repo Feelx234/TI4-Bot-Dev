@@ -82,6 +82,15 @@ impl Attachment {
     pub fn data(self) -> &'static AttachmentData {
         &ATTACHMENT_DATA[self as usize]
     }
+
+    /// The rank of the printed name among all records of the category: 0 is the first in the byte
+    /// order of the name, ties (equal names) by id. A sort by display name or label is a sort by
+    /// this integer ([`ATTACHMENT_NAME_RANK`]); the core never sees the text.
+    #[must_use]
+    #[inline]
+    pub const fn name_rank(self) -> u16 {
+        ATTACHMENT_NAME_RANK[self as usize]
+    }
 }
 
 /// Gameplay data of a [`Attachment`].
@@ -301,4 +310,11 @@ pub static ATTACHMENT_DATA: [AttachmentData; Attachment::COUNT] = [
         traits: &[],
         space_cannon: None,
     },
+];
+
+/// The rank of each [`Attachment`]'s printed name (`name`) in byte order, ties by id; indexed by its
+/// integer value. A bijection onto `0..COUNT`.
+pub static ATTACHMENT_NAME_RANK: [u16; Attachment::COUNT] = [
+    0, 1, 2, 3, 4, 5, 6, 7, 20, 21, 9, 10, 11, 12, 13, 14,
+    15, 8, 16, 17, 18, 19,
 ];

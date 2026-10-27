@@ -86,6 +86,15 @@ impl Relic {
     pub fn data(self) -> &'static RelicData {
         &RELIC_DATA[self as usize]
     }
+
+    /// The rank of the printed name among all records of the category: 0 is the first in the byte
+    /// order of the name, ties (equal names) by id. A sort by display name or label is a sort by
+    /// this integer ([`RELIC_NAME_RANK`]); the core never sees the text.
+    #[must_use]
+    #[inline]
+    pub const fn name_rank(self) -> u16 {
+        RELIC_NAME_RANK[self as usize]
+    }
 }
 
 /// Gameplay data of a [`Relic`].
@@ -219,4 +228,11 @@ pub static RELIC_DATA: [RelicData; Relic::COUNT] = [
         source: Source::Codex2,
         fake: false,
     },
+];
+
+/// The rank of each [`Relic`]'s printed name (`name`) in byte order, ties by id; indexed by its
+/// integer value. A bijection onto `0..COUNT`.
+pub static RELIC_NAME_RANK: [u16; Relic::COUNT] = [
+    0, 1, 16, 2, 3, 13, 17, 4, 5, 7, 8, 9, 10, 11, 12, 19,
+    20, 21, 14, 15, 18, 22, 23, 6,
 ];

@@ -62,6 +62,15 @@ impl StrategyCard {
     pub fn data(self) -> &'static StrategyCardData {
         &STRATEGY_CARD_DATA[self as usize]
     }
+
+    /// The rank of the printed name among all records of the category: 0 is the first in the byte
+    /// order of the name, ties (equal names) by id. A sort by display name or label is a sort by
+    /// this integer ([`STRATEGY_CARD_NAME_RANK`]); the core never sees the text.
+    #[must_use]
+    #[inline]
+    pub const fn name_rank(self) -> u16 {
+        STRATEGY_CARD_NAME_RANK[self as usize]
+    }
 }
 
 /// Gameplay data of a [`StrategyCard`].
@@ -69,7 +78,7 @@ impl StrategyCard {
 pub struct StrategyCardData {
     /// The expansion of the record (`source`).
     pub source: Source,
-    /// The strategy card this is a printing of (`name`).
+    /// The strategy card this is a printing of (the id, through the table in `card_fields.json`).
     pub kind: StrategyCardKind,
     /// Initiative number (`initiative`).
     pub initiative: u8,
@@ -149,4 +158,10 @@ pub static STRATEGY_CARD_DATA: [StrategyCardData; StrategyCard::COUNT] = [
         kind: StrategyCardKind::Warfare,
         initiative: 6,
     },
+];
+
+/// The rank of each [`StrategyCard`]'s printed name (`name`) in byte order, ties by id; indexed by its
+/// integer value. A bijection onto `0..COUNT`.
+pub static STRATEGY_CARD_NAME_RANK: [u16; StrategyCard::COUNT] = [
+    3, 0, 6, 4, 7, 1, 9, 10, 8, 5, 2, 11,
 ];

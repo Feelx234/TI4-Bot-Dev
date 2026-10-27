@@ -71,6 +71,22 @@ pub trait IdStr: Copy + Sized + 'static {
     }
 }
 
+/// A value enum read from a printed corpus value (a window sentence, an agenda target, ...)
+/// through a committed table, `card_fields.json`.
+pub trait Printed: Copy + Sized + 'static {
+    /// Every printed value of the corpus with its variant, sorted by printed value.
+    const PRINTED: &'static [(&'static str, Self)];
+    /// The variant of a printed value (compared trimmed), `None` for a value the table does not list.
+    #[must_use]
+    fn from_printed(printed: &str) -> Option<Self> {
+        let printed = printed.trim();
+        Self::PRINTED
+            .binary_search_by(|(p, _)| (*p).cmp(printed))
+            .ok()
+            .map(|i| Self::PRINTED[i].1)
+    }
+}
+
 /// An id that names a record of the compiled-in corpus or something that only exists at run time:
 /// a system or planet created during a game, a seat name, an id of a corpus loaded with
 /// `ContentStore::from_dir` that the compiled-in corpus does not have, a composite id such as

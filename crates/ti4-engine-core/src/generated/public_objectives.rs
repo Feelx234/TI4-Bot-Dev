@@ -118,6 +118,15 @@ impl PublicObjective {
     pub fn data(self) -> &'static PublicObjectiveData {
         &PUBLIC_OBJECTIVE_DATA[self as usize]
     }
+
+    /// The rank of the printed name among all records of the category: 0 is the first in the byte
+    /// order of the name, ties (equal names) by id. A sort by display name or label is a sort by
+    /// this integer ([`PUBLIC_OBJECTIVE_NAME_RANK`]); the core never sees the text.
+    #[must_use]
+    #[inline]
+    pub const fn name_rank(self) -> u16 {
+        PUBLIC_OBJECTIVE_NAME_RANK[self as usize]
+    }
 }
 
 /// Gameplay data of a [`PublicObjective`].
@@ -331,4 +340,12 @@ pub static PUBLIC_OBJECTIVE_DATA: [PublicObjectiveData; PublicObjective::COUNT] 
         source: Source::Pok,
         points: 2,
     },
+];
+
+/// The rank of each [`PublicObjective`]'s printed name (`name`) in byte order, ties by id; indexed by its
+/// integer value. A bijection onto `0..COUNT`.
+pub static PUBLIC_OBJECTIVE_NAME_RANK: [u16; PublicObjective::COUNT] = [
+    1, 34, 2, 17, 3, 4, 5, 6, 8, 9, 16, 10, 36, 12, 13, 15,
+    20, 19, 22, 23, 24, 11, 25, 26, 7, 27, 14, 30, 31, 32, 33, 18,
+    35, 37, 0, 38, 28, 39, 21, 29,
 ];

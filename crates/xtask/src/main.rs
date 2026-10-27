@@ -6,7 +6,7 @@ use std::process::ExitCode;
 use xtask::content_gen::{self, Config};
 
 const USAGE: &str = "usage: cargo xtask gen-cards [--check] [--content DIR] [--core-out DIR] \
-[--adapter-out DIR] [--names DIR] [--core-path RUST_PATH] [--only CAT,CAT]";
+[--adapter-out DIR] [--names DIR] [--fields FILE] [--content-tables FILE] [--core-path RUST_PATH] [--only CAT,CAT]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -41,6 +41,8 @@ fn run(args: &[String]) -> anyhow::Result<()> {
             "--core-out" => cfg.core_out = PathBuf::from(value()?),
             "--adapter-out" => cfg.adapter_out = PathBuf::from(value()?),
             "--names" => cfg.names_dir = PathBuf::from(value()?),
+            "--fields" => cfg.fields_file = PathBuf::from(value()?),
+            "--content-tables" => cfg.content_tables_out = PathBuf::from(value()?),
             "--core-path" => cfg.core_path = value()?,
             "--only" => cfg.only = Some(value()?.split(',').map(str::to_owned).collect()),
             "-h" | "--help" => {

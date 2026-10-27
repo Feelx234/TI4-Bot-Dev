@@ -12,6 +12,7 @@
 //! Nothing is written in `--check` mode: every file is produced in memory and compared.
 
 pub mod emit;
+pub mod fields;
 pub mod naming;
 pub mod report;
 pub mod spec;
@@ -23,6 +24,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Map, Value};
 
+use fields::CardFields;
 use naming::{NameFile, NameInput};
 use spec::{Cat, Conv, Norm, Shape, VALUE_ENUMS};
 
@@ -34,6 +36,10 @@ pub struct Config {
     pub core_out: PathBuf,
     pub adapter_out: PathBuf,
     pub names_dir: PathBuf,
+    /// The committed printed-value -> variant tables of the text fields (`fields.rs`).
+    pub fields_file: PathBuf,
+    /// Where the generated table data of `ti4-content`'s `card_fields.rs` goes.
+    pub content_tables_out: PathBuf,
     /// The Rust path the adapter output uses to reach the core output.
     pub core_path: String,
     /// The categories to generate (`None` = all of [`spec::categories`]).
@@ -49,6 +55,8 @@ impl Config {
             core_out: root.join("crates/ti4-engine-core/src/generated"),
             adapter_out: root.join("crates/ti4-engine/src/generated"),
             names_dir: root.join("crates/ti4-engine-core/names"),
+            fields_file: root.join("crates/ti4-content/card_fields.json"),
+            content_tables_out: root.join("crates/ti4-content/src/card_fields_tables.rs"),
             core_path: "ti4_engine_core::generated".to_owned(),
             only: None,
         }
@@ -80,6 +88,10 @@ pub struct Ctx {
     types: BTreeMap<&'static str, &'static str>,
     /// key -> variant per value enum, after collection.
     values: BTreeMap<&'static str, BTreeMap<String, String>>,
+    /// The text-field tables (`card_fields.json`).
+    pub fields: CardFields,
+    /// Table-driven value enums: `(variant, key)` in integer order.
+    layouts: BTreeMap<&'static str, Vec<(String, String)>>,
     /// Pass 1: keys seen per value enum.
     collecting: RefCell<Option<BTreeMap<&'static str, BTreeSet<String>>>>,
 }
@@ -125,9 +137,9 @@ impl Ctx {
             .values
             .get(enm)
             .ok_or_else(|| anyhow!("unknown value enum {enm}"))?;
-        let name = variants
-            .get(key)
-            .ok_or_else(|| anyhow!("{enm} has no key {key:?}"))?;
+        let name = variants.get(key).ok_or_else(|| {
+            anyhow!("{enm} has no key {key:?} (a printed value missing from card_fields.json?)")
+        })?;
         Ok(format!("{enm}::{name}"))
     }
 
@@ -280,10 +292,17 @@ pub fn generate(cfg: &Config) -> Result<Output> {
         types.insert(cat.key, cat.ty);
     }
 
+    let fields_text = std::fs::read_to_string(&cfg.fields_file)
+        .with_context(|| format!("reading {}", cfg.fields_file.display()))?;
+    let fields = CardFields::parse(&fields_text)
+        .with_context(|| format!("in {}", cfg.fields_file.display()))?;
+
     let mut ctx = Ctx {
         records,
         names,
         types,
+        fields,
+        layouts: BTreeMap::new(),
         values: BTreeMap::new(),
         collecting: RefCell::new(Some(BTreeMap::new())),
     };
@@ -291,7 +310,41 @@ pub fn generate(cfg: &Config) -> Result<Output> {
     // Pass 1: collect the keys of every value enum by running every conversion.
     rows(&ctx, &cats)?;
     let mut seen = ctx.collecting.borrow_mut().take().unwrap_or_default();
+    for (enm_name, category, section) in fields::SECTIONS {
+        if !cats.iter().any(|c| c.key == *category) {
+            continue;
+        }
+        let table = ctx.fields.table(enm_name).expect("a listed section");
+        let keys = seen.remove(enm_name).unwrap_or_default();
+        fields::check_table(enm_name, section, table, &keys)?;
+        let mut variants = BTreeMap::new();
+        for (printed, variant) in &table.rows {
+            variants.insert(printed.clone(), variant.clone());
+        }
+        ctx.values.insert(enm_name, variants);
+        ctx.layouts.insert(enm_name, table.enum_layout());
+    }
+    if cats.iter().any(|c| c.key == "technologies") {
+        let texts: Vec<(String, String)> = ctx
+            .records("technologies")
+            .iter()
+            .map(|r| {
+                (
+                    r.id.clone(),
+                    r.fields
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned(),
+                )
+            })
+            .collect();
+        ctx.fields.check_technologies(&texts)?;
+    }
     for enm in VALUE_ENUMS {
+        if ctx.fields.table(enm.name).is_some() {
+            continue;
+        }
         let keys = seen.entry(enm.name).or_default();
         keys.extend(enm.seed.iter().map(|s| (*s).to_owned()));
         let mut variants = BTreeMap::new();
@@ -338,6 +391,10 @@ pub fn generate(cfg: &Config) -> Result<Output> {
             emit::adapter_category(cat, &ctx, &cfg.core_path)?,
         );
     }
+    out.files.insert(
+        cfg.content_tables_out.clone(),
+        fields::content_tables(&ctx.fields),
+    );
     out.files.insert(
         adapter.join("text_parsed_fields.md"),
         report::text_parsed(&ctx, &cats),

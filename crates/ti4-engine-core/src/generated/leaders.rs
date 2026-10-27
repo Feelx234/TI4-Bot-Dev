@@ -244,6 +244,15 @@ impl Leader {
     pub fn data(self) -> &'static LeaderData {
         &LEADER_DATA[self as usize]
     }
+
+    /// The rank of the printed name among all records of the category: 0 is the first in the byte
+    /// order of the name, ties (equal names) by id. A sort by display name or label is a sort by
+    /// this integer ([`LEADER_NAME_RANK`]); the core never sees the text.
+    #[must_use]
+    #[inline]
+    pub const fn name_rank(self) -> u16 {
+        LEADER_NAME_RANK[self as usize]
+    }
 }
 
 /// Gameplay data of a [`Leader`].
@@ -255,7 +264,7 @@ pub struct LeaderData {
     pub faction: FactionTag,
     /// Agent, commander or hero (`type`).
     pub kind: LeaderType,
-    /// Action, action phase or other (`abilityWindow`).
+    /// Action, action phase or other (`abilityWindow`, through the table in `card_fields.json`).
     pub window: LeaderWindow,
     /// The record this reprint removes from the deal (`homebrewReplacesID`).
     pub replaces: Option<Leader>,
@@ -1087,4 +1096,16 @@ pub static LEADER_DATA: [LeaderData; Leader::COUNT] = [
         window: LeaderWindow::Action,
         replaces: None,
     },
+];
+
+/// The rank of each [`Leader`]'s printed name (`name`) in byte order, ties by id; indexed by its
+/// integer value. A bijection onto `0..COUNT`.
+pub static LEADER_NAME_RANK: [u16; Leader::COUNT] = [
+    54, 27, 53, 88, 89, 59, 22, 64, 55, 86, 83, 47, 8, 9, 43, 28,
+    6, 81, 4, 98, 21, 60, 17, 74, 31, 72, 68, 19, 38, 41, 29, 7,
+    69, 97, 78, 40, 51, 65, 44, 3, 84, 94, 66, 24, 49, 45, 11, 79,
+    71, 46, 93, 57, 5, 101, 102, 56, 85, 36, 25, 42, 63, 62, 91, 13,
+    34, 87, 61, 10, 95, 12, 75, 33, 50, 96, 26, 2, 1, 0, 18, 70,
+    39, 80, 35, 73, 32, 20, 48, 82, 90, 92, 14, 67, 58, 37, 30, 99,
+    100, 15, 16, 23, 77, 76, 52,
 ];
