@@ -672,7 +672,7 @@ fn the_subsystems_still_ask_the_faction_layer() {
         ),
         (
             "combat",
-            include_str!("combat.rs"),
+            include_str!("combat_effects.rs"),
             "crate::faction_abilities::combat_modifier",
         ),
         (
