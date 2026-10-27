@@ -102,7 +102,10 @@ pub fn commit_candidates(s: &CoreState, _: &Kernel, invader: Seat, system: Syste
         return found;
     }
     let take_from = |from: System, found: &mut CandidateList| {
-        for planet in board::planets_of(s, from) {
+        // The string walks the system's planets in the text order of their ids, which is the order of the enum.
+        let mut planets: Vec<Planet> = board::planets_of(s, from).collect();
+        planets.sort_unstable();
+        for planet in planets {
             if already.iter().any(|(_, origin)| *origin == planet) {
                 continue; // "up to 1 ground force from each planet"
             }

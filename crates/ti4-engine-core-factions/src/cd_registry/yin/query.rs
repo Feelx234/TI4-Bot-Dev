@@ -61,7 +61,9 @@ pub fn infantry_payments(s: &CoreState, who: Seat) -> SmallList<(u16, System, Op
     let is_mine = |p: &ti4_engine_core::state::Piece| p.owner() == who && p.kind().data().base_type == UnitBaseType::Infantry;
     let mut out = SmallList::default();
     for (system, cell) in s.board().systems() {
-        for planet in board::planets_of(s, system) {
+        let mut planets: Vec<ti4_engine_core::generated::Planet> = board::planets_of(s, system).collect();
+        planets.sort_unstable();
+        for planet in planets {
             if board::planet_units(s, planet).iter().any(is_mine) {
                 out.push((u16::try_from(planet.index() + 1).unwrap_or(0), system, Some(planet)));
             }

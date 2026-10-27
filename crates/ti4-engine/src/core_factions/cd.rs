@@ -852,11 +852,12 @@ pub fn dual_yin_research_waiver_paid(
     let before = Pos::of(gs, sources);
     // `ground|<system>|<planet>` or `space|<system>`.
     let parsed = (|| {
-        let mut parts = payment.split('|');
-        match (parts.next()?, parts.next()?, parts.next()) {
-            ("ground", sys, Some(pl)) => Some((system(&SystemId::new(sys))?, Some(planet(&PlanetId::new(pl))?))),
-            ("space", sys, None) => Some((system(&SystemId::new(sys))?, None)),
-            _ => None,
+        if let Some(rest) = payment.strip_prefix("ground|") {
+            let (sys, pl) = rest.split_once('|')?;
+            Some((system(&SystemId::new(sys))?, Some(planet(&PlanetId::new(pl))?)))
+        } else {
+            let sys = payment.strip_prefix("space|")?;
+            Some((system(&SystemId::new(sys))?, None))
         }
     })();
     let technology = <ti4_engine_core::generated::Technology as IdStr>::from_id(tech.as_str());
