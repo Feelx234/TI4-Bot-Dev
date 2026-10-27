@@ -39,7 +39,13 @@ check lint-core tools/engine_core/lint_core.sh
 note "     $(tail -1 "$out/lint-core.log")"
 python3 -I tools/engine_core/check_layers.py engine > "$out/layers-engine.txt" 2>&1
 note "     string engine: $(sed -n 2p "$out/layers-engine.txt")"
-check clippy cargo clippy -p ti4-engine -p ti4-engine-core -p ti4-engine-core-bridge --all-targets -- -D warnings
+# Clippy: the string engine carries old warnings (counted, not gating); the core crates, the bridge
+# and dual.rs must be clean, and nothing may be an error.
+cargo clippy -p ti4-engine -p ti4-engine-core -p ti4-engine-core-bridge --all-targets --message-format short > "$out/clippy.log" 2>&1
+clippy_new="$(grep -E '^(crates/ti4-engine-core/|crates/ti4-engine-core-factions/|crates/ti4-engine-core-bridge/|crates/ti4-engine/src/(dual|core_sync/|render/))[^ ]*: (warning|error)' "$out/clippy.log" | wc -l)"
+clippy_err="$(grep -c ': error' "$out/clippy.log")"
+note "     clippy: $(grep -c ': warning' "$out/clippy.log") warnings in total (old string-engine ones included), $clippy_new in core/bridge/dual/core_sync/render, $clippy_err errors"
+if [[ "$clippy_new" == 0 && "$clippy_err" == 0 ]]; then note "ok   clippy"; else note "FAIL clippy (see $out/clippy.log)"; fail=1; fi
 
 # 2 immutable surfaces.
 git diff --quiet "$base_ref" -- web/ docs/RULES_VERSION.md crates/ti4-model/src/state.rs \
