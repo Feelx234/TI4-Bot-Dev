@@ -472,9 +472,15 @@ thread_local! {
     /// The typed galaxy and adjacency of the last few string galaxies asked about on this thread. A
     /// galaxy is a plain value the game edits between steps, so the cache compares the whole value, as
     /// `ti4_host::projection::placed_galaxy` does; a position asks once (`Position`), not per query.
-    static GALAXIES: std::cell::RefCell<Vec<(Galaxy, TypedMap)>> =
+    static GALAXIES: std::cell::RefCell<GalaxyCache> =
         const { std::cell::RefCell::new(Vec::new()) };
 }
+
+/// The galaxies a thread has asked about, with their typed maps.
+type GalaxyCache = Vec<(Galaxy, TypedMap)>;
+
+/// The memoised ships that reach each system, for one seat.
+type MovableRow = Vec<Option<std::rc::Rc<[crate::tactical::Movable]>>>;
 
 /// A string galaxy as the typed map slice holds it.
 #[derive(Clone)]
@@ -771,7 +777,7 @@ pub struct SeatCache {
     position: Option<Option<std::rc::Rc<Position>>>,
     reach: [[Option<Option<std::rc::Rc<SeatReach>>>; 2]; 16],
     fleets: [Option<std::rc::Rc<CoreSeatFleet>>; 16],
-    movable: [Option<Vec<Option<std::rc::Rc<[crate::tactical::Movable]>>>>; 8],
+    movable: [Option<MovableRow>; 8],
     rift_exits: std::collections::HashMap<u32, usize>,
 }
 
