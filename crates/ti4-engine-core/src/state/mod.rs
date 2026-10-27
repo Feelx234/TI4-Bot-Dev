@@ -231,3 +231,44 @@ impl CoreState {
         self.map.galaxy.as_ref()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::generated::{Faction, System, Unit};
+    use crate::ids::Seat;
+
+    fn state() -> CoreState {
+        let mut s = CoreState::all_loaded();
+        let players = (0..6u8).map(|i| Player::new(Seat(i), Faction::ALL[usize::from(i)])).collect();
+        s.players = Players::from_vec(players);
+        s
+    }
+
+    #[test]
+    fn clone_shares_players_board_logs_and_rng() {
+        let mut a = state();
+        a.ledger.events.extend((0..70).map(|id| EventRec { id, kind: EventKind(1), args: [0; 3], cancelled: false }));
+        let b = a.clone();
+        assert_eq!(a.players.shared_with(&b.players), 6);
+        assert_eq!(a.board.shared_chunks(&b.board), 25);
+        assert!(a.ledger.events.shares_prefix_with(&b.ledger.events));
+        // A write copies one player and one board chunk only.
+        a.players_mut().edit(2).econ.trade_goods = 3;
+        a.board_mut().sys_mut(System::ALL[40]).units.push(Piece::new(Unit::ALL[0], Seat(1)));
+        assert_eq!(a.players.shared_with(&b.players), 5);
+        assert_eq!(a.board.shared_chunks(&b.board), 24);
+        assert_eq!(b.players.get(2).econ.trade_goods, 0);
+        assert!(b.board.sys(System::ALL[40]).units.is_empty());
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    #[should_panic]
+    #[cfg(debug_assertions)]
+    fn reading_an_unloaded_slice_fails_in_debug() {
+        let s = CoreState::with_loaded(SliceSet::of(&[Slice::Meta]));
+        let _ = s.meta();
+        let _ = s.board();
+    }
+}
