@@ -1314,6 +1314,45 @@ pub fn commit_ground_forces(
     invader: &PlayerId,
     system: &SystemId,
 ) -> Result<Vec<PlanetId>, IllegalChoice> {
+    #[cfg(feature = "typed-core")]
+    {
+        // On `invasion=dual` the commitment also runs as a core window in lockstep: the same questions, the same
+        // answers, the same board (`rules::invasion::commit`).
+        let mut outcome = None;
+        let failed = std::cell::Cell::new(false);
+        let table = std::cell::RefCell::new(table);
+        let planets = crate::dual_window!(
+            crate::dual::Area::Invasion,
+            "invasion::commit_ground_forces",
+            state,
+            |s: &mut GameState| {
+                let result = commit_ground_forces_text(s, content, sources, &mut **table.borrow_mut(), invader, system);
+                failed.set(result.is_err());
+                let value = result.as_ref().map_or_else(|_| Vec::new(), Clone::clone);
+                outcome = Some(result);
+                crate::dual::Run::new(value)
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                if failed.get() {
+                    return None;
+                }
+                crate::dual_window::commit_ground(s, sources, invader, system, script)
+            }
+        );
+        return outcome.unwrap_or(Ok(planets));
+    }
+    #[cfg(not(feature = "typed-core"))]
+    commit_ground_forces_text(state, content, sources, table, invader, system)
+}
+
+fn commit_ground_forces_text(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    table: &mut Table,
+    invader: &PlayerId,
+    system: &SystemId,
+) -> Result<Vec<PlanetId>, IllegalChoice> {
     if crate::planets::in_system(state, content, sources, system).is_empty() {
         return Ok(Vec::new());
     }
@@ -10355,6 +10394,33 @@ mod core_bombardment {
         let r = report();
         let counts = &r.areas[&Area::Invasion];
         assert!(counts.calls >= 12, "{counts:?}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    #[test]
+    fn committing_ground_forces_runs_as_a_core_window_in_lockstep() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual);
+        let (state, system, planet) = arena();
+        let mut results = Vec::new();
+        with_mask(mask, || {
+            for answers in [vec!["done_committing".to_owned()], vec!["commit|0|PLANET".to_owned(), "commit|0|PLANET".to_owned()]] {
+                let mut state = state.clone();
+                put(&mut state, &system, None, "infantry", &invader(), 1);
+                put(&mut state, &system, None, "sol_mech", &invader(), 1);
+                let answers: Vec<String> = answers.into_iter().map(|a| a.replace("PLANET", planet.as_str())).collect();
+                let mut table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(answers)));
+                let committed = commit_ground_forces(&mut state, ContentStore::embedded(), POK, &mut table, &invader(), &system);
+                results.push((committed.map(|c| c.len()), state.system_state(&system).on_planet(&planet).len()));
+            }
+        });
+        assert_eq!(results[0], (Ok(0), 0));
+        assert_eq!(results[1].0, Ok(1));
+        let r = report();
+        let counts = &r.areas[&Area::Invasion];
+        assert!(counts.calls >= 2, "{counts:?}");
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }

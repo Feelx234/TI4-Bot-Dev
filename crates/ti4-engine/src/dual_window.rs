@@ -477,3 +477,47 @@ pub fn assign_hits(
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(events), questions: driven.rendered })
 }
+
+const COMMIT_GROUND: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
+    &[Slice::Board, Slice::Pending],
+);
+
+/// The core half of `invasion::commit_ground_forces`: the planets committed to. `None` for what the core window
+/// does not express: a Keleres seat (the Omniopiares toll), a ship-form unit flipping on landing, nested
+/// activity, or a position the codecs refuse.
+#[must_use]
+pub fn commit_ground(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    invader: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    script: &Recording,
+) -> Option<CoreWindow<Vec<ti4_model::id::PlanetId>>> {
+    use ti4_engine_core::rules::invasion::commit::CommitGround;
+    if script.nested || gs.players.iter().any(|p| p.faction.as_str().starts_with("keleres")) {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let seat = r.seat(invader.as_str())?;
+    let sys = <ti4_engine_core::generated::System as IdStr>::from_id(system.as_str())?;
+    let before = gs.clone();
+    let env = crate::core_invasion::ground_env(&before, &cx, sources)?;
+    let resolver = Resolver::new(&[seat], Some(seat));
+    let mut driver = Driver::new(CommitGround::new(seat, sys), resolver, AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let driven = with_core(gs, &mut cx, Sources::default(), COMMIT_GROUND, |core, _| {
+        let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .ok()?
+    .ok()?;
+    if driver.window.unsupported {
+        return None;
+    }
+    apply_staged(gs, &r, &staged)?;
+    let planets = driver.window.committed.iter().map(|p| ti4_model::id::PlanetId::new(p.as_str())).collect();
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    Some(CoreWindow { run: Run::new(planets).with_events_vec(events), questions: driven.rendered })
+}

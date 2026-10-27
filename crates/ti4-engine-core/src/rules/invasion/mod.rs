@@ -11,6 +11,8 @@
 //!
 //! Nothing here asks a question or emits an event: those go through the host the later sections take.
 
+pub mod commit;
+
 use crate::containers::SeatSet;
 use crate::generated::{Leader, Planet, System, Unit, UnitBaseType};
 use crate::ids::Seat;

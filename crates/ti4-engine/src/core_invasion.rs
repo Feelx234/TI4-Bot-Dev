@@ -258,3 +258,11 @@ fn register_ground_bridge(h: &mut ti4_engine_core::kernel::hooks::HookTable) {
         with_oracle(|o| Some(crate::factions::hooks_ground::custodians_free(&o.gs, ContentStore::embedded(), &o.player(who)?))).flatten().unwrap_or(false)
     });
 }
+
+/// [`window_env`] with the ground hook slots of the string faction modules (for the invasion windows).
+#[must_use]
+pub fn ground_env(gs: &GameState, cx: &Ctx, sources: SourceSet) -> Option<WindowEnv> {
+    let mut env = window_env(gs, cx, sources)?;
+    register_ground_bridge(&mut env.kernel.hooks);
+    Some(env)
+}
