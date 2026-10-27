@@ -109,7 +109,16 @@ pub const MODULE: FactionModule = FactionModule {
 /// who has at least 1 relic fragment, apply +2 to the results of this unit's combat rolls."
 /// Rules version 17. A mech only rolls in ground combat, so the opponents are the other players'
 /// ground forces on the planet.
-fn unit_roll_modifier(
+fn unit_roll_modifier(state: &GameState, content: &ContentStore, sources: SourceSet, unit: &CombatUnit<'_>) -> i64 {
+    crate::cb_dual!(
+        crate::dual::HookGroup::General,
+        "naalu::unit_roll_modifier",
+        unit_roll_modifier_text(state, content, sources, unit),
+        crate::core_factions::cd::naalu_unit_roll_modifier(state, sources, unit)
+    )
+}
+
+fn unit_roll_modifier_text(
     state: &GameState,
     _content: &ContentStore,
     _sources: SourceSet,
@@ -159,6 +168,15 @@ fn may_view_promissory_hand(
 
 /// Whether the bound Naalu seat currently owns its unlocked M'aban commander.
 pub(crate) fn commander_has_peek(state: &GameState, player: &PlayerId) -> bool {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Direct,
+        "naalu::commander_has_peek",
+        commander_has_peek_text(state, player),
+        crate::core_factions::cd::naalu_commander_has_peek(state, player)
+    )
+}
+
+pub(crate) fn commander_has_peek_text(state: &GameState, player: &PlayerId) -> bool {
     crate::promissory::has_commander_ability(state, player, "naalucommander")
 }
 
@@ -239,6 +257,13 @@ fn gift_holder(state: &GameState) -> Option<PlayerId> {
 /// order." Mandatory, so decided here without a question. The token is the Naalu player's only
 /// while Gift of Prescience has not been played this round (it then sits on the holder's card).
 fn strategy_phase_ended(state: &mut GameState) {
+    #[cfg(feature = "typed-core")]
+    crate::core_factions::cd::dual_naalu_strategy_phase_ended(state, strategy_phase_ended_text);
+    #[cfg(not(feature = "typed-core"))]
+    strategy_phase_ended_text(state);
+}
+
+fn strategy_phase_ended_text(state: &mut GameState) {
     if gift_played_this_round(state) {
         return;
     }
@@ -313,7 +338,16 @@ fn gift_return(owner_name: &str, seat: &PlayerId) -> Ability {
 // -- Hybrid Crystal Fighter II -------------------------------------------------------------------
 
 /// Excess Hybrid Crystal Fighter IIs weigh half a ship against the fleet pool (`fleet::standing`).
-fn fighter_fleet_weight_halves(
+fn fighter_fleet_weight_halves(state: &GameState, content: &ContentStore, player: &PlayerId, unit_type: &str) -> bool {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Combat,
+        "naalu::fighter_fleet_weight_halves",
+        fighter_fleet_weight_halves_text(state, content, player, unit_type),
+        crate::core_factions::cd::naalu_fighter_fleet_weight_halves(state, player, unit_type)
+    )
+}
+
+fn fighter_fleet_weight_halves_text(
     state: &GameState,
     _content: &ContentStore,
     player: &PlayerId,
@@ -326,7 +360,16 @@ fn fighter_fleet_weight_halves(
 
 /// Matriarch lets its owner's fighters in this system join an invasion temporarily. The invasion
 /// window records that provenance and returns survivors to the space area after combat.
-fn matriarch_fighters(
+fn matriarch_fighters(state: &GameState, content: &ContentStore, sources: SourceSet, invader: &PlayerId, system: &SystemId) -> Vec<Unit> {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Ground,
+        "naalu::matriarch_fighters",
+        matriarch_fighters_text(state, content, sources, invader, system),
+        crate::core_factions::cd::naalu_matriarch_fighters(state, sources, invader, system)
+    )
+}
+
+fn matriarch_fighters_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -351,7 +394,16 @@ fn matriarch_fighters(
         .collect()
 }
 
-fn matriarch_temporary_ground_force(
+fn matriarch_temporary_ground_force(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, system: &SystemId, planet: &ti4_model::id::PlanetId, unit: &Unit) -> bool {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Ground,
+        "naalu::temporary_ground_force",
+        matriarch_temporary_ground_force_text(state, content, sources, player, system, planet, unit),
+        crate::core_factions::cd::naalu_temporary_ground_force(state, sources, player, system, planet, unit)
+    )
+}
+
+fn matriarch_temporary_ground_force_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -796,7 +848,16 @@ const MINDSIEVE_PREFIX: &str = "ms|";
 
 /// One waiver per note the follower could give: the note is part of the choice, since the
 /// waiver hooks have no table to ask with.
-fn secondary_waivers(
+fn secondary_waivers(state: &GameState, content: &ContentStore, follower: &PlayerId, primary: &PlayerId, card: Option<ti4_content::StrategyCardKind>) -> Vec<SecondaryWaiver> {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Strategy,
+        "naalu::secondary_waivers",
+        secondary_waivers_text(state, content, follower, primary, card),
+        crate::core_factions::cd::naalu_secondary_waivers(state, follower, primary)
+    )
+}
+
+fn secondary_waivers_text(
     state: &GameState,
     _content: &ContentStore,
     follower: &PlayerId,

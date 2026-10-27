@@ -155,7 +155,16 @@ fn distinct_hand_options(content: &ContentStore, hand: &[ActionCardId]) -> Vec<C
 
 /// Crafty: "You can have any number of action cards in your hand. Game effects cannot prevent you
 /// from using this ability." Modules run after the law cap (Sanctions), so this beats it.
-fn action_card_limit(
+fn action_card_limit(state: &GameState, content: &ContentStore, player: &PlayerId, limit: usize) -> usize {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Economy,
+        "yssaril::action_card_limit",
+        action_card_limit_text(state, content, player, limit),
+        crate::core_factions::cd::yssaril_action_card_limit(state, player, limit)
+    )
+}
+
+fn action_card_limit_text(
     state: &GameState,
     _content: &ContentStore,
     player: &PlayerId,
@@ -239,7 +248,16 @@ fn stage_deepgloom_transaction(state: &mut GameState, owner: &PlayerId, user: &P
 }
 
 /// Scheming: "Draw 1 additional action card."
-fn action_card_draw_bonus(
+fn action_card_draw_bonus(state: &GameState, content: &ContentStore, player: &PlayerId, requested: usize) -> usize {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Economy,
+        "yssaril::action_card_draw_bonus",
+        action_card_draw_bonus_text(state, content, player, requested),
+        crate::core_factions::cd::yssaril_action_card_draw_bonus(state, player, requested)
+    )
+}
+
+fn action_card_draw_bonus_text(
     state: &GameState,
     _content: &ContentStore,
     player: &PlayerId,
@@ -312,6 +330,15 @@ fn action_cards_drawn(
 /// play action cards." True for `player` when the active player holds the technology in the action
 /// phase and `player` has passed.
 fn action_cards_forbidden(state: &GameState, player: &PlayerId) -> bool {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Economy,
+        "yssaril::action_cards_forbidden",
+        action_cards_forbidden_text(state, player),
+        crate::core_factions::cd::yssaril_action_cards_forbidden(state, player)
+    )
+}
+
+fn action_cards_forbidden_text(state: &GameState, player: &PlayerId) -> bool {
     if state.phase != Phase::Action || !state.player(player).is_some_and(|seat| seat.passed) {
         return false;
     }
@@ -531,7 +558,16 @@ fn borrowed_stall_tactics(
     true
 }
 
-fn deepgloom_reach(state: &GameState, _: &ContentStore, a: &PlayerId, b: &PlayerId) -> bool {
+fn deepgloom_reach(state: &GameState, content: &ContentStore, a: &PlayerId, b: &PlayerId) -> bool {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Cards,
+        "yssaril::deepgloom_reach",
+        deepgloom_reach_text(state, content, a, b),
+        crate::core_factions::cd::yssaril_deepgloom_reach(state, a, b)
+    )
+}
+
+fn deepgloom_reach_text(state: &GameState, _: &ContentStore, a: &PlayerId, b: &PlayerId) -> bool {
     state
         .faction_marks
         .contains_key(&bt_key("negotiating", a, b))
@@ -609,7 +645,16 @@ fn deepgloom_transaction(owner_name: &str, seat: &PlayerId) -> Ability {
 
 /// A transaction between a Yssaril seat and a player it allowed to use Stall Tactics this turn does
 /// not count against the once-per-player limit.
-fn transaction_limit_exempt(
+fn transaction_limit_exempt(state: &GameState, content: &ContentStore, active: &PlayerId, other: &PlayerId) -> bool {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Cards,
+        "yssaril::transaction_limit_exempt",
+        transaction_limit_exempt_text(state, content, active, other),
+        crate::core_factions::cd::yssaril_transaction_limit_exempt(state, active, other)
+    )
+}
+
+fn transaction_limit_exempt_text(
     state: &GameState,
     _content: &ContentStore,
     active: &PlayerId,
@@ -622,7 +667,16 @@ fn transaction_limit_exempt(
 // -- the commander -------------------------------------------------------------------------------
 
 /// So Ata, unlock: "Have 7 action cards."
-fn commander_unlocked(
+fn commander_unlocked(state: &GameState, content: &ContentStore, sources: SourceSet, galaxy: Option<&ti4_content::galaxy::Galaxy>, player: &PlayerId, leader: &LeaderId) -> Option<bool> {
+    crate::cb_dual!(
+        crate::dual::HookGroup::General,
+        "yssaril::commander_unlocked",
+        commander_unlocked_text(state, content, sources, galaxy, player, leader),
+        crate::core_factions::cd::yssaril_commander_unlocked(state, player, leader)
+    )
+}
+
+fn commander_unlocked_text(
     state: &GameState,
     _content: &ContentStore,
     _sources: SourceSet,

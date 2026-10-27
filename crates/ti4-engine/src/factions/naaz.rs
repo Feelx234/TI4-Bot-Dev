@@ -425,7 +425,16 @@ fn fabricate_token(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
 
 /// Distant Suns: "When you explore a planet that contains 1 of your mechs: You may draw 1
 /// additional card; choose 1 to resolve and discard the rest." The shared route draws and asks.
-fn explore_extra_draw(
+fn explore_extra_draw(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, planet: &PlanetId) -> bool {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Economy,
+        "naaz::explore_extra_draw",
+        explore_extra_draw_text(state, content, sources, player, planet),
+        crate::core_factions::cd::naaz_explore_extra_draw(state, sources, player, planet)
+    )
+}
+
+fn explore_extra_draw_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -451,6 +460,19 @@ fn explore_extra_draw(
 /// Pre-Fab Arcologies: "After you explore a planet, ready that planet."
 fn explored(
     state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    planet: &PlanetId,
+) {
+    #[cfg(feature = "typed-core")]
+    crate::core_factions::cd::dual_naaz_explored(state, sources, player, planet, |s| explored_text(s, content, sources, player, planet));
+    #[cfg(not(feature = "typed-core"))]
+    explored_text(state, content, sources, player, planet);
+}
+
+fn explored_text(
+ut GameState,
     _content: &ContentStore,
     _sources: SourceSet,
     player: &PlayerId,
@@ -536,7 +558,18 @@ fn offer_supercharge(
     crate::technology::exhaust_technology_text(state, player, "sc");
 }
 
-fn unit_roll_modifier(
+fn unit_roll_modifier(state: &GameState, content: &ContentStore, sources: SourceSet, unit: &CombatUnit<'_>) -> i64 {
+    #[cfg(feature = "typed-core")]
+    crate::core_factions::cd::sampled_audit(state, sources);
+    crate::cb_dual!(
+        crate::dual::HookGroup::General,
+        "naaz::unit_roll_modifier",
+        unit_roll_modifier_text(state, content, sources, unit),
+        crate::core_factions::cd::naaz_unit_roll_modifier(state, sources, unit)
+    )
+}
+
+fn unit_roll_modifier_text(
     state: &GameState,
     _content: &ContentStore,
     _sources: SourceSet,
@@ -550,7 +583,16 @@ fn unit_roll_modifier(
 
 // -- Visz El Vir ---------------------------------------------------------------------------------
 
-fn unit_dice(
+fn unit_dice(state: &GameState, content: &ContentStore, sources: SourceSet, unit: &CombatUnit<'_>, dice: i64) -> i64 {
+    crate::cb_dual!(
+        crate::dual::HookGroup::General,
+        "naaz::unit_dice",
+        unit_dice_text(state, content, sources, unit, dice),
+        crate::core_factions::cd::naaz_unit_dice(state, sources, unit, dice)
+    )
+}
+
+fn unit_dice_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -763,7 +805,16 @@ fn has_borrowable_naaz_agent(
 
 // -- Dart and Tai --------------------------------------------------------------------------------
 
-fn commander_unlocked(
+fn commander_unlocked(state: &GameState, content: &ContentStore, sources: SourceSet, galaxy: Option<&ti4_content::galaxy::Galaxy>, player: &PlayerId, leader: &LeaderId) -> Option<bool> {
+    crate::cb_dual!(
+        crate::dual::HookGroup::General,
+        "naaz::commander_unlocked",
+        commander_unlocked_text(state, content, sources, galaxy, player, leader),
+        crate::core_factions::cd::naaz_commander_unlocked(state, player, leader)
+    )
+}
+
+fn commander_unlocked_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1341,7 +1392,16 @@ fn absolute_synergy(owner_name: &str, seat: &PlayerId, event_type: &'static str)
 
 /// "Game effects cannot place or produce your mechs": production only; placement by other effects
 /// is a shared seam (see the evidence file).
-fn cannot_produce(
+fn cannot_produce(state: &GameState, content: &ContentStore, player: &PlayerId, unit_base: &str, producer_base: &str) -> bool {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Economy,
+        "naaz::cannot_produce",
+        cannot_produce_text(state, content, player, unit_base, producer_base),
+        crate::core_factions::cd::naaz_cannot_produce(state, player, unit_base, producer_base)
+    )
+}
+
+fn cannot_produce_text(
     state: &GameState,
     _content: &ContentStore,
     player: &PlayerId,
@@ -1353,7 +1413,16 @@ fn cannot_produce(
 
 /// Eidolon Maximum: "Game effects cannot place or produce your mechs." The shared placement
 /// helper passes the resolved faction unit, so upgrades and forms cannot evade this gate.
-fn effect_placement_forbidden(
+fn effect_placement_forbidden(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, unit: &ti4_model::id::UnitTypeId) -> bool {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Economy,
+        "naaz::effect_placement_forbidden",
+        effect_placement_forbidden_text(state, content, sources, player, unit),
+        crate::core_factions::cd::naaz_effect_placement_forbidden(state, sources, player, unit)
+    )
+}
+
+fn effect_placement_forbidden_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1368,7 +1437,16 @@ fn effect_placement_forbidden(
 }
 
 /// A Maximum flips back when it is removed; captured models therefore return as Eidolons.
-fn captured_unit_return_form(
+fn captured_unit_return_form(state: &GameState, content: &ContentStore, sources: SourceSet, owner: &PlayerId, unit: &ti4_model::id::UnitTypeId) -> ti4_model::id::UnitTypeId {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Economy,
+        "naaz::captured_unit_return_form",
+        captured_unit_return_form_text(state, content, sources, owner, unit),
+        crate::core_factions::cd::naaz_captured_unit_return_form(state, sources, owner, unit)
+    )
+}
+
+fn captured_unit_return_form_text(
     _state: &GameState,
     _content: &ContentStore,
     _sources: SourceSet,
@@ -1382,7 +1460,16 @@ fn captured_unit_return_form(
     }
 }
 
-fn ability_hit_immune(
+fn ability_hit_immune(state: &GameState, content: &ContentStore, sources: SourceSet, unit: &CombatUnit<'_>) -> bool {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Combat,
+        "naaz::ability_hit_immune",
+        ability_hit_immune_text(state, content, sources, unit),
+        crate::core_factions::cd::naaz_ability_hit_immune(state, sources, unit)
+    )
+}
+
+fn ability_hit_immune_text(
     _state: &GameState,
     _content: &ContentStore,
     _sources: SourceSet,

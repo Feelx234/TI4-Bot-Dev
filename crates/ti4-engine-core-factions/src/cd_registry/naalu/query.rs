@@ -103,6 +103,12 @@ pub fn mindsieve_code(note: PromissoryNote, faction: Faction) -> u16 {
     (u16::try_from(note.index()).unwrap_or(0) << 6) | u16::try_from(faction.index()).unwrap_or(0)
 }
 
+/// The note and faction a Mindsieve waiver code names.
+#[must_use]
+pub fn mindsieve_parts(code: u16) -> Option<(PromissoryNote, Faction)> {
+    Some((PromissoryNote::from_index(usize::from(code >> 6))?, Faction::from_index(usize::from(code & 63))?))
+}
+
 /// The hidden notes `who` holds: held, not faceup.
 pub fn hand_notes(s: &CoreState, who: Seat) -> SmallList<ti4_engine_core::state::NoteKey, 8> {
     s.cards().promissory.iter().filter(|(key, holder)| **holder == who && !s.cards().promissory_faceup.contains_key(key)).map(|(key, _)| *key).collect()

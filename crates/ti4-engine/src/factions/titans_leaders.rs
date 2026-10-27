@@ -165,7 +165,16 @@ fn coexisting_with(state: &GameState, player: &PlayerId) -> std::collections::BT
 /// "During the status phase, for each player you are coexisting with, you and that player each
 /// draw 1 additional action card." For the holder, one per partner; for a partner, one per
 /// Slumberstate holder it coexists with.
-fn slumberstate_draw_bonus(
+fn slumberstate_draw_bonus(state: &GameState, content: &ContentStore, player: &PlayerId, requested: usize) -> usize {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Economy,
+        "titans::slumberstate_draw_bonus",
+        slumberstate_draw_bonus_text(state, content, player, requested),
+        crate::core_factions::cd::titans_slumberstate_draw_bonus(state, player, requested)
+    )
+}
+
+fn slumberstate_draw_bonus_text(
     state: &GameState,
     _content: &ContentStore,
     player: &PlayerId,
@@ -354,7 +363,16 @@ fn structures_on_board(
         .count()
 }
 
-fn commander_unlocked(
+fn commander_unlocked(state: &GameState, content: &ContentStore, sources: SourceSet, galaxy: Option<&ti4_content::galaxy::Galaxy>, player: &PlayerId, leader: &LeaderId) -> Option<bool> {
+    crate::cb_dual!(
+        crate::dual::HookGroup::General,
+        "titans::commander_unlocked",
+        commander_unlocked_text(state, content, sources, galaxy, player, leader),
+        crate::core_factions::cd::titans_commander_unlocked(state, player, leader)
+    )
+}
+
+fn commander_unlocked_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
