@@ -24,6 +24,7 @@ pub mod breakthroughs;
 pub mod choice;
 pub mod coexistence;
 pub mod combat;
+mod combat_effects;
 pub mod decision_context;
 pub mod deck;
 pub mod dice;

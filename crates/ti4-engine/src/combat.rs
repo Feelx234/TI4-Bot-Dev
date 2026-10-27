@@ -343,92 +343,18 @@ fn effective_from(
     let morale_is_current = state
         .player(player)
         .is_some_and(|seat| seat.combat_bonus_round == Some(state.combat_round_seq));
-    // A faction shift applies to the *roll*, so it moves the threshold the other way: Sardakk's
-    // Unrelenting adds one to each die, which is the same as needing one less.
-    let faction = crate::faction_abilities::combat_modifier(state, content, player, "space");
-    // Fighter Prototype: "+2 to the result of each of your fighters' combat rolls". One entry
-    // per copy, so two cards played in the same round give four.
-    let fighter_bonus = if catalogue(content, sources)
+    let is_fighter = catalogue(content, sources)
         .get(unit.type_id.as_str())
-        .is_some_and(UnitType::is_fighter)
-    {
-        fighter_bonus_now(state, player)
-    } else {
-        0
-    };
-    // 59.5: "If a space combat occurs in a nebula, the defender applies +1 to each combat roll of
-    // their ships during that combat." The defender is whoever is not the active player -- an
-    // activation is what starts a space combat, so the attacker is always the active seat.
-    //
-    // Applied to the threshold rather than the die, like the faction shift above: +1 to the roll is
-    // the same as needing one less. Only ships, and this function is reached only from
-    // `fleet_groups`, which iterates `ships_of` -- so ground combat in a nebula is untouched, which
-    // is what the rule says.
-    let nebula_defender = state
-        .active_system
-        .as_ref()
-        .filter(|_| state.active.as_ref() != Some(player))
-        .and_then(|system| ti4_content::galaxy::system(content, system.as_str(), sources))
-        .is_some_and(|system| system.is_nebula());
-
-    let module = crate::factions::unit_roll_modifier(
-        state,
-        content,
-        sources,
-        &crate::factions::CombatUnit {
-            player,
-            system: state.active_system.as_ref(),
-            planet: None,
-            unit_type: unit.type_id.as_str(),
-            context: "space",
-        },
+        .is_some_and(UnitType::is_fighter);
+    let shift = crate::combat_effects::space_roll_shift(
+        state, content, sources, player, unit, is_fighter,
     );
-    // Mahact Arvicon Rex: "+2 to the results of this unit's combat rolls" against an opponent whose
-    // command token is not in the owner's fleet pool. A roll bonus, so it lowers the threshold.
-    let mahact_flagship = crate::factions::mahact_units::flagship_roll_bonus(
-        state,
-        content,
-        sources,
-        player,
-        unit.type_id.as_str(),
-    );
-
-    // Nekro Mordred: +2 to its rolls against an opponent with an "X" or "Y" assimilator token.
-    let nekro_mech = crate::factions::nekro_units::mech_roll_bonus(
-        state,
-        content,
-        sources,
-        player,
-        unit.type_id.as_str(),
-        state.active_system.as_ref(),
-        None,
-    );
-
-    // Assail (Obsidian plot): +1 to each of the owner's combat rolls against a puppeted player.
-    let assail = crate::factions::firmament_plots::assail_space(
-        state,
-        content,
-        sources,
-        player,
-        state.active_system.as_ref(),
-    );
-
-    Some(
-        threshold
-            - i64::from(morale_is_current)
-            - faction
-            - fighter_bonus
-            - i64::from(nebula_defender)
-            - module
-            - mahact_flagship
-            - nekro_mech
-            - assail,
-    )
+    Some(threshold - i64::from(morale_is_current) - shift)
 }
 
 /// The roll bonus this seat's fighters carry in the current combat round (Fighter Prototype):
 /// two per copy held, counted only while the round the cards were played in is the live one.
-fn fighter_bonus_now(state: &GameState, player: &PlayerId) -> i64 {
+pub(crate) fn fighter_bonus_now(state: &GameState, player: &PlayerId) -> i64 {
     let prototypes = state.player(player).map_or(0, |seat| {
         2 * i64::try_from(
             seat.fighter_bonus_round
@@ -1293,7 +1219,7 @@ fn fleet_groups(
             extra_die_added = true;
         }
         // A galvanized unit rolls 1 additional die for its combat rolls (Last Bastion).
-        dice += i64::try_from(crate::factions::bastion::extra_die(&unit)).unwrap_or(0);
+        dice += i64::try_from(crate::combat_effects::galvanized_dice(&unit)).unwrap_or(0);
         dice += crate::factions::borrowed_round_agents::extra_die_for(
             state,
             content,
@@ -1733,24 +1659,16 @@ pub fn roll_barrage_side(
             continue;
         }
         // A galvanized unit rolls 1 additional die for its unit abilities (Last Bastion).
-        let count = count + crate::factions::bastion::extra_die(&unit);
-        // Fighter Prototype names "each of your fighters' combat rolls": the barrage is a
-        // fighters' combat roll, so it gets the same +2 per copy as the fleet rolls do.
-        let value = if kind.is_fighter() {
-            value - fighter_bonus_now(state, player)
-        } else {
-            value
-        };
-        // Assail: +1 to the owner's unit ability rolls against a puppeted player.
-        let value = (value
-            - crate::factions::firmament_plots::assail_space(
-                state,
-                content,
-                sources,
-                player,
-                Some(system),
-            ))
-        .max(1);
+        let count = count + crate::combat_effects::galvanized_dice(&unit);
+        let value = crate::combat_effects::barrage_value(
+            state,
+            content,
+            sources,
+            player,
+            system,
+            kind.is_fighter(),
+            value,
+        );
         let roll = dice.roll_by(
             rng,
             count,
@@ -2379,7 +2297,7 @@ pub fn space_cannon_offense(
         }
         let count = count + take_plasma(&mut plasma, &unit.owner, value);
         // A galvanized unit rolls 1 additional die for its unit abilities (Last Bastion).
-        let count = count + crate::factions::bastion::extra_die(&unit);
+        let count = count + crate::combat_effects::galvanized_dice(&unit);
         // Assail: +1 to the gunner's unit ability rolls against a puppeted player (the active
         // player's guns fire at the opponent, every other gun at the active player).
         let target = if unit.owner == *active {

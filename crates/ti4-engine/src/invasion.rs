@@ -233,40 +233,9 @@ pub fn ground_combat_value(
     let printed = catalogue(content, sources)
         .get(unit_type)
         .and_then(ti4_content::units::UnitType::combat_hits_on)?;
-    let mut faction = crate::faction_abilities::combat_modifier(state, content, player, "ground");
-
-    // Jol-Nar's Shield Paling mech: "Your infantry on this planet are not affected by your Fragile
-    // faction ability." Only infantry, and only on the planet the mech is standing on -- which is
-    // why this is decided per planet rather than per seat.
-    if faction < 0 && unit_type.contains("infantry") && shield_paling(state, player, system, planet)
-    {
-        faction = 0;
-    }
-    let module = crate::factions::unit_roll_modifier(
-        state,
-        content,
-        sources,
-        &crate::factions::CombatUnit {
-            player,
-            system: Some(system),
-            planet: Some(planet),
-            unit_type,
-            context: "ground",
-        },
-    );
-    // Nekro Mordred: +2 to its rolls against an opponent with an "X" or "Y" assimilator token.
-    let nekro_mech = crate::factions::nekro_units::mech_roll_bonus(
-        state,
-        content,
-        sources,
-        player,
-        unit_type,
-        Some(system),
-        Some(planet),
-    );
-    // Assail (Obsidian plot): +1 to each of the owner's combat rolls against a puppeted player.
-    let assail = crate::factions::firmament_plots::assail_ground(state, player, system, planet);
-    Some(printed - faction - module - nekro_mech - assail)
+    let shift =
+        crate::combat_effects::ground_roll_shift(state, content, sources, player, system, planet, unit_type);
+    Some(printed - shift)
 }
 
 pub(crate) fn is_ground_force_here(
@@ -292,7 +261,7 @@ pub(crate) fn is_ground_force_here(
 }
 
 /// Whether a Jol-Nar Shield Paling mech is on this planet, shielding its owner's infantry.
-fn shield_paling(
+pub(crate) fn shield_paling(
     state: &GameState,
     player: &PlayerId,
     system: &SystemId,
@@ -521,7 +490,7 @@ fn roll_bombard_plan(
             // Plasma Scoring: one bombarding unit rolls a die more, once for the whole bombardment.
             let count = count + usize::from(std::mem::take(&mut plasma));
             // A galvanized unit rolls 1 additional die for its unit abilities (Last Bastion).
-            let count = count + crate::factions::bastion::extra_die(&unit);
+            let count = count + crate::combat_effects::galvanized_dice(&unit);
             // Bunker: "during this invasion, apply -4 to the result of each BOMBARDMENT roll
             // against planets you control." The window that hosts these rolls is opened after
             // the driver's invasion events, so the marker is in place by the time the rolls
@@ -1236,7 +1205,7 @@ fn roll_ground(
             kind.combat_dice(),
         );
         // A galvanized unit rolls 1 additional die for its combat rolls (Last Bastion).
-        slot.0 += i64::try_from(crate::factions::bastion::extra_die(&unit)).unwrap_or(0);
+        slot.0 += i64::try_from(crate::combat_effects::galvanized_dice(&unit)).unwrap_or(0);
         // The Sol agent's mark, set by `leaders::dispatch_leader` (rules version 16): one ground
         // force of the chosen type rolls 1 additional die in the round it was used.
         if !sol_die_added
@@ -4823,7 +4792,7 @@ fn space_cannon_defense(
         }
         let count = count + crate::combat::take_plasma(&mut plasma, &unit.owner, value);
         // A galvanized unit rolls 1 additional die for its unit abilities (Last Bastion).
-        let count = count + crate::factions::bastion::extra_die(&unit);
+        let count = count + crate::combat_effects::galvanized_dice(&unit);
         // Assail: +1 to the gunner's unit ability rolls against a puppeted invader.
         let assail =
             crate::factions::firmament_plots::assail_against(state, &unit.owner, [invader]);
