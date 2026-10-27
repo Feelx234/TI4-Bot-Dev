@@ -668,13 +668,13 @@ pub fn compare_json<T: Serialize>(
 /// The record a decision opened by `choice` would leave once `chosen` is picked.
 #[must_use]
 pub fn record_of(choice: &Choice, chosen: &str) -> DecisionRecord {
-    DecisionRecord {
+    DecisionRecord::from(crate::choice::DecisionRecordFields {
         player: choice.player.clone(),
         prompt: choice.prompt.clone(),
         chosen: chosen.to_owned(),
         offered: choice.options.iter().map(|o| o.id.clone()).collect(),
         context: choice.context.clone(),
-    }
+    })
 }
 
 /// An opened decision (`None`: the call opened none) on both sides: the whole `Choice` leaf by leaf
