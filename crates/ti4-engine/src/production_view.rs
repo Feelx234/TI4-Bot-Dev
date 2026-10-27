@@ -21,7 +21,7 @@ use crate::core_sync::{CoreView, Ctx, Sources};
 use crate::generated::IdStr;
 
 /// What the production reads need.
-pub const READS: SliceSet = SliceSet::of(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Agenda, Slice::Marks, Slice::Strategy, Slice::Cards, Slice::Trade, Slice::Transient]);
+pub const READS: SliceSet = SliceSet::of(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Agenda, Slice::Marks, Slice::Strategy, Slice::Cards, Slice::Trade, Slice::Transient, Slice::Explore]);
 
 /// The typed view of one position.
 pub struct ProdView<'a> {
@@ -36,7 +36,7 @@ pub struct ProdView<'a> {
 /// The factions whose string modules still answer production questions with hooks the typed seams do not
 /// carry yet (package CB): the typed reads decline and the caller keeps the string answer.
 fn unported_economy(state: &GameState) -> bool {
-    use crate::factions::{arborec, bastion, crimson, ghost, mentak, muaat, naalu, naaz, ralnel, saar};
+    use crate::factions::{arborec, bastion, crimson, ghost, mentak, muaat, naalu, naaz, saar};
     let held = [
         arborec::MODULE.alias,
         bastion::MODULE.alias,
@@ -46,7 +46,6 @@ fn unported_economy(state: &GameState) -> bool {
         muaat::MODULE.alias,
         naalu::MODULE.alias,
         naaz::MODULE.alias,
-        ralnel::MODULE.alias,
         saar::MODULE.alias,
     ];
     state.players.iter().any(|p| held.contains(&p.faction.as_str()))
