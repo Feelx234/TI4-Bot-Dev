@@ -53,6 +53,25 @@ impl core::hash::Hash for Shown {
     fn hash<H: core::hash::Hasher>(&self, _: &mut H) {}
 }
 
+/// Where a produced unit may go.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Spot {
+    Space,
+    Planet(Planet),
+    /// A place in another system a module offers (`production_destinations`).
+    Remote(System, Option<Planet>),
+}
+
+/// The placement question: where `made` bought copies of `unit` go, when there is more than one place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PlaceAsk {
+    pub who: Seat,
+    pub system: System,
+    pub unit: Unit,
+    pub made: u8,
+    pub fleet_limit: i32,
+}
+
 /// The production question: what to build now. The window's own numbers (the string `ProductionWindow`
 /// fields the options depend on); the rest an option shows is read from the position by the renderer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -87,6 +106,8 @@ pub enum Ask {
     Pay(PayAsk),
     /// Choose what to build.
     Choose(ChooseAsk),
+    /// Choose where to put what was produced.
+    Place(PlaceAsk),
 }
 
 /// One answer the area offers (not stored in the state).
@@ -102,6 +123,8 @@ pub enum Opt {
     Build { unit: Unit, made: u8 },
     /// Produce one `unit` by returning a captured one (`exchange|unit`).
     Exchange { unit: Unit },
+    /// Place the produced unit at a spot (`place|spot`).
+    Place { spot: Spot },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -109,4 +132,5 @@ pub enum Opt {
 pub enum Subtype {
     Pay(Currency),
     Choose,
+    Place,
 }

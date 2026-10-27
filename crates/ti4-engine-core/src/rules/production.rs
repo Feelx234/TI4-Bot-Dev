@@ -9,7 +9,7 @@
 //! replaces it when the factions are ported.
 
 use crate::containers::SmallList;
-use crate::choice::production::{ChooseAsk, Currency, Opt as PayOpt, PayAsk, Shown};
+use crate::choice::production::{PlaceAsk, ChooseAsk, Currency, Opt as PayOpt, PayAsk, Shown};
 use crate::query::fleet::{self, Arrival, Standing};
 use crate::generated::{Breakthrough, Leader, Planet, PlanetTrait, Relic, System, Unit, UnitBaseType};
 use crate::state::LeaderStatus;
@@ -233,14 +233,7 @@ pub fn structure_allowed(cx: &Cx<'_>, who: Seat, planet: Planet, base: UnitBaseT
     structure_limit(base).is_none_or(|cap| structures_on(cx, who, planet, base) < cap)
 }
 
-/// Where a produced unit may go.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Spot {
-    Space,
-    Planet(Planet),
-    /// A place in another system a module offers (`production_destinations`).
-    Remote(System, Option<Planet>),
-}
+pub use crate::choice::production::Spot;
 
 /// `production::placements` (68.2 to 68.4).
 #[must_use]
@@ -424,6 +417,78 @@ const fn currency(s: Spend) -> Currency {
     }
 }
 
+/// Where the unit may go: the system's own spots, then the places modules add (`production_destinations`),
+/// the latter only when the unit has a spot here at all.
+#[must_use]
+pub fn spots_of(cx: &Cx<'_>, who: Seat, system: System, unit: Unit) -> SmallList<Spot, 12> {
+    let mut spots: SmallList<Spot, 12> = SmallList::new();
+    for s in placements(cx, who, system, unit).as_slice() {
+        spots.push(*s);
+    }
+    if !spots.as_slice().is_empty() {
+        let dests = cx.seams().production_destinations.collect(cx.q, &DestSite { who, system, base: unit.data().base_type });
+        for (sys, planet) in dests.as_slice() {
+            spots.push(Spot::Remote(*sys, *planet));
+        }
+    }
+    spots
+}
+
+/// `will_place`: the units that will actually arrive of `made` bought (31.4 and the placement bans).
+#[must_use]
+pub fn placed_of(cx: &Cx<'_>, who: Seat, unit: Unit, made: usize) -> usize {
+    if cx.q.k.hooks.economy.effect_placement_forbidden(cx.core(), cx.q.k, who, unit) {
+        0
+    } else {
+        made.min(usize::try_from(fleet::remaining(cx.core(), cx.scope, who, unit, 0)).unwrap_or(0))
+    }
+}
+
+/// What a placement question says about one spot.
+#[derive(Debug, Clone, Copy)]
+pub struct PlaceInfo {
+    pub placed: usize,
+    /// The standing the spot is measured against (the spot's own system) and the one after the unit arrives.
+    pub before: Standing,
+    pub after: Standing,
+}
+
+fn place_ask_standing(cx: &Cx<'_>, ask: &PlaceAsk, system: System, arriving: Option<Arrival>) -> Standing {
+    let half = |u: Unit| cx.q.k.hooks.combat.fighter_fleet_weight_halves(cx.core(), cx.q.k, ask.who, u);
+    fleet::standing(cx.core(), cx.scope, ask.who, system, i64::from(ask.fleet_limit), arriving, &half)
+}
+
+/// The facts of the placement option for `spot`.
+#[must_use]
+pub fn place_info(cx: &Cx<'_>, ask: &PlaceAsk, spot: Spot) -> PlaceInfo {
+    let placed = placed_of(cx, ask.who, ask.unit, usize::from(ask.made));
+    let target = match spot {
+        Spot::Remote(system, _) => system,
+        _ => ask.system,
+    };
+    let after = place_ask_standing(cx, ask, target, Some(Arrival { kind: ask.unit, count: placed as i64, in_space: spot_in_space(spot) }));
+    PlaceInfo { placed, before: place_ask_standing(cx, ask, target, None), after }
+}
+
+/// The standing of the producing system, for the question's context.
+#[must_use]
+pub fn place_home_standing(cx: &Cx<'_>, ask: &PlaceAsk) -> Standing {
+    place_ask_standing(cx, ask, ask.system, None)
+}
+
+/// The placement question's options: one per spot, only when there are two or more.
+#[must_use]
+pub fn place_opts(cx: &Cx<'_>, ask: &PlaceAsk) -> SmallList<PayOpt, 18> {
+    let spots = spots_of(cx, ask.who, ask.system, ask.unit);
+    let mut out = SmallList::new();
+    if spots.as_slice().len() >= 2 {
+        for s in spots.as_slice() {
+            out.push(PayOpt::Place { spot: *s });
+        }
+    }
+    out
+}
+
 /// Everything the Choosing question says about one buildable unit: the numbers the option shows, so the
 /// listing (`build_opts`) and the renderer read the same values.
 #[derive(Debug, Clone)]
@@ -510,16 +575,7 @@ pub fn build_for(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, unit: Unit, ex: &Extra
     if !affordable && !exchange {
         return None;
     }
-    let mut spots: SmallList<Spot, 12> = SmallList::new();
-    for s in placements(cx, who, ask.system, unit).as_slice() {
-        spots.push(*s);
-    }
-    if !spots.as_slice().is_empty() {
-        let dests = cx.seams().production_destinations.collect(cx.q, &DestSite { who, system: ask.system, base: d.base_type });
-        for (system, planet) in dests.as_slice() {
-            spots.push(Spot::Remote(*system, *planet));
-        }
-    }
+    let spots = spots_of(cx, who, ask.system, unit);
     if spots.as_slice().is_empty() {
         return None;
     }
@@ -535,11 +591,7 @@ pub fn build_for(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, unit: Unit, ex: &Extra
     if made == 0 {
         return None;
     }
-    let placed = if cx.q.k.hooks.economy.effect_placement_forbidden(cx.core(), cx.q.k, who, unit) {
-        0
-    } else {
-        made.min(usize::try_from(fleet::remaining(cx.core(), cx.scope, who, unit, 0)).unwrap_or(0))
-    };
+    let placed = placed_of(cx, who, unit, made);
     if placed == 0 {
         return None;
     }

@@ -4,9 +4,9 @@
 //! Owner: package B3. Ported: the payment question (`pay` options: exhaust a planet face, spend a trade good,
 //! spend a commodity), byte for byte as `production::payment_options` lists them.
 
-use ti4_engine_core::choice::production::{Ask, ChooseAsk, Currency, Opt, PayAsk, Shown, Subtype};
+use ti4_engine_core::choice::production::{Ask, ChooseAsk, Currency, Opt, PayAsk, PlaceAsk, Shown, Subtype};
 use ti4_engine_core::generated::{System, Unit};
-use ti4_engine_core::rules::production::{BuildInfo, Spot};
+use ti4_engine_core::rules::production::Spot;
 use ti4_engine_core::query::fleet::Standing;
 use ti4_engine_core::generated::Planet;
 
@@ -45,6 +45,7 @@ impl Family for Fam {
         match a {
             Ask::Pay(p) => format!("pay {} more {}", p.owed, name(p.kind)),
             Ask::Choose(_) => "produce units".to_owned(),
+            Ask::Place(p) => format!("place the {}", unit_id(p.unit)),
         }
     }
 
@@ -52,6 +53,7 @@ impl Family for Fam {
         match s {
             Subtype::Pay(kind) => format!("pay_{}", name(*kind)),
             Subtype::Choose => "produce_unit".to_owned(),
+            Subtype::Place => "place_unit".to_owned(),
         }
     }
 
@@ -59,6 +61,7 @@ impl Family for Fam {
         let PayAsk { kind, owed, pool, goods } = match *a {
             Ask::Pay(p) => p,
             Ask::Choose(c) => return build_option(r, &c, o),
+            Ask::Place(p) => return place_option(r, &p, o),
         };
         match *o {
             Opt::Exhaust { planet, source, shown } => {
@@ -94,7 +97,7 @@ impl Family for Fam {
                         Delta::new(Quantity::TradeGoods, goods, goods - 1),
                     ]))
             }
-            Opt::Build { .. } | Opt::Exchange { .. } => unreachable!("builds are asked by Ask::Choose"),
+            Opt::Build { .. } | Opt::Exchange { .. } | Opt::Place { .. } => unreachable!("builds are asked by Ask::Choose"),
             Opt::Commodity { shown } => {
                 let worth = i64::from(shown.worth);
                 ChoiceOption::labelled("commodity", crate::production::PAY_KIND, "spend a commodity as a trade good")
@@ -110,6 +113,7 @@ impl Family for Fam {
         let kind = match *a {
             Ask::Pay(p) => p.kind,
             Ask::Choose(_) => return parse_build(id),
+            Ask::Place(p) => return parse_place(&p, id),
         };
         match id {
             "trade_good" => Some(Opt::TradeGood { shown: Shown::default() }),
@@ -290,4 +294,35 @@ fn build_option(r: &Render, ask: &ChooseAsk, o: &Opt) -> ChoiceOption {
         option = option.with("placement_pending", i64::try_from(spots.len()).unwrap_or(2));
     }
     option.previewed(Preview::certain(deltas))
+}
+
+fn parse_place(ask: &PlaceAsk, id: &str) -> Option<Opt> {
+    let at = id.strip_prefix("place|")?;
+    let spot = match at.split_once(crate::production::REMOTE_SEPARATOR) {
+        Some((system, rest)) => Spot::Remote(
+            <System as IdStr>::from_id(system)?,
+            if rest == crate::production::SPACE { None } else { Some(<Planet as IdStr>::from_id(rest)?) },
+        ),
+        None if at == crate::production::SPACE => Spot::Space,
+        None => Spot::Planet(<Planet as IdStr>::from_id(at)?),
+    };
+    let _ = ask;
+    Some(Opt::Place { spot })
+}
+
+fn place_option(r: &Render, ask: &PlaceAsk, o: &Opt) -> ChoiceOption {
+    let Opt::Place { spot } = *o else { unreachable!("only placements are asked by Ask::Place") };
+    let info = crate::production_view::placing_info(r, ask, spot).expect("a listed spot is offered in its position");
+    let text = spot_text(spot);
+    placement_facts(
+        ChoiceOption::labelled(format!("place|{text}"), crate::production::PLACE_KIND, format!("place on {text}"))
+            .with("system", <System as IdStr>::as_str(ask.system))
+            .with("unit", unit_id(ask.unit))
+            .with("destination", text.clone())
+            .with("count", i64::from(ask.made))
+            .with("placed", i64::try_from(info.placed).unwrap_or(0)),
+        &info.before,
+        &info.after,
+    )
+    .previewed(Preview::certain(limit_deltas(&info.before, &info.after).to_vec()))
 }

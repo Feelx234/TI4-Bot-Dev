@@ -2739,20 +2739,66 @@ impl ProductionWindow {
         id: &str,
         made: usize,
     ) -> Option<Choice> {
+        let options = self.placement_options(state, content, sources, id, made);
+        if options.is_empty() {
+            return None; // settled without a question
+        }
         let types = catalogue(content, sources);
-        let kind = types.get(id)?;
+        let before =
+            crate::fleet::standing_using(&types, state, content, &self.player, &self.system, None);
+        Some(
+            Choice::new(self.player.clone(), format!("place the {id}"), options)
+                .contextualized(self.placement_context(state, &before)),
+        )
+    }
+
+    /// The options of the placement question, one per spot, empty when there are fewer than two spots:
+    /// the typed list rendered, or the string one.
+    fn placement_options(
+        &self,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        id: &str,
+        made: usize,
+    ) -> Vec<ChoiceOption> {
+        #[cfg(feature = "typed-core")]
+        let typed = || {
+            if self.ability {
+                return None;
+            }
+            let fleet_limit = if crate::fleet::is_unlimited(state, &self.player) {
+                crate::fleet::UNLIMITED_FLEET_BILL
+            } else {
+                i64::from(crate::fleet::limit(state, content, &self.player)).max(0)
+            };
+            crate::production_view::ProdView::of(state, content, sources)?.placement_options(&self.player, &self.system, id, made, fleet_limit)
+        };
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None;
+        crate::dual_typed!(crate::dual::Area::Production, "ProductionWindow::placement_options", typed(), self.placement_options_text(state, content, sources, id, made))
+    }
+
+    fn placement_options_text(
+        &self,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        id: &str,
+        made: usize,
+    ) -> Vec<ChoiceOption> {
+        let types = catalogue(content, sources);
+        let Some(kind) = types.get(id) else {
+            return Vec::new();
+        };
         let spots = self.spots(state, content, sources, *kind);
         if spots.len() < 2 {
-            return None; // settled without a question
+            return Vec::new();
         }
         let placed = i64::try_from(self.will_place(state, content, sources, id, made)).unwrap_or(0);
         let before =
             crate::fleet::standing_using(&types, state, content, &self.player, &self.system, None);
-        Some(
-            Choice::new(
-                self.player.clone(),
-                format!("place the {id}"),
-                spots
+        spots
                     .iter()
                     .map(|spot| {
                         let after =
@@ -2786,10 +2832,7 @@ impl ProductionWindow {
                         )
                         .previewed(Preview::certain(limit_deltas(before, &after).to_vec()))
                     })
-                    .collect(),
-            )
-            .contextualized(self.placement_context(state, &before)),
-        )
+                    .collect()
     }
 
     /// Why a destination is being asked for, and what the two limits stand at while it is asked.

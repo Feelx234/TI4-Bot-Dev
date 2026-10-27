@@ -370,3 +370,33 @@ impl ProdView<'_> {
         Some(render.at(position, |r| opts.as_slice().iter().map(|o| crate::render::option(r, &ask, &CoreOpt::Production(*o))).collect()))
     }
 }
+
+/// The facts of one placement option in the renderer's position.
+#[must_use]
+pub fn placing_info(r: &crate::render::Render, ask: &ti4_engine_core::choice::production::PlaceAsk, spot: rules::Spot) -> Option<rules::PlaceInfo> {
+    let pos = r.position()?;
+    let core: &ti4_engine_core::state::CoreState = &pos.state;
+    let scope = ti4_engine_core::tables::Scope(u32::from(pos.kernel.sources.0));
+    let cx = Cx::new(core, pos.kernel, scope, ti4_engine_core::query::reach::blanked(core));
+    Some(rules::place_info(&cx, ask, spot))
+}
+
+impl ProdView<'_> {
+    /// The placement question's options, rendered from the typed ones: empty with fewer than two spots.
+    #[must_use]
+    pub fn placement_options(&self, player: &PlayerId, system: &SystemId, unit_id: &str, made: usize, fleet_limit: i64) -> Option<Vec<crate::choice::ChoiceOption>> {
+        use ti4_engine_core::choice::{Ask as CoreAsk, Opt as CoreOpt, production as cp};
+        let ask = cp::PlaceAsk {
+            who: self.seat(player)?,
+            system: typed(system.as_str())?,
+            unit: typed(unit_id)?,
+            made: u8::try_from(made).ok()?,
+            fleet_limit: i32::try_from(fleet_limit).ok()?,
+        };
+        let opts = rules::place_opts(&self.rules_cx(), &ask);
+        let render = crate::render::Render::default();
+        let position = crate::render::Position { state: self.view.clone(), kernel: self.kernel };
+        let ask = CoreAsk::Production(cp::Ask::Place(ask));
+        Some(render.at(position, |r| opts.as_slice().iter().map(|o| crate::render::option(r, &ask, &CoreOpt::Production(*o))).collect()))
+    }
+}
