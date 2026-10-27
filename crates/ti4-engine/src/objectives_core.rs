@@ -137,7 +137,7 @@ mod real {
                 slices.insert(Slice::Map);
             }
             let core = Codec::load(&mut cx, state, Sources { galaxy, rng: None }, slices).ok()?;
-            let edge = q::edge_systems(&core);
+            let edge = if galaxy.is_some() { q::edge_systems(&core) } else { SysSet::EMPTY };
             Some(Rc::new(Self {
                 state_addr: std::ptr::from_ref(state) as usize,
                 galaxy_addr: galaxy.map(|g| std::ptr::from_ref(g) as usize),
