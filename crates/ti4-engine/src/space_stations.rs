@@ -41,11 +41,16 @@ use ti4_model::state::GameState;
 /// The stations printed in one system, if any.
 #[must_use]
 pub fn stations_in(content: &ContentStore, sources: SourceSet, system: &SystemId) -> Vec<PlanetId> {
-    #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
-    if let Some(found) = crate::core_adapter::stations_in(content, sources, system.as_str()) {
-        return found;
-    }
-    stations_in_text(content, sources, system)
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::core_adapter::stations_in(content, sources, system.as_str());
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Movement,
+        "space_stations::stations_in",
+        typed(),
+        stations_in_text(content, sources, system)
+    )
 }
 
 /// [`stations_in`] from the content records: the oracle of the dual run.

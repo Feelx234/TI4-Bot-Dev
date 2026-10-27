@@ -15,6 +15,7 @@ use ti4_model::id::{PlayerId, SystemId};
 use ti4_model::state::{GameState, TokenPool};
 use ti4_model::units::Unit;
 
+use crate::dual::Area;
 use crate::choice::{Choice, ChoiceOption, IllegalChoice, validate};
 use crate::decision_context::{DecisionContext, DecisionSource};
 use crate::movement::{Board, MovementRules};
@@ -341,13 +342,20 @@ pub fn search_path(
     move_value: i32,
     ship_type: Option<&str>,
 ) -> Option<Vec<String>> {
-    #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
-    return crate::core_adapter::path_from_ship(rules, sources, origin, move_value, ship_type);
-    #[cfg(not(all(feature = "typed-core", not(feature = "string-movement"))))]
-    {
-        let _ = sources;
+    #[cfg(not(feature = "typed-core"))]
+    let _ = sources;
+    crate::dual_typed!(
+        Area::Movement,
+        "tactical::search_path",
+        {
+            #[cfg(feature = "typed-core")]
+            let typed = crate::core_adapter::typed_path_from_ship(rules, sources, origin, move_value, ship_type);
+            #[cfg(not(feature = "typed-core"))]
+            let typed: Option<Option<Vec<String>>> = None;
+            typed
+        },
         rules.path_from_ship(origin, move_value, ship_type)
-    }
+    )
 }
 
 /// [`search_path`] for every simple route (`MovementRules::all_routes_from_ship`).
@@ -359,13 +367,20 @@ pub fn search_all_routes(
     move_value: i32,
     ship_type: Option<&str>,
 ) -> Vec<Vec<String>> {
-    #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
-    return crate::core_adapter::all_routes_from_ship(rules, sources, origin, move_value, ship_type);
-    #[cfg(not(all(feature = "typed-core", not(feature = "string-movement"))))]
-    {
-        let _ = sources;
+    #[cfg(not(feature = "typed-core"))]
+    let _ = sources;
+    crate::dual_typed!(
+        Area::Movement,
+        "tactical::search_all_routes",
+        {
+            #[cfg(feature = "typed-core")]
+            let typed = crate::core_adapter::typed_all_routes_from_ship(rules, sources, origin, move_value, ship_type);
+            #[cfg(not(feature = "typed-core"))]
+            let typed: Option<Vec<Vec<String>>> = None;
+            typed
+        },
         rules.all_routes_from_ship(origin, move_value, ship_type)
-    }
+    )
 }
 
 /// Every ship that could reach the active system, with where it stands.
@@ -419,23 +434,31 @@ pub fn movable_into(
     // Prototype (feature `typed-core`, off by default; docs/ENGINE_CORE.md): the same rules,
     // translated once, searched by the typed core. An id it cannot express falls back to the string
     // search for that question.
-    #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
-    let adjacency = crate::core_adapter::adjacency_for(rules.parts().galaxy);
-    #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
+    #[cfg(feature = "typed-core")]
+    let adjacency = (crate::dual::backend(Area::Movement) != crate::dual::Backend::String)
+        .then(|| crate::core_adapter::adjacency_for(rules.parts().galaxy))
+        .flatten();
+    #[cfg(feature = "typed-core")]
     let raw = adjacency
         .as_ref()
         .and_then(|a| crate::core_adapter::rules_from_legacy(&rules, sources, a).ok());
     let can_reach_ship = |origin: &str, move_value: i32, ship_type: Option<&str>| -> bool {
-        #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
-        if let Some(raw) = &raw
-            && let (Some(from), Ok(kind)) = (
-                crate::core_adapter::system_ix(origin),
-                crate::core_adapter::ship_type(ship_type),
-            )
-        {
-            return raw.can_reach_ship(from, move_value, kind);
-        }
-        rules.can_reach_ship(origin, move_value, ship_type)
+        #[cfg(feature = "typed-core")]
+        let typed = raw.as_ref().and_then(|raw| {
+            let (from, kind) = (
+                crate::core_adapter::system_ix(origin)?,
+                crate::core_adapter::ship_type(ship_type).ok()?,
+            );
+            Some(raw.can_reach_ship(from, move_value, kind))
+        });
+        #[cfg(not(feature = "typed-core"))]
+        let typed: Option<bool> = None;
+        crate::dual_typed!(
+            Area::Movement,
+            "tactical::movable_into/can_reach_ship",
+            typed,
+            rules.can_reach_ship(origin, move_value, ship_type)
+        )
     };
 
     let mut found = Vec::new();
@@ -507,7 +530,7 @@ pub fn movable_into(
 /// One seat's ships that can move, with their move values for every boost (stage 2,
 /// docs/ENGINE_CORE.md): the destination-independent half of [`movable_into`], computed once per
 /// position, in the same order.
-#[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
+#[cfg(feature = "typed-core")]
 #[derive(Debug, Clone)]
 pub struct SeatFleet {
     ships: Vec<FleetShip>,
@@ -515,7 +538,7 @@ pub struct SeatFleet {
     ionian: bool,
 }
 
-#[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
+#[cfg(feature = "typed-core")]
 #[derive(Debug, Clone)]
 struct FleetShip {
     origin: SystemId,
@@ -528,7 +551,7 @@ struct FleetShip {
     values: [i32; 4],
 }
 
-#[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
+#[cfg(feature = "typed-core")]
 impl SeatFleet {
     #[must_use]
     pub fn new(

@@ -226,16 +226,23 @@ pub fn planet_value(
     kind: Spend,
 ) -> i64 {
     // The generated row (docs/ENGINE_CORE.md, stage 5); the record when the core cannot answer.
-    #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
-    if let Some(value) = crate::core_adapter::planet_value(
-        content,
-        sources,
-        planet.as_str(),
-        matches!(kind, Spend::Resources),
-    ) {
-        return value;
-    }
-    planet_value_text(content, sources, planet, kind)
+    #[cfg(feature = "typed-core")]
+    let typed = || {
+        crate::core_adapter::planet_value(
+            content,
+            sources,
+            planet.as_str(),
+            matches!(kind, Spend::Resources),
+        )
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Movement,
+        "production::planet_value",
+        typed(),
+        planet_value_text(content, sources, planet, kind)
+    )
 }
 
 /// [`planet_value`] from the content record: the oracle of the dual run.

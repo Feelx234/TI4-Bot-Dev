@@ -157,12 +157,16 @@ pub fn tech_specialties_now(
     sources: SourceSet,
     planet: &PlanetId,
 ) -> Vec<String> {
-    #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
-    let typed = crate::core_adapter::printed_specialties(content, sources, planet.as_str());
-    #[cfg(not(all(feature = "typed-core", not(feature = "string-movement"))))]
-    let typed = None;
-    let mut found: Vec<String> =
-        typed.unwrap_or_else(|| printed_specialties_text(content, sources, planet));
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::core_adapter::printed_specialties(content, sources, planet.as_str());
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    let mut found: Vec<String> = crate::dual_typed!(
+        crate::dual::Area::Movement,
+        "planets::tech_specialties_now",
+        typed(),
+        printed_specialties_text(content, sources, planet)
+    );
     for id in state.planet_attachments.get(planet).into_iter().flatten() {
         let Some(record) = content.get(ti4_model::content_types::ContentType::Attachments, id)
         else {

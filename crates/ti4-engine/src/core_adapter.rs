@@ -487,14 +487,25 @@ pub fn path_from_ship(
     move_value: i32,
     ship_type: Option<&str>,
 ) -> Option<Vec<String>> {
-    let typed = (|| {
-        let adjacency = adjacency_for(rules.parts().galaxy)?;
-        let raw = rules_from_legacy(rules, sources, &adjacency).ok()?;
-        let from = system_ix(origin)?;
-        let kind = self::ship_type(ship_type).ok()?;
-        Some(raw.path_from_ship(from, move_value, kind).map(|r| route_text(&r)))
-    })();
-    typed.unwrap_or_else(|| rules.path_from_ship(origin, move_value, ship_type))
+    typed_path_from_ship(rules, sources, origin, move_value, ship_type)
+        .unwrap_or_else(|| rules.path_from_ship(origin, move_value, ship_type))
+}
+
+/// [`path_from_ship`] without the fallback: `None` when something is not mapped (the dual run
+/// compares only what the core answered).
+#[must_use]
+pub fn typed_path_from_ship(
+    rules: &MovementRules<'_>,
+    sources: SourceSet,
+    origin: &str,
+    move_value: i32,
+    ship_type: Option<&str>,
+) -> Option<Option<Vec<String>>> {
+    let adjacency = adjacency_for(rules.parts().galaxy)?;
+    let raw = rules_from_legacy(rules, sources, &adjacency).ok()?;
+    let from = system_ix(origin)?;
+    let kind = self::ship_type(ship_type).ok()?;
+    Some(raw.path_from_ship(from, move_value, kind).map(|r| route_text(&r)))
 }
 
 /// `rules.all_routes_from_ship(origin, move_value, ship_type)`, searched by the typed core (same
@@ -507,19 +518,29 @@ pub fn all_routes_from_ship(
     move_value: i32,
     ship_type: Option<&str>,
 ) -> Vec<Vec<String>> {
-    let typed = (|| {
-        let adjacency = adjacency_for(rules.parts().galaxy)?;
-        let raw = rules_from_legacy(rules, sources, &adjacency).ok()?;
-        let from = system_ix(origin)?;
-        let kind = self::ship_type(ship_type).ok()?;
-        Some(
-            raw.all_routes_from_ship(from, move_value, kind)
-                .iter()
-                .map(|r| route_text(r))
-                .collect(),
-        )
-    })();
-    typed.unwrap_or_else(|| rules.all_routes_from_ship(origin, move_value, ship_type))
+    typed_all_routes_from_ship(rules, sources, origin, move_value, ship_type)
+        .unwrap_or_else(|| rules.all_routes_from_ship(origin, move_value, ship_type))
+}
+
+/// [`all_routes_from_ship`] without the fallback.
+#[must_use]
+pub fn typed_all_routes_from_ship(
+    rules: &MovementRules<'_>,
+    sources: SourceSet,
+    origin: &str,
+    move_value: i32,
+    ship_type: Option<&str>,
+) -> Option<Vec<Vec<String>>> {
+    let adjacency = adjacency_for(rules.parts().galaxy)?;
+    let raw = rules_from_legacy(rules, sources, &adjacency).ok()?;
+    let from = system_ix(origin)?;
+    let kind = self::ship_type(ship_type).ok()?;
+    Some(
+        raw.all_routes_from_ship(from, move_value, kind)
+            .iter()
+            .map(|r| route_text(r))
+            .collect(),
+    )
 }
 
 /// One seat's movement rules for every destination of one position (docs/ENGINE_CORE.md, stage 2).
@@ -646,7 +667,7 @@ impl SeatReach {
 #[derive(Debug, Default)]
 pub struct SeatCache {
     pub reach: BTreeMap<(ti4_model::id::PlayerId, bool), Option<std::rc::Rc<SeatReach>>>,
-    #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
+    #[cfg(feature = "typed-core")]
     pub fleets: BTreeMap<ti4_model::id::PlayerId, std::rc::Rc<crate::tactical::SeatFleet>>,
 }
 
@@ -655,7 +676,7 @@ impl SeatCache {
     pub const fn new() -> Self {
         Self {
             reach: BTreeMap::new(),
-            #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
+            #[cfg(feature = "typed-core")]
             fleets: BTreeMap::new(),
         }
     }
