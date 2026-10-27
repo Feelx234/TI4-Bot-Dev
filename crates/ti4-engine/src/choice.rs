@@ -665,6 +665,9 @@ pub struct Observed<'a> {
     /// Per seat, the typed movement rules and fleet of this position (docs/ENGINE_CORE.md, stage 2).
     #[cfg(feature = "typed-core")]
     seats: std::cell::RefCell<crate::core_adapter::SeatCache>,
+    /// The typed view of this position for the objectives area, built on first use
+    /// (`objectives_core`).
+    objview: std::cell::OnceCell<Option<std::rc::Rc<crate::objectives_core::ObjView>>>,
 }
 
 /// (player, destination, origin, unit type, Gravity Drive, Ionian) of a cached rift count.
@@ -699,7 +702,21 @@ impl<'a> Observed<'a> {
             rift_exits: std::cell::RefCell::new(BTreeMap::new()),
             #[cfg(feature = "typed-core")]
             seats: std::cell::RefCell::new(crate::core_adapter::SeatCache::new()),
+            objview: std::cell::OnceCell::new(),
         }
+    }
+
+    /// The typed objectives view of this position, when the objectives area is not on the string
+    /// path and the position can be expressed (`objectives_core`). Built on first use.
+    pub(crate) fn objective_view(&self) -> Option<&std::rc::Rc<crate::objectives_core::ObjView>> {
+        if crate::dual::backend(crate::dual::Area::Objectives) == crate::dual::Backend::String {
+            return None;
+        }
+        self.objview
+            .get_or_init(|| {
+                crate::objectives_core::ObjView::build(self.state, self.content, self.sources, self.galaxy)
+            })
+            .as_ref()
     }
 
     /// The typed rules template of `player` for this position (`effects`: with the cards in play).
@@ -1593,8 +1610,10 @@ impl<'a> Observed<'a> {
     /// victory points per faction, which is far too sparse to learn from on its own.
     #[must_use]
     pub fn scoreable_public(&self, player: &PlayerId) -> usize {
-        crate::objectives::scoreable_on(self.state, self.content, self.sources, player, self.galaxy)
-            .len()
+        crate::objectives_core::scoped(self.objective_view(), || {
+            crate::objectives::scoreable_on(self.state, self.content, self.sources, player, self.galaxy)
+                .len()
+        })
     }
 
     /// The same for the secrets this seat holds.
@@ -1603,8 +1622,10 @@ impl<'a> Observed<'a> {
     /// reading a hand is not reading somebody else's.
     #[must_use]
     pub fn scoreable_secret(&self, player: &PlayerId) -> usize {
-        crate::secrets::scoreable_on(self.state, self.content, self.sources, player, self.galaxy)
-            .len()
+        crate::objectives_core::scoped(self.objective_view(), || {
+            crate::secrets::scoreable_on(self.state, self.content, self.sources, player, self.galaxy)
+                .len()
+        })
     }
 
     /// Exact progress for every revealed public objective, from the seat's point of view.
@@ -1655,6 +1676,32 @@ impl<'a> Observed<'a> {
     /// research the technology -- and the engine's own requirement functions report the result.
     #[must_use]
     pub fn revealed_objective_progress_imagining(
+        &self,
+        player: &PlayerId,
+        imagined: &crate::objectives::Imagined<'_>,
+    ) -> Vec<crate::objectives::CardProgress> {
+        crate::dual_typed!(
+            crate::dual::Area::Objectives,
+            "choice::revealed_objective_progress_imagining",
+            self.objective_view().and_then(|view| crate::objectives_core::revealed_progress(
+                view,
+                self.state,
+                self.content,
+                self.sources,
+                self.galaxy,
+                player,
+                imagined
+            )),
+            crate::objectives_core::scoped(self.objective_view(), || self
+                .revealed_objective_progress_text(player, imagined))
+        )
+    }
+
+    /// [`Self::revealed_objective_progress_imagining`] on the string state: the oracle of the dual
+    /// run.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn revealed_objective_progress_text(
         &self,
         player: &PlayerId,
         imagined: &crate::objectives::Imagined<'_>,
@@ -1943,6 +1990,7 @@ impl<'a> SeatObservation<'a> {
             self.observed.galaxy,
             &self.acting_seat,
             &crate::objectives::Imagined::NONE,
+            self.observed.objective_view(),
         )
     }
 
@@ -1968,6 +2016,7 @@ impl<'a> SeatObservation<'a> {
             self.observed.galaxy,
             &self.acting_seat,
             imagined,
+            self.observed.objective_view(),
         )
     }
 }
@@ -2002,6 +2051,7 @@ pub fn held_secret_progress(
         galaxy,
         viewer,
         &crate::objectives::Imagined::NONE,
+        None,
     )
 }
 
@@ -2020,7 +2070,7 @@ pub fn held_secret_progress_imagining(
     viewer: &PlayerId,
     imagined: &crate::objectives::Imagined<'_>,
 ) -> Vec<crate::objectives::CardProgress> {
-    held_secret_records(state, content, sources, galaxy, viewer, imagined)
+    held_secret_records(state, content, sources, galaxy, viewer, imagined, None)
 }
 
 /// A copy of the complete state with every other player's face-down holdings replaced by markers —
@@ -2041,6 +2091,28 @@ pub fn redacted_full_state(state: &GameState, viewer: &PlayerId) -> GameState {
 /// The shared computation behind [`SeatObservation::held_secret_progress`] and the offline free
 /// function above. Same module, so it may read `Observed`'s private fields.
 fn held_secret_records(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    player: &PlayerId,
+    imagined: &crate::objectives::Imagined<'_>,
+    view: Option<&std::rc::Rc<crate::objectives_core::ObjView>>,
+) -> Vec<crate::objectives::CardProgress> {
+    crate::dual_typed!(
+        crate::dual::Area::Objectives,
+        "choice::held_secret_records",
+        view.and_then(|view| crate::objectives_core::held_secrets(
+            view, state, content, sources, galaxy, player, imagined
+        )),
+        crate::objectives_core::scoped(view, || held_secret_records_text(
+            state, content, sources, galaxy, player, imagined
+        ))
+    )
+}
+
+/// [`held_secret_records`] on the string state: the oracle of the dual run.
+fn held_secret_records_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,

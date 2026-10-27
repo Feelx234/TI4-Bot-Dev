@@ -20,6 +20,7 @@ pub mod board;
 pub mod economy;
 pub mod fleet;
 pub mod laws;
+pub mod objectives;
 pub mod seats;
 
 pub use crate::tables::Scope;

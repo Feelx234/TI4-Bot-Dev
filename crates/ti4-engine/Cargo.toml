@@ -30,6 +30,8 @@ typed-core = ["dep:ti4-engine-core"]
 # (a default feature, which a dependent cannot turn off) is compiled in. For A/B and spot checks:
 # `cargo build -p ti4-selfplay --features ti4-engine/string-movement`.
 string-movement = []
+# The same off switch for the objectives area (`objectives_core`; package A4).
+string-objectives = []
 
 [dev-dependencies]
 strum.workspace = true
