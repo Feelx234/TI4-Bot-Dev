@@ -249,7 +249,13 @@ pub(crate) fn planetary_maximum_participates(
 /// area; Eidolon Maximum is the sole current exception and remains on its planet while joining
 /// the battle.
 pub(crate) fn remove_combat_ship(state: &mut GameState, system: &SystemId, unit: &Unit) {
-    crate::factions::bastion::note_ship_lost(state, system, unit);
+    crate::factions::observe(
+        state,
+        crate::factions::Obs::ShipLost {
+            system,
+            unit,
+        },
+    );
     let voltron = unit.type_id.as_str() == "naaz_voltron";
     // An Alastor participant is a ground force standing on its planet: it leaves from there, and
     // the choice that made it a participant shrinks by one.
@@ -273,12 +279,14 @@ pub(crate) fn remove_combat_ship(state: &mut GameState, system: &SystemId, unit:
                 });
         if let Some(planet) = removed_from {
             if alastor {
-                crate::factions::nekro_units::alastor_decrement(
+                crate::factions::observe(
                     state,
-                    system,
-                    &unit.owner,
-                    &planet,
-                    unit.type_id.as_str(),
+                    crate::factions::Obs::GroundForceLost {
+                        system,
+                        owner: &unit.owner,
+                        planet: &planet,
+                        unit: unit.type_id.as_str(),
+                    },
                 );
             }
             return;
@@ -335,92 +343,18 @@ fn effective_from(
     let morale_is_current = state
         .player(player)
         .is_some_and(|seat| seat.combat_bonus_round == Some(state.combat_round_seq));
-    // A faction shift applies to the *roll*, so it moves the threshold the other way: Sardakk's
-    // Unrelenting adds one to each die, which is the same as needing one less.
-    let faction = crate::faction_abilities::combat_modifier(state, content, player, "space");
-    // Fighter Prototype: "+2 to the result of each of your fighters' combat rolls". One entry
-    // per copy, so two cards played in the same round give four.
-    let fighter_bonus = if catalogue(content, sources)
+    let is_fighter = catalogue(content, sources)
         .get(unit.type_id.as_str())
-        .is_some_and(UnitType::is_fighter)
-    {
-        fighter_bonus_now(state, player)
-    } else {
-        0
-    };
-    // 59.5: "If a space combat occurs in a nebula, the defender applies +1 to each combat roll of
-    // their ships during that combat." The defender is whoever is not the active player -- an
-    // activation is what starts a space combat, so the attacker is always the active seat.
-    //
-    // Applied to the threshold rather than the die, like the faction shift above: +1 to the roll is
-    // the same as needing one less. Only ships, and this function is reached only from
-    // `fleet_groups`, which iterates `ships_of` -- so ground combat in a nebula is untouched, which
-    // is what the rule says.
-    let nebula_defender = state
-        .active_system
-        .as_ref()
-        .filter(|_| state.active.as_ref() != Some(player))
-        .and_then(|system| ti4_content::galaxy::system(content, system.as_str(), sources))
-        .is_some_and(|system| system.is_nebula());
-
-    let module = crate::factions::unit_roll_modifier(
-        state,
-        content,
-        sources,
-        &crate::factions::CombatUnit {
-            player,
-            system: state.active_system.as_ref(),
-            planet: None,
-            unit_type: unit.type_id.as_str(),
-            context: "space",
-        },
+        .is_some_and(UnitType::is_fighter);
+    let shift = crate::combat_effects::space_roll_shift(
+        state, content, sources, player, unit, is_fighter,
     );
-    // Mahact Arvicon Rex: "+2 to the results of this unit's combat rolls" against an opponent whose
-    // command token is not in the owner's fleet pool. A roll bonus, so it lowers the threshold.
-    let mahact_flagship = crate::factions::mahact_units::flagship_roll_bonus(
-        state,
-        content,
-        sources,
-        player,
-        unit.type_id.as_str(),
-    );
-
-    // Nekro Mordred: +2 to its rolls against an opponent with an "X" or "Y" assimilator token.
-    let nekro_mech = crate::factions::nekro_units::mech_roll_bonus(
-        state,
-        content,
-        sources,
-        player,
-        unit.type_id.as_str(),
-        state.active_system.as_ref(),
-        None,
-    );
-
-    // Assail (Obsidian plot): +1 to each of the owner's combat rolls against a puppeted player.
-    let assail = crate::factions::firmament_plots::assail_space(
-        state,
-        content,
-        sources,
-        player,
-        state.active_system.as_ref(),
-    );
-
-    Some(
-        threshold
-            - i64::from(morale_is_current)
-            - faction
-            - fighter_bonus
-            - i64::from(nebula_defender)
-            - module
-            - mahact_flagship
-            - nekro_mech
-            - assail,
-    )
+    Some(threshold - i64::from(morale_is_current) - shift)
 }
 
 /// The roll bonus this seat's fighters carry in the current combat round (Fighter Prototype):
 /// two per copy held, counted only while the round the cards were played in is the live one.
-fn fighter_bonus_now(state: &GameState, player: &PlayerId) -> i64 {
+pub(crate) fn fighter_bonus_now(state: &GameState, player: &PlayerId) -> i64 {
     let prototypes = state.player(player).map_or(0, |seat| {
         2 * i64::try_from(
             seat.fighter_bonus_round
@@ -1069,17 +1003,6 @@ struct FleetGroup {
     types: std::collections::BTreeMap<String, u32>,
 }
 
-/// J.N.S. Hylarim, the Jol-Nar flagship: "When making a combat roll for this ship, each result of
-/// 9 or 10, before applying modifiers, produces 2 additional hits."
-const JOLNAR_FLAGSHIP: &str = "jolnar_flagship";
-
-/// Arc Secundus, the Letnev flagship: "At the start of each space combat round, repair this ship."
-const LETNEV_FLAGSHIP: &str = "letnev_flagship";
-
-/// 0.0.1, the L1Z1X flagship: "During a space combat, hits produced by this ship and by your
-/// dreadnoughts in this system must be assigned to non-fighter ships if able."
-const L1Z1X_FLAGSHIP: &str = "l1z1x_flagship";
-
 /// Whether `player` has 0.0.1 among its ships in `system`.
 fn forces_non_fighters(
     state: &GameState,
@@ -1091,7 +1014,12 @@ fn forces_non_fighters(
     ships_of(state, content, sources, player, system)
         .iter()
         .any(|unit| {
-            crate::factions::flagship_has_text(state, player, unit.type_id.as_str(), L1Z1X_FLAGSHIP)
+            crate::factions::has_text(
+                state,
+                player,
+                unit.type_id.as_str(),
+                crate::factions::FlagshipText::L1z1x,
+            )
         })
 }
 
@@ -1131,7 +1059,7 @@ fn fleet_hits(
             !entry.unit_types.is_empty() && entry.unit_types.keys().all(|id| test(id))
         };
         let mut hits = entry.hits();
-        if only(&|id| crate::factions::flagship_has_text(state, player, id, JOLNAR_FLAGSHIP)) {
+        if only(&|id| crate::factions::has_text(state, player, id, crate::factions::FlagshipText::Jolnar)) {
             hits += 2 * entry.faces.iter().filter(|face| **face >= 9).count();
         }
         if binding && only(&|id| types.get(id).is_some_and(|kind| forced_hull(*kind))) {
@@ -1185,11 +1113,11 @@ fn repair_self_repairing(state: &mut GameState, system: &SystemId, player: &Play
         .iter()
         .filter(|unit| {
             &unit.owner == player
-                && crate::factions::flagship_has_text(
+                && crate::factions::has_text(
                     state,
                     player,
                     unit.type_id.as_str(),
-                    LETNEV_FLAGSHIP,
+                    crate::factions::FlagshipText::Letnev,
                 )
                 && unit.sustained_damage
         })
@@ -1291,7 +1219,7 @@ fn fleet_groups(
             extra_die_added = true;
         }
         // A galvanized unit rolls 1 additional die for its combat rolls (Last Bastion).
-        dice += i64::try_from(crate::factions::bastion::extra_die(&unit)).unwrap_or(0);
+        dice += i64::try_from(crate::combat_effects::galvanized_dice(&unit)).unwrap_or(0);
         dice += crate::factions::borrowed_round_agents::extra_die_for(
             state,
             content,
@@ -1303,11 +1231,11 @@ fn fleet_groups(
             unit_index,
             state.combat_round_seq,
         );
-        let jolnar_text = crate::factions::flagship_has_text(
+        let jolnar_text = crate::factions::has_text(
             state,
             player,
             unit.type_id.as_str(),
-            JOLNAR_FLAGSHIP,
+            crate::factions::FlagshipText::Jolnar,
         );
         let tag = roll_tag(*kind, jolnar_text, forced);
         contributions.push((value, tag, dice, unit.type_id.to_string()));
@@ -1487,7 +1415,7 @@ fn wrath_of_kenara(
     system: &SystemId,
 ) {
     let has_flagship =
-        crate::factions::has_flagship_text_in(state, player, system, "hacan_flagship");
+        crate::factions::has_text_in(state, player, system, crate::factions::FlagshipText::Hacan);
     if !has_flagship || crate::supply::potential_goods(state, player) <= 0 {
         return;
     }
@@ -1731,24 +1659,16 @@ pub fn roll_barrage_side(
             continue;
         }
         // A galvanized unit rolls 1 additional die for its unit abilities (Last Bastion).
-        let count = count + crate::factions::bastion::extra_die(&unit);
-        // Fighter Prototype names "each of your fighters' combat rolls": the barrage is a
-        // fighters' combat roll, so it gets the same +2 per copy as the fleet rolls do.
-        let value = if kind.is_fighter() {
-            value - fighter_bonus_now(state, player)
-        } else {
-            value
-        };
-        // Assail: +1 to the owner's unit ability rolls against a puppeted player.
-        let value = (value
-            - crate::factions::firmament_plots::assail_space(
-                state,
-                content,
-                sources,
-                player,
-                Some(system),
-            ))
-        .max(1);
+        let count = count + crate::combat_effects::galvanized_dice(&unit);
+        let value = crate::combat_effects::barrage_value(
+            state,
+            content,
+            sources,
+            player,
+            system,
+            kind.is_fighter(),
+            value,
+        );
         let roll = dice.roll_by(
             rng,
             count,
@@ -2377,7 +2297,7 @@ pub fn space_cannon_offense(
         }
         let count = count + take_plasma(&mut plasma, &unit.owner, value);
         // A galvanized unit rolls 1 additional die for its unit abilities (Last Bastion).
-        let count = count + crate::factions::bastion::extra_die(&unit);
+        let count = count + crate::combat_effects::galvanized_dice(&unit);
         // Assail: +1 to the gunner's unit ability rolls against a puppeted player (the active
         // player's guns fire at the opponent, every other gun at the active player).
         let target = if unit.owner == *active {
@@ -3393,7 +3313,14 @@ pub(crate) fn ship_destroyed_payload(
     let mut payload = std::collections::BTreeMap::new();
     // The galvanize token went back to the supply with the ship; the event is the only record that
     // it was galvanized (Last Bastion). Present only when true, so other games' events are unchanged.
-    if crate::factions::bastion::take_ship_lost(state, system, owner, unit) {
+    if crate::factions::observe(
+        state,
+        crate::factions::Obs::ShipLostTaken {
+            system,
+            owner,
+            unit,
+        },
+    ) {
         payload.insert("galvanized".to_owned(), true.into());
     }
     payload.insert("system".to_owned(), system.to_string().into());
@@ -4122,7 +4049,13 @@ pub fn retreat_to(
     let types = catalogue(content, sources);
     // Ground forces an Alastor brought into the battle stay on their planets and leave it with the
     // fleet: they are no longer in this combat.
-    crate::factions::nekro_units::alastor_clear(state, system, Some(player));
+    crate::factions::observe(
+        state,
+        crate::factions::Obs::ParticipantsCleared {
+            system,
+            player: Some(player),
+        },
+    );
     let mut own: Vec<Unit> = state
         .system_state(system)
         .units_of(player)
@@ -4175,7 +4108,14 @@ pub fn retreat_to(
             remove_combat_ship(state, system, unit);
             // Leaving is not destroying: forget the galvanized-loss note the removal made.
             let _ =
-                crate::factions::bastion::take_ship_lost(state, system, &unit.owner, &unit.type_id);
+                crate::factions::observe(
+                    state,
+                    crate::factions::Obs::ShipLostTaken {
+                        system,
+                        owner: &unit.owner,
+                        unit: &unit.type_id,
+                    },
+                );
         }
     }
     let ships_leaving: Vec<Unit> = leaving
@@ -4187,7 +4127,15 @@ pub fn retreat_to(
         })
         .cloned()
         .collect();
-    crate::factions::bastion::note_retreat(state, system, destination, player, &ships_leaving);
+    crate::factions::observe(
+        state,
+        crate::factions::Obs::Retreat {
+            system,
+            destination,
+            owner: player,
+            ships: &ships_leaving,
+        },
+    );
     state.move_units(system, destination, &leaving);
     // A dual-form unit is a ship only in the active system during its battle (Z-Grav Eidolon):
     // one that retreats takes its ground form again where it lands.
@@ -4980,8 +4928,19 @@ impl CombatWindow {
         // the losses above, which count ships, so a flipped mech is not reported destroyed.
         crate::fleet::flip_to_ground_forms(state, content, sources, &sides, &self.system);
         let _ = ctx.emit(state, "SPACE_COMBAT_ENDED", payload);
-        crate::factions::nekro_units::alastor_clear(state, &self.system, None);
-        crate::factions::bastion::clear_retreated(state, &self.system);
+        crate::factions::observe(
+            state,
+            crate::factions::Obs::ParticipantsCleared {
+                system: &self.system,
+                player: None,
+            },
+        );
+        crate::factions::observe(
+            state,
+            crate::factions::Obs::RetreatsForgotten {
+                system: &self.system,
+            },
+        );
         // A mobile space dock left in a space area with another player's ships is destroyed
         // (Floating Factory); checked when the combat that could have cleared them ends.
         let _ = crate::production::destroy_blockaded_mobile_docks(

@@ -24,6 +24,7 @@ pub mod breakthroughs;
 pub mod choice;
 pub mod coexistence;
 pub mod combat;
+mod combat_effects;
 pub mod decision_context;
 pub mod deck;
 pub mod dice;
@@ -77,6 +78,7 @@ pub mod phase;
 pub mod planets;
 pub mod preview;
 pub mod production;
+mod production_effects;
 pub mod promissory;
 pub mod reach_query;
 #[cfg(feature = "typed-core")]
@@ -103,6 +105,10 @@ pub mod board_check;
 #[cfg(feature = "typed-core")]
 #[doc(hidden)]
 pub mod reach_check;
+/// The offline duals of the ported faction packages (wave C).
+#[cfg(feature = "typed-core")]
+#[doc(hidden)]
+pub mod core_factions;
 /// The adapter half of `cargo xtask gen-cards` (docs/CONTENT_GENERATOR.md): the id string of every
 /// core enum variant and the display text.
 #[cfg(feature = "typed-core")]
