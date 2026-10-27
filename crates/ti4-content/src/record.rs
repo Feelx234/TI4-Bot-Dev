@@ -9,6 +9,10 @@
 use serde_json::{Map, Value};
 use ti4_model::content_types::{ContentType, IdentityKey, Source, SourceSet};
 
+use crate::card_fields::{
+    ActionCardWindow, CardFields, ElectType, LeaderAbilityKind, ResearchRestriction,
+    StrategyCardKind,
+};
 use crate::error::ContentError;
 
 /// One record from one content category, with its identity and source tag resolved once.
@@ -22,6 +26,8 @@ pub struct Record {
     index: usize,
     identity: Option<String>,
     source: Option<Source>,
+    /// The fields whose printed text decides a rule, mapped once ([`crate::card_fields`]).
+    card: CardFields,
     fields: Map<String, Value>,
 }
 
@@ -88,11 +94,23 @@ impl Record {
             }
         };
 
+        // The free-text fields a rule reads are mapped here, once. A value outside its table is
+        // a corpus change to look at, so it fails the load rather than reading as "no window".
+        let card = CardFields::of(category, &fields, identity.as_deref()).map_err(|unknown| {
+            ContentError::UnknownFieldValue {
+                category,
+                index,
+                field: unknown.field,
+                value: unknown.value,
+            }
+        })?;
+
         Ok(Self {
             category,
             index,
             identity,
             source,
+            card,
             fields,
         })
     }
@@ -130,6 +148,56 @@ impl Record {
     #[must_use]
     pub fn in_sources(&self, sources: SourceSet) -> bool {
         self.source.is_some_and(|s| sources.contains(s))
+    }
+
+    /// The printed window of an action card (`window`), or `None` for a record of another category
+    /// or a card that prints none.
+    #[must_use]
+    pub const fn action_card_window(&self) -> Option<ActionCardWindow> {
+        match self.card {
+            CardFields::ActionCard(window) => window,
+            _ => None,
+        }
+    }
+
+    /// What an agenda elects (`target`), or `None` for a record of another category or an agenda
+    /// that prints no target.
+    #[must_use]
+    pub const fn elect_type(&self) -> Option<ElectType> {
+        match self.card {
+            CardFields::Agenda(elects) => elects,
+            _ => None,
+        }
+    }
+
+    /// Whether a leader's ability is an action (`abilityWindow`), or `None` for a record of another
+    /// category or a leader that prints no window.
+    #[must_use]
+    pub const fn leader_ability_kind(&self) -> Option<LeaderAbilityKind> {
+        match self.card {
+            CardFields::Leader(kind) => kind,
+            _ => None,
+        }
+    }
+
+    /// Whether a technology may be researched (from its `text`), or `None` for a record of another
+    /// category. A technology without text is researchable.
+    #[must_use]
+    pub const fn research_restriction(&self) -> Option<ResearchRestriction> {
+        match self.card {
+            CardFields::Technology(restriction) => Some(restriction),
+            _ => None,
+        }
+    }
+
+    /// Which strategy card a strategy-card record is (from its `id`), or `None` for a record of
+    /// another category.
+    #[must_use]
+    pub const fn strategy_card_kind(&self) -> Option<StrategyCardKind> {
+        match self.card {
+            CardFields::StrategyCard(kind) => Some(kind),
+            _ => None,
+        }
     }
 
     /// The raw JSON value of a field.

@@ -7,8 +7,8 @@
 
 use std::collections::BTreeSet;
 
-use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
+use ti4_content::{ContentStore, StrategyCardKind};
 use ti4_model::content_types::{ContentType, SourceSet};
 use ti4_model::id::{PlanetId, PlayerId, SystemId, TechnologyId, UnitTypeId};
 use ti4_model::state::{GameState, TokenPool};
@@ -47,6 +47,19 @@ pub fn registered_cards() -> Vec<&'static str> {
     ]
 }
 
+/// Which strategy card `card` is, from its id (`ti4_content::card_fields`), or `None` for an id the
+/// corpus does not have. The rules dispatch on this; [`card_name`] is the printed name, for display.
+///
+/// Every printing of one card maps to one kind, as the printed name did: base and Codex Diplomacy
+/// are both [`StrategyCardKind::Diplomacy`] (see `docs/CARD_TEXT_FIELDS.md`).
+#[must_use]
+pub fn card_kind(content: &ContentStore, card: &str) -> Option<StrategyCardKind> {
+    content
+        .get(ContentType::StrategyCards, card)
+        .and_then(ti4_content::Record::strategy_card_kind)
+}
+
+/// The printed name of a strategy card. Display only: the rules read [`card_kind`].
 #[must_use]
 pub fn card_name(content: &ContentStore, card: &str) -> Option<String> {
     content
@@ -1531,17 +1544,18 @@ pub fn ready_hints(
         })
         .collect();
     let spenders: Vec<serde_json::Value> = [
-        ("Leadership", "influence"),
-        ("Technology", "resources"),
-        ("Warfare", "resources"),
+        (StrategyCardKind::Leadership, "influence"),
+        (StrategyCardKind::Technology, "resources"),
+        (StrategyCardKind::Warfare, "resources"),
     ]
     .iter()
-    .map(|(name, spends)| {
+    .map(|(kind, spends)| {
+        let name = kind.printed_name();
         let mut held = false;
         let mut played = false;
         for seat in &state.players {
             for card in &seat.strategy_cards {
-                if card_name(content, card.as_str()).as_deref() == Some(*name) {
+                if card_kind(content, card.as_str()) == Some(*kind) {
                     held = true;
                     played |= seat.exhausted_strategy_cards.contains(card);
                 }
@@ -1614,7 +1628,13 @@ fn diplomacy_primary(
     galaxy: Option<&Galaxy>,
     table: &mut Table,
     player: &PlayerId,
+    card: &str,
 ) -> Result<(), IllegalChoice> {
+    // The base-game printing (card audit I09): "Then, ready each exhausted planet you control in
+    // that system", not the Prophecy of Kings "ready up to 2 exhausted planets you control".
+    let base_printing =
+        card == "base2" && state.rules_version >= ti4_model::state::RULES_BASE_DIPLOMACY;
+    let mut chosen_system = None;
     let systems: Vec<SystemId> = state
         .controlled_planets(player)
         .into_iter()
@@ -1645,6 +1665,7 @@ fn diplomacy_primary(
             state.round,
         ));
         let chosen = SystemId::new(ask(state, content, sources, galaxy, table, &choice)?.id);
+        chosen_system = Some(chosen.clone());
         for other in state.seating_order.clone() {
             if &other != player {
                 if state
@@ -1661,6 +1682,20 @@ fn diplomacy_primary(
                 }
             }
         }
+    }
+    if base_printing {
+        if let Some(system) = chosen_system {
+            let exhausted: Vec<PlanetId> = state
+                .controlled_planets(player)
+                .into_iter()
+                .filter(|(at, planet)| **at == system && state.exhausted_planets.contains(*planet))
+                .map(|(_, planet)| planet.clone())
+                .collect();
+            for planet in exhausted {
+                state.ready_planet(&planet);
+            }
+        }
+        return Ok(());
     }
     ready_planets(state, content, sources, galaxy, table, player, 2)
 }
@@ -2512,7 +2547,7 @@ fn imperial_primary(
 /// Returns [`IllegalChoice`] if a decider selects an option that was not offered.
 #[allow(
     clippy::too_many_lines,
-    reason = "the public dispatcher keeps all card-id and printed-name routing visible in one place"
+    reason = "the public dispatcher keeps all card-id and card-kind routing visible in one place"
 )]
 pub fn primary(
     state: &mut GameState,
@@ -2647,11 +2682,11 @@ pub fn primary(
         return Ok(Ability::Resolved);
     }
 
-    let Some(name) = card_name(content, card) else {
+    let Some(kind) = card_kind(content, card) else {
         return Ok(Ability::Unresolved);
     };
-    match name.as_str() {
-        "Leadership" => {
+    match kind {
+        StrategyCardKind::Leadership => {
             gain_tokens_offering(
                 state,
                 content,
@@ -2664,9 +2699,13 @@ pub fn primary(
             )?;
             buy_tokens_with_influence(state, content, sources, galaxy, table, player)?;
         }
-        "Diplomacy" => diplomacy_primary(state, content, sources, galaxy, table, player)?,
-        "Politics" => politics_primary(state, content, sources, galaxy, table, player)?,
-        "Construction" => {
+        StrategyCardKind::Diplomacy => {
+            diplomacy_primary(state, content, sources, galaxy, table, player, card)?
+        }
+        StrategyCardKind::Politics => {
+            politics_primary(state, content, sources, galaxy, table, player)?
+        }
+        StrategyCardKind::Construction => {
             place_structure_step(
                 state,
                 content,
@@ -2688,9 +2727,11 @@ pub fn primary(
                 Some((2, 2)),
             )?;
         }
-        "Trade" => trade_primary(state, content, sources, galaxy, table, player)?,
-        "Warfare" => warfare_primary(state, content, sources, galaxy, table, player)?,
-        "Technology" => {
+        StrategyCardKind::Trade => trade_primary(state, content, sources, galaxy, table, player)?,
+        StrategyCardKind::Warfare => {
+            warfare_primary(state, content, sources, galaxy, table, player)?
+        }
+        StrategyCardKind::Technology => {
             offer_research(
                 state,
                 content,
@@ -2710,8 +2751,9 @@ pub fn primary(
                 TECHNOLOGY_PRIMARY_SECOND_COST,
             )?;
         }
-        "Imperial" => imperial_primary(state, content, sources, galaxy, table, player)?,
-        _ => return Ok(Ability::Unresolved),
+        StrategyCardKind::Imperial => {
+            imperial_primary(state, content, sources, galaxy, table, player)?
+        }
     }
     Ok(Ability::Resolved)
 }
@@ -2733,8 +2775,8 @@ pub fn follow(
     follower: &PlayerId,
     card: &str,
 ) -> Result<Ability, IllegalChoice> {
-    let name = card_name(content, card).unwrap_or_else(|| card.to_owned());
-    if crate::faction_abilities::substitutes_primary(state, content, follower, &name) {
+    let kind = card_kind(content, card);
+    if crate::faction_abilities::substitutes_primary(state, content, follower, kind) {
         primary(state, content, sources, galaxy, table, follower, card)
     } else {
         secondary(state, content, sources, galaxy, table, follower, card)
@@ -2754,24 +2796,28 @@ pub fn secondary(
     player: &PlayerId,
     card: &str,
 ) -> Result<Ability, IllegalChoice> {
-    let Some(name) = card_name(content, card) else {
+    let Some(kind) = card_kind(content, card) else {
         return Ok(Ability::Unresolved);
     };
-    match name.as_str() {
+    match kind {
         // The window's `yes` already asked the oracle question; pay for it and continue.
-        "Leadership" => {
+        StrategyCardKind::Leadership => {
             buy_tokens_first_yes_assumed(state, content, sources, galaxy, table, player)?;
         }
-        "Diplomacy" => ready_planets(state, content, sources, galaxy, table, player, 2)?,
-        "Politics" => {
+        StrategyCardKind::Diplomacy => {
+            ready_planets(state, content, sources, galaxy, table, player, 2)?
+        }
+        StrategyCardKind::Politics => {
             crate::action_cards::draw(state, content, table, player, 2)?;
         }
-        "Construction" => {
+        StrategyCardKind::Construction => {
             place_structure(state, content, sources, galaxy, table, player, false)?;
         }
-        "Trade" => replenish(state, content, player),
-        "Warfare" => home_production(state, content, sources, galaxy, table, player)?,
-        "Technology" => paid_research(
+        StrategyCardKind::Trade => replenish(state, content, player),
+        StrategyCardKind::Warfare => {
+            home_production(state, content, sources, galaxy, table, player)?
+        }
+        StrategyCardKind::Technology => paid_research(
             state,
             content,
             sources,
@@ -2780,10 +2826,9 @@ pub fn secondary(
             player,
             TECHNOLOGY_SECONDARY_COST,
         )?,
-        "Imperial" => {
+        StrategyCardKind::Imperial => {
             crate::secrets::draw(state, content, table, player)?;
         }
-        _ => return Ok(Ability::Unresolved),
     }
     Ok(Ability::Resolved)
 }
@@ -3538,6 +3583,92 @@ mod tests {
 
         assert!(state.system_state(&system).command_tokens.contains(&other));
         assert!(!state.exhausted_planets.contains(&planet));
+    }
+
+    /// Card audit I09: the base-game Diplomacy (`base2`) readies "each exhausted planet you
+    /// control in that system"; the PoK card readies up to 2 anywhere (rules version 35).
+    #[test]
+    fn base_diplomacy_readies_every_exhausted_planet_in_the_chosen_system() {
+        let content = ContentStore::embedded();
+        let planets = ti4_content::galaxy::all_planets(content, POK);
+        let placed = |id: &str| {
+            let record = planets.get(id).expect("a corpus planet");
+            (
+                SystemId::new(record.system_id().expect("placed")),
+                PlanetId::new(id),
+            )
+        };
+        let mut by_system: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+        for (id, record) in &planets {
+            if let Some(system) = record.system_id()
+                && !record.is_placed_during_play()
+                && record.homeworld_of().is_none()
+                && system != "18"
+            {
+                by_system
+                    .entry(system.to_owned())
+                    .or_default()
+                    .push((*id).to_owned());
+            }
+        }
+        let pair = by_system
+            .values()
+            .find(|ids| ids.len() == 2)
+            .expect("a two-planet system");
+        let (system, first) = placed(&pair[0]);
+        let (_, second) = placed(&pair[1]);
+        let (elsewhere_system, elsewhere) = by_system
+            .iter()
+            .find(|(id, ids)| **id != system.as_str() && ids.len() == 1)
+            .map(|(_, ids)| placed(&ids[0]))
+            .expect("a one-planet system");
+        assert_ne!(elsewhere_system, system);
+
+        let player = PlayerId::new("a");
+        let setup = |version: u32| {
+            let mut state = game(&["a", "b"]);
+            state.rules_version = version;
+            for (at, planet) in [
+                (&system, &first),
+                (&system, &second),
+                (&elsewhere_system, &elsewhere),
+            ] {
+                state
+                    .system_mut(at)
+                    .set_control(planet.clone(), player.clone());
+                state.exhaust_planet(planet.clone());
+            }
+            state
+        };
+        let play = |state: &mut GameState, script: Vec<String>| {
+            let mut table = Table::with_default(Box::new(crate::choice::Scripted::new(script)));
+            primary(state, content, POK, None, &mut table, &player, "base2").unwrap();
+            table.log.records.len()
+        };
+
+        let mut state = setup(ti4_model::state::RULES_BASE_DIPLOMACY);
+        let asked = play(&mut state, vec![system.to_string()]);
+        assert_eq!(
+            asked, 1,
+            "only the system is asked; the readying is not a choice"
+        );
+        assert!(!state.exhausted_planets.contains(&first));
+        assert!(!state.exhausted_planets.contains(&second));
+        assert!(
+            state.exhausted_planets.contains(&elsewhere),
+            "not in the chosen system"
+        );
+
+        // Below 35: up to two exhausted planets anywhere, as the PoK card.
+        let mut state = setup(ti4_model::state::RULES_BASE_DIPLOMACY - 1);
+        let asked = play(
+            &mut state,
+            vec![system.to_string(), first.to_string(), elsewhere.to_string()],
+        );
+        assert_eq!(asked, 3);
+        assert!(!state.exhausted_planets.contains(&first));
+        assert!(!state.exhausted_planets.contains(&elsewhere));
+        assert!(state.exhausted_planets.contains(&second));
     }
 
     #[test]

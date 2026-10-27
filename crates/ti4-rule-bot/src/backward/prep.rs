@@ -61,9 +61,9 @@ pub struct PrepInfo {
     /// Unit types to produce.
     pub builds: Vec<String>,
     /// Strategy card to draft.
-    pub cards: Vec<String>,
+    pub cards: Vec<ti4_content::StrategyCardKind>,
     /// Strategy card to play now.
-    pub play: Vec<String>,
+    pub play: Vec<ti4_content::StrategyCardKind>,
     /// Technologies to pick when a research is offered.
     pub techs: Vec<String>,
     /// Probability that the prep itself works.
@@ -258,7 +258,9 @@ pub(super) fn sources(
     {
         out.push((Source::Dock, 1, 0, 0.95));
     }
-    if crate::ready_card(seen, me, "Construction").is_some_and(|c| c.starts_with("te")) {
+    if crate::ready_card(seen, me, ti4_content::StrategyCardKind::Construction)
+        .is_some_and(|c| c.starts_with("te"))
+    {
         out.push((Source::Construction, 0, 0, 0.95));
     }
     let access = warfare(seen, me);
@@ -275,7 +277,9 @@ pub(super) fn sources(
             out.push((Source::DockWithWarfare, 1, 0, 0.95));
         }
     }
-    if ctx.strategic_tokens >= 1 && crate::secondary_to_come(seen, me, "Warfare") {
+    if ctx.strategic_tokens >= 1
+        && crate::secondary_to_come(seen, me, ti4_content::StrategyCardKind::Warfare)
+    {
         out.push((Source::WarfareSecondary, 0, 1, 0.6));
     }
     out
@@ -390,8 +394,10 @@ fn build_prep(
         systems.push(home);
     }
     let card = match source {
-        Source::Construction => Some("Construction"),
-        Source::WarfarePrimary | Source::DockWithWarfare => Some("Warfare"),
+        Source::Construction => Some(ti4_content::StrategyCardKind::Construction),
+        Source::WarfarePrimary | Source::DockWithWarfare => {
+            Some(ti4_content::StrategyCardKind::Warfare)
+        }
         _ => None,
     };
     Some((
@@ -405,8 +411,8 @@ fn build_prep(
             gather: Vec::new(),
             systems,
             builds: units.iter().map(|(u, _)| u.clone()).collect(),
-            cards: card.map(str::to_owned).into_iter().collect(),
-            play: card.map(str::to_owned).into_iter().collect(),
+            cards: card.into_iter().collect(),
+            play: card.into_iter().collect(),
             techs: Vec::new(),
             odds,
         },
@@ -432,12 +438,12 @@ pub struct WarfareAccess {
 /// The seat's Warfare options.
 #[must_use]
 pub fn warfare(seen: &Observed<'_>, me: &PlayerId) -> WarfareAccess {
-    let own = crate::ready_card(seen, me, "Warfare");
+    let own = crate::ready_card(seen, me, ti4_content::StrategyCardKind::Warfare);
     let extra_activation = own
         .as_ref()
         .is_some_and(|c| c.starts_with("te") || !seen.systems_with_token(me).is_empty());
     WarfareAccess {
-        secondary: crate::secondary_to_come(seen, me, "Warfare"),
+        secondary: crate::secondary_to_come(seen, me, ti4_content::StrategyCardKind::Warfare),
         extra_activation,
         own,
     }
@@ -539,12 +545,12 @@ fn warfare_prep(
             gather: vec![gather],
             builds: Vec::new(),
             cards: if use_warfare {
-                vec!["Warfare".to_owned()]
+                vec![ti4_content::StrategyCardKind::Warfare]
             } else {
                 Vec::new()
             },
             play: if use_warfare {
-                vec!["Warfare".to_owned()]
+                vec![ti4_content::StrategyCardKind::Warfare]
             } else {
                 Vec::new()
             },
@@ -690,8 +696,8 @@ fn upgrades(seen: &Observed<'_>, me: &PlayerId) -> Vec<Upgrade> {
 fn research_source(seen: &Observed<'_>, me: &PlayerId) -> Option<super::technology::Source> {
     let seat = seen.seat(me)?;
     let is_tech = |c: &ti4_model::id::StrategyCardId| {
-        ti4_engine::strategy_cards::card_name(seen.content(), c.as_str()).as_deref()
-            == Some("Technology")
+        ti4_engine::strategy_cards::card_kind(seen.content(), c.as_str())
+            == Some(ti4_content::StrategyCardKind::Technology)
     };
     let own_open = seat
         .strategy_cards
@@ -839,9 +845,9 @@ fn tech_preps(
         systems: Vec::new(),
         gather: Vec::new(),
         builds: Vec::new(),
-        cards: vec!["Technology".to_owned()],
+        cards: vec![ti4_content::StrategyCardKind::Technology],
         play: if source.own_card {
-            vec!["Technology".to_owned()]
+            vec![ti4_content::StrategyCardKind::Technology]
         } else {
             Vec::new()
         },

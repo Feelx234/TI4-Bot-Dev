@@ -215,9 +215,13 @@ pub struct Hooks {
     pub waived_prerequisites:
         Option<fn(&GameState, &ContentStore, SourceSet, &PlayerId, &str) -> usize>,
     /// Whether this strategy card's secondary is resolved as its primary.
-    pub substitutes_primary: Option<fn(&GameState, &ContentStore, &PlayerId, &str) -> bool>,
+    pub substitutes_primary: Option<
+        fn(&GameState, &ContentStore, &PlayerId, Option<ti4_content::StrategyCardKind>) -> bool,
+    >,
     /// Whether this strategy card's secondary costs no token.
-    pub secondary_is_free: Option<fn(&GameState, &ContentStore, &PlayerId, &str) -> bool>,
+    pub secondary_is_free: Option<
+        fn(&GameState, &ContentStore, &PlayerId, Option<ti4_content::StrategyCardKind>) -> bool,
+    >,
     /// Whether this player may trade action cards.
     pub trades_action_cards: Option<fn(&GameState, &ContentStore, &PlayerId) -> bool>,
     /// Whether this player may transact with non-neighbours.
@@ -241,7 +245,8 @@ pub struct Hooks {
     /// Perform a component action; `true` if this module claimed and performed it.
     pub perform_component: Option<fn(&mut TimingContext<'_>, &PlayerId, &ChoiceOption) -> bool>,
     /// After a strategy card (primary or secondary) resolves for this player.
-    pub strategy_resolved: Option<fn(&mut TimingContext<'_>, &PlayerId, &str)>,
+    pub strategy_resolved:
+        Option<fn(&mut TimingContext<'_>, &PlayerId, Option<ti4_content::StrategyCardKind>)>,
     /// Extra hits at the end of a ground-combat round in `system`.
     pub ground_combat_round_ended: Option<
         fn(
@@ -439,7 +444,7 @@ pub(crate) fn substitutes_primary(
     state: &GameState,
     content: &ContentStore,
     player: &PlayerId,
-    card: &str,
+    card: Option<ti4_content::StrategyCardKind>,
 ) -> bool {
     hooks()
         .filter_map(|h| h.substitutes_primary)
@@ -450,7 +455,7 @@ pub(crate) fn secondary_is_free(
     state: &GameState,
     content: &ContentStore,
     player: &PlayerId,
-    card: &str,
+    card: Option<ti4_content::StrategyCardKind>,
 ) -> bool {
     hooks()
         .filter_map(|h| h.secondary_is_free)
@@ -524,7 +529,11 @@ pub(crate) fn perform_component(
         .any(|f| f(context, player, option))
 }
 
-pub(crate) fn strategy_resolved(context: &mut TimingContext<'_>, player: &PlayerId, card: &str) {
+pub(crate) fn strategy_resolved(
+    context: &mut TimingContext<'_>,
+    player: &PlayerId,
+    card: Option<ti4_content::StrategyCardKind>,
+) {
     for f in hooks().filter_map(|h| h.strategy_resolved) {
         f(context, player, card);
     }

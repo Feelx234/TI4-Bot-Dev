@@ -45,6 +45,7 @@ use std::collections::BTreeSet;
 
 use rand::Rng;
 use rand_chacha::ChaCha8Rng;
+use ti4_content::StrategyCardKind;
 use ti4_engine::choice::{Choice, ChoiceOption, Observed, SeatObservation};
 use ti4_engine::objectives::{CardProgress, Imagined};
 use ti4_engine::production::Spend;
@@ -848,22 +849,22 @@ fn pick_action(
     let observed = seen.observed();
     let galaxy = observed.galaxy()?;
     let tactical = choice.options.iter().position(|o| o.id == "tactical")?;
-    let play = |name: &str| {
-        ready_card(observed, me, name).and_then(|card| strategic_option(choice, observed, &card))
+    let play = |kind: StrategyCardKind| {
+        ready_card(observed, me, kind).and_then(|card| strategic_option(choice, observed, &card))
     };
     if observed.scoreable_public(me) > 0
-        && let Some(index) = play("Imperial")
+        && let Some(index) = play(StrategyCardKind::Imperial)
     {
         return Some(index);
     }
     if tuning::mecatol_imperial_priority()
         && crate::holds_mecatol(observed, me)
-        && let Some(index) = play("Imperial")
+        && let Some(index) = play(StrategyCardKind::Imperial)
     {
         return Some(index);
     }
-    if crate::backward::verdict(seen, me).is_some_and(|v| v.plays("Warfare"))
-        && let Some(index) = play("Warfare")
+    if crate::backward::verdict(seen, me).is_some_and(|v| v.plays(StrategyCardKind::Warfare))
+        && let Some(index) = play(StrategyCardKind::Warfare)
     {
         return Some(index);
     }
@@ -893,7 +894,7 @@ fn pick_action(
         .min_by_key(|(i, o)| {
             let imperial =
                 o.id.strip_prefix("strategic|")
-                    .is_some_and(|card| card_is(observed, card, "Imperial"));
+                    .is_some_and(|card| card_is(observed, card, StrategyCardKind::Imperial));
             (hold_imperial && imperial, *i)
         })
         .map(|(i, _)| i);
@@ -1105,22 +1106,22 @@ fn pick_presence_move(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId
 
 /// Families a strategy card moves: Technology researches, Construction places structures,
 /// Leadership gains tokens, Trade gains trade goods.
-fn card_families(name: &str) -> &'static [&'static str] {
-    match name {
-        "Technology" => &[
+fn card_families(card: Option<StrategyCardKind>) -> &'static [&'static str] {
+    match card {
+        Some(StrategyCardKind::Technology) => &[
             "unit_upgrades",
             "colours_2",
             "same_colour_technologies",
             "faction_technologies",
         ],
-        "Construction" => &[
+        Some(StrategyCardKind::Construction) => &[
             "structures",
             "structures_away",
             "units_pds",
             "units_spacedock",
         ],
-        "Leadership" => &["cost_tokens"],
-        "Trade" => &["cost_trade_goods", "cost_all_three"],
+        Some(StrategyCardKind::Leadership) => &["cost_tokens"],
+        Some(StrategyCardKind::Trade) => &["cost_trade_goods", "cost_all_three"],
         _ => &[],
     }
 }
@@ -1130,10 +1131,10 @@ fn card_families(name: &str) -> &'static [&'static str] {
 /// status phase), a card that serves an objective within two steps, and trade goods on the card.
 fn card_score(seen: &SeatObservation<'_>, me: &PlayerId, card: &str, goals: &[Goal]) -> f64 {
     let observed = seen.observed();
-    let name = ti4_engine::strategy_cards::card_name(observed.content(), card).unwrap_or_default();
+    let kind = ti4_engine::strategy_cards::card_kind(observed.content(), card);
     let goods = f64::from(super::card_goods(observed, card));
     let mut score = goods;
-    if name == "Imperial" {
+    if kind == Some(StrategyCardKind::Imperial) {
         if holds_mecatol(observed, me) || mecatol_takeable(observed, me) {
             score += 30.0;
         }
@@ -1142,7 +1143,7 @@ fn card_score(seen: &SeatObservation<'_>, me: &PlayerId, card: &str, goals: &[Go
             score += 12.0;
         }
     }
-    for family in card_families(&name) {
+    for family in card_families(kind) {
         let helps: f64 = goals
             .iter()
             .filter(|g| g.family == *family && !g.satisfied && g.gap() <= 2.0)
@@ -1164,18 +1165,18 @@ fn pick_strategy_card(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId
         .enumerate()
         .map(|(i, o)| {
             let mut score = card_score(seen, me, &o.id, &goals);
-            let name = ti4_engine::strategy_cards::card_name(seen.observed().content(), &o.id);
-            if imperial_wanted && name.as_deref() == Some("Imperial") {
+            let kind = ti4_engine::strategy_cards::card_kind(seen.observed().content(), &o.id);
+            if imperial_wanted && kind == Some(StrategyCardKind::Imperial) {
                 score += 20.0;
             }
             // Mecatol Rex held (or takeable) is Imperial's point every round: take the card first.
             if tuning::mecatol_imperial_priority()
-                && name.as_deref() == Some("Imperial")
+                && kind == Some(StrategyCardKind::Imperial)
                 && crate::mecatol_imperial_wanted(seen.observed(), me)
             {
                 score += 100.0;
             }
-            if let Some(expected) = name.and_then(|n| wanted_cards.get(&n).copied()) {
+            if let Some(expected) = kind.and_then(|k| wanted_cards.get(&k).copied()) {
                 score += tuning::bw_card_weight() * expected.max(0.0);
             }
             (i, score)

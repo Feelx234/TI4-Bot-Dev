@@ -856,7 +856,8 @@ fn hero_cards(state: &GameState) -> Vec<StrategyCardId> {
 
 /// Every secondary but Leadership's (influence) costs a command token.
 fn costs_token(content: &ContentStore, card: &StrategyCardId) -> bool {
-    crate::strategy_cards::card_name(content, card.as_str()).as_deref() != Some("Leadership")
+    crate::strategy_cards::card_kind(content, card.as_str())
+        != Some(ti4_content::StrategyCardKind::Leadership)
 }
 
 fn leader_action(

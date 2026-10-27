@@ -326,8 +326,12 @@ fn secret_outcome(
     if !bias.dp {
         return None;
     }
-    let (kind, target) = agenda_kind(seen, agenda)?;
-    if bias.dp && kind == "Law" && target == "For/Against" && outcomes.contains(&"for") {
+    let (kind, elects) = agenda_kind(seen, agenda)?;
+    if bias.dp
+        && kind == "Law"
+        && elects == ti4_content::ElectType::ForAgainst
+        && outcomes.contains(&"for")
+    {
         return Some("for".to_owned());
     }
     None
