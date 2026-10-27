@@ -109,6 +109,10 @@ pub struct SessionShared {
     pub subscribers: BTreeMap<u64, Subscriber>,
     pub next_subscriber_id: u64,
     pub decision_log: Vec<DecisionRecord>,
+    /// Answers settled inside the running engine step that `decision_log` does not show yet: a
+    /// card played inside another card's window waits for its announcement (see the offer
+    /// observer). Each with the option it chose. A batch replays from them too.
+    pub held_decisions: Vec<(DecisionRecord, Option<ChoiceOption>)>,
     pub finished: bool,
     pub stopped: bool,
     pub error: Option<String>,
@@ -383,6 +387,7 @@ impl SessionShared {
             subscribers: BTreeMap::new(),
             next_subscriber_id: 0,
             decision_log: Vec::new(),
+            held_decisions: Vec::new(),
             event_log: Vec::new(),
             event_counter: 0,
             finished: false,
@@ -1295,7 +1300,11 @@ pub fn spawn_session_worker(
             let mut lock = offer_shared.lock().expect("shared lock");
             lock.undo.observe(records.len(), state);
             let mut published = offer_published.lock().expect("published count lock");
-            if lock.stopped || records.len() <= *published {
+            if lock.stopped {
+                return;
+            }
+            if records.len() <= *published {
+                lock.held_decisions.clear();
                 return;
             }
             let start = *published;
@@ -1397,6 +1406,17 @@ pub fn spawn_session_worker(
                     ));
                 }
             }
+            lock.held_decisions = records[*published..]
+                .iter()
+                .map(|record| {
+                    let selected = selected_for(
+                        &mut offer_selected.lock().expect("selected options lock"),
+                        record,
+                        false,
+                    );
+                    (record.clone(), selected)
+                })
+                .collect();
             if let Err(error) = lock.persist_history() {
                 lock.error = Some(error);
                 return;
@@ -1515,6 +1535,7 @@ pub fn spawn_session_worker(
                 let mut lock = worker_shared.lock().expect("shared lock");
                 lock.latest_state = game.state.clone();
                 lock.decision_log.clone_from(&game.table.log.records);
+                lock.held_decisions.clear();
                 lock.replay_complete = true;
                 // One copy at a time. A boundary that recorded nothing since the last copy
                 // adds nothing: a fork of the older copy reaches the same game by stepping.
@@ -1578,6 +1599,7 @@ pub fn spawn_session_worker(
                 let event_start = lock.event_log.len();
                 lock.latest_state = game.state.clone();
                 lock.decision_log.clone_from(&game.table.log.records);
+                lock.held_decisions.clear();
                 lock.forget_undone_of_deciders();
 
                 if let Some(err) = result.error {

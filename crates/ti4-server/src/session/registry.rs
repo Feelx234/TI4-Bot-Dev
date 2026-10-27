@@ -1160,7 +1160,7 @@ impl GameRegistry {
             ));
         }
         let config = session.restart_config();
-        let (prior, step_snapshot) = session.batch_basis();
+        let (prior, held, step_snapshot) = session.batch_basis();
         drop(state);
         let simulation = simulate(
             &config,
@@ -1181,6 +1181,50 @@ impl GameRegistry {
         counter = counter.max(events.len() as u64);
         // One wall-clock reading for the whole batch, in the worker's HH:MM:SS format.
         let timestamp = ti4_host::clock::Clock::utc_time_string(&ti4_host::clock::SystemClock);
+        // The held decisions (a card played inside another card's window, not announced yet)
+        // had no history line; the batch commits them, so they get theirs here.
+        let held_start = start_cursor - held.len();
+        for (i, (decision, offered)) in prior[held_start..].iter().zip(&held).enumerate() {
+            let cursor = held_start + i + 1;
+            let (detail, movement, seat_detail) =
+                ti4_host::protocol::server::verified_decision_facts(
+                    decision,
+                    offered.as_ref(),
+                    boundary_state.active_system.as_ref().map(|id| id.as_str()),
+                    &boundary_state,
+                );
+            let grouping = ti4_host::protocol::server::decision_grouping(
+                decision,
+                offered.as_ref(),
+                &all_decisions,
+                cursor,
+            );
+            counter += 1;
+            events.push(ti4_host::protocol::server::GameEvent {
+                id: format!("{game_id}-{counter}"),
+                timestamp: timestamp.clone(),
+                version: Some(request.expected_version),
+                visibility: ti4_host::protocol::server::EventVisibility::Public,
+                event: ti4_host::protocol::server::GameEventKind::DecisionResolved,
+                decision_count: Some(cursor),
+                batch_id: None,
+                batch_start_cursor: None,
+                batch_end_cursor: None,
+                action_id: None,
+                action_start_cursor: None,
+                actor: grouping.0,
+                round: grouping.1,
+                phase: grouping.2,
+                action_type: grouping.3,
+                action_actor: grouping.4,
+                stage: grouping.5,
+                movement,
+                detail,
+                seat_detail,
+                private_detail: None,
+                roll: None,
+            });
+        }
         for (i, decision) in decisions.iter().enumerate() {
             let offered = &simulation.selected[i];
             let action_id = if decision
@@ -1379,8 +1423,9 @@ impl GameRegistry {
             )
             .with_versions(request.expected_version, session.game_version()));
         }
+        let held_replies = session.take_held_replies(request.expected_version);
         session.stop();
-        if session.decision_log().len() != start_cursor {
+        if session.batch_basis().0.len() != start_cursor {
             let replacement = Arc::new(GameSession::start_recovered(
                 config.clone(),
                 session.decision_log(),
@@ -1405,6 +1450,10 @@ impl GameRegistry {
             ));
             state.sessions.insert(game_id.to_owned(), replacement);
             return Err(BatchError::simple(&format!("storage error: {error}")));
+        }
+        // The held decisions are durable with the batch: their seats hear they were accepted.
+        for (reply, accepted) in held_replies {
+            let _ = reply.send(Ok(accepted));
         }
         // The batch is durable and the old worker is stopped. Replaying the whole game into the
         // replacement can take seconds, so it runs without the registry lock: every snapshot,
