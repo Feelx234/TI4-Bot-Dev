@@ -4115,6 +4115,7 @@ dependencies = [
  "thiserror 2.0.20",
  "ti4-content",
  "ti4-engine-core",
+ "ti4-engine-core-factions",
  "ti4-model",
  "ts-rs",
  "zstd 0.13.3",
@@ -4148,6 +4149,13 @@ dependencies = [
  "ti4-selfplay",
  "ti4-wasm",
  "zstd 0.13.3",
+]
+
+[[package]]
+name = "ti4-engine-core-factions"
+version = "0.1.0"
+dependencies = [
+ "ti4-engine-core",
 ]
 
 [[package]]
