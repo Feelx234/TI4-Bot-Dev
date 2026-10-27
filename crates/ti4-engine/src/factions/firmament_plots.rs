@@ -105,6 +105,24 @@ fn watchers(state: &GameState, card: &str, player: &PlayerId) -> Vec<PlayerId> {
 /// Whether the Obsidian `follower` may follow `primary`'s strategic action without a command token.
 pub(crate) fn secondary_waivers(
     state: &GameState,
+    content: &ContentStore,
+    follower: &PlayerId,
+    primary: &PlayerId,
+    card: Option<ti4_content::StrategyCardKind>,
+) -> Vec<SecondaryWaiver> {
+    let ids = |list: Vec<SecondaryWaiver>| list.into_iter().map(|w| (w.id, w.label)).collect::<Vec<_>>();
+    let string = secondary_waivers_text(state, content, follower, primary, card);
+    crate::cb_dual!(
+        crate::dual::HookGroup::Strategy,
+        "obsidian::secondary_waivers",
+        ids(string.clone()),
+        crate::core_factions::ce::obsidian_secondary_waivers(state, follower, primary, card).map(ids)
+    );
+    string
+}
+
+fn secondary_waivers_text(
+    state: &GameState,
     _content: &ContentStore,
     follower: &PlayerId,
     primary: &PlayerId,
@@ -166,8 +184,13 @@ pub(crate) fn substitutes_primary(
     player: &PlayerId,
     card: Option<ti4_content::StrategyCardKind>,
 ) -> bool {
-    card == Some(ti4_content::StrategyCardKind::Leadership)
-        && state.faction_marks.get(ENERVATE_MARK).map(String::as_str) == Some(player.as_str())
+    crate::cb_dual!(
+        crate::dual::HookGroup::General,
+        "obsidian::substitutes_primary",
+        card == Some(ti4_content::StrategyCardKind::Leadership)
+            && state.faction_marks.get(ENERVATE_MARK).map(String::as_str) == Some(player.as_str()),
+        crate::core_factions::ce::obsidian_substitutes_primary(state, player, card)
+    )
 }
 
 // -- Siphon ----------------------------------------------------------------------------------------

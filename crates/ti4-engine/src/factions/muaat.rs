@@ -195,6 +195,21 @@ fn extra_production(
     player: &PlayerId,
     system: &SystemId,
 ) -> i64 {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Economy,
+        "muaat::extra_production",
+        extra_production_text(state, content, sources, player, system),
+        crate::core_factions::ce::muaat_extra_production(state, sources, player, system)
+    )
+}
+
+fn extra_production_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+) -> i64 {
     if !is_muaat(state, player)
         || !holds_reactor(state, player)
         || !ti4_content::galaxy::system(content, system.as_str(), sources)

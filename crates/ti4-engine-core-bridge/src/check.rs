@@ -345,6 +345,14 @@ pub fn check_observed(position: &Position, report: &mut Report) {
     for m in ca.mismatches {
         report.miss(m);
     }
+    // Wave C, package CE: the ported movement-line hooks next to their string functions.
+    let mut ce = ti4_engine::core_factions::ce::CeCheck::default();
+    ti4_engine::core_factions::ce::compare(&position.label, state, galaxy, sources, &mut ce);
+    report.hook_answers += ce.compared as usize;
+    report.unmapped += ce.unmapped as usize;
+    for m in ce.mismatches {
+        report.miss(m);
+    }
     for player in &state.players {
         let reach = [false, true].map(|effects| SeatReach::new(&pos, &player.id, effects));
         let fleet = ships(state, content, sources, &player.id);
