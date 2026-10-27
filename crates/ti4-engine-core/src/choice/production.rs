@@ -28,8 +28,8 @@ pub struct PayAsk {
 /// orders equal and hashes to nothing, so an answer parsed from an id equals the option that was offered.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Shown {
-    pub worth: i64,
-    pub pool_after: i64,
+    pub worth: i32,
+    pub pool_after: i32,
 }
 
 impl PartialEq for Shown {

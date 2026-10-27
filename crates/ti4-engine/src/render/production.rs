@@ -53,7 +53,8 @@ impl Family for Fam {
     fn option(_: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
         let Ask::Pay(PayAsk { kind, owed, pool, goods }) = *a;
         match *o {
-            Opt::Exhaust { planet, source, shown: Shown { worth, pool_after } } => {
+            Opt::Exhaust { planet, source, shown } => {
+                let (worth, pool_after) = (i64::from(shown.worth), i64::from(shown.pool_after));
                 let id = if source == kind {
                     format!("exhaust|{}", planet_id(planet))
                 } else {
@@ -74,19 +75,25 @@ impl Family for Fam {
                         Delta::new(Quantity::TradeGoods, goods, goods),
                     ]))
             }
-            Opt::TradeGood { shown: Shown { worth, .. } } => ChoiceOption::labelled("trade_good", crate::production::PAY_KIND, "spend a trade good")
-                .with("worth", worth)
-                .with("owed", owed)
-                .with("kind", name(kind))
-                .previewed(Preview::certain(vec![
-                    Delta::new(quantity(kind), pool, pool - worth),
-                    Delta::new(Quantity::TradeGoods, goods, goods - 1),
-                ])),
-            Opt::Commodity { shown: Shown { worth, .. } } => ChoiceOption::labelled("commodity", crate::production::PAY_KIND, "spend a commodity as a trade good")
-                .with("worth", worth)
-                .with("owed", owed)
-                .with("kind", name(kind))
-                .previewed(Preview::certain(vec![Delta::new(quantity(kind), pool, pool - worth)])),
+            Opt::TradeGood { shown } => {
+                let worth = i64::from(shown.worth);
+                ChoiceOption::labelled("trade_good", crate::production::PAY_KIND, "spend a trade good")
+                    .with("worth", worth)
+                    .with("owed", owed)
+                    .with("kind", name(kind))
+                    .previewed(Preview::certain(vec![
+                        Delta::new(quantity(kind), pool, pool - worth),
+                        Delta::new(Quantity::TradeGoods, goods, goods - 1),
+                    ]))
+            }
+            Opt::Commodity { shown } => {
+                let worth = i64::from(shown.worth);
+                ChoiceOption::labelled("commodity", crate::production::PAY_KIND, "spend a commodity as a trade good")
+                    .with("worth", worth)
+                    .with("owed", owed)
+                    .with("kind", name(kind))
+                    .previewed(Preview::certain(vec![Delta::new(quantity(kind), pool, pool - worth)]))
+            }
         }
     }
 

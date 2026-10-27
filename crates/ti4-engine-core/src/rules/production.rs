@@ -398,16 +398,20 @@ pub fn pay_opts(cx: &Cx<'_>, who: Seat, kind: Spend, paid: i64, cost: i64, ex: &
                 continue;
             }
             let removed = max_face_value(cx, who, *planet, kind);
-            opts.push(PayOpt::Exhaust { planet: *planet, source: currency(*source), shown: Shown { worth: *face, pool_after: pool - removed } });
+            opts.push(PayOpt::Exhaust { planet: *planet, source: currency(*source), shown: Shown { worth: small(*face), pool_after: small(pool - removed) } });
         }
     }
     if goods > 0 {
-        opts.push(PayOpt::TradeGood { shown: Shown { worth, pool_after: pool - worth } });
+        opts.push(PayOpt::TradeGood { shown: Shown { worth: small(worth), pool_after: small(pool - worth) } });
     }
     if ex.commodities > 0 {
-        opts.push(PayOpt::Commodity { shown: Shown { worth, pool_after: pool - worth } });
+        opts.push(PayOpt::Commodity { shown: Shown { worth: small(worth), pool_after: small(pool - worth) } });
     }
     (PayAsk { kind: currency(kind), owed: cost - paid, pool, goods }, opts)
+}
+
+fn small(n: i64) -> i32 {
+    i32::try_from(n).unwrap_or(if n < 0 { i32::MIN } else { i32::MAX })
 }
 
 const fn currency(s: Spend) -> Currency {
