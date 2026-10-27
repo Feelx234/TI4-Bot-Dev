@@ -5798,7 +5798,42 @@ impl CombatWindow {
 
     /// Assault Cannon (round 1, before the barrage): "your opponent must destroy 1 of their non-fighter
     /// ships" for each holder of 3 or more.
+    ///
+    /// On `driver=dual` the whole step also runs as a core window (`rules::combat::assault_cannon`).
     fn assault_cannon(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>) -> Result<(), CombatError> {
+        let sources = ctx.sources;
+        let failed = std::cell::Cell::new(false);
+        let mut outcome = None;
+        let announce = ctx.timing.is_some();
+        let (attacker, defender, system) = (self.attacker.clone(), self.defender.clone(), self.system.clone());
+        crate::dual_window!(
+            crate::dual::Area::Driver,
+            "combat::assault_cannon",
+            state,
+            |s: &mut GameState| {
+                let result = self.assault_cannon_string(s, ctx);
+                failed.set(result.is_err());
+                outcome = Some(result);
+                crate::dual::Run::new(!failed.get())
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                if failed.get() {
+                    return None;
+                }
+                let args = crate::dual_window::AssaultCannonArgs {
+                    attacker: &attacker,
+                    defender: &defender,
+                    system: &system,
+                    announce,
+                };
+                crate::dual_window::assault_cannon(s, sources, args, script)
+            }
+        );
+        outcome.unwrap_or(Ok(()))
+    }
+
+    /// The string body of [`Self::assault_cannon`].
+    fn assault_cannon_string(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>) -> Result<(), CombatError> {
         let (content, sources) = (ctx.content, ctx.sources);
         let firing: Vec<(PlayerId, PlayerId)> = [
             (self.attacker.clone(), self.defender.clone()),
@@ -8693,6 +8728,42 @@ mod tests {
             dice.rolled("space combat").is_empty(),
             "the fight ended before any die"
         );
+    }
+
+    #[test]
+    fn assault_cannon_runs_as_a_core_window_in_lockstep() {
+        // The cannon with `driver=dual`: the string step and the core `AssaultCannon` window put the same
+        // question, take the same answer and leave the same state (one victim ship: no question; several:
+        // the victim chooses).
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        for victims in [1usize, 2] {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "letnev")], ti4_model::content_types::DEFAULT);
+            // The fixture seats leave placeholder-faction notes the card slice cannot map.
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            let system = SystemId::new("18");
+            put(&mut state, &system, "cruiser", &attacker(), 3);
+            put(&mut state, &system, "destroyer", &defender(), 1);
+            if victims == 2 {
+                put(&mut state, &system, "dreadnought", &defender(), 1);
+                put(&mut state, &system, "fighter", &defender(), 2);
+            }
+            state.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("asc"));
+            let mask = AreaMask::STRING.with(Area::Driver, Backend::Dual);
+            with_mask(mask, || {
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let mut dice = Dice::new();
+                let mut rng = GameRng::new(3);
+                resolve(&mut state, ContentStore::embedded(), ti4_model::content_types::DEFAULT, &mut table, &mut dice, &mut rng, &system).unwrap();
+            });
+        }
+        let r = report();
+        let counts = &r.areas[&Area::Driver];
+        assert!(counts.calls >= 2, "both openings were compared: {counts:?}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
     }
 
     #[test]
