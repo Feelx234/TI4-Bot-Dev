@@ -140,7 +140,26 @@ pub fn standing(
     arriving: Option<Arrival<'_>>,
 ) -> Standing {
     let types = catalogue(content, sources);
-    standing_using(&types, state, content, player, system, arriving)
+    #[cfg(feature = "typed-core")]
+    let typed = || {
+        let fleet_limit = if is_unlimited(state, player) {
+            UNLIMITED_FLEET_BILL
+        } else {
+            i64::from(limit(state, content, player)).max(0)
+        };
+        let halves = fighter_halves(state, content, player);
+        let arrival = arriving.map(|a| (a.kind.id(), a.count, a.in_space));
+        crate::board_view::BoardView::of(state, None, sources)?
+            .standing(player, system, fleet_limit, arrival, &halves)
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::BoardQueries,
+        "fleet::standing",
+        typed(),
+        standing_using(&types, state, content, player, system, arriving)
+    )
 }
 
 /// [`standing`] for a caller that has already built the catalogue.

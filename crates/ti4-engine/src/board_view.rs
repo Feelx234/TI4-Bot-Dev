@@ -61,6 +61,13 @@ impl BoardView {
         Some(Self { view, cx, scope: crate::core_adapter::scope(sources), blanked: crate::laws::blanked(gs) })
     }
 
+    /// A view for a string call site that has no source scope or galaxy at hand (laws,
+    /// coexistence, planet control): the full source scope, no map. Dual and `Core` backends only.
+    #[must_use]
+    pub fn light(gs: &GameState) -> Option<Self> {
+        Self::of(gs, None, ti4_model::content_types::FULL)
+    }
+
     /// The core state, for callers that ask `ti4_engine_core::query` directly.
     #[must_use]
     pub fn core(&self) -> &ti4_engine_core::state::CoreState {
