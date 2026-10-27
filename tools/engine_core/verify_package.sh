@@ -73,6 +73,12 @@ if [[ -n "$dual" ]]; then
   note "     $(grep -c '^test result: ok' "$out/dual-suite.log") suites ok with $area on Dual (fail fast)"
   check dual-golden env TI4_DUAL_FAIL_FAST=1 "$target/release/dual_run" tools/engine_profile/profile-20.json "$games" "$area=dual"
   sed 's/^/     /' "$out/dual-golden.log" | head -12 | tee -a "$out/summary.txt"
+  if [[ "$area" == board ]]; then
+    check dual-templates "$target/release/board_equivalence" templates
+    note "     $(tail -1 "$out/dual-templates.log")"
+    check dual-positions "$target/release/board_equivalence" golden tools/engine_profile/profile-20.json 20 10
+    note "     $(tail -1 "$out/dual-positions.log")"
+  fi
   if [[ "$area" == movement ]]; then
     check dual-templates "$target/release/core_equivalence" templates --routes
     note "     $(tail -1 "$out/dual-templates.log")"
