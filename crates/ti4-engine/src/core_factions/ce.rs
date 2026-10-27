@@ -95,9 +95,32 @@ fn base_type(base: &str) -> Option<UnitBaseType> {
 
 use ti4_engine_core_factions::ce_movement::{arborec, empyrean, muaat, nomad, obsidian, saar};
 
+// -- the neutral answers that need no typed view --------------------------------------------------------------
+//
+// A hook answers the neutral value for every seat that is not its faction's (or when the card or mark it reads is not in
+// the game). In `Core` and `Dual` each call would otherwise build a typed view to find that out, on the hottest paths of the
+// engine (production, objectives, hit assignment). These guards read the string state for exactly the condition the typed
+// function starts with: when one holds, the typed answer is the neutral one by construction.
+
+fn is_faction(gs: &GameState, who: &PlayerId, faction: &str) -> bool {
+    gs.player(who).is_some_and(|p| p.faction.as_str() == faction)
+}
+
+fn any_faction(gs: &GameState, faction: &str) -> bool {
+    gs.players.iter().any(|p| p.faction.as_str() == faction)
+}
+
+/// Whether some faction mark starts with `prefix`.
+fn has_mark_prefix(gs: &GameState, prefix: &str) -> bool {
+    gs.faction_marks.range(prefix.to_owned()..).next().is_some_and(|(k, _)| k.starts_with(prefix))
+}
+
 // -- muaat, saar, arborec ---------------------------------------------------------------------------------
 
 pub fn muaat_extra_production(gs: &GameState, sources: SourceSet, who: &PlayerId, sys: &SystemId) -> Option<i64> {
+    if !is_faction(gs, who, "muaat") {
+        return Some(0);
+    }
     sampled_audit(gs, sources);
     with(gs, sources, |p| muaat_extra_production_at(p, who, sys))
 }
@@ -107,6 +130,9 @@ fn muaat_extra_production_at(p: &Pos, who: &PlayerId, sys: &SystemId) -> Option<
 }
 
 pub fn saar_nomadic(gs: &GameState, who: &PlayerId) -> Option<bool> {
+    if !is_faction(gs, who, "saar") {
+        return Some(false);
+    }
     with(gs, full(), |p| saar_nomadic_at(p, who))
 }
 
@@ -130,6 +156,9 @@ fn saar_commander_docks_at(p: &Pos, who: &PlayerId, producing: &SystemId, base: 
 }
 
 pub fn arborec_cannot_produce(gs: &GameState, who: &PlayerId, unit_base: &str, producer_base: &str) -> Option<bool> {
+    if !is_faction(gs, who, "arborec") {
+        return Some(false);
+    }
     sampled_audit(gs, full());
     with(gs, full(), |p| arborec_cannot_produce_at(p, who, unit_base, producer_base))
 }
@@ -141,6 +170,9 @@ fn arborec_cannot_produce_at(p: &Pos, who: &PlayerId, unit_base: &str, producer_
 // -- nomad ------------------------------------------------------------------------------------------------
 
 pub fn nomad_transaction_reach(gs: &GameState, a: &PlayerId, b: &PlayerId) -> Option<bool> {
+    if !has_mark_prefix(gs, "nomad:tcs:negotiating:") {
+        return Some(false);
+    }
     with(gs, full(), |p| nomad_transaction_reach_at(p, a, b))
 }
 
@@ -149,16 +181,22 @@ fn nomad_transaction_reach_at(p: &Pos, a: &PlayerId, b: &PlayerId) -> Option<boo
 }
 
 pub fn nomad_watches_agent_exhaustion(gs: &GameState) -> Option<bool> {
+    if !any_faction(gs, "nomad") {
+        return Some(false);
+    }
     with(gs, full(), |p| Some(nomad::query::watches_agent_exhaustion(p.s())))
 }
 
 pub fn nomad_watches_roll_step(gs: &GameState) -> Option<bool> {
+    if !gs.players.iter().any(|p| p.leaders.contains_key(ti4_model::id::text(&"nomadagentthundarian"))) {
+        return Some(false);
+    }
     with(gs, full(), |p| Some(nomad::query::watches_roll_step(p.s())))
 }
 
 /// `grants_sustain` over the string `CombatUnit`: the space context only (the core site has no other).
 pub fn nomad_grants_sustain(gs: &GameState, sources: SourceSet, unit: &crate::factions::CombatUnit<'_>) -> Option<bool> {
-    if !matches!(unit.context, "space" | "ground") {
+    if !matches!(unit.context, "space" | "ground") || (unit.unit_type != "nomad_mech" && !has_mark_prefix(gs, "nomad:cavalry:")) {
         return Some(false);
     }
     with(gs, sources, |p| nomad_grants_sustain_at(p, unit))
@@ -184,6 +222,9 @@ fn nomad_grants_sustain_at(p: &Pos, unit: &crate::factions::CombatUnit<'_>) -> O
 pub type Borrowed = Option<(String, Option<i64>, Option<(i64, i64)>)>;
 
 pub fn nomad_borrowed_stats(gs: &GameState, sources: SourceSet, who: &PlayerId, sys: &SystemId) -> Option<Borrowed> {
+    if !gs.faction_marks.contains_key(&format!("nomad:cavalry:{who}")) {
+        return Some(None);
+    }
     with(gs, sources, |p| nomad_borrowed_stats_at(p, who, sys))
 }
 
@@ -215,6 +256,9 @@ pub fn obsidian_secondary_waivers(
     primary: &PlayerId,
     kind: Option<ti4_content::StrategyCardKind>,
 ) -> Option<Vec<crate::factions::hooks_strategy::SecondaryWaiver>> {
+    if !is_faction(gs, follower, "obsidian") {
+        return Some(Vec::new());
+    }
     with(gs, full(), |p| obsidian_secondary_waivers_at(p, follower, primary, kind))
 }
 
@@ -241,6 +285,9 @@ fn obsidian_secondary_waivers_at(
 }
 
 pub fn obsidian_substitutes_primary(gs: &GameState, who: &PlayerId, kind: Option<ti4_content::StrategyCardKind>) -> Option<bool> {
+    if !gs.faction_marks.contains_key("firmament:enervate") {
+        return Some(false);
+    }
     with(gs, full(), |p| obsidian_substitutes_primary_at(p, who, kind))
 }
 
@@ -249,6 +296,9 @@ fn obsidian_substitutes_primary_at(p: &Pos, who: &PlayerId, kind: Option<ti4_con
 }
 
 pub fn obsidian_listens_for_tactical_end(gs: &GameState) -> Option<bool> {
+    if !gs.promissory_notes.contains_key(&crate::promissory::note_id("malevolency", "obsidian")) {
+        return Some(false);
+    }
     with(gs, full(), |p| Some(obsidian::query::listens_for_tactical_end(p.s())))
 }
 
