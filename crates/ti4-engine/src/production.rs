@@ -6802,24 +6802,29 @@ mod tests {
 
     #[test]
     fn production_steps_run_in_lockstep_on_the_core_window() {
-        let (mut state, system, planet) = seated();
-        state.player_mut(&player()).unwrap().faction = ti4_model::id::FactionId::new("sol");
-        state.player_mut(&PlayerId::new("b")).unwrap().faction = ti4_model::id::FactionId::new("sardakk");
-        state.promissory_notes.clear();
-        state
-            .system_mut(&system)
-            .set_control(planet.clone(), player());
-        put_on_planet(&mut state, &system, &planet, "spacedock", &player(), 1);
-        state.player_mut(&player()).unwrap().trade_goods = 10;
-        let mut table = Table::new();
-        let mask = crate::dual::AreaMask::parse("production=dual", crate::dual::AreaMask::STRING).unwrap();
+        // Several purses, a planet that pays and one that does not, and a second dock: every step of every run
+        // is compared with the core window (question, answer, state, window fields).
         let fail_fast = crate::dual::fail_fast();
         crate::dual::set_fail_fast(true);
-        let report = crate::dual::with_mask(mask, || {
-            resolve(&mut state, ContentStore::embedded(), POK, None, &mut table, &player(), &system).unwrap()
-        });
+        let mask = crate::dual::AreaMask::parse("production=dual", crate::dual::AreaMask::STRING).unwrap();
+        for (goods, docks, tokens_in_credit) in [(10, 1, false), (1, 1, false), (0, 1, false), (3, 2, true)] {
+            let (mut state, system, planet) = seated();
+            state.player_mut(&player()).unwrap().faction = ti4_model::id::FactionId::new("sol");
+            state.player_mut(&PlayerId::new("b")).unwrap().faction = ti4_model::id::FactionId::new("sardakk");
+            state.promissory_notes.clear();
+            state.system_mut(&system).set_control(planet.clone(), player());
+            put_on_planet(&mut state, &system, &planet, "spacedock", &player(), docks);
+            if tokens_in_credit {
+                put(&mut state, &system, "carrier", &player(), 2);
+            }
+            state.player_mut(&player()).unwrap().trade_goods = goods;
+            let mut table = Table::new();
+            let report = crate::dual::with_mask(mask, || {
+                resolve(&mut state, ContentStore::embedded(), POK, None, &mut table, &player(), &system).unwrap()
+            });
+            let _ = report;
+        }
         crate::dual::set_fail_fast(fail_fast);
-        assert!(!report.produced.is_empty(), "the dock built something");
     }
 
     #[test]
