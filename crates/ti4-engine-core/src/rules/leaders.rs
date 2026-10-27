@@ -277,3 +277,76 @@ pub fn action_candidates(cx: &Cx<'_>, who: Seat, delivered: impl Fn(Leader) -> b
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::generated::Faction;
+    use crate::state::{Player, Players};
+
+    struct NoFactions;
+    impl Env for NoFactions {
+        fn faction_commander_unlocked(&self, _: Seat, _: Leader) -> Option<bool> {
+            None
+        }
+        fn resource_bonus(&self, _: Planet) -> i64 {
+            0
+        }
+        fn mecatol_area(&self) -> Option<SysSet> {
+            None
+        }
+        fn leader_action(&self, _: Seat, _: Leader) -> Option<bool> {
+            None
+        }
+        fn imperia_grants(&self, _: Seat, _: Leader) -> bool {
+            false
+        }
+        fn other_action_resolves(&self, _: Seat, _: Leader) -> bool {
+            false
+        }
+    }
+
+    fn core_with(leaders: &[(Leader, LeaderStatus)]) -> CoreState {
+        let mut core = CoreState::all_loaded();
+        let mut p = Player::new(Seat(0), Faction::TheArborec);
+        for (l, s) in leaders {
+            p.leaders.status.insert(*l, *s);
+        }
+        core.players = Players::from_vec(vec![p]);
+        core
+    }
+
+    #[test]
+    fn usable_is_readied_agents_and_unlocked_heroes() {
+        let core = core_with(&[
+            (Leader::LetaniOspha, LeaderStatus::Readied),
+            (Leader::DirzugaRophal, LeaderStatus::Unlocked),
+            (Leader::LetaniMiasmiala, LeaderStatus::Locked),
+        ]);
+        assert_eq!(usable(&core, Seat(0)).as_slice(), &[Leader::LetaniOspha]);
+        assert_eq!(of_kind(&core, Seat(0), LeaderType::Commander).as_slice(), &[Leader::DirzugaRophal]);
+    }
+
+    #[test]
+    fn a_hero_unlocks_with_three_scored_objectives_and_not_before() {
+        let mut core = core_with(&[(Leader::LetaniMiasmiala, LeaderStatus::Locked)]);
+        let env = NoFactions;
+        let cx = Cx { core: &core, scope: Scope(u32::MAX), blanked: false, env: &env };
+        assert!(unlockable(&cx, Seat(0)).is_empty());
+        let objectives = core.objectives_mut();
+        for o in crate::generated::PublicObjective::ALL.iter().take(3) {
+            objectives.scored[0].public.insert(*o);
+        }
+        let cx = Cx { core: &core, scope: Scope(u32::MAX), blanked: false, env: &env };
+        assert_eq!(unlockable(&cx, Seat(0)).as_slice(), &[Leader::LetaniMiasmiala]);
+    }
+
+    #[test]
+    fn a_commander_without_a_registered_check_stays_locked() {
+        let core = core_with(&[(Leader::DirzugaRophal, LeaderStatus::Locked)]);
+        let env = NoFactions;
+        let cx = Cx { core: &core, scope: Scope(u32::MAX), blanked: false, env: &env };
+        assert_eq!(commander_unlocked(&cx, Seat(0), Leader::DirzugaRophal), None);
+        assert!(unlockable(&cx, Seat(0)).is_empty());
+    }
+}
