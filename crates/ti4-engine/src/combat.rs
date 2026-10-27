@@ -2601,6 +2601,33 @@ fn ask_sustain_commander(
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
     player: &PlayerId,
 ) -> Result<(), IllegalChoice> {
+    // The window is also a core `Window` (`driver::windows::sustain_commander`); on `driver=dual` both run in
+    // lockstep from this state and are compared (docs/ENGINE_CORE_DRIVER.md).
+    let mut outcome = Ok(());
+    let string_pays = crate::leaders::pays_on_sustain(state, content, player);
+    crate::dual_window!(
+        crate::dual::Area::Driver,
+        "combat::ask_sustain_commander",
+        state,
+        |s: &mut GameState| {
+            outcome = ask_sustain_commander_string(s, ctx, content, sources, galaxy, player);
+            crate::dual::Run::new(outcome.is_ok())
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::dual_window::sustain_commander(s, player, string_pays, script)
+        }
+    );
+    outcome
+}
+
+fn ask_sustain_commander_string(
+    state: &mut GameState,
+    ctx: &mut Resolving<'_>,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    player: &PlayerId,
+) -> Result<(), IllegalChoice> {
     if !crate::leaders::pays_on_sustain(state, content, player) || state.player(player).is_none() {
         return Ok(());
     }
