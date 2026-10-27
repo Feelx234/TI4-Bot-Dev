@@ -21,8 +21,9 @@
 
 use ti4_content::ContentStore;
 use ti4_model::content_types::{ContentType, SourceSet};
-use ti4_model::id::{LeaderId, PlanetId, PlayerId, StrategyCardId, SystemId};
+use ti4_model::id::{LeaderId, PlanetId, PlayerId, StrategyCardId, SystemId, UnitTypeId};
 use ti4_model::state::GameState;
+use ti4_model::units::Unit;
 
 use crate::choice::{Choice, ChoiceOption};
 use crate::timing::{Ability, TimingContext};
@@ -693,6 +694,114 @@ pub fn ships_moved_this_activation(state: &GameState) -> u32 {
         .get(&format!("private:#moved:{}", state.activation_seq))
         .and_then(|count| count.parse::<u32>().ok())
         .unwrap_or(0)
+}
+
+/// Something that happened in a combat or production window which a faction keeps a note of
+/// (Last Bastion, Nekro, Argent, Keleres). The windows report it through [`observe`] and know
+/// nothing of which faction listens; each variant calls exactly the function the window called
+/// before, so the order of effects is the order of the call sites.
+pub(crate) enum Obs<'a> {
+    /// A combat ship leaves the board (destroyed or retreating).
+    ShipLost {
+        system: &'a SystemId,
+        unit: &'a Unit,
+    },
+    /// Take back the lost-ship note of that type; `observe` answers whether it was galvanized.
+    ShipLostTaken {
+        system: &'a SystemId,
+        owner: &'a PlayerId,
+        unit: &'a UnitTypeId,
+    },
+    /// Ships of `owner` retreat from `system` to `destination`.
+    Retreat {
+        system: &'a SystemId,
+        destination: &'a SystemId,
+        owner: &'a PlayerId,
+        ships: &'a [Unit],
+    },
+    /// The combat in `system` is over: forget its retreat notes.
+    RetreatsForgotten { system: &'a SystemId },
+    /// A ground force fought from its planet and was removed (Alastor).
+    GroundForceLost {
+        system: &'a SystemId,
+        owner: &'a PlayerId,
+        planet: &'a PlanetId,
+        unit: &'a str,
+    },
+    /// The Alastor participants of `system` are done (of `player`, or all when `None`).
+    ParticipantsCleared {
+        system: &'a SystemId,
+        player: Option<&'a PlayerId>,
+    },
+    /// Ships were placed by production in `target`.
+    ShipPlaced {
+        content: &'a ContentStore,
+        sources: SourceSet,
+        player: &'a PlayerId,
+        producing: &'a SystemId,
+        target: &'a SystemId,
+        unit: &'a UnitTypeId,
+    },
+    /// An agent's production destinations of `player` in `system` are spent.
+    AgentDestinationsSpent {
+        player: &'a PlayerId,
+        system: &'a SystemId,
+    },
+    /// The payment window of `player` is closed (Keleres agent permission).
+    PaymentWindowClosed { player: &'a PlayerId },
+    /// `player` used the Agent Stored Neural technology's once-per-action effect.
+    ActionEffectUsed { player: &'a PlayerId },
+}
+
+/// Report an [`Obs`] to the factions that note it. Returns `true` only for
+/// [`Obs::ShipLostTaken`] when the lost ship was galvanized.
+pub(crate) fn observe(state: &mut GameState, obs: Obs<'_>) -> bool {
+    match obs {
+        Obs::ShipLost { system, unit } => bastion::note_ship_lost(state, system, unit),
+        Obs::ShipLostTaken {
+            system,
+            owner,
+            unit,
+        } => {
+            return bastion::take_ship_lost(state, system, owner, unit);
+        }
+        Obs::Retreat {
+            system,
+            destination,
+            owner,
+            ships,
+        } => {
+            bastion::note_retreat(state, system, destination, owner, ships);
+        }
+        Obs::RetreatsForgotten { system } => bastion::clear_retreated(state, system),
+        Obs::GroundForceLost {
+            system,
+            owner,
+            planet,
+            unit,
+        } => {
+            nekro_units::alastor_decrement(state, system, owner, planet, unit);
+        }
+        Obs::ParticipantsCleared { system, player } => {
+            nekro_units::alastor_clear(state, system, player);
+        }
+        Obs::ShipPlaced {
+            content,
+            sources,
+            player,
+            producing,
+            target,
+            unit,
+        } => {
+            bastion::ship_placed(state, content, sources, player, producing, target, unit);
+        }
+        Obs::AgentDestinationsSpent { player, system } => {
+            argent::clear_agent_production_destinations(state, player, system);
+        }
+        Obs::PaymentWindowClosed { player } => keleres::close_agent_window(state, player),
+        Obs::ActionEffectUsed { player } => keleres::asn_mark(state, player),
+    }
+    false
 }
 
 pub(crate) fn skip_to_commit(

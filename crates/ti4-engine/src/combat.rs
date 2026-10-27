@@ -249,7 +249,13 @@ pub(crate) fn planetary_maximum_participates(
 /// area; Eidolon Maximum is the sole current exception and remains on its planet while joining
 /// the battle.
 pub(crate) fn remove_combat_ship(state: &mut GameState, system: &SystemId, unit: &Unit) {
-    crate::factions::bastion::note_ship_lost(state, system, unit);
+    crate::factions::observe(
+        state,
+        crate::factions::Obs::ShipLost {
+            system,
+            unit,
+        },
+    );
     let voltron = unit.type_id.as_str() == "naaz_voltron";
     // An Alastor participant is a ground force standing on its planet: it leaves from there, and
     // the choice that made it a participant shrinks by one.
@@ -273,12 +279,14 @@ pub(crate) fn remove_combat_ship(state: &mut GameState, system: &SystemId, unit:
                 });
         if let Some(planet) = removed_from {
             if alastor {
-                crate::factions::nekro_units::alastor_decrement(
+                crate::factions::observe(
                     state,
-                    system,
-                    &unit.owner,
-                    &planet,
-                    unit.type_id.as_str(),
+                    crate::factions::Obs::GroundForceLost {
+                        system,
+                        owner: &unit.owner,
+                        planet: &planet,
+                        unit: unit.type_id.as_str(),
+                    },
                 );
             }
             return;
@@ -3366,7 +3374,14 @@ pub(crate) fn ship_destroyed_payload(
     let mut payload = std::collections::BTreeMap::new();
     // The galvanize token went back to the supply with the ship; the event is the only record that
     // it was galvanized (Last Bastion). Present only when true, so other games' events are unchanged.
-    if crate::factions::bastion::take_ship_lost(state, system, owner, unit) {
+    if crate::factions::observe(
+        state,
+        crate::factions::Obs::ShipLostTaken {
+            system,
+            owner,
+            unit,
+        },
+    ) {
         payload.insert("galvanized".to_owned(), true.into());
     }
     payload.insert("system".to_owned(), system.to_string().into());
@@ -4095,7 +4110,13 @@ pub fn retreat_to(
     let types = catalogue(content, sources);
     // Ground forces an Alastor brought into the battle stay on their planets and leave it with the
     // fleet: they are no longer in this combat.
-    crate::factions::nekro_units::alastor_clear(state, system, Some(player));
+    crate::factions::observe(
+        state,
+        crate::factions::Obs::ParticipantsCleared {
+            system,
+            player: Some(player),
+        },
+    );
     let mut own: Vec<Unit> = state
         .system_state(system)
         .units_of(player)
@@ -4148,7 +4169,14 @@ pub fn retreat_to(
             remove_combat_ship(state, system, unit);
             // Leaving is not destroying: forget the galvanized-loss note the removal made.
             let _ =
-                crate::factions::bastion::take_ship_lost(state, system, &unit.owner, &unit.type_id);
+                crate::factions::observe(
+                    state,
+                    crate::factions::Obs::ShipLostTaken {
+                        system,
+                        owner: &unit.owner,
+                        unit: &unit.type_id,
+                    },
+                );
         }
     }
     let ships_leaving: Vec<Unit> = leaving
@@ -4160,7 +4188,15 @@ pub fn retreat_to(
         })
         .cloned()
         .collect();
-    crate::factions::bastion::note_retreat(state, system, destination, player, &ships_leaving);
+    crate::factions::observe(
+        state,
+        crate::factions::Obs::Retreat {
+            system,
+            destination,
+            owner: player,
+            ships: &ships_leaving,
+        },
+    );
     state.move_units(system, destination, &leaving);
     // A dual-form unit is a ship only in the active system during its battle (Z-Grav Eidolon):
     // one that retreats takes its ground form again where it lands.
@@ -4953,8 +4989,19 @@ impl CombatWindow {
         // the losses above, which count ships, so a flipped mech is not reported destroyed.
         crate::fleet::flip_to_ground_forms(state, content, sources, &sides, &self.system);
         let _ = ctx.emit(state, "SPACE_COMBAT_ENDED", payload);
-        crate::factions::nekro_units::alastor_clear(state, &self.system, None);
-        crate::factions::bastion::clear_retreated(state, &self.system);
+        crate::factions::observe(
+            state,
+            crate::factions::Obs::ParticipantsCleared {
+                system: &self.system,
+                player: None,
+            },
+        );
+        crate::factions::observe(
+            state,
+            crate::factions::Obs::RetreatsForgotten {
+                system: &self.system,
+            },
+        );
         // A mobile space dock left in a space area with another player's ships is destroyed
         // (Floating Factory); checked when the combat that could have cleared them ends.
         let _ = crate::production::destroy_blockaded_mobile_docks(

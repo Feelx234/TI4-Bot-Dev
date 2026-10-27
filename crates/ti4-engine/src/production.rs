@@ -893,7 +893,12 @@ fn pay_offering_agent(
         state, content, sources, table, player, cost, kind, credit, galaxy,
     );
     if opened {
-        crate::factions::keleres::close_agent_window(state, player);
+        crate::factions::observe(
+            state,
+            crate::factions::Obs::PaymentWindowClosed {
+                player,
+            },
+        );
     }
     paid
 }
@@ -3031,14 +3036,16 @@ impl ProductionWindow {
         }
         // The Last Bastion's Icon is exhausted by placing the ships in one of its systems.
         if made > 0 && target != self.system {
-            crate::factions::bastion::ship_placed(
+            crate::factions::observe(
                 state,
-                content,
-                sources,
-                &self.player,
-                &self.system,
-                &target,
-                &UnitTypeId::new(id),
+                crate::factions::Obs::ShipPlaced {
+                    content,
+                    sources,
+                    player: &self.player,
+                    producing: &self.system,
+                    target: &target,
+                    unit: &UnitTypeId::new(id),
+                },
             );
         }
         // Bellum Gloriosum: a capacity ship opens an allowance that fighters and ground forces
@@ -3329,10 +3336,12 @@ impl Window for ProductionWindow {
             Stage::Placing { id, made } => {
                 let where_to = option.id.strip_prefix("place|").unwrap_or(SPACE).to_owned();
                 self.place(state, content, sources, &id, &where_to, made);
-                crate::factions::argent::clear_agent_production_destinations(
+                crate::factions::observe(
                     state,
-                    &self.player,
-                    &self.system,
+                    crate::factions::Obs::AgentDestinationsSpent {
+                        player: &self.player,
+                        system: &self.system,
+                    },
                 );
                 self.placement_timing_done = false;
                 self.stage = Stage::Choosing;
@@ -3509,10 +3518,12 @@ impl ProductionWindow {
                     let types = catalogue(content, sources);
                     let Some(kind) = types.get(id.as_str()).copied() else {
                         self.stage = Stage::Done;
-                        crate::factions::argent::clear_agent_production_destinations(
+                        crate::factions::observe(
                             state,
-                            &self.player,
-                            &self.system,
+                            crate::factions::Obs::AgentDestinationsSpent {
+                                player: &self.player,
+                                system: &self.system,
+                            },
                         );
                         return Ok(());
                     };
@@ -3522,20 +3533,24 @@ impl ProductionWindow {
                         [only] => {
                             let only = only.clone();
                             self.place(state, content, sources, &id, &only, made);
-                            crate::factions::argent::clear_agent_production_destinations(
+                            crate::factions::observe(
                                 state,
-                                &self.player,
-                                &self.system,
+                                crate::factions::Obs::AgentDestinationsSpent {
+                                    player: &self.player,
+                                    system: &self.system,
+                                },
                             );
                             self.placement_timing_done = false;
                             self.stage = Stage::Choosing;
                         }
                         [] => {
                             self.stage = Stage::Done;
-                            crate::factions::argent::clear_agent_production_destinations(
+                            crate::factions::observe(
                                 state,
-                                &self.player,
-                                &self.system,
+                                crate::factions::Obs::AgentDestinationsSpent {
+                                    player: &self.player,
+                                    system: &self.system,
+                                },
                             );
                             return Ok(());
                         }
@@ -3642,24 +3657,57 @@ pub fn resolve_timed(
         {
             Ok(answer) => answer,
             Err(error) => {
-                crate::factions::argent::clear_agent_production_destinations(state, player, system);
+                crate::factions::observe(
+                    state,
+                    crate::factions::Obs::AgentDestinationsSpent {
+                        player,
+                        system,
+                    },
+                );
                 if agent_window {
-                    crate::factions::keleres::close_agent_window(state, player);
+                    crate::factions::observe(
+                        state,
+                        crate::factions::Obs::PaymentWindowClosed {
+                            player,
+                        },
+                    );
                 }
                 return Err(error);
             }
         };
         if let Err(error) = window.resolve(state, &mut ctx, answer) {
-            crate::factions::argent::clear_agent_production_destinations(state, player, system);
+            crate::factions::observe(
+                state,
+                crate::factions::Obs::AgentDestinationsSpent {
+                    player,
+                    system,
+                },
+            );
             if agent_window {
-                crate::factions::keleres::close_agent_window(state, player);
+                crate::factions::observe(
+                    state,
+                    crate::factions::Obs::PaymentWindowClosed {
+                        player,
+                    },
+                );
             }
             return Err(error);
         }
     }
-    crate::factions::argent::clear_agent_production_destinations(state, player, system);
+    crate::factions::observe(
+        state,
+        crate::factions::Obs::AgentDestinationsSpent {
+            player,
+            system,
+        },
+    );
     if agent_window {
-        crate::factions::keleres::close_agent_window(state, player);
+        crate::factions::observe(
+            state,
+            crate::factions::Obs::PaymentWindowClosed {
+                player,
+            },
+        );
     }
     end_value_swap(state);
     Ok(window.into_report())
@@ -3717,13 +3765,23 @@ pub fn produce_by_ability_capped(
             .and_then(|answer| window.resolve(state, ctx, answer));
         if let Err(error) = step {
             if agent_window {
-                crate::factions::keleres::close_agent_window(state, player);
+                crate::factions::observe(
+                    state,
+                    crate::factions::Obs::PaymentWindowClosed {
+                        player,
+                    },
+                );
             }
             return Err(error);
         }
     }
     if agent_window {
-        crate::factions::keleres::close_agent_window(state, player);
+        crate::factions::observe(
+            state,
+            crate::factions::Obs::PaymentWindowClosed {
+                player,
+            },
+        );
     }
     end_value_swap(state);
     Ok(window.into_report())
@@ -3851,7 +3909,12 @@ pub fn agency_supply_network(
     let Some(system) = systems.iter().find(|system| system.as_str() == answer.id) else {
         return Ok(false);
     };
-    crate::factions::keleres::asn_mark(state, player);
+    crate::factions::observe(
+        state,
+        crate::factions::Obs::ActionEffectUsed {
+            player,
+        },
+    );
     let mut window = ProductionWindow::new(state, content, sources, player, system);
     while let Some(next) = window.pending_choice(state, content, sources) {
         let answer = ctx
