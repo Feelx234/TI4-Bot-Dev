@@ -9,44 +9,38 @@
 //! replaces it when the factions are ported.
 
 use crate::containers::SmallList;
-use crate::generated::{Planet, System, Unit, UnitBaseType};
+use crate::generated::{Planet, PlanetTrait, System, Unit, UnitBaseType};
 use crate::ids::Seat;
 use crate::query::economy::{self, Spend};
 use crate::query::{board, laws};
+use crate::kernel::seam::{Clamp, ProdSite, ProduceSite, Q, Seams, SilenceCtx, SilenceSite, SpendSite};
+use crate::kernel::Kernel;
 use crate::state::{CoreState, Piece, RoundKind};
 use crate::tables::Scope;
 
-/// What the production rules ask of the factions and of rules not yet in the core.
-pub trait Env {
-    /// `hooks_economy::planet_spend_value` (a fold): the planet's value as `who`'s units read it.
-    fn planet_spend_value(&self, who: Seat, planet: Planet, spend: Spend, value: i64) -> i64;
-    /// `hooks_economy::extra_production`: PRODUCTION a module grants the space area of `system`.
-    fn extra_production(&self, who: Seat, system: System) -> i64;
-    /// `hooks_economy::extra_production_planet`.
-    fn extra_production_planet(&self, who: Seat, system: System, planet: Planet) -> i64;
-    /// `hooks_economy::has_cannot_produce`: some module registered the hook.
-    fn has_cannot_produce(&self) -> bool;
-    /// `hooks_economy::cannot_produce`.
-    fn cannot_produce(&self, who: Seat, unit: UnitBaseType, producer: UnitBaseType) -> bool;
-    /// `factions::ralnel::silenced_in_space`: a structure in the space area that cannot use PRODUCTION.
-    fn silenced_in_space(&self, who: Seat, unit: Unit) -> bool;
-    /// `factions::crimson::abilities_lost`.
-    fn abilities_lost(&self, who: Seat, system: System) -> bool;
-    /// `entropic_scars::abilities_usable` for the system.
-    fn abilities_usable(&self, system: System) -> bool;
-    /// `galaxy::is_space_station`.
-    fn is_space_station(&self, planet: Planet) -> bool;
-    /// `bastion_units::resource_bonus`: the Helios dock term of `planet_value_now`.
-    fn resource_bonus(&self, planet: Planet) -> i64;
-}
-
-/// What the rules read besides the state: the source scope, the blanked-laws flag and the [`Env`].
+/// What the rules read besides the state: the position and the kernel (hook table, whose seams carry
+/// every faction, law and card term), the source scope and the blanked-laws flag.
 #[derive(Clone, Copy)]
 pub struct Cx<'a> {
-    pub core: &'a CoreState,
+    pub q: Q<'a>,
     pub scope: Scope,
     pub blanked: bool,
-    pub env: &'a dyn Env,
+}
+
+impl<'a> Cx<'a> {
+    #[must_use]
+    pub const fn new(core: &'a CoreState, kernel: &'a Kernel, scope: Scope, blanked: bool) -> Self {
+        Self { q: Q::new(core, kernel), scope, blanked }
+    }
+
+    #[must_use]
+    pub const fn core(&self) -> &'a CoreState {
+        self.q.s
+    }
+
+    fn seams(&self) -> &'a Seams {
+        &self.q.k.hooks.seam
+    }
 }
 
 /// A producing unit and the planet it sits on (`None`: the space area).
@@ -78,7 +72,7 @@ pub fn price(cost_halves: Option<u8>, single: bool) -> (i64, usize) {
 /// `price_of_under` for a unit type, with the law read from the state.
 #[must_use]
 pub fn price_of(cx: &Cx<'_>, unit: Unit) -> (i64, usize) {
-    price(unit.data().cost_halves, laws::single_unit_production(cx.core, cx.blanked))
+    price(unit.data().cost_halves, laws::single_unit_production(cx.core(), cx.blanked))
 }
 
 /// `production::producers`: the seat's units with PRODUCTION in `system`: the space area first
@@ -87,14 +81,14 @@ pub fn price_of(cx: &Cx<'_>, unit: Unit) -> (i64, usize) {
 pub fn producers(cx: &Cx<'_>, who: Seat, system: System) -> Producers {
     let mut found = Producers::new();
     let produces = |u: Unit| u.data().production.is_some();
-    for p in board::space_units(cx.core, system) {
+    for p in board::space_units(cx.core(), system) {
         let k = p.kind();
-        if p.owner() == who && produces(k) && !cx.env.silenced_in_space(who, k) {
+        if p.owner() == who && produces(k) && !silenced(cx, who, system, Some(k), SilenceCtx::Space) {
             found.push((*p, None));
         }
     }
-    for planet in sorted_planets(cx.core, system).as_slice().iter().copied() {
-        for p in board::planet_units(cx.core, planet) {
+    for planet in sorted_planets(cx.core(), system).as_slice().iter().copied() {
+        for p in board::planet_units(cx.core(), planet) {
             if p.owner() == who && produces(p.kind()) {
                 found.push((*p, Some(planet)));
             }
@@ -117,7 +111,7 @@ fn sorted_planets(core: &CoreState, system: System) -> SmallList<Planet, 8> {
 #[must_use]
 pub fn mobile_docks(cx: &Cx<'_>, who: Seat, system: System) -> SmallList<Piece, 4> {
     let mut out = SmallList::new();
-    for p in board::space_units(cx.core, system) {
+    for p in board::space_units(cx.core(), system) {
         let d = p.kind().data();
         if p.owner() == who && d.space_only && d.structure && d.production.is_some() {
             out.push(*p);
@@ -133,11 +127,33 @@ pub fn war_machine_bonus(core: &CoreState, who: Seat) -> i64 {
     core.players().by_seat(who).map_or(0, |p| 5 * p.round_marks.of(RoundKind::WarMachine).filter(|n| *n == seq).count() as i64)
 }
 
-/// `production::planet_value_now`.
+/// What the seat's units read a planet as worth when spent: the printed value and the attachments, then every
+/// term of the `planet_spend` seam (laws, the Helios dock, the Winnu swap, ...).
 #[must_use]
-pub fn planet_value_now(cx: &Cx<'_>, planet: Planet, spend: Spend) -> i64 {
-    let extra = if spend == Spend::Resources { cx.env.resource_bonus(planet) } else { 0 };
-    economy::value_now(cx.core, cx.scope, cx.blanked, planet, spend, extra)
+pub fn planet_value(cx: &Cx<'_>, who: Seat, planet: Planet, spend: Spend) -> i64 {
+    let base = economy::printed_value(cx.scope, planet, spend) + economy::attachment_bonus(cx.core(), planet, spend);
+    cx.seams().planet_spend.eval(cx.q, &SpendSite { who, planet, spend: hook_spend(spend) }, base, Clamp::None).value
+}
+
+const fn hook_spend(s: Spend) -> crate::kernel::hooks::Spend {
+    match s {
+        Spend::Resources => crate::kernel::hooks::Spend::Resources,
+        Spend::Influence => crate::kernel::hooks::Spend::Influence,
+    }
+}
+
+/// One `silenced` decision (a piece whose abilities are off, or with `unit` `None` the whole system's).
+fn silenced(cx: &Cx<'_>, owner: Seat, system: System, unit: Option<Unit>, ctx: SilenceCtx) -> bool {
+    cx.seams().silenced.decide(cx.q, &SilenceSite { owner, system, unit, ctx }, false)
+}
+
+/// Production values granted by a module to the space area (`planet` `None`) or one planet.
+fn extra(cx: &Cx<'_>, who: Seat, system: System, planet: Option<Planet>) -> i64 {
+    cx.seams().extra_production.eval(cx.q, &ProdSite { who, system, planet }, 0, Clamp::None).value
+}
+
+fn cannot(cx: &Cx<'_>, who: Seat, unit: UnitBaseType, producer: UnitBaseType) -> bool {
+    cx.seams().cannot_produce.decide(cx.q, &ProduceSite { who, unit, producer }, false)
 }
 
 fn unit_production(unit: Unit, resources: i64) -> i64 {
@@ -145,7 +161,7 @@ fn unit_production(unit: Unit, resources: i64) -> i64 {
 }
 
 fn dock_resources(cx: &Cx<'_>, who: Seat, planet: Option<Planet>) -> i64 {
-    planet.map_or(0, |pl| cx.env.planet_spend_value(who, pl, Spend::Resources, planet_value_now(cx, pl, Spend::Resources)))
+    planet.map_or(0, |pl| planet_value(cx, who, pl, Spend::Resources))
 }
 
 /// `production::capacity` (68.1a).
@@ -156,14 +172,14 @@ pub fn capacity(cx: &Cx<'_>, who: Seat, system: System) -> i64 {
         .iter()
         .map(|(u, pl)| unit_production(u.kind(), dock_resources(cx, who, *pl)))
         .sum::<i64>()
-        + war_machine_bonus(cx.core, who)
+        + war_machine_bonus(cx.core(), who)
         + module_production(cx, who, system)
 }
 
 /// `production::module_production`.
 #[must_use]
 pub fn module_production(cx: &Cx<'_>, who: Seat, system: System) -> i64 {
-    cx.env.extra_production(who, system).max(0)
+    extra(cx, who, system, None).max(0)
         + module_planet_producers(cx, who, system).as_slice().iter().map(|(_, v)| *v).sum::<i64>()
 }
 
@@ -171,12 +187,13 @@ pub fn module_production(cx: &Cx<'_>, who: Seat, system: System) -> i64 {
 #[must_use]
 pub fn module_planet_producers(cx: &Cx<'_>, who: Seat, system: System) -> SmallList<(Planet, i64), 4> {
     let mut out = SmallList::new();
-    for planet in sorted_planets(cx.core, system).as_slice() {
-        let cell = cx.core.board().planet(*planet);
+    for planet in sorted_planets(cx.core(), system).as_slice() {
+        let cell = cx.core().board().planet(*planet);
         if cell.units.is_empty() && cell.control.is_none() {
             continue;
         }
-        let v = cx.env.extra_production_planet(who, system, *planet);
+        // A planet site evaluates the system term too; the planet's own share is the difference.
+        let v = extra(cx, who, system, Some(*planet)) - extra(cx, who, system, None);
         if v > 0 {
             out.push((*planet, v));
         }
@@ -187,13 +204,10 @@ pub fn module_planet_producers(cx: &Cx<'_>, who: Seat, system: System) -> SmallL
 /// `production::barred_capacity`.
 #[must_use]
 pub fn barred_capacity(cx: &Cx<'_>, who: Seat, system: System, unit: UnitBaseType) -> i64 {
-    if !cx.env.has_cannot_produce() {
-        return 0;
-    }
     producers(cx, who, system)
         .as_slice()
         .iter()
-        .filter(|(u, _)| cx.env.cannot_produce(who, unit, u.kind().data().base_type))
+        .filter(|(u, _)| cannot(cx, who, unit, u.kind().data().base_type))
         .map(|(u, pl)| unit_production(u.kind(), dock_resources(cx, who, *pl)))
         .sum()
 }
@@ -201,16 +215,16 @@ pub fn barred_capacity(cx: &Cx<'_>, who: Seat, system: System, unit: UnitBaseTyp
 /// `production::structures_on`: the seat's units of this base type on the planet.
 #[must_use]
 pub fn structures_on(cx: &Cx<'_>, who: Seat, planet: Planet, base: UnitBaseType) -> usize {
-    board::planet_units(cx.core, planet).iter().filter(|p| p.owner() == who && p.kind().data().base_type == base).count()
+    board::planet_units(cx.core(), planet).iter().filter(|p| p.owner() == who && p.kind().data().base_type == base).count()
 }
 
 /// `production::structure_allowed` (79.2).
 #[must_use]
 pub fn structure_allowed(cx: &Cx<'_>, who: Seat, planet: Planet, base: UnitBaseType) -> bool {
-    if laws::structure_cap_lifted(cx.core, cx.blanked, base) {
+    if laws::structure_cap_lifted(cx.core(), cx.blanked, base) {
         return true;
     }
-    if laws::planet_is_demilitarized(cx.core, cx.blanked, planet) {
+    if laws::planet_is_demilitarized(cx.core(), cx.blanked, planet) {
         return false;
     }
     structure_limit(base).is_none_or(|cap| structures_on(cx, who, planet, base) < cap)
@@ -227,24 +241,24 @@ pub enum Spot {
 #[must_use]
 pub fn placements(cx: &Cx<'_>, who: Seat, system: System, unit: Unit) -> SmallList<Spot, 8> {
     let mut spots = SmallList::new();
-    if cx.env.abilities_lost(who, system) {
+    if silenced(cx, who, system, None, SilenceCtx::Production) {
         return spots;
     }
     let d = unit.data();
     if d.ship {
-        let blockaded = board::space_units(cx.core, system).iter().any(|p| p.owner() != who && p.kind().data().ship);
+        let blockaded = board::space_units(cx.core(), system).iter().any(|p| p.owner() != who && p.kind().data().ship);
         if !blockaded {
             spots.push(Spot::Space);
         }
         return spots;
     }
-    if !cx.env.abilities_usable(system) {
+    if system.data().anomalies.scar {
         return spots;
     }
     let made: Producers = {
         let mut m = Producers::new();
         for (u, pl) in producers(cx, who, system).as_slice() {
-            if !cx.env.cannot_produce(who, d.base_type, u.kind().data().base_type) {
+            if !cannot(cx, who, d.base_type, u.kind().data().base_type) {
                 m.push((*u, *pl));
             }
         }
@@ -261,9 +275,9 @@ pub fn placements(cx: &Cx<'_>, who: Seat, system: System, unit: Unit) -> SmallLi
     }
     for planet in candidates.as_slice() {
         let planet = *planet;
-        if laws::production_forbidden_on(cx.core, cx.blanked, planet)
-            || laws::planet_is_demilitarized(cx.core, cx.blanked, planet)
-            || cx.env.is_space_station(planet)
+        if laws::production_forbidden_on(cx.core(), cx.blanked, planet)
+            || laws::planet_is_demilitarized(cx.core(), cx.blanked, planet)
+            || planet.data().traits.contains(&PlanetTrait::Spacestation)
             || !structure_allowed(cx, who, planet, d.base_type)
         {
             continue;
@@ -273,7 +287,7 @@ pub fn placements(cx: &Cx<'_>, who: Seat, system: System, unit: Unit) -> SmallLi
             spots.push(s);
         }
     }
-    if made.as_slice().iter().any(|(_, pl)| pl.is_none()) || cx.env.extra_production(who, system) > 0 {
+    if made.as_slice().iter().any(|(_, pl)| pl.is_none()) || extra(cx, who, system, None) > 0 {
         if !spots.as_slice().contains(&Spot::Space) {
             spots.push(Spot::Space);
         }

@@ -6,11 +6,11 @@
 
 use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
-use ti4_engine_core::generated::{Planet, System, Unit, UnitBaseType};
+use ti4_engine_core::generated::{System, Unit, UnitBaseType};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::query::Scope;
-use ti4_engine_core::query::economy::Spend as CoreSpend;
-use ti4_engine_core::rules::production::{self as rules, Cx, Env, Spot};
+use ti4_engine_core::kernel::Kernel;
+use ti4_engine_core::rules::production::{self as rules, Cx, Spot};
 use ti4_engine_core::state::{Slice, SliceSet};
 use ti4_model::content_types::SourceSet;
 use ti4_model::id::{PlanetId, PlayerId, SystemId, UnitTypeId};
@@ -19,10 +19,9 @@ use ti4_model::units::Unit as StrUnit;
 
 use crate::core_sync::{CoreView, Ctx, Sources};
 use crate::generated::IdStr;
-use crate::production::Spend;
 
 /// What the production reads need.
-pub const READS: SliceSet = SliceSet::of(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Agenda]);
+pub const READS: SliceSet = SliceSet::of(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Agenda, Slice::Marks]);
 
 /// The typed view of one position.
 pub struct ProdView<'a> {
@@ -30,26 +29,56 @@ pub struct ProdView<'a> {
     cx: Ctx,
     scope: Scope,
     blanked: bool,
-    state: &'a GameState,
-    content: &'a ContentStore,
-    sources: SourceSet,
+    kernel: &'static Kernel,
+    _position: std::marker::PhantomData<&'a GameState>,
+}
+
+/// The factions whose string modules still answer production questions with hooks the typed seams do not
+/// carry yet (package CB): the typed reads decline and the caller keeps the string answer.
+fn unported_economy(state: &GameState) -> bool {
+    use crate::factions::{arborec, argent, bastion, cabal, crimson, ghost, keleres, muaat, naaz, ralnel, saar, winnu};
+    let held = [
+        arborec::MODULE.alias,
+        argent::MODULE.alias,
+        bastion::MODULE.alias,
+        cabal::MODULE.alias,
+        crimson::MODULE.alias,
+        ghost::MODULE.alias,
+        keleres::MODULE_M.alias,
+        keleres::MODULE_X.alias,
+        keleres::MODULE_A.alias,
+        muaat::MODULE.alias,
+        naaz::MODULE.alias,
+        ralnel::MODULE.alias,
+        saar::MODULE.alias,
+        winnu::MODULE.alias,
+    ];
+    state.players.iter().any(|p| held.contains(&p.faction.as_str()))
+}
+
+/// The kernel of the production reads: the seams of the laws and relics, and the bridge to the legacy
+/// hook slots (empty here: every faction that fills one is declined by [`unported_economy`]). Built once.
+fn kernel() -> &'static Kernel {
+    static KERNEL: std::sync::OnceLock<Kernel> = std::sync::OnceLock::new();
+    KERNEL.get_or_init(|| {
+        let mut k = crate::core_adapter::kernel_for(ti4_model::content_types::FULL).clone();
+        ti4_engine_core::kernel::seam::providers::register_core(&mut k.hooks);
+        ti4_engine_core::kernel::seam::adapters::bridge_legacy(&mut k.hooks.seam);
+        k
+    })
 }
 
 fn typed<T: IdStr>(id: &str) -> Option<T> {
     T::from_id(id)
 }
 
-fn spend(s: CoreSpend) -> Spend {
-    match s {
-        CoreSpend::Resources => Spend::Resources,
-        CoreSpend::Influence => Spend::Influence,
-    }
-}
-
 impl<'a> ProdView<'a> {
     /// The view of a position; `None` when something is not mapped.
     #[must_use]
-    pub fn of(state: &'a GameState, content: &'a ContentStore, sources: SourceSet) -> Option<Self> {
+    pub fn of(state: &'a GameState, _content: &'a ContentStore, sources: SourceSet) -> Option<Self> {
+        if unported_economy(state) {
+            return None;
+        }
         let mut cx = Ctx::of(state).ok()?;
         let view = CoreView::of(state, &mut cx, Sources { galaxy: None::<&Galaxy>, rng: None }, READS).ok()?;
         Some(Self {
@@ -57,14 +86,13 @@ impl<'a> ProdView<'a> {
             cx,
             scope: crate::core_adapter::scope(sources),
             blanked: crate::laws::blanked(state),
-            state,
-            content,
-            sources,
+            kernel: kernel(),
+            _position: std::marker::PhantomData,
         })
     }
 
     fn rules_cx(&self) -> Cx<'_> {
-        Cx { core: &self.view, scope: self.scope, blanked: self.blanked, env: self }
+        Cx::new(&self.view, self.kernel, self.scope, self.blanked)
     }
 
     fn seat(&self, p: &PlayerId) -> Option<Seat> {
@@ -158,68 +186,5 @@ impl<'a> ProdView<'a> {
     #[must_use]
     pub fn price_of(&self, unit_id: &str) -> Option<(i64, usize)> {
         Some(rules::price_of(&self.rules_cx(), typed::<Unit>(unit_id)?))
-    }
-}
-
-impl Env for ProdView<'_> {
-    fn planet_spend_value(&self, who: Seat, planet: Planet, kind: CoreSpend, value: i64) -> i64 {
-        crate::factions::hooks_economy::planet_spend_value(
-            self.state,
-            self.content,
-            &self.pid(who),
-            &PlanetId::new(planet.as_str()),
-            spend(kind),
-            value,
-        )
-    }
-
-    fn extra_production(&self, who: Seat, system: System) -> i64 {
-        crate::factions::hooks_economy::extra_production(
-            self.state,
-            self.content,
-            self.sources,
-            &self.pid(who),
-            &SystemId::new(system.as_str()),
-        )
-    }
-
-    fn extra_production_planet(&self, who: Seat, system: System, planet: Planet) -> i64 {
-        crate::factions::hooks_economy::extra_production_planet(
-            self.state,
-            self.content,
-            self.sources,
-            &self.pid(who),
-            &SystemId::new(system.as_str()),
-            &PlanetId::new(planet.as_str()),
-        )
-    }
-
-    fn has_cannot_produce(&self) -> bool {
-        crate::factions::hooks_economy::has_cannot_produce()
-    }
-
-    fn cannot_produce(&self, who: Seat, unit: UnitBaseType, producer: UnitBaseType) -> bool {
-        crate::factions::hooks_economy::cannot_produce(self.state, self.content, &self.pid(who), unit.as_str(), producer.as_str())
-    }
-
-    fn silenced_in_space(&self, who: Seat, unit: Unit) -> bool {
-        let u = StrUnit::new(UnitTypeId::new(unit.as_str()), self.pid(who));
-        crate::factions::ralnel::silenced_in_space(self.state, self.content, self.sources, &u)
-    }
-
-    fn abilities_lost(&self, who: Seat, system: System) -> bool {
-        crate::factions::crimson::abilities_lost(self.state, &self.pid(who), &SystemId::new(system.as_str()))
-    }
-
-    fn abilities_usable(&self, system: System) -> bool {
-        crate::entropic_scars::abilities_usable(self.content, self.sources, &SystemId::new(system.as_str()), None)
-    }
-
-    fn is_space_station(&self, planet: Planet) -> bool {
-        ti4_content::galaxy::is_space_station(self.content, planet.as_str(), self.sources)
-    }
-
-    fn resource_bonus(&self, planet: Planet) -> i64 {
-        crate::factions::bastion_units::resource_bonus(self.state, &PlanetId::new(planet.as_str()))
     }
 }
