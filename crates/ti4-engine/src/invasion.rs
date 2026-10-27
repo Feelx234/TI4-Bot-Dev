@@ -881,6 +881,25 @@ pub fn landable(
     player: &PlayerId,
     system: &SystemId,
 ) -> Vec<Unit> {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::core_invasion::InvasionView::of(state, content, sources)?.landable(player, system);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Invasion,
+        "invasion::landable",
+        typed(),
+        landable_text(state, content, sources, player, system)
+    )
+}
+
+fn landable_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+) -> Vec<Unit> {
     let types = catalogue(content, sources);
     state
         .system_state(system)
@@ -900,6 +919,24 @@ pub fn landable(
 /// 27.1 keeps Mecatol Rex off the table while the custodians token sits there; everything else
 /// in the system is landable.
 pub(crate) fn landable_planets(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    system: &SystemId,
+) -> Vec<PlanetId> {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::core_invasion::InvasionView::of(state, content, sources)?.landable_planets(system);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Invasion,
+        "invasion::landable_planets",
+        typed(),
+        landable_planets_text(state, content, sources, system)
+    )
+}
+
+fn landable_planets_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1051,6 +1088,45 @@ fn commit_pool(
 /// claims nothing about the ground combat and control transfer that may follow; those are a
 /// player choice and a later resolution, not this option's own consequence.
 fn commit_options(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    invader: &PlayerId,
+    system: &SystemId,
+    troops: &[Unit],
+    origins: &[Option<crate::factions::hooks_ground::CommitOrigin>],
+    planets: &[PlanetId],
+) -> Vec<ChoiceOption> {
+    let options = commit_options_text(state, content, sources, invader, system, troops, origins, planets);
+    #[cfg(feature = "typed-core")]
+    if crate::dual::backend(crate::dual::Area::Invasion) == crate::dual::Backend::Dual && origins.iter().all(Option::is_none) {
+        // The typed list: the same landings over the planets whose toll the invader can pay, rendered.
+        let open: Vec<PlanetId> = planets
+            .iter()
+            .filter(|planet| !crate::factions::keleres_units::commit_blocked(state, content, sources, invader, system, planet))
+            .cloned()
+            .collect();
+        let typed = || crate::core_invasion::InvasionView::of(state, content, sources)?.commit_options(system, troops, &open);
+        crate::dual::run_dual_typed(
+            crate::dual::Area::Invasion,
+            "invasion::commit_options",
+            typed,
+            || {
+                options
+                    .iter()
+                    .map(|o| (o.id.clone(), o.kind.clone(), o.label.clone(), o.payload.clone()))
+                    .collect::<Vec<_>>()
+            },
+        );
+    }
+    options
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one parameter per distinct input"
+)]
+fn commit_options_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -9942,11 +10018,16 @@ mod core_bombardment {
         // The fixture deals the notes before the factions are seated ("cf:generic"): no note for the codec.
         state.promissory_notes.clear();
         state.promissory_faceup.clear();
-        let (system, planet) = ti4_content::galaxy::all_planets(ContentStore::embedded(), POK)
+        let all = ti4_content::galaxy::all_planets(ContentStore::embedded(), POK);
+        let (system, planet) = all
             .iter()
-            .find(|(_, p)| p.system_id().is_some() && !p.is_placed_during_play())
+            .find(|(_, p)| {
+                p.system_id().is_some_and(|s| {
+                    !p.is_placed_during_play() && ti4_content::galaxy::planets_in(ContentStore::embedded(), s, POK).len() >= 2
+                })
+            })
             .map(|(id, p)| (SystemId::new(p.system_id().unwrap()), PlanetId::new(*id)))
-            .expect("the corpus has a placed planet");
+            .expect("the corpus has a system with two planets");
         (state, system, planet)
     }
 
@@ -10011,8 +10092,17 @@ mod core_bombardment {
             assert!(bombardable(&state, ContentStore::embedded(), POK, &system, &planet, &invader()));
 
             // The Anihilator bombards from another planet of its system.
-            put(&mut state, &system, Some(&PlanetId::new("elsewhere")), "l1z1x_mech", &invader(), 1);
-            let _ = plan_of(&state, &system);
+            let others: Vec<PlanetId> = ti4_content::galaxy::planets_in(ContentStore::embedded(), system.as_str(), POK)
+                .into_iter()
+                .map(|p| PlanetId::new(p.id()))
+                .filter(|p| p != &planet)
+                .collect();
+            if let Some(other) = others.first() {
+                put(&mut state, &system, Some(other), "l1z1x_mech", &invader(), 1);
+                put(&mut state, &system, Some(&planet), "infantry", &holder(), 1);
+                let plan = plan_of(&state, &system);
+                assert!(plan.iter().any(|p| p.planet == planet && p.rolls.iter().any(|r| r.0 == "l1z1x_mech")), "{plan:?}");
+            }
         });
         let r = report();
         let counts = &r.areas[&Area::Invasion];

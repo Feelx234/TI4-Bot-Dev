@@ -9,7 +9,10 @@
 //! (`core_combat::window_env`).
 
 use ti4_content::ContentStore;
-use ti4_engine_core::generated::{Planet, System};
+use ti4_engine_core::generated::{Planet, System, Unit};
+use ti4_engine_core::state::Piece;
+use ti4_model::units::Unit as StrUnit;
+use crate::core_combat::OptionRow;
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::kernel::Kernel;
 use ti4_engine_core::rules::invasion as ci;
@@ -91,6 +94,61 @@ impl<'g> InvasionView<'g> {
                 })
             })
             .collect()
+    }
+}
+
+impl InvasionView<'_> {
+    fn str_unit(&self, p: Piece) -> Option<StrUnit> {
+        Some(StrUnit {
+            type_id: ti4_model::id::UnitTypeId::new(p.kind().as_str()),
+            owner: self.player(p.owner())?,
+            sustained_damage: p.sustained(),
+            galvanized: p.galvanized(),
+        })
+    }
+
+    fn piece(&self, u: &StrUnit) -> Option<Piece> {
+        Some(
+            Piece::new(typed::<Unit>(u.type_id.as_str())?, self.seat(&u.owner)?)
+                .with_sustained(u.sustained_damage)
+                .with_galvanized(u.galvanized),
+        )
+    }
+
+    /// `invasion::landable`.
+    #[must_use]
+    pub fn landable(&self, player: &PlayerId, system: &SystemId) -> Option<Vec<StrUnit>> {
+        let (seat, sys) = (self.seat(player)?, typed::<System>(system.as_str())?);
+        ci::landable(self.rd(), seat, sys).into_iter().map(|p| self.str_unit(p)).collect()
+    }
+
+    /// `invasion::landable_planets`.
+    #[must_use]
+    pub fn landable_planets(&self, system: &SystemId) -> Option<Vec<PlanetId>> {
+        let sys = typed::<System>(system.as_str())?;
+        Some(ci::landable_planets(self.rd(), sys).into_iter().map(|p| PlanetId::new(p.as_str())).collect())
+    }
+
+    /// The landings of `invasion::commit_options` over `troops` standing in space and `planets`, rendered:
+    /// (id, kind, label, payload) per option.
+    #[must_use]
+    pub fn commit_options(&self, system: &SystemId, troops: &[StrUnit], planets: &[PlanetId]) -> Option<Vec<OptionRow>> {
+        use ti4_engine_core::choice::invasion::Ask as IAsk;
+        use ti4_engine_core::choice::Ask as AnyAsk;
+        let sys = typed::<System>(system.as_str())?;
+        let pieces: Vec<Piece> = troops.iter().map(|u| self.piece(u)).collect::<Option<_>>()?;
+        let planets: Vec<Planet> = planets.iter().map(|p| typed::<Planet>(p.as_str())).collect::<Option<_>>()?;
+        let opts = ci::commit_opts(&pieces, &planets);
+        let r = crate::render::Render::new(Vec::new());
+        let any = AnyAsk::Invasion(IAsk::CommitGround { system: sys });
+        Some(
+            opts.iter()
+                .map(|o| {
+                    let o = crate::render::option(&r, &any, o);
+                    (o.id, o.kind, o.label, o.payload)
+                })
+                .collect(),
+        )
     }
 }
 

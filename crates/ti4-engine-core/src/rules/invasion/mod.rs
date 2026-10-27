@@ -258,3 +258,63 @@ pub fn bombard_plan(rd: Rd<'_>, system: System, invader: Seat) -> Vec<PlanetBomb
     }
     plan
 }
+
+// -- landing and committing ground forces (LRR 49.2) -----------------------------------------------
+
+/// `invasion::landable`: the invader's ground forces in the space area of `system`, in board order.
+#[must_use]
+pub fn landable(rd: Rd<'_>, player: Seat, system: System) -> Vec<Piece> {
+    rd.s.board()
+        .sys(system)
+        .units
+        .iter()
+        .filter(|p| p.owner() == player && rd.data(p.kind()).is_some_and(|d| matches!(d.base_type, UnitBaseType::Infantry | UnitBaseType::Mech) || matches!(p.kind(), Unit::HelTitanI | Unit::HelTitanII)))
+        .copied()
+        .collect()
+}
+
+/// `invasion::landable_planets`: the planets of `system` a ground force may land on now, in the order of the
+/// system's record, then the planets placed there during play. Mecatol Rex stays off the table while the
+/// custodians token sits there (27.1), a space station takes no ground forces, nor does the elected
+/// Demilitarized Zone, nor Custodia Vigilia.
+#[must_use]
+pub fn landable_planets(rd: Rd<'_>, system: System) -> Vec<Planet> {
+    let scope = rd.scope();
+    let in_scope = |p: &Planet| scope.0 & crate::tables::source_bit(p.data().source) != 0;
+    let custodians = rd.s.meta().flags.has(crate::state::MetaFlags::CUSTODIANS_REMOVED);
+    let placed = rd.s.board().planets().filter(|(_, c)| c.placed_in == Some(system)).map(|(p, _)| p);
+    system
+        .data()
+        .planets
+        .iter()
+        .copied()
+        .chain(placed)
+        .filter(|p| *p != Planet::CustodiaVigilia)
+        .filter(in_scope)
+        .filter(|p| *p != Planet::MecatolRex || custodians)
+        .filter(|p| !p.data().traits.contains(&crate::generated::PlanetTrait::Spacestation))
+        .filter(|p| !qlaws::planet_is_demilitarized(rd.s, rd.blanked, *p))
+        .collect()
+}
+
+/// `invasion::commit_options`' landings: one option per distinguishable landing (unit type, damage, planet) over
+/// the caller's `troops` and `planets` (already without the planets whose toll the invader cannot pay), troops
+/// first, then the end of the sequence. Only for troops standing in space (no origin).
+#[must_use]
+pub fn commit_opts(troops: &[Piece], planets: &[Planet]) -> crate::choice::Opts {
+    use crate::choice::invasion::Opt as IOpt;
+    let mut opts = crate::choice::Opts::default();
+    let mut seen: Vec<(Unit, bool, Planet)> = Vec::new();
+    for (index, unit) in troops.iter().enumerate() {
+        for planet in planets {
+            let key = (unit.kind(), unit.sustained(), *planet);
+            if seen.contains(&key) {
+                continue;
+            }
+            seen.push(key);
+            opts.push(crate::choice::Opt::Invasion(IOpt::Commit { index: index as u16, planet: *planet, unit: unit.kind(), damaged: unit.sustained() }));
+        }
+    }
+    opts.push(crate::choice::Opt::Invasion(IOpt::DoneCommitting));
+    opts
+}
