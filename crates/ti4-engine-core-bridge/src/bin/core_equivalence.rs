@@ -17,7 +17,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 fn print(report: &Report) {
     println!(
         "positions {} | adjacency checks {} | rules built {} (plain {}, with hook state {}, board facts changed by a hook {}, hook map copies {}) | \
-         path queries {} (reachable {}, plain-builder queries {}) | route sets {} | seat rules {} | observed answers {} | neighbour answers {} | content answers {} | unmapped {} | \
+         path queries {} (reachable {}, plain-builder queries {}) | route sets {} | seat rules {} | observed answers {} | neighbour answers {} | content answers {} | hook answers {} | unmapped {} | \
          mismatches {}",
         report.positions,
         report.adjacency_checks,
@@ -34,6 +34,7 @@ fn print(report: &Report) {
         report.observed_answers,
         report.neighbour_answers,
         report.content_answers,
+        report.hook_answers,
         report.unmapped,
         report.mismatches.len()
     );
