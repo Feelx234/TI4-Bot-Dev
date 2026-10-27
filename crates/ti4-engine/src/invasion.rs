@@ -626,6 +626,33 @@ fn dual_positions(rng: &GameRng) -> Option<crate::rng::RngPositions> {
         .then(|| rng.positions())
 }
 
+/// The `Core` backend of the bombardment's dice: the typed rules draw them from the streams standing
+/// here. `None` when the string loop must roll: another backend, a pending stream restore, test faces, or
+/// something the core does not map.
+fn core_bombard_dice(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    dice: &Dice,
+    rng: &GameRng,
+    system: &SystemId,
+    invader: &PlayerId,
+) -> Option<(std::collections::VecDeque<crate::core_invasion::BombardDiceRow>, crate::rng::RngPositions)> {
+    if crate::dual::backend(crate::dual::Area::Invasion) != crate::dual::Backend::Core || rng.sync_pending() || dice.is_preloaded() {
+        return None;
+    }
+    #[cfg(feature = "typed-core")]
+    {
+        let (rows, after) = crate::core_invasion::InvasionView::of(state, content, sources)?.roll_bombard(state, rng.seed(), &rng.positions(), system, invader)?;
+        Some((rows.into(), after))
+    }
+    #[cfg(not(feature = "typed-core"))]
+    {
+        let _ = (state, content, sources, system, invader);
+        None
+    }
+}
+
 /// Dual check of the bombardment dice just rolled: the core draws the same faces per group from the stream
 /// standing before them and leaves the streams where they stand. Not run with preloaded test faces.
 #[allow(clippy::too_many_arguments, reason = "one parameter per distinct input")]
@@ -672,6 +699,8 @@ fn roll_bombard_plan(
     let planned = bombard_rolls(state, content, sources, system, invader);
     // On `invasion=dual` the dice are also drawn by the core from the stream standing here (`rules::invasion::roll_bombard`).
     let positions = dual_positions(rng);
+    // On `invasion=core` the core draws the dice and the string loop only records them.
+    let mut drawn = core_bombard_dice(state, content, sources, dice, rng, system, invader);
     let mut dice_rows: Vec<crate::core_invasion::BombardDiceRow> = Vec::new();
     let mut plan = Vec::new();
     // Every unit's roll, kept for the reroll windows the bombardment opens (Agnlan Oln,
@@ -680,13 +709,19 @@ fn roll_bombard_plan(
     for PlannedBombard { planet, rolls, held, victims } in planned {
         let mut groups: Vec<usize> = Vec::new();
         for (unit_type, value, count) in rolls {
-            let roll = dice.roll_by(
-                rng,
-                count,
-                "bombardment",
-                Some(u32::try_from(value).unwrap_or(u32::MAX)),
-                invader,
-            );
+            let roll = if let Some((rows, _)) = drawn.as_mut() {
+                let (_, _, hits_on, faces) = rows.pop_front().expect("the core plan names every roll of the string plan");
+                rng.observe_randomness();
+                dice.record_drawn("bombardment", faces, Some(hits_on), std::collections::BTreeSet::new(), invader)
+            } else {
+                dice.roll_by(
+                    rng,
+                    count,
+                    "bombardment",
+                    Some(u32::try_from(value).unwrap_or(u32::MAX)),
+                    invader,
+                )
+            };
             dice_rows.push((
                 planet.to_string(),
                 unit_type.clone(),
@@ -717,6 +752,9 @@ fn roll_bombard_plan(
             held,
             victims,
         });
+    }
+    if let Some((_, after)) = drawn {
+        rng.set_positions(&after);
     }
     check_bombard_dice(state, content, sources, dice, rng, positions.as_ref(), dice_rows, system, invader);
     if staged.iter().any(|roll| !roll.faces.is_empty()) {
@@ -10697,6 +10735,32 @@ mod core_bombardment {
         assert!(counts.calls >= 2, "the core drew the dice: {counts:?}");
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
+    }
+
+    #[test]
+    fn the_core_backend_draws_the_same_bombardment_dice_as_the_string_loop() {
+        let _guard = crate::dual::tests::serial();
+        let run = |backend: Backend, seed: u64| {
+            let mask = AreaMask::STRING.with(Area::Invasion, backend);
+            with_mask(mask, || {
+                let (mut state, system, planet) = arena();
+                put(&mut state, &system, Some(&planet), "infantry", &holder(), 3);
+                put(&mut state, &system, None, "dreadnought", &invader(), 2);
+                put(&mut state, &system, None, "warsun", &invader(), 1);
+                let mut dice = Dice::new();
+                let mut rng = GameRng::new(seed);
+                let plan = roll_bombard_plan(&mut state, ContentStore::embedded(), POK, &mut dice, &mut rng, &system, &invader());
+                let groups: Vec<Vec<usize>> = plan.iter().map(|p| p.groups.clone()).collect();
+                let faces: Vec<Vec<u32>> = dice.history().iter().map(|r| r.faces.clone()).collect();
+                (groups, faces, rng.positions(), serde_json::to_string(&state.reroll_staging).unwrap())
+            })
+        };
+        for seed in [5_u64, 17, 23] {
+            let string = run(Backend::String, seed);
+            let core = run(Backend::Core, seed);
+            assert!(!string.1.is_empty());
+            assert_eq!(string, core, "seed {seed}");
+        }
     }
 
     #[test]
