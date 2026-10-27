@@ -485,9 +485,9 @@ fn observers(label: &str, gs: &GameState, core: &CoreState, cx: &Ctx, sources: S
     check("bastion clear_retreated", &string, &typed, out);
 
     for (system, spot, u) in units_of(gs) {
-        let (Some(pl), Some(owner), Some(system_ix), Some(unit_ix)) =
-            (spot.as_ref().and_then(planet), cx.owners.seat(u.owner.as_str()), sys(&system), unit_kind(u.type_id.as_str())) else { continue };
-        crate::factions::nekro_units::alastor_decrement(&mut string, &system, &u.owner, spot.as_ref().unwrap_or(&PlanetId::new("")), u.type_id.as_str());
+        let (Some(spot_id), Some(pl), Some(owner), Some(system_ix), Some(unit_ix)) =
+            (spot.as_ref(), spot.as_ref().and_then(planet), cx.owners.seat(u.owner.as_str()), sys(&system), unit_kind(u.type_id.as_str())) else { continue };
+        crate::factions::nekro_units::alastor_decrement(&mut string, &system, &u.owner, spot_id, u.type_id.as_str());
         k.hooks.direct.nekro_units_alastor_decrement(&mut Cx::new(&mut typed, &k, &mut asker), system_ix, owner, pl, unit_ix);
     }
     check("nekro alastor_decrement", &string, &typed, out);
