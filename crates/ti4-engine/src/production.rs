@@ -3525,7 +3525,7 @@ impl Window for ProductionWindow {
         ctx: &mut Resolving<'_>,
         answer: ChoiceOption,
     ) -> Result<(), IllegalChoice> {
-        if self.resolve_step(state, ctx, answer)? {
+        if self.resolve_windowed(state, ctx, answer)? {
             self.finish_use(state, ctx)?;
         }
         Ok(())
@@ -3533,6 +3533,42 @@ impl Window for ProductionWindow {
 }
 
 impl ProductionWindow {
+    /// [`Self::resolve_step`], also run on the core window on `production=dual`: the question the table was
+    /// just asked and its answer are recorded for the harness (`note_ask`), both sides start from this
+    /// position and are compared (question, answer, state, events, the window's fields).
+    fn resolve_windowed(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        answer: ChoiceOption,
+    ) -> Result<bool, IllegalChoice> {
+        #[cfg(feature = "typed-core")]
+        if crate::dual::backend(crate::dual::Area::Production) == crate::dual::Backend::Dual {
+            let (content, sources) = (ctx.content, ctx.sources);
+            if let Some(choice) = self.pending_choice(state, content, sources) {
+                let before = self.clone();
+                let player = self.player.clone();
+                let emit_timing = ctx.timing.is_some();
+                let mut outcome = Ok(false);
+                crate::dual_window!(
+                    crate::dual::Area::Production,
+                    "ProductionWindow::step",
+                    state,
+                    |s: &mut GameState| {
+                        crate::dual_window::note_ask(&choice, &Ok(answer.clone()));
+                        outcome = self.resolve_step(s, ctx, answer.clone());
+                        crate::dual::Run::new(self.snap())
+                    },
+                    |s: &mut GameState, script: &crate::dual_window::Recording| {
+                        crate::production_window_dual::step(&before, s, content, sources, &player, script, emit_timing)
+                    }
+                );
+                return outcome;
+            }
+        }
+        self.resolve_step(state, ctx, answer)
+    }
+
     /// [`Window::resolve`] without the end-of-use effects: the answer, then `settle`. `true` when it reached
     /// `settle`, so the caller runs [`Self::finish_use`].
     pub(crate) fn resolve_step(
@@ -4115,41 +4151,31 @@ pub fn resolve_timed(
     // here; the tactical action's production step does the same in `game.rs`).
     agency_supply_network(state, &mut ctx, galaxy, player, system)?;
     while let Some(choice) = window.pending_choice(state, content, sources) {
-        // One question and its answer is also a step of the core window: on `production=dual` both run from
-        // this position and are compared (question, answer, state, events, the window's fields).
-        #[cfg(feature = "typed-core")]
-        let before = window.clone();
-        let emit_timing = ctx.timing.is_some();
-        let mut finish = false;
-        let mut outcome: Result<(), IllegalChoice> = Ok(());
-        crate::dual_window!(
-            crate::dual::Area::Production,
-            "ProductionWindow::step",
-            state,
-            |s: &mut GameState| {
-                outcome = ctx
-                    .table
-                    .ask_seeing(&choice, &Observed::new(s, content, sources, galaxy))
-                    .and_then(|answer| window.resolve_step(s, &mut ctx, answer))
-                    .map(|reached_settle| finish = reached_settle);
-                crate::dual::Run::new(window.snap())
-            },
-            |s: &mut GameState, script: &crate::dual_window::Recording| {
-                #[cfg(feature = "typed-core")]
-                {
-                    crate::production_window_dual::step(&before, s, content, sources, player, script, emit_timing)
+        let answer = match ctx
+            .table
+            .ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))
+        {
+            Ok(answer) => answer,
+            Err(error) => {
+                crate::factions::observe(
+                    state,
+                    crate::factions::Obs::AgentDestinationsSpent {
+                        player,
+                        system,
+                    },
+                );
+                if agent_window {
+                    crate::factions::observe(
+                        state,
+                        crate::factions::Obs::PaymentWindowClosed {
+                            player,
+                        },
+                    );
                 }
-                #[cfg(not(feature = "typed-core"))]
-                {
-                    let _ = (s, script, emit_timing);
-                    None
-                }
+                return Err(error);
             }
-        );
-        if outcome.is_ok() && finish {
-            outcome = window.finish_use(state, &mut ctx);
-        }
-        if let Err(error) = outcome {
+        };
+        if let Err(error) = window.resolve(state, &mut ctx, answer) {
             crate::factions::observe(
                 state,
                 crate::factions::Obs::AgentDestinationsSpent {
