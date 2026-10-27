@@ -5,11 +5,12 @@ use crate::ids::Seat;
 use super::super::piece::Piece;
 use super::super::Code;
 
-/// `CombatRollRecord`'s unit is a unit type; a hit is `roll >= target`.
+/// `CombatRollRecord`: a hit is `roll >= target`. The unit text is a unit type, or a pooled group such as
+/// `carrier+fighter` (dice of several types rolled together): adapter-interned.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CombatDie {
     pub player: Seat,
-    pub unit: Unit,
+    pub unit: Code,
     pub roll: u32,
     pub target: u32,
     pub hit: bool,

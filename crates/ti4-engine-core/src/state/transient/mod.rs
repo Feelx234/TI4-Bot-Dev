@@ -8,7 +8,7 @@ mod production;
 
 pub use combat::{CombatDie, CombatPresentation, CombatScratch, CombatStage, DestroyReason, PendingDestruction, RerollEntry, RerollKind, RerollSet};
 pub use invasion::{ActiveInvasion, InvasionDie, InvasionKind, InvasionPhase, InvasionScratch, InvasionStep};
-pub use misc::{MiscScratch, StartingTechPick, StartingTechSource, TransientFlags};
+pub use misc::{MiscScratch, StartingTechPick, StartingTechSource, TechList, TransientFlags};
 pub use production::ProductionCounters;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

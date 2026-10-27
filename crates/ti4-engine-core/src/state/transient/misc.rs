@@ -2,7 +2,7 @@ use crate::containers::SmallList;
 use crate::generated::{ActionCard, StrategyCard};
 use crate::ids::Seat;
 
-use super::super::player::TechSet;
+use crate::generated::Technology;
 
 /// `ti4_model::state::TransientFlags` (same bits).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -31,9 +31,37 @@ impl TransientFlags {
     }
 }
 
+/// A listed starting technologies, in the order the faction sheet names them (order is observable:
+/// option order). At most [`TechList::CAP`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TechList {
+    len: u8,
+    items: [Technology; TechList::CAP],
+}
+
+impl TechList {
+    pub const CAP: usize = 24;
+
+    /// `None` when the list is longer than [`Self::CAP`].
+    #[must_use]
+    pub fn from_slice(list: &[Technology]) -> Option<Self> {
+        if list.len() > Self::CAP {
+            return None;
+        }
+        let mut items = [Technology::ALL[0]; Self::CAP];
+        items[..list.len()].copy_from_slice(list);
+        Some(Self { len: list.len() as u8, items })
+    }
+
+    #[must_use]
+    pub fn as_slice(&self) -> &[Technology] {
+        &self.items[..usize::from(self.len)]
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StartingTechSource {
-    Listed(TechSet),
+    Listed(TechList),
     OwnedByOthers,
     Researchable,
 }

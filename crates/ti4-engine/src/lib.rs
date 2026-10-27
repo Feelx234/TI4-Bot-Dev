@@ -79,6 +79,8 @@ pub mod promissory;
 pub mod reach_query;
 #[cfg(feature = "typed-core")]
 pub mod core_adapter;
+#[cfg(feature = "typed-core")]
+pub mod core_sync;
 /// The adapter half of `cargo xtask gen-cards` (docs/CONTENT_GENERATOR.md): the id string of every
 /// core enum variant and the display text.
 #[cfg(feature = "typed-core")]
