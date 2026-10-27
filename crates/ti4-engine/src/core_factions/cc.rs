@@ -400,7 +400,17 @@ fn audit(label: &str, core: &CoreState, sources: SourceSet, ids: &[PlayerId], sy
     core_active.meta_mut().active_system = systems.iter().find_map(sys);
     let shift = |t: &HookTable| {
         let k = probe_k(t);
-        sites.iter().map(|s| k.hooks.seam.hit_shift.eval(Q::new(&core_active, &k), s, 0, Clamp::None)).collect::<Vec<_>>()
+        // The value and the parts as a multiset: two rows that both contribute list their parts in registration order,
+        // which is the display order, not part of the number.
+        sites
+            .iter()
+            .map(|s| {
+                let e = k.hooks.seam.hit_shift.eval(Q::new(&core_active, &k), s, 0, Clamp::None);
+                let mut parts: Vec<String> = e.parts.as_slice().iter().map(|p| format!("{p:?}")).collect();
+                parts.sort();
+                (e.value, parts)
+            })
+            .collect::<Vec<_>>()
     };
     let may = |t: &HookTable| {
         let k = probe_k(t);
