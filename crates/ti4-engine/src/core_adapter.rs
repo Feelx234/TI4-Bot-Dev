@@ -596,19 +596,64 @@ pub struct Position {
     kernel: &'static Kernel,
 }
 
-/// The slices the movement rules read: the map, the board, the players (technologies, relics, timers,
-/// plots), the marks, the laws, the tokens of the explore slice, the turn counters, the production
-/// counters (Gravleash).
-pub const REACH_SLICES: SliceSet = SliceSet::of(&[
-    Slice::Meta,
-    Slice::Players,
-    Slice::Board,
-    Slice::Map,
-    Slice::Agenda,
-    Slice::Explore,
-    Slice::Marks,
-    Slice::Transient,
-]);
+/// The key texts of the marks the movement hooks read (`ti4-engine-core-factions`): Crimson's sever
+/// tokens and active breaches, the Empyrean's marks, the Firmament agent, the Ghosts' agent link, the
+/// Nekro Z tokens, the Nomad hero, the Cabal's Crucible, the Saar agent, Winnu's Imperator and Law's
+/// Order. Every other mark is left out of the reach view.
+const REACH_MARKS: [&str; 11] = [
+    "cabal:crucible:",
+    "crimson:breach:active:",
+    "crimson:sever:",
+    "empyrean|",
+    "firmament:agent",
+    "ghost:agent_link",
+    "keleres|laws_blank",
+    "nekro:token:",
+    "nomad:hero:",
+    "private:",
+    "saar:agent:boost:",
+];
+
+/// The slices the movement rules read, loaded the cheap way: the board, the players and the map by
+/// their codecs; of the explore, agenda, transient and marks slices only the few facts movement reads
+/// (the full codecs load every exploration record, every law outcome and every mark).
+fn load_reach(cx: &mut Ctx, gs: &GameState, galaxy: &Galaxy) -> Option<CoreState> {
+    use ti4_engine_core::generated::{Agenda, Wormhole};
+    use ti4_engine_core::keys::Outcome;
+    let src = CodecSources { galaxy: Some(galaxy), rng: None };
+    let mut core = CoreState::with_loaded(SliceSet::EMPTY);
+    for slice in [Slice::Meta, Slice::Players, Slice::Board, Slice::Map] {
+        crate::core_sync::Codec::load_slice(cx, gs, src, slice, &mut core).ok()?;
+    }
+    let e = &mut core.explore;
+    for (set, texts) in [(&mut e.ingress, &gs.ingress_tokens), (&mut e.breach, &gs.breach_tokens)] {
+        for t in texts {
+            set.insert(system_ix(t.as_str())?);
+        }
+    }
+    for (kind, system) in &gs.wormhole_tokens {
+        e.wormhole_tokens.insert(<Wormhole as IdStr>::from_id(kind)?, system_ix(system.as_str())?);
+    }
+    core.mark_loaded(Slice::Explore);
+    if gs.laws.contains_key("shared_research") {
+        core.agenda.laws.insert(Agenda::SharedResearch, Outcome::Empty);
+    }
+    core.mark_loaded(Slice::Agenda);
+    for (system, value) in &gs.gravleash_move_values {
+        core.transient.production.gravleash_move_values.insert(system_ix(system.as_str())?, *value);
+    }
+    core.mark_loaded(Slice::Transient);
+    let mut marks = ti4_engine_core::state::MarkMap::new();
+    for (key, value) in &gs.faction_marks {
+        if REACH_MARKS.iter().any(|p| key.starts_with(p)) {
+            let (k, v) = cx.keys.parse_mark(key, value)?;
+            marks.insert(k, v);
+        }
+    }
+    core.marks.tail = Cow::new(marks);
+    core.mark_loaded(Slice::Marks);
+    Some(core)
+}
 
 impl Position {
     /// `None` when a value of the position cannot be held by the typed state (the caller asks the
@@ -620,8 +665,7 @@ impl Position {
         galaxy: &Galaxy,
     ) -> Option<std::rc::Rc<Self>> {
         let mut cx = Ctx::of(state).ok()?;
-        let src = CodecSources { galaxy: Some(galaxy), rng: None };
-        let view = CoreView::of(state, &mut cx, src, REACH_SLICES).ok()?;
+        let view = CoreView::from_state(load_reach(&mut cx, state, galaxy)?);
         Some(std::rc::Rc::new(Self { view, cx, kernel: kernel_for(sources) }))
     }
 

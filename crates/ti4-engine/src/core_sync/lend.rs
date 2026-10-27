@@ -155,6 +155,12 @@ impl CoreView {
         Ok(Self { core: Codec::load(cx, gs, src, reads)? })
     }
 
+    /// A view over a state loaded by hand (a caller that loads fewer parts of a slice than its codec).
+    #[must_use]
+    pub const fn from_state(core: CoreState) -> Self {
+        Self { core }
+    }
+
     #[must_use]
     pub fn into_state(self) -> CoreState {
         self.core
