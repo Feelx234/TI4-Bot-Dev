@@ -23,10 +23,10 @@ use crate::query::laws as qlaws;
 use crate::state::{CombatDie, Ledger, NoteKey, RerollSet, RollPurpose, RollRec};
 use crate::containers::SeatSet;
 use crate::generated::Faction;
-use crate::kernel::seam::{data as seam_data, Clamp, RowKind, RollKind, RollSite, SeatSystemSite, SilenceCtx, SilenceSite, Q};
+use crate::kernel::seam::{data as seam_data, Source, Clamp, RowKind, RollKind, RollSite, SeatSystemSite, SilenceCtx, SilenceSite, Q};
 use crate::kernel::Kernel;
 use crate::query::board as qboard;
-use crate::state::{CoreState, Piece};
+use crate::state::{CoreState, Piece, RoundKind};
 use crate::tables::Scope;
 
 /// `ti4_model::state::RULES_FACTION_EFFECTS`.
@@ -864,4 +864,88 @@ pub fn barrage_plan(rd: Rd<'_>, player: Seat, system: System) -> Vec<BarrageRoll
         plan.push(BarrageRoll { unit: Some(unit.kind()), hits_on: value, dice: usize::try_from(dice).unwrap_or(0) });
     }
     plan
+}
+
+// -- space cannon (LRR 77) -----------------------------------------------------------------------
+
+/// One gun's roll in the space cannon offense: its owner, the unit and how it rolls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CannonRoll {
+    pub owner: Seat,
+    pub unit: Unit,
+    pub hits_on: i64,
+    pub dice: usize,
+}
+
+/// Whether `owner` has Plasma Scoring (the data row of the technology).
+fn has_plasma_scoring(rd: Rd<'_>, owner: Seat) -> bool {
+    seam_data::COMBAT_ROWS
+        .iter()
+        .filter(|r| matches!(r.kind, RowKind::ExtraDice(_)) && r.source == Source::Technology(crate::generated::Technology::PlasmaScoring))
+        .any(|r| r.times(rd.q(), owner, SeatSet::EMPTY, None, 0) > 0)
+}
+
+/// `combat::space_cannon_offense`'s per-gun math for the guns in `guns` (owner, unit, in firing order):
+/// Disable, Plasma Scoring's pick, the Bastion die, Assail (clamped at 1) and then Antimass Deflectors.
+/// `opponent` is the player the active player's guns fire at. Guns without a SPACE CANNON, or with no
+/// dice, are skipped.
+#[must_use]
+pub fn cannon_plan(rd: Rd<'_>, system: System, active: Seat, opponent: Option<Seat>, guns: &[(Seat, Unit)]) -> Vec<CannonRoll> {
+    let activation = rd.s.meta().activation_seq;
+    // Plasma Scoring: one of a player's firing units rolls a die more, the one that hits most easily.
+    let mut picks: Vec<(Seat, i64)> = Vec::new();
+    for (owner, unit) in guns {
+        let Some(value) = rd.data(*unit).and_then(|d| d.space_cannon).map(|r| i64::from(r.hits_on)).filter(|v| *v > 0) else { continue };
+        if !has_plasma_scoring(rd, *owner) {
+            continue;
+        }
+        match picks.iter_mut().find(|(s, _)| s == owner) {
+            Some((_, best)) => *best = (*best).min(value),
+            None => picks.push((*owner, value)),
+        }
+    }
+    let mut out = Vec::new();
+    for (owner, unit) in guns {
+        let Some(data) = rd.data(*unit) else { continue };
+        let Some(printed) = data.space_cannon.map(|r| i64::from(r.hits_on)).filter(|v| *v > 0) else { continue };
+        if data.base_type == UnitBaseType::Pds
+            && rd
+                .s
+                .players()
+                .iter()
+                .any(|p| p.seat != *owner && p.round_marks.contains(RoundKind::DisableInvasion, activation))
+        {
+            continue;
+        }
+        let dice = data.space_cannon.map_or(0, |r| i64::from(r.dice));
+        if dice <= 0 {
+            continue;
+        }
+        let plasma = match picks.iter().position(|(s, v)| s == owner && *v == printed) {
+            Some(at) => {
+                picks.remove(at);
+                1
+            }
+            None => 0,
+        };
+        // The Bastion die: the barrage site carries it and no row of the cannon.
+        let mut site = roll_site(rd, *owner, *unit, Some(system), 0);
+        site.kind = RollKind::Barrage;
+        let dice = rd.k.hooks.seam.dice.eval(rd.q(), &site, dice + plasma, Clamp::None).value;
+        let target = if *owner == active { opponent } else { Some(active) };
+        let mut foes = SeatSet::EMPTY;
+        if let Some(t) = target {
+            foes.insert(t);
+        }
+        site.foes = foes;
+        site.kind = RollKind::CannonAssail;
+        let assail = rd.k.hooks.seam.hit_shift.eval(rd.q(), &site, 0, Clamp::None).value;
+        let mut value = (printed - assail).max(1);
+        if rd.s.meta().rules_version >= RULES_TECH_EFFECTS && target.is_some_and(|t| t != *owner) {
+            site.kind = RollKind::SpaceCannon;
+            value -= rd.k.hooks.seam.hit_shift.eval(rd.q(), &site, 0, Clamp::None).value;
+        }
+        out.push(CannonRoll { owner: *owner, unit: *unit, hits_on: value, dice: usize::try_from(dice).unwrap_or(0) });
+    }
+    out
 }

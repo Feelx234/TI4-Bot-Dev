@@ -130,6 +130,16 @@ fn register_string_bridge(seams: &mut Seams) {
             .flatten()
             .unwrap_or(0));
         }
+        if site.kind == RollKind::CannonAssail {
+            // Assail against the players this gun fires at.
+            return add(with_oracle(|o| {
+                let owner = o.player(site.unit.owner)?;
+                let targets: Vec<PlayerId> = site.foes.iter().filter_map(|s| o.player(s)).collect();
+                Some(crate::factions::firmament_plots::assail_against(&o.gs, &owner, targets.iter()))
+            })
+            .flatten()
+            .unwrap_or(0));
+        }
         if site.kind != RollKind::Combat {
             return Delta::None;
         }
@@ -562,6 +572,32 @@ impl<'g> CombatView<'g> {
             cc::barrage_plan(rd, seat, sys)
                 .into_iter()
                 .map(|r| (r.unit.map(|u| u.as_str().to_owned()), r.hits_on, r.dice))
+                .collect()
+        }))
+    }
+
+    /// The per-gun roll plan of the space cannon offense over the string's gun list.
+    #[must_use]
+    pub fn cannon_plan(
+        &self,
+        system: &SystemId,
+        active: &PlayerId,
+        opponent: Option<&PlayerId>,
+        guns: &[(PlayerId, String)],
+    ) -> Option<Vec<(String, String, i64, usize)>> {
+        let (sys, act) = (typed::<System>(system.as_str())?, self.seat(active)?);
+        let opp = match opponent {
+            Some(p) => Some(self.seat(p)?),
+            None => None,
+        };
+        let mut list = Vec::with_capacity(guns.len());
+        for (owner, unit) in guns {
+            list.push((self.seat(owner)?, typed::<Unit>(unit)?));
+        }
+        Some(self.with(|rd| {
+            cc::cannon_plan(rd, sys, act, opp, &list)
+                .into_iter()
+                .filter_map(|r| Some((self.player(r.owner)?.to_string(), r.unit.as_str().to_owned(), r.hits_on, r.dice)))
                 .collect()
         }))
     }

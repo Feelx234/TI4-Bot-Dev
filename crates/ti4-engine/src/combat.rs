@@ -2530,6 +2530,9 @@ pub fn space_cannon_offense(
             )
         }),
     );
+    let gun_list: Vec<(PlayerId, String)> =
+        guns.iter().map(|unit| (unit.owner.clone(), unit.type_id.to_string())).collect();
+    let mut plan: Vec<(String, String, i64, usize)> = Vec::new();
     for unit in guns {
         let Some(kind) = types.get(unit.type_id.as_str()) else {
             continue;
@@ -2575,6 +2578,7 @@ pub fn space_cannon_offense(
                             && crate::technology::owns_technology(state, victim, "amd")
                     }),
             );
+        plan.push((unit.owner.to_string(), unit.type_id.to_string(), value, count));
         let roll = dice.roll_by(
             rng,
             count,
@@ -2597,6 +2601,20 @@ pub fn space_cannon_offense(
             .or_insert_with(|| (0, Vec::new()));
         slot.0 += entry.hits();
         slot.1.push(entry);
+    }
+    if crate::dual::backend(crate::dual::Area::Combat) == crate::dual::Backend::Dual {
+        #[cfg(feature = "typed-core")]
+        let typed = || {
+            crate::core_combat::CombatView::of(state, content, sources)?.cannon_plan(
+                system,
+                active,
+                opponent.as_ref(),
+                &gun_list,
+            )
+        };
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None::<Vec<(String, String, i64, usize)>>;
+        let _ = crate::dual::run_dual_typed(crate::dual::Area::Combat, "combat::cannon_plan", typed, || plan.clone());
     }
     for (owner, planet, value, count) in attachment_guns {
         let roll = dice.roll_by(rng, count, "space cannon", Some(value), &owner);
