@@ -21,11 +21,21 @@ pub mod windows;
 
 /// Where a run stopped.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::large_enum_variant, reason = "one value per step, never stored in bulk; boxing the Choice would cost an allocation per question")]
 pub enum Status {
     /// The question to put to `choice.actor`. Answer it with [`Driver::resume`].
     Asking(Choice),
     /// The window is finished.
     Done,
+}
+
+/// How a window broke the contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Breach {
+    /// `Next::Continue` while `ask_of` is `None`.
+    ContinueWithoutQuestion,
+    /// `Next::Continue(ask)` with an ask other than `ask_of`'s.
+    AskMismatch,
 }
 
 /// Why a run or a resume failed.
@@ -36,7 +46,7 @@ pub enum DriverError {
     /// Nothing is being asked (`resume` without a question, or after `Done`).
     NotAsking,
     /// The window asked for a question it cannot describe (`ask_of` is `None` or differs).
-    Contract(&'static str),
+    Contract(Breach),
     /// The resolver refused.
     Timing(TimingError),
 }
@@ -60,6 +70,7 @@ enum Op {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant, reason = "one value per step, never stored in bulk; boxing the Choice would cost an allocation per question")]
 enum Awaiting {
     Nothing,
     /// The window's own question (a stage).
@@ -210,9 +221,9 @@ impl<W: Window> Driver<W> {
                     sx.emit(rec)?;
                 }
                 Next::Continue(ask) => {
-                    let choice = self.window.ask_of(sx.state, sx.kernel).ok_or(DriverError::Contract("Continue without a question"))?;
+                    let choice = self.window.ask_of(sx.state, sx.kernel).ok_or(DriverError::Contract(Breach::ContinueWithoutQuestion))?;
                     if choice.ask != ask {
-                        return Err(DriverError::Contract("Continue(ask) differs from ask_of"));
+                        return Err(DriverError::Contract(Breach::AskMismatch));
                     }
                     flow = Flow::Ask(choice);
                     break;
@@ -229,6 +240,7 @@ impl<W: Window> Driver<W> {
     }
 }
 
+#[allow(clippy::large_enum_variant, reason = "one value per step, never stored in bulk; boxing the Choice would cost an allocation per question")]
 enum Flow {
     Ask(Choice),
     Done,

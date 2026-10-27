@@ -86,8 +86,8 @@ sustained damage"; on `gain`, +1 trade good and `TRADE_GOODS_GAINED` staged. Cor
 source, stage }` with `Stage::{Check, Asking, Done}`; `ask_of` builds the typed `Choice` (`Ask::Leaders(SustainCommander)`,
 options `[GainTradeGood, Decline]`, origin `Content(Leader(RearAdmiralFarran))`); `answer` calls
 `fx::gain_trade_goods_staged`. Choice types: `choice/leaders.rs`; renderer: `ti4-engine/src/render/leaders.rs` (the
-`Leaders` entry of the registry is now live). Call site: `combat.rs` `ask_sustain_commander` is the `dual_window!`
-wrapper around the moved body `ask_sustain_commander_string`.
+`Leaders` entry of the registry is now live). Call site: `combat.rs` `ask_sustain_commander_windowed` is the `dual_window!`
+wrapper around the unchanged string body `ask_sustain_commander` (the delivery-inventory registry keeps its name).
 
 Known hole, in the dual as `None` (skipped, not compared): the commander ability held other than by an unlocked
 leader (granted mark, Mahact Imperia, an "An" promissory note). That is `promissory::has_commander_ability`, B7's.
@@ -110,7 +110,7 @@ The example lives under `driver/` only because `rules/` is created by B1 and B3;
 > point. (3) Choice types: add `Ask/Opt/Subtype` variants in your `choice/<area>.rs` and the `render/<area>.rs`
 > `Family` (prompt, subtype, option, parse) byte for byte; options in today's order. (4) The dual: wrap the string
 > call site in `dual_window!(Area::Driver, "<fn>", state, string_closure, core_closure)` exactly as `combat.rs`
-> `ask_sustain_commander` does: move the old body to `<fn>_string`, build the `Driver` in an adapter function in
+> `ask_sustain_commander` does: keep the old body under its name (tests/decision_delivery_inventory.rs lists it), add a `<fn>_windowed` wrapper, build the `Driver` in an adapter function in
 > `dual_window.rs` (or your own file) with a `Footprint` of the slices the window reads/writes, call
 > `dual_window::drive`, store back, `apply_staged`. Return `None` for positions the core cannot express yet; list
 > them in your report. (5) Run `TI4_AREAS=driver=dual TI4_DUAL_FAIL_FAST=1` over the engine suite, then the 20 golden

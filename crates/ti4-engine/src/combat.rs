@@ -2593,7 +2593,7 @@ fn pay_sustain_commander(state: &mut GameState, content: &ContentStore, player: 
 
 /// Rear Admiral Farran from rules version 16: "After 1 of your units uses SUSTAIN DAMAGE: You may
 /// gain 1 trade good." Asked once per use, only of an unlocked commander's holder.
-fn ask_sustain_commander(
+fn ask_sustain_commander_windowed(
     state: &mut GameState,
     ctx: &mut Resolving<'_>,
     content: &ContentStore,
@@ -2610,7 +2610,7 @@ fn ask_sustain_commander(
         "combat::ask_sustain_commander",
         state,
         |s: &mut GameState| {
-            outcome = ask_sustain_commander_string(s, ctx, content, sources, galaxy, player);
+            outcome = ask_sustain_commander(s, ctx, content, sources, galaxy, player);
             crate::dual::Run::new(outcome.is_ok())
         },
         |s: &mut GameState, script: &crate::dual_window::Recording| {
@@ -2620,7 +2620,7 @@ fn ask_sustain_commander(
     outcome
 }
 
-fn ask_sustain_commander_string(
+fn ask_sustain_commander(
     state: &mut GameState,
     ctx: &mut Resolving<'_>,
     content: &ContentStore,
@@ -3045,7 +3045,7 @@ fn offer_sustain(
             let exact_target = unit.clone();
             remember_sustain_target(state, system, location, &exact_target);
             if state.rules_version >= ti4_model::state::RULES_FACTION_EFFECTS {
-                ask_sustain_commander(state, ctx, content, sources, galaxy, player)?;
+                ask_sustain_commander_windowed(state, ctx, content, sources, galaxy, player)?;
             } else {
                 pay_sustain_commander(state, content, player);
             }
@@ -6170,7 +6170,7 @@ impl Window for CombatWindow {
                         // Rear Admiral Farran in a real combat (rules version 17; the window's
                         // sustain step never asked before).
                         if state.rules_version >= ti4_model::state::RULES_FACTION_BUGFIXES {
-                            ask_sustain_commander(
+                            ask_sustain_commander_windowed(
                                 state,
                                 ctx,
                                 content,
