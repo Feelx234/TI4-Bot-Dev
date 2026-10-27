@@ -16,7 +16,6 @@
 //! `hooks_strategy::extra_prerequisite_colours` (Yin commander), `payment::affordable` for
 //! Inheritance Systems, `hooks_strategy::research_waiver_offers`, `unit_form_override` (Mentak).
 
-use crate::containers::Set;
 use crate::generated::{
     Agenda, Attachment, Faction, FactionTag, Planet, Relic, System, TechType, Technology, Unit, UnitBaseType,
     Requirement, Source,
@@ -650,4 +649,48 @@ pub fn unowned_faction_technologies_of(scope: Scope, faction: Faction, owned: &T
             scope.0 & source_bit(d.source) != 0 && d.faction.is_some_and(|tag| tag_is(tag, faction)) && !owned.contains(*t)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_pooled_pair_is_counted_once() {
+        // Rule 6: one biotic cannot fill both a biotic and a cybernetic slot.
+        let joined = [true, true, false, false];
+        assert!(!satisfies([1, 1, 0, 0], [1, 0, 0, 0], joined, 0));
+        assert!(satisfies([1, 1, 0, 0], [2, 0, 0, 0], joined, 0));
+        // Colours outside the pair are untouched.
+        assert!(!satisfies([0, 0, 0, 1], [3, 0, 0, 0], joined, 0));
+    }
+
+    #[test]
+    fn the_waiver_budget_spans_the_pair_and_the_rest() {
+        let joined = [true, true, false, false];
+        assert!(satisfies([0, 2, 0, 1], [1, 0, 0, 0], joined, 2));
+        assert!(!satisfies([0, 2, 0, 1], [1, 0, 0, 0], joined, 1));
+    }
+
+    #[test]
+    fn the_deck_is_84_cards_and_thunders_edge_adds_twelve() {
+        let pok = Scope(source_bit(Source::Pok) | source_bit(Source::Base));
+        let te = Scope(pok.0 | source_bit(Source::ThundersEdge));
+        assert_eq!(active(pok).len(), 84);
+        assert_eq!(active(te).len(), 96);
+        assert!(active(pok).contains(Technology::ExecutiveOrder));
+        assert!(!active(te).contains(Technology::MagenDefenseGrid));
+    }
+
+    #[test]
+    fn printed_data_reads_the_table() {
+        assert_eq!(colour_type(Technology::GravityDrive), Some(TechType::Propulsion));
+        assert!(is_unit_upgrade(Technology::CarrierII));
+        assert_eq!(colour_type(Technology::CarrierII), None);
+        assert!(replaced_for_faction(Faction::TheFederationOfSol, Technology::CarrierII));
+        assert!(!replaced_for_faction(Faction::TheBaronyOfLetnev, Technology::CarrierII));
+        assert!(open_to_faction(Faction::TheBaronyOfLetnev, Technology::CarrierII));
+        assert!(!open_to_faction(Faction::TheFederationOfSol, Technology::CarrierII));
+        assert!(!open_to_faction(Faction::TheBaronyOfLetnev, Technology::AdvancedCarrierII));
+    }
 }

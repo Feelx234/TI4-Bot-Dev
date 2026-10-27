@@ -1652,20 +1652,40 @@ pub fn purge(
     true
 }
 
-/// Replace this player's units on the board with the versions their upgrades unlock (90.8).
-///
-/// The physical card is placed *over* the unit on the faction sheet, so every one of that player's
-/// units of that type becomes the upgraded version at once -- not only the ones built afterwards.
-/// Doing it here, where the technology arrives, is what keeps the board and the sheet agreeing
-/// without every stat lookup having to ask who owns the unit.
-pub fn apply_unit_upgrades(
-    state: &mut GameState,
+/// The unit type swaps a player's upgrades call for: each unit type id in scope that must be
+/// replaced, and the id it becomes (the upgrade owned, else the faction's own version of a plain
+/// unit, then any faction override).
+#[must_use]
+pub fn unit_swaps(
+    state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
     player: &PlayerId,
-) {
+) -> std::collections::BTreeMap<String, String> {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::technology_core::unit_swaps(state, content, sources, player);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Technology,
+        "technology::unit_swaps",
+        typed(),
+        unit_swaps_text(state, content, sources, player)
+    )
+}
+
+/// [`unit_swaps`] from the content records: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn unit_swaps_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+) -> std::collections::BTreeMap<String, String> {
+    let mut swaps: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
     let Some(seat) = state.player(player) else {
-        return;
+        return swaps;
     };
     let faction = seat.faction.to_string();
     let held: Vec<String> = seat
@@ -1675,7 +1695,6 @@ pub fn apply_unit_upgrades(
         .collect();
 
     let catalogue = ti4_content::units::catalogue(content, sources);
-    let mut swaps: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
     for kind in catalogue.values() {
         let base = kind.base_type();
         // No upgrade owned: a generic base unit becomes the faction's own version where the
@@ -1701,6 +1720,22 @@ pub fn apply_unit_upgrades(
             swaps.insert(kind.id().to_owned(), chosen);
         }
     }
+    swaps
+}
+
+/// Replace this player's units on the board with the versions their upgrades unlock (90.8).
+///
+/// The physical card is placed *over* the unit on the faction sheet, so every one of that player's
+/// units of that type becomes the upgraded version at once -- not only the ones built afterwards.
+/// Doing it here, where the technology arrives, is what keeps the board and the sheet agreeing
+/// without every stat lookup having to ask who owns the unit.
+pub fn apply_unit_upgrades(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+) {
+    let swaps = unit_swaps(state, content, sources, player);
     if swaps.is_empty() {
         return;
     }

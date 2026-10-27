@@ -181,6 +181,12 @@ pub fn check_tech_position(position: &Position, report: &mut TechReport) {
             &tc::unowned_faction_technologies_count(state, sources, player),
             1,
         );
+        report.same(
+            &format!("unit swaps {name}"),
+            &Some(st::unit_swaps_text(state, content, sources, player)),
+            &tc::unit_swaps(state, content, sources, player),
+            1,
+        );
         for base in UnitBaseType::ALL {
             let b = <UnitBaseType as IdStr>::as_str(base);
             let want = ti4_engine::action_cards::placed_unit_id_text(state, content, sources, player, b);

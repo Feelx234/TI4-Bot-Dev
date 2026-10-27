@@ -446,5 +446,39 @@ pub fn overridden_form(
     form: &str,
 ) -> ti4_model::id::UnitTypeId {
     crate::factions::hooks_strategy::unit_form_override(state, content, sources, player, base, form)
-        .unwrap_or_else(|| ti4_model::id::UnitTypeId::new(form.to_owned()))
+        .unwrap_or_else(|| ti4_model::id::UnitTypeId::new(form))
+}
+
+/// `technology::unit_swaps`: per unit type in scope, the id it becomes for this player.
+#[must_use]
+pub fn unit_swaps(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+) -> Option<BTreeMap<String, String>> {
+    use ti4_engine_core::generated::{Requirement, Unit};
+    let mut swaps = BTreeMap::new();
+    let Some(seat) = state.player(player) else {
+        return Some(swaps);
+    };
+    let faction = <Faction as IdStr>::from_id(seat.faction.as_str())?;
+    let owned = owned_set(seat)?;
+    let sc = scope(sources);
+    let roster = roster_for(content, sources)?;
+    // The upgrade owned and the faction's own version depend on the base type only.
+    let upgrade: Vec<Option<Unit>> = UnitBaseType::ALL.iter().map(|b| q::unlocked_upgrade(sc, *b, faction, &owned)).collect();
+    for kind in Unit::ALL {
+        let Some(d) = sc.unit(kind) else {
+            continue;
+        };
+        let base = d.base_type;
+        let own = if d.faction.is_none() && d.required_technology == Requirement::None { q::faction_unit(roster, faction, base) } else { None };
+        let chosen = upgrade[base as usize].or(own).unwrap_or(kind);
+        let chosen = overridden_form(state, content, sources, player, <UnitBaseType as IdStr>::as_str(base), <Unit as IdStr>::as_str(chosen));
+        if chosen.as_str() != <Unit as IdStr>::as_str(kind) {
+            swaps.insert(<Unit as IdStr>::as_str(kind).to_owned(), chosen.as_str().to_owned());
+        }
+    }
+    Some(swaps)
 }
