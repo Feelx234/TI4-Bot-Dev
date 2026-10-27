@@ -277,7 +277,7 @@ mod tests {
         assert!(exhaust_planet(&mut s, planet) && !exhaust_planet(&mut s, planet));
         assert!(ready_planet(&mut s, planet) && !ready_planet(&mut s, planet));
         assert_eq!(gain_victory_points(&mut s, Seat(0), 2, LedgerReason::Custodians), 2);
-        assert_eq!(gain_victory_points(&mut s, Seat(0), -1, LedgerReason::Imperial), 1);
+        assert_eq!(gain_victory_points(&mut s, Seat(0), -1, LedgerReason::ImperialPrimary), 1);
         assert_eq!(s.ledger().vp.len(), 2);
     }
 }

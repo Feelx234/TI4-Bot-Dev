@@ -10,6 +10,7 @@ use crate::choice::reaction::Relation;
 use crate::generated::{ActionCard, Timing, Unit};
 use crate::ids::Seat;
 use crate::kernel::Kernel;
+use crate::keys::prediction::Prediction;
 use crate::state::{CoreState, EventKind, EventRec, Key, Outcome, Phase, Val};
 
 /// Whether a printed window applies to a seat, given the event.
@@ -250,7 +251,11 @@ impl Guard {
                 let Some(outcome) = p.outcome(Key::Player) else { return false };
                 let a = s.agenda();
                 let voted_other = a.votes.get(&who).is_some_and(|v| *v != outcome);
-                let predicted_other = a.predictions.get(&who).is_some_and(|v| !matches!(v, crate::keys::Prediction::Plain(o) if *o == outcome));
+                let predicted_other = a.predictions.get(&who).is_some_and(|v| match v {
+                    Prediction::Plain(o) | Prediction::Tagged(o, _) => *o != outcome,
+                    // `none|<bar>`: the text before the bar is not the outcome.
+                    Prediction::Barred(_) => true,
+                });
                 voted_other || predicted_other
             }
             Self::TwoPlayersNotPassed => s.players().iter().filter(|pl| !pl.econ.passed).count() >= 2,
@@ -339,7 +344,7 @@ mod tests {
         s.agenda_mut().votes.insert(Seat(0), Outcome::Against);
         assert!(Guard::VotedOrPredictedAnother.holds(&resolving, Seat(0), &s, &k));
         s.agenda_mut().votes.insert(Seat(0), Outcome::For);
-        s.agenda_mut().predictions.insert(Seat(0), Outcome::Against);
+        s.agenda_mut().predictions.insert(Seat(0), Prediction::Plain(Outcome::Against));
         assert!(Guard::VotedOrPredictedAnother.holds(&resolving, Seat(0), &s, &k));
     }
 
