@@ -1179,6 +1179,33 @@ fn letnevcommander_2_a_sustain_in_a_space_combat_offers_a_trade_good_only_once_u
 }
 
 #[test]
+fn letnevcommander_2_the_sustain_offer_runs_as_a_core_window_in_lockstep() {
+    // The same combat with `driver=dual`: the string offer and the core `SustainCommander` window put the
+    // same question, take the same answer and leave the same state (docs/ENGINE_CORE_DRIVER.md).
+    use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+    let _guard = crate::dual::tests::serial();
+    let _ = take_report();
+    for (status, gain) in [(LeaderStatus::Locked, 0), (LeaderStatus::Unlocked, 1)] {
+        let mut state = seated_all(&[("a", "letnev"), ("b", "sol")]);
+        let system = open_system(0);
+        put(&mut state, &system, "dreadnought", &a(), 1);
+        put(&mut state, &system, "cruiser", &b(), 1);
+        set_leader(&mut state, &a(), "letnevcommander", status);
+        let before = state.player(&a()).unwrap().trade_goods;
+        let mask = AreaMask::STRING.with(Area::Driver, Backend::Dual);
+        let (state, _) = with_mask(mask, || {
+            space_combat(state, &system, &[10, 10, 10, 10, 10, 10], &["sustain", "gain"])
+        });
+        assert_eq!(state.player(&a()).unwrap().trade_goods, before + gain, "{status:?}");
+    }
+    let r = report();
+    let counts = &r.areas[&Area::Driver];
+    assert!(counts.calls >= 1, "the unlocked game was compared: {counts:?}");
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+    let _ = take_report();
+}
+
+#[test]
 fn nes_1_non_euclidean_shielding_one_sustain_cancels_two_hits_in_a_space_combat() {
     let ships_left_at = |version: u32, nes: bool| {
         let mut state = seated_all(&[("a", "letnev"), ("b", "sol")]);
