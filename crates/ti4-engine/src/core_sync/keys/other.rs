@@ -24,10 +24,10 @@ impl Codec {
             _ => {}
         }
         let kinds: &[AgendaElects] = match elects {
-            Some(AgendaElects::ForAgainst) => return None,
+            Some(AgendaElects::ForAgainst | AgendaElects::HiddenNextAgenda) => return None,
             Some(AgendaElects::Law) => &[AgendaElects::Law],
             Some(AgendaElects::Player) => &[AgendaElects::Player],
-            Some(AgendaElects::Planet | AgendaElects::NonHomePlanetOtherThanMecatolRex) => {
+            Some(AgendaElects::Planet | AgendaElects::NonHomeNonMecatolPlanet) => {
                 &[AgendaElects::Planet]
             }
             Some(AgendaElects::ScoredSecretObjective) => &[AgendaElects::ScoredSecretObjective],
@@ -42,7 +42,7 @@ impl Codec {
         };
         kinds.iter().find_map(|kind| match kind {
             AgendaElects::Player => self.owners.as_ref()?.seat(text).map(Outcome::Seat),
-            AgendaElects::Planet | AgendaElects::NonHomePlanetOtherThanMecatolRex => {
+            AgendaElects::Planet | AgendaElects::NonHomeNonMecatolPlanet => {
                 Planet::from_id(text).map(Outcome::Planet)
             }
             AgendaElects::StrategyCard => StrategyCard::from_id(text).map(Outcome::StrategyCard),
@@ -50,7 +50,7 @@ impl Codec {
             AgendaElects::ScoredSecretObjective => {
                 SecretObjective::from_id(text).map(Outcome::Secret)
             }
-            AgendaElects::ForAgainst => None,
+            AgendaElects::ForAgainst | AgendaElects::HiddenNextAgenda => None,
         })
     }
 
