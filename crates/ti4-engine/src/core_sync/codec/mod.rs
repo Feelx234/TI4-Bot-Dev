@@ -26,7 +26,7 @@ pub mod rng;
 mod seats;
 mod strategy;
 mod trade;
-mod transient;
+pub(crate) mod transient;
 
 /// What a load reads besides the `GameState`: the string galaxy (the map slice) and the stream
 /// positions of the game's random source (the rng slice). Both live outside `GameState`.

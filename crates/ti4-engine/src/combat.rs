@@ -1408,7 +1408,7 @@ fn gravleash_maneuvers(
 
 
 /// Dual check of the rolls just made by the fleet loop: the typed roll from the stream positions
-/// before them must record the same faces and leave the streams where they stand.
+/// before them must leave the same dice history and the streams where they stand.
 #[allow(clippy::too_many_arguments)]
 fn check_fleet_rolls(
     state: &GameState,
@@ -1422,26 +1422,85 @@ fn check_fleet_rolls(
     system: &SystemId,
 ) {
     let Some(before) = before else { return };
+    let rows: Vec<crate::core_combat::DiceRow> =
+        dice.history()[start..].iter().map(crate::core_combat::dice_row).collect();
+    let scene = dice.history().get(start).and_then(|r| r.system.clone());
     #[cfg(feature = "typed-core")]
     let typed = || {
         if dice.is_preloaded() {
             return None;
         }
-        crate::core_combat::CombatView::of(state, content, sources)?.roll_fleet(rng.seed(), before, player, system)
+        crate::core_combat::CombatView::of(state, content, sources)?.roll_fleet(
+            rng.seed(),
+            before,
+            player,
+            system,
+            scene.as_deref(),
+        )
     };
     #[cfg(not(feature = "typed-core"))]
-    let typed = || None::<(Vec<(u32, Vec<u32>)>, crate::rng::RngPositions)>;
+    let typed = || None::<(Vec<crate::core_combat::DiceRow>, crate::rng::RngPositions)>;
     let after = rng.positions();
-    let seen = || {
-        let n = typed().map_or(0, |t| t.0.len());
-        let rows: Vec<(u32, Vec<u32>)> = dice.history()[start..]
-            .iter()
-            .take(n)
-            .map(|r| (r.hits_on.unwrap_or(0), r.faces.clone()))
-            .collect();
-        (rows, after)
-    };
-    let _ = crate::dual::run_dual_typed(crate::dual::Area::Combat, "combat::roll_fleet", typed, seen);
+    let _ = crate::dual::run_dual_typed(crate::dual::Area::Combat, "combat::roll_fleet", typed, || (rows, after));
+}
+
+/// The `Core` backend of the fleet's rolls: the typed rules draw them, and the dice history and the
+/// streams take the result (the string loop is not run). `None` when the string loop must run: another
+/// backend, a pending stream restore, test faces, or something the core does not map.
+///
+/// Returns each group's final roll as (hit number, faces): the reroll's when there was one.
+fn core_fleet_rolls(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    dice: &mut Dice,
+    rng: &mut GameRng,
+    player: &PlayerId,
+    system: &SystemId,
+) -> Option<Vec<(u32, Vec<u32>)>> {
+    if crate::dual::backend(crate::dual::Area::Combat) != crate::dual::Backend::Core
+        || rng.sync_pending()
+        || dice.is_preloaded()
+    {
+        return None;
+    }
+    #[cfg(feature = "typed-core")]
+    {
+        let positions = rng.positions();
+        let (rolls, after) = crate::core_combat::CombatView::of(state, content, sources)?.roll_fleet_raw(
+            rng.seed(),
+            &positions,
+            player,
+            system,
+        )?;
+        let mut finals: Vec<(u32, Vec<u32>)> = Vec::new();
+        for roll in rolls {
+            rng.observe_randomness();
+            let reroll = !roll.rerolled.is_empty();
+            let reason = if reroll { format!("munitions:{player}") } else { "space combat".to_owned() };
+            dice.record_drawn(
+                &reason,
+                roll.faces.clone(),
+                Some(roll.hits_on),
+                roll.rerolled.iter().map(|i| *i as usize).collect(),
+                player,
+            );
+            if reroll {
+                if let Some(last) = finals.last_mut() {
+                    last.1 = roll.faces;
+                }
+            } else {
+                finals.push((roll.hits_on, roll.faces));
+            }
+        }
+        rng.set_positions(&after);
+        Some(finals)
+    }
+    #[cfg(not(feature = "typed-core"))]
+    {
+        let _ = (state, content, sources, system);
+        None
+    }
 }
 
 /// The stream positions to check a roll against, only when the combat area is on `Dual`.
@@ -1463,6 +1522,9 @@ pub fn roll_fleet(
     player: &PlayerId,
     system: &SystemId,
 ) -> usize {
+    if let Some(groups) = core_fleet_rolls(state, content, sources, dice, rng, player, system) {
+        return groups.iter().map(|(on, faces)| faces.iter().filter(|f| **f >= *on).count()).sum();
+    }
     let (before, start) = (dual_positions(rng), dice.history().len());
     let mut hits = 0;
     for ((value, _), group) in fleet_groups(state, content, sources, player, system) {
@@ -1510,6 +1572,8 @@ pub fn roll_fleet_and_open_staged(
         system: system.clone(),
         rolls: Vec::new(),
     };
+    let mut drawn =
+        core_fleet_rolls(state, content, sources, ctx.dice, ctx.rng, player, system).map(Vec::into_iter);
     let (before, start) = (dual_positions(ctx.rng), ctx.dice.history().len());
     let mut hits = 0;
     for ((value, _), group) in fleet_groups(state, content, sources, player, system) {
@@ -1518,10 +1582,24 @@ pub fn roll_fleet_and_open_staged(
             continue;
         }
         let threshold = u32::try_from(value).unwrap_or(u32::MAX);
-        let roll = ctx
-            .dice
-            .roll_by(ctx.rng, dice_count, "space combat", Some(threshold), player);
-        let roll = reroll_munitions_misses(state, ctx.dice, ctx.rng, player, &roll);
+        let roll = if let Some(drawn) = drawn.as_mut() {
+            let (hits_on, faces) = drawn.next().expect("the typed rolls follow the string groups");
+            crate::dice::Roll {
+                reason: "space combat".to_owned(),
+                faces,
+                hits_on: Some(hits_on),
+                rerolled: std::collections::BTreeSet::new(),
+                by: Some(player.to_string()),
+                system: None,
+                outcome: None,
+                source: None,
+            }
+        } else {
+            let roll = ctx
+                .dice
+                .roll_by(ctx.rng, dice_count, "space combat", Some(threshold), player);
+            reroll_munitions_misses(state, ctx.dice, ctx.rng, player, &roll)
+        };
         hits += roll.hits();
         set.rolls.push(RerollEntry {
             unit: group.types.keys().cloned().collect::<Vec<_>>().join("+"),
@@ -2741,6 +2819,31 @@ fn sustains_in_space(
     kind: &UnitType,
     in_combat: bool,
 ) -> bool {
+    #[cfg(feature = "typed-core")]
+    let typed = || {
+        crate::core_combat::CombatView::of(state, content, sources)?.sustains_in_space(system, player, unit, in_combat)
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Combat,
+        "combat::sustains_in_space",
+        typed(),
+        sustains_in_space_text(state, content, sources, system, player, unit, kind, in_combat)
+    )
+}
+
+#[allow(clippy::too_many_arguments, reason = "the string side of `sustains_in_space`")]
+fn sustains_in_space_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    system: &SystemId,
+    player: &PlayerId,
+    unit: &Unit,
+    kind: &UnitType,
+    in_combat: bool,
+) -> bool {
     &unit.owner == player
         && !unit.sustained_damage
         // Publicize Weapon Schematics: all war suns lose SUSTAIN DAMAGE. Asked of the unit here
@@ -2794,6 +2897,37 @@ fn assignable_to_hit(
     planet: Option<&ti4_model::id::PlanetId>,
     origin: HitOrigin,
 ) -> bool {
+    #[cfg(feature = "typed-core")]
+    let typed = || {
+        crate::core_combat::CombatView::of(state, content, sources)?.assignable_to_hit(
+            player,
+            system,
+            unit.type_id.as_str(),
+            planet,
+            origin == HitOrigin::UnitAbility,
+        )
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Combat,
+        "combat::assignable_to_hit",
+        typed(),
+        assignable_to_hit_text(state, content, sources, player, system, unit, planet, origin)
+    )
+}
+
+#[allow(clippy::too_many_arguments, reason = "the string side of `assignable_to_hit`")]
+fn assignable_to_hit_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    unit: &Unit,
+    planet: Option<&ti4_model::id::PlanetId>,
+    origin: HitOrigin,
+) -> bool {
     origin != HitOrigin::UnitAbility
         || !crate::factions::hooks_combat::ability_hit_immune(
             state,
@@ -2825,6 +2959,31 @@ fn sustainer_counts(
     in_combat: bool,
     available: &[(String, Unit)],
 ) -> serde_json::Value {
+    #[cfg(feature = "typed-core")]
+    let typed = || {
+        crate::core_combat::CombatView::of(state, content, sources)?
+            .sustainer_counts(system, player, in_combat, available)
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    let counts = crate::dual_typed!(
+        crate::dual::Area::Combat,
+        "combat::sustainer_counts",
+        typed(),
+        sustainer_counts_text(state, content, sources, system, player, in_combat, available)
+    );
+    serde_json::to_value(counts).unwrap_or(serde_json::Value::Null)
+}
+
+fn sustainer_counts_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    system: &SystemId,
+    player: &PlayerId,
+    in_combat: bool,
+    available: &[(String, Unit)],
+) -> std::collections::BTreeMap<String, u64> {
     let types = catalogue(content, sources);
     let mut counts: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
     for (_, unit) in available {
@@ -2859,7 +3018,7 @@ fn sustainer_counts(
         }
         *count = used.max(1);
     }
-    serde_json::to_value(counts).unwrap_or(serde_json::Value::Null)
+    counts
 }
 
 /// Offer every available SUSTAIN DAMAGE until the hits run out or the player takes them.
@@ -3660,6 +3819,19 @@ fn emit_sustain_used(
 /// treated as hittable, the card's printed default.
 #[must_use]
 pub fn direct_hittable(content: &ContentStore, sources: SourceSet, unit: &str) -> bool {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::core_combat::direct_hittable(sources, unit);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Combat,
+        "combat::direct_hittable",
+        typed(),
+        direct_hittable_text(content, sources, unit)
+    )
+}
+
+fn direct_hittable_text(content: &ContentStore, sources: SourceSet, unit: &str) -> bool {
     catalogue(content, sources)
         .get(unit)
         .is_none_or(ti4_content::units::UnitType::can_be_direct_hit)
@@ -3675,6 +3847,26 @@ pub fn direct_hittable(content: &ContentStore, sources: SourceSet, unit: &str) -
 /// in `plans/evidence/BF-00c-space.md`.
 #[must_use]
 pub fn direct_hittable_at(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    unit: &str,
+) -> bool {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::core_combat::CombatView::of(state, content, sources)?.direct_hittable_at(player, system, unit);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Combat,
+        "combat::direct_hittable_at",
+        typed(),
+        direct_hittable_at_text(state, content, sources, player, system, unit)
+    )
+}
+
+fn direct_hittable_at_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -5482,6 +5674,18 @@ impl CombatWindow {
             (defender_free + defender_forced) as u32,
         );
 
+        #[cfg(feature = "typed-core")]
+        let typed = || {
+            crate::core_combat::CombatView::of(state, content, sources)?
+                .round_dice([(&self.attacker, &sets[0]), (&self.defender, &sets[1])])
+        };
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None;
+        let round_dice = crate::dual_typed!(
+            crate::dual::Area::Combat,
+            "combat::round_dice",
+            typed(),
+            {
         let mut round_dice = Vec::new();
         for (side, set) in [(&self.attacker, &sets[0]), (&self.defender, &sets[1])] {
             if let Some(s) = set {
@@ -5502,6 +5706,9 @@ impl CombatWindow {
                 }
             }
         }
+        round_dice
+            }
+        );
         state.combat_round_dice = round_dice;
 
         // Forced hits first, so a free hit can still take a fighter the forced ones had to spare.

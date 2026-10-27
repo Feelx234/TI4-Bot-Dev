@@ -37,6 +37,7 @@ pub const READS: SliceSet = SliceSet::of(&[
     Slice::Transient,
     Slice::Marks,
     Slice::Agenda,
+    Slice::Cards,
 ]);
 
 fn typed<T: IdStr>(id: &str) -> Option<T> {
@@ -154,6 +155,11 @@ impl Faction for Strs<'_> {
         Some(Borrowed { unit: piece, hits_on: b.hits_on, barrage: b.barrage })
     }
 
+    fn may_sustain_modules(&self, _: &CoreState, unit: CombatUnit) -> bool {
+        self.with_unit(unit, |cu| crate::factions::hooks_combat::may_sustain(self.gs, self.content, self.sources, cu))
+            .unwrap_or(true)
+    }
+
     fn bastion_extra_die(&self, _: &CoreState, piece: Piece) -> i64 {
         i64::try_from(crate::factions::bastion::extra_die(&self.str_unit(piece))).unwrap_or(0)
     }
@@ -198,6 +204,7 @@ pub struct CombatView<'g> {
     gs: &'g GameState,
     content: &'g ContentStore,
     sources: SourceSet,
+    blanked: bool,
 }
 
 impl<'g> CombatView<'g> {
@@ -208,8 +215,9 @@ impl<'g> CombatView<'g> {
         let view = CoreView::of(gs, &mut cx, Sources { galaxy: None, rng: None }, READS).ok()?;
         let scope = crate::core_adapter::scope(sources);
         let mut kernel = Kernel::plain();
+        cc::register_naaz_nomad(&mut kernel.hooks);
         kernel.sources = CoreSources(u8::try_from(scope.0).ok()?);
-        Some(Self { view, cx, kernel, gs, content, sources })
+        Some(Self { view, cx, kernel, gs, content, sources, blanked: crate::laws::blanked(gs) })
     }
 
     fn strs(&self) -> Strs<'_> {
@@ -244,7 +252,7 @@ impl<'g> CombatView<'g> {
     /// Run `f` with the read bundle.
     fn with<R>(&self, f: impl FnOnce(Rd<'_>) -> R) -> R {
         let strs = self.strs();
-        f(Rd::new(&self.view, &self.kernel, &strs))
+        f(Rd::new(&self.view, &self.kernel, &strs).with_blanked(self.blanked))
     }
 
     /// `combat::combatants`.
@@ -268,16 +276,16 @@ impl<'g> CombatView<'g> {
         Some(self.with(|rd| cc::effective_hits_on(rd, seat, piece)))
     }
 
-    /// `combat::roll_fleet` from the dice stream standing at `positions`: the history entries it records
-    /// and where the streams stand afterwards.
+    /// `combat::roll_fleet` from the dice stream standing at `positions`: the entries it records (faces,
+    /// munitions rerolls) and where the streams stand afterwards.
     #[must_use]
-    pub fn roll_fleet(
+    pub fn roll_fleet_raw(
         &mut self,
         seed: u64,
         positions: &crate::rng::RngPositions,
         player: &PlayerId,
         system: &SystemId,
-    ) -> Option<(Vec<FleetRollRow>, crate::rng::RngPositions)> {
+    ) -> Option<(Vec<cc::FleetRoll>, crate::rng::RngPositions)> {
         use ti4_engine_core::state::{Rng as CoreRng, RngDomain, SeedSource};
         let (seat, sys) = (self.seat(player)?, typed::<System>(system.as_str())?);
         let mut typed_pos: Vec<(RngDomain, u128)> = Vec::new();
@@ -289,7 +297,114 @@ impl<'g> CombatView<'g> {
         rng.set_positions(&typed_pos, &seeds as &dyn SeedSource);
         let rolls = self.with(|rd| cc::roll_fleet(rd, &mut rng, &seeds, seat, sys));
         let after = crate::core_sync::codec::rng::positions(&self.cx, &rng).ok()?;
-        Some((rolls.into_iter().map(|r| (r.hits_on, r.faces)).collect(), after))
+        Some((rolls, after))
+    }
+
+    /// [`Self::roll_fleet_raw`] as the dice history it leaves: each entry as the dual compares it
+    /// (`scene`: the system the host stamps on every roll).
+    #[must_use]
+    pub fn roll_fleet(
+        &mut self,
+        seed: u64,
+        positions: &crate::rng::RngPositions,
+        player: &PlayerId,
+        system: &SystemId,
+        scene: Option<&str>,
+    ) -> Option<(Vec<DiceRow>, crate::rng::RngPositions)> {
+        let seat = self.seat(player)?;
+        let scene = match scene {
+            Some(s) => Some(typed::<System>(s)?),
+            None => None,
+        };
+        let (rolls, after) = self.roll_fleet_raw(seed, positions, player, system)?;
+        let mut ledger = ti4_engine_core::state::Ledger::default();
+        cc::record_fleet_rolls(&mut ledger, seat, scene, &rolls);
+        let rows = ledger
+            .dice
+            .iter()
+            .map(|r| {
+                (
+                    purpose_code(r.purpose),
+                    r.owner.and_then(|o| self.cx.owners.id(o)).map(str::to_owned),
+                    r.scene.map(|s| s.as_str().to_owned()),
+                    r.hits_on.map(u32::from),
+                    r.faces.iter().map(|f| u32::from(*f)).collect(),
+                    (0..64_usize).filter(|i| r.rerolled & (1 << i) != 0).collect(),
+                )
+            })
+            .collect();
+        Some((rows, after))
+    }
+
+    /// `combat_round_dice` of the staged sets of the two sides (the attacker's first).
+    #[must_use]
+    pub fn round_dice(
+        &mut self,
+        sides: [(&PlayerId, &Option<ti4_model::state::RerollSet>); 2],
+    ) -> Option<Vec<ti4_model::state::CombatRollRecord>> {
+        use crate::core_sync::codec::transient as tc;
+        let mut sets = Vec::with_capacity(2);
+        for (player, set) in sides {
+            let seat = self.seat(player)?;
+            let set = match set {
+                Some(s) => Some(tc::reroll_set(&mut self.cx, s).ok()?),
+                None => None,
+            };
+            sets.push((seat, set));
+        }
+        let args: Vec<_> = sets.iter().map(|(seat, set)| (*seat, set.as_ref())).collect();
+        let dice = cc::round_dice(&args);
+        dice.iter().map(|d| tc::die_back(&self.cx, d).ok()).collect()
+    }
+
+    /// `combat::sustains_in_space`.
+    #[must_use]
+    pub fn sustains_in_space(&self, system: &SystemId, player: &PlayerId, unit: &StrUnit, in_combat: bool) -> Option<bool> {
+        let (sys, seat, piece) = (typed::<System>(system.as_str())?, self.seat(player)?, self.piece(unit)?);
+        Some(self.with(|rd| cc::sustains_in_space(rd, sys, seat, piece, in_combat)))
+    }
+
+    /// `combat::assignable_to_hit` (`ability`: the hit is a unit ability's).
+    #[must_use]
+    pub fn assignable_to_hit(
+        &self,
+        player: &PlayerId,
+        system: &SystemId,
+        unit_type: &str,
+        planet: Option<&PlanetId>,
+        ability: bool,
+    ) -> Option<bool> {
+        let (sys, seat, unit) = (typed::<System>(system.as_str())?, self.seat(player)?, typed::<Unit>(unit_type)?);
+        let planet = match planet {
+            Some(p) => Some(typed::<Planet>(p.as_str())?),
+            None => None,
+        };
+        Some(self.with(|rd| cc::assignable_to_hit(rd, seat, sys, unit, planet, ability)))
+    }
+
+    /// `combat::sustainer_counts`.
+    #[must_use]
+    pub fn sustainer_counts(
+        &self,
+        system: &SystemId,
+        player: &PlayerId,
+        in_combat: bool,
+        available: &[(String, StrUnit)],
+    ) -> Option<std::collections::BTreeMap<String, u64>> {
+        let (sys, seat) = (typed::<System>(system.as_str())?, self.seat(player)?);
+        let mut pieces = Vec::with_capacity(available.len());
+        for (location, unit) in available {
+            pieces.push((location.starts_with("planet:"), self.piece(unit)?));
+        }
+        let counts = self.with(|rd| cc::sustainer_counts(rd, sys, seat, in_combat, &pieces));
+        Some(counts.into_iter().map(|(u, n)| (u.as_str().to_owned(), n)).collect())
+    }
+
+    /// `combat::direct_hittable_at`.
+    #[must_use]
+    pub fn direct_hittable_at(&self, player: &PlayerId, system: &SystemId, unit: &str) -> Option<bool> {
+        let (sys, seat, unit) = (typed::<System>(system.as_str())?, self.seat(player)?, typed::<Unit>(unit)?);
+        Some(self.with(|rd| cc::direct_hittable_at(rd, seat, sys, unit)))
     }
 
     /// `combat::fleet_groups`, flattened: (hit number, tag, dice, [(unit type, count)]).
@@ -310,5 +425,35 @@ impl<'g> CombatView<'g> {
 /// One pooled roll group as the dual compares it: hit number, roll tag, dice, unit types with counts.
 pub type FleetGroupRow = (i64, u8, i64, Vec<(String, u32)>);
 
-/// One recorded roll as the dual compares it: hit number and faces.
-pub type FleetRollRow = (u32, Vec<u32>);
+/// One dice-history entry as the dual compares it: purpose, the seat whose dice, the scene system, the
+/// hit number, the faces and the dice a reroll replaced.
+pub type DiceRow = (u8, Option<String>, Option<String>, Option<u32>, Vec<u32>, std::collections::BTreeSet<usize>);
+
+fn purpose_code(p: ti4_engine_core::state::RollPurpose) -> u8 {
+    use ti4_engine_core::state::RollPurpose as P;
+    match p {
+        P::SpaceCombat => 0,
+        P::Reroll => 5,
+        _ => 255,
+    }
+}
+
+/// A string dice-history entry as the dual compares it.
+#[must_use]
+pub fn dice_row(r: &crate::dice::Roll) -> DiceRow {
+    let purpose = if r.reason == "space combat" {
+        0
+    } else if r.reason.starts_with("munitions:") {
+        5
+    } else {
+        255
+    };
+    (purpose, r.by.clone(), r.system.clone(), r.hits_on, r.faces.clone(), r.rerolled.clone())
+}
+
+/// `combat::direct_hittable`: the printed rule over the game's source scope.
+#[must_use]
+pub fn direct_hittable(sources: SourceSet, unit: &str) -> Option<bool> {
+    let scope = crate::core_adapter::scope(sources);
+    Some(cc::direct_hittable(scope, typed::<Unit>(unit)?))
+}

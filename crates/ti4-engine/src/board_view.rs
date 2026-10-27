@@ -300,6 +300,19 @@ impl BoardView {
         Some(query::laws::active(&self.view, self.blanked, Self::law(alias)?))
     }
 
+    /// `laws::sustain_suppressed`.
+    #[must_use]
+    pub fn sustain_suppressed(&self, base_type: &str) -> Option<bool> {
+        let base = typed::<ti4_engine_core::generated::UnitBaseType>(base_type)?;
+        Some(ti4_engine_core::rules::combat::sustain_suppressed(&self.view, self.blanked, base))
+    }
+
+    /// `relics::grants_sustain`.
+    #[must_use]
+    pub fn relic_grants_sustain(&self, player: &PlayerId) -> Option<bool> {
+        Some(ti4_engine_core::rules::combat::relic_grants_sustain(&self.view, self.seat(player)?))
+    }
+
     /// `laws::holds_ministry`.
     #[must_use]
     pub fn holds_ministry(&self, player: &PlayerId, alias: &str) -> Option<bool> {

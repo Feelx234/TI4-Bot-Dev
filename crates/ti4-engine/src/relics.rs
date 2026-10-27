@@ -119,7 +119,16 @@ pub fn substitutes_strategy_token(state: &GameState, player: &PlayerId) -> bool 
 /// a dreadnought already sustains, and this must not give it a second one.
 #[must_use]
 pub fn grants_sustain(state: &GameState, player: &PlayerId) -> bool {
-    holds(state, player, &RelicId::new("metalivoidshielding"))
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::board_view::BoardView::light(state).and_then(|v| v.relic_grants_sustain(player));
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Combat,
+        "relics::grants_sustain",
+        typed(),
+        holds(state, player, &RelicId::new("metalivoidshielding"))
+    )
 }
 
 /// Metali Void Armaments: ANTI-FIGHTER BARRAGE 6 (x3) during the barrage step.

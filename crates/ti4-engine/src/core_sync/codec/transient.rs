@@ -60,11 +60,11 @@ fn seat_counts_usize_back(cx: &Ctx, m: &SortedMap<Seat, u32, 4>) -> R<std::colle
     m.iter().map(|(k, v)| Ok((PlayerId::new(cx.owner(S, *k)?), *v as usize))).collect()
 }
 
-fn die(cx: &mut Ctx, r: &m::CombatRollRecord) -> R<c::CombatDie> {
+pub(crate) fn die(cx: &mut Ctx, r: &m::CombatRollRecord) -> R<c::CombatDie> {
     Ok(c::CombatDie { player: cx.seat(S, r.player.as_str())?, unit: cx.texts.intern(S, &r.unit)?, roll: r.roll, target: r.target, hit: r.hit })
 }
 
-fn die_back(cx: &Ctx, d: &c::CombatDie) -> R<m::CombatRollRecord> {
+pub(crate) fn die_back(cx: &Ctx, d: &c::CombatDie) -> R<m::CombatRollRecord> {
     Ok(m::CombatRollRecord {
         player: PlayerId::new(cx.owner(S, d.player)?),
         unit: cx.texts.text(S, d.unit)?.to_owned(),
@@ -74,7 +74,7 @@ fn die_back(cx: &Ctx, d: &c::CombatDie) -> R<m::CombatRollRecord> {
     })
 }
 
-fn reroll_set(cx: &mut Ctx, r: &m::RerollSet) -> R<c::RerollSet> {
+pub(crate) fn reroll_set(cx: &mut Ctx, r: &m::RerollSet) -> R<c::RerollSet> {
     let mut rolls = Vec::with_capacity(r.rolls.len());
     for e in &r.rolls {
         let mut rerolled = 0u64;
@@ -105,7 +105,7 @@ fn reroll_set(cx: &mut Ctx, r: &m::RerollSet) -> R<c::RerollSet> {
     Ok(c::RerollSet { kind: cx.texts.intern(S, &r.kind)?, system: sys(&r.system)?, rolls })
 }
 
-fn reroll_set_back(cx: &Ctx, r: &c::RerollSet) -> R<m::RerollSet> {
+pub(crate) fn reroll_set_back(cx: &Ctx, r: &c::RerollSet) -> R<m::RerollSet> {
     let mut rolls = Vec::with_capacity(r.rolls.len());
     for e in &r.rolls {
         rolls.push(m::RerollEntry {

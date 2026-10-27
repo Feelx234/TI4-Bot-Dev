@@ -16,7 +16,12 @@
 use crate::containers::{SmallList, SortedMap};
 use crate::generated::{Breakthrough, Planet, System, Unit, UnitBaseType};
 use crate::ids::Seat;
-use crate::kernel::hooks::{CombatCtx, CombatUnit};
+use crate::generated::{Agenda, Relic};
+use crate::kernel::hooks::{CombatCtx, CombatUnit, HookTable};
+use crate::keys::atom::Atom;
+use crate::keys::{MarkKey, MarkVal};
+use crate::query::laws as qlaws;
+use crate::state::{CombatDie, Ledger, NoteKey, RerollSet, RollPurpose, RollRec};
 use crate::kernel::Kernel;
 use crate::query::board as qboard;
 use crate::state::{CoreState, Piece, RoundKind};
@@ -83,6 +88,9 @@ pub trait Faction {
     fn unit_dice(&self, s: &CoreState, unit: CombatUnit, dice: i64) -> i64;
     /// `hooks_combat::borrowed_stats`.
     fn borrowed_stats(&self, s: &CoreState, who: Seat, system: System) -> Option<Borrowed>;
+    /// `hooks_combat::may_sustain` for the modules the core does not carry (Crimson's breach rule,
+    /// Mentak's flagship and mech); true when none forbids it.
+    fn may_sustain_modules(&self, s: &CoreState, unit: CombatUnit) -> bool;
     /// `bastion::extra_die`: a galvanized unit rolls one more die.
     fn bastion_extra_die(&self, s: &CoreState, piece: Piece) -> i64;
     /// `borrowed_round_agents::extra_die_for`.
@@ -128,6 +136,9 @@ impl Faction for KernelFaction<'_> {
         let piece = s.board().sys(system).units.iter().find(|p| p.owner() == who && p.kind() == b.unit).copied()?;
         Some(Borrowed { unit: piece, hits_on: b.hits_on.map(i64::from), barrage: b.barrage.map(|(v, d)| (i64::from(v), i64::from(d))) })
     }
+    fn may_sustain_modules(&self, _: &CoreState, _: CombatUnit) -> bool {
+        true
+    }
     fn bastion_extra_die(&self, s: &CoreState, piece: Piece) -> i64 {
         self.0.hooks.direct.bastion_extra_die(s, piece) as i64
     }
@@ -151,12 +162,27 @@ pub struct Rd<'a> {
     pub s: &'a CoreState,
     pub k: &'a Kernel,
     pub f: &'a dyn Faction,
+    /// Law's Order: every law is blank this turn (`laws::blanked`; the caller computes it).
+    pub blanked: bool,
 }
 
 impl<'a> Rd<'a> {
     #[must_use]
     pub fn new(s: &'a CoreState, k: &'a Kernel, f: &'a dyn Faction) -> Self {
-        Self { s, k, f }
+        Self { s, k, f, blanked: false }
+    }
+
+    /// The same read with laws blank or not.
+    #[must_use]
+    pub fn with_blanked(mut self, blanked: bool) -> Self {
+        self.blanked = blanked;
+        self
+    }
+
+    /// The same read over another state (a played-out copy).
+    #[must_use]
+    pub fn over(self, s: &'a CoreState) -> Self {
+        Self { s, ..self }
     }
 
     /// The source scope as the tables read it.
@@ -453,6 +479,8 @@ fn gravleash_maneuvers(rd: Rd<'_>, player: Seat, system: System, contributions: 
 pub struct FleetRoll {
     pub hits_on: u32,
     pub faces: Vec<u32>,
+    /// The dice a munitions reroll replaced (empty for the roll itself).
+    pub rerolled: Vec<u32>,
 }
 
 /// The ten-sided die of `dice::SIDES`.
@@ -480,13 +508,208 @@ pub fn roll_fleet(
         let hits_on = u32::try_from(value).unwrap_or(u32::MAX);
         let faces: Vec<u32> = (0..count).map(|_| rng.die(RngDomain::Dice, seeds, DIE_SIDES)).collect();
         let misses: Vec<usize> = faces.iter().enumerate().filter(|(_, f)| **f < hits_on).map(|(i, _)| i).collect();
-        out.push(FleetRoll { hits_on, faces: faces.clone() });
+        out.push(FleetRoll { hits_on, faces: faces.clone(), rerolled: Vec::new() });
         if munitions && !misses.is_empty() {
             let mut again = faces;
+            let rerolled = misses.iter().map(|i| *i as u32).collect();
             for i in misses {
                 again[i] = rng.die(RngDomain::Dice, seeds, DIE_SIDES);
             }
-            out.push(FleetRoll { hits_on, faces: again });
+            out.push(FleetRoll { hits_on, faces: again, rerolled });
+        }
+    }
+    out
+}
+
+// -- sustain damage and hit assignment (LRR 87, 78.4) -------------------------------------------
+
+/// `laws::sustain_suppressed`: Publicize Weapon Schematics takes SUSTAIN DAMAGE from all war suns.
+#[must_use]
+pub fn sustain_suppressed(s: &CoreState, blanked: bool, base: UnitBaseType) -> bool {
+    base == UnitBaseType::Warsun && qlaws::active(s, blanked, Agenda::PublicizeWeaponSchematics)
+}
+
+/// `relics::grants_sustain`: Metali Void Shielding.
+#[must_use]
+pub fn relic_grants_sustain(s: &CoreState, seat: Seat) -> bool {
+    s.players().by_seat(seat).is_some_and(|p| p.cards.relics.contains(&Relic::MetaliVoidShielding))
+}
+
+/// A ship of its own accord: a ship with SUSTAIN DAMAGE, or any non-fighter ship under Metali Void
+/// Shielding.
+fn sustains_by_itself(rd: Rd<'_>, seat: Seat, unit: Unit) -> bool {
+    rd.is_ship(unit)
+        && (rd.data(unit).is_some_and(|d| d.sustain_damage) || (relic_grants_sustain(rd.s, seat) && !rd.is_fighter(unit)))
+}
+
+/// `combat::sustains_in_space`: whether this unit may use SUSTAIN DAMAGE against a hit in space.
+/// `in_combat` is whether the hit is part of a space combat rather than a SPACE CANNON OFFENSE hit.
+#[must_use]
+pub fn sustains_in_space(rd: Rd<'_>, system: System, player: Seat, unit: Piece, in_combat: bool) -> bool {
+    let Some(data) = rd.data(unit.kind()) else { return false };
+    let cu = |ctx| CombatUnit { owner: player, system: Some(system), planet: None, unit: unit.kind(), ctx };
+    unit.owner() == player
+        && !unit.sustained()
+        && !sustain_suppressed(rd.s, rd.blanked, data.base_type)
+        && (sustains_by_itself(rd, player, unit.kind())
+            // The string context "space_cannon" (a SPACE CANNON OFFENSE hit) has no `CombatCtx`: no
+            // module grants the ability there, so the slot is asked for combat hits only.
+            || (in_combat && rd.k.hooks.combat.grants_sustain(rd.s, rd.k, cu(CombatCtx::Space))))
+        && rd.k.hooks.combat.may_sustain(rd.s, rd.k, cu(CombatCtx::Space))
+        && rd.f.may_sustain_modules(rd.s, cu(CombatCtx::Space))
+}
+
+/// `combat::assignable_to_hit`: a hit of a unit ability cannot be assigned to a unit that is immune to
+/// them (Naaz Eidolon Maximum).
+#[must_use]
+pub fn assignable_to_hit(rd: Rd<'_>, player: Seat, system: System, unit: Unit, planet: Option<Planet>, ability: bool) -> bool {
+    !ability
+        || !rd.k.hooks.combat.ability_hit_immune(
+            rd.s,
+            rd.k,
+            CombatUnit { owner: player, system: Some(system), planet, unit, ctx: CombatCtx::Space },
+        )
+}
+
+/// `combat::sustainer_counts`: how many sustains of each unit type the seat can use in a row, in
+/// unit-type order. `available` is every candidate as (stands on a planet, unit).
+#[must_use]
+pub fn sustainer_counts(
+    rd: Rd<'_>,
+    system: System,
+    player: Seat,
+    in_combat: bool,
+    available: &[(bool, Piece)],
+) -> Vec<(Unit, u64)> {
+    let mut counts: Vec<(Unit, u64)> = Vec::new();
+    for (_, piece) in available {
+        match counts.iter_mut().find(|(u, _)| *u == piece.kind()) {
+            Some((_, n)) => *n += 1,
+            None => counts.push((piece.kind(), 1)),
+        }
+    }
+    for (kind, count) in &mut counts {
+        if rd.data(*kind).is_none() {
+            continue;
+        }
+        let in_space = available.iter().filter(|(_, p)| p.kind() == *kind).all(|(planet, _)| !planet);
+        if *count < 2 || sustains_by_itself(rd, player, *kind) || !in_space {
+            continue;
+        }
+        let mut played = rd.s.clone();
+        let mut used = 0_u64;
+        loop {
+            let at = played.board().sys(system).units.iter().position(|p| {
+                p.kind() == *kind && sustains_in_space(rd.over(&played), system, player, *p, in_combat)
+            });
+            let Some(at) = at else { break };
+            let cell = played.board_mut().sys_mut(system);
+            cell.units.as_mut_slice()[at] = cell.units.as_slice()[at].with_sustained(true);
+            used += 1;
+        }
+        *count = used.max(1);
+    }
+    counts
+}
+
+/// `combat::direct_hittable`: the printed rule (a unit the corpus does not know is hittable).
+#[must_use]
+pub fn direct_hittable(scope: Scope, unit: Unit) -> bool {
+    scope.unit(unit).is_none_or(|d| d.can_be_direct_hit)
+}
+
+/// `combat::direct_hittable_at`: the printed rule and no module's immunity.
+#[must_use]
+pub fn direct_hittable_at(rd: Rd<'_>, player: Seat, system: System, unit: Unit) -> bool {
+    direct_hittable(rd.scope(), unit)
+        && !rd.k.hooks.combat.direct_hit_immune(
+            rd.s,
+            rd.k,
+            CombatUnit { owner: player, system: Some(system), planet: None, unit, ctx: CombatCtx::Space },
+        )
+}
+
+// -- the Naaz and Nomad hooks -------------------------------------------------------------------
+
+/// Naaz: the Eidolon Maximum cannot be assigned hits from unit abilities (`naaz::ability_hit_immune`).
+#[must_use]
+pub fn naaz_ability_hit_immune(_: &CoreState, _: &Kernel, unit: CombatUnit) -> bool {
+    unit.unit == Unit::EidolonMaximum
+}
+
+/// The ship type `holder` chose for The Cavalry in the combat in `system`, while the note is face up
+/// with them (`nomad_agents::cavalry_ship_type`).
+fn cavalry_ship_type(s: &CoreState, holder: Seat, system: System) -> Option<Unit> {
+    let MarkVal::Rec(fields) = s.marks().tail.get(&MarkKey::NomadCavalry(holder))? else { return None };
+    let [MarkVal::Atom(Atom::System(marked)), MarkVal::Atom(Atom::Unit(kind))] = fields.as_slice() else { return None };
+    let note = NoteKey { note: crate::generated::PromissoryNote::TheCavalry, faction: crate::generated::Faction::TheNomad };
+    let cards = s.cards();
+    (*marked == system && cards.promissory.get(&note) == Some(&holder) && cards.promissory_faceup.contains_key(&note))
+        .then_some(*kind)
+}
+
+/// Nomad: Quantum Manipulator and The Cavalry give SUSTAIN DAMAGE against a hit in a space combat
+/// (`nomad_agents::grants_sustain`).
+#[must_use]
+pub fn nomad_grants_sustain(s: &CoreState, _: &Kernel, unit: CombatUnit) -> bool {
+    if unit.ctx != CombatCtx::Space {
+        return false;
+    }
+    if unit.unit == Unit::QuantumManipulator {
+        return true;
+    }
+    let Some(system) = unit.system else { return false };
+    cavalry_ship_type(s, unit.owner, system) == Some(unit.unit)
+        && !s.board().sys(system).units.iter().any(|p| p.owner() == unit.owner && p.kind() == unit.unit && p.sustained())
+}
+
+/// Fill the combat slots the core carries for Naaz and Nomad (the C shards register the rest).
+pub fn register_naaz_nomad(t: &mut HookTable) {
+    t.combat.ability_hit_immune.push(naaz_ability_hit_immune);
+    t.combat.grants_sustain.push(nomad_grants_sustain);
+}
+
+// -- the dice history and the round's dice ------------------------------------------------------
+
+/// Append the fleet's rolls to the dice history (`Dice::history`): the roll of each group is a
+/// space-combat entry, a munitions reroll an entry of purpose [`RollPurpose::Reroll`] beside it. Every
+/// entry names the seat whose dice they are and the scene system the host stamps on it.
+pub fn record_fleet_rolls(ledger: &mut Ledger, owner: Seat, scene: Option<System>, rolls: &[FleetRoll]) {
+    for r in rolls {
+        let mask = r.rerolled.iter().filter(|i| **i < 64).fold(0_u64, |m, i| m | (1 << i));
+        ledger.dice.push(RollRec {
+            purpose: if r.rerolled.is_empty() { RollPurpose::SpaceCombat } else { RollPurpose::Reroll },
+            owner: Some(owner),
+            unit: None,
+            planet: None,
+            scene,
+            hits_on: Some(u8::try_from(r.hits_on).unwrap_or(u8::MAX)),
+            faces: r.faces.iter().map(|f| u8::try_from(*f).unwrap_or(u8::MAX)).collect(),
+            rerolled: mask,
+        });
+    }
+}
+
+/// The hits a group of rolls scored: the faces of its last entry at or above the hit number.
+#[must_use]
+pub fn hits_of(roll: &FleetRoll) -> usize {
+    roll.faces.iter().filter(|f| **f >= roll.hits_on).count()
+}
+
+/// `combat_round_dice`: one record per staged die of the round, the attacker's sets first. A die's
+/// bonus (Wrath of Kenara and its kind) counts towards the hit, the printed face is what is recorded.
+#[must_use]
+pub fn round_dice(sides: &[(Seat, Option<&RerollSet>)]) -> Vec<CombatDie> {
+    let mut out = Vec::new();
+    for (side, set) in sides {
+        let Some(set) = set else { continue };
+        for entry in &set.rolls {
+            let target = entry.hits_on.map_or(0, u32::from);
+            for (i, face) in entry.faces.iter().enumerate() {
+                let delta = u8::try_from(i).ok().and_then(|i| entry.deltas.get(&i).copied()).unwrap_or(0);
+                let value = (i64::from(*face) + i64::from(delta)).max(0) as u32;
+                out.push(CombatDie { player: *side, unit: entry.unit, roll: u32::from(*face), target, hit: target > 0 && value >= target });
+            }
         }
     }
     out
