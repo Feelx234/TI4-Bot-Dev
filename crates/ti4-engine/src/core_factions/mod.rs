@@ -17,3 +17,6 @@ macro_rules! cb_dual {
         answer
     }};
 }
+
+#[cfg(feature = "typed-core")]
+pub mod ca;
