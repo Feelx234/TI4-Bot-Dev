@@ -301,11 +301,24 @@ pub fn reconcile(state: &mut GameState) {
     }
 }
 
+pub(crate) fn custodian_cannon(
+    state: &GameState,
+    planet: &PlanetId,
+    owner: &PlayerId,
+) -> Option<(PlayerId, u32, usize)> {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Direct,
+        "keleres::custodian_cannon",
+        custodian_cannon_text(state, planet, owner),
+        crate::core_factions::cb::keleres_custodian_cannon(state, planet, owner)
+    )
+}
+
 /// Custodian's Favour, first clause: Mecatol Rex "gains SPACE CANNON 5" for the player who controls
 /// it and holds Custodia Vigilia. Read by `planets::attachment_cannons`, which space cannon offense
 /// and defense already consult for a planet's "as if it were a unit" cannons.
 #[must_use]
-pub(crate) fn custodian_cannon(
+pub(crate) fn custodian_cannon_text(
     state: &GameState,
     planet: &PlanetId,
     owner: &PlayerId,
@@ -314,10 +327,26 @@ pub(crate) fn custodian_cannon(
         .then(|| (owner.clone(), CUSTODIAN_CANNON.0, CUSTODIAN_CANNON.1))
 }
 
+fn extra_production_planet(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    planet: &PlanetId,
+) -> i64 {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Economy,
+        "keleres::extra_production_planet",
+        extra_production_planet_text(state, content, sources, player, system, planet),
+        crate::core_factions::cb::keleres_extra_production_planet(state, sources, player, system, planet)
+    )
+}
+
 /// Custodian's Favour, first clause: Mecatol Rex "gains ... PRODUCTION 3" for its controller while
 /// they hold Custodia Vigilia. Summed into `production::capacity` as if from a unit on the planet,
 /// whether or not any unit stands there.
-fn extra_production_planet(
+fn extra_production_planet_text(
     state: &GameState,
     _content: &ContentStore,
     _sources: SourceSet,
@@ -461,15 +490,27 @@ fn laws_order(owner_name: &str, seat: &PlayerId) -> Ability {
 
 // -- Agency Supply Network -----------------------------------------------------------------------
 
+pub(crate) fn asn_ready(state: &GameState, player: &PlayerId) -> bool {
+    crate::cb_dual!(crate::dual::HookGroup::Direct, "keleres::asn_ready", asn_ready_text(state, player), crate::core_factions::cb::keleres_asn_ready(state, player))
+}
+
 /// Whether `player` may resolve another PRODUCTION now: they hold `asn` and have not used it this
 /// action.
 #[must_use]
-pub(crate) fn asn_ready(state: &GameState, player: &PlayerId) -> bool {
+pub(crate) fn asn_ready_text(state: &GameState, player: &PlayerId) -> bool {
     has_technology(state, player, ASN) && !state.faction_marks.contains_key(&asn_key(player))
 }
 
-/// Record the use, until the action ends.
 pub(crate) fn asn_mark(state: &mut GameState, player: &PlayerId) {
+    #[cfg(feature = "typed-core")]
+    if matches!(crate::dual::backend(crate::dual::Area::Factions), crate::dual::Backend::Dual) {
+        return crate::core_factions::cb::dual_keleres_asn_mark(state, ti4_model::content_types::FULL, player, |state| asn_mark_text(state, player));
+    }
+    asn_mark_text(state, player);
+}
+
+/// Record the use, until the action ends.
+pub(crate) fn asn_mark_text(state: &mut GameState, player: &PlayerId) {
     state.faction_marks.insert(asn_key(player), "1".to_owned());
 }
 
@@ -523,10 +564,14 @@ fn agent_clear(owner_name: &str, seat: &PlayerId) -> Ability {
     }))
 }
 
+pub(crate) fn spendable_commodities(state: &GameState, player: &PlayerId) -> i64 {
+    crate::cb_dual!(crate::dual::HookGroup::Direct, "keleres::spendable_commodities", spendable_commodities_text(state, player), crate::core_factions::cb::keleres_spendable_commodities(state, player))
+}
+
 /// Commodities `player` may spend as if they were trade goods right now: all of them inside a
 /// payment window the agent was used for ([`offer_agent`]), else none.
 #[must_use]
-pub(crate) fn spendable_commodities(state: &GameState, player: &PlayerId) -> i64 {
+pub(crate) fn spendable_commodities_text(state: &GameState, player: &PlayerId) -> i64 {
     if state
         .faction_marks
         .get(&agent_key(player))
@@ -559,10 +604,14 @@ fn agent_holders(state: &GameState, payer: &PlayerId) -> Vec<PlayerId> {
         .collect()
 }
 
+pub(crate) fn agent_could_grant(state: &GameState, payer: &PlayerId) -> bool {
+    crate::cb_dual!(crate::dual::HookGroup::Direct, "keleres::agent_could_grant", agent_could_grant_text(state, payer), crate::core_factions::cb::keleres_agent_could_grant(state, payer))
+}
+
 /// Whether a readied Keleres agent could still be offered to `payer`: the up-front gate of an
 /// option whose trade-good cost the agent's commodities could pay.
 #[must_use]
-pub(crate) fn agent_could_grant(state: &GameState, payer: &PlayerId) -> bool {
+pub(crate) fn agent_could_grant_text(state: &GameState, payer: &PlayerId) -> bool {
     !agent_holders(state, payer).is_empty()
 }
 
@@ -629,15 +678,41 @@ pub(crate) fn offer_agent(
 /// The mark's value for a window whose offer was declined.
 const WINDOW_DECLINED: &str = "declined";
 
-/// End `payer`'s agent window: their commodities are not trade goods any more.
 pub(crate) fn close_agent_window(state: &mut GameState, payer: &PlayerId) {
+    #[cfg(feature = "typed-core")]
+    if matches!(crate::dual::backend(crate::dual::Area::Factions), crate::dual::Backend::Dual) {
+        return crate::core_factions::cb::dual_keleres_close(state, ti4_model::content_types::FULL, payer, |state| close_agent_window_text(state, payer));
+    }
+    close_agent_window_text(state, payer);
+}
+
+/// End `payer`'s agent window: their commodities are not trade goods any more.
+pub(crate) fn close_agent_window_text(state: &mut GameState, payer: &PlayerId) {
     state.faction_marks.remove(&agent_key(payer));
+}
+
+pub(crate) fn with_agent_granted<T>(
+    state: &GameState,
+    payer: &PlayerId,
+    probe: impl FnOnce(&GameState) -> T,
+) -> Option<T> {
+    // The hook dual compares the gate and what the probe state lets `payer` spend, not the caller's probe.
+    #[cfg(feature = "typed-core")]
+    if matches!(crate::dual::backend(crate::dual::Area::Factions), crate::dual::Backend::Dual) {
+        let _ = crate::cb_dual!(
+            crate::dual::HookGroup::Direct,
+            "keleres::with_agent_granted",
+            with_agent_granted_text(state, payer, |granted| spendable_commodities_text(granted, payer)),
+            crate::core_factions::cb::keleres_with_agent_granted(state, payer)
+        );
+    }
+    with_agent_granted_text(state, payer, probe)
 }
 
 /// Run `probe` on a copy of the position in which `payer` has the agent's permission, if a Keleres
 /// holder could grant it; `None` when it could not. Lets an eligibility gate that precedes the
 /// payment window ("can this player afford it at all?") see what the agent would add.
-pub(crate) fn with_agent_granted<T>(
+pub(crate) fn with_agent_granted_text<T>(
     state: &GameState,
     payer: &PlayerId,
     probe: impl FnOnce(&GameState) -> T,

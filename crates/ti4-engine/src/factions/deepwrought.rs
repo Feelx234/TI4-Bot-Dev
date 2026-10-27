@@ -215,9 +215,13 @@ pub fn coexisting_planets(state: &GameState, player: &PlayerId) -> usize {
         .sum()
 }
 
+pub fn oceans(state: &GameState, player: &PlayerId) -> Vec<PlanetId> {
+    crate::cb_dual!(crate::dual::HookGroup::Direct, "deepwrought::oceans", oceans_text(state, player), crate::core_factions::cb::deepwrought_oceans(state, player))
+}
+
 /// The ocean cards `player` has in play: what they hold, cut to Oceanbound's cap.
 #[must_use]
-pub fn oceans(state: &GameState, player: &PlayerId) -> Vec<PlanetId> {
+pub fn oceans_text(state: &GameState, player: &PlayerId) -> Vec<PlanetId> {
     let mut held = stored_oceans(state, player);
     held.truncate(coexisting_planets(state, player));
     held
@@ -260,19 +264,33 @@ pub fn gain_ocean(state: &mut GameState, player: &PlayerId) -> Option<PlanetId> 
     Some(planet)
 }
 
+pub fn spendable_oceans(state: &GameState, player: &PlayerId) -> Vec<PlanetId> {
+    crate::cb_dual!(crate::dual::HookGroup::Direct, "deepwrought::spendable_oceans", spendable_oceans_text(state, player), crate::core_factions::cb::deepwrought_spendable_oceans(state, player))
+}
+
 /// The holder's readied ocean cards, spendable like any planet (called by
 /// `production::spendable_planets`). Empty for every other seat.
 #[must_use]
-pub fn spendable_oceans(state: &GameState, player: &PlayerId) -> Vec<PlanetId> {
+pub fn spendable_oceans_text(state: &GameState, player: &PlayerId) -> Vec<PlanetId> {
     oceans(state, player)
         .into_iter()
         .filter(|planet| !state.exhausted_planets.contains(planet))
         .collect()
 }
 
+pub fn note_coexistence_began(state: &mut GameState, player: &PlayerId) {
+    #[cfg(feature = "typed-core")]
+    if matches!(crate::dual::backend(crate::dual::Area::Factions), crate::dual::Backend::Dual) {
+        return crate::core_factions::cb::dual_deepwrought_coexistence_began(state, ti4_model::content_types::FULL, player, |state| {
+            note_coexistence_began_text(state, player);
+        });
+    }
+    note_coexistence_began_text(state, player);
+}
+
 /// Oceanbound: "When your units begin coexisting on a planet: gain an ocean card and ready it."
 /// For a site that records coexistence itself (Crash Landing). A no-op for every other faction.
-pub fn note_coexistence_began(state: &mut GameState, player: &PlayerId) {
+pub fn note_coexistence_began_text(state: &mut GameState, player: &PlayerId) {
     if is_deepwrought(state, player) {
         gain_ocean(state, player);
     }
@@ -307,11 +325,26 @@ pub fn has_research_team(state: &GameState, content: &ContentStore, player: &Pla
     crate::faction_abilities::has(state, content, player, RESEARCH_TEAM)
 }
 
+pub fn research_team_open(
+    state: &GameState,
+    content: &ContentStore,
+    invader: &PlayerId,
+    system: &SystemId,
+    planet: &PlanetId,
+) -> bool {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Direct,
+        "deepwrought::research_team_open",
+        research_team_open_text(state, content, invader, system, planet),
+        crate::core_factions::cb::deepwrought_research_team_open(state, invader, system, planet)
+    )
+}
+
 /// Whether Research Team's choice is open for `invader`'s ground forces committed to `planet`:
 /// the ability, another player controlling the planet (the controller keeps it, 3.1), and not
 /// already coexisting there. The caller adds the rival-ground-force test it already owns.
 #[must_use]
-pub fn research_team_open(
+pub fn research_team_open_text(
     state: &GameState,
     content: &ContentStore,
     invader: &PlayerId,
@@ -327,12 +360,28 @@ pub fn research_team_open(
             .is_some_and(|holder| holder != invader)
 }
 
+pub fn research_team_defender_open(
+    state: &GameState,
+    content: &ContentStore,
+    defender: &PlayerId,
+    invader: &PlayerId,
+    system: &SystemId,
+    planet: &PlanetId,
+) -> bool {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Direct,
+        "deepwrought::research_team_defender_open",
+        research_team_defender_open_text(state, content, defender, invader, system, planet),
+        crate::core_factions::cb::deepwrought_research_team_defender_open(state, defender, invader, system, planet)
+    )
+}
+
 /// Whether Research Team's choice is open for `defender`, whose units stand on `planet` when
 /// `invader` commits ground forces there (Dane's ruling: it works on defense too): the ability, a
 /// seat other than the invader, units on the planet, and not already coexisting there. The
 /// defender decides, not the invader.
 #[must_use]
-pub fn research_team_defender_open(
+pub fn research_team_defender_open_text(
     state: &GameState,
     content: &ContentStore,
     defender: &PlayerId,
@@ -425,6 +474,21 @@ pub(crate) fn disarm_waiver(state: &mut GameState, researcher: &PlayerId) -> Opt
 }
 
 fn waived_prerequisites(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    technology: &str,
+) -> usize {
+    crate::cb_dual!(
+        crate::dual::HookGroup::General,
+        "deepwrought::waived_prerequisites",
+        waived_prerequisites_text(state, content, sources, player, technology),
+        crate::core_factions::cb::deepwrought_waived_prerequisites(state, player)
+    )
+}
+
+fn waived_prerequisites_text(
     state: &GameState,
     _content: &ContentStore,
     _sources: SourceSet,
