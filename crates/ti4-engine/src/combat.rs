@@ -1420,6 +1420,7 @@ fn check_fleet_rolls(
     start: usize,
     player: &PlayerId,
     system: &SystemId,
+    barrage: bool,
 ) {
     let Some(before) = before else { return };
     let rows: Vec<crate::core_combat::DiceRow> =
@@ -1436,12 +1437,14 @@ fn check_fleet_rolls(
             player,
             system,
             scene.as_deref(),
+            barrage,
         )
     };
     #[cfg(not(feature = "typed-core"))]
     let typed = || None::<(Vec<crate::core_combat::DiceRow>, crate::rng::RngPositions)>;
     let after = rng.positions();
-    let _ = crate::dual::run_dual_typed(crate::dual::Area::Combat, "combat::roll_fleet", typed, || (rows, after));
+    let label = if barrage { "combat::roll_barrage" } else { "combat::roll_fleet" };
+    let _ = crate::dual::run_dual_typed(crate::dual::Area::Combat, label, typed, || (rows, after));
 }
 
 /// The `Core` backend of the fleet's rolls: the typed rules draw them, and the dice history and the
@@ -1536,7 +1539,7 @@ pub fn roll_fleet(
         let roll = dice.roll_by(rng, dice_count, "space combat", Some(threshold), player);
         hits += reroll_munitions_misses(state, dice, rng, player, &roll).hits();
     }
-    check_fleet_rolls(state, content, sources, dice, rng, &before, start, player, system);
+    check_fleet_rolls(state, content, sources, dice, rng, &before, start, player, system, false);
     hits
 }
 
@@ -1611,7 +1614,7 @@ pub fn roll_fleet_and_open_staged(
             unit_types: group.types,
         });
     }
-    check_fleet_rolls(state, content, sources, ctx.dice, ctx.rng, &before, start, player, system);
+    check_fleet_rolls(state, content, sources, ctx.dice, ctx.rng, &before, start, player, system, false);
     if set.rolls.iter().any(|roll| !roll.faces.is_empty()) {
         state.reroll_staging.insert(player.clone(), set);
         state.last_reroll_player = Some(player.clone());
@@ -1814,6 +1817,7 @@ pub fn roll_barrage_side(
     system: &SystemId,
     player: &PlayerId,
 ) -> usize {
+    let (before, start) = (dual_positions(rng), dice.history().len());
     let mut plan: Vec<(Option<String>, i64, usize)> = Vec::new();
     if omega_forbids_barrage(state, system, player) {
         check_barrage_plan(state, content, sources, player, system, &plan);
@@ -1936,6 +1940,7 @@ pub fn roll_barrage_side(
         });
     }
     check_barrage_plan(state, content, sources, player, system, &plan);
+    check_fleet_rolls(state, content, sources, dice, rng, &before, start, player, system, true);
     if set.rolls.iter().any(|roll| !roll.faces.is_empty()) {
         state.reroll_staging.insert(player.clone(), set);
         state.last_reroll_player = Some(player.clone());

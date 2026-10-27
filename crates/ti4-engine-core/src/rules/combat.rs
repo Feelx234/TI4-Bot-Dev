@@ -576,10 +576,15 @@ pub fn register_naaz_nomad(t: &mut HookTable) {
 /// space-combat entry, a munitions reroll an entry of purpose [`RollPurpose::Reroll`] beside it. Every
 /// entry names the seat whose dice they are and the scene system the host stamps on it.
 pub fn record_fleet_rolls(ledger: &mut Ledger, owner: Seat, scene: Option<System>, rolls: &[FleetRoll]) {
+    record_rolls(ledger, owner, scene, rolls, RollPurpose::SpaceCombat);
+}
+
+/// [`record_fleet_rolls`] for rolls of another purpose; a roll with `rerolled` dice is a `Reroll` entry.
+pub fn record_rolls(ledger: &mut Ledger, owner: Seat, scene: Option<System>, rolls: &[FleetRoll], purpose: RollPurpose) {
     for r in rolls {
         let mask = r.rerolled.iter().filter(|i| **i < 64).fold(0_u64, |m, i| m | (1 << i));
         ledger.dice.push(RollRec {
-            purpose: if r.rerolled.is_empty() { RollPurpose::SpaceCombat } else { RollPurpose::Reroll },
+            purpose: if r.rerolled.is_empty() { purpose } else { RollPurpose::Reroll },
             owner: Some(owner),
             unit: None,
             planet: None,
@@ -948,4 +953,24 @@ pub fn cannon_plan(rd: Rd<'_>, system: System, active: Seat, opponent: Option<Se
         out.push(CannonRoll { owner: *owner, unit: *unit, hits_on: value, dice: usize::try_from(dice).unwrap_or(0) });
     }
     out
+}
+
+/// Roll one side's anti-fighter barrage from `rng`'s dice stream, entry by entry of [`barrage_plan`], as
+/// `combat::roll_barrage_side` does; returns the history entries it records.
+pub fn roll_barrage(
+    rd: Rd<'_>,
+    rng: &mut crate::state::Rng,
+    seeds: &dyn crate::state::SeedSource,
+    player: Seat,
+    system: System,
+) -> Vec<FleetRoll> {
+    use crate::state::RngDomain;
+    barrage_plan(rd, player, system)
+        .into_iter()
+        .map(|r| FleetRoll {
+            hits_on: u32::try_from(r.hits_on).unwrap_or(u32::MAX),
+            faces: (0..r.dice).map(|_| rng.die(RngDomain::Dice, seeds, DIE_SIDES)).collect(),
+            rerolled: Vec::new(),
+        })
+        .collect()
 }

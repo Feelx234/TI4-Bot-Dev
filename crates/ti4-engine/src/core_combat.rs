@@ -347,8 +347,28 @@ impl<'g> CombatView<'g> {
         Some(self.with(|rd| cc::effective_hits_on(rd, seat, piece)))
     }
 
-    /// `combat::roll_fleet` from the dice stream standing at `positions`: the entries it records (faces,
-    /// munitions rerolls) and where the streams stand afterwards.
+    /// Run `f` against the core's copy of the dice stream standing at `positions`: what it recorded and
+    /// where the streams stand afterwards.
+    fn drawn(
+        &mut self,
+        seed: u64,
+        positions: &crate::rng::RngPositions,
+        f: impl FnOnce(Rd<'_>, &mut ti4_engine_core::state::Rng, &dyn ti4_engine_core::state::SeedSource) -> Vec<cc::FleetRoll>,
+    ) -> Option<(Vec<cc::FleetRoll>, crate::rng::RngPositions)> {
+        use ti4_engine_core::state::{Rng as CoreRng, RngDomain, SeedSource};
+        let mut typed_pos: Vec<(RngDomain, u128)> = Vec::new();
+        for (t, p) in positions {
+            typed_pos.push((crate::core_sync::codec::rng::domain(&mut self.cx, t).ok()?, *p));
+        }
+        let seeds = crate::core_sync::codec::rng::TextSeeds(&self.cx);
+        let mut rng = CoreRng::new(seed);
+        rng.set_positions(&typed_pos, &seeds as &dyn SeedSource);
+        let rolls = self.with(|rd| f(rd, &mut rng, &seeds));
+        let after = crate::core_sync::codec::rng::positions(&self.cx, &rng).ok()?;
+        Some((rolls, after))
+    }
+
+    /// `combat::roll_fleet` from the dice stream standing at `positions`.
     #[must_use]
     pub fn roll_fleet_raw(
         &mut self,
@@ -357,22 +377,12 @@ impl<'g> CombatView<'g> {
         player: &PlayerId,
         system: &SystemId,
     ) -> Option<(Vec<cc::FleetRoll>, crate::rng::RngPositions)> {
-        use ti4_engine_core::state::{Rng as CoreRng, RngDomain, SeedSource};
         let (seat, sys) = (self.seat(player)?, typed::<System>(system.as_str())?);
-        let mut typed_pos: Vec<(RngDomain, u128)> = Vec::new();
-        for (t, p) in positions {
-            typed_pos.push((crate::core_sync::codec::rng::domain(&mut self.cx, t).ok()?, *p));
-        }
-        let seeds = crate::core_sync::codec::rng::TextSeeds(&self.cx);
-        let mut rng = CoreRng::new(seed);
-        rng.set_positions(&typed_pos, &seeds as &dyn SeedSource);
-        let rolls = self.with(|rd| cc::roll_fleet(rd, &mut rng, &seeds, seat, sys));
-        let after = crate::core_sync::codec::rng::positions(&self.cx, &rng).ok()?;
-        Some((rolls, after))
+        self.drawn(seed, positions, |rd, rng, seeds| cc::roll_fleet(rd, rng, seeds, seat, sys))
     }
 
-    /// [`Self::roll_fleet_raw`] as the dice history it leaves: each entry as the dual compares it
-    /// (`scene`: the system the host stamps on every roll).
+    /// [`Self::roll_fleet_raw`] (or the barrage when `barrage`) as the dice history it leaves: each entry as
+    /// the dual compares it (`scene`: the system the host stamps on every roll).
     #[must_use]
     pub fn roll_fleet(
         &mut self,
@@ -381,15 +391,22 @@ impl<'g> CombatView<'g> {
         player: &PlayerId,
         system: &SystemId,
         scene: Option<&str>,
+        barrage: bool,
     ) -> Option<(Vec<DiceRow>, crate::rng::RngPositions)> {
-        let seat = self.seat(player)?;
+        use ti4_engine_core::state::RollPurpose;
+        let (seat, sys) = (self.seat(player)?, typed::<System>(system.as_str())?);
         let scene = match scene {
             Some(s) => Some(typed::<System>(s)?),
             None => None,
         };
-        let (rolls, after) = self.roll_fleet_raw(seed, positions, player, system)?;
+        let (rolls, after) = if barrage {
+            self.drawn(seed, positions, |rd, rng, seeds| cc::roll_barrage(rd, rng, seeds, seat, sys))?
+        } else {
+            self.drawn(seed, positions, |rd, rng, seeds| cc::roll_fleet(rd, rng, seeds, seat, sys))?
+        };
         let mut ledger = ti4_engine_core::state::Ledger::default();
-        cc::record_fleet_rolls(&mut ledger, seat, scene, &rolls);
+        let purpose = if barrage { RollPurpose::AntiFighterBarrage } else { RollPurpose::SpaceCombat };
+        cc::record_rolls(&mut ledger, seat, scene, &rolls, purpose);
         let rows = ledger
             .dice
             .iter()
@@ -651,6 +668,7 @@ fn purpose_code(p: ti4_engine_core::state::RollPurpose) -> u8 {
     use ti4_engine_core::state::RollPurpose as P;
     match p {
         P::SpaceCombat => 0,
+        P::AntiFighterBarrage => 2,
         P::Reroll => 5,
         _ => 255,
     }
@@ -661,6 +679,8 @@ fn purpose_code(p: ti4_engine_core::state::RollPurpose) -> u8 {
 pub fn dice_row(r: &crate::dice::Roll) -> DiceRow {
     let purpose = if r.reason == "space combat" {
         0
+    } else if r.reason == "anti_fighter_barrage" || r.reason == "anti-fighter barrage" {
+        2
     } else if r.reason.starts_with("munitions:") {
         5
     } else {
