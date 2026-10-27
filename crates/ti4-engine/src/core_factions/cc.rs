@@ -158,7 +158,7 @@ fn variants(gs: &GameState) -> Vec<(&'static str, GameState)> {
     v.active_system = Some(first.clone());
     v.system_mut(&first).units.push(unit("mahact_flagship", &a));
     v.system_mut(&first).units.push(unit("carrier", &b));
-    v.faction_marks.insert("mahact:benediction".to_owned(), "1".to_owned());
+    v.faction_marks.insert("mahact:benediction".to_owned(), first.to_string());
     out.push(("mahact open", v));
 
     let mut v = gs.clone();
@@ -204,7 +204,7 @@ fn variants(gs: &GameState) -> Vec<(&'static str, GameState)> {
     v.players[0].breakthrough = Some(BreakthroughId::new("ghostbt"));
     v.nexus_unlocked = true;
     v.system_mut(&first).units.extend([unit("ghost_flagship", &a), unit("carrier", &a)]);
-    v.wormhole_tokens.insert("alpha".to_owned(), first.clone());
+    v.wormhole_tokens.insert("ALPHA".to_owned(), first.clone());
     out.push(("ghost", v));
 
     let mut v = gs.clone();
