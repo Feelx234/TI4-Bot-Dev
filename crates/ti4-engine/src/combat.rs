@@ -1077,17 +1077,6 @@ struct FleetGroup {
     types: std::collections::BTreeMap<String, u32>,
 }
 
-/// J.N.S. Hylarim, the Jol-Nar flagship: "When making a combat roll for this ship, each result of
-/// 9 or 10, before applying modifiers, produces 2 additional hits."
-const JOLNAR_FLAGSHIP: &str = "jolnar_flagship";
-
-/// Arc Secundus, the Letnev flagship: "At the start of each space combat round, repair this ship."
-const LETNEV_FLAGSHIP: &str = "letnev_flagship";
-
-/// 0.0.1, the L1Z1X flagship: "During a space combat, hits produced by this ship and by your
-/// dreadnoughts in this system must be assigned to non-fighter ships if able."
-const L1Z1X_FLAGSHIP: &str = "l1z1x_flagship";
-
 /// Whether `player` has 0.0.1 among its ships in `system`.
 fn forces_non_fighters(
     state: &GameState,
@@ -1099,7 +1088,12 @@ fn forces_non_fighters(
     ships_of(state, content, sources, player, system)
         .iter()
         .any(|unit| {
-            crate::factions::flagship_has_text(state, player, unit.type_id.as_str(), L1Z1X_FLAGSHIP)
+            crate::factions::has_text(
+                state,
+                player,
+                unit.type_id.as_str(),
+                crate::factions::FlagshipText::L1z1x,
+            )
         })
 }
 
@@ -1139,7 +1133,7 @@ fn fleet_hits(
             !entry.unit_types.is_empty() && entry.unit_types.keys().all(|id| test(id))
         };
         let mut hits = entry.hits();
-        if only(&|id| crate::factions::flagship_has_text(state, player, id, JOLNAR_FLAGSHIP)) {
+        if only(&|id| crate::factions::has_text(state, player, id, crate::factions::FlagshipText::Jolnar)) {
             hits += 2 * entry.faces.iter().filter(|face| **face >= 9).count();
         }
         if binding && only(&|id| types.get(id).is_some_and(|kind| forced_hull(*kind))) {
@@ -1193,11 +1187,11 @@ fn repair_self_repairing(state: &mut GameState, system: &SystemId, player: &Play
         .iter()
         .filter(|unit| {
             &unit.owner == player
-                && crate::factions::flagship_has_text(
+                && crate::factions::has_text(
                     state,
                     player,
                     unit.type_id.as_str(),
-                    LETNEV_FLAGSHIP,
+                    crate::factions::FlagshipText::Letnev,
                 )
                 && unit.sustained_damage
         })
@@ -1311,11 +1305,11 @@ fn fleet_groups(
             unit_index,
             state.combat_round_seq,
         );
-        let jolnar_text = crate::factions::flagship_has_text(
+        let jolnar_text = crate::factions::has_text(
             state,
             player,
             unit.type_id.as_str(),
-            JOLNAR_FLAGSHIP,
+            crate::factions::FlagshipText::Jolnar,
         );
         let tag = roll_tag(*kind, jolnar_text, forced);
         contributions.push((value, tag, dice, unit.type_id.to_string()));
@@ -1495,7 +1489,7 @@ fn wrath_of_kenara(
     system: &SystemId,
 ) {
     let has_flagship =
-        crate::factions::has_flagship_text_in(state, player, system, "hacan_flagship");
+        crate::factions::has_text_in(state, player, system, crate::factions::FlagshipText::Hacan);
     if !has_flagship || crate::supply::potential_goods(state, player) <= 0 {
         return;
     }

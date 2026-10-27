@@ -187,6 +187,53 @@ pub fn has_flagship_text_in(
     })
 }
 
+/// The flagships whose printed text the combat and invasion windows ask about, by name instead
+/// of by id string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FlagshipText {
+    /// Arc Secundus (Letnev).
+    Letnev,
+    /// The L1Z1X flagship.
+    L1z1x,
+    /// J.N.S. Hylarim (Jol-Nar).
+    Jolnar,
+    /// Wrath of Kenara (Hacan).
+    Hacan,
+}
+
+impl FlagshipText {
+    const fn id(self) -> &'static str {
+        match self {
+            Self::Letnev => "letnev_flagship",
+            Self::L1z1x => "l1z1x_flagship",
+            Self::Jolnar => "jolnar_flagship",
+            Self::Hacan => "hacan_flagship",
+        }
+    }
+}
+
+/// [`flagship_has_text`] for a named flagship text.
+#[must_use]
+pub(crate) fn has_text(
+    state: &GameState,
+    owner: &PlayerId,
+    unit_type: &str,
+    text: FlagshipText,
+) -> bool {
+    flagship_has_text(state, owner, unit_type, text.id())
+}
+
+/// [`has_flagship_text_in`] for a named flagship text.
+#[must_use]
+pub(crate) fn has_text_in(
+    state: &GameState,
+    owner: &PlayerId,
+    system: &SystemId,
+    text: FlagshipText,
+) -> bool {
+    has_flagship_text_in(state, owner, system, text.id())
+}
+
 /// Engine entry points. Each mirrors the shared hook of the same name and is optional; a module
 /// sets only the ones it needs (`..Hooks::NONE`). New hook points are added here by the
 /// coordinator, never by a faction package.

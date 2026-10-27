@@ -127,7 +127,12 @@ pub fn bombardable(
     // Arc Secundus, the Letnev flagship: "Other player's units in this system lose PLANETARY
     // SHIELD." Its own player's shields are untouched, and the invader is the only one bombarding.
     let arc_secundus = board.units_of(invader).into_iter().any(|unit| {
-        crate::factions::flagship_has_text(state, invader, unit.type_id.as_str(), "letnev_flagship")
+        crate::factions::has_text(
+            state,
+            invader,
+            unit.type_id.as_str(),
+            crate::factions::FlagshipText::Letnev,
+        )
     });
     if arc_secundus {
         return true;
