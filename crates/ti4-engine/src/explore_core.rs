@@ -78,6 +78,14 @@ mod stub {
     pub fn is_play_area(_: &ContentStore, _: &str) -> Option<bool> {
         None
     }
+    #[must_use]
+    pub fn resolution(_: &ContentStore, _: &str) -> Option<Option<String>> {
+        None
+    }
+    #[must_use]
+    pub fn attachment_for(_: &ContentStore, _: &str, _: &PlanetId) -> Option<String> {
+        None
+    }
 }
 
 #[cfg(feature = "typed-core")]
@@ -86,7 +94,7 @@ mod real {
     use std::rc::Rc;
 
     use ti4_content::ContentStore;
-    use ti4_engine_core::generated::{ExploreType, Faction, Planet, PromissoryNote, Relic, System};
+    use ti4_engine_core::generated::{Attachment, Explore, ExploreType, Faction, Planet, PromissoryNote, Relic, System};
     use ti4_engine_core::ids::Seat;
     use ti4_engine_core::query::{explore, promissory, relic};
     use ti4_engine_core::state::{NoteKey, Slice, SliceSet};
@@ -386,6 +394,34 @@ mod real {
     pub fn egress_systems(content: &ContentStore, sources: SourceSet) -> Option<Vec<SystemId>> {
         let scope = scope(content, sources)?;
         Some(explore::egress_systems(scope).as_slice().iter().map(|s| SystemId::new(s.as_str())).collect())
+    }
+
+    /// `exploration::resolution`.
+    #[must_use]
+    pub fn resolution(content: &ContentStore, card: &str) -> Option<Option<String>> {
+        if !content.is_embedded() {
+            return None;
+        }
+        Some(Some(explore::resolution(typed::<Explore>(card)?).as_str().to_owned()))
+    }
+
+    /// `exploration::attachment_for`.
+    #[must_use]
+    pub fn attachment_for(content: &ContentStore, card: &str, planet: &PlanetId) -> Option<String> {
+        if !content.is_embedded() {
+            return None;
+        }
+        let explore_card = typed::<Explore>(card)?;
+        let id = match explore::placed(explore_card) {
+            Some(explore::Placed::Attachment(a)) => a.as_str().to_owned(),
+            Some(explore::Placed::Token(t)) => t.as_str().to_owned(),
+            None => card.to_owned(),
+        };
+        if typed::<Attachment>(&format!("{id}stat")).is_none() {
+            return Some(id);
+        }
+        let has = typed::<Planet>(planet.as_str()).is_some_and(explore::has_specialty);
+        Some(if has { format!("{id}stat") } else { id })
     }
 
     /// `promissory::is_play_area` (a note id `alias:owner`).

@@ -79,6 +79,12 @@ if [[ -n "$dual" ]]; then
     check dual-positions "$target/release/board_equivalence" golden tools/engine_profile/profile-20.json 20 10
     note "     $(tail -1 "$out/dual-positions.log")"
   fi
+  if [[ "$area" == exploration ]]; then
+    check dual-templates "$target/release/board_equivalence" cards templates
+    note "     $(grep '^exploration queries' "$out/dual-templates.log" | tail -1)"
+    check dual-positions "$target/release/board_equivalence" cards golden tools/engine_profile/profile-20.json 20 10 6
+    note "     $(grep '^exploration queries' "$out/dual-positions.log" | tail -1)"
+  fi
   if [[ "$area" == movement ]]; then
     check dual-templates "$target/release/core_equivalence" templates --routes
     note "     $(tail -1 "$out/dual-templates.log")"
@@ -118,8 +124,8 @@ if [[ "${SKIP_AB:-0}" != 1 ]]; then
   [[ -n "$ratio" ]] && python3 -I -c "import sys; sys.exit(0 if float('$ratio') <= 1.015 else 1)" || { note "FAIL cpu A/B ratio ${ratio:-?} > 1.015"; fail=1; }
 fi
 
-# 8 wasm size
-check wasm cargo build -p ti4-wasm --target wasm32-unknown-unknown --profile wasm-release
+# 8 wasm size (SKIP_WASM=1 leaves it out)
+[[ "${SKIP_WASM:-0}" == 1 ]] || check wasm cargo build -p ti4-wasm --target wasm32-unknown-unknown --profile wasm-release
 wasm="$target/wasm32-unknown-unknown/wasm-release/ti4_wasm.wasm"
 note "     wasm raw (cargo) $(stat -c %s "$wasm" 2>/dev/null) B"
 if [[ -n "${WASM_OPT:-}" && -f "$wasm" ]]; then

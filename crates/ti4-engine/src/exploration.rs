@@ -130,6 +130,18 @@ pub fn draw(state: &mut GameState, deck: &str) -> Option<String> {
 /// How a card resolves, from the corpus.
 #[must_use]
 pub fn resolution(content: &ContentStore, card: &str) -> Option<String> {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "exploration::resolution",
+        crate::explore_core::resolution(content, card),
+        resolution_text(content, card)
+    )
+}
+
+/// [`resolution`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn resolution_text(content: &ContentStore, card: &str) -> Option<String> {
     content
         .get(ContentType::Explores, card)
         .and_then(|record| record.text("resolution"))
@@ -143,6 +155,18 @@ pub fn resolution(content: &ContentStore, card: &str) -> Option<String> {
 /// +1 resource and +1 influence; otherwise it is the record that gives the planet that specialty.
 #[must_use]
 pub fn attachment_for(content: &ContentStore, card: &str, planet: &PlanetId) -> String {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "exploration::attachment_for",
+        crate::explore_core::attachment_for(content, card, planet),
+        attachment_for_text(content, card, planet)
+    )
+}
+
+/// [`attachment_for`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn attachment_for_text(content: &ContentStore, card: &str, planet: &PlanetId) -> String {
     let id = content
         .get(ContentType::Explores, card)
         .and_then(|record| record.text("attachmentId"))

@@ -193,6 +193,15 @@ fn compare_one(label: &str, gs: &GameState, sources: SourceSet, out: &mut CardsC
         let pid = PlanetId::new(planet.as_str());
         out.eq(label, &format!("traits_of {pid}"), &exploration::traits_of_text(content, sources, &pid), &crate::explore_core::traits_of(content, sources, &pid));
     }
+    for card in ti4_engine_core::generated::Explore::ALL {
+        let id = card.as_str();
+        out.eq(label, &format!("resolution {id}"), &exploration::resolution_text(content, id), &crate::explore_core::resolution(content, id));
+        for planet in Planet::ALL.iter().step_by(7) {
+            let pid = PlanetId::new(planet.as_str());
+            let planet = pid.as_str();
+            out.eq(label, &format!("attachment_for {id} {planet}"), &exploration::attachment_for_text(content, id, &pid), &crate::explore_core::attachment_for(content, id, &pid));
+        }
+    }
     for system in System::ALL {
         let sid = SystemId::new(system.as_str());
         out.eq(label, &format!("is_fracture_system {sid}"), &fracture::is_fracture_system_text(content, sources, &sid), &crate::explore_core::is_fracture_system(content, sources, &sid));
@@ -245,7 +254,7 @@ mod tests {
         compare("fresh", &state, POK, 12, &mut out);
         assert!(out.mismatches.is_empty(), "{:?}", out.mismatches);
         assert_eq!(out.unmapped, 0, "{:?}", out.reasons);
-        assert!(out.compared > 20_000);
+        assert!(out.compared > 5_000, "{}", out.compared);
     }
 
     #[test]

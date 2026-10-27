@@ -5,7 +5,7 @@
 //! here: draws, the deck order and every effect that mutates (reads only, like A1/A3/A4).
 
 use crate::containers::SmallList;
-use crate::generated::{ActionCard, ExploreType, Planet, PlanetTrait, System, TileBack};
+use crate::generated::{ActionCard, Attachment, Explore, ExploreResolution, ExploreType, Planet, PlanetTrait, System, TileBack, Token};
 use crate::ids::Seat;
 use crate::state::CoreState;
 use crate::tables::Scope;
@@ -57,6 +57,34 @@ pub fn purgeable(core: &CoreState, seat: Seat) -> SmallList<ExploreType, 3> {
         }
     }
     out
+}
+
+// --- exploration cards (printed data) ---------------------------------------------------------
+
+/// `exploration::resolution`: how the card resolves.
+#[must_use]
+pub fn resolution(card: Explore) -> ExploreResolution {
+    card.data().resolution
+}
+
+/// What an exploration card puts on the board: its `attachmentId`, an attachment or a token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Placed {
+    Attachment(Attachment),
+    Token(Token),
+}
+
+/// The record `attachmentId` names, `None` when the card names none.
+#[must_use]
+pub fn placed(card: Explore) -> Option<Placed> {
+    let d = card.data();
+    d.attachment.map(Placed::Attachment).or(d.token.map(Placed::Token))
+}
+
+/// Whether the planet prints a technology specialty (the research facility's two forms).
+#[must_use]
+pub fn has_specialty(planet: Planet) -> bool {
+    !planet.data().specialties.is_empty()
 }
 
 // --- the Fracture (printed data) ---------------------------------------------------------------
