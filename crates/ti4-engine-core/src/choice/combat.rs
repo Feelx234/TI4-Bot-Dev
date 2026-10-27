@@ -32,6 +32,9 @@ pub enum Ask {
         /// The hit is part of a space combat (not SPACE CANNON OFFENSE).
         in_combat: bool,
     },
+    /// "assign a hit": the owner picks which of the listed units is lost. The list is the caller's
+    /// (ships, a group, a planet's units); the options are derived from it by `casualty_opts`.
+    AssignHit,
 }
 
 /// One answer the area offers (not stored in the state).
@@ -39,10 +42,14 @@ pub enum Ask {
 pub enum Opt {
     /// Sustain damage on this unit of the given type; the decline is the generic one ("take the hit").
     Sustain { site: SustainSite, unit: Unit, galvanized: bool },
+    /// Destroy the unit at `index` of the caller's list (the first of its type and damage).
+    Destroy { index: u16, unit: Unit, damaged: bool },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Subtype {
     SustainDamage,
+    /// The caller's subtype text (interned) of a casualty question.
+    Casualty(crate::state::Code),
 }

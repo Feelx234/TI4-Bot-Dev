@@ -467,6 +467,70 @@ impl<'g> CombatView<'g> {
         Some((crate::render::prompt(&r, &any), rows))
     }
 
+    /// The options of the casualty question over `units`.
+    #[must_use]
+    pub fn casualty_options(&self, units: &[StrUnit]) -> Option<Vec<OptionRow>> {
+        use ti4_engine_core::choice::combat::Ask as CAsk;
+        use ti4_engine_core::choice::Ask as AnyAsk;
+        let pieces: Vec<Piece> = units.iter().map(|u| self.piece(u)).collect::<Option<_>>()?;
+        let opts = cc::casualty_opts(&pieces);
+        let r = crate::render::Render::new(Vec::new());
+        let any = AnyAsk::Combat(CAsk::AssignHit);
+        Some(
+            opts.iter()
+                .map(|o| {
+                    let o = crate::render::option(&r, &any, o);
+                    (o.id, o.kind, o.label, o.payload)
+                })
+                .collect(),
+        )
+    }
+
+    /// `non_euclidean_shielding`: hits one use of SUSTAIN DAMAGE cancels.
+    #[must_use]
+    pub fn cancel_per_sustain(&self, player: &PlayerId) -> Option<usize> {
+        let seat = self.seat(player)?;
+        Some(self.with(|rd| cc::cancel_per_sustain(rd, seat)))
+    }
+
+    /// The units of the system and of its planets after `player` sustains at `location` (the string
+    /// id suffix: `space:3`, `planet:x`, `planet:x:variant:2`); unchanged when nothing sustains.
+    #[must_use]
+    pub fn sustained_rows(&self, player: &PlayerId, system: &SystemId, location: &str) -> Option<Vec<BoardRow>> {
+        use ti4_engine_core::choice::combat::SustainSite;
+        let (seat, sys) = (self.seat(player)?, typed::<System>(system.as_str())?);
+        let site = if let Some(i) = location.strip_prefix("space:") {
+            SustainSite::Space(i.parse().ok()?)
+        } else {
+            let rest = location.strip_prefix("planet:")?;
+            match rest.rsplit_once(":variant:") {
+                Some((p, i)) => SustainSite::Planet { planet: typed(p)?, index: i.parse().ok()?, variant: true },
+                None => SustainSite::Planet { planet: typed(rest)?, index: 0, variant: false },
+            }
+        };
+        let after = self.with(|rd| cc::apply_sustain(rd, seat, sys, site));
+        let core = after.as_ref().unwrap_or(&self.view);
+        let mut rows = Vec::new();
+        let mut push = |planet: Option<&str>, p: Piece| {
+            rows.push((
+                planet.map(str::to_owned),
+                self.player(p.owner()).map(|id| id.to_string()).unwrap_or_default(),
+                p.kind().as_str().to_owned(),
+                p.sustained(),
+                p.galvanized(),
+            ));
+        };
+        for p in core.board().sys(sys).units.iter() {
+            push(None, *p);
+        }
+        for planet in cc::planets_of_sorted(core, sys).iter() {
+            for p in core.board().planet(*planet).units.iter() {
+                push(Some(planet.as_str()), *p);
+            }
+        }
+        Some(rows)
+    }
+
     /// `combat::fleet_groups`, flattened: (hit number, tag, dice, [(unit type, count)]).
     #[must_use]
     pub fn fleet_groups(&self, player: &PlayerId, system: &SystemId) -> Option<Vec<FleetGroupRow>> {
@@ -484,6 +548,26 @@ impl<'g> CombatView<'g> {
 
 /// An option as the dual compares it: id, kind, label, payload.
 pub type OptionRow = (String, String, String, std::collections::BTreeMap<String, serde_json::Value>);
+
+/// A unit of a system as the dual compares it: planet (none: space), owner, type, damaged, galvanized.
+pub type BoardRow = (Option<String>, String, String, bool, bool);
+
+/// The string side of [`BoardRow`]s.
+#[must_use]
+pub fn board_rows(gs: &GameState, system: &SystemId) -> Vec<BoardRow> {
+    let cell = gs.system_state(system);
+    let mut rows: Vec<BoardRow> = cell
+        .units
+        .iter()
+        .map(|u| (None, u.owner.to_string(), u.type_id.to_string(), u.sustained_damage, u.galvanized))
+        .collect();
+    for (planet, units) in &cell.planet_units {
+        rows.extend(units.iter().map(|u| {
+            (Some(planet.to_string()), u.owner.to_string(), u.type_id.to_string(), u.sustained_damage, u.galvanized)
+        }));
+    }
+    rows
+}
 
 /// One pooled roll group as the dual compares it: hit number, roll tag, dice, unit types with counts.
 pub type FleetGroupRow = (i64, u8, i64, Vec<(String, u32)>);

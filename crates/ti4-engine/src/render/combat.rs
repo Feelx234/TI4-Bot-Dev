@@ -34,7 +34,10 @@ pub fn location(site: SustainSite) -> String {
 }
 
 fn label(a: &Ask, site: SustainSite, unit: Unit, galvanized: bool) -> String {
-    let Ask::CancelHit { staging, .. } = a;
+    let staging = match a {
+        Ask::CancelHit { staging, .. } => staging,
+        Ask::AssignHit => &false,
+    };
     if let (true, SustainSite::Planet { planet, .. }) = (*staging, site) {
         let id = planet.as_str();
         let place = ti4_content::galaxy::planet(ti4_content::ContentStore::embedded(), id, ti4_model::content_types::FULL)
@@ -55,18 +58,33 @@ impl Family for Fam {
     type Subtype = Subtype;
 
     fn prompt(_: &Render, a: &Ask) -> String {
-        let Ask::CancelHit { system, .. } = a;
-        format!("cancel a hit at {}", system.as_str())
+        match a {
+            Ask::CancelHit { system, .. } => format!("cancel a hit at {}", system.as_str()),
+            Ask::AssignHit => "assign a hit".to_owned(),
+        }
     }
 
-    fn subtype(_: &Render, s: &Subtype) -> String {
+    fn subtype(_r: &Render, s: &Subtype) -> String {
         match s {
             Subtype::SustainDamage => "sustain_damage".to_owned(),
+            Subtype::Casualty(code) => _r.code_text(*code),
         }
     }
 
     fn option(_: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
-        let Opt::Sustain { site, unit, galvanized } = o;
+        let (site, unit, galvanized) = match o {
+            Opt::Destroy { index, unit, damaged } => {
+                let tag = if *damaged { " (damaged)" } else { "" };
+                return ChoiceOption::labelled(
+                    format!("destroy|{index}"),
+                    "casualty",
+                    format!("destroy {}{tag}", unit.as_str()),
+                )
+                .with("unit", unit.as_str().to_owned())
+                .with("damaged", *damaged);
+            }
+            Opt::Sustain { site, unit, galvanized } => (site, unit, galvanized),
+        };
         ChoiceOption::labelled(format!("sustain|{}", location(*site)), SUSTAIN_KIND, label(a, *site, *unit, *galvanized))
             .with("unit", unit.as_str().to_owned())
     }
@@ -76,7 +94,10 @@ impl Family for Fam {
     }
 
     fn wording(_: &Render, a: &Ask, o: &AnyOpt) -> Wording {
-        let Ask::CancelHit { non_fighters_first, .. } = a;
+        let non_fighters_first = match a {
+            Ask::CancelHit { non_fighters_first, .. } => non_fighters_first,
+            Ask::AssignHit => &false,
+        };
         let mut w = Wording::default();
         if matches!(o, AnyOpt::Decline) {
             w.label = Some("take the hit".to_owned());

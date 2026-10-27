@@ -3279,6 +3279,19 @@ fn offer_sustain(
                 .into_iter()
                 .map(|(planet, index, _)| (planet, index))
                 .collect();
+        let expected_rows = if crate::dual::backend(crate::dual::Area::Combat) == crate::dual::Backend::Dual {
+            #[cfg(feature = "typed-core")]
+            {
+                crate::core_combat::CombatView::of(state, content, sources)
+                    .and_then(|v| v.sustained_rows(player, system, location))
+            }
+            #[cfg(not(feature = "typed-core"))]
+            {
+                None
+            }
+        } else {
+            None
+        };
         let sustained = if let Some(index) = location
             .strip_prefix("space:")
             .and_then(|rest| rest.parse::<usize>().ok())
@@ -3329,14 +3342,25 @@ fn offer_sustain(
                 during_space_combat,
             )?;
         }
+        if let Some(expected) = expected_rows {
+            let _ = crate::dual::run_dual_typed(crate::dual::Area::Combat, "combat::apply_sustain", || Some(expected), || {
+                crate::core_combat::board_rows(state, system)
+            });
+        }
         // Non-Euclidean Shielding: "When 1 of your units uses SUSTAIN DAMAGE, cancel 2 hits
         // instead of 1." Per *use*, so a second hit costs the same one damaged ship -- which is
         // why it is a subtraction here rather than a second pass through the offer.
-        hits = hits.saturating_sub(if non_euclidean_shielding(state, player) {
-            2
-        } else {
-            1
-        });
+        #[cfg(feature = "typed-core")]
+        let typed = || crate::core_combat::CombatView::of(state, content, sources)?.cancel_per_sustain(player);
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None;
+        let cancels = crate::dual_typed!(
+            crate::dual::Area::Combat,
+            "combat::cancel_per_sustain",
+            typed(),
+            if non_euclidean_shielding(state, player) { 2 } else { 1 }
+        );
+        hits = hits.saturating_sub(cancels);
     }
     Ok(hits)
 }
@@ -4228,6 +4252,18 @@ pub(crate) fn choose_casualty_owing(
             .with("unit", unit.type_id.to_string())
             .with("damaged", unit.sustained_damage),
         );
+    }
+    if crate::dual::backend(crate::dual::Area::Combat) == crate::dual::Backend::Dual {
+        #[cfg(feature = "typed-core")]
+        let typed = || crate::core_combat::CombatView::of(state, content, sources)?.casualty_options(units);
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None::<Vec<crate::core_combat::OptionRow>>;
+        let _ = crate::dual::run_dual_typed(crate::dual::Area::Combat, "combat::casualty_options", typed, || {
+            options
+                .iter()
+                .map(|o| (o.id.clone(), o.kind.clone(), o.label.clone(), o.payload.clone()))
+                .collect::<Vec<_>>()
+        });
     }
     let mut context = DecisionContext::new(
         player.clone(),

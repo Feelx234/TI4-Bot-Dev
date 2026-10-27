@@ -682,7 +682,7 @@ pub fn sustain_candidates(
 /// then the generic decline ("take the hit"). Empty when nothing can sustain.
 #[must_use]
 pub fn sustain_opts(rd: Rd<'_>, player: Seat, ask: CombatAsk) -> Opts {
-    let CombatAsk::CancelHit { system, staging, ability, in_combat, .. } = ask;
+    let CombatAsk::CancelHit { system, staging, ability, in_combat, .. } = ask else { return Opts::default() };
     let mut opts = Opts::default();
     let mut types: Vec<Unit> = Vec::new();
     let found = sustain_candidates(rd, player, system, in_combat, ability, staging);
@@ -701,4 +701,62 @@ pub fn sustain_opts(rd: Rd<'_>, player: Seat, ask: CombatAsk) -> Opts {
     }
     opts.push(Opt::Decline);
     opts
+}
+
+// -- assigning a hit (LRR 78.6) and using a sustain ----------------------------------------------
+
+/// `combat::choose_casualty_owing`: one option per distinguishable loss -- the first unit of each
+/// (type, damaged) pair -- in list order.
+#[must_use]
+pub fn casualty_opts(units: &[Piece]) -> Opts {
+    let mut opts = Opts::default();
+    let mut seen: Vec<(Unit, bool)> = Vec::new();
+    for (index, unit) in units.iter().enumerate() {
+        let key = (unit.kind(), unit.sustained());
+        if seen.contains(&key) {
+            continue;
+        }
+        seen.push(key);
+        opts.push(Opt::Combat(CombatOpt::Destroy { index: index as u16, unit: unit.kind(), damaged: unit.sustained() }));
+    }
+    opts
+}
+
+/// How many hits one use of SUSTAIN DAMAGE cancels: 2 with Non-Euclidean Shielding, else 1.
+#[must_use]
+pub fn cancel_per_sustain(rd: Rd<'_>, player: Seat) -> usize {
+    match seam_data::cancel_on_sustain(rd.q(), &rd.k.hooks.seam.rows, player) {
+        n if n > 0 => n as usize,
+        _ => 1,
+    }
+}
+
+/// The state after `player` sustains at `site`: the unit is marked damaged. `None` when no such unit
+/// can (the string leaves the position alone then). A planet unit named by its index must be one of
+/// the combatants and undamaged; one named by its planet is the owner's first undamaged Maximum there.
+#[must_use]
+pub fn apply_sustain(rd: Rd<'_>, player: Seat, system: System, site: SustainSite) -> Option<CoreState> {
+    let mut after = rd.s.clone();
+    match site {
+        SustainSite::Space(i) => {
+            let cell = after.board_mut().sys_mut(system);
+            let slot = cell.units.as_mut_slice().get_mut(usize::from(i))?;
+            *slot = slot.with_sustained(true);
+        }
+        SustainSite::Planet { planet, index, variant } => {
+            let combatants = planet_combatants(rd, player, system);
+            let units = &mut after.board_mut().planet_mut(planet).units;
+            let slot = if variant {
+                let at = usize::from(index);
+                units.as_mut_slice().get_mut(at).filter(|u| {
+                    u.owner() == player && combatants.iter().any(|(p, i, _)| *p == planet && usize::from(*i) == at) && !u.sustained()
+                })
+            } else {
+                units.as_mut_slice().iter_mut().find(|u| u.owner() == player && u.kind() == Unit::EidolonMaximum && !u.sustained())
+            };
+            let slot = slot?;
+            *slot = slot.with_sustained(true);
+        }
+    }
+    Some(after)
 }
