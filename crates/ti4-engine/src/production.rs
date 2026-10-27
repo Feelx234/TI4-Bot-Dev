@@ -1555,6 +1555,60 @@ macro_rules! typed_view {
     }};
 }
 
+/// One typed view of one position, built on first use and shared by the reads of an option pass
+/// (`build_options` asks `placements`, `barred_capacity` and `structure_allowed` once per unit
+/// kind). The free functions below build a view per call, which only suits a single read.
+pub(crate) struct Reads<'a> {
+    state: &'a GameState,
+    content: &'a ContentStore,
+    sources: SourceSet,
+    #[cfg(feature = "typed-core")]
+    view: std::cell::OnceCell<Option<crate::production_view::ProdView<'a>>>,
+}
+
+impl<'a> Reads<'a> {
+    pub(crate) fn new(state: &'a GameState, content: &'a ContentStore, sources: SourceSet) -> Self {
+        Self {
+            state,
+            content,
+            sources,
+            #[cfg(feature = "typed-core")]
+            view: std::cell::OnceCell::new(),
+        }
+    }
+
+    #[cfg(feature = "typed-core")]
+    fn view(&self) -> Option<&crate::production_view::ProdView<'a>> {
+        self.view
+            .get_or_init(|| crate::production_view::ProdView::of(self.state, self.content, self.sources))
+            .as_ref()
+    }
+
+    pub(crate) fn placements(&self, player: &PlayerId, system: &SystemId, kind: &UnitType<'_>) -> Vec<String> {
+        #[cfg(feature = "typed-core")]
+        let typed = || self.view()?.placements(player, system, kind.id());
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None;
+        crate::dual_typed!(crate::dual::Area::Production, "production::placements", typed(), placements_text(self.state, self.content, self.sources, player, system, kind))
+    }
+
+    pub(crate) fn barred_capacity(&self, player: &PlayerId, system: &SystemId, kind: &UnitType<'_>) -> i64 {
+        #[cfg(feature = "typed-core")]
+        let typed = || self.view()?.barred_capacity(player, system, kind.base_type());
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None;
+        crate::dual_typed!(crate::dual::Area::Production, "production::barred_capacity", typed(), barred_capacity_text(self.state, self.content, self.sources, player, system, kind))
+    }
+
+    pub(crate) fn structure_allowed(&self, player: &PlayerId, planet: &PlanetId, base_type: &str) -> bool {
+        #[cfg(feature = "typed-core")]
+        let typed = || self.view()?.structure_allowed(player, planet, base_type);
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None;
+        crate::dual_typed!(crate::dual::Area::Production, "production::structure_allowed", typed(), structure_allowed_text(self.state, self.content, self.sources, player, planet, base_type))
+    }
+}
+
 /// 68.1a: the production values of all the player's producing units here, combined.
 #[must_use]
 pub fn capacity(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, system: &SystemId) -> i64 {
@@ -1621,11 +1675,13 @@ pub fn war_machine_bonus(state: &GameState, player: &PlayerId) -> i64 {
 /// The price under whatever laws are in play (Regulated Conscription halves the yield).
 #[must_use]
 pub fn price_of_under(state: Option<&GameState>, kind: &UnitType<'_>) -> (i64, usize) {
+    // Only the printed cost and one law are read, so no position view is built.
     let typed = || {
         #[cfg(feature = "typed-core")]
         {
-            let v = crate::production_view::ProdView::of(state?, ContentStore::embedded(), ti4_model::content_types::FULL)?;
-            v.price_of(kind.id())
+            let halves = <ti4_engine_core::generated::Unit as crate::generated::IdStr>::from_id(kind.id())?.data().cost_halves;
+            let single = state.is_some_and(crate::laws::single_unit_production);
+            Some(ti4_engine_core::rules::production::price(halves, single))
         }
         #[cfg(not(feature = "typed-core"))]
         {
@@ -2429,7 +2485,18 @@ impl ProductionWindow {
         sources: SourceSet,
         kind: UnitType<'_>,
     ) -> Vec<String> {
-        let mut spots = self.local_spots(state, content, sources, kind);
+        self.spots_with(&Reads::new(state, content, sources), state, content, sources, kind)
+    }
+
+    fn spots_with(
+        &self,
+        reads: &Reads<'_>,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        kind: UnitType<'_>,
+    ) -> Vec<String> {
+        let mut spots = self.local_spots(reads, state, content, sources, kind);
         // A module may let the unit go elsewhere, but only a unit this system can produce at all
         // (68.10: a blockaded dock makes no ships, wherever they would be placed).
         if !spots.is_empty() {
@@ -2470,13 +2537,14 @@ impl ProductionWindow {
     /// [`Self::spots`] in the producing system only.
     fn local_spots(
         &self,
+        reads: &Reads<'_>,
         state: &GameState,
         content: &ContentStore,
         sources: SourceSet,
         kind: UnitType<'_>,
     ) -> Vec<String> {
         if !self.ability || kind.is_ship() {
-            return placements(state, content, sources, &self.player, &self.system, &kind);
+            return reads.placements(&self.player, &self.system, &kind);
         }
         if !crate::entropic_scars::abilities_usable(content, sources, &self.system, None) {
             return Vec::new();
@@ -2491,14 +2559,7 @@ impl ProductionWindow {
                 !ti4_content::galaxy::is_space_station(content, planet.as_str(), sources)
             })
             .filter(|planet| {
-                structure_allowed(
-                    state,
-                    content,
-                    sources,
-                    &self.player,
-                    planet,
-                    kind.base_type(),
-                )
+                reads.structure_allowed(&self.player, planet, kind.base_type())
             })
             .map(|planet| planet.to_string())
             .collect();
@@ -2853,6 +2914,7 @@ impl ProductionWindow {
             crate::fleet::standing_using(&types, state, content, &self.player, &self.system, None);
         let spendable_resources =
             available(state, content, sources, &self.player, Spend::Resources);
+        let reads = Reads::new(state, content, sources);
         let mut options = Vec::new();
         for id in buildable_for(state, content, sources, &self.player) {
             let Some(kind) = types.get(id.as_str()) else {
@@ -2905,7 +2967,7 @@ impl ProductionWindow {
             if !affordable && !exchange {
                 continue;
             }
-            let spots = self.spots(state, content, sources, *kind);
+            let spots = self.spots_with(&reads, state, content, sources, *kind);
             if spots.is_empty() {
                 continue;
             }
@@ -2917,7 +2979,7 @@ impl ProductionWindow {
             let barred = if self.ability {
                 0
             } else {
-                barred_capacity(state, content, sources, &self.player, &self.system, kind)
+                reads.barred_capacity(&self.player, &self.system, kind)
             };
             let usable = if barred == 0 {
                 self.remaining
