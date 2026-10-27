@@ -94,6 +94,15 @@ impl Token {
     pub fn data(self) -> &'static TokenData {
         &TOKEN_DATA[self as usize]
     }
+
+    /// The rank of the printed name among all records of the category: 0 is the first in the byte
+    /// order of the name, ties (equal names) by id. A sort by display name or label is a sort by
+    /// this integer ([`TOKEN_NAME_RANK`]); the core never sees the text.
+    #[must_use]
+    #[inline]
+    pub const fn name_rank(self) -> u16 {
+        TOKEN_NAME_RANK[self as usize]
+    }
 }
 
 /// Gameplay data of a [`Token`].
@@ -277,4 +286,11 @@ pub static TOKEN_DATA: [TokenData; Token::COUNT] = [
         wormholes: &[],
         space: false,
     },
+];
+
+/// The rank of each [`Token`]'s printed name (`name`) in byte order, ties by id; indexed by its
+/// integer value. A bijection onto `0..COUNT`.
+pub static TOKEN_NAME_RANK: [u16; Token::COUNT] = [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+    16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
 ];

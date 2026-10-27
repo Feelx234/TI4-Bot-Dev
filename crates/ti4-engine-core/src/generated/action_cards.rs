@@ -322,6 +322,15 @@ impl ActionCard {
     pub fn data(self) -> &'static ActionCardData {
         &ACTION_CARD_DATA[self as usize]
     }
+
+    /// The rank of the printed name among all records of the category: 0 is the first in the byte
+    /// order of the name, ties (equal names) by id. A sort by display name or label is a sort by
+    /// this integer ([`ACTION_CARD_NAME_RANK`]); the core never sees the text.
+    #[must_use]
+    #[inline]
+    pub const fn name_rank(self) -> u16 {
+        ACTION_CARD_NAME_RANK[self as usize]
+    }
 }
 
 /// Gameplay data of a [`ActionCard`].
@@ -329,8 +338,10 @@ impl ActionCard {
 pub struct ActionCardData {
     /// The expansion of the record (`source`).
     pub source: Source,
-    /// The printed `window` is exactly `Action`. The reaction timing of every other window is engine knowledge (`reactions::window_table`), see `text_parsed_fields.md`.
+    /// The printed `window` is exactly `Action` (equals `timing == Timing::Action`).
     pub component_action: bool,
+    /// When the card is played: the printed `window` through the table in `card_fields.json` (the engine binds each non-`Action` variant to its event).
+    pub timing: Timing,
 }
 
 /// One row per [`ActionCard`], indexed by its integer value.
@@ -339,710 +350,866 @@ pub static ACTION_CARD_DATA: [ActionCardData; ActionCard::COUNT] = [
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::StartOfAgendaPhase,
     },
     // ArchaeologicalExpedition
     ActionCardData {
         source: Source::Pok,
         component_action: true,
+        timing: Timing::Action,
     },
     // AssassinateRepresentative
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterAgendaRevealed,
     },
     // BlackMarketDealings
     ActionCardData {
         source: Source::ThundersEdge,
         component_action: false,
+        timing: Timing::WhenNegotiatingTransaction,
     },
     // Blitz
     ActionCardData {
         source: Source::Codex1,
         component_action: false,
+        timing: Timing::StartOfInvasion,
     },
     // Bribery
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterSpeakerVotes,
     },
     // Brilliance
     ActionCardData {
         source: Source::ThundersEdge,
         component_action: true,
+        timing: Timing::Action,
     },
     // Bunker
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::StartOfInvasion,
     },
     // ConfoundingLegalText
     ActionCardData {
         source: Source::Pok,
         component_action: false,
+        timing: Timing::WhenOtherIsElected,
     },
     // ConfusingLegalText
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::WhenYouAreElected,
     },
     // ConstructionRider
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterAgendaRevealed,
     },
     // Counterstroke
     ActionCardData {
         source: Source::Codex1,
         component_action: false,
+        timing: Timing::AfterOtherActivatesSystemWithYourCommandToken,
     },
     // CoupDEtat
     ActionCardData {
         source: Source::Pok,
         component_action: false,
+        timing: Timing::WhenOtherPerformsStrategicAction,
     },
     // CourageousToTheEnd
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterOwnShipDestroyedInSpaceCombat,
     },
     // CrashLanding
     ActionCardData {
         source: Source::ThundersEdge,
         component_action: false,
+        timing: Timing::WhenYourLastShipIsDestroyed,
     },
     // CrippleDefenses
     ActionCardData {
         source: Source::Base,
         component_action: true,
+        timing: Timing::Action,
     },
     // Crisis
     ActionCardData {
         source: Source::ThundersEdge,
         component_action: false,
+        timing: Timing::EndOfTurnIfTwoNotPassed,
     },
     // DeadlyPlot
     ActionCardData {
         source: Source::Pok,
         component_action: false,
+        timing: Timing::WhenOutcomeWouldBeResolved,
     },
     // DecoyOperation
     ActionCardData {
         source: Source::Pok,
         component_action: false,
+        timing: Timing::AfterOtherActivatesSystemWithYourStructures,
     },
     // DirectHit1
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterOtherSustainsAgainstYourHit,
     },
     // DirectHit2
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterOtherSustainsAgainstYourHit,
     },
     // DirectHit3
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterOtherSustainsAgainstYourHit,
     },
     // DirectHit4
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterOtherSustainsAgainstYourHit,
     },
     // DiplomacyRider
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterAgendaRevealed,
     },
     // Disable
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::StartOfInvasionAgainstPds,
     },
     // PublicDisgrace
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::WhenOtherChoosesStrategyCard,
     },
     // DistinguishedCouncilor
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterYouCastVotes,
     },
     // DivertFunding
     ActionCardData {
         source: Source::Pok,
         component_action: true,
+        timing: Timing::Action,
     },
     // DiplomaticPressure1
     ActionCardData {
         source: Source::Pok,
         component_action: false,
+        timing: Timing::WhenAgendaRevealed,
     },
     // DiplomaticPressure2
     ActionCardData {
         source: Source::Pok,
         component_action: false,
+        timing: Timing::WhenAgendaRevealed,
     },
     // DiplomaticPressure3
     ActionCardData {
         source: Source::Pok,
         component_action: false,
+        timing: Timing::WhenAgendaRevealed,
     },
     // DiplomaticPressure4
     ActionCardData {
         source: Source::Pok,
         component_action: false,
+        timing: Timing::WhenAgendaRevealed,
     },
     // EconomicInitiative
     ActionCardData {
         source: Source::Base,
         component_action: true,
+        timing: Timing::Action,
     },
     // EmergencyRepairs
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::StartOrEndOfCombatRound,
     },
     // ExchangeProgram
     ActionCardData {
         source: Source::ThundersEdge,
         component_action: true,
+        timing: Timing::Action,
     },
     // ExperimentalBattlestation
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterActivePlayerMovesIntoActiveSystem,
     },
     // ExtremeDuress
     ActionCardData {
         source: Source::ThundersEdge,
         component_action: false,
+        timing: Timing::StartOfOtherTurnWithReadiedStrategyCard,
     },
     // FighterConscription
     ActionCardData {
         source: Source::Codex1,
         component_action: true,
+        timing: Timing::Action,
     },
     // FrontlineDeployment
     ActionCardData {
         source: Source::Base,
         component_action: true,
+        timing: Timing::Action,
     },
     // FighterPrototype
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::StartOfFirstSpaceCombatRound,
     },
     // FocusedResearch
     ActionCardData {
         source: Source::Base,
         component_action: true,
+        timing: Timing::Action,
     },
     // FireTeam
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterYourGroundForcesRoll,
     },
     // FlankSpeed1
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterYouActivateSystem,
     },
     // FlankSpeed2
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterYouActivateSystem,
     },
     // FlankSpeed3
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterYouActivateSystem,
     },
     // FlankSpeed4
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterYouActivateSystem,
     },
     // ForwardSupplyBase
     ActionCardData {
         source: Source::Codex1,
         component_action: false,
+        timing: Timing::AfterOtherActivatesSystemWithYourUnits,
     },
     // GhostShip
     ActionCardData {
         source: Source::Base,
         component_action: true,
+        timing: Timing::Action,
     },
     // GhostSquad
     ActionCardData {
         source: Source::Codex1,
         component_action: false,
+        timing: Timing::AfterOtherCommitsToYourPlanet,
     },
     // HackElection
     ActionCardData {
         source: Source::Codex1,
         component_action: false,
+        timing: Timing::AfterAgendaRevealed,
     },
     // HarnessEnergy
     ActionCardData {
         source: Source::Codex1,
         component_action: false,
+        timing: Timing::AfterYouActivateAnomaly,
     },
     // ImperialRider
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterAgendaRevealed,
     },
     // Impersonation
     ActionCardData {
         source: Source::Codex1,
         component_action: true,
+        timing: Timing::Action,
     },
     // IndustrialInitiative
     ActionCardData {
         source: Source::Base,
         component_action: true,
+        timing: Timing::Action,
     },
     // Infiltrate
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::WhenYouGainPlanet,
     },
     // InsiderInformation
     ActionCardData {
         source: Source::Codex1,
         component_action: false,
+        timing: Timing::AfterAgendaRevealed,
     },
     // Insubordination
     ActionCardData {
         source: Source::Base,
         component_action: true,
+        timing: Timing::Action,
     },
     // Intercept
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterOpponentDeclaresRetreat,
     },
     // ManipulateInvestments
     ActionCardData {
         source: Source::Pok,
         component_action: false,
+        timing: Timing::StartOfStrategyPhase,
     },
     // SignalJamming
     ActionCardData {
         source: Source::Base,
         component_action: true,
+        timing: Timing::Action,
     },
     // LeadershipRider
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterAgendaRevealed,
     },
     // LieInWait
     ActionCardData {
         source: Source::ThundersEdge,
         component_action: false,
+        timing: Timing::AfterNeighborsTransact,
     },
     // LostStarChart
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterYouActivateSystem,
     },
     // LuckyShot
     ActionCardData {
         source: Source::Base,
         component_action: true,
+        timing: Timing::Action,
     },
     // MasterPlan
     ActionCardData {
         source: Source::Codex1,
         component_action: false,
+        timing: Timing::AfterYouPerformAction,
     },
     // MoraleBoost1
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::StartOfCombatRound,
     },
     // MoraleBoost2
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::StartOfCombatRound,
     },
     // MoraleBoost3
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::StartOfCombatRound,
     },
     // MoraleBoost4
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::StartOfCombatRound,
     },
     // ReactorMeltdown
     ActionCardData {
         source: Source::Base,
         component_action: true,
+        timing: Timing::Action,
     },
     // MercenaryContract
     ActionCardData {
         source: Source::ThundersEdge,
         component_action: true,
+        timing: Timing::Action,
     },
     // RiseOfAMessiah
     ActionCardData {
         source: Source::Base,
         component_action: true,
+        timing: Timing::Action,
     },
     // MiningInitiative
     ActionCardData {
         source: Source::Base,
         component_action: true,
+        timing: Timing::Action,
     },
     // ManeuveringJets1
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::BeforeAssigningSpaceCannonHits,
     },
     // ManeuveringJets2
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::BeforeAssigningSpaceCannonHits,
     },
     // ManeuveringJets3
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::BeforeAssigningSpaceCannonHits,
     },
     // ManeuveringJets4
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::BeforeAssigningSpaceCannonHits,
     },
     // NavSuite
     ActionCardData {
         source: Source::Pok,
         component_action: false,
+        timing: Timing::AfterYouActivateSystem,
     },
     // Overrule
     ActionCardData {
         source: Source::ThundersEdge,
         component_action: true,
+        timing: Timing::Action,
     },
     // Parley
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterOtherCommitsToYourPlanet,
     },
     // PirateContract1
     ActionCardData {
         source: Source::ThundersEdge,
         component_action: true,
+        timing: Timing::Action,
     },
     // PirateContract2
     ActionCardData {
         source: Source::ThundersEdge,
         component_action: true,
+        timing: Timing::Action,
     },
     // PirateContract3
     ActionCardData {
         source: Source::ThundersEdge,
         component_action: true,
+        timing: Timing::Action,
     },
     // PirateContract4
     ActionCardData {
         source: Source::ThundersEdge,
         component_action: true,
+        timing: Timing::Action,
     },
     // PirateFleet
     ActionCardData {
         source: Source::ThundersEdge,
         component_action: true,
+        timing: Timing::Action,
     },
     // Plagiarize
     ActionCardData {
         source: Source::Codex1,
         component_action: true,
+        timing: Timing::Action,
     },
     // Plague
     ActionCardData {
         source: Source::Base,
         component_action: true,
+        timing: Timing::Action,
     },
     // PoliticsRider
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterAgendaRevealed,
     },
     // ExplorationProbe
     ActionCardData {
         source: Source::Pok,
         component_action: true,
+        timing: Timing::Action,
     },
     // PuppetsOnAString
     ActionCardData {
         source: Source::ThundersEdge,
         component_action: false,
+        timing: Timing::EndOfTurnIfYouPassed,
     },
     // Rally
     ActionCardData {
         source: Source::Codex1,
         component_action: false,
+        timing: Timing::AfterYouActivateSystemWithOtherShips,
     },
     // RefitTroops
     ActionCardData {
         source: Source::Pok,
         component_action: true,
+        timing: Timing::Action,
     },
     // ReflectiveShielding
     ActionCardData {
         source: Source::Codex1,
         component_action: false,
+        timing: Timing::WhenYourShipSustainsDamage,
     },
     // Reparations
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterOtherGainsYourPlanet,
     },
     // RepealLaw
     ActionCardData {
         source: Source::Base,
         component_action: true,
+        timing: Timing::Action,
     },
     // Rescue
     ActionCardData {
         source: Source::ThundersEdge,
         component_action: false,
+        timing: Timing::AfterShipsMoveIntoSystemWithYourShips,
     },
     // RevealPrototype
     ActionCardData {
         source: Source::Pok,
         component_action: false,
+        timing: Timing::StartOfCombat,
     },
     // ReverseEngineer
     ActionCardData {
         source: Source::Pok,
         component_action: false,
+        timing: Timing::AfterOtherDiscardsComponentActionCard,
     },
     // Rout
     ActionCardData {
         source: Source::Pok,
         component_action: false,
+        timing: Timing::StartOfAnnounceRetreatsAsDefender,
     },
     // SkilledRetreat1
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::StartOfCombatRound,
     },
     // SkilledRetreat2
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::StartOfCombatRound,
     },
     // SkilledRetreat3
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::StartOfCombatRound,
     },
     // SkilledRetreat4
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::StartOfCombatRound,
     },
     // Sabotage1
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::WhenOtherPlaysActionCardNotSabotage,
     },
     // Sabotage2
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::WhenOtherPlaysActionCardNotSabotage,
     },
     // Sabotage3
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::WhenOtherPlaysActionCardNotSabotage,
     },
     // Sabotage4
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::WhenOtherPlaysActionCardNotSabotage,
     },
     // Salvage
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterYouWinSpaceCombat,
     },
     // Sanction
     ActionCardData {
         source: Source::Codex1,
         component_action: false,
+        timing: Timing::AfterAgendaRevealed,
     },
     // ScrambleFrequency
     ActionCardData {
         source: Source::Codex1,
         component_action: false,
+        timing: Timing::AfterOtherRollsUnitAbility,
     },
     // Scuttle
     ActionCardData {
         source: Source::Pok,
         component_action: true,
+        timing: Timing::Action,
     },
     // SeizeArtifact
     ActionCardData {
         source: Source::Pok,
         component_action: true,
+        timing: Timing::Action,
     },
     // ShieldsHolding1
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::BeforeAssigningSpaceCombatHits,
     },
     // ShieldsHolding2
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::BeforeAssigningSpaceCombatHits,
     },
     // ShieldsHolding3
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::BeforeAssigningSpaceCombatHits,
     },
     // ShieldsHolding4
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::BeforeAssigningSpaceCombatHits,
     },
     // InTheSilenceOfSpace
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterYouActivateSystem,
     },
     // SolarFlare
     ActionCardData {
         source: Source::Codex1,
         component_action: false,
+        timing: Timing::AfterYouActivateSystem,
     },
     // Spy
     ActionCardData {
         source: Source::Base,
         component_action: true,
+        timing: Timing::Action,
     },
     // PoliticalStability
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::WhenYouWouldReturnStrategyCards,
     },
     // Strategize1
     ActionCardData {
         source: Source::ThundersEdge,
         component_action: true,
+        timing: Timing::Action,
     },
     // Strategize2
     ActionCardData {
         source: Source::ThundersEdge,
         component_action: true,
+        timing: Timing::Action,
     },
     // Strategize3
     ActionCardData {
         source: Source::ThundersEdge,
         component_action: true,
+        timing: Timing::Action,
     },
     // Strategize4
     ActionCardData {
         source: Source::ThundersEdge,
         component_action: true,
+        timing: Timing::Action,
     },
     // Summit
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::StartOfStrategyPhase,
     },
     // TacticalBombardment
     ActionCardData {
         source: Source::Base,
         component_action: true,
+        timing: Timing::Action,
     },
     // TechnologyRider
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterAgendaRevealed,
     },
     // TradeRider
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterAgendaRevealed,
     },
     // UnexpectedAction
     ActionCardData {
         source: Source::Base,
         component_action: true,
+        timing: Timing::Action,
     },
     // UnstablePlanet
     ActionCardData {
         source: Source::Base,
         component_action: true,
+        timing: Timing::Action,
     },
     // Upgrade
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterYouActivateSystemWithYourShips,
     },
     // Uprising
     ActionCardData {
         source: Source::Base,
         component_action: true,
+        timing: Timing::Action,
     },
     // Veto
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::WhenAgendaRevealed,
     },
     // Veto3
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::WhenAgendaRevealed,
     },
     // Veto4
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::WhenAgendaRevealed,
     },
     // WarEffort
     ActionCardData {
         source: Source::Base,
         component_action: true,
+        timing: Timing::Action,
     },
     // WarMachine1
     ActionCardData {
         source: Source::Codex1,
         component_action: false,
+        timing: Timing::WhenYourUnitsUseProduction,
     },
     // WarMachine2
     ActionCardData {
         source: Source::Codex1,
         component_action: false,
+        timing: Timing::WhenYourUnitsUseProduction,
     },
     // WarMachine3
     ActionCardData {
         source: Source::Codex1,
         component_action: false,
+        timing: Timing::WhenYourUnitsUseProduction,
     },
     // WarMachine4
     ActionCardData {
         source: Source::Codex1,
         component_action: false,
+        timing: Timing::WhenYourUnitsUseProduction,
     },
     // WarfareRider
     ActionCardData {
         source: Source::Base,
         component_action: false,
+        timing: Timing::AfterAgendaRevealed,
     },
     // Waylay
     ActionCardData {
         source: Source::Pok,
         component_action: false,
+        timing: Timing::BeforeAntiFighterBarrageRoll,
     },
+];
+
+/// The rank of each [`ActionCard`]'s printed name (`name`) in byte order, ties by id; indexed by its
+/// integer value. A bijection onto `0..COUNT`.
+pub static ACTION_CARD_NAME_RANK: [u16; ActionCard::COUNT] = [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+    16, 17, 18, 24, 25, 26, 27, 19, 28, 87, 29, 30, 20, 21, 22, 23,
+    31, 32, 33, 34, 36, 37, 46, 38, 44, 39, 40, 41, 42, 43, 45, 47,
+    48, 49, 50, 51, 52, 54, 55, 56, 57, 58, 67, 113, 59, 60, 61, 62,
+    68, 71, 72, 73, 74, 90, 69, 98, 70, 63, 64, 65, 66, 75, 76, 77,
+    78, 79, 80, 81, 82, 83, 84, 86, 35, 88, 89, 91, 92, 93, 94, 95,
+    96, 97, 99, 114, 115, 116, 117, 100, 101, 102, 103, 104, 105, 106, 107, 108,
+    109, 110, 111, 112, 53, 118, 119, 85, 120, 121, 122, 123, 124, 125, 126, 127,
+    128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141,
 ];

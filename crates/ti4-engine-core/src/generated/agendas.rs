@@ -164,6 +164,15 @@ impl Agenda {
     pub fn data(self) -> &'static AgendaData {
         &AGENDA_DATA[self as usize]
     }
+
+    /// The rank of the printed name among all records of the category: 0 is the first in the byte
+    /// order of the name, ties (equal names) by id. A sort by display name or label is a sort by
+    /// this integer ([`AGENDA_NAME_RANK`]); the core never sees the text.
+    #[must_use]
+    #[inline]
+    pub const fn name_rank(self) -> u16 {
+        AGENDA_NAME_RANK[self as usize]
+    }
 }
 
 /// Gameplay data of a [`Agenda`].
@@ -173,7 +182,7 @@ pub struct AgendaData {
     pub source: Source,
     /// Law or Directive (`type`).
     pub kind: AgendaType,
-    /// What is elected (`target` up to `(`).
+    /// What is elected (`target`, through the table in `card_fields.json`).
     pub elects: AgendaElects,
 }
 
@@ -267,7 +276,7 @@ pub static AGENDA_DATA: [AgendaData; Agenda::COUNT] = [
     AgendaData {
         source: Source::Pok,
         kind: AgendaType::Directive,
-        elects: AgendaElects::ForAgainst,
+        elects: AgendaElects::HiddenNextAgenda,
     },
     // GalacticCrisisPact
     AgendaData {
@@ -423,7 +432,7 @@ pub static AGENDA_DATA: [AgendaData; Agenda::COUNT] = [
     AgendaData {
         source: Source::Base,
         kind: AgendaType::Directive,
-        elects: AgendaElects::NonHomePlanetOtherThanMecatolRex,
+        elects: AgendaElects::NonHomeNonMecatolPlanet,
     },
     // FleetRegulations
     AgendaData {
@@ -557,4 +566,13 @@ pub static AGENDA_DATA: [AgendaData; Agenda::COUNT] = [
         kind: AgendaType::Directive,
         elects: AgendaElects::ForAgainst,
     },
+];
+
+/// The rank of each [`Agenda`]'s printed name (`name`) in byte order, ties by id; indexed by its
+/// integer value. A bijection onto `0..COUNT`.
+pub static AGENDA_NAME_RANK: [u16; Agenda::COUNT] = [
+    25, 22, 3, 4, 24, 38, 5, 6, 7, 9, 43, 36, 11, 12, 13, 19,
+    58, 59, 21, 14, 10, 15, 40, 46, 20, 23, 26, 27, 28, 29, 30, 31,
+    32, 33, 34, 35, 37, 56, 39, 42, 8, 18, 44, 45, 0, 47, 48, 49,
+    50, 17, 41, 1, 52, 53, 54, 55, 2, 57, 16, 60, 51, 61, 62,
 ];

@@ -118,6 +118,15 @@ impl PromissoryNote {
     pub fn data(self) -> &'static PromissoryNoteData {
         &PROMISSORY_NOTE_DATA[self as usize]
     }
+
+    /// The rank of the printed name among all records of the category: 0 is the first in the byte
+    /// order of the name, ties (equal names) by id. A sort by display name or label is a sort by
+    /// this integer ([`PROMISSORY_NOTE_NAME_RANK`]); the core never sees the text.
+    #[must_use]
+    #[inline]
+    pub const fn name_rank(self) -> u16 {
+        PROMISSORY_NOTE_NAME_RANK[self as usize]
+    }
 }
 
 /// Gameplay data of a [`PromissoryNote`].
@@ -373,4 +382,12 @@ pub static PROMISSORY_NOTE_DATA: [PromissoryNoteData; PromissoryNote::COUNT] = [
         faction: Some(FactionTag::Letnev),
         play_area: false,
     },
+];
+
+/// The rank of each [`PromissoryNote`]'s printed name (`name`) in byte order, ties by id; indexed by its
+/// integer value. A bijection onto `0..COUNT`.
+pub static PROMISSORY_NOTE_NAME_RANK: [u16; PromissoryNote::COUNT] = [
+    1, 6, 22, 33, 37, 0, 31, 2, 4, 5, 3, 36, 9, 38, 8, 10,
+    21, 11, 12, 13, 7, 18, 19, 20, 23, 26, 24, 25, 14, 15, 16, 17,
+    27, 28, 29, 30, 32, 34, 35, 39,
 ];

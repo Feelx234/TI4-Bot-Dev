@@ -10,108 +10,110 @@ nothing is guessed; the values to map are listed here instead.
 
 ## action_cards.window
 
-- **Typed**: `ActionCardData::component_action` = the trimmed window is exactly `Action`
-(`action_cards.rs`, `keleres.rs`).
-- **TODO**: the reaction timing. `reactions::window_table` binds each printed sentence to an
-engine event; that table is engine code, not content. Once the core exists, a `Timing`
-enum replaces it and each card gets a `timing` column (by hand or from a committed
-sentence -> timing file). 52 distinct sentences:
+- **Typed**: `ActionCardData::timing` (`Timing`), one variant per printed sentence, through the
+committed table `crates/ti4-content/card_fields.json` (`action_card_window`); an unmapped
+sentence fails `gen-cards`. `ActionCardData::component_action` = `timing == Timing::Action`.
+- **Engine**: `reactions::window_table` binds each non-`Action` variant to an engine event; that
+table is rule code, not content. 52 distinct sentences:
 
-| window | cards |
-|---|---|
-| Action | arch_expedition, brilliance, cripple, divert_funding, economic_initiative, exchangeprogram, f_conscription, f_deployment, f_researched, ghost_ship, impersonation, industrial_initiative, insub, jamming, lucky, meltdown, mercenarycontract, messiah, mining_initiative, overrule, piratecontract1, piratecontract2, piratecontract3, piratecontract4, piratefleet, plagiarize, plague, probe, refit, repeal, scuttle, seize, spy, strategize1, strategize2, strategize3, strategize4, tactical, unexpected, unstable, uprising, war_effort |
-| After an agenda is revealed | assassin, const_rider, diplo_rider, hack, imp_rider, insider, lead_rider, politic_rider, sanction, tech_rider, trade_rider, war_rider |
-| After you activate a system | fs1, fs2, fs3, fs4, lost_star, nav_suite, silence_space, solar_flare |
-| At the start of a combat round | mb1, mb2, mb3, mb4, s_retreat1, s_retreat2, s_retreat3, s_retreat4 |
-| When an agenda is revealed | dp1, dp2, dp3, dp4, veto, veto3, veto4 |
-| After another player's ship uses SUSTAIN DAMAGE to cancel a hit produced by your units or abilities | dh1, dh2, dh3, dh4 |
-| Before you assign hits produced by another player's SPACE CANNON roll | mjets1, mjets2, mjets3, mjets4 |
-| Before you assign hits to your ships during a space combat | sh1, sh2, sh3, sh4 |
-| When 1 or more of your units use PRODUCTION | war_machine1, war_machine2, war_machine3, war_machine4 |
-| When another player plays an action card other than 'Sabotage' | sabo1, sabo2, sabo3, sabo4 |
-| After another player commits units to land on a planet you control | ghost_squad, parley |
-| At the start of an invasion | blitz, bunker |
-| At the start of the strategy phase | investments, summit |
-| After 1 of your ships is destroyed during a space combat | courageous |
-| After 2 of your neighbors resolve a transaction | lieinwait |
-| After a player moves ships into a system that contains your ships | rescue |
-| After another player activates a system that contains 1 of your command tokens | counterstroke |
-| After another player activates a system that contains 1 or more of your structures | decoy |
-| After another player activates a system that contains your units | fsb |
-| After another player discards an action card that has a component action | reverse_engineer |
-| After another player gains control of a planet you control | reparations |
-| After another player makes a BOMBARDMENT, SPACE CANNON, or ANTI-FIGHTER BARRAGE roll | scramble |
-| After the active player moves ships into the active system during a tactical action | experimental |
-| After the speaker votes on an agenda | bribery |
-| After you activate a system that contains 1 or more of your ships | upgrade |
-| After you activate a system that contains another player's ships | rally |
-| After you activate an anomaly | harness |
-| After you cast votes on an outcome of an agenda | distinguished |
-| After you perform an action | master_plan |
-| After you win a space combat | salvage |
-| After your ground forces make combat rolls during a round of ground combat | fire_team |
-| After your opponent declares a retreat during a space combat | intercept |
-| At the end of a player's turn, if you have passed | puppetsonastring |
-| At the end of any players turn, if there are at least 2 players who have not passed | crisis |
-| At the start of a combat | reveal_prototype |
-| At the start of an invasion in a system that contains 1 or more of your opponents' PDS units | disable |
-| At the start of another player's turn, if they have a readied strategy card | extremeduress |
-| At the start of the 'Announce Retreats' step of space combat, if you are the defender | rout |
-| At the start of the agenda phase | abs |
-| At the start of the first round of a space combat | f_prototype |
-| At the start or end of a combat round | emergency |
-| Before you roll dice for ANTI-FIGHTER BARRAGE | waylay |
-| During the agenda phase when an outcome would be resolved | deadly_plot |
-| When another player chooses a strategy card during the strategy phase | disgrace |
-| When another player is elected as the outcome of an agenda | confounding |
-| When another player would perform a strategic action | coup |
-| When one of your ships uses SUSTAIN DAMAGE during combat | reflective |
-| When you are elected as the outcome of an agenda | confusing |
-| When you are negotiating a transaction | blackmarketdealing |
-| When you gain control of a planet | infiltrate |
-| When you would return your strategy card(s) during the status phase | stability |
-| When your last ship in the active system is destroyed | crashlanding |
+| window | timing | cards |
+|---|---|---|
+| Action | `Action` | arch_expedition, brilliance, cripple, divert_funding, economic_initiative, exchangeprogram, f_conscription, f_deployment, f_researched, ghost_ship, impersonation, industrial_initiative, insub, jamming, lucky, meltdown, mercenarycontract, messiah, mining_initiative, overrule, piratecontract1, piratecontract2, piratecontract3, piratecontract4, piratefleet, plagiarize, plague, probe, refit, repeal, scuttle, seize, spy, strategize1, strategize2, strategize3, strategize4, tactical, unexpected, unstable, uprising, war_effort |
+| After an agenda is revealed | `AfterAgendaRevealed` | assassin, const_rider, diplo_rider, hack, imp_rider, insider, lead_rider, politic_rider, sanction, tech_rider, trade_rider, war_rider |
+| After you activate a system | `AfterYouActivateSystem` | fs1, fs2, fs3, fs4, lost_star, nav_suite, silence_space, solar_flare |
+| At the start of a combat round | `StartOfCombatRound` | mb1, mb2, mb3, mb4, s_retreat1, s_retreat2, s_retreat3, s_retreat4 |
+| When an agenda is revealed | `WhenAgendaRevealed` | dp1, dp2, dp3, dp4, veto, veto3, veto4 |
+| After another player's ship uses SUSTAIN DAMAGE to cancel a hit produced by your units or abilities | `AfterOtherSustainsAgainstYourHit` | dh1, dh2, dh3, dh4 |
+| Before you assign hits produced by another player's SPACE CANNON roll | `BeforeAssigningSpaceCannonHits` | mjets1, mjets2, mjets3, mjets4 |
+| Before you assign hits to your ships during a space combat | `BeforeAssigningSpaceCombatHits` | sh1, sh2, sh3, sh4 |
+| When 1 or more of your units use PRODUCTION | `WhenYourUnitsUseProduction` | war_machine1, war_machine2, war_machine3, war_machine4 |
+| When another player plays an action card other than 'Sabotage' | `WhenOtherPlaysActionCardNotSabotage` | sabo1, sabo2, sabo3, sabo4 |
+| After another player commits units to land on a planet you control | `AfterOtherCommitsToYourPlanet` | ghost_squad, parley |
+| At the start of an invasion | `StartOfInvasion` | blitz, bunker |
+| At the start of the strategy phase | `StartOfStrategyPhase` | investments, summit |
+| After 1 of your ships is destroyed during a space combat | `AfterOwnShipDestroyedInSpaceCombat` | courageous |
+| After 2 of your neighbors resolve a transaction | `AfterNeighborsTransact` | lieinwait |
+| After a player moves ships into a system that contains your ships | `AfterShipsMoveIntoSystemWithYourShips` | rescue |
+| After another player activates a system that contains 1 of your command tokens | `AfterOtherActivatesSystemWithYourCommandToken` | counterstroke |
+| After another player activates a system that contains 1 or more of your structures | `AfterOtherActivatesSystemWithYourStructures` | decoy |
+| After another player activates a system that contains your units | `AfterOtherActivatesSystemWithYourUnits` | fsb |
+| After another player discards an action card that has a component action | `AfterOtherDiscardsComponentActionCard` | reverse_engineer |
+| After another player gains control of a planet you control | `AfterOtherGainsYourPlanet` | reparations |
+| After another player makes a BOMBARDMENT, SPACE CANNON, or ANTI-FIGHTER BARRAGE roll | `AfterOtherRollsUnitAbility` | scramble |
+| After the active player moves ships into the active system during a tactical action | `AfterActivePlayerMovesIntoActiveSystem` | experimental |
+| After the speaker votes on an agenda | `AfterSpeakerVotes` | bribery |
+| After you activate a system that contains 1 or more of your ships | `AfterYouActivateSystemWithYourShips` | upgrade |
+| After you activate a system that contains another player's ships | `AfterYouActivateSystemWithOtherShips` | rally |
+| After you activate an anomaly | `AfterYouActivateAnomaly` | harness |
+| After you cast votes on an outcome of an agenda | `AfterYouCastVotes` | distinguished |
+| After you perform an action | `AfterYouPerformAction` | master_plan |
+| After you win a space combat | `AfterYouWinSpaceCombat` | salvage |
+| After your ground forces make combat rolls during a round of ground combat | `AfterYourGroundForcesRoll` | fire_team |
+| After your opponent declares a retreat during a space combat | `AfterOpponentDeclaresRetreat` | intercept |
+| At the end of a player's turn, if you have passed | `EndOfTurnIfYouPassed` | puppetsonastring |
+| At the end of any players turn, if there are at least 2 players who have not passed | `EndOfTurnIfTwoNotPassed` | crisis |
+| At the start of a combat | `StartOfCombat` | reveal_prototype |
+| At the start of an invasion in a system that contains 1 or more of your opponents' PDS units | `StartOfInvasionAgainstPds` | disable |
+| At the start of another player's turn, if they have a readied strategy card | `StartOfOtherTurnWithReadiedStrategyCard` | extremeduress |
+| At the start of the 'Announce Retreats' step of space combat, if you are the defender | `StartOfAnnounceRetreatsAsDefender` | rout |
+| At the start of the agenda phase | `StartOfAgendaPhase` | abs |
+| At the start of the first round of a space combat | `StartOfFirstSpaceCombatRound` | f_prototype |
+| At the start or end of a combat round | `StartOrEndOfCombatRound` | emergency |
+| Before you roll dice for ANTI-FIGHTER BARRAGE | `BeforeAntiFighterBarrageRoll` | waylay |
+| During the agenda phase when an outcome would be resolved | `WhenOutcomeWouldBeResolved` | deadly_plot |
+| When another player chooses a strategy card during the strategy phase | `WhenOtherChoosesStrategyCard` | disgrace |
+| When another player is elected as the outcome of an agenda | `WhenOtherIsElected` | confounding |
+| When another player would perform a strategic action | `WhenOtherPerformsStrategicAction` | coup |
+| When one of your ships uses SUSTAIN DAMAGE during combat | `WhenYourShipSustainsDamage` | reflective |
+| When you are elected as the outcome of an agenda | `WhenYouAreElected` | confusing |
+| When you are negotiating a transaction | `WhenNegotiatingTransaction` | blackmarketdealing |
+| When you gain control of a planet | `WhenYouGainPlanet` | infiltrate |
+| When you would return your strategy card(s) during the status phase | `WhenYouWouldReturnStrategyCards` | stability |
+| When your last ship in the active system is destroyed | `WhenYourLastShipIsDestroyed` | crashlanding |
 
 ## agendas.target
 
-- **Typed**: `AgendaData::elects` (`AgendaElects`) = the text up to the first `(`, without
-`Elect`; `For/Against` when it does not start with `Elect` (`vote::outcomes`). The engine's
-`contains("Player")` / `contains("Planet")` / `Non-Home` / `Law` checks become a `match` on it.
+- **Typed**: `AgendaData::elects` (`AgendaElects`) through the committed table
+`card_fields.json` (`agenda_target`). The variants are the outcome sets the rules offer;
+`ScoredSecretObjective` and `StrategyCard` have no candidate yet (audit I03, I02).
+- Covert Legislation's target is a rules sentence: `HiddenNextAgenda`, which the engine votes
+For/Against today (audit I04).
 - **TODO**: the parenthetical rule ("if there are no laws in play, discard this card ...")
-is not typed; Covert Legislation's target is a rules sentence and types as `For/Against`,
-exactly as the engine reads it today (audit I04).
+is not typed.
 
 | target | elects | agendas |
 |---|---|---|
-| For/Against | `For/Against` | arms_reduction, articles_war, artifact, checks, cladenstine, conscription, constitution, conventions, defense_act, economic_equality, incentive, mutiny, nexus, plowshares, rearmament, regulations, rep_govt, representative_government, revolution, sanctions, schematics, seed_empire, shared_research, travel_ban, unconventional, wormhole_recon, wormhole_research |
+| For/Against | `ForAgainst` | arms_reduction, articles_war, artifact, checks, cladenstine, conscription, constitution, conventions, defense_act, economic_equality, incentive, mutiny, nexus, plowshares, rearmament, regulations, rep_govt, representative_government, revolution, sanctions, schematics, seed_empire, shared_research, travel_ban, unconventional, wormhole_recon, wormhole_research |
 | Elect Player | `Player` | arbiter, censure, committee, crown_of_emphidia, crown_of_thalnos, execution, grant_reallocation, minister_antiquities, minister_commerce, minister_exploration, minister_industry, minister_peace, minister_policy, minister_sciences, minister_war, prophecy, secret, shard_of_the_throne, standardization, warrant |
 | Elect Planet | `Planet` | core_mining, demilitarized_zone, disarmament, holy_planet_of_ixth, rt_biotic, rt_cybernetic, rt_propulsion, rt_warfare, senate_sanctuary, terraforming_initiative |
 | Elect Law | `Law` | miscount |
 | Elect Law (When this agenda is revealed, if there are no laws in play, discard this card and reveal another agenda from the top of the deck.) | `Law` | abolishment |
-| Elect Non-Home Planet Other Than Mecatol Rex | `Non-Home Planet Other Than Mecatol Rex` | redistribution |
-| Elect Scored Secret Objective (When this agenda is revealed, if there are no scored secret objectives, discard this card and reveal another agenda from the top of the deck.) | `Scored Secret Objective` | classified |
-| Elect Strategy Card | `Strategy Card` | crisis |
-| When this agenda is revealed, the speaker draws the next card in the agenda deck but does not reveal it to the other players. Instead, the speaker reads the eligible outcomes aloud (for, against, elect Elect Player, etc.). The other Players vote for these outcomes as if they were outcomes of this agenda, without knowing their effects. | `For/Against` | covert |
+| Elect Non-Home Planet Other Than Mecatol Rex | `NonHomeNonMecatolPlanet` | redistribution |
+| Elect Scored Secret Objective (When this agenda is revealed, if there are no scored secret objectives, discard this card and reveal another agenda from the top of the deck.) | `ScoredSecretObjective` | classified |
+| Elect Strategy Card | `StrategyCard` | crisis |
+| When this agenda is revealed, the speaker draws the next card in the agenda deck but does not reveal it to the other players. Instead, the speaker reads the eligible outcomes aloud (for, against, elect Elect Player, etc.). The other Players vote for these outcomes as if they were outcomes of this agenda, without knowing their effects. | `HiddenNextAgenda` | covert |
 
 ## leaders.abilityWindow
 
-- **Typed**: `LeaderData::window` (`LeaderWindow`): `Action` when the trimmed window starts
-with `ACTION`, `ActionPhase` for `During the action phase:`, else `Other`
-(`leaders::is_action_window`, `leaders::uses_the_action`).
+- **Typed**: `LeaderData::window` (`LeaderWindow`) through the committed table `card_fields.json`
+(`leader_ability_window`): `Action` (`ACTION:`), `ActionPhase` (`During the action phase:`),
+`Other` (`leaders::is_action_window`, `leaders::uses_the_action`).
 
-  - `action`: 30 leaders
-  - `action_phase`: 2 leaders
-  - `other`: 71 leaders
+  - `Action`: 30 leaders
+  - `ActionPhase`: 2 leaders
+  - `Other`: 71 leaders
 
 ## technologies.text
 
-- **Typed**: `TechnologyData::researchable` = false when the text contains
-`cannot be researched` (`technology.rs`, `deepwrought.rs`): parasite-obs, planesplitter-obs.
+- **Typed**: `TechnologyData::researchable` = false when the last line of the text is
+`This technology cannot be researched.` (and it is mentioned once; any other mention of `cannot be researched` fails the
+generator). The ids are listed in `card_fields.json` (`technology_text`) and checked: parasite-obs, planesplitter-obs.
 
-## strategy_cards.name
+## strategy_cards.id
 
-- **Typed**: `StrategyCardData::kind` (`StrategyCardKind`) = the printed name, on which
-`strategy_cards.rs` dispatches.
+- **Typed**: `StrategyCardData::kind` (`StrategyCardKind`) = the card id through the committed
+table `card_fields.json` (`strategy_card_id`). Every printing of one initiative is one kind,
+which is how the engine dispatched on the printed name.
 - **TODO**: the printing variant. The engine special-cases `te4construction` and
 `te6warfare` by id, and `base2` / `pok2diplomacy` print different Diplomacy texts but
 share a name (audit I09). Whether a variant tag (`Base`, `Codex`, `ThundersEdge`) is a
@@ -121,12 +123,12 @@ column or the id itself is the discriminator is for the core to decide.
 |---|---|
 | Construction | base4, pok4construction, te4construction |
 | Diplomacy | base2, pok2diplomacy |
-| Warfare | pok6warfare, te6warfare |
 | Imperial | pok8imperial |
 | Leadership | pok1leadership |
 | Politics | pok3politics |
 | Technology | pok7technology |
 | Trade | pok5trade |
+| Warfare | pok6warfare, te6warfare |
 
 ## factions.startingFleet
 

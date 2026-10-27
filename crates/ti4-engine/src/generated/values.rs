@@ -6,7 +6,7 @@
 #[allow(unused_imports)]
 use ti4_engine_core::generated::*;
 
-use super::IdStr;
+use super::{IdStr, Printed};
 
 /// The corpus id of each [`Source`], indexed by its integer value.
 pub static SOURCE_KEYS: [&str; Source::COUNT] = [
@@ -122,15 +122,144 @@ impl IdStr for AgendaType {
     }
 }
 
+/// The corpus id of each [`Timing`], indexed by its integer value.
+pub static TIMING_KEYS: [&str; Timing::COUNT] = [
+    "Action",
+    "After 1 of your ships is destroyed during a space combat",
+    "After 2 of your neighbors resolve a transaction",
+    "After a player moves ships into a system that contains your ships",
+    "After an agenda is revealed",
+    "After another player activates a system that contains 1 of your command tokens",
+    "After another player activates a system that contains 1 or more of your structures",
+    "After another player activates a system that contains your units",
+    "After another player commits units to land on a planet you control",
+    "After another player discards an action card that has a component action",
+    "After another player gains control of a planet you control",
+    "After another player makes a BOMBARDMENT, SPACE CANNON, or ANTI-FIGHTER BARRAGE roll",
+    "After another player's ship uses SUSTAIN DAMAGE to cancel a hit produced by your units or abilities",
+    "After the active player moves ships into the active system during a tactical action",
+    "After the speaker votes on an agenda",
+    "After you activate a system",
+    "After you activate a system that contains 1 or more of your ships",
+    "After you activate a system that contains another player's ships",
+    "After you activate an anomaly",
+    "After you cast votes on an outcome of an agenda",
+    "After you perform an action",
+    "After you win a space combat",
+    "After your ground forces make combat rolls during a round of ground combat",
+    "After your opponent declares a retreat during a space combat",
+    "At the end of a player's turn, if you have passed",
+    "At the end of any players turn, if there are at least 2 players who have not passed",
+    "At the start of a combat",
+    "At the start of a combat round",
+    "At the start of an invasion",
+    "At the start of an invasion in a system that contains 1 or more of your opponents' PDS units",
+    "At the start of another player's turn, if they have a readied strategy card",
+    "At the start of the 'Announce Retreats' step of space combat, if you are the defender",
+    "At the start of the agenda phase",
+    "At the start of the first round of a space combat",
+    "At the start of the strategy phase",
+    "At the start or end of a combat round",
+    "Before you assign hits produced by another player's SPACE CANNON roll",
+    "Before you assign hits to your ships during a space combat",
+    "Before you roll dice for ANTI-FIGHTER BARRAGE",
+    "During the agenda phase when an outcome would be resolved",
+    "When 1 or more of your units use PRODUCTION",
+    "When an agenda is revealed",
+    "When another player chooses a strategy card during the strategy phase",
+    "When another player is elected as the outcome of an agenda",
+    "When another player plays an action card other than 'Sabotage'",
+    "When another player would perform a strategic action",
+    "When one of your ships uses SUSTAIN DAMAGE during combat",
+    "When you are elected as the outcome of an agenda",
+    "When you are negotiating a transaction",
+    "When you gain control of a planet",
+    "When you would return your strategy card(s) during the status phase",
+    "When your last ship in the active system is destroyed",
+];
+
+impl IdStr for Timing {
+    const IDS: &'static [&'static str] = &TIMING_KEYS;
+    #[inline]
+    fn nth(index: usize) -> Option<Self> {
+        Self::from_index(index)
+    }
+    #[inline]
+    fn index(self) -> usize {
+        self as usize
+    }
+}
+
+/// Every printed value of the corpus with its [`Timing`], sorted by printed value.
+pub static TIMING_PRINTED: [(&str, Timing); 52] = [
+    ("Action", Timing::Action),
+    ("After 1 of your ships is destroyed during a space combat", Timing::AfterOwnShipDestroyedInSpaceCombat),
+    ("After 2 of your neighbors resolve a transaction", Timing::AfterNeighborsTransact),
+    ("After a player moves ships into a system that contains your ships", Timing::AfterShipsMoveIntoSystemWithYourShips),
+    ("After an agenda is revealed", Timing::AfterAgendaRevealed),
+    ("After another player activates a system that contains 1 of your command tokens", Timing::AfterOtherActivatesSystemWithYourCommandToken),
+    ("After another player activates a system that contains 1 or more of your structures", Timing::AfterOtherActivatesSystemWithYourStructures),
+    ("After another player activates a system that contains your units", Timing::AfterOtherActivatesSystemWithYourUnits),
+    ("After another player commits units to land on a planet you control", Timing::AfterOtherCommitsToYourPlanet),
+    ("After another player discards an action card that has a component action", Timing::AfterOtherDiscardsComponentActionCard),
+    ("After another player gains control of a planet you control", Timing::AfterOtherGainsYourPlanet),
+    ("After another player makes a BOMBARDMENT, SPACE CANNON, or ANTI-FIGHTER BARRAGE roll", Timing::AfterOtherRollsUnitAbility),
+    ("After another player's ship uses SUSTAIN DAMAGE to cancel a hit produced by your units or abilities", Timing::AfterOtherSustainsAgainstYourHit),
+    ("After the active player moves ships into the active system during a tactical action", Timing::AfterActivePlayerMovesIntoActiveSystem),
+    ("After the speaker votes on an agenda", Timing::AfterSpeakerVotes),
+    ("After you activate a system", Timing::AfterYouActivateSystem),
+    ("After you activate a system that contains 1 or more of your ships", Timing::AfterYouActivateSystemWithYourShips),
+    ("After you activate a system that contains another player's ships", Timing::AfterYouActivateSystemWithOtherShips),
+    ("After you activate an anomaly", Timing::AfterYouActivateAnomaly),
+    ("After you cast votes on an outcome of an agenda", Timing::AfterYouCastVotes),
+    ("After you perform an action", Timing::AfterYouPerformAction),
+    ("After you win a space combat", Timing::AfterYouWinSpaceCombat),
+    ("After your ground forces make combat rolls during a round of ground combat", Timing::AfterYourGroundForcesRoll),
+    ("After your opponent declares a retreat during a space combat", Timing::AfterOpponentDeclaresRetreat),
+    ("At the end of a player's turn, if you have passed", Timing::EndOfTurnIfYouPassed),
+    ("At the end of any players turn, if there are at least 2 players who have not passed", Timing::EndOfTurnIfTwoNotPassed),
+    ("At the start of a combat", Timing::StartOfCombat),
+    ("At the start of a combat round", Timing::StartOfCombatRound),
+    ("At the start of an invasion", Timing::StartOfInvasion),
+    ("At the start of an invasion in a system that contains 1 or more of your opponents' PDS units", Timing::StartOfInvasionAgainstPds),
+    ("At the start of another player's turn, if they have a readied strategy card", Timing::StartOfOtherTurnWithReadiedStrategyCard),
+    ("At the start of the 'Announce Retreats' step of space combat, if you are the defender", Timing::StartOfAnnounceRetreatsAsDefender),
+    ("At the start of the agenda phase", Timing::StartOfAgendaPhase),
+    ("At the start of the first round of a space combat", Timing::StartOfFirstSpaceCombatRound),
+    ("At the start of the strategy phase", Timing::StartOfStrategyPhase),
+    ("At the start or end of a combat round", Timing::StartOrEndOfCombatRound),
+    ("Before you assign hits produced by another player's SPACE CANNON roll", Timing::BeforeAssigningSpaceCannonHits),
+    ("Before you assign hits to your ships during a space combat", Timing::BeforeAssigningSpaceCombatHits),
+    ("Before you roll dice for ANTI-FIGHTER BARRAGE", Timing::BeforeAntiFighterBarrageRoll),
+    ("During the agenda phase when an outcome would be resolved", Timing::WhenOutcomeWouldBeResolved),
+    ("When 1 or more of your units use PRODUCTION", Timing::WhenYourUnitsUseProduction),
+    ("When an agenda is revealed", Timing::WhenAgendaRevealed),
+    ("When another player chooses a strategy card during the strategy phase", Timing::WhenOtherChoosesStrategyCard),
+    ("When another player is elected as the outcome of an agenda", Timing::WhenOtherIsElected),
+    ("When another player plays an action card other than 'Sabotage'", Timing::WhenOtherPlaysActionCardNotSabotage),
+    ("When another player would perform a strategic action", Timing::WhenOtherPerformsStrategicAction),
+    ("When one of your ships uses SUSTAIN DAMAGE during combat", Timing::WhenYourShipSustainsDamage),
+    ("When you are elected as the outcome of an agenda", Timing::WhenYouAreElected),
+    ("When you are negotiating a transaction", Timing::WhenNegotiatingTransaction),
+    ("When you gain control of a planet", Timing::WhenYouGainPlanet),
+    ("When you would return your strategy card(s) during the status phase", Timing::WhenYouWouldReturnStrategyCards),
+    ("When your last ship in the active system is destroyed", Timing::WhenYourLastShipIsDestroyed),
+];
+
+impl Printed for Timing {
+    const PRINTED: &'static [(&'static str, Self)] = &TIMING_PRINTED;
+}
+
 /// The corpus id of each [`AgendaElects`], indexed by its integer value.
 pub static AGENDA_ELECTS_KEYS: [&str; AgendaElects::COUNT] = [
-    "For/Against",
+    "ForAgainst",
+    "HiddenNextAgenda",
     "Law",
-    "Non-Home Planet Other Than Mecatol Rex",
+    "NonHomeNonMecatolPlanet",
     "Planet",
     "Player",
-    "Scored Secret Objective",
-    "Strategy Card",
+    "ScoredSecretObjective",
+    "StrategyCard",
 ];
 
 impl IdStr for AgendaElects {
@@ -143,6 +272,23 @@ impl IdStr for AgendaElects {
     fn index(self) -> usize {
         self as usize
     }
+}
+
+/// Every printed value of the corpus with its [`AgendaElects`], sorted by printed value.
+pub static AGENDA_ELECTS_PRINTED: [(&str, AgendaElects); 9] = [
+    ("Elect Law", AgendaElects::Law),
+    ("Elect Law (When this agenda is revealed, if there are no laws in play, discard this card and reveal another agenda from the top of the deck.)", AgendaElects::Law),
+    ("Elect Non-Home Planet Other Than Mecatol Rex", AgendaElects::NonHomeNonMecatolPlanet),
+    ("Elect Planet", AgendaElects::Planet),
+    ("Elect Player", AgendaElects::Player),
+    ("Elect Scored Secret Objective (When this agenda is revealed, if there are no scored secret objectives, discard this card and reveal another agenda from the top of the deck.)", AgendaElects::ScoredSecretObjective),
+    ("Elect Strategy Card", AgendaElects::StrategyCard),
+    ("For/Against", AgendaElects::ForAgainst),
+    ("When this agenda is revealed, the speaker draws the next card in the agenda deck but does not reveal it to the other players. Instead, the speaker reads the eligible outcomes aloud (for, against, elect Elect Player, etc.). The other Players vote for these outcomes as if they were outcomes of this agenda, without knowing their effects.", AgendaElects::HiddenNextAgenda),
+];
+
+impl Printed for AgendaElects {
+    const PRINTED: &'static [(&'static str, Self)] = &AGENDA_ELECTS_PRINTED;
 }
 
 /// The corpus id of each [`LeaderType`], indexed by its integer value.
@@ -166,9 +312,9 @@ impl IdStr for LeaderType {
 
 /// The corpus id of each [`LeaderWindow`], indexed by its integer value.
 pub static LEADER_WINDOW_KEYS: [&str; LeaderWindow::COUNT] = [
-    "action",
-    "action_phase",
-    "other",
+    "Action",
+    "ActionPhase",
+    "Other",
 ];
 
 impl IdStr for LeaderWindow {
@@ -181,6 +327,77 @@ impl IdStr for LeaderWindow {
     fn index(self) -> usize {
         self as usize
     }
+}
+
+/// Every printed value of the corpus with its [`LeaderWindow`], sorted by printed value.
+pub static LEADER_WINDOW_PRINTED: [(&str, LeaderWindow); 63] = [
+    ("ACTION:", LeaderWindow::Action),
+    ("After 1 of your units uses SUSTAIN DAMAGE:", LeaderWindow::Other),
+    ("After a player activates a system that contains a non-delta wormhole:", LeaderWindow::Other),
+    ("After a player activates a system:", LeaderWindow::Other),
+    ("After a player moves ships into a system that does not contain any planets:", LeaderWindow::Other),
+    ("After a player's unit is destroyed during combat:", LeaderWindow::Other),
+    ("After an agenda is revealed:", LeaderWindow::Other),
+    ("After another player activates a system that contains 1 or more of your units that have PRODUCTION:", LeaderWindow::Other),
+    ("After another player activates a system that contains your units:", LeaderWindow::Other),
+    ("After another player moves ships into a system that contains 1 of your command tokens:", LeaderWindow::Other),
+    ("After another player replenishes commodities:", LeaderWindow::Other),
+    ("After any player's command token is placed in a system:", LeaderWindow::Other),
+    ("After the \"Roll Dice\" step of combat:", LeaderWindow::Other),
+    ("After the Pillage faction ability is used against another player:", LeaderWindow::Other),
+    ("After the last player passes", LeaderWindow::Other),
+    ("After you gain a technology:", LeaderWindow::Other),
+    ("After you gain control of a planet that was controlled by another player:", LeaderWindow::Other),
+    ("After you move a war sun into a non-home system other than Mecatol Rex:", LeaderWindow::Other),
+    ("After you move ships into the active system:", LeaderWindow::Other),
+    ("After you perform a component action:", LeaderWindow::Other),
+    ("After you roll dice for a unit ability:", LeaderWindow::Other),
+    ("After you spend a token from your strategy pool:", LeaderWindow::Other),
+    ("After you win a space combat:", LeaderWindow::Other),
+    ("After your ships move:", LeaderWindow::Other),
+    ("At any time", LeaderWindow::Other),
+    ("At any time:", LeaderWindow::Other),
+    ("At the end of a combat between any players:", LeaderWindow::Other),
+    ("At the end of a player's tactical action:", LeaderWindow::Other),
+    ("At the end of a player's turn:", LeaderWindow::Other),
+    ("At the end of the status phase:", LeaderWindow::Other),
+    ("At the start of a ground combat on a planet you control:", LeaderWindow::Other),
+    ("At the start of a ground combat round:", LeaderWindow::Other),
+    ("At the start of a round of of space combat in a system that contains a planet you control:", LeaderWindow::Other),
+    ("At the start of a space combat round:", LeaderWindow::Other),
+    ("At the start of a space combat that you are participating in:", LeaderWindow::Other),
+    ("Before a hit would be assigned:", LeaderWindow::Other),
+    ("During combat:", LeaderWindow::Other),
+    ("During the \"Commit Ground Forces\" step:", LeaderWindow::Other),
+    ("During the action phase:", LeaderWindow::ActionPhase),
+    ("During your tactical actions:", LeaderWindow::Other),
+    ("When 1 or more of a player's units use PRODUCTION:", LeaderWindow::Other),
+    ("When 1 or more of your units make a roll for a unit ability:", LeaderWindow::Other),
+    ("When 1 or more of your units use PRODUCTION:", LeaderWindow::Other),
+    ("When a player activates a system:", LeaderWindow::Other),
+    ("When a player moves ships", LeaderWindow::Other),
+    ("When a player produces ground forces in a system:", LeaderWindow::Other),
+    ("When a player spends resources to research:", LeaderWindow::Other),
+    ("When a player's ship is destroyed during any combat", LeaderWindow::Other),
+    ("When a player's unit is destroyed", LeaderWindow::Other),
+    ("When another player researches a technology", LeaderWindow::Other),
+    ("When another player spends resources to research a technology", LeaderWindow::Other),
+    ("When one of your galvanized units is destroyed", LeaderWindow::Other),
+    ("When one of your units in the Ordinian system is destroyed", LeaderWindow::Other),
+    ("When you cast votes:", LeaderWindow::Other),
+    ("When you declare a retreat", LeaderWindow::Other),
+    ("When you exhaust planets:", LeaderWindow::Other),
+    ("When you gain trade goods from the supply:", LeaderWindow::Other),
+    ("When you produce fighter or infantry units:", LeaderWindow::Other),
+    ("When you produce fighters or infantry:", LeaderWindow::Other),
+    ("When you produce ships", LeaderWindow::Other),
+    ("When you produce:", LeaderWindow::Other),
+    ("When you vote:", LeaderWindow::Other),
+    ("When you would spend a command token during the secondary ability of a strategic action:", LeaderWindow::Other),
+];
+
+impl Printed for LeaderWindow {
+    const PRINTED: &'static [(&'static str, Self)] = &LEADER_WINDOW_PRINTED;
 }
 
 /// The corpus id of each [`ObjectivePhase`], indexed by its integer value.
@@ -264,6 +481,26 @@ impl IdStr for StrategyCardKind {
     fn index(self) -> usize {
         self as usize
     }
+}
+
+/// Every printed value of the corpus with its [`StrategyCardKind`], sorted by printed value.
+pub static STRATEGY_CARD_KIND_PRINTED: [(&str, StrategyCardKind); 12] = [
+    ("base2", StrategyCardKind::Diplomacy),
+    ("base4", StrategyCardKind::Construction),
+    ("pok1leadership", StrategyCardKind::Leadership),
+    ("pok2diplomacy", StrategyCardKind::Diplomacy),
+    ("pok3politics", StrategyCardKind::Politics),
+    ("pok4construction", StrategyCardKind::Construction),
+    ("pok5trade", StrategyCardKind::Trade),
+    ("pok6warfare", StrategyCardKind::Warfare),
+    ("pok7technology", StrategyCardKind::Technology),
+    ("pok8imperial", StrategyCardKind::Imperial),
+    ("te4construction", StrategyCardKind::Construction),
+    ("te6warfare", StrategyCardKind::Warfare),
+];
+
+impl Printed for StrategyCardKind {
+    const PRINTED: &'static [(&'static str, Self)] = &STRATEGY_CARD_KIND_PRINTED;
 }
 
 /// The corpus id of each [`PlanetTrait`], indexed by its integer value.

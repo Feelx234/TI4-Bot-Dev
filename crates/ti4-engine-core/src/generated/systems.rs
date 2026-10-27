@@ -500,6 +500,15 @@ impl System {
     pub fn data(self) -> &'static SystemData {
         &SYSTEM_DATA[self as usize]
     }
+
+    /// The rank of the printed name among all records of the category: 0 is the first in the byte
+    /// order of the name, ties (equal names) by id. A sort by display name or label is a sort by
+    /// this integer ([`SYSTEM_NAME_RANK`]); the core never sees the text.
+    #[must_use]
+    #[inline]
+    pub const fn name_rank(self) -> u16 {
+        SYSTEM_NAME_RANK[self as usize]
+    }
 }
 
 /// Gameplay data of a [`System`].
@@ -2833,4 +2842,24 @@ pub static SYSTEM_DATA: [SystemData; System::COUNT] = [
         tile_back: Some(TileBack::Black),
         home_system: false,
     },
+];
+
+/// The rank of each [`System`]'s printed name (`name`) in byte order, ties by id; indexed by its
+/// integer value. A bijection onto `0..COUNT`.
+pub static SYSTEM_NAME_RANK: [u16; System::COUNT] = [
+    167, 186, 35, 188, 192, 230, 227, 187, 177, 7, 215, 195, 5, 224, 172, 193,
+    29, 221, 168, 20, 203, 55, 213, 180, 22, 45, 165, 171, 219, 3, 190, 202,
+    9, 205, 14, 31, 181, 226, 222, 220, 214, 207, 182, 200, 175, 209, 216, 201,
+    183, 170, 34, 28, 25, 21, 13, 12, 0, 4, 23, 53, 191, 211, 15, 16,
+    38, 39, 40, 41, 42, 30, 166, 11, 2, 36, 217, 189, 228, 10, 198, 6,
+    208, 225, 18, 199, 54, 27, 46, 1, 169, 19, 174, 24, 223, 176, 206, 43,
+    44, 17, 212, 194, 178, 179, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65,
+    66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81,
+    82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97,
+    98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113,
+    114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129,
+    130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145,
+    146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161,
+    162, 163, 197, 8, 184, 229, 218, 185, 164, 33, 32, 47, 52, 37, 196, 26,
+    48, 50, 210, 51, 49, 173, 204,
 ];

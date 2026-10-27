@@ -112,9 +112,14 @@ pub const VALUE_ENUMS: &[ValueEnum] = &[
         seed: &[],
     },
     ValueEnum {
+        name: "Timing",
+        doc: "When an action card is played, from its printed `window`: one variant per printed sentence (docs/CARD_TEXT_FIELDS.md), numbered in the byte order of the sentence. The table is `crates/ti4-content/card_fields.json`; an unmapped sentence fails `gen-cards`.",
+        seed: &[],
+    },
+    ValueEnum {
         name: "AgendaElects",
-        doc: "What an agenda elects: its `target` up to the first `(`, without the leading `Elect`; `For/Against` when the text does not start with `Elect` (the rule of `vote::outcomes`).",
-        seed: &["For/Against"],
+        doc: "What an agenda elects, from its printed `target` (table in `card_fields.json`): the outcome sets the rules offer. `ScoredSecretObjective` and `StrategyCard` have no candidate yet (audit I03, I02); `HiddenNextAgenda` is Covert Legislation (audit I04).",
+        seed: &[],
     },
     ValueEnum {
         name: "LeaderType",
@@ -123,8 +128,8 @@ pub const VALUE_ENUMS: &[ValueEnum] = &[
     },
     ValueEnum {
         name: "LeaderWindow",
-        doc: "When a leader is used, from its `abilityWindow`: `action` (starts with `ACTION`: a component action that ends the turn), `action_phase` (`During the action phase:`), `other` (the rules of `leaders::is_action_window` / `uses_the_action`).",
-        seed: &["action", "action_phase", "other"],
+        doc: "When a leader is used, from its printed `abilityWindow` (table in `card_fields.json`): `Action` (a component action that ends the turn), `ActionPhase` (`During the action phase:`), `Other`.",
+        seed: &[],
     },
     ValueEnum {
         name: "ObjectivePhase",
@@ -143,7 +148,7 @@ pub const VALUE_ENUMS: &[ValueEnum] = &[
     },
     ValueEnum {
         name: "StrategyCardKind",
-        doc: "The printed strategy card a record is a printing of (its `name`, on which the engine dispatches).",
+        doc: "The printed strategy card a record is a printing of, from its id (table in `card_fields.json`): every printing of one initiative is one kind.",
         seed: &[],
     },
     ValueEnum {
@@ -181,29 +186,9 @@ fn tech_type(s: &str) -> Result<Option<String>> {
     Ok((u != "NONE").then_some(u))
 }
 
-/// `vote::outcomes`: the text up to the first `(`, trimmed; `Elect X` elects `X`, anything else is
-/// For/Against.
-pub fn agenda_elects(target: &str) -> Result<Option<String>> {
-    let head = target.split('(').next().unwrap_or(target).trim();
-    Ok(Some(match head.strip_prefix("Elect") {
-        Some(rest) if !rest.trim().is_empty() => rest.trim().to_owned(),
-        _ => "For/Against".to_owned(),
-    }))
-}
-
-/// `leaders::is_action_window` and `leaders::uses_the_action`.
-pub fn leader_window(window: &str) -> Result<Option<String>> {
-    let printed = window.trim().trim_end_matches(':').trim_end();
-    Ok(Some(
-        if window.trim().starts_with("ACTION") {
-            "action"
-        } else if printed.eq_ignore_ascii_case("during the action phase") {
-            "action_phase"
-        } else {
-            "other"
-        }
-        .to_owned(),
-    ))
+/// A printed value of a table-driven text field, compared trimmed (as the rules compared it).
+fn trimmed(s: &str) -> Result<Option<String>> {
+    Ok(Some(s.trim().to_owned()))
 }
 
 fn source() -> Col {
@@ -243,9 +228,9 @@ fn component_action(rec: &Rec, _: &Ctx) -> Result<String> {
     Ok((window.trim() == "Action").to_string())
 }
 
-fn researchable(rec: &Rec, _: &Ctx) -> Result<String> {
+fn researchable(rec: &Rec, ctx: &Ctx) -> Result<String> {
     let text = str_field(rec, "text").unwrap_or_default();
-    Ok((!text.to_ascii_lowercase().contains("cannot be researched")).to_string())
+    Ok(ctx.fields.researchable(&rec.id, text)?.to_string())
 }
 
 fn prerequisites(rec: &Rec, _: &Ctx) -> Result<String> {
@@ -536,10 +521,20 @@ pub fn categories() -> Vec<Cat> {
                 source(),
                 col(
                     "component_action",
-                    "The printed `window` is exactly `Action`. The reaction timing of every other window is engine knowledge (`reactions::window_table`), see `text_parsed_fields.md`.",
+                    "The printed `window` is exactly `Action` (equals `timing == Timing::Action`).",
                     Conv::Custom {
                         ty: "bool",
                         f: component_action,
+                    },
+                ),
+                col(
+                    "timing",
+                    "When the card is played: the printed `window` through the table in `card_fields.json` (the engine binds each non-`Action` variant to its event).",
+                    Conv::Value {
+                        field: "window",
+                        enm: "Timing",
+                        norm: trimmed,
+                        shape: One,
                     },
                 ),
             ],
@@ -561,11 +556,11 @@ pub fn categories() -> Vec<Cat> {
                 ),
                 col(
                     "elects",
-                    "What is elected (`target` up to `(`).",
+                    "What is elected (`target`, through the table in `card_fields.json`).",
                     Conv::Value {
                         field: "target",
                         enm: "AgendaElects",
-                        norm: agenda_elects,
+                        norm: trimmed,
                         shape: One,
                     },
                 ),
@@ -728,11 +723,11 @@ pub fn categories() -> Vec<Cat> {
                 ),
                 col(
                     "window",
-                    "Action, action phase or other (`abilityWindow`).",
+                    "Action, action phase or other (`abilityWindow`, through the table in `card_fields.json`).",
                     Conv::Value {
                         field: "abilityWindow",
                         enm: "LeaderWindow",
-                        norm: leader_window,
+                        norm: trimmed,
                         shape: One,
                     },
                 ),
@@ -848,8 +843,13 @@ pub fn categories() -> Vec<Cat> {
                 source(),
                 col(
                     "kind",
-                    "The strategy card this is a printing of (`name`).",
-                    value("name", "StrategyCardKind", One),
+                    "The strategy card this is a printing of (the id, through the table in `card_fields.json`).",
+                    Conv::Value {
+                        field: "id",
+                        enm: "StrategyCardKind",
+                        norm: trimmed,
+                        shape: One,
+                    },
                 ),
                 col(
                     "initiative",
@@ -902,7 +902,7 @@ pub fn categories() -> Vec<Cat> {
                 ),
                 col(
                     "researchable",
-                    "False when the printed `text` contains `cannot be researched` (case-insensitive), the rule of `technology.rs` and `deepwrought.rs`.",
+                    "False when the printed `text` ends in the line `This technology cannot be researched.` (the rule of `ResearchRestriction`; any other mention fails the generator; the ids are listed in `card_fields.json`).",
                     Conv::Custom {
                         ty: "bool",
                         f: researchable,
@@ -1359,28 +1359,3 @@ impl Anomalies {
     }
 }
 ";
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn agenda_elects_follows_vote_outcomes() {
-        let e = |s| agenda_elects(s).unwrap().unwrap();
-        assert_eq!(e("For/Against"), "For/Against");
-        assert_eq!(e("Elect Player"), "Player");
-        assert_eq!(e("Elect Law (When this agenda ...)"), "Law");
-        assert_eq!(
-            e("When this agenda is revealed, the speaker ... Elect Player"),
-            "For/Against"
-        );
-    }
-
-    #[test]
-    fn leader_window_follows_the_engine() {
-        let w = |s| leader_window(s).unwrap().unwrap();
-        assert_eq!(w("ACTION:"), "action");
-        assert_eq!(w("During the action phase:"), "action_phase");
-        assert_eq!(w("At the start of a space combat:"), "other");
-    }
-}

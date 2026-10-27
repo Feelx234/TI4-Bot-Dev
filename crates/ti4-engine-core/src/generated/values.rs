@@ -267,27 +267,160 @@ impl AgendaType {
     }
 }
 
-/// What an agenda elects: its `target` up to the first `(`, without the leading `Elect`; `For/Against` when the text does not start with `Elect` (the rule of `vote::outcomes`).
+/// When an action card is played, from its printed `window`: one variant per printed sentence (docs/CARD_TEXT_FIELDS.md), numbered in the byte order of the sentence. The table is `crates/ti4-content/card_fields.json`; an unmapped sentence fails `gen-cards`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u8)]
+pub enum Timing {
+    Action = 0,
+    AfterOwnShipDestroyedInSpaceCombat = 1,
+    AfterNeighborsTransact = 2,
+    AfterShipsMoveIntoSystemWithYourShips = 3,
+    AfterAgendaRevealed = 4,
+    AfterOtherActivatesSystemWithYourCommandToken = 5,
+    AfterOtherActivatesSystemWithYourStructures = 6,
+    AfterOtherActivatesSystemWithYourUnits = 7,
+    AfterOtherCommitsToYourPlanet = 8,
+    AfterOtherDiscardsComponentActionCard = 9,
+    AfterOtherGainsYourPlanet = 10,
+    AfterOtherRollsUnitAbility = 11,
+    AfterOtherSustainsAgainstYourHit = 12,
+    AfterActivePlayerMovesIntoActiveSystem = 13,
+    AfterSpeakerVotes = 14,
+    AfterYouActivateSystem = 15,
+    AfterYouActivateSystemWithYourShips = 16,
+    AfterYouActivateSystemWithOtherShips = 17,
+    AfterYouActivateAnomaly = 18,
+    AfterYouCastVotes = 19,
+    AfterYouPerformAction = 20,
+    AfterYouWinSpaceCombat = 21,
+    AfterYourGroundForcesRoll = 22,
+    AfterOpponentDeclaresRetreat = 23,
+    EndOfTurnIfYouPassed = 24,
+    EndOfTurnIfTwoNotPassed = 25,
+    StartOfCombat = 26,
+    StartOfCombatRound = 27,
+    StartOfInvasion = 28,
+    StartOfInvasionAgainstPds = 29,
+    StartOfOtherTurnWithReadiedStrategyCard = 30,
+    StartOfAnnounceRetreatsAsDefender = 31,
+    StartOfAgendaPhase = 32,
+    StartOfFirstSpaceCombatRound = 33,
+    StartOfStrategyPhase = 34,
+    StartOrEndOfCombatRound = 35,
+    BeforeAssigningSpaceCannonHits = 36,
+    BeforeAssigningSpaceCombatHits = 37,
+    BeforeAntiFighterBarrageRoll = 38,
+    WhenOutcomeWouldBeResolved = 39,
+    WhenYourUnitsUseProduction = 40,
+    WhenAgendaRevealed = 41,
+    WhenOtherChoosesStrategyCard = 42,
+    WhenOtherIsElected = 43,
+    WhenOtherPlaysActionCardNotSabotage = 44,
+    WhenOtherPerformsStrategicAction = 45,
+    WhenYourShipSustainsDamage = 46,
+    WhenYouAreElected = 47,
+    WhenNegotiatingTransaction = 48,
+    WhenYouGainPlanet = 49,
+    WhenYouWouldReturnStrategyCards = 50,
+    WhenYourLastShipIsDestroyed = 51,
+}
+
+impl Timing {
+    /// The number of variants.
+    pub const COUNT: usize = 52;
+    /// Every variant, in integer order.
+    pub const ALL: [Self; Self::COUNT] = [
+        Self::Action,
+        Self::AfterOwnShipDestroyedInSpaceCombat,
+        Self::AfterNeighborsTransact,
+        Self::AfterShipsMoveIntoSystemWithYourShips,
+        Self::AfterAgendaRevealed,
+        Self::AfterOtherActivatesSystemWithYourCommandToken,
+        Self::AfterOtherActivatesSystemWithYourStructures,
+        Self::AfterOtherActivatesSystemWithYourUnits,
+        Self::AfterOtherCommitsToYourPlanet,
+        Self::AfterOtherDiscardsComponentActionCard,
+        Self::AfterOtherGainsYourPlanet,
+        Self::AfterOtherRollsUnitAbility,
+        Self::AfterOtherSustainsAgainstYourHit,
+        Self::AfterActivePlayerMovesIntoActiveSystem,
+        Self::AfterSpeakerVotes,
+        Self::AfterYouActivateSystem,
+        Self::AfterYouActivateSystemWithYourShips,
+        Self::AfterYouActivateSystemWithOtherShips,
+        Self::AfterYouActivateAnomaly,
+        Self::AfterYouCastVotes,
+        Self::AfterYouPerformAction,
+        Self::AfterYouWinSpaceCombat,
+        Self::AfterYourGroundForcesRoll,
+        Self::AfterOpponentDeclaresRetreat,
+        Self::EndOfTurnIfYouPassed,
+        Self::EndOfTurnIfTwoNotPassed,
+        Self::StartOfCombat,
+        Self::StartOfCombatRound,
+        Self::StartOfInvasion,
+        Self::StartOfInvasionAgainstPds,
+        Self::StartOfOtherTurnWithReadiedStrategyCard,
+        Self::StartOfAnnounceRetreatsAsDefender,
+        Self::StartOfAgendaPhase,
+        Self::StartOfFirstSpaceCombatRound,
+        Self::StartOfStrategyPhase,
+        Self::StartOrEndOfCombatRound,
+        Self::BeforeAssigningSpaceCannonHits,
+        Self::BeforeAssigningSpaceCombatHits,
+        Self::BeforeAntiFighterBarrageRoll,
+        Self::WhenOutcomeWouldBeResolved,
+        Self::WhenYourUnitsUseProduction,
+        Self::WhenAgendaRevealed,
+        Self::WhenOtherChoosesStrategyCard,
+        Self::WhenOtherIsElected,
+        Self::WhenOtherPlaysActionCardNotSabotage,
+        Self::WhenOtherPerformsStrategicAction,
+        Self::WhenYourShipSustainsDamage,
+        Self::WhenYouAreElected,
+        Self::WhenNegotiatingTransaction,
+        Self::WhenYouGainPlanet,
+        Self::WhenYouWouldReturnStrategyCards,
+        Self::WhenYourLastShipIsDestroyed,
+    ];
+
+    /// The integer value, as an index into the tables.
+    #[must_use]
+    #[inline]
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+
+    /// The variant with this integer value.
+    #[must_use]
+    pub const fn from_index(index: usize) -> Option<Self> {
+        if index < Self::COUNT { Some(Self::ALL[index]) } else { None }
+    }
+}
+
+/// What an agenda elects, from its printed `target` (table in `card_fields.json`): the outcome sets the rules offer. `ScoredSecretObjective` and `StrategyCard` have no candidate yet (audit I03, I02); `HiddenNextAgenda` is Covert Legislation (audit I04).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
 pub enum AgendaElects {
     ForAgainst = 0,
-    Law = 1,
-    NonHomePlanetOtherThanMecatolRex = 2,
-    Planet = 3,
-    Player = 4,
-    ScoredSecretObjective = 5,
-    StrategyCard = 6,
+    HiddenNextAgenda = 1,
+    Law = 2,
+    NonHomeNonMecatolPlanet = 3,
+    Planet = 4,
+    Player = 5,
+    ScoredSecretObjective = 6,
+    StrategyCard = 7,
 }
 
 impl AgendaElects {
     /// The number of variants.
-    pub const COUNT: usize = 7;
+    pub const COUNT: usize = 8;
     /// Every variant, in integer order.
     pub const ALL: [Self; Self::COUNT] = [
         Self::ForAgainst,
+        Self::HiddenNextAgenda,
         Self::Law,
-        Self::NonHomePlanetOtherThanMecatolRex,
+        Self::NonHomeNonMecatolPlanet,
         Self::Planet,
         Self::Player,
         Self::ScoredSecretObjective,
@@ -341,7 +474,7 @@ impl LeaderType {
     }
 }
 
-/// When a leader is used, from its `abilityWindow`: `action` (starts with `ACTION`: a component action that ends the turn), `action_phase` (`During the action phase:`), `other` (the rules of `leaders::is_action_window` / `uses_the_action`).
+/// When a leader is used, from its printed `abilityWindow` (table in `card_fields.json`): `Action` (a component action that ends the turn), `ActionPhase` (`During the action phase:`), `Other`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
 pub enum LeaderWindow {
@@ -477,7 +610,7 @@ impl ExploreResolution {
     }
 }
 
-/// The printed strategy card a record is a printing of (its `name`, on which the engine dispatches).
+/// The printed strategy card a record is a printing of, from its id (table in `card_fields.json`): every printing of one initiative is one kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
 pub enum StrategyCardKind {

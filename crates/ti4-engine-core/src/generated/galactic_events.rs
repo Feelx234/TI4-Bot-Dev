@@ -78,6 +78,15 @@ impl GalacticEvent {
     pub fn data(self) -> &'static GalacticEventData {
         &GALACTIC_EVENT_DATA[self as usize]
     }
+
+    /// The rank of the printed name among all records of the category: 0 is the first in the byte
+    /// order of the name, ties (equal names) by id. A sort by display name or label is a sort by
+    /// this integer ([`GALACTIC_EVENT_NAME_RANK`]); the core never sees the text.
+    #[must_use]
+    #[inline]
+    pub const fn name_rank(self) -> u16 {
+        GALACTIC_EVENT_NAME_RANK[self as usize]
+    }
 }
 
 /// Gameplay data of a [`GalacticEvent`].
@@ -169,4 +178,11 @@ pub static GALACTIC_EVENT_DATA: [GalacticEventData; GalacticEvent::COUNT] = [
     GalacticEventData {
         source: Source::ThundersEdge,
     },
+];
+
+/// The rank of each [`GalacticEvent`]'s printed name (`name`) in byte order, ties by id; indexed by its
+/// integer value. A bijection onto `0..COUNT`.
+pub static GALACTIC_EVENT_NAME_RANK: [u16; GalacticEvent::COUNT] = [
+    0, 1, 2, 3, 4, 5, 7, 6, 8, 9, 10, 11, 12, 14, 13, 15,
+    16, 17, 18, 19,
 ];

@@ -43,6 +43,10 @@ fn scratch(name: &str) -> (Config, PathBuf) {
     let mut cfg = repo;
     cfg.content_dir = content;
     cfg.names_dir = names;
+    let fields = base.join("card_fields.json");
+    std::fs::copy(&cfg.fields_file, &fields).unwrap();
+    cfg.fields_file = fields;
+    cfg.content_tables_out = base.join("card_fields_tables.rs");
     cfg.core_out = base.join("core");
     cfg.adapter_out = base.join("adapter");
     (cfg, base)
@@ -165,5 +169,137 @@ fn the_core_output_has_no_string_literals() {
                 assert!(!code.contains('"'), "{}:{}: {line}", path.display(), n + 1);
             }
         }
+    }
+}
+
+/// Replace `from` by `to` in a scratch copy of a corpus file (it must occur).
+fn edit_corpus(cfg: &Config, file: &str, from: &str, to: &str) {
+    let path = cfg.content_dir.join(file);
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.contains(from), "{file} should contain {from:?}");
+    std::fs::write(&path, text.replacen(from, to, 1)).unwrap();
+}
+
+#[test]
+fn an_unmapped_action_card_window_fails_the_generator_and_the_check() {
+    let (cfg, _base) = scratch("unmapped_window");
+    content_gen::write(&content_gen::generate(&cfg).unwrap()).unwrap();
+    edit_corpus(
+        &cfg,
+        "action_cards.json",
+        "At the start of the strategy phase",
+        "At the very start of the strategy phase",
+    );
+    for err in [
+        content_gen::generate(&cfg).unwrap_err(),
+        content_gen::check(&cfg).unwrap_err(),
+    ] {
+        let err = format!("{err:#}");
+        assert!(err.contains("Timing"), "{err}");
+        assert!(
+            err.contains("At the very start of the strategy phase"),
+            "{err}"
+        );
+        assert!(err.contains("card_fields.json"), "{err}");
+    }
+}
+
+#[test]
+fn an_unmapped_agenda_target_leader_window_or_strategy_card_id_fails() {
+    for (name, file, from, to, enm) in [
+        (
+            "target",
+            "agendas.json",
+            "Elect Law",
+            "Elect Laws",
+            "AgendaElects",
+        ),
+        (
+            "leader",
+            "leaders.json",
+            "During the action phase:",
+            "During the action phase,",
+            "LeaderWindow",
+        ),
+        (
+            "strategy",
+            "strategy_cards.json",
+            "\"pok6warfare\"",
+            "\"pok6warfare2\"",
+            "StrategyCardKind",
+        ),
+    ] {
+        let (cfg, _base) = scratch(&format!("unmapped_{name}"));
+        edit_corpus(&cfg, file, from, to);
+        let err = format!("{:#}", content_gen::generate(&cfg).unwrap_err());
+        assert!(
+            err.contains(enm) && err.contains("card_fields.json"),
+            "{err}"
+        );
+    }
+}
+
+#[test]
+fn a_table_row_the_corpus_no_longer_prints_fails() {
+    let (cfg, _base) = scratch("dead_row");
+    let fields = std::fs::read_to_string(&cfg.fields_file).unwrap();
+    let row = "[\"Elect Law\", \"Law\"],";
+    assert!(fields.contains(row));
+    std::fs::write(
+        &cfg.fields_file,
+        fields.replace(
+            row,
+            &format!("{row}\n      [\"Elect Nobody\", \"Player\"],"),
+        ),
+    )
+    .unwrap();
+    let err = format!("{:#}", content_gen::generate(&cfg).unwrap_err());
+    assert!(
+        err.contains("does not print") && err.contains("Elect Nobody"),
+        "{err}"
+    );
+}
+
+#[test]
+fn an_odd_researchable_text_fails_and_the_marker_list_is_checked() {
+    let (cfg, _base) = scratch("researchable");
+    edit_corpus(
+        &cfg,
+        "technologies.json",
+        "This technology cannot be researched.",
+        "This technology cannot be researched. (Not even once.)",
+    );
+    let err = format!("{:#}", content_gen::generate(&cfg).unwrap_err());
+    assert!(err.contains("cannot be researched"), "{err}");
+
+    let (cfg, _base) = scratch("researchable_list");
+    let fields = std::fs::read_to_string(&cfg.fields_file).unwrap();
+    std::fs::write(&cfg.fields_file, fields.replace("\"parasite-obs\", ", "")).unwrap();
+    let err = format!("{:#}", content_gen::generate(&cfg).unwrap_err());
+    assert!(err.contains("not_researchable"), "{err}");
+}
+
+#[test]
+fn the_content_tables_are_the_data_file_and_the_enum_orders_are_stable() {
+    let out = content_gen::generate(&repo()).unwrap();
+    let core = &out.files[&repo().core_out.join("values.rs")];
+    // Timing is numbered in the byte order of the printed sentence: Action first.
+    assert!(
+        core.contains("pub enum Timing {\n    Action = 0,"),
+        "{core}"
+    );
+    // Covert Legislation's hidden-agenda target has its own variant.
+    assert!(core.contains("    HiddenNextAgenda = "));
+    let tables = &out.files[&repo().content_tables_out];
+    assert!(tables.contains("action_card_windows! {\n    Action = \"Action\","));
+    assert!(tables.contains("const ELECT_TYPE_ROWS: &[(&str, ElectType)]"));
+    // Every category has a rank table in the core.
+    for cat in content_gen::spec::categories() {
+        let file = &out.files[&repo().core_out.join(format!("{}.rs", cat.key))];
+        assert!(
+            file.contains(&format!("pub static {}_NAME_RANK", cat.upper)),
+            "{}",
+            cat.key
+        );
     }
 }

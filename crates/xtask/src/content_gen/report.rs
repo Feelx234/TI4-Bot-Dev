@@ -50,17 +50,26 @@ pub fn text_parsed(ctx: &Ctx, cats: &[Cat]) -> String {
         let _ = writeln!(
             out,
             "## action_cards.window\n\n\
-             - **Typed**: `ActionCardData::component_action` = the trimmed window is exactly `Action`\n\
-               (`action_cards.rs`, `keleres.rs`).\n\
-             - **TODO**: the reaction timing. `reactions::window_table` binds each printed sentence to an\n\
-               engine event; that table is engine code, not content. Once the core exists, a `Timing`\n\
-               enum replaces it and each card gets a `timing` column (by hand or from a committed\n\
-               sentence -> timing file). {} distinct sentences:\n",
+             - **Typed**: `ActionCardData::timing` (`Timing`), one variant per printed sentence, through the\n\
+               committed table `crates/ti4-content/card_fields.json` (`action_card_window`); an unmapped\n\
+               sentence fails `gen-cards`. `ActionCardData::component_action` = `timing == Timing::Action`.\n\
+             - **Engine**: `reactions::window_table` binds each non-`Action` variant to an engine event; that\n\
+               table is rule code, not content. {} distinct sentences:\n",
             windows.len()
         );
-        out.push_str("| window | cards |\n|---|---|\n");
+        out.push_str("| window | timing | cards |\n|---|---|---|\n");
         for (window, ids) in &windows {
-            let _ = writeln!(out, "| {} | {} |", cell(window), ids.join(", "));
+            let variant = ctx
+                .values
+                .get("Timing")
+                .and_then(|m| m.get(*window))
+                .map_or("?", String::as_str);
+            let _ = writeln!(
+                out,
+                "| {} | `{variant}` | {} |",
+                cell(window),
+                ids.join(", ")
+            );
         }
         out.push('\n');
     }
@@ -69,19 +78,21 @@ pub fn text_parsed(ctx: &Ctx, cats: &[Cat]) -> String {
         let _ = writeln!(
             out,
             "## agendas.target\n\n\
-             - **Typed**: `AgendaData::elects` (`AgendaElects`) = the text up to the first `(`, without\n\
-               `Elect`; `For/Against` when it does not start with `Elect` (`vote::outcomes`). The engine's\n\
-               `contains(\"Player\")` / `contains(\"Planet\")` / `Non-Home` / `Law` checks become a `match` on it.\n\
+             - **Typed**: `AgendaData::elects` (`AgendaElects`) through the committed table\n\
+               `card_fields.json` (`agenda_target`). The variants are the outcome sets the rules offer;\n\
+               `ScoredSecretObjective` and `StrategyCard` have no candidate yet (audit I03, I02).\n\
+             - Covert Legislation's target is a rules sentence: `HiddenNextAgenda`, which the engine votes\n\
+               For/Against today (audit I04).\n\
              - **TODO**: the parenthetical rule (\"if there are no laws in play, discard this card ...\")\n\
-               is not typed; Covert Legislation's target is a rules sentence and types as `For/Against`,\n\
-               exactly as the engine reads it today (audit I04).\n"
+               is not typed.\n"
         );
         out.push_str("| target | elects | agendas |\n|---|---|---|\n");
         for (target, ids) in grouped(ctx, "agendas", "target") {
-            let elects = super::spec::agenda_elects(target)
-                .ok()
-                .flatten()
-                .unwrap_or_default();
+            let elects = ctx
+                .values
+                .get("AgendaElects")
+                .and_then(|m| m.get(target))
+                .map_or("?", String::as_str);
             let _ = writeln!(
                 out,
                 "| {} | `{elects}` | {} |",
@@ -96,16 +107,18 @@ pub fn text_parsed(ctx: &Ctx, cats: &[Cat]) -> String {
         let _ = writeln!(
             out,
             "## leaders.abilityWindow\n\n\
-             - **Typed**: `LeaderData::window` (`LeaderWindow`): `Action` when the trimmed window starts\n\
-               with `ACTION`, `ActionPhase` for `During the action phase:`, else `Other`\n\
-               (`leaders::is_action_window`, `leaders::uses_the_action`).\n"
+             - **Typed**: `LeaderData::window` (`LeaderWindow`) through the committed table `card_fields.json`\n\
+               (`leader_ability_window`): `Action` (`ACTION:`), `ActionPhase` (`During the action phase:`),\n\
+               `Other` (`leaders::is_action_window`, `leaders::uses_the_action`).\n"
         );
         let mut counts: BTreeMap<String, usize> = BTreeMap::new();
         for rec in ctx.records("leaders") {
             if let Some(w) = text(rec, "abilityWindow") {
-                let k = super::spec::leader_window(w)
-                    .ok()
-                    .flatten()
+                let k = ctx
+                    .values
+                    .get("LeaderWindow")
+                    .and_then(|m| m.get(w.trim()))
+                    .cloned()
                     .unwrap_or_default();
                 *counts.entry(k).or_default() += 1;
             }
@@ -118,19 +131,18 @@ pub fn text_parsed(ctx: &Ctx, cats: &[Cat]) -> String {
 
     if has("technologies") {
         let blocked: Vec<&str> = ctx
-            .records("technologies")
+            .fields
+            .not_researchable
             .iter()
-            .filter(|r| {
-                text(r, "text")
-                    .is_some_and(|t| t.to_ascii_lowercase().contains("cannot be researched"))
-            })
-            .map(|r| r.id.as_str())
+            .map(String::as_str)
             .collect();
         let _ = writeln!(
             out,
             "## technologies.text\n\n\
-             - **Typed**: `TechnologyData::researchable` = false when the text contains\n\
-               `cannot be researched` (`technology.rs`, `deepwrought.rs`): {}.\n",
+             - **Typed**: `TechnologyData::researchable` = false when the last line of the text is\n\
+               `{}` (and it is mentioned once; any other mention of `cannot be researched` fails the\n\
+               generator). The ids are listed in `card_fields.json` (`technology_text`) and checked: {}.\n",
+            ctx.fields.marker,
             blocked.join(", ")
         );
     }
@@ -138,17 +150,27 @@ pub fn text_parsed(ctx: &Ctx, cats: &[Cat]) -> String {
     if has("strategy_cards") {
         let _ = writeln!(
             out,
-            "## strategy_cards.name\n\n\
-             - **Typed**: `StrategyCardData::kind` (`StrategyCardKind`) = the printed name, on which\n\
-               `strategy_cards.rs` dispatches.\n\
+            "## strategy_cards.id\n\n\
+             - **Typed**: `StrategyCardData::kind` (`StrategyCardKind`) = the card id through the committed\n\
+               table `card_fields.json` (`strategy_card_id`). Every printing of one initiative is one kind,\n\
+               which is how the engine dispatched on the printed name.\n\
              - **TODO**: the printing variant. The engine special-cases `te4construction` and\n\
                `te6warfare` by id, and `base2` / `pok2diplomacy` print different Diplomacy texts but\n\
                share a name (audit I09). Whether a variant tag (`Base`, `Codex`, `ThundersEdge`) is a\n\
                column or the id itself is the discriminator is for the core to decide.\n"
         );
         out.push_str("| kind | printings |\n|---|---|\n");
-        for (name, ids) in grouped(ctx, "strategy_cards", "name") {
-            let _ = writeln!(out, "| {name} | {} |", ids.join(", "));
+        let mut by: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+        for rec in ctx.records("strategy_cards") {
+            let kind = ctx
+                .values
+                .get("StrategyCardKind")
+                .and_then(|m| m.get(rec.id.as_str()))
+                .map_or("?", String::as_str);
+            by.entry(kind).or_default().push(rec.id.as_str());
+        }
+        for (kind, ids) in by {
+            let _ = writeln!(out, "| {kind} | {} |", ids.join(", "));
         }
         out.push('\n');
     }

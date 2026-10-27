@@ -11,7 +11,8 @@
 //! no catch-all: a value that is not in its table is a [`crate::ContentError::UnknownFieldValue`]
 //! when the corpus is loaded, so a reworded card or a new printing fails loudly instead of
 //! silently turning into a card that is never offered. The tables are the committed value mapping
-//! that the card generator (`cargo xtask gen-cards`) is to take over; see `docs/CARD_TEXT_FIELDS.md`.
+//! that the card generator (`cargo xtask gen-cards`) takes from `card_fields.json` (the rows are
+//! written to `card_fields_tables.rs`, which this file includes); see `docs/CARD_TEXT_FIELDS.md`.
 //!
 //! Values are compared after `trim()`, as the rules compared them before. No corpus value carries
 //! surrounding whitespace today, so the trim changes nothing.
@@ -75,60 +76,9 @@ macro_rules! action_card_windows {
     };
 }
 
-action_card_windows! {
-    Action = "Action",
-    AfterOwnShipDestroyedInSpaceCombat = "After 1 of your ships is destroyed during a space combat",
-    AfterNeighborsTransact = "After 2 of your neighbors resolve a transaction",
-    AfterShipsMoveIntoSystemWithYourShips = "After a player moves ships into a system that contains your ships",
-    AfterAgendaRevealed = "After an agenda is revealed",
-    AfterOtherActivatesSystemWithYourCommandToken = "After another player activates a system that contains 1 of your command tokens",
-    AfterOtherActivatesSystemWithYourStructures = "After another player activates a system that contains 1 or more of your structures",
-    AfterOtherActivatesSystemWithYourUnits = "After another player activates a system that contains your units",
-    AfterOtherCommitsToYourPlanet = "After another player commits units to land on a planet you control",
-    AfterOtherDiscardsComponentActionCard = "After another player discards an action card that has a component action",
-    AfterOtherGainsYourPlanet = "After another player gains control of a planet you control",
-    AfterOtherRollsUnitAbility = "After another player makes a BOMBARDMENT, SPACE CANNON, or ANTI-FIGHTER BARRAGE roll",
-    AfterOtherSustainsAgainstYourHit = "After another player's ship uses SUSTAIN DAMAGE to cancel a hit produced by your units or abilities",
-    AfterActivePlayerMovesIntoActiveSystem = "After the active player moves ships into the active system during a tactical action",
-    AfterSpeakerVotes = "After the speaker votes on an agenda",
-    AfterYouActivateSystem = "After you activate a system",
-    AfterYouActivateSystemWithYourShips = "After you activate a system that contains 1 or more of your ships",
-    AfterYouActivateSystemWithOtherShips = "After you activate a system that contains another player's ships",
-    AfterYouActivateAnomaly = "After you activate an anomaly",
-    AfterYouCastVotes = "After you cast votes on an outcome of an agenda",
-    AfterYouPerformAction = "After you perform an action",
-    AfterYouWinSpaceCombat = "After you win a space combat",
-    AfterYourGroundForcesRoll = "After your ground forces make combat rolls during a round of ground combat",
-    AfterOpponentDeclaresRetreat = "After your opponent declares a retreat during a space combat",
-    EndOfTurnIfYouPassed = "At the end of a player's turn, if you have passed",
-    EndOfTurnIfTwoNotPassed = "At the end of any players turn, if there are at least 2 players who have not passed",
-    StartOfCombat = "At the start of a combat",
-    StartOfCombatRound = "At the start of a combat round",
-    StartOfInvasion = "At the start of an invasion",
-    StartOfInvasionAgainstPds = "At the start of an invasion in a system that contains 1 or more of your opponents' PDS units",
-    StartOfOtherTurnWithReadiedStrategyCard = "At the start of another player's turn, if they have a readied strategy card",
-    StartOfAnnounceRetreatsAsDefender = "At the start of the 'Announce Retreats' step of space combat, if you are the defender",
-    StartOfAgendaPhase = "At the start of the agenda phase",
-    StartOfFirstSpaceCombatRound = "At the start of the first round of a space combat",
-    StartOfStrategyPhase = "At the start of the strategy phase",
-    StartOrEndOfCombatRound = "At the start or end of a combat round",
-    BeforeAssigningSpaceCannonHits = "Before you assign hits produced by another player's SPACE CANNON roll",
-    BeforeAssigningSpaceCombatHits = "Before you assign hits to your ships during a space combat",
-    BeforeAntiFighterBarrageRoll = "Before you roll dice for ANTI-FIGHTER BARRAGE",
-    WhenOutcomeWouldBeResolved = "During the agenda phase when an outcome would be resolved",
-    WhenYourUnitsUseProduction = "When 1 or more of your units use PRODUCTION",
-    WhenAgendaRevealed = "When an agenda is revealed",
-    WhenOtherChoosesStrategyCard = "When another player chooses a strategy card during the strategy phase",
-    WhenOtherIsElected = "When another player is elected as the outcome of an agenda",
-    WhenOtherPlaysActionCardNotSabotage = "When another player plays an action card other than 'Sabotage'",
-    WhenOtherPerformsStrategicAction = "When another player would perform a strategic action",
-    WhenYourShipSustainsDamage = "When one of your ships uses SUSTAIN DAMAGE during combat",
-    WhenYouAreElected = "When you are elected as the outcome of an agenda",
-    WhenNegotiatingTransaction = "When you are negotiating a transaction",
-    WhenYouGainPlanet = "When you gain control of a planet",
-    WhenYouWouldReturnStrategyCards = "When you would return your strategy card(s) during the status phase",
-    WhenYourLastShipIsDestroyed = "When your last ship in the active system is destroyed",
-}
+// The window variants (the invocation of `action_card_windows!`) and the rows of the other value
+// tables are generated from `card_fields.json` by `cargo xtask gen-cards`.
+include!("card_fields_tables.rs");
 
 impl ActionCardWindow {
     /// The variant of a printed window.
@@ -178,29 +128,7 @@ pub enum ElectType {
 
 impl ElectType {
     /// Every printed `target` of the corpus with its variant.
-    pub const TABLE: &'static [(&'static str, Self)] = &[
-        ("For/Against", Self::ForAgainst),
-        ("Elect Player", Self::Player),
-        ("Elect Planet", Self::Planet),
-        (
-            "Elect Non-Home Planet Other Than Mecatol Rex",
-            Self::NonHomeNonMecatolPlanet,
-        ),
-        ("Elect Law", Self::Law),
-        (
-            "Elect Law (When this agenda is revealed, if there are no laws in play, discard this card and reveal another agenda from the top of the deck.)",
-            Self::Law,
-        ),
-        (
-            "Elect Scored Secret Objective (When this agenda is revealed, if there are no scored secret objectives, discard this card and reveal another agenda from the top of the deck.)",
-            Self::ScoredSecretObjective,
-        ),
-        ("Elect Strategy Card", Self::StrategyCard),
-        (
-            "When this agenda is revealed, the speaker draws the next card in the agenda deck but does not reveal it to the other players. Instead, the speaker reads the eligible outcomes aloud (for, against, elect Elect Player, etc.). The other Players vote for these outcomes as if they were outcomes of this agenda, without knowing their effects.",
-            Self::HiddenNextAgenda,
-        ),
-    ];
+    pub const TABLE: &'static [(&'static str, Self)] = ELECT_TYPE_ROWS;
 
     /// The variant of a printed target.
     ///
@@ -233,137 +161,7 @@ pub enum LeaderAbilityKind {
 
 impl LeaderAbilityKind {
     /// Every printed `abilityWindow` of the corpus with its kind, in byte order of the text.
-    pub const TABLE: &'static [(&'static str, Self)] = &[
-        ("ACTION:", Self::Action),
-        ("After 1 of your units uses SUSTAIN DAMAGE:", Self::Other),
-        (
-            "After a player activates a system that contains a non-delta wormhole:",
-            Self::Other,
-        ),
-        ("After a player activates a system:", Self::Other),
-        (
-            "After a player moves ships into a system that does not contain any planets:",
-            Self::Other,
-        ),
-        (
-            "After a player's unit is destroyed during combat:",
-            Self::Other,
-        ),
-        ("After an agenda is revealed:", Self::Other),
-        (
-            "After another player activates a system that contains 1 or more of your units that have PRODUCTION:",
-            Self::Other,
-        ),
-        (
-            "After another player activates a system that contains your units:",
-            Self::Other,
-        ),
-        (
-            "After another player moves ships into a system that contains 1 of your command tokens:",
-            Self::Other,
-        ),
-        ("After another player replenishes commodities:", Self::Other),
-        (
-            "After any player's command token is placed in a system:",
-            Self::Other,
-        ),
-        (r#"After the "Roll Dice" step of combat:"#, Self::Other),
-        (
-            "After the Pillage faction ability is used against another player:",
-            Self::Other,
-        ),
-        ("After the last player passes", Self::Other),
-        ("After you gain a technology:", Self::Other),
-        (
-            "After you gain control of a planet that was controlled by another player:",
-            Self::Other,
-        ),
-        (
-            "After you move a war sun into a non-home system other than Mecatol Rex:",
-            Self::Other,
-        ),
-        ("After you move ships into the active system:", Self::Other),
-        ("After you perform a component action:", Self::Other),
-        ("After you roll dice for a unit ability:", Self::Other),
-        (
-            "After you spend a token from your strategy pool:",
-            Self::Other,
-        ),
-        ("After you win a space combat:", Self::Other),
-        ("After your ships move:", Self::Other),
-        ("At any time", Self::Other),
-        ("At any time:", Self::Other),
-        ("At the end of a combat between any players:", Self::Other),
-        ("At the end of a player's tactical action:", Self::Other),
-        ("At the end of a player's turn:", Self::Other),
-        ("At the end of the status phase:", Self::Other),
-        (
-            "At the start of a ground combat on a planet you control:",
-            Self::Other,
-        ),
-        ("At the start of a ground combat round:", Self::Other),
-        (
-            "At the start of a round of of space combat in a system that contains a planet you control:",
-            Self::Other,
-        ),
-        ("At the start of a space combat round:", Self::Other),
-        (
-            "At the start of a space combat that you are participating in:",
-            Self::Other,
-        ),
-        ("Before a hit would be assigned:", Self::Other),
-        ("During combat:", Self::Other),
-        (r#"During the "Commit Ground Forces" step:"#, Self::Other),
-        ("During the action phase:", Self::ActionPhase),
-        ("During your tactical actions:", Self::Other),
-        (
-            "When 1 or more of a player's units use PRODUCTION:",
-            Self::Other,
-        ),
-        (
-            "When 1 or more of your units make a roll for a unit ability:",
-            Self::Other,
-        ),
-        ("When 1 or more of your units use PRODUCTION:", Self::Other),
-        ("When a player activates a system:", Self::Other),
-        ("When a player moves ships", Self::Other),
-        (
-            "When a player produces ground forces in a system:",
-            Self::Other,
-        ),
-        ("When a player spends resources to research:", Self::Other),
-        (
-            "When a player's ship is destroyed during any combat",
-            Self::Other,
-        ),
-        ("When a player's unit is destroyed", Self::Other),
-        ("When another player researches a technology", Self::Other),
-        (
-            "When another player spends resources to research a technology",
-            Self::Other,
-        ),
-        (
-            "When one of your galvanized units is destroyed",
-            Self::Other,
-        ),
-        (
-            "When one of your units in the Ordinian system is destroyed",
-            Self::Other,
-        ),
-        ("When you cast votes:", Self::Other),
-        ("When you declare a retreat", Self::Other),
-        ("When you exhaust planets:", Self::Other),
-        ("When you gain trade goods from the supply:", Self::Other),
-        ("When you produce fighter or infantry units:", Self::Other),
-        ("When you produce fighters or infantry:", Self::Other),
-        ("When you produce ships", Self::Other),
-        ("When you produce:", Self::Other),
-        ("When you vote:", Self::Other),
-        (
-            "When you would spend a command token during the secondary ability of a strategic action:",
-            Self::Other,
-        ),
-    ];
+    pub const TABLE: &'static [(&'static str, Self)] = LEADER_ABILITY_KIND_ROWS;
 
     /// The kind of a printed ability window.
     ///
@@ -464,20 +262,7 @@ pub enum StrategyCardKind {
 
 impl StrategyCardKind {
     /// Every strategy-card id of the corpus with its kind, in file order.
-    pub const TABLE: &'static [(&'static str, Self)] = &[
-        ("base2", Self::Diplomacy),
-        ("base4", Self::Construction),
-        ("pok1leadership", Self::Leadership),
-        ("pok2diplomacy", Self::Diplomacy),
-        ("pok3politics", Self::Politics),
-        ("pok4construction", Self::Construction),
-        ("pok5trade", Self::Trade),
-        ("pok6warfare", Self::Warfare),
-        ("pok7technology", Self::Technology),
-        ("pok8imperial", Self::Imperial),
-        ("te4construction", Self::Construction),
-        ("te6warfare", Self::Warfare),
-    ];
+    pub const TABLE: &'static [(&'static str, Self)] = STRATEGY_CARD_KIND_ROWS;
 
     /// Every kind, in initiative order.
     pub const ALL: [Self; 8] = [

@@ -118,6 +118,15 @@ impl SecretObjective {
     pub fn data(self) -> &'static SecretObjectiveData {
         &SECRET_OBJECTIVE_DATA[self as usize]
     }
+
+    /// The rank of the printed name among all records of the category: 0 is the first in the byte
+    /// order of the name, ties (equal names) by id. A sort by display name or label is a sort by
+    /// this integer ([`SECRET_OBJECTIVE_NAME_RANK`]); the core never sees the text.
+    #[must_use]
+    #[inline]
+    pub const fn name_rank(self) -> u16 {
+        SECRET_OBJECTIVE_NAME_RANK[self as usize]
+    }
 }
 
 /// Gameplay data of a [`SecretObjective`].
@@ -373,4 +382,12 @@ pub static SECRET_OBJECTIVE_DATA: [SecretObjectiveData; SecretObjective::COUNT] 
         phase: ObjectivePhase::Action,
         points: 1,
     },
+];
+
+/// The rank of each [`SecretObjective`]'s printed name (`name`) in byte order, ties by id; indexed by its
+/// integer value. A bijection onto `0..COUNT`.
+pub static SECRET_OBJECTIVE_NAME_RANK: [u16; SecretObjective::COUNT] = [
+    0, 3, 1, 2, 4, 6, 5, 8, 10, 12, 13, 11, 7, 9, 15, 14,
+    17, 19, 18, 20, 16, 21, 22, 23, 24, 25, 28, 27, 26, 30, 29, 32,
+    31, 33, 34, 36, 35, 37, 38, 39,
 ];
