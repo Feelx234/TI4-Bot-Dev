@@ -178,7 +178,8 @@ mod tests {
         let mut full = HookTable::new();
         register_all(&mut full);
         let movement = movement_table();
-        assert_eq!(full.registered(), movement.registered(), "no other slot is filled yet");
+        assert_eq!(full.movement.registered(), movement.registered(), "the movement table is the movement group of the full one");
+        assert_eq!(movement.movement.registered(), movement.registered(), "and nothing else");
         assert_eq!(MOVEMENT.iter().map(|m| m.len()).sum::<usize>(), 14, "A2 ports 14 factions");
     }
 

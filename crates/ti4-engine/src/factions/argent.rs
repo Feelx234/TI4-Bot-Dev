@@ -113,10 +113,14 @@ fn illegal(error: IllegalChoice) -> TimingError {
 
 // -- Zeal ----------------------------------------------------------------------------------------
 
+fn vote_bonus(state: &GameState, player: &PlayerId) -> i64 {
+    crate::cb_dual!(crate::dual::HookGroup::General, "argent::vote_bonus", vote_bonus_text(state, player), crate::core_factions::cb::argent_vote_bonus(state, player))
+}
+
 /// Zeal: "When you cast at least 1 vote, cast 1 additional vote for each player in the game
 /// including you." `vote::record` adds the bonus only to votes actually cast, so a seat that
 /// casts nothing gains nothing.
-fn vote_bonus(state: &GameState, player: &PlayerId) -> i64 {
+fn vote_bonus_text(state: &GameState, player: &PlayerId) -> i64 {
     if is_argent(state, player) {
         i64::try_from(state.players.len()).unwrap_or(0)
     } else {
@@ -124,8 +128,12 @@ fn vote_bonus(state: &GameState, player: &PlayerId) -> i64 {
     }
 }
 
-/// Zeal: "You always vote first during the agenda phase."
 fn votes_first(state: &GameState, player: &PlayerId) -> bool {
+    crate::cb_dual!(crate::dual::HookGroup::Cards, "argent::votes_first", votes_first_text(state, player), crate::core_factions::cb::argent_votes_first(state, player))
+}
+
+/// Zeal: "You always vote first during the agenda phase."
+fn votes_first_text(state: &GameState, player: &PlayerId) -> bool {
     is_argent(state, player)
 }
 
@@ -136,8 +144,24 @@ fn owns_technology(state: &GameState, player: &PlayerId, technology: &str) -> bo
     crate::technology::has_technology_text(state, player, technology)
 }
 
-/// Quetzecoatl: "Other players cannot use SPACE CANNON against your ships in this system."
 fn space_cannon_barred(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    shooter: &PlayerId,
+    target_owner: &PlayerId,
+    system: &SystemId,
+) -> bool {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Combat,
+        "argent::space_cannon_barred",
+        space_cannon_barred_text(state, content, sources, shooter, target_owner, system),
+        crate::core_factions::cb::argent_space_cannon_barred(state, sources, shooter, target_owner, system)
+    )
+}
+
+/// Quetzecoatl: "Other players cannot use SPACE CANNON against your ships in this system."
+fn space_cannon_barred_text(
     state: &GameState,
     _content: &ContentStore,
     _sources: SourceSet,
@@ -205,9 +229,27 @@ fn blocks_passage(
     })
 }
 
+fn extra_production_planet(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    planet: &PlanetId,
+) -> i64 {
+    #[cfg(feature = "typed-core")]
+    crate::core_factions::cb::sampled_audit(state, sources);
+    crate::cb_dual!(
+        crate::dual::HookGroup::Economy,
+        "argent::extra_production_planet",
+        extra_production_planet_text(state, content, sources, player, system, planet),
+        crate::core_factions::cb::argent_extra_production_planet(state, sources, player, system, planet)
+    )
+}
+
 /// Aerie Hololattice: "Each planet that contains 1 or more of your structures gains the
 /// PRODUCTION 1 ability as if it were a unit."
-fn extra_production_planet(
+fn extra_production_planet_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -225,9 +267,25 @@ fn agent_destination_key(player: &PlayerId, system: &SystemId) -> String {
     format!("argent:argentagent:production:{}:{}", player, system)
 }
 
+fn agent_production_destinations(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    unit_base: &str,
+) -> Vec<(SystemId, Option<PlanetId>)> {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Economy,
+        "argent::production_destinations",
+        agent_production_destinations_text(state, content, sources, player, system, unit_base),
+        crate::core_factions::cb::argent_production_destinations(state, sources, player, system, unit_base)
+    )
+}
+
 /// Destinations granted by Argent's agent for the in-progress production. The grant is a
 /// one-build mark, removed by `ProductionWindow` after the batch is placed or abandoned.
-fn agent_production_destinations(
+fn agent_production_destinations_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -269,6 +327,20 @@ fn agent_production_destinations(
 }
 
 pub(crate) fn clear_agent_production_destinations(
+    state: &mut GameState,
+    player: &PlayerId,
+    system: &SystemId,
+) {
+    #[cfg(feature = "typed-core")]
+    if matches!(crate::dual::backend(crate::dual::Area::Factions), crate::dual::Backend::Dual) {
+        return crate::core_factions::cb::dual_argent_clear(state, ti4_model::content_types::FULL, player, system, |state| {
+            clear_agent_production_destinations_text(state, player, system);
+        });
+    }
+    clear_agent_production_destinations_text(state, player, system);
+}
+
+pub(crate) fn clear_agent_production_destinations_text(
     state: &mut GameState,
     player: &PlayerId,
     system: &SystemId,
