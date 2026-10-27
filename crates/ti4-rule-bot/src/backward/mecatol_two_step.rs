@@ -107,7 +107,7 @@ pub fn plan(_seen: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan> {
         ..Steer::default()
     };
     steer.systems.push(system);
-    steer.cards.push("Imperial".to_owned());
+    steer.cards.push(ti4_content::StrategyCardKind::Imperial);
     let tokens = prep.tokens + prep.strategic + 1;
     Some(Plan {
         objective: "mecatol".to_owned(),

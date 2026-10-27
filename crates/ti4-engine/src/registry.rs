@@ -117,7 +117,11 @@ pub fn ledger(content: &ContentStore, sources: SourceSet) -> Vec<Coverage> {
             // Every card whose printed window is not "Action".
             total: content
                 .from_sources(ContentType::ActionCards, sources)
-                .filter(|record| record.text("window").is_some_and(|w| w.trim() != "Action"))
+                .filter(|record| {
+                    record
+                        .action_card_window()
+                        .is_some_and(|w| !w.is_component_action())
+                })
                 .count(),
             // Mapped to an event *and* that event is emitted somewhere. A window with no
             // emission is as unplayable as one with no mapping, and far easier to mistake for

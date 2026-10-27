@@ -29,8 +29,8 @@ use std::collections::VecDeque;
 use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
-use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
+use ti4_content::{ContentStore, StrategyCardKind};
 use ti4_model::content_types::SourceSet;
 use ti4_model::id::{PlayerId, StrategyCardId};
 use ti4_model::state::GameState;
@@ -121,25 +121,25 @@ pub struct SkippedPrompt {
 /// Which decision subtypes are the card's own follow-up questions (the ones a client prepares).
 /// Empty for the cards whose follow-up is not previewed.
 #[must_use]
-pub fn follow_up_subtypes(card_name: &str) -> &'static [&'static str] {
-    match card_name {
-        "Technology" => &["research_technology"],
-        "Diplomacy" => &["ready_planet"],
-        "Construction" => &["place_structure"],
+pub fn follow_up_subtypes(card: StrategyCardKind) -> &'static [&'static str] {
+    match card {
+        StrategyCardKind::Technology => &["research_technology"],
+        StrategyCardKind::Diplomacy => &["ready_planet"],
+        StrategyCardKind::Construction => &["place_structure"],
         // Production: the build list, then (after a scripted build) the payment or placement
         // question the engine asks next, if it asks one at all.
-        "Warfare" => &["produce_unit", "pay_resources", "place_unit"],
+        StrategyCardKind::Warfare => &["produce_unit", "pay_resources", "place_unit"],
         // Leadership: the payment of each token is the player's choice, one planet or trade good
         // per question (`pay_influence`; the engine has no automatic rule for it), then the
         // token's pool, then the "again?" question. A client scripts the whole purchase to have
         // the engine check it. Trade, Politics and Imperial resolve without a question (or draw
         // cards, which a preview must not run).
-        "Leadership" => &[
+        StrategyCardKind::Leadership => &[
             "pay_influence",
             "gain_command_token",
             "buy_token_with_influence",
         ],
-        _ => &[],
+        StrategyCardKind::Politics | StrategyCardKind::Trade | StrategyCardKind::Imperial => &[],
     }
 }
 
@@ -278,7 +278,7 @@ fn preview_inner(
     if primary == follower || state.player(follower).is_none() || state.player(primary).is_none() {
         return unavailable("not a follower of this action");
     }
-    let Some(name) = crate::strategy_cards::card_name(content, card.as_str()) else {
+    let Some(kind) = crate::strategy_cards::card_kind(content, card.as_str()) else {
         return unavailable("unknown strategy card");
     };
     // The throwaway position every step below may change; the caller's is only read.
@@ -308,7 +308,7 @@ fn preview_inner(
             unused_answers: rest.len(),
         };
     }
-    let own = follow_up_subtypes(&name);
+    let own = follow_up_subtypes(kind);
     if own.is_empty() {
         return if rest.is_empty() {
             SecondaryPreview::Complete {

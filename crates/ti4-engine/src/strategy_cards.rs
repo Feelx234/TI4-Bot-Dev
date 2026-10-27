@@ -7,8 +7,8 @@
 
 use std::collections::BTreeSet;
 
-use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
+use ti4_content::{ContentStore, StrategyCardKind};
 use ti4_model::content_types::{ContentType, SourceSet};
 use ti4_model::id::{PlanetId, PlayerId, SystemId, TechnologyId, UnitTypeId};
 use ti4_model::state::{GameState, TokenPool};
@@ -47,6 +47,19 @@ pub fn registered_cards() -> Vec<&'static str> {
     ]
 }
 
+/// Which strategy card `card` is, from its id (`ti4_content::card_fields`), or `None` for an id the
+/// corpus does not have. The rules dispatch on this; [`card_name`] is the printed name, for display.
+///
+/// Every printing of one card maps to one kind, as the printed name did: base and Codex Diplomacy
+/// are both [`StrategyCardKind::Diplomacy`] (see `docs/CARD_TEXT_FIELDS.md`).
+#[must_use]
+pub fn card_kind(content: &ContentStore, card: &str) -> Option<StrategyCardKind> {
+    content
+        .get(ContentType::StrategyCards, card)
+        .and_then(ti4_content::Record::strategy_card_kind)
+}
+
+/// The printed name of a strategy card. Display only: the rules read [`card_kind`].
 #[must_use]
 pub fn card_name(content: &ContentStore, card: &str) -> Option<String> {
     content
@@ -1531,17 +1544,18 @@ pub fn ready_hints(
         })
         .collect();
     let spenders: Vec<serde_json::Value> = [
-        ("Leadership", "influence"),
-        ("Technology", "resources"),
-        ("Warfare", "resources"),
+        (StrategyCardKind::Leadership, "influence"),
+        (StrategyCardKind::Technology, "resources"),
+        (StrategyCardKind::Warfare, "resources"),
     ]
     .iter()
-    .map(|(name, spends)| {
+    .map(|(kind, spends)| {
+        let name = kind.printed_name();
         let mut held = false;
         let mut played = false;
         for seat in &state.players {
             for card in &seat.strategy_cards {
-                if card_name(content, card.as_str()).as_deref() == Some(*name) {
+                if card_kind(content, card.as_str()) == Some(*kind) {
                     held = true;
                     played |= seat.exhausted_strategy_cards.contains(card);
                 }
@@ -2512,7 +2526,7 @@ fn imperial_primary(
 /// Returns [`IllegalChoice`] if a decider selects an option that was not offered.
 #[allow(
     clippy::too_many_lines,
-    reason = "the public dispatcher keeps all card-id and printed-name routing visible in one place"
+    reason = "the public dispatcher keeps all card-id and card-kind routing visible in one place"
 )]
 pub fn primary(
     state: &mut GameState,
@@ -2647,11 +2661,11 @@ pub fn primary(
         return Ok(Ability::Resolved);
     }
 
-    let Some(name) = card_name(content, card) else {
+    let Some(kind) = card_kind(content, card) else {
         return Ok(Ability::Unresolved);
     };
-    match name.as_str() {
-        "Leadership" => {
+    match kind {
+        StrategyCardKind::Leadership => {
             gain_tokens_offering(
                 state,
                 content,
@@ -2664,9 +2678,13 @@ pub fn primary(
             )?;
             buy_tokens_with_influence(state, content, sources, galaxy, table, player)?;
         }
-        "Diplomacy" => diplomacy_primary(state, content, sources, galaxy, table, player)?,
-        "Politics" => politics_primary(state, content, sources, galaxy, table, player)?,
-        "Construction" => {
+        StrategyCardKind::Diplomacy => {
+            diplomacy_primary(state, content, sources, galaxy, table, player)?
+        }
+        StrategyCardKind::Politics => {
+            politics_primary(state, content, sources, galaxy, table, player)?
+        }
+        StrategyCardKind::Construction => {
             place_structure_step(
                 state,
                 content,
@@ -2688,9 +2706,11 @@ pub fn primary(
                 Some((2, 2)),
             )?;
         }
-        "Trade" => trade_primary(state, content, sources, galaxy, table, player)?,
-        "Warfare" => warfare_primary(state, content, sources, galaxy, table, player)?,
-        "Technology" => {
+        StrategyCardKind::Trade => trade_primary(state, content, sources, galaxy, table, player)?,
+        StrategyCardKind::Warfare => {
+            warfare_primary(state, content, sources, galaxy, table, player)?
+        }
+        StrategyCardKind::Technology => {
             offer_research(
                 state,
                 content,
@@ -2710,8 +2730,9 @@ pub fn primary(
                 TECHNOLOGY_PRIMARY_SECOND_COST,
             )?;
         }
-        "Imperial" => imperial_primary(state, content, sources, galaxy, table, player)?,
-        _ => return Ok(Ability::Unresolved),
+        StrategyCardKind::Imperial => {
+            imperial_primary(state, content, sources, galaxy, table, player)?
+        }
     }
     Ok(Ability::Resolved)
 }
@@ -2733,8 +2754,8 @@ pub fn follow(
     follower: &PlayerId,
     card: &str,
 ) -> Result<Ability, IllegalChoice> {
-    let name = card_name(content, card).unwrap_or_else(|| card.to_owned());
-    if crate::faction_abilities::substitutes_primary(state, content, follower, &name) {
+    let kind = card_kind(content, card);
+    if crate::faction_abilities::substitutes_primary(state, content, follower, kind) {
         primary(state, content, sources, galaxy, table, follower, card)
     } else {
         secondary(state, content, sources, galaxy, table, follower, card)
@@ -2754,24 +2775,28 @@ pub fn secondary(
     player: &PlayerId,
     card: &str,
 ) -> Result<Ability, IllegalChoice> {
-    let Some(name) = card_name(content, card) else {
+    let Some(kind) = card_kind(content, card) else {
         return Ok(Ability::Unresolved);
     };
-    match name.as_str() {
+    match kind {
         // The window's `yes` already asked the oracle question; pay for it and continue.
-        "Leadership" => {
+        StrategyCardKind::Leadership => {
             buy_tokens_first_yes_assumed(state, content, sources, galaxy, table, player)?;
         }
-        "Diplomacy" => ready_planets(state, content, sources, galaxy, table, player, 2)?,
-        "Politics" => {
+        StrategyCardKind::Diplomacy => {
+            ready_planets(state, content, sources, galaxy, table, player, 2)?
+        }
+        StrategyCardKind::Politics => {
             crate::action_cards::draw(state, content, table, player, 2)?;
         }
-        "Construction" => {
+        StrategyCardKind::Construction => {
             place_structure(state, content, sources, galaxy, table, player, false)?;
         }
-        "Trade" => replenish(state, content, player),
-        "Warfare" => home_production(state, content, sources, galaxy, table, player)?,
-        "Technology" => paid_research(
+        StrategyCardKind::Trade => replenish(state, content, player),
+        StrategyCardKind::Warfare => {
+            home_production(state, content, sources, galaxy, table, player)?
+        }
+        StrategyCardKind::Technology => paid_research(
             state,
             content,
             sources,
@@ -2780,10 +2805,9 @@ pub fn secondary(
             player,
             TECHNOLOGY_SECONDARY_COST,
         )?,
-        "Imperial" => {
+        StrategyCardKind::Imperial => {
             crate::secrets::draw(state, content, table, player)?;
         }
-        _ => return Ok(Ability::Unresolved),
     }
     Ok(Ability::Resolved)
 }

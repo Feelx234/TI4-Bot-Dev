@@ -658,8 +658,8 @@ pub(crate) fn with_agent_granted<T>(
 fn has_component_action(content: &ContentStore, card: &str) -> bool {
     content
         .get(ti4_model::content_types::ContentType::ActionCards, card)
-        .and_then(|record| record.text("window"))
-        .is_some_and(|window| window.eq_ignore_ascii_case("action"))
+        .and_then(ti4_content::Record::action_card_window)
+        .is_some_and(ti4_content::ActionCardWindow::is_component_action)
 }
 
 fn commander_unlock_ready(

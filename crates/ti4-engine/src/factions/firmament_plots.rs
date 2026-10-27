@@ -108,10 +108,10 @@ pub(crate) fn secondary_waivers(
     _content: &ContentStore,
     follower: &PlayerId,
     primary: &PlayerId,
-    card: &str,
+    card: Option<ti4_content::StrategyCardKind>,
 ) -> Vec<SecondaryWaiver> {
     if follower != primary
-        && !card.eq_ignore_ascii_case("leadership")
+        && card != Some(ti4_content::StrategyCardKind::Leadership)
         && puppets(state, follower, ENERVATE).contains(primary)
     {
         vec![SecondaryWaiver {
@@ -140,10 +140,10 @@ pub fn primary_instead_offered(
     state: &GameState,
     follower: &PlayerId,
     primary: &PlayerId,
-    card_name: Option<&str>,
+    card: Option<ti4_content::StrategyCardKind>,
 ) -> bool {
     follower != primary
-        && card_name.is_some_and(|name| name.eq_ignore_ascii_case("leadership"))
+        && card == Some(ti4_content::StrategyCardKind::Leadership)
         && puppets(state, follower, ENERVATE).contains(primary)
 }
 
@@ -164,9 +164,9 @@ pub(crate) fn substitutes_primary(
     state: &GameState,
     _content: &ContentStore,
     player: &PlayerId,
-    card: &str,
+    card: Option<ti4_content::StrategyCardKind>,
 ) -> bool {
-    card.eq_ignore_ascii_case("leadership")
+    card == Some(ti4_content::StrategyCardKind::Leadership)
         && state.faction_marks.get(ENERVATE_MARK).map(String::as_str) == Some(player.as_str())
 }
 

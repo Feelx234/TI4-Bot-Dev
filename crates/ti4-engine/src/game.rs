@@ -3990,8 +3990,7 @@ impl<'a> Game<'a> {
 
     /// Let a faction react to a strategy card finishing.
     fn resolve_faction_strategy(&mut self, player: &PlayerId, card: &str) {
-        let name =
-            crate::strategy_cards::card_name(self.content, card).unwrap_or_else(|| card.to_owned());
+        let kind = crate::strategy_cards::card_kind(self.content, card);
         let (content, sources) = (self.content, self.sources);
         let galaxy = self.galaxy.clone();
         let (state, table, dice, rng, event_sequence) = (
@@ -4011,7 +4010,7 @@ impl<'a> Game<'a> {
             event_sequence,
             galaxy: galaxy.as_ref(),
         };
-        crate::faction_abilities::strategy_resolved(&mut context, player, &name);
+        crate::faction_abilities::strategy_resolved(&mut context, player, kind);
     }
 
     #[allow(
@@ -4451,8 +4450,16 @@ impl<'a> Game<'a> {
         crate::action_cards::apply_movement_effects(&mut rules, &self.state, &window.player);
         let (path, gravity_drive, ionian) = if route == 0 {
             (
-                self.default_route(&rules, &window.player, &ship, origin, index, gravity_drive, ionian)
-                    .ok_or_else(|| TacticalError::UnknownSystem(origin.clone()))?,
+                self.default_route(
+                    &rules,
+                    &window.player,
+                    &ship,
+                    origin,
+                    index,
+                    gravity_drive,
+                    ionian,
+                )
+                .ok_or_else(|| TacticalError::UnknownSystem(origin.clone()))?,
                 gravity_drive,
                 ionian,
             )
@@ -5817,8 +5824,8 @@ impl<'a> Game<'a> {
                     let elects_a_player = self
                         .content
                         .get(ti4_model::content_types::ContentType::Agendas, &alias)
-                        .and_then(|record| record.text("target"))
-                        .is_some_and(|target| target.starts_with("Elect Player"));
+                        .and_then(ti4_content::Record::elect_type)
+                        == Some(ti4_content::ElectType::Player);
                     if elects_a_player && let Some(chosen) = self.committee_formation(&alias) {
                         self.emit(&format!("AGENDA_RESOLVED:{alias}:{chosen}"));
                         self.push_agenda_record(
@@ -10676,7 +10683,11 @@ mod tests {
         }
         let ids: Vec<String> = [TACTICAL_ACTION_ID.to_owned(), active.to_string()]
             .into_iter()
-            .chain(script.iter().map(|id| (*id).replace("{o}", origin.as_str())))
+            .chain(
+                script
+                    .iter()
+                    .map(|id| (*id).replace("{o}", origin.as_str())),
+            )
             .collect();
         let table = Table::with_default(Box::new(Scripted::new(ids)));
         let mut game = Game::with_table(state, content, table).with_galaxy(galaxy);
@@ -10792,7 +10803,12 @@ mod tests {
     #[test]
     fn below_rules_version_29_the_game_plays_as_before() {
         let script = ["move|{o}|0", "done_moving"];
-        let mut old = route_game(ti4_model::state::RULES_MOVEMENT_ROUTES - 1, "cruiser", &script, 6);
+        let mut old = route_game(
+            ti4_model::state::RULES_MOVEMENT_ROUTES - 1,
+            "cruiser",
+            &script,
+            6,
+        );
         let mut new = route_game(ti4_model::state::RULES_VERSION, "cruiser", &script, 6);
         run_tactical(&mut old.game);
         run_tactical(&mut new.game);

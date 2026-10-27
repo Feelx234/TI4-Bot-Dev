@@ -144,8 +144,8 @@ fn politics_open(
 ) -> bool {
     seat.strategy_cards.iter().any(|c| {
         !seat.exhausted_strategy_cards.contains(c)
-            && ti4_engine::strategy_cards::card_name(seen.content(), c.as_str()).as_deref()
-                == Some("Politics")
+            && ti4_engine::strategy_cards::card_kind(seen.content(), c.as_str())
+                == Some(ti4_content::StrategyCardKind::Politics)
     })
 }
 
@@ -193,7 +193,7 @@ impl ObjectivePlanner for Holdings {
             },
             steer: Steer {
                 cards: if uses_own {
-                    vec!["Politics".to_owned()]
+                    vec![ti4_content::StrategyCardKind::Politics]
                 } else {
                     Vec::new()
                 },

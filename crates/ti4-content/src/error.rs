@@ -46,6 +46,17 @@ pub enum ContentError {
         tag: String,
     },
 
+    #[error(
+        "{category} record {index} field {field:?} has the value {value:?}, which its table in \
+         ti4_content::card_fields does not list; map it there (docs/CARD_TEXT_FIELDS.md)"
+    )]
+    UnknownFieldValue {
+        category: ContentType,
+        index: usize,
+        field: &'static str,
+        value: String,
+    },
+
     #[error("{category} record {index} is missing its identity field {field:?}")]
     MissingIdentity {
         category: ContentType,

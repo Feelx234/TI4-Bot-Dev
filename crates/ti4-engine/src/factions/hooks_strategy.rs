@@ -93,8 +93,15 @@ pub struct StrategyHooks {
     /// Then, return this card to the Winnu player." Pure and read-only: it is also asked when
     /// deciding whether the follower is offered the secondary at all (a follower with no
     /// strategy token but a waiver still is). Only asked for a secondary that costs a token.
-    pub secondary_waivers:
-        Option<fn(&GameState, &ContentStore, &PlayerId, &PlayerId, &str) -> Vec<SecondaryWaiver>>,
+    pub secondary_waivers: Option<
+        fn(
+            &GameState,
+            &ContentStore,
+            &PlayerId,
+            &PlayerId,
+            Option<ti4_content::StrategyCardKind>,
+        ) -> Vec<SecondaryWaiver>,
+    >,
     /// `follower` took waiver `waiver` (a [`SecondaryWaiver::id`]) of this module: pay its cost.
     /// Called once, before the card's secondary is performed, after the choice is validated; no
     /// token has been spent.
@@ -281,7 +288,7 @@ pub(crate) fn secondary_waivers(
     content: &ContentStore,
     follower: &PlayerId,
     primary: &PlayerId,
-    card: &str,
+    card: Option<ti4_content::StrategyCardKind>,
 ) -> Vec<(usize, SecondaryWaiver)> {
     // The index (position among the modules that have this hook) rides in the offered option id,
     // so two modules may both use the same short waiver id.
@@ -330,7 +337,14 @@ mod tests {
         assert_eq!(state.initiative_overrides, before);
         let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
         assert!(
-            secondary_waivers(&state, ContentStore::embedded(), &a, &b, "Technology").is_empty()
+            secondary_waivers(
+                &state,
+                ContentStore::embedded(),
+                &a,
+                &b,
+                Some(ti4_content::StrategyCardKind::Technology)
+            )
+            .is_empty()
         );
         let content = ContentStore::embedded();
         let tech = TechnologyId::new("pds");
@@ -361,7 +375,7 @@ mod tests {
             secondary_waivers: Some(|_, _, _, _, card| {
                 vec![SecondaryWaiver {
                     id: "w".to_owned(),
-                    label: format!("free {card}"),
+                    label: format!("free {}", card.map_or("?", |k| k.printed_name())),
                 }]
             }),
             secondary_waived: Some(|state, _, follower, _, waiver| {
@@ -372,7 +386,13 @@ mod tests {
             ..StrategyHooks::NONE
         };
         with_test_hooks(hooks, || {
-            let offered = secondary_waivers(&state, content, &a, &b, "Trade");
+            let offered = secondary_waivers(
+                &state,
+                content,
+                &a,
+                &b,
+                Some(ti4_content::StrategyCardKind::Trade),
+            );
             assert_eq!(offered.len(), 1);
             assert_eq!(offered[0].1.label, "free Trade");
             secondary_waived(&mut state, content, &a, &b, offered[0].0, "w");

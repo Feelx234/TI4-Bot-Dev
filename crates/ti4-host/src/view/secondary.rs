@@ -155,8 +155,9 @@ impl SecondaryWatch {
         };
         let name = ti4_engine::strategy_cards::card_name(content, round.card.as_str())
             .unwrap_or_else(|| round.card.to_string());
+        let kind = ti4_engine::strategy_cards::card_kind(content, round.card.as_str());
         let draft =
-            matches!(viewer, ViewerRole::Player(seat) if drafts(&round, &followers, &name, seat));
+            matches!(viewer, ViewerRole::Player(seat) if drafts(&round, &followers, kind, seat));
         Some(SecondaryFacts {
             primary: round.primary,
             card: round.card,
@@ -188,8 +189,13 @@ impl SecondaryWatch {
 
 /// Whether `seat` may draft its secondary of `round`. Trade waits for its window: the primary
 /// changes what the secondary of a follower costs and gives.
-fn drafts(round: &Round, followers: &[FollowerFact], name: &str, seat: &PlayerId) -> bool {
-    (round.window.is_some() || name != "Trade")
+fn drafts(
+    round: &Round,
+    followers: &[FollowerFact],
+    kind: Option<ti4_content::StrategyCardKind>,
+    seat: &PlayerId,
+) -> bool {
+    (round.window.is_some() || kind != Some(ti4_content::StrategyCardKind::Trade))
         && followers
             .iter()
             .any(|follower| &follower.seat == seat && follower.state == FollowerState::Waiting)
