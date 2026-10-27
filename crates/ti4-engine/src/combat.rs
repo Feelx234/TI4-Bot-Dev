@@ -6032,7 +6032,7 @@ impl CombatWindow {
         &mut self,
         state: &mut GameState,
         ctx: &mut Resolving<'_>,
-        sets: &mut [Option<RerollSet>; 2],
+        sets: &mut [Option<RerollSet>],
     ) -> Result<(), CombatError> {
         let (content, sources) = (ctx.content, ctx.sources);
         // War Funding (Letnev): "After you and your opponent roll dice during space combat: You may
@@ -6168,7 +6168,7 @@ impl CombatWindow {
         state: &mut GameState,
         ctx: &mut Resolving<'_>,
         round: u32,
-        sets: &[Option<RerollSet>; 2],
+        sets: &[Option<RerollSet>],
         rolled: [usize; 2],
     ) -> Result<(), CombatError> {
         let (content, sources) = (ctx.content, ctx.sources);
