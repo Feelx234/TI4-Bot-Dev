@@ -37,6 +37,8 @@ string-movement = []
 string-factions = []
 # The same off switch for the strategy area (`strategy_view`; package B8).
 string-strategy = []
+# The same off switch for the agenda area (`agenda_view`; package B9).
+string-agenda = []
 
 [dev-dependencies]
 strum.workspace = true

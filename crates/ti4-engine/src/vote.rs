@@ -70,6 +70,22 @@ pub fn outcomes(
     sources: SourceSet,
     alias: &str,
 ) -> Vec<String> {
+    crate::dual_typed!(
+        crate::dual::Area::AgendaLaws,
+        "vote::outcomes",
+        crate::agenda_typed::outcomes(state, sources, alias),
+        outcomes_text(state, content, sources, alias)
+    )
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn outcomes_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    alias: &str,
+) -> Vec<String> {
     let Some(record) = content.get(ContentType::Agendas, alias) else {
         // An agenda the corpus does not know still has the ordinary two outcomes rather
         // than none, which would silently skip the vote entirely.
@@ -179,6 +195,8 @@ fn elects(content: &ContentStore, alias: &str) -> Option<ElectType> {
 /// agenda under Covert Legislation (rules version 33), else `alias` itself.
 #[must_use]
 pub fn voted_agenda<'a>(state: &'a GameState, alias: &'a str) -> &'a str {
+    // The typed answer is an owned text; the borrowed one is the string side's, compared by the offline
+    // check (`agenda_check`), so this read stays a plain field read.
     match &state.covert_agenda {
         Some(hidden) if alias == COVERT => hidden,
         _ => alias,
@@ -241,6 +259,17 @@ fn locate_outcome(
 /// than applied at the card, so it cannot be honoured in one voting path and forgotten in another.
 #[must_use]
 pub fn extra_votes(state: &GameState, player: &PlayerId) -> i64 {
+    crate::dual_typed!(
+        crate::dual::Area::AgendaLaws,
+        "vote::extra_votes",
+        crate::agenda_typed::extra_votes(state, player),
+        extra_votes_text(state, player)
+    )
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn extra_votes_text(state: &GameState, player: &PlayerId) -> i64 {
     state
         .player(player)
         .and_then(|seat| seat.extra_votes_agenda)
@@ -267,12 +296,33 @@ pub fn add_votes(state: &mut GameState, player: &PlayerId, votes: i64) {
 /// cast.
 #[must_use]
 pub fn flat_vote_amount(state: &GameState) -> Option<i64> {
-    crate::laws::flat_votes(state).then_some(1)
+    crate::dual_typed!(
+        crate::dual::Area::AgendaLaws,
+        "vote::flat_vote_amount",
+        crate::agenda_typed::flat_vote_amount(state),
+        crate::laws::flat_votes(state).then_some(1)
+    )
 }
 
 /// Readied planets this player controls that carry any influence at all.
 #[must_use]
 pub fn votable_planets(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+) -> Vec<PlanetId> {
+    crate::dual_typed!(
+        crate::dual::Area::AgendaLaws,
+        "vote::votable_planets",
+        crate::agenda_typed::votable_planets(state, sources, player),
+        votable_planets_text(state, content, sources, player)
+    )
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn votable_planets_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -312,6 +362,17 @@ pub fn influence_of(
 /// Whether an agenda is a law, which decides if a passed outcome stays in play (8.20).
 #[must_use]
 pub fn is_law(content: &ContentStore, alias: &str) -> bool {
+    crate::dual_typed!(
+        crate::dual::Area::AgendaLaws,
+        "vote::is_law",
+        crate::agenda_typed::is_law(alias),
+        is_law_text(content, alias)
+    )
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn is_law_text(content: &ContentStore, alias: &str) -> bool {
     content
         .get(ContentType::Agendas, alias)
         .and_then(|record| record.text("type"))
@@ -342,7 +403,23 @@ impl Ballot {
 /// Returns `None` when a tie or a silent table needs the speaker, which is a *choice* and so
 /// cannot be resolved here. [`VoteWindow`] asks it.
 #[must_use]
-pub fn undisputed_winner(ballot: &Ballot, choices: &[String]) -> Option<String> {
+pub fn undisputed_winner(
+    state: &GameState,
+    alias: &str,
+    ballot: &Ballot,
+    choices: &[String],
+) -> Option<String> {
+    crate::dual_typed!(
+        crate::dual::Area::AgendaLaws,
+        "vote::undisputed_winner",
+        crate::agenda_typed::undisputed_winner(state, alias, &ballot.counts, choices),
+        undisputed_winner_text(ballot, choices)
+    )
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn undisputed_winner_text(ballot: &Ballot, choices: &[String]) -> Option<String> {
     if choices.is_empty() {
         return None;
     }
@@ -361,7 +438,23 @@ pub fn undisputed_winner(ballot: &Ballot, choices: &[String]) -> Option<String> 
 
 /// The outcomes the speaker chooses between when the vote does not decide it.
 #[must_use]
-pub fn tiebreak_candidates(ballot: &Ballot, choices: &[String]) -> Vec<String> {
+pub fn tiebreak_candidates(
+    state: &GameState,
+    alias: &str,
+    ballot: &Ballot,
+    choices: &[String],
+) -> Vec<String> {
+    crate::dual_typed!(
+        crate::dual::Area::AgendaLaws,
+        "vote::tiebreak_candidates",
+        crate::agenda_typed::tiebreak_candidates(state, alias, &ballot.counts, choices),
+        tiebreak_candidates_text(ballot, choices)
+    )
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn tiebreak_candidates_text(ballot: &Ballot, choices: &[String]) -> Vec<String> {
     let best = ballot.counts.values().copied().max().unwrap_or(0);
     let tied: Vec<String> = ballot
         .counts
@@ -466,6 +559,34 @@ impl VoteWindow {
     /// several such seats take the last seats in turn, clockwise.
     #[must_use]
     pub fn new(state: &GameState, alias: &str, choices: Vec<String>) -> Self {
+        let final_order = crate::dual_typed!(
+            crate::dual::Area::AgendaLaws,
+            "vote::voting_order",
+            crate::agenda_typed::voting_order(state),
+            Self::voting_order_text(state)
+        );
+        let opening = if choices.is_empty() {
+            Stage::Done(None)
+        } else {
+            Stage::Outcome(0)
+        };
+        Self {
+            alias: alias.to_owned(),
+            choices,
+            order: final_order,
+            stage: opening,
+            ballot: Ballot::default(),
+            spender: None,
+            recombination_offered: std::collections::BTreeSet::new(),
+            obligation: None,
+            demanded: None,
+            casts: Vec::new(),
+            predictive: Vec::new(),
+        }
+    }
+
+    /// The order the votes are asked in (`VoteWindow::new`).
+    fn voting_order_text(state: &GameState) -> Vec<PlayerId> {
         let mut order = state.clockwise_from(&state.speaker);
         // Imperial Rider's cost: a player who predicted this agenda's outcome gives up their
         // vote on it. Dropped from the order rather than skipped later, so nothing downstream
@@ -502,24 +623,7 @@ impl VoteWindow {
             final_order.push(state.speaker.clone());
         }
         final_order.extend(hackers);
-        let opening = if choices.is_empty() {
-            Stage::Done(None)
-        } else {
-            Stage::Outcome(0)
-        };
-        Self {
-            alias: alias.to_owned(),
-            choices,
-            order: final_order,
-            stage: opening,
-            ballot: Ballot::default(),
-            spender: None,
-            recombination_offered: std::collections::BTreeSet::new(),
-            obligation: None,
-            demanded: None,
-            casts: Vec::new(),
-            predictive: Vec::new(),
-        }
+        final_order
     }
 
     /// Let `player` spend trade goods and resources on this agenda as if they were votes
@@ -956,7 +1060,7 @@ impl VoteWindow {
                 )
             }
             Stage::Tiebreak => {
-                let candidates = tiebreak_candidates(&self.ballot, &self.choices);
+                let candidates = tiebreak_candidates(state, &self.alias, &self.ballot, &self.choices);
                 let planet_outcomes = elects_planet(content, voted_agenda(state, &self.alias));
                 Some(
                     Choice::new(
@@ -1007,7 +1111,7 @@ impl VoteWindow {
             }
             match &self.stage {
                 Stage::Outcome(index) if *index >= self.order.len() => {
-                    self.stage = self.close();
+                    self.stage = self.close(state);
                 }
                 Stage::Planets {
                     index,
@@ -1146,10 +1250,10 @@ impl VoteWindow {
     }
 
     /// Everyone has voted: decide, or hand it to the speaker.
-    fn close(&self) -> Stage {
-        undisputed_winner(&self.ballot, &self.choices).map_or_else(
+    fn close(&self, state: &GameState) -> Stage {
+        undisputed_winner(state, &self.alias, &self.ballot, &self.choices).map_or_else(
             || {
-                let candidates = tiebreak_candidates(&self.ballot, &self.choices);
+                let candidates = tiebreak_candidates(state, &self.alias, &self.ballot, &self.choices);
                 match candidates.as_slice() {
                     [] => Stage::Done(None),
                     [only] => Stage::Done(Some(only.clone())),
@@ -2264,7 +2368,7 @@ mod tests {
             votes: BTreeMap::new(),
             counts: BTreeMap::from([(FOR.to_owned(), 5), (AGAINST.to_owned(), 3)]),
         };
-        assert_eq!(undisputed_winner(&ballot, &for_against()), Some(FOR.into()));
+        assert_eq!(undisputed_winner_text(&ballot, &for_against()), Some(FOR.into()));
     }
 
     #[test]
@@ -2273,10 +2377,10 @@ mod tests {
             votes: BTreeMap::new(),
             counts: BTreeMap::from([(FOR.to_owned(), 4), (AGAINST.to_owned(), 4)]),
         };
-        assert_eq!(undisputed_winner(&ballot, &for_against()), None);
+        assert_eq!(undisputed_winner_text(&ballot, &for_against()), None);
         // Sorted, matching the oracle's `sorted(tied)`.
         assert_eq!(
-            tiebreak_candidates(&ballot, &for_against()),
+            tiebreak_candidates_text(&ballot, &for_against()),
             vec![AGAINST.to_owned(), FOR.to_owned()]
         );
     }

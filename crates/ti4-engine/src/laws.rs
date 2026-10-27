@@ -138,6 +138,17 @@ pub fn action_cards_forbidden(state: &GameState, player: &PlayerId) -> bool {
 /// with that agenda's resolution, which empties the table.
 #[must_use]
 pub fn political_secret_bars(state: &GameState, player: &PlayerId) -> bool {
+    crate::dual_typed!(
+        crate::dual::Area::AgendaLaws,
+        "laws::political_secret_bars",
+        crate::agenda_typed::political_secret_bars(state, player),
+        political_secret_bars_text(state, player)
+    )
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn political_secret_bars_text(state: &GameState, player: &PlayerId) -> bool {
     state.rules_version >= ti4_model::state::RULES_FACTION_BUGFIXES
         && state
             .agenda_predictions
@@ -534,6 +545,17 @@ pub fn revolution_levy(state: &mut GameState) {
 /// everything in that case, as 8.4 says.
 #[must_use]
 pub fn agenda_ready_limit(state: &GameState) -> Option<usize> {
+    crate::dual_typed!(
+        crate::dual::Area::AgendaLaws,
+        "laws::agenda_ready_limit",
+        crate::agenda_typed::ready_limit(state),
+        agenda_ready_limit_text(state)
+    )
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn agenda_ready_limit_text(state: &GameState) -> Option<usize> {
     (active(state, "checks") && elected(state, "checks").map(String::as_str) == Some("against"))
         .then_some(3)
 }

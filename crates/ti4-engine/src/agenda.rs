@@ -62,10 +62,12 @@ pub fn resolve_agenda_phase(state: &mut GameState) -> Result<AgendaPhaseReport, 
         return Err(AgendaPhaseError::CustodiansNotRemoved);
     }
 
-    let mut voting_order = state.clockwise_from(&state.speaker);
-    if !voting_order.is_empty() {
-        voting_order.rotate_left(1); // 8.2ii: start to the speaker's left, so the speaker is last
-    }
+    let voting_order = crate::dual_typed!(
+        crate::dual::Area::AgendaLaws,
+        "agenda::reveal_order",
+        crate::agenda_typed::reveal_order(state),
+        reveal_order_text(state)
+    );
     let mut report = AgendaPhaseReport::default();
     for _ in 0..AGENDAS_PER_PHASE {
         let Some(alias) = ti4_model::deck_reserve::take_top(
@@ -84,6 +86,17 @@ pub fn resolve_agenda_phase(state: &mut GameState) -> Result<AgendaPhaseReport, 
     }
 
     Ok(report)
+}
+
+/// 8.2ii: start to the speaker's left, so the speaker is last.
+#[doc(hidden)]
+#[must_use]
+pub fn reveal_order_text(state: &GameState) -> Vec<PlayerId> {
+    let mut voting_order = state.clockwise_from(&state.speaker);
+    if !voting_order.is_empty() {
+        voting_order.rotate_left(1);
+    }
+    voting_order
 }
 
 /// 8.4: after both agendas are resolved, every player readies their planets, and returns what was

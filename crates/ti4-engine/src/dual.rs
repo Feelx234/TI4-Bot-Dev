@@ -172,6 +172,9 @@ impl AreaMask {
         if cfg!(all(feature = "typed-core", not(feature = "string-strategy"))) {
             mask = mask.with(Area::Strategy, Backend::Core);
         }
+        if cfg!(all(feature = "typed-core", not(feature = "string-agenda"))) {
+            mask = mask.with(Area::AgendaLaws, Backend::Core);
+        }
         mask
     }
 
