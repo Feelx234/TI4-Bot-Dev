@@ -1,26 +1,11 @@
 //! `AgendaState`: laws, the agenda in play, votes, choices, override slots, logs.
 
 use crate::containers::{Log, SmallList, SortedMap};
-use crate::generated::{Agenda, Planet, SecretObjective, StrategyCard, System};
+use crate::generated::Agenda;
+pub use crate::keys::{Outcome, Prediction};
 use crate::ids::Seat;
 
 use super::Code;
-
-/// An agenda outcome / law choice (`laws` values, `agenda_votes`, `agenda_choices`): the closed
-/// forms are typed; `Other` is an adapter-interned text for forms X1 has not pinned. The derived
-/// order is the typed order, not the text order of the outcome ids.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Outcome {
-    For,
-    Against,
-    Player(Seat),
-    Planet(Planet),
-    System(System),
-    Law(Agenda),
-    StrategyCard(StrategyCard),
-    SecretObjective(SecretObjective),
-    Other(Code),
-}
 
 /// `AgendaRecord`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,7 +40,7 @@ pub struct AgendaState {
     pub covert: Option<Agenda>,
     pub elected_override: Option<Seat>,
     pub votes: SortedMap<Seat, Outcome, 8>,
-    pub predictions: SortedMap<Seat, Outcome, 8>,
+    pub predictions: SortedMap<Seat, Prediction, 8>,
     pub log: Log<AgendaRec>,
     pub casts: Log<AgendaCastRec>,
 }

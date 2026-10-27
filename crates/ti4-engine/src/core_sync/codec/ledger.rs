@@ -1,19 +1,20 @@
 use ti4_engine_core::generated::Relic;
-use ti4_engine_core::state::{CoreState, LedgerReason, RelicRec, Slice, VpRec};
+use ti4_engine_core::state::{CoreState, RelicRec, Slice, VpRec};
 use ti4_model::id::PlayerId;
 use ti4_model::state::{GameState, RelicGainRecord};
 
 use super::{Sources, SliceCodec};
 use crate::core_sync::conv::{id, txt};
 use crate::core_sync::ctx::Ctx;
-use crate::core_sync::error::R;
+use crate::core_sync::error::{R, bad};
+use crate::core_sync::keys::{parse_ledger, render_ledger};
 
 const S: Slice = Slice::Ledger;
 
 /// The victory point ledger and the relic log, the two logs `GameState` carries. The event text log
 /// (`Game.events`, `Resolver.log`) and the dice history live in `Game`, not in `GameState`: they stay
-/// default here and are lent by the game-level caller when an area needs them. Reason texts are kept as
-/// interned `Other` codes until package X1 pins the typed forms.
+/// default here and are lent by the game-level caller when an area needs them. Reason texts are package X1's
+/// typed [`LedgerReason`](ti4_engine_core::keys::LedgerReason); a text it does not type is `Unmapped`.
 pub struct Ledger;
 
 impl SliceCodec for Ledger {
@@ -23,7 +24,9 @@ impl SliceCodec for Ledger {
         core.ledger.vp = ti4_engine_core::containers::Log::new();
         for (p, delta, reason) in &gs.vp_ledger {
             let player = cx.seat(S, p.as_str())?;
-            let reason = LedgerReason::Other(cx.texts.intern(S, reason)?);
+            let reason = parse_ledger(reason)
+                .filter(|r| render_ledger(*r) == *reason)
+                .ok_or_else(|| bad(S, "ledger reason not typed", reason))?;
             core.ledger.vp.push(VpRec { player, delta: *delta, reason });
         }
         core.ledger.relics = ti4_engine_core::containers::Log::new();
@@ -44,10 +47,7 @@ impl SliceCodec for Ledger {
             .vp
             .iter()
             .map(|r| {
-                let LedgerReason::Other(code) = r.reason else {
-                    return Err(crate::core_sync::error::bad(S, "typed ledger reason", ""));
-                };
-                Ok((PlayerId::new(cx.owner(S, r.player)?), r.delta, cx.texts.text(S, code)?.to_owned()))
+                Ok((PlayerId::new(cx.owner(S, r.player)?), r.delta, render_ledger(r.reason)))
             })
             .collect::<R<_>>()?;
         gs.relic_log = l
