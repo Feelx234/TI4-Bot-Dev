@@ -13,7 +13,7 @@ use crate::generated::{Planet, System, Unit, UnitBaseType};
 use crate::ids::Seat;
 use crate::query::economy::{self, Spend};
 use crate::query::{board, laws};
-use crate::state::{CoreState, RoundKind};
+use crate::state::{CoreState, Piece, RoundKind};
 use crate::tables::Scope;
 
 /// What the production rules ask of the factions and of rules not yet in the core.
@@ -50,7 +50,7 @@ pub struct Cx<'a> {
 }
 
 /// A producing unit and the planet it sits on (`None`: the space area).
-pub type Producers = SmallList<(Unit, Option<Planet>), 12>;
+pub type Producers = SmallList<(Piece, Option<Planet>), 12>;
 
 /// `production::structure_limit`.
 #[must_use]
@@ -90,13 +90,13 @@ pub fn producers(cx: &Cx<'_>, who: Seat, system: System) -> Producers {
     for p in board::space_units(cx.core, system) {
         let k = p.kind();
         if p.owner() == who && produces(k) && !cx.env.silenced_in_space(who, k) {
-            found.push((k, None));
+            found.push((*p, None));
         }
     }
     for planet in sorted_planets(cx.core, system).as_slice().iter().copied() {
         for p in board::planet_units(cx.core, planet) {
             if p.owner() == who && produces(p.kind()) {
-                found.push((p.kind(), Some(planet)));
+                found.push((*p, Some(planet)));
             }
         }
     }
@@ -115,12 +115,12 @@ fn sorted_planets(core: &CoreState, system: System) -> SmallList<Planet, 8> {
 
 /// `production::mobile_docks`: space-only structures with PRODUCTION in the space area.
 #[must_use]
-pub fn mobile_docks(cx: &Cx<'_>, who: Seat, system: System) -> SmallList<Unit, 4> {
+pub fn mobile_docks(cx: &Cx<'_>, who: Seat, system: System) -> SmallList<Piece, 4> {
     let mut out = SmallList::new();
     for p in board::space_units(cx.core, system) {
         let d = p.kind().data();
         if p.owner() == who && d.space_only && d.structure && d.production.is_some() {
-            out.push(p.kind());
+            out.push(*p);
         }
     }
     out
@@ -154,7 +154,7 @@ pub fn capacity(cx: &Cx<'_>, who: Seat, system: System) -> i64 {
     producers(cx, who, system)
         .as_slice()
         .iter()
-        .map(|(u, pl)| unit_production(*u, dock_resources(cx, who, *pl)))
+        .map(|(u, pl)| unit_production(u.kind(), dock_resources(cx, who, *pl)))
         .sum::<i64>()
         + war_machine_bonus(cx.core, who)
         + module_production(cx, who, system)
@@ -193,8 +193,8 @@ pub fn barred_capacity(cx: &Cx<'_>, who: Seat, system: System, unit: UnitBaseTyp
     producers(cx, who, system)
         .as_slice()
         .iter()
-        .filter(|(u, _)| cx.env.cannot_produce(who, unit, u.data().base_type))
-        .map(|(u, pl)| unit_production(*u, dock_resources(cx, who, *pl)))
+        .filter(|(u, _)| cx.env.cannot_produce(who, unit, u.kind().data().base_type))
+        .map(|(u, pl)| unit_production(u.kind(), dock_resources(cx, who, *pl)))
         .sum()
 }
 
@@ -244,7 +244,7 @@ pub fn placements(cx: &Cx<'_>, who: Seat, system: System, unit: Unit) -> SmallLi
     let made: Producers = {
         let mut m = Producers::new();
         for (u, pl) in producers(cx, who, system).as_slice() {
-            if !cx.env.cannot_produce(who, d.base_type, u.data().base_type) {
+            if !cx.env.cannot_produce(who, d.base_type, u.kind().data().base_type) {
                 m.push((*u, *pl));
             }
         }

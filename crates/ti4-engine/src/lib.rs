@@ -85,6 +85,8 @@ pub mod core_sync;
 /// Area::BoardQueries (package A1): the typed board queries behind a string interface.
 #[cfg(feature = "typed-core")]
 pub mod board_view;
+#[cfg(feature = "typed-core")]
+pub mod production_view;
 /// The offline dual of Area::BoardQueries.
 #[cfg(feature = "typed-core")]
 #[doc(hidden)]
