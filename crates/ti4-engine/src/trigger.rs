@@ -67,12 +67,15 @@ impl DecisionTrigger {
     /// outermost first, the event itself excluded).
     #[must_use]
     pub fn from_event(event: &Event, relation: &str, chain: &[u64]) -> Self {
-        crate::dual_typed!(
-            crate::dual::Area::Kernel,
-            "trigger.from_event",
-            crate::kernel_sync::convert::core_trigger(event, relation, chain),
-            Self::from_event_string(event, relation, chain)
-        )
+        if crate::dual::backend(crate::dual::Area::Kernel) == crate::dual::Backend::Dual {
+            return crate::dual::run_dual_typed(
+                crate::dual::Area::Kernel,
+                "trigger.from_event",
+                || crate::kernel_sync::convert::core_trigger(event, relation, chain),
+                || Self::from_event_string(event, relation, chain),
+            );
+        }
+        Self::from_event_string(event, relation, chain)
     }
 
     fn from_event_string(event: &Event, relation: &str, chain: &[u64]) -> Self {
