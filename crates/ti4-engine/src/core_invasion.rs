@@ -65,25 +65,25 @@ impl<'g> InvasionView<'g> {
         Rd::new(&self.view, self.kernel()).with_blanked(self.blanked)
     }
 
-    /// `invasion::bombardable`. `None` while the invader holds the L1Z1X commander's ability in a way only
-    /// the leaders package models (the Mahact Imperia, an "An" promissory note).
+    /// The read bundle with the invader's L1Z1X commander ability from the leaders package (B7), which also
+    /// knows the Mahact Imperia and the Alliance notes.
+    fn rd_for(&self, gs: &GameState, invader: &PlayerId) -> Option<Rd<'_>> {
+        let held = crate::leaders_view::LeaderView::of(gs, None, SourceSet::default(), None, crate::leaders_view::READS_ABILITY)?
+            .has_commander_ability(invader, "l1z1xcommander")?;
+        Some(self.rd().with_l1z1x_commander(held))
+    }
+
     #[must_use]
     pub fn bombardable(&self, gs: &GameState, system: &SystemId, planet: &PlanetId, invader: &PlayerId) -> Option<bool> {
-        if commander_hole(gs, invader) {
-            return None;
-        }
         let (sys, pl, seat) = (typed::<System>(system.as_str())?, typed::<Planet>(planet.as_str())?, self.seat(invader)?);
-        Some(ci::bombardable(self.rd(), sys, pl, seat))
+        Some(ci::bombardable(self.rd_for(gs, invader)?, sys, pl, seat))
     }
 
     /// `invasion::bombard_rolls`: the rolls of the bombardment per planet, unrolled.
     #[must_use]
     pub fn bombard_plan(&self, gs: &GameState, system: &SystemId, invader: &PlayerId) -> Option<Vec<PlannedBombard>> {
-        if commander_hole(gs, invader) {
-            return None;
-        }
         let (sys, seat) = (typed::<System>(system.as_str())?, self.seat(invader)?);
-        let plan = ci::bombard_plan(self.rd(), sys, seat);
+        let plan = ci::bombard_plan(self.rd_for(gs, invader)?, sys, seat);
         plan.into_iter()
             .map(|p| {
                 Some(PlannedBombard {
@@ -150,11 +150,4 @@ impl InvasionView<'_> {
                 .collect(),
         )
     }
-}
-
-/// The L1Z1X commander's ability is held by the Mahact Imperia or an "An" promissory note: not modelled by
-/// the core until the leaders package (B7) lands `has_commander_ability`.
-fn commander_hole(gs: &GameState, who: &PlayerId) -> bool {
-    gs.player(who).is_some_and(|p| p.faction.as_str() == "mahact")
-        || gs.promissory_notes.iter().any(|(note, holder)| holder == who && crate::promissory::alias_of(note) == "an")
 }

@@ -31,12 +31,22 @@ pub struct Rd<'a> {
     pub k: &'a Kernel,
     /// Law's Order: every law is blank this turn (`laws::blanked`; the caller computes it).
     pub blanked: bool,
+    /// The leaders package's answer to `has_commander_ability(l1z1xcommander)` for the invader (it needs the
+    /// leaders `Env`: Imperia, Alliance notes); `None`: read the leader slice and the grant mark only.
+    pub l1z1x_commander: Option<bool>,
 }
 
 impl<'a> Rd<'a> {
     #[must_use]
     pub fn new(s: &'a CoreState, k: &'a Kernel) -> Self {
-        Self { s, k, blanked: false }
+        Self { s, k, blanked: false, l1z1x_commander: None }
+    }
+
+    /// The same read with the invader's L1Z1X commander ability decided by the leaders package.
+    #[must_use]
+    pub fn with_l1z1x_commander(mut self, held: bool) -> Self {
+        self.l1z1x_commander = Some(held);
+        self
     }
 
     /// The seam reader over the same state and kernel.
@@ -136,7 +146,7 @@ pub fn bombardable(rd: Rd<'_>, system: System, planet: Planet, invader: Seat) ->
     if board.sys(system).units.iter().filter(own).any(|p| has_arc_secundus_text(rd.s, invader, p.kind())) {
         return true;
     }
-    if ignores_planetary_shield(rd.s, invader) {
+    if rd.l1z1x_commander.unwrap_or_else(|| ignores_planetary_shield(rd.s, invader)) {
         return true;
     }
     // Disable: only cards played for this invasion count; a shield survives only while every Disable in play
