@@ -997,29 +997,51 @@ fn pay_with_observation_credit(
         }
 
         // The oracle takes a lone option without asking; only real choices reach a decider.
-        let answer = {
-            // Oracle wording: each iteration names the remaining debt and its kind
-            // (`pay {cost - paid} more {kind}` in engine/production.py).
-            let choice = Choice::new(
-                player.clone(),
-                format!("pay {} more {}", owed - paid, spend_name(kind)),
-                options,
-            )
-            .contextualized(payment_context(
-                state,
-                player,
-                kind,
-                cost,
-                used_credit + paid,
-            ));
-            if let Some(only) = table.auto_resolve(&choice, "it was the only way left to pay") {
-                only
-            } else {
-                table.ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))?
+        // Oracle wording: each iteration names the remaining debt and its kind
+        // (`pay {cost - paid} more {kind}` in engine/production.py).
+        let choice = Choice::new(
+            player.clone(),
+            format!("pay {} more {}", owed - paid, spend_name(kind)),
+            options,
+        )
+        .contextualized(payment_context(
+            state,
+            player,
+            kind,
+            cost,
+            used_credit + paid,
+        ));
+        // One iteration is also a step of the core's `PayStep`: on `production=dual` both run from this
+        // position and are compared (question, answer, state, the worth collected).
+        let mut outcome: Result<Option<i64>, IllegalChoice> = Ok(None);
+        crate::dual_window!(
+            crate::dual::Area::Production,
+            "production::pay_step",
+            state,
+            |s: &mut GameState| {
+                outcome = (|| {
+                    let answer = if let Some(only) = table.auto_resolve(&choice, "it was the only way left to pay") {
+                        only
+                    } else {
+                        table.ask_seeing(&choice, &Observed::new(s, content, sources, galaxy))?
+                    };
+                    Ok(apply_payment_option(s, content, sources, player, kind, &answer))
+                })();
+                crate::dual::Run::new(outcome.as_ref().ok().copied().flatten())
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                #[cfg(feature = "typed-core")]
+                {
+                    crate::production_window_dual::pay_step(s, player, kind, cost, used_credit, owed, paid, script)
+                }
+                #[cfg(not(feature = "typed-core"))]
+                {
+                    let _ = (s, script);
+                    None
+                }
             }
-        };
-
-        match apply_payment_option(state, content, sources, player, kind, &answer) {
+        );
+        match outcome? {
             Some(worth) => paid += worth,
             None => return Ok(false), // an id no offered option carries (unreachable after validate)
         }

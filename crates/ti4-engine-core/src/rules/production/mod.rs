@@ -233,6 +233,7 @@ pub fn structure_allowed(cx: &Cx<'_>, who: Seat, planet: Planet, base: UnitBaseT
     structure_limit(base).is_none_or(|cap| structures_on(cx, who, planet, base) < cap)
 }
 
+pub mod pay;
 pub mod window;
 
 pub use crate::choice::production::Spot;

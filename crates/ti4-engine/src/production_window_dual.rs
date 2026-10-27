@@ -87,3 +87,61 @@ pub fn step(
     };
     Some(CoreWindow { run: Run::new(snap).with_events_vec(events), questions: rendered })
 }
+
+const PAY_FOOTPRINT: Footprint = Footprint {
+    reads: crate::production_view::READS,
+    writes: SliceSet::of(&[Slice::Board, Slice::Players]),
+};
+
+/// The core half of one iteration of the free payment loop (`pay_with_observation_credit`): the worth the
+/// iteration collected, `None` when it collected nothing.
+#[must_use]
+pub fn pay_step(
+    gs: &mut GameState,
+    player: &PlayerId,
+    kind: crate::production::Spend,
+    cost: i64,
+    used_credit: i64,
+    owed: i64,
+    paid: i64,
+    script: &Recording,
+) -> Option<CoreWindow<Option<i64>>> {
+    use ti4_engine_core::query::economy::Spend as CoreSpend;
+    use ti4_engine_core::rules::production::pay::{PayStep, Stage};
+    if crate::production_view::unported_window(gs) {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let seat = r.seat(player.as_str())?;
+    let kernel = crate::production_view::kernel();
+    let (phase, round) = (render::generic::core_phase(gs.phase), gs.round);
+    let window = PayStep {
+        who: seat,
+        kind: match kind {
+            crate::production::Spend::Resources => CoreSpend::Resources,
+            crate::production::Spend::Influence => CoreSpend::Influence,
+        },
+        cost,
+        used_credit,
+        owed,
+        paid,
+        took: None,
+        stage: Stage::Paying,
+    };
+    let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+    let mut rendered = Vec::new();
+    with_core(gs, &mut cx, Sources::default(), PAY_FOOTPRINT, |core, _| -> Result<(), ti4_engine_core::driver::DriverError> {
+        if let Status::Asking(choice) = driver.run(core, kernel)? {
+            let position = Position { state: Rc::new(core.clone()), kernel };
+            rendered.push(Typed::new_at(&r, position, choice.clone(), phase, round).rendered);
+            let answer = script.questions.first().and_then(|q| q.answer.clone());
+            if let Some(pick) = answer.and_then(|id| render::parse_pick(&r, &choice.ask, &id)) {
+                driver.resume(core, kernel, pick)?;
+            }
+        }
+        Ok(())
+    })
+    .ok()?
+    .ok()?;
+    Some(CoreWindow { run: Run::new(driver.window.took), questions: rendered })
+}
