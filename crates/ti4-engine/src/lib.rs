@@ -85,6 +85,9 @@ pub mod core_sync;
 /// Area::BoardQueries (package A1): the typed board queries behind a string interface.
 #[cfg(feature = "typed-core")]
 pub mod board_view;
+/// Area::LeadersAbilities (package B7): the typed leader reads behind the string interface.
+#[cfg(feature = "typed-core")]
+pub mod leaders_view;
 /// The offline dual of Area::BoardQueries.
 #[cfg(feature = "typed-core")]
 #[doc(hidden)]

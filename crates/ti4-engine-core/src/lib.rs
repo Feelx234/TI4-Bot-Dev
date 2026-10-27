@@ -22,6 +22,7 @@ pub mod kernel;
 pub mod keys;
 pub mod movement;
 pub mod query;
+pub mod rules;
 pub mod state;
 pub mod tables;
 
