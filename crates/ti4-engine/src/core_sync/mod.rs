@@ -21,6 +21,8 @@ mod footprint;
 mod lend;
 
 pub mod codec;
+/// Text codec of every `String`-typed key and value of `GameState` (package X1).
+pub mod keys;
 
 pub use ctx::{Ctx, Owners, Texts};
 pub use error::{Unmapped, R};

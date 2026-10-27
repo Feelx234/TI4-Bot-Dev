@@ -18,6 +18,7 @@ pub mod containers;
 pub mod galaxy;
 pub mod hex;
 pub mod ids;
+pub mod keys;
 pub mod movement;
 pub mod state;
 pub mod tables;
