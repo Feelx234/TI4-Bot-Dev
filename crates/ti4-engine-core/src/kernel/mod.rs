@@ -8,6 +8,8 @@
 //! * [`Next`]: what a rule area returns instead of calling another area (L4 peers do not import each
 //!   other).
 //! * [`fx`]: the shared state-changing primitives that also fire their trigger.
+//! * [`stage`]: the window contract (`Window`: stage, step, ask_of, answer) and `Sx`, the services of a window
+//!   (emit through the resolver, observers, nested questions). The driver (`crate::driver`) runs windows.
 //! * [`trigger`]: the display facts of a reaction window, built from the event alone.
 //! * [`reaction`]: the printed-window table that binds action-card reactions to events.
 //!
@@ -21,10 +23,12 @@ pub mod next;
 pub mod reaction;
 pub mod resolver;
 pub mod seam;
+pub mod stage;
 pub mod trigger;
 
 pub use hooks::HookTable;
 pub use next::Next;
+pub use stage::{AbilityImpl, AbilityTable, Illegal, RulesHost, Sx, Tape, Window};
 pub use resolver::{AbilityDef, Checkpoint, Host, Registry, Resolver, TimingError};
 
 use crate::choice::{Choice, Pick};

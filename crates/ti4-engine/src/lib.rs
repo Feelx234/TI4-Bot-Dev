@@ -30,6 +30,7 @@ pub mod deck;
 pub mod dice;
 pub mod dual;
 pub mod core_factions;
+pub mod dual_window;
 pub mod diplomacy;
 pub mod draft;
 pub mod entropic_scars;

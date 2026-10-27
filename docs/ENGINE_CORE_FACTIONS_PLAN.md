@@ -346,3 +346,9 @@ Common rules (all five):
 > Keleres call sites), `ShipPlaced`, `Replenished`. (6) `dual_hook!` at each seam call and `audit_hook_order` for the five
 > stacks and `cannot_produce`; the existing `dual_typed!` wrappers stay for the queries you ported. Pure refactor, dual golden
 > 0 differences, no CPU A/B, no wasm size.
+
+**D1 driver (`core-d1-driver`), added 2026-10-27:** windows are ported onto the `Window` contract and the `Driver`, not by
+hand-rolled stage loops. Both resume messages above gain this paragraph: *merge `core-d1-driver`; read
+`docs/ENGINE_CORE_DRIVER.md` (the paste-ready note is its section 5) and copy `driver/windows/sustain_commander.rs`; your
+`Stage` enums, `step`/`ask_of`/`answer`, the `Offering` stages and the `ctx.emit` sites are written against `Sx`; the dual
+for each window is a `dual_window!` call site on `Area::Driver`.*

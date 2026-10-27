@@ -2513,6 +2513,33 @@ fn pay_sustain_commander(state: &mut GameState, content: &ContentStore, player: 
 
 /// Rear Admiral Farran from rules version 16: "After 1 of your units uses SUSTAIN DAMAGE: You may
 /// gain 1 trade good." Asked once per use, only of an unlocked commander's holder.
+fn ask_sustain_commander_windowed(
+    state: &mut GameState,
+    ctx: &mut Resolving<'_>,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    player: &PlayerId,
+) -> Result<(), IllegalChoice> {
+    // The window is also a core `Window` (`driver::windows::sustain_commander`); on `driver=dual` both run in
+    // lockstep from this state and are compared (docs/ENGINE_CORE_DRIVER.md).
+    let mut outcome = Ok(());
+    let string_pays = crate::leaders::pays_on_sustain(state, content, player);
+    crate::dual_window!(
+        crate::dual::Area::Driver,
+        "combat::ask_sustain_commander",
+        state,
+        |s: &mut GameState| {
+            outcome = ask_sustain_commander(s, ctx, content, sources, galaxy, player);
+            crate::dual::Run::new(outcome.is_ok())
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::dual_window::sustain_commander(s, player, string_pays, script)
+        }
+    );
+    outcome
+}
+
 fn ask_sustain_commander(
     state: &mut GameState,
     ctx: &mut Resolving<'_>,
@@ -2938,7 +2965,7 @@ fn offer_sustain(
             let exact_target = unit.clone();
             remember_sustain_target(state, system, location, &exact_target);
             if state.rules_version >= ti4_model::state::RULES_FACTION_EFFECTS {
-                ask_sustain_commander(state, ctx, content, sources, galaxy, player)?;
+                ask_sustain_commander_windowed(state, ctx, content, sources, galaxy, player)?;
             } else {
                 pay_sustain_commander(state, content, player);
             }
@@ -6102,7 +6129,7 @@ impl Window for CombatWindow {
                         // Rear Admiral Farran in a real combat (rules version 17; the window's
                         // sustain step never asked before).
                         if state.rules_version >= ti4_model::state::RULES_FACTION_BUGFIXES {
-                            ask_sustain_commander(
+                            ask_sustain_commander_windowed(
                                 state,
                                 ctx,
                                 content,
