@@ -328,3 +328,117 @@ pub fn commit_opts(troops: &[Piece], planets: &[Planet]) -> crate::choice::Opts 
     opts.push(crate::choice::Opt::Invasion(IOpt::DoneCommitting));
     opts
 }
+
+// -- hits on ground forces (LRR 15.2, 87) ------------------------------------------------------------
+
+/// What one hit on a player's ground forces does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GroundHit {
+    /// An undamaged unit with SUSTAIN DAMAGE absorbs it.
+    Sustained(Piece),
+    /// This unit is destroyed.
+    Destroyed(Piece),
+    /// Nothing was left to take it (15.2a).
+    Wasted,
+}
+
+fn combat_unit(owner: Seat, system: System, planet: Planet, unit: Unit) -> CombatUnit {
+    CombatUnit { owner, system: Some(system), planet: Some(planet), unit, ctx: CombatCtx::Ground }
+}
+
+/// `invasion::is_ground_force_here`: a ground force by its type, or made one for the moment by a faction.
+#[must_use]
+pub fn is_ground_force_here(rd: Rd<'_>, who: Seat, system: System, planet: Planet, unit: Piece) -> bool {
+    is_ground_force(rd, unit.kind()) || rd.k.hooks.ground.temporary_ground_force(rd.s, rd.k, who, system, planet, unit)
+}
+
+/// `invasion::can_sustain_here`: the unit has SUSTAIN DAMAGE, is undamaged and no faction forbids it.
+#[must_use]
+pub fn can_sustain_here(rd: Rd<'_>, unit: Piece, system: System, planet: Planet) -> bool {
+    !unit.sustained()
+        && is_ground_force(rd, unit.kind())
+        && rd.data(unit.kind()).is_some_and(|d| d.sustain_damage)
+        && rd.k.hooks.ground.may_sustain(rd.s, rd.k, combat_unit(unit.owner(), system, planet, unit.kind()))
+}
+
+/// `invasion::ground_hit_eligible`: a hit of a unit ability skips the units immune to those.
+#[must_use]
+pub fn ground_hit_eligible(rd: Rd<'_>, system: System, planet: Planet, unit: Piece, unit_ability: bool) -> bool {
+    !unit_ability || !rd.k.hooks.combat.ability_hit_immune(rd.s, rd.k, combat_unit(unit.owner(), system, planet, unit.kind()))
+}
+
+/// `invasion::apply_ground_hit_with_origin`'s decision: an undamaged unit with SUSTAIN DAMAGE absorbs the hit;
+/// otherwise the cheapest ground force is destroyed, a damaged unit before a fresh one of the same cost, then
+/// by type id. Structures never take it (KD-2). Shared by ground combat, bombardment, Harrow and space cannon
+/// defense.
+#[must_use]
+pub fn ground_hit(rd: Rd<'_>, system: System, planet: Planet, player: Seat, unit_ability: bool) -> GroundHit {
+    let forces: Vec<Piece> = rd
+        .s
+        .board()
+        .planet(planet)
+        .units
+        .iter()
+        .filter(|u| u.owner() == player)
+        .filter(|u| is_ground_force_here(rd, player, system, planet, **u))
+        .filter(|u| ground_hit_eligible(rd, system, planet, **u, unit_ability))
+        .copied()
+        .collect();
+    if let Some(sturdy) = forces.iter().find(|u| can_sustain_here(rd, **u, system, planet)) {
+        return GroundHit::Sustained(*sturdy);
+    }
+    let cost = |u: &Piece| rd.data(u.kind()).and_then(|d| d.cost_halves).unwrap_or(0);
+    let doomed = forces.iter().min_by(|a, b| {
+        cost(a)
+            .cmp(&cost(b))
+            .then(b.sustained().cmp(&a.sustained()))
+            .then(a.kind().cmp(&b.kind()))
+    });
+    doomed.map_or(GroundHit::Wasted, |d| GroundHit::Destroyed(*d))
+}
+
+/// The unit list of `planet` after `hit` landed on it: the sustained unit is marked damaged, the destroyed one
+/// leaves (the first equal piece of the list, as `replace_planet_unit` and `remove_from_planet` do).
+pub fn apply_ground_hit(s: &mut CoreState, planet: Planet, hit: GroundHit) {
+    let units = &mut s.board_mut().planet_mut(planet).units;
+    match hit {
+        GroundHit::Sustained(p) => {
+            if let Some(at) = units.iter().position(|u| *u == p) {
+                units.as_mut_slice()[at] = p.with_sustained(true);
+            }
+        }
+        GroundHit::Destroyed(p) => {
+            if let Some(at) = units.iter().position(|u| *u == p) {
+                units.remove(at);
+            }
+        }
+        GroundHit::Wasted => {}
+    }
+}
+
+/// `invasion::take_bombard_hits`: `produced` hits on `owner`'s ground forces on `planet`, one after the other
+/// (a sustain cancels the further hits Non-Euclidean Shielding adds). Returns the state after and how many
+/// ground forces were destroyed. Bombardment is a unit ability, so units immune to those are skipped.
+#[must_use]
+pub fn take_hits(rd: Rd<'_>, system: System, planet: Planet, owner: Seat, produced: usize, unit_ability: bool) -> (CoreState, usize) {
+    let mut s = rd.s.clone();
+    let mut destroyed = 0;
+    let mut remaining = produced;
+    while remaining > 0 {
+        remaining -= 1;
+        let hit = ground_hit(Rd { s: &s, ..rd }, system, planet, owner, unit_ability);
+        match hit {
+            GroundHit::Destroyed(_) => destroyed += 1,
+            GroundHit::Sustained(_) => {
+                let extra = match seam_data::cancel_on_sustain(Rd { s: &s, ..rd }.q(), &rd.k.hooks.seam.rows, owner) {
+                    n if n > 0 => n as usize - 1,
+                    _ => 0,
+                };
+                remaining = remaining.saturating_sub(extra);
+            }
+            GroundHit::Wasted => {}
+        }
+        apply_ground_hit(&mut s, planet, hit);
+    }
+    (s, destroyed)
+}

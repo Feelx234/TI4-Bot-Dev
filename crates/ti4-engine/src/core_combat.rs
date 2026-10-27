@@ -54,9 +54,9 @@ fn typed<T: IdStr>(id: &str) -> Option<T> {
 // to `ti4-engine-core-factions`.
 
 /// What the string bridge answers from: a copy of the position and the owner table.
-struct Oracle {
-    gs: GameState,
-    sources: SourceSet,
+pub(crate) struct Oracle {
+    pub(crate) gs: GameState,
+    pub(crate) sources: SourceSet,
     owners: Vec<Option<String>>,
 }
 
@@ -79,17 +79,17 @@ impl Drop for Installed {
     }
 }
 
-fn with_oracle<R>(f: impl FnOnce(&Oracle) -> R) -> Option<R> {
+pub(crate) fn with_oracle<R>(f: impl FnOnce(&Oracle) -> R) -> Option<R> {
     let o = ORACLE.with(|c| c.borrow().clone())?;
     Some(f(&o))
 }
 
 impl Oracle {
-    fn player(&self, seat: Seat) -> Option<PlayerId> {
+    pub(crate) fn player(&self, seat: Seat) -> Option<PlayerId> {
         self.owners.get(usize::from(seat.0))?.as_deref().map(PlayerId::new)
     }
 
-    fn with_unit<R>(&self, unit: CombatUnit, f: impl FnOnce(&crate::factions::CombatUnit<'_>) -> R) -> Option<R> {
+    pub(crate) fn with_unit<R>(&self, unit: CombatUnit, f: impl FnOnce(&crate::factions::CombatUnit<'_>) -> R) -> Option<R> {
         let player = self.player(unit.owner)?;
         let system = unit.system.map(|s| SystemId::new(s.as_str()));
         let planet = unit.planet.map(|p| PlanetId::new(p.as_str()));

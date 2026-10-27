@@ -45,7 +45,8 @@ impl<'g> InvasionView<'g> {
     pub fn of(gs: &'g GameState, _content: &'g ContentStore, sources: SourceSet) -> Option<Self> {
         let mut cx = Ctx::of(gs).ok()?;
         let view = CoreView::of(gs, &mut cx, Sources { galaxy: None, rng: None }, READS).ok()?;
-        let env = window_env(gs, &cx, sources)?;
+        let mut env = window_env(gs, &cx, sources)?;
+        register_ground_bridge(&mut env.kernel.hooks);
         Some(Self { _position: std::marker::PhantomData, view, cx, env, blanked: crate::laws::blanked(gs) })
     }
 
@@ -97,6 +98,12 @@ impl<'g> InvasionView<'g> {
     }
 }
 
+/// A unit on a planet as the dual compares it: owner, type, damaged, galvanized.
+pub type UnitRow = (String, String, bool, bool);
+
+/// A ground hit as the dual compares it: 0 wasted, 1 sustained, 2 destroyed, and the unit.
+pub type GroundHitRow = (u8, Option<StrUnit>);
+
 impl InvasionView<'_> {
     fn str_unit(&self, p: Piece) -> Option<StrUnit> {
         Some(StrUnit {
@@ -113,6 +120,34 @@ impl InvasionView<'_> {
                 .with_sustained(u.sustained_damage)
                 .with_galvanized(u.galvanized),
         )
+    }
+
+    /// `invasion::apply_ground_hit_with_origin`'s decision for one hit on `player`'s ground forces on `planet`.
+    #[must_use]
+    pub fn ground_hit(&self, system: &SystemId, planet: &PlanetId, player: &PlayerId, unit_ability: bool) -> Option<GroundHitRow> {
+        use ci::GroundHit as G;
+        let (sys, pl, seat) = (typed::<System>(system.as_str())?, typed::<Planet>(planet.as_str())?, self.seat(player)?);
+        Some(match ci::ground_hit(self.rd(), sys, pl, seat, unit_ability) {
+            G::Sustained(p) => (1, Some(self.str_unit(p)?)),
+            G::Destroyed(p) => (2, Some(self.str_unit(p)?)),
+            G::Wasted => (0, None),
+        })
+    }
+
+    /// `invasion::take_bombard_hits`: how many ground forces `produced` hits destroy, and the planet's units
+    /// after (owner, type, damaged, galvanized).
+    #[must_use]
+    pub fn take_bombard_hits(&self, system: &SystemId, planet: &PlanetId, owner: &PlayerId, produced: usize) -> Option<(usize, Vec<UnitRow>)> {
+        let (sys, pl, seat) = (typed::<System>(system.as_str())?, typed::<Planet>(planet.as_str())?, self.seat(owner)?);
+        let (after, destroyed) = ci::take_hits(self.rd(), sys, pl, seat, produced, true);
+        let rows = after
+            .board()
+            .planet(pl)
+            .units
+            .iter()
+            .map(|p| Some((self.player(p.owner())?.to_string(), p.kind().as_str().to_owned(), p.sustained(), p.galvanized())))
+            .collect::<Option<Vec<_>>>()?;
+        Some((destroyed, rows))
     }
 
     /// `invasion::landable`.
@@ -150,4 +185,45 @@ impl InvasionView<'_> {
                 .collect(),
         )
     }
+}
+
+/// The ground hook slots answered by the string faction modules (`factions::hooks_ground`), through the oracle of
+/// the combat bridge. Dies with the faction modules (package C shards).
+fn register_ground_bridge(h: &mut ti4_engine_core::kernel::hooks::HookTable) {
+    use crate::core_combat::with_oracle;
+    use ti4_engine_core::kernel::hooks::CombatCtx;
+    h.ground.may_sustain.push(|_, _, unit| {
+        with_oracle(|o| {
+            o.with_unit(unit, |cu| {
+                let cu = crate::factions::CombatUnit { context: if unit.ctx == CombatCtx::Space { "space" } else { "ground" }, ..*cu };
+                crate::factions::hooks_ground::may_sustain(&o.gs, ContentStore::embedded(), o.sources, &cu)
+            })
+        })
+        .flatten()
+        .unwrap_or(true)
+    });
+    h.ground.temporary_ground_force.push(|_, _, who, system, planet, piece| {
+        with_oracle(|o| {
+            let (player, unit) = (o.player(who)?, StrUnit {
+                type_id: ti4_model::id::UnitTypeId::new(piece.kind().as_str()),
+                owner: o.player(piece.owner())?,
+                sustained_damage: piece.sustained(),
+                galvanized: piece.galvanized(),
+            });
+            Some(crate::factions::hooks_ground::temporary_ground_force(
+                &o.gs,
+                ContentStore::embedded(),
+                o.sources,
+                &player,
+                &SystemId::new(system.as_str()),
+                &PlanetId::new(planet.as_str()),
+                &unit,
+            ))
+        })
+        .flatten()
+        .unwrap_or(false)
+    });
+    h.ground.custodians_free.push(|_, _, who| {
+        with_oracle(|o| Some(crate::factions::hooks_ground::custodians_free(&o.gs, ContentStore::embedded(), &o.player(who)?))).flatten().unwrap_or(false)
+    });
 }

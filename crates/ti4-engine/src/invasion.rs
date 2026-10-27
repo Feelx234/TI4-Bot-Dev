@@ -654,6 +654,42 @@ fn take_bombard_hits(
     produced: usize,
     log: &mut Vec<PendingEvent>,
 ) -> usize {
+    #[cfg(feature = "typed-core")]
+    let before = (crate::dual::backend(crate::dual::Area::Invasion) == crate::dual::Backend::Dual).then(|| state.clone());
+    let destroyed = take_bombard_hits_text(state, content, sources, system, planet, owner, produced, log);
+    #[cfg(feature = "typed-core")]
+    if let Some(before) = before {
+        let rows = |gs: &GameState| -> Vec<(String, String, bool, bool)> {
+            gs.system_state(system)
+                .on_planet(planet)
+                .iter()
+                .map(|u| (u.owner.to_string(), u.type_id.to_string(), u.sustained_damage, u.galvanized))
+                .collect()
+        };
+        crate::dual::run_dual_typed(
+            crate::dual::Area::Invasion,
+            "invasion::take_bombard_hits",
+            || crate::core_invasion::InvasionView::of(&before, content, sources)?.take_bombard_hits(system, planet, owner, produced),
+            || (destroyed, rows(state)),
+        );
+    }
+    destroyed
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one parameter per distinct input"
+)]
+fn take_bombard_hits_text(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    system: &SystemId,
+    planet: &PlanetId,
+    owner: &PlayerId,
+    produced: usize,
+    log: &mut Vec<PendingEvent>,
+) -> usize {
     let mut destroyed = 0;
     let mut remaining = produced;
     while remaining > 0 {
@@ -1436,6 +1472,7 @@ type PendingEvent = (
 );
 
 /// What one hit on a player's ground forces did.
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum GroundHit {
     /// An undamaged unit with SUSTAIN DAMAGE absorbed it.
     Sustained(Unit),
@@ -1503,8 +1540,37 @@ fn ground_hit_eligible(
         )
 }
 
-fn apply_ground_hit_with_origin(
-    state: &mut GameState,
+fn ground_hit_plan(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    system: &SystemId,
+    planet: &PlanetId,
+    player: &PlayerId,
+    unit_ability: bool,
+) -> GroundHit {
+    #[cfg(feature = "typed-core")]
+    let typed = || {
+        let (kind, unit) = crate::core_invasion::InvasionView::of(state, content, sources)?
+            .ground_hit(system, planet, player, unit_ability)?;
+        Some(match (kind, unit) {
+            (1, Some(u)) => GroundHit::Sustained(u),
+            (2, Some(u)) => GroundHit::Destroyed(u),
+            _ => GroundHit::Wasted,
+        })
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Invasion,
+        "invasion::ground_hit",
+        typed(),
+        ground_hit_plan_text(state, content, sources, system, planet, player, unit_ability)
+    )
+}
+
+fn ground_hit_plan_text(
+    state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
     system: &SystemId,
@@ -1527,9 +1593,6 @@ fn apply_ground_hit_with_origin(
         .iter()
         .find(|unit| can_sustain_here(state, content, sources, unit, system, planet))
     {
-        state
-            .system_mut(system)
-            .replace_planet_unit(planet, sturdy, sturdy.sustained());
         return GroundHit::Sustained(sturdy.clone());
     }
     let cost = |unit: &Unit| types.get(unit.type_id.as_str()).map_or(0.0, UnitType::cost);
@@ -1545,6 +1608,37 @@ fn apply_ground_hit_with_origin(
     else {
         return GroundHit::Wasted;
     };
+    GroundHit::Destroyed(doomed)
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one parameter per distinct input"
+)]
+fn apply_ground_hit_with_origin(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    system: &SystemId,
+    planet: &PlanetId,
+    player: &PlayerId,
+    unit_ability: bool,
+) -> GroundHit {
+    // The decision (which unit takes the hit) is the core's `rules::invasion::ground_hit`; the mutation and
+    // the string-only bookkeeping stay here.
+    match ground_hit_plan(state, content, sources, system, planet, player, unit_ability) {
+        GroundHit::Sustained(sturdy) => {
+            state
+                .system_mut(system)
+                .replace_planet_unit(planet, &sturdy, sturdy.sustained());
+            GroundHit::Sustained(sturdy)
+        }
+        GroundHit::Wasted => GroundHit::Wasted,
+        GroundHit::Destroyed(doomed) => destroy_ground(state, system, planet, doomed),
+    }
+}
+
+fn destroy_ground(state: &mut GameState, system: &SystemId, planet: &PlanetId, doomed: Unit) -> GroundHit {
     state
         .system_mut(system)
         .remove_from_planet(planet, std::slice::from_ref(&doomed));
@@ -10107,6 +10201,43 @@ mod core_bombardment {
         let r = report();
         let counts = &r.areas[&Area::Invasion];
         assert!(counts.calls >= 8, "the core answered: {counts:?}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    #[test]
+    fn ground_hits_are_decided_by_the_core_in_lockstep() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual);
+        with_mask(mask, || {
+            let (mut state, system, planet) = arena();
+            // A mech sustains first, then the damaged infantry goes before the fresh one, then the mech.
+            put(&mut state, &system, Some(&planet), "infantry", &holder(), 2);
+            put(&mut state, &system, Some(&planet), "sol_mech", &holder(), 1);
+            put(&mut state, &system, Some(&planet), "pds", &holder(), 1);
+            let (c, s) = (ContentStore::embedded(), POK);
+            for _ in 0..5 {
+                let mut log = Vec::new();
+                let _ = ground_hit_outcome_logged(&mut state, c, s, &system, &planet, &holder(), "ground_combat", &mut log, false);
+            }
+            assert!(state.system_state(&system).on_planet(&planet).iter().all(|u| u.type_id.as_str() == "pds"));
+            // Bombardment hits in a row: the mech sustains, then infantry fall.
+            let (mut state, system, planet) = arena();
+            put(&mut state, &system, Some(&planet), "infantry", &holder(), 2);
+            put(&mut state, &system, Some(&planet), "sol_mech", &holder(), 1);
+            let mut log = Vec::new();
+            assert_eq!(take_bombard_hits(&mut state, c, s, &system, &planet, &holder(), 4, &mut log), 3);
+            let (mut state, system, planet) = arena();
+            put(&mut state, &system, Some(&planet), "infantry", &holder(), 1);
+            // A hit of a unit ability skips a Naaz Maximum.
+            put(&mut state, &system, Some(&planet), "naaz_mech_space", &holder(), 1);
+            let mut log = Vec::new();
+            let _ = ground_hit_outcome_logged(&mut state, c, s, &system, &planet, &holder(), "bombardment", &mut log, true);
+        });
+        let r = report();
+        let counts = &r.areas[&Area::Invasion];
+        assert!(counts.calls >= 6, "{counts:?}");
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }
