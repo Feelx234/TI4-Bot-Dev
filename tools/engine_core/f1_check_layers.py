@@ -13,6 +13,7 @@ LAYERS = {
     "generated": 0, "tables": 0, "ids": 0, "bits": 0, "hex": 0, "galaxy": 0, "board": 0, "movement": 0,
     "containers": 1,
     "state": 2,
+    "choice": 3,
 }
 # Within L0 the existing modules may use each other (movement -> galaxy -> tables ...).
 
