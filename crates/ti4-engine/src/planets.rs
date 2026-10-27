@@ -19,6 +19,26 @@ pub fn in_system(
     sources: SourceSet,
     system: &SystemId,
 ) -> Vec<PlanetId> {
+    #[cfg(feature = "typed-core")]
+    let typed = || {
+        crate::board_view::BoardView::of(state, None, sources).and_then(|v| v.planets_in(system))
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::BoardQueries,
+        "planets::in_system",
+        typed(),
+        in_system_text(state, content, sources, system)
+    )
+}
+
+fn in_system_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    system: &SystemId,
+) -> Vec<PlanetId> {
     let mut found: Vec<PlanetId> =
         ti4_content::galaxy::planets_in(content, system.as_str(), sources)
             .into_iter()
@@ -40,6 +60,24 @@ pub fn in_system(
 /// Used to locate a planet answer on the map (`payload.system`); it decides nothing.
 #[must_use]
 pub fn system_of(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    planet: &str,
+) -> Option<SystemId> {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::board_view::BoardView::of(state, None, sources).and_then(|v| v.system_of(planet));
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::BoardQueries,
+        "planets::system_of",
+        typed(),
+        system_of_text(state, content, sources, planet)
+    )
+}
+
+fn system_of_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
