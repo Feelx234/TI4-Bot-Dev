@@ -83,6 +83,13 @@ pub mod core_adapter;
 pub mod core_sync;
 #[cfg(feature = "typed-core")]
 pub mod technology_core;
+/// Area::BoardQueries (package A1): the typed board queries behind a string interface.
+#[cfg(feature = "typed-core")]
+pub mod board_view;
+/// The offline dual of Area::BoardQueries.
+#[cfg(feature = "typed-core")]
+#[doc(hidden)]
+pub mod board_check;
 /// The adapter half of `cargo xtask gen-cards` (docs/CONTENT_GENERATOR.md): the id string of every
 /// core enum variant and the display text.
 #[cfg(feature = "typed-core")]
