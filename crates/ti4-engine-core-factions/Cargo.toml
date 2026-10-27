@@ -1,0 +1,14 @@
+[package]
+name = "ti4-engine-core-factions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Layer L6 of the typed core (docs/ENGINE_CORE_STATE.md 4.1, wave C; docs/ENGINE_CORE_FACTIONS_PLAN.md): the faction modules, which fill the kernel's HookTable. Depends on ti4-engine-core only."
+
+# Nothing but the core: no ti4-model, no ti4-content, no serde (tools/engine_core/lint_core.sh covers this crate).
+[dependencies]
+ti4-engine-core.workspace = true
+
+[lints]
+workspace = true

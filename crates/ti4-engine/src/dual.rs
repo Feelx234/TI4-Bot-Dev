@@ -167,6 +167,8 @@ impl AreaMask {
         if cfg!(all(feature = "typed-core", not(feature = "string-movement"))) {
             mask = mask.with(Area::Movement, Backend::Core);
         }
+        // Wave C (docs/ENGINE_CORE_FACTIONS_PLAN.md 6): when the first faction shard is merged and gated,
+        // add `Area::Factions` the same way, behind `not(feature = "string-factions")`.
         mask
     }
 
