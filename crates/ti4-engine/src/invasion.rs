@@ -620,6 +620,41 @@ fn bombard_rolls_text(
     plan
 }
 
+/// The stream positions to check the bombardment dice against, only when the invasion area is on `Dual`.
+fn dual_positions(rng: &GameRng) -> Option<crate::rng::RngPositions> {
+    (crate::dual::backend(crate::dual::Area::Invasion) == crate::dual::Backend::Dual && !rng.sync_pending())
+        .then(|| rng.positions())
+}
+
+/// Dual check of the bombardment dice just rolled: the core draws the same faces per group from the stream
+/// standing before them and leaves the streams where they stand. Not run with preloaded test faces.
+#[allow(clippy::too_many_arguments, reason = "one parameter per distinct input")]
+fn check_bombard_dice(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    dice: &Dice,
+    rng: &GameRng,
+    before: Option<&crate::rng::RngPositions>,
+    rolled: Vec<crate::core_invasion::BombardDiceRow>,
+    system: &SystemId,
+    invader: &PlayerId,
+) {
+    let Some(before) = before else { return };
+    #[cfg(feature = "typed-core")]
+    {
+        let typed = || {
+            if dice.is_preloaded() {
+                return None;
+            }
+            crate::core_invasion::InvasionView::of(state, content, sources)?.roll_bombard(state, rng.seed(), before, system, invader)
+        };
+        let _ = crate::dual::run_dual_typed(crate::dual::Area::Invasion, "invasion::roll_bombard", typed, || (rolled, rng.positions()));
+    }
+    #[cfg(not(feature = "typed-core"))]
+    let _ = (state, content, sources, dice, rng, before, rolled, system, invader);
+}
+
 /// Roll the invader's bombarding ships on every planet they can reach (49.1).
 ///
 /// The dice-consuming half of the bombardment: both the invasion window and this synchronous
@@ -635,6 +670,9 @@ fn roll_bombard_plan(
     invader: &PlayerId,
 ) -> Vec<BombardPlan> {
     let planned = bombard_rolls(state, content, sources, system, invader);
+    // On `invasion=dual` the dice are also drawn by the core from the stream standing here (`rules::invasion::roll_bombard`).
+    let positions = dual_positions(rng);
+    let mut dice_rows: Vec<crate::core_invasion::BombardDiceRow> = Vec::new();
     let mut plan = Vec::new();
     // Every unit's roll, kept for the reroll windows the bombardment opens (Agnlan Oln,
     // Scramble Frequency): one entry per bombarding unit, tagged with its planet.
@@ -649,6 +687,12 @@ fn roll_bombard_plan(
                 Some(u32::try_from(value).unwrap_or(u32::MAX)),
                 invader,
             );
+            dice_rows.push((
+                planet.to_string(),
+                unit_type.clone(),
+                u32::try_from(value).unwrap_or(u32::MAX),
+                roll.faces.clone(),
+            ));
             let produced = roll.hits() * x89_multiplier(state, invader);
             if produced > 0 {
                 groups.push(produced);
@@ -674,6 +718,7 @@ fn roll_bombard_plan(
             victims,
         });
     }
+    check_bombard_dice(state, content, sources, dice, rng, positions.as_ref(), dice_rows, system, invader);
     if staged.iter().any(|roll| !roll.faces.is_empty()) {
         state.reroll_staging.insert(
             invader.clone(),
@@ -10621,6 +10666,35 @@ mod core_bombardment {
         let r = report();
         let counts = &r.areas[&Area::Invasion];
         assert!(counts.calls >= 8, "the core answered: {counts:?}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    #[test]
+    fn the_bombardment_dice_are_drawn_by_the_core_in_lockstep() {
+        // The core draws the same faces per bombarding unit, from the same stream, and leaves the streams
+        // where the string loop does (several planets' worth of groups: a plasma-scored dreadnought pair and
+        // a war sun, two seeds).
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual);
+        with_mask(mask, || {
+            for seed in [3_u64, 11] {
+                let (mut state, system, planet) = arena();
+                put(&mut state, &system, Some(&planet), "infantry", &holder(), 3);
+                put(&mut state, &system, None, "dreadnought", &invader(), 2);
+                put(&mut state, &system, None, "warsun", &invader(), 1);
+                state.player_mut(&invader()).unwrap().technologies.insert(ti4_model::TechnologyId::new("ps"));
+                let mut dice = Dice::new();
+                let mut rng = GameRng::new(seed);
+                let plan = roll_bombard_plan(&mut state, ContentStore::embedded(), POK, &mut dice, &mut rng, &system, &invader());
+                assert_eq!(plan.len(), 1);
+                assert!(dice.history().len() >= 3, "every bombarding unit rolled");
+            }
+        });
+        let r = report();
+        let counts = &r.areas[&Area::Invasion];
+        assert!(counts.calls >= 2, "the core drew the dice: {counts:?}");
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }

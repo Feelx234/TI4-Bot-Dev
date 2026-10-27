@@ -98,6 +98,38 @@ impl<'g> InvasionView<'g> {
     }
 }
 
+/// A bombardment die group as the dual compares it: the planet, the unit type, the hit number and the faces.
+pub type BombardDiceRow = (String, String, u32, Vec<u32>);
+
+impl InvasionView<'_> {
+    /// `invasion::roll_bombard_plan`'s dice, drawn from the core's copy of the dice stream standing at
+    /// `positions`: the die groups in plan order and where the streams stand afterwards.
+    #[must_use]
+    pub fn roll_bombard(
+        &mut self,
+        gs: &GameState,
+        seed: u64,
+        positions: &crate::rng::RngPositions,
+        system: &SystemId,
+        invader: &PlayerId,
+    ) -> Option<(Vec<BombardDiceRow>, crate::rng::RngPositions)> {
+        use ti4_engine_core::state::{Rng as CoreRng, RngDomain, SeedSource};
+        let (sys, seat) = (typed::<System>(system.as_str())?, self.seat(invader)?);
+        let mut typed_pos: Vec<(RngDomain, u128)> = Vec::new();
+        for (t, p) in positions {
+            typed_pos.push((crate::core_sync::codec::rng::domain(&mut self.cx, t).ok()?, *p));
+        }
+        let seeds = crate::core_sync::codec::rng::TextSeeds(&self.cx);
+        let mut rng = CoreRng::new(seed);
+        rng.set_positions(&typed_pos, &seeds as &dyn SeedSource);
+        let plan = ci::bombard_plan(self.rd_for(gs, invader)?, sys, seat);
+        let drawn = ci::roll_bombard(&plan, &mut rng, &seeds);
+        let after = crate::core_sync::codec::rng::positions(&self.cx, &rng).ok()?;
+        let rows = drawn.into_iter().map(|d| (d.planet.as_str().to_owned(), d.unit.as_str().to_owned(), d.hits_on, d.faces)).collect();
+        Some((rows, after))
+    }
+}
+
 /// A side's ground pools: per hit number the dice and the unit types behind them.
 pub type PoolRows = std::collections::BTreeMap<i64, (i64, std::collections::BTreeMap<String, u32>)>;
 
