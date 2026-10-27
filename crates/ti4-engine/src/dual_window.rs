@@ -393,3 +393,87 @@ pub fn sustain_offer(
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     Some(CoreWindow { run: Run::new(usize::from(driver.window.hits)).with_events_vec(events), questions: driven.rendered })
 }
+
+const ASSIGN_HITS: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
+    &[Slice::Board, Slice::Transient, Slice::Marks, Slice::Pending],
+);
+
+/// What the string `assign_remaining` was called with.
+#[derive(Debug, Clone, Copy)]
+pub struct AssignArgs<'a> {
+    pub player: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    pub producer: &'a PlayerId,
+    pub hits: usize,
+    pub ability: bool,
+    pub non_fighters_first: bool,
+    pub cause: &'a str,
+    pub cause_kind: crate::decision_context::HitCause,
+    pub during_space_combat: bool,
+    /// `supply::staging_enabled`.
+    pub announce_staging: bool,
+    /// The resolver carries the timing machinery.
+    pub announce: bool,
+    /// The player is a neutral owner (its casualty order is the reference card's, string-only).
+    pub neutral: bool,
+}
+
+/// The core half of `combat::assign_remaining`. `None` for neutral owners, reaction activity inside the
+/// loss announcement, or a position the codecs refuse.
+#[must_use]
+pub fn assign_hits(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    a: AssignArgs<'_>,
+    script: &Recording,
+) -> Option<CoreWindow<bool>> {
+    use ti4_engine_core::rules::combat::assign::{Assign, AssignHits};
+    if script.nested || a.neutral {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let player = r.seat(a.player.as_str())?;
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let before = gs.clone();
+    let env = crate::core_combat::window_env(&before, &cx, sources)?;
+    let facts = Assign {
+        player,
+        system,
+        ability: a.ability,
+        non_fighters_first: a.non_fighters_first,
+        subtype: r.code("assign_casualty"),
+        cause: r.code(a.cause),
+        during_space_combat: a.during_space_combat,
+        staging: a.announce_staging,
+        announce: a.announce,
+    };
+    let resolver = Resolver::new(&[player], Some(player));
+    let mut driver = Driver::new(AssignHits::new(facts, u16::try_from(a.hits).ok()?), resolver, AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let producer = a.producer.clone();
+    let restriction = if a.non_fighters_first {
+        crate::decision_context::HitRestriction::NonFighter
+    } else {
+        crate::decision_context::HitRestriction::Any
+    };
+    let driven = with_core(gs, &mut cx, Sources::default(), ASSIGN_HITS, |core, _| {
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, rendered| {
+            if let Some(context) = rendered.context.take() {
+                rendered.context = Some(context.with_hit(crate::decision_context::HitDetail {
+                    cause: a.cause_kind,
+                    destroy: false,
+                    restriction,
+                    producer: Some(producer.clone()),
+                }));
+            }
+        });
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .ok()?
+    .ok()?;
+    apply_staged(gs, &r, &staged)?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(events), questions: driven.rendered })
+}
