@@ -2973,6 +2973,46 @@ impl ProductionWindow {
         content: &ContentStore,
         sources: SourceSet,
     ) -> Vec<ChoiceOption> {
+        #[cfg(feature = "typed-core")]
+        let typed = || {
+            if self.ability {
+                return None;
+            }
+            let fleet_limit = if crate::fleet::is_unlimited(state, &self.player) {
+                crate::fleet::UNLIMITED_FLEET_BILL
+            } else {
+                i64::from(crate::fleet::limit(state, content, &self.player)).max(0)
+            };
+            let inputs = crate::production_view::ChooseInputs {
+                system: &self.system,
+                limit: self.limit,
+                remaining: self.remaining,
+                free_capacity: self.free_capacity,
+                small_exemptions: self.small_unit_exemptions,
+                credit: self.credit,
+                discount_remaining: self.discount_remaining,
+                fleet_limit,
+                free_this_use: self.free_this_use,
+                flagship_free: crate::promissory::has_commander_ability(state, &self.player, "nomadcommander"),
+                only_unit: self.only_unit.as_deref(),
+                max_unit_cost: self.max_unit_cost,
+                produced: self.report.produced.iter().map(|(unit, _)| unit.as_str()).collect(),
+            };
+            let buildable = buildable_for(state, content, sources, &self.player);
+            crate::production_view::ProdView::of(state, content, sources)?.build_options(&self.player, &inputs, &buildable)
+        };
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None;
+        crate::dual_typed!(crate::dual::Area::Production, "ProductionWindow::build_options", typed(), self.build_options_text(state, content, sources))
+    }
+
+    #[allow(clippy::too_many_lines, reason = "one linear filter-and-price pass per buildable unit")]
+    fn build_options_text(
+        &self,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+    ) -> Vec<ChoiceOption> {
         let types = catalogue(content, sources);
         // The position before any of these options is taken, read once for all of them.
         let before =

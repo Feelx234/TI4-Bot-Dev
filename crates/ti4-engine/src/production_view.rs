@@ -25,7 +25,7 @@ pub const READS: SliceSet = SliceSet::of(&[Slice::Meta, Slice::Seats, Slice::Pla
 
 /// The typed view of one position.
 pub struct ProdView<'a> {
-    view: CoreView,
+    view: std::rc::Rc<ti4_engine_core::state::CoreState>,
     cx: Ctx,
     scope: Scope,
     blanked: bool,
@@ -36,7 +36,7 @@ pub struct ProdView<'a> {
 /// The factions whose string modules still answer production questions with hooks the typed seams do not
 /// carry yet (package CB): the typed reads decline and the caller keeps the string answer.
 fn unported_economy(state: &GameState) -> bool {
-    use crate::factions::{arborec, bastion, crimson, ghost, mentak, muaat, naaz, ralnel, saar};
+    use crate::factions::{arborec, bastion, crimson, ghost, mentak, muaat, naalu, naaz, ralnel, saar};
     let held = [
         arborec::MODULE.alias,
         bastion::MODULE.alias,
@@ -44,6 +44,7 @@ fn unported_economy(state: &GameState) -> bool {
         ghost::MODULE.alias,
         mentak::MODULE.alias,
         muaat::MODULE.alias,
+        naalu::MODULE.alias,
         naaz::MODULE.alias,
         ralnel::MODULE.alias,
         saar::MODULE.alias,
@@ -77,7 +78,7 @@ impl<'a> ProdView<'a> {
             return None;
         }
         let mut cx = Ctx::of(state).ok()?;
-        let view = CoreView::of(state, &mut cx, Sources { galaxy: None::<&Galaxy>, rng: None }, READS).ok()?;
+        let view = std::rc::Rc::new(CoreView::of(state, &mut cx, Sources { galaxy: None::<&Galaxy>, rng: None }, READS).ok()?.into_state());
         Some(Self {
             view,
             cx,
@@ -89,7 +90,7 @@ impl<'a> ProdView<'a> {
     }
 
     fn rules_cx(&self) -> Cx<'_> {
-        Cx::new(&self.view, self.kernel, self.scope, self.blanked)
+        Cx::new(&*self.view, self.kernel, self.scope, self.blanked)
     }
 
     fn seat(&self, p: &PlayerId) -> Option<Seat> {
@@ -168,6 +169,7 @@ impl<'a> ProdView<'a> {
                 .map(|s| match s {
                     Spot::Space => crate::production::SPACE.to_owned(),
                     Spot::Planet(p) => p.as_str().to_owned(),
+                    Spot::Remote(system, at) => format!("{}{}{}", system.as_str(), crate::production::REMOTE_SEPARATOR, at.map_or(crate::production::SPACE, |p| p.as_str())),
                 })
                 .collect(),
         )
@@ -176,7 +178,7 @@ impl<'a> ProdView<'a> {
     /// `production::war_machine_bonus`.
     #[must_use]
     pub fn war_machine_bonus(&self, player: &PlayerId) -> Option<i64> {
-        Some(rules::war_machine_bonus(&self.view, self.seat(player)?))
+        Some(rules::war_machine_bonus(&*self.view, self.seat(player)?))
     }
 
     /// `production::price_of_under` with the law read from the position.
@@ -186,13 +188,13 @@ impl<'a> ProdView<'a> {
     }
 
     fn oceans(&self, who: Seat) -> Vec<ti4_engine_core::generated::Planet> {
-        ti4_engine_core_factions::cb_economy::deepwrought::query::spendable_oceans(&self.view, who).as_slice().to_vec()
+        ti4_engine_core_factions::cb_economy::deepwrought::query::spendable_oceans(&*self.view, who).as_slice().to_vec()
     }
 
     fn with_extras<T>(&self, who: Seat, f: impl FnOnce(&Cx<'_>, &rules::Extras<'_>) -> T) -> T {
         let oceans = self.oceans(who);
         let ex = rules::Extras {
-            commodities: ti4_engine_core_factions::cb_economy::keleres::query::spendable_commodities(&self.view, who),
+            commodities: ti4_engine_core_factions::cb_economy::keleres::query::spendable_commodities(&*self.view, who),
             oceans: &oceans,
         };
         f(&self.rules_cx(), &ex)
@@ -283,4 +285,88 @@ pub fn buildable_for(state: &GameState, content: &ContentStore, sources: SourceS
         out.extend(chosen);
     }
     Some(out)
+}
+
+/// Oceans and commodities of a seat as the payment reads need them.
+fn extras_of(core: &ti4_engine_core::state::CoreState, who: Seat) -> (i64, Vec<ti4_engine_core::generated::Planet>) {
+    (
+        ti4_engine_core_factions::cb_economy::keleres::query::spendable_commodities(core, who),
+        ti4_engine_core_factions::cb_economy::deepwrought::query::spendable_oceans(core, who).as_slice().to_vec(),
+    )
+}
+
+/// The facts of one Choosing option in the position the renderer was given (`Render::at`).
+#[must_use]
+pub fn choosing_info(r: &crate::render::Render, ask: &ti4_engine_core::choice::production::ChooseAsk, unit: Unit) -> Option<rules::BuildInfo> {
+    let pos = r.position()?;
+    let core: &ti4_engine_core::state::CoreState = &pos.state;
+    let scope = ti4_engine_core::tables::Scope(u32::from(pos.kernel.sources.0));
+    let cx = Cx::new(core, pos.kernel, scope, ti4_engine_core::query::reach::blanked(core));
+    let (commodities, oceans) = extras_of(core, ask.who);
+    let ex = rules::Extras { commodities, oceans: &oceans };
+    let before = rules::standing_before(&cx, ask.who, ask);
+    let spendable = rules::available(&cx, ask.who, ti4_engine_core::query::economy::Spend::Resources, &ex);
+    rules::build_for(&cx, ask.who, ask, unit, &ex, &before, spendable)
+}
+
+/// What a string `ProductionWindow` says about itself that the Choosing question depends on.
+#[derive(Debug, Clone)]
+pub struct ChooseInputs<'a> {
+    pub system: &'a SystemId,
+    pub limit: i64,
+    pub remaining: i64,
+    pub free_capacity: i64,
+    pub small_exemptions: i64,
+    pub credit: i64,
+    pub discount_remaining: i64,
+    pub fleet_limit: i64,
+    pub free_this_use: bool,
+    pub flagship_free: bool,
+    pub only_unit: Option<&'a str>,
+    pub max_unit_cost: Option<i64>,
+    /// Ids of the units produced so far in this use.
+    pub produced: Vec<&'a str>,
+}
+
+impl ProdView<'_> {
+    /// The Choosing question's builds and exchanges (`choosing_options` without the Winnu agent option),
+    /// rendered from the typed options. `None` when something is not mapped.
+    #[must_use]
+    pub fn build_options(&self, player: &PlayerId, inp: &ChooseInputs<'_>, buildable: &[String]) -> Option<Vec<crate::choice::ChoiceOption>> {
+        use ti4_engine_core::choice::{Ask as CoreAsk, Opt as CoreOpt, production as cp};
+        let who = self.seat(player)?;
+        let mut produced = [0_u8; 11];
+        for id in &inp.produced {
+            let base = typed::<Unit>(id)?.data().base_type;
+            produced[base as usize] = produced[base as usize].saturating_add(1);
+        }
+        let ask = cp::ChooseAsk {
+            who,
+            system: typed(inp.system.as_str())?,
+            limit: i32::try_from(inp.limit).ok()?,
+            remaining: i32::try_from(inp.remaining).ok()?,
+            free_capacity: i32::try_from(inp.free_capacity).ok()?,
+            small_exemptions: i32::try_from(inp.small_exemptions).ok()?,
+            credit: i32::try_from(inp.credit).ok()?,
+            discount_remaining: i32::try_from(inp.discount_remaining).ok()?,
+            fleet_limit: i32::try_from(inp.fleet_limit).ok()?,
+            free_this_use: inp.free_this_use,
+            flagship_free: inp.flagship_free,
+            only_unit: match inp.only_unit {
+                Some(id) => Some(typed(id)?),
+                None => None,
+            },
+            max_unit_cost: match inp.max_unit_cost {
+                Some(m) => Some(i32::try_from(m).ok()?),
+                None => None,
+            },
+            produced,
+        };
+        let units = buildable.iter().map(|id| typed::<Unit>(id)).collect::<Option<Vec<_>>>()?;
+        let opts = self.with_extras(who, |cx, ex| rules::build_opts(cx, who, &ask, &units, ex));
+        let render = crate::render::Render::default();
+        let position = crate::render::Position { state: self.view.clone(), kernel: self.kernel };
+        let ask = CoreAsk::Production(cp::Ask::Choose(ask));
+        Some(render.at(position, |r| opts.as_slice().iter().map(|o| crate::render::option(r, &ask, &CoreOpt::Production(*o))).collect()))
+    }
 }

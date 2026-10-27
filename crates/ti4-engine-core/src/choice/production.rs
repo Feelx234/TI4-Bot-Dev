@@ -4,7 +4,8 @@
 //! (`Ask::Pay`). Everything an option's text and preview need is a number carried by the option, because
 //! the renderer (`ti4-engine/src/render/production.rs`) sees no state. Never text; every type is `Copy`.
 
-use crate::generated::Planet;
+use crate::generated::{Planet, System, Unit};
+use crate::ids::Seat;
 
 /// A currency of a bill or of a planet's face.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -52,11 +53,40 @@ impl core::hash::Hash for Shown {
     fn hash<H: core::hash::Hasher>(&self, _: &mut H) {}
 }
 
+/// The production question: what to build now. The window's own numbers (the string `ProductionWindow`
+/// fields the options depend on); the rest an option shows is read from the position by the renderer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ChooseAsk {
+    pub who: Seat,
+    pub system: System,
+    /// Full PRODUCTION limit of this use and what is left of it.
+    pub limit: i32,
+    pub remaining: i32,
+    /// Capacity ships opened for small units (Bellum Gloriosum) and the Cabal commander's exemptions.
+    pub free_capacity: i32,
+    pub small_exemptions: i32,
+    /// Resources already paid in advance and the cost discount still available.
+    pub credit: i32,
+    pub discount_remaining: i32,
+    /// The seat's fleet limit as `fleet::limit` works it out (pool, laws, abilities, the lifted-limit round).
+    pub fleet_limit: i32,
+    /// Harrugh Gefhara: every build of this use is free.
+    pub free_this_use: bool,
+    /// A Nomad commander waives flagship resources.
+    pub flagship_free: bool,
+    pub only_unit: Option<Unit>,
+    pub max_unit_cost: Option<i32>,
+    /// Units produced so far in this use, per unit base type (`UnitBaseType` order).
+    pub produced: [u8; 11],
+}
+
 /// What the area asks. Parameters only; the option list is derived by `rules::production::pay_opts`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Ask {
     /// Pay a step of a bill.
     Pay(PayAsk),
+    /// Choose what to build.
+    Choose(ChooseAsk),
 }
 
 /// One answer the area offers (not stored in the state).
@@ -68,10 +98,15 @@ pub enum Opt {
     TradeGood { shown: Shown },
     /// Spend a commodity as a trade good (Keleres' agent).
     Commodity { shown: Shown },
+    /// Build `made` copies of `unit`, paying for it (`build|unit|made`).
+    Build { unit: Unit, made: u8 },
+    /// Produce one `unit` by returning a captured one (`exchange|unit`).
+    Exchange { unit: Unit },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Subtype {
     Pay(Currency),
+    Choose,
 }

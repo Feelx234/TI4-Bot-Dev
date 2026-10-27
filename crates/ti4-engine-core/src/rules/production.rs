@@ -9,13 +9,14 @@
 //! replaces it when the factions are ported.
 
 use crate::containers::SmallList;
-use crate::choice::production::{Currency, Opt as PayOpt, PayAsk, Shown};
+use crate::choice::production::{ChooseAsk, Currency, Opt as PayOpt, PayAsk, Shown};
+use crate::query::fleet::{self, Arrival, Standing};
 use crate::generated::{Breakthrough, Leader, Planet, PlanetTrait, Relic, System, Unit, UnitBaseType};
 use crate::state::LeaderStatus;
 use crate::ids::Seat;
 use crate::query::economy::{self, Spend};
 use crate::query::{board, laws};
-use crate::kernel::seam::{Clamp, ProdSite, ProduceSite, Q, Seams, SilenceCtx, SilenceSite, SpendSite};
+use crate::kernel::seam::{Clamp, DestSite, ExchangeSite, ProdSite, ProduceSite, Q, Seams, SilenceCtx, SilenceSite, SpendSite};
 use crate::kernel::Kernel;
 use crate::state::{CoreState, Piece, RoundKind};
 use crate::tables::Scope;
@@ -237,6 +238,8 @@ pub fn structure_allowed(cx: &Cx<'_>, who: Seat, planet: Planet, base: UnitBaseT
 pub enum Spot {
     Space,
     Planet(Planet),
+    /// A place in another system a module offers (`production_destinations`).
+    Remote(System, Option<Planet>),
 }
 
 /// `production::placements` (68.2 to 68.4).
@@ -419,6 +422,171 @@ const fn currency(s: Spend) -> Currency {
         Spend::Resources => Currency::Resources,
         Spend::Influence => Currency::Influence,
     }
+}
+
+/// Everything the Choosing question says about one buildable unit: the numbers the option shows, so the
+/// listing (`build_opts`) and the renderer read the same values.
+#[derive(Debug, Clone)]
+pub struct BuildInfo {
+    pub unit: Unit,
+    pub printed: i64,
+    pub pair: usize,
+    pub cost: i64,
+    pub discount_used: i64,
+    pub exchange: bool,
+    pub affordable: bool,
+    pub spots: SmallList<Spot, 12>,
+    pub made: usize,
+    pub placed: usize,
+    pub remaining_after: i64,
+    pub free_after: i64,
+    /// Standing of the producing system before any option is taken.
+    pub before: Standing,
+    pub spendable_resources: i64,
+    /// Standing after the paid build / after the exchange, when the unit has a single destination.
+    pub after_paid: Option<Standing>,
+    pub after_exchange: Option<Standing>,
+    /// `post_build_constraints(unit, 1)` for the exchange.
+    pub exchange_after: (i64, i64),
+}
+
+/// The `Where` of a spot as the string engine writes it: `space`, a planet id, or `system@at`.
+fn spot_in_space(spot: Spot) -> bool {
+    matches!(spot, Spot::Space | Spot::Remote(_, None))
+}
+
+fn standing_at(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, system: System, arriving: Option<Arrival>) -> Standing {
+    let half = |u: Unit| cx.q.k.hooks.combat.fighter_fleet_weight_halves(cx.core(), cx.q.k, who, u);
+    fleet::standing(cx.core(), cx.scope, who, system, i64::from(ask.fleet_limit), arriving, &half)
+}
+
+fn standing_after(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, unit: Unit, spot: Spot, count: i64) -> Standing {
+    let target = match spot {
+        Spot::Remote(system, _) => system,
+        _ => ask.system,
+    };
+    standing_at(cx, who, ask, target, Some(Arrival { kind: unit, count, in_space: spot_in_space(spot) }))
+}
+
+/// `post_build_constraints`: the production limit and the free-capacity allowance after placing `count`.
+fn post_build(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, unit: Unit, count: i64) -> (i64, i64) {
+    let held_sol = cx.core().players().by_seat(who).is_some_and(|p| p.cards.breakthrough == Some(Breakthrough::BellumGloriosum));
+    let d = unit.data();
+    let granted = if held_sol && d.ship { fleet::capacity(unit) } else { 0 } * i64::from(count > 0);
+    let spends = d.base_type == UnitBaseType::Fighter || fleet::is_ground_force(unit);
+    let small = i64::from(ask.small_exemptions);
+    let free = if spends { count.min(i64::from(ask.free_capacity) + granted) } else { 0 };
+    let exempt = if matches!(d.base_type, UnitBaseType::Fighter | UnitBaseType::Infantry) { (count - free).min(small) } else { 0 };
+    (i64::from(ask.remaining) - (count - free - exempt), i64::from(ask.free_capacity) + granted - free + small - exempt)
+}
+
+/// Standing of the producing system before any option is taken.
+#[must_use]
+pub fn standing_before(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk) -> Standing {
+    standing_at(cx, who, ask, ask.system, None)
+}
+
+/// The Choosing question's facts for one unit; `None` when the unit is not offered.
+#[must_use]
+pub fn build_for(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, unit: Unit, ex: &Extras<'_>, before: &Standing, spendable_resources: i64) -> Option<BuildInfo> {
+    let d = unit.data();
+    if ask.only_unit.is_some_and(|only| only != unit) {
+        return None;
+    }
+    if ask.max_unit_cost.is_some_and(|max| i64::from(d.cost_halves.unwrap_or(0)) > 2 * i64::from(max)) {
+        return None;
+    }
+    let (printed, pair) = price_of(cx, unit);
+    let (cost, discount_used) = if d.base_type == UnitBaseType::Flagship && ask.flagship_free {
+        (0, 0)
+    } else if ask.free_this_use {
+        (0, printed)
+    } else {
+        let used = i64::from(ask.discount_remaining).min(printed);
+        (printed - used, used)
+    };
+    let exchange = cx.seams().unit_exchange.first(cx.q, &ExchangeSite { who, system: ask.system, unit }).is_some();
+    let affordable = cost <= available(cx, who, Spend::Resources, ex) + i64::from(ask.credit);
+    if !affordable && !exchange {
+        return None;
+    }
+    let mut spots: SmallList<Spot, 12> = SmallList::new();
+    for s in placements(cx, who, ask.system, unit).as_slice() {
+        spots.push(*s);
+    }
+    if !spots.as_slice().is_empty() {
+        let dests = cx.seams().production_destinations.collect(cx.q, &DestSite { who, system: ask.system, base: d.base_type });
+        for (system, planet) in dests.as_slice() {
+            spots.push(Spot::Remote(*system, *planet));
+        }
+    }
+    if spots.as_slice().is_empty() {
+        return None;
+    }
+    let barred = barred_capacity(cx, who, ask.system, d.base_type);
+    let usable = if barred == 0 {
+        i64::from(ask.remaining)
+    } else {
+        let same_kind = i64::from(ask.produced[d.base_type as usize]);
+        i64::from(ask.remaining).min(i64::from(ask.limit) - barred - same_kind)
+    };
+    let extra = if matches!(d.base_type, UnitBaseType::Fighter | UnitBaseType::Infantry) { i64::from(ask.small_exemptions) } else { 0 };
+    let made = pair.min(usize::try_from(usable + extra).unwrap_or(0));
+    if made == 0 {
+        return None;
+    }
+    let placed = if cx.q.k.hooks.economy.effect_placement_forbidden(cx.core(), cx.q.k, who, unit) {
+        0
+    } else {
+        made.min(usize::try_from(fleet::remaining(cx.core(), cx.scope, who, unit, 0)).unwrap_or(0))
+    };
+    if placed == 0 {
+        return None;
+    }
+    let (remaining_after, free_after) = post_build(cx, who, ask, unit, placed as i64);
+    let only = |count: i64| match spots.as_slice() {
+        [one] => Some(standing_after(cx, who, ask, unit, *one, count)),
+        _ => None,
+    };
+    let after_paid = if affordable { only(placed as i64) } else { None };
+    let (exchange_after, after_exchange) = if exchange { (post_build(cx, who, ask, unit, 1), only(1)) } else { ((0, 0), None) };
+    Some(BuildInfo {
+        unit,
+        printed,
+        pair,
+        cost,
+        discount_used,
+        exchange,
+        affordable,
+        spots,
+        made,
+        placed,
+        remaining_after,
+        free_after,
+        before: *before,
+        spendable_resources,
+        after_paid,
+        after_exchange,
+        exchange_after,
+    })
+}
+
+/// The Choosing question's options: for each buildable unit the paid build, then the exchange.
+#[must_use]
+pub fn build_opts(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, buildable: &[Unit], ex: &Extras<'_>) -> SmallList<PayOpt, 18> {
+    let before = standing_at(cx, who, ask, ask.system, None);
+    let spendable = available(cx, who, Spend::Resources, ex);
+    let mut out = SmallList::new();
+    for unit in buildable {
+        let Some(info) = build_for(cx, who, ask, *unit, ex, &before, spendable) else { continue };
+        if info.affordable {
+            out.push(PayOpt::Build { unit: *unit, made: u8::try_from(info.made).unwrap_or(u8::MAX) });
+        }
+        if info.exchange {
+            out.push(PayOpt::Exchange { unit: *unit });
+        }
+    }
+    out
 }
 
 #[cfg(test)]

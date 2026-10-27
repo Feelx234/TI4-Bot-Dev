@@ -4,7 +4,10 @@
 //! Owner: package B3. Ported: the payment question (`pay` options: exhaust a planet face, spend a trade good,
 //! spend a commodity), byte for byte as `production::payment_options` lists them.
 
-use ti4_engine_core::choice::production::{Ask, Currency, Opt, PayAsk, Shown, Subtype};
+use ti4_engine_core::choice::production::{Ask, ChooseAsk, Currency, Opt, PayAsk, Shown, Subtype};
+use ti4_engine_core::generated::{System, Unit};
+use ti4_engine_core::rules::production::{BuildInfo, Spot};
+use ti4_engine_core::query::fleet::Standing;
 use ti4_engine_core::generated::Planet;
 
 use super::{Family, Render};
@@ -41,17 +44,22 @@ impl Family for Fam {
     fn prompt(_: &Render, a: &Ask) -> String {
         match a {
             Ask::Pay(p) => format!("pay {} more {}", p.owed, name(p.kind)),
+            Ask::Choose(_) => "produce units".to_owned(),
         }
     }
 
     fn subtype(_: &Render, s: &Subtype) -> String {
         match s {
             Subtype::Pay(kind) => format!("pay_{}", name(*kind)),
+            Subtype::Choose => "produce_unit".to_owned(),
         }
     }
 
-    fn option(_: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
-        let Ask::Pay(PayAsk { kind, owed, pool, goods }) = *a;
+    fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
+        let PayAsk { kind, owed, pool, goods } = match *a {
+            Ask::Pay(p) => p,
+            Ask::Choose(c) => return build_option(r, &c, o),
+        };
         match *o {
             Opt::Exhaust { planet, source, shown } => {
                 let (worth, pool_after) = (i64::from(shown.worth), i64::from(shown.pool_after));
@@ -86,6 +94,7 @@ impl Family for Fam {
                         Delta::new(Quantity::TradeGoods, goods, goods - 1),
                     ]))
             }
+            Opt::Build { .. } | Opt::Exchange { .. } => unreachable!("builds are asked by Ask::Choose"),
             Opt::Commodity { shown } => {
                 let worth = i64::from(shown.worth);
                 ChoiceOption::labelled("commodity", crate::production::PAY_KIND, "spend a commodity as a trade good")
@@ -98,7 +107,10 @@ impl Family for Fam {
     }
 
     fn parse(_: &Render, a: &Ask, id: &str) -> Option<Opt> {
-        let Ask::Pay(PayAsk { kind, .. }) = *a;
+        let kind = match *a {
+            Ask::Pay(p) => p.kind,
+            Ask::Choose(_) => return parse_build(id),
+        };
         match id {
             "trade_good" => Some(Opt::TradeGood { shown: Shown::default() }),
             "commodity" => Some(Opt::Commodity { shown: Shown::default() }),
@@ -141,4 +153,141 @@ mod tests {
         assert_eq!(influence.id, "exhaust|abyz|influence");
         assert_eq!(influence.label, "exhaust abyz for 1 resources using its influence");
     }
+}
+
+fn unit_id(u: Unit) -> &'static str {
+    <Unit as IdStr>::as_str(u)
+}
+
+fn spot_text(s: Spot) -> String {
+    match s {
+        Spot::Space => crate::production::SPACE.to_owned(),
+        Spot::Planet(p) => planet_id(p).to_owned(),
+        Spot::Remote(system, at) => format!(
+            "{}{}{}",
+            <System as IdStr>::as_str(system),
+            crate::production::REMOTE_SEPARATOR,
+            at.map_or(crate::production::SPACE, planet_id)
+        ),
+    }
+}
+
+fn parse_build(id: &str) -> Option<Opt> {
+    if let Some(rest) = id.strip_prefix("build|") {
+        let (unit, made) = rest.split_once('|')?;
+        return Some(Opt::Build { unit: <Unit as IdStr>::from_id(unit)?, made: made.parse().ok()? });
+    }
+    Some(Opt::Exchange { unit: <Unit as IdStr>::from_id(id.strip_prefix("exchange|")?)? })
+}
+
+fn limit_deltas(before: &Standing, after: &Standing) -> [Delta; 2] {
+    [
+        Delta::new(Quantity::FleetSupplyHeadroom, before.fleet_headroom(), after.fleet_headroom()),
+        Delta::new(Quantity::CapacityFree, before.capacity_free(), after.capacity_free()),
+    ]
+}
+
+fn placement_facts(option: ChoiceOption, before: &Standing, after: &Standing) -> ChoiceOption {
+    option
+        .with("capacity_used", after.consumed - before.consumed)
+        .with("fleet_headroom_after", after.fleet_headroom())
+        .with("capacity_free_after", after.capacity_free())
+        .with("fleet_excess_after", after.fleet_excess())
+        .with("capacity_excess_after", after.capacity_excess)
+}
+
+fn capacity_facts(option: ChoiceOption, unit: Unit, placed: usize, spots: &[String]) -> ChoiceOption {
+    use ti4_engine_core::generated::UnitBaseType;
+    use ti4_engine_core::query::fleet as fl;
+    let placed = i64::try_from(placed).unwrap_or(0);
+    let space = spots.iter().filter(|s| s.as_str() == crate::production::SPACE).count();
+    let placement = if spots.is_empty() || space == 0 {
+        "never"
+    } else if space == spots.len() {
+        "always"
+    } else {
+        "choice"
+    };
+    let role = if unit.data().base_type == UnitBaseType::Fighter {
+        "fighter"
+    } else if fl::consumes_capacity(unit) {
+        "ground"
+    } else {
+        "none"
+    };
+    option
+        .with("capacity_provided", fl::capacity(unit) * placed)
+        .with("capacity_needed", if role == "none" { 0 } else { fl::capacity_cost(unit) * placed })
+        .with("capacity_role", role)
+        .with("space_placement", placement)
+}
+
+/// A Choosing option, with the numbers the position gives (see `production_view::choosing_info`).
+fn build_option(r: &Render, ask: &ChooseAsk, o: &Opt) -> ChoiceOption {
+    let (unit, exchange) = match *o {
+        Opt::Build { unit, .. } => (unit, false),
+        Opt::Exchange { unit } => (unit, true),
+        _ => unreachable!("payment options are asked by Ask::Pay"),
+    };
+    let info = crate::production_view::choosing_info(r, ask, unit).expect("a listed option is offered in its position");
+    let id = unit_id(unit);
+    let system = <System as IdStr>::as_str(ask.system);
+    let spots: Vec<String> = info.spots.as_slice().iter().map(|s| spot_text(*s)).collect();
+    let ships = |placed: usize| if ti4_engine_core::query::fleet::counts_against_supply(unit) { i64::try_from(placed).unwrap_or(0) } else { 0 };
+    let (remaining_after, free_after) = if exchange { info.exchange_after } else { (info.remaining_after, info.free_after) };
+    let count = if exchange { 1 } else { info.placed };
+    let (rem, free0) = (i64::from(ask.remaining), i64::from(ask.free_capacity) + i64::from(ask.small_exemptions));
+    let mut deltas = vec![
+        Delta::new(Quantity::ProductionRemaining, rem, remaining_after),
+        Delta::new(Quantity::ProductionFreeCapacity, free0, free_after),
+    ];
+    let credit = i64::from(ask.credit);
+    let mut option;
+    let after = if exchange { info.after_exchange } else { info.after_paid };
+    if exchange {
+        option = ChoiceOption::labelled(format!("exchange|{id}"), crate::production::PRODUCE_KIND, format!("produce 1x {id} by returning a captured {id}"))
+            .with("cost", 0_i64)
+            .with("printed_cost", info.printed)
+            .with("discount", 0_i64)
+            .with("count", 1_i64)
+            .with("placed", 1_i64)
+            .with("credit", credit)
+            .with("credit_used", 0_i64)
+            .with("owed", 0_i64)
+            .with("production_spent", rem - remaining_after)
+            .with("unit", id)
+            .with("system", system)
+            .with("fleet_ships", ships(1))
+            .with("exchange", true);
+    } else {
+        let credit_used = credit.min(info.cost);
+        option = ChoiceOption::labelled(
+            format!("build|{id}|{}", info.made),
+            crate::production::PRODUCE_KIND,
+            format!("produce {}x {id} for {}", info.made, info.cost),
+        )
+        .with("cost", info.cost)
+        .with("printed_cost", info.printed)
+        .with("discount", info.discount_used)
+        .with("count", i64::try_from(info.made).unwrap_or(1))
+        .with("placed", i64::try_from(info.placed).unwrap_or(1))
+        .with("yield", i64::try_from(info.pair).unwrap_or(1))
+        .with("credit", credit)
+        .with("available_resources", info.spendable_resources)
+        .with("free_this_use", ask.free_this_use)
+        .with("credit_used", credit_used)
+        .with("owed", info.cost - credit_used)
+        .with("production_spent", rem - remaining_after)
+        .with("unit", id)
+        .with("system", system)
+        .with("fleet_ships", ships(info.placed));
+    }
+    option = capacity_facts(option, unit, count, &spots);
+    if let (Some(after), [only]) = (after.as_ref(), spots.as_slice()) {
+        deltas.extend(limit_deltas(&info.before, after));
+        option = placement_facts(option.with("destination", only.clone()), &info.before, after);
+    } else {
+        option = option.with("placement_pending", i64::try_from(spots.len()).unwrap_or(2));
+    }
+    option.previewed(Preview::certain(deltas))
 }
