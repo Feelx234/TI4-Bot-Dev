@@ -175,6 +175,19 @@ impl Dice {
         record
     }
 
+    /// Whether test faces are preloaded (the dual cannot predict those draws).
+    #[must_use]
+    pub fn is_preloaded(&self) -> bool {
+        #[cfg(test)]
+        {
+            self.preload.is_some()
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
+    }
+
     /// Say which system the following rolls belong to (`None` outside one).
     pub fn set_scene(&mut self, system: Option<&str>) {
         self.scene = system.map(str::to_owned);

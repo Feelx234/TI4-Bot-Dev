@@ -1406,6 +1406,50 @@ fn gravleash_maneuvers(
     }
 }
 
+
+/// Dual check of the rolls just made by the fleet loop: the typed roll from the stream positions
+/// before them must record the same faces and leave the streams where they stand.
+#[allow(clippy::too_many_arguments)]
+fn check_fleet_rolls(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    dice: &Dice,
+    rng: &GameRng,
+    before: &Option<crate::rng::RngPositions>,
+    start: usize,
+    player: &PlayerId,
+    system: &SystemId,
+) {
+    let Some(before) = before else { return };
+    #[cfg(feature = "typed-core")]
+    let typed = || {
+        if dice.is_preloaded() {
+            return None;
+        }
+        crate::core_combat::CombatView::of(state, content, sources)?.roll_fleet(rng.seed(), before, player, system)
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None::<(Vec<(u32, Vec<u32>)>, crate::rng::RngPositions)>;
+    let after = rng.positions();
+    let seen = || {
+        let n = typed().map_or(0, |t| t.0.len());
+        let rows: Vec<(u32, Vec<u32>)> = dice.history()[start..]
+            .iter()
+            .take(n)
+            .map(|r| (r.hits_on.unwrap_or(0), r.faces.clone()))
+            .collect();
+        (rows, after)
+    };
+    let _ = crate::dual::run_dual_typed(crate::dual::Area::Combat, "combat::roll_fleet", typed, seen);
+}
+
+/// The stream positions to check a roll against, only when the combat area is on `Dual`.
+fn dual_positions(rng: &GameRng) -> Option<crate::rng::RngPositions> {
+    (crate::dual::backend(crate::dual::Area::Combat) == crate::dual::Backend::Dual && !rng.sync_pending())
+        .then(|| rng.positions())
+}
+
 /// Roll one player's fleet and count the hits (78.5).
 ///
 /// Rolled in **ascending order of combat value**, per 78.5b/78.5c, so the sequence a seed
@@ -1419,6 +1463,7 @@ pub fn roll_fleet(
     player: &PlayerId,
     system: &SystemId,
 ) -> usize {
+    let (before, start) = (dual_positions(rng), dice.history().len());
     let mut hits = 0;
     for ((value, _), group) in fleet_groups(state, content, sources, player, system) {
         let dice_count = usize::try_from(group.dice).unwrap_or(0);
@@ -1429,6 +1474,7 @@ pub fn roll_fleet(
         let roll = dice.roll_by(rng, dice_count, "space combat", Some(threshold), player);
         hits += reroll_munitions_misses(state, dice, rng, player, &roll).hits();
     }
+    check_fleet_rolls(state, content, sources, dice, rng, &before, start, player, system);
     hits
 }
 
@@ -1464,6 +1510,7 @@ pub fn roll_fleet_and_open_staged(
         system: system.clone(),
         rolls: Vec::new(),
     };
+    let (before, start) = (dual_positions(ctx.rng), ctx.dice.history().len());
     let mut hits = 0;
     for ((value, _), group) in fleet_groups(state, content, sources, player, system) {
         let dice_count = usize::try_from(group.dice).unwrap_or(0);
@@ -1486,6 +1533,7 @@ pub fn roll_fleet_and_open_staged(
             unit_types: group.types,
         });
     }
+    check_fleet_rolls(state, content, sources, ctx.dice, ctx.rng, &before, start, player, system);
     if set.rolls.iter().any(|roll| !roll.faces.is_empty()) {
         state.reroll_staging.insert(player.clone(), set);
         state.last_reroll_player = Some(player.clone());

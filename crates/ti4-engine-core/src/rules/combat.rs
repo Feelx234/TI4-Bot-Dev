@@ -446,3 +446,48 @@ fn gravleash_maneuvers(rd: Rd<'_>, player: Seat, system: System, contributions: 
         contributions[index].0 = (value - bonus).max(1);
     }
 }
+
+/// One recorded roll of the fleet, in `Dice` history order: the hit number and the faces. A munitions
+/// reroll is its own entry, beside the roll it replaces.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FleetRoll {
+    pub hits_on: u32,
+    pub faces: Vec<u32>,
+}
+
+/// The ten-sided die of `dice::SIDES`.
+pub const DIE_SIDES: u32 = 10;
+
+/// Roll one player's fleet (78.5), group by group in ascending combat value, drawing from `rng`'s dice
+/// stream exactly as `combat::roll_fleet` does; returns the history entries it would record (the
+/// roll of each group and, when Munitions Reserves is active this round, the reroll of its misses).
+pub fn roll_fleet(
+    rd: Rd<'_>,
+    rng: &mut crate::state::Rng,
+    seeds: &dyn crate::state::SeedSource,
+    player: Seat,
+    system: System,
+) -> Vec<FleetRoll> {
+    use crate::state::RngDomain;
+    let round = rd.s.meta().combat_round_seq;
+    let munitions = rd.s.players().by_seat(player).is_some_and(|p| p.combat_timers.munitions_round.is(round));
+    let mut out = Vec::new();
+    for ((value, _), group) in fleet_groups(rd, player, system) {
+        let count = usize::try_from(group.dice).unwrap_or(0);
+        if count == 0 {
+            continue;
+        }
+        let hits_on = u32::try_from(value).unwrap_or(u32::MAX);
+        let faces: Vec<u32> = (0..count).map(|_| rng.die(RngDomain::Dice, seeds, DIE_SIDES)).collect();
+        let misses: Vec<usize> = faces.iter().enumerate().filter(|(_, f)| **f < hits_on).map(|(i, _)| i).collect();
+        out.push(FleetRoll { hits_on, faces: faces.clone() });
+        if munitions && !misses.is_empty() {
+            let mut again = faces;
+            for i in misses {
+                again[i] = rng.die(RngDomain::Dice, seeds, DIE_SIDES);
+            }
+            out.push(FleetRoll { hits_on, faces: again });
+        }
+    }
+    out
+}

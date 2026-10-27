@@ -28,12 +28,12 @@ use crate::core_sync::{CoreView, Ctx, Sources};
 use crate::generated::IdStr;
 
 /// The slices the combat queries read.
+/// (The map slice is left out until the retreat rules need adjacency and a galaxy.)
 pub const READS: SliceSet = SliceSet::of(&[
     Slice::Meta,
     Slice::Seats,
     Slice::Players,
     Slice::Board,
-    Slice::Map,
     Slice::Transient,
     Slice::Marks,
     Slice::Agenda,
@@ -268,6 +268,30 @@ impl<'g> CombatView<'g> {
         Some(self.with(|rd| cc::effective_hits_on(rd, seat, piece)))
     }
 
+    /// `combat::roll_fleet` from the dice stream standing at `positions`: the history entries it records
+    /// and where the streams stand afterwards.
+    #[must_use]
+    pub fn roll_fleet(
+        &mut self,
+        seed: u64,
+        positions: &crate::rng::RngPositions,
+        player: &PlayerId,
+        system: &SystemId,
+    ) -> Option<(Vec<FleetRollRow>, crate::rng::RngPositions)> {
+        use ti4_engine_core::state::{Rng as CoreRng, RngDomain, SeedSource};
+        let (seat, sys) = (self.seat(player)?, typed::<System>(system.as_str())?);
+        let mut typed_pos: Vec<(RngDomain, u128)> = Vec::new();
+        for (t, p) in positions {
+            typed_pos.push((crate::core_sync::codec::rng::domain(&mut self.cx, t).ok()?, *p));
+        }
+        let seeds = crate::core_sync::codec::rng::TextSeeds(&self.cx);
+        let mut rng = CoreRng::new(seed);
+        rng.set_positions(&typed_pos, &seeds as &dyn SeedSource);
+        let rolls = self.with(|rd| cc::roll_fleet(rd, &mut rng, &seeds, seat, sys));
+        let after = crate::core_sync::codec::rng::positions(&self.cx, &rng).ok()?;
+        Some((rolls.into_iter().map(|r| (r.hits_on, r.faces)).collect(), after))
+    }
+
     /// `combat::fleet_groups`, flattened: (hit number, tag, dice, [(unit type, count)]).
     #[must_use]
     pub fn fleet_groups(&self, player: &PlayerId, system: &SystemId) -> Option<Vec<FleetGroupRow>> {
@@ -285,3 +309,6 @@ impl<'g> CombatView<'g> {
 
 /// One pooled roll group as the dual compares it: hit number, roll tag, dice, unit types with counts.
 pub type FleetGroupRow = (i64, u8, i64, Vec<(String, u32)>);
+
+/// One recorded roll as the dual compares it: hit number and faces.
+pub type FleetRollRow = (u32, Vec<u32>);
