@@ -10,6 +10,9 @@ pub mod ca;
 #[cfg(feature = "typed-core")]
 pub mod cb;
 
+#[cfg(feature = "typed-core")]
+pub mod cc;
+
 /// `dual_hook!` when the typed core is compiled, the string expression alone otherwise. `$typed` is an `Option`: `None`
 /// (an id the tables do not know, a value the typed state cannot hold) keeps the string answer, as `dual_typed!` does.
 #[macro_export]

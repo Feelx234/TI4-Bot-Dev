@@ -149,13 +149,17 @@ fn foreign_ship_in(
 
 // -- Mirror Computing ----------------------------------------------------------------------------
 
+pub(crate) fn trade_good_worth(state: &GameState, player: &PlayerId, worth: i64) -> i64 {
+    crate::cb_dual!(crate::dual::HookGroup::Direct, "mentak::trade_good_worth", trade_good_worth_text(state, player, worth), crate::core_factions::cc::mentak_trade_good_worth(state, player, worth))
+}
+
 /// Mirror Computing: "When you spend trade goods, each trade good is worth 2 resources or
 /// influence instead of 1."
 ///
 /// The only place this is decided: `production::trade_good_worth` and `payment::plans` both read
 /// the economy hook. `max` rather than a sum, so it stays "2 instead of 1" if another effect has
 /// already raised the worth.
-fn trade_good_worth(state: &GameState, player: &PlayerId, worth: i64) -> i64 {
+pub(crate) fn trade_good_worth_text(state: &GameState, player: &PlayerId, worth: i64) -> i64 {
     if owns_technology(state, player, "mc") {
         worth.max(2)
     } else {
@@ -166,7 +170,7 @@ fn trade_good_worth(state: &GameState, player: &PlayerId, worth: i64) -> i64 {
 // -- Fourth Moon and Moll Terminus ---------------------------------------------------------------
 
 /// Fourth Moon: "Other player's ships in this system cannot use SUSTAIN DAMAGE."
-fn flagship_allows_sustain(
+pub(crate) fn flagship_allows_sustain(
     state: &GameState,
     _content: &ContentStore,
     _sources: SourceSet,
@@ -179,7 +183,7 @@ fn flagship_allows_sustain(
 }
 
 /// Moll Terminus: "Other player's ground forces on this planet cannot use SUSTAIN DAMAGE."
-fn mech_allows_sustain(
+pub(crate) fn mech_allows_sustain(
     state: &GameState,
     _content: &ContentStore,
     _sources: SourceSet,
@@ -226,7 +230,7 @@ fn may_move_through_ships(
 /// The Table's Grace: "If you have the Cruiser II unit upgrade technology, flip this card and place
 /// it on top of cruiser II." The Corsair stands in for Cruiser II for the holder, in production,
 /// on research and on the board (`technology::apply_unit_upgrades`).
-fn unit_form_override(
+pub(crate) fn unit_form_override(
     state: &GameState,
     _content: &ContentStore,
     _sources: SourceSet,

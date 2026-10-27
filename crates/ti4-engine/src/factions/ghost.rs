@@ -178,10 +178,14 @@ fn wormhole_count(state: &GameState, system: &SystemId) -> i64 {
     printed + tokens + storm + nexus + hil_colish
 }
 
+pub(crate) fn extra_production(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, system: &SystemId) -> i64 {
+    crate::cb_dual!(crate::dual::HookGroup::Direct, "ghost::extra_production", extra_production_text(state, content, sources, player, system), crate::core_factions::cc::ghost_extra_production(state, sources, player, system))
+}
+
 /// Particle Synthesis: "Each wormhole in a system that contains your ships gains PRODUCTION 1
 /// as if it were a unit you control. Reduce the combined cost of units you produce in systems
 /// that contain wormholes by 1 for each wormhole in that system."
-fn extra_production(
+pub(crate) fn extra_production_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -197,7 +201,11 @@ fn extra_production(
     }
 }
 
-fn production_cost_reduction(state: &GameState, player: &PlayerId, system: &SystemId) -> i64 {
+pub(crate) fn production_cost_reduction(state: &GameState, player: &PlayerId, system: &SystemId) -> i64 {
+    crate::cb_dual!(crate::dual::HookGroup::Direct, "ghost::production_cost_reduction", production_cost_reduction_text(state, player, system), crate::core_factions::cc::ghost_production_cost_reduction(state, player, system))
+}
+
+pub(crate) fn production_cost_reduction_text(state: &GameState, player: &PlayerId, system: &SystemId) -> i64 {
     if crate::breakthroughs::holds(state, player, "ghostbt") {
         wormhole_count(state, system)
     } else {

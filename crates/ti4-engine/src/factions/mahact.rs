@@ -121,11 +121,15 @@ pub fn fleet_mark(mahact: &PlayerId) -> String {
     format!("{MARK_PREFIX}{mahact}")
 }
 
+pub fn fleet_pool_owners(state: &GameState, mahact: &PlayerId) -> Vec<PlayerId> {
+    crate::cb_dual!(crate::dual::HookGroup::Direct, "mahact::fleet_pool_owners", fleet_pool_owners_text(state, mahact), crate::core_factions::cc::mahact_fleet_pool_owners(state, mahact))
+}
+
 /// The owners of the other players' command tokens in `mahact`'s fleet pool, one entry per
 /// token, sorted. The shared read every Mahact rule uses (Edict, Imperia, commander unlock,
 /// Arvicon Rex, Starlancer, Scepter of Dominion). Public information.
 #[must_use]
-pub fn fleet_pool_owners(state: &GameState, mahact: &PlayerId) -> Vec<PlayerId> {
+pub fn fleet_pool_owners_text(state: &GameState, mahact: &PlayerId) -> Vec<PlayerId> {
     state
         .faction_marks
         .get(&fleet_mark(mahact))
@@ -152,10 +156,14 @@ pub(crate) fn purges_alliance(faction: &str) -> bool {
     faction == FACTION
 }
 
+pub(crate) fn foreign_tokens(state: &GameState, player: &PlayerId) -> i32 {
+    crate::cb_dual!(crate::dual::HookGroup::Direct, "mahact::foreign_tokens", foreign_tokens_text(state, player), crate::core_factions::cc::mahact_foreign_tokens(state, player))
+}
+
 /// How many foreign command tokens `player`'s fleet pool holds (0 unless they are the Mahact).
 /// Read by `fleet::limit`.
 #[must_use]
-pub(crate) fn foreign_tokens(state: &GameState, player: &PlayerId) -> i32 {
+pub(crate) fn foreign_tokens_text(state: &GameState, player: &PlayerId) -> i32 {
     if !is_mahact(state, player) {
         return 0;
     }
@@ -448,7 +456,7 @@ fn system_name(system: &SystemId) -> String {
 /// "When you would spend a command token during the secondary ability of a strategic action: You
 /// may exhaust this card to remove 1 of the active player's command tokens from the board and use
 /// it instead." Offered beside the ordinary follow as one waiver per system holding a token.
-fn secondary_waivers(
+pub(crate) fn secondary_waivers(
     state: &GameState,
     _content: &ContentStore,
     follower: &PlayerId,
