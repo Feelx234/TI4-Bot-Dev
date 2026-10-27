@@ -93,6 +93,7 @@ fn seats_follow_text_order_and_refuse_prefix_ids() {
 }
 
 type Pairs = Vec<(u16, u16, u8)>;
+type Table<'a> = (&'a str, Pairs, &'a [(u16, u16, u8)]);
 
 /// Every pair of ids of one type where one is a proper prefix of the other, with the byte of the
 /// longer after the shorter.
@@ -128,7 +129,7 @@ fn prefix_tables_are_current() {
         tables::NOTE_RANK,
         "stale note ranks: regenerate the tables"
     );
-    let current: [(&str, Pairs, &[(u16, u16, u8)]); 10] = [
+    let current: [Table; 10] = [
         ("SYSTEM", prefix_pairs::<System>(), tables::SYSTEM),
         ("PLANET", prefix_pairs::<Planet>(), tables::PLANET),
         ("UNIT", prefix_pairs::<Unit>(), tables::UNIT),
