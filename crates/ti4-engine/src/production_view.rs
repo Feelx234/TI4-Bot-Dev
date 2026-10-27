@@ -238,3 +238,38 @@ const fn engine_spend(s: ti4_engine_core::query::economy::Spend) -> crate::produ
         ti4_engine_core::query::economy::Spend::Influence => crate::production::Spend::Influence,
     }
 }
+
+/// `production::buildable_for` over the typed tables: what a seat may produce, as unit ids. The gates and
+/// the upgrade rules are the string's (a war sun needs its technology unless the faction prints one;
+/// an owned upgrade replaces the unit; mechs and flagships exist only as the faction's own). `None`:
+/// something is not in the tables, or a module could rename a form (Mentak's Corsair, whose seats the
+/// view declines anyway).
+#[must_use]
+pub fn buildable_for(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId) -> Option<Vec<String>> {
+    use ti4_engine_core::query::tech as q;
+    if unported_economy(state) {
+        return None;
+    }
+    let seat = state.player(player)?;
+    let faction: ti4_engine_core::generated::Faction = typed(seat.faction.as_str())?;
+    let owned = crate::technology_core::owned_set(seat)?;
+    let scope = crate::technology_core::scope(sources);
+    let roster = crate::technology_core::roster_for(content, sources)?;
+    let mut out = Vec::new();
+    for base_id in crate::production::BUILDABLE {
+        let base: UnitBaseType = typed(base_id)?;
+        let own = q::faction_unit(roster, faction, base);
+        if base_id == "warsun" {
+            let has = seat.technologies.iter().any(|t| t.as_str() == "ws" || t.as_str().ends_with("ws"));
+            if !has && own.is_none() {
+                continue;
+            }
+        }
+        let chosen = q::unlocked_upgrade(scope, base, faction, &owned)
+            .or(own)
+            .map(|u| IdStr::as_str(u).to_owned())
+            .or_else(|| (!matches!(base_id, "mech" | "flagship")).then(|| base_id.to_owned()));
+        out.extend(chosen);
+    }
+    Some(out)
+}

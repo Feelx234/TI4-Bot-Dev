@@ -2218,6 +2218,21 @@ pub fn buildable_for(
     sources: SourceSet,
     player: &PlayerId,
 ) -> Vec<String> {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::production_view::buildable_for(state, content, sources, player);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(crate::dual::Area::Production, "production::buildable_for", typed(), buildable_for_text(state, content, sources, player))
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn buildable_for_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+) -> Vec<String> {
     let owned = state.player(player).map(|seat| seat.technologies.clone());
     let faction = state
         .player(player)

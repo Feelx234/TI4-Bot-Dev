@@ -170,7 +170,7 @@ impl ResearchHooks for StringHooks<'_> {
 }
 
 /// The set of owned technologies of a string player; `None` when one is not in the tables.
-fn owned_set(seat: &ti4_model::state::Player) -> Option<TechSet> {
+pub(crate) fn owned_set(seat: &ti4_model::state::Player) -> Option<TechSet> {
     let mut set = TechSet::new();
     for t in &seat.technologies {
         set.insert(tech(t.as_str())?);
