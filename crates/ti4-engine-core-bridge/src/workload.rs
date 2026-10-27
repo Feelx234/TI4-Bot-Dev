@@ -85,7 +85,8 @@ impl Bot {
                     .iter()
                     .position(|s| *s == choice.player.as_str())
                     .unwrap_or(0);
-                ti4_rule_bot::tuning::set(ti4_rule_bot::tuning::current());
+                // The thread plays the shipped tuning (`tuning::current()`, the thread default); a per-decision
+                // `set(current())` would reset any bot_version a caller installed on this worker.
                 let (picked, _, _) =
                     ti4_rule_bot::choose_explained(choice, Some(seen), self.seed, seat, index);
                 choice.options[picked].clone()

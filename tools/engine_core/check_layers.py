@@ -22,7 +22,7 @@ CORE_LAYER = {
     'ids': 0, 'bits': 0, 'hex': 0, 'galaxy': 0, 'movement': 0, 'board': 0, 'occupancy': 0,
     'tables': 0, 'generated': 0,
     # L1 state + decision types
-    'containers': 1, 'state': 1, 'choice': 1, 'event': 1,
+    'containers': 1, 'state': 1, 'choice': 1, 'event': 1, 'keys': 1,
     # L2 queries
     'query': 2,
     # L3 kernel
@@ -43,7 +43,7 @@ TIERS = {
     'L4b': 'production combat invasion tactical action_cards leaders strategy_cards strategy secondary_preview agenda_effects vote status draft setup opening',
     'L5': 'game phase wiring',
     'L6': 'factions',
-    'adapter': 'choice core_adapter fingerprint fixtures dual',
+    'adapter': 'choice core_adapter core_sync render fingerprint fixtures dual',
 }
 TIER_RANK = {'L1': 1, 'L2': 2, 'L3': 3, 'L4a': 4, 'L4b': 4, 'L5': 5, 'L6': 6}
 
