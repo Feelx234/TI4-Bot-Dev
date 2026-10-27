@@ -9,7 +9,8 @@
 //! replaces it when the factions are ported.
 
 use crate::containers::SmallList;
-use crate::generated::{Planet, PlanetTrait, System, Unit, UnitBaseType};
+use crate::generated::{Breakthrough, Leader, Planet, PlanetTrait, Relic, System, Unit, UnitBaseType};
+use crate::state::LeaderStatus;
 use crate::ids::Seat;
 use crate::query::economy::{self, Spend};
 use crate::query::{board, laws};
@@ -293,6 +294,90 @@ pub fn placements(cx: &Cx<'_>, who: Seat, system: System, unit: Unit) -> SmallLi
         }
     }
     spots
+}
+
+/// What the payment reads need that lives in a faction package above this layer: Keleres' spendable
+/// commodities and the Deepwrought's readied ocean cards.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Extras<'a> {
+    pub commodities: i64,
+    pub oceans: &'a [Planet],
+}
+
+/// `production::trade_good_worth`: one, folded through the `trade_good_worth` hook (Mentak).
+#[must_use]
+pub fn trade_good_worth(cx: &Cx<'_>, who: Seat) -> i64 {
+    cx.q.k.hooks.economy.trade_good_worth(cx.core(), who, 1)
+}
+
+/// `production::spendable_planets` with the off-map cards appended.
+#[must_use]
+pub fn spendable_planets(cx: &Cx<'_>, who: Seat, ex: &Extras<'_>) -> SmallList<Planet, 24> {
+    let mut out = SmallList::new();
+    for (_, p) in economy::spendable_planets(cx.core(), who).as_slice() {
+        out.push(*p);
+    }
+    for p in ex.oceans {
+        out.push(*p);
+    }
+    out
+}
+
+/// A face: which currency of the planet pays, and for how much.
+pub type Face = (Spend, i64);
+
+/// `production::payment_faces`: the faces by which a planet can pay one bill of `kind`.
+#[must_use]
+pub fn payment_faces(cx: &Cx<'_>, who: Seat, planet: Planet, kind: Spend) -> SmallList<Face, 2> {
+    let face = |k: Spend| planet_value(cx, who, planet, k);
+    let combines = cx
+        .core()
+        .players()
+        .by_seat(who)
+        .is_some_and(|p| p.leaders.status.get(&Leader::XxekirGrom) == Some(&LeaderStatus::Unlocked));
+    let ordinary = if combines { face(Spend::Resources) + face(Spend::Influence) } else { face(kind) };
+    let mut faces = SmallList::new();
+    if ordinary > 0 {
+        faces.push((kind, ordinary));
+    }
+    let Some(p) = cx.core().players().by_seat(who) else {
+        return faces;
+    };
+    let freelancers = kind == Spend::Resources && cx.core().meta().influence_pays_for_units.contains(who);
+    let archons_gift = p.cards.breakthrough == Some(Breakthrough::ArchonsGift);
+    if !freelancers && !archons_gift {
+        return faces;
+    }
+    let other = if kind == Spend::Resources { Spend::Influence } else { Spend::Resources };
+    let alternate = face(other);
+    if alternate > 0 && alternate != ordinary {
+        faces.push((other, alternate));
+    }
+    faces
+}
+
+/// `production::max_face_value`.
+#[must_use]
+pub fn max_face_value(cx: &Cx<'_>, who: Seat, planet: Planet, kind: Spend) -> i64 {
+    payment_faces(cx, who, planet, kind).as_slice().iter().map(|(_, w)| *w).max().unwrap_or(0)
+}
+
+/// `relics::triad_value`: the Triad is spent as a planet card.
+fn triad_value(cx: &Cx<'_>, who: Seat) -> i64 {
+    cx.core().players().by_seat(who).filter(|p| p.cards.relics.as_slice().contains(&Relic::TheTriad)).map_or(0, |p| {
+        let kinds = (0..4).filter(|i| p.cards.fragments.present & (1 << i) != 0 && p.cards.fragments.counts[*i] > 0).count();
+        3 + kinds as i64
+    })
+}
+
+/// `production::available`: spendable resources or influence, counting trade goods (LRR 75.3, 47.3).
+#[must_use]
+pub fn available(cx: &Cx<'_>, who: Seat, kind: Spend, ex: &Extras<'_>) -> i64 {
+    let from_planets: i64 = spendable_planets(cx, who, ex).as_slice().iter().map(|p| max_face_value(cx, who, *p, kind)).sum();
+    let worth = trade_good_worth(cx, who);
+    let goods = cx.core().players().by_seat(who).map_or(0, |p| i64::from(p.econ.trade_goods)) * worth + ex.commodities * worth;
+    let war_machine = if kind == Spend::Resources { war_machine_bonus(cx.core(), who) } else { 0 };
+    from_planets + triad_value(cx, who) + goods + war_machine
 }
 
 #[cfg(test)]

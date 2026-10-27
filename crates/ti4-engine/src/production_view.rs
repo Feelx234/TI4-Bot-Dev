@@ -36,12 +36,13 @@ pub struct ProdView<'a> {
 /// The factions whose string modules still answer production questions with hooks the typed seams do not
 /// carry yet (package CB): the typed reads decline and the caller keeps the string answer.
 fn unported_economy(state: &GameState) -> bool {
-    use crate::factions::{arborec, bastion, crimson, ghost, muaat, naaz, ralnel, saar};
+    use crate::factions::{arborec, bastion, crimson, ghost, mentak, muaat, naaz, ralnel, saar};
     let held = [
         arborec::MODULE.alias,
         bastion::MODULE.alias,
         crimson::MODULE.alias,
         ghost::MODULE.alias,
+        mentak::MODULE.alias,
         muaat::MODULE.alias,
         naaz::MODULE.alias,
         ralnel::MODULE.alias,
@@ -182,5 +183,58 @@ impl<'a> ProdView<'a> {
     #[must_use]
     pub fn price_of(&self, unit_id: &str) -> Option<(i64, usize)> {
         Some(rules::price_of(&self.rules_cx(), typed::<Unit>(unit_id)?))
+    }
+
+    fn oceans(&self, who: Seat) -> Vec<ti4_engine_core::generated::Planet> {
+        ti4_engine_core_factions::cb_economy::deepwrought::query::spendable_oceans(&self.view, who).as_slice().to_vec()
+    }
+
+    fn with_extras<T>(&self, who: Seat, f: impl FnOnce(&Cx<'_>, &rules::Extras<'_>) -> T) -> T {
+        let oceans = self.oceans(who);
+        let ex = rules::Extras {
+            commodities: ti4_engine_core_factions::cb_economy::keleres::query::spendable_commodities(&self.view, who),
+            oceans: &oceans,
+        };
+        f(&self.rules_cx(), &ex)
+    }
+
+    /// `production::trade_good_worth`.
+    #[must_use]
+    pub fn trade_good_worth(&self, player: &PlayerId) -> Option<i64> {
+        Some(rules::trade_good_worth(&self.rules_cx(), self.seat(player)?))
+    }
+
+    /// `production::available`.
+    #[must_use]
+    pub fn available(&self, player: &PlayerId, kind: crate::production::Spend) -> Option<i64> {
+        let who = self.seat(player)?;
+        Some(self.with_extras(who, |cx, ex| rules::available(cx, who, core_spend(kind), ex)))
+    }
+
+    /// `production::payment_faces`.
+    #[must_use]
+    pub fn payment_faces(&self, player: &PlayerId, planet: &PlanetId, kind: crate::production::Spend) -> Option<Vec<(crate::production::Spend, i64)>> {
+        let (who, pl) = (self.seat(player)?, typed(planet.as_str())?);
+        Some(
+            rules::payment_faces(&self.rules_cx(), who, pl, core_spend(kind))
+                .as_slice()
+                .iter()
+                .map(|(k, w)| (engine_spend(*k), *w))
+                .collect(),
+        )
+    }
+}
+
+const fn core_spend(s: crate::production::Spend) -> ti4_engine_core::query::economy::Spend {
+    match s {
+        crate::production::Spend::Resources => ti4_engine_core::query::economy::Spend::Resources,
+        crate::production::Spend::Influence => ti4_engine_core::query::economy::Spend::Influence,
+    }
+}
+
+const fn engine_spend(s: ti4_engine_core::query::economy::Spend) -> crate::production::Spend {
+    match s {
+        ti4_engine_core::query::economy::Spend::Resources => crate::production::Spend::Resources,
+        ti4_engine_core::query::economy::Spend::Influence => crate::production::Spend::Influence,
     }
 }

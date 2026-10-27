@@ -22,6 +22,20 @@ use crate::decision_context::{
 use crate::fleet::{Arrival, Standing};
 use crate::preview::{Delta, Preview, Quantity};
 
+macro_rules! typed_view {
+    ($state:expr, $content:expr, $sources:expr, |$v:ident| $body:expr) => {{
+        #[cfg(feature = "typed-core")]
+        let typed = || {
+            let $v = crate::production_view::ProdView::of($state, $content, $sources)?;
+            $body
+        };
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None;
+        typed
+    }};
+}
+
+
 /// The two things a planet card can be exhausted for (LRR 75.2, 47).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Spend {
@@ -453,6 +467,19 @@ pub fn available(
     player: &PlayerId,
     kind: Spend,
 ) -> i64 {
+    let typed = typed_view!(state, content, sources, |v| v.available(player, kind));
+    crate::dual_typed!(crate::dual::Area::Production, "production::available", typed(), available_text(state, content, sources, player, kind))
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn available_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    kind: Spend,
+) -> i64 {
     // Oracle parity (engine/production.py `available`): a planet counts for its *largest*
     // face — Xxcha's Archon's Gift alternate included — never the sum of both.
     let from_planets: i64 = spendable_planets(state, player)
@@ -486,6 +513,18 @@ pub fn available(
 /// value as an alternate face — never both at once. The planet exhausts exactly either way.
 #[must_use]
 fn payment_faces(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    planet: &PlanetId,
+    kind: Spend,
+) -> Vec<(Spend, i64)> {
+    let typed = typed_view!(state, content, sources, |v| v.payment_faces(player, planet, kind));
+    crate::dual_typed!(crate::dual::Area::Production, "production::payment_faces", typed(), payment_faces_text(state, content, sources, player, planet, kind))
+}
+
+fn payment_faces_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -583,8 +622,9 @@ fn payment_options(
     paid: i64,
     cost: i64,
 ) -> Vec<ChoiceOption> {
+    let reads = Reads::new(state, content, sources);
     let spendable = spendable_planets(state, player);
-    let pool_before = available(state, content, sources, player, kind);
+    let pool_before = reads.available(player, kind);
     let goods_before = state
         .player(player)
         .map_or(0, |seat| i64::from(seat.trade_goods));
@@ -600,10 +640,10 @@ fn payment_options(
         let remaining_after = spendable
             .iter()
             .filter(|other| *other != planet)
-            .map(|other| max_face_value(state, content, sources, player, other, kind))
+            .map(|other| reads.max_face_value(player, other, kind))
             .sum::<i64>()
             + goods_capacity;
-        for (source, worth) in payment_faces(state, content, sources, player, planet, kind) {
+        for (source, worth) in reads.payment_faces(player, planet, kind) {
             // Do not offer a face that would make the rest of this mandatory bill unpayable.
             if paid + worth + remaining_after < cost {
                 continue;
@@ -622,7 +662,7 @@ fn payment_options(
             // The spendable pool is the best legal face of every ready card. Exhausting this
             // planet removes that whole best face even when the actor deliberately selects a
             // smaller Archon's Gift face. The debt, separately, falls by `worth`.
-            let removed_from_pool = max_face_value(state, content, sources, player, planet, kind);
+            let removed_from_pool = reads.max_face_value(player, planet, kind);
             options.push(
                 ChoiceOption::labelled(id, PAY_KIND, label)
                     .with("worth", worth)
@@ -683,10 +723,11 @@ pub fn native_payment_planets(
     player: &PlayerId,
     kind: Spend,
 ) -> Vec<(PlanetId, i64)> {
+    let reads = Reads::new(state, content, sources);
     spendable_planets(state, player)
         .into_iter()
         .filter_map(|planet| {
-            payment_faces(state, content, sources, player, &planet, kind)
+            reads.payment_faces(player, &planet, kind)
                 .into_iter()
                 .find(|(source, _)| *source == kind)
                 .map(|(_, worth)| (planet, worth))
@@ -1551,19 +1592,6 @@ pub fn produce_one_paying_with_influence(
     made.unwrap_or(false)
 }
 
-macro_rules! typed_view {
-    ($state:expr, $content:expr, $sources:expr, |$v:ident| $body:expr) => {{
-        #[cfg(feature = "typed-core")]
-        let typed = || {
-            let $v = crate::production_view::ProdView::of($state, $content, $sources)?;
-            $body
-        };
-        #[cfg(not(feature = "typed-core"))]
-        let typed = || None;
-        typed
-    }};
-}
-
 /// One typed view of one position, built on first use and shared by the reads of an option pass
 /// (`build_options` asks `placements`, `barred_capacity` and `structure_allowed` once per unit
 /// kind). The free functions below build a view per call, which only suits a single read.
@@ -1607,6 +1635,26 @@ impl<'a> Reads<'a> {
         #[cfg(not(feature = "typed-core"))]
         let typed = || None;
         crate::dual_typed!(crate::dual::Area::Production, "production::barred_capacity", typed(), barred_capacity_text(self.state, self.content, self.sources, player, system, kind))
+    }
+
+    pub(crate) fn available(&self, player: &PlayerId, kind: Spend) -> i64 {
+        #[cfg(feature = "typed-core")]
+        let typed = || self.view()?.available(player, kind);
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None;
+        crate::dual_typed!(crate::dual::Area::Production, "production::available", typed(), available_text(self.state, self.content, self.sources, player, kind))
+    }
+
+    pub(crate) fn payment_faces(&self, player: &PlayerId, planet: &PlanetId, kind: Spend) -> Vec<(Spend, i64)> {
+        #[cfg(feature = "typed-core")]
+        let typed = || self.view()?.payment_faces(player, planet, kind);
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None;
+        crate::dual_typed!(crate::dual::Area::Production, "production::payment_faces", typed(), payment_faces_text(self.state, self.content, self.sources, player, planet, kind))
+    }
+
+    pub(crate) fn max_face_value(&self, player: &PlayerId, planet: &PlanetId, kind: Spend) -> i64 {
+        self.payment_faces(player, planet, kind).into_iter().map(|(_, w)| w).max().unwrap_or(0)
     }
 
     pub(crate) fn structure_allowed(&self, player: &PlayerId, planet: &PlanetId, base_type: &str) -> bool {
@@ -2952,7 +3000,7 @@ impl ProductionWindow {
             // not be withheld for a price nobody would actually charge. A unit bought with a
             // captured model is not withheld at all, because no resource is being asked for it.
             let affordable = cost
-                <= available(state, content, sources, &self.player, Spend::Resources) + self.credit;
+                <= reads.available(&self.player, Spend::Resources) + self.credit;
             if !affordable && !exchange {
                 continue;
             }
