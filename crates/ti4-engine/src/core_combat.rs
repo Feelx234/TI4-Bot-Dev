@@ -284,12 +284,8 @@ impl<'g> CombatView<'g> {
         let mut cx = Ctx::of(gs).ok()?;
         let view = CoreView::of(gs, &mut cx, Sources { galaxy: None, rng: None }, READS).ok()?;
         let scope = crate::core_adapter::scope(sources);
-        let mut kernel = Kernel::plain();
-        providers::register_core(&mut kernel.hooks);
-        adapters::bridge_legacy(&mut kernel.hooks.seam);
-        cc::register_naaz_nomad(&mut kernel.hooks);
-        register_string_bridge(&mut kernel.hooks.seam);
-        kernel.sources = CoreSources(u8::try_from(scope.0).ok()?);
+        let kernel = combat_kernel(sources)?;
+        let _ = scope;
         let owners = (0..16_u8).map(|i| cx.owners.id(Seat(i)).map(str::to_owned)).collect();
         let oracle = std::rc::Rc::new(Oracle { gs: gs.clone(), sources, owners });
         Some(Self { _position: std::marker::PhantomData, view, cx, kernel, blanked: crate::laws::blanked(gs), oracle })
@@ -559,7 +555,7 @@ impl<'g> CombatView<'g> {
             }
         };
         let after = self.with(|rd| cc::apply_sustain(rd, seat, sys, site));
-        let core = after.as_ref().unwrap_or(&self.view);
+        let core = after.as_ref().map_or(&*self.view, |(s, _)| s);
         let mut rows = Vec::new();
         let mut push = |planet: Option<&str>, p: Piece| {
             rows.push((
@@ -741,4 +737,49 @@ pub fn open_retreat_destinations(
     let rd = Rd::new(pos.core(), pos.kernel());
     let found = cc::open_retreat_destinations(rd, seat, sys, &base, &|dest| (*reach.rules_for(dest)).clone(), foreign_units);
     Some(found.into_iter().map(|s| SystemId::new(s.as_str())).collect())
+}
+
+/// The kernel the combat rules run against: the core's rows, the legacy slots' bridge, the Naaz and Nomad
+/// hooks and the string bridge for the modules not ported yet.
+#[must_use]
+pub fn combat_kernel(sources: SourceSet) -> Option<Kernel> {
+    let scope = crate::core_adapter::scope(sources);
+    let mut kernel = Kernel::plain();
+    providers::register_core(&mut kernel.hooks);
+    adapters::bridge_legacy(&mut kernel.hooks.seam);
+    cc::register_naaz_nomad(&mut kernel.hooks);
+    register_string_bridge(&mut kernel.hooks.seam);
+    kernel.sources = CoreSources(u8::try_from(scope.0).ok()?);
+    Some(kernel)
+}
+
+/// The kernel of a window run and the string bridge installed for as long as it lives.
+pub struct WindowEnv {
+    pub kernel: Kernel,
+    _guard: Installed,
+}
+
+/// The environment for driving a combat window from the position `gs` (the state before the string ran).
+#[must_use]
+pub fn window_env(gs: &GameState, cx: &Ctx, sources: SourceSet) -> Option<WindowEnv> {
+    let kernel = combat_kernel(sources)?;
+    let owners = (0..16_u8).map(|i| cx.owners.id(Seat(i)).map(str::to_owned)).collect();
+    let oracle = std::rc::Rc::new(Oracle { gs: gs.clone(), sources, owners });
+    Some(WindowEnv { kernel, _guard: Installed::new(oracle) })
+}
+
+/// The `sustainers` detail of a sustain question, from the core state it is asked in.
+#[must_use]
+pub fn sustainers_detail(kernel: &Kernel, core: &ti4_engine_core::state::CoreState, ask: &ti4_engine_core::choice::combat::Ask, actor: Seat) -> serde_json::Value {
+    let ti4_engine_core::choice::combat::Ask::CancelHit { system, in_combat, ability, staging, .. } = *ask else {
+        return serde_json::Value::Null;
+    };
+    let rd = Rd::new(core, kernel).with_blanked(ti4_engine_core::query::reach::blanked(core));
+    let available: Vec<(bool, Piece)> = cc::sustain_candidates(rd, actor, system, in_combat, ability, staging)
+        .into_iter()
+        .map(|(site, p)| (matches!(site, ti4_engine_core::choice::combat::SustainSite::Planet { .. }), p))
+        .collect();
+    let counts = cc::sustainer_counts(rd, system, actor, in_combat, &available);
+    let map: std::collections::BTreeMap<String, u64> = counts.into_iter().map(|(u, n)| (u.as_str().to_owned(), n)).collect();
+    serde_json::to_value(map).unwrap_or(serde_json::Value::Null)
 }

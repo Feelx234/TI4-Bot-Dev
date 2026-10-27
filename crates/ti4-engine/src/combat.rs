@@ -3141,6 +3141,61 @@ fn check_sustain_options(
     let _ = crate::dual::run_dual_typed(crate::dual::Area::Combat, "combat::sustain_options", typed, rows);
 }
 
+/// [`offer_sustain`] as a core window on `driver=dual`: both sides run from this state in lockstep and are
+/// compared (`rules::combat::sustain_offer`).
+#[allow(clippy::too_many_arguments, reason = "offer_sustain's own")]
+fn offer_sustain_windowed(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    ctx: &mut Resolving<'_>,
+    player: &PlayerId,
+    system: &SystemId,
+    producer: &PlayerId,
+    hits: usize,
+    origin: HitOrigin,
+    during_space_combat: bool,
+    non_fighters_first: bool,
+) -> Result<usize, CombatError> {
+    let mut outcome = None;
+    let failed = std::cell::Cell::new(false);
+    let args = crate::dual_window::SustainArgs {
+        player,
+        system,
+        producer,
+        hits,
+        ability: origin == HitOrigin::UnitAbility,
+        in_combat: during_space_combat,
+        non_fighters_first: non_fighters_first
+            && !non_fighter_ships(state, content, sources, player, system).is_empty(),
+        string_pays: crate::leaders::pays_on_sustain(state, content, player),
+        announce: ctx.timing.is_some(),
+    };
+    crate::dual_window!(
+        crate::dual::Area::Driver,
+        "combat::offer_sustain",
+        state,
+        |s: &mut GameState| {
+            let result = offer_sustain(
+                s, content, sources, galaxy, ctx, player, system, producer, hits, origin, during_space_combat,
+                non_fighters_first,
+            );
+            failed.set(result.is_err());
+            let value = result.as_ref().map_or(usize::MAX, |left| *left);
+            outcome = Some(result);
+            crate::dual::Run::new(value)
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            if failed.get() {
+                return None;
+            }
+            crate::dual_window::sustain_offer(s, sources, args, script)
+        }
+    );
+    outcome.unwrap_or(Ok(hits))
+}
+
 /// Offer every available SUSTAIN DAMAGE until the hits run out or the player takes them.
 ///
 /// Only units that could actually be assigned a hit of `origin` are offered.
@@ -3592,7 +3647,7 @@ fn absorb_hits_seeing_with_context(
     // round-scoped pool they grant into is spent here, the way the combat window's queue
     // spends it, so a cancelled cannon or barrage hit is one nobody has to absorb.
     let hits = hits.saturating_sub(spend_cancellations(state, player, hits));
-    let mut remaining = offer_sustain(
+    let mut remaining = offer_sustain_windowed(
         state,
         content,
         sources,

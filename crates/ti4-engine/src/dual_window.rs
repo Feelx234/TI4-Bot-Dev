@@ -47,6 +47,9 @@ pub struct Asked {
 pub struct Recording {
     pub questions: Vec<Asked>,
     pub emits: Vec<Event>,
+    /// Something happened inside an emission of the window (a reaction window's question, an event an
+    /// ability caused): the abilities are string-only for now, so a core window cannot follow.
+    pub nested: bool,
     /// The emission depth the window started at: a window may itself run inside an emission (an ability's
     /// effect opens a combat), and its own level is that depth, not zero.
     base: u32,
@@ -78,8 +81,12 @@ pub fn finish() -> Recording {
 pub fn note_ask(choice: &Choice, outcome: &Result<ChoiceOption, IllegalChoice>) {
     let depth = DEPTH.with(Cell::get);
     REC.with(|r| {
-        if let Some(rec) = r.borrow_mut().as_mut().filter(|rec| rec.base == depth) {
-            rec.questions.push(Asked { choice: choice.clone(), answer: outcome.as_ref().ok().map(|o| o.id.clone()) });
+        if let Some(rec) = r.borrow_mut().as_mut() {
+            if rec.base == depth {
+                rec.questions.push(Asked { choice: choice.clone(), answer: outcome.as_ref().ok().map(|o| o.id.clone()) });
+            } else if depth > rec.base {
+                rec.nested = true;
+            }
         }
     });
 }
@@ -98,13 +105,17 @@ pub fn enter_emit() -> u32 {
 /// the window's own when it began at the recording's base depth.
 pub fn leave_emit(began: u32, done: Option<&Event>) {
     DEPTH.with(|d| d.set(began));
-    if let Some(event) = done {
-        REC.with(|r| {
-            if let Some(rec) = r.borrow_mut().as_mut().filter(|rec| rec.base == began) {
+    REC.with(|r| {
+        if let Some(rec) = r.borrow_mut().as_mut() {
+            if began > rec.base {
+                rec.nested = true;
+            } else if rec.base == began
+                && let Some(event) = done
+            {
                 rec.emits.push(event.clone());
             }
-        });
-    }
+        }
+    });
 }
 
 /// The events with their trace ids zeroed: the two sides number their events independently.
@@ -183,6 +194,23 @@ pub fn drive<W: Window>(
     gs: &GameState,
     script: &Recording,
 ) -> Result<Driven, DriverError> {
+    drive_with(driver, core, kernel, r, gs, script, &|_, _, _| {})
+}
+
+/// [`drive`], letting the caller complete each rendered question with the display facts only the state
+/// knows (`Choice.details`), given the core question and the core state it was asked in.
+///
+/// # Errors
+/// As [`drive`].
+pub fn drive_with<W: Window>(
+    driver: &mut Driver<W>,
+    core: &mut CoreState,
+    kernel: &Kernel,
+    r: &Render,
+    gs: &GameState,
+    script: &Recording,
+    complete: &dyn Fn(&CoreChoice, &CoreState, &mut Choice),
+) -> Result<Driven, DriverError> {
     let (phase, round) = (render::generic::core_phase(gs.phase), gs.round);
     let mut out = Driven { questions: Vec::new(), rendered: Vec::new(), finished: false };
     let mut status = driver.run(core, kernel)?;
@@ -195,11 +223,22 @@ pub fn drive<W: Window>(
             Status::Asking(choice) => {
                 let typed = Typed::new(r, choice.clone(), phase, round);
                 out.questions.push(choice.clone());
-                out.rendered.push(typed.rendered);
+                let mut rendered = typed.rendered;
+                complete(&choice, core, &mut rendered);
+                out.rendered.push(rendered);
                 let Some(id) = script.questions.get(out.questions.len() - 1).and_then(|q| q.answer.clone()) else {
                     return Ok(out);
                 };
-                let Some(pick) = render::parse_pick(r, &choice.ask, &id) else {
+                // An id the family cannot read back without the position (a sustain names a site, not
+                // the unit type) is matched against the rendered options of this very question.
+                let pick = render::parse_pick(r, &choice.ask, &id).or_else(|| {
+                    choice
+                        .opts
+                        .iter()
+                        .find(|o| render::option(r, &choice.ask, o).id == id)
+                        .map(|o| ti4_engine_core::choice::Pick::Opt(*o))
+                });
+                let Some(pick) = pick else {
                     return Ok(out);
                 };
                 status = driver.resume(core, kernel, pick)?;
@@ -253,4 +292,104 @@ pub fn sustain_commander(
     apply_staged(gs, &r, &staged)?;
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(events), questions: driven.rendered })
+}
+
+const SUSTAIN_OFFER: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
+    &[Slice::Board, Slice::Players, Slice::Transient, Slice::Pending],
+);
+
+/// What the string `offer_sustain` was called with.
+#[derive(Debug, Clone, Copy)]
+pub struct SustainArgs<'a> {
+    pub player: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    pub producer: &'a PlayerId,
+    pub hits: usize,
+    pub ability: bool,
+    pub in_combat: bool,
+    /// The decline carries `non_fighters_first` (the loss is bound and a non-fighter exists).
+    pub non_fighters_first: bool,
+    /// The commander's payment is asked (an unlocked Letnev commander is held).
+    pub string_pays: bool,
+    /// The resolver carries the timing machinery (`ctx.emit` announces).
+    pub announce: bool,
+}
+
+/// The core half of `combat::offer_sustain`. `None` for what the core window does not express: staged
+/// planet sustainers, games below `RULES_FACTION_EFFECTS`, a commander held another way than as an
+/// unlocked leader, or a position the codecs refuse.
+#[must_use]
+pub fn sustain_offer(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    a: SustainArgs<'_>,
+    script: &Recording,
+) -> Option<CoreWindow<usize>> {
+    use ti4_engine_core::rules::combat::sustain_offer::{Offer, SustainOffer};
+    if script.nested {
+        return None;
+    }
+    if gs.rules_version < ti4_model::state::RULES_FACTION_EFFECTS {
+        return None;
+    }
+    let unlocked = gs
+        .player(a.player)
+        .is_some_and(|p| p.leaders.get(ti4_model::id::text("letnevcommander")) == Some(&ti4_model::state::LeaderStatus::Unlocked));
+    if a.string_pays && !unlocked {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let (player, producer) = (r.seat(a.player.as_str())?, r.seat(a.producer.as_str())?);
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let source = r.code("letnevcommander");
+    let before = gs.clone();
+    let env = crate::core_combat::window_env(&before, &cx, sources)?;
+    let offer = Offer {
+        player,
+        producer,
+        system,
+        ability: a.ability,
+        in_combat: a.in_combat,
+        non_fighters_first: a.non_fighters_first,
+        source,
+        staging: crate::supply::staging_enabled(&before),
+        announce: a.announce,
+    };
+    let resolver = Resolver::new(&[player], Some(player));
+    let mut driver = Driver::new(SustainOffer::new(offer, u16::try_from(a.hits).ok()?), resolver, AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let driven = with_core(gs, &mut cx, Sources::default(), SUSTAIN_OFFER, |core, _| {
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|c, st, rendered| {
+            if let ti4_engine_core::choice::Ask::Combat(ask) = &c.ask {
+                rendered.details.insert("sustainers".to_owned(), crate::core_combat::sustainers_detail(&env.kernel, st, ask, c.actor));
+            }
+        });
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .ok()?
+    .ok()?;
+    apply_staged(gs, &r, &staged)?;
+    // `remember_sustain_target`: the string writes the handoff of the last unit that sustained.
+    if offer.staging
+        && let Some((site, piece)) = driver.window.last
+    {
+        let unit = ti4_model::units::Unit {
+            type_id: ti4_model::id::UnitTypeId::new(piece.kind().as_str()),
+            owner: PlayerId::new(r.seat_text(piece.owner())),
+            sustained_damage: piece.sustained(),
+            galvanized: piece.galvanized(),
+        };
+        let planet = match site {
+            ti4_engine_core::choice::combat::SustainSite::Planet { planet, .. } => Some(planet.as_str()),
+            ti4_engine_core::choice::combat::SustainSite::Space(_) => None,
+        };
+        gs.faction_marks.insert(
+            "combat:sustain_target".to_owned(),
+            serde_json::json!({"system": a.system, "planet": planet, "unit": unit}).to_string(),
+        );
+    }
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    Some(CoreWindow { run: Run::new(usize::from(driver.window.hits)).with_events_vec(events), questions: driven.rendered })
 }

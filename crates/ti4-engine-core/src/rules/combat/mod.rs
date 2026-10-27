@@ -12,6 +12,9 @@
 //!
 //! Nothing here asks a question or emits an event: those go through the host the later sections take.
 
+pub mod sustain_commander;
+pub mod sustain_offer;
+
 use crate::containers::{SmallList, SortedMap};
 use crate::generated::{Breakthrough, Planet, System, Unit, UnitBaseType};
 use crate::ids::Seat;
@@ -740,13 +743,15 @@ pub fn cancel_per_sustain(rd: Rd<'_>, player: Seat) -> usize {
 /// can (the string leaves the position alone then). A planet unit named by its index must be one of
 /// the combatants and undamaged; one named by its planet is the owner's first undamaged Maximum there.
 #[must_use]
-pub fn apply_sustain(rd: Rd<'_>, player: Seat, system: System, site: SustainSite) -> Option<CoreState> {
+pub fn apply_sustain(rd: Rd<'_>, player: Seat, system: System, site: SustainSite) -> Option<(CoreState, Piece)> {
     let mut after = rd.s.clone();
+    let done;
     match site {
         SustainSite::Space(i) => {
             let cell = after.board_mut().sys_mut(system);
             let slot = cell.units.as_mut_slice().get_mut(usize::from(i))?;
             *slot = slot.with_sustained(true);
+            done = *slot;
         }
         SustainSite::Planet { planet, index, variant } => {
             let combatants = planet_combatants(rd, player, system);
@@ -761,9 +766,10 @@ pub fn apply_sustain(rd: Rd<'_>, player: Seat, system: System, site: SustainSite
             };
             let slot = slot?;
             *slot = slot.with_sustained(true);
+            done = *slot;
         }
     }
-    Some(after)
+    Some((after, done))
 }
 
 // -- anti-fighter barrage (LRR 78.3) -------------------------------------------------------------
