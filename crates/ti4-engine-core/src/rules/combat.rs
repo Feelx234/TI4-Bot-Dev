@@ -3,10 +3,9 @@
 //!
 //! Layout of this file, in the order of the string module:
 //!
-//! * the **faction seam** ([`Faction`]): every call the string combat makes into faction code that has no
-//!   core implementation yet. The default implementation, [`KernelFaction`], forwards to the kernel's
-//!   [`HookTable`](crate::kernel::HookTable); the dual harness passes the string engine's answers. The
-//!   list of these calls is the list of string-only dependencies of the area.
+//! * **no faction seam of its own**: every rule the string combat takes from faction code, a law, a relic
+//!   or a card is read from the kernel's uniform seams (`k.hooks.seam`: `hit_shift`, `dice`, `may_sustain`,
+//!   `borrowed_stats`, `alastor_participants`, and the data rows), see `kernel/seam`;
 //! * queries over the board: [`combatants`], [`ships_of`], [`hits_on`], [`effective_hits_on`];
 //! * the fleet's dice: [`fleet_groups`], [`roll_fleet`];
 //! * retreats, cancellations, anti-fighter barrage and space cannon follow in the later sections.
@@ -16,15 +15,18 @@
 use crate::containers::{SmallList, SortedMap};
 use crate::generated::{Breakthrough, Planet, System, Unit, UnitBaseType};
 use crate::ids::Seat;
-use crate::generated::{Agenda, Relic};
+use crate::generated::Agenda;
 use crate::kernel::hooks::{CombatCtx, CombatUnit, HookTable};
 use crate::keys::atom::Atom;
 use crate::keys::{MarkKey, MarkVal};
 use crate::query::laws as qlaws;
 use crate::state::{CombatDie, Ledger, NoteKey, RerollSet, RollPurpose, RollRec};
+use crate::containers::SeatSet;
+use crate::generated::Faction;
+use crate::kernel::seam::{data as seam_data, Clamp, RollKind, RollSite, SeatSystemSite, Q};
 use crate::kernel::Kernel;
 use crate::query::board as qboard;
-use crate::state::{CoreState, Piece, RoundKind};
+use crate::state::{CoreState, Piece};
 use crate::tables::Scope;
 
 /// `ti4_model::state::RULES_FACTION_EFFECTS`.
@@ -41,135 +43,25 @@ pub const RULES_RETREAT_HAZARDS: u32 = 11;
 /// A bound on the round loop (`combat::MAX_ROUNDS`).
 pub const MAX_ROUNDS: u32 = 50;
 
-/// `hooks_combat::BorrowedStats`: a ship that rolls on another card's stats (The Cavalry). `unit` is the
-/// ship as it stands (the first equal one in board order is the borrower).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Borrowed {
-    pub unit: Piece,
-    pub hits_on: Option<i64>,
-    /// ANTI-FIGHTER BARRAGE as `(value, dice)`.
-    pub barrage: Option<(i64, i64)>,
-}
-
-/// The flagship texts the combat reads (`factions::flagship_has_text`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum FlagshipText {
-    /// J.N.S. Hylarim: results of 9 or 10 produce 2 additional hits.
-    Jolnar,
-    /// Arc Secundus: repair at the start of each space combat round.
-    Letnev,
-    /// 0.0.1: hits must be assigned to non-fighter ships if able.
-    L1z1x,
-    /// Wrath of Kenara.
-    Hacan,
-}
-
-/// Every call the space combat makes into faction code. One method per string function, all reading
-/// the state `s` the core is working on.
-pub trait Faction {
-    /// `nekro_units::alastor_participants`: ground forces chosen to fight as ships, as (planet, index
-    /// in that planet's unit list).
-    fn alastor_participants(&self, s: &CoreState, who: Seat, system: System) -> SmallList<(Planet, u16), 4>;
-    /// `factions::flagship_has_text`.
-    fn flagship_has_text(&self, s: &CoreState, who: Seat, unit: Unit, text: FlagshipText) -> bool;
-    /// `laws::fighter_combat_bonus`.
-    fn law_fighter_bonus(&self, s: &CoreState, who: Seat) -> i64;
-    /// `faction_abilities::combat_modifier`.
-    fn combat_modifier(&self, s: &CoreState, who: Seat, ctx: CombatCtx) -> i64;
-    /// `factions::unit_roll_modifier`.
-    fn unit_roll_modifier(&self, s: &CoreState, unit: CombatUnit) -> i64;
-    /// `mahact_units::flagship_roll_bonus`.
-    fn mahact_flagship_bonus(&self, s: &CoreState, who: Seat, unit: Unit) -> i64;
-    /// `nekro_units::mech_roll_bonus`.
-    fn nekro_mech_bonus(&self, s: &CoreState, who: Seat, unit: Unit, system: Option<System>) -> i64;
-    /// `firmament_plots::assail_space`.
-    fn assail_space(&self, s: &CoreState, who: Seat, system: Option<System>) -> i64;
-    /// `factions::unit_dice`: the unit's dice given the count so far.
-    fn unit_dice(&self, s: &CoreState, unit: CombatUnit, dice: i64) -> i64;
-    /// `hooks_combat::borrowed_stats`.
-    fn borrowed_stats(&self, s: &CoreState, who: Seat, system: System) -> Option<Borrowed>;
-    /// `hooks_combat::may_sustain` for the modules the core does not carry (Crimson's breach rule,
-    /// Mentak's flagship and mech); true when none forbids it.
-    fn may_sustain_modules(&self, s: &CoreState, unit: CombatUnit) -> bool;
-    /// `bastion::extra_die`: a galvanized unit rolls one more die.
-    fn bastion_extra_die(&self, s: &CoreState, piece: Piece) -> i64;
-    /// `borrowed_round_agents::extra_die_for`.
-    fn round_agent_extra_die(&self, s: &CoreState, system: System, who: Seat, unit: Unit, index: usize) -> i64;
-}
-
-/// The faction seam answered by the kernel's hook table (what the driver uses once the faction modules
-/// are registered). `flagship_has_text`, `law_fighter_bonus` and `combat_modifier` have no hook slot of
-/// their own yet and answer neutral.
-pub struct KernelFaction<'a>(pub &'a Kernel);
-
-impl Faction for KernelFaction<'_> {
-    fn alastor_participants(&self, s: &CoreState, who: Seat, system: System) -> SmallList<(Planet, u16), 4> {
-        self.0.hooks.direct.nekro_units_alastor_participants(s, who, system)
-    }
-    fn flagship_has_text(&self, _: &CoreState, _: Seat, _: Unit, _: FlagshipText) -> bool {
-        false
-    }
-    fn law_fighter_bonus(&self, _: &CoreState, _: Seat) -> i64 {
-        0
-    }
-    fn combat_modifier(&self, s: &CoreState, who: Seat, ctx: CombatCtx) -> i64 {
-        self.0.hooks.general.combat_modifier(s, self.0, who, ctx)
-    }
-    fn unit_roll_modifier(&self, s: &CoreState, unit: CombatUnit) -> i64 {
-        self.0.hooks.general.unit_roll_modifier(s, self.0, unit)
-    }
-    fn mahact_flagship_bonus(&self, s: &CoreState, who: Seat, unit: Unit) -> i64 {
-        self.0.hooks.direct.mahact_units_flagship_roll_bonus(s, self.0, who, unit)
-    }
-    fn nekro_mech_bonus(&self, s: &CoreState, who: Seat, unit: Unit, system: Option<System>) -> i64 {
-        self.0.hooks.direct.nekro_units_mech_roll_bonus(s, self.0, who, unit, system, None)
-    }
-    fn assail_space(&self, s: &CoreState, who: Seat, system: Option<System>) -> i64 {
-        self.0.hooks.direct.firmament_plots_assail_space(s, self.0, who, system)
-    }
-    fn unit_dice(&self, s: &CoreState, unit: CombatUnit, dice: i64) -> i64 {
-        self.0.hooks.general.unit_dice(s, self.0, unit, dice)
-    }
-    fn borrowed_stats(&self, s: &CoreState, who: Seat, system: System) -> Option<Borrowed> {
-        let b = self.0.hooks.combat.borrowed_stats(s, self.0, who, system)?;
-        // The hook names the ship by type: the first ship of that type in board order borrows.
-        let piece = s.board().sys(system).units.iter().find(|p| p.owner() == who && p.kind() == b.unit).copied()?;
-        Some(Borrowed { unit: piece, hits_on: b.hits_on.map(i64::from), barrage: b.barrage.map(|(v, d)| (i64::from(v), i64::from(d))) })
-    }
-    fn may_sustain_modules(&self, _: &CoreState, _: CombatUnit) -> bool {
-        true
-    }
-    fn bastion_extra_die(&self, s: &CoreState, piece: Piece) -> i64 {
-        self.0.hooks.direct.bastion_extra_die(s, piece) as i64
-    }
-    fn round_agent_extra_die(&self, s: &CoreState, system: System, who: Seat, unit: Unit, index: usize) -> i64 {
-        self.0.hooks.direct.borrowed_round_agents_extra_die_for(
-            s,
-            self.0,
-            system,
-            None,
-            who,
-            unit,
-            index,
-            s.meta().combat_round_seq,
-        )
-    }
-}
-
-/// What a combat rule reads: the state, the kernel (content scope, hook table) and the faction seam.
+/// What a combat rule reads: the state and the kernel (content scope, hook table, seams).
 #[derive(Clone, Copy)]
 pub struct Rd<'a> {
     pub s: &'a CoreState,
     pub k: &'a Kernel,
-    pub f: &'a dyn Faction,
     /// Law's Order: every law is blank this turn (`laws::blanked`; the caller computes it).
     pub blanked: bool,
 }
 
 impl<'a> Rd<'a> {
     #[must_use]
-    pub fn new(s: &'a CoreState, k: &'a Kernel, f: &'a dyn Faction) -> Self {
-        Self { s, k, f, blanked: false }
+    pub fn new(s: &'a CoreState, k: &'a Kernel) -> Self {
+        Self { s, k, blanked: false }
+    }
+
+    /// The seam reader over the same state and kernel.
+    #[must_use]
+    pub fn q(&self) -> Q<'a> {
+        Q::new(self.s, self.k)
     }
 
     /// The same read with laws blank or not.
@@ -263,7 +155,7 @@ pub fn planets_of_sorted(s: &CoreState, system: System) -> SmallList<Planet, 8> 
 #[must_use]
 pub fn planet_combatants(rd: Rd<'_>, player: Seat, system: System) -> Vec<(Planet, u16, Piece)> {
     let maximum = planetary_maximum_participates(rd, player, system);
-    let chosen = rd.f.alastor_participants(rd.s, player, system);
+    let chosen = rd.k.hooks.seam.alastor_participants.collect(rd.q(), &SeatSystemSite { who: player, system });
     let mut found = Vec::new();
     for planet in planets_of_sorted(rd.s, system).iter() {
         for (index, unit) in rd.s.board().planet(*planet).units.iter().enumerate() {
@@ -293,55 +185,32 @@ pub fn hits_on(rd: Rd<'_>, unit: Unit) -> Option<i64> {
     (r.hits_on > 0).then_some(i64::from(r.hits_on))
 }
 
-/// The roll bonus this seat's fighters carry in the current combat round (Fighter Prototype and the
-/// Ixth law).
-#[must_use]
-pub fn fighter_bonus_now(rd: Rd<'_>, player: Seat) -> i64 {
-    let round = rd.s.meta().combat_round_seq;
-    let prototypes = rd.s.players().by_seat(player).map_or(0, |p| {
-        2 * p.round_marks.of(RoundKind::FighterBonus).filter(|r| *r == round).count() as i64
-    });
-    prototypes + rd.f.law_fighter_bonus(rd.s, player)
-}
-
 /// `combat::effective_hits_on`: the threshold a unit needs this round after its round-scoped effects.
 #[must_use]
 pub fn effective_hits_on(rd: Rd<'_>, player: Seat, unit: Piece) -> Option<i64> {
     effective_from(rd, player, unit, hits_on(rd, unit.kind())?)
 }
 
-/// [`effective_hits_on`] for a unit rolling on `threshold` instead of its own printed value.
+/// [`effective_hits_on`] for a unit rolling on `threshold` instead of its own printed value: the printed
+/// number less the shift every provider adds to the result (`hit_shift`: the Sardakk and Jol-Nar rows,
+/// Fighter Prototype, the Ixth law, Morale Boost, the nebula defender, and the faction modules).
 #[must_use]
 pub fn effective_from(rd: Rd<'_>, player: Seat, unit: Piece, threshold: i64) -> Option<i64> {
-    let s = rd.s;
-    let meta = s.meta();
-    let morale = s.players().by_seat(player).is_some_and(|p| p.combat_timers.combat_bonus_round.is(meta.combat_round_seq));
-    let faction = rd.f.combat_modifier(s, player, CombatCtx::Space);
-    let fighter_bonus = if rd.is_fighter(unit.kind()) { fighter_bonus_now(rd, player) } else { 0 };
-    // 59.5: the defender in a nebula applies +1 to each combat roll of their ships.
-    let nebula_defender = meta
-        .active_system
-        .filter(|_| meta.active != Some(player))
-        .and_then(|system| rd.scope().system(system))
-        .is_some_and(|d| d.anomalies.nebula);
-    let module = rd.f.unit_roll_modifier(
-        s,
-        CombatUnit { owner: player, system: meta.active_system, planet: None, unit: unit.kind(), ctx: CombatCtx::Space },
-    );
-    let mahact = rd.f.mahact_flagship_bonus(s, player, unit.kind());
-    let nekro = rd.f.nekro_mech_bonus(s, player, unit.kind(), meta.active_system);
-    let assail = rd.f.assail_space(s, player, meta.active_system);
-    Some(
-        threshold
-            - i64::from(morale)
-            - faction
-            - fighter_bonus
-            - i64::from(nebula_defender)
-            - module
-            - mahact
-            - nekro
-            - assail,
-    )
+    let site = roll_site(rd, player, unit.kind(), rd.s.meta().active_system, 0);
+    Some(threshold - rd.k.hooks.seam.hit_shift.eval(rd.q(), &site, 0, Clamp::None).value)
+}
+
+/// The site of a combat roll of `unit` (`system`: the system the providers see; `index`: the unit's place
+/// in the fleet list).
+#[must_use]
+pub fn roll_site(rd: Rd<'_>, owner: Seat, unit: Unit, system: Option<System>, index: u16) -> RollSite {
+    RollSite {
+        unit: CombatUnit { owner, system, planet: None, unit, ctx: CombatCtx::Space },
+        kind: RollKind::Combat,
+        round: rd.s.meta().combat_round_seq,
+        unit_index: index,
+        foes: SeatSet::EMPTY,
+    }
 }
 
 // -- the fleet's dice -------------------------------------------------------------------------
@@ -356,10 +225,38 @@ pub struct FleetGroup {
 /// A group's key: the hit number and the roll tag (1: J.N.S. Hylarim's dice, 2: the hulls 0.0.1 binds).
 pub type GroupKey = (i64, u8);
 
+/// The flagship texts the combat reads. Local until the generated `Unit -> FlagshipTextSet` lands.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FlagshipText {
+    /// J.N.S. Hylarim: results of 9 or 10 produce 2 additional hits.
+    Jolnar,
+    /// 0.0.1: hits must be assigned to non-fighter ships if able.
+    L1z1x,
+}
+
+/// `factions::flagship_has_text`: the unit is the flagship, or a Nekro flagship whose Z token lends it.
+fn flagship_has_text(s: &CoreState, who: Seat, unit: Unit, text: FlagshipText) -> bool {
+    let (flagship, faction) = match text {
+        FlagshipText::Jolnar => (Unit::JNSHylarim, Faction::TheUniversitiesOfJolNar),
+        FlagshipText::L1z1x => (Unit::L1z1xFlagship, Faction::TheL1Z1XMindnet),
+    };
+    if unit == flagship {
+        return true;
+    }
+    unit == Unit::TheAlastor
+        && s.players().by_seat(who).is_some_and(|p| {
+            p.faction == Faction::TheNekroVirus && p.cards.breakthrough == Some(Breakthrough::ValefarAssimilatorZ)
+        })
+        && matches!(
+            s.marks().tail.get(&MarkKey::NekroToken(who)),
+            Some(MarkVal::List(items)) if items.iter().any(|i| matches!(i, MarkVal::Atom(Atom::Faction(f)) if *f == faction))
+        )
+}
+
 /// Whether `player` has 0.0.1 among its ships in `system`.
 #[must_use]
 pub fn forces_non_fighters(rd: Rd<'_>, player: Seat, system: System) -> bool {
-    ships_of(rd, player, system).iter().any(|p| rd.f.flagship_has_text(rd.s, player, p.kind(), FlagshipText::L1z1x))
+    ships_of(rd, player, system).iter().any(|p| flagship_has_text(rd.s, player, p.kind(), FlagshipText::L1z1x))
 }
 
 /// Dreadnoughts and flagships: the hulls 0.0.1 binds.
@@ -378,6 +275,21 @@ fn roll_tag(rd: Rd<'_>, unit: Unit, jolnar_text: bool, forced: bool) -> u8 {
     }
 }
 
+/// The ship that rolls on another card's combat value this combat (The Cavalry): the ship exactly as it
+/// stands (type, damage, galvanize), first equal one in board order, and the value it rolls on.
+fn borrowed_ship(rd: Rd<'_>, player: Seat, system: System) -> Option<(Piece, i64)> {
+    let b = rd.k.hooks.seam.borrowed_stats.offered(rd.q(), &SeatSystemSite { who: player, system })?;
+    let value = i64::from(b.hits_on?);
+    let piece = rd
+        .s
+        .board()
+        .sys(system)
+        .units
+        .iter()
+        .find(|p| p.owner() == player && p.kind() == b.unit && p.sustained() == b.sustained && p.galvanized() == b.galvanized)?;
+    Some((*piece, value))
+}
+
 /// The fleet's rolls grouped by (combat value, tag) in the ascending order 78.5b/78.5c fixes.
 #[must_use]
 pub fn fleet_groups(rd: Rd<'_>, player: Seat, system: System) -> Vec<(GroupKey, FleetGroup)> {
@@ -390,7 +302,7 @@ pub fn fleet_groups(rd: Rd<'_>, player: Seat, system: System) -> Vec<(GroupKey, 
         .and_then(|p| if p.combat_timers.extra_die_round.is(round) { p.combat_timers.extra_die_unit } else { None });
     let mut extra_die_added = false;
     // One ship may roll on another card's combat value this combat (The Cavalry).
-    let borrower = rd.f.borrowed_stats(s, player, system).and_then(|b| b.hits_on.map(|v| (b.unit, v)));
+    let borrower = borrowed_ship(rd, player, system);
     let mut borrower_used = false;
     // (hit number, roll tag, dice, ship type) per ship.
     let mut contributions: Vec<(i64, u8, i64, Unit)> = Vec::new();
@@ -405,18 +317,14 @@ pub fn fleet_groups(rd: Rd<'_>, player: Seat, system: System) -> Vec<(GroupKey, 
             continue;
         };
         let base_dice = data.combat.map_or(0, |r| i64::from(r.dice));
-        let mut dice = rd.f.unit_dice(
-            s,
-            CombatUnit { owner: player, system: Some(system), planet: None, unit: unit.kind(), ctx: CombatCtx::Space },
-            base_dice,
-        );
+        let mut site = roll_site(rd, player, unit.kind(), Some(system), unit_index as u16);
+        site.unit.system = Some(system);
+        let mut dice = rd.k.hooks.seam.dice.eval(rd.q(), &site, base_dice, Clamp::None).value;
         if !extra_die_added && extra_die.is_some_and(|selected| selected == unit.kind()) {
             dice += 1;
             extra_die_added = true;
         }
-        dice += rd.f.bastion_extra_die(s, unit);
-        dice += rd.f.round_agent_extra_die(s, system, player, unit.kind(), unit_index);
-        let jolnar = rd.f.flagship_has_text(s, player, unit.kind(), FlagshipText::Jolnar);
+        let jolnar = flagship_has_text(s, player, unit.kind(), FlagshipText::Jolnar);
         contributions.push((value, roll_tag(rd, unit.kind(), jolnar, forced), dice, unit.kind()));
     }
     gravleash_maneuvers(rd, player, system, &mut contributions);
@@ -529,17 +437,11 @@ pub fn sustain_suppressed(s: &CoreState, blanked: bool, base: UnitBaseType) -> b
     base == UnitBaseType::Warsun && qlaws::active(s, blanked, Agenda::PublicizeWeaponSchematics)
 }
 
-/// `relics::grants_sustain`: Metali Void Shielding.
-#[must_use]
-pub fn relic_grants_sustain(s: &CoreState, seat: Seat) -> bool {
-    s.players().by_seat(seat).is_some_and(|p| p.cards.relics.contains(&Relic::MetaliVoidShielding))
-}
-
 /// A ship of its own accord: a ship with SUSTAIN DAMAGE, or any non-fighter ship under Metali Void
 /// Shielding.
 fn sustains_by_itself(rd: Rd<'_>, seat: Seat, unit: Unit) -> bool {
     rd.is_ship(unit)
-        && (rd.data(unit).is_some_and(|d| d.sustain_damage) || (relic_grants_sustain(rd.s, seat) && !rd.is_fighter(unit)))
+        && (rd.data(unit).is_some_and(|d| d.sustain_damage) || (seam_data::grants_sustain(rd.q(), &rd.k.hooks.seam.rows, seat) && !rd.is_fighter(unit)))
 }
 
 /// `combat::sustains_in_space`: whether this unit may use SUSTAIN DAMAGE against a hit in space.
@@ -555,8 +457,7 @@ pub fn sustains_in_space(rd: Rd<'_>, system: System, player: Seat, unit: Piece, 
             // The string context "space_cannon" (a SPACE CANNON OFFENSE hit) has no `CombatCtx`: no
             // module grants the ability there, so the slot is asked for combat hits only.
             || (in_combat && rd.k.hooks.combat.grants_sustain(rd.s, rd.k, cu(CombatCtx::Space))))
-        && rd.k.hooks.combat.may_sustain(rd.s, rd.k, cu(CombatCtx::Space))
-        && rd.f.may_sustain_modules(rd.s, cu(CombatCtx::Space))
+        && rd.k.hooks.seam.may_sustain.decide(rd.q(), &cu(CombatCtx::Space), true)
 }
 
 /// `combat::assignable_to_hit`: a hit of a unit ability cannot be assigned to a unit that is immune to
@@ -622,10 +523,10 @@ pub fn direct_hittable(scope: Scope, unit: Unit) -> bool {
 #[must_use]
 pub fn direct_hittable_at(rd: Rd<'_>, player: Seat, system: System, unit: Unit) -> bool {
     direct_hittable(rd.scope(), unit)
-        && !rd.k.hooks.combat.direct_hit_immune(
-            rd.s,
-            rd.k,
-            CombatUnit { owner: player, system: Some(system), planet: None, unit, ctx: CombatCtx::Space },
+        && !rd.k.hooks.seam.hit_immune.decide(
+            rd.q(),
+            &CombatUnit { owner: player, system: Some(system), planet: None, unit, ctx: CombatCtx::Space },
+            false,
         )
 }
 
@@ -732,14 +633,10 @@ pub fn planet_unit_sustains(rd: Rd<'_>, system: System, player: Seat, unit: Piec
         && !unit.sustained()
         && data.sustain_damage
         && !sustain_suppressed(rd.s, rd.blanked, data.base_type)
-        && rd.k.hooks.combat.may_sustain(
-            rd.s,
-            rd.k,
-            CombatUnit { owner: player, system: Some(system), planet: None, unit: unit.kind(), ctx: CombatCtx::Space },
-        )
-        && rd.f.may_sustain_modules(
-            rd.s,
-            CombatUnit { owner: player, system: Some(system), planet: None, unit: unit.kind(), ctx: CombatCtx::Space },
+        && rd.k.hooks.seam.may_sustain.decide(
+            rd.q(),
+            &CombatUnit { owner: player, system: Some(system), planet: None, unit: unit.kind(), ctx: CombatCtx::Space },
+            true,
         )
 }
 

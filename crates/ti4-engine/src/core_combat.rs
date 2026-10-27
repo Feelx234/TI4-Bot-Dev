@@ -15,10 +15,12 @@ use ti4_engine_core::generated::{Planet, System, Unit};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::kernel::hooks::{CombatCtx, CombatUnit};
 use ti4_engine_core::kernel::{Kernel, Sources as CoreSources};
-use ti4_engine_core::containers::SmallList;
 use ti4_engine_core::rules::combat as cc;
-use ti4_engine_core::rules::combat::{Borrowed, FlagshipText, Faction, Rd};
-use ti4_engine_core::state::{CoreState, Piece, Slice, SliceSet};
+use ti4_engine_core::rules::combat::Rd;
+use ti4_engine_core::kernel::hooks::BorrowedStats;
+use ti4_engine_core::kernel::seam::{adapters, providers, Delta, Layer, Pass, Replacement, RollKind, RollSite, RuleRef, SeatSystemSite, Seams, SetWhy, Source, Step, Verdict};
+use ti4_engine_core::kernel::Next;
+use ti4_engine_core::state::{Piece, Slice, SliceSet};
 use ti4_model::content_types::SourceSet;
 use ti4_model::id::{PlanetId, PlayerId, SystemId};
 use ti4_model::state::GameState;
@@ -44,17 +46,47 @@ fn typed<T: IdStr>(id: &str) -> Option<T> {
     T::from_id(id)
 }
 
-/// The string engine's answers to the core's faction seam.
-pub struct Strs<'a> {
-    pub gs: &'a GameState,
-    pub content: &'a ContentStore,
-    pub sources: SourceSet,
-    pub cx: &'a Ctx,
+// -- the string bridge --------------------------------------------------------------------------
+//
+// The faction modules are not ported to the core yet, so their answers come from the string engine.
+// Providers on the seams are plain functions, so the string answers reach them through a thread-local
+// [`Oracle`] installed for the duration of one view call. It dies with the last faction module that moves
+// to `ti4-engine-core-factions`.
+
+/// What the string bridge answers from: a copy of the position and the owner table.
+struct Oracle {
+    gs: GameState,
+    sources: SourceSet,
+    owners: Vec<Option<String>>,
 }
 
-impl Strs<'_> {
+thread_local! {
+    static ORACLE: std::cell::RefCell<Option<std::rc::Rc<Oracle>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Restores the previous oracle when a view call ends.
+struct Installed(Option<std::rc::Rc<Oracle>>);
+
+impl Installed {
+    fn new(o: std::rc::Rc<Oracle>) -> Self {
+        Self(ORACLE.with(|c| c.borrow_mut().replace(o)))
+    }
+}
+
+impl Drop for Installed {
+    fn drop(&mut self) {
+        ORACLE.with(|c| *c.borrow_mut() = self.0.take());
+    }
+}
+
+fn with_oracle<R>(f: impl FnOnce(&Oracle) -> R) -> Option<R> {
+    let o = ORACLE.with(|c| c.borrow().clone())?;
+    Some(f(&o))
+}
+
+impl Oracle {
     fn player(&self, seat: Seat) -> Option<PlayerId> {
-        self.cx.owners.id(seat).map(PlayerId::new)
+        self.owners.get(usize::from(seat.0))?.as_deref().map(PlayerId::new)
     }
 
     fn with_unit<R>(&self, unit: CombatUnit, f: impl FnOnce(&crate::factions::CombatUnit<'_>) -> R) -> Option<R> {
@@ -76,152 +108,158 @@ impl Strs<'_> {
     }
 }
 
-impl Faction for Strs<'_> {
-    fn alastor_participants(&self, _: &CoreState, who: Seat, system: System) -> SmallList<(Planet, u16), 4> {
-        let Some(player) = self.player(who) else { return SmallList::new() };
-        let found = crate::factions::nekro_units::alastor_participants(self.gs, &player, &SystemId::new(system.as_str()));
-        found
-            .into_iter()
-            .filter_map(|(planet, index)| Some((typed::<Planet>(planet.as_str())?, u16::try_from(index).ok()?)))
-            .collect()
-    }
+/// `Source` of the string bridge's providers.
+const STRINGS: Source = Source::Rule(RuleRef(9200));
 
-    fn flagship_has_text(&self, _: &CoreState, who: Seat, unit: Unit, text: FlagshipText) -> bool {
-        let Some(player) = self.player(who) else { return false };
-        let id = match text {
-            FlagshipText::Jolnar => "jolnar_flagship",
-            FlagshipText::Letnev => "letnev_flagship",
-            FlagshipText::L1z1x => "l1z1x_flagship",
-            FlagshipText::Hacan => "hacan_flagship",
-        };
-        crate::factions::flagship_has_text(self.gs, &player, unit.as_str(), id)
-    }
-
-    fn law_fighter_bonus(&self, _: &CoreState, who: Seat) -> i64 {
-        self.player(who).map_or(0, |p| crate::laws::fighter_combat_bonus(self.gs, &p))
-    }
-
-    fn combat_modifier(&self, _: &CoreState, who: Seat, ctx: CombatCtx) -> i64 {
-        let Some(player) = self.player(who) else { return 0 };
-        let context = match ctx {
-            CombatCtx::Space => "space",
-            CombatCtx::Ground => "ground",
-        };
-        crate::faction_abilities::combat_modifier(self.gs, self.content, &player, context)
-    }
-
-    fn unit_roll_modifier(&self, _: &CoreState, unit: CombatUnit) -> i64 {
-        self.with_unit(unit, |cu| crate::factions::unit_roll_modifier(self.gs, self.content, self.sources, cu))
-            .unwrap_or(0)
-    }
-
-    fn mahact_flagship_bonus(&self, _: &CoreState, who: Seat, unit: Unit) -> i64 {
-        let Some(player) = self.player(who) else { return 0 };
-        crate::factions::mahact_units::flagship_roll_bonus(self.gs, self.content, self.sources, &player, unit.as_str())
-    }
-
-    fn nekro_mech_bonus(&self, _: &CoreState, who: Seat, unit: Unit, system: Option<System>) -> i64 {
-        let Some(player) = self.player(who) else { return 0 };
-        let system = system.map(|s| SystemId::new(s.as_str()));
-        crate::factions::nekro_units::mech_roll_bonus(
-            self.gs,
-            self.content,
-            self.sources,
-            &player,
-            unit.as_str(),
-            system.as_ref(),
-            None,
-        )
-    }
-
-    fn assail_space(&self, _: &CoreState, who: Seat, system: Option<System>) -> i64 {
-        let Some(player) = self.player(who) else { return 0 };
-        let system = system.map(|s| SystemId::new(s.as_str()));
-        crate::factions::firmament_plots::assail_space(self.gs, self.content, self.sources, &player, system.as_ref())
-    }
-
-    fn unit_dice(&self, _: &CoreState, unit: CombatUnit, dice: i64) -> i64 {
-        self.with_unit(unit, |cu| crate::factions::unit_dice(self.gs, self.content, self.sources, cu, dice))
-            .unwrap_or(dice)
-    }
-
-    fn borrowed_stats(&self, s: &CoreState, who: Seat, system: System) -> Option<Borrowed> {
-        let player = self.player(who)?;
-        let sid = SystemId::new(system.as_str());
-        let b = crate::factions::hooks_combat::borrowed_stats(self.gs, self.content, self.sources, &player, &sid)?;
-        // The string names the ship by value: the first equal one in board order.
-        let wanted = self.cx_piece(&b.unit)?;
-        let piece = s.board().sys(system).units.iter().find(|p| **p == wanted).copied()?;
-        Some(Borrowed { unit: piece, hits_on: b.hits_on, barrage: b.barrage })
-    }
-
-    fn may_sustain_modules(&self, _: &CoreState, unit: CombatUnit) -> bool {
-        self.with_unit(unit, |cu| crate::factions::hooks_combat::may_sustain(self.gs, self.content, self.sources, cu))
-            .unwrap_or(true)
-    }
-
-    fn bastion_extra_die(&self, _: &CoreState, piece: Piece) -> i64 {
-        i64::try_from(crate::factions::bastion::extra_die(&self.str_unit(piece))).unwrap_or(0)
-    }
-
-    fn round_agent_extra_die(&self, _: &CoreState, system: System, who: Seat, unit: Unit, index: usize) -> i64 {
-        let Some(player) = self.player(who) else { return 0 };
-        crate::factions::borrowed_round_agents::extra_die_for(
-            self.gs,
-            self.content,
-            self.sources,
-            &SystemId::new(system.as_str()),
-            None,
-            &player,
-            unit.as_str(),
-            index,
-            self.gs.combat_round_seq,
-        )
-    }
+fn add(n: i64) -> Delta {
+    if n == 0 { Delta::None } else { Delta::Add(n) }
 }
 
-impl Strs<'_> {
-    fn str_unit(&self, p: Piece) -> StrUnit {
-        StrUnit {
-            type_id: ti4_model::id::UnitTypeId::new(p.kind().as_str()),
-            owner: self.player(p.owner()).unwrap_or_else(|| PlayerId::new("")),
-            sustained_damage: p.sustained(),
-            galvanized: p.galvanized(),
+/// Register the bridge: the string modules' share of the roll shift (faction modules, Mahact, Nekro, the
+/// plots; the law, Morale Boost, Fighter Prototype, the nebula and the two abilities are data rows), the
+/// dice, `may_sustain`, borrowed stats and the Alastor's ground forces.
+fn register_string_bridge(seams: &mut Seams) {
+    seams.hit_shift.push_add(STRINGS, Layer::Faction, |_, site: &RollSite, _| {
+        if site.kind != RollKind::Combat {
+            return Delta::None;
         }
-    }
-
-    fn cx_piece(&self, u: &StrUnit) -> Option<Piece> {
-        let seat = self.cx.owners.seat(u.owner.as_str())?;
-        Some(Piece::new(typed::<Unit>(u.type_id.as_str())?, seat).with_sustained(u.sustained_damage).with_galvanized(u.galvanized))
-    }
+        add(with_oracle(|o| {
+            let u = site.unit;
+            let Some(player) = o.player(u.owner) else { return 0 };
+            let context = if u.ctx == CombatCtx::Space { "space" } else { "ground" };
+            let system = u.system.map(|s| SystemId::new(s.as_str()));
+            let module = crate::factions::combat_modifier(&o.gs, ContentStore::embedded(), &player, context);
+            let unit_mod = o
+                .with_unit(u, |cu| crate::factions::unit_roll_modifier(&o.gs, ContentStore::embedded(), o.sources, cu))
+                .unwrap_or(0);
+            let mahact = crate::factions::mahact_units::flagship_roll_bonus(
+                &o.gs,
+                ContentStore::embedded(),
+                o.sources,
+                &player,
+                u.unit.as_str(),
+            );
+            let nekro = crate::factions::nekro_units::mech_roll_bonus(
+                &o.gs,
+                ContentStore::embedded(),
+                o.sources,
+                &player,
+                u.unit.as_str(),
+                system.as_ref(),
+                None,
+            );
+            let assail =
+                crate::factions::firmament_plots::assail_space(&o.gs, ContentStore::embedded(), o.sources, &player, system.as_ref());
+            module + unit_mod + mahact + nekro + assail
+        })
+        .unwrap_or(0))
+    });
+    seams.dice.push_set(STRINGS, Layer::Faction, |_, site: &RollSite, acc| {
+        let to = with_oracle(|o| {
+            o.with_unit(site.unit, |cu| {
+                crate::factions::unit_dice(&o.gs, ContentStore::embedded(), o.sources, cu, acc)
+            })
+        })
+        .flatten()
+        .unwrap_or(acc);
+        if to == acc { Delta::None } else { Delta::Set { to, why: SetWhy::LegacyFold } }
+    });
+    seams.dice.push_add(STRINGS, Layer::Faction, |_, site: &RollSite, _| {
+        if site.kind != RollKind::Combat {
+            return Delta::None;
+        }
+        add(with_oracle(|o| {
+            let (Some(player), Some(system)) = (o.player(site.unit.owner), site.unit.system) else { return 0 };
+            let sid = SystemId::new(system.as_str());
+            let ships = crate::combat::ships_of(&o.gs, ContentStore::embedded(), o.sources, &player, &sid);
+            let index = usize::from(site.unit_index);
+            let bastion = ships
+                .get(index)
+                .map_or(0, |unit| i64::try_from(crate::factions::bastion::extra_die(unit)).unwrap_or(0));
+            let agent = crate::factions::borrowed_round_agents::extra_die_for(
+                &o.gs,
+                ContentStore::embedded(),
+                o.sources,
+                &sid,
+                None,
+                &player,
+                site.unit.unit.as_str(),
+                index,
+                o.gs.combat_round_seq,
+            );
+            bastion + agent
+        })
+        .unwrap_or(0))
+    });
+    seams.may_sustain.push(STRINGS, |_, unit: &CombatUnit| {
+        let allowed = with_oracle(|o| {
+            o.with_unit(*unit, |cu| {
+                crate::factions::hooks_combat::may_sustain(&o.gs, ContentStore::embedded(), o.sources, cu)
+            })
+        })
+        .flatten()
+        .unwrap_or(true);
+        if allowed { Verdict::Abstain } else { Verdict::Forbid }
+    });
+    seams.borrowed_stats.push(Replacement {
+        source: STRINGS,
+        step: Step::BorrowedStats,
+        offer: |_, site: &SeatSystemSite| {
+            with_oracle(|o| {
+                let player = o.player(site.who)?;
+                let sid = SystemId::new(site.system.as_str());
+                let b = crate::factions::hooks_combat::borrowed_stats(&o.gs, ContentStore::embedded(), o.sources, &player, &sid)?;
+                Some(BorrowedStats {
+                    unit: typed::<Unit>(b.unit.type_id.as_str())?,
+                    sustained: b.unit.sustained_damage,
+                    galvanized: b.unit.galvanized,
+                    hits_on: b.hits_on.and_then(|v| i8::try_from(v).ok()),
+                    barrage: b.barrage.and_then(|(v, d)| Some((i8::try_from(v).ok()?, i8::try_from(d).ok()?))),
+                })
+            })
+            .flatten()
+        },
+        perform: |_, _, _| Next::Done,
+    });
+    seams.alastor_participants.push(STRINGS, Pass::Add, |_, site: &SeatSystemSite, out| {
+        with_oracle(|o| {
+            let Some(player) = o.player(site.who) else { return };
+            let found = crate::factions::nekro_units::alastor_participants(&o.gs, &player, &SystemId::new(site.system.as_str()));
+            for (planet, index) in found {
+                if let (Some(p), Ok(i)) = (typed::<Planet>(planet.as_str()), u16::try_from(index)) {
+                    out.push((p, i));
+                }
+            }
+        });
+    });
 }
 
 /// The typed view of one position, for the combat queries.
 pub struct CombatView<'g> {
+    _position: std::marker::PhantomData<&'g GameState>,
     view: CoreView,
     cx: Ctx,
     kernel: Kernel,
-    gs: &'g GameState,
-    content: &'g ContentStore,
-    sources: SourceSet,
     blanked: bool,
+    oracle: std::rc::Rc<Oracle>,
 }
 
 impl<'g> CombatView<'g> {
     /// The view of a position; `None` when something is not mapped.
     #[must_use]
-    pub fn of(gs: &'g GameState, content: &'g ContentStore, sources: SourceSet) -> Option<Self> {
+    pub fn of(gs: &'g GameState, _content: &'g ContentStore, sources: SourceSet) -> Option<Self> {
         let mut cx = Ctx::of(gs).ok()?;
         let view = CoreView::of(gs, &mut cx, Sources { galaxy: None, rng: None }, READS).ok()?;
         let scope = crate::core_adapter::scope(sources);
         let mut kernel = Kernel::plain();
+        providers::register_core(&mut kernel.hooks);
+        adapters::bridge_legacy(&mut kernel.hooks.seam);
         cc::register_naaz_nomad(&mut kernel.hooks);
+        register_string_bridge(&mut kernel.hooks.seam);
         kernel.sources = CoreSources(u8::try_from(scope.0).ok()?);
-        Some(Self { view, cx, kernel, gs, content, sources, blanked: crate::laws::blanked(gs) })
-    }
-
-    fn strs(&self) -> Strs<'_> {
-        Strs { gs: self.gs, content: self.content, sources: self.sources, cx: &self.cx }
+        let owners = (0..16_u8).map(|i| cx.owners.id(Seat(i)).map(str::to_owned)).collect();
+        let oracle = std::rc::Rc::new(Oracle { gs: gs.clone(), sources, owners });
+        Some(Self { _position: std::marker::PhantomData, view, cx, kernel, blanked: crate::laws::blanked(gs), oracle })
     }
 
     fn seat(&self, p: &PlayerId) -> Option<Seat> {
@@ -251,8 +289,8 @@ impl<'g> CombatView<'g> {
 
     /// Run `f` with the read bundle.
     fn with<R>(&self, f: impl FnOnce(Rd<'_>) -> R) -> R {
-        let strs = self.strs();
-        f(Rd::new(&self.view, &self.kernel, &strs).with_blanked(self.blanked))
+        let _installed = Installed::new(self.oracle.clone());
+        f(Rd::new(&self.view, &self.kernel).with_blanked(self.blanked))
     }
 
     /// `combat::combatants`.

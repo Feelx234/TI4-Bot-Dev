@@ -83,7 +83,11 @@ pub struct AfbExcess {
 /// `hooks_combat::BorrowedStats`: the combat stats a flagship borrows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BorrowedStats {
+    /// The ship as it stands (identical ships are interchangeable: the first equal one in board order
+    /// borrows): its type, damage and galvanize.
     pub unit: Unit,
+    pub sustained: bool,
+    pub galvanized: bool,
     pub hits_on: Option<i8>,
     /// Anti-fighter-barrage `(dice, hits_on)`.
     pub barrage: Option<(i8, i8)>,
