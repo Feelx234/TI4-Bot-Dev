@@ -942,7 +942,7 @@ mod tests {
 
     /// Holds the report lock and turns fail-fast off (the tests inject differences on purpose, also
     /// when the suite runs with `TI4_DUAL_FAIL_FAST`); restored on drop.
-    struct Serial(std::sync::MutexGuard<'static, ()>, bool);
+    struct Serial(#[allow(dead_code)] std::sync::MutexGuard<'static, ()>, bool);
 
     impl Drop for Serial {
         fn drop(&mut self) {
