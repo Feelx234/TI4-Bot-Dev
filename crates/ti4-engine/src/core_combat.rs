@@ -18,7 +18,7 @@ use ti4_engine_core::kernel::{Kernel, Sources as CoreSources};
 use ti4_engine_core::rules::combat as cc;
 use ti4_engine_core::rules::combat::Rd;
 use ti4_engine_core::kernel::hooks::BorrowedStats;
-use ti4_engine_core::kernel::seam::{adapters, providers, Delta, Layer, Pass, Replacement, RollKind, RollSite, RuleRef, SeatSystemSite, Seams, SetWhy, SilenceSite, Source, Step, Verdict};
+use ti4_engine_core::kernel::seam::{adapters, providers, Delta, Layer, Replacement, RollKind, RollSite, RuleRef, SeatSystemSite, Seams, SetWhy, SilenceSite, Source, Step, Verdict};
 use ti4_engine_core::kernel::Next;
 use ti4_engine_core::state::{Piece, Slice, SliceSet};
 use ti4_model::content_types::SourceSet;
@@ -253,17 +253,6 @@ fn register_string_bridge(seams: &mut Seams) {
             .flatten()
         },
         perform: |_, _, _| Next::Done,
-    });
-    seams.alastor_participants.push(STRINGS, Pass::Add, |_, site: &SeatSystemSite, out| {
-        with_oracle(|o| {
-            let Some(player) = o.player(site.who) else { return };
-            let found = crate::factions::nekro_units::alastor_participants(&o.gs, &player, &SystemId::new(site.system.as_str()));
-            for (planet, index) in found {
-                if let (Some(p), Ok(i)) = (typed::<Planet>(planet.as_str()), u16::try_from(index)) {
-                    out.push((p, i));
-                }
-            }
-        });
     });
 }
 
@@ -748,6 +737,9 @@ pub fn combat_kernel(sources: SourceSet) -> Option<Kernel> {
     providers::register_core(&mut kernel.hooks);
     adapters::bridge_legacy(&mut kernel.hooks.seam);
     cc::register_naaz_nomad(&mut kernel.hooks);
+    // Bastion's ship-lost bookkeeping and the Nekro Alastor queries and bookkeeping are native.
+    ti4_engine_core_factions::ca_combat::bastion::register_observers(&mut kernel.hooks);
+    ti4_engine_core_factions::ca_combat::nekro::register(&mut kernel.hooks);
     register_string_bridge(&mut kernel.hooks.seam);
     kernel.sources = CoreSources(u8::try_from(scope.0).ok()?);
     Some(kernel)

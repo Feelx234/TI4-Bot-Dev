@@ -12,6 +12,7 @@
 //!
 //! Nothing here asks a question or emits an event: those go through the host the later sections take.
 
+pub mod assign;
 pub mod sustain_commander;
 pub mod sustain_offer;
 

@@ -3582,6 +3582,96 @@ fn absorb_hits_seeing_with_context(
         non_fighters_first,
     )?;
 
+    assign_remaining_windowed(
+        state,
+        content,
+        sources,
+        galaxy,
+        ctx,
+        player,
+        system,
+        producer,
+        remaining,
+        non_fighters_first,
+        origin,
+        cause,
+        during_space_combat,
+    )
+}
+
+/// [`assign_remaining`] as a core window on `driver=dual` (`rules::combat::assign`).
+#[allow(clippy::too_many_arguments, reason = "assign_remaining's own")]
+fn assign_remaining_windowed(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    ctx: &mut Resolving<'_>,
+    player: &PlayerId,
+    system: &SystemId,
+    producer: &PlayerId,
+    remaining: usize,
+    non_fighters_first: bool,
+    origin: HitOrigin,
+    cause: &str,
+    during_space_combat: bool,
+) -> Result<(), CombatError> {
+    let failed = std::cell::Cell::new(false);
+    let mut outcome = None;
+    let args = crate::dual_window::AssignArgs {
+        player,
+        system,
+        producer,
+        hits: remaining,
+        ability: origin == HitOrigin::UnitAbility,
+        non_fighters_first,
+        cause,
+        cause_kind: hit_cause_of(cause),
+        during_space_combat,
+        announce_staging: crate::supply::staging_enabled(state),
+        announce: ctx.timing.is_some(),
+        neutral: crate::neutral_units::is_neutral(player),
+    };
+    crate::dual_window!(
+        crate::dual::Area::Driver,
+        "combat::assign_hits",
+        state,
+        |s: &mut GameState| {
+            let result = assign_remaining(
+                s, content, sources, galaxy, ctx, player, system, producer, remaining, non_fighters_first,
+                origin, cause, during_space_combat,
+            );
+            failed.set(result.is_err());
+            outcome = Some(result);
+            crate::dual::Run::new(!failed.get())
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            if failed.get() {
+                return None;
+            }
+            crate::dual_window::assign_hits(s, sources, args, script)
+        }
+    );
+    outcome.unwrap_or(Ok(()))
+}
+
+/// The loop of [`absorb_hits_seeing_with_context`] that assigns `remaining` hits one casualty at a time.
+#[allow(clippy::too_many_arguments, reason = "the absorb call's own")]
+fn assign_remaining(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    ctx: &mut Resolving<'_>,
+    player: &PlayerId,
+    system: &SystemId,
+    producer: &PlayerId,
+    mut remaining: usize,
+    non_fighters_first: bool,
+    origin: HitOrigin,
+    cause: &str,
+    during_space_combat: bool,
+) -> Result<(), CombatError> {
     while remaining > 0 {
         let mut alive = ships_of(state, content, sources, player, system);
         alive.retain(|unit| {
