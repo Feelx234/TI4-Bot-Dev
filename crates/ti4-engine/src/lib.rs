@@ -86,6 +86,15 @@ pub mod core_sync;
 /// Area::BoardQueries (package A1): the typed board queries behind a string interface.
 #[cfg(feature = "typed-core")]
 pub mod board_view;
+/// Area::Strategy (package B8): the typed strategy reads behind a string interface.
+#[cfg(feature = "typed-core")]
+pub mod strategy_view;
+/// The `typed-core`-independent entry points of `strategy_view` (a `None` without the feature).
+pub(crate) mod strategy_typed;
+/// The offline dual of Area::Strategy.
+#[cfg(feature = "typed-core")]
+#[doc(hidden)]
+pub mod strategy_check;
 /// The offline dual of Area::BoardQueries.
 #[cfg(feature = "typed-core")]
 #[doc(hidden)]
