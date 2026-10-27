@@ -43,6 +43,14 @@ pub fn blank_for_turn(state: &mut GameState) {
 /// Laws currently in play. Empty while [`blanked`].
 #[must_use]
 pub fn in_play(state: &GameState) -> Vec<String> {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::board_view::BoardView::light(state).map(|v| v.laws_in_play());
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(crate::dual::Area::BoardQueries, "laws::in_play", typed(), in_play_text(state))
+}
+
+fn in_play_text(state: &GameState) -> Vec<String> {
     if blanked(state) {
         return Vec::new();
     }
@@ -52,7 +60,11 @@ pub fn in_play(state: &GameState) -> Vec<String> {
 /// Whether a law is in play. Never while [`blanked`].
 #[must_use]
 pub fn active(state: &GameState, alias: &str) -> bool {
-    !blanked(state) && state.laws.contains_key(alias)
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::board_view::BoardView::light(state).and_then(|v| v.law_active(alias));
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(crate::dual::Area::BoardQueries, "laws::active", typed(), !blanked(state) && state.laws.contains_key(alias))
 }
 
 /// What this law was elected onto — a planet or a player (8.9 to 8.11).
@@ -215,6 +227,22 @@ pub fn planet_value_bonus(
 /// payment counts.
 #[must_use]
 pub fn planet_value_bonus_sources(
+    state: &GameState,
+    planet: &ti4_model::id::PlanetId,
+) -> Vec<(&'static str, i64, i64)> {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::board_view::BoardView::light(state).and_then(|v| v.planet_value_bonus_sources(planet));
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::BoardQueries,
+        "laws::planet_value_bonus_sources",
+        typed(),
+        planet_value_bonus_sources_text(state, planet)
+    )
+}
+
+fn planet_value_bonus_sources_text(
     state: &GameState,
     planet: &ti4_model::id::PlanetId,
 ) -> Vec<(&'static str, i64, i64)> {

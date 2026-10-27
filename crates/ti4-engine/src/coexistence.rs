@@ -42,6 +42,14 @@ use ti4_model::state::GameState;
 /// Everyone coexisting on a planet, the controller aside.
 #[must_use]
 pub fn coexisters(state: &GameState, system: &SystemId, planet: &PlanetId) -> BTreeSet<PlayerId> {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::board_view::BoardView::light(state).and_then(|v| v.coexisters(system, planet));
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(crate::dual::Area::BoardQueries, "coexistence::coexisters", typed(), coexisters_text(state, system, planet))
+}
+
+fn coexisters_text(state: &GameState, system: &SystemId, planet: &PlanetId) -> BTreeSet<PlayerId> {
     state
         .system_state(system)
         .coexisting
@@ -78,6 +86,19 @@ pub fn controls_for_scoring(
     planet: &PlanetId,
     player: &PlayerId,
 ) -> bool {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::board_view::BoardView::light(state).and_then(|v| v.controls_for_scoring(system, planet, player));
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::BoardQueries,
+        "coexistence::controls_for_scoring",
+        typed(),
+        controls_for_scoring_text(state, system, planet, player)
+    )
+}
+
+fn controls_for_scoring_text(state: &GameState, system: &SystemId, planet: &PlanetId, player: &PlayerId) -> bool {
     let record = state.system_state(system);
     record.planet_control.get(planet) == Some(player)
         || record
