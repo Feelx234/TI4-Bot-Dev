@@ -409,9 +409,7 @@ pub fn spendable_planets(state: &GameState, player: &PlayerId) -> Vec<PlanetId> 
         .map(|(_, planet)| planet.clone())
         .filter(|planet| !state.exhausted_planets.contains(planet))
         // The Deepwrought's ocean cards are planet cards off the map (1 resource, 1 influence).
-        .chain(crate::factions::deepwrought::spendable_oceans(
-            state, player,
-        ))
+        .chain(crate::production_effects::spendable_off_map_cards(state, player))
         .collect()
 }
 
@@ -421,9 +419,7 @@ pub fn spendable_planets(state: &GameState, player: &PlayerId) -> Vec<PlanetId> 
 /// every step of the payment loop.
 #[must_use]
 pub fn trade_good_worth(state: &GameState, player: &PlayerId) -> i64 {
-    // Mentak `mc` lives in `factions/mentak.rs` on the hook below; nothing is hard-coded here.
-    let base = 1;
-    crate::factions::hooks_economy::trade_good_worth(state, player, base)
+    crate::production_effects::trade_good_worth(state, player)
 }
 
 /// War Machine: the faces of budget this step gains, per copy played in this activation.
@@ -468,7 +464,7 @@ pub fn available(
     let from_triad = crate::relics::triad_value(state, player).unwrap_or(0);
     let goods = state.player(player).map_or(0, |seat| {
         i64::from(seat.trade_goods) * trade_good_worth(state, player)
-    }) + crate::factions::keleres::spendable_commodities(state, player)
+    }) + crate::production_effects::spendable_commodities(state, player)
         * trade_good_worth(state, player);
     // War Machine's "reduce the combined cost of the produced units by 1" is spent from the
     // same budget as its "+4 to the total PRODUCTION value", so it joins the faces here as
@@ -593,7 +589,7 @@ fn payment_options(
         .map_or(0, |seat| i64::from(seat.trade_goods));
     // Goods capacity under the guard uses the `mc`-multiplied worth (engine/production.py pay()).
     // Xander Alexin Victori III (Keleres agent): commodities the player may spend as trade goods.
-    let commodities = crate::factions::keleres::spendable_commodities(state, player);
+    let commodities = crate::production_effects::spendable_commodities(state, player);
     let goods_capacity = state.player(player).map_or(0, |seat| {
         i64::from(seat.trade_goods) * trade_good_worth(state, player)
     }) + commodities * trade_good_worth(state, player);
@@ -724,7 +720,7 @@ fn apply_payment_option(
     }
     if answer.id == "commodity" {
         // Keleres agent: a commodity spent as if it were a trade good.
-        if crate::factions::keleres::spendable_commodities(state, player) <= 0 {
+        if crate::production_effects::spendable_commodities(state, player) <= 0 {
             return None;
         }
         let worth = trade_good_worth(state, player);
@@ -2335,36 +2331,16 @@ impl ProductionWindow {
         // A module may let the unit go elsewhere, but only a unit this system can produce at all
         // (68.10: a blockaded dock makes no ships, wherever they would be placed).
         if !spots.is_empty() {
-            spots.extend(
-                crate::factions::hooks_economy::production_destinations(
-                    state,
-                    content,
-                    sources,
-                    &self.player,
-                    &self.system,
-                    kind.base_type(),
-                )
-                .into_iter()
-                .map(|(system, planet)| {
-                    let at = planet.map_or_else(|| SPACE.to_owned(), |planet| planet.to_string());
-                    format!("{system}{REMOTE_SEPARATOR}{at}")
-                }),
+            crate::production_effects::add_remote_spots(
+                state,
+                content,
+                sources,
+                &self.player,
+                &self.system,
+                kind,
+                &self.report.produced,
+                &mut spots,
             );
-            if kind.is_ship() {
-                // The Last Bastion's Icon: "place those ships in a system that contains 1 of your
-                // command tokens, ...". Shapes the ship spots over the whole use.
-                crate::factions::bastion::adjust_ship_spots(
-                    state,
-                    content,
-                    sources,
-                    &self.player,
-                    &self.system,
-                    &self.report.produced,
-                    &mut spots,
-                );
-                // The Crimson hero: "You may place any of those ships onto this card."
-                crate::factions::crimson_cards::offer_card_spot(state, &self.player, &mut spots);
-            }
         }
         spots
     }
