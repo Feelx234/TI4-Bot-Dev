@@ -70,6 +70,7 @@ pub fn draw(
             state, content, table, player, count,
         )?;
     }
+    crate::deck::drop_unofficial_action_cards(state);
     let mut drawn = Vec::new();
     // Yssaril Scheming: "When you draw 1 or more action cards, draw 1 additional action card."
     // Asked once, before the first card leaves the deck, and only for a real draw.
@@ -458,8 +459,8 @@ const SALVAGE_PREFIX: &str = "action_card|salvaged|";
 pub fn is_component_action(content: &ContentStore, alias: &ActionCardId) -> bool {
     content
         .get(ContentType::ActionCards, alias.as_str())
-        .and_then(|record| record.text("window"))
-        .is_some_and(|window| window.trim() == "Action")
+        .and_then(ti4_content::Record::action_card_window)
+        .is_some_and(ti4_content::ActionCardWindow::is_component_action)
 }
 
 /// 22.3: whether this card could be played right now.
@@ -1964,7 +1965,8 @@ fn crashlanding(context: &mut crate::timing::TimingContext<'_>, player: &PlayerI
     if kinds.is_empty() {
         return; // nothing to land
     }
-    // Where it can land: the system's planets, other than Mecatol Rex.
+    // Where it can land: the system's planets, other than Mecatol Rex (by id, not by the printed
+    // name: `seating::the_planets_named_mecatol_rex_are_the_mecatol_ids`).
     let planets: Vec<ti4_model::id::PlanetId> =
         crate::planets::in_system(context.state, context.content, context.sources, &system)
             .into_iter()
@@ -1972,7 +1974,7 @@ fn crashlanding(context: &mut crate::timing::TimingContext<'_>, player: &PlayerI
                 context
                     .content
                     .get(ContentType::Planets, planet.as_str())
-                    .is_none_or(|record| record.text("name") != Some("Mecatol Rex"))
+                    .is_none_or(|_| !crate::seating::is_mecatol_planet(planet.as_str()))
             })
             .collect();
     if planets.is_empty() {
@@ -2312,15 +2314,19 @@ pub(crate) fn predicted_outcome(
         [] => None,
         [only] => Some(only.clone()),
         many => {
+            let agenda = context.state.agenda_in_play.clone().unwrap_or_default();
+            let content = context.content;
             let choice = crate::choice::Choice::new(
                 player.clone(),
                 prompt,
                 many.iter()
                     .map(|outcome| {
+                        let named =
+                            crate::vote::outcome_label(context.state, content, &agenda, outcome);
                         crate::choice::ChoiceOption::labelled(
                             outcome.clone(),
                             "prediction",
-                            format!("predict {outcome}"),
+                            format!("predict {named}"),
                         )
                     })
                     .collect(),
@@ -2919,6 +2925,7 @@ fn rider_payoff(
             if let Some((content, table)) = table {
                 let _ = draw(state, content, table, player, 3);
             } else {
+                crate::deck::drop_unofficial_action_cards(state);
                 for _ in 0..3 {
                     let Some(top) = ti4_model::deck_reserve::take_top(
                         &mut state.deck_reserve,
@@ -3035,13 +3042,15 @@ fn rider_payoff(
         Some(crate::factions::keleres_units::RIDER_ALIAS) => {
             if let Some((content, table)) = table {
                 let _ = draw(state, content, table, player, 1);
-            } else if let Some(top) = ti4_model::deck_reserve::take_top(
-                &mut state.deck_reserve,
-                "action_card",
-                &mut state.action_card_deck,
-                Some(player.as_str()),
-            ) {
-                if let Some(seat) = state.player_mut(player) {
+            } else {
+                crate::deck::drop_unofficial_action_cards(state);
+                if let Some(top) = ti4_model::deck_reserve::take_top(
+                    &mut state.deck_reserve,
+                    "action_card",
+                    &mut state.action_card_deck,
+                    Some(player.as_str()),
+                ) && let Some(seat) = state.player_mut(player)
+                {
                     seat.action_cards.push(top);
                 }
             }

@@ -56,14 +56,24 @@ fn master_of_trade_1_trade_secondary_costs_hacan_no_command_token() {
         &state,
         c,
         &a(),
-        "trade"
+        Some(ti4_content::StrategyCardKind::Trade)
     ));
     assert!(
-        !crate::faction_abilities::secondary_is_free(&state, c, &a(), "technology"),
+        !crate::faction_abilities::secondary_is_free(
+            &state,
+            c,
+            &a(),
+            Some(ti4_content::StrategyCardKind::Technology)
+        ),
         "only the Trade card"
     );
     assert!(
-        !crate::faction_abilities::secondary_is_free(&state, c, &b(), "trade"),
+        !crate::faction_abilities::secondary_is_free(
+            &state,
+            c,
+            &b(),
+            Some(ti4_content::StrategyCardKind::Trade)
+        ),
         "a player without the ability pays"
     );
 }
@@ -149,19 +159,19 @@ fn brilliant_1_jolnar_resolves_the_technology_primary_in_place_of_the_secondary(
         &state,
         c,
         &a(),
-        "technology"
+        Some(ti4_content::StrategyCardKind::Technology)
     ));
     assert!(!crate::faction_abilities::substitutes_primary(
         &state,
         c,
         &a(),
-        "trade"
+        Some(ti4_content::StrategyCardKind::Trade)
     ));
     assert!(!crate::faction_abilities::substitutes_primary(
         &state,
         c,
         &b(),
-        "technology"
+        Some(ti4_content::StrategyCardKind::Technology)
     ));
 }
 

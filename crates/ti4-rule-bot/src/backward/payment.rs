@@ -85,14 +85,20 @@ pub fn plan_for(goal: &Goal) -> Option<Plan> {
     } else {
         let gap = goal.gap();
         let card = match price {
-            Price::TradeGoods(_) | Price::AllThree(_) if gap <= CARD_REACH => "Trade",
-            Price::Tokens(_) if gap <= CARD_REACH => "Leadership",
+            Price::TradeGoods(_) | Price::AllThree(_) if gap <= CARD_REACH => {
+                ti4_content::StrategyCardKind::Trade
+            }
+            Price::Tokens(_) if gap <= CARD_REACH => ti4_content::StrategyCardKind::Leadership,
             _ => return None,
         };
         (
             CARD_P,
-            vec![card.to_owned()],
-            format!("{} is {gap:.0} short: {card} would close it", goal.alias),
+            vec![card],
+            format!(
+                "{} is {gap:.0} short: {} would close it",
+                goal.alias,
+                card.printed_name()
+            ),
         )
     };
     Some(Plan {
@@ -163,10 +169,10 @@ mod tests {
     #[test]
     fn a_small_goods_or_token_gap_is_helped_by_a_card() {
         let p = plan_for(&goal("trade_routes", 1.0, 3.0, 5.0)).unwrap();
-        assert_eq!(p.steer.cards[0], "Trade");
+        assert_eq!(p.steer.cards[0], ti4_content::StrategyCardKind::Trade);
         assert!(p.probability < 0.9);
         let p = plan_for(&goal("lead", 1.0, 1.0, 3.0)).unwrap();
-        assert_eq!(p.steer.cards[0], "Leadership");
+        assert_eq!(p.steer.cards[0], ti4_content::StrategyCardKind::Leadership);
     }
 
     #[test]

@@ -82,10 +82,10 @@ pub struct Steer {
     pub systems: Vec<SystemId>,
     /// Unit type ids worth producing for it.
     pub builds: Vec<String>,
-    /// Strategy card names worth taking or playing (e.g. "Imperial", "Technology").
-    pub cards: Vec<String>,
+    /// Strategy cards worth taking or playing (e.g. Imperial, Technology).
+    pub cards: Vec<ti4_content::StrategyCardKind>,
     /// Strategy cards to play at the next opportunity (the prep step of a two-step plan).
-    pub play: Vec<String>,
+    pub play: Vec<ti4_content::StrategyCardKind>,
     /// Technologies to pick when a research is offered (the prep of a technology step).
     pub techs: Vec<String>,
     /// Systems whose invasion piles every ground force on one planet.
@@ -605,12 +605,12 @@ impl Verdict {
 impl Verdict {
     /// Whether a chosen plan wants `card` played now.
     #[must_use]
-    pub fn plays(&self, card: &str) -> bool {
+    pub fn plays(&self, card: ti4_content::StrategyCardKind) -> bool {
         !self.fallback
             && self
                 .chosen
                 .iter()
-                .any(|&i| self.plans[i].plan.steer.play.iter().any(|c| c == card))
+                .any(|&i| self.plans[i].plan.steer.play.contains(&card))
     }
 
     /// Unit types the chosen plans want produced.
@@ -639,14 +639,14 @@ impl Verdict {
 
     /// Strategy cards the chosen plans want, with the expected VP behind each.
     #[must_use]
-    pub fn cards(&self) -> BTreeMap<String, f64> {
-        let mut out: BTreeMap<String, f64> = BTreeMap::new();
+    pub fn cards(&self) -> BTreeMap<ti4_content::StrategyCardKind, f64> {
+        let mut out: BTreeMap<ti4_content::StrategyCardKind, f64> = BTreeMap::new();
         if self.fallback {
             return out;
         }
         for &i in &self.chosen {
             for card in &self.plans[i].plan.steer.cards {
-                *out.entry(card.clone()).or_default() += self.plans[i].expected;
+                *out.entry(*card).or_default() += self.plans[i].expected;
             }
         }
         out
@@ -713,9 +713,13 @@ pub fn weigh(ctx: &PlanCtx, plans: Vec<Plan>) -> Verdict {
     }
     let imperial = !fallback
         && (imperial
-            || chosen
-                .iter()
-                .any(|&i| weighed[i].plan.steer.cards.iter().any(|c| c == "Imperial")));
+            || chosen.iter().any(|&i| {
+                weighed[i]
+                    .plan
+                    .steer
+                    .cards
+                    .contains(&ti4_content::StrategyCardKind::Imperial)
+            }));
     Verdict {
         plans: weighed,
         chosen,
@@ -991,7 +995,7 @@ mod tests {
     fn the_mecatol_plan_competes_and_asks_for_imperial() {
         tuning::with(on(), || {
             let mut mecatol = plan("mecatol", 1.6, 0.8, 1, false, false);
-            mecatol.steer.cards = vec!["Imperial".to_owned()];
+            mecatol.steer.cards = vec![ti4_content::StrategyCardKind::Imperial];
             let v = weigh(
                 &PlanCtx::blank(&me()),
                 vec![plan("x", 1.0, 0.5, 1, false, false), mecatol],
@@ -1348,7 +1352,10 @@ mod tests {
                 .push(ti4_model::id::StrategyCardId::new("te6warfare"));
             let v = verdict_of(&state, &hub).expect("on");
             let w = warfare_plan(&v).expect("a two-step plan");
-            assert_eq!(w.plan.steer.play, vec!["Warfare".to_owned()]);
+            assert_eq!(
+                w.plan.steer.play,
+                vec![ti4_content::StrategyCardKind::Warfare]
+            );
             // Without the card the single token cannot do both steps.
             state
                 .player_mut(&me())
@@ -1492,8 +1499,16 @@ mod tests {
             let v = verdict_of(&state, &hub).expect("on");
             let w = tech_plan(&v, "technology range + act (Gravity Drive)").expect("a plan");
             assert_eq!(w.plan.steer.techs, vec!["gd".to_owned()]);
-            assert!(w.plan.steer.cards.iter().any(|c| c == "Technology"));
-            assert_eq!(w.plan.steer.play, vec!["Technology".to_owned()]);
+            assert!(
+                w.plan
+                    .steer
+                    .cards
+                    .contains(&ti4_content::StrategyCardKind::Technology)
+            );
+            assert_eq!(
+                w.plan.steer.play,
+                vec![ti4_content::StrategyCardKind::Technology]
+            );
             // A carrier already next to Mecatol Rex needs no range.
             let (mut near, hub) = far_position(2, 1, 1);
             give(&mut near, &["amd"], Some("pok7technology"));

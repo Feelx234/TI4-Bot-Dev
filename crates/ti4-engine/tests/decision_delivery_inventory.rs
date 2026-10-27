@@ -1658,7 +1658,9 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("action_cards.rs", "skilled_retreat", 1),
     ("agenda_effects.rs", "ask_the_speaker", 1),
     ("agenda_effects.rs", "choose_structure", 1),
-    ("agenda_effects.rs", "resolve_with", 1),
+    // Two asks: Galactic Crisis Pact's per-seat "follow the elected card" offer joined the
+    // existing one (card audit I02, rules version 31).
+    ("agenda_effects.rs", "resolve_with", 2),
     ("choice.rs", "ask_seeing", 1),
     ("choice.rs", "drive", 1),
     ("combat.rs", "choose_casualty_owing", 1),

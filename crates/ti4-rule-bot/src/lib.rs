@@ -99,6 +99,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use rand::Rng;
 use rand_chacha::ChaCha8Rng;
 use serde_json::Value;
+use ti4_content::StrategyCardKind;
 use ti4_content::units::UnitType;
 use ti4_engine::choice::{Choice, ChoiceOption, Observed, SeatObservation};
 use ti4_engine::fleet_strength::{Descriptors, descriptors, matchup};
@@ -977,39 +978,44 @@ fn home_system(seen: &Observed<'_>, me: &PlayerId) -> Option<SystemId> {
         .map(|(system, _)| system.clone())
 }
 
-fn card_is(seen: &Observed<'_>, card: &str, name: &str) -> bool {
-    ti4_engine::strategy_cards::card_name(seen.content(), card).as_deref() == Some(name)
+/// Which strategy card `card` (an id) is.
+fn card_kind(seen: &Observed<'_>, card: &str) -> Option<StrategyCardKind> {
+    ti4_engine::strategy_cards::card_kind(seen.content(), card)
 }
 
-/// The seat's strategy card called `name`, while it is still unplayed.
-fn ready_card(seen: &Observed<'_>, me: &PlayerId, name: &str) -> Option<String> {
+fn card_is(seen: &Observed<'_>, card: &str, kind: StrategyCardKind) -> bool {
+    card_kind(seen, card) == Some(kind)
+}
+
+/// The seat's strategy card of this kind, while it is still unplayed.
+fn ready_card(seen: &Observed<'_>, me: &PlayerId, kind: StrategyCardKind) -> Option<String> {
     let seat = seen.seat(me)?;
     seat.strategy_cards
         .iter()
         .find(|card| {
-            !seat.exhausted_strategy_cards.contains(*card) && card_is(seen, card.as_str(), name)
+            !seat.exhausted_strategy_cards.contains(*card) && card_is(seen, card.as_str(), kind)
         })
         .map(ToString::to_string)
 }
 
 /// Whether another seat holds the card called `name` and has not played it yet: its secondary
 /// is still to come this round.
-fn secondary_to_come(seen: &Observed<'_>, me: &PlayerId, name: &str) -> bool {
+fn secondary_to_come(seen: &Observed<'_>, me: &PlayerId, kind: StrategyCardKind) -> bool {
     seen.players()
         .into_iter()
         .filter(|player| *player != me)
-        .any(|player| ready_card(seen, player, name).is_some())
+        .any(|player| ready_card(seen, player, kind).is_some())
 }
 
 /// Strategy tokens kept back for a secondary worth more than the one on offer: in the opening
 /// rounds one for Warfare's home production while another seat has Warfare still to play, and
 /// one for Diplomacy's readying while the transport plan has a home build to pay for.
 fn strategy_reserve(seen: &Observed<'_>, me: &PlayerId) -> i32 {
-    let warfare = expanding(seen) && secondary_to_come(seen, me, "Warfare");
+    let warfare = expanding(seen) && secondary_to_come(seen, me, StrategyCardKind::Warfare);
     // Short of transports: one more for Diplomacy's readying, the home build's resources.
     let diplomacy = short_of_transports(seen, me)
         && home_builder_ahead(seen, me)
-        && secondary_to_come(seen, me, "Diplomacy");
+        && secondary_to_come(seen, me, StrategyCardKind::Diplomacy);
     i32::from(warfare) + i32::from(diplomacy)
 }
 
@@ -1112,7 +1118,8 @@ fn home_fleet_room(seen: &Observed<'_>, me: &PlayerId, home: &SystemId) -> i64 {
 /// short (at most three systems' worth) and what building them and a troop each at home costs.
 /// `None` when it has enough, or outside round 1.
 fn transport_plan(seen: &Observed<'_>, me: &PlayerId) -> Option<(i64, i64)> {
-    if seen.round() > 1 || (cruiser_plan(seen, me) && ready_card(seen, me, "Technology").is_some())
+    if seen.round() > 1
+        || (cruiser_plan(seen, me) && ready_card(seen, me, StrategyCardKind::Technology).is_some())
     {
         return None;
     }
@@ -1121,7 +1128,7 @@ fn transport_plan(seen: &Observed<'_>, me: &PlayerId) -> Option<(i64, i64)> {
     let tokens = seen
         .seat(me)
         .map_or(0, |seat| i64::from(seat.tactic_tokens))
-        + i64::from(ready_card(seen, me, "Warfare").is_some());
+        + i64::from(ready_card(seen, me, StrategyCardKind::Warfare).is_some());
     let wanted = (3 - systems_taken_this_round(seen, me)).min(tokens);
     let (transports, ground) = free_transports_and_ground(seen, me);
     let missing = wanted - transports;
@@ -1195,7 +1202,7 @@ fn wait_move_pays(seen: &Observed<'_>, me: &PlayerId) -> bool {
         .filter_map(|u| unit_type(seen, u.type_id.as_str()))
         .any(|t| t.is_ship() && !t.is_fighter() && t.capacity() == 0);
     let (_, lift) = waiting_and_lift(seen, me, &home);
-    ready_card(seen, me, "Warfare").is_some()
+    ready_card(seen, me, StrategyCardKind::Warfare).is_some()
         && !ground_produces(seen, me)
         && missing >= 2
         && warships_home
@@ -1299,9 +1306,9 @@ fn short_of_transports(seen: &Observed<'_>, me: &PlayerId) -> bool {
 /// held unplayed, or Warfare's secondary while another seat has it to play and a strategy token
 /// is left.
 fn home_builder_ahead(seen: &Observed<'_>, me: &PlayerId) -> bool {
-    ready_card(seen, me, "Construction").is_some()
-        || ready_card(seen, me, "Warfare").is_some()
-        || (secondary_to_come(seen, me, "Warfare")
+    ready_card(seen, me, StrategyCardKind::Construction).is_some()
+        || ready_card(seen, me, StrategyCardKind::Warfare).is_some()
+        || (secondary_to_come(seen, me, StrategyCardKind::Warfare)
             && seen.seat(me).is_some_and(|seat| seat.strategic_tokens > 0))
 }
 
@@ -1478,8 +1485,9 @@ fn trade_survives(choice: &Choice, seen: &Observed<'_>, me: &PlayerId, taking: &
     let Some(between) = picks_before_next(seen, me) else {
         return false;
     };
-    let offered = |name: &str| choice.options.iter().any(|o| card_is(seen, &o.id, name));
-    if !offered("Trade") {
+    let offered =
+        |kind: StrategyCardKind| choice.options.iter().any(|o| card_is(seen, &o.id, kind));
+    if !offered(StrategyCardKind::Trade) {
         return false;
     }
     // The seats still without a card pick before this seat's next pick.
@@ -1496,7 +1504,10 @@ fn trade_survives(choice: &Choice, seen: &Observed<'_>, me: &PlayerId, taking: &
         .options
         .iter()
         .filter(|o| o.id != taking)
-        .filter(|o| !card_is(seen, &o.id, "Trade") && !card_is(seen, &o.id, "Imperial"))
+        .filter(|o| {
+            !card_is(seen, &o.id, StrategyCardKind::Trade)
+                && !card_is(seen, &o.id, StrategyCardKind::Imperial)
+        })
         .count();
     !lover && before_trade >= between
 }
@@ -1511,24 +1522,39 @@ fn faction_card_score(
     if seen.round() > 1 {
         return None;
     }
-    let holds = |name: &str| {
+    let holds = |kind: StrategyCardKind| {
         seen.seat(me).is_some_and(|seat| {
             seat.strategy_cards
                 .iter()
-                .any(|held| card_is(seen, held.as_str(), name))
+                .any(|held| card_is(seen, held.as_str(), kind))
         })
     };
-    let name = ti4_engine::strategy_cards::card_name(seen.content(), card).unwrap_or_default();
+    let kind = card_kind(seen, card);
     if cruiser_plan(seen, me) {
         // Diplomacy readies the planets the carrier takes first: the six resources without Trade.
         let next_pick_now = picks_before_next(seen, me) == Some(0);
-        let offered = |name: &str| choice.options.iter().any(|o| card_is(seen, &o.id, name));
-        match name.as_str() {
-            "Trade" if holds("Technology") => return Some(30.0),
-            "Diplomacy" if holds("Technology") => return Some(28.0),
-            "Technology" if holds("Trade") || holds("Diplomacy") => return Some(30.0),
-            "Technology" if trade_survives(choice, seen, me, card) => return Some(30.0),
-            "Technology" if next_pick_now && offered("Diplomacy") => return Some(30.0),
+        let offered =
+            |kind: StrategyCardKind| choice.options.iter().any(|o| card_is(seen, &o.id, kind));
+        match kind {
+            Some(StrategyCardKind::Trade) if holds(StrategyCardKind::Technology) => {
+                return Some(30.0);
+            }
+            Some(StrategyCardKind::Diplomacy) if holds(StrategyCardKind::Technology) => {
+                return Some(28.0);
+            }
+            Some(StrategyCardKind::Technology)
+                if holds(StrategyCardKind::Trade) || holds(StrategyCardKind::Diplomacy) =>
+            {
+                return Some(30.0);
+            }
+            Some(StrategyCardKind::Technology) if trade_survives(choice, seen, me, card) => {
+                return Some(30.0);
+            }
+            Some(StrategyCardKind::Technology)
+                if next_pick_now && offered(StrategyCardKind::Diplomacy) =>
+            {
+                return Some(30.0);
+            }
             _ => {}
         }
     }
@@ -1538,20 +1564,22 @@ fn faction_card_score(
     if let Some((_, cost)) = transport_plan(seen, me)
         && planet_resources(seen, me) < cost
     {
-        let builder = holds("Construction") || holds("Warfare");
-        let builder_offered = choice
-            .options
-            .iter()
-            .find(|o| card_is(seen, &o.id, "Construction") || card_is(seen, &o.id, "Warfare"));
-        match name.as_str() {
-            "Trade" if builder => return Some(25.0),
-            "Trade"
+        let builder = holds(StrategyCardKind::Construction) || holds(StrategyCardKind::Warfare);
+        let builder_offered = choice.options.iter().find(|o| {
+            card_is(seen, &o.id, StrategyCardKind::Construction)
+                || card_is(seen, &o.id, StrategyCardKind::Warfare)
+        });
+        match kind {
+            Some(StrategyCardKind::Trade) if builder => return Some(25.0),
+            Some(StrategyCardKind::Trade)
                 if builder_offered
                     .is_none_or(|taken| !trade_survives(choice, seen, me, &taken.id)) =>
             {
                 return Some(9.0);
             }
-            "Diplomacy" if holds("Trade") => return Some(7.5),
+            Some(StrategyCardKind::Diplomacy) if holds(StrategyCardKind::Trade) => {
+                return Some(7.5);
+            }
             _ => {}
         }
     }
@@ -1561,7 +1589,7 @@ fn faction_card_score(
 /// Resources a faction opening keeps for a strategic action still to come: the Cruiser II plan's
 /// six for Technology's second research.
 fn reserved_resources(seen: &Observed<'_>, me: &PlayerId) -> i64 {
-    if cruiser_plan(seen, me) && ready_card(seen, me, "Technology").is_some() {
+    if cruiser_plan(seen, me) && ready_card(seen, me, StrategyCardKind::Technology).is_some() {
         SECOND_RESEARCH
     } else {
         0
@@ -1577,37 +1605,38 @@ fn spare_resources(seen: &Observed<'_>, me: &PlayerId) -> i64 {
 /// when the transport plan cannot pay for its home build yet; the Cruiser II plan plays Trade, then
 /// Technology once six resources are there.
 fn faction_card_play(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
-    let play = |name: &str| {
-        ready_card(seen, me, name).and_then(|card| strategic_option(choice, seen, &card))
+    let play = |kind: StrategyCardKind| {
+        ready_card(seen, me, kind).and_then(|card| strategic_option(choice, seen, &card))
     };
     // Short of transports and of the resources to build them: Trade's goods first, before the
     // token-free production at home (unless the home must first be emptied for fleet supply).
     if let Some((_, cost)) = transport_plan(seen, me)
-        && ready_card(seen, me, "Trade").is_some()
+        && ready_card(seen, me, StrategyCardKind::Trade).is_some()
         && home_builder_ahead(seen, me)
         && spare_resources(seen, me) < cost
         && !loaded_transport_blocks_home(seen, me)
     {
-        return play("Trade");
+        return play(StrategyCardKind::Trade);
     }
     if short_of_transports(seen, me)
         && let Some((_, cost)) = transport_plan(seen, me)
         && spare_resources(seen, me) < cost
-        && (ready_card(seen, me, "Warfare").is_some()
-            || ready_card(seen, me, "Construction").is_some())
+        && (ready_card(seen, me, StrategyCardKind::Warfare).is_some()
+            || ready_card(seen, me, StrategyCardKind::Construction).is_some())
     {
         // Diplomacy of its own readies the planets just taken: before the build.
         if best_two_exhausted(seen, me) > 0
-            && let Some(index) = play("Diplomacy")
+            && let Some(index) = play(StrategyCardKind::Diplomacy)
         {
             return Some(index);
         }
         // Diplomacy (its own or another seat's) or Trade still to come: the loaded transport
         // leaves first, and the build waits for their resources.
-        let more = ready_card(seen, me, "Diplomacy").is_some()
-            || ready_card(seen, me, "Trade").is_some()
-            || secondary_to_come(seen, me, "Diplomacy");
-        let eager_warfare = ground_produces(seen, me) && ready_card(seen, me, "Warfare").is_some();
+        let more = ready_card(seen, me, StrategyCardKind::Diplomacy).is_some()
+            || ready_card(seen, me, StrategyCardKind::Trade).is_some()
+            || secondary_to_come(seen, me, StrategyCardKind::Diplomacy);
+        let eager_warfare =
+            ground_produces(seen, me) && ready_card(seen, me, StrategyCardKind::Warfare).is_some();
         if more
             && !eager_warfare
             && seen.seat(me).is_some_and(|seat| seat.tactic_tokens > 1)
@@ -1622,15 +1651,20 @@ fn faction_card_play(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Opt
     // The home build cannot pay for the transports yet, and Diplomacy's secondary (readying the
     // planets just taken) is still to come: another card first, to wait for it.
     if let Some((_, cost)) = transport_plan(seen, me)
-        && (ready_card(seen, me, "Warfare").is_some()
-            || ready_card(seen, me, "Construction").is_some())
+        && (ready_card(seen, me, StrategyCardKind::Warfare).is_some()
+            || ready_card(seen, me, StrategyCardKind::Construction).is_some())
         && spare_resources(seen, me) < cost
-        && secondary_to_come(seen, me, "Diplomacy")
+        && secondary_to_come(seen, me, StrategyCardKind::Diplomacy)
         && exhausted_resources(seen, me) > 0
         && seen.seat(me).is_some_and(|seat| seat.strategic_tokens > 0)
     {
-        for name in ["Leadership", "Politics", "Imperial", "Technology"] {
-            if let Some(index) = play(name) {
+        for kind in [
+            StrategyCardKind::Leadership,
+            StrategyCardKind::Politics,
+            StrategyCardKind::Imperial,
+            StrategyCardKind::Technology,
+        ] {
+            if let Some(index) = play(kind) {
                 return Some(index);
             }
         }
@@ -1639,17 +1673,17 @@ fn faction_card_play(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Opt
     if wait_move_pays(seen, me) {
         return choice.options.iter().position(|o| o.id == "tactical");
     }
-    if cruiser_plan(seen, me) && ready_card(seen, me, "Technology").is_some() {
-        if let Some(index) = play("Trade") {
+    if cruiser_plan(seen, me) && ready_card(seen, me, StrategyCardKind::Technology).is_some() {
+        if let Some(index) = play(StrategyCardKind::Trade) {
             return Some(index);
         }
         let resources = seen.available_spend(me, Spend::Resources);
         if resources >= SECOND_RESEARCH {
-            return play("Technology");
+            return play(StrategyCardKind::Technology);
         }
         // Without Trade: Diplomacy readies the planets the carrier took, once that pays for it.
         if resources + best_two_exhausted(seen, me) >= SECOND_RESEARCH
-            && let Some(index) = play("Diplomacy")
+            && let Some(index) = play(StrategyCardKind::Diplomacy)
         {
             return Some(index);
         }
@@ -1719,12 +1753,12 @@ fn pick_action(
     let galaxy = seen.galaxy()?;
     let tactical = choice.options.iter().position(|o| o.id == "tactical")?;
     let out_of_tokens = seen.seat(me).is_some_and(|seat| seat.tactic_tokens <= 0);
-    let play = |name: &str| {
-        ready_card(seen, me, name).and_then(|card| strategic_option(choice, seen, &card))
+    let play = |kind: StrategyCardKind| {
+        ready_card(seen, me, kind).and_then(|card| strategic_option(choice, seen, &card))
     };
     if tuning::mecatol_imperial_priority()
         && holds_mecatol(seen, me)
-        && let Some(index) = play("Imperial")
+        && let Some(index) = play(StrategyCardKind::Imperial)
     {
         return Some(index);
     }
@@ -1747,7 +1781,7 @@ fn pick_action(
         .min_by_key(|(i, o)| {
             let imperial =
                 o.id.strip_prefix("strategic|")
-                    .is_some_and(|card| card_is(seen, card, "Imperial"));
+                    .is_some_and(|card| card_is(seen, card, StrategyCardKind::Imperial));
             (hold_imperial && imperial, *i)
         })
         .map(|(i, _)| i);
@@ -1761,11 +1795,11 @@ fn pick_action(
     // The Arborec's Warfare builds where their troops land instead (see `warfare_builds`).
     let landing_build = short_of_transports(seen, me) && ground_produces(seen, me);
     if home_build_wanted(seen, me) {
-        for name in ["Warfare", "Construction"] {
-            if name == "Warfare" && landing_build {
+        for kind in [StrategyCardKind::Warfare, StrategyCardKind::Construction] {
+            if kind == StrategyCardKind::Warfare && landing_build {
                 continue;
             }
-            if let Some(index) = play(name) {
+            if let Some(index) = play(kind) {
                 return Some(index);
             }
         }
@@ -1781,7 +1815,7 @@ fn pick_action(
         && !warfare_builds
         && (worth >= tuning::eager_worth()
             || (out_of_tokens && worth >= tuning::activation_threshold()))
-        && let Some(index) = play("Warfare")
+        && let Some(index) = play(StrategyCardKind::Warfare)
     {
         return Some(index);
     }
@@ -2375,7 +2409,7 @@ fn escort_from_home(
     let (missing, _) = transport_plan(seen, me)?;
     // Warfare's own build: the warships leave by a move of their own later
     // ([`wait_move_pays`]), so this transport's system keeps a small fleet.
-    if ready_card(seen, me, "Warfare").is_some()
+    if ready_card(seen, me, StrategyCardKind::Warfare).is_some()
         && !ground_produces(seen, me)
         && !gate_bound(seen, me)
     {
@@ -3006,14 +3040,14 @@ fn pick_strategy_card(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Op
         let imperial = choice
             .options
             .iter()
-            .position(|o| card_is(seen, &o.id, "Imperial"))
+            .position(|o| card_is(seen, &o.id, StrategyCardKind::Imperial))
             .filter(|_| holds_mecatol(seen, me) || mecatol_takeable(seen, me));
         let nekro_tech = (tuning::nekro_tech() && faction(seen, me) == "nekro")
             .then(|| {
                 choice
                     .options
                     .iter()
-                    .position(|o| card_is(seen, &o.id, "Technology"))
+                    .position(|o| card_is(seen, &o.id, StrategyCardKind::Technology))
             })
             .flatten();
         return imperial
@@ -3048,22 +3082,36 @@ fn card_goods(seen: &Observed<'_>, card: &str) -> i32 {
 
 /// Bot version 3: the first-round card order of the community guides for the factions whose
 /// openings differ from the generic one (`crates/ti4-server/docs/COMMUNITY_FACTION_STRATEGIES.md`).
-fn r1_card(faction: &str, card: &str) -> Option<f64> {
+fn r1_card(faction: &str, card: Option<StrategyCardKind>) -> Option<f64> {
     match (faction, card) {
         // Trade first: Nekro, Ghosts, Cabal, Empyrean, Titans ("Trade in round 1 and play it early").
-        ("nekro" | "ghost" | "cabal" | "empyrean" | "titans", "Trade") if tuning::r1_trade() => {
+        ("nekro" | "ghost" | "cabal" | "empyrean" | "titans", Some(StrategyCardKind::Trade))
+            if tuning::r1_trade() =>
+        {
             Some(12.0)
         }
         // Technology first for the Arborec (Sarween Tools), Naalu and L1Z1X (the 5-resource home).
-        ("arborec" | "naalu" | "l1z1x", "Technology") if tuning::r1_tech() => Some(11.0),
+        ("arborec" | "naalu" | "l1z1x", Some(StrategyCardKind::Technology))
+            if tuning::r1_tech() =>
+        {
+            Some(11.0)
+        }
         // Factions that start without a technology here: Gravity Drive via the first card.
-        ("winnu" | "sardakk" | "argent", "Technology") if tuning::r1_tech2() => Some(11.0),
-        ("muaat" | "mahact" | "cabal", "Leadership") if tuning::r1_leadership() => Some(9.0),
+        ("winnu" | "sardakk" | "argent", Some(StrategyCardKind::Technology))
+            if tuning::r1_tech2() =>
+        {
+            Some(11.0)
+        }
+        ("muaat" | "mahact" | "cabal", Some(StrategyCardKind::Leadership))
+            if tuning::r1_leadership() =>
+        {
+            Some(9.0)
+        }
         // The Nekro's research is three command tokens (Propagation): Technology is a free
         // Leadership.
-        ("nekro", "Technology") if tuning::nekro_tech() => Some(11.0),
+        ("nekro", Some(StrategyCardKind::Technology)) if tuning::nekro_tech() => Some(11.0),
         // Peace Accords after Diplomacy readies the planets the carrier took.
-        ("xxcha", "Diplomacy") if tuning::r1_diplomacy() => Some(9.0),
+        ("xxcha", Some(StrategyCardKind::Diplomacy)) if tuning::r1_diplomacy() => Some(9.0),
         _ => None,
     }
 }
@@ -3072,36 +3120,48 @@ fn r1_card(faction: &str, card: &str) -> Option<f64> {
 fn opening_card_score(seen: &Observed<'_>, me: &PlayerId, card: &str) -> f64 {
     let hacan = faction(seen, me) == "hacan";
     let first_round = seen.round() <= 1;
-    let holds = |name: &str| {
+    let holds = |kind: StrategyCardKind| {
         seen.seat(me).is_some_and(|seat| {
             seat.strategy_cards
                 .iter()
-                .any(|held| card_is(seen, held.as_str(), name))
+                .any(|held| card_is(seen, held.as_str(), kind))
         })
     };
-    let name = ti4_engine::strategy_cards::card_name(seen.content(), card).unwrap_or_default();
-    if first_round && let Some(score) = r1_card(&faction(seen, me), &name) {
+    let kind = card_kind(seen, card);
+    if first_round && let Some(score) = r1_card(&faction(seen, me), kind) {
         return score + f64::from(card_goods(seen, card));
     }
-    let base = match name.as_str() {
-        "Trade" if hacan => 20.0,
-        "Trade" if first_round => -10.0,
-        "Trade" => 4.0,
-        "Imperial" if first_round => -20.0,
-        "Imperial" if holds_mecatol(seen, me) || mecatol_takeable(seen, me) => 30.0,
-        "Imperial" => 3.0,
-        "Warfare" => 10.0,
-        "Construction" => 8.0,
-        "Leadership" => 7.0,
+    let base = match kind {
+        Some(StrategyCardKind::Trade) if hacan => 20.0,
+        Some(StrategyCardKind::Trade) if first_round => -10.0,
+        Some(StrategyCardKind::Trade) => 4.0,
+        Some(StrategyCardKind::Imperial) if first_round => -20.0,
+        Some(StrategyCardKind::Imperial)
+            if holds_mecatol(seen, me) || mecatol_takeable(seen, me) =>
+        {
+            30.0
+        }
+        Some(StrategyCardKind::Imperial) => 3.0,
+        Some(StrategyCardKind::Warfare) => 10.0,
+        Some(StrategyCardKind::Construction) => 8.0,
+        Some(StrategyCardKind::Leadership) => 7.0,
         // Gravity Drive; with Warfare it is the way to Mecatol Rex.
-        "Technology" if gravity_drive_open(seen, me) && holds("Warfare") => 9.0,
-        "Technology" if gravity_drive_open(seen, me) => 6.5,
-        "Technology" => 5.0,
+        Some(StrategyCardKind::Technology)
+            if gravity_drive_open(seen, me) && holds(StrategyCardKind::Warfare) =>
+        {
+            9.0
+        }
+        Some(StrategyCardKind::Technology) if gravity_drive_open(seen, me) => 6.5,
+        Some(StrategyCardKind::Technology) => 5.0,
         // Readies planets: the influence for the custodians after paying for research.
-        "Diplomacy" if holds("Warfare") && holds("Technology") => 7.5,
-        "Diplomacy" => 4.5,
-        "Politics" if first_round => -5.0,
-        "Politics" => 2.0,
+        Some(StrategyCardKind::Diplomacy)
+            if holds(StrategyCardKind::Warfare) && holds(StrategyCardKind::Technology) =>
+        {
+            7.5
+        }
+        Some(StrategyCardKind::Diplomacy) => 4.5,
+        Some(StrategyCardKind::Politics) if first_round => -5.0,
+        Some(StrategyCardKind::Politics) => 2.0,
         _ => 0.0,
     };
     base + f64::from(card_goods(seen, card))
@@ -3266,7 +3326,8 @@ fn pick_secondary(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option
         // The transport plan's home build is still to come: the planets just taken (and home)
         // are its resources.
         // Not with the last token while another seat's Warfare (the build itself) is to come.
-        let keep_for_warfare = i32::from(expanding(seen) && secondary_to_come(seen, me, "Warfare"));
+        let keep_for_warfare =
+            i32::from(expanding(seen) && secondary_to_come(seen, me, StrategyCardKind::Warfare));
         if readying_pays(seen, me) && exhausted_resources(seen, me) > 0 && tokens > keep_for_warfare
         {
             return answer(true);
@@ -3336,7 +3397,7 @@ fn pick_secondary(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option
             || (transport_plan(seen, me).is_some() && home_builder_ahead(seen, me))
             // Another seat's Warfare secondary still to come in round 1: its home build.
             || (seen.round() <= 1
-                && secondary_to_come(seen, me, "Warfare")
+                && secondary_to_come(seen, me, StrategyCardKind::Warfare)
                 && seen.seat(me).is_some_and(|seat| seat.strategic_tokens > 0));
         return answer(
             pools < tuning::enough_tokens()
@@ -3389,7 +3450,7 @@ fn best_two_exhausted(seen: &Observed<'_>, me: &PlayerId) -> i64 {
 fn readying_pays(seen: &Observed<'_>, me: &PlayerId) -> bool {
     (home_builder_ahead(seen, me)
         && transport_plan(seen, me).is_some_and(|(_, cost)| spare_resources(seen, me) < cost))
-        || (cruiser_plan(seen, me) && ready_card(seen, me, "Technology").is_some())
+        || (cruiser_plan(seen, me) && ready_card(seen, me, StrategyCardKind::Technology).is_some())
 }
 
 /// Which planet to ready: while a round-1 plan has resources to find ([`readying_pays`]), the one

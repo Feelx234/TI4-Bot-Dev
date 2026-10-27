@@ -164,10 +164,21 @@ pub fn bombardment_forbidden(
 }
 
 /// Demilitarized Zone: nothing may land on, be produced on, or be placed on the elected planet.
+///
+/// Also the Prophecy of Kings exploration card of the same name (attachment `dmz`, rules version
+/// 34): "Units cannot be committed to, produced on, or placed on this planet."
 #[must_use]
 pub fn planet_is_demilitarized(state: &GameState, planet: &ti4_model::id::PlanetId) -> bool {
     elected(state, "demilitarized_zone").is_some_and(|elected| elected == planet.as_str())
+        || (state.rules_version >= ti4_model::state::RULES_DMZ_EXPLORATION
+            && state
+                .planet_attachments
+                .get(planet)
+                .is_some_and(|attached| attached.iter().any(|a| a == DMZ_ATTACHMENT)))
 }
+
+/// The Demilitarized Zone exploration card's attachment id.
+pub const DMZ_ATTACHMENT: &str = "dmz";
 
 /// Holy Planet of Ixth: units on the elected planet cannot use PRODUCTION.
 #[must_use]

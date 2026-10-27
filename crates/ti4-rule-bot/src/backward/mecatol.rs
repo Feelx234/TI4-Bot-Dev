@@ -58,7 +58,7 @@ pub fn plan(_seen: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan> {
             probability: 1.0,
             cost: Cost::default(),
             steer: Steer {
-                cards: vec!["Imperial".to_owned()],
+                cards: vec![ti4_content::StrategyCardKind::Imperial],
                 ..Steer::default()
             },
             reason: "hold Mecatol Rex, play Imperial".to_owned(),
@@ -84,7 +84,7 @@ pub fn plan(_seen: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan> {
         },
         steer: Steer {
             systems: vec![system],
-            cards: vec!["Imperial".to_owned()],
+            cards: vec![ti4_content::StrategyCardKind::Imperial],
             ..Steer::default()
         },
         reason: "take Mecatol Rex (custodians + Imperial)".to_owned(),

@@ -49,7 +49,7 @@ pub fn project_action_card_facts(
         ViewerRole::Spectator => None,
     };
     ActionCardFacts {
-        deck: state.action_card_deck.len(),
+        deck: ti4_engine::deck::action_deck_len(state),
         discard: sorted(&state.discarded_action_cards),
         salvage: sorted(&state.salvage_yard),
         hand_limit,
@@ -92,7 +92,18 @@ mod tests {
             .sum();
         let printed = crate::view::components::component_catalog(content, POK).action_cards;
 
-        assert_eq!(facts.deck + held, printed.len());
+        // The catalogue lists every printed copy the corpus has, the two extra Vetos included;
+        // a game at rules version 30 or later does not deal them (card audit I01).
+        let unofficial = printed
+            .iter()
+            .filter(|card| ti4_engine::deck::UNOFFICIAL_ACTION_CARDS.contains(&card.id.as_str()))
+            .count();
+        assert_eq!(unofficial, 2);
+        assert_eq!(facts.deck + held, printed.len() - unofficial);
+        let mut old = state.clone();
+        old.rules_version = ti4_model::state::RULES_OFFICIAL_ACTION_DECK - 1;
+        let facts_old = project_action_card_facts(&old, content, &seat("a"));
+        assert_eq!(facts_old.deck + held, printed.len());
         assert!(facts.discard.is_empty());
         assert!(facts.salvage.is_empty());
         assert_eq!(facts.hand_limit, Some(7));
@@ -107,7 +118,7 @@ mod tests {
         let facts = project_action_card_facts(&state, content, &seat("a"));
 
         assert_eq!(facts.discard, [top]);
-        assert_eq!(facts.deck, state.action_card_deck.len());
+        assert_eq!(facts.deck, ti4_engine::deck::action_deck_len(&state));
     }
 
     #[test]

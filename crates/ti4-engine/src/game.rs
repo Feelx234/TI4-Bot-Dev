@@ -3990,8 +3990,7 @@ impl<'a> Game<'a> {
 
     /// Let a faction react to a strategy card finishing.
     fn resolve_faction_strategy(&mut self, player: &PlayerId, card: &str) {
-        let name =
-            crate::strategy_cards::card_name(self.content, card).unwrap_or_else(|| card.to_owned());
+        let kind = crate::strategy_cards::card_kind(self.content, card);
         let (content, sources) = (self.content, self.sources);
         let galaxy = self.galaxy.clone();
         let (state, table, dice, rng, event_sequence) = (
@@ -4011,7 +4010,7 @@ impl<'a> Game<'a> {
             event_sequence,
             galaxy: galaxy.as_ref(),
         };
-        crate::faction_abilities::strategy_resolved(&mut context, player, &name);
+        crate::faction_abilities::strategy_resolved(&mut context, player, kind);
     }
 
     #[allow(
@@ -4451,8 +4450,16 @@ impl<'a> Game<'a> {
         crate::action_cards::apply_movement_effects(&mut rules, &self.state, &window.player);
         let (path, gravity_drive, ionian) = if route == 0 {
             (
-                self.default_route(&rules, &window.player, &ship, origin, index, gravity_drive, ionian)
-                    .ok_or_else(|| TacticalError::UnknownSystem(origin.clone()))?,
+                self.default_route(
+                    &rules,
+                    &window.player,
+                    &ship,
+                    origin,
+                    index,
+                    gravity_drive,
+                    ionian,
+                )
+                .ok_or_else(|| TacticalError::UnknownSystem(origin.clone()))?,
                 gravity_drive,
                 ionian,
             )
@@ -5817,8 +5824,8 @@ impl<'a> Game<'a> {
                     let elects_a_player = self
                         .content
                         .get(ti4_model::content_types::ContentType::Agendas, &alias)
-                        .and_then(|record| record.text("target"))
-                        .is_some_and(|target| target.starts_with("Elect Player"));
+                        .and_then(ti4_content::Record::elect_type)
+                        == Some(ti4_content::ElectType::Player);
                     if elects_a_player && let Some(chosen) = self.committee_formation(&alias) {
                         self.emit(&format!("AGENDA_RESOLVED:{alias}:{chosen}"));
                         self.push_agenda_record(
@@ -6013,7 +6020,13 @@ impl<'a> Game<'a> {
             // window opens and any of them can be played.
             self.state.agenda_seq = self.state.agenda_seq.saturating_add(1);
             self.emit(&format!("AGENDA_REVEALED:{alias}"));
-            let choices = outcomes(&self.state, self.content, self.sources, &alias);
+            let choices = if alias == crate::vote::COVERT
+                && self.state.rules_version >= ti4_model::state::RULES_COVERT_LEGISLATION
+            {
+                self.draw_covert_agenda()
+            } else {
+                outcomes(&self.state, self.content, self.sources, &alias)
+            };
             if choices.is_empty() {
                 self.emit(&format!("AGENDA_DISCARDED:{alias}"));
                 if self.state.rules_version < ti4_model::state::RULES_AGENDA_GRANT_REVEAL {
@@ -6065,8 +6078,37 @@ impl<'a> Game<'a> {
             if self.state.rules_version >= ti4_model::state::RULES_AGENDA_GRANT_REVEAL {
                 self.note_discarded_agenda(&alias, true);
             }
+            // Covert Legislation replaced: the agenda the speaker drew for it goes with it.
+            self.state.covert_agenda = None;
             alias = replacement;
         }
+    }
+
+    /// Covert Legislation (rules version 33): "When this agenda is revealed, the speaker draws the
+    /// next card in the agenda deck but does not reveal it to the other players. Instead, the
+    /// speaker reads the eligible outcomes aloud ... The other players vote for these outcomes as
+    /// if they were outcomes of this agenda, without knowing their effects."
+    ///
+    /// Draws the face-down agenda into [`GameState::covert_agenda`] and returns its outcomes, which
+    /// become Covert Legislation's. A drawn card with no eligible outcome (Classified Document
+    /// Leaks with no scored secret, Repeal Law with no law in play) is discarded and the next one
+    /// drawn. An empty deck leaves nothing to vote on: Covert Legislation is then discarded and
+    /// replaced like any agenda with nothing to elect.
+    fn draw_covert_agenda(&mut self) -> Vec<String> {
+        self.state.covert_agenda = None;
+        while let Some(hidden) = ti4_model::deck_reserve::take_top(
+            &mut self.state.deck_reserve,
+            "agenda",
+            &mut self.state.agenda_deck,
+            None,
+        ) {
+            let choices = outcomes(&self.state, self.content, self.sources, &hidden);
+            if !choices.is_empty() {
+                self.state.covert_agenda = Some(hidden);
+                return choices;
+            }
+        }
+        Vec::new()
     }
 
     /// List an agenda that was revealed and discarded without a vote in `agenda_log`, so the
@@ -6807,6 +6849,12 @@ impl<'a> Game<'a> {
             unreachable!("a vote was open");
         };
         let alias = window.alias().to_owned();
+        // Covert Legislation: the vote decides the face-down agenda, which is what resolves.
+        let covert = if alias == crate::vote::COVERT {
+            self.state.covert_agenda.take()
+        } else {
+            None
+        };
         self.state.agenda_choices.clear();
         self.state.agenda_in_play = None;
         if window.winner().is_none() {
@@ -6862,6 +6910,21 @@ impl<'a> Game<'a> {
                 .clear(TransientFlags::AGENDA_DISCARDED);
 
             self.log_agenda(&window, Some(&outcome), discarded);
+            if let Some(hidden) = &covert {
+                // The face-down agenda is turned up and listed with the outcome it was given.
+                self.emit(&format!("COVERT_AGENDA_RESOLVED:{hidden}:{outcome}"));
+                let ballot = window.ballot();
+                let speaker_decided =
+                    crate::vote::undisputed_winner(ballot, window.choices()).is_none();
+                self.push_agenda_record(
+                    hidden,
+                    Some(&outcome),
+                    ballot.counts.clone(),
+                    speaker_decided,
+                    discarded,
+                );
+            }
+            let resolved = covert.as_deref().unwrap_or(&alias).to_owned();
             let elected_player: Option<ti4_model::id::PlayerId> = if discarded {
                 // Deadly Plot: "discard the agenda instead. The agenda is resolved with no
                 // effect and it is not replaced." The vote still happened, so the
@@ -6876,7 +6939,7 @@ impl<'a> Game<'a> {
                 self.emit(&format!("AGENDA_DISCARDED:{alias}"));
                 None
             } else {
-                self.resolve_agenda_outcome(&alias, &outcome, window.ballot())
+                self.resolve_agenda_outcome(&resolved, &outcome, window.ballot())
             };
             // Agenda-timed secrets are offered only after the complete agenda outcome is live:
             // Dictate Policy therefore sees a law enacted by this agenda. A Deadly Plot
@@ -9927,6 +9990,81 @@ mod tests {
     }
 
     #[test]
+    fn galactic_crisis_pact_is_voted_on_from_rules_version_31() {
+        // Card audit I02: "Elect Strategy Card" had no candidate, so the card was always
+        // discarded on reveal and the next agenda took its place.
+        let mut game = quash_game(0, &[]);
+        let (alias, choices) = game
+            .reveal_agenda("crisis")
+            .expect("revealed")
+            .expect("a vote");
+        assert_eq!(alias, "crisis");
+        assert_eq!(choices.len(), 8);
+        assert_eq!(game.state.agenda_deck.len(), 2, "nothing replaced it");
+
+        let mut game = quash_game(0, &[]);
+        game.state.rules_version = ti4_model::state::RULES_CRISIS_PACT - 1;
+        let (alias, _) = game
+            .reveal_agenda("crisis")
+            .expect("revealed")
+            .expect("the replacement goes to a vote");
+        assert_eq!(alias, "committee", "the old discard on reveal");
+    }
+
+    #[test]
+    fn classified_document_leaks_elects_a_scored_secret_from_rules_version_32() {
+        // Card audit I03: "Elect Scored Secret Objective" never had a candidate, so the card was
+        // discarded even with secrets scored and its effect never ran.
+        let scored = |game: &mut Game<'static>| {
+            for (seat, secret) in [("a", "ans"), ("b", "btgk")] {
+                game.state
+                    .scored_objectives
+                    .entry(PlayerId::new(seat))
+                    .or_default()
+                    .insert(ti4_model::id::ObjectiveId::new(secret));
+            }
+        };
+        let mut game = quash_game(0, &[]);
+        scored(&mut game);
+        let (alias, choices) = game
+            .reveal_agenda("classified")
+            .expect("revealed")
+            .expect("a vote");
+        assert_eq!(alias, "classified");
+        assert_eq!(choices, ["ans", "btgk"]);
+
+        game.resolve_agenda_outcome("classified", "btgk", &crate::vote::Ballot::default());
+        assert!(
+            game.state
+                .revealed_objectives
+                .contains(&ti4_model::id::ObjectiveId::new("btgk")),
+            "the elected secret is public"
+        );
+        assert_eq!(
+            game.state
+                .revealed_objectives
+                .iter()
+                .filter(|o| o.as_str() == "btgk")
+                .count(),
+            1
+        );
+        // A secret already made public is no longer a candidate.
+        assert_eq!(
+            crate::vote::outcomes(&game.state, game.content, game.sources, "classified"),
+            ["ans"]
+        );
+
+        let mut game = quash_game(0, &[]);
+        scored(&mut game);
+        game.state.rules_version = ti4_model::state::RULES_CLASSIFIED_LEAKS - 1;
+        let (alias, _) = game
+            .reveal_agenda("classified")
+            .expect("revealed")
+            .expect("the replacement goes to a vote");
+        assert_eq!(alias, "committee", "the old discard on reveal");
+    }
+
+    #[test]
     fn an_agenda_with_nothing_to_elect_is_just_dropped_below_rules_version_14() {
         let mut game = quash_game(0, &[]);
         game.state.rules_version = ti4_model::state::RULES_AGENDA_GRANT_REVEAL - 1;
@@ -10676,7 +10814,11 @@ mod tests {
         }
         let ids: Vec<String> = [TACTICAL_ACTION_ID.to_owned(), active.to_string()]
             .into_iter()
-            .chain(script.iter().map(|id| (*id).replace("{o}", origin.as_str())))
+            .chain(
+                script
+                    .iter()
+                    .map(|id| (*id).replace("{o}", origin.as_str())),
+            )
             .collect();
         let table = Table::with_default(Box::new(Scripted::new(ids)));
         let mut game = Game::with_table(state, content, table).with_galaxy(galaxy);
@@ -10792,7 +10934,12 @@ mod tests {
     #[test]
     fn below_rules_version_29_the_game_plays_as_before() {
         let script = ["move|{o}|0", "done_moving"];
-        let mut old = route_game(ti4_model::state::RULES_MOVEMENT_ROUTES - 1, "cruiser", &script, 6);
+        let mut old = route_game(
+            ti4_model::state::RULES_MOVEMENT_ROUTES - 1,
+            "cruiser",
+            &script,
+            6,
+        );
         let mut new = route_game(ti4_model::state::RULES_VERSION, "cruiser", &script, 6);
         run_tactical(&mut old.game);
         run_tactical(&mut new.game);
@@ -14944,6 +15091,135 @@ mod tests {
             guard += 1;
         }
         (game.state, game.events.clone())
+    }
+
+    /// Covert Legislation (card audit I04, rules version 33): the agenda phase of
+    /// [`agenda_position`] with `deck`, played at `version`.
+    fn covert_run(version: u32, deck: &[&'static str]) -> (GameState, Vec<String>) {
+        let content = ContentStore::embedded();
+        let mut state = agenda_position(None, deck);
+        state.rules_version = version;
+        let mut game = Game::new(state, content);
+        let mut guard = 0;
+        while game.state.phase == Phase::Agenda && guard < 150 {
+            assert_eq!(game.step().error, None, "no agenda step should refuse");
+            guard += 1;
+        }
+        (game.state, game.events.clone())
+    }
+
+    #[test]
+    fn covert_legislation_votes_on_the_face_down_agenda_and_resolves_it() {
+        // The phase queues its two agendas (covert, conventions) before the first is revealed,
+        // so the card Covert draws face down is the next in the deck: Archived Secret, which
+        // elects a player. The vote is on Covert Legislation; Archived Secret is what resolves.
+        let (state, events) = covert_run(
+            ti4_model::state::RULES_COVERT_LEGISLATION,
+            &["covert", "conventions", "secret", "prophecy"],
+        );
+        let resolved: Vec<&String> = events
+            .iter()
+            .filter(|e| e.starts_with("AGENDA_RESOLVED:") || e.starts_with("COVERT_AGENDA"))
+            .collect();
+        assert_eq!(
+            resolved,
+            [
+                "AGENDA_RESOLVED:covert:a",
+                "COVERT_AGENDA_RESOLVED:secret:a",
+                "AGENDA_RESOLVED:conventions:for"
+            ],
+            "a out-votes b"
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|e| e.starts_with("AGENDA_REVEALED:secret")),
+            "the face-down card is never revealed"
+        );
+        assert_eq!(state.agenda_deck, ["prophecy"]);
+        // The hidden agenda's election is a real one: a is the elected player.
+        assert!(elected_by_an_agenda(&state, &PlayerId::new("a")));
+        assert!(
+            state.covert_agenda.is_none(),
+            "cleared when the vote closes"
+        );
+        let listed: Vec<&str> = state.agenda_log.iter().map(|r| r.agenda.as_str()).collect();
+        assert_eq!(listed, ["covert", "secret", "conventions"]);
+    }
+
+    #[test]
+    fn covert_legislation_skips_a_face_down_card_with_nothing_to_elect() {
+        let mut game = quash_game(0, &[]);
+        game.state.agenda_deck = vec!["classified".to_owned(), "committee".to_owned()];
+        let (alias, choices) = game
+            .reveal_agenda("covert")
+            .expect("revealed")
+            .expect("a vote");
+        assert_eq!(alias, "covert");
+        assert_eq!(choices, ["a", "b"], "Committee Formation's outcomes");
+        assert_eq!(game.state.covert_agenda.as_deref(), Some("committee"));
+        assert!(game.state.agenda_deck.is_empty());
+        assert_eq!(game.state.agenda_in_play.as_deref(), Some("covert"));
+
+        // Nothing left to draw: Covert has nothing to vote on and is discarded.
+        let mut game = quash_game(0, &[]);
+        game.state.agenda_deck.clear();
+        assert!(game.reveal_agenda("covert").expect("revealed").is_none());
+        assert!(game.state.covert_agenda.is_none());
+    }
+
+    #[test]
+    fn covert_legislation_is_a_plain_vote_below_rules_version_33() {
+        let (state, events) = covert_run(
+            ti4_model::state::RULES_COVERT_LEGISLATION - 1,
+            &["covert", "conventions", "secret", "prophecy"],
+        );
+        assert!(!events.iter().any(|e| e.starts_with("COVERT_AGENDA")));
+        assert!(
+            events
+                .iter()
+                .any(|e| e.starts_with("AGENDA_RESOLVED:conventions:")),
+            "Conventions of War is the phase's second agenda"
+        );
+        let listed: Vec<&str> = state.agenda_log.iter().map(|r| r.agenda.as_str()).collect();
+        assert_eq!(listed, ["covert", "conventions"]);
+    }
+
+    #[test]
+    fn only_the_speaker_is_shown_the_face_down_agenda() {
+        let content = ContentStore::embedded();
+        let mut state = agenda_position(None, &[]);
+        state.speaker = PlayerId::new("a");
+        state.covert_agenda = Some("committee".to_owned());
+        let choices = vec!["a".to_owned(), "b".to_owned()];
+        let window = crate::vote::VoteWindow::new(&state, "covert", choices.clone());
+        let first = window
+            .pending_choice(&state, content, POK)
+            .expect("b votes first");
+        assert_eq!(first.player, PlayerId::new("b"));
+        assert!(!first.details.contains_key("covert_agenda"));
+        assert!(
+            first.details.contains_key("agenda"),
+            "Covert Legislation itself is shown"
+        );
+
+        // With b unable to vote, the speaker is asked first.
+        state
+            .agenda_predictions
+            .insert(PlayerId::new("b"), "none|political_secret".to_owned());
+        let window = crate::vote::VoteWindow::new(&state, "covert", choices);
+        let speaker = window
+            .pending_choice(&state, content, POK)
+            .expect("a votes");
+        assert_eq!(speaker.player, PlayerId::new("a"));
+        let hidden = speaker
+            .details
+            .get("covert_agenda")
+            .expect("the speaker sees it");
+        assert_eq!(
+            hidden.get("name").and_then(|v| v.as_str()),
+            Some("Committee Formation")
+        );
     }
 
     /// The position [`agenda_run`] plays from.

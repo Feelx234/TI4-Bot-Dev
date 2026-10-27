@@ -65,17 +65,14 @@ impl AgendaBias {
     }
 }
 
-/// The type (`Law` or `Directive`) and target text of an agenda.
+/// The type (`Law` or `Directive`) and what an agenda elects (its printed target, typed).
 #[must_use]
 pub fn agenda_kind(
     seen: &ti4_engine::choice::Observed<'_>,
     agenda: &str,
-) -> Option<(String, String)> {
+) -> Option<(String, ti4_content::ElectType)> {
     let record = seen.content().get(ContentType::Agendas, agenda)?;
-    Some((
-        record.text("type")?.to_owned(),
-        record.text("target")?.to_owned(),
-    ))
+    Some((record.text("type")?.to_owned(), record.elect_type()?))
 }
 
 /// The chance that at least `k` of `n` independent agendas each do it with probability `p`.
