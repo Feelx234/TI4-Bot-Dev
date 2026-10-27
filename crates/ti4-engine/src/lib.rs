@@ -56,6 +56,7 @@ pub mod fracture;
 pub mod game;
 pub mod infantry_ii;
 pub mod invasion;
+pub mod kernel_sync;
 pub mod laws;
 pub mod leaders;
 pub mod legendary;
