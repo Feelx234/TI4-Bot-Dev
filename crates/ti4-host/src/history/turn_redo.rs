@@ -905,15 +905,16 @@ pub struct TurnRedoRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ti4_engine::choice::DecisionRecordFields;
 
     fn record(player: &str, prompt: &str, chosen: &str) -> DecisionRecord {
-        DecisionRecord {
+        DecisionRecord::from(DecisionRecordFields {
             player: PlayerId::new(player),
             prompt: prompt.to_owned(),
             chosen: chosen.to_owned(),
             offered: vec![chosen.to_owned()],
             context: None,
-        }
+        })
     }
 
     #[test]

@@ -956,7 +956,7 @@ impl ReplayingDecider {
             } else {
                 Err(IllegalChoice::ScriptDiverged {
                     player: choice.player.clone(),
-                    wanted: record.chosen,
+                    wanted: record.chosen.clone(),
                     offered: choice.options.iter().map(|o| o.id.clone()).collect(),
                 })
             }

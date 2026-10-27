@@ -1693,6 +1693,7 @@ mod tests {
     }
 
     use super::*;
+    use ti4_engine::choice::DecisionRecordFields;
     use ti4_engine::decision_context::{DecisionContext, DecisionSource};
 
     struct TestBasis {
@@ -2190,13 +2191,18 @@ mod tests {
             vec![ChoiceOption::labelled("trade_good", "pay", "spend")],
         );
         let mut script = decider(BatchKind::Payment, vec![MovementStep::TradeGood]);
-        script.0.lock().unwrap().prefix.push_back(DecisionRecord {
-            player: pay.player.clone(),
-            prompt: pay.prompt.clone(),
-            chosen: "trade_good".into(),
-            offered: vec!["trade_good".into()],
-            context: pay.context.clone(),
-        });
+        script
+            .0
+            .lock()
+            .unwrap()
+            .prefix
+            .push_back(DecisionRecord::from(DecisionRecordFields {
+                player: pay.player.clone(),
+                prompt: pay.prompt.clone(),
+                chosen: "trade_good".into(),
+                offered: vec!["trade_good".into()],
+                context: pay.context.clone(),
+            }));
         let mut changed = pay;
         changed.options.push(ChoiceOption::decline());
         assert!(script.choose(&changed).is_err());
@@ -2211,13 +2217,18 @@ mod tests {
         let deal = offered("propose_transaction", vec![ChoiceOption::decline()])
             .accepting_free_form(ti4_engine::transactions::FREE_FORM_PREFIX);
         let mut script = decider(BatchKind::Payment, vec![MovementStep::TradeGood]);
-        script.0.lock().unwrap().prefix.push_back(DecisionRecord {
-            player: deal.player.clone(),
-            prompt: deal.prompt.clone(),
-            chosen: "x;rn=cf:xxcha;".into(),
-            offered: deal.ids().iter().map(|id| (*id).to_owned()).collect(),
-            context: deal.context.clone(),
-        });
+        script
+            .0
+            .lock()
+            .unwrap()
+            .prefix
+            .push_back(DecisionRecord::from(DecisionRecordFields {
+                player: deal.player.clone(),
+                prompt: deal.prompt.clone(),
+                chosen: "x;rn=cf:xxcha;".into(),
+                offered: deal.ids().iter().map(|id| (*id).to_owned()).collect(),
+                context: deal.context.clone(),
+            }));
         let chosen = script
             .choose(&deal)
             .expect("free-form prefix answer replays");

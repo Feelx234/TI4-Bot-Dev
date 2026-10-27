@@ -1157,13 +1157,13 @@ mod roll_tests {
 #[cfg(test)]
 mod fact_tests {
     use super::*;
-    use ti4_engine::choice::DecisionRecord;
+    use ti4_engine::choice::{DecisionRecord, DecisionRecordFields};
     use ti4_engine::decision_context::{DecisionContext, DecisionSource, DecisionTarget};
     use ti4_model::id::{PlanetId, SystemId};
 
     fn record(subtype: &str, option: &ChoiceOption) -> DecisionRecord {
         let player = PlayerId::new("p1");
-        DecisionRecord {
+        DecisionRecord::from(DecisionRecordFields {
             player: player.clone(),
             prompt: "test".into(),
             chosen: option.id.clone(),
@@ -1175,7 +1175,7 @@ mod fact_tests {
                 Phase::Action,
                 1,
             )),
-        }
+        })
     }
 
     #[test]
@@ -1301,11 +1301,11 @@ mod fact_tests {
     fn action_selections_and_uncategorized_effects_have_a_useful_path() {
         let state = GameState::new(&[PlayerId::new("p1")], &[], BTreeMap::new(), None, 42);
         let action = ChoiceOption::new("strategic|pok2diplomacy", "action");
-        let selection = DecisionRecord {
+        let selection = DecisionRecord::from(DecisionRecordFields {
             prompt: "action phase".into(),
             context: None,
-            ..record("select_action", &action)
-        };
+            ..DecisionRecordFields::clone(&record("select_action", &action))
+        });
         assert_eq!(
             verified_decision_facts(&selection, Some(&action), None, &state)
                 .0
@@ -1334,10 +1334,10 @@ mod fact_tests {
             ("strategic", "p1 began a strategic action"),
         ] {
             let option = ChoiceOption::new(id, "action");
-            let selection = DecisionRecord {
+            let selection = DecisionRecord::from(DecisionRecordFields {
                 prompt: "action phase".into(),
-                ..record("action_menu", &option)
-            };
+                ..DecisionRecordFields::clone(&record("action_menu", &option))
+            });
             assert_eq!(
                 verified_decision_facts(&selection, Some(&option), None, &state)
                     .0
@@ -1718,10 +1718,13 @@ mod fact_tests {
 
     #[test]
     fn action_selection_is_included_in_its_own_action_id() {
-        let action = DecisionRecord {
+        let action = DecisionRecord::from(DecisionRecordFields {
             prompt: "action phase".into(),
-            ..record("select_action", &ChoiceOption::new("tactical", "action"))
-        };
+            ..DecisionRecordFields::clone(&record(
+                "select_action",
+                &ChoiceOption::new("tactical", "action"),
+            ))
+        });
         assert_eq!(
             action_id_for(std::slice::from_ref(&action), 1).as_deref(),
             Some("action_1")
@@ -1735,10 +1738,10 @@ mod fact_tests {
     #[test]
     fn grouping_keeps_reaction_decider_separate_from_action_owner() {
         let selected = ChoiceOption::new("tactical", "action");
-        let action = DecisionRecord {
+        let action = DecisionRecord::from(DecisionRecordFields {
             prompt: "action phase".into(),
-            ..record("select_action", &selected)
-        };
+            ..DecisionRecordFields::clone(&record("select_action", &selected))
+        });
         let mut reaction = record("reaction_when_HITS_TO_ASSIGN", &ChoiceOption::decline());
         reaction.player = PlayerId::new("p2");
         let records = [action, reaction.clone()];
@@ -1761,10 +1764,10 @@ mod fact_tests {
         );
         state.phase = Phase::Action;
         let selected = ChoiceOption::new("tactical", "action");
-        let action = DecisionRecord {
+        let action = DecisionRecord::from(DecisionRecordFields {
             prompt: "action phase".into(),
-            ..record("select_action", &selected)
-        };
+            ..DecisionRecordFields::clone(&record("select_action", &selected))
+        });
         let next_turn = Choice::new(player, "action phase", vec![selected]);
         let path = current_log_path(&state, Some(&next_turn), &[action]).unwrap();
         assert_eq!(path.action_id, None);
