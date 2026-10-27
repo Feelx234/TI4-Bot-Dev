@@ -13,10 +13,12 @@
 
 pub mod bits;
 pub mod board;
+pub mod containers;
 pub mod galaxy;
 pub mod hex;
 pub mod ids;
 pub mod movement;
+pub mod state;
 pub mod tables;
 
 #[rustfmt::skip]
@@ -24,3 +26,5 @@ pub mod generated;
 
 pub use bits::{SysSet, UnitSet};
 pub use ids::{PlanetIx, Seat, SystemIx, UnitIx};
+pub use containers::{Chunked, Cow, DecimalTextOrd, Deck, Idx, Log, Opt32, SeatSet, Set, SmallList, SortedMap};
+pub use state::{CoreState, Slice, SliceSet};

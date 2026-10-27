@@ -6,9 +6,16 @@ rust-version.workspace = true
 publish = false
 description = "The typed engine core (docs/ENGINE_CORE.md): no JSON, no id strings, no card text. Generated id enums and tables (cargo xtask gen-cards), board, adjacency and movement reachability."
 
-# No runtime dependencies at all. The content is the generated source in src/generated/
+# One runtime dependency exception (docs/ENGINE_CORE_STATE.md decision 1): the ChaCha8 streams of
+# `state::Rng`, which must stay bit-identical to the string engine's. Default features off (no
+# getrandom, no OS entropy; the wasm build has no backend for it).
+# Otherwise no runtime dependencies at all. The content is the generated source in src/generated/
 # (docs/CONTENT_GENERATOR.md); the strings are the adapter's (crates/ti4-engine/src/generated/).
 [dependencies]
+rand_chacha = { version = "0.9", default-features = false }
+rand_core = { version = "0.9", default-features = false }
+# `rand::Rng::random_range` is the sampler the string engine uses; same version, same algorithm.
+rand = { version = "0.9", default-features = false }
 
 [dev-dependencies]
 # Only the tests compare the generated tables with the content store.
