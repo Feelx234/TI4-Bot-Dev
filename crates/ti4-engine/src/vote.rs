@@ -51,7 +51,7 @@ const PREDICTIVE_VOTES: i64 = 3;
 
 /// Whether `player` may be offered Predictive Intelligence's additional votes: a ready card, in a
 /// game at rules version `RULES_TECH_EFFECTS` or later.
-fn predictive_ready(state: &GameState, player: &PlayerId) -> bool {
+pub(crate) fn predictive_ready(state: &GameState, player: &PlayerId) -> bool {
     let card = TechnologyId::new("pi");
     state.rules_version >= ti4_model::state::RULES_TECH_EFFECTS
         && state.player(player).is_some_and(|seat| {
@@ -541,6 +541,8 @@ pub struct VoteWindow {
     /// Predictive Intelligence holders who cast the 3 additional votes, with the outcome they
     /// backed: the card exhausts when that outcome is not resolved.
     predictive: Vec<(PlayerId, String)>,
+    /// The record of the window dual (`agenda=dual`); not part of the window's identity.
+    dual: crate::vote_dual::Log,
 }
 
 /// One way for a voter to exhaust a planet: the option id, the planet and the votes it casts.
@@ -565,6 +567,7 @@ impl VoteWindow {
             crate::agenda_typed::voting_order(state),
             Self::voting_order_text(state)
         );
+        let dual = crate::vote_dual::Log::open(state, alias, &choices, &final_order);
         let opening = if choices.is_empty() {
             Stage::Done(None)
         } else {
@@ -582,6 +585,7 @@ impl VoteWindow {
             demanded: None,
             casts: Vec::new(),
             predictive: Vec::new(),
+            dual,
         }
     }
 
@@ -631,6 +635,7 @@ impl VoteWindow {
     #[must_use]
     pub fn with_spender(mut self, player: PlayerId) -> Self {
         self.spender = Some(player);
+        self.dual.stop();
         self
     }
 
@@ -1280,6 +1285,7 @@ impl VoteWindow {
             .pending_choice(state, content, sources)
             .ok_or(VoteError::Complete)?;
         let option = validate(&choice, answer)?;
+        self.dual.note(sources, &choice, &option.id);
 
         match self.stage.clone() {
             Stage::Done(_) => return Err(VoteError::Complete),
@@ -1406,6 +1412,10 @@ impl VoteWindow {
         }
         self.settle(state, content, sources);
         self.settle_predictions(state);
+        if self.is_complete() {
+            let winner = self.winner().map(ToOwned::to_owned);
+            self.dual.finish(state, winner.as_deref());
+        }
         Ok(())
     }
 
@@ -1419,6 +1429,10 @@ impl VoteWindow {
     /// Advance past players and stages with nothing to decide, before the first question.
     pub fn open(&mut self, state: &GameState, content: &ContentStore, sources: SourceSet) {
         self.settle(state, content, sources);
+        if self.is_complete() {
+            let winner = self.winner().map(ToOwned::to_owned);
+            self.dual.finish(state, winner.as_deref());
+        }
     }
 }
 
@@ -2547,6 +2561,52 @@ mod typed_render_tests {
             compared += 1;
         }
         assert!(compared >= 7, "{compared} agendas compared");
+    }
+
+    /// A whole vote on `agenda=dual`: the window dual replays it through the core `Vote` window and compares
+    /// every question, the winner and the planets exhausted.
+    #[test]
+    fn a_whole_vote_runs_in_lockstep_on_the_core_window() {
+        use crate::dual::{Area, AreaMask, Backend, take_report, with_mask};
+        let content = ContentStore::embedded();
+        let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();
+        let _ = take_report();
+        let mut votes_cast = 0;
+        for alias in ["covert", "arbiter", "ratification"] {
+            let alias = if alias == "ratification" {
+                Agenda::ALL.iter().find(|a| a.data().elects == AgendaElects::ForAgainst).unwrap().as_str()
+            } else {
+                alias
+            };
+            let (mut state, _) = game();
+            state.covert_agenda = (alias == "covert").then(|| "arbiter".to_owned());
+            let choices = outcomes_text(&state, content, POK, alias);
+            with_mask(mask, || {
+                let mut window = VoteWindow::new(&state, alias, choices.clone());
+                window.open(&state, content, POK);
+                let mut step = 0;
+                while let Some(choice) = window.pending_choice(&state, content, POK) {
+                    // Back the first outcome, exhaust two planets, then stop; the speaker takes the first on a tie.
+                    let pick = match choice.context.as_ref().map(|c| c.subtype.as_str()) {
+                        Some("vote_exhaust_planet") if step % 3 != 2 => choice.options.iter().find(|o| !o.is_decline()),
+                        Some("vote_exhaust_planet") => choice.options.iter().find(|o| o.is_decline()),
+                        Some("cast_vote") if step % 4 == 3 => choice.options.iter().find(|o| o.is_decline()),
+                        _ => choice.options.first(),
+                    }
+                    .unwrap()
+                    .clone();
+                    step += 1;
+                    votes_cast += usize::from(pick.kind == VOTE_PLANET_KIND);
+                    window.resolve(&mut state, content, POK, pick).unwrap();
+                }
+                assert!(window.is_complete());
+            });
+        }
+        let report = take_report();
+        let counts = report.areas.get(&Area::AgendaLaws).cloned().unwrap_or_default();
+        assert_eq!(report.total_differences(), 0, "{report:?}");
+        let compared: u64 = counts.compared.iter().sum();
+        assert!(compared > 20 && votes_cast > 0, "compared {compared} planets {votes_cast}");
     }
 
     /// Genetic Recombination's two questions (the string window needs a Mahact seat to ask them): the texts

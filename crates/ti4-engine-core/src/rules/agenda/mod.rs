@@ -11,9 +11,10 @@
 //!
 //! Text order. The string engine sorts planets and secret objectives by id text and keeps vote counts
 //! in a text-keyed map. The typed lists below are in the text order of their members (planets through
-//! the A1 prefix table); the tied set of [`Tiebreak::Tied`] is in `Outcome` order and the adapter sorts
-//! it by the rendered text, because the text of a player outcome is the owner id, which only the
-//! adapter knows.
+//! the A1 prefix table) and the tied set of [`Tiebreak::Tied`] in [`text_cmp`] order (the seats are numbered
+//! in the text order of their owner ids).
+
+pub mod window;
 
 use core::cmp::Ordering;
 
@@ -308,10 +309,21 @@ pub fn undisputed_winner(counts: Counts<'_>, choices: &[Outcome]) -> Option<Outc
     }
 }
 
+/// The order of two outcomes of one election by their texts (`BTreeMap<String, _>` order): the ids of seats,
+/// planets, strategy cards, laws and secrets are numbered in text order already; only `for`/`against` swap.
+#[must_use]
+pub fn text_cmp(a: Outcome, b: Outcome) -> Ordering {
+    match (a, b) {
+        (Outcome::For, Outcome::Against) => Ordering::Greater,
+        (Outcome::Against, Outcome::For) => Ordering::Less,
+        _ => a.cmp(&b),
+    }
+}
+
 /// What the speaker chooses between.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Tiebreak {
-    /// The outcomes that tie for the most votes (`Outcome` order; the string order is the text order).
+    /// The outcomes that tie for the most votes, in text order.
     Tied(SmallList<Outcome, 8>),
     /// Nobody voted: everything on offer, in offer order.
     Silent(SmallList<Outcome, 16>),
@@ -325,7 +337,7 @@ pub fn tiebreak_candidates(counts: Counts<'_>, choices: &[Outcome]) -> Tiebreak 
     if tied.is_empty() {
         Tiebreak::Silent(SmallList::from_slice(choices))
     } else {
-        tied.as_mut_slice().sort_unstable();
+        tied.as_mut_slice().sort_unstable_by(|a, b| text_cmp(*a, *b));
         Tiebreak::Tied(tied)
     }
 }

@@ -167,11 +167,7 @@ impl<'a> AgendaView<'a> {
     pub fn tiebreak_candidates(&self, alias: &str, counts: &std::collections::BTreeMap<String, i64>, choices: &[String]) -> Option<Vec<String>> {
         let (counts, choices) = self.ballot(alias, counts, choices)?;
         match rules::tiebreak_candidates(&counts, &choices) {
-            Tiebreak::Tied(list) => {
-                let mut texts = list.as_slice().iter().map(|o| self.render(*o)).collect::<Option<Vec<_>>>()?;
-                texts.sort();
-                Some(texts)
-            }
+            Tiebreak::Tied(list) => list.as_slice().iter().map(|o| self.render(*o)).collect(),
             Tiebreak::Silent(list) => list.as_slice().iter().map(|o| self.render(*o)).collect(),
         }
     }

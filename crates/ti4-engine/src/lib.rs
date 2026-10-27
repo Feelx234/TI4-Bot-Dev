@@ -89,6 +89,8 @@ pub mod core_sync;
 /// Area::BoardQueries (package A1): the typed board queries behind a string interface.
 #[cfg(feature = "typed-core")]
 pub mod board_view;
+/// The window dual of the vote (package B9).
+pub(crate) mod vote_dual;
 /// Area::AgendaLaws (package B9): the typed agenda reads behind a string interface.
 #[cfg(feature = "typed-core")]
 pub mod agenda_view;
