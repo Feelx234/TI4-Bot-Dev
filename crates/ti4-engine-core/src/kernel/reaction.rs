@@ -250,7 +250,7 @@ impl Guard {
                 let Some(outcome) = p.outcome(Key::Player) else { return false };
                 let a = s.agenda();
                 let voted_other = a.votes.get(&who).is_some_and(|v| *v != outcome);
-                let predicted_other = a.predictions.get(&who).is_some_and(|v| *v != outcome);
+                let predicted_other = a.predictions.get(&who).is_some_and(|v| *v != crate::keys::prediction::Prediction::Plain(outcome));
                 voted_other || predicted_other
             }
             Self::TwoPlayersNotPassed => s.players().iter().filter(|pl| !pl.econ.passed).count() >= 2,
@@ -269,7 +269,7 @@ pub const fn window_uses_speaker_order(phase: Phase) -> bool {
 /// Whether an `Outcome` value is a real seat (the guard for "another player is elected").
 #[must_use]
 pub const fn is_seat_outcome(o: Outcome) -> bool {
-    matches!(o, Outcome::Player(_))
+    matches!(o, Outcome::Seat(_))
 }
 
 #[cfg(test)]
@@ -339,7 +339,7 @@ mod tests {
         s.agenda_mut().votes.insert(Seat(0), Outcome::Against);
         assert!(Guard::VotedOrPredictedAnother.holds(&resolving, Seat(0), &s, &k));
         s.agenda_mut().votes.insert(Seat(0), Outcome::For);
-        s.agenda_mut().predictions.insert(Seat(0), Outcome::Against);
+        s.agenda_mut().predictions.insert(Seat(0), crate::keys::prediction::Prediction::Plain(Outcome::Against));
         assert!(Guard::VotedOrPredictedAnother.holds(&resolving, Seat(0), &s, &k));
     }
 
