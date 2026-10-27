@@ -435,7 +435,8 @@ pub fn trade_good_worth(state: &GameState, player: &PlayerId) -> i64 {
 /// that played the card, and production happens once per tactical action, which is what
 /// keeps a later step from spending a bonus it never earned.
 #[must_use]
-pub fn war_machine_bonus(state: &GameState, player: &PlayerId) -> i64 {
+#[doc(hidden)]
+pub fn war_machine_bonus_text(state: &GameState, player: &PlayerId) -> i64 {
     state.player(player).map_or(0, |seat| {
         5 * i64::try_from(
             seat.war_machine_use
@@ -1541,6 +1542,99 @@ pub fn produce_one_paying_with_influence(
     made.unwrap_or(false)
 }
 
+macro_rules! typed_view {
+    ($state:expr, $content:expr, $sources:expr, |$v:ident| $body:expr) => {{
+        #[cfg(feature = "typed-core")]
+        let typed = || {
+            let $v = crate::production_view::ProdView::of($state, $content, $sources)?;
+            $body
+        };
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None;
+        typed
+    }};
+}
+
+/// 68.1a: the production values of all the player's producing units here, combined.
+#[must_use]
+pub fn capacity(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, system: &SystemId) -> i64 {
+    let typed = typed_view!(state, content, sources, |v| v.capacity(player, system));
+    crate::dual_typed!(crate::dual::Area::Production, "production::capacity", typed(), capacity_text(state, content, sources, player, system))
+}
+
+/// The player's units with Production here, paired with the planet they sit on.
+#[must_use]
+pub fn producers(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, system: &SystemId) -> Vec<(Unit, Option<PlanetId>)> {
+    let typed = typed_view!(state, content, sources, |v| v.producers(player, system));
+    crate::dual_typed!(crate::dual::Area::Production, "production::producers", typed(), producers_text(state, content, sources, player, system))
+}
+
+/// The player's mobile production structures in `system` (Saar's Floating Factory).
+#[must_use]
+pub fn mobile_docks(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, system: &SystemId) -> Vec<Unit> {
+    let typed = typed_view!(state, content, sources, |v| v.mobile_docks(player, system));
+    crate::dual_typed!(crate::dual::Area::Production, "production::mobile_docks", typed(), mobile_docks_text(state, content, sources, player, system))
+}
+
+/// PRODUCTION modules grant `system` as if from a unit.
+#[must_use]
+pub fn module_production(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, system: &SystemId) -> i64 {
+    let typed = typed_view!(state, content, sources, |v| v.module_production(player, system));
+    crate::dual_typed!(crate::dual::Area::Production, "production::module_production", typed(), module_production_text(state, content, sources, player, system))
+}
+
+/// The PRODUCTION value of the producers a faction module bars from producing `kind`.
+#[must_use]
+pub fn barred_capacity(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, system: &SystemId, kind: &UnitType<'_>) -> i64 {
+    let typed = typed_view!(state, content, sources, |v| v.barred_capacity(player, system, kind.base_type()));
+    crate::dual_typed!(crate::dual::Area::Production, "production::barred_capacity", typed(), barred_capacity_text(state, content, sources, player, system, kind))
+}
+
+/// How many of this structure the player already has on that planet.
+#[must_use]
+pub fn structures_on(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, planet: &PlanetId, base_type: &str) -> usize {
+    let typed = typed_view!(state, content, sources, |v| v.structures_on(player, planet, base_type));
+    crate::dual_typed!(crate::dual::Area::Production, "production::structures_on", typed(), structures_on_text(state, content, sources, player, planet, base_type))
+}
+
+/// 79.2: whether another of this structure may be built on that planet.
+#[must_use]
+pub fn structure_allowed(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, planet: &PlanetId, base_type: &str) -> bool {
+    let typed = typed_view!(state, content, sources, |v| v.structure_allowed(player, planet, base_type));
+    crate::dual_typed!(crate::dual::Area::Production, "production::structure_allowed", typed(), structure_allowed_text(state, content, sources, player, planet, base_type))
+}
+
+/// Where a produced unit may go. [`SPACE`] denotes the space area.
+#[must_use]
+pub fn placements(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, system: &SystemId, kind: &UnitType<'_>) -> Vec<String> {
+    let typed = typed_view!(state, content, sources, |v| v.placements(player, system, kind.id()));
+    crate::dual_typed!(crate::dual::Area::Production, "production::placements", typed(), placements_text(state, content, sources, player, system, kind))
+}
+
+/// War Machine: the faces of budget this step gains, per copy played in this activation.
+#[must_use]
+pub fn war_machine_bonus(state: &GameState, player: &PlayerId) -> i64 {
+    let typed = typed_view!(state, ContentStore::embedded(), ti4_model::content_types::FULL, |v| v.war_machine_bonus(player));
+    crate::dual_typed!(crate::dual::Area::Production, "production::war_machine_bonus", typed(), war_machine_bonus_text(state, player))
+}
+
+/// The price under whatever laws are in play (Regulated Conscription halves the yield).
+#[must_use]
+pub fn price_of_under(state: Option<&GameState>, kind: &UnitType<'_>) -> (i64, usize) {
+    let typed = || {
+        #[cfg(feature = "typed-core")]
+        {
+            let v = crate::production_view::ProdView::of(state?, ContentStore::embedded(), ti4_model::content_types::FULL)?;
+            v.price_of(kind.id())
+        }
+        #[cfg(not(feature = "typed-core"))]
+        {
+            None
+        }
+    };
+    crate::dual_typed!(crate::dual::Area::Production, "production::price_of_under", typed(), price_of_under_text(state, kind))
+}
+
 pub fn price_of(kind: &UnitType<'_>) -> (i64, usize) {
     price_of_under(None, kind)
 }
@@ -1554,7 +1648,8 @@ pub fn price_of(kind: &UnitType<'_>) -> (i64, usize) {
 /// `price_of` remains the printed rule for callers that mean the printed rule. Passing the state is
 /// how a caller says it means *now*.
 #[must_use]
-pub fn price_of_under(state: Option<&GameState>, kind: &UnitType<'_>) -> (i64, usize) {
+#[doc(hidden)]
+pub fn price_of_under_text(state: Option<&GameState>, kind: &UnitType<'_>) -> (i64, usize) {
     let printed = kind.cost();
     if printed > 0.0 && printed < 1.0 {
         let yielded = if state.is_some_and(crate::laws::single_unit_production) {
@@ -1579,7 +1674,8 @@ pub fn price_of_under(state: Option<&GameState>, kind: &UnitType<'_>) -> (i64, u
 
 /// The player's units with Production here, paired with the planet they sit on.
 #[must_use]
-pub fn producers(
+#[doc(hidden)]
+pub fn producers_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1625,7 +1721,8 @@ pub fn producers(
 /// Floating Factory I: "This unit is placed in the space area instead of on a planet. This unit
 /// can move and retreat as if it were a ship. If this unit is blockaded, it is destroyed."
 #[must_use]
-pub fn mobile_docks(
+#[doc(hidden)]
+pub fn mobile_docks_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1727,7 +1824,8 @@ pub fn destroy_blockaded_mobile_docks(
 /// planet travels with the unit rather than the value being read from the unit alone. War
 /// Machines add to the total, so they ride along here as well.
 #[must_use]
-pub fn capacity(
+#[doc(hidden)]
+pub fn capacity_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1735,7 +1833,7 @@ pub fn capacity(
     system: &SystemId,
 ) -> i64 {
     let types = catalogue(content, sources);
-    producers(state, content, sources, player, system)
+    producers_text(state, content, sources, player, system)
         .into_iter()
         .filter_map(|(unit, planet)| {
             let kind = types.get(unit.type_id.as_str())?;
@@ -1754,15 +1852,16 @@ pub fn capacity(
             Some(kind.production(resources))
         })
         .sum::<i64>()
-        + war_machine_bonus(state, player)
-        + module_production(state, content, sources, player, system)
+        + war_machine_bonus_text(state, player)
+        + module_production_text(state, content, sources, player, system)
 }
 
 /// PRODUCTION modules grant `system` as if from a unit (`EconomyHooks::extra_production` for the
 /// space area, `extra_production_planet` for each planet holding any of the player's units there).
 /// Zero with no such hook. Muaat Magmus Reactor, Creuss Particle Synthesis, Argent Hololattice.
 #[must_use]
-pub fn module_production(
+#[doc(hidden)]
+pub fn module_production_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1809,7 +1908,8 @@ fn module_planet_producers(
 /// producing `kind` (`cannot_produce`); zero with no such hook. Read the same way as [`capacity`]
 /// (planet resources through `planet_spend_value`), without War Machine.
 #[must_use]
-pub fn barred_capacity(
+#[doc(hidden)]
+pub fn barred_capacity_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1821,7 +1921,7 @@ pub fn barred_capacity(
         return 0;
     }
     let types = catalogue(content, sources);
-    producers(state, content, sources, player, system)
+    producers_text(state, content, sources, player, system)
         .into_iter()
         .filter_map(|(unit, planet)| {
             let producer = types.get(unit.type_id.as_str())?;
@@ -1851,7 +1951,8 @@ pub fn barred_capacity(
 
 /// How many of this structure the player already has on that planet.
 #[must_use]
-pub fn structures_on(
+#[doc(hidden)]
+pub fn structures_on_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1876,7 +1977,8 @@ pub fn structures_on(
 
 /// 79.2: whether another of this structure may be built on that planet.
 #[must_use]
-pub fn structure_allowed(
+#[doc(hidden)]
+pub fn structure_allowed_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1893,12 +1995,13 @@ pub fn structure_allowed(
         return false;
     }
     structure_limit(base_type)
-        .is_none_or(|cap| structures_on(state, content, sources, player, planet, base_type) < cap)
+        .is_none_or(|cap| structures_on_text(state, content, sources, player, planet, base_type) < cap)
 }
 
 /// Where a produced unit may go. [`SPACE`] denotes the space area.
 #[must_use]
-pub fn placements(
+#[doc(hidden)]
+pub fn placements_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1941,7 +2044,7 @@ pub fn placements(
     // produce infantry). Filtered before anything reads the producers, so a planet whose only
     // producer is barred is not a spot at all.
     let types = catalogue(content, sources);
-    let made: Vec<(Unit, Option<PlanetId>)> = producers(state, content, sources, player, system)
+    let made: Vec<(Unit, Option<PlanetId>)> = producers_text(state, content, sources, player, system)
         .into_iter()
         .filter(|(unit, _)| {
             let producer = types
@@ -1976,7 +2079,7 @@ pub fn placements(
         // the last gate before a unit is placed, and the rule belongs at the gate too.
         .filter(|planet| !ti4_content::galaxy::is_space_station(content, planet.as_str(), sources))
         .filter(|planet| {
-            structure_allowed(state, content, sources, player, planet, kind.base_type())
+            structure_allowed_text(state, content, sources, player, planet, kind.base_type())
         })
         .map(|planet| planet.to_string())
         .collect(); // 68.3, 79.2
