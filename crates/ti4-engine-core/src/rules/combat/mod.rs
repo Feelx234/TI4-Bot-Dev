@@ -12,7 +12,9 @@
 //!
 //! Nothing here asks a question or emits an event: those go through the host the later sections take.
 
+pub mod assault_cannon;
 pub mod assign;
+pub mod destroy_fighters;
 pub mod sustain_commander;
 pub mod sustain_offer;
 

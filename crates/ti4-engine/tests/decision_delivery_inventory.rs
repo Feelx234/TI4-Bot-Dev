@@ -892,7 +892,7 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         // War Funding: offered to the holder after both sides have rolled a combat round.
         module: "combat.rs",
-        function: "roll_round",
+        function: "war_funding_step",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1668,7 +1668,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("combat.rs", "heart_ixth", 1),
     ("combat.rs", "offer_sustain", 1),
     ("combat.rs", "ask_sustain_commander", 1),
-    ("combat.rs", "roll_round", 1),
+    ("combat.rs", "war_funding_step", 1),
     ("combat.rs", "wrath_of_kenara_buy", 1),
     ("exploration.rs", "ask_decorated", 1),
     ("exploration.rs", "ask_device_technology", 1),

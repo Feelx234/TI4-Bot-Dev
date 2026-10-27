@@ -91,6 +91,15 @@ pub fn note_ask(choice: &Choice, outcome: &Result<ChoiceOption, IllegalChoice>) 
     });
 }
 
+/// An ability's effect is about to run: whatever it does is string-only until the abilities are ported.
+pub fn note_effect() {
+    REC.with(|r| {
+        if let Some(rec) = r.borrow_mut().as_mut() {
+            rec.nested = true;
+        }
+    });
+}
+
 /// An emission begins; the token is the depth it begins at.
 #[must_use]
 pub fn enter_emit() -> u32 {
@@ -631,4 +640,119 @@ pub fn fight_round_ask(
     let choice = FightRound::new(seat, sys, pl).question();
     let (phase, round) = (render::generic::core_phase(gs.phase), gs.round);
     Some(Typed::new(&r, choice, phase, round).rendered)
+}
+
+/// What the string barrage's fighter removal was called with.
+#[derive(Debug, Clone, Copy)]
+pub struct FightersArgs<'a> {
+    pub target: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    pub hits: usize,
+    pub cause: &'a str,
+    pub staging: bool,
+    pub announce: bool,
+}
+
+/// The core half of the barrage's fighter removal (never asks).
+#[must_use]
+pub fn destroy_fighters(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    a: FightersArgs<'_>,
+    script: &Recording,
+) -> Option<CoreWindow<bool>> {
+    use ti4_engine_core::rules::combat::destroy_fighters::{DestroyFighters, Fighters};
+    if script.nested {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let target = r.seat(a.target.as_str())?;
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let before = gs.clone();
+    let env = crate::core_combat::window_env(&before, &cx, sources)?;
+    let f = Fighters {
+        target,
+        system,
+        hits: u16::try_from(a.hits).ok()?,
+        cause: r.code(a.cause),
+        staging: a.staging,
+        announce: a.announce,
+    };
+    let resolver = Resolver::new(&[target], Some(target));
+    let mut driver = Driver::new(DestroyFighters::new(f), resolver, AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let driven = with_core(gs, &mut cx, Sources::default(), ASSIGN_HITS, |core, _| {
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .ok()?
+    .ok()?;
+    apply_staged(gs, &r, &staged)?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(events), questions: driven.rendered })
+}
+
+/// What the string `CombatWindow::assault_cannon` was called with.
+#[derive(Debug, Clone, Copy)]
+pub struct AssaultCannonArgs<'a> {
+    pub attacker: &'a PlayerId,
+    pub defender: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    /// The resolver carries the timing machinery.
+    pub announce: bool,
+}
+
+/// The core half of `CombatWindow::assault_cannon`. `None` for a neutral side (the casualty order of the
+/// reference card is string-only), reaction activity inside a loss announcement, or a position the codecs
+/// refuse.
+#[must_use]
+pub fn assault_cannon(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    a: AssaultCannonArgs<'_>,
+    script: &Recording,
+) -> Option<CoreWindow<bool>> {
+    use ti4_engine_core::rules::combat::assault_cannon::{AssaultCannon, Facts};
+    if script.nested || crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let attacker = r.seat(a.attacker.as_str())?;
+    let defender = r.seat(a.defender.as_str())?;
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let before = gs.clone();
+    let env = crate::core_combat::window_env(&before, &cx, sources)?;
+    let facts = Facts {
+        attacker,
+        defender,
+        system,
+        subtype: r.code("assault_cannon_destroy"),
+        cause: r.code("technology:assault_cannon"),
+        announce: a.announce,
+    };
+    let resolver = Resolver::new(&[attacker, defender], Some(attacker));
+    let mut driver = Driver::new(AssaultCannon::new(facts), resolver, AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let (att_id, def_id) = (a.attacker.clone(), a.defender.clone());
+    let driven = with_core(gs, &mut cx, Sources::default(), ASSIGN_HITS, |core, _| {
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|choice, _, rendered| {
+            let producer = if choice.actor == attacker { def_id.clone() } else { att_id.clone() };
+            if let Some(context) = rendered.context.take() {
+                rendered.context = Some(context.with_hit(crate::decision_context::HitDetail {
+                    cause: crate::decision_context::HitCause::AssaultCannon,
+                    destroy: true,
+                    restriction: crate::decision_context::HitRestriction::NonFighter,
+                    producer: Some(producer),
+                }));
+            }
+        });
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .ok()?
+    .ok()?;
+    apply_staged(gs, &r, &staged)?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(events), questions: driven.rendered })
 }
