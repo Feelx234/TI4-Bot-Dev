@@ -13,6 +13,7 @@
 
 pub mod bits;
 pub mod board;
+pub mod choice;
 pub mod containers;
 pub mod galaxy;
 pub mod hex;

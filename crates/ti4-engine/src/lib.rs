@@ -86,6 +86,9 @@ pub mod core_sync;
 #[cfg(feature = "typed-core")]
 #[rustfmt::skip]
 pub mod generated;
+/// The adapter half of the typed decision model (docs/ENGINE_CORE_STATE.md 2.3).
+#[cfg(feature = "typed-core")]
+pub mod render;
 pub mod reaction_preview;
 pub mod reactions;
 pub mod registry;
