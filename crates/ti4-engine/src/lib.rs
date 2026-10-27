@@ -29,7 +29,6 @@ pub mod decision_context;
 pub mod deck;
 pub mod dice;
 pub mod dual;
-pub mod core_factions;
 pub mod diplomacy;
 pub mod draft;
 pub mod entropic_scars;
