@@ -468,6 +468,12 @@ pub fn set_fail_fast(on: bool) {
     FAIL_FAST.store(on, Ordering::Relaxed);
 }
 
+/// Whether the first difference panics.
+#[must_use]
+pub fn fail_fast() -> bool {
+    FAIL_FAST.load(Ordering::Relaxed)
+}
+
 /// Record the lend cost of one region (called by the sync layer; docs 3.3 item 6).
 pub fn record_cost(area: Area, slices: u64, bytes: u64, ns: u64) {
     with_report(|r| {
@@ -922,8 +928,21 @@ mod tests {
     /// The report is process-wide: tests that read it hold this lock.
     static SERIAL: Mutex<()> = Mutex::new(());
 
-    fn serial() -> std::sync::MutexGuard<'static, ()> {
-        SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    /// Holds the report lock and turns fail-fast off (the tests inject differences on purpose, also
+    /// when the suite runs with `TI4_DUAL_FAIL_FAST`); restored on drop.
+    struct Serial(std::sync::MutexGuard<'static, ()>, bool);
+
+    impl Drop for Serial {
+        fn drop(&mut self) {
+            set_fail_fast(self.1);
+        }
+    }
+
+    fn serial() -> Serial {
+        let guard = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let before = fail_fast();
+        set_fail_fast(false);
+        Serial(guard, before)
     }
 
     #[test]

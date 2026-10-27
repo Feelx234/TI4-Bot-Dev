@@ -40,11 +40,14 @@ fn movement_on_dual_has_no_differences_on_template_openings() {
 fn an_injected_difference_in_the_movement_path_is_caught() {
     let _guard = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let _ = dual::take_report();
+    let before = dual::fail_fast();
+    dual::set_fail_fast(false);
     let mask = AreaMask::STRING.with(Area::Movement, Backend::Dual);
     let shown = dual::with_mask(mask, || {
         // The core side answers wrongly: the call returns the string answer and reports the value.
         ti4_engine::dual_typed!(Area::Movement, "injected", Some(2_i64), 1_i64)
     });
+    dual::set_fail_fast(before);
     assert_eq!(shown, 1);
     let report = dual::take_report();
     assert_eq!(report.differing(Category::Value), 1, "{report}");
