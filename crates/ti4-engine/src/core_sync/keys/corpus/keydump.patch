@@ -1,0 +1,135 @@
+diff --git a/crates/ti4-engine/src/combat.rs b/crates/ti4-engine/src/combat.rs
+index 096698a3..f9899948 100644
+--- a/crates/ti4-engine/src/combat.rs
++++ b/crates/ti4-engine/src/combat.rs
+@@ -3743,6 +3743,7 @@ pub(crate) fn try_announce_staged_destructions(
+             for (system, owner, unit, cause, during_space_combat) in
+                 std::mem::take(&mut state.pending_destructions)
+             {
++                ti4_model::state::keydump("destroy", &cause);
+                 try_announce_ship_destroyed_type(
+                     state,
+                     ctx,
+@@ -3776,6 +3777,7 @@ pub fn announce_staged_destructions(state: &mut GameState, ctx: &mut Resolving<'
+         for (system, owner, unit, cause, during_space_combat) in
+             std::mem::take(&mut state.pending_destructions)
+         {
++            ti4_model::state::keydump("destroy", &cause);
+             announce_ship_destroyed_type(
+                 state,
+                 ctx,
+diff --git a/crates/ti4-engine/src/game.rs b/crates/ti4-engine/src/game.rs
+index 52384fbd..b0d34a9b 100644
+--- a/crates/ti4-engine/src/game.rs
++++ b/crates/ti4-engine/src/game.rs
+@@ -2056,6 +2056,7 @@ impl<'a> Game<'a> {
+     pub fn step(&mut self) -> StepResult {
+         // Identical-ask counts are per step: a cycle inside one step is what trips the guard.
+         self.table.begin_step();
++        self.state.keydump_snapshot();
+         if !self.state.starting_tech_picks.is_empty() {
+             crate::starting_tech::settle(&mut self.state, self.content, self.sources);
+         }
+diff --git a/crates/ti4-model/src/state.rs b/crates/ti4-model/src/state.rs
+index 0ce968c7..38e9713d 100644
+--- a/crates/ti4-model/src/state.rs
++++ b/crates/ti4-model/src/state.rs
+@@ -26,6 +26,49 @@ use crate::id::{
+ };
+ use crate::units::Unit;
+ 
++// ---- TEMPORARY key-corpus instrumentation (X1); never committed ----
++pub fn keydump(kind: &str, text: &str) {
++    use std::collections::HashSet;
++    use std::io::Write;
++    use std::sync::{Mutex, OnceLock};
++    static SINK: OnceLock<Option<Mutex<(std::fs::File, HashSet<String>)>>> = OnceLock::new();
++    let sink = SINK.get_or_init(|| {
++        let path = std::env::var("TI4_KEYDUMP").ok()?;
++        let file = std::fs::OpenOptions::new().create(true).append(true).open(path).ok()?;
++        Some(Mutex::new((file, HashSet::new())))
++    });
++    if let Some(m) = sink {
++        let mut g = m.lock().unwrap();
++        let line = format!("{kind}\t{text:?}\n");
++        if g.1.insert(line.clone()) {
++            let _ = g.0.write_all(line.as_bytes());
++        }
++    }
++}
++#[derive(Clone, Default, PartialEq, Eq, Debug)]
++pub struct Marks(pub BTreeMap<String, String>);
++impl std::ops::Deref for Marks { type Target = BTreeMap<String, String>; fn deref(&self) -> &Self::Target { &self.0 } }
++impl std::ops::DerefMut for Marks { fn deref_mut(&mut self) -> &mut Self::Target { &mut self.0 } }
++impl Marks {
++    pub fn is_empty(&self) -> bool { self.0.is_empty() }
++    pub fn insert(&mut self, k: String, v: String) -> Option<String> {
++        keydump("mark_key", &k); keydump("mark_val", &format!("{k}\u{1}{v}"));
++        self.0.insert(k, v)
++    }
++    pub fn extend<I: IntoIterator<Item = (String, String)>>(&mut self, it: I) {
++        for (k, v) in it { self.insert(k, v); }
++    }
++}
++impl Serialize for Marks { fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> { self.0.serialize(s) } }
++impl<'de> Deserialize<'de> for Marks {
++    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
++        let m = BTreeMap::<String, String>::deserialize(d)?;
++        let mut out = Marks::default();
++        out.extend(m);
++        Ok(out)
++    }
++}
++
+ /// Game phase. Determines who resolves first in a window (LRR 1.19, 1.20).
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+ #[serde(rename_all = "lowercase")]
+@@ -1892,8 +1935,8 @@ pub struct GameState {
+     /// Generic on purpose, so a faction package does not need a schema change for one flag; a
+     /// mark that several subsystems must read deserves a typed field instead. Skipped when empty,
+     /// so games without faction modules serialize and hash exactly as before.
+-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+-    pub faction_marks: BTreeMap<String, String>,
++    #[serde(default, skip_serializing_if = "Marks::is_empty")]
++    pub faction_marks: Marks,
+     /// Initiative numbers that replace a player's printed one for the rest of the round (Naalu's
+     /// "0" token, Telepathic and Gift of Prescience): player to the number they now count as.
+     /// Read by [`GameState::initiative_order`]; set and cleared through
+@@ -2142,7 +2185,7 @@ impl GameState {
+             support_holders: BTreeMap::new(),
+             promissory_notes: BTreeMap::new(),
+             promissory_faceup: BTreeSet::new(),
+-            faction_marks: BTreeMap::new(),
++            faction_marks: Marks::default(),
+             initiative_overrides: BTreeMap::new(),
+         }
+     }
+@@ -2392,6 +2435,20 @@ impl GameState {
+     /// either. The pools are the faction marks `mahact:fleet:<mahact player>` = comma-separated
+     /// owner ids, one entry per token.
+     #[must_use]
++    pub fn keydump_snapshot(&self) {
++        for (k, v) in &self.laws { keydump("law_key", k); keydump("law_val", &format!("{k}\u{1}{v}")); }
++        for (k, v) in self.faction_marks.iter() { keydump("mark_key", k); keydump("mark_val", &format!("{k}\u{1}{v}")); }
++        for k in self.exploration_decks.keys() { keydump("deck_key", k); }
++        for v in self.agenda_votes.values() { keydump("vote", v); }
++        for v in &self.agenda_choices { keydump("choice", v); }
++        if let Some(v) = &self.agenda_veto_replacement { keydump("veto", v); }
++        for k in self.expedition_slices.keys() { keydump("expedition", k); }
++        for k in self.wormhole_tokens.keys() { keydump("wormhole_token", k); }
++        if let Some((_, k)) = &self.ion_storm { keydump("ion_storm", k); }
++        if let Some(k) = &self.galactic_event { keydump("galactic_event", k); }
++        for (_, _, _, c, _) in &self.pending_destructions { keydump("destroy", c); }
++        for (_, _, r) in &self.vp_ledger { keydump("ledger", r); }
++    }
+     pub fn tokens_held_by_mahact(&self, player: &PlayerId) -> i32 {
+         const PREFIX: &str = "mahact:fleet:";
+         let count: usize = self
+@@ -2501,6 +2558,7 @@ impl GameState {
+     /// Record why a victory point moved. Call beside the mutation, never instead of it: this is a
+     /// ledger for diagnostics and changes no game state.
+     pub fn note_vp(&mut self, player: &PlayerId, delta: i32, reason: &str) {
++        keydump("ledger", reason);
+         self.vp_ledger
+             .push((player.clone(), delta, reason.to_owned()));
+     }

@@ -16,6 +16,7 @@ pub mod board;
 pub mod galaxy;
 pub mod hex;
 pub mod ids;
+pub mod keys;
 pub mod movement;
 pub mod tables;
 
