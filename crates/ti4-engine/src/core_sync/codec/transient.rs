@@ -2,7 +2,7 @@ use ti4_engine_core::containers::{Cow, Log, SmallList, SortedMap};
 use ti4_engine_core::generated::{ActionCard, Planet, StrategyCard, System, Technology, Unit};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::state as c;
-use ti4_engine_core::state::{CoreState, Slice, TechSet};
+use ti4_engine_core::state::{CoreState, Slice};
 use ti4_model::id::{ActionCardId, PlanetId, PlayerId, StrategyCardId, SystemId, TechnologyId, UnitTypeId};
 use ti4_model::state as m;
 use ti4_model::state::GameState;
@@ -60,14 +60,14 @@ fn seat_counts_usize_back(cx: &Ctx, m: &SortedMap<Seat, u32, 4>) -> R<std::colle
     m.iter().map(|(k, v)| Ok((PlayerId::new(cx.owner(S, *k)?), *v as usize))).collect()
 }
 
-fn die(cx: &Ctx, r: &m::CombatRollRecord) -> R<c::CombatDie> {
-    Ok(c::CombatDie { player: cx.seat(S, r.player.as_str())?, unit: id::<Unit>(S, "unit type", &r.unit)?, roll: r.roll, target: r.target, hit: r.hit })
+fn die(cx: &mut Ctx, r: &m::CombatRollRecord) -> R<c::CombatDie> {
+    Ok(c::CombatDie { player: cx.seat(S, r.player.as_str())?, unit: cx.texts.intern(S, &r.unit)?, roll: r.roll, target: r.target, hit: r.hit })
 }
 
 fn die_back(cx: &Ctx, d: &c::CombatDie) -> R<m::CombatRollRecord> {
     Ok(m::CombatRollRecord {
         player: PlayerId::new(cx.owner(S, d.player)?),
-        unit: txt(d.unit).to_owned(),
+        unit: cx.texts.text(S, d.unit)?.to_owned(),
         roll: d.roll,
         target: d.target,
         hit: d.hit,
@@ -180,16 +180,10 @@ fn invasion_step_back(cx: &Ctx, s: &c::InvasionStep) -> R<m::InvasionStep> {
 fn tech_source(s: &m::StartingTechSource) -> R<c::StartingTechSource> {
     Ok(match s {
         m::StartingTechSource::Listed(list) => {
-            let mut set = TechSet::new();
-            for t in list {
-                set.insert(id::<Technology>(S, "technology", t.as_str())?);
-            }
-            // The set iterates in text order and drops repeats: a list in another order or with a
-            // repeat would not come back as it was.
-            if !list.windows(2).all(|w| w[0].as_str() < w[1].as_str()) {
-                return Err(bad(S, "starting tech list not sorted", list.len()));
-            }
-            c::StartingTechSource::Listed(set)
+            let techs = list.iter().map(|t| id::<Technology>(S, "technology", t.as_str())).collect::<R<Vec<_>>>()?;
+            c::StartingTechSource::Listed(
+                c::TechList::from_slice(&techs).ok_or_else(|| bad(S, "starting tech list too long", list.len()))?,
+            )
         }
         m::StartingTechSource::OwnedByOthers => c::StartingTechSource::OwnedByOthers,
         m::StartingTechSource::Researchable => c::StartingTechSource::Researchable,
@@ -477,8 +471,8 @@ impl SliceCodec for Transient {
                     of: p.of,
                     remaining: p.remaining,
                     source: match p.source {
-                        c::StartingTechSource::Listed(set) => {
-                            m::StartingTechSource::Listed(set.iter().map(|t| TechnologyId::new(txt(t))).collect())
+                        c::StartingTechSource::Listed(list) => {
+                            m::StartingTechSource::Listed(list.as_slice().iter().map(|t| TechnologyId::new(txt(*t))).collect())
                         }
                         c::StartingTechSource::OwnedByOthers => m::StartingTechSource::OwnedByOthers,
                         c::StartingTechSource::Researchable => m::StartingTechSource::Researchable,

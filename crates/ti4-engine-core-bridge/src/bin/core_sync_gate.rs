@@ -219,6 +219,7 @@ fn main() {
     for m in roundtrip_core_diff.iter().take(20) {
         println!("CORE DIFF {m}");
     }
+    println!("size_of CoreState {} B, Player {} B", std::mem::size_of::<CoreState>(), std::mem::size_of::<ti4_engine_core::state::Player>());
     println!("\nlend cost per slice (mean over {loaded} loaded positions): string JSON bytes, typed inline bytes, load ns, store ns");
     let inline = |s: Slice| -> usize {
         use ti4_engine_core::state as st;

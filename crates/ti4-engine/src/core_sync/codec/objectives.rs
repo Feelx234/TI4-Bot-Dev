@@ -1,7 +1,7 @@
 use ti4_engine_core::containers::{Cow, SeatSet, SmallList};
 use ti4_engine_core::generated::{PublicObjective, SecretObjective};
 use ti4_engine_core::ids::Seat;
-use ti4_engine_core::state::{CoreState, ObjectiveSet, Slice};
+use ti4_engine_core::state::{CoreState, ObjectiveRef, ObjectiveSet, Slice};
 use ti4_model::id::{ObjectiveId, PlayerId};
 use ti4_model::state::{FeatOccurrence, GameState};
 
@@ -20,12 +20,14 @@ impl SliceCodec for Objectives {
 
     fn load(cx: &mut Ctx, gs: &GameState, _: Sources<'_>, core: &mut CoreState) -> R<()> {
         let o = &mut core.objectives;
-        // A secret objective made public (Classified Document Leaks) sits in `revealed_objectives` as
-        // an `ObjectiveId` the public enum cannot hold: such a position is unmapped (see the report).
+        // A secret objective made public (Classified Document Leaks) sits here as a secret id.
         o.revealed = gs
             .revealed_objectives
             .iter()
-            .map(|x| id::<PublicObjective>(S, "public objective", x.as_str()))
+            .map(|x| match PublicObjective::from_id(x.as_str()) {
+                Some(p) => Ok(ObjectiveRef::Public(p)),
+                None => id::<SecretObjective>(S, "objective", x.as_str()).map(ObjectiveRef::Secret),
+            })
             .collect::<R<SmallList<_, 12>>>()?;
         o.scored = [ObjectiveSet::default(); 16];
         o.scored_present = SeatSet::EMPTY;
@@ -51,7 +53,14 @@ impl SliceCodec for Objectives {
 
     fn store(cx: &Ctx, core: &CoreState, gs: &mut GameState) -> R<()> {
         let o = core.objectives();
-        gs.revealed_objectives = o.revealed.iter().map(|x| ObjectiveId::new(txt(*x))).collect();
+        gs.revealed_objectives = o
+            .revealed
+            .iter()
+            .map(|x| match x {
+                ObjectiveRef::Public(p) => ObjectiveId::new(txt(*p)),
+                ObjectiveRef::Secret(s) => ObjectiveId::new(txt(*s)),
+            })
+            .collect();
         gs.scored_objectives.clear();
         for seat in o.scored_present.iter() {
             let cell = &o.scored[usize::from(seat.0)];

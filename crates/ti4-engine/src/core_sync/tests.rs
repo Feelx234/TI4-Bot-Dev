@@ -131,3 +131,10 @@ fn text_codes_are_stable_between_lends() {
     assert_eq!(a, b);
     let _ = CoreState::default();
 }
+
+#[test]
+fn state_sizes_stay_inside_the_f1_targets() {
+    use std::mem::size_of;
+    assert!(size_of::<CoreState>() <= 4096, "CoreState {}", size_of::<CoreState>());
+    assert!(size_of::<ti4_engine_core::state::Player>() <= 600, "Player {}", size_of::<ti4_engine_core::state::Player>());
+}
