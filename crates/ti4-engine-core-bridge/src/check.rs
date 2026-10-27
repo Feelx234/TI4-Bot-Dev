@@ -506,8 +506,8 @@ pub fn check_content(report: &mut Report) {
                 }
             }
             let want = ti4_engine::planets::printed_specialties_text(content, sources, &planet);
-            let got = adapter::printed_specialties(content, sources, id)
-                .unwrap_or_else(|| want.clone());
+            let got: Vec<String> = adapter::printed_specialties(content, sources, id)
+                .map_or_else(|| want.clone(), |names| names.iter().map(|n| (*n).to_owned()).collect());
             report.content_answers += 1;
             if want != got {
                 report.miss(format!("specialties {id}: {want:?} vs {got:?}"));
