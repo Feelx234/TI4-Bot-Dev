@@ -7,6 +7,7 @@ use ti4_engine_core::state::{Code, Slice};
 use ti4_model::state::GameState;
 
 use super::error::{R, bad};
+use super::keys::{Codec as KeysCodec, Owners as KeyOwners};
 
 /// The owners of one table in text order: seat `i` is the `i`-th (docs 1.3). At most 16.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -52,6 +53,12 @@ impl Owners {
             return Err(bad(Slice::Seats, "more than 16 owners", ids.len()));
         }
         Ok(Self { ids: ids.into_iter().map(str::to_owned).collect() })
+    }
+
+    /// The ids in seat order.
+    #[must_use]
+    pub fn ids(&self) -> &[String] {
+        &self.ids
     }
 
     #[must_use]
@@ -135,13 +142,21 @@ impl Texts {
 pub struct Ctx {
     pub owners: Owners,
     pub texts: Texts,
+    /// The text codec of the typed keys (marks, outcomes, ledger reasons): the owner table in the
+    /// keys' own form (`None` while an owner id is a proper prefix of another, which the key order
+    /// cannot represent: the marks and outcomes of that game stay unmapped) and the table of opaque
+    /// value texts (`Atom::Blob`), persistent for the game so blob indices stay stable between lends.
+    pub keys: KeysCodec,
 }
 
 impl Ctx {
     /// # Errors
     /// More than 16 owners.
     pub fn of(state: &GameState) -> R<Self> {
-        Ok(Self { owners: Owners::of(state)?, texts: Texts::default() })
+        let owners = Owners::of(state)?;
+        let mut keys = KeysCodec::default();
+        keys.owners = key_owners(&owners);
+        Ok(Self { owners, texts: Texts::default(), keys })
     }
 
     /// Rebuild the owner table for `state` (an owner may have appeared since the last lend), keeping
@@ -152,6 +167,7 @@ impl Ctx {
     pub fn refresh(&mut self, state: &GameState) -> R<()> {
         let owners = Owners::of(state)?;
         if owners != self.owners {
+            self.keys.owners = key_owners(&owners);
             self.owners = owners;
         }
         Ok(())
@@ -164,4 +180,8 @@ impl Ctx {
     pub(crate) fn owner(&self, slice: Slice, seat: Seat) -> R<&str> {
         self.owners.id(seat).ok_or_else(|| bad(slice, "seat not in the table", seat.0))
     }
+}
+
+fn key_owners(owners: &Owners) -> Option<KeyOwners> {
+    KeyOwners::new(owners.ids().iter().map(String::as_str))
 }
