@@ -385,6 +385,231 @@ pub fn yssaril_commander_unlocked(gs: &GameState, who: &PlayerId, l: &LeaderId) 
     with(gs, full(), |p| Some(yssaril::query::commander_unlocked(p.s(), p.k, p.seat(who)?, leader(l)?)))
 }
 
+// -- the offline cross-product -----------------------------------------------------------------------------
+
+/// What [`compare`] did.
+#[derive(Debug, Default, Clone)]
+pub struct CdCheck {
+    pub positions: u64,
+    pub unmapped: u64,
+    pub compared: u64,
+    pub mismatches: Vec<String>,
+}
+
+impl CdCheck {
+    pub fn add(&mut self, o: &Self) {
+        self.positions += o.positions;
+        self.unmapped += o.unmapped;
+        self.compared += o.compared;
+        self.mismatches.extend(o.mismatches.iter().take(60usize.saturating_sub(self.mismatches.len())).cloned());
+    }
+}
+
+/// The variants of a position that put each CD faction at seat 0 with the state its hooks read.
+fn variants(gs: &GameState) -> Vec<(&'static str, GameState)> {
+    use ti4_model::id::{BreakthroughId, FactionId, TechnologyId};
+    use ti4_model::state::LeaderStatus;
+    use ti4_model::units::Unit as ModelUnit;
+
+    let mut out = Vec::new();
+    if gs.players.len() < 2 {
+        return out;
+    }
+    let (a, b) = (gs.players[0].id.clone(), gs.players[1].id.clone());
+    let hot: Vec<SystemId> = gs.board.iter().filter(|(_, s)| !s.units.is_empty() || !s.planet_units.is_empty()).map(|(k, _)| k.clone()).take(3).collect();
+    let Some(first) = hot.first().cloned() else { return out };
+    let planet_of = |gs: &GameState, s: &SystemId| gs.board.get(s).and_then(|b| b.planet_units.keys().next().cloned());
+    let unit = |t: &str, o: &PlayerId| ModelUnit::new(UnitTypeId::new(t), o.clone());
+    let mut base = gs.clone();
+    base.rules_version = base.rules_version.max(17);
+    base.activation_seq = 7;
+
+    let mut v = base.clone();
+    v.players[0].faction = FactionId::new("naaz");
+    v.players[0].technologies.insert(TechnologyId::new("pfa"));
+    v.system_mut(&first).units.extend([unit("naaz_flagship", &a), unit("naaz_mech", &a), unit("carrier", &b)]);
+    if let Some(pl) = planet_of(&v, &first) {
+        v.system_mut(&first).planet_units.entry(pl.clone()).or_default().extend([unit("naaz_mech", &a), unit("naaz_voltron", &a)]);
+        v.exhausted_planets.insert(pl);
+    }
+    for kind in ["space", "ground"] {
+        v.faction_marks.insert(format!("naaz:supercharge:{a}"), format!("{kind}:{}", v.combat_round_seq));
+    }
+    out.push(("naaz", v));
+
+    let mut v = base.clone();
+    v.players[0].faction = FactionId::new("naalu");
+    v.players[0].breakthrough = Some(BreakthroughId::new("naalubt"));
+    v.players[0].leaders.insert(ti4_model::id::LeaderId::new("naalucommander"), LeaderStatus::Unlocked);
+    v.players[1].relic_fragments.insert("cultural".to_owned(), 1);
+    v.system_mut(&first).units.extend([unit("naalu_flagship", &a), unit("naalu_fighter", &a), unit("naalu_fighter2", &a), unit("fighter", &b)]);
+    if let Some(pl) = planet_of(&v, &first) {
+        v.system_mut(&first).planet_units.entry(pl).or_default().extend([unit("naalu_mech", &a), unit("infantry", &b)]);
+    }
+    v.promissory_notes.insert(format!("ceasefire:{}", v.players[1].faction), a.clone());
+    v.faction_marks.insert("naalu:gift_round".to_owned(), v.round.to_string());
+    out.push(("naalu", v.clone()));
+    v.faction_marks.remove("naalu:gift_round");
+    out.push(("naalu-telepathic", v));
+
+    let mut v = base.clone();
+    v.players[0].faction = FactionId::new("sardakk");
+    v.players[0].technologies.insert(TechnologyId::new("vpw"));
+    v.players[0].leaders.insert(ti4_model::id::LeaderId::new("sardakkcommander"), LeaderStatus::Unlocked);
+    v.system_mut(&first).units.extend([unit("sardakk_flagship", &a), unit("cruiser", &a), unit("cruiser", &b)]);
+    if let Some(pl) = planet_of(&v, &first) {
+        v.system_mut(&first).planet_units.entry(pl.clone()).or_default().extend([unit("infantry", &a), unit("sardakk_mech", &a), unit("infantry", &b)]);
+        v.faction_marks.insert("sardakk:tekklar:combat".to_owned(), format!("{first}|{pl}|{b}|{a}"));
+    }
+    out.push(("sardakk", v));
+
+    let mut v = base.clone();
+    v.players[0].faction = FactionId::new("titans");
+    v.players[0].breakthrough = Some(BreakthroughId::new("titansbt"));
+    v.players[0].leaders.insert(ti4_model::id::LeaderId::new("titanscommander"), LeaderStatus::Unlocked);
+    v.phase = ti4_model::state::Phase::Status;
+    if let Some(pl) = planet_of(&v, &first) {
+        v.system_mut(&first).planet_units.entry(pl.clone()).or_default().extend([unit("infantry", &a), unit("infantry", &b), unit("pds", &a), unit("spacedock", &a), unit("pds", &a)]);
+        v.faction_marks.insert(format!("titans:coalescence:{pl}"), format!("7|{first}"));
+        v.system_mut(&first).coexisting.entry(pl).or_default().insert(b.clone());
+    }
+    out.push(("titans", v));
+
+    let mut v = base.clone();
+    v.players[0].faction = FactionId::new("yin");
+    v.players[0].leaders.insert(ti4_model::id::LeaderId::new("yincommander"), LeaderStatus::Unlocked);
+    v.players[1].technologies.extend(["amd", "dxa", "gd2", "vax"].map(TechnologyId::new));
+    v.system_mut(&first).units.push(unit("infantry", &a));
+    if let Some(pl) = planet_of(&v, &first) {
+        v.system_mut(&first).planet_units.entry(pl).or_default().extend([unit("infantry", &a), unit("infantry", &a)]);
+    }
+    v.faction_marks.insert(format!("yin:ability_used:{a}"), "1".to_owned());
+    out.push(("yin", v));
+
+    let mut v = base.clone();
+    v.players[0].faction = FactionId::new("yssaril");
+    v.players[0].technologies.insert(TechnologyId::new("tp"));
+    v.players[1].passed = true;
+    v.phase = ti4_model::state::Phase::Action;
+    v.active = Some(a.clone());
+    v.turn_seq = 9;
+    v.faction_marks.insert(format!("private:#borrowed_scheming:{b}"), a.to_string());
+    v.faction_marks.insert(format!("yssaril:bt:negotiating:{a}:{b}"), "true".to_owned());
+    v.faction_marks.insert(format!("yssaril:bt:exempt:{b}:{a}"), "9".to_owned());
+    out.push(("yssaril", v));
+    out
+}
+
+/// Every CD hook, through the string dispatch functions (each runs the module wrappers, so the hook dual of
+/// `Area::Factions` compares each answer), asked for every seat, system, planet and unit kind the position offers.
+fn drive(gs: &GameState, galaxy: Option<&ti4_content::galaxy::Galaxy>, sources: SourceSet) {
+    use crate::factions::{self, hooks_combat, hooks_cards, hooks_economy, hooks_ground, hooks_strategy};
+    let content = ti4_content::ContentStore::embedded();
+    let ids: Vec<PlayerId> = gs.players.iter().map(|p| p.id.clone()).collect();
+    let systems: Vec<SystemId> = gs.board.iter().filter(|(_, s)| !s.units.is_empty() || !s.planet_units.is_empty()).map(|(k, _)| k.clone()).take(4).collect();
+    let kinds = ["naaz_mech", "naaz_flagship", "naaz_voltron", "naalu_mech", "naalu_fighter2", "naalu_flagship", "sardakk_flagship", "cruiser", "infantry", "mech", "yssaril_flagship"];
+    let techs = ["amd", "dxa", "gd2", "vax"].map(ti4_model::id::TechnologyId::new);
+    let leaders = ["naazcommander", "naalucommander", "sardakkcommander", "titanscommander", "yincommander", "yssarilcommander", "sardakkagent"].map(ti4_model::id::LeaderId::new);
+    for p in &ids {
+        let _ = hooks_economy::action_card_draw_bonus(gs, content, p, 1);
+        let _ = hooks_economy::action_card_limit(gs, content, p, 7);
+        let _ = hooks_economy::action_cards_forbidden(gs, p);
+        let _ = hooks_strategy::extra_prerequisite_colours(gs, content, p);
+        let _ = crate::factions::naalu::commander_has_peek(gs, p);
+        for t in &techs {
+            let _ = hooks_strategy::research_waiver_offers(gs, content, p, t);
+        }
+        for l in &leaders {
+            let _ = factions::commander_unlocked(gs, content, sources, galaxy, p, l);
+        }
+        for q in &ids {
+            let _ = hooks_cards::transaction_reach(gs, content, p, q);
+            let _ = hooks_cards::transaction_exempt_from_limit(gs, content, p, q);
+            let _ = hooks_strategy::secondary_waivers(gs, content, p, q, None);
+        }
+        for base in ["mech", "infantry"] {
+            let _ = hooks_economy::cannot_produce(gs, content, p, base, "spacedock");
+        }
+        for kind in kinds {
+            let id = UnitTypeId::new(kind);
+            let _ = hooks_economy::effect_placement_forbidden(gs, content, sources, p, &id);
+            let _ = hooks_economy::captured_unit_return_form(gs, content, sources, p, &id);
+            let _ = hooks_combat::fighter_fleet_weight_halves(gs, content, p, kind);
+        }
+        for sys in &systems {
+            let _ = hooks_ground::forced_combat_planets(gs, content, sources, p, sys);
+            let _ = hooks_ground::temporary_space_commit_candidates(gs, content, sources, p, sys);
+            let _ = hooks_ground::commit_candidates(gs, content, sources, galaxy, p, sys, &[]);
+            let planets: Vec<PlanetId> = gs.board.get(sys).map(|b| b.planet_units.keys().cloned().collect()).unwrap_or_default();
+            for kind in kinds {
+                for context in ["space", "ground"] {
+                    let planet = if context == "ground" { planets.first() } else { None };
+                    if context == "ground" && planet.is_none() {
+                        continue;
+                    }
+                    let unit = CombatUnit { player: p, system: Some(sys), planet, unit_type: kind, context };
+                    let _ = factions::unit_roll_modifier(gs, content, sources, &unit);
+                    let _ = factions::unit_dice(gs, content, sources, &unit, 1);
+                    let _ = hooks_combat::ability_hit_immune(gs, content, sources, &unit);
+                }
+            }
+            for pl in &planets {
+                let _ = hooks_economy::explore_extra_draw(gs, content, sources, p, pl);
+                let _ = hooks_ground::ground_rolls_extra_hits(gs, content, sources, p, sys, pl, 1, 1);
+                if let Some(board) = gs.board.get(sys) {
+                    for u in board.planet_units.get(pl).into_iter().flatten() {
+                        let _ = hooks_ground::temporary_ground_force(gs, content, sources, p, sys, pl, u);
+                    }
+                }
+            }
+        }
+    }
+    // The bookkeeping observers act on a copy.
+    let mut copy = gs.clone();
+    hooks_strategy::strategy_phase_ended(&mut copy);
+    for p in &ids {
+        for pl in gs.board.values().flat_map(|b| b.planet_units.keys()).take(3) {
+            let mut copy = gs.clone();
+            hooks_economy::explored(&mut copy, content, sources, p, pl);
+        }
+        for sys in &systems {
+            for planet in gs.board.get(sys).map(|b| b.planet_units.keys().cloned().collect::<Vec<_>>()).unwrap_or_default() {
+                for payment in [format!("ground|{sys}|{planet}"), format!("space|{sys}")] {
+                    for t in &techs {
+                        let mut copy = gs.clone();
+                        let _ = hooks_strategy::research_waiver_paid(&mut copy, content, p, t, 0, &payment);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The CD hooks over variants of one position that seat each CD faction at seat 0 and set the state the hooks read; every
+/// answer is compared by the hook dual (`Area::Factions` on `Dual` for the duration), the differences become mismatches.
+pub fn compare(label: &str, gs: &GameState, galaxy: &ti4_content::galaxy::Galaxy, sources: SourceSet, out: &mut CdCheck) {
+    use crate::dual::{Area, AreaMask, Backend};
+    out.positions += 1;
+    let _ = crate::dual::take_report();
+    let mask = AreaMask::all(Backend::String).with(Area::Factions, Backend::Dual);
+    for (name, v) in variants(gs) {
+        crate::dual::with_mask(mask, || {
+            drive(&v, Some(galaxy), sources);
+            drive(&v, None, sources);
+        });
+        let report = crate::dual::take_report();
+        out.compared += report.hooks.values().map(|h| h.calls).sum::<u64>();
+        for d in &report.differences {
+            if out.mismatches.len() < 60 {
+                out.mismatches.push(format!("{label}: {name}: {d}"));
+            }
+        }
+        if report.differences.is_empty() && report.dropped > 0 {
+            out.mismatches.push(format!("{label}: {name}: {} dropped differences", report.dropped));
+        }
+    }
+}
+
 // -- the order audit ------------------------------------------------------------------------------------
 
 use std::sync::OnceLock;
