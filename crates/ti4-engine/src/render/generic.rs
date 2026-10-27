@@ -10,7 +10,7 @@ use serde_json::Value;
 use ti4_engine_core::choice::generic::{Ask as GAsk, Content, Rule, Subtype as GSubtype};
 use ti4_engine_core::choice::{Ctx, Opt, Origin, Owed, OwedKind, Subtype, Target};
 use ti4_engine_core::generated::{Agenda, ActionCard, Planet, StrategyCard, System, Unit};
-use ti4_engine_core::state::{EventKind, Phase as CorePhase};
+use ti4_engine_core::state::Phase as CorePhase;
 use ti4_engine_core::{Seat, SmallList};
 use ti4_model::id::{PlanetId, PlayerId, SystemId, UnitTypeId};
 use ti4_model::state::Phase;
@@ -191,7 +191,7 @@ fn origin_text(r: &Render, o: &Origin) -> DecisionSource {
         Origin::FactionAbility(c) => DecisionSource::FactionAbility(content_text(r, *c)),
         Origin::Content(c) => DecisionSource::Content(content_text(r, *c)),
         Origin::Agenda(x) => DecisionSource::Agenda(id_of(*x)),
-        Origin::Reaction(k) => DecisionSource::Reaction(r.code_text(ti4_engine_core::state::Code(k.0))),
+        Origin::Reaction(k) => DecisionSource::Reaction(crate::kernel_sync::event_text(r, *k)),
     }
 }
 
@@ -203,7 +203,7 @@ fn origin_of(r: &Render, s: &DecisionSource) -> Option<Origin> {
         DecisionSource::FactionAbility(t) => Origin::FactionAbility(content_of(r, t)),
         DecisionSource::Content(t) => Origin::Content(content_of(r, t)),
         DecisionSource::Agenda(t) => Origin::Agenda(Agenda::from_id(t)?),
-        DecisionSource::Reaction(t) => Origin::Reaction(EventKind(r.code(t).0)),
+        DecisionSource::Reaction(t) => Origin::Reaction(crate::kernel_sync::event_kind(r, t)),
     })
 }
 

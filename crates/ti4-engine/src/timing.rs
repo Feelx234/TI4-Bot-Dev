@@ -836,6 +836,52 @@ impl Resolver {
     /// Default maximum count of simultaneously resolving events.
     pub const DEFAULT_MAXIMUM_DEPTH: usize = 100;
 
+    /// What the kernel dual needs to rebuild this resolver in the core (package A5).
+    pub(crate) fn kernel_view(&self) -> crate::kernel_sync::shim::View {
+        use crate::kernel_sync::shim::{AbilityMeta, View};
+        View {
+            initiative: self.initiative_order.iter().map(ToString::to_string).collect(),
+            seating: self.seating_order.iter().map(ToString::to_string).collect(),
+            active: self.active_player.as_ref().map(ToString::to_string),
+            speaker: self.speaker.as_ref().map(ToString::to_string),
+            phase: self.phase,
+            round: self.round_number,
+            turn: self.turn_number,
+            max_depth: self.maximum_depth,
+            abilities: self
+                .registry
+                .abilities
+                .iter()
+                .map(|a| AbilityMeta {
+                    id: a.id.clone(),
+                    owner: a.owner.to_string(),
+                    event: a.event_type.clone(),
+                    when: a.relation == Relation::When,
+                    frequency: a.frequency,
+                    optional: a.optional,
+                    repeatable: a.repeatable_in_window,
+                    has_condition: a.condition.is_some() || a.stateful_condition.is_some(),
+                })
+                .collect(),
+            cannot: self.registry.cannot.iter().map(|c| c.label.clone()).collect(),
+            used: self.used.order.iter().map(|(id, scope)| (id.clone(), format!("{scope:?}"))).collect(),
+            log_len: self.log.len(),
+            applied_len: self.applied_events.len(),
+        }
+    }
+
+    /// The trace lines, journal entries and used keys after a start mark (package A5).
+    pub(crate) fn kernel_after(&self, log_len: usize, applied_len: usize) -> crate::kernel_sync::shim::After {
+        crate::kernel_sync::shim::After {
+            log: self.log[log_len.min(self.log.len())..].to_vec(),
+            applied: self.applied_events[applied_len.min(self.applied_events.len())..]
+                .iter()
+                .map(|e| (e.event_type.clone(), e.id, e.cancelled))
+                .collect(),
+            used: self.used.order.iter().map(|(id, scope)| format!("{id}|{scope:?}")).collect(),
+        }
+    }
+
     /// Set the maximum simultaneous event depth for a bounded resolver.
     ///
     /// # Panics
@@ -854,6 +900,22 @@ impl Resolver {
     /// Returns an error for an illegal decider answer or an exhausted nested-emission depth budget.
     pub fn emit(
         &mut self,
+        event: Event,
+        resolve: impl FnOnce(&mut Event),
+    ) -> Result<Event, TimingError> {
+        if crate::kernel_sync::shim::wants_dual() {
+            let before = crate::kernel_sync::shim::Before::of(self);
+            crate::kernel_sync::trace::start();
+            let result = self.emit_inner(event, resolve);
+            let items = crate::kernel_sync::trace::finish();
+            crate::kernel_sync::shim::check(self, &before, items, &result);
+            return result;
+        }
+        self.emit_inner(event, resolve)
+    }
+
+    fn emit_inner(
+        &mut self,
         mut event: Event,
         resolve: impl FnOnce(&mut Event),
     ) -> Result<Event, TimingError> {
@@ -865,6 +927,7 @@ impl Resolver {
         }
         self.emission_stack
             .push((event.event_type.clone(), event.id));
+        crate::kernel_sync::trace::emit_begin(&event, false);
         // Reserve the event's position before opening windows so nested emissions follow their
         // parent in emission order even though the nested event completes first.
         let journal_index = self.applied_events.len();
@@ -891,10 +954,13 @@ impl Resolver {
 
             self.log
                 .push(format!("  resolve {}#{}", event.event_type, event.id));
+            crate::kernel_sync::trace::resolve_begin();
             resolve(&mut event);
+            crate::kernel_sync::trace::resolve_end();
             self.run_window(&mut event, Relation::After)?;
             Ok(event)
         })();
+        crate::kernel_sync::trace::emit_end(result.as_ref().is_ok_and(|e| e.cancelled), result.is_ok());
         self.emission_stack.pop();
         if let Ok(event) = &result {
             self.applied_events[journal_index] = event.clone();
@@ -917,6 +983,23 @@ impl Resolver {
     pub fn emit_with_context(
         &mut self,
         context: &mut TimingContext<'_>,
+        event: Event,
+        resolve: impl FnOnce(&mut Event, &mut TimingContext<'_>),
+    ) -> Result<Event, TimingError> {
+        if crate::kernel_sync::shim::wants_dual() {
+            let before = crate::kernel_sync::shim::Before::of(self);
+            crate::kernel_sync::trace::start();
+            let result = self.emit_with_context_inner(context, event, resolve);
+            let items = crate::kernel_sync::trace::finish();
+            crate::kernel_sync::shim::check(self, &before, items, &result);
+            return result;
+        }
+        self.emit_with_context_inner(context, event, resolve)
+    }
+
+    fn emit_with_context_inner(
+        &mut self,
+        context: &mut TimingContext<'_>,
         mut event: Event,
         resolve: impl FnOnce(&mut Event, &mut TimingContext<'_>),
     ) -> Result<Event, TimingError> {
@@ -928,6 +1011,7 @@ impl Resolver {
         }
         self.emission_stack
             .push((event.event_type.clone(), event.id));
+        crate::kernel_sync::trace::emit_begin(&event, true);
         let journal_index = self.applied_events.len();
         self.applied_events.push(event.clone());
         self.log
@@ -952,10 +1036,13 @@ impl Resolver {
 
             self.log
                 .push(format!("  resolve {}#{}", event.event_type, event.id));
+            crate::kernel_sync::trace::resolve_begin();
             resolve(&mut event, context);
+            crate::kernel_sync::trace::resolve_end();
             self.run_window_with_context(&mut event, Relation::After, context)?;
             Ok(event)
         })();
+        crate::kernel_sync::trace::emit_end(result.as_ref().is_ok_and(|e| e.cancelled), result.is_ok());
         self.emission_stack.pop();
         if let Ok(event) = &result {
             self.applied_events[journal_index] = event.clone();
@@ -1025,7 +1112,10 @@ impl Resolver {
                         player,
                         ability.id
                     ));
-                    (ability.effect)(event, self)?;
+                    crate::kernel_sync::trace::effect_begin(&ability.id);
+                    let effect_result = (ability.effect)(event, self);
+                    crate::kernel_sync::trace::effect_end(event.cancelled);
+                    effect_result?;
                     resolved_this_pass = true;
                     if event.cancelled {
                         return Ok(());
@@ -1069,6 +1159,7 @@ impl Resolver {
                     );
                     if eligible.is_empty() {
                         if announced.insert(player.clone()) {
+                            crate::kernel_sync::trace::skipped(player.as_str());
                             context.table.window_skipped(
                                 &player,
                                 &event.event_type,
@@ -1093,11 +1184,14 @@ impl Resolver {
                         player,
                         ability.id
                     ));
-                    if let Some(effect) = ability.stateful_effect {
-                        effect(event, self, context)?;
+                    crate::kernel_sync::trace::effect_begin(&ability.id);
+                    let effect_result = if let Some(effect) = ability.stateful_effect {
+                        effect(event, self, context)
                     } else {
-                        (ability.effect)(event, self)?;
-                    }
+                        (ability.effect)(event, self)
+                    };
+                    crate::kernel_sync::trace::effect_end(event.cancelled);
+                    effect_result?;
                     resolved_this_pass = true;
                     if event.cancelled {
                         return Ok(());
@@ -1113,11 +1207,16 @@ impl Resolver {
         // window are announced only now, once every declaration is in, each in declaration
         // order and each opening its own Sabotage window.
         let result = result.and_then(|()| {
+            crate::kernel_sync::trace::closed_begin();
             let declared = std::mem::take(&mut context.state.declared_card_plays);
-            for (player, alias) in declared {
-                crate::reactions::announce(context, self, &player, &alias)?;
-            }
-            Ok(())
+            let announced = (|| {
+                for (player, alias) in declared {
+                    crate::reactions::announce(context, self, &player, &alias)?;
+                }
+                Ok(())
+            })();
+            crate::kernel_sync::trace::closed_end();
+            announced
         });
         self.relation_being_resolved = previous;
         result
@@ -1133,16 +1232,23 @@ impl Resolver {
         self.for_event(&event.event_type, relation)
             .filter(|ability| {
                 ability.owner == *player
-                    && self
-                        .participation
-                        .as_ref()
-                        .is_none_or(|policy| policy(ability))
+                    && crate::kernel_sync::trace::part(
+                        &ability.id,
+                        player.as_str(),
+                        self.participation
+                            .as_ref()
+                            .is_none_or(|policy| policy(ability)),
+                    )
                     && (ability.repeatable_in_window || !resolved_here.contains(&ability.id))
                     && !self.is_used(ability, event)
-                    && ability
-                        .condition
-                        .as_ref()
-                        .is_none_or(|condition| condition(event, self))
+                    && (!(ability.condition.is_some() || ability.stateful_condition.is_some())
+                        || crate::kernel_sync::trace::cond(
+                            &ability.id,
+                            ability
+                                .condition
+                                .as_ref()
+                                .is_none_or(|condition| condition(event, self)),
+                        ))
             })
             .cloned()
             .collect()
@@ -1159,23 +1265,33 @@ impl Resolver {
         self.for_event(&event.event_type, relation)
             .filter(|ability| {
                 ability.owner == *player
-                    && self
-                        .participation
-                        .as_ref()
-                        .is_none_or(|policy| policy(ability))
+                    && crate::kernel_sync::trace::part(
+                        &ability.id,
+                        player.as_str(),
+                        self.participation
+                            .as_ref()
+                            .is_none_or(|policy| policy(ability)),
+                    )
                     && (ability.repeatable_in_window || !resolved_here.contains(&ability.id))
                     && !self.is_used(ability, event)
                     // Political Secret (version 17): no faction ability, no action card.
                     && !(ability.id.starts_with("ability:")
-                        && crate::laws::political_secret_bars(context.state, player))
-                    && ability
-                        .condition
-                        .as_ref()
-                        .is_none_or(|condition| condition(event, self))
-                    && ability
-                        .stateful_condition
-                        .as_ref()
-                        .is_none_or(|condition| condition(event, self, context))
+                        && crate::kernel_sync::trace::bars(
+                            player.as_str(),
+                            crate::laws::political_secret_bars(context.state, player),
+                        ))
+                    && (!(ability.condition.is_some() || ability.stateful_condition.is_some())
+                        || crate::kernel_sync::trace::cond(
+                            &ability.id,
+                            ability
+                                .condition
+                                .as_ref()
+                                .is_none_or(|condition| condition(event, self))
+                                && ability
+                                    .stateful_condition
+                                    .as_ref()
+                                    .is_none_or(|condition| condition(event, self, context)),
+                        ))
             })
             .cloned()
             .collect()
@@ -1219,6 +1335,12 @@ impl Resolver {
             .table
             .ask(&choice)
             .map_err(TimingError::IllegalChoice)?;
+        crate::kernel_sync::trace::ask(
+            player.as_str(),
+            eligible.iter().map(|a| a.id.clone()).collect(),
+            declinable,
+            if chosen.is_decline() { None } else { Some(chosen.id.as_str()) },
+        );
         if chosen.is_decline() {
             self.log.push(format!(
                 "  [{}] {} declines",
@@ -1349,6 +1471,12 @@ impl Resolver {
         let chosen = context
             .ask_seeing(&choice)
             .map_err(TimingError::IllegalChoice)?;
+        crate::kernel_sync::trace::ask(
+            player.as_str(),
+            eligible.iter().map(|a| a.id.clone()).collect(),
+            declinable,
+            if chosen.is_decline() { None } else { Some(chosen.id.as_str()) },
+        );
         if chosen.is_decline() {
             self.log.push(format!(
                 "  [{}] {} declines",
@@ -1535,7 +1663,7 @@ impl AbilityRegistry {
     pub fn is_forbidden(&self, event: &Event) -> Option<&str> {
         self.cannot
             .iter()
-            .find(|cannot| (cannot.predicate)(event))
+            .find(|cannot| crate::kernel_sync::trace::forbids((cannot.predicate)(event)))
             .map(|cannot| cannot.label.as_str())
     }
 }
