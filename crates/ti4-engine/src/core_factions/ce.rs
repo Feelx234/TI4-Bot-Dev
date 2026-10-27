@@ -99,11 +99,19 @@ use ti4_engine_core_factions::ce_movement::{arborec, empyrean, muaat, nomad, obs
 
 pub fn muaat_extra_production(gs: &GameState, sources: SourceSet, who: &PlayerId, sys: &SystemId) -> Option<i64> {
     sampled_audit(gs, sources);
-    with(gs, sources, |p| Some(muaat::query::extra_production(p.s(), p.k, p.seat(who)?, system(sys)?)))
+    with(gs, sources, |p| muaat_extra_production_at(p, who, sys))
+}
+
+fn muaat_extra_production_at(p: &Pos, who: &PlayerId, sys: &SystemId) -> Option<i64> {
+    Some(muaat::query::extra_production(p.s(), p.k, p.seat(who)?, system(sys)?))
 }
 
 pub fn saar_nomadic(gs: &GameState, who: &PlayerId) -> Option<bool> {
-    with(gs, full(), |p| Some(saar::query::nomadic(p.s(), p.seat(who)?)))
+    with(gs, full(), |p| saar_nomadic_at(p, who))
+}
+
+fn saar_nomadic_at(p: &Pos, who: &PlayerId) -> Option<bool> {
+    Some(saar::query::nomadic(p.s(), p.seat(who)?))
 }
 
 pub fn saar_commander_docks(
@@ -113,21 +121,31 @@ pub fn saar_commander_docks(
     producing: &SystemId,
     base: &str,
 ) -> Option<Vec<(SystemId, Option<PlanetId>)>> {
-    with(gs, sources, |p| {
-        let found = saar::query::commander_docks(p.s(), p.k, p.seat(who)?, system(producing)?, base_type(base)?);
-        Some(found.as_slice().iter().map(|(s, pl)| (SystemId::new(s.as_str()), pl.map(|pl| PlanetId::new(pl.as_str())))).collect())
-    })
+    with(gs, sources, |p| saar_commander_docks_at(p, who, producing, base))
+}
+
+fn saar_commander_docks_at(p: &Pos, who: &PlayerId, producing: &SystemId, base: &str) -> Option<Vec<(SystemId, Option<PlanetId>)>> {
+    let found = saar::query::commander_docks(p.s(), p.k, p.seat(who)?, system(producing)?, base_type(base)?);
+    Some(found.as_slice().iter().map(|(s, pl)| (SystemId::new(s.as_str()), pl.map(|pl| PlanetId::new(pl.as_str())))).collect())
 }
 
 pub fn arborec_cannot_produce(gs: &GameState, who: &PlayerId, unit_base: &str, producer_base: &str) -> Option<bool> {
     sampled_audit(gs, full());
-    with(gs, full(), |p| Some(arborec::query::cannot_produce(p.s(), p.seat(who)?, base_type(unit_base)?, base_type(producer_base)?)))
+    with(gs, full(), |p| arborec_cannot_produce_at(p, who, unit_base, producer_base))
+}
+
+fn arborec_cannot_produce_at(p: &Pos, who: &PlayerId, unit_base: &str, producer_base: &str) -> Option<bool> {
+    Some(arborec::query::cannot_produce(p.s(), p.seat(who)?, base_type(unit_base)?, base_type(producer_base)?))
 }
 
 // -- nomad ------------------------------------------------------------------------------------------------
 
 pub fn nomad_transaction_reach(gs: &GameState, a: &PlayerId, b: &PlayerId) -> Option<bool> {
-    with(gs, full(), |p| Some(nomad::query::transaction_reach(p.s(), p.k, p.seat(a)?, p.seat(b)?)))
+    with(gs, full(), |p| nomad_transaction_reach_at(p, a, b))
+}
+
+fn nomad_transaction_reach_at(p: &Pos, a: &PlayerId, b: &PlayerId) -> Option<bool> {
+    Some(nomad::query::transaction_reach(p.s(), p.k, p.seat(a)?, p.seat(b)?))
 }
 
 pub fn nomad_watches_agent_exhaustion(gs: &GameState) -> Option<bool> {
@@ -140,33 +158,38 @@ pub fn nomad_watches_roll_step(gs: &GameState) -> Option<bool> {
 
 /// `grants_sustain` over the string `CombatUnit`: the space context only (the core site has no other).
 pub fn nomad_grants_sustain(gs: &GameState, sources: SourceSet, unit: &crate::factions::CombatUnit<'_>) -> Option<bool> {
+    if !matches!(unit.context, "space" | "ground") {
+        return Some(false);
+    }
+    with(gs, sources, |p| nomad_grants_sustain_at(p, unit))
+}
+
+fn nomad_grants_sustain_at(p: &Pos, unit: &crate::factions::CombatUnit<'_>) -> Option<bool> {
     let ctx = match unit.context {
         "space" => ti4_engine_core::hooks::CombatCtx::Space,
         "ground" => ti4_engine_core::hooks::CombatCtx::Ground,
         _ => return Some(false),
     };
-    with(gs, sources, |p| {
-        let site = ti4_engine_core::hooks::CombatUnit {
-            owner: p.seat(unit.player)?,
-            system: match unit.system { Some(x) => Some(system(x)?), None => None },
-            planet: match unit.planet { Some(x) => Some(planet(x)?), None => None },
-            unit: <Unit as IdStr>::from_id(unit.unit_type)?,
-            ctx,
-        };
-        Some(nomad::query::grants_sustain(p.s(), p.k, site))
-    })
+    let site = ti4_engine_core::hooks::CombatUnit {
+        owner: p.seat(unit.player)?,
+        system: match unit.system { Some(x) => Some(system(x)?), None => None },
+        planet: match unit.planet { Some(x) => Some(planet(x)?), None => None },
+        unit: <Unit as IdStr>::from_id(unit.unit_type)?,
+        ctx,
+    };
+    Some(nomad::query::grants_sustain(p.s(), p.k, site))
 }
 
 /// `(borrowing ship type, combat value, barrage (value, dice))` in the string's order and types.
 pub type Borrowed = Option<(String, Option<i64>, Option<(i64, i64)>)>;
 
 pub fn nomad_borrowed_stats(gs: &GameState, sources: SourceSet, who: &PlayerId, sys: &SystemId) -> Option<Borrowed> {
-    with(gs, sources, |p| {
-        let found = nomad::query::borrowed_stats(p.s(), p.k, p.seat(who)?, system(sys)?);
-        Some(found.map(|b| {
-            (b.unit.as_str().to_owned(), b.hits_on.map(i64::from), b.barrage.map(|(dice, hits_on)| (i64::from(hits_on), i64::from(dice))))
-        }))
-    })
+    with(gs, sources, |p| nomad_borrowed_stats_at(p, who, sys))
+}
+
+fn nomad_borrowed_stats_at(p: &Pos, who: &PlayerId, sys: &SystemId) -> Option<Borrowed> {
+    let found = nomad::query::borrowed_stats(p.s(), p.k, p.seat(who)?, system(sys)?);
+    Some(found.map(|b| (b.unit.as_str().to_owned(), b.hits_on.map(i64::from), b.barrage.map(|(dice, hits_on)| (i64::from(hits_on), i64::from(dice))))))
 }
 
 // -- obsidian ---------------------------------------------------------------------------------------------
@@ -192,26 +215,37 @@ pub fn obsidian_secondary_waivers(
     primary: &PlayerId,
     kind: Option<ti4_content::StrategyCardKind>,
 ) -> Option<Vec<crate::factions::hooks_strategy::SecondaryWaiver>> {
-    with(gs, full(), |p| {
-        let found = obsidian::query::secondary_waivers(p.s(), p.k, p.seat(follower)?, p.seat(primary)?, card(kind));
-        Some(
-            found
-                .as_slice()
-                .iter()
-                .map(|w| {
-                    debug_assert_eq!(w.code, obsidian::query::ENERVATE);
-                    crate::factions::hooks_strategy::SecondaryWaiver {
-                        id: "enervate".to_owned(),
-                        label: format!("resolve {primary}'s secondary without a command token (Enervate)"),
-                    }
-                })
-                .collect(),
-        )
-    })
+    with(gs, full(), |p| obsidian_secondary_waivers_at(p, follower, primary, kind))
+}
+
+fn obsidian_secondary_waivers_at(
+    p: &Pos,
+    follower: &PlayerId,
+    primary: &PlayerId,
+    kind: Option<ti4_content::StrategyCardKind>,
+) -> Option<Vec<crate::factions::hooks_strategy::SecondaryWaiver>> {
+    let found = obsidian::query::secondary_waivers(p.s(), p.k, p.seat(follower)?, p.seat(primary)?, card(kind));
+    Some(
+        found
+            .as_slice()
+            .iter()
+            .map(|w| {
+                debug_assert_eq!(w.code, obsidian::query::ENERVATE);
+                crate::factions::hooks_strategy::SecondaryWaiver {
+                    id: "enervate".to_owned(),
+                    label: format!("resolve {primary}'s secondary without a command token (Enervate)"),
+                }
+            })
+            .collect(),
+    )
 }
 
 pub fn obsidian_substitutes_primary(gs: &GameState, who: &PlayerId, kind: Option<ti4_content::StrategyCardKind>) -> Option<bool> {
-    with(gs, full(), |p| Some(obsidian::query::substitutes_primary(p.s(), p.k, p.seat(who)?, card(kind))))
+    with(gs, full(), |p| obsidian_substitutes_primary_at(p, who, kind))
+}
+
+fn obsidian_substitutes_primary_at(p: &Pos, who: &PlayerId, kind: Option<ti4_content::StrategyCardKind>) -> Option<bool> {
+    Some(obsidian::query::substitutes_primary(p.s(), p.k, p.seat(who)?, card(kind)))
 }
 
 pub fn obsidian_listens_for_tactical_end(gs: &GameState) -> Option<bool> {
@@ -502,10 +536,11 @@ const ALL_CARDS: [Option<ti4_content::StrategyCardKind>; 3] =
 /// Compare every ported hook on one position: the string module hooks next to the typed functions.
 fn compare_state(label: &str, gs: &GameState, _galaxy: &Galaxy, sources: SourceSet, out: &mut CeCheck) {
     out.positions += 1;
-    if Pos::of(gs, sources).is_none() {
+    let Some(pos) = Pos::of(gs, sources) else {
         out.unmapped += 1;
         return;
-    }
+    };
+    let pos = &pos;
     let content = ContentStore::embedded();
     let ids: Vec<PlayerId> = gs.players.iter().map(|p| p.id.clone()).collect();
     let systems: Vec<SystemId> = gs.board.keys().cloned().collect();
@@ -514,13 +549,13 @@ fn compare_state(label: &str, gs: &GameState, _galaxy: &Galaxy, sources: SourceS
         (&module("muaat").hooks, &module("saar").hooks, &module("arborec").hooks, &module("nomad").hooks, &module("obsidian").hooks);
 
     for p in &ids {
-        out.eq(label, &format!("saar nomadic {p}"), &(saar.strategy.scores_without_home.expect("slot"))(gs, p), &saar_nomadic(gs, p));
+        out.eq(label, &format!("saar nomadic {p}"), &(saar.strategy.scores_without_home.expect("slot"))(gs, p), &saar_nomadic_at(pos, p));
         for sys in &systems {
             out.eq(
                 label,
                 &format!("muaat extra_production {p} {sys}"),
                 &(muaat.economy.extra_production.expect("slot"))(gs, content, sources, p, sys),
-                &muaat_extra_production(gs, sources, p, sys),
+                &muaat_extra_production_at(pos, p, sys),
             );
             for base in bases {
                 let string = (saar.economy.production_destinations.expect("slot"))(gs, content, sources, p, sys, base);
@@ -529,7 +564,7 @@ fn compare_state(label: &str, gs: &GameState, _galaxy: &Galaxy, sources: SourceS
                     l.dedup();
                     l
                 };
-                out.eq(label, &format!("saar commander_docks {p} {sys} {base}"), &sorted(string), &saar_commander_docks(gs, sources, p, sys, base).map(sorted));
+                out.eq(label, &format!("saar commander_docks {p} {sys} {base}"), &sorted(string), &saar_commander_docks_at(pos, p, sys, base).map(sorted));
             }
             for kind in ["nomad_mech", "destroyer", "cruiser", "carrier", "nomad_flagship"] {
                 for context in ["space", "ground", "space_cannon"] {
@@ -538,13 +573,13 @@ fn compare_state(label: &str, gs: &GameState, _galaxy: &Galaxy, sources: SourceS
                         label,
                         &format!("nomad grants_sustain {p} {sys} {kind} {context}"),
                         &(nomad.combat.grants_sustain.expect("slot"))(gs, content, sources, &unit),
-                        &nomad_grants_sustain(gs, sources, &unit),
+                        &nomad_grants_sustain_at(pos, &unit),
                     );
                 }
             }
             let string = (nomad.combat.borrowed_stats.expect("slot"))(gs, content, sources, p, sys);
             let facts = string.map(|b| (b.unit.type_id.to_string(), b.hits_on, b.barrage));
-            out.eq(label, &format!("nomad borrowed_stats {p} {sys}"), &facts, &nomad_borrowed_stats(gs, sources, p, sys));
+            out.eq(label, &format!("nomad borrowed_stats {p} {sys}"), &facts, &nomad_borrowed_stats_at(pos, p, sys));
         }
         for unit_base in bases {
             for producer in bases {
@@ -552,7 +587,7 @@ fn compare_state(label: &str, gs: &GameState, _galaxy: &Galaxy, sources: SourceS
                     label,
                     &format!("arborec cannot_produce {p} {unit_base} {producer}"),
                     &(arborec.economy.cannot_produce.expect("slot"))(gs, content, p, unit_base, producer),
-                    &arborec_cannot_produce(gs, p, unit_base, producer),
+                    &arborec_cannot_produce_at(pos, p, unit_base, producer),
                 );
             }
         }
@@ -561,11 +596,11 @@ fn compare_state(label: &str, gs: &GameState, _galaxy: &Galaxy, sources: SourceS
                 label,
                 &format!("nomad transaction_reach {p} {q}"),
                 &(nomad.cards.transaction_reach.expect("slot"))(gs, content, p, q),
-                &nomad_transaction_reach(gs, p, q),
+                &nomad_transaction_reach_at(pos, p, q),
             );
             for card in ALL_CARDS {
                 let string = (obsidian.strategy.secondary_waivers.expect("slot"))(gs, content, p, q, card);
-                out.eq(label, &format!("obsidian secondary_waivers {p} {q} {card:?}"), &string, &obsidian_secondary_waivers(gs, p, q, card));
+                out.eq(label, &format!("obsidian secondary_waivers {p} {q} {card:?}"), &string, &obsidian_secondary_waivers_at(pos, p, q, card));
             }
         }
         for card in ALL_CARDS {
@@ -573,7 +608,7 @@ fn compare_state(label: &str, gs: &GameState, _galaxy: &Galaxy, sources: SourceS
                 label,
                 &format!("obsidian substitutes_primary {p} {card:?}"),
                 &(obsidian.substitutes_primary.expect("slot"))(gs, content, p, card),
-                &obsidian_substitutes_primary(gs, p, card),
+                &obsidian_substitutes_primary_at(pos, p, card),
             );
         }
     }
