@@ -4123,6 +4123,9 @@ dependencies = [
 name = "ti4-engine-core"
 version = "0.1.0"
 dependencies = [
+ "rand 0.9.5",
+ "rand_chacha 0.9.0",
+ "rand_core 0.9.5",
  "ti4-content",
  "ti4-model",
 ]

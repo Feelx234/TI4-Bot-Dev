@@ -1,0 +1,61 @@
+//! `AgendaState`: laws, the agenda in play, votes, choices, override slots, logs.
+
+use crate::containers::{Log, SmallList, SortedMap};
+use crate::generated::{Agenda, Planet, SecretObjective, StrategyCard, System};
+use crate::ids::Seat;
+
+use super::Code;
+
+/// An agenda outcome / law choice (`laws` values, `agenda_votes`, `agenda_choices`): the closed
+/// forms are typed; `Other` is an adapter-interned text for forms X1 has not pinned. The derived
+/// order is the typed order, not the text order of the outcome ids.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Outcome {
+    For,
+    Against,
+    Player(Seat),
+    Planet(Planet),
+    System(System),
+    Law(Agenda),
+    StrategyCard(StrategyCard),
+    SecretObjective(SecretObjective),
+    Other(Code),
+}
+
+/// `AgendaRecord`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgendaRec {
+    pub round: u32,
+    pub agenda: Agenda,
+    pub outcome: Option<Outcome>,
+    pub votes: SortedMap<Outcome, i64, 6>,
+    pub speaker_decided: bool,
+    pub law: bool,
+    pub enacted: bool,
+    pub discarded: bool,
+    pub redirected_to: Option<Outcome>,
+    pub discard_reason: Option<Code>,
+}
+
+/// `AgendaCast`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AgendaCastRec {
+    pub player: Seat,
+    pub outcome: Option<Outcome>,
+    pub votes: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AgendaState {
+    /// `GameState.laws`: law -> its recorded choice.
+    pub laws: SortedMap<Agenda, Outcome, 16>,
+    pub in_play: Option<Agenda>,
+    pub choices: SmallList<Outcome, 8>,
+    pub veto_replacement: Option<Agenda>,
+    pub covert: Option<Agenda>,
+    pub elected_override: Option<Seat>,
+    pub votes: SortedMap<Seat, Outcome, 8>,
+    pub predictions: SortedMap<Seat, Outcome, 8>,
+    pub log: Log<AgendaRec>,
+    pub casts: Log<AgendaCastRec>,
+}
