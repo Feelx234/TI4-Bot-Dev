@@ -94,6 +94,9 @@ pub mod core_combat;
 /// Area::Invasion (package B2): the typed invasion rules behind a string interface.
 #[cfg(feature = "typed-core")]
 pub mod core_invasion;
+/// Area::LeadersAbilities (package B7): the typed leader reads behind the string interface.
+#[cfg(feature = "typed-core")]
+pub mod leaders_view;
 /// The offline dual of Area::BoardQueries.
 #[cfg(feature = "typed-core")]
 #[doc(hidden)]
