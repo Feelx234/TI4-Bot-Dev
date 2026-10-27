@@ -1,6 +1,6 @@
 use ti4_engine_core::containers::{Log, SmallList, SortedMap};
-use ti4_engine_core::generated::{Agenda as AgendaId, Planet, SecretObjective, StrategyCard, System};
-use ti4_engine_core::state::{AgendaCastRec, AgendaRec, CoreState, Outcome, Slice};
+use ti4_engine_core::generated::Agenda as AgendaId;
+use ti4_engine_core::state::{AgendaCastRec, AgendaRec, CoreState, Outcome, Prediction, Slice};
 use ti4_model::id::PlayerId;
 use ti4_model::state::{AgendaCast, AgendaRecord, GameState};
 
@@ -8,49 +8,31 @@ use super::{Sources, SliceCodec};
 use crate::core_sync::conv::{id, txt};
 use crate::core_sync::ctx::Ctx;
 use crate::core_sync::error::{R, bad};
-use crate::generated::IdStr;
 
 const S: Slice = Slice::Agenda;
 
 pub struct Agenda;
 
-/// An outcome text as a typed outcome. The closed forms are tried in a fixed order; the text of a
-/// typed outcome is its own id, so `render(parse(t)) == t` for every text. Anything else is an
-/// interned `Other`.
-pub(super) fn outcome(cx: &mut Ctx, slice: Slice, text: &str) -> R<Outcome> {
-    Ok(if text == "for" {
-        Outcome::For
-    } else if text == "against" {
-        Outcome::Against
-    } else if let Some(seat) = cx.owners.seat(text) {
-        Outcome::Player(seat)
-    } else if let Some(p) = Planet::from_id(text) {
-        Outcome::Planet(p)
-    } else if let Some(s) = System::from_id(text) {
-        Outcome::System(s)
-    } else if let Some(a) = AgendaId::from_id(text) {
-        Outcome::Law(a)
-    } else if let Some(c) = StrategyCard::from_id(text) {
-        Outcome::StrategyCard(c)
-    } else if let Some(o) = SecretObjective::from_id(text) {
-        Outcome::SecretObjective(o)
-    } else {
-        Outcome::Other(cx.texts.intern(slice, text)?)
-    })
+/// An outcome text as package X1's typed outcome (no agenda hint: the kinds are tried in the order
+/// of `Outcome`'s variants; the text is the same either way). The text must render back as itself;
+/// anything else is `Unmapped`.
+pub(super) fn outcome(cx: &Ctx, slice: Slice, text: &str) -> R<Outcome> {
+    cx.keys
+        .parse_outcome(text, None)
+        .filter(|o| cx.keys.render_outcome(*o).is_some_and(|t| t == text))
+        .ok_or_else(|| bad(slice, "outcome not typed", text))
+}
+
+/// A `agenda_predictions` value: an outcome, `<outcome>|<rider>` or `none|<bar>`.
+fn prediction(cx: &Ctx, text: &str) -> R<Prediction> {
+    cx.keys
+        .parse_prediction(text)
+        .filter(|p| cx.keys.render_prediction(*p).is_some_and(|t| t == text))
+        .ok_or_else(|| bad(S, "prediction not typed", text))
 }
 
 pub(super) fn outcome_text(cx: &Ctx, slice: Slice, o: Outcome) -> R<String> {
-    Ok(match o {
-        Outcome::For => "for".to_owned(),
-        Outcome::Against => "against".to_owned(),
-        Outcome::Player(s) => cx.owner(slice, s)?.to_owned(),
-        Outcome::Planet(x) => txt(x).to_owned(),
-        Outcome::System(x) => txt(x).to_owned(),
-        Outcome::Law(x) => txt(x).to_owned(),
-        Outcome::StrategyCard(x) => txt(x).to_owned(),
-        Outcome::SecretObjective(x) => txt(x).to_owned(),
-        Outcome::Other(c) => cx.texts.text(slice, c)?.to_owned(),
-    })
+    cx.keys.render_outcome(o).ok_or_else(|| bad(slice, "outcome without a text", format!("{o:?}")))
 }
 
 fn agenda_name(alias: &str) -> String {
@@ -85,7 +67,7 @@ impl SliceCodec for Agenda {
         }
         for (p, o) in &gs.agenda_predictions {
             let seat = cx.seat(S, p.as_str())?;
-            a.predictions.insert(seat, outcome(cx, S, o)?);
+            a.predictions.insert(seat, prediction(cx, o)?);
         }
         let mut log = Log::new();
         for r in &gs.agenda_log {
@@ -140,7 +122,10 @@ impl SliceCodec for Agenda {
         gs.agenda_predictions = a
             .predictions
             .iter()
-            .map(|(k, v)| Ok((PlayerId::new(cx.owner(S, *k)?), outcome_text(cx, S, *v)?)))
+            .map(|(k, v)| {
+                let text = cx.keys.render_prediction(*v).ok_or_else(|| bad(S, "prediction without a text", format!("{v:?}")))?;
+                Ok((PlayerId::new(cx.owner(S, *k)?), text))
+            })
             .collect::<R<_>>()?;
         gs.agenda_log = a
             .log
