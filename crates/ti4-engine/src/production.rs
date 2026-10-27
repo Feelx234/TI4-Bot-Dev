@@ -409,9 +409,7 @@ pub fn spendable_planets(state: &GameState, player: &PlayerId) -> Vec<PlanetId> 
         .map(|(_, planet)| planet.clone())
         .filter(|planet| !state.exhausted_planets.contains(planet))
         // The Deepwrought's ocean cards are planet cards off the map (1 resource, 1 influence).
-        .chain(crate::factions::deepwrought::spendable_oceans(
-            state, player,
-        ))
+        .chain(crate::production_effects::spendable_off_map_cards(state, player))
         .collect()
 }
 
@@ -421,9 +419,7 @@ pub fn spendable_planets(state: &GameState, player: &PlayerId) -> Vec<PlanetId> 
 /// every step of the payment loop.
 #[must_use]
 pub fn trade_good_worth(state: &GameState, player: &PlayerId) -> i64 {
-    // Mentak `mc` lives in `factions/mentak.rs` on the hook below; nothing is hard-coded here.
-    let base = 1;
-    crate::factions::hooks_economy::trade_good_worth(state, player, base)
+    crate::production_effects::trade_good_worth(state, player)
 }
 
 /// War Machine: the faces of budget this step gains, per copy played in this activation.
@@ -469,7 +465,7 @@ pub fn available(
     let from_triad = crate::relics::triad_value(state, player).unwrap_or(0);
     let goods = state.player(player).map_or(0, |seat| {
         i64::from(seat.trade_goods) * trade_good_worth(state, player)
-    }) + crate::factions::keleres::spendable_commodities(state, player)
+    }) + crate::production_effects::spendable_commodities(state, player)
         * trade_good_worth(state, player);
     // War Machine's "reduce the combined cost of the produced units by 1" is spent from the
     // same budget as its "+4 to the total PRODUCTION value", so it joins the faces here as
@@ -594,7 +590,7 @@ fn payment_options(
         .map_or(0, |seat| i64::from(seat.trade_goods));
     // Goods capacity under the guard uses the `mc`-multiplied worth (engine/production.py pay()).
     // Xander Alexin Victori III (Keleres agent): commodities the player may spend as trade goods.
-    let commodities = crate::factions::keleres::spendable_commodities(state, player);
+    let commodities = crate::production_effects::spendable_commodities(state, player);
     let goods_capacity = state.player(player).map_or(0, |seat| {
         i64::from(seat.trade_goods) * trade_good_worth(state, player)
     }) + commodities * trade_good_worth(state, player);
@@ -725,7 +721,7 @@ fn apply_payment_option(
     }
     if answer.id == "commodity" {
         // Keleres agent: a commodity spent as if it were a trade good.
-        if crate::factions::keleres::spendable_commodities(state, player) <= 0 {
+        if crate::production_effects::spendable_commodities(state, player) <= 0 {
             return None;
         }
         let worth = trade_good_worth(state, player);
@@ -889,12 +885,25 @@ fn pay_offering_agent(
             available(granted, content, sources, player, kind) >= owed
         })
         .unwrap_or(false)
-        && crate::factions::keleres::offer_agent(state, content, sources, galaxy, table, player)?;
+        && crate::production_effects::offers_at(
+            crate::production_effects::OfferPoint::PaymentWindow,
+            state,
+            content,
+            sources,
+            galaxy,
+            table,
+            player,
+        )?;
     let paid = pay_with_observation_credit(
         state, content, sources, table, player, cost, kind, credit, galaxy,
     );
     if opened {
-        crate::factions::keleres::close_agent_window(state, player);
+        crate::factions::observe(
+            state,
+            crate::factions::Obs::PaymentWindowClosed {
+                player,
+            },
+        );
     }
     paid
 }
@@ -2500,36 +2509,16 @@ impl ProductionWindow {
         // A module may let the unit go elsewhere, but only a unit this system can produce at all
         // (68.10: a blockaded dock makes no ships, wherever they would be placed).
         if !spots.is_empty() {
-            spots.extend(
-                crate::factions::hooks_economy::production_destinations(
-                    state,
-                    content,
-                    sources,
-                    &self.player,
-                    &self.system,
-                    kind.base_type(),
-                )
-                .into_iter()
-                .map(|(system, planet)| {
-                    let at = planet.map_or_else(|| SPACE.to_owned(), |planet| planet.to_string());
-                    format!("{system}{REMOTE_SEPARATOR}{at}")
-                }),
+            crate::production_effects::add_remote_spots(
+                state,
+                content,
+                sources,
+                &self.player,
+                &self.system,
+                kind,
+                &self.report.produced,
+                &mut spots,
             );
-            if kind.is_ship() {
-                // The Last Bastion's Icon: "place those ships in a system that contains 1 of your
-                // command tokens, ...". Shapes the ship spots over the whole use.
-                crate::factions::bastion::adjust_ship_spots(
-                    state,
-                    content,
-                    sources,
-                    &self.player,
-                    &self.system,
-                    &self.report.produced,
-                    &mut spots,
-                );
-                // The Crimson hero: "You may place any of those ships onto this card."
-                crate::factions::crimson_cards::offer_card_spot(state, &self.player, &mut spots);
-            }
         }
         spots
     }
@@ -3196,14 +3185,16 @@ impl ProductionWindow {
         }
         // The Last Bastion's Icon is exhausted by placing the ships in one of its systems.
         if made > 0 && target != self.system {
-            crate::factions::bastion::ship_placed(
+            crate::factions::observe(
                 state,
-                content,
-                sources,
-                &self.player,
-                &self.system,
-                &target,
-                &UnitTypeId::new(id),
+                crate::factions::Obs::ShipPlaced {
+                    content,
+                    sources,
+                    player: &self.player,
+                    producing: &self.system,
+                    target: &target,
+                    unit: &UnitTypeId::new(id),
+                },
             );
         }
         // Bellum Gloriosum: a capacity ship opens an allowance that fighters and ground forces
@@ -3388,7 +3379,7 @@ impl Window for ProductionWindow {
                 } else if option.kind == AGENT_OPTION_KIND {
                     // Berekar Berekon: exhausted for the use's combined cost, which every build
                     // offered next already shows reduced. The question is asked again.
-                    if crate::factions::winnu::exhaust_agent_for_production(state, &self.player) {
+                    if crate::production_effects::exhaust_production_agent(state, &self.player) {
                         self.discount_remaining += 2;
                         self.agent_spent = true;
                     }
@@ -3494,10 +3485,12 @@ impl Window for ProductionWindow {
             Stage::Placing { id, made } => {
                 let where_to = option.id.strip_prefix("place|").unwrap_or(SPACE).to_owned();
                 self.place(state, content, sources, &id, &where_to, made);
-                crate::factions::argent::clear_agent_production_destinations(
+                crate::factions::observe(
                     state,
-                    &self.player,
-                    &self.system,
+                    crate::factions::Obs::AgentDestinationsSpent {
+                        player: &self.player,
+                        system: &self.system,
+                    },
                 );
                 self.placement_timing_done = false;
                 self.stage = Stage::Choosing;
@@ -3674,10 +3667,12 @@ impl ProductionWindow {
                     let types = catalogue(content, sources);
                     let Some(kind) = types.get(id.as_str()).copied() else {
                         self.stage = Stage::Done;
-                        crate::factions::argent::clear_agent_production_destinations(
+                        crate::factions::observe(
                             state,
-                            &self.player,
-                            &self.system,
+                            crate::factions::Obs::AgentDestinationsSpent {
+                                player: &self.player,
+                                system: &self.system,
+                            },
                         );
                         return Ok(());
                     };
@@ -3687,20 +3682,24 @@ impl ProductionWindow {
                         [only] => {
                             let only = only.clone();
                             self.place(state, content, sources, &id, &only, made);
-                            crate::factions::argent::clear_agent_production_destinations(
+                            crate::factions::observe(
                                 state,
-                                &self.player,
-                                &self.system,
+                                crate::factions::Obs::AgentDestinationsSpent {
+                                    player: &self.player,
+                                    system: &self.system,
+                                },
                             );
                             self.placement_timing_done = false;
                             self.stage = Stage::Choosing;
                         }
                         [] => {
                             self.stage = Stage::Done;
-                            crate::factions::argent::clear_agent_production_destinations(
+                            crate::factions::observe(
                                 state,
-                                &self.player,
-                                &self.system,
+                                crate::factions::Obs::AgentDestinationsSpent {
+                                    player: &self.player,
+                                    system: &self.system,
+                                },
                             );
                             return Ok(());
                         }
@@ -3776,14 +3775,30 @@ pub fn resolve_timed(
     });
     if hero_ready && capacity(state, content, sources, player, system) > 0 {
         state.production_seq = state.production_seq.saturating_add(1);
-        if crate::leaders::offer_production_hero(state, content, sources, galaxy, table, player)? {
+        if crate::production_effects::offers_at(
+            crate::production_effects::OfferPoint::ProductionHero,
+            state,
+            content,
+            sources,
+            galaxy,
+            table,
+            player,
+        )? {
             window.refresh(state, content, sources);
         }
     }
     // Xander Alexin Victori III (Keleres): the producer's commodities as trade goods for this
     // production, offered once as it starts.
     let agent_window = capacity(state, content, sources, player, system) > 0
-        && crate::factions::keleres::offer_agent(state, content, sources, galaxy, table, player)?;
+        && crate::production_effects::offers_at(
+            crate::production_effects::OfferPoint::ProductionStart,
+            state,
+            content,
+            sources,
+            galaxy,
+            table,
+            player,
+        )?;
     // Production rolls nothing, so these are never drawn from. Kept explicit rather than
     // hidden behind an Option: if a future rule does roll here, it must be handed the game's
     // generator instead of finding a convenient throwaway already in scope.
@@ -3807,24 +3822,57 @@ pub fn resolve_timed(
         {
             Ok(answer) => answer,
             Err(error) => {
-                crate::factions::argent::clear_agent_production_destinations(state, player, system);
+                crate::factions::observe(
+                    state,
+                    crate::factions::Obs::AgentDestinationsSpent {
+                        player,
+                        system,
+                    },
+                );
                 if agent_window {
-                    crate::factions::keleres::close_agent_window(state, player);
+                    crate::factions::observe(
+                        state,
+                        crate::factions::Obs::PaymentWindowClosed {
+                            player,
+                        },
+                    );
                 }
                 return Err(error);
             }
         };
         if let Err(error) = window.resolve(state, &mut ctx, answer) {
-            crate::factions::argent::clear_agent_production_destinations(state, player, system);
+            crate::factions::observe(
+                state,
+                crate::factions::Obs::AgentDestinationsSpent {
+                    player,
+                    system,
+                },
+            );
             if agent_window {
-                crate::factions::keleres::close_agent_window(state, player);
+                crate::factions::observe(
+                    state,
+                    crate::factions::Obs::PaymentWindowClosed {
+                        player,
+                    },
+                );
             }
             return Err(error);
         }
     }
-    crate::factions::argent::clear_agent_production_destinations(state, player, system);
+    crate::factions::observe(
+        state,
+        crate::factions::Obs::AgentDestinationsSpent {
+            player,
+            system,
+        },
+    );
     if agent_window {
-        crate::factions::keleres::close_agent_window(state, player);
+        crate::factions::observe(
+            state,
+            crate::factions::Obs::PaymentWindowClosed {
+                player,
+            },
+        );
     }
     end_value_swap(state);
     Ok(window.into_report())
@@ -3873,8 +3921,15 @@ pub fn produce_by_ability_capped(
     let mut window = ProductionWindow::for_ability(state, content, sources, player, system, limit)
         .with_max_unit_cost(max_unit_cost);
     // Xander Alexin Victori III (Keleres): offered once as this production starts.
-    let agent_window =
-        crate::factions::keleres::offer_agent(state, content, sources, galaxy, ctx.table, player)?;
+    let agent_window = crate::production_effects::offers_at(
+        crate::production_effects::OfferPoint::AbilityProductionStart,
+        state,
+        content,
+        sources,
+        galaxy,
+        ctx.table,
+        player,
+    )?;
     while let Some(choice) = window.pending_choice(state, content, sources) {
         let step = ctx
             .table
@@ -3882,13 +3937,23 @@ pub fn produce_by_ability_capped(
             .and_then(|answer| window.resolve(state, ctx, answer));
         if let Err(error) = step {
             if agent_window {
-                crate::factions::keleres::close_agent_window(state, player);
+                crate::factions::observe(
+                    state,
+                    crate::factions::Obs::PaymentWindowClosed {
+                        player,
+                    },
+                );
             }
             return Err(error);
         }
     }
     if agent_window {
-        crate::factions::keleres::close_agent_window(state, player);
+        crate::factions::observe(
+            state,
+            crate::factions::Obs::PaymentWindowClosed {
+                player,
+            },
+        );
     }
     end_value_swap(state);
     Ok(window.into_report())
@@ -4016,7 +4081,12 @@ pub fn agency_supply_network(
     let Some(system) = systems.iter().find(|system| system.as_str() == answer.id) else {
         return Ok(false);
     };
-    crate::factions::keleres::asn_mark(state, player);
+    crate::factions::observe(
+        state,
+        crate::factions::Obs::ActionEffectUsed {
+            player,
+        },
+    );
     let mut window = ProductionWindow::new(state, content, sources, player, system);
     while let Some(next) = window.pending_choice(state, content, sources) {
         let answer = ctx
