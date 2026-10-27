@@ -10,8 +10,10 @@
 //! adapter copies them from a built `MovementRules`, or [`CoreRules::plain`] sets the board facts for
 //! a mover that has none of them.
 
-use std::collections::{HashMap, VecDeque};
+use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::bits::{SysSet, UnitSet};
 use crate::board::CoreBoard;
@@ -28,7 +30,7 @@ pub const ROUTE_SEARCH_ROUTES: usize = 512;
 /// Reachability for one mover towards one active system. Field for field the string rules.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CoreRules {
-    pub adjacency: Rc<Adjacency>,
+    pub adjacency: Arc<Adjacency>,
     /// Systems of the corpus in the game's source scope (`systems_index`).
     pub scope: Scope,
     pub active: SystemIx,
@@ -61,18 +63,29 @@ pub struct CoreRules {
     /// Per system, the systems a blocked border separates it from (both directions).
     pub blocked_edges: Vec<(SystemIx, SysSet)>,
     pub unladen_pass: bool,
+    /// Search buffers, shared by every copy of these rules (see [`Scratch`]).
+    pub scratch: ScratchCell,
 }
 
 fn sparse_get<K: PartialEq + Copy>(list: &[(K, SysSet)], key: K) -> Option<&SysSet> {
     list.iter().find(|(k, _)| *k == key).map(|(_, v)| v)
 }
 
-/// Where a route was, as an arena of (system, parent) so a queued route is one index.
-struct Trail {
+type Frontier = (SystemIx, i32, i32, u32, bool, SysSet);
+
+/// The buffers of a route search, kept between searches so a query allocates nothing but its answer:
+/// the dominance array, the trail arena (system, parent) of queued routes, the queue, and the sorted
+/// table of the Luminous-step search.
+#[derive(Debug, Default)]
+pub struct Scratch {
+    flat: Vec<i32>,
     nodes: Vec<(SystemIx, u32)>,
+    queue: VecDeque<Frontier>,
+    /// `((system, bonus used, earned systems), best remaining)`, sorted by key.
+    keyed: Vec<((SystemIx, bool, SysSet), i32)>,
 }
 
-impl Trail {
+impl Scratch {
     fn route(&self, mut at: u32) -> Vec<SystemIx> {
         let mut out = Vec::new();
         loop {
@@ -88,12 +101,23 @@ impl Trail {
     }
 }
 
+/// A shared [`Scratch`]. All copies of one set of rules (one per destination of a seat) use the same
+/// buffers; equality ignores it, a clone shares it.
+#[derive(Debug, Clone, Default)]
+pub struct ScratchCell(Rc<RefCell<Scratch>>);
+
+impl PartialEq for ScratchCell {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
 impl CoreRules {
     /// Rules with only the board facts set: what `MovementRules::new` builds (no laws, no hooks),
     /// plus whatever the caller sets on the public flags afterwards.
     #[must_use]
     pub fn plain(
-        adjacency: Rc<Adjacency>,
+        adjacency: Arc<Adjacency>,
         scope: Scope,
         active: SystemIx,
         board: &CoreBoard,
@@ -111,7 +135,7 @@ impl CoreRules {
     /// [`Self::plain`] from already computed board facts (one per mover, shared by destinations).
     #[must_use]
     pub fn with_board(
-        adjacency: Rc<Adjacency>,
+        adjacency: Arc<Adjacency>,
         scope: Scope,
         active: SystemIx,
         enemy_ships: SysSet,
@@ -147,6 +171,7 @@ impl CoreRules {
             nebulae_ignored: false,
             blocked_edges: Vec::new(),
             unladen_pass: false,
+            scratch: ScratchCell::default(),
         }
     }
 
@@ -345,15 +370,19 @@ impl CoreRules {
         // Dominance as in the string search: per (system, bonus used, earned systems) the best
         // remaining budget seen. Without the Luminous step the earned set is always empty, so the
         // key is (system, bonus) and a flat array does.
-        let mut flat: Vec<i32> = if earns { Vec::new() } else { vec![i32::MIN; 2 * SYSTEM_COUNT] };
-        let mut keyed: HashMap<(SystemIx, bool, SysSet), i32> = HashMap::new();
-        let mut trail = Trail {
-            nodes: vec![(origin, u32::MAX)],
-        };
-        type Frontier = (SystemIx, i32, i32, u32, bool, SysSet);
-        let mut queue: VecDeque<Frontier> =
-            VecDeque::from([(origin, 0, budget, 0, false, SysSet::EMPTY)]);
-        while let Some((current, entered, mut allowance, at, mut bonus_used, mut earned)) =
+        let mut guard = self.scratch.0.borrow_mut();
+        let Scratch { flat, nodes, queue, keyed } = &mut *guard;
+        flat.clear();
+        keyed.clear();
+        nodes.clear();
+        queue.clear();
+        if !earns {
+            flat.resize(2 * SYSTEM_COUNT, i32::MIN);
+        }
+        nodes.push((origin, u32::MAX));
+        queue.push_back((origin, 0, budget, 0, false, SysSet::EMPTY));
+        let mut found = None;
+        'search: while let Some((current, entered, mut allowance, at, mut bonus_used, mut earned)) =
             queue.pop_front()
         {
             if self.is_gravity_rift(current) && !self.anomalies_ignored {
@@ -373,10 +402,15 @@ impl CoreRules {
             let remaining = allowance - entered;
             if earns {
                 let key = (current, bonus_used, earned);
-                if keyed.get(&key).is_some_and(|seen| *seen >= remaining) {
-                    continue;
+                match keyed.binary_search_by(|(k, _)| k.cmp(&key)) {
+                    Ok(at) => {
+                        if keyed[at].1 >= remaining {
+                            continue;
+                        }
+                        keyed[at].1 = remaining;
+                    }
+                    Err(at) => keyed.insert(at, (key, remaining)),
                 }
-                keyed.insert(key, remaining);
             } else {
                 let slot = &mut flat[current.index() * 2 + usize::from(bonus_used)];
                 if *slot >= remaining {
@@ -393,10 +427,11 @@ impl CoreRules {
                 if ends_here && !self.can_enter(neighbour) {
                     continue;
                 }
-                trail.nodes.push((neighbour, at));
-                let here = (trail.nodes.len() - 1) as u32;
+                nodes.push((neighbour, at));
+                let here = (nodes.len() - 1) as u32;
                 if ends_here {
-                    return Some(trail.route(here));
+                    found = Some(here);
+                    break 'search;
                 }
                 if !self.passes(neighbour, Some(origin), ship_type, past_ships) {
                     continue;
@@ -404,7 +439,7 @@ impl CoreRules {
                 queue.push_back((neighbour, entered + 1, allowance, here, bonus_used, earned));
             }
         }
-        None
+        found.map(|here| guard.route(here))
     }
 
     /// `MovementRules::all_routes_from_ship`: every simple route within the budget, sorted by

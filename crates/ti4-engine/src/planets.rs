@@ -196,7 +196,10 @@ pub fn tech_specialties_now(
     planet: &PlanetId,
 ) -> Vec<String> {
     #[cfg(feature = "typed-core")]
-    let typed = || crate::core_adapter::printed_specialties(content, sources, planet.as_str());
+    let typed = || {
+        crate::core_adapter::printed_specialties(content, sources, planet.as_str())
+            .map(|names| names.iter().map(|n| (*n).to_owned()).collect::<Vec<String>>())
+    };
     #[cfg(not(feature = "typed-core"))]
     let typed = || None;
     let mut found: Vec<String> = crate::dual_typed!(

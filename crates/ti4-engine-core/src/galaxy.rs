@@ -185,6 +185,43 @@ impl CoreGalaxy {
         kinds
     }
 
+    /// [`Self::wormhole_kinds`] with Nexus Sovereignty lifted ("game effects cannot prevent you"):
+    /// what the Ghosts' Quantum Entanglement reads.
+    #[must_use]
+    pub fn wormhole_kinds_unsuppressed(&self, system: SystemIx) -> u8 {
+        self.wormholes[system.index()] | self.token_wormholes[system.index()]
+    }
+
+    /// Systems that hold any wormhole (`Galaxy::wormhole_systems`), in system order.
+    #[must_use]
+    pub fn wormhole_systems(&self) -> SysSet {
+        let mut out = SysSet::EMPTY;
+        for i in 0..SYSTEM_COUNT {
+            if self.wormhole_kinds(crate::ids::system_at(i)) != 0 {
+                out.insert(i);
+            }
+        }
+        out
+    }
+
+    /// Add wormhole kinds to a system (the modules' pieces carry them; `apply_extra_wormholes`).
+    pub fn add_token_wormholes(&mut self, system: SystemIx, kinds: u8) {
+        self.token_wormholes[system.index()] |= kinds;
+    }
+
+    /// Remove every wormhole of a system, printed and token (`Galaxy::suppress_wormholes_at`).
+    pub fn suppress_wormholes_at(&mut self, system: SystemIx) {
+        self.wormholes[system.index()] = 0;
+        self.token_wormholes[system.index()] = 0;
+    }
+
+    /// Keep only these wormhole kinds everywhere (`Galaxy::retain_wormhole_kinds`).
+    pub fn retain_wormhole_kinds(&mut self, keep: u8) {
+        for k in self.wormholes.iter_mut().chain(self.token_wormholes.iter_mut()) {
+            *k &= keep;
+        }
+    }
+
     /// Recompute which systems the printed lanes join (`Galaxy::refresh_lane_links`).
     pub fn refresh_lane_links(&mut self) {
         self.lane_links.clear();
