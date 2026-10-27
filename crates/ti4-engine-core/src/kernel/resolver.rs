@@ -869,7 +869,7 @@ mod tests {
             !self.false_conditions.contains(&a.id)
         }
         fn forbids(&mut self, c: &CannotDef, e: &EventRec) -> bool {
-            (c.arg == 1 && e.kind == EventKind::ShipMoved)
+            c.arg == 1 && e.kind == EventKind::ShipMoved
         }
         fn effect(&mut self, a: &AbilityDef, e: &mut EventRec, r: &mut Resolver) -> Result<(), TimingError> {
             self.effects.push((a.owner, a.id));
