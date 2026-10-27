@@ -94,7 +94,7 @@ pub fn plans(
     let goods = (state
         .player(player)
         .map_or(0, |seat| i64::from(seat.trade_goods))
-        + crate::factions::keleres::spendable_commodities(state, player))
+        + crate::production_effects::spendable_commodities(state, player))
         * per_good;
 
     // Planets worth nothing towards this cost cannot help, and including them would generate
@@ -164,7 +164,7 @@ pub fn affordable(
 pub fn apply(state: &mut GameState, player: &PlayerId, plan: &Plan) -> bool {
     // Commodities the Keleres agent let this payment spend as trade goods go first: the agent was
     // used to spend them, and a trade good is the dearer of the two to keep.
-    let commodities = i32::try_from(crate::factions::keleres::spendable_commodities(
+    let commodities = i32::try_from(crate::production_effects::spendable_commodities(
         state, player,
     ))
     .unwrap_or(0);
