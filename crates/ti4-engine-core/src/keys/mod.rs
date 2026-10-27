@@ -20,6 +20,7 @@ pub mod ledger;
 pub mod mark;
 pub mod order;
 pub mod outcome;
+pub mod prediction;
 pub mod tables;
 pub mod word;
 
@@ -30,4 +31,5 @@ pub use destroy::{ActionCardCause, DestroyReason, FactionAbilityCause, UnitAbili
 pub use ledger::LedgerReason;
 pub use mark::{Family, MarkKey, MarkVal};
 pub use outcome::Outcome;
+pub use prediction::{Prediction, PredictionTag, VoteBar};
 pub use word::Word;
