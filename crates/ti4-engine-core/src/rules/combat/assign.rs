@@ -74,58 +74,62 @@ impl AssignHits {
 
     /// `combat::remove_combat_ship` and the announcement of the loss.
     fn lose(&mut self, sx: &mut Sx<'_>, piece: Piece) {
-        let (system, owner) = (self.a.system, self.a.player);
-        sx.observe(&Obs::ShipLost { system, piece }, Phase::After);
-        let voltron = piece.kind() == Unit::EidolonMaximum;
-        let alastor = !voltron && sx.kernel.hooks.direct.nekro_units_alastor_covers(sx.state, system, owner, piece.kind());
-        let mut done = false;
-        if voltron || alastor {
-            let planets = planets_of_sorted(sx.state, system);
-            for planet in planets.iter() {
-                let units = &mut sx.state.board_mut().planet_mut(*planet).units;
-                if let Some(at) = units.iter().position(|u| *u == piece) {
-                    units.remove(at);
-                    if alastor {
-                        let (k, mut cx) = (sx.kernel, sx.cx());
-                        k.hooks.direct.nekro_units_alastor_decrement(&mut cx, system, owner, *planet, piece.kind());
-                    }
-                    done = true;
-                    break;
-                }
-            }
-        }
-        if !done {
-            let units = &mut sx.state.board_mut().sys_mut(system).units;
-            if let Some(at) = units.iter().position(|u| *u == piece) {
-                units.remove(at);
-            }
-        }
+        remove_ship(sx, self.a.system, self.a.player, piece);
         if self.a.staging {
-            self.announce(sx, piece.kind());
+            announce_loss(sx, self.a.system, self.a.player, piece.kind(), self.a.cause, self.a.during_space_combat, self.a.announce);
         }
         self.remaining = self.remaining.saturating_sub(1);
     }
+}
 
-    /// `try_announce_ship_destroyed_type`.
-    fn announce(&self, sx: &mut Sx<'_>, unit: Unit) {
-        let (system, owner) = (self.a.system, self.a.player);
-        sx.state.transient_mut().combat.last_ship_destroyed = Some((system, owner, unit));
-        let remaining = ships_of(Self::rd(sx.state, sx.kernel), owner, system).len();
-        let (k, mut cx) = (sx.kernel, sx.cx());
-        let galvanized = k.hooks.direct.bastion_take_ship_lost(&mut cx, system, owner, unit);
-        let mut payload = Payload::new();
-        if galvanized {
-            payload.set(Key::Galvanized, Val::Flag(true));
+/// `combat::remove_combat_ship`: Bastion's note, then the Maximum or an Alastor ground force leaving its
+/// planet, or the unit leaving the space area.
+pub fn remove_ship(sx: &mut Sx<'_>, system: System, owner: Seat, piece: Piece) {
+    sx.observe(&Obs::ShipLost { system, piece }, Phase::After);
+    let voltron = piece.kind() == Unit::EidolonMaximum;
+    let alastor = !voltron && sx.kernel.hooks.direct.nekro_units_alastor_covers(sx.state, system, owner, piece.kind());
+    let mut done = false;
+    if voltron || alastor {
+        let planets = planets_of_sorted(sx.state, system);
+        for planet in planets.iter() {
+            let units = &mut sx.state.board_mut().planet_mut(*planet).units;
+            if let Some(at) = units.iter().position(|u| *u == piece) {
+                units.remove(at);
+                if alastor {
+                    let (k, mut cx) = (sx.kernel, sx.cx());
+                    k.hooks.direct.nekro_units_alastor_decrement(&mut cx, system, owner, *planet, piece.kind());
+                }
+                done = true;
+                break;
+            }
         }
-        payload.set(Key::System, Val::System(system));
-        payload.set(Key::Player, Val::Seat(owner));
-        payload.set(Key::Unit, Val::Unit(unit));
-        payload.set(Key::Last, Val::Flag(remaining == 0));
-        payload.set(Key::Cause, Val::Code(self.a.cause));
-        payload.set(Key::DuringSpaceCombat, Val::Flag(self.a.during_space_combat));
-        if self.a.announce {
-            let _ = sx.emit(fx::event(EventKind::ShipDestroyed, payload));
+    }
+    if !done {
+        let units = &mut sx.state.board_mut().sys_mut(system).units;
+        if let Some(at) = units.iter().position(|u| *u == piece) {
+            units.remove(at);
         }
+    }
+}
+
+/// `try_announce_ship_destroyed_type`: record the loss and (with a timing resolver) emit `SHIP_DESTROYED`.
+pub fn announce_loss(sx: &mut Sx<'_>, system: System, owner: Seat, unit: Unit, cause: Code, during_space_combat: bool, emit: bool) {
+    sx.state.transient_mut().combat.last_ship_destroyed = Some((system, owner, unit));
+    let remaining = ships_of(AssignHits::rd(sx.state, sx.kernel), owner, system).len();
+    let (k, mut cx) = (sx.kernel, sx.cx());
+    let galvanized = k.hooks.direct.bastion_take_ship_lost(&mut cx, system, owner, unit);
+    let mut payload = Payload::new();
+    if galvanized {
+        payload.set(Key::Galvanized, Val::Flag(true));
+    }
+    payload.set(Key::System, Val::System(system));
+    payload.set(Key::Player, Val::Seat(owner));
+    payload.set(Key::Unit, Val::Unit(unit));
+    payload.set(Key::Last, Val::Flag(remaining == 0));
+    payload.set(Key::Cause, Val::Code(cause));
+    payload.set(Key::DuringSpaceCombat, Val::Flag(during_space_combat));
+    if emit {
+        let _ = sx.emit(fx::event(EventKind::ShipDestroyed, payload));
     }
 }
 

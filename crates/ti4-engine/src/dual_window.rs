@@ -91,6 +91,15 @@ pub fn note_ask(choice: &Choice, outcome: &Result<ChoiceOption, IllegalChoice>) 
     });
 }
 
+/// An ability's effect is about to run: whatever it does is string-only until the abilities are ported.
+pub fn note_effect() {
+    REC.with(|r| {
+        if let Some(rec) = r.borrow_mut().as_mut() {
+            rec.nested = true;
+        }
+    });
+}
+
 /// An emission begins; the token is the depth it begins at.
 #[must_use]
 pub fn enter_emit() -> u32 {
@@ -468,6 +477,57 @@ pub fn assign_hits(
                 }));
             }
         });
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .ok()?
+    .ok()?;
+    apply_staged(gs, &r, &staged)?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(events), questions: driven.rendered })
+}
+
+/// What the string barrage's fighter removal was called with.
+#[derive(Debug, Clone, Copy)]
+pub struct FightersArgs<'a> {
+    pub target: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    pub hits: usize,
+    pub cause: &'a str,
+    pub staging: bool,
+    pub announce: bool,
+}
+
+/// The core half of the barrage's fighter removal (never asks).
+#[must_use]
+pub fn destroy_fighters(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    a: FightersArgs<'_>,
+    script: &Recording,
+) -> Option<CoreWindow<bool>> {
+    use ti4_engine_core::rules::combat::destroy_fighters::{DestroyFighters, Fighters};
+    if script.nested {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let target = r.seat(a.target.as_str())?;
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let before = gs.clone();
+    let env = crate::core_combat::window_env(&before, &cx, sources)?;
+    let f = Fighters {
+        target,
+        system,
+        hits: u16::try_from(a.hits).ok()?,
+        cause: r.code(a.cause),
+        staging: a.staging,
+        announce: a.announce,
+    };
+    let resolver = Resolver::new(&[target], Some(target));
+    let mut driver = Driver::new(DestroyFighters::new(f), resolver, AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let driven = with_core(gs, &mut cx, Sources::default(), ASSIGN_HITS, |core, _| {
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
         staged = std::mem::take(&mut core.pending_mut().staged);
         driven
     })

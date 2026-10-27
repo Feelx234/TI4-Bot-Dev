@@ -1887,6 +1887,56 @@ fn check_barrage_plan(
     let _ = crate::dual::run_dual_typed(crate::dual::Area::Combat, "combat::barrage_plan", typed, || plan.to_vec());
 }
 
+/// The barrage hits that take fighters in unit order, and their announcements, as a core window on
+/// `driver=dual` (`rules::combat::destroy_fighters`).
+fn destroy_fighters_windowed(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    ctx: &mut Resolving<'_>,
+    target: &PlayerId,
+    system: &SystemId,
+    hits: usize,
+) -> Result<(), CombatError> {
+    const CAUSE: &str = "unit_ability:anti_fighter_barrage";
+    let failed = std::cell::Cell::new(false);
+    let mut outcome = None;
+    let args = crate::dual_window::FightersArgs {
+        target,
+        system,
+        hits,
+        cause: CAUSE,
+        staging: crate::supply::staging_enabled(state),
+        announce: ctx.timing.is_some(),
+    };
+    crate::dual_window!(
+        crate::dual::Area::Driver,
+        "combat::destroy_fighters",
+        state,
+        |s: &mut GameState| {
+            let result = (|| {
+                let destroyed = destroy_fighters(s, content, sources, target, system, hits);
+                if crate::supply::staging_enabled(s) {
+                    for fighter in destroyed {
+                        try_announce_ship_destroyed_type(s, ctx, system, target, &fighter.type_id, CAUSE, true)?;
+                    }
+                }
+                Ok(())
+            })();
+            failed.set(result.is_err());
+            outcome = Some(result);
+            crate::dual::Run::new(!failed.get())
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            if failed.get() {
+                return None;
+            }
+            crate::dual_window::destroy_fighters(s, sources, args, script)
+        }
+    );
+    outcome.unwrap_or(Ok(()))
+}
+
 /// Resolve both barrages: remove the target's fighters for each side's (possibly rerolled)
 /// hits, and keep the event-scoped feats that creates.
 fn apply_barrage(
@@ -1964,20 +2014,7 @@ fn apply_barrage(
                     true,
                 )?;
             } else {
-                let destroyed = destroy_fighters(state, content, sources, target, system, *hits);
-                if crate::supply::staging_enabled(state) {
-                    for fighter in destroyed {
-                        try_announce_ship_destroyed_type(
-                            state,
-                            ctx,
-                            system,
-                            target,
-                            &fighter.type_id,
-                            "unit_ability:anti_fighter_barrage",
-                            true,
-                        )?;
-                    }
-                }
+                destroy_fighters_windowed(state, content, sources, ctx, target, system, *hits)?;
                 // Hits beyond the target's fighters are discarded (15.2a) unless a faction's
                 // ability redirects them (`hooks_combat::afb_excess`, Raid Formation).
                 let excess = hits.saturating_sub(before);
