@@ -1123,8 +1123,20 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "invasion.rs",
-        function: "pending_choice",
-        count: 3,
+        function: "ask_custodians",
+        count: 1,
+        delivery: Delivery::ObservedVia("game.rs::step_aftermath_inner"),
+    },
+    Producer {
+        module: "invasion.rs",
+        function: "ask_fight_round",
+        count: 1,
+        delivery: Delivery::ObservedVia("game.rs::step_aftermath_inner"),
+    },
+    Producer {
+        module: "invasion.rs",
+        function: "ask_next_combat",
+        count: 1,
         delivery: Delivery::ObservedVia("game.rs::step_aftermath_inner"),
     },
     Producer {
