@@ -84,6 +84,14 @@ macro_rules! hook_group {
                 0 $(+ self.$name.len())*
             }
 
+            /// Reorder the functions of every *commutative* slot (a pure `sum`, `any`, `all` or
+            /// `concat_sorted`); the order audit of docs/ENGINE_DISENTANGLE.md 5.3. Slots whose order
+            /// is part of the result (`fold`, `first`, `concat`, anything that mutates) are left alone.
+            #[allow(unused_variables)]
+            pub fn permute_commutative(&mut self, p: $crate::kernel::seam::Permute) {
+                $( hook_group!(@permute $kind, self.$name, p, ($($arg),*)); )*
+            }
+
             $(
                 $(#[$meta])*
                 #[allow(unused_variables, unused_mut, clippy::redundant_closure_call)]
@@ -93,6 +101,16 @@ macro_rules! hook_group {
             )*
         }
     };
+
+    (@permute sum, $slot:expr, $p:ident, (cx $(, $rest:ident)*)) => {};
+    (@permute any, $slot:expr, $p:ident, (cx $(, $rest:ident)*)) => {};
+    (@permute all, $slot:expr, $p:ident, (cx $(, $rest:ident)*)) => {};
+    (@permute concat_sorted, $slot:expr, $p:ident, (cx $(, $rest:ident)*)) => {};
+    (@permute sum, $slot:expr, $p:ident, ($($arg:ident),*)) => { $p.apply(&mut $slot) };
+    (@permute any, $slot:expr, $p:ident, ($($arg:ident),*)) => { $p.apply(&mut $slot) };
+    (@permute all, $slot:expr, $p:ident, ($($arg:ident),*)) => { $p.apply(&mut $slot) };
+    (@permute concat_sorted, $slot:expr, $p:ident, ($($arg:ident),*)) => { $p.apply(&mut $slot) };
+    (@permute $other:ident, $slot:expr, $p:ident, ($($arg:ident),*)) => {};
 
     (@dispatch sum, $slot:expr, ($($arg:ident),*) -> $ret:ty) => {
         $slot.iter().map(|f| f($($arg),*)).sum()
@@ -261,6 +279,9 @@ pub struct HookTable {
     pub strategy: strategy::StrategyHooks,
     /// The direct calls of the shared modules into faction code.
     pub direct: direct::DirectHooks,
+    /// The six uniform seams (`kernel::seam`): stacks, predicates, gathers, replacements, observers and
+    /// offers, filled by factions, laws, relics, technologies, promissory notes and leaders alike.
+    pub seam: super::seam::Seams,
 }
 
 impl HookTable {
@@ -291,6 +312,31 @@ impl HookTable {
             + self.cards.registered()
             + self.strategy.registered()
             + self.direct.registered()
+            + self.seam.registered()
+    }
+
+    /// A copy with the commutative slots (and seams) registered in another order: reverse, or a seeded shuffle.
+    #[must_use]
+    pub fn permuted(&self, p: super::seam::Permute) -> Self {
+        let mut t = self.clone();
+        t.general.permute_commutative(p);
+        t.combat.permute_commutative(p);
+        t.ground.permute_commutative(p);
+        t.economy.permute_commutative(p);
+        t.movement.permute_commutative(p);
+        t.cards.permute_commutative(p);
+        t.strategy.permute_commutative(p);
+        t.direct.permute_commutative(p);
+        t.seam.permute_commutative(p);
+        t
+    }
+
+    /// The order-mutation audit: run `probe` on this table and on the audit permutations
+    /// ([`Permute::AUDIT`](super::seam::Permute::AUDIT)); the permutations whose answer differs. Empty means every
+    /// slot declared commutative is, for what `probe` asks.
+    pub fn audit_commutative<R: PartialEq>(&self, probe: impl Fn(&Self) -> R) -> Vec<super::seam::Permute> {
+        let base = probe(self);
+        super::seam::Permute::AUDIT.into_iter().filter(|p| probe(&self.permuted(*p)) != base).collect()
     }
 
     /// Register one faction module: `module` fills its slots.
@@ -343,15 +389,53 @@ mod tests {
     }
 
     #[test]
+    fn the_audit_passes_for_commutative_slots_and_catches_a_misclassified_one() {
+        use crate::kernel::seam::Permute;
+        let s = CoreState::all_loaded();
+        let mut t = HookTable::new();
+        for n in 1..=9 {
+            t.general.combat_modifier.push(match n {
+                1 => |_, _, _, _| 1,
+                2 => |_, _, _, _| 2,
+                3 => |_, _, _, _| 4,
+                4 => |_, _, _, _| 8,
+                5 => |_, _, _, _| 16,
+                6 => |_, _, _, _| 32,
+                7 => |_, _, _, _| 64,
+                8 => |_, _, _, _| 128,
+                _ => |_, _, _, _| 256,
+            });
+        }
+        let probe = |t: &HookTable| {
+            let k = Kernel { hooks: t.clone(), sources: crate::kernel::Sources::all() };
+            t.general.combat_modifier(&s, &k, Seat(0), CombatCtx::Space)
+        };
+        assert_eq!(t.audit_commutative(probe), Vec::<Permute>::new(), "a sum commutes");
+        // A fold is not permuted by the audit (it is not declared commutative) ...
+        t.general.fleet_supply.push(|_, _, _, l| l + 1);
+        t.general.fleet_supply.push(|_, _, _, l| l * 2);
+        let fold = |t: &HookTable| {
+            let k = Kernel { hooks: t.clone(), sources: crate::kernel::Sources::all() };
+            t.general.fleet_supply(&s, &k, Seat(0), 3)
+        };
+        assert!(t.audit_commutative(fold).is_empty());
+        // ... and a slot that was wrongly declared commutative is caught: here `all` over functions that disagree
+        // in a way that depends on position is impossible, but a `concat_sorted`-like probe of the raw order is not.
+        let raw_order = |t: &HookTable| t.general.combat_modifier.iter().map(|f| f(&s, &Kernel::plain(), Seat(0), CombatCtx::Space)).collect::<Vec<_>>();
+        assert_eq!(t.audit_commutative(raw_order).len(), Permute::AUDIT.len(), "the raw order does change");
+    }
+
+    #[test]
     fn the_inventory_has_every_string_slot() {
-        // 26 general + 9 combat + 8 ground + 20 economy + 21 movement + 7 cards + 8 strategy = 99 (the string `Hooks`).
+        // 26 general + 9 combat + 8 ground + 20 economy + 21 movement + 7 cards + 8 strategy = 99 (the string `Hooks`),
+        // plus A2's split of `may_move_through_ships` (the part that ignores the active system).
         assert_eq!(GeneralHooks::SLOTS, 26);
         assert_eq!(combat::CombatHooks::SLOTS, 9);
         assert_eq!(ground::GroundHooks::SLOTS, 8);
         assert_eq!(economy::EconomyHooks::SLOTS, 20);
-        assert_eq!(movement::MovementHooks::SLOTS, 21);
+        assert_eq!(movement::MovementHooks::SLOTS, 21 + 1);
         assert_eq!(cards::CardHooks::SLOTS, 7);
         assert_eq!(strategy::StrategyHooks::SLOTS, 8);
-        assert_eq!(HookTable::SLOTS, 99 + direct::DirectHooks::SLOTS);
+        assert_eq!(HookTable::SLOTS, 99 + 1 + direct::DirectHooks::SLOTS);
     }
 }

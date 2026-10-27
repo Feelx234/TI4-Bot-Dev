@@ -244,6 +244,30 @@ pub struct Movable {
     pub ionian: bool,
 }
 
+impl Movable {
+    /// The string-side form of a typed answer (`ti4_engine_core::query::reach::Movable`): the hull is the
+    /// one at `index` of the player's ships in `origin`. `None` when the state does not have it (the
+    /// caller asks the string path).
+    #[cfg(feature = "typed-core")]
+    #[must_use]
+    pub fn from_typed(
+        state: &GameState,
+        player: &PlayerId,
+        found: &ti4_engine_core::query::reach::Movable,
+    ) -> Option<Self> {
+        let origin = SystemId::new(crate::core_adapter::system_id(found.origin));
+        let hull = (*state.ships_of(player, &origin).get(usize::from(found.index))?).clone();
+        Some(Self {
+            origin,
+            index: usize::from(found.index),
+            unit: hull,
+            capacity: found.capacity,
+            gravity_drive: found.gravity_drive,
+            ionian: found.ionian,
+        })
+    }
+}
+
 /// Effective move value after per-activation bonuses and Gravleash's established origin anchor.
 #[must_use]
 pub fn effective_move_value(
@@ -332,8 +356,29 @@ pub fn effective_move_value_for_ship(
     }
 }
 
+/// A string `MovementRules` translated once for the typed core, for a caller that searches the same
+/// rules several times (`ship_routes`). `None` when the movement area runs on the string backend or
+/// something in the rules is not mapped (each search then asks the string engine).
+#[cfg(feature = "typed-core")]
+pub struct TypedRules(Option<ti4_engine_core::movement::CoreRules>);
+
+#[cfg(feature = "typed-core")]
+impl TypedRules {
+    #[must_use]
+    pub fn of(rules: &MovementRules<'_>, sources: SourceSet) -> Self {
+        Self(
+            (crate::dual::backend(Area::Movement) != crate::dual::Backend::String)
+                .then(|| {
+                    let adjacency = crate::core_adapter::adjacency_for(rules.parts().galaxy)?;
+                    crate::core_adapter::rules_from_legacy(rules, sources, &adjacency).ok()
+                })
+                .flatten(),
+        )
+    }
+}
+
 /// The route search every movement question goes through: the typed core (`core_adapter`,
-/// docs/ENGINE_CORE.md) unless the `string-movement` switch is on. Same route either way.
+/// docs/ENGINE_CORE.md) unless the movement area runs on the string backend. Same route either way.
 #[must_use]
 pub fn search_path(
     rules: &MovementRules<'_>,
@@ -342,14 +387,40 @@ pub fn search_path(
     move_value: i32,
     ship_type: Option<&str>,
 ) -> Option<Vec<String>> {
-    #[cfg(not(feature = "typed-core"))]
+    #[cfg(feature = "typed-core")]
+    let translated = TypedRules::of(rules, sources);
+    search_path_in(
+        rules,
+        #[cfg(feature = "typed-core")]
+        &translated,
+        sources,
+        origin,
+        move_value,
+        ship_type,
+    )
+}
+
+/// [`search_path`] on rules translated before.
+#[must_use]
+pub fn search_path_in(
+    rules: &MovementRules<'_>,
+    #[cfg(feature = "typed-core")] translated: &TypedRules,
+    sources: SourceSet,
+    origin: &str,
+    move_value: i32,
+    ship_type: Option<&str>,
+) -> Option<Vec<String>> {
     let _ = sources;
     crate::dual_typed!(
         Area::Movement,
         "tactical::search_path",
         {
             #[cfg(feature = "typed-core")]
-            let typed = crate::core_adapter::typed_path_from_ship(rules, sources, origin, move_value, ship_type);
+            let typed = translated.0.as_ref().and_then(|raw| {
+                let from = crate::core_adapter::system_ix(origin)?;
+                let kind = crate::core_adapter::ship_type(ship_type).ok()?;
+                Some(raw.path_from_ship(from, move_value, kind).map(|r| crate::core_adapter::route_text(&r)))
+            });
             #[cfg(not(feature = "typed-core"))]
             let typed: Option<Option<Vec<String>>> = None;
             typed
@@ -367,14 +438,45 @@ pub fn search_all_routes(
     move_value: i32,
     ship_type: Option<&str>,
 ) -> Vec<Vec<String>> {
-    #[cfg(not(feature = "typed-core"))]
+    #[cfg(feature = "typed-core")]
+    let translated = TypedRules::of(rules, sources);
+    search_all_routes_in(
+        rules,
+        #[cfg(feature = "typed-core")]
+        &translated,
+        sources,
+        origin,
+        move_value,
+        ship_type,
+    )
+}
+
+/// [`search_all_routes`] on rules translated before.
+#[must_use]
+pub fn search_all_routes_in(
+    rules: &MovementRules<'_>,
+    #[cfg(feature = "typed-core")] translated: &TypedRules,
+    sources: SourceSet,
+    origin: &str,
+    move_value: i32,
+    ship_type: Option<&str>,
+) -> Vec<Vec<String>> {
     let _ = sources;
     crate::dual_typed!(
         Area::Movement,
         "tactical::search_all_routes",
         {
             #[cfg(feature = "typed-core")]
-            let typed = crate::core_adapter::typed_all_routes_from_ship(rules, sources, origin, move_value, ship_type);
+            let typed = translated.0.as_ref().and_then(|raw| {
+                let from = crate::core_adapter::system_ix(origin)?;
+                let kind = crate::core_adapter::ship_type(ship_type).ok()?;
+                Some(
+                    raw.all_routes_from_ship(from, move_value, kind)
+                        .iter()
+                        .map(|r| crate::core_adapter::route_text(r))
+                        .collect::<Vec<_>>(),
+                )
+            });
             #[cfg(not(feature = "typed-core"))]
             let typed: Option<Vec<Vec<String>>> = None;
             typed
@@ -525,111 +627,6 @@ pub fn movable_into(
         }
     }
     found
-}
-
-/// One seat's ships that can move, with their move values for every boost (stage 2,
-/// docs/ENGINE_CORE.md): the destination-independent half of [`movable_into`], computed once per
-/// position, in the same order.
-#[cfg(feature = "typed-core")]
-#[derive(Debug, Clone)]
-pub struct SeatFleet {
-    ships: Vec<FleetShip>,
-    gravity: bool,
-    ionian: bool,
-}
-
-#[cfg(feature = "typed-core")]
-#[derive(Debug, Clone)]
-struct FleetShip {
-    origin: SystemId,
-    from: Option<ti4_engine_core::SystemIx>,
-    kind: Result<Option<ti4_engine_core::UnitIx>, crate::core_adapter::Unmapped>,
-    index: usize,
-    unit: Unit,
-    capacity: i64,
-    /// Move value with (no boost, Gravity Drive, Ionian, both).
-    values: [i32; 4],
-}
-
-#[cfg(feature = "typed-core")]
-impl SeatFleet {
-    #[must_use]
-    pub fn new(
-        state: &GameState,
-        content: &ContentStore,
-        sources: SourceSet,
-        player: &PlayerId,
-    ) -> Self {
-        let types = catalogue(content, sources);
-        let mut ships = Vec::new();
-        for origin in state.systems_with_units_of(player) {
-            for (index, hull) in state.ships_of(player, origin).into_iter().enumerate() {
-                let Some(kind) = types.get(hull.type_id.as_str()) else {
-                    continue;
-                };
-                if !kind.moves_as_ship() {
-                    continue;
-                }
-                let value = |gd: bool, ion: bool| {
-                    effective_move_value_for_ship(state, kind, player, origin, Some(index), gd, ion)
-                };
-                ships.push(FleetShip {
-                    origin: origin.clone(),
-                    from: crate::core_adapter::system_ix(origin.as_str()),
-                    kind: crate::core_adapter::ship_type(Some(hull.type_id.as_str())),
-                    index,
-                    unit: hull.clone(),
-                    capacity: kind.capacity(),
-                    values: [value(false, false), value(true, false), value(false, true), value(true, true)],
-                });
-            }
-        }
-        Self {
-            ships,
-            gravity: crate::technology::gravity_drive_available(state, player),
-            ionian: crate::legendary::ionian_available(state, player),
-        }
-    }
-
-    /// [`movable_into`] for the destination of `rules` (built by `core_adapter::SeatReach`):
-    /// the same ships, boosts and order. `None` when a ship's ids are not mapped (the caller asks
-    /// the string path).
-    #[must_use]
-    pub fn movable(
-        &self,
-        rules: &ti4_engine_core::movement::CoreRules,
-        active: &SystemId,
-    ) -> Option<Vec<Movable>> {
-        let mut found = Vec::new();
-        for ship in &self.ships {
-            if &ship.origin == active {
-                continue;
-            }
-            let from = ship.from?;
-            let kind = ship.kind.clone().ok()?;
-            let reach = |slot: usize| rules.can_reach_ship(from, ship.values[slot], kind);
-            let boosts = if reach(0) {
-                Some((false, false))
-            } else {
-                [((true, false), 1), ((false, true), 2), ((true, true), 3)]
-                    .into_iter()
-                    .filter(|((gd, ion), _)| (!gd || self.gravity) && (!ion || self.ionian))
-                    .find(|(_, slot)| reach(*slot))
-                    .map(|(b, _)| b)
-            };
-            if let Some((gravity_drive, ionian)) = boosts {
-                found.push(Movable {
-                    origin: ship.origin.clone(),
-                    index: ship.index,
-                    unit: ship.unit.clone(),
-                    capacity: ship.capacity,
-                    gravity_drive,
-                    ionian,
-                });
-            }
-        }
-        Some(found)
-    }
 }
 
 /// The movement-step choice: one option per distinguishable move, plus "finish movement".
@@ -1070,7 +1067,17 @@ pub fn ship_routes(
     let value = |boosts: (bool, bool)| {
         effective_move_value_for_ship(state, kind, player, origin, Some(index), boosts.0, boosts.1)
     };
-    let Some(default_path) = search_path(rules, sources, origin.as_str(), value(base), ship_type) else {
+    #[cfg(feature = "typed-core")]
+    let translated = TypedRules::of(rules, sources);
+    let Some(default_path) = search_path_in(
+        rules,
+        #[cfg(feature = "typed-core")]
+        &translated,
+        sources,
+        origin.as_str(),
+        value(base),
+        ship_type,
+    ) else {
         return Vec::new();
     };
 
@@ -1145,7 +1152,15 @@ pub fn ship_routes(
     let mut boosted: Vec<MoveRoute> = Vec::new();
     let mut seen: BTreeSet<Vec<String>> = BTreeSet::from([default_path.clone()]);
     for (tier, boosts) in tiers.iter().enumerate() {
-        for path in search_all_routes(rules, sources, origin.as_str(), value(*boosts), ship_type) {
+        for path in search_all_routes_in(
+            rules,
+            #[cfg(feature = "typed-core")]
+            &translated,
+            sources,
+            origin.as_str(),
+            value(*boosts),
+            ship_type,
+        ) {
             if !seen.insert(path.clone()) {
                 continue;
             }

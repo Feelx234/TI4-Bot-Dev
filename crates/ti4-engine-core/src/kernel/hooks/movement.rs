@@ -33,6 +33,10 @@ hook_group! {
         sum move_bonus(s: &CoreState, site: MoveSite) -> i32;
         /// A ship may move through ships of other owners. String: `movement`.
         any may_move_through_ships(s: &CoreState, k: &Kernel, site: PassSite) -> bool;
+        /// The part of [`Self::may_move_through_ships`] that does not read the active system (Yssaril's
+        /// flagship), so the rules builder asks it once per seat and ship type instead of once per
+        /// destination. A2 split; the string engine has one hook whose result the two slots OR together.
+        any may_move_through_ships_anywhere(s: &CoreState, k: &Kernel, who: Seat, ship: Unit) -> bool;
         /// A player may enter a supernova. String: `movement`.
         any may_enter_supernova(s: &CoreState, k: &Kernel, who: Seat) -> bool;
         /// A player may pass through a supernova. String: `movement`.
