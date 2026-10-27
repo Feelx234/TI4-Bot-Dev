@@ -91,6 +91,9 @@ pub mod board_view;
 /// Area::Combat (package B1): the typed combat rules behind a string interface.
 #[cfg(feature = "typed-core")]
 pub mod core_combat;
+/// Area::Invasion (package B2): the typed invasion rules behind a string interface.
+#[cfg(feature = "typed-core")]
+pub mod core_invasion;
 /// The offline dual of Area::BoardQueries.
 #[cfg(feature = "typed-core")]
 #[doc(hidden)]

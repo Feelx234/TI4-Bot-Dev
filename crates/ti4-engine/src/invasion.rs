@@ -109,6 +109,26 @@ pub fn bombardable(
     planet: &PlanetId,
     invader: &PlayerId,
 ) -> bool {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::core_invasion::InvasionView::of(state, content, sources)?.bombardable(state, system, planet, invader);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Invasion,
+        "invasion::bombardable",
+        typed(),
+        bombardable_text(state, content, sources, system, planet, invader)
+    )
+}
+
+fn bombardable_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    system: &SystemId,
+    planet: &PlanetId,
+    invader: &PlayerId,
+) -> bool {
     // Conventions of War outranks every reason bombardment would otherwise be allowed, war sun
     // included: the law says it cannot be used against units on a cultural planet at all.
     if crate::laws::bombardment_forbidden(state, content, sources, planet) {
@@ -410,20 +430,44 @@ fn bombarders(
     found
 }
 
-/// Roll the invader's bombarding ships on every planet they can reach (49.1).
-///
-/// The dice-consuming half of the bombardment: both the invasion window and this synchronous
-/// wrapper call it, so a given seed makes the same bombardment rolls no matter how the hits
-/// are assigned afterwards.
-fn roll_bombard_plan(
-    state: &mut GameState,
+/// One planet's bombardment before any die is drawn: the planet, each bombarding unit's (type, hit
+/// number, dice) in roll order, the other players' ground forces standing there and whose they are.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PlannedBombard {
+    pub(crate) planet: PlanetId,
+    pub(crate) rolls: Vec<(String, i64, usize)>,
+    pub(crate) held: usize,
+    pub(crate) victims: std::collections::BTreeSet<PlayerId>,
+}
+
+/// The rolls the bombardment of `invader` makes in `system` (49.1), unrolled. The planning half of
+/// [`roll_bombard_plan`], and the question package B2's core answers in `rules::invasion::bombard_plan`.
+fn bombard_rolls(
+    state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
-    dice: &mut Dice,
-    rng: &mut GameRng,
     system: &SystemId,
     invader: &PlayerId,
-) -> Vec<BombardPlan> {
+) -> Vec<PlannedBombard> {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::core_invasion::InvasionView::of(state, content, sources)?.bombard_plan(state, system, invader);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Invasion,
+        "invasion::bombard_plan",
+        typed(),
+        bombard_rolls_text(state, content, sources, system, invader)
+    )
+}
+
+fn bombard_rolls_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    system: &SystemId,
+    invader: &PlayerId,
+) -> Vec<PlannedBombard> {
     // Entropic scars rules 2 and 4: bombardment is a unit ability, so it cannot be used by
     // ships in a scar, nor against ground forces in one. Both directions collapse to the same
     // system here, since bombardment fires from the active system onto planets in it.
@@ -441,9 +485,6 @@ fn roll_bombard_plan(
         .collect();
 
     let mut plan = Vec::new();
-    // Every unit's roll, kept for the reroll windows the bombardment opens (Agnlan Oln,
-    // Scramble Frequency): one entry per bombarding unit, tagged with its planet.
-    let mut staged = Vec::new();
     // Blitz: "each of your non-fighter ships in the active system that do not have
     // BOMBARDMENT gain BOMBARDMENT 6 until the end of the invasion." The card's window
     // opened before this plan was built, so the marker, if present, applies to every roll
@@ -472,7 +513,7 @@ fn roll_bombard_plan(
             continue;
         }
 
-        let mut groups: Vec<usize> = Vec::new();
+        let mut rolls: Vec<(String, i64, usize)> = Vec::new();
         for unit in bombarders(state, invader, system, &planet) {
             let Some(kind) = types.get(unit.type_id.as_str()) else {
                 continue;
@@ -516,6 +557,40 @@ fn roll_bombard_plan(
                 defenders.iter().map(|unit| &unit.owner),
             );
             let value = (value + bunker_penalty - assail).max(1);
+            rolls.push((unit.type_id.to_string(), value, count));
+        }
+        plan.push(PlannedBombard {
+            planet,
+            rolls,
+            held: defenders.len(),
+            victims: defenders.iter().map(|unit| unit.owner.clone()).collect(),
+        });
+    }
+    plan
+}
+
+/// Roll the invader's bombarding ships on every planet they can reach (49.1).
+///
+/// The dice-consuming half of the bombardment: both the invasion window and this synchronous
+/// wrapper call it, so a given seed makes the same bombardment rolls no matter how the hits
+/// are assigned afterwards.
+fn roll_bombard_plan(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    dice: &mut Dice,
+    rng: &mut GameRng,
+    system: &SystemId,
+    invader: &PlayerId,
+) -> Vec<BombardPlan> {
+    let planned = bombard_rolls(state, content, sources, system, invader);
+    let mut plan = Vec::new();
+    // Every unit's roll, kept for the reroll windows the bombardment opens (Agnlan Oln,
+    // Scramble Frequency): one entry per bombarding unit, tagged with its planet.
+    let mut staged = Vec::new();
+    for PlannedBombard { planet, rolls, held, victims } in planned {
+        let mut groups: Vec<usize> = Vec::new();
+        for (unit_type, value, count) in rolls {
             let roll = dice.roll_by(
                 rng,
                 count,
@@ -528,7 +603,8 @@ fn roll_bombard_plan(
                 groups.push(produced);
             }
             staged.push(ti4_model::state::RerollEntry {
-                unit: unit.type_id.to_string(),
+                unit_types: std::iter::once((unit_type.clone(), 1)).collect(),
+                unit: unit_type,
                 planet: Some(planet.clone()),
                 hits_on: Some(u32::try_from(value).unwrap_or(u32::MAX)),
                 faces: roll.faces,
@@ -536,17 +612,14 @@ fn roll_bombard_plan(
                 deltas: std::collections::BTreeMap::new(),
                 // The bombarding unit sits in the system's space area; `planet` names the
                 // target it hits, not where the unit stands.
-                unit_types: std::iter::once((unit.type_id.to_string(), 1)).collect(),
             });
         }
-        let victims: std::collections::BTreeSet<PlayerId> =
-            defenders.iter().map(|unit| unit.owner.clone()).collect();
         plan.push(BombardPlan {
             before: state.system_state(system).on_planet(&planet).to_vec(),
             dice: Vec::new(),
             planet,
             groups,
-            held: defenders.len(),
+            held,
             victims,
         });
     }
@@ -9845,5 +9918,106 @@ mod ground_routes {
             let _ = window.landing_options(&state, content, POK);
         });
         assert_eq!(SAW_GALAXY.with(std::cell::Cell::get), Some(true));
+    }
+}
+
+/// Package B2: the bombardment rules answered by `rules::invasion` in lockstep with the string rules.
+#[cfg(all(test, feature = "typed-core"))]
+mod core_bombardment {
+    use super::*;
+    use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+    use ti4_model::content_types::POK;
+    use ti4_model::id::UnitTypeId;
+
+    fn invader() -> PlayerId {
+        PlayerId::new("a")
+    }
+    fn holder() -> PlayerId {
+        PlayerId::new("b")
+    }
+
+    /// A system with a planet of its own that is not a scar.
+    fn arena() -> (GameState, SystemId, PlanetId) {
+        let mut state = crate::fixtures::seated_game(&[("a", "letnev"), ("b", "sol")], POK);
+        // The fixture deals the notes before the factions are seated ("cf:generic"): no note for the codec.
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        let (system, planet) = ti4_content::galaxy::all_planets(ContentStore::embedded(), POK)
+            .iter()
+            .find(|(_, p)| p.system_id().is_some() && !p.is_placed_during_play())
+            .map(|(id, p)| (SystemId::new(p.system_id().unwrap()), PlanetId::new(*id)))
+            .expect("the corpus has a placed planet");
+        (state, system, planet)
+    }
+
+    fn put(state: &mut GameState, system: &SystemId, planet: Option<&PlanetId>, kind: &str, owner: &PlayerId, n: usize) {
+        for _ in 0..n {
+            let unit = Unit::new(UnitTypeId::new(kind), owner.clone());
+            match planet {
+                Some(p) => state.system_mut(system).planet_units.entry(p.clone()).or_default().push(unit),
+                None => state.system_mut(system).units.push(unit),
+            }
+        }
+    }
+
+    fn plan_of(state: &GameState, system: &SystemId) -> Vec<PlannedBombard> {
+        bombard_rolls(state, ContentStore::embedded(), POK, system, &invader())
+    }
+
+    #[test]
+    fn the_bombardment_rules_run_in_the_core_in_lockstep() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual);
+        with_mask(mask, || {
+            // A PDS shields the planet; a war sun ignores it; a dreadnought alone rolls on 5.
+            let (mut state, system, planet) = arena();
+            put(&mut state, &system, Some(&planet), "infantry", &holder(), 3);
+            put(&mut state, &system, Some(&planet), "pds", &holder(), 1);
+            put(&mut state, &system, None, "dreadnought", &invader(), 2);
+            assert!(plan_of(&state, &system).is_empty(), "the shield holds");
+            assert!(!bombardable(&state, ContentStore::embedded(), POK, &system, &planet, &invader()));
+            put(&mut state, &system, None, "warsun", &invader(), 1);
+            let plan = plan_of(&state, &system);
+            assert_eq!(plan.len(), 1);
+            assert_eq!(plan[0].held, 3 + 1 - 1, "the PDS is not a ground force");
+            assert_eq!(plan[0].rolls.len(), 3);
+
+            // Blitz gives a carrier BOMBARDMENT 6; Plasma Scoring adds a die to the first roller; a
+            // galvanized dreadnought rolls one more; the Bunker lowers each result by four.
+            put(&mut state, &system, None, "carrier", &invader(), 1);
+            let act = state.activation_seq;
+            state.player_mut(&invader()).unwrap().blitz_invasion.push(act);
+            state.player_mut(&invader()).unwrap().technologies.insert(ti4_model::TechnologyId::new("ps"));
+            if let Some(u) = state.system_mut(&system).units.iter_mut().find(|u| u.type_id.as_str() == "dreadnought") {
+                u.galvanized = true;
+            }
+            let plan = plan_of(&state, &system);
+            assert!(plan[0].rolls.iter().any(|r| r.0 == "carrier" && r.1 == 6));
+            state.system_mut(&system).planet_control.insert(planet.clone(), holder());
+            let act = state.activation_seq;
+            state.player_mut(&holder()).unwrap().bunker_invasion.push(act);
+            let plan = plan_of(&state, &system);
+            assert!(plan[0].rolls.iter().all(|r| r.1 >= 1));
+
+            // Disable: an opponent's copy strips the shield again.
+            let (mut state, system, planet) = arena();
+            put(&mut state, &system, Some(&planet), "infantry", &holder(), 1);
+            put(&mut state, &system, Some(&planet), "pds", &holder(), 1);
+            put(&mut state, &system, None, "dreadnought", &invader(), 1);
+            assert!(!bombardable(&state, ContentStore::embedded(), POK, &system, &planet, &invader()));
+            let act = state.activation_seq;
+            state.player_mut(&invader()).unwrap().disable_invasion.push(act);
+            assert!(bombardable(&state, ContentStore::embedded(), POK, &system, &planet, &invader()));
+
+            // The Anihilator bombards from another planet of its system.
+            put(&mut state, &system, Some(&PlanetId::new("elsewhere")), "l1z1x_mech", &invader(), 1);
+            let _ = plan_of(&state, &system);
+        });
+        let r = report();
+        let counts = &r.areas[&Area::Invasion];
+        assert!(counts.calls >= 8, "the core answered: {counts:?}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
     }
 }
