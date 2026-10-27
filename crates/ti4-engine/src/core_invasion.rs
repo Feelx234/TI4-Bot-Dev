@@ -150,6 +150,25 @@ impl InvasionView<'_> {
         Some((destroyed, rows))
     }
 
+    /// `invasion::ground_combat_value`.
+    #[must_use]
+    pub fn ground_combat_value(&self, player: &PlayerId, system: &SystemId, planet: &PlanetId, unit_type: &str) -> Option<Option<i64>> {
+        let (sys, pl, seat, unit) = (typed::<System>(system.as_str())?, typed::<Planet>(planet.as_str())?, self.seat(player)?, typed::<Unit>(unit_type)?);
+        Some(ci::ground_combat_value(self.rd(), seat, sys, pl, unit))
+    }
+
+    /// `invasion::ground_pools`.
+    #[must_use]
+    pub fn ground_pools(&self, player: &PlayerId, system: &SystemId, planet: &PlanetId) -> Option<std::collections::BTreeMap<i64, (i64, std::collections::BTreeMap<String, u32>)>> {
+        let (sys, pl, seat) = (typed::<System>(system.as_str())?, typed::<Planet>(planet.as_str())?, self.seat(player)?);
+        Some(
+            ci::ground_pools(self.rd(), seat, sys, pl)
+                .into_iter()
+                .map(|p| (p.value, (p.dice, p.types.iter().map(|(u, n)| (u.as_str().to_owned(), *n)).collect())))
+                .collect(),
+        )
+    }
+
     /// `invasion::landable`.
     #[must_use]
     pub fn landable(&self, player: &PlayerId, system: &SystemId) -> Option<Vec<StrUnit>> {

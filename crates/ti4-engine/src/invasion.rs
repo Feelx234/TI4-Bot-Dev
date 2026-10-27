@@ -250,6 +250,30 @@ pub fn ground_combat_value(
     planet: &PlanetId,
     unit_type: &str,
 ) -> Option<i64> {
+    #[cfg(feature = "typed-core")]
+    let typed = || {
+        crate::core_invasion::InvasionView::of(state, content, sources)?
+            .ground_combat_value(player, system, planet, unit_type)
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Invasion,
+        "invasion::ground_combat_value",
+        typed(),
+        ground_combat_value_text(state, content, sources, player, system, planet, unit_type)
+    )
+}
+
+fn ground_combat_value_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    planet: &PlanetId,
+    unit_type: &str,
+) -> Option<i64> {
     let printed = catalogue(content, sources)
         .get(unit_type)
         .and_then(ti4_content::units::UnitType::combat_hits_on)?;
@@ -1326,29 +1350,44 @@ pub fn commit_ground_forces(
     Ok(committed.into_iter().collect())
 }
 
-/// Roll one side's ground forces on a planet (42.1).
-#[allow(
-    clippy::too_many_arguments,
-    reason = "one parameter per distinct input"
-)]
-fn roll_ground(
-    state: &mut GameState,
+/// A side's ground roll before any die is drawn: per hit number (ascending) the dice and the unit types behind
+/// them. The planning half of [`roll_ground`], and the question the core answers in
+/// `rules::invasion::ground_pools`.
+type GroundPools = std::collections::BTreeMap<i64, (i64, std::collections::BTreeMap<String, u32>)>;
+
+fn ground_pools(
+    state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
-    dice: &mut Dice,
-    rng: &mut GameRng,
     player: &PlayerId,
     system: &SystemId,
     planet: &PlanetId,
-) -> usize {
+) -> GroundPools {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::core_invasion::InvasionView::of(state, content, sources)?.ground_pools(player, system, planet);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Invasion,
+        "invasion::ground_pools",
+        typed(),
+        ground_pools_text(state, content, sources, player, system, planet)
+    )
+}
+
+fn ground_pools_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    planet: &PlanetId,
+) -> GroundPools {
     let types = catalogue(content, sources);
     // Ground rolls group dice by combat value, so each staged entry is one value's pool.
     // The pool's unit types ride along too: destruction rules that name "the units that
     // rerolled" need to know what sat behind each value's dice.
-    let mut fighting: std::collections::BTreeMap<
-        i64,
-        (i64, std::collections::BTreeMap<String, u32>),
-    > = std::collections::BTreeMap::new();
+    let mut fighting: GroundPools = std::collections::BTreeMap::new();
     let roster: Vec<_> = state
         .system_state(system)
         .on_planet_of(planet, player)
@@ -1416,6 +1455,25 @@ fn roll_ground(
         );
         *slot.1.entry(unit.type_id.to_string()).or_insert(0) += 1;
     }
+    fighting
+}
+
+/// Roll one side's ground forces on a planet (42.1).
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one parameter per distinct input"
+)]
+fn roll_ground(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    dice: &mut Dice,
+    rng: &mut GameRng,
+    player: &PlayerId,
+    system: &SystemId,
+    planet: &PlanetId,
+) -> usize {
+    let fighting = ground_pools(state, content, sources, player, system, planet);
     let mut set = ti4_model::state::RerollSet {
         kind: "ground".into(),
         system: system.clone(),
@@ -10108,7 +10166,11 @@ mod core_bombardment {
 
     /// A system with a planet of its own that is not a scar.
     fn arena() -> (GameState, SystemId, PlanetId) {
-        let mut state = crate::fixtures::seated_game(&[("a", "letnev"), ("b", "sol")], POK);
+        arena_of("letnev", "sol")
+    }
+
+    fn arena_of(fa: &str, fb: &str) -> (GameState, SystemId, PlanetId) {
+        let mut state = crate::fixtures::seated_game(&[("a", fa), ("b", fb)], POK);
         // The fixture deals the notes before the factions are seated ("cf:generic"): no note for the codec.
         state.promissory_notes.clear();
         state.promissory_faceup.clear();
@@ -10238,6 +10300,34 @@ mod core_bombardment {
         let r = report();
         let counts = &r.areas[&Area::Invasion];
         assert!(counts.calls >= 6, "{counts:?}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    #[test]
+    fn ground_rolls_are_planned_by_the_core_in_lockstep() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Factions, Backend::Dual);
+        with_mask(mask, || {
+            for (fa, fb) in [("jolnar", "sardakk"), ("letnev", "sol"), ("nekro", "mentak")] {
+                let (mut state, system, planet) = arena_of(fa, fb);
+                put(&mut state, &system, Some(&planet), "infantry", &invader(), 2);
+                put(&mut state, &system, Some(&planet), &format!("{fa}_mech"), &invader(), 1);
+                put(&mut state, &system, Some(&planet), "infantry2", &holder(), 3);
+                put(&mut state, &system, Some(&planet), &format!("{fb}_mech"), &holder(), 1);
+                if let Some(u) = state.system_mut(&system).planet_units.get_mut(&planet).and_then(|v| v.first_mut()) {
+                    u.galvanized = true;
+                }
+                for who in [invader(), holder()] {
+                    let _ = ground_pools(&state, ContentStore::embedded(), POK, &who, &system, &planet);
+                    let _ = ground_combat_value(&state, ContentStore::embedded(), POK, &who, &system, &planet, "infantry");
+                }
+            }
+        });
+        let r = report();
+        let counts = &r.areas[&Area::Invasion];
+        assert!(counts.calls >= 12, "{counts:?}");
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }

@@ -442,3 +442,87 @@ pub fn take_hits(rd: Rd<'_>, system: System, planet: Planet, owner: Seat, produc
     }
     (s, destroyed)
 }
+
+// -- ground combat rolls (LRR 42) --------------------------------------------------------------------
+
+/// `RULES_FACTION_EFFECTS`.
+const RULES_FACTION_EFFECTS: u32 = 16;
+
+fn ground_site(owner: Seat, system: System, planet: Planet, unit: Unit, index: u16, round: u32) -> RollSite {
+    RollSite {
+        unit: combat_unit(owner, system, planet, unit),
+        kind: RollKind::Ground,
+        round,
+        unit_index: index,
+        foes: SeatSet::EMPTY,
+    }
+}
+
+/// `invasion::ground_combat_value`: a unit's threshold in a ground combat, the printed number less the shift of
+/// every provider (the faction modules, Shield Paling, Assail, the Nekro mech): `None` for a unit that does not
+/// roll.
+#[must_use]
+pub fn ground_combat_value(rd: Rd<'_>, player: Seat, system: System, planet: Planet, unit: Unit) -> Option<i64> {
+    let printed = rd.data(unit).and_then(|d| d.combat).map(|r| i64::from(r.hits_on)).filter(|v| *v > 0)?;
+    let site = ground_site(player, system, planet, unit, 0, rd.s.meta().combat_round_seq);
+    Some(printed - rd.k.hooks.seam.hit_shift.eval(rd.q(), &site, 0, crate::kernel::seam::Clamp::None).value)
+}
+
+/// One value's pool of a side's ground roll: how many dice and which unit types sit behind them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroundPool {
+    pub value: i64,
+    pub dice: i64,
+    pub types: Vec<(Unit, u32)>,
+}
+
+/// `invasion::roll_ground`'s pools, before any die is drawn: the ground forces of `player` on `planet` grouped by
+/// threshold (ascending), with the dice of each (the unit's own, the galvanized die, the Sol agent's die once, the
+/// round agents' extra die).
+#[must_use]
+pub fn ground_pools(rd: Rd<'_>, player: Seat, system: System, planet: Planet) -> Vec<GroundPool> {
+    let round = rd.s.meta().combat_round_seq;
+    let roster: Vec<Piece> = rd
+        .s
+        .board()
+        .planet(planet)
+        .units
+        .iter()
+        .filter(|u| u.owner() == player)
+        .filter(|u| is_ground_force_here(rd, player, system, planet, **u))
+        .copied()
+        .collect();
+    let sol = rd
+        .s
+        .players()
+        .by_seat(player)
+        .and_then(|p| if p.combat_timers.extra_die_round.is(round) { p.combat_timers.extra_die_unit } else { None });
+    let mut sol_added = false;
+    let mut pools: Vec<GroundPool> = Vec::new();
+    for (index, unit) in roster.into_iter().enumerate() {
+        let Some(data) = rd.data(unit.kind()) else { continue };
+        let Some(value) = ground_combat_value(rd, player, system, planet, unit.kind()) else { continue };
+        let site = ground_site(player, system, planet, unit.kind(), index as u16, round);
+        let base = data.combat.map_or(0, |r| i64::from(r.dice));
+        let mut dice = rd.k.hooks.seam.dice.eval(rd.q(), &site, base, crate::kernel::seam::Clamp::None).value;
+        dice += i64::from(unit.galvanized());
+        if !sol_added && rd.s.meta().rules_version >= RULES_FACTION_EFFECTS && sol == Some(unit.kind()) {
+            dice += 1;
+            sol_added = true;
+        }
+        let at = match pools.binary_search_by(|p| p.value.cmp(&value)) {
+            Ok(at) => at,
+            Err(at) => {
+                pools.insert(at, GroundPool { value, dice: 0, types: Vec::new() });
+                at
+            }
+        };
+        let pool = &mut pools[at];
+        pool.dice += dice;
+        match pool.types.binary_search_by(|(u, _)| u.cmp(&unit.kind())) {
+            Ok(i) => pool.types[i].1 += 1,
+            Err(i) => pool.types.insert(i, (unit.kind(), 1)),
+        }
+    }
+    pools
+}

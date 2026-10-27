@@ -140,6 +140,27 @@ fn register_string_bridge(seams: &mut Seams) {
             .flatten()
             .unwrap_or(0));
         }
+        if site.kind == RollKind::Ground {
+            // B2: a ground force's whole shift is the string's `ground_roll_shift` (the faction abilities, Shield
+            // Paling's exemption, the unit modifiers, the Nekro mech, Assail against the planet's other
+            // owners): no data row applies to a ground roll.
+            return add(with_oracle(|o| {
+                let player = o.player(site.unit.owner)?;
+                let system = SystemId::new(site.unit.system?.as_str());
+                let planet = PlanetId::new(site.unit.planet?.as_str());
+                Some(crate::combat_effects::ground_roll_shift(
+                    &o.gs,
+                    ContentStore::embedded(),
+                    o.sources,
+                    &player,
+                    &system,
+                    &planet,
+                    site.unit.unit.as_str(),
+                ))
+            })
+            .flatten()
+            .unwrap_or(0));
+        }
         if site.kind != RollKind::Combat {
             return Delta::None;
         }
@@ -175,7 +196,7 @@ fn register_string_bridge(seams: &mut Seams) {
         .unwrap_or(0))
     });
     seams.dice.push_set(STRINGS, Layer::Faction, |_, site: &RollSite, acc| {
-        if site.kind != RollKind::Combat {
+        if !matches!(site.kind, RollKind::Combat | RollKind::Ground) {
             return Delta::None;
         }
         let to = with_oracle(|o| {
@@ -188,6 +209,26 @@ fn register_string_bridge(seams: &mut Seams) {
         if to == acc { Delta::None } else { Delta::Set { to, why: SetWhy::LegacyFold } }
     });
     seams.dice.push_add(STRINGS, Layer::Faction, |_, site: &RollSite, _| {
+        if site.kind == RollKind::Ground {
+            // B2: the round agents' extra die of a ground force (the galvanized die and the Sol agent's die are
+            // the invasion rule's own).
+            return add(with_oracle(|o| {
+                let player = o.player(site.unit.owner)?;
+                Some(crate::factions::borrowed_round_agents::extra_die_for(
+                    &o.gs,
+                    ContentStore::embedded(),
+                    o.sources,
+                    &SystemId::new(site.unit.system?.as_str()),
+                    site.unit.planet.map(|p| PlanetId::new(p.as_str())).as_ref(),
+                    &player,
+                    site.unit.unit.as_str(),
+                    usize::from(site.unit_index),
+                    o.gs.combat_round_seq,
+                ))
+            })
+            .flatten()
+            .unwrap_or(0));
+        }
         if !matches!(site.kind, RollKind::Combat | RollKind::Barrage) {
             return Delta::None;
         }
