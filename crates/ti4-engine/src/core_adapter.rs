@@ -614,6 +614,47 @@ const REACH_MARKS: [&str; 11] = [
     "saar:agent:boost:",
 ];
 
+/// The board as movement reads it: the units of every space area and planet, command tokens, which
+/// systems have an entry, who controls each planet (Mecatol Rex and Tempesta are asked) and where a
+/// placed planet sits. Not read: exhaustion, attachments, coexistence, purges (the full codec copies
+/// a chunk of the planet table for each of them).
+fn load_reach_board(cx: &Ctx, gs: &GameState, core: &mut CoreState) -> Option<()> {
+    use ti4_engine_core::generated::Planet;
+    let seat = |id: &ti4_model::id::PlayerId| cx.owners.seat(id.as_str());
+    let piece = |u: &ti4_model::units::Unit| -> Option<ti4_engine_core::state::Piece> {
+        Some(
+            ti4_engine_core::state::Piece::new(unit_ix(u.type_id.as_str())?, seat(&u.owner)?)
+                .with_sustained(u.sustained_damage)
+                .with_galvanized(u.galvanized),
+        )
+    };
+    let board = &mut core.board;
+    for (sid, st) in &gs.board {
+        let cell = board.sys_mut(system_ix(sid.as_str())?);
+        for u in &st.units {
+            cell.units.push(piece(u)?);
+        }
+        for p in &st.command_tokens {
+            cell.cmd.insert(seat(p)?);
+        }
+        cell.flags.set(ti4_engine_core::state::SysFlags::TOUCHED, true);
+        for (pid, owner) in &st.planet_control {
+            board.planet_mut(<Planet as IdStr>::from_id(pid.as_str())?).control = Some(seat(owner)?);
+        }
+        for (pid, units) in &st.planet_units {
+            let cell = board.planet_mut(<Planet as IdStr>::from_id(pid.as_str())?);
+            for u in units {
+                cell.units.push(piece(u)?);
+            }
+        }
+    }
+    for (pid, sid) in &gs.placed_planets {
+        board.planet_mut(<Planet as IdStr>::from_id(pid.as_str())?).placed_in = Some(system_ix(sid.as_str())?);
+    }
+    core.mark_loaded(Slice::Board);
+    Some(())
+}
+
 /// The slices the movement rules read, loaded the cheap way: the board, the players and the map by
 /// their codecs; of the explore, agenda, transient and marks slices only the few facts movement reads
 /// (the full codecs load every exploration record, every law outcome and every mark).
@@ -622,9 +663,10 @@ fn load_reach(cx: &mut Ctx, gs: &GameState, galaxy: &Galaxy) -> Option<CoreState
     use ti4_engine_core::keys::Outcome;
     let src = CodecSources { galaxy: Some(galaxy), rng: None };
     let mut core = CoreState::with_loaded(SliceSet::EMPTY);
-    for slice in [Slice::Meta, Slice::Players, Slice::Board, Slice::Map] {
+    for slice in [Slice::Meta, Slice::Players, Slice::Map] {
         crate::core_sync::Codec::load_slice(cx, gs, src, slice, &mut core).ok()?;
     }
+    load_reach_board(cx, gs, &mut core)?;
     let e = &mut core.explore;
     for (set, texts) in [(&mut e.ingress, &gs.ingress_tokens), (&mut e.breach, &gs.breach_tokens)] {
         for t in texts {
