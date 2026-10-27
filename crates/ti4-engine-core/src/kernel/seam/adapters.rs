@@ -14,6 +14,7 @@
 //! | `combat_modifier`, `unit_roll_modifier`, `mahact_flagship_bonus`, `nekro_mech_bonus`, `assail_space`, `law_fighter_bonus` | `hit_shift.eval` (the law term is the Ixth row of [`COMBAT_ROWS`](super::data::COMBAT_ROWS)) |
 //! | `unit_dice`, `bastion_extra_die`, `round_agent_extra_die` | `dice.eval` |
 //! | `may_sustain_modules` | `may_sustain.decide(.., true)` |
+//! | `grants_sustain` (the module hook; Nomad's mech and The Cavalry) | `grants_sustain.decide(.., false)` (the allow side, added by CE) |
 //! | `borrowed_stats` | `borrowed_stats.first` |
 //! | `alastor_participants` | `alastor_participants.collect` |
 //! | `flagship_has_text(.., FlagshipText)` | not a seam: generated `Unit -> FlagshipTextSet` (string step S5) plus the Nekro lender as a `silenced`-style predicate; the `FlagshipText` enum and its three neutral stubs are deleted |
@@ -98,6 +99,7 @@ pub fn bridge_legacy(seams: &mut Seams) {
     });
     // P2 predicates.
     seams.may_sustain.push(LEGACY, |q, u| if q.k.hooks.combat.may_sustain(q.s, q.k, *u) { Verdict::Abstain } else { Verdict::Forbid });
+    seams.grants_sustain.push(LEGACY, |q, u| if q.k.hooks.combat.grants_sustain(q.s, q.k, *u) { Verdict::Allow } else { Verdict::Abstain });
     seams.hit_immune.push(LEGACY, |q, u| if q.k.hooks.combat.direct_hit_immune(q.s, q.k, *u) { Verdict::Allow } else { Verdict::Abstain });
     seams.cannon_barred.push(LEGACY, |q, c: &CannonSite| {
         if q.k.hooks.combat.space_cannon_barred(q.s, q.k, c.shooter, c.target, c.system) { Verdict::Allow } else { Verdict::Abstain }

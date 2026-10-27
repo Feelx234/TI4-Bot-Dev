@@ -121,6 +121,9 @@ pub struct Seams {
     pub production_discount: Stack<ProdSite>,
     /// P2: may this unit sustain damage (every rule must allow; default allowed).
     pub may_sustain: Pred<CombatUnit>,
+    /// P2: the allow side of `may_sustain`: a unit that gains SUSTAIN DAMAGE from a card or ability (`grants_sustain`;
+    /// one rule is enough, default not granted). `may_sustain` only forbids; this one only grants.
+    pub grants_sustain: Pred<CombatUnit>,
     /// P2: immune to direct hits (one rule is enough).
     pub hit_immune: Pred<CombatUnit>,
     /// P2: a piece whose abilities are off (`context_silenced`, `ralnel_silenced_in_space`, `crimson_abilities_lost`, ...).
@@ -158,6 +161,7 @@ impl Default for Seams {
             extra_production: Stack::new(),
             production_discount: Stack::new(),
             may_sustain: Pred::new(Combine::ForbidWins),
+            grants_sustain: Pred::new(Combine::AllowWins),
             hit_immune: Pred::new(Combine::AllowWins),
             silenced: Pred::new(Combine::AllowWins),
             cannon_barred: Pred::new(Combine::AllowWins),
@@ -176,8 +180,8 @@ impl Default for Seams {
 }
 
 impl Seams {
-    /// Typed slots: 5 stacks, 6 predicates, 3 gathers, 2 replacements, one per [`ObsKind`] and per [`Point`].
-    pub const SLOTS: usize = 5 + 6 + 3 + 2 + ObsKind::COUNT + Point::COUNT;
+    /// Typed slots: 5 stacks, 7 predicates, 3 gathers, 2 replacements, one per [`ObsKind`] and per [`Point`].
+    pub const SLOTS: usize = 5 + 7 + 3 + 2 + ObsKind::COUNT + Point::COUNT;
 
     /// Registered providers across the seams.
     #[must_use]
@@ -188,6 +192,7 @@ impl Seams {
             + self.extra_production.len()
             + self.production_discount.len()
             + self.may_sustain.len()
+            + self.grants_sustain.len()
             + self.hit_immune.len()
             + self.silenced.len()
             + self.cannon_barred.len()
@@ -222,6 +227,7 @@ impl Seams {
         self.extra_production.permute_commutative(p);
         self.production_discount.permute_commutative(p);
         self.may_sustain.permute(p);
+        self.grants_sustain.permute(p);
         self.hit_immune.permute(p);
         self.silenced.permute(p);
         self.cannon_barred.permute(p);
