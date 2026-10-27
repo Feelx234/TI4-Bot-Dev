@@ -2451,6 +2451,28 @@ pub fn establish_control(
     captured
 }
 
+/// The position inside the coexistence bombardment question ([`Stage::ChoosingBombardment`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BombardCursor {
+    planet_index: usize,
+    planet: PlanetId,
+    groups: Vec<usize>,
+    next_group: usize,
+    taken: usize,
+    held: usize,
+    victims: std::collections::BTreeSet<PlayerId>,
+    occurrence: FeatOccurrence,
+}
+
+/// The position inside "start another ground combat?" ([`Stage::ChoosingNextCombat`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NextCombat {
+    planets: Vec<PlanetId>,
+    index: usize,
+    planet: PlanetId,
+    remaining: Vec<PlayerId>,
+}
+
 /// Where an open invasion has reached.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Stage {
@@ -2461,16 +2483,7 @@ enum Stage {
     /// Mid-bombardment on the planet at `planet_index` of the window's bombardment plan:
     /// `groups` holds each bombarding unit's hit total, `next_group` the next unit to be
     /// assigned, `taken` the units destroyed on the planet so far.
-    ChoosingBombardment {
-        planet_index: usize,
-        planet: PlanetId,
-        groups: Vec<usize>,
-        next_group: usize,
-        taken: usize,
-        held: usize,
-        victims: std::collections::BTreeSet<PlayerId>,
-        occurrence: FeatOccurrence,
-    },
+    ChoosingBombardment(BombardCursor),
     /// Offering to lift the custodians token from Mecatol Rex (27.2).
     Custodians,
     /// Choosing which ground forces to land, and where (49.2).
@@ -2614,7 +2627,7 @@ impl InvasionWindow {
                     .map(|p| p.planet.clone()),
                 None,
             ),
-            Stage::ChoosingBombardment { planet, .. } => {
+            Stage::ChoosingBombardment(BombardCursor { planet, .. }) => {
                 ("bombardment", Some(planet.clone()), None)
             }
             Stage::Custodians => ("custodians", None, None),
@@ -2930,7 +2943,7 @@ impl InvasionWindow {
             }
             // Coexistence 7, 7.1: the invader picks, per bombarding unit, whose units take the
             // hits. The window pauses here until the driver's decider answers.
-            self.stage = Stage::ChoosingBombardment {
+            self.stage = Stage::ChoosingBombardment(BombardCursor {
                 planet_index: self.bombard_index,
                 planet,
                 groups,
@@ -2939,7 +2952,7 @@ impl InvasionWindow {
                 held,
                 victims,
                 occurrence: self.bombard_occurrence,
-            };
+            });
             return;
         }
     }
@@ -3065,7 +3078,7 @@ impl InvasionWindow {
                     // The stage moved on (a later bombardment step, the custodians stage, or
                     // the coexistence pause); re-match it.
                 }
-                Stage::ChoosingBombardment {
+                Stage::ChoosingBombardment(BombardCursor {
                     planet_index,
                     planet,
                     taken,
@@ -3073,7 +3086,7 @@ impl InvasionWindow {
                     victims,
                     occurrence,
                     ..
-                } => {
+                }) => {
                     // If the planet's ground forces are already gone, the remaining hits have
                     // no target (coexistence 7.2) and the planet finishes without asking.
                     let present: std::collections::BTreeSet<PlayerId> = state
@@ -4469,6 +4482,559 @@ impl InvasionWindow {
     }
 }
 
+impl InvasionWindow {
+    /// The coexistence target question of the bombardment stage (7, 7.1), asked once per bombarding
+    /// unit and narrowed to the players still holding units on the planet (7.2).
+    fn ask_bombardment_target(&self, state: &GameState, cursor: &BombardCursor) -> Option<Choice> {
+        let BombardCursor {
+            planet,
+            groups,
+            next_group,
+            ..
+        } = cursor;
+        // Coexistence 7, 7.1, asked once per bombarding unit (7.1), with the choices
+        // narrowed to the players still holding units on the planet (7.2 makes the
+        // rest of a unit's hits waste if its chosen target runs out).
+        let Some(next) = (*next_group..groups.len()).find(|&i| groups[i] > 0) else {
+            // settle() finishes the planet; present nothing so the driver settles it.
+            return None;
+        };
+        let present: std::collections::BTreeSet<PlayerId> = state
+            .system_state(&self.system)
+            .on_planet(planet)
+            .iter()
+            .filter(|unit| unit.owner != self.invader)
+            .map(|unit| unit.owner.clone())
+            .collect();
+        bombardment_target_question(
+            &self.invader,
+            &self.system,
+            planet,
+            groups[next],
+            &present,
+            state.system_state(&self.system).on_planet(planet),
+        )
+        .map(|question| {
+            question.contextualized(
+                DecisionContext::new(
+                    self.invader.clone(),
+                    DecisionSource::Rule("Coexistence 7.2".to_owned()),
+                    "bombardment_target",
+                    state.phase,
+                    state.round,
+                )
+                .about(DecisionTarget::Planet {
+                    system: self.system.clone(),
+                    planet: planet.clone(),
+                }),
+            )
+        })
+    }
+
+    /// Coexistence 12: the winner may start another ground combat against the next coexister.
+    fn ask_next_combat(
+        &self,
+        state: &GameState,
+        planet: &PlanetId,
+        remaining: &[PlayerId],
+    ) -> Option<Choice> {
+        let next = remaining.first()?;
+        Some(
+            Choice::new(
+                self.invader.clone(),
+                format!("start another ground combat on {planet}"),
+                vec![
+                    ChoiceOption::labelled(
+                        format!("fight|{next}"),
+                        GROUND_CASUALTY_KIND,
+                        format!("fight {next} on {planet}"),
+                    ),
+                    ChoiceOption::labelled(
+                        "decline",
+                        crate::choice::DECLINE_KIND,
+                        format!("leave {next} coexisting on {planet}"),
+                    ),
+                ],
+            )
+            .contextualized(
+                DecisionContext::new(
+                    self.invader.clone(),
+                    DecisionSource::Rule("Coexistence".to_owned()),
+                    "start_next_ground_combat",
+                    state.phase,
+                    state.round,
+                )
+                .about(DecisionTarget::Planet {
+                    system: self.system.clone(),
+                    planet: planet.clone(),
+                }),
+            ),
+        )
+    }
+
+    /// 27.2: the custodians offer; falls through to the commit question when it does not apply.
+    fn ask_custodians(
+        &self,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+    ) -> Option<Choice> {
+        // Falls through rather than returning None: the driver stops the moment a window
+        // has no choice, so a stage that is merely inapplicable would end the invasion
+        // before any ground force was committed.
+        if !custodians_removable(state, content, sources, &self.invader, &self.system) {
+            return self.committing_choice(state, content, sources);
+        }
+        // OBS-008b6: 27.3 is a payment (six influence) plus a capped victory-point gain.
+        // `custodians_removable` already proved the six influence is affordable, so
+        // `deterministic::spend` mirrors the same arithmetic `production::pay` will use.
+        let vp = i64::from(
+            state
+                .player(&self.invader)
+                .map_or(0, |seat| seat.victory_points),
+        );
+        let vp_after = (vp + 1).min(i64::from(crate::objectives::VICTORY_TARGET));
+        let cost = custodians_cost(state, content, &self.invader);
+        let spend = deterministic::spend(
+            state,
+            content,
+            sources,
+            &self.invader,
+            cost,
+            Spend::Influence,
+        );
+        let yes_preview = match spend.outcome {
+            crate::preview::Outcome::Certain { mut deltas } => {
+                deltas.push(Delta::new(Quantity::VictoryPoints, vp, vp_after));
+                Preview::certain(deltas)
+            }
+            // Fail closed: `custodians_removable` already guards affordability, so this
+            // should not be reached in practice, but an unaffordable or unmodelled plan
+            // must not silently claim the victory point either.
+            _ => spend,
+        };
+        Some(
+            Choice::new(
+                self.invader.clone(),
+                if cost == 0 {
+                    "remove the custodians token (no influence required)".to_owned()
+                } else {
+                    format!("spend {cost} influence to remove the custodians token")
+                },
+                vec![
+                    ChoiceOption::labelled("no", "decline", "leave it").previewed(
+                        Preview::certain(vec![Delta::new(Quantity::VictoryPoints, vp, vp)]),
+                    ),
+                    ChoiceOption::labelled(
+                        "yes",
+                        "custodians",
+                        "remove it for a victory point",
+                    )
+                    .previewed(yes_preview),
+                ],
+            )
+            .contextualized(
+                DecisionContext::new(
+                    self.invader.clone(),
+                    DecisionSource::Rule("27.2".to_owned()),
+                    "remove_custodians",
+                    state.phase,
+                    state.round,
+                )
+                .about(DecisionTarget::System(self.system.clone())),
+            ),
+        )
+    }
+
+    /// One ground combat round on `planets[index]`; the roll itself happens on the answer.
+    fn ask_fight_round(
+        &self,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        planets: &[PlanetId],
+        index: usize,
+    ) -> Option<Choice> {
+        // One casualty decision at a time; the roll itself happens on resolve.
+        let planet = planets.get(index)?;
+        // Unreachable in practice — resolve_ground_round leaves the stage the moment a
+        // side has no ground forces left — but guard on the same predicate as the fight.
+        if !ground_force_owners(state, content, sources, &self.system, planet)
+            .contains(&self.invader)
+        {
+            return None;
+        }
+        Some(
+            Choice::new(
+                self.invader.clone(),
+                format!("fight a round on {planet}"),
+                vec![ChoiceOption::labelled(
+                    "fight",
+                    GROUND_CASUALTY_KIND,
+                    format!("fight a round on {planet}"),
+                )],
+            )
+            .contextualized(
+                DecisionContext::new(
+                    self.invader.clone(),
+                    DecisionSource::Rule("42".to_owned()),
+                    "fight_ground_combat_round",
+                    state.phase,
+                    state.round,
+                )
+                .about(DecisionTarget::Planet {
+                    system: self.system.clone(),
+                    planet: planet.clone(),
+                }),
+            ),
+        )
+    }
+
+    /// The invader's answer to the coexistence target question: that unit's hits go to `option`.
+    fn answer_bombardment_target(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        option: &ChoiceOption,
+        cursor: BombardCursor,
+    ) {
+        let BombardCursor {
+            planet_index,
+            planet,
+            groups,
+            next_group,
+            taken,
+            held,
+            victims,
+            occurrence,
+        } = cursor;
+        let (content, sources) = (ctx.content, ctx.sources);
+        // Coexistence 7, 7.1: apply the chosen target to this bombarding unit's hits.
+        // 7.2 caps the destruction at the chosen player's remaining units.
+        let next = (next_group..groups.len())
+            .find(|&i| groups[i] > 0)
+            .expect("paused on a bombardment that had hits to assign");
+        let target = PlayerId::new(option.id.clone());
+        let mut log = Vec::new();
+        let produced = ground_hits_window(
+            state,
+            ctx,
+            &self.system,
+            &planet,
+            &target,
+            groups[next],
+            "bombardment",
+        );
+        let applied = take_bombard_hits(
+            state,
+            content,
+            sources,
+            &self.system,
+            &planet,
+            &target,
+            produced,
+            &mut log,
+        );
+        flush_events(state, ctx, log);
+        self.report.bombardment_kills += applied;
+        let taken = taken + applied;
+        let exhausted = next + 1 >= groups.len()
+            || state
+                .system_state(&self.system)
+                .on_planet(&planet)
+                .iter()
+                .find(|unit| unit.owner != self.invader)
+                .is_none();
+        if exhausted {
+            self.complete_bombard_plan(state, &planet, taken, held, &victims, occurrence);
+            self.bombard_index = planet_index + 1;
+            self.stage = Stage::Bombarding;
+        } else {
+            self.stage = Stage::ChoosingBombardment(BombardCursor {
+                planet_index,
+                planet,
+                groups,
+                next_group: next + 1,
+                taken,
+                held,
+                victims,
+                occurrence,
+            });
+        }
+    }
+
+    /// The winner's answer to "start another ground combat?" (coexistence 12).
+    fn answer_next_combat(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        option: &ChoiceOption,
+        next: NextCombat,
+    ) {
+        let NextCombat {
+            planets,
+            index,
+            planet,
+            mut remaining,
+        } = next;
+        // Coexistence 12: the winner "may start an additional ground combat against
+        // another coexisting player … until they decline to start another ground combat or
+        // there are no more coexisting players. Any coexisting players that they do not
+        // resolve a ground combat against remain coexisting."
+        //
+        // Declining therefore ends the chain outright rather than skipping one opponent:
+        // the rule offers *another* combat, not a queue to work through.
+        // Declining and having nobody left are the same outcome: the chain ends and the
+        // planet is done. Rule 12 phrases them as two ways to stop, not two results.
+        if option.is_decline() || remaining.is_empty() {
+            self.stage = Stage::Advancing {
+                planets,
+                index: index + 1,
+            };
+        } else {
+            let defender = remaining.remove(0);
+            // The chosen coexister stops coexisting for the duration: they are now a
+            // side in a combat, and `ground_force_owners` already sees their units.
+            state
+                .system_mut(&self.system)
+                .coexisting
+                .entry(planet.clone())
+                .or_default()
+                .remove(&defender);
+            if self.start_ground_combat(state, ctx, &planet, &defender) {
+                self.current_ground_occurrence = Some(state.begin_feat_occurrence());
+                self.stage = Stage::Fighting {
+                    planets,
+                    index,
+                    defender,
+                };
+            } else {
+                // A start-of-combat handler removed a side's last ground force.
+                self.stage = Stage::Advancing { planets, index };
+            }
+        }
+    }
+
+    /// The answer to the custodians offer (27.2, 27.3).
+    fn answer_custodians(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        option: &ChoiceOption,
+    ) -> Result<(), IllegalChoice> {
+        let (content, sources) = (ctx.content, ctx.sources);
+        if !option.is_decline() {
+            // 27.3: pay six influence, take the token, gain a victory point.
+            let cost = custodians_cost(state, content, &self.invader);
+            if cost == 0
+                || crate::production::pay(
+                    state,
+                    content,
+                    sources,
+                    ctx.table,
+                    &self.invader,
+                    cost,
+                    crate::production::Spend::Influence,
+                )?
+            {
+                state.custodians_removed = true;
+                crate::objectives::adjust_victory_points(
+                    state,
+                    &self.invader,
+                    1,
+                    "custodians",
+                );
+                self.report.custodians_removed = true;
+            }
+        }
+        self.stage = Stage::Committing;
+        Ok(())
+    }
+
+    /// The answer at the commit step. `Ok(false)` is an answer that changed nothing and leaves
+    /// the step as it was (the caller then skips the "nothing left to land" check).
+    fn answer_commit(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        option: &ChoiceOption,
+    ) -> Result<bool, IllegalChoice> {
+        if option.is_decline() {
+            self.finish_committing(state, ctx)?;
+        } else if let Some(rest) = option.id.strip_prefix("commit|") {
+            return self.commit_one(state, ctx, rest);
+        } else if let Some(planet) = option.id.strip_prefix("deploy_commit|") {
+            return self.commit_deploy(state, ctx, planet);
+        }
+        Ok(true)
+    }
+
+    /// One `commit|<index>|<planet>` answer: toll, move, land, announce.
+    fn commit_one(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        rest: &str,
+    ) -> Result<bool, IllegalChoice> {
+        let (content, sources) = (ctx.content, ctx.sources);
+            let mut parts = rest.splitn(2, '|');
+            let (Some(index), Some(planet)) = (
+                parts.next().and_then(|i| i.parse::<usize>().ok()),
+                parts.next().map(PlanetId::new),
+            ) else {
+                return Ok(false);
+            };
+            let (troops, origins, temporary) = commit_pool(
+                state,
+                content,
+                sources,
+                self.galaxy.as_deref(),
+                &self.invader,
+                &self.system,
+                &self.extra_commits,
+            );
+            if let Some(unit) = troops.get(index).cloned() {
+                // Omniopiares: the first landing on the planet pays its toll, chosen by the
+                // invader like any influence spend. Unpayable landings were never offered;
+                // should one arrive anyway nothing changes.
+                if !crate::factions::keleres_units::pay_commit_toll(
+                    state,
+                    content,
+                    sources,
+                    self.galaxy.as_deref(),
+                    ctx.table,
+                    &self.invader,
+                    &self.system,
+                    &planet,
+                )? {
+                    return Ok(false);
+                }
+                let origin = origins.get(index).cloned().flatten();
+                let temporary = temporary.get(index).copied().unwrap_or(false);
+                // Parley reads the landing back through this marker: the emission's
+                // AFTER window resolves before the commit step continues, and the
+                // marker is the one fact the effect can trust.
+                state.last_committed_unit = Some((
+                    self.invader.clone(),
+                    self.system.clone(),
+                    planet.clone(),
+                    unit.clone(),
+                ));
+                // The engine does the move: out of the space area (the ordinary source) or
+                // off the planet a faction's hook named, then onto the target planet.
+                match &origin {
+                    None => {
+                        state
+                            .system_mut(&self.system)
+                            .remove(std::slice::from_ref(&unit));
+                    }
+                    Some((from_system, from_planet)) => {
+                        state
+                            .system_mut(from_system)
+                            .remove_from_planet(from_planet, std::slice::from_ref(&unit));
+                    }
+                }
+                land_unit(
+                    state,
+                    content,
+                    sources,
+                    &self.invader,
+                    &self.system,
+                    &planet,
+                    unit,
+                );
+                if temporary {
+                    self.temporary_space_commits
+                        .entry(planet.clone())
+                        .or_default()
+                        .push(troops[index].clone());
+                }
+                if let Some(origin) = origin.clone() {
+                    self.extra_commits.push(origin);
+                }
+                self.announce_landing(state, ctx, planet, origin);
+            }
+        Ok(true)
+    }
+
+    /// The Crimson Revenant's `deploy_commit|<planet>` answer.
+    fn commit_deploy(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        planet: &str,
+    ) -> Result<bool, IllegalChoice> {
+        let (content, sources) = (ctx.content, ctx.sources);
+            // The Crimson Revenant's DEPLOY: "you may commit 1 mech, even if you have no
+            // units in the system". The mech comes from reinforcements and lands as a
+            // committed ground force.
+            let planet = PlanetId::new(planet);
+            let landable = landable_planets(state, content, sources, &self.system);
+            if !crate::factions::crimson::deploy_planets(
+                state,
+                content,
+                sources,
+                &self.invader,
+                &self.system,
+                &landable,
+            )
+            .contains(&planet)
+            {
+                return Ok(false);
+            }
+            if !crate::factions::keleres_units::pay_commit_toll(
+                state,
+                content,
+                sources,
+                self.galaxy.as_deref(),
+                ctx.table,
+                &self.invader,
+                &self.system,
+                &planet,
+            )? {
+                return Ok(false);
+            }
+            let unit = Unit::new(
+                ti4_model::id::UnitTypeId::new(crate::factions::crimson::MECH),
+                self.invader.clone(),
+            );
+            state.last_committed_unit = Some((
+                self.invader.clone(),
+                self.system.clone(),
+                planet.clone(),
+                unit.clone(),
+            ));
+            land_unit(
+                state,
+                content,
+                sources,
+                &self.invader,
+                &self.system,
+                &planet,
+                unit,
+            );
+            crate::factions::crimson::note_deployed(state, &self.invader);
+            self.announce_landing(state, ctx, planet, None);
+        Ok(true)
+    }
+
+    /// The answer to "fight a round": roll and resolve one ground combat round.
+    fn answer_fight(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        planets: Vec<PlanetId>,
+        index: usize,
+        defender: PlayerId,
+    ) -> Result<(), IllegalChoice> {
+        self.resolve_ground_round(state, ctx, planets, index, defender);
+        if let Some(error) = self.strict_timing_error.take() {
+            return Err(crate::combat::CombatError::Timing(error).into_illegal_choice());
+        }
+        Ok(())
+    }
+}
+
 impl Window for InvasionWindow {
     /// A fresh window starts on its bombardment, and bombardment advances by
     /// [`Self::settle`] rather than by any player choice, so driving one settles before the
@@ -4495,11 +5061,6 @@ impl Window for InvasionWindow {
         Ok(())
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one arm per invasion stage, read as a table; OBS-003d added one typed context \
-                  literal per arm rather than splitting the table apart"
-    )]
     fn pending_choice(
         &self,
         state: &GameState,
@@ -4511,201 +5072,18 @@ impl Window for InvasionWindow {
             | Stage::Bombarding
             | Stage::Advancing { .. }
             | Stage::FinalizingControl { .. } => None,
-            Stage::ChoosingBombardment {
-                planet,
-                groups,
-                next_group,
-                ..
-            } => {
-                // Coexistence 7, 7.1, asked once per bombarding unit (7.1), with the choices
-                // narrowed to the players still holding units on the planet (7.2 makes the
-                // rest of a unit's hits waste if its chosen target runs out).
-                let Some(next) = (*next_group..groups.len()).find(|&i| groups[i] > 0) else {
-                    // settle() finishes the planet; present nothing so the driver settles it.
-                    return None;
-                };
-                let present: std::collections::BTreeSet<PlayerId> = state
-                    .system_state(&self.system)
-                    .on_planet(planet)
-                    .iter()
-                    .filter(|unit| unit.owner != self.invader)
-                    .map(|unit| unit.owner.clone())
-                    .collect();
-                bombardment_target_question(
-                    &self.invader,
-                    &self.system,
-                    planet,
-                    groups[next],
-                    &present,
-                    state.system_state(&self.system).on_planet(planet),
-                )
-                .map(|question| {
-                    question.contextualized(
-                        DecisionContext::new(
-                            self.invader.clone(),
-                            DecisionSource::Rule("Coexistence 7.2".to_owned()),
-                            "bombardment_target",
-                            state.phase,
-                            state.round,
-                        )
-                        .about(DecisionTarget::Planet {
-                            system: self.system.clone(),
-                            planet: planet.clone(),
-                        }),
-                    )
-                })
-            }
+            Stage::ChoosingBombardment(cursor) => self.ask_bombardment_target(state, cursor),
             Stage::ChoosingNextCombat {
                 planet, remaining, ..
-            } => {
-                let next = remaining.first()?;
-                Some(
-                    Choice::new(
-                        self.invader.clone(),
-                        format!("start another ground combat on {planet}"),
-                        vec![
-                            ChoiceOption::labelled(
-                                format!("fight|{next}"),
-                                GROUND_CASUALTY_KIND,
-                                format!("fight {next} on {planet}"),
-                            ),
-                            ChoiceOption::labelled(
-                                "decline",
-                                crate::choice::DECLINE_KIND,
-                                format!("leave {next} coexisting on {planet}"),
-                            ),
-                        ],
-                    )
-                    .contextualized(
-                        DecisionContext::new(
-                            self.invader.clone(),
-                            DecisionSource::Rule("Coexistence".to_owned()),
-                            "start_next_ground_combat",
-                            state.phase,
-                            state.round,
-                        )
-                        .about(DecisionTarget::Planet {
-                            system: self.system.clone(),
-                            planet: planet.clone(),
-                        }),
-                    ),
-                )
-            }
-            Stage::Custodians => {
-                // Falls through rather than returning None: the driver stops the moment a window
-                // has no choice, so a stage that is merely inapplicable would end the invasion
-                // before any ground force was committed.
-                if !custodians_removable(state, content, sources, &self.invader, &self.system) {
-                    return self.committing_choice(state, content, sources);
-                }
-                // OBS-008b6: 27.3 is a payment (six influence) plus a capped victory-point gain.
-                // `custodians_removable` already proved the six influence is affordable, so
-                // `deterministic::spend` mirrors the same arithmetic `production::pay` will use.
-                let vp = i64::from(
-                    state
-                        .player(&self.invader)
-                        .map_or(0, |seat| seat.victory_points),
-                );
-                let vp_after = (vp + 1).min(i64::from(crate::objectives::VICTORY_TARGET));
-                let cost = custodians_cost(state, content, &self.invader);
-                let spend = deterministic::spend(
-                    state,
-                    content,
-                    sources,
-                    &self.invader,
-                    cost,
-                    Spend::Influence,
-                );
-                let yes_preview = match spend.outcome {
-                    crate::preview::Outcome::Certain { mut deltas } => {
-                        deltas.push(Delta::new(Quantity::VictoryPoints, vp, vp_after));
-                        Preview::certain(deltas)
-                    }
-                    // Fail closed: `custodians_removable` already guards affordability, so this
-                    // should not be reached in practice, but an unaffordable or unmodelled plan
-                    // must not silently claim the victory point either.
-                    _ => spend,
-                };
-                Some(
-                    Choice::new(
-                        self.invader.clone(),
-                        if cost == 0 {
-                            "remove the custodians token (no influence required)".to_owned()
-                        } else {
-                            format!("spend {cost} influence to remove the custodians token")
-                        },
-                        vec![
-                            ChoiceOption::labelled("no", "decline", "leave it").previewed(
-                                Preview::certain(vec![Delta::new(Quantity::VictoryPoints, vp, vp)]),
-                            ),
-                            ChoiceOption::labelled(
-                                "yes",
-                                "custodians",
-                                "remove it for a victory point",
-                            )
-                            .previewed(yes_preview),
-                        ],
-                    )
-                    .contextualized(
-                        DecisionContext::new(
-                            self.invader.clone(),
-                            DecisionSource::Rule("27.2".to_owned()),
-                            "remove_custodians",
-                            state.phase,
-                            state.round,
-                        )
-                        .about(DecisionTarget::System(self.system.clone())),
-                    ),
-                )
-            }
+            } => self.ask_next_combat(state, planet, remaining),
+            Stage::Custodians => self.ask_custodians(state, content, sources),
             Stage::Committing => self.committing_choice(state, content, sources),
-            Stage::Fighting {
-                planets,
-                index,
-                defender,
-            } => {
-                // One casualty decision at a time; the roll itself happens on resolve.
-                let planet = planets.get(*index)?;
-                let _ = defender;
-                // Unreachable in practice — resolve_ground_round leaves the stage the moment a
-                // side has no ground forces left — but guard on the same predicate as the fight.
-                if !ground_force_owners(state, content, sources, &self.system, planet)
-                    .contains(&self.invader)
-                {
-                    return None;
-                }
-                Some(
-                    Choice::new(
-                        self.invader.clone(),
-                        format!("fight a round on {planet}"),
-                        vec![ChoiceOption::labelled(
-                            "fight",
-                            GROUND_CASUALTY_KIND,
-                            format!("fight a round on {planet}"),
-                        )],
-                    )
-                    .contextualized(
-                        DecisionContext::new(
-                            self.invader.clone(),
-                            DecisionSource::Rule("42".to_owned()),
-                            "fight_ground_combat_round",
-                            state.phase,
-                            state.round,
-                        )
-                        .about(DecisionTarget::Planet {
-                            system: self.system.clone(),
-                            planet: planet.clone(),
-                        }),
-                    ),
-                )
+            Stage::Fighting { planets, index, .. } => {
+                self.ask_fight_round(state, content, sources, planets, *index)
             }
         }
     }
 
-    #[allow(
-        clippy::too_many_lines,
-        reason = "one arm per invasion stage, read as a table; splitting them hides that each                   arm's job is to fall through to the next stage"
-    )]
     fn resolve(
         &mut self,
         state: &mut GameState,
@@ -4728,111 +5106,26 @@ impl Window for InvasionWindow {
             | Stage::Bombarding
             | Stage::Advancing { .. }
             | Stage::FinalizingControl { .. } => {}
-            Stage::ChoosingBombardment {
-                planet_index,
-                planet,
-                groups,
-                next_group,
-                taken,
-                held,
-                victims,
-                occurrence,
-            } => {
-                // Coexistence 7, 7.1: apply the chosen target to this bombarding unit's hits.
-                // 7.2 caps the destruction at the chosen player's remaining units.
-                let next = (next_group..groups.len())
-                    .find(|&i| groups[i] > 0)
-                    .expect("paused on a bombardment that had hits to assign");
-                let target = PlayerId::new(option.id);
-                let mut log = Vec::new();
-                let produced = ground_hits_window(
-                    state,
-                    ctx,
-                    &self.system,
-                    &planet,
-                    &target,
-                    groups[next],
-                    "bombardment",
-                );
-                let applied = take_bombard_hits(
-                    state,
-                    content,
-                    sources,
-                    &self.system,
-                    &planet,
-                    &target,
-                    produced,
-                    &mut log,
-                );
-                flush_events(state, ctx, log);
-                self.report.bombardment_kills += applied;
-                let taken = taken + applied;
-                let exhausted = next + 1 >= groups.len()
-                    || state
-                        .system_state(&self.system)
-                        .on_planet(&planet)
-                        .iter()
-                        .find(|unit| unit.owner != self.invader)
-                        .is_none();
-                if exhausted {
-                    self.complete_bombard_plan(state, &planet, taken, held, &victims, occurrence);
-                    self.bombard_index = planet_index + 1;
-                    self.stage = Stage::Bombarding;
-                } else {
-                    self.stage = Stage::ChoosingBombardment {
-                        planet_index,
-                        planet,
-                        groups,
-                        next_group: next + 1,
-                        taken,
-                        held,
-                        victims,
-                        occurrence,
-                    };
-                }
+            Stage::ChoosingBombardment(cursor) => {
+                self.answer_bombardment_target(state, ctx, &option, cursor);
             }
             Stage::ChoosingNextCombat {
                 planets,
                 index,
                 planet,
-                mut remaining,
+                remaining,
             } => {
-                // Coexistence 12: the winner "may start an additional ground combat against
-                // another coexisting player … until they decline to start another ground combat or
-                // there are no more coexisting players. Any coexisting players that they do not
-                // resolve a ground combat against remain coexisting."
-                //
-                // Declining therefore ends the chain outright rather than skipping one opponent:
-                // the rule offers *another* combat, not a queue to work through.
-                // Declining and having nobody left are the same outcome: the chain ends and the
-                // planet is done. Rule 12 phrases them as two ways to stop, not two results.
-                if option.is_decline() || remaining.is_empty() {
-                    self.stage = Stage::Advancing {
+                self.answer_next_combat(
+                    state,
+                    ctx,
+                    &option,
+                    NextCombat {
                         planets,
-                        index: index + 1,
-                    };
-                } else {
-                    let defender = remaining.remove(0);
-                    // The chosen coexister stops coexisting for the duration: they are now a
-                    // side in a combat, and `ground_force_owners` already sees their units.
-                    state
-                        .system_mut(&self.system)
-                        .coexisting
-                        .entry(planet.clone())
-                        .or_default()
-                        .remove(&defender);
-                    if self.start_ground_combat(state, ctx, &planet, &defender) {
-                        self.current_ground_occurrence = Some(state.begin_feat_occurrence());
-                        self.stage = Stage::Fighting {
-                            planets,
-                            index,
-                            defender,
-                        };
-                    } else {
-                        // A start-of-combat handler removed a side's last ground force.
-                        self.stage = Stage::Advancing { planets, index };
-                    }
-                }
+                        index,
+                        planet,
+                        remaining,
+                    },
+                );
             }
             Stage::Custodians
                 if !custodians_removable(state, content, sources, &self.invader, &self.system) =>
@@ -4841,177 +5134,17 @@ impl Window for InvasionWindow {
                 self.stage = Stage::Committing;
                 return self.resolve(state, ctx, option);
             }
-            Stage::Custodians => {
-                if !option.is_decline() {
-                    // 27.3: pay six influence, take the token, gain a victory point.
-                    let cost = custodians_cost(state, content, &self.invader);
-                    if cost == 0
-                        || crate::production::pay(
-                            state,
-                            content,
-                            sources,
-                            ctx.table,
-                            &self.invader,
-                            cost,
-                            crate::production::Spend::Influence,
-                        )?
-                    {
-                        state.custodians_removed = true;
-                        crate::objectives::adjust_victory_points(
-                            state,
-                            &self.invader,
-                            1,
-                            "custodians",
-                        );
-                        self.report.custodians_removed = true;
-                    }
-                }
-                self.stage = Stage::Committing;
-            }
+            Stage::Custodians => self.answer_custodians(state, ctx, &option)?,
             Stage::Committing => {
-                if option.is_decline() {
-                    self.finish_committing(state, ctx)?;
-                } else if let Some(rest) = option.id.strip_prefix("commit|") {
-                    let mut parts = rest.splitn(2, '|');
-                    let (Some(index), Some(planet)) = (
-                        parts.next().and_then(|i| i.parse::<usize>().ok()),
-                        parts.next().map(PlanetId::new),
-                    ) else {
-                        return Ok(());
-                    };
-                    let (troops, origins, temporary) = commit_pool(
-                        state,
-                        content,
-                        sources,
-                        self.galaxy.as_deref(),
-                        &self.invader,
-                        &self.system,
-                        &self.extra_commits,
-                    );
-                    if let Some(unit) = troops.get(index).cloned() {
-                        // Omniopiares: the first landing on the planet pays its toll, chosen by the
-                        // invader like any influence spend. Unpayable landings were never offered;
-                        // should one arrive anyway nothing changes.
-                        if !crate::factions::keleres_units::pay_commit_toll(
-                            state,
-                            content,
-                            sources,
-                            self.galaxy.as_deref(),
-                            ctx.table,
-                            &self.invader,
-                            &self.system,
-                            &planet,
-                        )? {
-                            return Ok(());
-                        }
-                        let origin = origins.get(index).cloned().flatten();
-                        let temporary = temporary.get(index).copied().unwrap_or(false);
-                        // Parley reads the landing back through this marker: the emission's
-                        // AFTER window resolves before the commit step continues, and the
-                        // marker is the one fact the effect can trust.
-                        state.last_committed_unit = Some((
-                            self.invader.clone(),
-                            self.system.clone(),
-                            planet.clone(),
-                            unit.clone(),
-                        ));
-                        // The engine does the move: out of the space area (the ordinary source) or
-                        // off the planet a faction's hook named, then onto the target planet.
-                        match &origin {
-                            None => {
-                                state
-                                    .system_mut(&self.system)
-                                    .remove(std::slice::from_ref(&unit));
-                            }
-                            Some((from_system, from_planet)) => {
-                                state
-                                    .system_mut(from_system)
-                                    .remove_from_planet(from_planet, std::slice::from_ref(&unit));
-                            }
-                        }
-                        land_unit(
-                            state,
-                            content,
-                            sources,
-                            &self.invader,
-                            &self.system,
-                            &planet,
-                            unit,
-                        );
-                        if temporary {
-                            self.temporary_space_commits
-                                .entry(planet.clone())
-                                .or_default()
-                                .push(troops[index].clone());
-                        }
-                        if let Some(origin) = origin.clone() {
-                            self.extra_commits.push(origin);
-                        }
-                        self.announce_landing(state, ctx, planet, origin);
-                    }
-                } else if let Some(planet) = option.id.strip_prefix("deploy_commit|") {
-                    // The Crimson Revenant's DEPLOY: "you may commit 1 mech, even if you have no
-                    // units in the system". The mech comes from reinforcements and lands as a
-                    // committed ground force.
-                    let planet = PlanetId::new(planet);
-                    let landable = landable_planets(state, content, sources, &self.system);
-                    if !crate::factions::crimson::deploy_planets(
-                        state,
-                        content,
-                        sources,
-                        &self.invader,
-                        &self.system,
-                        &landable,
-                    )
-                    .contains(&planet)
-                    {
-                        return Ok(());
-                    }
-                    if !crate::factions::keleres_units::pay_commit_toll(
-                        state,
-                        content,
-                        sources,
-                        self.galaxy.as_deref(),
-                        ctx.table,
-                        &self.invader,
-                        &self.system,
-                        &planet,
-                    )? {
-                        return Ok(());
-                    }
-                    let unit = Unit::new(
-                        ti4_model::id::UnitTypeId::new(crate::factions::crimson::MECH),
-                        self.invader.clone(),
-                    );
-                    state.last_committed_unit = Some((
-                        self.invader.clone(),
-                        self.system.clone(),
-                        planet.clone(),
-                        unit.clone(),
-                    ));
-                    land_unit(
-                        state,
-                        content,
-                        sources,
-                        &self.invader,
-                        &self.system,
-                        &planet,
-                        unit,
-                    );
-                    crate::factions::crimson::note_deployed(state, &self.invader);
-                    self.announce_landing(state, ctx, planet, None);
+                if !self.answer_commit(state, ctx, &option)? {
+                    return Ok(());
                 }
             }
             Stage::Fighting {
                 planets,
                 index,
                 defender,
-            } => {
-                self.resolve_ground_round(state, ctx, planets, index, defender);
-                if let Some(error) = self.strict_timing_error.take() {
-                    return Err(crate::combat::CombatError::Timing(error).into_illegal_choice());
-                }
-            }
+            } => self.answer_fight(state, ctx, planets, index, defender)?,
         }
 
         // Committing settles when nothing is left to land.
