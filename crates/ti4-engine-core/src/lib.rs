@@ -20,6 +20,7 @@ pub mod hex;
 pub mod ids;
 pub mod keys;
 pub mod movement;
+pub mod query;
 pub mod state;
 pub mod tables;
 
