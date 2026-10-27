@@ -6,6 +6,9 @@
 //
 // Raise a budget on purpose, in the commit that makes the file larger, and say why in the
 // message; a file that grows by itself is how a one-megabyte download becomes five.
+// RATCHET (docs/ENGINE_CORE_STATE.md 6.3): gzip 2.4 MB / brotli 1.8 MB (was 1.8 / 1.3, already exceeded at
+// 8f2d03e3) while the string and the core engine coexist in the binary. Lower both in the commit that deletes
+// a string-engine area, down to the real size plus ~3%; the end state is below the old 1.8 / 1.3 MB.
 import { readFileSync, appendFileSync } from "node:fs";
 import { brotliCompressSync, constants, gzipSync } from "node:zlib";
 
