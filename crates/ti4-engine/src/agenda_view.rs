@@ -18,6 +18,9 @@ use ti4_model::state::GameState;
 use crate::core_sync::{CoreView, Ctx, Sources};
 use crate::generated::IdStr;
 
+/// The typed counts and choices of a ballot.
+type Ballot = (Vec<(Outcome, i64)>, Vec<Outcome>);
+
 /// What every agenda read needs.
 pub const READS: SliceSet = SliceSet::of(&[
     Slice::Meta,
@@ -146,7 +149,7 @@ impl<'a> AgendaView<'a> {
         Some(rules::political_secret_bars(&self.view, self.seat(player)?))
     }
 
-    fn ballot(&self, alias: &str, counts: &std::collections::BTreeMap<String, i64>, choices: &[String]) -> Option<(Vec<(Outcome, i64)>, Vec<Outcome>)> {
+    fn ballot(&self, alias: &str, counts: &std::collections::BTreeMap<String, i64>, choices: &[String]) -> Option<Ballot> {
         let counts = counts.iter().map(|(k, v)| Some((self.parse(alias, k)?, *v))).collect::<Option<Vec<_>>>()?;
         let choices = choices.iter().map(|c| self.parse(alias, c)).collect::<Option<Vec<_>>>()?;
         Some((counts, choices))

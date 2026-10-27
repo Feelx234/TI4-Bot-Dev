@@ -12,7 +12,7 @@
 //! Blood Pact) and a vote with more than [`Tally::MAX`] outcomes. Their questions exist as `Ask`s and
 //! render byte for byte (slice 2), their stages are the next step.
 
-use crate::choice::agenda::{Opt, Tally};
+use crate::choice::agenda::Opt;
 use crate::choice::{Choice, Opt as TopOpt, Pick};
 use crate::containers::{SeatSet, SmallList, SortedMap};
 use crate::generated::{Agenda, Planet};

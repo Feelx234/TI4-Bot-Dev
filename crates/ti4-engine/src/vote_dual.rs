@@ -38,7 +38,12 @@ impl Eq for Log {}
 
 #[derive(Clone)]
 struct Inner {
-    open: GameState,
+    /// The position at the first answer (cards played between the reveal and the first vote count).
+    open: Option<GameState>,
+    /// What each voter's extra votes were then: a change later in the vote (a card played between voters) is
+    /// not replayed.
+    extras: Vec<i64>,
+    unstable: bool,
     alias: String,
     choices: Vec<String>,
     order: Vec<PlayerId>,
@@ -52,9 +57,11 @@ impl Log {
     pub fn open(state: &GameState, alias: &str, choices: &[String], order: &[PlayerId]) -> Self {
         #[cfg(feature = "typed-core")]
         {
-            if crate::dual::backend(crate::dual::Area::AgendaLaws) == crate::dual::Backend::Dual && supported(state, choices, order) {
+            if crate::dual::backend(crate::dual::Area::AgendaLaws) == crate::dual::Backend::Dual {
                 return Self(Some(Box::new(Inner {
-                    open: state.clone(),
+                    open: None,
+                    extras: Vec::new(),
+                    unstable: false,
                     alias: alias.to_owned(),
                     choices: choices.to_vec(),
                     order: order.to_vec(),
@@ -73,18 +80,31 @@ impl Log {
     }
 
     /// One question was answered.
-    pub fn note(&mut self, sources: SourceSet, asked: &Choice, answer: &str) {
-        if let Some(inner) = self.0.as_mut() {
-            inner.sources = Some(sources);
-            inner.script.push((asked.clone(), answer.to_owned()));
+    pub fn note(&mut self, state: &GameState, sources: SourceSet, asked: &Choice, answer: &str) {
+        let Some(inner) = self.0.as_mut() else { return };
+        let extras: Vec<i64> = inner.order.iter().map(|p| crate::vote::extra_votes_text(state, p)).collect();
+        if inner.open.is_none() {
+            #[cfg(feature = "typed-core")]
+            if !supported(state, &inner.choices, &inner.order) {
+                self.0 = None;
+                return;
+            }
+            inner.open = Some(state.clone());
+            inner.extras = extras;
+        } else if inner.extras != extras {
+            inner.unstable = true;
         }
+        inner.sources = Some(sources);
+        inner.script.push((asked.clone(), answer.to_owned()));
     }
 
     /// The vote finished with `winner`; `state` is the position it left. Compares and stops recording.
     pub fn finish(&mut self, state: &GameState, winner: Option<&str>) {
         let Some(inner) = self.0.take() else { return };
         #[cfg(feature = "typed-core")]
-        replay(&inner, state, winner);
+        if !inner.unstable {
+            replay(&inner, state, winner);
+        }
         #[cfg(not(feature = "typed-core"))]
         let _ = (inner, state, winner);
     }
@@ -131,7 +151,7 @@ fn replay(inner: &Inner, now: &GameState, winner: Option<&str>) {
         &[Slice::Board],
     );
     let (Some(sources), Some(agenda)) = (inner.sources, Agenda::from_id(&inner.alias)) else { return };
-    let open = &inner.open;
+    let Some(open) = inner.open.as_ref() else { return };
     let Ok(mut cx) = Ctx::of(open) else { return };
     let r = Render::new(cx.owners.ids().to_vec());
     let voted = match open.covert_agenda.as_deref() {

@@ -1285,7 +1285,7 @@ impl VoteWindow {
             .pending_choice(state, content, sources)
             .ok_or(VoteError::Complete)?;
         let option = validate(&choice, answer)?;
-        self.dual.note(sources, &choice, &option.id);
+        self.dual.note(state, sources, &choice, &option.id);
 
         match self.stage.clone() {
             Stage::Done(_) => return Err(VoteError::Complete),
@@ -2497,7 +2497,7 @@ mod typed_render_tests {
             let none = BTreeMap::new();
             // 1. naming an outcome
             let string = window.pending_choice(&state, content, POK).unwrap();
-            let typed = view.vote_question(&alias, &voter, &choices, &none, None).expect("mapped");
+            let typed = view.vote_question(&alias, &voter, &choices, &none, None).unwrap();
             same(&format!("{alias}: vote"), &string, &typed);
             // ... with a running tally and a bound voter
             let mut w = window.clone();
@@ -2521,7 +2521,7 @@ mod typed_render_tests {
                 w.stage = Stage::Planets { index: 0, outcome: choices[0].clone(), votes: 2 };
                 let counts = w.ballot.counts.clone();
                 let string = w.pending_choice(&state, content, POK);
-                let typed = view.planets_question(&alias, &voter, &choices[0], 2, spender, &choices, &counts, false).expect("mapped");
+                let typed = view.planets_question(&alias, &voter, &choices[0], 2, spender, &choices, &counts, false).unwrap();
                 match (&string, &typed) {
                     (Some(s), Some(t)) => same(&format!("{alias}: planets spender={spender}"), s, t),
                     (None, None) => {}
@@ -2572,14 +2572,11 @@ mod typed_render_tests {
         let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();
         let _ = take_report();
         let mut votes_cast = 0;
-        for alias in ["covert", "arbiter", "ratification"] {
-            let alias = if alias == "ratification" {
-                Agenda::ALL.iter().find(|a| a.data().elects == AgendaElects::ForAgainst).unwrap().as_str()
-            } else {
-                alias
-            };
+        let for_against = Agenda::ALL.iter().find(|a| a.data().elects == AgendaElects::ForAgainst).unwrap().as_str();
+        let player_election = Agenda::ALL.iter().find(|a| a.data().elects == AgendaElects::Player).unwrap().as_str();
+        for alias in [Agenda::CovertLegislation.as_str(), player_election, for_against] {
             let (mut state, _) = game();
-            state.covert_agenda = (alias == "covert").then(|| "arbiter".to_owned());
+            state.covert_agenda = (alias == Agenda::CovertLegislation.as_str()).then(|| player_election.to_owned());
             let choices = outcomes_text(&state, content, POK, alias);
             with_mask(mask, || {
                 let mut window = VoteWindow::new(&state, alias, choices.clone());
@@ -2628,11 +2625,11 @@ mod typed_render_tests {
         assert_eq!(q.options[0].kind, "recombine");
         assert!(q.options[2].is_decline());
         assert_eq!(q.context.as_ref().unwrap().subtype, "recombination_outcome");
-        let t = view.tribute_question(alias, &players[1], "for", true, true).unwrap().unwrap();
+        let t = view.tribute_question(alias, &players[1], FOR, true, true).unwrap().unwrap();
         assert_eq!(t.prompt, "Genetic Recombination: vote for or return a fleet token");
         assert_eq!(t.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(), ["tribute|vote", "tribute|token"]);
         assert_eq!(t.options[0].label, "cast at least 1 vote for for");
         assert_eq!(t.options[1].label, "remove 1 token from your fleet pool and return it to reinforcements");
-        assert!(view.tribute_question(alias, &players[1], "for", false, false).unwrap().is_none());
+        assert!(view.tribute_question(alias, &players[1], FOR, false, false).unwrap().is_none());
     }
 }
