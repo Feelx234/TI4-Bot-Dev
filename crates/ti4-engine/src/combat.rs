@@ -1064,6 +1064,7 @@ fn heart_ixth(state: &mut GameState, ctx: &mut Resolving<'_>, side: &PlayerId) {
 }
 
 /// One combat value's pooled fleet dice: how many, and which unit types sit behind them.
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct FleetGroup {
     dice: i64,
     types: std::collections::BTreeMap<String, u32>,
@@ -1231,6 +1232,32 @@ pub fn opponent_with_ships(
 /// draws from the seeded stream is part of what a seed reproduces, so rolling them apart
 /// would silently renumber every later draw. `BTreeMap` gives the ascending order for free.
 fn fleet_groups(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+) -> std::collections::BTreeMap<(i64, u8), FleetGroup> {
+    #[cfg(feature = "typed-core")]
+    let typed = || {
+        let rows = crate::core_combat::CombatView::of(state, content, sources)?.fleet_groups(player, system)?;
+        Some(
+            rows.into_iter()
+                .map(|(value, tag, dice, types)| ((value, tag), FleetGroup { dice, types: types.into_iter().collect() }))
+                .collect::<std::collections::BTreeMap<_, _>>(),
+        )
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Combat,
+        "combat::fleet_groups",
+        typed(),
+        fleet_groups_text(state, content, sources, player, system)
+    )
+}
+
+fn fleet_groups_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
