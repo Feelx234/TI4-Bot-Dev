@@ -12,6 +12,9 @@ pub enum Ask {
     /// ground forces and the planets are the caller's (the window reads them from the board and the faction
     /// hooks); the options are derived from them by `rules::invasion::commit_opts`.
     CommitGround { system: System },
+    /// "assign a hit on {planet}": the owner of the ground forces there picks which one is destroyed
+    /// (`staging`: the options say whether the unit is damaged). The candidates are read from the board.
+    AssignGroundHit { system: System, planet: Planet, staging: bool },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -21,10 +24,13 @@ pub enum Opt {
     Commit { index: u16, planet: Planet, unit: Unit, damaged: bool },
     /// "commit no more ground forces".
     DoneCommitting,
+    /// Destroy the ground force at `index` of the candidates (the first of its type and damage).
+    DestroyGround { index: u16, unit: Unit, damaged: bool, staging: bool },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Subtype {
     CommitGroundForces,
+    AssignGroundCasualty,
 }

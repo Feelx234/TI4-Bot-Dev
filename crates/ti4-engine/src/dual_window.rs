@@ -521,3 +521,48 @@ pub fn commit_ground(
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     Some(CoreWindow { run: Run::new(planets).with_events_vec(events), questions: driven.rendered })
 }
+
+const ABSORB_GROUND: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
+    &[Slice::Board, Slice::Pending],
+);
+
+/// The core half of `invasion::absorb_ground_with_origin`. `None` for a neutral owner, nested activity, or a
+/// position the codecs refuse.
+#[must_use]
+#[allow(clippy::too_many_arguments, reason = "the string function's own")]
+pub fn absorb_ground(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    player: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    planet: &ti4_model::id::PlanetId,
+    hits: usize,
+    unit_ability: bool,
+    script: &Recording,
+) -> Option<CoreWindow<()>> {
+    use ti4_engine_core::rules::invasion::absorb::AbsorbGround;
+    if script.nested || crate::neutral_units::is_neutral(player) {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let seat = r.seat(player.as_str())?;
+    let sys = <ti4_engine_core::generated::System as IdStr>::from_id(system.as_str())?;
+    let pl = <ti4_engine_core::generated::Planet as IdStr>::from_id(planet.as_str())?;
+    let before = gs.clone();
+    let env = crate::core_invasion::ground_env(&before, &cx, sources)?;
+    let resolver = Resolver::new(&[seat], Some(seat));
+    let window = AbsorbGround::new(seat, sys, pl, u16::try_from(hits).ok()?, unit_ability, crate::supply::staging_enabled(&before));
+    let mut driver = Driver::new(window, resolver, AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let driven = with_core(gs, &mut cx, Sources::default(), ABSORB_GROUND, |core, _| {
+        let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .ok()?
+    .ok()?;
+    apply_staged(gs, &r, &staged)?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    Some(CoreWindow { run: Run::new(()).with_events_vec(events), questions: driven.rendered })
+}

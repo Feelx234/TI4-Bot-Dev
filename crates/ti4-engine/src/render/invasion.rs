@@ -29,12 +29,14 @@ impl Family for Fam {
     fn prompt(_: &Render, a: &Ask) -> String {
         match a {
             Ask::CommitGround { system } => format!("commit ground forces in {}", system.as_str()),
+            Ask::AssignGroundHit { planet, .. } => format!("assign a hit on {}", planet.as_str()),
         }
     }
 
     fn subtype(_: &Render, s: &Subtype) -> String {
         match s {
             Subtype::CommitGroundForces => "commit_ground_forces".to_owned(),
+            Subtype::AssignGroundCasualty => "assign_ground_casualty".to_owned(),
         }
     }
 
@@ -53,6 +55,16 @@ impl Family for Fam {
                 .with("planet", planet.as_str().to_owned())
                 .with("unit", unit.as_str().to_owned())
                 .with("damaged", *damaged)
+            }
+            Opt::DestroyGround { index, unit, damaged, staging } => {
+                let label = if *staging {
+                    format!("destroy {} ({})", unit.as_str(), if *damaged { "damaged" } else { "undamaged" })
+                } else {
+                    format!("destroy {}", unit.as_str())
+                };
+                ChoiceOption::labelled(format!("destroy|{index}"), crate::invasion::GROUND_CASUALTY_KIND, label)
+                    .with("unit", unit.as_str().to_owned())
+                    .with("damaged", *damaged)
             }
             Opt::DoneCommitting => ChoiceOption::labelled(
                 "done_committing",

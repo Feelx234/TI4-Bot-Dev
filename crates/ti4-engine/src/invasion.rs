@@ -2133,6 +2133,50 @@ fn absorb_ground_with_origin(
     hits: usize,
     unit_ability: bool,
 ) -> Result<(), IllegalChoice> {
+    #[cfg(feature = "typed-core")]
+    {
+        // On `invasion=dual` the assignment also runs as a core window in lockstep (`rules::invasion::absorb`).
+        let mut outcome = None;
+        let failed = std::cell::Cell::new(false);
+        let table = std::cell::RefCell::new(table);
+        crate::dual_window!(
+            crate::dual::Area::Invasion,
+            "invasion::absorb_ground",
+            state,
+            |s: &mut GameState| {
+                let result = absorb_ground_text(s, content, sources, &mut **table.borrow_mut(), player, system, planet, hits, unit_ability);
+                failed.set(result.is_err());
+                outcome = Some(result);
+                crate::dual::Run::new(())
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                if failed.get() {
+                    return None;
+                }
+                crate::dual_window::absorb_ground(s, sources, player, system, planet, hits, unit_ability, script)
+            }
+        );
+        return outcome.unwrap_or(Ok(()));
+    }
+    #[cfg(not(feature = "typed-core"))]
+    absorb_ground_text(state, content, sources, table, player, system, planet, hits, unit_ability)
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one parameter per distinct input"
+)]
+fn absorb_ground_text(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    table: &mut Table,
+    player: &PlayerId,
+    system: &SystemId,
+    planet: &PlanetId,
+    hits: usize,
+    unit_ability: bool,
+) -> Result<(), IllegalChoice> {
     let mut remaining = hits;
     while remaining > 0 {
         remaining -= 1;
@@ -10421,6 +10465,29 @@ mod core_bombardment {
         let r = report();
         let counts = &r.areas[&Area::Invasion];
         assert!(counts.calls >= 2, "{counts:?}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    #[test]
+    fn assigning_ground_hits_runs_as_a_core_window_in_lockstep() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual);
+        let (state, system, planet) = arena();
+        with_mask(mask, || {
+            for (hits, answers) in [(1, vec!["destroy|1"]), (2, vec!["destroy|0", "destroy|0"]), (5, vec![])] {
+                let mut state = state.clone();
+                put(&mut state, &system, Some(&planet), "infantry", &holder(), 2);
+                put(&mut state, &system, Some(&planet), "infantry2", &holder(), 1);
+                put(&mut state, &system, Some(&planet), "sol_mech", &holder(), 1);
+                let mut table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(answers.into_iter().map(str::to_owned))));
+                let _ = absorb_ground(&mut state, ContentStore::embedded(), POK, &mut table, &holder(), &system, &planet, hits);
+            }
+        });
+        let r = report();
+        let counts = &r.areas[&Area::Invasion];
+        assert!(counts.calls >= 3, "{counts:?}");
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }
