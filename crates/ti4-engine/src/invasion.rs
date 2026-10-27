@@ -433,11 +433,11 @@ fn bombarders(
 /// One planet's bombardment before any die is drawn: the planet, each bombarding unit's (type, hit
 /// number, dice) in roll order, the other players' ground forces standing there and whose they are.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PlannedBombard {
-    pub(crate) planet: PlanetId,
-    pub(crate) rolls: Vec<(String, i64, usize)>,
-    pub(crate) held: usize,
-    pub(crate) victims: std::collections::BTreeSet<PlayerId>,
+pub struct PlannedBombard {
+    pub planet: PlanetId,
+    pub rolls: Vec<(String, i64, usize)>,
+    pub held: usize,
+    pub victims: std::collections::BTreeSet<PlayerId>,
 }
 
 /// The rolls the bombardment of `invader` makes in `system` (49.1), unrolled. The planning half of
