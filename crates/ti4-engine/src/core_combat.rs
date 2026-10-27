@@ -366,6 +366,19 @@ impl<'g> CombatView<'g> {
         self.drawn(seed, positions, |rd, rng, seeds| cc::roll_fleet(rd, rng, seeds, seat, sys))
     }
 
+    /// `combat::roll_barrage_side`'s dice from the dice stream standing at `positions`.
+    #[must_use]
+    pub fn roll_barrage_raw(
+        &mut self,
+        seed: u64,
+        positions: &crate::rng::RngPositions,
+        player: &PlayerId,
+        system: &SystemId,
+    ) -> Option<(Vec<cc::FleetRoll>, crate::rng::RngPositions)> {
+        let (seat, sys) = (self.seat(player)?, typed::<System>(system.as_str())?);
+        self.drawn(seed, positions, |rd, rng, seeds| cc::roll_barrage(rd, rng, seeds, seat, sys))
+    }
+
     /// [`Self::roll_fleet_raw`] (or the barrage when `barrage`) as the dice history it leaves: each entry as
     /// the dual compares it (`scene`: the system the host stamps on every roll).
     #[must_use]

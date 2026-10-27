@@ -1434,6 +1434,68 @@ fn core_fleet_rolls(
     }
 }
 
+/// The `Core` backend of one side's anti-fighter barrage dice: the typed plan's rolls drawn from the core's
+/// copy of the dice stream, in plan order; the streams take the result at once and the string sites then
+/// record each entry in the dice history instead of rolling. `None` when the string rolls must run (as
+/// [`core_fleet_rolls`]).
+fn core_barrage_rolls(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    rng: &mut GameRng,
+    dice: &Dice,
+    player: &PlayerId,
+    system: &SystemId,
+) -> Option<std::vec::IntoIter<(u32, Vec<u32>)>> {
+    if crate::dual::backend(crate::dual::Area::Combat) != crate::dual::Backend::Core
+        || rng.sync_pending()
+        || dice.is_preloaded()
+    {
+        return None;
+    }
+    #[cfg(feature = "typed-core")]
+    {
+        let positions = rng.positions();
+        let (rolls, after) = crate::core_combat::CombatView::of(state, content, sources)?.roll_barrage_raw(
+            rng.seed(),
+            &positions,
+            player,
+            system,
+        )?;
+        let mut out = Vec::new();
+        for roll in rolls {
+            rng.observe_randomness();
+            out.push((roll.hits_on, roll.faces));
+        }
+        rng.set_positions(&after);
+        Some(out.into_iter())
+    }
+    #[cfg(not(feature = "typed-core"))]
+    {
+        let _ = (state, content, sources, rng, player, system);
+        None
+    }
+}
+
+/// One barrage roll of `count` dice needing `value`: the next typed one when `drawn` is on, else a roll.
+fn barrage_roll(
+    drawn: &mut Option<std::vec::IntoIter<(u32, Vec<u32>)>>,
+    dice: &mut Dice,
+    rng: &mut GameRng,
+    count: usize,
+    reason: &str,
+    value: u32,
+    player: &PlayerId,
+) -> crate::dice::Roll {
+    match drawn.as_mut() {
+        Some(drawn) => {
+            let (_, faces) = drawn.next().expect("the typed barrage rolls follow the string plan");
+            dice.record_drawn(reason, faces, Some(value), std::collections::BTreeSet::new(), player)
+        }
+        None => dice.roll_by(rng, count, reason, Some(value), player),
+    }
+}
+
 /// The stream positions to check a roll against, only when the combat area is on `Dual`.
 fn dual_positions(rng: &GameRng) -> Option<crate::rng::RngPositions> {
     (crate::dual::backend(crate::dual::Area::Combat) == crate::dual::Backend::Dual && !rng.sync_pending())
@@ -1751,6 +1813,7 @@ pub fn roll_barrage_side(
         check_barrage_plan(state, content, sources, player, system, &plan);
         return 0;
     }
+    let mut drawn = core_barrage_rolls(state, content, sources, rng, dice, player, system);
     let types = catalogue(content, sources);
     let mut set = RerollSet {
         kind: "anti_fighter_barrage".into(),
@@ -1762,7 +1825,7 @@ pub fn roll_barrage_side(
     // barrage to the player.
     if let Some((value, count)) = crate::relics::extra_barrage(state, player) {
         plan.push((None, i64::from(value), count));
-        let roll = dice.roll_by(rng, count, "anti_fighter_barrage", Some(value), player);
+        let roll = barrage_roll(&mut drawn, dice, rng, count, "anti_fighter_barrage", value, player);
         hits += roll.hits();
         set.rolls.push(RerollEntry {
             unit: "extra barrage".into(),
@@ -1830,11 +1893,13 @@ pub fn roll_barrage_side(
             value,
         );
         plan.push((Some(unit.type_id.to_string()), value, count));
-        let roll = dice.roll_by(
+        let roll = barrage_roll(
+            &mut drawn,
+            dice,
             rng,
             count,
             "anti-fighter barrage",
-            Some(u32::try_from(value).unwrap_or(u32::MAX)),
+            u32::try_from(value).unwrap_or(u32::MAX),
             player,
         );
         hits += roll.hits();
@@ -8257,6 +8322,34 @@ mod tests {
             .find(|(_, kind)| kind.space_cannon_hits_on().is_some())
             .map(|(id, _)| (*id).to_owned())
             .expect("the corpus has a space cannon unit")
+    }
+
+    #[test]
+    fn the_core_backend_draws_the_barrage_dice_the_string_backend_rolls() {
+        // `combat=core`: the barrage's dice come from the typed plan and the core's copy of the stream; the
+        // hits, the dice history, the staged dice and the stream positions are the string roll's.
+        use crate::dual::{with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let run = |backend: Backend| {
+            let mut seen = Vec::new();
+            for seed in 0..12_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "letnev")], ti4_model::content_types::DEFAULT);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                let system = SystemId::new("18");
+                put(&mut state, &system, &a_barrage_unit(), &attacker(), 3);
+                put(&mut state, &system, "fighter", &defender(), 3);
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let hits = with_mask(AreaMask::STRING.with(Area::Combat, backend), || {
+                    roll_barrage_side(&mut state, ContentStore::embedded(), ti4_model::content_types::DEFAULT, &mut dice, &mut rng, &system, &attacker())
+                });
+                seen.push(format!("{hits} {:?} {:?} {:?}", dice.history(), rng.positions(), state.reroll_staging));
+            }
+            seen
+        };
+        let (string, core) = (run(Backend::String), run(Backend::Core));
+        assert!(string.iter().any(|s| !s.starts_with("0 ")), "some seed hits");
+        assert_eq!(string, core);
     }
 
     #[test]
