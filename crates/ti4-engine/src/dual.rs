@@ -228,11 +228,21 @@ fn init_default() {
     });
 }
 
+/// Number of live thread overrides ([`with_mask`]); while zero, [`mask`] is two relaxed loads.
+static OVERRIDES: AtomicU64 = AtomicU64::new(0);
+
 /// The mask in force on this thread.
+#[inline]
 #[must_use]
 pub fn mask() -> AreaMask {
-    if let Some(mask) = OVERRIDE.with(Cell::get) {
+    if OVERRIDES.load(Ordering::Relaxed) != 0
+        && let Some(mask) = OVERRIDE.with(Cell::get)
+    {
         return mask;
+    }
+    let bits = DEFAULT_CORE.load(Ordering::Relaxed);
+    if bits != u64::MAX {
+        return unpack(bits);
     }
     init_default();
     unpack(DEFAULT_CORE.load(Ordering::Relaxed))
@@ -259,9 +269,11 @@ pub fn with_mask<T>(mask: AreaMask, body: impl FnOnce() -> T) -> T {
     struct Restore(Option<AreaMask>);
     impl Drop for Restore {
         fn drop(&mut self) {
+            OVERRIDES.fetch_sub(1, Ordering::Relaxed);
             OVERRIDE.with(|o| o.set(self.0));
         }
     }
+    OVERRIDES.fetch_add(1, Ordering::Relaxed);
     let _restore = Restore(OVERRIDE.with(|o| o.replace(Some(mask))));
     body()
 }
