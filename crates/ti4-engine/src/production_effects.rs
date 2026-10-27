@@ -69,3 +69,45 @@ pub(crate) fn add_remote_spots(
         crate::factions::crimson_cards::offer_card_spot(state, player, spots);
     }
 }
+
+/// The points at which production and payment offer the cards and abilities that ask something of
+/// their owner before the window proceeds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OfferPoint {
+    /// A payment is about to be made (Keleres' agent may open commodities as trade goods).
+    PaymentWindow,
+    /// A use of PRODUCTION starts: Harrugh Gefhara (the Hacan hero) is offered first.
+    ProductionHero,
+    /// A use of PRODUCTION starts (Keleres' agent), after the hero.
+    ProductionStart,
+    /// An ability's production starts (Keleres' agent).
+    AbilityProductionStart,
+}
+
+/// Make the offers of `point`, in the order the windows made them. `true` when the offer opened
+/// something the caller must close or refresh (the agent's window; the hero's spent discount).
+pub(crate) fn offers_at(
+    point: OfferPoint,
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut crate::choice::Table,
+    player: &PlayerId,
+) -> Result<bool, crate::choice::IllegalChoice> {
+    match point {
+        OfferPoint::PaymentWindow
+        | OfferPoint::ProductionStart
+        | OfferPoint::AbilityProductionStart => {
+            crate::factions::keleres::offer_agent(state, content, sources, galaxy, table, player)
+        }
+        OfferPoint::ProductionHero => {
+            crate::leaders::offer_production_hero(state, content, sources, galaxy, table, player)
+        }
+    }
+}
+
+/// Berekar Berekon (Winnu agent) is exhausted for the use's combined cost; `true` when it was.
+pub(crate) fn exhaust_production_agent(state: &mut GameState, player: &PlayerId) -> bool {
+    crate::factions::winnu::exhaust_agent_for_production(state, player)
+}

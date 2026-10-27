@@ -884,7 +884,15 @@ fn pay_offering_agent(
             available(granted, content, sources, player, kind) >= owed
         })
         .unwrap_or(false)
-        && crate::factions::keleres::offer_agent(state, content, sources, galaxy, table, player)?;
+        && crate::production_effects::offers_at(
+            crate::production_effects::OfferPoint::PaymentWindow,
+            state,
+            content,
+            sources,
+            galaxy,
+            table,
+            player,
+        )?;
     let paid = pay_with_observation_credit(
         state, content, sources, table, player, cost, kind, credit, galaxy,
     );
@@ -3206,7 +3214,7 @@ impl Window for ProductionWindow {
                 } else if option.kind == AGENT_OPTION_KIND {
                     // Berekar Berekon: exhausted for the use's combined cost, which every build
                     // offered next already shows reduced. The question is asked again.
-                    if crate::factions::winnu::exhaust_agent_for_production(state, &self.player) {
+                    if crate::production_effects::exhaust_production_agent(state, &self.player) {
                         self.discount_remaining += 2;
                         self.agent_spent = true;
                     }
@@ -3602,14 +3610,30 @@ pub fn resolve_timed(
     });
     if hero_ready && capacity(state, content, sources, player, system) > 0 {
         state.production_seq = state.production_seq.saturating_add(1);
-        if crate::leaders::offer_production_hero(state, content, sources, galaxy, table, player)? {
+        if crate::production_effects::offers_at(
+            crate::production_effects::OfferPoint::ProductionHero,
+            state,
+            content,
+            sources,
+            galaxy,
+            table,
+            player,
+        )? {
             window.refresh(state, content, sources);
         }
     }
     // Xander Alexin Victori III (Keleres): the producer's commodities as trade goods for this
     // production, offered once as it starts.
     let agent_window = capacity(state, content, sources, player, system) > 0
-        && crate::factions::keleres::offer_agent(state, content, sources, galaxy, table, player)?;
+        && crate::production_effects::offers_at(
+            crate::production_effects::OfferPoint::ProductionStart,
+            state,
+            content,
+            sources,
+            galaxy,
+            table,
+            player,
+        )?;
     // Production rolls nothing, so these are never drawn from. Kept explicit rather than
     // hidden behind an Option: if a future rule does roll here, it must be handed the game's
     // generator instead of finding a convenient throwaway already in scope.
@@ -3732,8 +3756,15 @@ pub fn produce_by_ability_capped(
     let mut window = ProductionWindow::for_ability(state, content, sources, player, system, limit)
         .with_max_unit_cost(max_unit_cost);
     // Xander Alexin Victori III (Keleres): offered once as this production starts.
-    let agent_window =
-        crate::factions::keleres::offer_agent(state, content, sources, galaxy, ctx.table, player)?;
+    let agent_window = crate::production_effects::offers_at(
+        crate::production_effects::OfferPoint::AbilityProductionStart,
+        state,
+        content,
+        sources,
+        galaxy,
+        ctx.table,
+        player,
+    )?;
     while let Some(choice) = window.pending_choice(state, content, sources) {
         let step = ctx
             .table
