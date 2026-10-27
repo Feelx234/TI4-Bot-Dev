@@ -68,6 +68,28 @@ pub fn held(
     player: &PlayerId,
     base_type: &str,
 ) -> i64 {
+    #[cfg(feature = "typed-core")]
+    let typed = || {
+        let on_board = crate::board_view::BoardView::of(state, None, sources)?.held_on_board(player, base_type)?;
+        Some(on_board + crate::factions::crimson_cards::held_on_card(state, content, sources, player, base_type))
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::BoardQueries,
+        "supply::held",
+        typed(),
+        held_text(state, content, sources, player, base_type)
+    )
+}
+
+fn held_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    base_type: &str,
+) -> i64 {
     // Every unit is counted against the same immutable source scope. Rebuilding its entire
     // catalogue for each owned unit made production offers scale with repeated catalogue work.
     let types = ti4_content::units::catalogue(content, sources);

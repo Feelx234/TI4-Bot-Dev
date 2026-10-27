@@ -124,12 +124,26 @@ fn empty_and_absent_entries_stay_distinct() {
 #[test]
 fn text_codes_are_stable_between_lends() {
     let mut gs = game();
-    gs.faction_marks.insert("x:a:b".into(), "1".into());
+    gs.faction_marks.insert("allow_pass".into(), "yes".into());
+    gs.faction_marks.insert("combat:sustain_target".into(), r#"{"planet":"mr"}"#.into());
     let mut cx = Ctx::of(&gs).unwrap();
     let a = Codec::load(&mut cx, &gs, Sources::default(), SliceSet::of(&[Slice::Marks])).unwrap();
     let b = Codec::load(&mut cx, &gs, Sources::default(), SliceSet::of(&[Slice::Marks])).unwrap();
     assert_eq!(a, b);
+    let mut back = gs.clone();
+    back.faction_marks.clear();
+    Codec::store(&cx, &a, &mut back, SliceSet::of(&[Slice::Marks])).unwrap();
+    assert_eq!(back.faction_marks, gs.faction_marks);
     let _ = CoreState::default();
+}
+
+#[test]
+fn a_mark_the_families_do_not_type_is_unmapped() {
+    let mut gs = game();
+    gs.faction_marks.insert("x:a:b".into(), "1".into());
+    let mut cx = Ctx::of(&gs).unwrap();
+    let err = Codec::load(&mut cx, &gs, Sources::default(), SliceSet::of(&[Slice::Marks])).unwrap_err();
+    assert_eq!(err.slice, Slice::Marks);
 }
 
 #[test]
