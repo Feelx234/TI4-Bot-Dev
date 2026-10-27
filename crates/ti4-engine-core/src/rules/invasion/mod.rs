@@ -526,3 +526,24 @@ pub fn ground_pools(rd: Rd<'_>, player: Seat, system: System, planet: Planet) ->
     }
     pools
 }
+
+// -- the custodians token (LRR 27) ---------------------------------------------------------------------
+
+/// 27.2: six influence, paid before ground forces are committed.
+pub const CUSTODIANS_COST: i64 = 6;
+
+/// `invasion::custodians_cost`: six influence, or nothing when a faction says so (Winnu `blood_ties`).
+#[must_use]
+pub fn custodians_cost(rd: Rd<'_>, who: Seat) -> i64 {
+    if rd.k.hooks.ground.custodians_free(rd.s, rd.k, who) { 0 } else { CUSTODIANS_COST }
+}
+
+/// The part of `invasion::custodians_removable` that reads the board: the token is still on Mecatol Rex, this
+/// is Mecatol Rex, and the player can commit ground forces to land there (27.2a). Whether the player can pay is
+/// the payment rules' (package B3).
+#[must_use]
+pub fn custodians_gate(rd: Rd<'_>, who: Seat, system: System) -> bool {
+    !rd.s.meta().flags.has(crate::state::MetaFlags::CUSTODIANS_REMOVED)
+        && matches!(system, System::MecatolRex18 | System::MecatolRex112)
+        && !landable(rd, who, system).is_empty()
+}

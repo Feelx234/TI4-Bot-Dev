@@ -53,6 +53,19 @@ pub const CUSTODIANS_COST: i64 = 6;
 /// [`crate::factions::hooks_ground::GroundHooks::custodians_free`]).
 #[must_use]
 pub fn custodians_cost(state: &GameState, content: &ContentStore, player: &PlayerId) -> i64 {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::core_invasion::InvasionView::of(state, content, ti4_model::content_types::DEFAULT)?.custodians_cost(player);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Invasion,
+        "invasion::custodians_cost",
+        typed(),
+        custodians_cost_text(state, content, player)
+    )
+}
+
+fn custodians_cost_text(state: &GameState, content: &ContentStore, player: &PlayerId) -> i64 {
     if crate::factions::hooks_ground::custodians_free(state, content, player) {
         0
     } else {
@@ -75,14 +88,11 @@ pub fn custodians_removable(
     player: &PlayerId,
     system: &SystemId,
 ) -> bool {
-    if state.custodians_removed || !crate::seating::is_mecatol(system.as_str()) {
-        return false;
-    }
     // 27.2a: "If a player cannot commit ground forces to land on Mecatol Rex, they cannot remove
     // the custodians token." The rule reads as a restriction and it is also a gate on a victory
     // point -- without it a seat with six influence and no army could buy the point outright and
     // then commit nothing, which is the one thing 27.2 is written to prevent.
-    if landable(state, content, sources, player, system).is_empty() {
+    if !custodians_gate(state, content, sources, player, system) {
         return false;
     }
     let cost = custodians_cost(state, content, player);
@@ -94,6 +104,23 @@ pub fn custodians_removable(
             player,
             crate::production::Spend::Influence,
         ) >= cost
+}
+
+/// The board-reading gate of [`custodians_removable`]: the token is still down, this is Mecatol Rex and the
+/// player has ground forces to land.
+fn custodians_gate(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, system: &SystemId) -> bool {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::core_invasion::InvasionView::of(state, content, sources)?.custodians_gate(player, system);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Invasion,
+        "invasion::custodians_gate",
+        typed(),
+        !state.custodians_removed
+            && crate::seating::is_mecatol(system.as_str())
+            && !landable(state, content, sources, player, system).is_empty()
+    )
 }
 
 /// 15.1f: Planetary Shield makes a planet immune to bombardment entirely.

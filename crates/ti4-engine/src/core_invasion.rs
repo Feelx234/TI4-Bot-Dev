@@ -169,6 +169,18 @@ impl InvasionView<'_> {
         )
     }
 
+    /// `invasion::custodians_cost`.
+    #[must_use]
+    pub fn custodians_cost(&self, player: &PlayerId) -> Option<i64> {
+        Some(ci::custodians_cost(self.rd(), self.seat(player)?))
+    }
+
+    /// The board-reading gate of `invasion::custodians_removable`.
+    #[must_use]
+    pub fn custodians_gate(&self, player: &PlayerId, system: &SystemId) -> Option<bool> {
+        Some(ci::custodians_gate(self.rd(), self.seat(player)?, typed::<System>(system.as_str())?))
+    }
+
     /// `invasion::landable`.
     #[must_use]
     pub fn landable(&self, player: &PlayerId, system: &SystemId) -> Option<Vec<StrUnit>> {
