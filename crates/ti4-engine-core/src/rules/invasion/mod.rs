@@ -13,6 +13,7 @@
 
 pub mod absorb;
 pub mod commit;
+pub mod stages;
 
 use crate::containers::SeatSet;
 use crate::generated::{Leader, Planet, System, Unit, UnitBaseType};

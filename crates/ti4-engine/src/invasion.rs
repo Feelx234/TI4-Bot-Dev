@@ -4862,30 +4862,36 @@ impl InvasionWindow {
         {
             return None;
         }
-        Some(
-            Choice::new(
-                self.invader.clone(),
+        let choice = Choice::new(
+            self.invader.clone(),
+            format!("fight a round on {planet}"),
+            vec![ChoiceOption::labelled(
+                "fight",
+                GROUND_CASUALTY_KIND,
                 format!("fight a round on {planet}"),
-                vec![ChoiceOption::labelled(
-                    "fight",
-                    GROUND_CASUALTY_KIND,
-                    format!("fight a round on {planet}"),
-                )],
-            )
-            .contextualized(
-                DecisionContext::new(
-                    self.invader.clone(),
-                    DecisionSource::Rule("42".to_owned()),
-                    "fight_ground_combat_round",
-                    state.phase,
-                    state.round,
-                )
-                .about(DecisionTarget::Planet {
-                    system: self.system.clone(),
-                    planet: planet.clone(),
-                }),
-            ),
+            )],
         )
+        .contextualized(
+            DecisionContext::new(
+                self.invader.clone(),
+                DecisionSource::Rule("42".to_owned()),
+                "fight_ground_combat_round",
+                state.phase,
+                state.round,
+            )
+            .about(DecisionTarget::Planet {
+                system: self.system.clone(),
+                planet: planet.clone(),
+            }),
+        );
+        // On `invasion=dual` the core `FightRound` window puts the same question (the round itself stays string).
+        #[cfg(feature = "typed-core")]
+        if crate::dual::backend(crate::dual::Area::Invasion) == crate::dual::Backend::Dual {
+            crate::dual::run_dual_ask(crate::dual::Area::Invasion, "invasion::fight_round_ask", Some(&choice), || {
+                crate::dual_window::fight_round_ask(state, sources, &self.invader, &self.system, planet)
+            });
+        }
+        Some(choice)
     }
 
     /// The invader's answer to the coexistence target question: that unit's hits go to `option`.
@@ -5011,6 +5017,50 @@ impl InvasionWindow {
                 self.stage = Stage::Advancing { planets, index };
             }
         }
+    }
+
+    /// [`Self::answer_custodians`], which on `invasion=dual` also runs as the core `Custodians` window: the
+    /// pending question is recorded with its answer, the core puts the same question, takes the same answer and
+    /// must leave the same state. The core bows out of a paid removal (the payment asks which planets to
+    /// exhaust: package B3) and of anything nested; see `dual_window::custodians`.
+    fn answer_custodians_windowed(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        choice: &Choice,
+        option: &ChoiceOption,
+    ) -> Result<(), IllegalChoice> {
+        #[cfg(feature = "typed-core")]
+        {
+            let (content, sources) = (ctx.content, ctx.sources);
+            let invader = self.invader.clone();
+            let system = self.system.clone();
+            let cost = custodians_cost(state, content, &invader);
+            let affordable = cost == 0 || crate::production::available(state, content, sources, &invader, Spend::Influence) >= cost;
+            let mut outcome = None;
+            let failed = std::cell::Cell::new(false);
+            crate::dual_window!(
+                crate::dual::Area::Invasion,
+                "invasion::answer_custodians",
+                state,
+                |s: &mut GameState| {
+                    crate::dual_window::note_ask(choice, &Ok(option.clone()));
+                    let result = self.answer_custodians(s, ctx, option);
+                    failed.set(result.is_err());
+                    outcome = Some(result);
+                    crate::dual::Run::new(())
+                },
+                |s: &mut GameState, script: &crate::dual_window::Recording| {
+                    if failed.get() {
+                        return None;
+                    }
+                    crate::dual_window::custodians(s, sources, &invader, &system, affordable, script)
+                }
+            );
+            return outcome.unwrap_or(Ok(()));
+        }
+        #[cfg(not(feature = "typed-core"))]
+        self.answer_custodians(state, ctx, option)
     }
 
     /// The answer to the custodians offer (27.2, 27.3).
@@ -5332,7 +5382,7 @@ impl Window for InvasionWindow {
                 self.stage = Stage::Committing;
                 return self.resolve(state, ctx, option);
             }
-            Stage::Custodians => self.answer_custodians(state, ctx, &option)?,
+            Stage::Custodians => self.answer_custodians_windowed(state, ctx, &choice, &option)?,
             Stage::Committing => {
                 if !self.answer_commit(state, ctx, &option)? {
                     return Ok(());
@@ -9626,6 +9676,26 @@ mod ground_routes {
     }
 
     #[test]
+    fn the_fight_round_question_is_put_by_the_core_window_in_lockstep() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual);
+        with_mask(mask, || {
+            let (mut state, system, planet) = mech_defends();
+            let mut window = fight_window(&mut state, &system, &planet);
+            let (asks, _) = drive(&mut state, &mut window, &["fight", "fight"], &[10, 1, 1, 10, 1, 1]);
+            assert_eq!(asks.len(), 2, "two rounds were fought: {asks:?}");
+        });
+        let r = report();
+        let w = r.windows.get("invasion::fight_round_ask").copied().unwrap_or_default();
+        assert!(w.compared >= 2, "every question of the fight is compared: {:?}", r.windows);
+        assert_eq!(w.bailed, 0);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    #[test]
     fn a_ground_combat_announces_its_start_sustains_destruction_and_end() {
         let (mut state, system, planet) = mech_defends();
         let mut window = fight_window(&mut state, &system, &planet);
@@ -10288,6 +10358,56 @@ mod ground_routes {
             assert_eq!(text(&finished.1, "system"), mecatol.to_string());
             assert_eq!(finished.1["planets"], serde_json::json!([]));
         });
+    }
+
+    #[test]
+    fn the_custodians_stage_runs_as_a_core_window_in_lockstep() {
+        // Declining, the free removal (Winnu), and the paid removal: the first two are compared (the core
+        // puts the same question and leaves the same state); the paid one bows out (the payment is B3's).
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let content = ContentStore::embedded();
+        let mecatol = SystemId::new(crate::seating::MECATOL);
+        let setup = || {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "letnev")], POK);
+            state.board.entry(mecatol.clone()).or_default();
+            crate::fixtures::put(&mut state, &mecatol, "infantry", &a(), 1);
+            state.player_mut(&a()).unwrap().trade_goods = 4;
+            // The seats leave placeholder-faction notes the card slice cannot map.
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state
+        };
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual);
+        with_mask(mask, || {
+            let mut state = setup();
+            let mut window = InvasionWindow::at_commit_step(&mut state, &a(), &mecatol);
+            let (asks, _) = drive(&mut state, &mut window, &["no", "done_committing"], &[]);
+            assert_eq!(asks.len(), 2, "{asks:?}");
+            assert!(!state.custodians_removed);
+
+            let mut state = setup();
+            let mut window = InvasionWindow::at_commit_step(&mut state, &a(), &mecatol);
+            let paid = ["yes", "exhaust|jord", "done_committing"];
+            let (_, _) = drive(&mut state, &mut window, &paid, &[]);
+            assert!(state.custodians_removed, "the paid removal still happened on the string side");
+
+            let hooks = GroundHooks { custodians_free: Some(free_for_a), ..GroundHooks::NONE };
+            with_test_hooks(hooks, || {
+                let mut state = setup();
+                let mut window = InvasionWindow::at_commit_step(&mut state, &a(), &mecatol);
+                let vp = state.player(&a()).unwrap().victory_points;
+                let (_, _) = drive(&mut state, &mut window, &["yes", "done_committing"], &[]);
+                assert_eq!(state.player(&a()).unwrap().victory_points, vp + 1);
+            });
+        });
+        let r = report();
+        let w = r.windows.get("invasion::answer_custodians").copied().unwrap_or_default();
+        assert_eq!(w.compared, 2, "decline and the free removal are compared: {:?}", r.windows);
+        assert_eq!(w.bailed, 1, "the paid removal bows out: {:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
     }
 
     /// Lifting the custodians token pays its six influence through the ordinary payment question:

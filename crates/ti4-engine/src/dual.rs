@@ -375,10 +375,21 @@ pub struct DualReport {
     pub areas: BTreeMap<Area, AreaCounts>,
     /// Hook-level checks ([`dual_hook!`]), by slot name (`"hit_shift"`): calls and differing answers.
     pub hooks: BTreeMap<&'static str, HookCounts>,
+    /// Window call sites ([`dual_window!`]), by label: compared runs and runs the core bowed out of.
+    pub windows: BTreeMap<String, WindowCounts>,
     /// The first [`MAX_KEPT`] differences.
     pub differences: Vec<Difference>,
     /// Differences beyond [`MAX_KEPT`] (counted only).
     pub dropped: u64,
+}
+
+/// What happened at one [`dual_window!`] call site.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct WindowCounts {
+    /// The core window ran and was compared.
+    pub compared: u64,
+    /// The core bowed out (`None`): nothing was compared and the string result stood.
+    pub bailed: u64,
 }
 
 /// Differences kept with their detail.
@@ -426,6 +437,11 @@ impl DualReport {
             into.calls += counts.calls;
             into.differing += counts.differing;
         }
+        for (label, counts) in &other.windows {
+            let into = self.windows.entry(label.clone()).or_default();
+            into.compared += counts.compared;
+            into.bailed += counts.bailed;
+        }
         for d in &other.differences {
             if self.differences.len() < MAX_KEPT {
                 self.differences.push(d.clone());
@@ -470,6 +486,12 @@ impl fmt::Display for DualReport {
                 if h.differing > 0 {
                     writeln!(f, "    {slot}: {} of {} calls differ", h.differing, h.calls)?;
                 }
+            }
+        }
+        if !self.windows.is_empty() {
+            writeln!(f, "  windows: {} call sites", self.windows.len())?;
+            for (label, w) in &self.windows {
+                writeln!(f, "    {label}: {} compared, {} bailed", w.compared, w.bailed)?;
             }
         }
         for d in &self.differences {
@@ -1060,8 +1082,10 @@ pub fn run_dual_window<R: PartialEq + Debug>(
     let mut string_run = string(state);
     let recording = crate::dual_window::finish();
     let Some(core_run) = core(&mut core_state, &recording) else {
+        with_report(|r| r.windows.entry(label.to_owned()).or_default().bailed += 1);
         return string_run.value;
     };
+    with_report(|r| r.windows.entry(label.to_owned()).or_default().compared += 1);
     string_run.events = Some(crate::dual_window::normalized(&recording.emits));
     let ok = compare_value(area, &format!("{label}.questions"), &recording.questions.len(), &core_run.questions.len());
     if ok {
@@ -1071,6 +1095,19 @@ pub fn run_dual_window<R: PartialEq + Debug>(
     }
     compare_runs(area, label, state, &string_run, &core_state, &core_run.run);
     string_run.value
+}
+
+/// The question half of a stage window (`Window::ask_of`): the string window's pending question, compared
+/// with the one the core window puts at the same position. `core` returns `None` when the position holds
+/// something the core cannot express (counted as a bail-out under `label`, nothing compared).
+pub fn run_dual_ask(area: Area, label: &str, string: Option<&Choice>, core: impl FnOnce() -> Option<Choice>) {
+    let Some(core) = core() else {
+        with_report(|r| r.windows.entry(label.to_owned()).or_default().bailed += 1);
+        return;
+    };
+    with_report(|r| r.windows.entry(label.to_owned()).or_default().compared += 1);
+    note_call(area);
+    compare_choice(area, label, string, Some(&core));
 }
 
 /// The `Dual` path of [`dual_query!`]: a read-only call compared by its returned value.

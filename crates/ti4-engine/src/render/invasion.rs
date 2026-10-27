@@ -30,6 +30,9 @@ impl Family for Fam {
         match a {
             Ask::CommitGround { system } => format!("commit ground forces in {}", system.as_str()),
             Ask::AssignGroundHit { planet, .. } => format!("assign a hit on {}", planet.as_str()),
+            Ask::RemoveCustodians { cost: 0, .. } => "remove the custodians token (no influence required)".to_owned(),
+            Ask::RemoveCustodians { cost, .. } => format!("spend {cost} influence to remove the custodians token"),
+            Ask::FightRound { planet, .. } => format!("fight a round on {}", planet.as_str()),
         }
     }
 
@@ -37,6 +40,8 @@ impl Family for Fam {
         match s {
             Subtype::CommitGroundForces => "commit_ground_forces".to_owned(),
             Subtype::AssignGroundCasualty => "assign_ground_casualty".to_owned(),
+            Subtype::RemoveCustodians => "remove_custodians".to_owned(),
+            Subtype::FightGroundCombatRound => "fight_ground_combat_round".to_owned(),
         }
     }
 
@@ -66,6 +71,11 @@ impl Family for Fam {
                     .with("unit", unit.as_str().to_owned())
                     .with("damaged", *damaged)
             }
+            Opt::KeepCustodians => ChoiceOption::labelled("no", crate::choice::DECLINE_KIND, "leave it"),
+            Opt::RemoveCustodians => ChoiceOption::labelled("yes", "custodians", "remove it for a victory point"),
+            Opt::FightRound { planet } => {
+                ChoiceOption::labelled("fight", crate::invasion::GROUND_CASUALTY_KIND, format!("fight a round on {}", planet.as_str()))
+            }
             Opt::DoneCommitting => ChoiceOption::labelled(
                 "done_committing",
                 crate::choice::DECLINE_KIND,
@@ -74,9 +84,13 @@ impl Family for Fam {
         }
     }
 
-    fn parse(_: &Render, _: &Ask, id: &str) -> Option<Opt> {
-        if id == "done_committing" {
-            return Some(Opt::DoneCommitting);
+    fn parse(_: &Render, ask: &Ask, id: &str) -> Option<Opt> {
+        match (ask, id) {
+            (_, "done_committing") => return Some(Opt::DoneCommitting),
+            (Ask::RemoveCustodians { .. }, "no") => return Some(Opt::KeepCustodians),
+            (Ask::RemoveCustodians { .. }, "yes") => return Some(Opt::RemoveCustodians),
+            (Ask::FightRound { planet, .. }, "fight") => return Some(Opt::FightRound { planet: *planet }),
+            _ => {}
         }
         // The unit type and its damage are not in the id; the typed side answers by index.
         None
