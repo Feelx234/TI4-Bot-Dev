@@ -145,8 +145,8 @@ impl ObjectivePlanner for Ttfd {
         let seat = observed.seat(&ctx.me)?;
         let own_open = seat.strategy_cards.iter().any(|c| {
             !seat.exhausted_strategy_cards.contains(c)
-                && ti4_engine::strategy_cards::card_name(observed.content(), c.as_str()).as_deref()
-                    == Some("Construction")
+                && ti4_engine::strategy_cards::card_kind(observed.content(), c.as_str())
+                    == Some(ti4_content::StrategyCardKind::Construction)
         });
         let sources = structures::placements(own_open, 0, seat.strategic_tokens);
         let (build, tokens) = structures::route_of(&sources, 1)?;
@@ -161,7 +161,7 @@ impl ObjectivePlanner for Ttfd {
             },
             steer: Steer {
                 cards: if own_open {
-                    vec!["Construction".to_owned()]
+                    vec![ti4_content::StrategyCardKind::Construction]
                 } else {
                     Vec::new()
                 },

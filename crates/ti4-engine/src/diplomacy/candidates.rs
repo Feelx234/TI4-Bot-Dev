@@ -456,8 +456,8 @@ fn favour_bundles(
     let holds_unplayed_trade = ctx.state.player(ctx.proposer).is_some_and(|seat| {
         seat.strategy_cards.iter().any(|card| {
             !seat.exhausted_strategy_cards.contains(card)
-                && crate::strategy_cards::card_name(ctx.content, card.as_str())
-                    .is_some_and(|name| name == "Trade")
+                && crate::strategy_cards::card_kind(ctx.content, card.as_str())
+                    == Some(ti4_content::StrategyCardKind::Trade)
         })
     });
     let mut variants = Vec::new();

@@ -1277,22 +1277,17 @@ pub fn outcomes_for(seen: &Observed<'_>, agenda: &str) -> Vec<String> {
 }
 
 fn outcomes_of(seen: &Observed<'_>, agenda: &str) -> Vec<String> {
-    let Some((_, target)) = crate::backward::agenda::agenda_kind(seen, agenda) else {
+    use ti4_content::ElectType;
+    let Some((_, elects)) = crate::backward::agenda::agenda_kind(seen, agenda) else {
         return vec!["for".to_owned(), "against".to_owned()];
     };
-    let head = target
-        .split('(')
-        .next()
-        .unwrap_or(&target)
-        .trim()
-        .to_owned();
-    if !head.starts_with("Elect") {
+    if matches!(elects, ElectType::ForAgainst | ElectType::HiddenNextAgenda) {
         return vec!["for".to_owned(), "against".to_owned()];
     }
-    if head.contains("Player") {
+    if elects == ElectType::Player {
         return seen.players().iter().map(|p| p.to_string()).collect();
     }
-    if head.contains("Planet") {
+    if elects.elects_planet() {
         let mut planets: Vec<String> = seen
             .board()
             .values()
@@ -1301,7 +1296,7 @@ fn outcomes_of(seen: &Observed<'_>, agenda: &str) -> Vec<String> {
             .collect();
         planets.sort();
         planets.dedup();
-        if head.contains("Non-Home") || head.contains("Other Than Mecatol") {
+        if elects == ElectType::NonHomeNonMecatolPlanet {
             planets.retain(|p| {
                 p != "mr"
                     && ti4_content::galaxy::planet(seen.content(), p, seen.sources())
@@ -1310,7 +1305,7 @@ fn outcomes_of(seen: &Observed<'_>, agenda: &str) -> Vec<String> {
         }
         return planets;
     }
-    if head.contains("Law") {
+    if elects == ElectType::Law {
         return seen.laws().keys().cloned().collect();
     }
     Vec::new()

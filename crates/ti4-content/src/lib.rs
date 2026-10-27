@@ -19,6 +19,7 @@
 
 pub mod action_cards;
 pub mod agendas;
+pub mod card_fields;
 pub mod error;
 pub mod factions;
 pub mod galaxy;
@@ -34,6 +35,10 @@ pub mod validator;
 
 pub use action_cards::{ActionCardTiming, timing_of as action_card_timing};
 pub use agendas::{AgendaGroup, group_of as agenda_group};
+pub use card_fields::{
+    ActionCardWindow, ElectType, LeaderAbilityKind, ResearchRestriction, StrategyCardKind,
+    UnknownValue,
+};
 pub use error::{ContentError, ReferenceError};
 pub use factions::{Deployment, Faction, FleetError, Placement};
 pub use galaxy::{Galaxy, GalaxyError, Planet, System, all_planets, all_systems};

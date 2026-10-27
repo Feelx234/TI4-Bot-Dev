@@ -3018,7 +3018,12 @@ mod tests {
             choice.ids()
         );
         assert!(
-            !crate::faction_abilities::substitutes_primary(&state, content(), &a(), "Leadership"),
+            !crate::faction_abilities::substitutes_primary(
+                &state,
+                content(),
+                &a(),
+                Some(ti4_content::StrategyCardKind::Leadership)
+            ),
             "not until chosen"
         );
         window
@@ -3033,20 +3038,25 @@ mod tests {
             )
             .unwrap();
         assert!(
-            crate::faction_abilities::substitutes_primary(&state, content(), &a(), "Leadership"),
+            crate::faction_abilities::substitutes_primary(
+                &state,
+                content(),
+                &a(),
+                Some(ti4_content::StrategyCardKind::Leadership)
+            ),
             "the game now resolves the primary for a"
         );
         assert!(!crate::faction_abilities::substitutes_primary(
             &state,
             content(),
             &c(),
-            "Leadership"
+            Some(ti4_content::StrategyCardKind::Leadership)
         ));
         assert!(!crate::faction_abilities::substitutes_primary(
             &state,
             content(),
             &a(),
-            "Diplomacy"
+            Some(ti4_content::StrategyCardKind::Diplomacy)
         ));
         // The next answer (here a's own, in a later Leadership) forgets it.
         let mut later = StrategySecondaryWindow::foreign(b(), leadership.clone(), vec![a()]);
@@ -3059,7 +3069,12 @@ mod tests {
             )
             .unwrap();
         assert!(
-            !crate::faction_abilities::substitutes_primary(&state, content(), &a(), "Leadership"),
+            !crate::faction_abilities::substitutes_primary(
+                &state,
+                content(),
+                &a(),
+                Some(ti4_content::StrategyCardKind::Leadership)
+            ),
             "a stale choice is cleared"
         );
         // Only for a puppeted player's Leadership.

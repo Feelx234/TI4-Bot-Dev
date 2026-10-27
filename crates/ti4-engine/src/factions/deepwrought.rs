@@ -388,8 +388,8 @@ pub fn deck(
         .filter(|alias| {
             content
                 .get(ContentType::Technologies, alias.as_str())
-                .and_then(|record| record.text("text"))
-                .is_none_or(|text| !text.to_ascii_lowercase().contains("cannot be researched"))
+                .and_then(ti4_content::Record::research_restriction)
+                .is_none_or(ti4_content::ResearchRestriction::is_researchable)
         })
         .collect()
 }

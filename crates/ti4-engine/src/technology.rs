@@ -1129,12 +1129,11 @@ pub fn can_research(
     if crate::factions::deepwrought::technology_purged(state, alias) {
         return false;
     }
-    // Some cards say so of themselves.
-    if record.text("text").is_some_and(|printed| {
-        printed
-            .to_ascii_lowercase()
-            .contains("cannot be researched")
-    }) {
+    // Some cards say so of themselves ("This technology cannot be researched.", mapped at load).
+    if record
+        .research_restriction()
+        .is_some_and(|restriction| !restriction.is_researchable())
+    {
         return false;
     }
     // 90.11: a faction technology belongs to that faction alone.

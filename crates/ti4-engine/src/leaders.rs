@@ -3,7 +3,7 @@
 //! Ported from the oracle's `engine/leaders.py`: `for_faction`, `starting_states`, `status`,
 //! `of_type`, `check_unlocks`, `ready_agents`, `exhaust` and `purge`.
 
-use ti4_content::ContentStore;
+use ti4_content::{ContentStore, LeaderAbilityKind};
 use ti4_model::content_types::{ContentType, SourceSet};
 use ti4_model::id::{LeaderId, PlayerId};
 use ti4_model::state::{GameState, LeaderStatus};
@@ -454,20 +454,16 @@ pub fn usable(state: &GameState, content: &ContentStore, player: &PlayerId) -> V
 /// its owner's turn.
 ///
 /// The corpus spells two things as the action phase: `"ACTION:"`, and — for the Prophecy of Kings
-/// agents — `"During the action phase:"`. Both carry the trailing colon the card frame prints, so
-/// the comparison drops it first. Until this file trimmed it, `eq_ignore_ascii_case("during the
-/// action phase")` matched nothing in the corpus, so a Prophecy of Kings agent printed for the
-/// action phase was never offered; see `the_hacan_agent_is_offered_on_its_own_turn`.
+/// agents — `"During the action phase:"`; both are tabled in `ti4_content::card_fields`
+/// ([`LeaderAbilityKind`]). When this was a text test that kept the trailing colon,
+/// `eq_ignore_ascii_case("during the action phase")` matched nothing in the corpus, so a Prophecy
+/// of Kings agent printed for the action phase was never offered; see
+/// `the_hacan_agent_is_offered_on_its_own_turn`.
 fn is_action_window(content: &ContentStore, leader: &LeaderId) -> bool {
     content
         .get(ContentType::Leaders, leader.as_str())
-        .is_some_and(|record| {
-            record.text("abilityWindow").is_some_and(|window| {
-                let printed = window.trim().trim_end_matches(':').trim_end();
-                printed.starts_with("ACTION")
-                    || printed.eq_ignore_ascii_case("during the action phase")
-            })
-        })
+        .and_then(ti4_content::Record::leader_ability_kind)
+        .is_some_and(LeaderAbilityKind::is_action_phase_ability)
 }
 
 /// Whether using this leader is a component action that takes the turn (`"ACTION:"`), or an
@@ -479,8 +475,8 @@ pub fn uses_the_action(content: &ContentStore, leader: &LeaderId) -> bool {
     let leader = &leader;
     content
         .get(ContentType::Leaders, leader.as_str())
-        .and_then(|record| record.text("abilityWindow"))
-        .is_some_and(|window| window.trim().starts_with("ACTION"))
+        .and_then(ti4_content::Record::leader_ability_kind)
+        .is_some_and(LeaderAbilityKind::uses_the_action)
 }
 
 /// Action-phase leaders whose effects this engine actually delivers.
