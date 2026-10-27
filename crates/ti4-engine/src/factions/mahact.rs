@@ -122,7 +122,7 @@ pub fn fleet_mark(mahact: &PlayerId) -> String {
 }
 
 pub fn fleet_pool_owners(state: &GameState, mahact: &PlayerId) -> Vec<PlayerId> {
-    crate::cb_dual!(crate::dual::HookGroup::Direct, "mahact::fleet_pool_owners", fleet_pool_owners_text(state, mahact), crate::core_factions::cc::mahact_fleet_pool_owners(state, mahact))
+    crate::cc_dual!(crate::dual::HookGroup::Direct, "mahact::fleet_pool_owners", fleet_pool_owners_text(state, mahact), crate::core_factions::cc::mahact_fleet_pool_owners(state, mahact))
 }
 
 /// The owners of the other players' command tokens in `mahact`'s fleet pool, one entry per
@@ -157,7 +157,7 @@ pub(crate) fn purges_alliance(faction: &str) -> bool {
 }
 
 pub(crate) fn foreign_tokens(state: &GameState, player: &PlayerId) -> i32 {
-    crate::cb_dual!(crate::dual::HookGroup::Direct, "mahact::foreign_tokens", foreign_tokens_text(state, player), crate::core_factions::cc::mahact_foreign_tokens(state, player))
+    crate::cc_dual!(crate::dual::HookGroup::Direct, "mahact::foreign_tokens", foreign_tokens_text(state, player), crate::core_factions::cc::mahact_foreign_tokens(state, player))
 }
 
 /// How many foreign command tokens `player`'s fleet pool holds (0 unless they are the Mahact).

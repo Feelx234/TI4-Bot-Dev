@@ -590,3 +590,21 @@ pub fn ghost_production_cost_reduction(gs: &GameState, who: &PlayerId, system: &
 pub fn ghost_extra_production(gs: &GameState, sources: SourceSet, who: &PlayerId, system: &SystemId) -> Option<i64> {
     with(gs, sources, |p| Some(p.k.hooks.economy.extra_production(p.s(), p.k, p.seat(who)?, sys(system)?)))
 }
+
+/// The call-site dual of package CC: `dual_hook!` under `Dual`, the string expression under every other backend. The
+/// typed side loads the whole position per call, so it runs only where it is compared (`factions=dual`); under `Core`
+/// the string function still answers until D2 deletes it. `$typed` is an `Option`: `None` keeps the string answer.
+#[macro_export]
+macro_rules! cc_dual {
+    ($group:expr, $slot:expr, $string:expr, $typed:expr) => {{
+        #[cfg(feature = "typed-core")]
+        let answer = if $crate::dual::backend($crate::dual::Area::Factions) == $crate::dual::Backend::Dual {
+            $crate::dual_hook!($group, $slot, $string, ($typed).unwrap_or_else(|| $string))
+        } else {
+            $string
+        };
+        #[cfg(not(feature = "typed-core"))]
+        let answer = $string;
+        answer
+    }};
+}

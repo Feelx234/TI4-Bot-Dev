@@ -150,7 +150,7 @@ fn foreign_ship_in(
 // -- Mirror Computing ----------------------------------------------------------------------------
 
 pub(crate) fn trade_good_worth(state: &GameState, player: &PlayerId, worth: i64) -> i64 {
-    crate::cb_dual!(crate::dual::HookGroup::Direct, "mentak::trade_good_worth", trade_good_worth_text(state, player, worth), crate::core_factions::cc::mentak_trade_good_worth(state, player, worth))
+    crate::cc_dual!(crate::dual::HookGroup::Direct, "mentak::trade_good_worth", trade_good_worth_text(state, player, worth), crate::core_factions::cc::mentak_trade_good_worth(state, player, worth))
 }
 
 /// Mirror Computing: "When you spend trade goods, each trade good is worth 2 resources or

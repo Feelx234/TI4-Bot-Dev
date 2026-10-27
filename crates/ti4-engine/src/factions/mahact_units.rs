@@ -390,7 +390,7 @@ fn unlocked(state: &GameState, player: &PlayerId) -> bool {
 }
 
 pub(crate) fn ship_movement_barred(state: &GameState) -> bool {
-    crate::cb_dual!(crate::dual::HookGroup::Direct, "mahact_units::ship_movement_barred", ship_movement_barred_text(state), crate::core_factions::cc::mahact_ship_movement_barred(state))
+    crate::cc_dual!(crate::dual::HookGroup::Direct, "mahact_units::ship_movement_barred", ship_movement_barred_text(state), crate::core_factions::cc::mahact_ship_movement_barred(state))
 }
 
 /// Whether the hero's combat is being fought: neither player can retreat or resolve an ability that

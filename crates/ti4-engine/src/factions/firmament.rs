@@ -299,7 +299,7 @@ pub fn flip_plots(state: &mut GameState, owner: &PlayerId) {
 }
 
 pub fn puppeted(state: &GameState, owner: &PlayerId) -> BTreeSet<PlayerId> {
-    crate::cb_dual!(crate::dual::HookGroup::Direct, "firmament::puppeted", puppeted_text(state, owner), crate::core_factions::cc::firmament_puppeted(state, owner))
+    crate::cc_dual!(crate::dual::HookGroup::Direct, "firmament::puppeted", puppeted_text(state, owner), crate::core_factions::cc::firmament_puppeted(state, owner))
 }
 
 /// The players whose control tokens are on any of `owner`'s plot cards (the puppeted players).
@@ -442,7 +442,7 @@ fn has_viper_on(
 }
 
 pub fn viper_open(state: &GameState, invader: &PlayerId, system: &SystemId, planet: &PlanetId) -> bool {
-    crate::cb_dual!(crate::dual::HookGroup::Direct, "firmament::viper_open", viper_open_text(state, invader, system, planet), crate::core_factions::cc::firmament_viper_open(state, invader, system, planet))
+    crate::cc_dual!(crate::dual::HookGroup::Direct, "firmament::viper_open", viper_open_text(state, invader, system, planet), crate::core_factions::cc::firmament_viper_open(state, invader, system, planet))
 }
 
 /// Whether the Viper's choice is open for `invader`, whose ground forces (a Viper among them) have
@@ -465,7 +465,7 @@ pub fn viper_open_text(
 }
 
 pub fn viper_defender_open(state: &GameState, defender: &PlayerId, invader: &PlayerId, system: &SystemId, planet: &PlanetId) -> bool {
-    crate::cb_dual!(crate::dual::HookGroup::Direct, "firmament::viper_defender_open", viper_defender_open_text(state, defender, invader, system, planet), crate::core_factions::cc::firmament_viper_defender_open(state, defender, invader, system, planet))
+    crate::cc_dual!(crate::dual::HookGroup::Direct, "firmament::viper_defender_open", viper_defender_open_text(state, defender, invader, system, planet), crate::core_factions::cc::firmament_viper_defender_open(state, defender, invader, system, planet))
 }
 
 /// Whether the Viper's choice is open for `defender`, whose Viper stands on `planet` when `invader`
@@ -588,7 +588,7 @@ fn moved_ships(state: &GameState) -> std::collections::BTreeMap<String, u32> {
 }
 
 pub fn space_cannon_silenced(state: &GameState, content: &ContentStore, sources: SourceSet, active: &PlayerId, system: &SystemId) -> bool {
-    crate::cb_dual!(crate::dual::HookGroup::Direct, "firmament::space_cannon_silenced", space_cannon_silenced_text(state, content, sources, active, system), crate::core_factions::cc::firmament_space_cannon_silenced(state, sources, active, system))
+    crate::cc_dual!(crate::dual::HookGroup::Direct, "firmament::space_cannon_silenced", space_cannon_silenced_text(state, content, sources, active, system), crate::core_factions::cc::firmament_space_cannon_silenced(state, sources, active, system))
 }
 
 /// SPACE CANNON cannot be used against the ships that moved during an activation Myru Vos covers.
