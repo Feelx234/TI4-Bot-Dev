@@ -118,7 +118,7 @@ impl Window for CommitGround {
                 cell.units.push(piece);
                 cell.flags.set(crate::state::PlanetFlags::UNITS_ENTRY, true);
                 sx.state.board_mut().sys_mut(self.system).flags.set(crate::state::SysFlags::TOUCHED, true);
-                if !self.committed.iter().any(|p| *p == planet) {
+                if !self.committed.contains(&planet) {
                     self.committed.push(planet);
                     self.committed.as_mut_slice().sort_unstable();
                 }

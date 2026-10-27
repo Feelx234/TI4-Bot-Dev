@@ -98,6 +98,9 @@ impl<'g> InvasionView<'g> {
     }
 }
 
+/// A side's ground pools: per hit number the dice and the unit types behind them.
+pub type PoolRows = std::collections::BTreeMap<i64, (i64, std::collections::BTreeMap<String, u32>)>;
+
 /// A unit on a planet as the dual compares it: owner, type, damaged, galvanized.
 pub type UnitRow = (String, String, bool, bool);
 
@@ -159,7 +162,7 @@ impl InvasionView<'_> {
 
     /// `invasion::ground_pools`.
     #[must_use]
-    pub fn ground_pools(&self, player: &PlayerId, system: &SystemId, planet: &PlanetId) -> Option<std::collections::BTreeMap<i64, (i64, std::collections::BTreeMap<String, u32>)>> {
+    pub fn ground_pools(&self, player: &PlayerId, system: &SystemId, planet: &PlanetId) -> Option<PoolRows> {
         let (sys, pl, seat) = (typed::<System>(system.as_str())?, typed::<Planet>(planet.as_str())?, self.seat(player)?);
         Some(
             ci::ground_pools(self.rd(), seat, sys, pl)
