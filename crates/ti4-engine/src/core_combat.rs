@@ -619,6 +619,16 @@ impl<'g> CombatView<'g> {
         }))
     }
 
+    /// The units a further hit may be assigned to.
+    #[must_use]
+    pub fn hit_targets(&self, player: &PlayerId, system: &SystemId, ability: bool, non_fighters_first: bool) -> Option<Vec<StrUnit>> {
+        let (seat, sys) = (self.seat(player)?, typed::<System>(system.as_str())?);
+        self.with(|rd| cc::hit_targets(rd, seat, sys, ability, non_fighters_first))
+            .into_iter()
+            .map(|p| self.str_unit(p))
+            .collect()
+    }
+
     /// `combat::fleet_groups`, flattened: (hit number, tag, dice, [(unit type, count)]).
     #[must_use]
     pub fn fleet_groups(&self, player: &PlayerId, system: &SystemId) -> Option<Vec<FleetGroupRow>> {
@@ -711,5 +721,24 @@ pub fn eligible_retreats(
     let rules = reach.rules_for(sys);
     let rd = Rd::new(pos.core(), pos.kernel());
     let found = cc::eligible_retreats(rd, seat, sys, &rules.adjacency, &|dest| (*reach.rules_for(dest)).clone());
+    Some(found.into_iter().map(|s| SystemId::new(s.as_str())).collect())
+}
+
+/// Skilled Retreat's and Dark Energy Tap's destinations over the typed movement rules.
+#[must_use]
+pub fn open_retreat_destinations(
+    state: &GameState,
+    sources: SourceSet,
+    galaxy: &ti4_content::galaxy::Galaxy,
+    player: &PlayerId,
+    system: &SystemId,
+    foreign_units: bool,
+) -> Option<Vec<SystemId>> {
+    let pos = crate::core_adapter::Position::new(state, sources, galaxy)?;
+    let reach = crate::core_adapter::SeatReach::new(&pos, player, false)?;
+    let (seat, sys) = (pos.seat(player)?, typed::<System>(system.as_str())?);
+    let base = pos.core().map().adjacency()?.clone();
+    let rd = Rd::new(pos.core(), pos.kernel());
+    let found = cc::open_retreat_destinations(rd, seat, sys, &base, &|dest| (*reach.rules_for(dest)).clone(), foreign_units);
     Some(found.into_iter().map(|s| SystemId::new(s.as_str())).collect())
 }

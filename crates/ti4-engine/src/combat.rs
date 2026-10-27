@@ -3602,15 +3602,29 @@ fn absorb_hits_seeing_with_context(
                 origin,
             )
         });
-        if alive.is_empty() {
-            return Ok(()); // 15.2a
-        }
-        if non_fighters_first {
+        if non_fighters_first && !alive.is_empty() {
             let mut bound = non_fighter_ships(state, content, sources, player, system);
             bound.retain(|unit| alive.contains(unit));
             if !bound.is_empty() {
                 alive = bound;
             }
+        }
+        if crate::dual::backend(crate::dual::Area::Combat) == crate::dual::Backend::Dual {
+            #[cfg(feature = "typed-core")]
+            let typed = || {
+                crate::core_combat::CombatView::of(state, content, sources)?.hit_targets(
+                    player,
+                    system,
+                    origin == HitOrigin::UnitAbility,
+                    non_fighters_first,
+                )
+            };
+            #[cfg(not(feature = "typed-core"))]
+            let typed = || None::<Vec<Unit>>;
+            let _ = crate::dual::run_dual_typed(crate::dual::Area::Combat, "combat::hit_targets", typed, || alive.clone());
+        }
+        if alive.is_empty() {
+            return Ok(()); // 15.2a
         }
         let casualty = choose_casualty_owing(
             state,
@@ -4459,6 +4473,26 @@ pub fn skilled_retreat_destinations(
     if crate::factions::mahact_units::ship_movement_barred(state) {
         return Vec::new();
     }
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::core_combat::open_retreat_destinations(state, sources, galaxy, player, system, false);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None::<Vec<SystemId>>;
+    crate::dual_typed!(
+        crate::dual::Area::Combat,
+        "combat::skilled_retreat_destinations",
+        typed(),
+        skilled_retreat_text(state, content, sources, galaxy, player, system)
+    )
+}
+
+fn skilled_retreat_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: &ti4_content::galaxy::Galaxy,
+    player: &PlayerId,
+    system: &SystemId,
+) -> Vec<SystemId> {
     let types = catalogue(content, sources);
     galaxy
         .adjacent(system.as_str())
@@ -4487,6 +4521,26 @@ pub fn skilled_retreat_destinations(
 /// neighbour with an enemy garrison but no enemy ships is 78.7c-legal yet DET-illegal.
 #[must_use]
 pub fn det_retreat_destinations(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: &ti4_content::galaxy::Galaxy,
+    player: &PlayerId,
+    system: &SystemId,
+) -> Vec<SystemId> {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::core_combat::open_retreat_destinations(state, sources, galaxy, player, system, true);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None::<Vec<SystemId>>;
+    crate::dual_typed!(
+        crate::dual::Area::Combat,
+        "combat::det_retreat_destinations",
+        typed(),
+        det_retreat_text(state, content, sources, galaxy, player, system)
+    )
+}
+
+fn det_retreat_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,

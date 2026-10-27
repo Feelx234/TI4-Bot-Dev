@@ -1010,3 +1010,68 @@ pub fn eligible_retreats(
         })
         .collect()
 }
+
+// -- who a hit may be assigned to (LRR 78.6, 15.2a) ----------------------------------------------
+
+/// The units `player` may assign one more hit to, in the order the casualty question lists them: the
+/// ships (and planet-standing combatants) that can be assigned a hit of this origin, narrowed to the
+/// non-fighters when the loss is bound to them and one is able. Empty: the hit has no effect.
+#[must_use]
+pub fn hit_targets(rd: Rd<'_>, player: Seat, system: System, ability: bool, non_fighters_first: bool) -> Vec<Piece> {
+    let board = rd.s.board();
+    let space = &board.sys(system).units;
+    let planets = planets_of_sorted(rd.s, system);
+    let mut alive: Vec<Piece> = ships_of(rd, player, system)
+        .into_iter()
+        .filter(|unit| {
+            let planet = if space.contains(unit) {
+                None
+            } else {
+                planets.iter().find(|p| board.planet(**p).units.contains(unit)).copied()
+            };
+            assignable_to_hit(rd, player, system, unit.kind(), planet, ability)
+        })
+        .collect();
+    if non_fighters_first {
+        let bound: Vec<Piece> = ships_of(rd, player, system)
+            .into_iter()
+            .filter(|p| !rd.is_fighter(p.kind()))
+            .filter(|p| alive.contains(p))
+            .collect();
+        if !bound.is_empty() {
+            alive = bound;
+        }
+    }
+    alive
+}
+
+/// Where Skilled Retreat (`foreign_units: false`: no other player's ships) or Dark Energy Tap
+/// (`foreign_units: true`: no other player's units, ships or ground forces) may send a fleet: the
+/// adjacent systems of the plain map the movement rules let it enter. The caller handles the Mahact hero
+/// bar, which is string-only.
+#[must_use]
+pub fn open_retreat_destinations(
+    rd: Rd<'_>,
+    seat: Seat,
+    system: System,
+    adjacency: &crate::galaxy::Adjacency,
+    rules_for: &dyn Fn(System) -> crate::movement::CoreRules,
+    foreign_units: bool,
+) -> Vec<System> {
+    adjacency
+        .of(system)
+        .iter()
+        .map(crate::ids::system_at)
+        .filter(|n| !adjacency.is_hyperlane(*n))
+        .filter(|n| retreat_may_enter(rd.s, *n, rules_for))
+        .filter(|n| {
+            let cell = rd.s.board().sys(*n);
+            if foreign_units {
+                !cell.units.iter().any(|u| u.owner() != seat)
+                    && !planets_of_sorted(rd.s, *n).iter().any(|p| rd.s.board().planet(*p).units.iter().any(|u| u.owner() != seat))
+            } else {
+                !cell.units.iter().any(|u| u.owner() != seat && rd.is_ship(u.kind()))
+            }
+        })
+        .collect()
+}
