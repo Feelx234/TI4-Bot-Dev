@@ -211,6 +211,17 @@ impl<'a> ProdView<'a> {
         Some(self.with_extras(who, |cx, ex| rules::available(cx, who, core_spend(kind), ex)))
     }
 
+    /// `production::payment_options`, rendered from the typed options.
+    #[must_use]
+    pub fn payment_options(&self, player: &PlayerId, kind: crate::production::Spend, paid: i64, cost: i64) -> Option<Vec<crate::choice::ChoiceOption>> {
+        use ti4_engine_core::choice::{Ask as CoreAsk, Opt as CoreOpt};
+        let who = self.seat(player)?;
+        let (ask, opts) = self.with_extras(who, |cx, ex| rules::pay_opts(cx, who, core_spend(kind), paid, cost, ex));
+        let render = crate::render::Render::default();
+        let ask = CoreAsk::Production(ti4_engine_core::choice::production::Ask::Pay(ask));
+        Some(opts.as_slice().iter().map(|o| crate::render::option(&render, &ask, &CoreOpt::Production(*o))).collect())
+    }
+
     /// `production::payment_faces`.
     #[must_use]
     pub fn payment_faces(&self, player: &PlayerId, planet: &PlanetId, kind: crate::production::Spend) -> Option<Vec<(crate::production::Spend, i64)>> {

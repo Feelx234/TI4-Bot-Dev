@@ -9,6 +9,7 @@
 //! replaces it when the factions are ported.
 
 use crate::containers::SmallList;
+use crate::choice::production::{Currency, Opt as PayOpt, PayAsk, Shown};
 use crate::generated::{Breakthrough, Leader, Planet, PlanetTrait, Relic, System, Unit, UnitBaseType};
 use crate::state::LeaderStatus;
 use crate::ids::Seat;
@@ -378,6 +379,42 @@ pub fn available(cx: &Cx<'_>, who: Seat, kind: Spend, ex: &Extras<'_>) -> i64 {
     let goods = cx.core().players().by_seat(who).map_or(0, |p| i64::from(p.econ.trade_goods)) * worth + ex.commodities * worth;
     let war_machine = if kind == Spend::Resources { war_machine_bonus(cx.core(), who) } else { 0 };
     from_planets + triad_value(cx, who) + goods + war_machine
+}
+
+/// `production::payment_options` as typed options: the planets (each face that would not strand the rest of the
+/// bill), then trade goods, then commodities. `paid` and `cost` describe the whole bill.
+#[must_use]
+pub fn pay_opts(cx: &Cx<'_>, who: Seat, kind: Spend, paid: i64, cost: i64, ex: &Extras<'_>) -> (PayAsk, SmallList<PayOpt, 24>) {
+    let spendable = spendable_planets(cx, who, ex);
+    let pool = available(cx, who, kind, ex);
+    let goods = cx.core().players().by_seat(who).map_or(0, |p| i64::from(p.econ.trade_goods));
+    let worth = trade_good_worth(cx, who);
+    let goods_capacity = goods * worth + ex.commodities * worth;
+    let mut opts = SmallList::new();
+    for planet in spendable.as_slice() {
+        let remaining_after: i64 = spendable.as_slice().iter().filter(|o| *o != planet).map(|o| max_face_value(cx, who, *o, kind)).sum::<i64>() + goods_capacity;
+        for (source, face) in payment_faces(cx, who, *planet, kind).as_slice() {
+            if paid + face + remaining_after < cost {
+                continue;
+            }
+            let removed = max_face_value(cx, who, *planet, kind);
+            opts.push(PayOpt::Exhaust { planet: *planet, source: currency(*source), shown: Shown { worth: *face, pool_after: pool - removed } });
+        }
+    }
+    if goods > 0 {
+        opts.push(PayOpt::TradeGood { shown: Shown { worth, pool_after: pool - worth } });
+    }
+    if ex.commodities > 0 {
+        opts.push(PayOpt::Commodity { shown: Shown { worth, pool_after: pool - worth } });
+    }
+    (PayAsk { kind: currency(kind), owed: cost - paid, pool, goods }, opts)
+}
+
+const fn currency(s: Spend) -> Currency {
+    match s {
+        Spend::Resources => Currency::Resources,
+        Spend::Influence => Currency::Influence,
+    }
 }
 
 #[cfg(test)]

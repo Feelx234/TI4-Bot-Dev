@@ -622,6 +622,19 @@ fn payment_options(
     paid: i64,
     cost: i64,
 ) -> Vec<ChoiceOption> {
+    let typed = typed_view!(state, content, sources, |v| v.payment_options(player, kind, paid, cost));
+    crate::dual_typed!(crate::dual::Area::Production, "production::payment_options", typed(), payment_options_text(state, content, sources, player, kind, paid, cost))
+}
+
+fn payment_options_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    kind: Spend,
+    paid: i64,
+    cost: i64,
+) -> Vec<ChoiceOption> {
     let reads = Reads::new(state, content, sources);
     let spendable = spendable_planets(state, player);
     let pool_before = reads.available(player, kind);
