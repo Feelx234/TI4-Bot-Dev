@@ -1044,6 +1044,28 @@ fn unit_roll_modifier(
     sources: SourceSet,
     unit: &CombatUnit<'_>,
 ) -> i64 {
+    crate::cb_dual!(
+        crate::dual::HookGroup::General,
+        "winnu::unit_roll_modifier",
+        unit_roll_modifier_text(state, content, sources, unit),
+        crate::core_factions::cb::winnu_unit_roll_modifier(
+            state,
+            sources,
+            unit.player,
+            unit.system,
+            unit.planet,
+            unit.unit_type,
+            unit.context != "space"
+        )
+    )
+}
+
+fn unit_roll_modifier_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    unit: &CombatUnit<'_>,
+) -> i64 {
     let Some(system) = unit.system else { return 0 };
     let mut shift = commander_bonus(state, content, sources, unit.player, system);
     if crate::breakthroughs::holds(state, unit.player, "winnubt")

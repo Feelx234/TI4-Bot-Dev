@@ -172,6 +172,28 @@ pub fn winnu_unit_dice(
     })
 }
 
+/// `unit_type` is a unit id, `ground` the string's `context != "space"`.
+pub fn winnu_unit_roll_modifier(
+    gs: &GameState,
+    sources: SourceSet,
+    who: &PlayerId,
+    sys: Option<&SystemId>,
+    pl: Option<&PlanetId>,
+    unit_type: &str,
+    ground: bool,
+) -> Option<i64> {
+    with(gs, sources, |p| {
+        let site = ti4_engine_core::hooks::CombatUnit {
+            owner: p.seat(who)?,
+            system: match sys { Some(x) => Some(system(x)?), None => None },
+            planet: match pl { Some(x) => Some(planet(x)?), None => None },
+            unit: <Unit as IdStr>::from_id(unit_type)?,
+            ctx: if ground { ti4_engine_core::hooks::CombatCtx::Ground } else { ti4_engine_core::hooks::CombatCtx::Space },
+        };
+        Some(winnu::query::unit_roll_modifier(p.s(), p.k, site))
+    })
+}
+
 /// The ids of the secondary waivers (`acq`) the typed core offers.
 pub fn winnu_secondary_waivers(gs: &GameState, follower: &PlayerId, primary: &PlayerId) -> Option<Vec<crate::factions::hooks_strategy::SecondaryWaiver>> {
     with(gs, full(), |p| {
@@ -353,6 +375,23 @@ pub fn audit(gs: &GameState, sources: SourceSet) {
         }
         out
     });
+    audit_hook_order(HookGroup::General, "unit_roll_modifier", table, |t| {
+        let k = kernel(t);
+        let mut out = Vec::new();
+        for w in &seats {
+            for sys in &systems {
+                let unit = ti4_engine_core::hooks::CombatUnit {
+                    owner: *w,
+                    system: Some(*sys),
+                    planet: None,
+                    unit: Unit::CruiserI,
+                    ctx: ti4_engine_core::hooks::CombatCtx::Space,
+                };
+                out.push(t.general.unit_roll_modifier(s, &k, unit));
+            }
+        }
+        out
+    });
     audit_hook_order(HookGroup::Ground, "custodians_free", table, |t| {
         let k = kernel(t);
         seats.iter().map(|w| t.ground.custodians_free(s, &k, *w)).collect::<Vec<_>>()
@@ -529,4 +568,24 @@ pub fn dual_deepwrought_coexistence_began(gs: &mut GameState, sources: SourceSet
                 .collect::<Vec<_>>()
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_unit_ids_the_ports_name_are_the_variants_they_expect() {
+        assert_eq!(<Unit as IdStr>::from_id("titans_pds"), Some(Unit::HelTitanI));
+        assert_eq!(<Unit as IdStr>::from_id("titans_pds2"), Some(Unit::HelTitanII));
+        assert_eq!(<Unit as IdStr>::from_id("argent_flagship"), Some(Unit::Quetzecoatl));
+        assert_eq!(<Planet as IdStr>::from_id("ocean1"), Some(Planet::CoralReef));
+        assert_eq!(<Planet as IdStr>::from_id("ocean5"), Some(Planet::IceShelf));
+        assert_eq!(<Planet as IdStr>::from_id("custodiavigilia"), Some(Planet::CustodiaVigilia));
+        assert_eq!(<Planet as IdStr>::from_id("mr"), Some(Planet::MecatolRex));
+        assert_eq!(<Planet as IdStr>::from_id("mrte"), Some(Planet::MecatolRexTe));
+        for (i, id) in ["ocean1", "ocean2", "ocean3", "ocean4", "ocean5"].into_iter().enumerate() {
+            assert_eq!(<Planet as IdStr>::from_id(id), Some(deepwrought::observe::OCEANS[i]), "{id}");
+        }
+    }
 }

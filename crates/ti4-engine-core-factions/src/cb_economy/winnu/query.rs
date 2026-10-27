@@ -8,12 +8,12 @@
 //! | `strategy.secondary_waivers` | `secondary_waivers` | Q | `strategy.secondary_waivers` |
 //! | `strategy.secondary_waived` | `secondary_waived` | Q | `strategy.secondary_waived` (gives the note back) |
 //! | `direct.winnu_agent_ready` | `agent_ready` | Q | `direct.winnu_agent_ready` |
-//! | `unit_roll_modifier` | `unit_roll_modifier` | Q, BLOCKED | needs `promissory::has_commander_ability` (Mahact Imperia, Alliance, grants): not in the core |
+//! | `unit_roll_modifier` | `unit_roll_modifier` | Q | `general.unit_roll_modifier` (commander and Imperator; the four routes of `promissory::has_commander_ability` are local) |
 //! | `direct.winnu_exhaust_agent_for_production` | `exhaust_agent_for_production` | W | `offer.rs` (B3's `Stage::Offering`) |
 //! | `component_actions`, `perform_component`, leaders, timing abilities | | W | B7 |
 //! | movement `linked_systems`, `move_bonus` | | Q | `movement.rs` (A2, done) |
 
-use ti4_engine_core::generated::{Faction, Leader, Planet, PromissoryNote, Technology};
+use ti4_engine_core::generated::{Breakthrough, Faction, Leader, Planet, PromissoryNote, Technology, Unit};
 use ti4_engine_core::hooks::strategy::Waivers;
 use ti4_engine_core::hooks::{CombatCtx, CombatUnit, HookTable, Spend, Waiver};
 use ti4_engine_core::ids::Seat;
@@ -22,7 +22,7 @@ use ti4_engine_core::keys::MarkKey;
 use ti4_engine_core::state::{CoreState, LeaderStatus, NoteKey};
 use ti4_engine_core::tables::Scope;
 
-use crate::common::{flagship_has_text, flagship_of, has_tech_text, is_faction, mark, num, player};
+use crate::common::{flagship_has_text, flagship_of, has_tech_text, holds_breakthrough, is_faction, mark, num, player};
 
 /// The code of the Acquiescence waiver (the module is the Winnu; the adapter renders `acq`).
 pub const ACQUIESCENCE: u16 = 0;
@@ -32,6 +32,7 @@ pub fn register(t: &mut HookTable) {
     t.ground.custodians_free.push(custodians_free);
     t.economy.planet_spend_value.push(planet_spend_value);
     t.general.unit_dice.push(unit_dice);
+    t.general.unit_roll_modifier.push(unit_roll_modifier);
     t.strategy.secondary_waivers.push(secondary_waivers);
     t.strategy.secondary_waived.push(secondary_waived);
     t.direct.winnu_agent_ready.push(agent_ready);
@@ -123,6 +124,85 @@ pub fn planet_spend_value(s: &CoreState, k: &Kernel, who: Seat, planet: Planet, 
     ti4_engine_core::query::economy::value_now(s, ALL_SOURCES, ti4_engine_core::query::reach::blanked(s), planet, other, dock)
 }
 
+/// `promissory::has_commander_ability(player, Rickar Rickani)`: a granted mark, the commander unlocked, the Mahact's
+/// Imperia (another player's unlocked commander while their token is in the fleet pool), or a faceup Alliance from a
+/// seated owner whose commander is unlocked.
+fn has_commander_ability(s: &CoreState, who: Seat, commander: Leader) -> bool {
+    use ti4_engine_core::keys::{Atom, MarkVal};
+    let unlocked = |seat: Seat| player(s, seat).is_some_and(|p| p.leaders.status.get(&commander) == Some(&LeaderStatus::Unlocked));
+    if mark(s, MarkKey::CommanderAbility(who, commander)).is_some() || unlocked(who) {
+        return true;
+    }
+    if is_faction(s, who, Faction::TheMahactGeneSorcerers)
+        && let Some(MarkVal::List(pool)) = mark(s, MarkKey::MahactFleet(who))
+    {
+        let owned = pool.iter().any(|v| matches!(v, MarkVal::Atom(Atom::Seat(owner)) if *owner != who && unlocked(*owner)));
+        if owned {
+            return true;
+        }
+    }
+    s.cards().promissory.iter().any(|(key, holder)| {
+        *holder == who
+            && key.note == PromissoryNote::Alliance
+            && s.cards().promissory_faceup.contains_key(key)
+            && s.seats()
+                .seating_order()
+                .iter()
+                .copied()
+                .find(|seat| is_faction(s, *seat, key.faction))
+                .is_some_and(|owner| owner != who && unlocked(owner))
+    })
+}
+
+/// Rickar Rickani: +2 in the Mecatol Rex system, the home system and a system with a legendary planet.
+fn commander_bonus(s: &CoreState, k: &Kernel, who: Seat, system: ti4_engine_core::generated::System) -> i64 {
+    use ti4_engine_core::generated::System;
+    if !has_commander_ability(s, who, Leader::RickarRickani) {
+        return 0;
+    }
+    let scope = crate::common::scope(k);
+    let home = player(s, who).and_then(|p| p.home_system) == Some(system);
+    let legendary = scope.system(system).is_some()
+        && system.data().planets.iter().any(|p| scope.0 & ti4_engine_core::tables::source_bit(p.data().source) != 0 && p.data().legendary);
+    if matches!(system, System::MecatolRex18 | System::MecatolRex112) || home || legendary { 2 } else { 0 }
+}
+
+/// The player this unit fights: the first other owner of a ship or ground force in the system (space) or on the planet (ground).
+fn opponent_of(s: &CoreState, k: &Kernel, unit: CombatUnit) -> Option<Seat> {
+    use ti4_engine_core::generated::UnitBaseType;
+    let system = unit.system?;
+    let scope = crate::common::scope(k);
+    let units = match unit.planet {
+        Some(planet) => s.board().planet(planet).units.as_slice(),
+        None => s.board().sys(system).units.as_slice(),
+    };
+    units
+        .iter()
+        .filter(|other| other.owner() != unit.owner)
+        .find(|other| {
+            scope.unit(other.kind()).is_some_and(|d| {
+                d.ship || matches!(d.base_type, UnitBaseType::Infantry | UnitBaseType::Mech) || matches!(other.kind(), Unit::HelTitanI | Unit::HelTitanII)
+            })
+        })
+        .map(|other| other.owner())
+}
+
+fn support_in_play(s: &CoreState, holder: Seat) -> i64 {
+    i64::try_from(s.trade().support_holders.values().filter(|who| *who == holder).count()).unwrap_or(0)
+}
+
+/// The commander's shift, plus the breakthrough's: one per support-for-the-throne the opponent holds.
+pub fn unit_roll_modifier(s: &CoreState, k: &Kernel, unit: CombatUnit) -> i64 {
+    let Some(system) = unit.system else { return 0 };
+    let mut shift = commander_bonus(s, k, unit.owner, system);
+    if holds_breakthrough(s, unit.owner, Breakthrough::Imperator)
+        && let Some(opponent) = opponent_of(s, k, unit)
+    {
+        shift += support_in_play(s, opponent);
+    }
+    shift
+}
+
 /// Salai Sai Corian: the flagship rolls one die per non-fighter ship of the other players in the system.
 pub fn unit_dice(s: &CoreState, k: &Kernel, unit: CombatUnit, dice: i64) -> i64 {
     let flagship = flagship_of(Faction::TheWinnu);
@@ -151,7 +231,6 @@ pub fn unit_dice(s: &CoreState, k: &Kernel, unit: CombatUnit, dice: i64) -> i64 
 mod tests {
     use super::*;
     use crate::cb_economy::testkit::table;
-    use ti4_engine_core::generated::Unit;
     use ti4_engine_core::keys::{Atom, MarkVal};
     use ti4_engine_core::state::Piece;
 
@@ -215,5 +294,26 @@ mod tests {
         assert_eq!(planet_spend_value(&s, &k, Seat(0), planet, Spend::Resources, res), inf);
         assert_eq!(planet_spend_value(&s, &k, Seat(0), planet, Spend::Influence, inf), res);
         assert_eq!(planet_spend_value(&s, &k, Seat(1), planet, Spend::Resources, res), res, "not the holder");
+    }
+
+    #[test]
+    fn the_commander_and_the_breakthrough_shift_the_roll() {
+        let (mut s, k) = table(&[W, SOL]);
+        let home = ti4_engine_core::ids::system_at(30);
+        let other = ti4_engine_core::ids::system_at(31);
+        s.players_mut().edit(0).home_system = Some(home);
+        let unit = |system| CombatUnit { owner: Seat(0), system: Some(system), planet: None, unit: Unit::CruiserI, ctx: CombatCtx::Space };
+        assert_eq!(unit_roll_modifier(&s, &k, unit(home)), 0, "locked commander");
+        s.players_mut().edit(0).leaders.status.insert(Leader::RickarRickani, LeaderStatus::Unlocked);
+        assert_eq!(unit_roll_modifier(&s, &k, unit(home)), 2);
+        assert_eq!(unit_roll_modifier(&s, &k, unit(other)), 0, "not home, not Mecatol, no legendary planet");
+        assert_eq!(unit_roll_modifier(&s, &k, CombatUnit { system: None, ..unit(home) }), 0);
+        // The Imperator: one per support the opponent holds.
+        s.players_mut().edit(0).cards.breakthrough = Some(Breakthrough::Imperator);
+        s.board_mut().sys_mut(other).units.push(ti4_engine_core::state::Piece::new(Unit::CruiserI, Seat(1)));
+        s.trade_mut().support_holders.insert(Seat(0), Seat(1));
+        s.trade_mut().support_holders.insert(Seat(1), Seat(1));
+        assert_eq!(unit_roll_modifier(&s, &k, unit(other)), 2, "two supports are in the opponent's play area");
+        assert_eq!(unit_roll_modifier(&s, &k, unit(home)), 2, "no opponent there: the commander only");
     }
 }
