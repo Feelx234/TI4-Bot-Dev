@@ -299,7 +299,7 @@ fn commit_candidates(
         crate::dual::HookGroup::Ground,
         "sardakk::commit_candidates",
         text(),
-        crate::core_factions::cd::sardakk_commit_candidates(state, sources, invader, system, already)
+        crate::core_factions::cd::sardakk_commit_candidates(state, sources, galaxy, invader, system, already)
     )
 }
 

@@ -35,8 +35,8 @@ const READS: SliceSet = SliceSet::of(&[
     Slice::Seats,
     Slice::Players,
     Slice::Board,
-    Slice::Map,
     Slice::Cards,
+    Slice::Strategy,
     Slice::Trade,
     Slice::Marks,
     Slice::Transient,
@@ -51,8 +51,14 @@ pub struct Pos {
 
 impl Pos {
     fn of(gs: &GameState, sources: SourceSet) -> Option<Self> {
+        Self::with_map(gs, sources, None)
+    }
+
+    /// With the map slice, which the string galaxy feeds (adjacency).
+    fn with_map(gs: &GameState, sources: SourceSet, galaxy: Option<&ti4_content::galaxy::Galaxy>) -> Option<Self> {
         let mut cx = Ctx::of(gs).ok()?;
-        let view = CoreView::of(gs, &mut cx, Sources::default(), READS).ok()?;
+        let reads = if galaxy.is_some() { READS.union(SliceSet::of(&[Slice::Map])) } else { READS };
+        let view = CoreView::of(gs, &mut cx, Sources { galaxy, rng: None }, reads).ok()?;
         Some(Self { view, cx, k: crate::core_adapter::kernel_for(sources) })
     }
 
@@ -71,7 +77,11 @@ impl Pos {
 
 /// Run `f` over the typed view of `gs`.
 fn with<T>(gs: &GameState, sources: SourceSet, f: impl FnOnce(&Pos) -> Option<T>) -> Option<T> {
-    f(&Pos::of(gs, sources)?)
+    let p = Pos::of(gs, sources);
+    if p.is_none() && std::env::var_os("TI4_CD_TRACE").is_some() {
+        eprintln!("CD_TRACE typed view unavailable");
+    }
+    f(&p?)
 }
 
 fn full() -> SourceSet {
@@ -230,8 +240,10 @@ pub fn naalu_secondary_waivers(
         let mut out = Vec::new();
         for w in found.as_slice() {
             let (note, faction) = naalu::query::mindsieve_parts(w.code)?;
-            let id = format!("ms|{}:{}", <ti4_engine_core::generated::PromissoryNote as IdStr>::as_str(note), faction_alias(faction));
-            let name = format!("{}:{}", <ti4_engine_core::generated::PromissoryNote as IdStr>::as_str(note), faction_alias(faction));
+            // A generic note's corpus record is `<color>_{alias}`; the key carries the alias.
+            let alias = <ti4_engine_core::generated::PromissoryNote as IdStr>::as_str(note);
+            let name = format!("{}:{}", alias.strip_prefix("<color>_").unwrap_or(alias), faction_alias(faction));
+            let id = format!("ms|{name}");
             out.push(SecondaryWaiver { id, label: format!("resolve the secondary by giving {primary} the {name} promissory note") });
         }
         // The string lists the notes in the text order of their keys.
@@ -265,12 +277,14 @@ pub fn sardakk_commander_unlocked(gs: &GameState, who: &PlayerId, l: &LeaderId) 
 pub fn sardakk_commit_candidates(
     gs: &GameState,
     sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
     invader: &PlayerId,
     sys: &SystemId,
     already: &[(SystemId, PlanetId)],
 ) -> Option<Vec<crate::factions::hooks_ground::CommitCandidate>> {
     use crate::factions::hooks_ground::CommitCandidate;
-    with(gs, sources, |p| {
+    let p = Pos::with_map(gs, sources, galaxy)?;
+    (|p: &Pos| {
         let already: Option<Vec<_>> = already.iter().map(|(s, pl)| Some((system(s)?, planet(pl)?))).collect();
         let found = sardakk::query::commit_candidates(p.s(), p.k, p.seat(invader)?, system(sys)?, &already?);
         found
@@ -284,7 +298,7 @@ pub fn sardakk_commit_candidates(
                 })
             })
             .collect()
-    })
+    })(&p)
 }
 
 // -- titans -------------------------------------------------------------------------------------------------
@@ -392,7 +406,11 @@ pub fn yssaril_commander_unlocked(gs: &GameState, who: &PlayerId, l: &LeaderId) 
 pub struct CdCheck {
     pub positions: u64,
     pub unmapped: u64,
+    /// Which variants (`naaz/map`) the typed view could not hold.
+    pub unmapped_what: Vec<String>,
     pub compared: u64,
+    /// The slots (`naaz::unit_dice`) the cross-product reached.
+    pub slots: std::collections::BTreeSet<&'static str>,
     pub mismatches: Vec<String>,
 }
 
@@ -401,6 +419,7 @@ impl CdCheck {
         self.positions += o.positions;
         self.unmapped += o.unmapped;
         self.compared += o.compared;
+        self.slots.extend(o.slots.iter().copied());
         self.mismatches.extend(o.mismatches.iter().take(60usize.saturating_sub(self.mismatches.len())).cloned());
     }
 }
@@ -441,12 +460,12 @@ fn variants(gs: &GameState) -> Vec<(&'static str, GameState)> {
     v.players[0].faction = FactionId::new("naalu");
     v.players[0].breakthrough = Some(BreakthroughId::new("naalubt"));
     v.players[0].leaders.insert(ti4_model::id::LeaderId::new("naalucommander"), LeaderStatus::Unlocked);
-    v.players[1].relic_fragments.insert("cultural".to_owned(), 1);
+    v.players[1].relic_fragments.insert("CULTURAL".to_owned(), 1);
     v.system_mut(&first).units.extend([unit("naalu_flagship", &a), unit("naalu_fighter", &a), unit("naalu_fighter2", &a), unit("fighter", &b)]);
     if let Some(pl) = planet_of(&v, &first) {
         v.system_mut(&first).planet_units.entry(pl).or_default().extend([unit("naalu_mech", &a), unit("infantry", &b)]);
     }
-    v.promissory_notes.insert(format!("ceasefire:{}", v.players[1].faction), a.clone());
+    v.promissory_notes.insert(format!("cf:{}", v.players[1].faction), a.clone());
     v.faction_marks.insert("naalu:gift_round".to_owned(), v.round.to_string());
     out.push(("naalu", v.clone()));
     v.faction_marks.remove("naalu:gift_round");
@@ -478,7 +497,7 @@ fn variants(gs: &GameState) -> Vec<(&'static str, GameState)> {
     let mut v = base.clone();
     v.players[0].faction = FactionId::new("yin");
     v.players[0].leaders.insert(ti4_model::id::LeaderId::new("yincommander"), LeaderStatus::Unlocked);
-    v.players[1].technologies.extend(["amd", "dxa", "gd2", "vax"].map(TechnologyId::new));
+    v.players[1].technologies.extend(["amd", "dxa", "gd", "cm"].map(TechnologyId::new));
     v.system_mut(&first).units.push(unit("infantry", &a));
     if let Some(pl) = planet_of(&v, &first) {
         v.system_mut(&first).planet_units.entry(pl).or_default().extend([unit("infantry", &a), unit("infantry", &a)]);
@@ -508,7 +527,7 @@ fn drive(gs: &GameState, galaxy: Option<&ti4_content::galaxy::Galaxy>, sources: 
     let ids: Vec<PlayerId> = gs.players.iter().map(|p| p.id.clone()).collect();
     let systems: Vec<SystemId> = gs.board.iter().filter(|(_, s)| !s.units.is_empty() || !s.planet_units.is_empty()).map(|(k, _)| k.clone()).take(4).collect();
     let kinds = ["naaz_mech", "naaz_flagship", "naaz_voltron", "naalu_mech", "naalu_fighter2", "naalu_flagship", "sardakk_flagship", "cruiser", "infantry", "mech", "yssaril_flagship"];
-    let techs = ["amd", "dxa", "gd2", "vax"].map(ti4_model::id::TechnologyId::new);
+    let techs = ["amd", "dxa", "gd", "cm"].map(ti4_model::id::TechnologyId::new);
     let leaders = ["naazcommander", "naalucommander", "sardakkcommander", "titanscommander", "yincommander", "yssarilcommander", "sardakkagent"].map(ti4_model::id::LeaderId::new);
     for p in &ids {
         let _ = hooks_economy::action_card_draw_bonus(gs, content, p, 1);
@@ -593,12 +612,20 @@ pub fn compare(label: &str, gs: &GameState, galaxy: &ti4_content::galaxy::Galaxy
     let _ = crate::dual::take_report();
     let mask = AreaMask::all(Backend::String).with(Area::Factions, Backend::Dual);
     for (name, v) in variants(gs) {
+        // A variant the typed view cannot hold would compare the string answer with itself: count it.
+        for (what, mapped) in [("plain", Pos::of(&v, sources).is_some()), ("map", Pos::with_map(&v, sources, Some(galaxy)).is_some())] {
+            if !mapped {
+                out.unmapped += 1;
+                out.unmapped_what.push(format!("{name}/{what}"));
+            }
+        }
         crate::dual::with_mask(mask, || {
             drive(&v, Some(galaxy), sources);
             drive(&v, None, sources);
         });
         let report = crate::dual::take_report();
         out.compared += report.hooks.values().map(|h| h.calls).sum::<u64>();
+        out.slots.extend(report.hooks.iter().filter(|(_, h)| h.calls > 0).map(|(slot, _)| *slot));
         for d in &report.differences {
             if out.mismatches.len() < 60 {
                 out.mismatches.push(format!("{label}: {name}: {d}"));
@@ -905,6 +932,65 @@ mod tests {
         assert_eq!(<PromissoryNote as IdStr>::from_id("gift"), Some(PromissoryNote::GiftOfPrescience));
         assert_eq!(<Faction as IdStr>::as_str(Faction::TheNaaluCollective), "naalu");
         assert_eq!(naalu::query::RULES_FACTION_BUGFIXES, ti4_model::state::RULES_FACTION_BUGFIXES);
+    }
+
+    /// Every slot the package wraps with the hook dual.
+    const SLOTS: &[&str] = &[
+        "naaz::unit_roll_modifier",
+        "naaz::unit_dice",
+        "naaz::explore_extra_draw",
+        "naaz::cannot_produce",
+        "naaz::effect_placement_forbidden",
+        "naaz::captured_unit_return_form",
+        "naaz::ability_hit_immune",
+        "naaz::commander_unlocked",
+        "naaz::explored",
+        "naalu::unit_roll_modifier",
+        "naalu::fighter_fleet_weight_halves",
+        "naalu::matriarch_fighters",
+        "naalu::temporary_ground_force",
+        "naalu::secondary_waivers",
+        "naalu::commander_has_peek",
+        "naalu::strategy_phase_ended",
+        "sardakk::unit_roll_modifier",
+        "sardakk::ground_rolls_extra_hits",
+        "sardakk::commit_candidates",
+        "sardakk::commander_unlocked",
+        "titans::forced_combat_planets",
+        "titans::slumberstate_draw_bonus",
+        "titans::commander_unlocked",
+        "yin::extra_prerequisite_colours",
+        "yin::research_waiver_offer",
+        "yin::commander_unlocked",
+        "yin::research_waiver_paid",
+        "yssaril::deepgloom_reach",
+        "yssaril::transaction_limit_exempt",
+        "yssaril::action_card_draw_bonus",
+        "yssaril::action_card_limit",
+        "yssaril::action_cards_forbidden",
+        "yssaril::commander_unlocked",
+    ];
+
+    /// The cross-product over a seated table reaches every slot and finds no difference. The dual report is process-wide, so
+    /// this runs alone: `cargo test -p ti4-engine --lib core_factions::cd -- --ignored --test-threads=1`.
+    #[test]
+    #[ignore = "reads the process-wide dual report: run alone"]
+    fn every_cd_slot_is_compared_over_a_seated_table() {
+        let mut gs = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan"), ("c", "letnev")], ti4_model::content_types::DEFAULT);
+        // A table that has just been dealt holds the generic notes under the faction "generic"; a game names the owner's.
+        let notes: Vec<(String, PlayerId)> = std::mem::take(&mut gs.promissory_notes).into_iter().collect();
+        for (note, holder) in notes {
+            let (alias, _) = note.split_once(':').unwrap_or((note.as_str(), ""));
+            let owner = gs.players.iter().find(|p| p.id == holder).map(|p| p.faction.to_string()).unwrap_or_default();
+            gs.promissory_notes.insert(format!("{alias}:{owner}"), holder);
+        }
+        let hub = crate::fixtures::hub_with_centre("18");
+        let mut out = CdCheck::default();
+        compare("seated", &gs, &hub.galaxy, ti4_model::content_types::DEFAULT, &mut out);
+        assert!(out.mismatches.is_empty(), "{:?}", out.mismatches);
+        assert_eq!(out.unmapped, 0, "the typed view holds every variant: {:?}", out.unmapped_what);
+        let missing: Vec<_> = SLOTS.iter().filter(|s| !out.slots.contains(**s)).collect();
+        assert!(missing.is_empty(), "not reached: {missing:?} of {:?}", out.slots);
     }
 
     #[test]
