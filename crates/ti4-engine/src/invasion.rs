@@ -2473,6 +2473,24 @@ struct NextCombat {
     remaining: Vec<PlayerId>,
 }
 
+/// What the start of a ground combat round leaves for the rest of it.
+struct RoundStart {
+    /// A copied round agent made the round a numbered one with its own event.
+    copied_round: bool,
+    /// The planet's units before anything is rolled.
+    before: Vec<Unit>,
+}
+
+/// What a finished ground combat round reports ([`InvasionWindow::end_ground_round`]).
+struct GroundRound {
+    before: Vec<Unit>,
+    dice: Vec<InvasionDie>,
+    attacker_hits: usize,
+    defender_hits: usize,
+    harrow: usize,
+    log: Vec<PendingEvent>,
+}
+
 /// Where an open invasion has reached.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Stage {
@@ -3719,20 +3737,19 @@ impl InvasionWindow {
         )
     }
 
-    #[allow(
-        clippy::too_many_lines,
-        reason = "one round read top to bottom: roll, reroll windows, added hits, removal, Harrow"
-    )]
-    fn resolve_ground_round(
+    /// The start of one ground combat round (42.1): the round counter, "round started" (when a copied
+    /// round agent listens), the faction round-start hooks, Proxima's watch, and the Dunlain Reaper.
+    /// `None` when a handler refused (`strict_timing_error` carries it out).
+    fn begin_ground_round(
         &mut self,
         state: &mut GameState,
         ctx: &mut Resolving<'_>,
-        planets: Vec<PlanetId>,
-        index: usize,
-        defender: PlayerId,
-    ) {
+        planet: &PlanetId,
+        defender: &PlayerId,
+    ) -> Option<RoundStart> {
         let (content, sources) = (ctx.content, ctx.sources);
-        let planet = planets[index].clone();
+        let defender = defender.clone();
+        let planet = planet.clone();
         if let Some(active) = state.active_invasion.as_mut() {
             if active.planet.as_ref() == Some(&planet)
                 && active.defender.as_ref() == Some(&defender)
@@ -3763,7 +3780,7 @@ impl InvasionWindow {
             ]);
             if let Err(error) = ctx.emit(state, "GROUND_COMBAT_ROUND_STARTED", payload) {
                 self.strict_timing_error = Some(error);
-                return;
+                return None;
             }
         }
         // Faction effects at the start of the round (Naaz Supercharge), for each participant.
@@ -3793,7 +3810,7 @@ impl InvasionWindow {
                 ctx.emit(state, crate::factions::bastion_units::ROUND_BEGAN, payload)
             {
                 self.strict_timing_error = Some(error);
-                return;
+                return None;
             }
         }
         // Letnev's Dunlain Reaper: "DEPLOY: At the start of a round of ground combat, you may spend
@@ -3803,9 +3820,22 @@ impl InvasionWindow {
             dunlain_reaper(state, ctx, &who, &self.system, &planet);
         }
         let before = state.system_state(&self.system).on_planet(&planet).to_vec();
-        // The "Roll Dice" step. An effect that returns to its start (the Nomad's The Thundarian,
-        // asked at the end of the step) plays it again exactly as the first time: the same round
-        // number, fresh dice, and no hit produced or assigned for the discarded roll.
+        Some(RoundStart { copied_round, before })
+    }
+
+    /// The "Roll Dice" step (42.2) with its replays: both sides roll, the roll-made windows open, the
+    /// dice are read back after rerolls. `None` when a handler refused.
+    fn roll_ground_step(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        planet: &PlanetId,
+        defender: &PlayerId,
+        copied_round: bool,
+    ) -> Option<(usize, usize, Vec<InvasionDie>)> {
+        let (content, sources) = (ctx.content, ctx.sources);
+        let defender = defender.clone();
+        let planet = planet.clone();
         let round_before = state.combat_round_seq;
         let mut replays = 0u32;
         let mut rolls: Vec<InvasionDie> = Vec::new();
@@ -3894,7 +3924,7 @@ impl InvasionWindow {
             if crate::factions::nomad_agents::watches_roll_step(state) {
                 if let Err(error) = ctx.emit(state, "GROUND_COMBAT_ROLL_STEP_ENDED", ended) {
                     self.strict_timing_error = Some(error);
-                    return;
+                    return None;
                 }
             }
             if crate::combat::take_roll_replay(state) {
@@ -3906,6 +3936,25 @@ impl InvasionWindow {
             }
             break (attacker_hits, defender_hits);
         };
+        Some((attacker_hits, defender_hits, rolls))
+    }
+
+    /// The hits of the round (42.3): added hits, the hit windows, the removal of casualties and
+    /// L1Z1X's Harrow. The events of the removals are collected in `log`. Returns the hits each side
+    /// finally assigned (invader, defender) and Harrow's.
+    fn assign_ground_round_hits(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        planet: &PlanetId,
+        defender: &PlayerId,
+        hits: (usize, usize),
+        log: &mut Vec<PendingEvent>,
+    ) -> (usize, usize, usize) {
+        let (content, sources) = (ctx.content, ctx.sources);
+        let defender = defender.clone();
+        let planet = planet.clone();
+        let (attacker_hits, defender_hits) = hits;
         // Hits a faction adds to its own roll once the dice are final (Valkyrie Particle Weave).
         // Assigned by the opponent like any other hit.
         // Both sides' final dice are read before either side adds anything.
@@ -3942,7 +3991,6 @@ impl InvasionWindow {
             defender_hits,
             "ground_combat",
         );
-        let mut log = Vec::new();
         remove_ground(
             state,
             content,
@@ -3952,7 +4000,7 @@ impl InvasionWindow {
             &defender,
             attacker_hits,
             "ground_combat",
-            &mut log,
+            log,
         );
         remove_ground(
             state,
@@ -3963,7 +4011,7 @@ impl InvasionWindow {
             &self.invader,
             defender_hits,
             "ground_combat",
-            &mut log,
+            log,
         );
         // L1Z1X's Harrow: at the end of each round of ground combat, bombard the defender again.
         // A planetary shield stops it as it stops any bombardment (63.2).
@@ -4010,12 +4058,35 @@ impl InvasionWindow {
                 &defender,
                 harrow,
                 "harrow",
-                &mut log,
+                log,
             );
             harrow
         } else {
             0
         };
+        (attacker_hits, defender_hits, harrow)
+    }
+
+    /// The end of the round: the step report on the invasion record, the removal events, and
+    /// Alarum. `false` when a handler refused.
+    fn end_ground_round(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        planet: &PlanetId,
+        defender: &PlayerId,
+        round: GroundRound,
+    ) -> bool {
+        let GroundRound {
+            before,
+            dice: rolls,
+            attacker_hits,
+            defender_hits,
+            harrow,
+            log,
+        } = round;
+        let defender = defender.clone();
+        let planet = planet.clone();
         let after = state.system_state(&self.system).on_planet(&planet).to_vec();
         if let Some(active) = state.active_invasion.as_mut() {
             active.last_step = Some(InvasionStep {
@@ -4048,8 +4119,52 @@ impl InvasionWindow {
             ended.insert("defender".to_owned(), defender.to_string().into());
             if let Err(error) = ctx.emit(state, "GROUND_COMBAT_ROUND_ENDED", ended) {
                 self.strict_timing_error = Some(error);
-                return;
+                return false;
             }
+        }
+        true
+    }
+
+    fn resolve_ground_round(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        planets: Vec<PlanetId>,
+        index: usize,
+        defender: PlayerId,
+    ) {
+        let planet = planets[index].clone();
+        let Some(RoundStart {
+            copied_round,
+            before,
+        }) = self.begin_ground_round(state, ctx, &planet, &defender)
+        else {
+            return;
+        };
+        let Some((rolled_attacker, rolled_defender, dice)) =
+            self.roll_ground_step(state, ctx, &planet, &defender, copied_round)
+        else {
+            return;
+        };
+        let mut log = Vec::new();
+        let (attacker_hits, defender_hits, harrow) = self.assign_ground_round_hits(
+            state,
+            ctx,
+            &planet,
+            &defender,
+            (rolled_attacker, rolled_defender),
+            &mut log,
+        );
+        let round = GroundRound {
+            before,
+            dice,
+            attacker_hits,
+            defender_hits,
+            harrow,
+            log,
+        };
+        if !self.end_ground_round(state, ctx, &planet, &defender, round) {
+            return;
         }
         self.finish_ground_round(state, ctx, planets, index, defender, &planet);
     }
