@@ -67,6 +67,18 @@ impl DecisionTrigger {
     /// outermost first, the event itself excluded).
     #[must_use]
     pub fn from_event(event: &Event, relation: &str, chain: &[u64]) -> Self {
+        if crate::dual::backend(crate::dual::Area::Kernel) == crate::dual::Backend::Dual {
+            return crate::dual::run_dual_typed(
+                crate::dual::Area::Kernel,
+                "trigger.from_event",
+                || crate::kernel_sync::convert::core_trigger(event, relation, chain),
+                || Self::from_event_string(event, relation, chain),
+            );
+        }
+        Self::from_event_string(event, relation, chain)
+    }
+
+    fn from_event_string(event: &Event, relation: &str, chain: &[u64]) -> Self {
         let kind = kind_of(&event.event_type);
         // Whose act it was. `player` names the actor for most events, but it names the *victim* of
         // hits and shots, the *outcome* of an agenda and nobody for phase and ground-roll events.

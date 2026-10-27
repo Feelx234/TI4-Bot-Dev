@@ -72,6 +72,9 @@ impl DriverFlags {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Pending {
+    /// Events staged by effects that had no resolver in reach (`kernel::fx::stage`), announced in order
+    /// by `fx::announce_staged` (the string engine keeps them as `private:#staged:*` marks).
+    pub staged: Vec<super::EventRec>,
     pub stack: SmallList<Window, 4>,
     pub top: Option<PendingAsk>,
     pub tag: Option<PendingTag>,
