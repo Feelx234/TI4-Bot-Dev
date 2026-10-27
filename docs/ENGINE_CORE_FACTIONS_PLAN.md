@@ -5,7 +5,7 @@ branch `core-c-prep` (from `core-state-main` 201f6714 plus `core-a5-kernel` 39b2
 numbers were measured on that tree; the hook and caller counts come from a regex over the sources and are
 within a few percent (a slot filled through a non-literal `..` is missed). **`docs/ENGINE_DISENTANGLE.md`
 (branch `core-disentangle-design`) did not exist yet when this was written**; when it appears, re-read its
-plan against section 1 (module ownership), section 5 (briefs) and the "ported set" idea in 6, and fix this file.
+plan against section 1 (module ownership), section 5 (briefs) and the "ported set" idea in 4, and fix this file.
 
 ## 1. Inventory of `crates/ti4-engine/src/factions/` (88 383 lines in 49 files; about 45% is inline `#[cfg(test)]`)
 
@@ -17,7 +17,7 @@ Three kinds of file:
 * **Hook plumbing, not faction code** (`mod.rs` 1 217, `hooks_cards/combat/economy/ground/movement/strategy.rs`
   4 407): the `Hooks` struct, the six group structs and the dispatch functions the shared engine calls. In the
   core these are `kernel/hooks/*.rs` (done by A5: 99 string slots + about 91 `direct` slots). Not ported by C;
-  deleted by D2. A shard edits only the body of the dispatch function of a slot it ports (section 6).
+  deleted by D2. A shard edits only the body of the dispatch function of a slot it ports (section 4).
 * **Cross-faction helpers**: `borrowed_commanders.rs`, `borrowed_commanders_b.rs`, `borrowed_round_agents.rs`
   (2 622 lines; Dune-style "borrowed" leaders used by several factions; only `direct` slots).
 
@@ -82,7 +82,7 @@ be registered twice).
   B3 <- C2, C5, B4 <- C2/C3 (transaction_reach, trade_good_worth), B6 <- C2, C5, B7 <- C1-C6 (all leaders),
   B8 <- C4, C6, B9 <- C2 (votes_first), D1 <- all six (the `game.rs` direct slots: keleres, crimson, nekro, mahact).
   Until a shard lands, its packages gate with the faction's string module still answering (the "ported set",
-  section 6).
+  section 4).
 
 ## 2. Proposed split into 6 shards (disjoint ownership, about 13.8 k lines each, total 82 762)
 
@@ -100,7 +100,7 @@ area's Ask/Opt exists, so a shard may start before its last blocker merges.
 
 C6 is the smallest on purpose (riskiest: three Keleres modules, plots, helpers shared by other factions) and
 merges last; it also removes `#[ignore]` from `every_module_is_provided`. File ownership: a shard owns its
-directory, `crates/ti4-engine/src/render/factions/<its files>` and `core_factions/<shard>.rs` (section 6), the
+directory, `crates/ti4-engine/src/render/factions/<its files>` and `core_factions/<shard>.rs` (section 4), the
 string files of its factions only for the dual wrapper lines (no behaviour edits), and the `state/marks`
 records of its factions through F5's typed keys. No shard edits `lib.rs`, another shard's directory, a `kernel/`
 file, any area file (`rules/`, `choice/`, `query/`): a missing hook point or Ask variant is requested from the
