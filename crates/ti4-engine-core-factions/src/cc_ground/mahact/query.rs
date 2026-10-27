@@ -7,7 +7,7 @@
 //! | `mahact_imperia_grants` | `mahact::imperia_grants` | Q | direct |
 //! | `mahact_is_mahact` | `mahact::is_mahact` | Q | direct |
 //! | `mahact_purges_alliance` | `mahact::purges_alliance` | Q | direct |
-//! | `mahact_units_flagship_roll_bonus` | `mahact_units::flagship_roll_bonus` | Q | direct (the `hit_shift` bridge reads it) |
+//! | `mahact_units_flagship_roll_bonus` | `mahact_units::flagship_roll_bonus` | Q | seam `hit_shift` (native; the direct slot stays empty so the legacy bridge adds nothing) |
 //! | `mahact_units_ship_movement_barred` | `mahact_units::ship_movement_barred` | Q | direct |
 //! | `strategy.secondary_waivers` | `mahact::secondary_waivers` | Q | `strategy.secondary_waivers` (code = the system's index) |
 //! | `strategy.secondary_waived` | `mahact::secondary_waived` | W | `offer.rs`: needs the kernel's leader exhaust (it tells the Nomad's Suite) |
@@ -22,23 +22,27 @@ use ti4_engine_core::hooks::{HookTable, Waiver};
 use ti4_engine_core::hooks::direct::Seats;
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::keys::{MarkKey, MarkVal};
+use ti4_engine_core::hooks::CombatCtx;
 use ti4_engine_core::kernel::Kernel;
+use ti4_engine_core::kernel::seam::{Delta, Layer, Q, RollKind, RollSite, Source};
 use ti4_engine_core::state::{CoreState, LeaderStatus};
 
 use crate::common::{flagship_has_text, is_faction, mark, player, seat as seat_of};
+
+const SOURCE: Source = Source::Faction(Faction::TheMahactGeneSorcerers);
 
 /// The roll bonus of Arvicon Rex.
 const FLAGSHIP_BONUS: i64 = 2;
 
 /// Fill the slots of this tier.
 pub fn register(t: &mut HookTable) {
+    t.seam.hit_shift.push_add(SOURCE, Layer::Faction, arvicon_rex);
     let d = &mut t.direct;
     d.mahact_fleet_pool_owners.push(fleet_pool_owners);
     d.mahact_foreign_tokens.push(foreign_tokens);
     d.mahact_imperia_grants.push(imperia_grants);
     d.mahact_is_mahact.push(is_mahact);
     d.mahact_purges_alliance.push(purges_alliance);
-    d.mahact_units_flagship_roll_bonus.push(flagship_roll_bonus);
     d.mahact_units_ship_movement_barred.push(ship_movement_barred);
     t.strategy.secondary_waivers.push(secondary_waivers);
 }
@@ -78,6 +82,18 @@ pub fn imperia_grants(s: &CoreState, who: Seat, commander: Leader) -> bool {
     fleet_pool_owners(s, who)
         .iter()
         .any(|owner| *owner != who && player(s, *owner).is_some_and(|p| p.leaders.status.get(&commander) == Some(&LeaderStatus::Unlocked)))
+}
+
+/// Arvicon Rex on a space combat roll (a native provider: the direct slot stays empty so the legacy bridge adds nothing).
+fn arvicon_rex(q: Q<'_>, site: &RollSite, _: i64) -> Delta {
+    let u = &site.unit;
+    if site.kind != RollKind::Combat || u.ctx != CombatCtx::Space {
+        return Delta::None;
+    }
+    match flagship_roll_bonus(q.s, q.k, u.owner, u.unit) {
+        0 => Delta::None,
+        n => Delta::Add(n),
+    }
 }
 
 /// Arvicon Rex: +2 for the flagship when every opponent in the combat in the active system has no command token in the

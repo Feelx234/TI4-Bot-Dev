@@ -3,7 +3,7 @@
 //!
 //! | slot | string function | tier | target |
 //! |---|---|---|---|
-//! | `general.unit_roll_modifier` | `borrowed_commanders::unit_roll_modifier` | Q | `general.unit_roll_modifier` (Obsidian commander, the Fracture; a sum) |
+//! | `general.unit_roll_modifier` | `borrowed_commanders::unit_roll_modifier` | Q | seam `hit_shift` (Obsidian commander, the Fracture; native, both contexts) |
 //! | `borrowed_commanders_b_firmament_planets` | `borrowed_commanders_b::firmament_planets` | Q | direct (concat) |
 //! | `borrowed_round_agents_has_owner_space_round_agent` | `borrowed_round_agents::has_owner_space_round_agent` | Q | direct |
 //! | `borrowed_round_agents_has_owner_round_agent` | `borrowed_round_agents::has_owner_round_agent` | Q | direct |
@@ -15,7 +15,7 @@
 use ti4_engine_core::generated::{Faction, Leader, Planet, PromissoryNote};
 use ti4_engine_core::hooks::direct::Planets;
 use ti4_engine_core::hooks::{CombatUnit, HookTable};
-use ti4_engine_core::kernel::seam::{Delta, Layer, Q, RollKind, RollSite, Source};
+use ti4_engine_core::kernel::seam::{Delta, Layer, Q, RollSite, Source};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::keys::MarkKey;
 use ti4_engine_core::kernel::Kernel;
@@ -32,8 +32,7 @@ const RULES_FACTION_BUGFIXES: u32 = 17;
 
 /// Fill the slots of this tier.
 pub fn register(t: &mut HookTable) {
-    t.seam.hit_shift.push_add(Source::Faction(Faction::TheObsidian), Layer::Faction, commander_ground_shift);
-    t.general.unit_roll_modifier.push(unit_roll_modifier);
+    t.seam.hit_shift.push_add(Source::Faction(Faction::TheObsidian), Layer::Faction, commander_shift);
     let d = &mut t.direct;
     d.borrowed_commanders_b_firmament_planets.push(firmament_planets);
     d.borrowed_round_agents_has_owner_space_round_agent.push(has_owner_space_round_agent);
@@ -63,12 +62,8 @@ pub fn has_commander_ability(s: &CoreState, k: &Kernel, who: Seat, commander: Le
     })
 }
 
-/// The same +1 on a ground roll: the space rolls ride the legacy bridge (`general.unit_roll_modifier`), the ground
-/// ones have no bridge, so the shift is a native provider.
-fn commander_ground_shift(q: Q<'_>, site: &RollSite, _: i64) -> Delta {
-    if site.kind != RollKind::Ground {
-        return Delta::None;
-    }
+/// The Obsidian commander on a space or ground combat roll (native: the legacy bridge covers only the space rolls).
+fn commander_shift(q: Q<'_>, site: &RollSite, _: i64) -> Delta {
     match unit_roll_modifier(q.s, q.k, site.unit) {
         0 => Delta::None,
         n => Delta::Add(n),

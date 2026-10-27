@@ -3,9 +3,9 @@
 //! | slot | string function | tier | target |
 //! |---|---|---|---|
 //! | `firmament_puppeted` | `firmament::puppeted` | Q | direct (concat) |
-//! | `firmament_plots_assail_space` | `firmament_plots::assail_space` | Q | direct (the `hit_shift` bridge reads it) |
+//! | `firmament_plots_assail_space` | `firmament_plots::assail_space` | Q | seam `hit_shift` (native; the direct slot stays empty so the legacy bridge adds nothing) |
 //! | `firmament_plots_assail_against` | `firmament_plots::assail_against` | Q | direct |
-//! | `firmament_plots_assail_ground` | `firmament_plots::assail_ground` | Q | direct, and a native `hit_shift` provider for ground rolls (no bridge covers them) |
+//! | `firmament_plots_assail_ground` | `firmament_plots::assail_ground` | Q | seam `hit_shift` (ground rolls; also the direct slot) |
 //! | `firmament_space_cannon_silenced` | `firmament::space_cannon_silenced` | Q | direct |
 //! | `firmament_viper_open`, `firmament_viper_defender_open` | `firmament::viper_open`, `viper_defender_open` | Q | direct |
 //! | `firmament_remaining_cards` | `firmament::remaining_cards` | Q | direct (a count) |
@@ -34,10 +34,9 @@ const SOURCE: Source = Source::Faction(Faction::TheObsidian);
 
 /// Fill the slots of this tier.
 pub fn register(t: &mut HookTable) {
-    t.seam.hit_shift.push_add(SOURCE, Layer::Faction, assail_ground_shift);
+    t.seam.hit_shift.push_add(SOURCE, Layer::Faction, assail_shift);
     let d = &mut t.direct;
     d.firmament_puppeted.push(puppeted);
-    d.firmament_plots_assail_space.push(assail_space);
     d.firmament_plots_assail_against.push(assail_against);
     d.firmament_plots_assail_ground.push(assail_ground);
     d.firmament_space_cannon_silenced.push(space_cannon_silenced);
@@ -69,18 +68,19 @@ fn assail_puppets(s: &CoreState, owner: Seat) -> SeatSet {
     out
 }
 
-/// Assail on a ground roll: the space rolls ride the legacy bridge (`firmament_plots_assail_space`), the ground ones
-/// have no bridge, so the shift is a native provider.
-fn assail_ground_shift(q: Q<'_>, site: &RollSite, _: i64) -> Delta {
+/// Assail on a combat roll: against the other side in space, against the other players' units on the planet on the
+/// ground. A native provider (the legacy bridge would read a direct slot for the space term only).
+fn assail_shift(q: Q<'_>, site: &RollSite, _: i64) -> Delta {
     let u = &site.unit;
-    if site.kind != RollKind::Ground || u.ctx != CombatCtx::Ground {
-        return Delta::None;
-    }
-    let (Some(system), Some(planet)) = (u.system, u.planet) else { return Delta::None };
-    match assail_ground(q.s, u.owner, system, planet) {
-        0 => Delta::None,
-        n => Delta::Add(n),
-    }
+    let n = match (site.kind, u.ctx) {
+        (RollKind::Combat, CombatCtx::Space) => assail_space(q.s, q.k, u.owner, u.system),
+        (RollKind::Ground, CombatCtx::Ground) => match (u.system, u.planet) {
+            (Some(system), Some(planet)) => assail_ground(q.s, u.owner, system, planet),
+            _ => 0,
+        },
+        _ => 0,
+    };
+    if n == 0 { Delta::None } else { Delta::Add(n) }
 }
 
 /// +1 to `owner`'s rolls against any of `targets`, if `owner` has Assail faceup with a token of one of them.

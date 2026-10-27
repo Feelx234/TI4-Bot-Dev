@@ -154,7 +154,8 @@ fn variants(gs: &GameState) -> Vec<(&'static str, GameState)> {
 
     let mut v = gs.clone();
     v.players[0].faction = FactionId::new("mahact");
-    v.faction_marks.insert(format!("mahact:fleet:{a}"), "z_other".to_owned());
+    let third = gs.players.get(2).map_or_else(|| a.clone(), |p| p.id.clone());
+    v.faction_marks.insert(format!("mahact:fleet:{a}"), third.to_string());
     v.active_system = Some(first.clone());
     v.system_mut(&first).units.push(unit("mahact_flagship", &a));
     v.system_mut(&first).units.push(unit("carrier", &b));
@@ -306,7 +307,6 @@ fn compare_state(label: &str, gs: &GameState, galaxy: &Galaxy, sources: SourceSe
         }
         for system in &systems {
             let Some(system_ix) = sys(system) else { continue };
-            out.eq(label, &format!("assail_space {p} {system}"), &crate::factions::firmament_plots::assail_space(gs, content, sources, p, Some(system)), &k.hooks.direct.firmament_plots_assail_space(&core, &k, who, Some(system_ix)));
             out.eq(label, &format!("space_cannon_silenced {p} {system}"), &crate::factions::firmament::space_cannon_silenced_text(gs, content, sources, p, system), &k.hooks.direct.firmament_space_cannon_silenced(&core, &k, who, system_ix));
             out.eq(label, &format!("extra_production {p} {system}"), &crate::factions::ghost::extra_production_text(gs, content, sources, p, system), &k.hooks.economy.extra_production(&core, &k, who, system_ix));
             out.eq(label, &format!("production_cost_reduction {p} {system}"), &crate::factions::ghost::production_cost_reduction_text(gs, p, system), &k.hooks.economy.production_cost_reduction(&core, who, system_ix));
@@ -321,21 +321,8 @@ fn compare_state(label: &str, gs: &GameState, galaxy: &Galaxy, sources: SourceSe
                     }
                 }
             }
-            for kind in &kinds {
-                let Some(unit_ix) = unit_kind(kind) else { continue };
-                let mut string_gs = gs.clone();
-                string_gs.active_system = Some(system.clone());
-                let mut core_gs = core.clone();
-                core_gs.meta_mut().active_system = Some(system_ix);
-                out.eq(
-                    label,
-                    &format!("flagship_roll_bonus {p} {kind} {system}"),
-                    &crate::factions::mahact_units::flagship_roll_bonus(&string_gs, content, sources, p, kind),
-                    &k.hooks.direct.mahact_units_flagship_roll_bonus(&core_gs, &k, who, unit_ix),
-                );
-            }
         }
-        // The roll shift (Arvicon Rex and Assail ride the hit_shift bridge) and the Obsidian commander, per site.
+        // The roll shift (Arvicon Rex and Assail are native `hit_shift` rows) and the Obsidian commander, per site.
         for kind in &kinds {
             let Some(unit_ix) = unit_kind(kind) else { continue };
             for system in &systems {
@@ -349,12 +336,6 @@ fn compare_state(label: &str, gs: &GameState, galaxy: &Galaxy, sources: SourceSe
                     let ground = spot.is_some();
                     let ctx_text = if ground { "ground" } else { "space" };
                     let cu = crate::factions::CombatUnit { player: p, system: Some(system), planet: spot.as_ref(), unit_type: kind, context: ctx_text };
-                    out.eq(
-                        label,
-                        &format!("borrowed unit_roll_modifier {p} {kind} {system}/{spot:?}"),
-                        &crate::factions::borrowed_commanders::unit_roll_modifier(gs, content, sources, &cu),
-                        &k.hooks.general.unit_roll_modifier(&core, &k, CoreCombatUnit { owner: who, system: Some(system_ix), planet: planet_ix, unit: unit_ix, ctx: if ground { CombatCtx::Ground } else { CombatCtx::Space } }),
-                    );
                     let site = CoreCombatUnit { owner: who, system: Some(system_ix), planet: planet_ix, unit: unit_ix, ctx: if ground { CombatCtx::Ground } else { CombatCtx::Space } };
                     let mentak_k = kernel_with(sources, &[mentak::register]);
                     let allowed = mentak_k.hooks.seam.may_sustain.decide(Q::new(&core, &mentak_k), &site, true);
