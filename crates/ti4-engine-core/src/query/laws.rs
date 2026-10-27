@@ -68,7 +68,7 @@ pub fn elected_planet(core: &CoreState, blanked: bool, law: Agenda, planet: Plan
 /// `laws::holds_ministry`.
 #[must_use]
 pub fn holds_ministry(core: &CoreState, blanked: bool, seat: Seat, law: Agenda) -> bool {
-    elected(core, blanked, law) == Some(Outcome::Player(seat))
+    elected(core, blanked, law) == Some(Outcome::Seat(seat))
 }
 
 /// `laws::fleet_pool_cap`: Fleet Regulations holds the pool at four.
@@ -86,7 +86,7 @@ pub fn action_card_limit(core: &CoreState, blanked: bool, base: usize) -> usize 
 /// The law half of `laws::action_cards_forbidden`: Political Censure's elected owner.
 #[must_use]
 pub fn censure_bars(core: &CoreState, blanked: bool, seat: Seat) -> bool {
-    active(core, blanked, CENSURE) && elected(core, blanked, CENSURE) == Some(Outcome::Player(seat))
+    active(core, blanked, CENSURE) && elected(core, blanked, CENSURE) == Some(Outcome::Seat(seat))
 }
 
 /// `laws::nebulae_passable`.
