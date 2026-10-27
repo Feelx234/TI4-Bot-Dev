@@ -88,6 +88,9 @@ pub(crate) fn space_roll_shift(
         state.active_system.as_ref(),
     );
 
+    // Wave C (package CA): the Egeiro and Mordred terms next to the seam, when the dual is on.
+    #[cfg(feature = "typed-core")]
+    crate::core_factions::ca::dual_roll_shift(state, content, sources, player, unit.type_id.as_str(), state.active_system.as_ref(), None);
     faction
         + fighter_bonus
         + i64::from(nebula_defender)
@@ -142,6 +145,8 @@ pub(crate) fn ground_roll_shift(
     );
     // Assail (Obsidian plot): +1 to each of the owner's combat rolls against a puppeted player.
     let assail = crate::factions::firmament_plots::assail_ground(state, player, system, planet);
+    #[cfg(feature = "typed-core")]
+    crate::core_factions::ca::dual_roll_shift(state, content, sources, player, unit_type, Some(system), Some(planet));
     faction + module + nekro_mech + assail
 }
 
