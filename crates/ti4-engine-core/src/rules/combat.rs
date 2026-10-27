@@ -974,3 +974,39 @@ pub fn roll_barrage(
         })
         .collect()
 }
+
+// -- retreat (LRR 78.7) --------------------------------------------------------------------------
+
+/// `combat::retreat_may_enter`: whether a retreat may end in `destination` under the movement rules.
+/// Games below `RULES_RETREAT_HAZARDS` never checked. `rules_for` gives the mover's rules for moving into
+/// a system (`SeatReach::rules_for`).
+#[must_use]
+pub fn retreat_may_enter(s: &CoreState, destination: System, rules_for: &dyn Fn(System) -> crate::movement::CoreRules) -> bool {
+    s.meta().rules_version < RULES_RETREAT_HAZARDS || rules_for(destination).can_enter(destination)
+}
+
+/// `combat::eligible_retreats` (78.7c): adjacent systems (as the mover sees the map) that hold the mover's
+/// units or a planet it controls and no other player's ships, that the movement rules let it enter.
+#[must_use]
+pub fn eligible_retreats(
+    rd: Rd<'_>,
+    seat: Seat,
+    system: System,
+    adjacency: &crate::galaxy::Adjacency,
+    rules_for: &dyn Fn(System) -> crate::movement::CoreRules,
+) -> Vec<System> {
+    adjacency
+        .of(system)
+        .iter()
+        .map(crate::ids::system_at)
+        .filter(|n| !adjacency.is_hyperlane(*n))
+        .filter(|n| retreat_may_enter(rd.s, *n, rules_for))
+        .filter(|n| {
+            let cell = rd.s.board().sys(*n);
+            if cell.units.iter().any(|u| u.owner() != seat && rd.is_ship(u.kind())) {
+                return false;
+            }
+            cell.units.iter().any(|u| u.owner() == seat) || qboard::controls_a_planet_in(rd.s, *n, seat)
+        })
+        .collect()
+}

@@ -4385,6 +4385,26 @@ pub fn eligible_retreats(
     player: &PlayerId,
     system: &SystemId,
 ) -> Vec<SystemId> {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::core_combat::eligible_retreats(state, sources, galaxy, player, system);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None::<Vec<SystemId>>;
+    crate::dual_typed!(
+        crate::dual::Area::Combat,
+        "combat::eligible_retreats",
+        typed(),
+        eligible_retreats_text(state, content, sources, galaxy, player, system)
+    )
+}
+
+fn eligible_retreats_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: &ti4_content::galaxy::Galaxy,
+    player: &PlayerId,
+    system: &SystemId,
+) -> Vec<SystemId> {
     let types = catalogue(content, sources);
     // A retreat is a move: Sundered and the sever token close the wormholes it may not use.
     let galaxy = crate::factions::hooks_movement::galaxy_for_mover(state, player, galaxy);

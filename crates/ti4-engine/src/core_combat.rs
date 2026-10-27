@@ -695,3 +695,21 @@ pub fn direct_hittable(sources: SourceSet, unit: &str) -> Option<bool> {
     let scope = crate::core_adapter::scope(sources);
     Some(cc::direct_hittable(scope, typed::<Unit>(unit)?))
 }
+
+/// `combat::eligible_retreats` over the typed movement rules (package A2's reach view of the position).
+#[must_use]
+pub fn eligible_retreats(
+    state: &GameState,
+    sources: SourceSet,
+    galaxy: &ti4_content::galaxy::Galaxy,
+    player: &PlayerId,
+    system: &SystemId,
+) -> Option<Vec<SystemId>> {
+    let pos = crate::core_adapter::Position::new(state, sources, galaxy)?;
+    let reach = crate::core_adapter::SeatReach::new(&pos, player, false)?;
+    let (seat, sys) = (pos.seat(player)?, typed::<System>(system.as_str())?);
+    let rules = reach.rules_for(sys);
+    let rd = Rd::new(pos.core(), pos.kernel());
+    let found = cc::eligible_retreats(rd, seat, sys, &rules.adjacency, &|dest| (*reach.rules_for(dest)).clone());
+    Some(found.into_iter().map(|s| SystemId::new(s.as_str())).collect())
+}
