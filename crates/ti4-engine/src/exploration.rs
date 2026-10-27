@@ -2722,12 +2722,14 @@ mod tests {
         if let Some(seat) = state.player_mut(&player()) {
             seat.trade_goods = 6;
         }
-        let record = |chosen: &str, offered: &[&str]| crate::choice::DecisionRecord {
-            player: player(),
-            prompt: "action phase".to_owned(),
-            chosen: chosen.to_owned(),
-            offered: offered.iter().map(|id| (*id).to_owned()).collect(),
-            context: None,
+        let record = |chosen: &str, offered: &[&str]| {
+            crate::choice::DecisionRecord::from(crate::choice::DecisionRecordFields {
+                player: player(),
+                prompt: "action phase".to_owned(),
+                chosen: chosen.to_owned(),
+                offered: offered.iter().map(|id| (*id).to_owned()).collect(),
+                context: None,
+            })
         };
         mark_legacy_device_ids(
             &mut state,

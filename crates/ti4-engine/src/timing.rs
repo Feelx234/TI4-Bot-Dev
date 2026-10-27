@@ -328,23 +328,102 @@ pub struct AbilityRegistry {
 
 /// Rollback resolver bookkeeping and its own decision log without rewinding decider input.
 /// Contextual callers must separately checkpoint `TimingContext.table.log`.
+///
+/// A checkpoint records how much of each append-only part existed (and undoes the rest on
+/// restore) instead of copying it: the decision log, the resolver log, the event journal, the
+/// registry and the used-frequency keys only ever grow between a checkpoint and its restore.
 #[derive(Clone)]
 pub(crate) struct ResolverCheckpoint {
-    table_log: crate::choice::DecisionLog,
-    registry: AbilityRegistry,
+    table_log: LogMark,
+    registry: RegistryMark,
     initiative_order: Vec<PlayerId>,
     seating_order: Vec<PlayerId>,
     active_player: Option<PlayerId>,
     speaker: Option<PlayerId>,
     phase: Phase,
-    log: Vec<String>,
-    applied_events: Vec<Event>,
+    log_len: usize,
+    applied_events: JournalMark,
     relation_being_resolved: Option<Relation>,
     emission_stack: Vec<(String, u64)>,
     maximum_depth: usize,
-    used: BTreeSet<(String, FrequencyScope)>,
+    used: usize,
     round_number: u64,
     turn_number: u64,
+}
+
+/// A prefix of the table's decision log: its length and the last record it held (by identity,
+/// to catch a restore against a different log).
+#[derive(Clone)]
+struct LogMark {
+    len: usize,
+    last: Option<crate::choice::DecisionRecord>,
+}
+
+impl LogMark {
+    fn of(log: &crate::choice::DecisionLog) -> Self {
+        Self {
+            len: log.records.len(),
+            last: log.records.last().cloned(),
+        }
+    }
+
+    fn restore(&self, log: &mut crate::choice::DecisionLog) {
+        debug_assert!(
+            log.records.len() >= self.len
+                && self.len.checked_sub(1).is_none_or(|last| {
+                    self.last
+                        .as_ref()
+                        .is_some_and(|mark| mark.ptr_eq(&log.records[last]))
+                }),
+            "checkpoint restored against a decision log that no longer extends it"
+        );
+        log.records.truncate(self.len);
+    }
+}
+
+/// The event journal at a checkpoint. Entries are only appended, except that an event's own entry
+/// is rewritten when its emission ends; a checkpoint taken while an emission is open (which would
+/// see that rewrite) keeps a full copy.
+#[derive(Clone)]
+enum JournalMark {
+    Prefix(usize),
+    Full(Vec<Event>),
+}
+
+/// The registry at a checkpoint: how many abilities and prohibitions it held (both only grow).
+#[derive(Clone, Copy)]
+struct RegistryMark {
+    abilities: usize,
+    cannot: usize,
+}
+
+/// Frequency keys already spent, with their insertion order so a checkpoint can undo the keys
+/// added after it.
+#[derive(Clone, Default)]
+struct UsedKeys {
+    set: BTreeSet<(String, FrequencyScope)>,
+    order: Vec<(String, FrequencyScope)>,
+}
+
+impl UsedKeys {
+    fn contains(&self, key: &(String, FrequencyScope)) -> bool {
+        self.set.contains(key)
+    }
+
+    fn insert(&mut self, key: (String, FrequencyScope)) {
+        if !self.set.contains(&key) {
+            self.set.insert(key.clone());
+            self.order.push(key);
+        }
+    }
+
+    fn undo_to(&mut self, len: usize) {
+        while self.order.len() > len {
+            if let Some(key) = self.order.pop() {
+                self.set.remove(&key);
+            }
+        }
+    }
 }
 
 /// A timing-window resolver.
@@ -365,7 +444,7 @@ pub struct Resolver {
     relation_being_resolved: Option<Relation>,
     emission_stack: Vec<(String, u64)>,
     maximum_depth: usize,
-    used: BTreeSet<(String, FrequencyScope)>,
+    used: UsedKeys,
     round_number: u64,
     turn_number: u64,
     participation: Option<Participation>,
@@ -391,7 +470,7 @@ pub struct ResolverSnapshot {
     relation_being_resolved: Option<Relation>,
     emission_stack: Vec<(String, u64)>,
     maximum_depth: usize,
-    used: BTreeSet<(String, FrequencyScope)>,
+    used: UsedKeys,
     round_number: u64,
     turn_number: u64,
 }
@@ -524,38 +603,49 @@ impl Resolver {
 
     pub(crate) fn checkpoint(&self) -> ResolverCheckpoint {
         ResolverCheckpoint {
-            table_log: self.table.log.clone(),
-            registry: self.registry.clone(),
+            table_log: LogMark::of(&self.table.log),
+            registry: self.registry.mark(),
             initiative_order: self.initiative_order.clone(),
             seating_order: self.seating_order.clone(),
             active_player: self.active_player.clone(),
             speaker: self.speaker.clone(),
             phase: self.phase,
-            log: self.log.clone(),
-            applied_events: self.applied_events.clone(),
+            log_len: self.log.len(),
+            applied_events: if self.emission_stack.is_empty() {
+                JournalMark::Prefix(self.applied_events.len())
+            } else {
+                JournalMark::Full(self.applied_events.clone())
+            },
             relation_being_resolved: self.relation_being_resolved,
             emission_stack: self.emission_stack.clone(),
             maximum_depth: self.maximum_depth,
-            used: self.used.clone(),
+            used: self.used.order.len(),
             round_number: self.round_number,
             turn_number: self.turn_number,
         }
     }
 
     pub(crate) fn restore(&mut self, checkpoint: ResolverCheckpoint) {
-        self.table.log = checkpoint.table_log;
-        self.registry = checkpoint.registry;
+        checkpoint.table_log.restore(&mut self.table.log);
+        self.registry.truncate_to(checkpoint.registry);
         self.initiative_order = checkpoint.initiative_order;
         self.seating_order = checkpoint.seating_order;
         self.active_player = checkpoint.active_player;
         self.speaker = checkpoint.speaker;
         self.phase = checkpoint.phase;
-        self.log = checkpoint.log;
-        self.applied_events = checkpoint.applied_events;
+        debug_assert!(self.log.len() >= checkpoint.log_len);
+        self.log.truncate(checkpoint.log_len);
+        match checkpoint.applied_events {
+            JournalMark::Prefix(len) => {
+                debug_assert!(self.applied_events.len() >= len);
+                self.applied_events.truncate(len);
+            }
+            JournalMark::Full(events) => self.applied_events = events,
+        }
         self.relation_being_resolved = checkpoint.relation_being_resolved;
         self.emission_stack = checkpoint.emission_stack;
         self.maximum_depth = checkpoint.maximum_depth;
-        self.used = checkpoint.used;
+        self.used.undo_to(checkpoint.used);
         self.round_number = checkpoint.round_number;
         self.turn_number = checkpoint.turn_number;
     }
@@ -580,7 +670,7 @@ impl Resolver {
             relation_being_resolved: None,
             emission_stack: Vec::new(),
             maximum_depth: Self::DEFAULT_MAXIMUM_DEPTH,
-            used: BTreeSet::new(),
+            used: UsedKeys::default(),
             round_number: 1,
             turn_number: 1,
             participation: None,
@@ -1376,6 +1466,30 @@ pub(crate) const fn relation_name(relation: Relation) -> &'static str {
 }
 
 impl AbilityRegistry {
+    fn mark(&self) -> RegistryMark {
+        RegistryMark {
+            abilities: self.abilities.len(),
+            cannot: self.cannot.len(),
+        }
+    }
+
+    /// Drop everything registered after `mark` (registrations only append).
+    fn truncate_to(&mut self, mark: RegistryMark) {
+        debug_assert!(self.abilities.len() >= mark.abilities && self.cannot.len() >= mark.cannot);
+        self.cannot.truncate(mark.cannot);
+        if self.abilities.len() > mark.abilities {
+            self.abilities.truncate(mark.abilities);
+            for by_relation in self.by_event.values_mut() {
+                for indexes in by_relation.values_mut() {
+                    indexes.retain(|&index| index < mark.abilities);
+                }
+                by_relation.retain(|_, indexes| !indexes.is_empty());
+            }
+            self.by_event
+                .retain(|_, by_relation| !by_relation.is_empty());
+        }
+    }
+
     /// Register abilities in the supplied order.
     ///
     /// Duplicate identifiers are retained because the oracle's registry does not reject them;
@@ -1512,6 +1626,59 @@ mod tests {
     use proptest::prelude::*;
     use ti4_content::ContentStore;
     use ti4_model::content_types::POK;
+
+    #[test]
+    fn checkpoint_undoes_what_was_added_after_it_and_keeps_what_came_before() {
+        let player = PlayerId::new("a");
+        let mut resolver = Resolver::new(vec![player.clone()], Some(player.clone()), Table::new());
+        let ability = |id: &str| {
+            Ability::new(
+                id,
+                player.clone(),
+                "TEST",
+                Relation::After,
+                Arc::new(|_: &mut Event, _: &mut Resolver| Ok(())),
+            )
+        };
+        resolver.register([ability("before")]);
+        resolver
+            .used
+            .insert(("before".to_owned(), FrequencyScope::Round(1)));
+        resolver.log.push("before".to_owned());
+        let checkpoint = resolver.checkpoint();
+
+        resolver.register([ability("after")]);
+        resolver.forbid("after", Arc::new(|_: &Event| false));
+        resolver
+            .used
+            .insert(("after".to_owned(), FrequencyScope::Round(1)));
+        resolver
+            .used
+            .insert(("before".to_owned(), FrequencyScope::Round(1)));
+        resolver.log.push("after".to_owned());
+        resolver.round_number = 9;
+        resolver.restore(checkpoint);
+
+        let ids: Vec<&str> = resolver
+            .registry
+            .for_event("TEST", Relation::After)
+            .map(|ability| ability.id.as_str())
+            .collect();
+        assert_eq!(ids, ["before"]);
+        assert!(resolver.registry.cannot.is_empty());
+        assert!(
+            resolver
+                .used
+                .contains(&("before".to_owned(), FrequencyScope::Round(1)))
+        );
+        assert!(
+            !resolver
+                .used
+                .contains(&("after".to_owned(), FrequencyScope::Round(1)))
+        );
+        assert_eq!(resolver.log, ["before"]);
+        assert_eq!(resolver.round_number, 1);
+    }
 
     #[test]
     fn checkpoint_restores_standalone_decision_log_without_rewinding_input() {

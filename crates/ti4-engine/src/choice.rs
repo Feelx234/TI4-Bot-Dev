@@ -19,6 +19,7 @@
 //! here, because a type called `Option` in scope alongside `std::option::Option` is a trap.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -757,7 +758,8 @@ impl<'a> Observed<'a> {
         boosts: (bool, bool),
         destination: &SystemId,
     ) -> Option<usize> {
-        let Some(kind) = ti4_content::units::unit_type(self.content, unit_type, self.sources) else {
+        let Some(kind) = ti4_content::units::unit_type(self.content, unit_type, self.sources)
+        else {
             return Some(0);
         };
         let rules = self.seat_reach(player, true)?.rules_for(
@@ -996,9 +998,10 @@ impl<'a> Observed<'a> {
             return false;
         };
         #[cfg(all(feature = "typed-core", not(feature = "string-movement")))]
-        if let Some(rules) = self.seat_reach(player, false).and_then(|reach| {
-            reach.rules_for(self.state, self.content, self.sources, destination)
-        }) && let Some(from) = crate::core_adapter::system_ix(origin.as_str())
+        if let Some(rules) = self
+            .seat_reach(player, false)
+            .and_then(|reach| reach.rules_for(self.state, self.content, self.sources, destination))
+            && let Some(from) = crate::core_adapter::system_ix(origin.as_str())
         {
             return rules.can_reach_ship(from, move_value, None);
         }
@@ -1011,7 +1014,8 @@ impl<'a> Observed<'a> {
             board,
             Some(self.state),
         );
-        crate::tactical::search_path(&rules, self.sources, origin.as_str(), move_value, None).is_some()
+        crate::tactical::search_path(&rules, self.sources, origin.as_str(), move_value, None)
+            .is_some()
     }
 
     /// The routes (rules version 29, [`crate::tactical::ship_routes`]) the ship at `index` of
@@ -1114,9 +1118,8 @@ impl<'a> Observed<'a> {
         let typed = self.typed_rift_exits(player, origin, unit_type, boosts, destination);
         #[cfg(not(all(feature = "typed-core", not(feature = "string-movement"))))]
         let typed = None;
-        let found = typed.unwrap_or_else(|| ti4_content::units::unit_type(self.content, unit_type, self.sources).map_or(
-            0,
-            |kind| {
+        let found = typed.unwrap_or_else(|| {
+            ti4_content::units::unit_type(self.content, unit_type, self.sources).map_or(0, |kind| {
                 crate::tactical::route_rift_exits(
                     self.state,
                     self.content,
@@ -1129,8 +1132,8 @@ impl<'a> Observed<'a> {
                     unit_type,
                     boosts,
                 )
-            },
-        ));
+            })
+        });
         self.rift_exits.borrow_mut().insert(key, found);
         found
     }
@@ -2376,8 +2379,17 @@ impl Decider for SeededRandom {
 }
 
 /// One resolved choice, for replay (determinism) and for explaining bot play.
+///
+/// A shared, immutable handle: cloning a record (and so a whole [`DecisionLog`]) copies one pointer
+/// instead of its strings and option list. The fields are reached through `Deref`
+/// ([`DecisionRecordFields`]); a changed record is built with [`DecisionRecord::new`] or
+/// by assigning through `DerefMut` (which copies a shared record first). Serialises exactly as the plain struct of those fields.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DecisionRecord(Arc<DecisionRecordFields>);
+
+/// The fields of a [`DecisionRecord`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DecisionRecord {
+pub struct DecisionRecordFields {
     pub player: PlayerId,
     pub prompt: String,
     pub chosen: String,
@@ -2391,14 +2403,75 @@ pub struct DecisionRecord {
     pub context: Option<crate::decision_context::DecisionContext>,
 }
 
+impl std::ops::Deref for DecisionRecord {
+    type Target = DecisionRecordFields;
+    fn deref(&self) -> &DecisionRecordFields {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for DecisionRecord {
+    /// Copies the fields first when the record is shared.
+    fn deref_mut(&mut self) -> &mut DecisionRecordFields {
+        Arc::make_mut(&mut self.0)
+    }
+}
+
+impl Serialize for DecisionRecord {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for DecisionRecord {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        DecisionRecordFields::deserialize(deserializer).map(|fields| Self(Arc::new(fields)))
+    }
+}
+
+impl From<DecisionRecordFields> for DecisionRecord {
+    fn from(fields: DecisionRecordFields) -> Self {
+        Self(Arc::new(fields))
+    }
+}
+
 impl DecisionRecord {
+    #[must_use]
+    pub fn new(
+        player: PlayerId,
+        prompt: String,
+        chosen: String,
+        offered: Vec<String>,
+        context: Option<crate::decision_context::DecisionContext>,
+    ) -> Self {
+        Self(Arc::new(DecisionRecordFields {
+            player,
+            prompt,
+            chosen,
+            offered,
+            context,
+        }))
+    }
+
+    /// Whether both handles are the same record (not merely equal ones).
+    #[must_use]
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+
     /// The same record with no context, which is what the V1 fingerprint contract hashes.
     #[must_use]
     pub fn without_context(&self) -> Self {
-        Self {
-            context: None,
-            ..self.clone()
+        if self.context.is_none() {
+            return self.clone();
         }
+        Self::new(
+            self.player.clone(),
+            self.prompt.clone(),
+            self.chosen.clone(),
+            self.offered.clone(),
+            None,
+        )
     }
 }
 
@@ -2410,18 +2483,18 @@ pub struct DecisionLog {
 
 impl DecisionLog {
     pub fn record(&mut self, choice: &Choice, option: &ChoiceOption) {
-        self.records.push(DecisionRecord {
-            player: choice.player.clone(),
-            prompt: choice.prompt.clone(),
-            chosen: option.id.clone(),
-            offered: choice.ids().into_iter().map(str::to_owned).collect(),
+        self.records.push(DecisionRecord::new(
+            choice.player.clone(),
+            choice.prompt.clone(),
+            option.id.clone(),
+            choice.ids().into_iter().map(str::to_owned).collect(),
             // The trigger is display metadata derived from the event; a record and its fingerprint
             // hold only what a replay needs.
-            context: choice
+            choice
                 .context
                 .as_ref()
                 .map(crate::decision_context::DecisionContext::without_display_fields),
-        });
+        ));
     }
 
     /// Replay script — the chosen option ids, optionally for one player.
@@ -2970,6 +3043,28 @@ pub(crate) mod planet_payload {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn decision_records_serialise_as_plain_fields_and_clone_by_sharing() {
+        let record = DecisionRecord::new(
+            PlayerId::new("a"),
+            "pick".to_owned(),
+            "x".to_owned(),
+            vec!["x".to_owned(), "y".to_owned()],
+            None,
+        );
+        assert_eq!(
+            serde_json::to_string(&record).unwrap(),
+            r#"{"player":"a","prompt":"pick","chosen":"x","offered":["x","y"]}"#
+        );
+        let back: DecisionRecord =
+            serde_json::from_str(&serde_json::to_string(&record).unwrap()).unwrap();
+        assert_eq!(back, record);
+        let mut copy = record.clone();
+        assert!(copy.ptr_eq(&record));
+        copy.chosen = "y".to_owned();
+        assert!(!copy.ptr_eq(&record));
+        assert_eq!(record.chosen, "x");
+    }
 
     /// `with_planet` adds `planet`/`system`, keeps keys already set, and never touches identity.
     #[test]
@@ -3598,7 +3693,11 @@ mod tests {
         let seen = Observed::new(&state, ContentStore::embedded(), POK, None);
         let rival = seen.seat(&pid("b")).expect("b is seated");
         assert_eq!(rival.relics, [RelicId::new("codex")]);
-        assert!(rival.exhausted_relics.contains(ti4_model::id::text(&"codex")));
+        assert!(
+            rival
+                .exhausted_relics
+                .contains(ti4_model::id::text(&"codex"))
+        );
         assert_eq!(rival.exploration_cards, ["ed1".to_owned()]);
         assert_eq!(rival.relic_fragments.get("CULTURAL"), Some(&2));
         assert_eq!(rival.breakthrough, Some(&BreakthroughId::new("letnevbt")));

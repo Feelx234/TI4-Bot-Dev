@@ -2435,17 +2435,17 @@ mod tests {
         let mut log = crate::choice::DecisionLog::default();
         log.record(&choice, &crate::choice::ChoiceOption::decline());
         assert_eq!(log.records[0].context.as_ref().unwrap().trigger, None);
-        let record = crate::choice::DecisionRecord {
+        let record = crate::choice::DecisionRecord::from(crate::choice::DecisionRecordFields {
             player: PlayerId::new("b"),
             prompt: "when ACTION_CARD_PLAYED".to_owned(),
             chosen: "decline".to_owned(),
             offered: vec!["decline".to_owned()],
             context: Some(with),
-        };
-        let stripped = crate::choice::DecisionRecord {
+        });
+        let stripped = crate::choice::DecisionRecord::from(crate::choice::DecisionRecordFields {
             context: Some(plain),
-            ..record.clone()
-        };
+            ..crate::choice::DecisionRecordFields::clone(&record.clone())
+        });
         for version in [
             crate::fingerprint::CanonicalHashVersion::V1,
             crate::fingerprint::CanonicalHashVersion::V2,

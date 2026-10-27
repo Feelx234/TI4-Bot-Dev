@@ -128,6 +128,7 @@ struct HashInput<'a, T> {
 
 #[cfg(test)]
 mod tests {
+    use crate::choice::DecisionRecordFields;
     use std::collections::BTreeMap;
 
     use serde_json::Value;
@@ -186,17 +187,17 @@ mod tests {
 
     #[test]
     fn decision_hash_covers_the_ordered_replay_record_and_has_a_golden_value() {
-        let record = DecisionRecord {
+        let record = DecisionRecord::from(DecisionRecordFields {
             player: PlayerId::new("sol"),
             prompt: "when MOVE".to_owned(),
             chosen: "move:0".to_owned(),
             offered: vec!["move:0".to_owned(), "decline".to_owned()],
             context: None,
-        };
-        let reordered = DecisionRecord {
+        });
+        let reordered = DecisionRecord::from(DecisionRecordFields {
             offered: vec!["decline".to_owned(), "move:0".to_owned()],
-            ..record.clone()
-        };
+            ..DecisionRecordFields::clone(&record.clone())
+        });
 
         let hash = decision_hash(CanonicalHashVersion::V1, &record);
         assert_ne!(hash, decision_hash(CanonicalHashVersion::V1, &reordered));
@@ -282,17 +283,17 @@ mod tests {
 
     #[test]
     fn v1_ignores_a_context_and_v2_binds_it() {
-        let plain = DecisionRecord {
+        let plain = DecisionRecord::from(DecisionRecordFields {
             player: PlayerId::new("sol"),
             prompt: "when MOVE".to_owned(),
             chosen: "move:0".to_owned(),
             offered: vec!["move:0".to_owned(), "decline".to_owned()],
             context: None,
-        };
-        let carried = DecisionRecord {
+        });
+        let carried = DecisionRecord::from(DecisionRecordFields {
             context: Some(a_context()),
-            ..plain.clone()
-        };
+            ..DecisionRecordFields::clone(&plain.clone())
+        });
 
         // V1 is the old contract and must not notice the new field, or every stored digest moves.
         assert_eq!(
@@ -317,14 +318,14 @@ mod tests {
     fn v2_separates_decisions_that_differ_only_in_context() {
         // The case the whole package is for: the same sentence, the same options, asked with
         // different continuation state. A replay that could not tell these apart is not a replay.
-        let base = DecisionRecord {
+        let base = DecisionRecord::from(DecisionRecordFields {
             player: PlayerId::new("sol"),
             prompt: "spend 3 more influence for a command token".to_owned(),
             chosen: "strategic_tokens".to_owned(),
             offered: vec!["strategic_tokens".to_owned(), "decline".to_owned()],
             context: Some(a_context()),
-        };
-        let with_credit = DecisionRecord {
+        });
+        let with_credit = DecisionRecord::from(DecisionRecordFields {
             context: Some(
                 a_context().owing(crate::decision_context::OutstandingConstraint::new(
                     crate::decision_context::ConstraintKind::Influence,
@@ -332,9 +333,9 @@ mod tests {
                     1,
                 )),
             ),
-            ..base.clone()
-        };
-        let different_subtype = DecisionRecord {
+            ..DecisionRecordFields::clone(&base.clone())
+        });
+        let different_subtype = DecisionRecord::from(DecisionRecordFields {
             context: Some(crate::decision_context::DecisionContext::new(
                 PlayerId::new("sol"),
                 crate::decision_context::DecisionSource::Rule("52.3".to_owned()),
@@ -342,8 +343,8 @@ mod tests {
                 ti4_model::state::Phase::Action,
                 3,
             )),
-            ..base.clone()
-        };
+            ..DecisionRecordFields::clone(&base.clone())
+        });
 
         let v2 = |record: &DecisionRecord| decision_hash(CanonicalHashVersion::V2, record).digest;
         assert_ne!(

@@ -119,7 +119,8 @@ pub use agenda::{
     resolve_agenda_phase,
 };
 pub use choice::{
-    AlwaysDecline, Choice, ChoiceOption, Decider, DecisionLog, DecisionRecord, FirstOption,
+    AlwaysDecline, Choice, ChoiceOption, Decider, DecisionLog, DecisionRecord, DecisionRecordFields,
+    FirstOption,
     IllegalChoice, Scripted, SeededRandom, Table, distinct_units, first_of_each, options_from,
     unit_label, validate,
 };
