@@ -18,7 +18,10 @@
 use core::cmp::Ordering;
 
 use crate::containers::SmallList;
-use crate::generated::{Agenda, AgendaElects, AgendaType, Planet, SecretObjective, StrategyCard};
+use crate::choice::agenda::{Ask, Face, Frame, Opt, Shown, Subtype, Tally};
+use crate::choice::generic::{Content, Rule};
+use crate::choice::{Choice, Ctx as ChoiceCtx, Opt as TopOpt, Opts, Origin};
+use crate::generated::{Agenda, AgendaElects, AgendaType, Leader, Planet, SecretObjective, StrategyCard, Technology};
 use crate::ids::Seat;
 use crate::keys::{Prediction, VoteBar, order};
 use crate::query::{board, economy, laws, seats};
@@ -45,6 +48,9 @@ pub trait Env {
     fn votes_first(&self, who: Seat) -> bool;
     /// `factions::deepwrought::oceans`: the ocean cards the seat has in play (they vote like planets).
     fn oceans(&self, who: Seat) -> SmallList<Planet, 4>;
+    /// `factions::bastion_units::resource_bonus`: the Last Bastion's Helios dock raises the resource value of
+    /// its own planet (the hook term `extra` of `economy::value_now`).
+    fn resource_bonus(&self, planet: Planet) -> i64;
 }
 
 /// What the rules read besides the state.
@@ -324,6 +330,221 @@ pub fn tiebreak_candidates(counts: Counts<'_>, choices: &[Outcome]) -> Tiebreak 
     }
 }
 
+// --- the questions of a vote ----------------------------------------------------------------------------
+
+/// How a planet is offered to a voter: the planet, the face it is exhausted for, the votes it casts.
+pub type PlanetOffer = (Planet, Face, i64);
+
+/// `VoteWindow::planet_offers`: the planets `seat` may exhaust now. Everyone exhausts a planet for its
+/// influence; the Executive Order `spender` may also exhaust it for its resources. Elder Qanoj adds a vote
+/// per planet.
+#[must_use]
+pub fn planet_offers(cx: &Cx<'_>, seat: Seat, spender: bool) -> SmallList<PlanetOffer, 24> {
+    let qanoj = i64::from(cx.env.elder_qanoj(seat));
+    let mut out = SmallList::new();
+    let own = board::controlled_planets(cx.core, seat);
+    let oceans = cx.env.oceans(seat);
+    for planet in own.as_slice().iter().map(|(_, p)| *p).chain(oceans.as_slice().iter().copied()) {
+        if board::exhausted(cx.core, planet) {
+            continue;
+        }
+        let influence = influence_of(cx, planet);
+        if influence > 0 {
+            out.push((planet, Face::Influence, influence + qanoj));
+        }
+        if spender {
+            let resources =
+                economy::value_now(cx.core, cx.scope, cx.blanked, planet, Spend::Resources, cx.env.resource_bonus(planet));
+            if resources > 0 {
+                out.push((planet, Face::Resources, resources + qanoj));
+            }
+        }
+    }
+    out
+}
+
+/// The frame of a question asked of `actor` on `agenda`.
+#[must_use]
+pub fn frame(core: &CoreState, agenda: Agenda, actor: Seat) -> Frame {
+    Frame { agenda, covert: core.agenda().covert, reveal: agenda == Agenda::CovertLegislation && actor == core.meta().speaker }
+}
+
+fn subtype_of(ask: &Ask) -> Subtype {
+    ask.subtype()
+}
+
+fn question(actor: Seat, ask: Ask, origin: Origin, opts: Opts) -> Choice {
+    let ctx = ChoiceCtx {
+        origin,
+        subtype: crate::choice::Subtype::Agenda(subtype_of(&ask)),
+        optional: false,
+        target: None,
+        outstanding: SmallList::new(),
+        space_battle: false,
+        invasion_seq: None,
+    };
+    Choice { actor, ask: crate::choice::Ask::Agenda(ask), ctx, opts }
+}
+
+fn votes32(v: i64) -> i32 {
+    i32::try_from(v).unwrap_or(i32::MAX)
+}
+
+fn count(counts: Counts<'_>, outcome: Outcome) -> i64 {
+    counts.iter().find(|(o, _)| *o == outcome).map_or(0, |(_, c)| *c)
+}
+
+fn back(cx: &Cx<'_>, outcome: Outcome, votes: i64) -> TopOpt {
+    let system = match outcome {
+        Outcome::Planet(p) => board::system_of(cx.core, cx.scope, p),
+        _ => None,
+    };
+    TopOpt::Agenda(Opt::Back(outcome, Shown { votes: votes32(votes), system }))
+}
+
+/// 8.10, `Stage::Outcome`: `voter` names an outcome among `choices` (or abstains). `bound`: Genetic
+/// Recombination forces the voter to back that outcome and not to abstain.
+#[must_use]
+pub fn vote_question(
+    cx: &Cx<'_>,
+    agenda: Agenda,
+    voter: Seat,
+    choices: &[Outcome],
+    counts: Counts<'_>,
+    bound: Option<Outcome>,
+) -> Choice {
+    let mut opts = Opts::default();
+    for o in choices {
+        if bound.is_none_or(|forced| forced == *o) {
+            opts.push(back(cx, *o, count(counts, *o)));
+        }
+    }
+    if bound.is_none() {
+        opts.push(TopOpt::Decline);
+    }
+    question(voter, Ask::Vote { frame: frame(cx.core, agenda, voter) }, Origin::Rule(Rule::R8_10), opts)
+}
+
+/// 8.11, `Stage::Planets`: which planet to exhaust for `outcome`. `None` when nothing is left to exhaust, or
+/// when the vote has more outcomes than the ledger holds (the core does not express it). `must_cast`:
+/// Genetic Recombination makes the first planet not optional.
+#[must_use]
+pub fn planets_question(
+    cx: &Cx<'_>,
+    agenda: Agenda,
+    voter: Seat,
+    outcome: Outcome,
+    votes: i64,
+    spender: bool,
+    choices: &[Outcome],
+    counts: Counts<'_>,
+    must_cast: bool,
+) -> Option<Choice> {
+    let offers = planet_offers(cx, voter, spender);
+    if offers.is_empty() {
+        return None;
+    }
+    let mut tally = Tally::empty();
+    for o in choices {
+        if !tally.push(*o, votes32(count(counts, *o))) {
+            return None;
+        }
+    }
+    let mut opts = Opts::default();
+    for (planet, face, cast) in offers.as_slice() {
+        let system = board::system_of(cx.core, cx.scope, *planet);
+        opts.push(TopOpt::Agenda(Opt::Exhaust { planet: *planet, face: *face, shown: Shown { votes: votes32(*cast), system } }));
+    }
+    if !must_cast {
+        opts.push(TopOpt::Decline);
+    }
+    let ask = Ask::Planets { frame: frame(cx.core, agenda, voter), outcome, votes: votes32(votes), spender, tally };
+    Some(question(voter, ask, Origin::Rule(Rule::R8_11), opts))
+}
+
+/// `Stage::TradeGoods`: spend 1 to `goods` trade goods for `rate` votes each. `None` beyond 255 goods.
+#[must_use]
+pub fn trade_goods_question(
+    core: &CoreState,
+    agenda: Agenda,
+    voter: Seat,
+    outcome: Outcome,
+    votes: i64,
+    goods: i64,
+    rate: i64,
+) -> Option<Choice> {
+    let n = u8::try_from(goods.max(0)).ok()?;
+    let mut opts = Opts::default();
+    for spent in 1..=n {
+        opts.push(TopOpt::Agenda(Opt::Spend(spent)));
+    }
+    opts.push(TopOpt::Decline);
+    let origin = if rate == 2 {
+        Origin::Content(Content::Leader(Leader::GilaTheSilvertongue))
+    } else {
+        Origin::Content(Content::Technology(Technology::ExecutiveOrder))
+    };
+    let ask = Ask::TradeGoods {
+        frame: frame(core, agenda, voter),
+        outcome,
+        votes: votes32(votes),
+        goods: votes32(goods),
+        rate: u8::try_from(rate).ok()?,
+    };
+    Some(question(voter, ask, origin, opts))
+}
+
+/// `Stage::Predictive`: cast 3 more votes for `outcome` or not.
+#[must_use]
+pub fn predictive_question(core: &CoreState, agenda: Agenda, voter: Seat, outcome: Outcome, votes: i64) -> Choice {
+    let mut opts = Opts::default();
+    opts.push(TopOpt::Agenda(Opt::CastPredictive));
+    opts.push(TopOpt::Decline);
+    let ask = Ask::Predictive { frame: frame(core, agenda, voter), outcome, votes: votes32(votes) };
+    question(voter, ask, Origin::Content(Content::Technology(Technology::PredictiveIntelligence)), opts)
+}
+
+/// `Stage::Recombine`: the holder names the outcome `voter` must back.
+#[must_use]
+pub fn recombine_question(core: &CoreState, agenda: Agenda, holder: Seat, voter: Seat, choices: &[Outcome]) -> Choice {
+    let mut opts = Opts::default();
+    for o in choices {
+        opts.push(TopOpt::Agenda(Opt::Demand(*o)));
+    }
+    opts.push(TopOpt::Decline);
+    let ask = Ask::Recombine { frame: frame(core, agenda, holder), voter };
+    question(holder, ask, Origin::Content(Content::Technology(Technology::GeneticRecombination)), opts)
+}
+
+/// `Stage::Tribute`: the voter backs `outcome` (`can_vote`: some planet is left to exhaust) or returns a
+/// fleet token (`can_pay`). `None` when neither.
+#[must_use]
+pub fn tribute_question(core: &CoreState, agenda: Agenda, voter: Seat, outcome: Outcome, can_vote: bool, can_pay: bool) -> Option<Choice> {
+    let mut opts = Opts::default();
+    if can_vote {
+        opts.push(TopOpt::Agenda(Opt::TributeVote));
+    }
+    if can_pay {
+        opts.push(TopOpt::Agenda(Opt::TributeToken));
+    }
+    if opts.is_empty() {
+        return None;
+    }
+    let ask = Ask::Tribute { frame: frame(core, agenda, voter), outcome };
+    Some(question(voter, ask, Origin::Content(Content::Technology(Technology::GeneticRecombination)), opts))
+}
+
+/// 8.16, `Stage::Tiebreak`: the speaker picks among `candidates` (tied, or everything on offer).
+#[must_use]
+pub fn tiebreak_question(cx: &Cx<'_>, agenda: Agenda, candidates: &[Outcome]) -> Choice {
+    let speaker = cx.core.meta().speaker;
+    let mut opts = Opts::default();
+    for o in candidates {
+        opts.push(back(cx, *o, 0));
+    }
+    question(speaker, Ask::Tiebreak { frame: frame(cx.core, agenda, speaker) }, Origin::Rule(Rule::R8_16), opts)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -341,6 +562,9 @@ mod tests {
         }
         fn oceans(&self, _: Seat) -> SmallList<Planet, 4> {
             SmallList::new()
+        }
+        fn resource_bonus(&self, _: Planet) -> i64 {
+            0
         }
     }
 

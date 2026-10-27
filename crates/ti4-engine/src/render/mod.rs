@@ -158,7 +158,7 @@ macro_rules! uninhabited {
 }
 uninhabited!(
     tactical, technology, objectives, tokens, combat, invasion, production, trade, diplomacy, explore,
-    relic, legendary, promissory, cards, strategy, agenda
+    relic, legendary, promissory, cards, strategy
 );
 
 impl<A: Uninhabited, O: Uninhabited, S: Uninhabited> Family for Unported<A, O, S> {
@@ -262,7 +262,7 @@ registry! {
     Cards => unported!(cards),
     Leaders => leaders::Fam,
     Strategy => unported!(strategy),
-    Agenda => unported!(agenda),
+    Agenda => agenda::Fam,
 }
 
 /// Phase of the core to the wire phase.

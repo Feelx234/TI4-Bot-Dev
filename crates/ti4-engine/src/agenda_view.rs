@@ -177,6 +177,104 @@ impl<'a> AgendaView<'a> {
     }
 }
 
+/// The questions of a vote as the string engine's `Choice`: built by the core
+/// (`rules::agenda::*_question`), rendered by `render::agenda`. The string side's texts go in, typed
+/// values come out the other end; `None` when a text is not mapped.
+impl AgendaView<'_> {
+    fn render_choice(&self, c: ti4_engine_core::choice::Choice) -> crate::choice::Choice {
+        let r = crate::render::Render::new(self.cx.owners.ids().to_vec());
+        let core = &self.view;
+        crate::render::render_choice(&r, &c, core.meta().phase, core.meta().round)
+    }
+
+    fn outcomes_of(&self, alias: &str, texts: &[String]) -> Option<Vec<Outcome>> {
+        texts.iter().map(|t| self.parse(alias, t)).collect()
+    }
+
+    fn counts_of(&self, alias: &str, counts: &std::collections::BTreeMap<String, i64>) -> Option<Vec<(Outcome, i64)>> {
+        counts.iter().map(|(k, v)| Some((self.parse(alias, k)?, *v))).collect()
+    }
+
+    /// `Stage::Outcome`.
+    #[must_use]
+    pub fn vote_question(
+        &self,
+        alias: &str,
+        voter: &PlayerId,
+        choices: &[String],
+        counts: &std::collections::BTreeMap<String, i64>,
+        bound: Option<&str>,
+    ) -> Option<crate::choice::Choice> {
+        let (agenda, voter) = (typed::<Agenda>(alias)?, self.seat(voter)?);
+        let (choices, counts) = (self.outcomes_of(alias, choices)?, self.counts_of(alias, counts)?);
+        let bound = match bound {
+            Some(b) => Some(self.parse(alias, b)?),
+            None => None,
+        };
+        Some(self.render_choice(rules::vote_question(&self.rules_cx(), agenda, voter, &choices, &counts, bound)))
+    }
+
+    /// `Stage::Planets`.
+    #[must_use]
+    #[allow(clippy::too_many_arguments)]
+    pub fn planets_question(
+        &self,
+        alias: &str,
+        voter: &PlayerId,
+        outcome: &str,
+        votes: i64,
+        spender: bool,
+        choices: &[String],
+        counts: &std::collections::BTreeMap<String, i64>,
+        must_cast: bool,
+    ) -> Option<Option<crate::choice::Choice>> {
+        let (agenda, voter) = (typed::<Agenda>(alias)?, self.seat(voter)?);
+        let (choices, counts) = (self.outcomes_of(alias, choices)?, self.counts_of(alias, counts)?);
+        let outcome = self.parse(alias, outcome)?;
+        let q = rules::planets_question(&self.rules_cx(), agenda, voter, outcome, votes, spender, &choices, &counts, must_cast);
+        Some(q.map(|q| self.render_choice(q)))
+    }
+
+    /// `Stage::TradeGoods`.
+    #[must_use]
+    pub fn trade_goods_question(&self, alias: &str, voter: &PlayerId, outcome: &str, votes: i64, goods: i64, rate: i64) -> Option<crate::choice::Choice> {
+        let (agenda, voter) = (typed::<Agenda>(alias)?, self.seat(voter)?);
+        let q = rules::trade_goods_question(&self.view, agenda, voter, self.parse(alias, outcome)?, votes, goods, rate)?;
+        Some(self.render_choice(q))
+    }
+
+    /// `Stage::Predictive`.
+    #[must_use]
+    pub fn predictive_question(&self, alias: &str, voter: &PlayerId, outcome: &str, votes: i64) -> Option<crate::choice::Choice> {
+        let (agenda, voter) = (typed::<Agenda>(alias)?, self.seat(voter)?);
+        Some(self.render_choice(rules::predictive_question(&self.view, agenda, voter, self.parse(alias, outcome)?, votes)))
+    }
+
+    /// `Stage::Recombine`.
+    #[must_use]
+    pub fn recombine_question(&self, alias: &str, holder: &PlayerId, voter: &PlayerId, choices: &[String]) -> Option<crate::choice::Choice> {
+        let (agenda, holder, voter) = (typed::<Agenda>(alias)?, self.seat(holder)?, self.seat(voter)?);
+        let choices = self.outcomes_of(alias, choices)?;
+        Some(self.render_choice(rules::recombine_question(&self.view, agenda, holder, voter, &choices)))
+    }
+
+    /// `Stage::Tribute`.
+    #[must_use]
+    pub fn tribute_question(&self, alias: &str, voter: &PlayerId, outcome: &str, can_vote: bool, can_pay: bool) -> Option<Option<crate::choice::Choice>> {
+        let (agenda, voter) = (typed::<Agenda>(alias)?, self.seat(voter)?);
+        let q = rules::tribute_question(&self.view, agenda, voter, self.parse(alias, outcome)?, can_vote, can_pay);
+        Some(q.map(|q| self.render_choice(q)))
+    }
+
+    /// `Stage::Tiebreak`.
+    #[must_use]
+    pub fn tiebreak_question(&self, alias: &str, candidates: &[String]) -> Option<crate::choice::Choice> {
+        let agenda = typed::<Agenda>(alias)?;
+        let candidates = self.outcomes_of(alias, candidates)?;
+        Some(self.render_choice(rules::tiebreak_question(&self.rules_cx(), agenda, &candidates)))
+    }
+}
+
 /// `vote::is_law` of an agenda alias (needs no view).
 #[must_use]
 pub fn is_law(alias: &str) -> Option<bool> {
@@ -194,6 +292,10 @@ impl Env for AgendaView<'_> {
 
     fn votes_first(&self, who: Seat) -> bool {
         self.pid(who).is_some_and(|p| crate::factions::hooks_cards::votes_first(self.state, &p))
+    }
+
+    fn resource_bonus(&self, planet: Planet) -> i64 {
+        crate::factions::bastion_units::resource_bonus(self.state, &PlanetId::new(planet.as_str()))
     }
 
     fn oceans(&self, who: Seat) -> SmallList<Planet, 4> {
