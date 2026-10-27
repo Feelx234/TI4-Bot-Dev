@@ -45,7 +45,7 @@ pub fn system_of(core: &CoreState, scope: Scope, planet: Planet) -> Option<Syste
     if has_entry { data.system } else { None }
 }
 
-/// `planets::in_system`: every planet printed on the tile (in the source scope), then every planet
+/// `planets::in_system`: every planet printed on the tile (in the source scope, planet order), then every planet
 /// placed there during play (planet order).
 #[must_use]
 pub fn planets_in(core: &CoreState, scope: Scope, system: System) -> PlanetList {
@@ -55,6 +55,8 @@ pub fn planets_in(core: &CoreState, scope: Scope, system: System) -> PlanetList 
             out.push(*planet);
         }
     }
+    // The string side lists the planets in record (id text) order, which is the enum order.
+    out.as_mut_slice().sort_unstable();
     for (planet, cell) in core.board().planets() {
         if cell.placed_in == Some(system) {
             out.push(planet);
