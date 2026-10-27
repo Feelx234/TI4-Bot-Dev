@@ -39,7 +39,9 @@ const ID_CONTEXTS: [&str; 6] = [
 ///
 /// Each is a name the engine defines for itself, so the corpus cannot be expected to carry it.
 /// Anything not here and not in the corpus is either a typo or a dead branch.
-const ENGINE_VOCABULARY: [&str; 18] = [
+const ENGINE_VOCABULARY: [&str; 19] = [
+    // The label of an id in the core_sync codecs' error text (`id::<AgendaId>(S, "agenda", text)`).
+    "agenda",
     "decline",
     "activate",
     "system",
@@ -324,6 +326,8 @@ fn is_test_only_file(path: &Path) -> bool {
             .to_str()
             .is_some_and(|s| s.ends_with("_tests"))
     }) || path.file_name().is_some_and(|n| n == "fixtures.rs")
+        // The test module of the core_sync seam (`#[cfg(test)] mod tests;`).
+        || path.ends_with("core_sync/tests.rs")
         || std::fs::read_to_string(path).is_ok_and(|t| t.contains("#![cfg(test)]"))
 }
 
