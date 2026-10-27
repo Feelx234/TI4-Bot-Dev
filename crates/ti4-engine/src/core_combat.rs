@@ -18,7 +18,7 @@ use ti4_engine_core::kernel::{Kernel, Sources as CoreSources};
 use ti4_engine_core::rules::combat as cc;
 use ti4_engine_core::rules::combat::Rd;
 use ti4_engine_core::kernel::hooks::BorrowedStats;
-use ti4_engine_core::kernel::seam::{adapters, providers, Delta, Layer, Pass, Replacement, RollKind, RollSite, RuleRef, SeatSystemSite, Seams, SetWhy, Source, Step, Verdict};
+use ti4_engine_core::kernel::seam::{adapters, providers, Delta, Layer, Pass, Replacement, RollKind, RollSite, RuleRef, SeatSystemSite, Seams, SetWhy, SilenceSite, Source, Step, Verdict};
 use ti4_engine_core::kernel::Next;
 use ti4_engine_core::state::{Piece, Slice, SliceSet};
 use ti4_model::content_types::SourceSet;
@@ -120,6 +120,16 @@ fn add(n: i64) -> Delta {
 /// dice, `may_sustain`, borrowed stats and the Alastor's ground forces.
 fn register_string_bridge(seams: &mut Seams) {
     seams.hit_shift.push_add(STRINGS, Layer::Faction, |_, site: &RollSite, _| {
+        if site.kind == RollKind::Barrage {
+            // An ANTI-FIGHTER BARRAGE roll reads only the plot (Assail) of the string modules.
+            return add(with_oracle(|o| {
+                let player = o.player(site.unit.owner)?;
+                let system = site.unit.system.map(|s| SystemId::new(s.as_str()));
+                Some(crate::factions::firmament_plots::assail_space(&o.gs, ContentStore::embedded(), o.sources, &player, system.as_ref()))
+            })
+            .flatten()
+            .unwrap_or(0));
+        }
         if site.kind != RollKind::Combat {
             return Delta::None;
         }
@@ -155,6 +165,9 @@ fn register_string_bridge(seams: &mut Seams) {
         .unwrap_or(0))
     });
     seams.dice.push_set(STRINGS, Layer::Faction, |_, site: &RollSite, acc| {
+        if site.kind != RollKind::Combat {
+            return Delta::None;
+        }
         let to = with_oracle(|o| {
             o.with_unit(site.unit, |cu| {
                 crate::factions::unit_dice(&o.gs, ContentStore::embedded(), o.sources, cu, acc)
@@ -165,9 +178,10 @@ fn register_string_bridge(seams: &mut Seams) {
         if to == acc { Delta::None } else { Delta::Set { to, why: SetWhy::LegacyFold } }
     });
     seams.dice.push_add(STRINGS, Layer::Faction, |_, site: &RollSite, _| {
-        if site.kind != RollKind::Combat {
+        if !matches!(site.kind, RollKind::Combat | RollKind::Barrage) {
             return Delta::None;
         }
+        let combat = site.kind == RollKind::Combat;
         add(with_oracle(|o| {
             let (Some(player), Some(system)) = (o.player(site.unit.owner), site.unit.system) else { return 0 };
             let sid = SystemId::new(system.as_str());
@@ -176,7 +190,7 @@ fn register_string_bridge(seams: &mut Seams) {
             let bastion = ships
                 .get(index)
                 .map_or(0, |unit| i64::try_from(crate::factions::bastion::extra_die(unit)).unwrap_or(0));
-            let agent = crate::factions::borrowed_round_agents::extra_die_for(
+            let agent = if !combat { 0 } else { crate::factions::borrowed_round_agents::extra_die_for(
                 &o.gs,
                 ContentStore::embedded(),
                 o.sources,
@@ -186,10 +200,19 @@ fn register_string_bridge(seams: &mut Seams) {
                 site.unit.unit.as_str(),
                 index,
                 o.gs.combat_round_seq,
-            );
+            ) };
             bastion + agent
         })
         .unwrap_or(0))
+    });
+    seams.silenced.push(STRINGS, |_, site: &SilenceSite| {
+        let lost = with_oracle(|o| {
+            let player = o.player(site.owner)?;
+            Some(crate::factions::crimson::abilities_lost(&o.gs, &player, &SystemId::new(site.system.as_str())))
+        })
+        .flatten()
+        .unwrap_or(false);
+        if lost { Verdict::Allow } else { Verdict::Abstain }
     });
     seams.may_sustain.push(STRINGS, |_, unit: &CombatUnit| {
         let allowed = with_oracle(|o| {
@@ -529,6 +552,18 @@ impl<'g> CombatView<'g> {
             }
         }
         Some(rows)
+    }
+
+    /// The barrage plan of a side: (ship type or none for the relic, hit number, dice).
+    #[must_use]
+    pub fn barrage_plan(&self, player: &PlayerId, system: &SystemId) -> Option<Vec<(Option<String>, i64, usize)>> {
+        let (seat, sys) = (self.seat(player)?, typed::<System>(system.as_str())?);
+        Some(self.with(|rd| {
+            cc::barrage_plan(rd, seat, sys)
+                .into_iter()
+                .map(|r| (r.unit.map(|u| u.as_str().to_owned()), r.hits_on, r.dice))
+                .collect()
+        }))
     }
 
     /// `combat::fleet_groups`, flattened: (hit number, tag, dice, [(unit type, count)]).

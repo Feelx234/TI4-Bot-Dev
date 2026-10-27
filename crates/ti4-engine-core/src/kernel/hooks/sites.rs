@@ -89,7 +89,7 @@ pub struct BorrowedStats {
     pub sustained: bool,
     pub galvanized: bool,
     pub hits_on: Option<i8>,
-    /// Anti-fighter-barrage `(dice, hits_on)`.
+    /// Anti-fighter-barrage `(hits_on, dice)`, as the string `BorrowedStats` has it.
     pub barrage: Option<(i8, i8)>,
 }
 

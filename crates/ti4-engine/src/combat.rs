@@ -1814,7 +1814,9 @@ pub fn roll_barrage_side(
     system: &SystemId,
     player: &PlayerId,
 ) -> usize {
+    let mut plan: Vec<(Option<String>, i64, usize)> = Vec::new();
     if omega_forbids_barrage(state, system, player) {
+        check_barrage_plan(state, content, sources, player, system, &plan);
         return 0;
     }
     let types = catalogue(content, sources);
@@ -1827,6 +1829,7 @@ pub fn roll_barrage_side(
     // Metali Void Armaments fires once for its holder, not once per ship: the card grants the
     // barrage to the player.
     if let Some((value, count)) = crate::relics::extra_barrage(state, player) {
+        plan.push((None, i64::from(value), count));
         let roll = dice.roll_by(rng, count, "anti_fighter_barrage", Some(value), player);
         hits += roll.hits();
         set.rolls.push(RerollEntry {
@@ -1902,6 +1905,7 @@ pub fn roll_barrage_side(
                 Some(system),
             ))
         .max(1);
+        plan.push((Some(unit.type_id.to_string()), value, count));
         let roll = dice.roll_by(
             rng,
             count,
@@ -1931,11 +1935,31 @@ pub fn roll_barrage_side(
             unit_types: std::iter::once((unit.type_id.to_string(), 1)).collect(),
         });
     }
+    check_barrage_plan(state, content, sources, player, system, &plan);
     if set.rolls.iter().any(|roll| !roll.faces.is_empty()) {
         state.reroll_staging.insert(player.clone(), set);
         state.last_reroll_player = Some(player.clone());
     }
     hits
+}
+
+/// Dual check of one side's barrage: the typed plan must list the same rolls (ship, hit number, dice).
+fn check_barrage_plan(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    plan: &[(Option<String>, i64, usize)],
+) {
+    if crate::dual::backend(crate::dual::Area::Combat) != crate::dual::Backend::Dual {
+        return;
+    }
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::core_combat::CombatView::of(state, content, sources)?.barrage_plan(player, system);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None::<Vec<(Option<String>, i64, usize)>>;
+    let _ = crate::dual::run_dual_typed(crate::dual::Area::Combat, "combat::barrage_plan", typed, || plan.to_vec());
 }
 
 /// Resolve both barrages: remove the target's fighters for each side's (possibly rerolled)
@@ -3326,6 +3350,11 @@ fn offer_sustain(
             *unit = unit.sustained();
             let exact_target = unit.clone();
             remember_sustain_target(state, system, location, &exact_target);
+            if let Some(expected) = expected_rows {
+                let _ = crate::dual::run_dual_typed(crate::dual::Area::Combat, "combat::apply_sustain", || Some(expected), || {
+                    crate::core_combat::board_rows(state, system)
+                });
+            }
             if state.rules_version >= ti4_model::state::RULES_FACTION_EFFECTS {
                 ask_sustain_commander(state, ctx, content, sources, galaxy, player)?;
             } else {
@@ -3341,11 +3370,6 @@ fn offer_sustain(
                 producer,
                 during_space_combat,
             )?;
-        }
-        if let Some(expected) = expected_rows {
-            let _ = crate::dual::run_dual_typed(crate::dual::Area::Combat, "combat::apply_sustain", || Some(expected), || {
-                crate::core_combat::board_rows(state, system)
-            });
         }
         // Non-Euclidean Shielding: "When 1 of your units uses SUSTAIN DAMAGE, cancel 2 hits
         // instead of 1." Per *use*, so a second hit costs the same one damaged ship -- which is

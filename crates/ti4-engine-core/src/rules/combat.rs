@@ -23,7 +23,7 @@ use crate::query::laws as qlaws;
 use crate::state::{CombatDie, Ledger, NoteKey, RerollSet, RollPurpose, RollRec};
 use crate::containers::SeatSet;
 use crate::generated::Faction;
-use crate::kernel::seam::{data as seam_data, Clamp, RollKind, RollSite, SeatSystemSite, Q};
+use crate::kernel::seam::{data as seam_data, Clamp, RowKind, RollKind, RollSite, SeatSystemSite, SilenceCtx, SilenceSite, Q};
 use crate::kernel::Kernel;
 use crate::query::board as qboard;
 use crate::state::{CoreState, Piece};
@@ -759,4 +759,109 @@ pub fn apply_sustain(rd: Rd<'_>, player: Seat, system: System, site: SustainSite
         }
     }
     Some(after)
+}
+
+// -- anti-fighter barrage (LRR 78.3) -------------------------------------------------------------
+
+/// One barrage roll a side makes: the ship (`None`: the relic, which fires once for its holder), the
+/// number the dice need and how many dice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BarrageRoll {
+    pub unit: Option<Unit>,
+    pub hits_on: i64,
+    pub dice: usize,
+}
+
+/// Iconoclast Omega: "Other players cannot use ANTI-FIGHTER BARRAGE against your units in this system"
+/// (rules version 17), unless the mech's own abilities are lost.
+fn omega_forbids_barrage(rd: Rd<'_>, system: System, player: Seat) -> bool {
+    if rd.s.meta().rules_version < RULES_FACTION_BUGFIXES {
+        return false;
+    }
+    let board = rd.s.board();
+    let in_space = board.sys(system).units.iter().copied();
+    let planets = planets_of_sorted(rd.s, system);
+    let on_planets = planets.iter().flat_map(|p| board.planet(*p).units.iter().copied().collect::<Vec<_>>());
+    in_space.chain(on_planets).any(|u| {
+        u.owner() != player
+            && u.kind() == Unit::IconoclastOmega
+            && !rd.k.hooks.seam.silenced.decide(
+                rd.q(),
+                &SilenceSite { owner: u.owner(), system, unit: None, ctx: SilenceCtx::Space },
+                false,
+            )
+    })
+}
+
+/// The shift fighters' own rows add to the roll (Fighter Prototype, the Ixth law), the part of
+/// `hit_shift` a barrage reads besides its own site.
+fn fighter_row_shift(rd: Rd<'_>, player: Seat) -> i64 {
+    let round = rd.s.meta().combat_round_seq;
+    seam_data::COMBAT_ROWS
+        .iter()
+        .filter(|r| r.fighters_only && matches!(r.kind, RowKind::RollShift(_)))
+        .map(|r| r.amount(r.times(rd.q(), player, SeatSet::EMPTY, None, round)))
+        .sum()
+}
+
+/// `combat::roll_barrage_side`'s plan: the rolls `player`'s side makes in `system`, in order.
+#[must_use]
+pub fn barrage_plan(rd: Rd<'_>, player: Seat, system: System) -> Vec<BarrageRoll> {
+    let mut plan = Vec::new();
+    if omega_forbids_barrage(rd, system, player) {
+        return plan;
+    }
+    // Metali Void Armaments fires once for its holder.
+    if let Some(RowKind::Barrage { hits_on, dice }) = rd
+        .k
+        .hooks
+        .seam
+        .rows
+        .iter()
+        .filter(|r| matches!(r.kind, RowKind::Barrage { .. }) && r.times(rd.q(), player, SeatSet::EMPTY, None, 0) > 0)
+        .map(|r| r.kind)
+        .next()
+    {
+        plan.push(BarrageRoll { unit: None, hits_on: i64::from(hits_on), dice: usize::from(dice) });
+    }
+    let borrower = rd
+        .k
+        .hooks
+        .seam
+        .borrowed_stats
+        .offered(rd.q(), &SeatSystemSite { who: player, system })
+        .and_then(|b| b.barrage.map(|(v, d)| (b.unit, b.sustained, b.galvanized, i64::from(v), i64::from(d))));
+    let mut borrower_used = false;
+    let lost = rd.k.hooks.seam.silenced.decide(
+        rd.q(),
+        &SilenceSite { owner: player, system, unit: None, ctx: SilenceCtx::Space },
+        false,
+    );
+    for (index, unit) in ships_of(rd, player, system).into_iter().enumerate() {
+        let Some(data) = rd.data(unit.kind()) else { continue };
+        if lost {
+            continue;
+        }
+        let lent = borrower
+            .filter(|(u, s, g, ..)| !borrower_used && *u == unit.kind() && *s == unit.sustained() && *g == unit.galvanized())
+            .map(|(.., v, d)| (v, d));
+        borrower_used |= lent.is_some();
+        let Some(printed) = lent.map(|(v, _)| v).or_else(|| data.anti_fighter_barrage.map(|r| i64::from(r.hits_on))) else {
+            continue;
+        };
+        let count = lent.map_or_else(|| data.anti_fighter_barrage.map_or(0, |r| i64::from(r.dice)), |(_, d)| d);
+        if count <= 0 {
+            continue;
+        }
+        let mut site = roll_site(rd, player, unit.kind(), Some(system), index as u16);
+        site.kind = RollKind::Barrage;
+        let dice = rd.k.hooks.seam.dice.eval(rd.q(), &site, count, Clamp::None).value;
+        let mut value = printed;
+        if rd.is_fighter(unit.kind()) {
+            value -= fighter_row_shift(rd, player);
+        }
+        value = (value - rd.k.hooks.seam.hit_shift.eval(rd.q(), &site, 0, Clamp::None).value).max(1);
+        plan.push(BarrageRoll { unit: Some(unit.kind()), hits_on: value, dice: usize::try_from(dice).unwrap_or(0) });
+    }
+    plan
 }
