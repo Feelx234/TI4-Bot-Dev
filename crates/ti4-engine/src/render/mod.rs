@@ -157,7 +157,7 @@ macro_rules! uninhabited {
     )*};
 }
 uninhabited!(
-    tactical, technology, objectives, tokens, combat, invasion, production, trade, diplomacy, explore,
+    tactical, technology, objectives, tokens, invasion, production, trade, diplomacy, explore,
     relic, legendary, promissory, cards, leaders, strategy, agenda
 );
 
@@ -250,7 +250,7 @@ registry! {
     Objectives => unported!(objectives),
     Tokens => unported!(tokens),
     Reaction => reaction::Fam,
-    Combat => unported!(combat),
+    Combat => combat::Fam,
     Invasion => unported!(invasion),
     Production => unported!(production),
     Trade => unported!(trade),

@@ -3021,6 +3021,52 @@ fn sustainer_counts_text(
     counts
 }
 
+fn player_prompt(system: &SystemId) -> String {
+    format!("cancel a hit at {system}")
+}
+
+/// Dual check of the sustain offer: the typed ask must list the same options, worded the same.
+#[allow(clippy::too_many_arguments)]
+fn check_sustain_options(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    hits: usize,
+    non_fighters_first: bool,
+    ability: bool,
+    in_combat: bool,
+    prompt: &str,
+    options: &[ChoiceOption],
+) {
+    #[cfg(feature = "typed-core")]
+    let typed = || {
+        use ti4_engine_core::generated::System as CoreSystem;
+        let ask = ti4_engine_core::choice::combat::Ask::CancelHit {
+            system: <CoreSystem as crate::generated::IdStr>::from_id(system.as_str())?,
+            hits: u16::try_from(hits).unwrap_or(u16::MAX),
+            non_fighters_first,
+            staging: crate::supply::staging_enabled(state),
+            ability,
+            in_combat,
+        };
+        crate::core_combat::CombatView::of(state, content, sources)?.sustain_options(player, ask)
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None::<(String, Vec<crate::core_combat::OptionRow>)>;
+    let rows = || {
+        (
+            prompt.to_owned(),
+            options
+                .iter()
+                .map(|o| (o.id.clone(), o.kind.clone(), o.label.clone(), o.payload.clone()))
+                .collect::<Vec<_>>(),
+        )
+    };
+    let _ = crate::dual::run_dual_typed(crate::dual::Area::Combat, "combat::sustain_options", typed, rows);
+}
+
 /// Offer every available SUSTAIN DAMAGE until the hits run out or the player takes them.
 ///
 /// Only units that could actually be assigned a hit of `origin` are offered.
@@ -3163,6 +3209,22 @@ fn offer_sustain(
             take = take.with("non_fighters_first", true);
         }
         options.push(take);
+        if crate::dual::backend(crate::dual::Area::Combat) == crate::dual::Backend::Dual {
+            check_sustain_options(
+                state,
+                content,
+                sources,
+                player,
+                system,
+                hits,
+                non_fighters_first
+                    && !non_fighter_ships(state, content, sources, player, system).is_empty(),
+                origin == HitOrigin::UnitAbility,
+                during_space_combat,
+                &player_prompt(system),
+                &options,
+            );
+        }
 
         let sustainers = sustainer_counts(
             state,

@@ -407,6 +407,28 @@ impl<'g> CombatView<'g> {
         Some(self.with(|rd| cc::direct_hittable_at(rd, seat, sys, unit)))
     }
 
+    /// The options of the sustain offer, rendered: (id, kind, label, payload) per option, and the prompt.
+    #[must_use]
+    pub fn sustain_options(
+        &self,
+        player: &PlayerId,
+        ask: ti4_engine_core::choice::combat::Ask,
+    ) -> Option<(String, Vec<OptionRow>)> {
+        use ti4_engine_core::choice::Ask as AnyAsk;
+        let seat = self.seat(player)?;
+        let opts = self.with(|rd| cc::sustain_opts(rd, seat, ask));
+        let r = crate::render::Render::new(Vec::new());
+        let any = AnyAsk::Combat(ask);
+        let rows = opts
+            .iter()
+            .map(|o| {
+                let o = crate::render::option(&r, &any, o);
+                (o.id, o.kind, o.label, o.payload)
+            })
+            .collect();
+        Some((crate::render::prompt(&r, &any), rows))
+    }
+
     /// `combat::fleet_groups`, flattened: (hit number, tag, dice, [(unit type, count)]).
     #[must_use]
     pub fn fleet_groups(&self, player: &PlayerId, system: &SystemId) -> Option<Vec<FleetGroupRow>> {
@@ -421,6 +443,9 @@ impl<'g> CombatView<'g> {
         }))
     }
 }
+
+/// An option as the dual compares it: id, kind, label, payload.
+pub type OptionRow = (String, String, String, std::collections::BTreeMap<String, serde_json::Value>);
 
 /// One pooled roll group as the dual compares it: hit number, roll tag, dice, unit types with counts.
 pub type FleetGroupRow = (i64, u8, i64, Vec<(String, u32)>);

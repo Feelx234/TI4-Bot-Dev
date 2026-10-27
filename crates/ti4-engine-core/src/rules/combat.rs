@@ -714,3 +714,94 @@ pub fn round_dice(sides: &[(Seat, Option<&RerollSet>)]) -> Vec<CombatDie> {
     }
     out
 }
+
+// -- the offer to sustain (LRR 87.4) -------------------------------------------------------------
+
+use crate::choice::combat::{Ask as CombatAsk, Opt as CombatOpt, SustainSite};
+use crate::choice::{Opt, Opts};
+
+/// `combat::planet_unit_sustains`: whether a unit standing on a planet may sustain against a hit in
+/// space. A ship follows the space rule; any other unit needs its own printed ability.
+#[must_use]
+pub fn planet_unit_sustains(rd: Rd<'_>, system: System, player: Seat, unit: Piece, in_combat: bool) -> bool {
+    let Some(data) = rd.data(unit.kind()) else { return false };
+    if data.ship {
+        return sustains_in_space(rd, system, player, unit, in_combat);
+    }
+    unit.owner() == player
+        && !unit.sustained()
+        && data.sustain_damage
+        && !sustain_suppressed(rd.s, rd.blanked, data.base_type)
+        && rd.k.hooks.combat.may_sustain(
+            rd.s,
+            rd.k,
+            CombatUnit { owner: player, system: Some(system), planet: None, unit: unit.kind(), ctx: CombatCtx::Space },
+        )
+        && rd.f.may_sustain_modules(
+            rd.s,
+            CombatUnit { owner: player, system: Some(system), planet: None, unit: unit.kind(), ctx: CombatCtx::Space },
+        )
+}
+
+/// Every unit that could take the sustain of a hit, in the order the question lists them: space
+/// units in board order, then the planet-standing combatants.
+#[must_use]
+pub fn sustain_candidates(
+    rd: Rd<'_>,
+    player: Seat,
+    system: System,
+    in_combat: bool,
+    ability: bool,
+    staging: bool,
+) -> Vec<(SustainSite, Piece)> {
+    let mut found = Vec::new();
+    for (index, unit) in rd.s.board().sys(system).units.iter().enumerate() {
+        if rd.data(unit.kind()).is_some()
+            && sustains_in_space(rd, system, player, *unit, in_combat)
+            && assignable_to_hit(rd, player, system, unit.kind(), None, ability)
+        {
+            found.push((SustainSite::Space(index as u16), *unit));
+        }
+    }
+    let mut seen: Vec<(Planet, Piece)> = Vec::new();
+    for (planet, index, unit) in planet_combatants(rd, player, system) {
+        if !planet_unit_sustains(rd, system, player, unit, in_combat)
+            || !assignable_to_hit(rd, player, system, unit.kind(), Some(planet), ability)
+        {
+            continue;
+        }
+        if seen.iter().any(|(p, u)| *p == planet && *u == unit) {
+            continue;
+        }
+        let first_here = !seen.iter().any(|(p, _)| *p == planet);
+        let variant = unit.kind() != Unit::EidolonMaximum || (staging && !first_here);
+        seen.push((planet, unit));
+        found.push((SustainSite::Planet { planet, index, variant }, unit));
+    }
+    found
+}
+
+/// The options of [`CombatAsk::CancelHit`]: one per unit type (every planet-standing unit under staging),
+/// then the generic decline ("take the hit"). Empty when nothing can sustain.
+#[must_use]
+pub fn sustain_opts(rd: Rd<'_>, player: Seat, ask: CombatAsk) -> Opts {
+    let CombatAsk::CancelHit { system, staging, ability, in_combat, .. } = ask;
+    let mut opts = Opts::default();
+    let mut types: Vec<Unit> = Vec::new();
+    let found = sustain_candidates(rd, player, system, in_combat, ability, staging);
+    if found.is_empty() {
+        return opts;
+    }
+    for (site, unit) in found {
+        let on_planet = matches!(site, SustainSite::Planet { .. });
+        if !(staging && on_planet) {
+            if types.contains(&unit.kind()) {
+                continue;
+            }
+            types.push(unit.kind());
+        }
+        opts.push(Opt::Combat(CombatOpt::Sustain { site, unit: unit.kind(), galvanized: unit.galvanized() }));
+    }
+    opts.push(Opt::Decline);
+    opts
+}
