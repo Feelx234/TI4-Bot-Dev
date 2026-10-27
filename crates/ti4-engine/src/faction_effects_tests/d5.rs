@@ -1601,7 +1601,7 @@ fn nanomachines_2_repairs_all_of_your_damaged_units_and_none_of_anyone_elses() {
 fn nanomachines_3_discards_an_action_card_to_draw_one() {
     let mut state = nano_game();
     state.player_mut(&a()).unwrap().action_cards = pile(&["sabotage"]);
-    let deck = state.action_card_deck.len();
+    let deck = crate::deck::action_deck_len(&state);
     let discarded = state.discarded_action_cards.len();
     let (mut game, seen) = action_game(state, "a", None, &["faction|ralnel|nano_draw", "sabotage"]);
     steps(&mut game, 3);

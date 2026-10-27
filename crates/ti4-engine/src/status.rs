@@ -133,6 +133,7 @@ pub fn resolve_before_token_gain_with(
                 requested_draws,
             );
         }
+        crate::deck::drop_unofficial_action_cards(state);
         let mut drawn_count = 0;
         let mut drawn = Vec::new();
         for _ in 0..requested_draws {

@@ -119,10 +119,94 @@ pub fn outcomes(
     if elects == ElectType::Law {
         return state.laws_in_play().into_iter().cloned().collect();
     }
-    // "Elect Scored Secret Objective" draws from the one place a secret is public (61.17),
-    // and "Elect Strategy Card" from the cards in play. Neither is modelled here, so there
-    // is no candidate and the caller must discard rather than hold an empty vote.
+    // Galactic Crisis Pact: any of the game's strategy cards, in initiative order (rules version
+    // 31; below it nothing was a candidate and the agenda was discarded on reveal).
+    if elects == ElectType::StrategyCard
+        && state.rules_version >= ti4_model::state::RULES_CRISIS_PACT
+    {
+        return strategy_card_candidates(state);
+    }
+    // Classified Document Leaks: "Elect Scored Secret Objective". A scored secret is the one kind
+    // that is public (61.17); one already made public by an earlier leak is no longer a secret
+    // objective. Rules version 32; below it there was never a candidate.
+    if elects == ElectType::ScoredSecretObjective
+        && state.rules_version >= ti4_model::state::RULES_CLASSIFIED_LEAKS
+    {
+        return scored_secret_candidates(state, content);
+    }
+    // Nothing else elects anything this engine models: no candidate, and the caller must discard
+    // rather than hold an empty vote.
     Vec::new()
+}
+
+/// Every secret objective some player has scored and that is not already a public objective,
+/// sorted: what "Elect Scored Secret Objective" elects.
+fn scored_secret_candidates(state: &GameState, content: &ContentStore) -> Vec<String> {
+    let mut secrets: Vec<String> = state
+        .scored_objectives
+        .values()
+        .flatten()
+        .filter(|objective| !state.revealed_objectives.contains(objective))
+        .filter(|objective| {
+            content
+                .get(ContentType::SecretObjectives, objective.as_str())
+                .is_some()
+        })
+        .map(ToString::to_string)
+        .collect();
+    secrets.sort_unstable();
+    secrets.dedup();
+    secrets
+}
+
+/// The strategy cards of this game, lowest initiative first: what "Elect Strategy Card" elects.
+fn strategy_card_candidates(state: &GameState) -> Vec<String> {
+    let mut cards: Vec<(i32, String)> = state
+        .card_initiative
+        .iter()
+        .map(|(card, initiative)| (*initiative, card.to_string()))
+        .collect();
+    cards.sort();
+    cards.into_iter().map(|(_, card)| card).collect()
+}
+
+/// What an agenda elects, from its [`ElectType`]; `None` for a record the corpus does not know.
+fn elects(content: &ContentStore, alias: &str) -> Option<ElectType> {
+    content.get(ContentType::Agendas, alias)?.elect_type()
+}
+
+/// The agenda whose outcomes are voted on when `alias` is the agenda in play: the face-down
+/// agenda under Covert Legislation (rules version 33), else `alias` itself.
+#[must_use]
+pub fn voted_agenda<'a>(state: &'a GameState, alias: &'a str) -> &'a str {
+    match &state.covert_agenda {
+        Some(hidden) if alias == COVERT => hidden,
+        _ => alias,
+    }
+}
+
+/// Covert Legislation's alias.
+pub const COVERT: &str = "covert";
+
+/// How an outcome of `alias` is named to a player: a strategy card or a secret objective by its
+/// printed name, everything else (players, planets, laws, For/Against) as the outcome itself, as
+/// before. Under Covert Legislation the outcomes are the hidden agenda's. Display only.
+#[must_use]
+pub fn outcome_label(
+    state: &GameState,
+    content: &ContentStore,
+    alias: &str,
+    outcome: &str,
+) -> String {
+    let category = match elects(content, voted_agenda(state, alias)) {
+        Some(ElectType::StrategyCard) => ContentType::StrategyCards,
+        Some(ElectType::ScoredSecretObjective) => ContentType::SecretObjectives,
+        _ => return outcome.to_owned(),
+    };
+    content
+        .get(category, outcome)
+        .and_then(|record| record.text("name"))
+        .map_or_else(|| outcome.to_owned(), ToOwned::to_owned)
 }
 
 /// Whether this agenda elects a planet, from its [`ElectType`] exactly as [`outcomes`] reads it.
@@ -570,7 +654,18 @@ impl VoteWindow {
         self.pending_choice_bare(state, content, sources)
             .map(|choice| {
                 let agenda = crate::strategy_cards::agenda_details(content, &self.alias);
-                choice.detailed(AGENDA_DETAIL, agenda)
+                let choice = choice.detailed(AGENDA_DETAIL, agenda);
+                // Covert Legislation: the speaker drew the face-down agenda and knows it; nobody
+                // else is shown it.
+                match &state.covert_agenda {
+                    Some(hidden) if self.alias == COVERT && choice.player == state.speaker => {
+                        choice.detailed(
+                            "covert_agenda",
+                            crate::strategy_cards::agenda_details(content, hidden),
+                        )
+                    }
+                    _ => choice,
+                }
             })
     }
 
@@ -589,13 +684,14 @@ impl VoteWindow {
                 // effect. `Ballot` lives on this window, not on `GameState`, so nothing an
                 // `Observed` builds from state alone could recover it; each option's own running
                 // tally closes that gap through the existing generic payload-number pipeline.
-                let planet_outcomes = elects_planet(content, &self.alias);
+                let planet_outcomes = elects_planet(content, voted_agenda(state, &self.alias));
                 let mut options: Vec<ChoiceOption> = self
                     .choices
                     .iter()
                     .map(|outcome| {
                         let tally = self.ballot.counts.get(outcome).copied().unwrap_or(0);
-                        let option = ChoiceOption::labelled(outcome, VOTE_KIND, outcome)
+                        let label = outcome_label(state, content, &self.alias, outcome);
+                        let option = ChoiceOption::labelled(outcome, VOTE_KIND, label)
                             .with("current_votes", tally);
                         locate_outcome(option, planet_outcomes, state, content, sources)
                     })
@@ -861,7 +957,7 @@ impl VoteWindow {
             }
             Stage::Tiebreak => {
                 let candidates = tiebreak_candidates(&self.ballot, &self.choices);
-                let planet_outcomes = elects_planet(content, &self.alias);
+                let planet_outcomes = elects_planet(content, voted_agenda(state, &self.alias));
                 Some(
                     Choice::new(
                         state.speaker.clone(),
@@ -870,7 +966,11 @@ impl VoteWindow {
                             .iter()
                             .map(|outcome| {
                                 locate_outcome(
-                                    ChoiceOption::labelled(outcome, TIEBREAK_KIND, outcome),
+                                    ChoiceOption::labelled(
+                                        outcome,
+                                        TIEBREAK_KIND,
+                                        outcome_label(state, content, &self.alias, outcome),
+                                    ),
                                     planet_outcomes,
                                     state,
                                     content,

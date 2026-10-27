@@ -227,6 +227,53 @@ fn secondary_question(
     )
 }
 
+/// Galactic Crisis Pact's question to one player: "Each player may perform the secondary ability
+/// of the elected strategy card without spending a command token" (rules version 31).
+///
+/// The ordinary secondary question of `card` (the same options, and for Leadership the same
+/// purchase question and facts), asked without a strategy-token cost: `costs_token` false, no
+/// `played_by` (nobody played the card) and no `tokens_left`. `None` when the seat would not be
+/// asked the secondary at all: it could not do anything with it (the same
+/// `secondary_can_do_something` gate a follower window uses), or for Leadership could not afford a
+/// single command token. A yes is resolved with [`crate::strategy_cards::secondary`].
+#[must_use]
+pub fn crisis_pact_choice(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    card: &StrategyCardId,
+    player: &PlayerId,
+) -> Option<Choice> {
+    let name = crate::strategy_cards::card_name(content, card.as_str())?;
+    let eligible = if name == "Leadership" {
+        crate::strategy_cards::leadership_influence_eligible(state, content, sources, player)
+    } else {
+        secondary_can_do_something(state, content, sources, player, card)
+    };
+    if !eligible {
+        return None;
+    }
+    let mut choice = secondary_choice(state, content, sources, card, player, player, false);
+    if name != "Leadership" {
+        choice.prompt = format!(
+            "Galactic Crisis Pact: perform the {name} secondary without spending a command token"
+        );
+    }
+    choice.details.remove("played_by");
+    choice.details.remove("tokens_left");
+    // Display only: the agenda this question comes from, as every agenda-raised decision has it.
+    Some(choice.detailed(
+        "agenda",
+        crate::strategy_cards::agenda_details(content, "crisis"),
+    ))
+}
+
+/// Whether an answer to [`crisis_pact_choice`] performs the secondary.
+#[must_use]
+pub fn crisis_pact_accepted(answer: &ChoiceOption) -> bool {
+    !answer.is_decline() && answer.id != "no"
+}
+
 /// Add any faction waivers to a follower's secondary choice. A follower who must pay a token and
 /// has none is offered the waiver instead of a "yes" the window would then refuse: legal options
 /// are generated, never rejected late.

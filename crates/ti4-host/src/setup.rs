@@ -37,8 +37,9 @@ pub mod card_set {
     /// Every set a player may choose, in the order the lobby lists them.
     ///
     /// `base_game` is not offered: its Diplomacy (`base2`) prints "ready each exhausted planet you
-    /// control in that system" while the engine resolves the Codex I "ready up to 2 exhausted
-    /// planets", so the text shown would not be the effect played.
+    /// control in that system", which the engine resolved as the Codex I "ready up to 2 exhausted
+    /// planets" until rules version 35 (`RULES_BASE_DIPLOMACY`). From 35 it plays as printed; the
+    /// set is still not offered (a lobby decision, not made here).
     pub const OFFERED: [&str; 3] = [TE, POK, BASE_GAME_CODEX1];
 
     /// A set name nobody offers.

@@ -1190,7 +1190,46 @@ pub const RULES_PLAGIARIZE_OWNED: u32 = 28;
 /// engine picked the route itself. Version 29.
 pub const RULES_MOVEMENT_ROUTES: u32 = 29;
 
-pub const RULES_VERSION: u32 = 29;
+/// The first rules version whose action deck is the official one: 140 cards with Thunder's Edge,
+/// 120 without. The corpus carries two extra copies of Veto (`veto3`, `veto4`) that no printed
+/// deck has; from this version they are taken out of the deck before an action card is drawn
+/// (`deck::drop_unofficial_action_cards`), so the other cards keep their shuffled order. Below,
+/// the deck had 142 (or 122) cards and three Vetos. Version 30.
+pub const RULES_OFFICIAL_ACTION_DECK: u32 = 30;
+
+/// The first rules version in which Galactic Crisis Pact ("Elect Strategy Card") is voted on: its
+/// candidates are the game's strategy cards, and the elected card's secondary is offered to each
+/// player, speaker first, without spending a command token. Below, the agenda elected nothing
+/// and was discarded on reveal. Version 31.
+pub const RULES_CRISIS_PACT: u32 = 31;
+
+/// The first rules version in which Classified Document Leaks ("Elect Scored Secret Objective") is
+/// voted on when a secret objective has been scored: its candidates are the scored secrets not
+/// already public. Below, it never had a candidate and was discarded on reveal in every game, so
+/// its effect never ran. Version 32.
+pub const RULES_CLASSIFIED_LEAKS: u32 = 32;
+
+/// The first rules version in which Covert Legislation is played as printed: when it is revealed
+/// the next agenda is drawn face down ([`GameState::covert_agenda`]), players vote on that
+/// agenda's outcomes under Covert Legislation's name, and the hidden agenda is resolved with the
+/// winning outcome. Below, Covert Legislation was a plain For/Against vote with no effect.
+/// Version 33.
+pub const RULES_COVERT_LEGISLATION: u32 = 33;
+
+/// The first rules version in which the Demilitarized Zone exploration card does what it prints:
+/// the explorer's structures on the planet return to reinforcements, its ground forces to the
+/// space area, and while the attachment is on the planet no unit may be committed to, produced
+/// on or placed on it (the same checks as the Demilitarized Zone agenda). Below, the card only
+/// attached. Version 34.
+pub const RULES_DMZ_EXPLORATION: u32 = 34;
+
+/// The first rules version in which the base-game Diplomacy card (`base2`, the `base_game` card
+/// set) readies what it prints: "each exhausted planet you control in that system" (the chosen
+/// system). Below, it readied up to 2 exhausted planets anywhere, as the Prophecy of Kings card
+/// does. Version 35.
+pub const RULES_BASE_DIPLOMACY: u32 = 35;
+
+pub const RULES_VERSION: u32 = 35;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
@@ -1736,6 +1775,12 @@ pub struct GameState {
     /// the vote window. In-flight resolution data — not compared.
     #[serde(default)]
     pub agenda_veto_replacement: Option<String>,
+    /// Covert Legislation (rules version 33): the agenda the speaker drew face down when it was
+    /// revealed. Players vote on this agenda's outcomes while Covert Legislation is the agenda in
+    /// play, and the vote resolves this one. Set from the reveal to the close of that vote; hidden
+    /// information, not compared and not written while empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub covert_agenda: Option<String>,
     /// Confusing / Confounding Legal Text: the player who is the elected player after the
     /// card redirects the outcome. Consumed and cleared by the vote driver before it applies
     /// the agenda's own effect. In-flight resolution data — not compared.
@@ -2077,6 +2122,7 @@ impl GameState {
             pending_reflective_hits: None,
             last_strategy_choice: None,
             agenda_veto_replacement: None,
+            covert_agenda: None,
             agenda_elected_override: None,
             agenda_votes: BTreeMap::new(),
             transient_flags: TransientFlags::default(),

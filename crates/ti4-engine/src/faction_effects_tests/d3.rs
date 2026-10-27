@@ -3056,7 +3056,7 @@ fn yssarilbt_1_deepgloom_lets_another_player_draw_one_more_card_and_discard_one_
         }
         deal(&mut state, &b(), &[]);
         with_card(&mut state, &a(), "pok3politics");
-        let deck = state.action_card_deck.len();
+        let deck = crate::deck::action_deck_len(&state);
         // Hacan follows with the Politics secondary (draw two); Yssaril lets it use Scheming.
         let (mut game, seen) = action_game(state, "a", None, &["strategic", "yes", "allow"]);
         steps(&mut game, 8);
