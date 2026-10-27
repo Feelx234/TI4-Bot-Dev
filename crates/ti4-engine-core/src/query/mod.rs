@@ -9,6 +9,7 @@
 //! * [`fleet`]: supply plastic (`supply::held/remaining`), fleet supply and transport (`fleet::standing`).
 //! * [`seats`]: seating, speaker and initiative order.
 //! * [`laws`]: laws in play and the standing rules they impose.
+//! * [`trade`]: neighbours, who may transact, what a deal may be paid with and why it is not legal (B4).
 //!
 //! **What the core cannot see** is passed in by the caller, never guessed: the source scope
 //! ([`Scope`], the game's `SourceSet`), the "all laws are blank this turn" flag (`blanked`: a
@@ -21,5 +22,6 @@ pub mod economy;
 pub mod fleet;
 pub mod laws;
 pub mod seats;
+pub mod trade;
 
 pub use crate::tables::Scope;

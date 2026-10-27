@@ -167,6 +167,9 @@ impl AreaMask {
         if cfg!(all(feature = "typed-core", not(feature = "string-movement"))) {
             mask = mask.with(Area::Movement, Backend::Core);
         }
+        if cfg!(all(feature = "typed-core", not(feature = "string-trade"))) {
+            mask = mask.with(Area::TradeDiplomacy, Backend::Core);
+        }
         mask
     }
 
