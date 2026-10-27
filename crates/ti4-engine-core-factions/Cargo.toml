@@ -1,0 +1,13 @@
+[package]
+name = "ti4-engine-core-factions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Layer L6 of the typed engine core (docs/ENGINE_CORE_STATE.md 4.1): the faction modules that fill the kernel's hook table. No strings, no JSON: seats, generated ids and typed marks."
+
+[dependencies]
+ti4-engine-core.workspace = true
+
+[lints]
+workspace = true

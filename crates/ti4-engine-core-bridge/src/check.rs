@@ -107,7 +107,7 @@ pub fn check_position(position: &Position, routes: bool, report: &mut Report) {
         report.unmapped += 1;
         return;
     };
-    let adjacency = std::rc::Rc::new(raw_galaxy.adjacency());
+    let adjacency = std::sync::Arc::new(raw_galaxy.adjacency());
     check_adjacency(&position.label, galaxy, &adjacency, report);
     let (Ok(seats), scope) = (Seats::of(state), adapter::scope(sources)) else {
         report.unmapped += 1;
@@ -138,7 +138,7 @@ pub fn check_position(position: &Position, routes: bool, report: &mut Report) {
                 report.hook_copies += 1;
                 match galaxy_from_legacy(legacy.parts().galaxy) {
                     Ok(copy) => {
-                        own = std::rc::Rc::new(copy.adjacency());
+                        own = std::sync::Arc::new(copy.adjacency());
                         &own
                     }
                     Err(_) => {
@@ -323,10 +323,12 @@ pub fn check_observed(position: &Position, report: &mut Report) {
     let content = ContentStore::embedded();
     let (state, galaxy, sources) = (&position.state, &position.galaxy, position.sources);
     let observed = ti4_engine::choice::Observed::new(state, content, sources, Some(galaxy));
+    let Some(pos) = adapter::Position::new(state, sources, galaxy) else {
+        report.unmapped += 1;
+        return;
+    };
     for player in &state.players {
-        let reach = [false, true].map(|effects| {
-            SeatReach::new(state, content, sources, galaxy, &player.id, effects)
-        });
+        let reach = [false, true].map(|effects| SeatReach::new(&pos, &player.id, effects));
         let fleet = ships(state, content, sources, &player.id);
         for dest in galaxy.system_ids_holding_things() {
             let dest_id = ti4_model::id::SystemId::new(dest);
@@ -346,7 +348,7 @@ pub fn check_observed(position: &Position, report: &mut Report) {
                     continue;
                 };
                 let want = rules_from_legacy(&legacy, sources, &adjacency).ok();
-                let got = reach.rules_for(state, content, sources, &dest_id);
+                let got = adapter::system_ix(dest).map(|d| (*reach.rules_for(d)).clone());
                 report.seat_rules += 1;
                 if want != got {
                     report.miss(format!(

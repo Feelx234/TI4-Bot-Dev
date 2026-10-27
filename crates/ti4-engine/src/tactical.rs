@@ -244,6 +244,30 @@ pub struct Movable {
     pub ionian: bool,
 }
 
+impl Movable {
+    /// The string-side form of a typed answer (`ti4_engine_core::query::reach::Movable`): the hull is the
+    /// one at `index` of the player's ships in `origin`. `None` when the state does not have it (the
+    /// caller asks the string path).
+    #[cfg(feature = "typed-core")]
+    #[must_use]
+    pub fn from_typed(
+        state: &GameState,
+        player: &PlayerId,
+        found: &ti4_engine_core::query::reach::Movable,
+    ) -> Option<Self> {
+        let origin = SystemId::new(crate::core_adapter::system_id(found.origin));
+        let hull = (*state.ships_of(player, &origin).get(usize::from(found.index))?).clone();
+        Some(Self {
+            origin,
+            index: usize::from(found.index),
+            unit: hull,
+            capacity: found.capacity,
+            gravity_drive: found.gravity_drive,
+            ionian: found.ionian,
+        })
+    }
+}
+
 /// Effective move value after per-activation bonuses and Gravleash's established origin anchor.
 #[must_use]
 pub fn effective_move_value(
@@ -525,111 +549,6 @@ pub fn movable_into(
         }
     }
     found
-}
-
-/// One seat's ships that can move, with their move values for every boost (stage 2,
-/// docs/ENGINE_CORE.md): the destination-independent half of [`movable_into`], computed once per
-/// position, in the same order.
-#[cfg(feature = "typed-core")]
-#[derive(Debug, Clone)]
-pub struct SeatFleet {
-    ships: Vec<FleetShip>,
-    gravity: bool,
-    ionian: bool,
-}
-
-#[cfg(feature = "typed-core")]
-#[derive(Debug, Clone)]
-struct FleetShip {
-    origin: SystemId,
-    from: Option<ti4_engine_core::SystemIx>,
-    kind: Result<Option<ti4_engine_core::UnitIx>, crate::core_adapter::Unmapped>,
-    index: usize,
-    unit: Unit,
-    capacity: i64,
-    /// Move value with (no boost, Gravity Drive, Ionian, both).
-    values: [i32; 4],
-}
-
-#[cfg(feature = "typed-core")]
-impl SeatFleet {
-    #[must_use]
-    pub fn new(
-        state: &GameState,
-        content: &ContentStore,
-        sources: SourceSet,
-        player: &PlayerId,
-    ) -> Self {
-        let types = catalogue(content, sources);
-        let mut ships = Vec::new();
-        for origin in state.systems_with_units_of(player) {
-            for (index, hull) in state.ships_of(player, origin).into_iter().enumerate() {
-                let Some(kind) = types.get(hull.type_id.as_str()) else {
-                    continue;
-                };
-                if !kind.moves_as_ship() {
-                    continue;
-                }
-                let value = |gd: bool, ion: bool| {
-                    effective_move_value_for_ship(state, kind, player, origin, Some(index), gd, ion)
-                };
-                ships.push(FleetShip {
-                    origin: origin.clone(),
-                    from: crate::core_adapter::system_ix(origin.as_str()),
-                    kind: crate::core_adapter::ship_type(Some(hull.type_id.as_str())),
-                    index,
-                    unit: hull.clone(),
-                    capacity: kind.capacity(),
-                    values: [value(false, false), value(true, false), value(false, true), value(true, true)],
-                });
-            }
-        }
-        Self {
-            ships,
-            gravity: crate::technology::gravity_drive_available(state, player),
-            ionian: crate::legendary::ionian_available(state, player),
-        }
-    }
-
-    /// [`movable_into`] for the destination of `rules` (built by `core_adapter::SeatReach`):
-    /// the same ships, boosts and order. `None` when a ship's ids are not mapped (the caller asks
-    /// the string path).
-    #[must_use]
-    pub fn movable(
-        &self,
-        rules: &ti4_engine_core::movement::CoreRules,
-        active: &SystemId,
-    ) -> Option<Vec<Movable>> {
-        let mut found = Vec::new();
-        for ship in &self.ships {
-            if &ship.origin == active {
-                continue;
-            }
-            let from = ship.from?;
-            let kind = ship.kind.clone().ok()?;
-            let reach = |slot: usize| rules.can_reach_ship(from, ship.values[slot], kind);
-            let boosts = if reach(0) {
-                Some((false, false))
-            } else {
-                [((true, false), 1), ((false, true), 2), ((true, true), 3)]
-                    .into_iter()
-                    .filter(|((gd, ion), _)| (!gd || self.gravity) && (!ion || self.ionian))
-                    .find(|(_, slot)| reach(*slot))
-                    .map(|(b, _)| b)
-            };
-            if let Some((gravity_drive, ionian)) = boosts {
-                found.push(Movable {
-                    origin: ship.origin.clone(),
-                    index: ship.index,
-                    unit: ship.unit.clone(),
-                    capacity: ship.capacity,
-                    gravity_drive,
-                    ionian,
-                });
-            }
-        }
-        Some(found)
-    }
 }
 
 /// The movement-step choice: one option per distinguishable move, plus "finish movement".
