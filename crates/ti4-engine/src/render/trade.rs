@@ -37,7 +37,7 @@ impl Family for Fam {
 
     fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
         match o {
-            Opt::Deal(code) => serde_json::from_str(&r.code_text(*code)).expect("an interned deal is a ChoiceOption"),
+            Opt::Deal(code) => r.shape_option(*code),
             Opt::Accept => {
                 let Ask::Answer { net, .. } = a else { panic!("accept in a proposal") };
                 let net: f64 = r.code_text(*net).parse().expect("an interned net is a number");
@@ -57,14 +57,21 @@ impl Family for Fam {
                 _ => None,
             },
             Ask::Propose { .. } => {
-                let count = r.codes.borrow().len();
+                let count = r.shapes.borrow().len();
                 (0..count).find_map(|i| {
                     let code = ti4_engine_core::state::Code(u16::try_from(i).ok()?);
-                    let option: ChoiceOption = serde_json::from_str(&r.code_text(code)).ok()?;
-                    (option.id == id).then_some(Opt::Deal(code))
+                    (r.shape_option(code).id == id).then_some(Opt::Deal(code))
                 })
             }
         }
+    }
+
+    fn details(_: &Render, a: &Ask) -> serde_json::Map<String, serde_json::Value> {
+        let mut out = serde_json::Map::new();
+        if matches!(a, Ask::Propose { .. }) {
+            out.insert("free_form".to_owned(), FREE_FORM_PREFIX.into());
+        }
+        out
     }
 
     fn free_form(a: &Ask) -> Option<String> {

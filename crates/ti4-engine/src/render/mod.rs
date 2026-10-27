@@ -52,12 +52,14 @@ pub struct Render {
     pub seats: Vec<String>,
     /// Texts the core holds as a [`Code`] (open string sets until X1 closes them).
     codes: RefCell<Vec<String>>,
+    /// Option shapes of areas whose options the string engine still builds (trade deals), by index.
+    shapes: RefCell<Vec<ChoiceOption>>,
 }
 
 impl Render {
     #[must_use]
     pub fn new(seats: Vec<String>) -> Self {
-        Self { seats, codes: RefCell::new(Vec::new()) }
+        Self { seats, codes: RefCell::new(Vec::new()), shapes: RefCell::new(Vec::new()) }
     }
 
     #[must_use]
@@ -83,6 +85,22 @@ impl Render {
             codes.len() - 1
         });
         Code(u16::try_from(i).expect("fewer than 65536 distinct codes"))
+    }
+
+    /// The code of an option shape (the same shape always gets the same code in one `Render`).
+    pub fn shape(&self, option: &ChoiceOption) -> Code {
+        let mut shapes = self.shapes.borrow_mut();
+        let i = shapes.iter().position(|c| c == option).unwrap_or_else(|| {
+            shapes.push(option.clone());
+            shapes.len() - 1
+        });
+        Code(u16::try_from(i).expect("fewer than 65536 distinct shapes"))
+    }
+
+    /// The option shape of a code.
+    #[must_use]
+    pub fn shape_option(&self, code: Code) -> ChoiceOption {
+        self.shapes.borrow()[usize::from(code.0)].clone()
     }
 
     /// The code of a text already interned, without interning it.

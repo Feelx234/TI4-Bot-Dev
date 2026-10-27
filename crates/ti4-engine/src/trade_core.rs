@@ -391,7 +391,7 @@ mod real {
                     opts.push(if o.is_decline() {
                         ti4_engine_core::choice::Opt::Decline
                     } else {
-                        ti4_engine_core::choice::Opt::Trade(Opt::Deal(r.code(&serde_json::to_string(o).ok()?)))
+                        ti4_engine_core::choice::Opt::Trade(Opt::Deal(r.shape(o)))
                     });
                 }
                 (Ask::Propose { proposer: actor, partner: other, name: r.code(name) }, Subtype::Propose, opts)
