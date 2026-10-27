@@ -5,7 +5,7 @@ use ti4_engine_core::generated::{
 };
 use ti4_engine_core::keys::{
     ActionCardCause, DestroyReason, Expedition, ExploreDeck, FactionAbilityCause, LedgerReason,
-    Outcome, UnitAbilityCause,
+    Outcome, Prediction, PredictionTag, UnitAbilityCause, VoteBar,
 };
 
 use super::text::Codec;
@@ -24,7 +24,7 @@ impl Codec {
             _ => {}
         }
         let kinds: &[AgendaElects] = match elects {
-            Some(AgendaElects::ForAgainst | AgendaElects::HiddenNextAgenda) => return None,
+            Some(AgendaElects::ForAgainst) => return None,
             Some(AgendaElects::Law) => &[AgendaElects::Law],
             Some(AgendaElects::Player) => &[AgendaElects::Player],
             Some(AgendaElects::Planet | AgendaElects::NonHomeNonMecatolPlanet) => {
@@ -32,7 +32,9 @@ impl Codec {
             }
             Some(AgendaElects::ScoredSecretObjective) => &[AgendaElects::ScoredSecretObjective],
             Some(AgendaElects::StrategyCard) => &[AgendaElects::StrategyCard],
-            None => &[
+            // Covert Legislation (rules version >= 33): the vote is on the outcomes of the face-down
+            // agenda (`vote::voted_agenda`), so any kind can stand on it.
+            None | Some(AgendaElects::HiddenNextAgenda) => &[
                 AgendaElects::Player,
                 AgendaElects::Planet,
                 AgendaElects::StrategyCard,
@@ -67,6 +69,52 @@ impl Codec {
             Outcome::Law(x) => x.as_str().to_owned(),
             Outcome::Secret(x) => x.as_str().to_owned(),
         })
+    }
+}
+
+const TAG_WORDS: [(&str, PredictionTag); 9] = [
+    ("const_rider", PredictionTag::ConstRider),
+    ("diplo_rider", PredictionTag::DiploRider),
+    ("keleres_rider", PredictionTag::KeleresRider),
+    ("lead_rider", PredictionTag::LeadRider),
+    ("politic_rider", PredictionTag::PoliticRider),
+    ("sanction", PredictionTag::Sanction),
+    ("tech_rider", PredictionTag::TechRider),
+    ("trade_rider", PredictionTag::TradeRider),
+    ("war_rider", PredictionTag::WarRider),
+];
+
+const BAR_WORDS: [(&str, VoteBar); 2] =
+    [("assassin", VoteBar::Assassin), ("political_secret", VoteBar::PoliticalSecret)];
+
+impl Codec {
+    /// The `agenda_predictions` value with this text: an outcome, `<outcome>|<tag>`, or
+    /// `none|<bar>`.
+    #[must_use]
+    pub fn parse_prediction(&self, text: &str) -> Option<Prediction> {
+        let Some((head, tail)) = text.split_once('|') else {
+            return self.parse_outcome(text, None).map(Prediction::Plain);
+        };
+        if head == "none" {
+            return BAR_WORDS.iter().find(|(w, _)| *w == tail).map(|(_, b)| Prediction::Barred(*b));
+        }
+        let tag = TAG_WORDS.iter().find(|(w, _)| *w == tail).map(|(_, t)| *t)?;
+        self.parse_outcome(head, None).map(|o| Prediction::Tagged(o, tag))
+    }
+
+    /// The text of a prediction.
+    #[must_use]
+    pub fn render_prediction(&self, prediction: Prediction) -> Option<String> {
+        match prediction {
+            Prediction::Plain(o) => self.render_outcome(o),
+            Prediction::Tagged(o, tag) => {
+                let word = TAG_WORDS.iter().find(|(_, t)| *t == tag)?.0;
+                Some(format!("{}|{word}", self.render_outcome(o)?))
+            }
+            Prediction::Barred(bar) => {
+                Some(format!("none|{}", BAR_WORDS.iter().find(|(_, b)| *b == bar)?.0))
+            }
+        }
     }
 }
 

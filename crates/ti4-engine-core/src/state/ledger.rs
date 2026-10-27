@@ -3,9 +3,8 @@
 //! the adapter: it is the rendered, hashed form.
 
 use crate::containers::{Log, SmallList};
-use crate::generated::{
-    ActionCard, Agenda, Leader, Planet, PromissoryNote, PublicObjective, Relic, SecretObjective, System, Technology, Unit,
-};
+use crate::generated::{Planet, Relic, System, Unit};
+pub use crate::keys::LedgerReason;
 use crate::ids::Seat;
 
 use super::Code;
@@ -49,23 +48,6 @@ pub struct RollRec {
     pub faces: SmallList<u8, 8>,
     /// Bit `i`: die `i` replaced by a reroll.
     pub rerolled: u64,
-}
-
-/// Why victory points moved (`vp_ledger` reason texts); the closed forms carry their payload, the
-/// codec reproduces the text. `Other` is an adapter-interned reason.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum LedgerReason {
-    Public(PublicObjective),
-    Secret(SecretObjective),
-    Relic(Relic),
-    Promissory(PromissoryNote),
-    Agenda(Agenda),
-    ActionCard(ActionCard),
-    Leader(Leader),
-    Technology(Technology),
-    Custodians,
-    Imperial,
-    Other(Code),
 }
 
 /// `vp_ledger` row: (player, change, reason).

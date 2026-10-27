@@ -1,29 +1,30 @@
-use ti4_engine_core::containers::{Cow, DecimalTextOrd, SortedMap};
-use ti4_engine_core::state::{CoreState, MarkFamily, MarkKey, MarkVal, Slice};
+use ti4_engine_core::containers::Cow;
+use ti4_engine_core::state::{CoreState, MarkMap, Slice};
 use ti4_model::state::GameState;
 
 use super::{Sources, SliceCodec};
 use crate::core_sync::ctx::Ctx;
-use crate::core_sync::error::R;
+use crate::core_sync::error::{R, bad};
 
 const S: Slice = Slice::Marks;
 
-/// `faction_marks`: until package X1 pins the key families, every key text is one interned family
-/// (`MarkKey { family: code(key), a: 0, b: 0, seq: 0 }`) and every value text an interned code
-/// (`MarkVal(code(value))`). Lossless, but the typed order is the order of first use, not the text
-/// order: the string side re-sorts on store, and core code must not iterate marks in order until the
-/// typed keys land.
+/// `faction_marks` on package X1's typed keys: `Codec::parse_mark` per row, rendered back to check
+/// the text is its own canonical form. A mark the families do not type (a test invention, an owner
+/// outside the table) is `Unmapped`: the caller keeps the string state for that game. The map is in
+/// key order, which is the text order of the keys.
 pub struct Marks;
 
 impl SliceCodec for Marks {
     const SLICE: Slice = S;
 
     fn load(cx: &mut Ctx, gs: &GameState, _: Sources<'_>, core: &mut CoreState) -> R<()> {
-        let mut m = SortedMap::new();
+        let mut m = MarkMap::new();
         for (k, v) in &gs.faction_marks {
-            let family = MarkFamily(cx.texts.intern(S, k)?.0);
-            let val = MarkVal(i32::from(cx.texts.intern(S, v)?.0));
-            m.insert(MarkKey { family, a: 0, b: 0, seq: DecimalTextOrd(0) }, val);
+            let (key, val) = cx.keys.parse_mark(k, v).ok_or_else(|| bad(S, "mark not typed", k))?;
+            if cx.keys.render_mark(&key, &val).is_none_or(|(rk, rv)| rk != *k || rv != *v) {
+                return Err(bad(S, "mark text is not canonical", k));
+            }
+            m.insert(key, val);
         }
         core.marks.tail = Cow::new(m);
         Ok(())
@@ -34,11 +35,7 @@ impl SliceCodec for Marks {
             .marks()
             .tail
             .iter()
-            .map(|(k, v)| {
-                let key = cx.texts.text(S, ti4_engine_core::state::Code(k.family.0))?.to_owned();
-                let val = cx.texts.text(S, ti4_engine_core::state::Code(v.0 as u16))?.to_owned();
-                Ok((key, val))
-            })
+            .map(|(k, v)| cx.keys.render_mark(k, v).ok_or_else(|| bad(S, "mark without a text", format!("{k:?}"))))
             .collect::<R<_>>()?;
         Ok(())
     }
