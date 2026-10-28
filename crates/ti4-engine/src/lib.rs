@@ -24,6 +24,7 @@ pub mod breakthroughs;
 pub mod choice;
 pub mod coexistence;
 pub mod combat;
+mod combat_effects;
 pub mod decision_context;
 pub mod deck;
 pub mod dice;
@@ -77,6 +78,7 @@ pub mod phase;
 pub mod planets;
 pub mod preview;
 pub mod production;
+mod production_effects;
 pub mod promissory;
 pub mod reach_query;
 #[cfg(feature = "typed-core")]
