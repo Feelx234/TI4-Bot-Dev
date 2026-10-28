@@ -39,6 +39,8 @@ pub enum Step {
     Opening { round: u32 },
     Announcing { round: u32, asking: Seat, announced: Vec<Seat> },
     Rolling { round: u32 },
+    /// The barrage scored a feat: the round resumes at the announcement once the scoring window has closed.
+    AfterBarrage { round: u32 },
     Queue { assigning: bool, round: u32, queue: Vec<Pend> },
     Retreating { round: u32, leaving: Vec<Seat> },
     Done,

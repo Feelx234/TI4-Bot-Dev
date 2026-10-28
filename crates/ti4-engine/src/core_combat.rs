@@ -850,6 +850,32 @@ pub fn eligible_retreats(
     Some(found.into_iter().map(|s| SystemId::new(s.as_str())).collect())
 }
 
+/// The neighbours of `system` a fleet of `player` may retreat towards as far as the movement rules go
+/// (hyperlanes left out), each with whether the rules let it enter: the map half of `eligible_retreats`
+/// the composed combat machine filters by the board as it changes.
+#[must_use]
+pub fn retreat_neighbors(
+    state: &GameState,
+    sources: SourceSet,
+    galaxy: &ti4_content::galaxy::Galaxy,
+    player: &PlayerId,
+    system: &SystemId,
+) -> Option<Vec<(SystemId, bool)>> {
+    let pos = crate::core_adapter::Position::new(state, sources, galaxy)?;
+    let reach = crate::core_adapter::SeatReach::new(&pos, player, false)?;
+    let sys = typed::<System>(system.as_str())?;
+    let rules = reach.rules_for(sys);
+    let mut found = Vec::new();
+    for n in rules.adjacency.of(sys).iter().map(ti4_engine_core::ids::system_at) {
+        if rules.adjacency.is_hyperlane(n) {
+            continue;
+        }
+        let may = cc::retreat_may_enter(pos.core(), n, &|dest| (*reach.rules_for(dest)).clone());
+        found.push((SystemId::new(n.as_str()), may));
+    }
+    Some(found)
+}
+
 /// Skilled Retreat's and Dark Energy Tap's destinations over the typed movement rules.
 #[must_use]
 pub fn open_retreat_destinations(

@@ -1257,6 +1257,7 @@ pub enum StepS {
     Opening(u32),
     Announcing(u32, PlayerId, Vec<PlayerId>),
     Rolling(u32),
+    AfterBarrage(u32),
     Queue(bool, u32, Vec<PendS>),
     Retreating(u32, Vec<PlayerId>),
     Done,
@@ -1314,6 +1315,7 @@ pub fn flow_step(
         StepS::Opening(n) => Step::Opening { round: *n },
         StepS::Announcing(n, who, done) => Step::Announcing { round: *n, asking: seat(who)?, announced: seats(done)? },
         StepS::Rolling(n) => Step::Rolling { round: *n },
+        StepS::AfterBarrage(n) => Step::AfterBarrage { round: *n },
         StepS::Queue(assigning, n, queue) => Step::Queue {
             assigning: *assigning,
             round: *n,
@@ -1365,6 +1367,7 @@ pub fn flow_step(
         Step::Opening { round } => StepS::Opening(*round),
         Step::Announcing { round, asking, announced } => StepS::Announcing(*round, player(*asking)?, players(announced)?),
         Step::Rolling { round } => StepS::Rolling(*round),
+        Step::AfterBarrage { round } => StepS::AfterBarrage(*round),
         Step::Queue { assigning, round, queue } => StepS::Queue(
             *assigning,
             *round,
@@ -1496,4 +1499,257 @@ pub fn raid_formation(
     apply_staged(gs, &r, &staged)?;
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(events), questions: driven.rendered })
+}
+
+/// What the string `CombatWindow::settle` starts from: the window's fields and the gates the string rules
+/// answer once for the whole settle (see `rules::combat::machine::Env`).
+#[derive(Debug, Clone)]
+pub struct SettleArgs {
+    pub attacker: PlayerId,
+    pub defender: PlayerId,
+    pub system: ti4_model::id::SystemId,
+    pub step: StepS,
+    /// 0 round, 1 combat start, 2 round end (`HitPhase`).
+    pub phase: u8,
+    pub resuming: bool,
+    pub pending_retreats: Vec<PlayerId>,
+    pub offered: Vec<(u32, PlayerId)>,
+    pub damaged: Vec<(PlayerId, Vec<String>)>,
+    pub fled: Vec<(PlayerId, Vec<String>)>,
+    pub at_start: Vec<(PlayerId, Vec<String>)>,
+    pub end_announced: bool,
+    pub announce: bool,
+    pub staging: bool,
+    /// The feat occurrence the combat has already (the adapter begins one when the first round needs it).
+    pub occurrence: Option<u64>,
+    pub begin_occurrence: bool,
+    pub munitions_after: [bool; 2],
+    pub opening_unported: bool,
+    pub barrage_unported: bool,
+    pub roll_unported: bool,
+    pub retreat_unported: bool,
+    pub neighbors: [Vec<(ti4_model::id::SystemId, bool)>; 2],
+    pub may_retreat: [bool; 2],
+    pub duranium: [bool; 2],
+    pub devotion: bool,
+}
+
+/// What a settle leaves besides the state: the stage, the outcome (winner, rounds), the window fields, the dice
+/// of the settle (hit number, faces) and where the streams stand.
+pub type SettleOut = (
+    StepS,
+    Option<(Option<PlayerId>, u32)>,
+    (u8, bool, Vec<PlayerId>, Vec<(u32, PlayerId)>),
+    (Vec<(PlayerId, Vec<String>)>, Vec<(PlayerId, Vec<String>)>, bool),
+    Vec<(u32, Vec<u32>)>,
+    crate::rng::RngPositions,
+);
+
+const SETTLE: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger],
+    &[Slice::Meta, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger],
+);
+
+/// The core half of `CombatWindow::settle`: the composed machine from the stage the settle starts in to the next
+/// decision or the end of the fight. `None` for the positions the machine bails at (`Machine::bailed`), neutral
+/// sides, reaction activity inside an emission, or a position the codecs refuse.
+#[must_use]
+#[allow(clippy::too_many_lines, reason = "one environment, built field by field")]
+pub fn settle_machine(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    mut a: SettleArgs,
+    rng_before: &crate::rng::RngPositions,
+    script: &Recording,
+) -> Option<CoreWindow<SettleOut>> {
+    use ti4_engine_core::rules::combat::flow::{Pend, Phase, Step};
+    use ti4_engine_core::rules::combat::machine::{Env, Fields, Machine, Stop};
+    if script.nested || crate::neutral_units::is_neutral(&a.attacker) || crate::neutral_units::is_neutral(&a.defender) {
+        return None;
+    }
+    if a.begin_occurrence && a.occurrence.is_none() {
+        a.occurrence = Some(gs.begin_feat_occurrence().0);
+    }
+    let (mut cx, r) = tables(gs)?;
+    let seat = |p: &PlayerId| r.seat(p.as_str());
+    let seats = |l: &[PlayerId]| l.iter().map(seat).collect::<Option<Vec<_>>>();
+    let (attacker, defender) = (seat(&a.attacker)?, seat(&a.defender)?);
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let unit_of = |k: &str| <ti4_engine_core::generated::Unit as IdStr>::from_id(k);
+    let units = |l: &[String]| l.iter().map(|k| unit_of(k)).collect::<Option<Vec<_>>>();
+    let before = gs.clone();
+    let env = crate::core_combat::window_env(&before, &cx, sources)?;
+    // The unit types present: every one a roll group or a barrage can name.
+    let mut present: Vec<ti4_engine_core::generated::Unit> = Vec::new();
+    let cell = before.system_state(&a.system);
+    for p in cell.units.iter().chain(cell.planet_units.values().flatten()) {
+        let u = unit_of(p.type_id.as_str())?;
+        if !present.contains(&u) {
+            present.push(u);
+        }
+    }
+    present.sort_unstable();
+    if present.len() > 10 {
+        return None;
+    }
+    let mut unit_codes = Vec::new();
+    for u in &present {
+        unit_codes.push((*u, cx.texts.intern(Slice::Transient, u.as_str()).ok()?));
+    }
+    let mut groups = Vec::new();
+    for mask in 1_u32..(1 << present.len()) {
+        let kinds: Vec<_> = present.iter().enumerate().filter(|(i, _)| mask & (1 << i) != 0).map(|(_, u)| *u).collect();
+        let mut ids: Vec<&str> = kinds.iter().map(|u| u.as_str()).collect();
+        ids.sort_unstable();
+        let joined = ids.join("+");
+        // The roll names the group by its ids in alphabetical order; the machine looks the group up by its
+        // sorted unit types, so the key must be sorted the same way.
+        groups.push((kinds.clone(), cx.texts.intern(Slice::Transient, &joined).ok()?, r.code(&joined)));
+    }
+    let nb = |side: usize| -> Option<Vec<(ti4_engine_core::generated::System, bool)>> {
+        a.neighbors[side].iter().map(|(s, ok)| Some((<ti4_engine_core::generated::System as IdStr>::from_id(s.as_str())?, *ok))).collect()
+    };
+    let phases = ["pre_roll", "barrage", "resolving_hits", "retreating", "complete"];
+    let mut phase_codes = [ti4_engine_core::state::Code::default(); 5];
+    for (i, p) in phases.iter().enumerate() {
+        phase_codes[i] = cx.texts.intern(Slice::Transient, p).ok()?;
+    }
+    let menv = Env {
+        attacker,
+        defender,
+        system,
+        announce: a.announce,
+        staging: a.staging,
+        occurrence: a.occurrence.unwrap_or(0),
+        phases: phase_codes,
+        opening_unported: a.opening_unported,
+        barrage_unported: a.barrage_unported,
+        barrage_cause: r.code("unit_ability:anti_fighter_barrage"),
+        barrage_kind: r.code("anti_fighter_barrage"),
+        barrage_extra: cx.texts.intern(Slice::Transient, "extra barrage").ok()?,
+        unit_codes,
+        roll_unported: a.roll_unported,
+        munitions_after: a.munitions_after,
+        roll_cause: r.code("space_combat"),
+        hacan: r.code("hacan_flagship"),
+        groups,
+        alpha: {
+            let mut v = present.clone();
+            v.sort_unstable_by_key(|u| u.as_str());
+            v
+        },
+        retreat_cause: cx.texts.intern(Slice::Transient, "retreat_capacity").ok()?,
+        retreat_pool: r.code("reinforcements"),
+        retreat_unported: a.retreat_unported,
+        neighbors: [nb(0)?, nb(1)?],
+        may_retreat: a.may_retreat,
+        duranium: a.duranium,
+        devotion: a.devotion,
+        end_codes: ti4_engine_core::rules::combat::end_announce::Codes {
+            losers: r.code("losers"),
+            retreated: r.code("retreated"),
+            reasons: [r.code("retreat"), r.code("draw"), r.code("destruction"), r.code("round_limit")],
+        },
+    };
+    let step = match &a.step {
+        StepS::Opening(n) => Step::Opening { round: *n },
+        StepS::Announcing(n, who, done) => Step::Announcing { round: *n, asking: seat(who)?, announced: seats(done)? },
+        StepS::Rolling(n) => Step::Rolling { round: *n },
+        StepS::AfterBarrage(n) => Step::AfterBarrage { round: *n },
+        StepS::Queue(assigning, n, queue) => Step::Queue {
+            assigning: *assigning,
+            round: *n,
+            queue: queue
+                .iter()
+                .map(|p| Some(Pend { player: seat(&p.player)?, hits: u32::try_from(p.hits).ok()?, producer: seat(&p.producer)?, non_fighters_only: p.non_fighters_only, producer_assigns: p.producer_assigns }))
+                .collect::<Option<_>>()?,
+        },
+        StepS::Retreating(n, leaving) => Step::Retreating { round: *n, leaving: seats(leaving)? },
+        StepS::Done => Step::Done,
+    };
+    let pairs = |l: &[(PlayerId, Vec<String>)]| l.iter().map(|(p, k)| Some((seat(p)?, units(k)?))).collect::<Option<Vec<_>>>();
+    let fields = Fields {
+        step,
+        phase: match a.phase {
+            1 => Phase::CombatStart,
+            2 => Phase::RoundEnd,
+            _ => Phase::Round,
+        },
+        resuming: a.resuming,
+        pending_retreats: seats(&a.pending_retreats)?,
+        offered: a.offered.iter().map(|(n, p)| Some((*n, seat(p)?))).collect::<Option<_>>()?,
+        damaged: pairs(&a.damaged)?,
+        fled: pairs(&a.fled)?,
+        at_start: pairs(&a.at_start)?,
+        scoring: false,
+        outcome: None,
+        end_announced: a.end_announced,
+    };
+    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
+    let resolver = Resolver::new(&[attacker, defender], Some(attacker));
+    let mut driver = Driver::new(Machine::new(menv, fields), resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let mut staged = Vec::new();
+    let mut rng_after = None;
+    let src = Sources { galaxy: None, rng: Some(rng_before) };
+    let held = |seat: ti4_engine_core::ids::Seat| before.player(&PlayerId::new(r.seats[usize::from(seat.0)].clone())).map_or(0, |p| i64::from(p.trade_goods.max(0)));
+    let _ = &held;
+    let driven = with_core(gs, &mut cx, src, SETTLE, |core, _| {
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        rng_after = Some(core.rng().clone());
+        driven
+    })
+    .ok()?
+    .ok()?;
+    let w = &driver.window;
+    if matches!(w.stop, Some(Stop::Bailed(_))) {
+        return None;
+    }
+    apply_staged(gs, &r, &staged)?;
+    let positions = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    let player = |s: ti4_engine_core::ids::Seat| Some(PlayerId::new(r.seats.get(usize::from(s.0))?.clone()));
+    let players = |l: &[ti4_engine_core::ids::Seat]| l.iter().map(|s| player(*s)).collect::<Option<Vec<_>>>();
+    let f = &w.fields;
+    let next = match &f.step {
+        Step::Opening { round } => StepS::Opening(*round),
+        Step::Announcing { round, asking, announced } => StepS::Announcing(*round, player(*asking)?, players(announced)?),
+        Step::Rolling { round } => StepS::Rolling(*round),
+        Step::AfterBarrage { round } => StepS::AfterBarrage(*round),
+        Step::Queue { assigning, round, queue } => StepS::Queue(
+            *assigning,
+            *round,
+            queue
+                .iter()
+                .map(|p| Some(PendS { player: player(p.player)?, hits: p.hits as usize, producer: player(p.producer)?, non_fighters_only: p.non_fighters_only, producer_assigns: p.producer_assigns }))
+                .collect::<Option<_>>()?,
+        ),
+        Step::Retreating { round, leaving } => StepS::Retreating(*round, players(leaving)?),
+        Step::Done => StepS::Done,
+    };
+    let outcome = match f.outcome {
+        Some((who, rounds)) => Some((match who { Some(s) => Some(player(s)?), None => None }, rounds)),
+        None => None,
+    };
+    let phase = match f.phase {
+        Phase::Round => 0,
+        Phase::CombatStart => 1,
+        Phase::RoundEnd => 2,
+    };
+    let kinds = |l: &[ti4_engine_core::generated::Unit]| -> Vec<String> { l.iter().map(|u| u.as_str().to_owned()).collect() };
+    let mut damaged = f.damaged.iter().map(|(s, l)| Some((player(*s)?, { let mut k = kinds(l); k.sort(); k }))).collect::<Option<Vec<_>>>()?;
+    damaged.sort();
+    let fled = f.fled.iter().map(|(s, l)| Some((player(*s)?, kinds(l)))).collect::<Option<Vec<_>>>()?;
+    let mut offered = f.offered.iter().map(|(n, s)| Some((*n, player(*s)?))).collect::<Option<Vec<_>>>()?;
+    offered.sort();
+    offered.dedup();
+    let value: SettleOut = (
+        next,
+        outcome,
+        (phase, f.resuming, players(&f.pending_retreats)?, offered),
+        (damaged, fled, f.end_announced),
+        w.drawn.clone(),
+        positions,
+    );
+    Some(CoreWindow { run: Run::new(value).with_events_vec(events), questions: driven.rendered })
 }
