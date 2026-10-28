@@ -178,9 +178,33 @@ each window was mutated once in its core half and the dual failed):
 * Study: `finish_committing` keeps Research Team / Viper offers, forced combats and `advance_fighting` in the string
   (they ask questions or change `stage`); only the announcement and the defense run in the core window.
 
-Open: `commit_deploy` and the Keleres toll through B3's `PayStep`, `begin_ground_round` (round counter, copied round
-agent, Dunlain Reaper), the roll step's reroll windows and `GROUND_COMBAT_ROLL_STEP_ENDED`, Harrow, `Advancing`,
-`FinalizingControl`, the setup/end hooks and the scoring pauses.
+Stage 5 slice (counts as above, 0 differences; the begin and tail windows were mutated once in their core half and the dual failed):
+
+| window (string site) | core | compared / bailed |
+|---|---|---|
+| `BeginGroundRound` (`begin_ground_round`: `active_invasion.ground_round`, `combat_round_seq` of a numbered round, `GROUND_COMBAT_ROUND_STARTED` of a copied round agent) | `rules/invasion/begin.rs` | 248 / 69 |
+| `GroundRollTail` (`roll_ground_tail`: round number, `GROUND_ROLLS_MADE` for both sides, hits read back from the staged dice, the dice as the board shows them, staging cleared) | `rules/invasion/tail.rs` | 307 / 13 (+ 47 pre-check bails) |
+| `Advance` (`next_fight`, the selection of `advance_fighting`: planet index, defender, coexisters; starting the combat stays string) | `rules/invasion/advance.rs` | 1253 / 0 |
+
+* Bails: begin: neutral side, Naaz seat (Supercharge, 35 in the golden games), Proxima Targeting VI, a Letnev side with
+  infantry on the planet (Dunlain Reaper, 10), nested (69: the copied-round event always reaches the Sol agent's
+  offer). Tail: neutral side, X-89, a readied The Thundarian (`GROUND_COMBAT_ROLL_STEP_ENDED` and the replays, 47),
+  a roll-replay mark, nested (13). Advance: seats not in id order, nested. X-89, the neutral side, the replay mark
+  and the unit-level begin bails have unit cover only (`core_ground_round_prechecks`).
+* `GROUND_COMBAT_ROLL_STEP_ENDED` and the replay loop stay in the string (a readied Thundarian is the only listener).
+* Nested census of `ground_round_hits` (the 82 bails; `TI4_NESTED_LOG=1 dual_run ...` prints `Recording.nested_kinds`
+  of each): 24 with no event at all (an ability effect ran), 29 asks of reaction windows `after GROUND_FORCE_DESTROYED`
+  (alone or twice), 14 `TRADE_GOODS_GAINED` (a reaction's effect), 8 `when GROUND_HITS_TO_ASSIGN` asks,
+  4 Crimson Legionnaire asks, 2 technology/assimilate asks, 1 `GROUND_FORCE_SUSTAINED` ask. All of them are reaction
+  windows or ability effects: handling them natively is the reaction/ability port (the driver's `AbilityTable`),
+  not a B2 window, so the bail stays.
+* Sensible next step for the hits window: nothing cheaper than the reaction port; the `may_sustain` oracle and
+  `temporary_ground_force` are only consulted with the position of the window start, which the single-batch windows keep.
+
+Open: `commit_deploy` and the Keleres toll through B3's `PayStep`, Harrow (the dice of `faction_abilities::
+ground_combat_round_ended` come from units that the round's own removals can destroy, an Annihilator mech: it needs
+the removals' result before the dice, so it is a window of its own after `GroundRoundHits`), `FinalizingControl` /
+`finish_control_gain`, the remainder of `finish_committing`, the setup/end hooks and the scoring pauses.
 
 ## 6. B1 windows after the first slice: the roll step and the stage transitions
 

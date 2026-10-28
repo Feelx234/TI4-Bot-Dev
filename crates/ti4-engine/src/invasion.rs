@@ -11777,3 +11777,57 @@ mod core_bombardment {
         let _ = take_report();
     }
 }
+
+/// Package B2: the pre-checks (bails) of the ground round's start and roll tail windows, which the golden games do
+/// not all reach.
+#[cfg(all(test, feature = "typed-core"))]
+mod core_ground_round_prechecks {
+    use super::*;
+    use crate::dual_window::{begin_ground_unported, roll_tail_unported, BeginGroundArgs, RollTailArgs};
+    use ti4_model::content_types::POK;
+    use ti4_model::id::UnitTypeId;
+
+    fn game(fa: &str, fb: &str) -> (GameState, SystemId, PlanetId) {
+        let state = crate::fixtures::seated_game(&[("a", fa), ("b", fb)], POK);
+        (state, SystemId::new("s"), PlanetId::new("p"))
+    }
+
+    fn begin<'a>(a: &'a PlayerId, b: &'a PlayerId, s: &'a SystemId, p: &'a PlanetId, copied: bool) -> BeginGroundArgs<'a> {
+        BeginGroundArgs { invader: a, defender: b, system: s, planet: p, copied_round: copied }
+    }
+
+    #[test]
+    fn the_round_start_bails_name_what_the_core_window_does_not_carry() {
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        let (state, s, p) = game("sol", "hacan");
+        assert_eq!(begin_ground_unported(&state, &begin(&a, &b, &s, &p, false)), None);
+        // A copied round agent is carried (numbered and announced).
+        assert_eq!(begin_ground_unported(&state, &begin(&a, &b, &s, &p, true)), None);
+        let (state, s, p) = game("naaz", "hacan");
+        assert_eq!(begin_ground_unported(&state, &begin(&a, &b, &s, &p, false)), Some("Naaz Supercharge"));
+        // Letnev only offers the Dunlain Reaper with infantry on the planet.
+        let (mut state, s, p) = game("sol", "letnev");
+        assert_eq!(begin_ground_unported(&state, &begin(&a, &b, &s, &p, false)), None);
+        state.system_mut(&s).planet_units.entry(p.clone()).or_default().push(Unit::new(UnitTypeId::new("infantry"), b.clone()));
+        assert_eq!(begin_ground_unported(&state, &begin(&a, &b, &s, &p, false)), Some("Dunlain Reaper"));
+        let neutral = PlayerId::new(crate::neutral_units::NEUTRAL);
+        assert_eq!(begin_ground_unported(&state, &begin(&neutral, &b, &s, &p, false)), Some("neutral side"));
+    }
+
+    #[test]
+    fn the_roll_tail_bails_name_what_the_core_window_does_not_carry() {
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        let (mut state, s, p) = game("sol", "hacan");
+        let args = RollTailArgs { invader: &a, defender: &b, system: &s, planet: &p, rolled: (1, 1), bump: true, announce: true };
+        assert_eq!(roll_tail_unported(&state, &args), None);
+        state.player_mut(&a).unwrap().technologies.insert(ti4_model::TechnologyId::new("x89c4"));
+        assert_eq!(roll_tail_unported(&state, &args), Some("X-89 Bacterial Weapon"));
+        state.player_mut(&a).unwrap().technologies.clear();
+        state.faction_marks.insert(crate::combat::ROLL_REPLAY_MARK.to_owned(), String::new());
+        assert_eq!(roll_tail_unported(&state, &args), Some("roll replay mark"));
+        state.faction_marks.clear();
+        let neutral = PlayerId::new(crate::neutral_units::NEUTRAL);
+        let args = RollTailArgs { invader: &neutral, ..args };
+        assert_eq!(roll_tail_unported(&state, &args), Some("neutral side"));
+    }
+}
