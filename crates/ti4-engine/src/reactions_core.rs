@@ -328,6 +328,50 @@ mod tests {
         assert!(counted);
     }
 
+    /// Brother Milor places the form `placed_unit_id` names (the upgrade, the faction's own unit, the plain one): the core
+    /// answer, built from the unit tables without the content store, equals the string one for every faction.
+    #[test]
+    fn the_core_placed_form_equals_the_string_placed_unit_id() {
+        use crate::core_sync::{with_core, Footprint, Sources};
+        use crate::generated::IdStr;
+        use ti4_engine_core::generated::{Faction as CoreFaction, UnitBaseType};
+        use ti4_engine_core::state::Slice;
+        let content = ti4_content::ContentStore::embedded();
+        let sources = ti4_model::content_types::DEFAULT;
+        let mut checked = 0;
+        for faction in CoreFaction::ALL {
+            let name = <CoreFaction as IdStr>::as_str(faction);
+            if name == "neutral" {
+                continue;
+            }
+            for techs in [&[][..], &["ff2", "inf2"][..], &["hcf2", "lw2", "cl2", "so2"][..]] {
+                let mut gs = crate::fixtures::seated_game(&[("a", name), ("b", "hacan")], sources);
+                gs.promissory_notes.clear();
+                gs.promissory_faceup.clear();
+                for t in techs {
+                    crate::technology::grant(&mut gs, &ti4_model::id::PlayerId::new("a"), &ti4_model::id::TechnologyId::new(*t));
+                }
+                let (mut cx, r) = crate::dual_window::tables(&gs).unwrap();
+                let fp = Footprint::reads(&[Slice::Meta, Slice::Seats, Slice::Players]);
+                let before = gs.clone();
+                let mut got = Vec::new();
+                with_core(&mut gs, &mut cx, Sources::default(), fp, |core, _| {
+                    for base in [UnitBaseType::Fighter, UnitBaseType::Infantry] {
+                        let form = ti4_engine_core_factions::cd_registry::yin::timing::placed_form(core, ti4_engine_core::tables::Scope(crate::core_adapter::scope(sources).0), r.seat("a").unwrap(), base);
+                        got.push((base, form.map(<ti4_engine_core::generated::Unit as IdStr>::as_str)));
+                    }
+                })
+                .unwrap();
+                for (base, form) in got {
+                    let want = crate::action_cards::placed_unit_id_text(&before, content, sources, &ti4_model::id::PlayerId::new("a"), <UnitBaseType as IdStr>::as_str(base));
+                    assert_eq!(form, want.as_ref().map(ti4_model::id::UnitTypeId::as_str), "{name} {base:?} {techs:?}");
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 100);
+    }
+
     #[test]
     fn the_native_registry_equals_the_string_one_for_the_ported_abilities() {
         use crate::core_sync::{with_core, Footprint, Sources};

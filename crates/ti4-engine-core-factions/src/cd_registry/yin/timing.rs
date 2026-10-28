@@ -29,7 +29,7 @@ fn ready(s: &CoreState, who: Seat) -> bool {
 }
 
 /// `placed_unit_id` of a seat for a base type: the upgrade it owns, else its faction's own unit, else the plain one.
-fn placed_form(s: &CoreState, scope: Scope, who: Seat, base: UnitBaseType) -> Option<Unit> {
+pub fn placed_form(s: &CoreState, scope: Scope, who: Seat, base: UnitBaseType) -> Option<Unit> {
     let mut roster = tech::UnitRoster::default();
     for faction in Faction::ALL {
         let own = Unit::ALL.into_iter().find(|u| {
