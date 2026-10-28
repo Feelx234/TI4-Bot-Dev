@@ -19,9 +19,18 @@ use crate::query::seats;
 use crate::state::CoreState;
 
 /// The context of a strategy card question.
-fn ctx(card: StrategyCard, secondary: bool, subtype: SSub) -> Ctx {
+pub(crate) fn ctx(card: StrategyCard, secondary: bool, subtype: SSub) -> Ctx {
+    ctx_from(Origin::StrategyCard { card, secondary }, subtype)
+}
+
+/// The context of a question a rule raises inside a strategy card (`DecisionSource::Rule`).
+pub(crate) fn rule_ctx(rule: crate::choice::generic::Rule, subtype: SSub) -> Ctx {
+    ctx_from(Origin::Rule(rule), subtype)
+}
+
+fn ctx_from(origin: Origin, subtype: SSub) -> Ctx {
     Ctx {
-        origin: Origin::StrategyCard { card, secondary },
+        origin,
         subtype: Subtype::Strategy(subtype),
         optional: false,
         target: None,

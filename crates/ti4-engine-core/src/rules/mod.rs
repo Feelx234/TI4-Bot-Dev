@@ -24,5 +24,6 @@ pub mod production;
 pub mod relic_windows;
 pub mod strategy;
 pub mod strategy_flow;
+pub mod strategy_primaries;
 pub mod strategy_windows;
 pub mod trade;

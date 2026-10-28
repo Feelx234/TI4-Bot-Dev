@@ -174,6 +174,62 @@ pub fn place_command_token(s: &mut CoreState, who: Seat, system: System) -> bool
     cell.cmd.insert(who)
 }
 
+/// Take `who`'s command token out of a system; whether one was there.
+pub fn remove_command_token(s: &mut CoreState, who: Seat, system: System) -> bool {
+    s.board_mut().sys_mut(system).cmd.remove(who)
+}
+
+/// Command tokens in a seat's reinforcements: sixteen less the sheet and the board (`GameState::
+/// tokens_in_reinforcements`; a token in a Mahact fleet pool is the caller's to bail on).
+#[must_use]
+pub fn tokens_in_reinforcements(s: &CoreState, who: Seat) -> i32 {
+    let on_sheet = s.players().by_seat(who).map_or(0, |p| {
+        i32::from(p.econ.tactic_tokens) + i32::from(p.econ.fleet_tokens) + i32::from(p.econ.strategic_tokens)
+    });
+    let on_board = s.board().systems().filter(|(_, cell)| cell.cmd.contains(who)).count();
+    (TOKENS_PER_FACTION - on_sheet - i32::try_from(on_board).unwrap_or(i32::MAX)).max(0)
+}
+
+/// `GameState::gain_token` for a positive count: at most what is in reinforcements. Returns how many were gained.
+pub fn gain_token(s: &mut CoreState, who: Seat, pool: crate::choice::strategy::Pool, count: i32) -> i32 {
+    use crate::choice::strategy::Pool;
+    let granted = count.min(tokens_in_reinforcements(s, who)).max(0);
+    if granted > 0
+        && let Some(p) = s.players_mut().by_seat_mut(who)
+    {
+        let slot = match pool {
+            Pool::Tactic => &mut p.econ.tactic_tokens,
+            Pool::Fleet => &mut p.econ.fleet_tokens,
+            Pool::Strategic => &mut p.econ.strategic_tokens,
+        };
+        *slot = slot.saturating_add(i16::try_from(granted).unwrap_or(i16::MAX));
+    }
+    granted
+}
+
+/// The plain action card draw (`action_cards::draw` with no faction hook, no reserve and a hand that stays
+/// within the limit): up to `count` cards from the top of the deck into the hand. Returns how many came.
+/// `drop_unofficial`: the two unofficial cards leave the deck first (`deck::drop_unofficial_action_cards`).
+pub fn draw_action_cards(s: &mut CoreState, who: Seat, count: usize, drop_unofficial: bool) -> usize {
+    use crate::generated::ActionCard;
+    if drop_unofficial && s.decks().action.cards().iter().any(|c| matches!(c, ActionCard::Veto3 | ActionCard::Veto4)) {
+        let kept: Vec<ActionCard> = s.decks().action.cards().iter().copied().filter(|c| !matches!(c, ActionCard::Veto3 | ActionCard::Veto4)).collect();
+        s.decks_mut().action.set(kept);
+    }
+    let mut drawn = 0;
+    for _ in 0..count {
+        let Some(card) = s.decks_mut().action.draw() else { break };
+        if let Some(p) = s.players_mut().by_seat_mut(who) {
+            p.cards.hand.push(card);
+        }
+        drawn += 1;
+    }
+    drawn
+}
+
+/// Command tokens a faction has (`ti4_model::state::TOKENS_PER_FACTION`, LRR 20.4).
+pub const TOKENS_PER_FACTION: i32 = 16;
+
 /// Exhaust a planet; whether it was ready.
 pub fn exhaust_planet(s: &mut CoreState, planet: Planet) -> bool {
     let cell = s.board_mut().planet_mut(planet);

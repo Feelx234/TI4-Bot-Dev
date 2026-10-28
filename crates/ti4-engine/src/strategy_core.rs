@@ -23,6 +23,22 @@ mod real {
     use crate::dual_window::Recording;
     use crate::leaders_core::{outside, replenish_causes_events};
 
+    /// The tables of a window whose options name seats by faction. `None`: more than 16 owners, or two seats
+    /// of one faction (the option ids would clash).
+    pub(crate) fn named_tables(gs: &GameState) -> Option<(crate::core_sync::Ctx, crate::render::Render)> {
+        let (cx, r) = crate::dual_window::tables(gs)?;
+        let factions: Vec<String> = r
+            .seats
+            .iter()
+            .map(|id| gs.players.iter().find(|p| p.id.as_str() == id).map_or_else(String::new, |p| p.faction.as_str().to_owned()))
+            .collect();
+        let named: Vec<&String> = factions.iter().filter(|f| !f.is_empty()).collect();
+        if named.iter().enumerate().any(|(i, f)| named[..i].contains(f)) {
+            return None;
+        }
+        Some((cx, r.with_factions(factions)))
+    }
+
     const TRADE: Footprint =
         Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Pending], &[Slice::Players]);
 
@@ -34,18 +50,8 @@ mod real {
         if outside(gs, script) || replenish_causes_events(gs) {
             return None;
         }
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let (mut cx, r) = named_tables(gs)?;
         let seat = r.seat(player.as_str())?;
-        let factions: Vec<String> = r
-            .seats
-            .iter()
-            .map(|id| gs.players.iter().find(|p| p.id.as_str() == id).map_or_else(String::new, |p| p.faction.as_str().to_owned()))
-            .collect();
-        let named: Vec<&String> = factions.iter().filter(|f| !f.is_empty()).collect();
-        if named.iter().enumerate().any(|(i, f)| named[..i].contains(f)) {
-            return None;
-        }
-        let r = r.with_factions(factions);
         let before = gs.clone();
         let kernel = Kernel::plain();
         let mut driver = Driver::new(TradePrimary::new(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);

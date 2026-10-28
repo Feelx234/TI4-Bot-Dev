@@ -1621,7 +1621,59 @@ fn ready_planets(
     Ok(())
 }
 
+/// The Diplomacy primary beside its core window (`strategy_cards_core::diplomacy`).
 fn diplomacy_primary(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    card: &str,
+) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        "strategy_cards::diplomacy_primary",
+        state,
+        |state: &mut GameState| {
+            result = diplomacy_primary_string(state, content, sources, galaxy, table, player, card);
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_cards_core::diplomacy(
+            state, content, sources, player, card, false, script
+        )
+    );
+    result
+}
+
+/// The Diplomacy secondary beside its core window.
+fn diplomacy_secondary(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    card: &str,
+) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        "strategy_cards::diplomacy_secondary",
+        state,
+        |state: &mut GameState| {
+            result = ready_planets(state, content, sources, galaxy, table, player, 2);
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_cards_core::diplomacy(
+            state, content, sources, player, card, true, script
+        )
+    );
+    result
+}
+
+fn diplomacy_primary_string(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1700,7 +1752,46 @@ fn diplomacy_primary(
     ready_planets(state, content, sources, galaxy, table, player, 2)
 }
 
+/// The Politics primary beside its core window (`strategy_cards_core::politics`).
 fn politics_primary(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        "strategy_cards::politics_primary",
+        state,
+        |state: &mut GameState| {
+            result = politics_primary_string(state, content, sources, galaxy, table, player);
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_cards_core::politics(state, content, player, true, script)
+    );
+    result
+}
+
+/// The Politics secondary beside its core window.
+fn politics_secondary(state: &mut GameState, content: &ContentStore, table: &mut Table, player: &PlayerId) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        "strategy_cards::politics_secondary",
+        state,
+        |state: &mut GameState| {
+            result = crate::action_cards::draw(state, content, table, player, 2).map(|_| ());
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_cards_core::politics(state, content, player, false, script)
+    );
+    result
+}
+
+fn politics_primary_string(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -2365,7 +2456,30 @@ fn home_production(
     Ok(())
 }
 
+/// The Warfare primary beside its core window (`strategy_cards_core::warfare_primary`).
 fn warfare_primary(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        "strategy_cards::warfare_primary",
+        state,
+        |state: &mut GameState| {
+            result = warfare_primary_string(state, content, sources, galaxy, table, player);
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_cards_core::warfare_primary(state, player, script)
+    );
+    result
+}
+
+fn warfare_primary_string(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -2833,11 +2947,9 @@ pub fn secondary(
             buy_tokens_first_yes_assumed(state, content, sources, galaxy, table, player)?;
         }
         StrategyCardKind::Diplomacy => {
-            ready_planets(state, content, sources, galaxy, table, player, 2)?
+            diplomacy_secondary(state, content, sources, galaxy, table, player, card)?
         }
-        StrategyCardKind::Politics => {
-            crate::action_cards::draw(state, content, table, player, 2)?;
-        }
+        StrategyCardKind::Politics => politics_secondary(state, content, table, player)?,
         StrategyCardKind::Construction => {
             place_structure(state, content, sources, galaxy, table, player, false)?;
         }
