@@ -1278,6 +1278,16 @@ mod tests {
             let (mut state, system, planet) = omniopiares_game();
             state.promissory_notes.clear();
             state.promissory_faceup.clear();
+            // Several planets of different worth, so the payment is a real choice.
+            for id in crate::fixtures::non_home_planets(4) {
+                let owned = ti4_content::galaxy::all_planets(ContentStore::embedded(), ti4_model::content_types::POK)
+                    .iter()
+                    .find(|(p, _)| **p == id.as_str())
+                    .and_then(|(_, p)| p.system_id().map(SystemId::new));
+                if let Some(home) = owned.filter(|home| *home != system) {
+                    state.system_mut(&home).planet_control.insert(PlanetId::new(id.as_str()), b());
+                }
+            }
             let before = exhausted_count(&state);
             let mut table = scripted(&[&format!("commit|0|{planet}")]);
             let mut dice = crate::dice::Dice::new();
