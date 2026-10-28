@@ -456,6 +456,7 @@ pub fn drive_positioned<W: Window>(
                 ti4_engine_core::kernel::ability::Unknown::CardCost => "a card cost the core does not judge",
                 ti4_engine_core::kernel::ability::Unknown::HarnessOrInfiltrate => "Harness Energy / Infiltrate",
                 ti4_engine_core::kernel::ability::Unknown::NomadAgentExhaustion => "Nomad Temporal Command Suite (agent exhaustion)",
+                ti4_engine_core::kernel::ability::Unknown::NekroCarriedCard => "a technology carried by a Nekro Valefar Assimilator",
                 ti4_engine_core::kernel::ability::Unknown::MissingFact => "a fact the adapter did not compute for the window",
             };
             crate::dual::note_bail(LABEL.with(Cell::get), &format!("nested ({why})"));
@@ -610,10 +611,10 @@ fn complete_nested(
         rendered.context = Some(ctx.about_battle(gs).about_invasion(gs));
     }
     crate::render::leaders::complete_round_agent(r, choice, rendered);
-    if matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(_)) {
+    if is_window_pick(choice) {
         slot_options(r, choice, facts, core, kernel, rendered);
     }
-    if matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(_)) && gs.phase == ti4_model::state::Phase::Action {
+    if is_window_pick(choice) && gs.phase == ti4_model::state::Phase::Action {
         if let Some(active) = &gs.active {
             rendered.details.insert(crate::timing::ACTIVE_DETAIL.to_owned(), active.to_string().into());
         }
@@ -624,6 +625,11 @@ fn complete_nested(
 /// questions whose string ability builds one (`DecisionTrigger::from_event`).
 fn with_trigger_of(choice: &CoreChoice) -> bool {
     matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(_))
+}
+
+/// Whether a nested question is the window's own pick (the one that carries the `active` detail of the action phase).
+fn is_window_pick(choice: &CoreChoice) -> bool {
+    matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(ti4_engine_core::choice::reaction::Ask::Window { .. }))
 }
 
 /// The options of a reaction window that are the standing card slot show what the seat could play: the label

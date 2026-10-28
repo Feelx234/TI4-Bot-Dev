@@ -9,6 +9,8 @@
 use crate::kernel::ability::{AbilityTable, Slot};
 
 pub mod infantry_ii;
+pub mod instinct_training;
+pub mod l1z1x_agent;
 pub mod round_agent;
 pub mod saar;
 pub mod tellurian;
@@ -24,6 +26,8 @@ pub fn register_first(t: &mut AbilityTable) {
 
 /// Add the ported generic abilities that follow the slots, in the string registration order.
 pub fn register(t: &mut AbilityTable) {
+    instinct_training::register(t);
+    l1z1x_agent::register(t);
     infantry_ii::register(t);
 }
 
@@ -32,4 +36,51 @@ pub fn register(t: &mut AbilityTable) {
 pub fn register_after_factions(t: &mut AbilityTable) {
     tellurian::register(t);
     saar::register(t);
+}
+
+/// A test window that emits one event, and the drivers the tests of the abilities run.
+#[cfg(test)]
+pub(crate) mod testkit {
+    use crate::choice::reaction::{AbilityId, AbilityKind};
+    use crate::choice::{Choice, Pick};
+    use crate::driver::Driver;
+    use crate::ids::Seat;
+    use crate::kernel::ability::AbilityTable;
+    use crate::kernel::stage::{Illegal, Sx, Window};
+    use crate::kernel::{Kernel, Next, Resolver};
+    use crate::state::{Code, CoreState, EventRec};
+
+    #[derive(Clone)]
+    pub struct Emit {
+        pub rec: EventRec,
+        pub done: bool,
+    }
+
+    impl Window for Emit {
+        type Stage = bool;
+        fn stage(&self) -> bool {
+            self.done
+        }
+        fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+            if !self.done {
+                self.done = true;
+                let _ = sx.emit(self.rec.clone());
+            }
+            Next::Done
+        }
+        fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {
+            None
+        }
+        fn answer(&mut self, _: &mut Sx<'_>, _: Pick) -> Result<(), Illegal> {
+            Err(Illegal)
+        }
+    }
+
+    /// A driver over a window that emits `rec`, the registry of `table` for `seats` (ids are `Code(slot)`).
+    pub fn driver(table: AbilityTable, s: &CoreState, seats: &[Seat], rec: EventRec) -> Driver<Emit> {
+        let mut resolver = Resolver::new(seats, Some(seats[0]));
+        let defs = table.registry(s, seats, &mut |spec, _| AbilityId { kind: AbilityKind::Other, key: Code(spec.slot.0) });
+        resolver.register(defs);
+        Driver::new(Emit { rec, done: false }, resolver, table, 10)
+    }
 }

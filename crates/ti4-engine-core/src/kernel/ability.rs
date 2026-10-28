@@ -66,6 +66,8 @@ pub enum Unknown {
     HarnessOrInfiltrate,
     /// A Nomad that listens to the exhaustion of an agent (Temporal Command Suite): the exhaustion is announced.
     NomadAgentExhaustion,
+    /// Instinct Training may be carried by a Nekro Valefar Assimilator.
+    NekroCarriedCard,
     /// A fact the adapter should have computed for the window is missing (`Facts`).
     MissingFact,
 }
@@ -105,6 +107,8 @@ pub struct Codes {
     pub ground_combat: crate::state::Code,
     /// The `source` of the trade good Self-Assembly Routines gains.
     pub self_assembly: crate::state::Code,
+    /// The `reason` of the strategy token Instinct Training spends.
+    pub instinct_training: crate::state::Code,
 }
 
 /// Facts the adapter computes for the window and the core cannot (no galaxy is lent to the windows that follow
