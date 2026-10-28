@@ -224,6 +224,23 @@ fn register_string_bridge(seams: &mut Seams) {
         .unwrap_or(false);
         if lost { Verdict::Allow } else { Verdict::Abstain }
     });
+    // Faction bars on SPACE CANNON (Argent flagship): `Allow` bars the shooter (`Combine::AllowWins`).
+    seams.cannon_barred.push(STRINGS, |_, site: &ti4_engine_core::kernel::seam::CannonSite| {
+        let barred = with_oracle(|o| {
+            let (shooter, target) = (o.player(site.shooter)?, o.player(site.target)?);
+            Some(crate::factions::hooks_combat::space_cannon_barred(
+                &o.gs,
+                ContentStore::embedded(),
+                o.sources,
+                &shooter,
+                &target,
+                &SystemId::new(site.system.as_str()),
+            ))
+        })
+        .flatten()
+        .unwrap_or(false);
+        if barred { Verdict::Allow } else { Verdict::Abstain }
+    });
     seams.may_sustain.push(STRINGS, |_, unit: &CombatUnit| {
         let allowed = with_oracle(|o| {
             o.with_unit(*unit, |cu| {
