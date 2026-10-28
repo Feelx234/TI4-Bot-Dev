@@ -15,6 +15,7 @@ package branches (`core-*`), not from this branch.
 | A3 | Merge of the core port into a nightly/live branch | branches | not scheduled | decide after A2; mind the sweep cut-off (20:30 Berlin, CLAUDE.md) |
 | A4 | P1 card rule questions: Crisis Pact order, Covert Legislation edge cases | `docs/CARD_P1_FIXES.md` | rules rulings needed | user rules; then implement |
 | A5 | UI work for the Crisis Pact prompt and the hidden Covert Legislation card | web | depends on A4 | queue after A4 |
+| A6 | DECIDED (user): legacy engine kept frozen as `ti4-engine-legacy`, dual harness kept as permanent oracle with an allow-list of intended differences (per `RULES_VERSION`) | `docs/ENGINE_CORE_STATE.md` section 9 | rule fixes go into the core only, so legacy and core diverge on purpose (B1 Heart of Ixth is the first case) | keep the allow-list entries reasoned and version-bound; D3 in scope after D2 |
 
 ## B. String-engine bugs copied on purpose
 
@@ -61,6 +62,7 @@ given are from the package reports.
 | D9 | stale-answer risk for `may_sustain` / `temporary_ground_force` in multi-batch windows | revalidate answers per batch |
 | D10 | Harrow dice-ordering risk | verify against string order |
 | D11 | `state_size.sh` needs a release binary | build first |
+| D13 | cost of the permanent oracle: duplicated build in the dev profile, frozen legacy tests, allow-list upkeep; stale allow-list entries hide regressions. Not to be confused with the unrelated crate `crates/ti4-legacy` (Python replay converter stub) | review the allow-list at each `RULES_VERSION` bump; deleting `ti4-engine-legacy` is an optional later step |
 | D12 | `gate` cargo profile exists only on branch `build-speed`; `string-disentangle` uses env vars | unify when merging (`docs/ENGINE_BUILD_SPEED.md`) |
 | B2-K4 | 82 nested-reaction bails in `ground_round_hits` | `core-reactions`: 61 left (unported Yin/Saar/Titans/Crimson abilities and played reaction cards, see R-bail-01/02) |
 | B2-K5 | open design (B5 split the exploration tail into `control_gain_fracture_relic`/`control_gain_exploration`, see B5-bail-05): the `FinalizingControl`/`finish_control_gain` hook chain, the rest of `finish_committing`, the setup/end hooks and the scoring pauses are still string | B5 exploration, technology and the ability port |
