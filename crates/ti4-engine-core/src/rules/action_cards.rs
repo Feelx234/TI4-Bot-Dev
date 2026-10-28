@@ -292,7 +292,7 @@ mod tests {
     /// One test for every documented bail: the core declines, the string function answers.
     #[test]
     fn every_bail_declines_and_the_rest_answers() {
-        let core = CoreState::default();
+        let core = CoreState::all_loaded();
         let who = Seat::from_index(0).unwrap();
         for card in [
             ActionCard::ReactorMeltdown,
