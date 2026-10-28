@@ -110,11 +110,13 @@ pub fn borrowed_stats(s: &CoreState, k: &Kernel, who: Seat, at: System) -> Optio
     let own_barrage = own.anti_fighter_barrage.filter(|r| r.hits_on > 0);
     let flagship_barrage = flagship.anti_fighter_barrage.filter(|r| r.hits_on > 0);
     let dice = if own_barrage.is_some() { own.anti_fighter_barrage.map_or(0, |r| r.dice) } else { flagship.anti_fighter_barrage.map_or(0, |r| r.dice) };
-    if !s.board().sys(at).units.as_slice().iter().any(|p| p.owner() == who && p.kind() == kind) {
-        return None;
-    }
+    // The borrowing ship: the damaged one of its type when the type cannot sustain by itself, else the first in board order.
+    let ships = || s.board().sys(at).units.as_slice().iter().filter(|p| p.owner() == who && p.kind() == kind);
+    let piece = ships().find(|p| !own.sustain_damage && p.sustained()).or_else(|| ships().next())?;
     Some(BorrowedStats {
         unit: kind,
+        sustained: piece.sustained(),
+        galvanized: piece.galvanized(),
         hits_on: flagship.combat.filter(|r| r.hits_on > 0).map(|r| r.hits_on as i8),
         barrage: flagship_barrage.map(|r| (dice as i8, r.hits_on as i8)),
     })
