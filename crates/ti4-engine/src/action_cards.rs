@@ -3400,7 +3400,7 @@ fn counterstroke(context: &mut crate::timing::TimingContext<'_>, player: &Player
 /// `record` (`game.rs`/`vote.rs`): a voter who exhausts no planet is banked in the same step the
 /// window opens, and an abstainer casts nothing to add to.
 fn distinguished_councilor(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    crate::vote::add_votes(context.state, player, 5);
+    stamped(context, player, "councilor", |state| crate::vote::add_votes(state, player, 5));
 }
 
 /// Bribery: "After the speaker votes on an agenda: spend any number of trade goods. For each
@@ -4011,22 +4011,24 @@ fn decoy_operation(context: &mut crate::timing::TimingContext<'_>, player: &Play
 /// A unit's sustained damage is a flag on the unit, and the active system of the combat round
 /// is `state.active_system`, so the repair is a scan of both its space and its planets.
 fn emergency_repairs(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let Some(system) = context.state.active_system.clone() else {
-        return;
-    };
-    let board = context.state.system_mut(&system);
-    for unit in &mut board.units {
-        if &unit.owner == player {
-            unit.sustained_damage = false;
-        }
-    }
-    for units in board.planet_units.values_mut() {
-        for unit in units.iter_mut() {
+    stamped(context, player, "emergency_repairs", |state| {
+        let Some(system) = state.active_system.clone() else {
+            return;
+        };
+        let board = state.system_mut(&system);
+        for unit in &mut board.units {
             if &unit.owner == player {
                 unit.sustained_damage = false;
             }
         }
-    }
+        for units in board.planet_units.values_mut() {
+            for unit in units.iter_mut() {
+                if &unit.owner == player {
+                    unit.sustained_damage = false;
+                }
+            }
+        }
+    });
 }
 
 /// Upgrade: "after you activate a system that contains 1 or more of your ships, replace 1 of
@@ -7984,7 +7986,7 @@ mod tests {
             }
             let report = crate::dual::take_report();
             assert!(report.differences.is_empty(), "{:?}", report.differences.first());
-            assert_eq!(played, 26 + 16, "the stamp and flag effects, then the state effects");
+            assert_eq!(played, 26 + 18, "the stamp and flag effects, then the state effects");
         }
     }
 
@@ -8023,6 +8025,9 @@ mod tests {
                 vec![ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new("pds"), b.clone())],
             );
             state.exhausted_planets.insert(pid);
+            let mut hurt = ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new("dreadnought"), a.clone());
+            hurt.sustained_damage = true;
+            state.system_mut(&sys).units.push(hurt);
             state.promissory_notes.clear(); // the fixture ones carry the faction "generic", which the Cards codec refuses
             state.active_system = Some(sys.clone());
             state.player_mut(&b).unwrap().commodities = 3;
@@ -8046,6 +8051,8 @@ mod tests {
             ActionCard::ReverseEngineer,
             ActionCard::EconomicInitiative,
             ActionCard::Disable,
+            ActionCard::DistinguishedCouncilor,
+            ActionCard::EmergencyRepairs,
         ] {
             let mut state = build();
             let before = state.clone();
@@ -8061,6 +8068,8 @@ mod tests {
                 ActionCard::Salvage => "salvage",
                 ActionCard::ReverseEngineer => "reverse_engineer",
                 ActionCard::EconomicInitiative => "economic_initiative",
+                ActionCard::DistinguishedCouncilor => "councilor",
+                ActionCard::EmergencyRepairs => "emergency_repairs",
                 _ => "disable",
             };
             assert!(crate::action_cards_view::play_simple(&mut probe, &a, name, &ti4_model::content_types::POK).is_some(), "{card:?}: the core bailed");

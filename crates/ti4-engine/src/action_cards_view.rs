@@ -203,6 +203,8 @@ pub fn play_simple(state: &mut GameState, player: &PlayerId, effect: &str, sourc
         "reverse_engineer" => Simple::ReverseEngineer,
         "economic_initiative" => Simple::EconomicInitiative,
         "disable" => Simple::Disable,
+        "councilor" => Simple::Councilor,
+        "emergency_repairs" => Simple::EmergencyRepairs,
         _ => return None,
     };
     let (mut cx, r) = crate::dual_window::tables(state)?;

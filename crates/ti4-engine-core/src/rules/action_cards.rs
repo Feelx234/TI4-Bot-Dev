@@ -199,6 +199,10 @@ pub enum Simple {
     ReverseEngineer,
     /// Economic Initiative: ready each cultural planet the holder controls.
     EconomicInitiative,
+    /// Distinguished Councilor: 5 extra votes this agenda.
+    Councilor,
+    /// Emergency Repairs: repair every unit of the holder in the active system.
+    EmergencyRepairs,
     /// Disable: the activation joins the `DisableInvasion` marks when an opponent has a PDS in the active system.
     Disable,
 }
@@ -246,6 +250,8 @@ impl Simple {
             C::ReverseEngineer => Self::ReverseEngineer,
             C::EconomicInitiative => Self::EconomicInitiative,
             C::Disable => Self::Disable,
+            C::DistinguishedCouncilor => Self::Councilor,
+            C::EmergencyRepairs => Self::EmergencyRepairs,
             _ => return None,
         })
     }
@@ -380,6 +386,32 @@ pub fn play_simple(core: &mut CoreState, who: Seat, effect: Simple, env: Env) {
                 if in_scope && data.traits.contains(&crate::generated::PlanetTrait::Cultural) {
                     crate::kernel::fx::ready_planet(core, *planet);
                 }
+            }
+        }
+        Simple::Councilor => {
+            let agenda = core.meta().agenda_seq;
+            if let Some(p) = core.players_mut().by_seat_mut(who) {
+                let running = match p.timers.extra_votes_agenda {
+                    Some(held) if held.agenda == agenda => held.votes,
+                    _ => 0,
+                };
+                p.timers.extra_votes_agenda = Some(crate::state::ExtraVotes { agenda, votes: running + 5 });
+            }
+        }
+        Simple::EmergencyRepairs => {
+            let Some(system) = core.meta().active_system else { return };
+            let planets: crate::containers::SmallList<crate::generated::Planet, 8> =
+                crate::query::board::planets_of(core, system).collect();
+            let repair = |list: &mut crate::state::UnitList| {
+                for piece in list.as_mut_slice() {
+                    if piece.owner() == who {
+                        *piece = piece.with_sustained(false);
+                    }
+                }
+            };
+            repair(&mut core.board_mut().sys_mut(system).units);
+            for planet in planets.as_slice() {
+                repair(&mut core.board_mut().planet_mut(*planet).units);
             }
         }
         Simple::Disable => {
