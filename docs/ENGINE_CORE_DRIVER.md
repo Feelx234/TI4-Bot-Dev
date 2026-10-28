@@ -191,11 +191,35 @@ The example lives under `driver/` only because `rules/` is created by B1 and B3;
   openings; start-of-combat hits (Assault Cannon, Mentak Ambush, Dimensional Splicer, Impulse Core) and the factions
   of the module hooks; barrage with reactions (core ability table empty) and the barrage cases of `barrage_unported`;
   The Thundarian / Keleres agent / test dice (roll gates); a roll that ends the fight; neutral sides; hit
-  cancellations; a single casualty candidate; Duranium Armor repairs; Devotion's hits after a round; destructions
+  cancellations; Duranium Armor repairs; Devotion's hits after a round; destructions
   waiting for their announcement (also after a retreat); a retreat of a flipping unit (Eidolon), Voltron, a Floating
   Factory, a Last Bastion seat, Dark Energy Tap, a Ralnel flagship arriving; the announcement of the end when a
   survivor flips back, a blockaded dock dies or faction marks change; reaction windows inside any emission.
-* Not done: the PENDING questions themselves (announce a retreat, retreat to which system, sustain, assign a hit)
-  and their answers are still the string's `pending_choice` / `resolve`; the machine only stops where they are asked
-  (`Stop::Pending`). Core `Ask` variants and renderers for them (with the previews and the `sustainers` detail the string
-  question carries) are the next slice.
+* The pending decisions (package B1g, second slice): `Machine::awaiting(env, fields)` is the machine built for the answer
+  to the decision a settle stopped at (`Stop::Pending`). It puts the question the string `pending_choice` puts and applies
+  the answer the string `resolve` applies, nothing more (the settle that follows is a machine of its own).
+  `CombatWindow::resolve` is `resolve_answer` (dual, label `combat::answer`, adapter `dual_window::answer_machine`) +
+  `settle`; the string body is `resolve_answer_string`. The recording is made by hand (`note_ask(choice, answer)`), the
+  way `invasion::answer_custodians` does, so the harness compares the pending question and then the commander's.
+  New core vocabulary (`choice/combat.rs`): `Ask::AnnounceRetreat {system, forced, ships}` (Rout: no "stay"),
+  `Ask::RetreatTo {system, fleet}`, `Opt::Stay/Announce/RetreatTo {system, there}`, `Subtype::AnnounceRetreat/RetreatTo`,
+  and `Ask::CancelHit.window: Option<u16>` for the sustain question OF THE WINDOW (space sustainers named by their index
+  `sustain|3` instead of `sustain|space:3`, previews). The assign question reuses `Ask::AssignHit`, its options carry the
+  index into the owner's whole ship list (`casualty_candidates`), not into the filtered list. The renderer
+  (`render/combat.rs`) now attaches the `ShipsInSystem` previews (`Wording.preview` for the generic decline "take the hit");
+  the `sustainers` detail is the adapter's `complete` closure (as for the offer). Previews are `serde(skip)`, so the whole
+  `Choice` comparison cannot see them: `settle_run` compares them question by question in the answering mode
+  (`combat::answer.previews`). The sustain answer is `apply_sustain` + the commander's offer (`SustainCommander` as a
+  sub-window, its question is the machine's) + `sustain_offer::emit_used` + `cancel_per_sustain`; the assign answer is
+  `remove_ship` + `announce_loss`; the retreat answer is `retreat_fleet`; the announce answer emits RETREAT_DECLARED and
+  moves on (defender silences attacker, pending retreats).
+  The single casualty candidate is no longer a bail: `Machine::lone_casualty` loses the ship without a question.
+  Bails of the answer (string stands, counted under `combat::answer`): a hit the producer assigns (Devotion), a retreat the
+  core does not move (`retreat_unported`), a sustain below `RULES_FACTION_BUGFIXES`, a commander held another way than as
+  an unlocked leader, neutral sides, reaction activity (`Recording.nested`). Tests:
+  `the_pending_decisions_of_a_combat_run_in_the_core_machine` (hub map, 24 seeded fights, Rout on a third of them),
+  `a_sustain_in_a_game_below_the_faction_bugfixes_is_answered_in_the_string`,
+  `a_retreat_of_a_fleet_with_a_floating_factory_is_answered_in_the_string`,
+  `a_hit_the_producer_assigns_is_answered_in_the_string`; mutation-checked (pending retreats, hits owed, Rout, the used
+  event, the defender silencing the attacker, every preview).
+  Still string: the settle gates (`settle_args`: round openings, barrage, roll, retreat moves), see ENGINE_KNOWN_ISSUES.md.

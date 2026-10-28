@@ -13,7 +13,7 @@
 //! The machine stops (the adapter returns `None`, the string result stands) at a position it does not carry:
 //! [`Machine::bailed`] names the reason. They are all string-only on purpose and have a test each
 //! (`combat.rs`, `the_composed_combat_*`): a Naaz or Letnev round opening, diplomacy, Assault Cannon or other
-//! hits at the start of a combat, hits cancelled in a window, a single casualty candidate, a neutral side,
+//! hits at the start of a combat, hits cancelled in a window, a neutral side,
 //! Duranium Armor, Devotion, a retreat that moves a flipping unit or a Floating Factory or a Last Bastion
 //! seat's fleet, a roll that ends the fight, destructions waiting for their announcement, reactions.
 //!
@@ -117,8 +117,7 @@ pub struct Fields {
 pub enum Bail {
     /// A roll that emptied a fleet mid-way (the fight ends inside the roll step).
     RollEndsFight,
-    /// A position outside what the machine carries (a gate of the `Env`, a cancellation, a single casualty
-    /// candidate, Duranium Armor, Devotion, staged destructions, a retreat the core does not move).
+    /// A position outside what the machine carries (a gate of the `Env`, a cancellation, Duranium Armor, Devotion, staged destructions, a retreat the core does not move).
     Unported,
 }
 
@@ -293,8 +292,7 @@ impl Machine {
                     if front.hits > 0 && front_alive > 0 {
                         let cancel = sx.state.players().by_seat(front.player).and_then(|p| p.combat_timers.cancel_hits_round);
                         let cancelled = cancel.is_some_and(|(r, h)| r == sx.state.meta().combat_round_seq && h > 0);
-                        let candidates = hit_targets(rd, front.player, env.system, false, front.non_fighters_only).len();
-                        if cancelled || (*assigning && candidates == 1) || (super::is_neutral(sx.state, front.player) && !producer_picks) {
+                        if cancelled || (super::is_neutral(sx.state, front.player) && !producer_picks) {
                             return None;
                         }
                     }
@@ -334,6 +332,9 @@ impl Machine {
         if !sx.state.transient().combat.pending_destructions.is_empty() {
             return None;
         }
+        if self.lone_casualty(sx) {
+            return Some(false);
+        }
         let over = self.over(sx);
         let facts = self.flow_facts(sx, over)?;
         let before = self.fields.step.clone();
@@ -365,6 +366,31 @@ impl Machine {
             return Some(out.returned);
         }
         Some(out.returned)
+    }
+
+    /// A single possible casualty is not a decision (string `hit_queue_head_string`): the ship is lost, the hit
+    /// counted, and the queue goes back to the sustain offer. `true`: that happened.
+    fn lone_casualty(&mut self, sx: &mut Sx<'_>) -> bool {
+        let Step::Queue { assigning: true, round, queue } = self.fields.step.clone() else { return false };
+        let env_system = self.env.system;
+        let Some(front) = queue.first().copied() else { return false };
+        let rd = Self::rd(sx.state, sx.kernel);
+        if front.hits == 0 || ships_of(rd, front.player, env_system).is_empty() {
+            return false;
+        }
+        let cancelled = sx.state.players().by_seat(front.player).and_then(|p| p.combat_timers.cancel_hits_round).is_some_and(|(r, h)| r == sx.state.meta().combat_round_seq && h > 0);
+        let targets = hit_targets(rd, front.player, env_system, false, front.non_fighters_only);
+        let [only] = targets.as_slice() else { return false };
+        if cancelled || super::is_neutral(sx.state, front.player) {
+            return false;
+        }
+        let only = *only;
+        remove_ship(sx, env_system, front.player, only);
+        announce_loss(sx, env_system, front.player, only.kind(), self.env.end_cause(), true, self.env.announce);
+        let mut queue = queue;
+        queue[0].hits = front.hits.saturating_sub(1);
+        self.fields.step = Step::Queue { assigning: false, round, queue };
+        true
     }
 
     fn begin(&self, sx: &mut Sx<'_>, round: u32) {
