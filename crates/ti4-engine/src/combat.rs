@@ -9664,6 +9664,47 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Tellurian (the Titans agent) is an ability of the core table: in the `HITS_TO_ASSIGN` window of a round the
+    /// readied agent is offered, the core resolver exhausts it and grants the cancellation the next hit spends, and
+    /// the window is compared rather than bailed.
+    #[test]
+    fn tellurian_cancels_a_hit_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut used = 0;
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+            for seed in 1..=4_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "titans"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                let system = SystemId::new("18");
+                put(&mut state, &system, "cruiser", &attacker(), 3);
+                put(&mut state, &system, "cruiser", &defender(), 3);
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+                used += usize::from(state.player(&attacker()).unwrap().leaders.get(ti4_model::id::text(&"titansagent")) == Some(&ti4_model::state::LeaderStatus::Exhausted));
+            }
+        });
+        let r = report();
+        assert!(used > 0, "the agent was used");
+        assert!(r.windows.keys().all(|k| !k.contains("unported ability leader:*:titansagent")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
     #[test]
     fn the_end_report_of_a_fight_is_checked_against_the_core() {
         // `combat=dual`: the reason, losers, retreats and lost ships of `SPACE_COMBAT_ENDED` are computed by
@@ -9743,6 +9784,47 @@ mod tests {
         assert!(killed > 0, "some barrage hit");
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         assert!(r.areas[&Area::Driver].calls >= 20, "the steps were compared: {:?}", r.areas[&Area::Driver]);
+        let _ = take_report();
+    }
+
+    /// Tellurian in the anti-fighter barrage window: the agent's cancellation is spent on the barrage's hits before the
+    /// fighters are taken, by the core barrage window as by the string `apply_barrage`.
+    #[test]
+    fn tellurian_cancels_a_barrage_hit_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut spared = 0;
+        for seed in 0..12_u64 {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "titans")], ti4_model::content_types::DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = seed;
+            let system = SystemId::new("18");
+            put(&mut state, &system, &a_barrage_unit(), &attacker(), 3);
+            put(&mut state, &system, "fighter", &defender(), 4);
+            put(&mut state, &system, "cruiser", &defender(), 1);
+            with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+                spared += usize::from(state.player(&defender()).unwrap().leaders.get(ti4_model::id::text(&"titansagent")) == Some(&ti4_model::state::LeaderStatus::Exhausted));
+            });
+        }
+        let r = report();
+        assert!(spared > 0, "the agent was used");
+        assert!(r.windows.keys().all(|k| !k.contains("unported ability leader:*:titansagent")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }
 

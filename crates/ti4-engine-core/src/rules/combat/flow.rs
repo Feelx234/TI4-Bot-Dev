@@ -123,6 +123,21 @@ impl Flow {
         }
     }
 
+    /// `spend_cancellations`: up to `wanted` of the seat's round-scoped cancellations, how many were spent.
+    fn spend_cancellations(&self, sx: &mut Sx<'_>, who: Seat, wanted: u32) -> u32 {
+        let round = sx.state.meta().combat_round_seq;
+        let Some(p) = sx.state.players_mut().by_seat_mut(who) else { return 0 };
+        let available = match p.card_timers.cancel_hits_round {
+            Some((held, had)) if held == round => had,
+            _ => 0,
+        };
+        let spent = available.min(wanted);
+        if spent > 0 {
+            p.card_timers.cancel_hits_round = Some((round, available - spent));
+        }
+        spent
+    }
+
     fn after_round(&self, round: u32) -> Step {
         if self.f.over || round >= MAX_ROUNDS {
             Step::Done
@@ -223,6 +238,17 @@ impl Window for Flow {
                                 .with(Key::Hits, Val::Int(i64::from(front.hits)))
                                 .with(Key::Round, Val::Int(i64::from(round)));
                             let _ = sx.emit(fx::event(EventKind::HitsToAssign, payload));
+                            // The window may have granted cancellations (Tellurian, a card): they are spent on the
+                            // hits before a sustain is offered or a ship chosen (string `open_hits_window`'s caller).
+                            let spent = self.spend_cancellations(sx, front.player, front.hits);
+                            if spent > 0 {
+                                let mut rest = queue.clone();
+                                rest[0].hits -= spent;
+                                out.next = Step::Queue { assigning: false, round, queue: rest };
+                                self.out = Some(out);
+                                self.stage = Stage::Done;
+                                return Next::Done;
+                            }
                         }
                     }
                     if !assigning && !f.sustainers {

@@ -32,6 +32,10 @@ struct Named {
 /// The ported rules with a card key, in table order (the per-owner registration order of `reactions::arm`).
 const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::cb_economy::argent::timing::AGENT, kind: "leader", card: "argentagent" },
+    Named { slot: ti4_engine_core::rules::reactions::tellurian::HITS, kind: "leader", card: "titansagent" },
+    Named { slot: ti4_engine_core::rules::reactions::tellurian::CANNON_HITS, kind: "leader", card: "titansagent" },
+    Named { slot: ti4_engine_core::rules::reactions::tellurian::GROUND_HITS, kind: "leader", card: "titansagent" },
+    Named { slot: ti4_engine_core::rules::reactions::tellurian::BARRAGE_HITS, kind: "leader", card: "titansagent" },
     Named { slot: ti4_engine_core::rules::reactions::saar::SAAR_TRADE_GOOD, kind: "tech", card: "sar" },
     Named { slot: ti4_engine_core::rules::reactions::round_agent::SOL_AGENT, kind: "leader", card: "solagent" },
     Named { slot: ti4_engine_core::rules::reactions::round_agent::LETNEV_AGENT, kind: "leader", card: "letnevagent" },
