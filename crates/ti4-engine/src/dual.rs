@@ -1307,6 +1307,42 @@ pub(crate) mod tests {
         Serial(guard, before)
     }
 
+    /// The second gate run of stage 2 failed `vote::typed_render_tests::a_whole_vote_runs_in_lockstep_on_the_core_window`
+    /// ("compared 0"): a test that reads the process-wide report without holding [`serial`] counts into the throwaway
+    /// report while a holder runs (`FOCUS`), so it sees nothing. Every `#[test]` that takes the report holds the lock.
+    #[test]
+    fn every_test_that_takes_the_report_holds_the_serial_lock() {
+        fn rs_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    rs_files(&path, out);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    out.push(path);
+                }
+            }
+        }
+        let mut files = Vec::new();
+        rs_files(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut files);
+        let mut offenders = Vec::new();
+        let mut checked = 0;
+        for file in files {
+            let text = std::fs::read_to_string(&file).unwrap();
+            for part in text.split("#[test]").skip(1) {
+                // The body of the test: up to the next item at the indentation of the attribute.
+                let body = part.split("\n    }\n").next().unwrap_or(part);
+                if body.contains("take_report()") {
+                    checked += 1;
+                    if !body.contains("serial()") {
+                        offenders.push(format!("{}: {}", file.display(), body.lines().find(|l| l.contains("fn ")).unwrap_or("?").trim()));
+                    }
+                }
+            }
+        }
+        assert!(checked > 20, "{checked}");
+        assert!(offenders.is_empty(), "tests that take the report without the serial lock: {offenders:#?}");
+    }
+
     #[test]
     fn mask_parses_and_resolves() {
         let m = AreaMask::parse("all=core, movement=dual, combat=string", AreaMask::STRING).unwrap();

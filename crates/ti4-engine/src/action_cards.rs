@@ -8047,6 +8047,7 @@ mod tests {
 
     #[test]
     fn the_stamp_and_flag_effects_agree_with_the_core_on_the_whole_position() {
+        let _serial = crate::dual::tests::serial();
         // Every card with a core effect, played with the area on Dual: the string and the core position are
         // compared by the harness, so any difference panics here.
         #[cfg(feature = "typed-core")]
@@ -8078,6 +8079,7 @@ mod tests {
     #[test]
     #[cfg(feature = "typed-core")]
     fn the_state_effects_agree_with_the_core_on_a_populated_position() {
+        let _serial = crate::dual::tests::serial();
         // A position where each of the second-batch effects has something to do, so the dual compares real
         // changes (an empty fixture would compare two no-ops).
         use crate::dual::{AreaMask, Backend, with_mask};
@@ -8259,6 +8261,7 @@ mod tests {
     #[test]
     #[cfg(feature = "typed-core")]
     fn the_question_effects_agree_with_the_core_window_in_lockstep() {
+        let _serial = crate::dual::tests::serial();
         use crate::dual::{AreaMask, Backend, with_mask};
         let mask = AreaMask::all(Backend::String).with(crate::dual::Area::ActionCards, Backend::Dual);
         let a = PlayerId::new("a");
@@ -8288,6 +8291,7 @@ mod tests {
     #[test]
     #[cfg(feature = "typed-core")]
     fn the_offered_component_actions_and_the_discard_agree_with_the_core() {
+        let _serial = crate::dual::tests::serial();
         use crate::dual::{AreaMask, Backend, with_mask};
         let mask = AreaMask::all(Backend::String).with(crate::dual::Area::ActionCards, Backend::Dual);
         let a = PlayerId::new("a");
@@ -8320,6 +8324,7 @@ mod tests {
     #[test]
     #[cfg(feature = "typed-core")]
     fn the_legal_target_reads_agree_with_the_core_on_boards_with_and_without_a_target() {
+        let _serial = crate::dual::tests::serial();
         use crate::dual::{AreaMask, Backend, with_mask};
         use crate::generated::IdStr;
         use ti4_engine_core::generated::{ActionCard, Planet, PlanetTrait};
@@ -8390,6 +8395,7 @@ mod tests {
     #[test]
     #[cfg(feature = "typed-core")]
     fn unstable_planet_needs_a_hazardous_planet_with_a_unit_entry_even_an_empty_one() {
+        let _serial = crate::dual::tests::serial();
         use crate::dual::{AreaMask, Backend, with_mask};
         use crate::generated::IdStr;
         use ti4_engine_core::generated::{Planet, PlanetTrait, Source};
