@@ -61,7 +61,7 @@ const INDOCTRINATION_MECH_COST: i64 = INDOCTRINATION_COST + 1;
 
 // -- small helpers -------------------------------------------------------------------------------
 
-fn is_yin(state: &GameState, player: &PlayerId) -> bool {
+pub(crate) fn is_yin(state: &GameState, player: &PlayerId) -> bool {
     state
         .player(player)
         .is_some_and(|seat| seat.faction.as_str() == "yin")
