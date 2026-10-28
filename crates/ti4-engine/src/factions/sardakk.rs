@@ -151,7 +151,16 @@ fn decision(
 
 /// The C'morran N'orr: other ships of its owner in its system roll +1. Tekklar Legion: the holder's
 /// units +1 and the N'orr player's -1, in the one ground combat it was played into.
-fn unit_roll_modifier(
+fn unit_roll_modifier(state: &GameState, content: &ContentStore, sources: SourceSet, unit: &CombatUnit<'_>) -> i64 {
+    crate::cb_dual!(
+        crate::dual::HookGroup::General,
+        "sardakk::unit_roll_modifier",
+        unit_roll_modifier_text(state, content, sources, unit),
+        crate::core_factions::cd::sardakk_unit_roll_modifier(state, sources, unit)
+    )
+}
+
+fn unit_roll_modifier_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -213,7 +222,17 @@ fn unit_roll_modifier(
     clippy::too_many_arguments,
     reason = "the shape of `GroundHooks::ground_rolls_extra_hits`"
 )]
-fn ground_rolls_extra_hits(
+#[allow(clippy::too_many_arguments, reason="the shape of the hook")]
+fn ground_rolls_extra_hits(state: &GameState, content: &ContentStore, sources: SourceSet, roller: &PlayerId, system: &SystemId, planet: &PlanetId, own_hits: usize, opponent_hits: usize) -> usize {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Ground,
+        "sardakk::ground_rolls_extra_hits",
+        ground_rolls_extra_hits_text(state, content, sources, roller, system, planet, own_hits, opponent_hits),
+        crate::core_factions::cd::sardakk_ground_rolls_extra_hits(state, roller, system, planet, own_hits, opponent_hits)
+    )
+}
+
+fn ground_rolls_extra_hits_text(
     state: &GameState,
     _content: &ContentStore,
     _sources: SourceSet,
@@ -229,7 +248,16 @@ fn ground_rolls_extra_hits(
 // -- G'hom Sek'kus -------------------------------------------------------------------------------
 
 /// Control 5 planets in non-home systems.
-fn commander_unlocked(
+fn commander_unlocked(state: &GameState, content: &ContentStore, sources: SourceSet, galaxy: Option<&ti4_content::galaxy::Galaxy>, player: &PlayerId, leader: &LeaderId) -> Option<bool> {
+    crate::cb_dual!(
+        crate::dual::HookGroup::General,
+        "sardakk::commander_unlocked",
+        commander_unlocked_text(state, content, sources, galaxy, player, leader),
+        crate::core_factions::cd::sardakk_commander_unlocked(state, player, leader)
+    )
+}
+
+fn commander_unlocked_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -253,6 +281,29 @@ fn commander_unlocked(
 /// The commander's extra commit sources: one ground force from each planet in the active system.
 ///
 fn commit_candidates(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    invader: &PlayerId,
+    system: &SystemId,
+    already: &[CommitOrigin],
+) -> Vec<CommitCandidate> {
+    let text = || commit_candidates_text(state, content, sources, galaxy, invader, system, already);
+    // The typed core always has the map; a position without one keeps the string answer.
+    #[cfg(feature = "typed-core")]
+    if galaxy.is_none() {
+        return text();
+    }
+    crate::cb_dual!(
+        crate::dual::HookGroup::Ground,
+        "sardakk::commit_candidates",
+        text(),
+        crate::core_factions::cd::sardakk_commit_candidates(state, sources, galaxy, invader, system, already)
+    )
+}
+
+fn commit_candidates_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,

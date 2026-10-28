@@ -728,8 +728,26 @@ fn pay_for(state: &mut GameState, player: &PlayerId, alias: &SecretObjectiveId) 
 }
 
 /// Exact progress for secret objectives backed by counting families.
+///
+/// Answered by the typed core when a view is lent (`Area::Objectives`), else by
+/// [`counting_progress_text`].
 #[must_use]
 pub fn counting_progress(
+    alias: &SecretObjectiveId,
+    position: &Position<'_>,
+) -> Option<crate::objectives::RequirementProgress> {
+    crate::dual_typed!(
+        crate::dual::Area::Objectives,
+        "secrets::counting_progress",
+        crate::objectives_core::secret_typed(position, alias, true),
+        counting_progress_text(alias, position)
+    )
+}
+
+/// [`counting_progress`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn counting_progress_text(
     alias: &SecretObjectiveId,
     position: &Position<'_>,
 ) -> Option<crate::objectives::RequirementProgress> {
@@ -810,8 +828,26 @@ fn counting_satisfied(alias: &str, position: &Position<'_>) -> bool {
 }
 
 /// Exact progress for every registered position secret not covered by M06-022.
+///
+/// Answered by the typed core when a view is lent (`Area::Objectives`), else by
+/// [`remaining_position_progress_text`].
 #[must_use]
 pub fn remaining_position_progress(
+    alias: &SecretObjectiveId,
+    position: &Position<'_>,
+) -> Option<crate::objectives::RequirementProgress> {
+    crate::dual_typed!(
+        crate::dual::Area::Objectives,
+        "secrets::remaining_position_progress",
+        crate::objectives_core::secret_typed(position, alias, false),
+        remaining_position_progress_text(alias, position)
+    )
+}
+
+/// [`remaining_position_progress`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn remaining_position_progress_text(
     alias: &SecretObjectiveId,
     position: &Position<'_>,
 ) -> Option<crate::objectives::RequirementProgress> {

@@ -830,38 +830,23 @@ fn retreated_from(
 /// Shared fixtures for this faction's tests (`bastion.rs`, `bastion_units.rs`).
 #[cfg(test)]
 pub(crate) mod testkit {
+    pub(crate) use crate::factions::shared_testkit::{a, b, c, content, scripted};
     use std::collections::BTreeMap;
 
-    use ti4_content::ContentStore;
     use ti4_model::content_types::DEFAULT;
     use ti4_model::id::{PlayerId, SystemId, UnitTypeId};
     use ti4_model::state::GameState;
     use ti4_model::units::Unit;
 
-    use crate::choice::{Scripted, Table};
+    use crate::choice::Table;
 
-    pub(crate) fn a() -> PlayerId {
-        PlayerId::new("a")
-    }
-    pub(crate) fn b() -> PlayerId {
-        PlayerId::new("b")
-    }
-    pub(crate) fn c() -> PlayerId {
-        PlayerId::new("c")
-    }
-    pub(crate) fn content() -> &'static ContentStore {
-        ContentStore::embedded()
-    }
     /// `a` the Last Bastion, `b` Sol, `c` Hacan.
     pub(crate) fn game() -> GameState {
-        crate::fixtures::seated_game(&[("a", "bastion"), ("b", "sol"), ("c", "hacan")], DEFAULT)
+        super::super::shared_testkit::trio("bastion")
     }
     /// A system away from every home system, with its first planet.
     pub(crate) fn arena() -> (SystemId, ti4_model::id::PlanetId) {
         crate::fixtures::a_placed_planet()
-    }
-    pub(crate) fn scripted(answers: &[&str]) -> Table {
-        Table::with_default(Box::new(Scripted::new(answers.iter().copied())))
     }
     pub(crate) fn unit(kind: &str, owner: &PlayerId) -> Unit {
         Unit::new(UnitTypeId::new(kind), owner.clone())

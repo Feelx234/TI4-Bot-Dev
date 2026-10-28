@@ -6,7 +6,7 @@ use ti4_engine_core::hooks::HookTable;
 
 mod observe;
 mod offer;
-mod query;
+pub mod query;
 
 /// Every tier, in the order movement, query, observe, offer.
 pub fn register(t: &mut HookTable) {

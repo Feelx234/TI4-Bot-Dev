@@ -181,6 +181,36 @@ pub fn allowed(
 /// non-positive amount). The same arithmetic as `seat.trade_goods += amount`, named, so a site
 /// that cannot reach a resolver can still be found by grep when it gains one.
 pub fn gain_trade_goods(state: &mut GameState, player: &PlayerId, amount: i32) -> i32 {
+    crate::dual!(
+        crate::dual::Area::Production,
+        "supply::gain_trade_goods",
+        state,
+        |s: &mut GameState| crate::dual::Run::new(gain_trade_goods_text(s, player, amount)),
+        |s: &mut GameState| {
+            #[cfg(feature = "typed-core")]
+            if let Some(gained) = gain_trade_goods_core(s, player, amount) {
+                return crate::dual::Run::new(gained);
+            }
+            crate::dual::Run::new(gain_trade_goods_text(s, player, amount))
+        }
+    )
+}
+
+/// The core's `fx::gain_trade_goods` over the players slice; `None` when the position is outside the tables.
+#[cfg(feature = "typed-core")]
+fn gain_trade_goods_core(state: &mut GameState, player: &PlayerId, amount: i32) -> Option<i32> {
+    use ti4_engine_core::state::Slice;
+    let (mut cx, r) = crate::dual_window::tables(state)?;
+    let seat = r.seat(player.as_str());
+    let fp = crate::core_sync::Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players], &[Slice::Players]);
+    crate::core_sync::with_core(state, &mut cx, crate::core_sync::Sources::default(), fp, |core, _| {
+        seat.map_or(0, |seat| ti4_engine_core::kernel::fx::gain_trade_goods(core, seat, amount))
+    })
+    .ok()
+}
+
+#[doc(hidden)]
+pub fn gain_trade_goods_text(state: &mut GameState, player: &PlayerId, amount: i32) -> i32 {
     if amount <= 0 {
         return 0;
     }

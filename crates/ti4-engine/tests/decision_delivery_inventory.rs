@@ -1093,7 +1093,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "invasion.rs",
-        function: "absorb_ground_with_origin",
+        function: "absorb_ground_text",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1105,7 +1105,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "invasion.rs",
-        function: "commit_ground_forces",
+        function: "commit_ground_forces_text",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1123,8 +1123,20 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "invasion.rs",
-        function: "pending_choice",
-        count: 3,
+        function: "ask_custodians",
+        count: 1,
+        delivery: Delivery::ObservedVia("game.rs::step_aftermath_inner"),
+    },
+    Producer {
+        module: "invasion.rs",
+        function: "ask_fight_round",
+        count: 1,
+        delivery: Delivery::ObservedVia("game.rs::step_aftermath_inner"),
+    },
+    Producer {
+        module: "invasion.rs",
+        function: "ask_next_combat",
+        count: 1,
         delivery: Delivery::ObservedVia("game.rs::step_aftermath_inner"),
     },
     Producer {
@@ -1698,8 +1710,8 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("game.rs", "committee_formation", 1),
     ("game.rs", "imperial_arbiter", 2),
     ("game.rs", "minister_of_war", 1),
-    ("invasion.rs", "absorb_ground_with_origin", 1),
-    ("invasion.rs", "commit_ground_forces", 1),
+    ("invasion.rs", "absorb_ground_text", 1),
+    ("invasion.rs", "commit_ground_forces_text", 1),
     ("invasion.rs", "drive", 1),
     ("production.rs", "integrated_economy", 1),
     ("production.rs", "pay_with_observation_credit", 1),

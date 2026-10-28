@@ -37,7 +37,7 @@ use crate::query::laws as qlaws;
 use crate::state::{CombatDie, Ledger, NoteKey, RerollSet, RollPurpose, RollRec};
 use crate::containers::SeatSet;
 use crate::generated::Faction;
-use crate::kernel::seam::{data as seam_data, Source, Clamp, RowKind, RollKind, RollSite, SeatSystemSite, SilenceCtx, SilenceSite, Q};
+use crate::kernel::seam::{data as seam_data, Source, Clamp, RowKind, RollKind, RollSite, SeatSystemSite, SilenceCtx, SilenceSite};
 use crate::kernel::Kernel;
 use crate::query::board as qboard;
 use crate::state::{CoreState, Piece, RoundKind};
@@ -57,65 +57,7 @@ pub const RULES_RETREAT_HAZARDS: u32 = 11;
 /// A bound on the round loop (`combat::MAX_ROUNDS`).
 pub const MAX_ROUNDS: u32 = 50;
 
-/// What a combat rule reads: the state and the kernel (content scope, hook table, seams).
-#[derive(Clone, Copy)]
-pub struct Rd<'a> {
-    pub s: &'a CoreState,
-    pub k: &'a Kernel,
-    /// Law's Order: every law is blank this turn (`laws::blanked`; the caller computes it).
-    pub blanked: bool,
-}
-
-impl<'a> Rd<'a> {
-    #[must_use]
-    pub fn new(s: &'a CoreState, k: &'a Kernel) -> Self {
-        Self { s, k, blanked: false }
-    }
-
-    /// The seam reader over the same state and kernel.
-    #[must_use]
-    pub fn q(&self) -> Q<'a> {
-        Q::new(self.s, self.k)
-    }
-
-    /// The same read with laws blank or not.
-    #[must_use]
-    pub fn with_blanked(mut self, blanked: bool) -> Self {
-        self.blanked = blanked;
-        self
-    }
-
-    /// The same read over another state (a played-out copy).
-    #[must_use]
-    pub fn over(self, s: &'a CoreState) -> Self {
-        Self { s, ..self }
-    }
-
-    /// The source scope as the tables read it.
-    #[must_use]
-    pub fn scope(&self) -> Scope {
-        Scope(u32::from(self.k.sources.0))
-    }
-
-    /// The unit's table row when the unit is in the game's scope (the string `catalogue(content,
-    /// sources).get(id)`), else `None`.
-    #[must_use]
-    pub fn data(&self, unit: Unit) -> Option<&'static crate::generated::UnitData> {
-        self.scope().unit(unit)
-    }
-
-    /// `UnitType::is_ship` (false for a unit out of scope).
-    #[must_use]
-    pub fn is_ship(&self, unit: Unit) -> bool {
-        self.data(unit).is_some_and(|d| d.ship)
-    }
-
-    /// `UnitType::is_fighter`.
-    #[must_use]
-    pub fn is_fighter(&self, unit: Unit) -> bool {
-        self.data(unit).is_some_and(|d| d.base_type == UnitBaseType::Fighter)
-    }
-}
+pub use crate::kernel::read::Rd;
 
 /// `neutral_units::is_neutral`: an owner seat that is not a player.
 #[must_use]

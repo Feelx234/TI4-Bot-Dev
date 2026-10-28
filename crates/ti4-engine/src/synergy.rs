@@ -48,7 +48,23 @@ use ti4_model::state::GameState;
 /// Read from the breakthrough record's `synergy` field. A breakthrough without one — the rules note
 /// Nekro as the exception — yields `None`, as does a player who has not gained theirs.
 #[must_use]
-pub fn pair(
+pub fn pair(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId) -> Option<[String; 2]> {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::technology_core::synergy_pair(state, sources, player);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Technology,
+        "synergy::pair",
+        typed(),
+        pair_text(state, content, sources, player)
+    )
+}
+
+/// [`pair`] from the content records: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn pair_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -74,7 +90,23 @@ pub fn pair(
 /// types", which is the same rule over four colours rather than a different rule, so it widens the
 /// pool instead of needing its own path.
 #[must_use]
-pub fn joined(
+pub fn joined(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId) -> Vec<String> {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::technology_core::synergy_joined_names(state, sources, player);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Technology,
+        "synergy::joined",
+        typed(),
+        joined_text(state, content, sources, player)
+    )
+}
+
+/// [`joined`] from the content records: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn joined_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -101,7 +133,23 @@ pub fn joins(joined: &[String], colour: &str) -> bool {
 /// exists independently of synergy; it is threaded through so the two interact once rather than
 /// twice. Returns whether the requirement is met.
 #[must_use]
-pub fn satisfies(
+pub fn satisfies(needs: &BTreeMap<&'static str, usize>, holdings: &BTreeMap<&'static str, usize>, joined: &[String], waivable: usize) -> bool {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::technology_core::satisfies(needs, holdings, joined, waivable);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Technology,
+        "synergy::satisfies",
+        typed(),
+        satisfies_text(needs, holdings, joined, waivable)
+    )
+}
+
+/// [`satisfies`] from the content records: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn satisfies_text(
     needs: &BTreeMap<&'static str, usize>,
     holdings: &BTreeMap<&'static str, usize>,
     joined: &[String],

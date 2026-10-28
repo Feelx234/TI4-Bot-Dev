@@ -77,10 +77,30 @@ if [[ -n "$dual" ]]; then
   check dual-golden env TI4_DUAL_FAIL_FAST=1 "$target/gate/dual_run" tools/engine_profile/profile-20.json "$games" "$area=dual"
   sed 's/^/     /' "$out/dual-golden.log" | head -12 | tee -a "$out/summary.txt"
   if [[ "$area" == board ]]; then
-    check dual-templates "$target/release/board_equivalence" templates
-    note "     $(tail -1 "$out/dual-templates.log")"
-    check dual-positions "$target/release/board_equivalence" golden tools/engine_profile/profile-20.json 20 10
-    note "     $(tail -1 "$out/dual-positions.log")"
+    check dual-templates "$target/gate/board_equivalence" templates
+    note "     $(grep '^board queries' "$out/dual-templates.log" | tail -1)"
+    check dual-positions "$target/gate/board_equivalence" golden tools/engine_profile/profile-20.json 20 10
+    note "     $(grep '^board queries' "$out/dual-positions.log" | tail -1)"
+  fi
+  if [[ "$area" == agenda ]]; then
+    # B9: the agenda reads next to the string functions (the same bin prints all summaries).
+    check dual-templates "$target/gate/board_equivalence" templates
+    note "     $(grep '^agenda reads' "$out/dual-templates.log" | tail -1)"
+    check dual-positions "$target/gate/board_equivalence" golden tools/engine_profile/profile-20.json 20 10
+    note "     $(grep '^agenda reads' "$out/dual-positions.log" | tail -1)"
+  fi
+  if [[ "$area" == strategy ]]; then
+    # B8: the strategy reads next to the string functions (the same bin prints both summaries).
+    check dual-templates "$target/gate/board_equivalence" templates
+    note "     $(grep '^strategy reads' "$out/dual-templates.log" | tail -1)"
+    check dual-positions "$target/gate/board_equivalence" golden tools/engine_profile/profile-20.json 20 10
+    note "     $(grep '^strategy reads' "$out/dual-positions.log" | tail -1)"
+  fi
+  if [[ "$area" == exploration ]]; then
+    check dual-templates "$target/gate/board_equivalence" cards templates
+    note "     $(grep '^exploration queries' "$out/dual-templates.log" | tail -1)"
+    check dual-positions "$target/gate/board_equivalence" cards golden tools/engine_profile/profile-20.json 20 10 6
+    note "     $(grep '^exploration queries' "$out/dual-positions.log" | tail -1)"
   fi
   if [[ "$area" == movement ]]; then
     check dual-templates "$target/gate/core_equivalence" templates --routes

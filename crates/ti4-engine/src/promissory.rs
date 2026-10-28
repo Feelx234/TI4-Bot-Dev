@@ -42,7 +42,20 @@ fn commander_ability_mark(player: &PlayerId, commander: &str) -> String {
 /// Read from the accepted corpus's `playArea` field instead of a hard-coded alias list:
 /// a faction record applies only to its own owner, and a generic `<color>` record applies
 /// to every owner faction. Unknown aliases are held in hand.
+#[must_use]
 pub fn is_play_area(content: &ContentStore, note: &str) -> bool {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "promissory::is_play_area",
+        crate::explore_core::is_play_area(content, note),
+        is_play_area_text(content, note)
+    )
+}
+
+/// [`is_play_area`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn is_play_area_text(content: &ContentStore, note: &str) -> bool {
     let Some(owner) = owner_of(note) else {
         return false;
     };
@@ -202,6 +215,18 @@ fn is_action_placed(state: &GameState, alias: &str) -> bool {
 /// nobody plays a card they own.
 #[must_use]
 pub fn action_notes_in_hand(state: &GameState, player: &PlayerId) -> Vec<String> {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "promissory::action_notes_in_hand",
+        crate::cards_typed!(state, v => v.action_notes_in_hand(player)),
+        action_notes_in_hand_text(state, player)
+    )
+}
+
+/// [`action_notes_in_hand`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn action_notes_in_hand_text(state: &GameState, player: &PlayerId) -> Vec<String> {
     state
         .promissory_notes
         .iter()
@@ -234,6 +259,18 @@ pub fn play_action_note(state: &mut GameState, player: &PlayerId, note: &str) ->
 /// Hacan's own copy is not offered: nobody negotiates with a card they own.
 #[must_use]
 pub fn convoys_in_hand(state: &GameState, player: &PlayerId) -> Option<String> {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "promissory::convoys_in_hand",
+        crate::cards_typed!(state, v => v.convoys_in_hand(player)),
+        convoys_in_hand_text(state, player)
+    )
+}
+
+/// [`convoys_in_hand`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn convoys_in_hand_text(state: &GameState, player: &PlayerId) -> Option<String> {
     state
         .promissory_notes
         .iter()
@@ -280,6 +317,18 @@ pub fn give_back(state: &mut GameState, note: &str) {
 /// Who holds a particular note, or `None` if its owner still has it.
 #[must_use]
 pub fn holder_of(state: &GameState, alias: &str, owner: &PlayerId) -> Option<PlayerId> {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "promissory::holder_of",
+        crate::cards_typed!(state, v => v.holder_of(alias, owner)),
+        holder_of_text(state, alias, owner)
+    )
+}
+
+/// [`holder_of`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn holder_of_text(state: &GameState, alias: &str, owner: &PlayerId) -> Option<PlayerId> {
     let name = faction_name(state, owner);
     let note = note_id(alias, &name);
     // Compared by faction, not seat: the id carries the faction, so seats sharing a faction share
@@ -293,6 +342,18 @@ pub fn holder_of(state: &GameState, alias: &str, owner: &PlayerId) -> Option<Pla
 /// Every note this player holds, their own or received, in a stable order.
 #[must_use]
 pub fn held_by(state: &GameState, player: &PlayerId) -> Vec<String> {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "promissory::held_by",
+        crate::cards_typed!(state, v => v.held_by(player)),
+        held_by_text(state, player)
+    )
+}
+
+/// [`held_by`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn held_by_text(state: &GameState, player: &PlayerId) -> Vec<String> {
     state
         .promissory_notes
         .iter()
@@ -342,6 +403,18 @@ pub fn available_notes(
 /// their 'Alliance' promissory note." Every transfer between players asks this of the receiver.
 #[must_use]
 pub fn may_receive(state: &GameState, receiver: &PlayerId, note: &str) -> bool {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "promissory::may_receive",
+        crate::cards_typed!(state, v => v.may_receive(receiver, note)),
+        may_receive_text(state, receiver, note)
+    )
+}
+
+/// [`may_receive`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn may_receive_text(state: &GameState, receiver: &PlayerId, note: &str) -> bool {
     !(alias_of(note) == "an" && crate::factions::mahact::is_mahact(state, receiver))
 }
 
@@ -528,6 +601,18 @@ fn faceup_returned_by_activation(
 /// a note still in hand has not been played at all.
 #[must_use]
 pub fn reaches_anyone(state: &GameState, player: &PlayerId) -> bool {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "promissory::reaches_anyone",
+        crate::cards_typed!(state, v => v.reaches_anyone(player)),
+        reaches_anyone_text(state, player)
+    )
+}
+
+/// [`reaches_anyone`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn reaches_anyone_text(state: &GameState, player: &PlayerId) -> bool {
     state.promissory_notes.iter().any(|(note, holder)| {
         holder == player && alias_of(note) == "convoys" && state.promissory_faceup.contains(note)
     })
@@ -539,7 +624,19 @@ pub fn reaches_anyone(state: &GameState, player: &PlayerId) -> bool {
 /// actually bites — the card triggers on the owner activating a system holding the holder's
 /// units, and what it denies is the move that follows.
 #[must_use]
-pub fn denies_movement_into(
+pub fn denies_movement_into(state: &GameState, mover: &PlayerId, system: &ti4_model::id::SystemId) -> bool {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "promissory::denies_movement_into",
+        crate::cards_typed!(state, v => v.denies_movement_into(mover, system)),
+        denies_movement_into_text(state, mover, system)
+    )
+}
+
+/// [`denies_movement_into`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn denies_movement_into_text(
     state: &GameState,
     mover: &PlayerId,
     system: &ti4_model::id::SystemId,
@@ -766,6 +863,18 @@ pub fn trade_agreement_on_replenish(state: &mut GameState, player: &PlayerId) ->
 /// How many of other factions' `alias` notes this player holds.
 #[must_use]
 pub fn held_foreign(state: &GameState, player: &PlayerId, alias: &str) -> usize {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "promissory::held_foreign",
+        crate::cards_typed!(state, v => v.held_foreign(player, alias)),
+        held_foreign_text(state, player, alias)
+    )
+}
+
+/// [`held_foreign`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn held_foreign_text(state: &GameState, player: &PlayerId, alias: &str) -> usize {
     let own = faction_name(state, player);
     state
         .promissory_notes

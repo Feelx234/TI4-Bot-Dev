@@ -965,41 +965,23 @@ fn commander_unlocked(
 
 #[cfg(test)]
 pub(crate) mod testkit {
+    pub(crate) use crate::factions::shared_testkit::{a, b, c, content, scripted};
     use std::cell::RefCell;
     use std::collections::BTreeMap;
     use std::rc::Rc;
 
-    use ti4_content::ContentStore;
     use ti4_model::content_types::DEFAULT;
     use ti4_model::id::{PlanetId, PlayerId, SystemId};
     use ti4_model::state::GameState;
 
-    use crate::choice::{Choice, ChoiceOption, Decider, IllegalChoice, Scripted, Table};
+    use crate::choice::{Choice, ChoiceOption, Decider, IllegalChoice, Table};
 
     pub(crate) const RADICAL_ID: &str = "technology:deepwrought:radical:STATUS_PHASE_BEGAN:after";
     pub(crate) const EANAUTIC_ID: &str = "unit:deepwrought:deepwrought_mech:SYSTEM_ACTIVATED:when";
 
-    pub(crate) fn a() -> PlayerId {
-        PlayerId::new("a")
-    }
-    pub(crate) fn b() -> PlayerId {
-        PlayerId::new("b")
-    }
-    pub(crate) fn c() -> PlayerId {
-        PlayerId::new("c")
-    }
-    pub(crate) fn content() -> &'static ContentStore {
-        ContentStore::embedded()
-    }
     /// `a` the Deepwrought, `b` Sol, `c` Hacan.
     pub(crate) fn game() -> GameState {
-        crate::fixtures::seated_game(
-            &[("a", "deepwrought"), ("b", "sol"), ("c", "hacan")],
-            DEFAULT,
-        )
-    }
-    pub(crate) fn scripted(answers: &[&str]) -> Table {
-        Table::with_default(Box::new(Scripted::new(answers.iter().copied())))
+        super::super::shared_testkit::trio("deepwrought")
     }
 
     /// A planet in no home system and not Mecatol Rex, with its system.

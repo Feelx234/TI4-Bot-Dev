@@ -270,7 +270,7 @@ pub fn drive_with<W: Window>(
 }
 
 /// The tables a core half needs, for one position. `None`: more than 16 owners.
-fn tables(gs: &GameState) -> Option<(Ctx, Render)> {
+pub(crate) fn tables(gs: &GameState) -> Option<(Ctx, Render)> {
     let cx = Ctx::of(gs).ok()?;
     let r = Render::new(cx.owners.ids().to_vec());
     Some((cx, r))
@@ -498,6 +498,161 @@ pub fn assign_hits(
     apply_staged(gs, &r, &staged)?;
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(events), questions: driven.rendered })
+}
+
+const COMMIT_GROUND: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
+    &[Slice::Board, Slice::Pending],
+);
+
+/// The core half of `invasion::commit_ground_forces`: the planets committed to. `None` for what the core window
+/// does not express: a Keleres seat (the Omniopiares toll), a ship-form unit flipping on landing, nested
+/// activity, or a position the codecs refuse.
+#[must_use]
+pub fn commit_ground(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    invader: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    script: &Recording,
+) -> Option<CoreWindow<Vec<ti4_model::id::PlanetId>>> {
+    use ti4_engine_core::rules::invasion::commit::CommitGround;
+    if script.nested || gs.players.iter().any(|p| p.faction.as_str().starts_with("keleres")) {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let seat = r.seat(invader.as_str())?;
+    let sys = <ti4_engine_core::generated::System as IdStr>::from_id(system.as_str())?;
+    let before = gs.clone();
+    let env = crate::core_invasion::ground_env(&before, &cx, sources)?;
+    let resolver = Resolver::new(&[seat], Some(seat));
+    let mut driver = Driver::new(CommitGround::new(seat, sys), resolver, AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let driven = with_core(gs, &mut cx, Sources::default(), COMMIT_GROUND, |core, _| {
+        let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .ok()?
+    .ok()?;
+    if driver.window.unsupported {
+        return None;
+    }
+    apply_staged(gs, &r, &staged)?;
+    let planets = driver.window.committed.iter().map(|p| ti4_model::id::PlanetId::new(p.as_str())).collect();
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    Some(CoreWindow { run: Run::new(planets).with_events_vec(events), questions: driven.rendered })
+}
+
+const ABSORB_GROUND: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
+    &[Slice::Board, Slice::Pending],
+);
+
+/// The core half of `invasion::absorb_ground_with_origin`. `None` for a neutral owner, nested activity, or a
+/// position the codecs refuse.
+#[must_use]
+#[allow(clippy::too_many_arguments, reason = "the string function's own")]
+pub fn absorb_ground(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    player: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    planet: &ti4_model::id::PlanetId,
+    hits: usize,
+    unit_ability: bool,
+    script: &Recording,
+) -> Option<CoreWindow<()>> {
+    use ti4_engine_core::rules::invasion::absorb::AbsorbGround;
+    if script.nested || crate::neutral_units::is_neutral(player) {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let seat = r.seat(player.as_str())?;
+    let sys = <ti4_engine_core::generated::System as IdStr>::from_id(system.as_str())?;
+    let pl = <ti4_engine_core::generated::Planet as IdStr>::from_id(planet.as_str())?;
+    let before = gs.clone();
+    let env = crate::core_invasion::ground_env(&before, &cx, sources)?;
+    let resolver = Resolver::new(&[seat], Some(seat));
+    let window = AbsorbGround::new(seat, sys, pl, u16::try_from(hits).ok()?, unit_ability, crate::supply::staging_enabled(&before));
+    let mut driver = Driver::new(window, resolver, AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let driven = with_core(gs, &mut cx, Sources::default(), ABSORB_GROUND, |core, _| {
+        let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .ok()?
+    .ok()?;
+    apply_staged(gs, &r, &staged)?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    Some(CoreWindow { run: Run::new(()).with_events_vec(events), questions: driven.rendered })
+}
+
+const CUSTODIANS: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Ledger],
+    &[Slice::Meta, Slice::Players, Slice::Ledger, Slice::Pending],
+);
+
+/// The core half of `InvasionWindow::answer_custodians` (27.2, 27.3), recorded as the pending question and its
+/// answer. `None` (the bail-outs): nested activity, a neutral or unmapped seat, a further question inside the
+/// answer (the payment of the six influence asks which planets to exhaust: the payment rules are package B3's),
+/// the answer "yes" while the removal costs influence, and a position the codecs refuse.
+#[must_use]
+pub fn custodians(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    invader: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    affordable: bool,
+    script: &Recording,
+) -> Option<CoreWindow<()>> {
+    use ti4_engine_core::rules::invasion::stages::Custodians;
+    if script.nested || script.questions.len() != 1 {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let seat = r.seat(invader.as_str())?;
+    let sys = <ti4_engine_core::generated::System as IdStr>::from_id(system.as_str())?;
+    let before = gs.clone();
+    let env = crate::core_invasion::ground_env(&before, &cx, sources)?;
+    if script.questions[0].answer.as_deref() == Some("yes") && crate::invasion::custodians_cost(&before, ti4_content::ContentStore::embedded(), invader) != 0 {
+        return None;
+    }
+    let resolver = Resolver::new(&[seat], Some(seat));
+    let mut driver = Driver::new(Custodians::new(seat, sys, affordable), resolver, AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let driven = with_core(gs, &mut cx, Sources::default(), CUSTODIANS, |core, _| {
+        let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .ok()?
+    .ok()?;
+    apply_staged(gs, &r, &staged)?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    Some(CoreWindow { run: Run::new(()).with_events_vec(events), questions: driven.rendered })
+}
+
+/// The question of the `Fighting` stage as the core `FightRound` window puts it, for `InvasionWindow::
+/// ask_fight_round`'s dual. `None`: more than 16 owners or an id the tables do not know.
+#[must_use]
+pub fn fight_round_ask(
+    gs: &GameState,
+    sources: ti4_model::content_types::SourceSet,
+    invader: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    planet: &ti4_model::id::PlanetId,
+) -> Option<Choice> {
+    use ti4_engine_core::rules::invasion::stages::FightRound;
+    let (cx, r) = tables(gs)?;
+    let seat = r.seat(invader.as_str())?;
+    let sys = <ti4_engine_core::generated::System as IdStr>::from_id(system.as_str())?;
+    let pl = <ti4_engine_core::generated::Planet as IdStr>::from_id(planet.as_str())?;
+    let _ = (&cx, sources);
+    let choice = FightRound::new(seat, sys, pl).question();
+    let (phase, round) = (render::generic::core_phase(gs.phase), gs.round);
+    Some(Typed::new(&r, choice, phase, round).rendered)
 }
 
 /// What the string barrage's fighter removal was called with.
