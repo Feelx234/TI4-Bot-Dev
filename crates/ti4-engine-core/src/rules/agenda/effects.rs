@@ -31,6 +31,8 @@ use crate::keys::{LedgerReason, Outcome};
 use crate::query::objectives as q;
 use crate::state::{CoreState, ObjectiveRef, SysFlags};
 
+use super::table_effects::{EffectFacts, Table};
+
 pub use crate::kernel::fx::VICTORY_TARGET;
 
 /// What the effect does.
@@ -54,6 +56,8 @@ pub enum Kind {
     Draw(Seat, u8),
     /// The card does nothing when it passes.
     Nothing,
+    /// An effect of [`Table`] (the table writes of `table_effects`).
+    Table(Table),
 }
 
 /// How the effect ended (`agenda_effects::Effect`).
@@ -83,6 +87,10 @@ pub struct Resolve {
     /// Draws made so far, and whether the hand limit of the last one is still to be checked.
     drawn: u8,
     checking: bool,
+    /// What a [`Kind::Table`] reads (the voters, the scopes, two interned texts).
+    facts: Option<EffectFacts>,
+    /// The position held something the table effect does not express: the adapter drops the window.
+    unsupported: bool,
 }
 
 impl Resolve {
@@ -139,13 +147,30 @@ impl Resolve {
             ) => Kind::Nothing,
             _ => return None,
         };
-        Some(Self { kind, stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false })
+        Some(Self { kind, stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: None, unsupported: false })
+    }
+
+    /// [`Resolve::of`], then the table effects: `facts` carries the ballot and everything the table reads.
+    #[must_use]
+    pub fn of_facts(agenda: Agenda, outcome: Outcome, facts: &EffectFacts) -> Option<Self> {
+        if let Some(window) = Self::of(agenda, outcome, facts.for_voters.as_slice()) {
+            return Some(window);
+        }
+        let (table, deferred) = Table::of(agenda, outcome)?;
+        let done = if deferred { Done::Deferred } else { Done::Resolved };
+        Some(Self { kind: Kind::Table(table), stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: Some(facts.clone()), unsupported: false })
+    }
+
+    /// Whether the table effect met a position it does not express (its result is not to be compared).
+    #[must_use]
+    pub const fn unsupported(&self) -> bool {
+        self.unsupported
     }
 
     /// `laws::repeal` of `law`.
     #[must_use]
     pub const fn repeal(law: Agenda) -> Self {
-        Self { kind: Kind::Repeal(law), stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false }
+        Self { kind: Kind::Repeal(law), stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false, facts: None, unsupported: false }
     }
 
     /// Whether the effect draws secret objectives (the deck is the string's when a turn redo draws through a
@@ -256,6 +281,13 @@ impl Window for Resolve {
                     sx.state.explore_mut().wormhole_tokens.insert(Wormhole::Gamma, mecatol);
                 }
                 Kind::Nothing | Kind::Draw(..) => {}
+                Kind::Table(table) => {
+                    if let Some(facts) = &self.facts
+                        && !table.apply(sx.state, facts)
+                    {
+                        self.unsupported = true;
+                    }
+                }
                 Kind::Reveal(secret) => {
                     let card = ObjectiveRef::Secret(*secret);
                     let revealed = &mut sx.state.objectives_mut().revealed;

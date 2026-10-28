@@ -456,12 +456,14 @@ pub fn resolve(
 /// parse, a position the codecs refuse) are not compared.
 fn windowed(
     state: &mut GameState,
+    sources: SourceSet,
     agenda: &str,
     outcome: &str,
     ballot: &Ballot,
     string: impl FnOnce(&mut GameState) -> Effect,
 ) -> Effect {
-    let for_voters = ballot.voted_for(FOR);
+    let (for_voters, against_voters) = (ballot.voted_for(FOR), ballot.voted_for(AGAINST));
+    let args = crate::dual_window::EffectArgs { for_voters: &for_voters, against_voters: &against_voters, sources };
     let mut string = Some(string);
     let mut result = None;
     crate::dual_window!(
@@ -474,7 +476,7 @@ fn windowed(
             result = Some(effect);
             crate::dual::Run::new(resolved)
         },
-        |s: &mut GameState, script: &crate::dual_window::Recording| crate::dual_window::agenda_effect(s, agenda, outcome, &for_voters, script)
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::dual_window::agenda_effect(s, agenda, outcome, &args, script)
     );
     result.unwrap_or(Effect::Unresolved { agenda: agenda.to_owned() })
 }
@@ -500,35 +502,53 @@ pub fn resolve_with(
     // decides what a "dreadnought" is (PoK, as everywhere else in this engine): each effect function reads
     // both from `ctx`.
     match agenda {
-        "secret" => windowed(state, agenda, outcome, ballot, |s| {
+        "secret" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
             effect_secret(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "censure" | "shard_of_the_throne" | "crown_of_emphidia" => windowed(state, agenda, outcome, ballot, |s| {
+        "censure" | "shard_of_the_throne" | "crown_of_emphidia" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
             effect_censure(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "classified" => windowed(state, agenda, outcome, ballot, |s| {
+        "classified" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
             effect_classified(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "execution" => effect_execution(state, ctx, galaxy, agenda, outcome, ballot),
+        "execution" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+            effect_execution(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
         "redistribution" => effect_redistribution(state, ctx, galaxy, agenda, outcome, ballot),
         "artifact" => effect_artifact(state, ctx, galaxy, agenda, outcome, ballot),
         "wormhole_research" => {
             effect_wormhole_research(state, ctx, galaxy, agenda, outcome, ballot)
         }
-        "regulations" => effect_regulations(state, ctx, galaxy, agenda, outcome, ballot),
+        "regulations" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+            effect_regulations(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
         "sanctions" => effect_sanctions(state, ctx, galaxy, agenda, outcome, ballot),
         "travel_ban" => effect_travel_ban(state, ctx, galaxy, agenda, outcome, ballot),
         "defense_act" => effect_defense_act(state, ctx, galaxy, agenda, outcome, ballot),
-        "shared_research" => effect_shared_research(state, ctx, galaxy, agenda, outcome, ballot),
-        "miscount" => windowed(state, agenda, outcome, ballot, |s| {
+        "shared_research" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+            effect_shared_research(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
+        "miscount" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
             effect_miscount(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "disarmament" => effect_disarmament(state, ctx, galaxy, agenda, outcome, ballot),
-        "plowshares" => effect_plowshares(state, ctx, galaxy, agenda, outcome, ballot),
-        "arms_reduction" => effect_arms_reduction(state, ctx, galaxy, agenda, outcome, ballot),
-        "conventions" => effect_conventions(state, ctx, galaxy, agenda, outcome, ballot),
-        "schematics" => effect_schematics(state, ctx, galaxy, agenda, outcome, ballot),
-        "conscription" => effect_conscription(state, ctx, galaxy, agenda, outcome, ballot),
+        "disarmament" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+            effect_disarmament(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
+        "plowshares" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+            effect_plowshares(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
+        "arms_reduction" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+            effect_arms_reduction(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
+        "conventions" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+            effect_conventions(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
+        "schematics" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+            effect_schematics(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
+        "conscription" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+            effect_conscription(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
         // Five more of the same shape: the card does nothing when it passes, and everything
         // afterwards. Each is enforced in `laws` -- the attachment changes what a planet is worth,
         // the Research Teams waive a prerequisite, Representative Government flattens the vote.
@@ -538,13 +558,13 @@ pub fn resolve_with(
         | "rt_propulsion"
         | "rt_warfare"
         | "senate_sanctuary"
-        | "terraforming_initiative" => windowed(state, agenda, outcome, ballot, |_| Effect::Resolved {
+        | "terraforming_initiative" => windowed(state, ctx.sources, agenda, outcome, ballot, |_| Effect::Resolved {
             agenda: agenda.to_owned(),
         }),
         // Ministries: the card does nothing when it passes and everything afterwards, so the arm
         // exists only to make the agenda available. Articles of War is the same shape -- its For
         // half is a standing rule, and its Against half pays the players who voted For.
-        "minister_exploration" | "minister_policy" => windowed(state, agenda, outcome, ballot, |_| Effect::Resolved {
+        "minister_exploration" | "minister_policy" => windowed(state, ctx.sources, agenda, outcome, ballot, |_| Effect::Resolved {
             agenda: agenda.to_owned(),
         }),
         // Availability-only arms. Each of these laws is a standing rule owned by the subsystem
@@ -567,50 +587,64 @@ pub fn resolve_with(
         }
         "committee" | "arbiter" | "minister_commerce" | "minister_industry" | "minister_peace"
         | "minister_sciences" | "minister_war" | "prophecy" | "crown_of_thalnos" | "checks"
-        | "covert" | "crisis" => windowed(state, agenda, outcome, ballot, |_| Effect::Resolved {
+        | "covert" | "crisis" => windowed(state, ctx.sources, agenda, outcome, ballot, |_| Effect::Resolved {
             agenda: agenda.to_owned(),
         }),
-        "articles_war" => effect_articles_war(state, ctx, galaxy, agenda, outcome, ballot),
-        "nexus" => windowed(state, agenda, outcome, ballot, |s| {
+        "articles_war" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+            effect_articles_war(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
+        "nexus" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
             effect_nexus(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "warrant" => windowed(state, agenda, outcome, ballot, |s| {
+        "warrant" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
             effect_warrant(s, ctx, galaxy, agenda, outcome, ballot)
         }),
         "grant_reallocation" => {
             effect_grant_reallocation(state, ctx, galaxy, agenda, outcome, ballot)
         }
-        "standardization" => effect_standardization(state, ctx, galaxy, agenda, outcome, ballot),
-        "cladenstine" => effect_cladenstine(state, ctx, galaxy, agenda, outcome, ballot),
-        "rearmament" => effect_rearmament(state, ctx, galaxy, agenda, outcome, ballot),
+        "standardization" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+            effect_standardization(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
+        "cladenstine" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+            effect_cladenstine(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
+        "rearmament" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+            effect_rearmament(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
         "minister_antiquities" => {
             effect_minister_antiquities(state, ctx, galaxy, agenda, outcome, ballot)
         }
-        "core_mining" => effect_core_mining(state, ctx, galaxy, agenda, outcome, ballot),
-        "demilitarized_zone" => {
-            effect_demilitarized_zone(state, ctx, galaxy, agenda, outcome, ballot)
-        }
-        "holy_planet_of_ixth" => windowed(state, agenda, outcome, ballot, |s| {
+        "core_mining" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+            effect_core_mining(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
+        "demilitarized_zone" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+            effect_demilitarized_zone(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
+        "holy_planet_of_ixth" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
             effect_holy_planet_of_ixth(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "wormhole_recon" => effect_wormhole_recon(state, ctx, galaxy, agenda, outcome, ballot),
-        "revolution" | "representative_government" => windowed(state, agenda, outcome, ballot, |s| {
+        "wormhole_recon" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+            effect_wormhole_recon(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
+        "revolution" | "representative_government" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
             effect_revolution(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "economic_equality" => {
-            effect_economic_equality(state, ctx, galaxy, agenda, outcome, ballot)
-        }
-        "mutiny" => windowed(state, agenda, outcome, ballot, |s| {
+        "economic_equality" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+            effect_economic_equality(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
+        "mutiny" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
             effect_mutiny(s, ctx, galaxy, agenda, outcome, ballot)
         }),
         "seed_empire" => effect_seed_empire(state, ctx, galaxy, agenda, outcome, ballot),
-        "abolishment" => windowed(state, agenda, outcome, ballot, |s| {
+        "abolishment" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
             effect_abolishment(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "constitution" => windowed(state, agenda, outcome, ballot, |s| {
+        "constitution" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
             effect_constitution(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "unconventional" => effect_unconventional(state, ctx, galaxy, agenda, outcome, ballot),
+        "unconventional" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+            effect_unconventional(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
         "incentive" => effect_incentive(state, ctx, galaxy, agenda, outcome, ballot),
         _ => Effect::Unresolved {
             agenda: agenda.to_owned(),
@@ -2231,7 +2265,7 @@ mod tests {
         // probed itself: it answers for both effects.
         for (agenda, answers) in [("secret", 1), ("warrant", 2)] {
             let mut probe = seated();
-            let window = crate::dual_window::agenda_effect(&mut probe, agenda, "a", &[], &crate::dual_window::Recording::default());
+            let window = crate::dual_window::agenda_effect(&mut probe, agenda, "a", &crate::dual_window::EffectArgs { for_voters: &[], against_voters: &[], sources: POK }, &crate::dual_window::Recording::default());
             assert!(window.is_some_and(|w| w.questions.len() <= answers), "{agenda}");
         }
         let _ = take_report();
@@ -3955,3 +3989,7 @@ mod crisis_pact_tests {
         assert_eq!((hand(&state, "a"), hand(&state, "b")), before);
     }
 }
+
+#[cfg(all(test, feature = "typed-core"))]
+#[path = "agenda_effects_lockstep.rs"]
+mod lockstep;

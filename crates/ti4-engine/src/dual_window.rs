@@ -680,33 +680,87 @@ pub fn sustain_commander(
 }
 
 const AGENDA_EFFECT: Footprint = Footprint::new(
-    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Objectives, Slice::Decks, Slice::Ledger, Slice::Agenda, Slice::Explore, Slice::Pending],
-    &[Slice::Players, Slice::Objectives, Slice::Decks, Slice::Ledger, Slice::Agenda, Slice::Explore],
+    &[
+        Slice::Meta,
+        Slice::Seats,
+        Slice::Players,
+        Slice::Board,
+        Slice::Objectives,
+        Slice::Decks,
+        Slice::Ledger,
+        Slice::Agenda,
+        Slice::Explore,
+        Slice::Marks,
+        Slice::Pending,
+    ],
+    &[Slice::Meta, Slice::Players, Slice::Board, Slice::Objectives, Slice::Decks, Slice::Ledger, Slice::Agenda, Slice::Explore, Slice::Marks],
 );
+
+/// What the string agenda effect was called with besides the state: the ballot's voters and the game's sources.
+#[derive(Debug, Clone)]
+pub struct EffectArgs<'a> {
+    pub for_voters: &'a [PlayerId],
+    pub against_voters: &'a [PlayerId],
+    pub sources: ti4_model::content_types::SourceSet,
+}
 
 /// The core half of `agenda_effects::resolve_with` for the effects the core has a window for
 /// (`rules::agenda::effects`). `None` for any other agenda, an outcome that does not parse, or a position the
 /// codecs refuse.
 #[must_use]
-pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, for_voters: &[PlayerId], script: &Recording) -> Option<CoreWindow<bool>> {
+pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, a: &EffectArgs<'_>, script: &Recording) -> Option<CoreWindow<bool>> {
     use ti4_engine_core::generated::Agenda;
     use ti4_engine_core::rules::agenda::effects::Resolve;
+    use ti4_engine_core::rules::agenda::table_effects::EffectFacts;
     if script.nested {
         return None;
     }
     let agenda = Agenda::from_id(agenda)?;
+    // A discard in the action phase can be taken by the Ral Nel breakthrough; the core knows no such rule.
+    if gs.phase == ti4_model::state::Phase::Action {
+        return None;
+    }
     let (mut cx, r) = tables(gs)?;
     // An outcome that does not parse is still fine for the arms that do nothing; every other arm needs it.
     let outcome = cx.keys.parse_outcome(outcome, Some(agenda.data().elects)).unwrap_or(ti4_engine_core::keys::Outcome::Empty);
-    let voters = for_voters.iter().map(|p| r.seat(p.as_str())).collect::<Option<Vec<_>>>()?;
-    let window = Resolve::of(agenda, outcome, &voters)?;
+    let seats = |ids: &[PlayerId]| -> Option<ti4_engine_core::containers::SmallList<ti4_engine_core::Seat, 8>> {
+        let seats = ids.iter().map(|p| r.seat(p.as_str())).collect::<Option<Vec<_>>>()?;
+        (seats.len() <= 8).then(|| ti4_engine_core::containers::SmallList::from_slice(&seats))
+    };
+    let mut mahact_held = [0; 8];
+    for (at, held) in mahact_held.iter_mut().enumerate() {
+        if let Some(id) = r.seats.get(at) {
+            *held = gs.tokens_held_by_mahact(&PlayerId::new(id.as_str()));
+        }
+    }
+    let facts = EffectFacts {
+        for_voters: seats(a.for_voters)?,
+        against_voters: seats(a.against_voters)?,
+        mahact_held,
+        scope: crate::core_adapter::scope(a.sources),
+        default_scope: crate::core_adapter::scope(ti4_model::content_types::DEFAULT),
+        source: r.code("agenda"),
+        pool: r.code("reinforcements"),
+    };
+    let window = Resolve::of_facts(agenda, outcome, &facts)?;
     if window.draws() && gs.deck_reserve.is_some() {
         return None;
     }
     let before = gs.clone();
     let kernel = Kernel::plain();
     let mut driver = Driver::new(window, Resolver::new(&[], None), AbilityTable::default(), 1);
-    let driven = with_core(gs, &mut cx, Sources::default(), AGENDA_EFFECT, |core, _| drive(&mut driver, core, &kernel, &r, &before, script)).ok()?.ok()?;
+    let mut staged = Vec::new();
+    let driven = with_core(gs, &mut cx, Sources::default(), AGENDA_EFFECT, |core, _| {
+        let driven = drive(&mut driver, core, &kernel, &r, &before, script);
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .ok()?
+    .ok()?;
+    if driver.window.unsupported() {
+        return None;
+    }
+    apply_staged(gs, &r, &staged)?;
     let resolved = driver.window.done() == ti4_engine_core::rules::agenda::effects::Done::Resolved;
     Some(CoreWindow { run: Run::new(resolved), questions: driven.rendered })
 }

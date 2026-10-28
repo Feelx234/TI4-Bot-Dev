@@ -15,6 +15,7 @@
 //! in the text order of their owner ids).
 
 pub mod deadly_plot;
+pub mod table_effects;
 pub mod effects;
 pub mod window;
 
