@@ -47,7 +47,7 @@ pub mod arborec;
 pub mod argent;
 pub mod bastion;
 pub mod bastion_units;
-mod borrowed_commanders;
+pub(crate) mod borrowed_commanders;
 pub(crate) mod borrowed_commanders_b;
 pub mod borrowed_round_agents;
 pub mod cabal;

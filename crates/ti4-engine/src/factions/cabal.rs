@@ -544,10 +544,26 @@ fn captured_owner_of(
         .map(|(owner, _)| owner.clone())
 }
 
+fn amalgamation_offer(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    unit: &str,
+) -> bool {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Economy,
+        "cabal::amalgamation_offer",
+        amalgamation_offer_text(state, content, sources, player, system, unit),
+        crate::core_factions::cb::cabal_amalgamation_offer(state, sources, player, system, unit)
+    )
+}
+
 /// Whether the Cabal may buy this unit by returning a captured model of it.
 ///
 /// Pure: asks nothing and mutates nothing.
-fn amalgamation_offer(
+fn amalgamation_offer_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -562,12 +578,29 @@ fn amalgamation_offer(
     captured_owner_of(state, content, sources, player, &base).is_some()
 }
 
+fn amalgamation_perform(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    unit: &str,
+) -> bool {
+    #[cfg(feature = "typed-core")]
+    if matches!(crate::dual::backend(crate::dual::Area::Factions), crate::dual::Backend::Dual) {
+        return crate::core_factions::cb::dual_amalgamation_perform(state, sources, player, system, unit, |state| {
+            amalgamation_perform_text(state, content, sources, player, system, unit)
+        });
+    }
+    amalgamation_perform_text(state, content, sources, player, system, unit)
+}
+
 /// Perform the exchange: return one captured model of this unit's base type to its owner.
 ///
 /// Atomic: re-checks everything the offer relied on and leaves the state untouched when it cannot
 /// happen. Removing the row is the return — a captured unit is off the board and on the captor's
 /// sheet, so it reappears in its owner's reinforcements.
-fn amalgamation_perform(
+fn amalgamation_perform_text(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
