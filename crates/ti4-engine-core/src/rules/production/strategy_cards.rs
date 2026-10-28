@@ -381,3 +381,206 @@ impl Window for Construction {
     }
 }
 
+
+// -- Technology ------------------------------------------------------------------------------------------
+
+use crate::generated::{StrategyCard, Technology};
+use crate::query::tech;
+
+/// The suspension points of [`Research`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RStage {
+    Start,
+    /// The primary's free research.
+    Free,
+    /// The paid research: waiting on the technology (or the decline).
+    Choose,
+    /// Paying the bill, one face at a time ([`PayStep`]).
+    Pay,
+    Done,
+}
+
+/// Technology: the primary (one free research, then one for six resources) and the secondary (one for four).
+/// The plain path only: a technology whose prerequisites the seat's own colours do not cover (specialty
+/// planets, waivers, Inheritance Systems), a unit upgrade, and everything the faction abilities, laws and
+/// notes add to a research stay with the string caller; the adapter bails, and the window marks
+/// [`Research::failed`] where an answer leads out of the plain path.
+#[derive(Debug, Clone)]
+pub struct Research {
+    pub who: Seat,
+    primary: bool,
+    cost: i64,
+    scope: Scope,
+    stage: RStage,
+    pay: Option<PayStep>,
+    chosen: Option<Technology>,
+    /// An answer left the plain path: the run is the string's.
+    pub failed: bool,
+    /// The technologies researched, in order.
+    pub researched: SmallList<Technology, 2>,
+}
+
+impl Research {
+    /// `cost`: the resources the paid research costs (6 for the primary's second, 4 for the secondary).
+    #[must_use]
+    pub const fn new(who: Seat, primary: bool, cost: i64, scope: Scope) -> Self {
+        Self { who, primary, cost, scope, stage: RStage::Start, pay: None, chosen: None, failed: false, researched: SmallList::new() }
+    }
+
+    fn cx<'a>(s: &'a CoreState, k: &'a Kernel) -> ProdCx<'a> {
+        ProdCx::new(s, k, Scope(u32::from(k.sources.0)), reach::blanked(s))
+    }
+
+    fn open(&self, s: &CoreState) -> SmallList<Technology, 40> {
+        tech::researchable(s, self.scope, reach::blanked(s), self.who, &tech::NoHooks).iter().collect()
+    }
+
+    /// Whether researching `t` is only a grant: its prerequisites are covered by the seat's colours alone (no
+    /// specialty planet to exhaust, no waiver to spend) and it is no unit upgrade (whose units on the board
+    /// change form).
+    fn plain(&self, s: &CoreState, t: Technology) -> bool {
+        let held = tech::owned_colours(s, self.who);
+        !tech::is_unit_upgrade(t) && tech::prerequisites(t).iter().zip(held.iter()).all(|(need, have)| need <= have)
+    }
+
+    fn begin_paid(&mut self, s: &CoreState, k: &Kernel) {
+        let affordable = prod::available(&Self::cx(s, k), self.who, Spend::Resources, &Extras::default()) >= self.cost;
+        self.stage = if affordable { RStage::Choose } else { RStage::Done };
+    }
+
+    fn pay_step(&self, paid: i64) -> PayStep {
+        PayStep { who: self.who, kind: Spend::Resources, cost: self.cost, used_credit: 0, owed: self.cost, paid, took: None, stage: PayStage::Paying }
+    }
+
+    fn land(&mut self, s: &mut CoreState, t: Technology) {
+        fx::grant_technology(s, self.who, t);
+        self.researched.push(t);
+        self.stage = RStage::Done;
+    }
+
+    fn after_step(&mut self, s: &mut CoreState) {
+        let Some(step) = self.pay.take() else {
+            self.failed = true;
+            self.stage = RStage::Done;
+            return;
+        };
+        let Some(worth) = step.took else {
+            self.failed = true;
+            self.stage = RStage::Done;
+            return;
+        };
+        let paid = step.paid + worth;
+        if paid < step.owed {
+            self.pay = Some(self.pay_step(paid));
+        } else if let Some(t) = self.chosen.take() {
+            self.land(s, t);
+        } else {
+            self.failed = true;
+            self.stage = RStage::Done;
+        }
+    }
+
+    fn research_choice(&self, s: &CoreState, decline: bool) -> Choice {
+        let owned = u8::try_from(tech::owned(s, self.who).len()).unwrap_or(u8::MAX);
+        let mut options = opts(self.open(s).as_slice().iter().map(|t| SOpt::Research(*t)));
+        if decline {
+            options.push(Opt::Decline);
+        }
+        let cost = if decline { u8::try_from(self.cost).unwrap_or(u8::MAX) } else { 0 };
+        Choice {
+            actor: self.who,
+            ask: ask(SAsk::ResearchTechnology { cost, owned, decline }),
+            ctx: crate::choice::strategy::ctx(StrategyCard::Technology, decline, SSub::ResearchTechnology),
+            opts: options,
+        }
+    }
+}
+
+impl Window for Research {
+    type Stage = RStage;
+
+    fn stage(&self) -> RStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        loop {
+            match self.stage {
+                RStage::Start => {
+                    if self.primary && !self.open(sx.state).is_empty() {
+                        self.stage = RStage::Free;
+                    } else {
+                        self.begin_paid(sx.state, sx.kernel);
+                    }
+                }
+                RStage::Free => return Next::Continue(self.research_choice(sx.state, false).ask),
+                RStage::Choose => {
+                    if self.open(sx.state).is_empty() {
+                        self.stage = RStage::Done;
+                    } else {
+                        return Next::Continue(self.research_choice(sx.state, true).ask);
+                    }
+                }
+                RStage::Pay => {
+                    let Some(step) = self.pay.as_mut() else {
+                        self.failed = true;
+                        self.stage = RStage::Done;
+                        continue;
+                    };
+                    match step.step(sx) {
+                        Next::Done => self.after_step(sx.state),
+                        other => return other,
+                    }
+                }
+                RStage::Done => return Next::Done,
+            }
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        match self.stage {
+            RStage::Free => Some(self.research_choice(s, false)),
+            RStage::Choose => Some(self.research_choice(s, true)),
+            RStage::Pay => self.pay.as_ref()?.ask_of(s, k),
+            RStage::Start | RStage::Done => None,
+        }
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        if self.stage == RStage::Pay {
+            return self.pay.as_mut().ok_or(Illegal)?.answer(sx, pick);
+        }
+        let offered = self.ask_of(sx.state, sx.kernel).ok_or(Illegal)?;
+        let Pick::Opt(chosen) = pick else { return Err(Illegal) };
+        if !offered.opts.as_slice().contains(&chosen) {
+            return Err(Illegal);
+        }
+        match (self.stage, chosen) {
+            (RStage::Choose, Opt::Decline) => self.stage = RStage::Done,
+            (RStage::Free, Opt::Strategy(SOpt::Research(t))) => {
+                if !self.plain(sx.state, t) {
+                    self.failed = true;
+                    self.stage = RStage::Done;
+                } else {
+                    fx::grant_technology(sx.state, self.who, t);
+                    self.researched.push(t);
+                    self.begin_paid(sx.state, sx.kernel);
+                }
+            }
+            (RStage::Choose, Opt::Strategy(SOpt::Research(t))) => {
+                if !self.plain(sx.state, t) {
+                    self.failed = true;
+                    self.stage = RStage::Done;
+                } else if self.cost > 0 {
+                    self.chosen = Some(t);
+                    self.pay = Some(self.pay_step(0));
+                    self.stage = RStage::Pay;
+                } else {
+                    self.land(sx.state, t);
+                }
+            }
+            _ => return Err(Illegal),
+        }
+        Ok(())
+    }
+}

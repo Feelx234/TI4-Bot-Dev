@@ -12,12 +12,13 @@
 use ti4_engine_core::choice::agenda::Shown;
 use ti4_engine_core::choice::strategy::{Ask, Opt, Pool, Subtype};
 use ti4_engine_core::choice::Opt as AnyOpt;
-use ti4_engine_core::generated::{Planet, PublicObjective, System};
+use ti4_engine_core::generated::{Planet, PublicObjective, System, Technology};
 use ti4_engine_core::ids::Seat;
 
 use super::{Family, Render, Wording};
 use crate::choice::{ChoiceOption, DECLINE_KIND};
 use crate::generated::IdStr;
+use crate::preview::{Delta, Preview, Quantity};
 
 /// The renderer of the strategy card questions.
 pub struct Fam;
@@ -55,6 +56,7 @@ impl Family for Fam {
             }
             Ask::PlaceStructure { .. } => "place a structure".to_owned(),
             Ask::ImperialScore => "score a public objective with Imperial".to_owned(),
+            Ask::ResearchTechnology { .. } => "research a technology".to_owned(),
         }
     }
 
@@ -71,6 +73,7 @@ impl Family for Fam {
             Subtype::BuyTokenWithInfluence => "buy_token_with_influence",
             Subtype::PlaceStructure => "place_structure",
             Subtype::ImperialScoreObjective => "imperial_score_objective",
+            Subtype::ResearchTechnology => "research_technology",
         }
         .to_owned()
     }
@@ -115,6 +118,19 @@ impl Family for Fam {
                     .with_planet(planet, Some(system))
                     .with("unit", kind)
             }
+            Opt::Research(t) => {
+                // The label is the printed name, which only the content store has: the caller completes it.
+                let (cost, owned) = match a {
+                    Ask::ResearchTechnology { cost, owned, .. } => (i64::from(*cost), i64::from(*owned)),
+                    _ => (0, 0),
+                };
+                let mut option = ChoiceOption::labelled(t.as_str(), crate::strategy_cards::RESEARCH_KIND, t.as_str()).previewed(Preview::certain(vec![
+                    Delta::new(Quantity::TechnologiesOwned, owned, owned + 1),
+                ]));
+                option.payload.insert("cost".to_owned(), serde_json::Value::from(cost));
+                option.payload.insert("cost_tokens".to_owned(), serde_json::Value::from(0));
+                option
+            }
             Opt::Objective(o) => ChoiceOption::labelled(o.as_str(), "objective", o.as_str()),
             Opt::Buy(false) => ChoiceOption::labelled("no", crate::strategy::STRATEGY_KIND, "spend nothing further"),
             Opt::Buy(true) => {
@@ -157,6 +173,7 @@ impl Family for Fam {
                 Some(Opt::Structure { pds, system: System::from_id(system)?, planet: Planet::from_id(planet)? })
             }
             Ask::ImperialScore => PublicObjective::from_id(id).map(Opt::Objective),
+            Ask::ResearchTechnology { .. } => Technology::from_id(id).map(Opt::Research),
             Ask::LeadershipBuy { .. } => match id {
                 "no" => Some(Opt::Buy(false)),
                 "yes" => Some(Opt::Buy(true)),

@@ -527,6 +527,39 @@ fn research_option(
     option
 }
 
+/// The Technology abilities beside their core window (`strategy_cards_core::research`): the primary's free
+/// research and its paid one, or the secondary's paid one.
+fn technology_ability(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    primary: bool,
+) -> Result<(), IllegalChoice> {
+    let cost = if primary { TECHNOLOGY_PRIMARY_SECOND_COST } else { TECHNOLOGY_SECONDARY_COST };
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        if primary { "strategy_cards::technology_primary" } else { "strategy_cards::technology_secondary" },
+        state,
+        |state: &mut GameState| {
+            result = if primary {
+                offer_research(state, content, sources, galaxy, table, player, technology_primary())
+                    .and_then(|_| paid_research(state, content, sources, galaxy, table, player, cost))
+            } else {
+                paid_research(state, content, sources, galaxy, table, player, cost)
+            };
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_cards_core::research(
+            state, content, sources, player, primary, cost, script
+        )
+    );
+    result
+}
+
 /// The Technology primary's research, inside Doctor Carrina's window (every research route opens
 /// it: see `factions/deepwrought_research.rs`).
 fn offer_research(
@@ -2965,24 +2998,7 @@ pub fn primary(
             warfare_primary(state, content, sources, galaxy, table, player)?
         }
         StrategyCardKind::Technology => {
-            offer_research(
-                state,
-                content,
-                sources,
-                galaxy,
-                table,
-                player,
-                technology_primary(),
-            )?;
-            paid_research(
-                state,
-                content,
-                sources,
-                galaxy,
-                table,
-                player,
-                TECHNOLOGY_PRIMARY_SECOND_COST,
-            )?;
+            technology_ability(state, content, sources, galaxy, table, player, true)?;
         }
         StrategyCardKind::Imperial => {
             imperial_primary(state, content, sources, galaxy, table, player)?
@@ -3048,15 +3064,9 @@ pub fn secondary(
         StrategyCardKind::Warfare => {
             home_production(state, content, sources, galaxy, table, player)?
         }
-        StrategyCardKind::Technology => paid_research(
-            state,
-            content,
-            sources,
-            galaxy,
-            table,
-            player,
-            TECHNOLOGY_SECONDARY_COST,
-        )?,
+        StrategyCardKind::Technology => {
+            technology_ability(state, content, sources, galaxy, table, player, false)?;
+        }
         StrategyCardKind::Imperial => imperial_secret(state, content, table, player)?,
     }
     Ok(Ability::Resolved)

@@ -240,6 +240,12 @@ pub fn draw_secret(s: &mut CoreState, who: Seat) -> bool {
     true
 }
 
+/// The plain gain of a researched technology (`technology::grant`: the card joins the seat's technologies;
+/// the unit upgrades, the laws and the notes that follow a research are the caller's). Whether it was new.
+pub fn grant_technology(s: &mut CoreState, who: Seat, tech: crate::generated::Technology) -> bool {
+    s.players_mut().by_seat_mut(who).is_some_and(|p| p.tech.owned.insert(tech))
+}
+
 /// Command tokens a faction has (`ti4_model::state::TOKENS_PER_FACTION`, LRR 20.4).
 pub const TOKENS_PER_FACTION: i32 = 16;
 

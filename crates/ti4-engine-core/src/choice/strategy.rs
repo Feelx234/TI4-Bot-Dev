@@ -8,7 +8,7 @@ use super::agenda::Shown;
 use super::generic::Rule;
 use super::{Ask as AnyAsk, Choice, Ctx, Opt as AnyOpt, Opts, Origin, Subtype as AnySubtype};
 use crate::containers::SmallList;
-use crate::generated::{Agenda, Planet, PublicObjective, StrategyCard, System};
+use crate::generated::{Agenda, Planet, PublicObjective, StrategyCard, System, Technology};
 use crate::ids::Seat;
 
 /// A command token pool (`TokenPool`).
@@ -48,6 +48,9 @@ pub enum Ask {
     PlaceStructure { step: u8, only_pds: bool },
     /// Imperial primary: "score a public objective with Imperial".
     ImperialScore,
+    /// "research a technology": the bill in resources (the payload `cost`), the technologies the seat owns
+    /// (the preview), and whether the holder may decline.
+    ResearchTechnology { cost: u8, owned: u8, decline: bool },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -75,6 +78,8 @@ pub enum Opt {
     Structure { pds: bool, system: System, planet: Planet },
     /// Imperial: score this public objective.
     Objective(PublicObjective),
+    /// Research this technology.
+    Research(Technology),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -91,6 +96,7 @@ pub enum Subtype {
     BuyTokenWithInfluence,
     PlaceStructure,
     ImperialScoreObjective,
+    ResearchTechnology,
 }
 
 /// The context of a strategy card question.
