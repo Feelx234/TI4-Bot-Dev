@@ -9,6 +9,7 @@
 use crate::generated::{Agenda, Planet, System};
 use crate::ids::Seat;
 use crate::keys::Outcome;
+use crate::state::Code;
 
 /// Numbers an option shows that the position derives (the running tally of an outcome, the votes a planet
 /// casts, the system a planet sits in). Two options are equal when they name the same thing: `Shown`
@@ -119,6 +120,8 @@ pub enum Ask {
     NameTied,
     /// Homeland Defense Act, Against: the seat destroys one of its PDS.
     Structure,
+    /// `laws::offer_discard`: the owner of `law` may discard it (the caller's `prompt`, interned, is the text).
+    DiscardLaw { law: Agenda, prompt: Code },
 }
 
 impl Ask {
@@ -133,7 +136,7 @@ impl Ask {
             | Self::Recombine { frame, .. }
             | Self::Tribute { frame, .. }
             | Self::Tiebreak { frame } => Some(frame),
-            Self::NameTied | Self::Structure => None,
+            Self::NameTied | Self::Structure | Self::DiscardLaw { .. } => None,
         }
     }
 }
@@ -166,6 +169,8 @@ pub enum Opt {
     Elect(Seat),
     /// `Structure`: the PDS in position `index` of the planet's units (the option id), on this planet.
     Structure { index: u8, planet: Planet, system: System },
+    /// `DiscardLaw`: discard the law.
+    DiscardLaw,
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -180,6 +185,7 @@ pub enum Subtype {
     Tiebreak,
     ElectTiebreak,
     DefenseStructure,
+    OfferDiscardLaw,
 }
 
 impl Ask {
@@ -196,6 +202,7 @@ impl Ask {
             Self::Tiebreak { .. } => Subtype::Tiebreak,
             Self::NameTied => Subtype::ElectTiebreak,
             Self::Structure => Subtype::DefenseStructure,
+            Self::DiscardLaw { .. } => Subtype::OfferDiscardLaw,
         }
     }
 }

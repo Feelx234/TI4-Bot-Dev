@@ -89,6 +89,7 @@ impl Family for Fam {
             Ask::Tiebreak { .. } => "speaker breaks the tie".to_owned(),
             Ask::NameTied => "which tied player does the agenda name".to_owned(),
             Ask::Structure => "destroy one of your structures".to_owned(),
+            Ask::DiscardLaw { prompt, .. } => r.code_text(*prompt),
         }
     }
 
@@ -103,6 +104,7 @@ impl Family for Fam {
             Subtype::Tiebreak => "vote_tiebreak",
             Subtype::ElectTiebreak => "agenda_elect_tiebreak",
             Subtype::DefenseStructure => "defense_act_choose_pds",
+            Subtype::OfferDiscardLaw => "offer_discard_law",
         }
         .to_owned()
     }
@@ -114,6 +116,7 @@ impl Family for Fam {
                 ChoiceOption::labelled(index.to_string(), "scuttle", format!("destroy the one on {}", planet.as_str()))
                     .with_planet(planet.as_str(), Some(system.as_str()))
             }
+            (Ask::DiscardLaw { law, .. }, Opt::DiscardLaw) => ChoiceOption::labelled("discard", "law", format!("discard {}", law.as_str())),
             _ => Self::vote_option(r, a, o),
         }
     }
@@ -123,6 +126,7 @@ impl Family for Fam {
             Ask::NameTied => r.seat(id).map(Opt::Elect),
             // The planet and the system are the position's: the pick is matched against the offered options.
             Ask::Structure => None,
+            Ask::DiscardLaw { .. } => (id == "discard").then_some(Opt::DiscardLaw),
             _ => Self::parse_vote(r, a, id),
         }
     }
@@ -239,7 +243,7 @@ impl Fam {
                 "tribute|token" => Some(Opt::TributeToken),
                 _ => None,
             },
-            Ask::NameTied | Ask::Structure => None,
+            Ask::NameTied | Ask::Structure | Ask::DiscardLaw { .. } => None,
         }
     }
 

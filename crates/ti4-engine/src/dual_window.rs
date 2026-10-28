@@ -790,6 +790,43 @@ pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, a: &Effect
     Some(CoreWindow { run: Run::new(resolved), questions: driven.rendered })
 }
 
+const OFFER_DISCARD: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Agenda, Slice::Pending], &[Slice::Agenda]);
+
+/// The core half of `laws::offer_discard`: the owner's question and the discard. `None` for a law the core does
+/// not know, one nobody holds (or a blanked table: the string asks nothing then), or a position the codecs
+/// refuse. The display facts under the question (`details`: the card, the facts and the captions) are the
+/// callers' text and are taken from the recorded question.
+#[must_use]
+pub fn offer_discard(gs: &mut GameState, alias: &str, prompt: &str, script: &Recording) -> Option<CoreWindow<bool>> {
+    use ti4_engine_core::generated::Agenda;
+    use ti4_engine_core::rules::agenda::offer_discard::OfferDiscard;
+    if script.nested {
+        return None;
+    }
+    let law = Agenda::from_id(alias)?;
+    if crate::laws::blanked(gs) {
+        return None;
+    }
+    let owner_id = PlayerId::new(gs.laws.get(alias)?.clone());
+    let (mut cx, r) = tables(gs)?;
+    let owner = r.seat(owner_id.as_str())?;
+    let window = OfferDiscard::new(law, owner, r.code(prompt), r.code(alias));
+    let before = gs.clone();
+    let kernel = Kernel::plain();
+    let mut driver = Driver::new(window, Resolver::new(&[owner], Some(owner)), AbilityTable::default(), 1);
+    let recorded = script.questions.first().map(|q| q.choice.details.clone());
+    let driven = with_core(gs, &mut cx, Sources::default(), OFFER_DISCARD, |core, _| {
+        drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, _, rendered| {
+            if let Some(details) = &recorded {
+                rendered.details = details.clone();
+            }
+        })
+    })
+    .ok()?
+    .ok()?;
+    Some(CoreWindow { run: Run::new(driver.window.taken()), questions: driven.rendered })
+}
+
 /// The core half of `laws::repeal`. `None` for a law the core does not know or a position the codecs refuse.
 #[must_use]
 pub fn laws_repeal(gs: &mut GameState, alias: &str, script: &Recording) -> Option<CoreWindow<bool>> {

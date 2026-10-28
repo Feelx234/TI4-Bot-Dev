@@ -691,6 +691,32 @@ pub fn offer_discard(
     prompt: &str,
     presented: &DiscardPresentation,
 ) -> Option<PlayerId> {
+    // The core `rules::agenda::offer_discard::OfferDiscard` window runs beside the string body on `agenda=dual`.
+    let mut taken = None;
+    crate::dual_window!(
+        crate::dual::Area::AgendaLaws,
+        "laws::offer_discard",
+        state,
+        |s: &mut GameState| {
+            taken = offer_discard_text(s, content, sources, table, galaxy, alias, prompt, presented);
+            crate::dual::Run::new(taken.is_some())
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::dual_window::offer_discard(s, alias, prompt, script)
+    );
+    taken
+}
+
+#[allow(clippy::too_many_arguments)]
+fn offer_discard_text(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    table: &mut crate::choice::Table,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    alias: &str,
+    prompt: &str,
+    presented: &DiscardPresentation,
+) -> Option<PlayerId> {
     let owner = PlayerId::new(elected(state, alias)?.clone());
     state.player(&owner)?;
     let record = content.get(ContentType::Agendas, alias);
@@ -1588,5 +1614,53 @@ mod tests {
         assert!(!action_cards_forbidden(&state, &player()), "a separate bar");
         state.rules_version = ti4_model::state::RULES_FACTION_BUGFIXES - 1;
         assert!(!political_secret_bars(&state, &player()));
+    }
+}
+
+#[cfg(all(test, feature = "typed-core"))]
+mod offer_discard_lockstep {
+    use ti4_model::content_types::POK;
+
+    use super::*;
+
+    /// A ministry law is offered to its owner: the core window asks the same question (taken or declined) and
+    /// the discard leaves the law out of play; a blanked table asks nothing and the core declines it.
+    #[test]
+    fn the_discard_offer_runs_as_a_core_window_in_lockstep() {
+        use crate::dual::{AreaMask, Backend, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();
+        let _ = take_report();
+        let content = ContentStore::embedded();
+        let mut outcomes = Vec::new();
+        with_mask(mask, || {
+            for answer in ["discard", "decline"] {
+                let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "letnev")], POK);
+                state.laws.insert("minister_exploration".to_owned(), "b".to_owned());
+                let mut table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new([answer.to_owned()])));
+                let presented = DiscardPresentation { effect: "ready a planet".to_owned(), facts: Vec::new() };
+                let taken = offer_discard(&mut state, content, POK, &mut table, None, "minister_exploration", "discard the Minister of Exploration?", &presented);
+                outcomes.push((taken, state.laws.contains_key("minister_exploration")));
+            }
+        });
+        assert_eq!(outcomes, vec![(Some(PlayerId::new("b")), false), (None, true)]);
+        let report = take_report();
+        assert_eq!(report.total_differences(), 0, "{report:?}");
+        let (compared, bailed) = crate::dual::local_windows("laws::offer_discard");
+        assert!(compared == 2 && bailed == 0, "{compared} compared, {bailed} bailed");
+    }
+
+    /// A law nobody holds is no offer: the string returns before it asks and the core has no window (B9-bail-06).
+    #[test]
+    fn a_law_nobody_holds_has_no_window() {
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "letnev")], POK);
+        assert!(crate::dual_window::offer_discard(&mut state, "minister_exploration", "?", &crate::dual_window::Recording::default()).is_none());
+        state.laws.insert("minister_exploration".to_owned(), "b".to_owned());
+        assert!(crate::dual_window::offer_discard(&mut state, "minister_exploration", "?", &crate::dual_window::Recording::default()).is_some());
+        // Law's Order blanks every law for the turn: the string asks nothing.
+        state.phase = ti4_model::state::Phase::Action;
+        state.faction_marks.insert(BLANKED_TURN.to_owned(), state.turn_seq.to_string());
+        assert!(blanked(&state));
+        assert!(crate::dual_window::offer_discard(&mut state, "minister_exploration", "?", &crate::dual_window::Recording::default()).is_none());
     }
 }
