@@ -128,10 +128,15 @@ fn agents_of(state: &GameState, content: &ContentStore, player: &PlayerId) -> Ve
 /// that card is unchanged.
 #[must_use]
 pub fn watches_agent_exhaustion(state: &GameState) -> bool {
-    state
-        .players
-        .iter()
-        .any(|seat| is_nomad(state, &seat.id) && holds_technology(state, &seat.id, TCS))
+    crate::cb_dual!(
+        crate::dual::HookGroup::Direct,
+        "nomad::watches_agent_exhaustion",
+        state
+            .players
+            .iter()
+            .any(|seat| is_nomad(state, &seat.id) && holds_technology(state, &seat.id, TCS)),
+        crate::core_factions::ce::nomad_watches_agent_exhaustion(state)
+    )
 }
 
 fn ask(
@@ -332,8 +337,13 @@ fn tcs_mark(owner: &PlayerId, other: &PlayerId) -> String {
 /// The transaction Temporal Command Suite allows reaches its partner without adjacency while it
 /// is being negotiated.
 fn tcs_reach(state: &GameState, _: &ContentStore, a: &PlayerId, b: &PlayerId) -> bool {
-    state.faction_marks.contains_key(&tcs_mark(a, b))
-        || state.faction_marks.contains_key(&tcs_mark(b, a))
+    crate::cb_dual!(
+        crate::dual::HookGroup::Cards,
+        "nomad::transaction_reach",
+        state.faction_marks.contains_key(&tcs_mark(a, b))
+            || state.faction_marks.contains_key(&tcs_mark(b, a)),
+        crate::core_factions::ce::nomad_transaction_reach(state, a, b)
+    )
 }
 
 /// Temporal Command Suite: "After any player's agent becomes exhausted, you may exhaust this card to

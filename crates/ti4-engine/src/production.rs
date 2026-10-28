@@ -22,6 +22,20 @@ use crate::decision_context::{
 use crate::fleet::{Arrival, Standing};
 use crate::preview::{Delta, Preview, Quantity};
 
+macro_rules! typed_view {
+    ($state:expr, $content:expr, $sources:expr, |$v:ident| $body:expr) => {{
+        #[cfg(feature = "typed-core")]
+        let typed = || {
+            let $v = crate::production_view::ProdView::of($state, $content, $sources)?;
+            $body
+        };
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None;
+        typed
+    }};
+}
+
+
 /// The two things a planet card can be exhausted for (LRR 75.2, 47).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Spend {
@@ -431,7 +445,8 @@ pub fn trade_good_worth(state: &GameState, player: &PlayerId) -> i64 {
 /// that played the card, and production happens once per tactical action, which is what
 /// keeps a later step from spending a bonus it never earned.
 #[must_use]
-pub fn war_machine_bonus(state: &GameState, player: &PlayerId) -> i64 {
+#[doc(hidden)]
+pub fn war_machine_bonus_text(state: &GameState, player: &PlayerId) -> i64 {
     state.player(player).map_or(0, |seat| {
         5 * i64::try_from(
             seat.war_machine_use
@@ -446,6 +461,19 @@ pub fn war_machine_bonus(state: &GameState, player: &PlayerId) -> i64 {
 /// Spendable resources or influence, counting trade goods (LRR 75.3, 47.3).
 #[must_use]
 pub fn available(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    kind: Spend,
+) -> i64 {
+    let typed = typed_view!(state, content, sources, |v| v.available(player, kind));
+    crate::dual_typed!(crate::dual::Area::Production, "production::available", typed(), available_text(state, content, sources, player, kind))
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn available_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -485,6 +513,18 @@ pub fn available(
 /// value as an alternate face — never both at once. The planet exhausts exactly either way.
 #[must_use]
 fn payment_faces(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    planet: &PlanetId,
+    kind: Spend,
+) -> Vec<(Spend, i64)> {
+    let typed = typed_view!(state, content, sources, |v| v.payment_faces(player, planet, kind));
+    crate::dual_typed!(crate::dual::Area::Production, "production::payment_faces", typed(), payment_faces_text(state, content, sources, player, planet, kind))
+}
+
+fn payment_faces_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -582,8 +622,22 @@ fn payment_options(
     paid: i64,
     cost: i64,
 ) -> Vec<ChoiceOption> {
+    let typed = typed_view!(state, content, sources, |v| v.payment_options(player, kind, paid, cost));
+    crate::dual_typed!(crate::dual::Area::Production, "production::payment_options", typed(), payment_options_text(state, content, sources, player, kind, paid, cost))
+}
+
+fn payment_options_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    kind: Spend,
+    paid: i64,
+    cost: i64,
+) -> Vec<ChoiceOption> {
+    let reads = Reads::new(state, content, sources);
     let spendable = spendable_planets(state, player);
-    let pool_before = available(state, content, sources, player, kind);
+    let pool_before = reads.available(player, kind);
     let goods_before = state
         .player(player)
         .map_or(0, |seat| i64::from(seat.trade_goods));
@@ -599,10 +653,10 @@ fn payment_options(
         let remaining_after = spendable
             .iter()
             .filter(|other| *other != planet)
-            .map(|other| max_face_value(state, content, sources, player, other, kind))
+            .map(|other| reads.max_face_value(player, other, kind))
             .sum::<i64>()
             + goods_capacity;
-        for (source, worth) in payment_faces(state, content, sources, player, planet, kind) {
+        for (source, worth) in reads.payment_faces(player, planet, kind) {
             // Do not offer a face that would make the rest of this mandatory bill unpayable.
             if paid + worth + remaining_after < cost {
                 continue;
@@ -621,7 +675,7 @@ fn payment_options(
             // The spendable pool is the best legal face of every ready card. Exhausting this
             // planet removes that whole best face even when the actor deliberately selects a
             // smaller Archon's Gift face. The debt, separately, falls by `worth`.
-            let removed_from_pool = max_face_value(state, content, sources, player, planet, kind);
+            let removed_from_pool = reads.max_face_value(player, planet, kind);
             options.push(
                 ChoiceOption::labelled(id, PAY_KIND, label)
                     .with("worth", worth)
@@ -682,10 +736,11 @@ pub fn native_payment_planets(
     player: &PlayerId,
     kind: Spend,
 ) -> Vec<(PlanetId, i64)> {
+    let reads = Reads::new(state, content, sources);
     spendable_planets(state, player)
         .into_iter()
         .filter_map(|planet| {
-            payment_faces(state, content, sources, player, &planet, kind)
+            reads.payment_faces(player, &planet, kind)
                 .into_iter()
                 .find(|(source, _)| *source == kind)
                 .map(|(_, worth)| (planet, worth))
@@ -942,29 +997,51 @@ fn pay_with_observation_credit(
         }
 
         // The oracle takes a lone option without asking; only real choices reach a decider.
-        let answer = {
-            // Oracle wording: each iteration names the remaining debt and its kind
-            // (`pay {cost - paid} more {kind}` in engine/production.py).
-            let choice = Choice::new(
-                player.clone(),
-                format!("pay {} more {}", owed - paid, spend_name(kind)),
-                options,
-            )
-            .contextualized(payment_context(
-                state,
-                player,
-                kind,
-                cost,
-                used_credit + paid,
-            ));
-            if let Some(only) = table.auto_resolve(&choice, "it was the only way left to pay") {
-                only
-            } else {
-                table.ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))?
+        // Oracle wording: each iteration names the remaining debt and its kind
+        // (`pay {cost - paid} more {kind}` in engine/production.py).
+        let choice = Choice::new(
+            player.clone(),
+            format!("pay {} more {}", owed - paid, spend_name(kind)),
+            options,
+        )
+        .contextualized(payment_context(
+            state,
+            player,
+            kind,
+            cost,
+            used_credit + paid,
+        ));
+        // One iteration is also a step of the core's `PayStep`: on `production=dual` both run from this
+        // position and are compared (question, answer, state, the worth collected).
+        let mut outcome: Result<Option<i64>, IllegalChoice> = Ok(None);
+        crate::dual_window!(
+            crate::dual::Area::Production,
+            "production::pay_step",
+            state,
+            |s: &mut GameState| {
+                outcome = (|| {
+                    let answer = if let Some(only) = table.auto_resolve(&choice, "it was the only way left to pay") {
+                        only
+                    } else {
+                        table.ask_seeing(&choice, &Observed::new(s, content, sources, galaxy))?
+                    };
+                    Ok(apply_payment_option(s, content, sources, player, kind, &answer))
+                })();
+                crate::dual::Run::new(outcome.as_ref().ok().copied().flatten())
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                #[cfg(feature = "typed-core")]
+                {
+                    crate::production_window_dual::pay_step(s, player, kind, cost, used_credit, owed, paid, script)
+                }
+                #[cfg(not(feature = "typed-core"))]
+                {
+                    let _ = (s, script);
+                    None
+                }
             }
-        };
-
-        match apply_payment_option(state, content, sources, player, kind, &answer) {
+        );
+        match outcome? {
             Some(worth) => paid += worth,
             None => return Ok(false), // an id no offered option carries (unreachable after validate)
         }
@@ -1550,6 +1627,162 @@ pub fn produce_one_paying_with_influence(
     made.unwrap_or(false)
 }
 
+/// One typed view of one position, built on first use and shared by the reads of an option pass
+/// (`build_options` asks `placements`, `barred_capacity` and `structure_allowed` once per unit
+/// kind). The free functions below build a view per call, which only suits a single read.
+pub(crate) struct Reads<'a> {
+    state: &'a GameState,
+    content: &'a ContentStore,
+    sources: SourceSet,
+    #[cfg(feature = "typed-core")]
+    view: std::cell::OnceCell<Option<crate::production_view::ProdView<'a>>>,
+}
+
+impl<'a> Reads<'a> {
+    pub(crate) fn new(state: &'a GameState, content: &'a ContentStore, sources: SourceSet) -> Self {
+        Self {
+            state,
+            content,
+            sources,
+            #[cfg(feature = "typed-core")]
+            view: std::cell::OnceCell::new(),
+        }
+    }
+
+    #[cfg(feature = "typed-core")]
+    fn view(&self) -> Option<&crate::production_view::ProdView<'a>> {
+        self.view
+            .get_or_init(|| crate::production_view::ProdView::of(self.state, self.content, self.sources))
+            .as_ref()
+    }
+
+    pub(crate) fn placements(&self, player: &PlayerId, system: &SystemId, kind: &UnitType<'_>) -> Vec<String> {
+        #[cfg(feature = "typed-core")]
+        let typed = || self.view()?.placements(player, system, kind.id());
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None;
+        crate::dual_typed!(crate::dual::Area::Production, "production::placements", typed(), placements_text(self.state, self.content, self.sources, player, system, kind))
+    }
+
+    pub(crate) fn barred_capacity(&self, player: &PlayerId, system: &SystemId, kind: &UnitType<'_>) -> i64 {
+        #[cfg(feature = "typed-core")]
+        let typed = || self.view()?.barred_capacity(player, system, kind.base_type());
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None;
+        crate::dual_typed!(crate::dual::Area::Production, "production::barred_capacity", typed(), barred_capacity_text(self.state, self.content, self.sources, player, system, kind))
+    }
+
+    pub(crate) fn available(&self, player: &PlayerId, kind: Spend) -> i64 {
+        #[cfg(feature = "typed-core")]
+        let typed = || self.view()?.available(player, kind);
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None;
+        crate::dual_typed!(crate::dual::Area::Production, "production::available", typed(), available_text(self.state, self.content, self.sources, player, kind))
+    }
+
+    pub(crate) fn payment_faces(&self, player: &PlayerId, planet: &PlanetId, kind: Spend) -> Vec<(Spend, i64)> {
+        #[cfg(feature = "typed-core")]
+        let typed = || self.view()?.payment_faces(player, planet, kind);
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None;
+        crate::dual_typed!(crate::dual::Area::Production, "production::payment_faces", typed(), payment_faces_text(self.state, self.content, self.sources, player, planet, kind))
+    }
+
+    pub(crate) fn max_face_value(&self, player: &PlayerId, planet: &PlanetId, kind: Spend) -> i64 {
+        self.payment_faces(player, planet, kind).into_iter().map(|(_, w)| w).max().unwrap_or(0)
+    }
+
+    pub(crate) fn structure_allowed(&self, player: &PlayerId, planet: &PlanetId, base_type: &str) -> bool {
+        #[cfg(feature = "typed-core")]
+        let typed = || self.view()?.structure_allowed(player, planet, base_type);
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None;
+        crate::dual_typed!(crate::dual::Area::Production, "production::structure_allowed", typed(), structure_allowed_text(self.state, self.content, self.sources, player, planet, base_type))
+    }
+}
+
+/// 68.1a: the production values of all the player's producing units here, combined.
+#[must_use]
+pub fn capacity(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, system: &SystemId) -> i64 {
+    let typed = typed_view!(state, content, sources, |v| v.capacity(player, system));
+    crate::dual_typed!(crate::dual::Area::Production, "production::capacity", typed(), capacity_text(state, content, sources, player, system))
+}
+
+/// The player's units with Production here, paired with the planet they sit on.
+#[must_use]
+pub fn producers(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, system: &SystemId) -> Vec<(Unit, Option<PlanetId>)> {
+    let typed = typed_view!(state, content, sources, |v| v.producers(player, system));
+    crate::dual_typed!(crate::dual::Area::Production, "production::producers", typed(), producers_text(state, content, sources, player, system))
+}
+
+/// The player's mobile production structures in `system` (Saar's Floating Factory).
+#[must_use]
+pub fn mobile_docks(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, system: &SystemId) -> Vec<Unit> {
+    let typed = typed_view!(state, content, sources, |v| v.mobile_docks(player, system));
+    crate::dual_typed!(crate::dual::Area::Production, "production::mobile_docks", typed(), mobile_docks_text(state, content, sources, player, system))
+}
+
+/// PRODUCTION modules grant `system` as if from a unit.
+#[must_use]
+pub fn module_production(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, system: &SystemId) -> i64 {
+    let typed = typed_view!(state, content, sources, |v| v.module_production(player, system));
+    crate::dual_typed!(crate::dual::Area::Production, "production::module_production", typed(), module_production_text(state, content, sources, player, system))
+}
+
+/// The PRODUCTION value of the producers a faction module bars from producing `kind`.
+#[must_use]
+pub fn barred_capacity(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, system: &SystemId, kind: &UnitType<'_>) -> i64 {
+    let typed = typed_view!(state, content, sources, |v| v.barred_capacity(player, system, kind.base_type()));
+    crate::dual_typed!(crate::dual::Area::Production, "production::barred_capacity", typed(), barred_capacity_text(state, content, sources, player, system, kind))
+}
+
+/// How many of this structure the player already has on that planet.
+#[must_use]
+pub fn structures_on(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, planet: &PlanetId, base_type: &str) -> usize {
+    let typed = typed_view!(state, content, sources, |v| v.structures_on(player, planet, base_type));
+    crate::dual_typed!(crate::dual::Area::Production, "production::structures_on", typed(), structures_on_text(state, content, sources, player, planet, base_type))
+}
+
+/// 79.2: whether another of this structure may be built on that planet.
+#[must_use]
+pub fn structure_allowed(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, planet: &PlanetId, base_type: &str) -> bool {
+    let typed = typed_view!(state, content, sources, |v| v.structure_allowed(player, planet, base_type));
+    crate::dual_typed!(crate::dual::Area::Production, "production::structure_allowed", typed(), structure_allowed_text(state, content, sources, player, planet, base_type))
+}
+
+/// Where a produced unit may go. [`SPACE`] denotes the space area.
+#[must_use]
+pub fn placements(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, system: &SystemId, kind: &UnitType<'_>) -> Vec<String> {
+    let typed = typed_view!(state, content, sources, |v| v.placements(player, system, kind.id()));
+    crate::dual_typed!(crate::dual::Area::Production, "production::placements", typed(), placements_text(state, content, sources, player, system, kind))
+}
+
+/// War Machine: the faces of budget this step gains, per copy played in this activation.
+#[must_use]
+pub fn war_machine_bonus(state: &GameState, player: &PlayerId) -> i64 {
+    let typed = typed_view!(state, ContentStore::embedded(), ti4_model::content_types::FULL, |v| v.war_machine_bonus(player));
+    crate::dual_typed!(crate::dual::Area::Production, "production::war_machine_bonus", typed(), war_machine_bonus_text(state, player))
+}
+
+/// The price under whatever laws are in play (Regulated Conscription halves the yield).
+#[must_use]
+pub fn price_of_under(state: Option<&GameState>, kind: &UnitType<'_>) -> (i64, usize) {
+    // Only the printed cost and one law are read, so no position view is built.
+    let typed = || {
+        #[cfg(feature = "typed-core")]
+        {
+            let halves = <ti4_engine_core::generated::Unit as crate::generated::IdStr>::from_id(kind.id())?.data().cost_halves;
+            let single = state.is_some_and(crate::laws::single_unit_production);
+            Some(ti4_engine_core::rules::production::price(halves, single))
+        }
+        #[cfg(not(feature = "typed-core"))]
+        {
+            None
+        }
+    };
+    crate::dual_typed!(crate::dual::Area::Production, "production::price_of_under", typed(), price_of_under_text(state, kind))
+}
+
 pub fn price_of(kind: &UnitType<'_>) -> (i64, usize) {
     price_of_under(None, kind)
 }
@@ -1563,7 +1796,8 @@ pub fn price_of(kind: &UnitType<'_>) -> (i64, usize) {
 /// `price_of` remains the printed rule for callers that mean the printed rule. Passing the state is
 /// how a caller says it means *now*.
 #[must_use]
-pub fn price_of_under(state: Option<&GameState>, kind: &UnitType<'_>) -> (i64, usize) {
+#[doc(hidden)]
+pub fn price_of_under_text(state: Option<&GameState>, kind: &UnitType<'_>) -> (i64, usize) {
     let printed = kind.cost();
     if printed > 0.0 && printed < 1.0 {
         let yielded = if state.is_some_and(crate::laws::single_unit_production) {
@@ -1588,7 +1822,8 @@ pub fn price_of_under(state: Option<&GameState>, kind: &UnitType<'_>) -> (i64, u
 
 /// The player's units with Production here, paired with the planet they sit on.
 #[must_use]
-pub fn producers(
+#[doc(hidden)]
+pub fn producers_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1634,7 +1869,8 @@ pub fn producers(
 /// Floating Factory I: "This unit is placed in the space area instead of on a planet. This unit
 /// can move and retreat as if it were a ship. If this unit is blockaded, it is destroyed."
 #[must_use]
-pub fn mobile_docks(
+#[doc(hidden)]
+pub fn mobile_docks_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1736,7 +1972,8 @@ pub fn destroy_blockaded_mobile_docks(
 /// planet travels with the unit rather than the value being read from the unit alone. War
 /// Machines add to the total, so they ride along here as well.
 #[must_use]
-pub fn capacity(
+#[doc(hidden)]
+pub fn capacity_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1744,7 +1981,7 @@ pub fn capacity(
     system: &SystemId,
 ) -> i64 {
     let types = catalogue(content, sources);
-    producers(state, content, sources, player, system)
+    producers_text(state, content, sources, player, system)
         .into_iter()
         .filter_map(|(unit, planet)| {
             let kind = types.get(unit.type_id.as_str())?;
@@ -1763,15 +2000,16 @@ pub fn capacity(
             Some(kind.production(resources))
         })
         .sum::<i64>()
-        + war_machine_bonus(state, player)
-        + module_production(state, content, sources, player, system)
+        + war_machine_bonus_text(state, player)
+        + module_production_text(state, content, sources, player, system)
 }
 
 /// PRODUCTION modules grant `system` as if from a unit (`EconomyHooks::extra_production` for the
 /// space area, `extra_production_planet` for each planet holding any of the player's units there).
 /// Zero with no such hook. Muaat Magmus Reactor, Creuss Particle Synthesis, Argent Hololattice.
 #[must_use]
-pub fn module_production(
+#[doc(hidden)]
+pub fn module_production_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1818,7 +2056,8 @@ fn module_planet_producers(
 /// producing `kind` (`cannot_produce`); zero with no such hook. Read the same way as [`capacity`]
 /// (planet resources through `planet_spend_value`), without War Machine.
 #[must_use]
-pub fn barred_capacity(
+#[doc(hidden)]
+pub fn barred_capacity_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1830,7 +2069,7 @@ pub fn barred_capacity(
         return 0;
     }
     let types = catalogue(content, sources);
-    producers(state, content, sources, player, system)
+    producers_text(state, content, sources, player, system)
         .into_iter()
         .filter_map(|(unit, planet)| {
             let producer = types.get(unit.type_id.as_str())?;
@@ -1860,7 +2099,8 @@ pub fn barred_capacity(
 
 /// How many of this structure the player already has on that planet.
 #[must_use]
-pub fn structures_on(
+#[doc(hidden)]
+pub fn structures_on_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1885,7 +2125,8 @@ pub fn structures_on(
 
 /// 79.2: whether another of this structure may be built on that planet.
 #[must_use]
-pub fn structure_allowed(
+#[doc(hidden)]
+pub fn structure_allowed_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1902,12 +2143,13 @@ pub fn structure_allowed(
         return false;
     }
     structure_limit(base_type)
-        .is_none_or(|cap| structures_on(state, content, sources, player, planet, base_type) < cap)
+        .is_none_or(|cap| structures_on_text(state, content, sources, player, planet, base_type) < cap)
 }
 
 /// Where a produced unit may go. [`SPACE`] denotes the space area.
 #[must_use]
-pub fn placements(
+#[doc(hidden)]
+pub fn placements_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1950,7 +2192,7 @@ pub fn placements(
     // produce infantry). Filtered before anything reads the producers, so a planet whose only
     // producer is barred is not a spot at all.
     let types = catalogue(content, sources);
-    let made: Vec<(Unit, Option<PlanetId>)> = producers(state, content, sources, player, system)
+    let made: Vec<(Unit, Option<PlanetId>)> = producers_text(state, content, sources, player, system)
         .into_iter()
         .filter(|(unit, _)| {
             let producer = types
@@ -1985,7 +2227,7 @@ pub fn placements(
         // the last gate before a unit is placed, and the rule belongs at the gate too.
         .filter(|planet| !ti4_content::galaxy::is_space_station(content, planet.as_str(), sources))
         .filter(|planet| {
-            structure_allowed(state, content, sources, player, planet, kind.base_type())
+            structure_allowed_text(state, content, sources, player, planet, kind.base_type())
         })
         .map(|planet| planet.to_string())
         .collect(); // 68.3, 79.2
@@ -2006,6 +2248,21 @@ pub fn placements(
 /// resolved — see the evidence for what that costs.
 #[must_use]
 pub fn buildable_for(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+) -> Vec<String> {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::production_view::buildable_for(state, content, sources, player);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(crate::dual::Area::Production, "production::buildable_for", typed(), buildable_for_text(state, content, sources, player))
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn buildable_for_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -2335,7 +2592,18 @@ impl ProductionWindow {
         sources: SourceSet,
         kind: UnitType<'_>,
     ) -> Vec<String> {
-        let mut spots = self.local_spots(state, content, sources, kind);
+        self.spots_with(&Reads::new(state, content, sources), state, content, sources, kind)
+    }
+
+    fn spots_with(
+        &self,
+        reads: &Reads<'_>,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        kind: UnitType<'_>,
+    ) -> Vec<String> {
+        let mut spots = self.local_spots(reads, state, content, sources, kind);
         // A module may let the unit go elsewhere, but only a unit this system can produce at all
         // (68.10: a blockaded dock makes no ships, wherever they would be placed).
         if !spots.is_empty() {
@@ -2356,13 +2624,14 @@ impl ProductionWindow {
     /// [`Self::spots`] in the producing system only.
     fn local_spots(
         &self,
+        reads: &Reads<'_>,
         state: &GameState,
         content: &ContentStore,
         sources: SourceSet,
         kind: UnitType<'_>,
     ) -> Vec<String> {
         if !self.ability || kind.is_ship() {
-            return placements(state, content, sources, &self.player, &self.system, &kind);
+            return reads.placements(&self.player, &self.system, &kind);
         }
         if !crate::entropic_scars::abilities_usable(content, sources, &self.system, None) {
             return Vec::new();
@@ -2377,14 +2646,7 @@ impl ProductionWindow {
                 !ti4_content::galaxy::is_space_station(content, planet.as_str(), sources)
             })
             .filter(|planet| {
-                structure_allowed(
-                    state,
-                    content,
-                    sources,
-                    &self.player,
-                    planet,
-                    kind.base_type(),
-                )
+                reads.structure_allowed(&self.player, planet, kind.base_type())
             })
             .map(|planet| planet.to_string())
             .collect();
@@ -2499,20 +2761,66 @@ impl ProductionWindow {
         id: &str,
         made: usize,
     ) -> Option<Choice> {
+        let options = self.placement_options(state, content, sources, id, made);
+        if options.is_empty() {
+            return None; // settled without a question
+        }
         let types = catalogue(content, sources);
-        let kind = types.get(id)?;
+        let before =
+            crate::fleet::standing_using(&types, state, content, &self.player, &self.system, None);
+        Some(
+            Choice::new(self.player.clone(), format!("place the {id}"), options)
+                .contextualized(self.placement_context(state, &before)),
+        )
+    }
+
+    /// The options of the placement question, one per spot, empty when there are fewer than two spots:
+    /// the typed list rendered, or the string one.
+    fn placement_options(
+        &self,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        id: &str,
+        made: usize,
+    ) -> Vec<ChoiceOption> {
+        #[cfg(feature = "typed-core")]
+        let typed = || {
+            if self.ability {
+                return None;
+            }
+            let fleet_limit = if crate::fleet::is_unlimited(state, &self.player) {
+                crate::fleet::UNLIMITED_FLEET_BILL
+            } else {
+                i64::from(crate::fleet::limit(state, content, &self.player)).max(0)
+            };
+            crate::production_view::ProdView::of(state, content, sources)?.placement_options(&self.player, &self.system, id, made, fleet_limit)
+        };
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None;
+        crate::dual_typed!(crate::dual::Area::Production, "ProductionWindow::placement_options", typed(), self.placement_options_text(state, content, sources, id, made))
+    }
+
+    fn placement_options_text(
+        &self,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        id: &str,
+        made: usize,
+    ) -> Vec<ChoiceOption> {
+        let types = catalogue(content, sources);
+        let Some(kind) = types.get(id) else {
+            return Vec::new();
+        };
         let spots = self.spots(state, content, sources, *kind);
         if spots.len() < 2 {
-            return None; // settled without a question
+            return Vec::new();
         }
         let placed = i64::try_from(self.will_place(state, content, sources, id, made)).unwrap_or(0);
         let before =
             crate::fleet::standing_using(&types, state, content, &self.player, &self.system, None);
-        Some(
-            Choice::new(
-                self.player.clone(),
-                format!("place the {id}"),
-                spots
+        spots
                     .iter()
                     .map(|spot| {
                         let after =
@@ -2546,10 +2854,7 @@ impl ProductionWindow {
                         )
                         .previewed(Preview::certain(limit_deltas(before, &after).to_vec()))
                     })
-                    .collect(),
-            )
-            .contextualized(self.placement_context(state, &before)),
-        )
+                    .collect()
     }
 
     /// Why a destination is being asked for, and what the two limits stand at while it is asked.
@@ -2733,12 +3038,54 @@ impl ProductionWindow {
         content: &ContentStore,
         sources: SourceSet,
     ) -> Vec<ChoiceOption> {
+        #[cfg(feature = "typed-core")]
+        let typed = || {
+            if self.ability {
+                return None;
+            }
+            let fleet_limit = if crate::fleet::is_unlimited(state, &self.player) {
+                crate::fleet::UNLIMITED_FLEET_BILL
+            } else {
+                i64::from(crate::fleet::limit(state, content, &self.player)).max(0)
+            };
+            let inputs = crate::production_view::ChooseInputs {
+                system: &self.system,
+                limit: self.limit,
+                remaining: self.remaining,
+                free_capacity: self.free_capacity,
+                small_exemptions: self.small_unit_exemptions,
+                credit: self.credit,
+                discount_remaining: self.discount_remaining,
+                fleet_limit,
+                free_this_use: self.free_this_use,
+                flagship_free: crate::promissory::has_commander_ability(state, &self.player, "nomadcommander"),
+                only_unit: self.only_unit.as_deref(),
+                max_unit_cost: self.max_unit_cost,
+                produced: self.report.produced.iter().map(|(unit, _)| unit.as_str()).collect(),
+                armada: i64::from(crate::faction_abilities::armada_bonus(state, content, &self.player)),
+            };
+            let buildable = buildable_for(state, content, sources, &self.player);
+            crate::production_view::ProdView::of(state, content, sources)?.build_options(&self.player, &inputs, &buildable)
+        };
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None;
+        crate::dual_typed!(crate::dual::Area::Production, "ProductionWindow::build_options", typed(), self.build_options_text(state, content, sources))
+    }
+
+    #[allow(clippy::too_many_lines, reason = "one linear filter-and-price pass per buildable unit")]
+    fn build_options_text(
+        &self,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+    ) -> Vec<ChoiceOption> {
         let types = catalogue(content, sources);
         // The position before any of these options is taken, read once for all of them.
         let before =
             crate::fleet::standing_using(&types, state, content, &self.player, &self.system, None);
         let spendable_resources =
             available(state, content, sources, &self.player, Spend::Resources);
+        let reads = Reads::new(state, content, sources);
         let mut options = Vec::new();
         for id in buildable_for(state, content, sources, &self.player) {
             let Some(kind) = types.get(id.as_str()) else {
@@ -2787,11 +3134,11 @@ impl ProductionWindow {
             // not be withheld for a price nobody would actually charge. A unit bought with a
             // captured model is not withheld at all, because no resource is being asked for it.
             let affordable = cost
-                <= available(state, content, sources, &self.player, Spend::Resources) + self.credit;
+                <= reads.available(&self.player, Spend::Resources) + self.credit;
             if !affordable && !exchange {
                 continue;
             }
-            let spots = self.spots(state, content, sources, *kind);
+            let spots = self.spots_with(&reads, state, content, sources, *kind);
             if spots.is_empty() {
                 continue;
             }
@@ -2803,7 +3150,7 @@ impl ProductionWindow {
             let barred = if self.ability {
                 0
             } else {
-                barred_capacity(state, content, sources, &self.player, &self.system, kind)
+                reads.barred_capacity(&self.player, &self.system, kind)
             };
             let usable = if barred == 0 {
                 self.remaining
@@ -3200,9 +3547,61 @@ impl Window for ProductionWindow {
         ctx: &mut Resolving<'_>,
         answer: ChoiceOption,
     ) -> Result<(), IllegalChoice> {
+        if self.resolve_windowed(state, ctx, answer)? {
+            self.finish_use(state, ctx)?;
+        }
+        Ok(())
+    }
+}
+
+impl ProductionWindow {
+    /// [`Self::resolve_step`], also run on the core window on `production=dual`: the question the table was
+    /// just asked and its answer are recorded for the harness (`note_ask`), both sides start from this
+    /// position and are compared (question, answer, state, events, the window's fields).
+    fn resolve_windowed(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        answer: ChoiceOption,
+    ) -> Result<bool, IllegalChoice> {
+        #[cfg(feature = "typed-core")]
+        if crate::dual::backend(crate::dual::Area::Production) == crate::dual::Backend::Dual {
+            let (content, sources) = (ctx.content, ctx.sources);
+            if let Some(choice) = self.pending_choice(state, content, sources) {
+                let before = self.clone();
+                let player = self.player.clone();
+                let emit_timing = ctx.timing.is_some();
+                let mut outcome = Ok(false);
+                crate::dual_window!(
+                    crate::dual::Area::Production,
+                    "ProductionWindow::step",
+                    state,
+                    |s: &mut GameState| {
+                        crate::dual_window::note_ask(&choice, &Ok(answer.clone()));
+                        outcome = self.resolve_step(s, ctx, answer.clone());
+                        crate::dual::Run::new(self.snap())
+                    },
+                    |s: &mut GameState, script: &crate::dual_window::Recording| {
+                        crate::production_window_dual::step(&before, s, content, sources, &player, script, emit_timing)
+                    }
+                );
+                return outcome;
+            }
+        }
+        self.resolve_step(state, ctx, answer)
+    }
+
+    /// [`Window::resolve`] without the end-of-use effects: the answer, then `settle`. `true` when it reached
+    /// `settle`, so the caller runs [`Self::finish_use`].
+    pub(crate) fn resolve_step(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        answer: ChoiceOption,
+    ) -> Result<bool, IllegalChoice> {
         let (content, sources) = (ctx.content, ctx.sources);
         let Some(choice) = self.pending_choice(state, content, sources) else {
-            return Ok(());
+            return Ok(false);
         };
         let option = crate::choice::validate(&choice, answer)?;
 
@@ -3221,7 +3620,7 @@ impl Window for ProductionWindow {
                 } else if let Some(rest) = option.id.strip_prefix("build|") {
                     let mut parts = rest.split('|');
                     let Some(id) = parts.next() else {
-                        return Ok(());
+                        return Ok(false);
                     };
                     let made = parts
                         .next()
@@ -3268,7 +3667,7 @@ impl Window for ProductionWindow {
                         id,
                     ) {
                         self.stage = Stage::Done;
-                        return Ok(());
+                        return Ok(false);
                     }
                     self.purchased = true;
                     self.stage = Stage::Placing {
@@ -3298,7 +3697,7 @@ impl Window for ProductionWindow {
                     &option,
                 ) else {
                     self.stage = Stage::Done; // unreachable for validated answers: abort
-                    return Ok(());
+                    return Ok(false);
                 };
                 let owed = owed - worth;
                 let paid = paid + worth;
@@ -3332,6 +3731,17 @@ impl Window for ProductionWindow {
             }
         }
         self.settle(state, content, sources, ctx)?;
+        Ok(true)
+    }
+
+    /// The effects at the end of a use of PRODUCTION: Auto-Factories, the Prophecy of Ixth, the announcement and
+    /// Self-Assembly Routines. Run once, where the use reaches `Done`.
+    pub(crate) fn finish_use(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+    ) -> Result<(), IllegalChoice> {
+        let (content, sources) = (ctx.content, ctx.sources);
         // After `settle`, not before: the loop inside it can be what reaches `Done`, and a check
         // ahead of it would miss exactly the uses that ended without another question.
         //
@@ -3369,6 +3779,118 @@ impl Window for ProductionWindow {
             }
         }
         Ok(())
+    }
+}
+
+/// What a production window says about itself between two questions, for the window dual: the stage and the
+/// fields a step changes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowSnap {
+    pub stage: String,
+    pub remaining: i64,
+    pub free_capacity: i64,
+    pub small_exemptions: i64,
+    pub credit: i64,
+    pub discount_remaining: i64,
+    pub purchased: bool,
+    pub placement_timing_done: bool,
+    pub produced: Vec<(String, String)>,
+}
+
+impl ProductionWindow {
+    pub(crate) fn snap(&self) -> WindowSnap {
+        WindowSnap {
+            stage: match &self.stage {
+                Stage::Choosing => "choosing".to_owned(),
+                Stage::Paying { id, owed, made, cost, paid } => format!("paying|{id}|{owed}|{made}|{cost}|{paid}"),
+                Stage::Placing { id, made } => format!("placing|{id}|{made}"),
+                Stage::Done => "done".to_owned(),
+            },
+            remaining: self.remaining,
+            free_capacity: self.free_capacity,
+            small_exemptions: self.small_unit_exemptions,
+            credit: self.credit,
+            discount_remaining: self.discount_remaining,
+            purchased: self.purchased,
+            placement_timing_done: self.placement_timing_done,
+            produced: self.report.produced.iter().map(|(u, w)| (u.as_str().to_owned(), w.clone())).collect(),
+        }
+    }
+
+    /// The window as the core window starts from it (`None`: something is outside what the core holds).
+    #[cfg(feature = "typed-core")]
+    pub(crate) fn to_core(
+        &self,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        seat: ti4_engine_core::Seat,
+        emit_timing: bool,
+    ) -> Option<ti4_engine_core::rules::production::window::ProductionWindow> {
+        use ti4_engine_core::generated::{System, Unit};
+        use ti4_engine_core::rules::production::window as cw;
+        let unit = |id: &str| <Unit as crate::generated::IdStr>::from_id(id);
+        if self.ability || self.settled || self.fixed_limit.is_some() || self.agent_spent {
+            return None;
+        }
+        let narrow = |n: i64| i32::try_from(n).ok();
+        let fleet_limit = if crate::fleet::is_unlimited(state, &self.player) {
+            crate::fleet::UNLIMITED_FLEET_BILL
+        } else {
+            i64::from(crate::fleet::limit(state, content, &self.player)).max(0)
+        };
+        let buildable_ids = crate::production_view::buildable_for(state, content, sources, &self.player)?;
+        if buildable_ids.len() > 9 {
+            return None;
+        }
+        let mut buildable = [None; 9];
+        for (slot, id) in buildable.iter_mut().zip(&buildable_ids) {
+            *slot = Some(unit(id)?);
+        }
+        let mut produced = ti4_engine_core::containers::SmallList::new();
+        for (id, at) in &self.report.produced {
+            produced.push((unit(id.as_str())?, crate::render::production::spot_of(at)?));
+        }
+        let stage = match &self.stage {
+            Stage::Choosing => cw::Stage::Choosing,
+            Stage::Paying { id, owed, made, cost, paid } => cw::Stage::Paying {
+                unit: unit(id)?,
+                owed: narrow(*owed)?,
+                made: u8::try_from(*made).ok()?,
+                cost: narrow(*cost)?,
+                paid: narrow(*paid)?,
+            },
+            Stage::Placing { id, made } => cw::Stage::Placing { unit: unit(id)?, made: u8::try_from(*made).ok()? },
+            Stage::Done => cw::Stage::Done,
+        };
+        Some(cw::ProductionWindow {
+            who: seat,
+            system: <System as crate::generated::IdStr>::from_id(self.system.as_str())?,
+            stage,
+            limit: narrow(self.limit)?,
+            remaining: narrow(self.remaining)?,
+            free_capacity: narrow(self.free_capacity)?,
+            small_exemptions: narrow(self.small_unit_exemptions)?,
+            credit: narrow(self.credit)?,
+            discount_remaining: narrow(self.discount_remaining)?,
+            fleet_limit: narrow(fleet_limit)?,
+            armada: i32::try_from(crate::faction_abilities::armada_bonus(state, content, &self.player)).ok()?,
+            free_this_use: self.free_this_use,
+            flagship_free: crate::promissory::has_commander_ability(state, &self.player, "nomadcommander"),
+            only_unit: match &self.only_unit {
+                Some(id) => Some(unit(id)?),
+                None => None,
+            },
+            max_unit_cost: match self.max_unit_cost {
+                Some(m) => Some(narrow(m)?),
+                None => None,
+            },
+            buildable,
+            produced,
+            purchased: self.purchased,
+            placement_timing_done: self.placement_timing_done,
+            emit_timing,
+        })
     }
 }
 
@@ -6324,6 +6846,33 @@ mod tests {
         .unwrap();
 
         assert!(report.produced.is_empty());
+    }
+
+    #[test]
+    fn production_steps_run_in_lockstep_on_the_core_window() {
+        // Several purses, a planet that pays and one that does not, and a second dock: every step of every run
+        // is compared with the core window (question, answer, state, window fields).
+        let fail_fast = crate::dual::fail_fast();
+        crate::dual::set_fail_fast(true);
+        let mask = crate::dual::AreaMask::parse("production=dual", crate::dual::AreaMask::STRING).unwrap();
+        for (goods, docks, tokens_in_credit) in [(10, 1, false), (1, 1, false), (0, 1, false), (3, 2, true)] {
+            let (mut state, system, planet) = seated();
+            state.player_mut(&player()).unwrap().faction = ti4_model::id::FactionId::new("sol");
+            state.player_mut(&PlayerId::new("b")).unwrap().faction = ti4_model::id::FactionId::new("sardakk");
+            state.promissory_notes.clear();
+            state.system_mut(&system).set_control(planet.clone(), player());
+            put_on_planet(&mut state, &system, &planet, "spacedock", &player(), docks);
+            if tokens_in_credit {
+                put(&mut state, &system, "carrier", &player(), 2);
+            }
+            state.player_mut(&player()).unwrap().trade_goods = goods;
+            let mut table = Table::new();
+            let report = crate::dual::with_mask(mask, || {
+                resolve(&mut state, ContentStore::embedded(), POK, None, &mut table, &player(), &system).unwrap()
+            });
+            let _ = report;
+        }
+        crate::dual::set_fail_fast(fail_fast);
     }
 
     #[test]

@@ -43,11 +43,13 @@ pub struct CombatUnit<'a> {
     pub context: &'a str,
 }
 
+#[cfg(test)]
+pub(crate) mod shared_testkit;
 pub mod arborec;
 pub mod argent;
 pub mod bastion;
 pub mod bastion_units;
-mod borrowed_commanders;
+pub(crate) mod borrowed_commanders;
 pub(crate) mod borrowed_commanders_b;
 pub mod borrowed_round_agents;
 pub mod cabal;

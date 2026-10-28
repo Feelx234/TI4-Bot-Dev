@@ -83,6 +83,35 @@ pub fn commander_unlocked(
     player: &PlayerId,
     leader: &LeaderId,
 ) -> Option<bool> {
+    #[cfg(feature = "typed-core")]
+    let typed = || {
+        crate::leaders_view::LeaderView::of(
+            state,
+            Some(content),
+            sources,
+            galaxy,
+            crate::leaders_view::READS_UNLOCK,
+        )
+        .and_then(|v| v.commander_unlocked(player, leader))
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::LeadersAbilities,
+        "leaders::commander_unlocked",
+        typed(),
+        commander_unlocked_text(state, content, sources, galaxy, player, leader)
+    )
+}
+
+fn commander_unlocked_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    player: &PlayerId,
+    leader: &LeaderId,
+) -> Option<bool> {
     use crate::production::Spend;
     let met = match leader.as_str() {
         // Control planets with a combined total of at least 12 resources.
@@ -170,6 +199,18 @@ pub const HERO_OBJECTIVES: usize = 3;
 /// What kind of leader this is.
 #[must_use]
 pub fn kind_of(content: &ContentStore, leader: &LeaderId) -> Option<String> {
+    #[cfg(feature = "typed-core")]
+    let typed = || {
+        use crate::generated::IdStr;
+        ti4_engine_core::generated::Leader::from_id(leader.as_str())
+            .map(|l| Some(ti4_engine_core::rules::leaders::kind(l).as_str().to_owned()))
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(crate::dual::Area::LeadersAbilities, "leaders::kind_of", typed(), kind_of_text(content, leader))
+}
+
+fn kind_of_text(content: &ContentStore, leader: &LeaderId) -> Option<String> {
     content
         .get(ContentType::Leaders, leader.as_str())
         .and_then(|record| record.text("type"))
@@ -291,6 +332,39 @@ pub fn of_kind(
     player: &PlayerId,
     kind: &str,
 ) -> Vec<LeaderId> {
+    #[cfg(feature = "typed-core")]
+    let typed = || status_view(state, content).and_then(|v| v.of_kind(player, kind));
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::LeadersAbilities,
+        "leaders::of_kind",
+        typed(),
+        of_kind_text(state, content, player, kind)
+    )
+}
+
+/// The status-only view of a position for the leader reads of a string call site.
+#[cfg(feature = "typed-core")]
+fn status_view<'a>(
+    state: &'a GameState,
+    content: &'a ContentStore,
+) -> Option<crate::leaders_view::LeaderView<'a>> {
+    crate::leaders_view::LeaderView::of(
+        state,
+        Some(content),
+        ti4_model::content_types::FULL,
+        None,
+        crate::leaders_view::READS_STATUS,
+    )
+}
+
+fn of_kind_text(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+    kind: &str,
+) -> Vec<LeaderId> {
     state.player(player).map_or_else(Vec::new, |seat| {
         seat.leaders
             .keys()
@@ -312,41 +386,83 @@ pub fn check_unlocks(
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
     player: &PlayerId,
 ) -> Vec<LeaderId> {
-    // Commanders unlock on their own condition, not on scored objectives. A commander whose
-    // check is unregistered stays locked rather than being treated as satisfied.
+    let unlocking = unlockable(state, content, sources, galaxy, player);
+    if let Some(seat) = state.player_mut(player) {
+        for leader in &unlocking {
+            seat.leaders.insert(leader.clone(), LeaderStatus::Unlocked);
+        }
+    }
+    unlocking
+}
+
+/// The leaders [`check_unlocks`] unlocks now, in its order: commanders whose condition holds
+/// (not on scored objectives; a commander whose check is unregistered stays locked), then, once the
+/// owner has scored [`HERO_OBJECTIVES`], the locked heroes.
+#[must_use]
+pub fn unlockable(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    player: &PlayerId,
+) -> Vec<LeaderId> {
+    // Nothing locked, nothing to check: no view is built for it.
+    let any_locked = state
+        .player(player)
+        .is_some_and(|seat| seat.leaders.values().any(|s| *s == LeaderStatus::Locked));
+    if !any_locked {
+        return Vec::new();
+    }
+    #[cfg(feature = "typed-core")]
+    let typed = || {
+        crate::leaders_view::LeaderView::of(
+            state,
+            Some(content),
+            sources,
+            galaxy,
+            crate::leaders_view::READS_UNLOCK,
+        )
+        .and_then(|v| v.unlockable(player))
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::LeadersAbilities,
+        "leaders::unlockable",
+        typed(),
+        unlockable_text(state, content, sources, galaxy, player)
+    )
+}
+
+fn unlockable_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    player: &PlayerId,
+) -> Vec<LeaderId> {
     let commanders: Vec<LeaderId> = state.player(player).map_or_else(Vec::new, |seat| {
         seat.leaders
             .iter()
             .filter(|(_, status)| **status == LeaderStatus::Locked)
             .map(|(leader, _)| leader.clone())
             .filter(|leader| {
-                commander_unlocked(state, content, sources, galaxy, player, leader).unwrap_or(false)
+                commander_unlocked_text(state, content, sources, galaxy, player, leader).unwrap_or(false)
             })
             .collect()
     });
-    if let Some(seat) = state.player_mut(player) {
-        for leader in &commanders {
-            seat.leaders.insert(leader.clone(), LeaderStatus::Unlocked);
-        }
+    if state.scored_by(player).len() < HERO_OBJECTIVES {
+        return commanders;
     }
-
-    let scored = state.scored_by(player).len();
     let heroes: Vec<LeaderId> = state.player(player).map_or_else(Vec::new, |seat| {
         seat.leaders
             .iter()
             .filter(|(_, status)| **status == LeaderStatus::Locked)
             .map(|(leader, _)| leader.clone())
-            .filter(|leader| kind_of(content, leader).as_deref() == Some(HERO))
+            .filter(|leader| !commanders.contains(leader))
+            .filter(|leader| kind_of_text(content, leader).as_deref() == Some(HERO))
             .collect()
     });
-    if scored < HERO_OBJECTIVES {
-        return commanders;
-    }
-    if let Some(seat) = state.player_mut(player) {
-        for leader in &heroes {
-            seat.leaders.insert(leader.clone(), LeaderStatus::Unlocked);
-        }
-    }
     commanders.into_iter().chain(heroes).collect()
 }
 
@@ -435,6 +551,19 @@ pub fn purge(state: &mut GameState, player: &PlayerId, leader: &LeaderId) -> boo
 /// times the rules never give it.
 #[must_use]
 pub fn usable(state: &GameState, content: &ContentStore, player: &PlayerId) -> Vec<LeaderId> {
+    #[cfg(feature = "typed-core")]
+    let typed = || status_view(state, content).and_then(|v| v.usable(player));
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::LeadersAbilities,
+        "leaders::usable",
+        typed(),
+        usable_text(state, content, player)
+    )
+}
+
+fn usable_text(state: &GameState, content: &ContentStore, player: &PlayerId) -> Vec<LeaderId> {
     state.player(player).map_or_else(Vec::new, |seat| {
         seat.leaders
             .iter()
@@ -460,6 +589,22 @@ pub fn usable(state: &GameState, content: &ContentStore, player: &PlayerId) -> V
 /// of Kings agent printed for the action phase was never offered; see
 /// `the_hacan_agent_is_offered_on_its_own_turn`.
 fn is_action_window(content: &ContentStore, leader: &LeaderId) -> bool {
+    #[cfg(feature = "typed-core")]
+    let typed = || {
+        use crate::generated::IdStr;
+        ti4_engine_core::generated::Leader::from_id(leader.as_str()).map(ti4_engine_core::rules::leaders::is_action_window)
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::LeadersAbilities,
+        "leaders::is_action_window",
+        typed(),
+        is_action_window_text(content, leader)
+    )
+}
+
+fn is_action_window_text(content: &ContentStore, leader: &LeaderId) -> bool {
     content
         .get(ContentType::Leaders, leader.as_str())
         .and_then(ti4_content::Record::leader_ability_kind)
@@ -473,6 +618,22 @@ fn is_action_window(content: &ContentStore, leader: &LeaderId) -> bool {
 pub fn uses_the_action(content: &ContentStore, leader: &LeaderId) -> bool {
     let leader = split_borrowed(leader).map_or_else(|| leader.clone(), |(_, source)| source);
     let leader = &leader;
+    #[cfg(feature = "typed-core")]
+    let typed = || {
+        use crate::generated::IdStr;
+        ti4_engine_core::generated::Leader::from_id(leader.as_str()).map(ti4_engine_core::rules::leaders::uses_the_action)
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::LeadersAbilities,
+        "leaders::uses_the_action",
+        typed(),
+        uses_the_action_text(content, leader)
+    )
+}
+
+fn uses_the_action_text(content: &ContentStore, leader: &LeaderId) -> bool {
     content
         .get(ContentType::Leaders, leader.as_str())
         .and_then(ti4_content::Record::leader_ability_kind)
@@ -500,7 +661,7 @@ const DELIVERED_ACTION_LEADERS: [&str; 8] = [
     "xxchahero-te",
 ];
 
-fn action_leader_delivered(leader: &LeaderId) -> bool {
+pub(crate) fn action_leader_delivered(leader: &LeaderId) -> bool {
     DELIVERED_ACTION_LEADERS.contains(&leader.as_str())
 }
 
@@ -538,7 +699,7 @@ pub fn zeu_systems(
 }
 
 /// Cheap preconditions for offering an action-phase leader: only what is checkable without a map.
-fn can_resolve_action(
+pub(crate) fn can_resolve_action(
     state: &GameState,
     content: &ContentStore,
     player: &PlayerId,
@@ -645,25 +806,11 @@ pub fn component_actions(
     content: &ContentStore,
     player: &PlayerId,
 ) -> Vec<crate::choice::ChoiceOption> {
-    let Some(seat) = state.player(player) else {
+    if state.player(player).is_none() {
         return Vec::new();
-    };
-    seat.leaders
-        .iter()
-        .filter(|(leader, status)| {
-            let kind = kind_of(content, leader);
-            matches!(
-                (*status, kind.as_deref()),
-                (LeaderStatus::Readied, Some(AGENT)) | (LeaderStatus::Unlocked, Some(HERO))
-            )
-        })
-        .map(|(leader, _)| leader.clone())
-        .filter(|leader| is_action_window(content, leader))
-        .filter(|leader| {
-            action_leader_delivered(leader)
-                || crate::factions::leader_action(state, content, player, leader).is_some()
-        })
-        .filter(|leader| can_resolve_action(state, content, player, leader))
+    }
+    action_candidates(state, content, player)
+        .into_iter()
         .map(|leader| {
             let label = content
                 .get(ContentType::Leaders, leader.as_str())
@@ -676,6 +823,54 @@ pub fn component_actions(
             )
         })
         .chain(borrowed_component_actions(state, content, player))
+        .collect()
+}
+
+/// The own leaders [`component_actions`] offers: readied agents and unlocked heroes printed for the
+/// action phase, delivered or owned by a faction module, and able to resolve.
+#[must_use]
+pub fn action_candidates(state: &GameState, content: &ContentStore, player: &PlayerId) -> Vec<LeaderId> {
+    #[cfg(feature = "typed-core")]
+    let typed = || {
+        crate::leaders_view::LeaderView::of(
+            state,
+            Some(content),
+            ti4_model::content_types::FULL,
+            None,
+            crate::leaders_view::READS_ACTIONS,
+        )
+        .and_then(|v| v.action_candidates(player))
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::LeadersAbilities,
+        "leaders::action_candidates",
+        typed(),
+        action_candidates_text(state, content, player)
+    )
+}
+
+fn action_candidates_text(state: &GameState, content: &ContentStore, player: &PlayerId) -> Vec<LeaderId> {
+    let Some(seat) = state.player(player) else {
+        return Vec::new();
+    };
+    seat.leaders
+        .iter()
+        .filter(|(leader, status)| {
+            let kind = kind_of_text(content, leader);
+            matches!(
+                (*status, kind.as_deref()),
+                (LeaderStatus::Readied, Some(AGENT)) | (LeaderStatus::Unlocked, Some(HERO))
+            )
+        })
+        .map(|(leader, _)| leader.clone())
+        .filter(|leader| is_action_window_text(content, leader))
+        .filter(|leader| {
+            action_leader_delivered(leader)
+                || crate::factions::leader_action(state, content, player, leader).is_some()
+        })
+        .filter(|leader| can_resolve_action(state, content, player, leader))
         .collect()
 }
 
@@ -836,17 +1031,40 @@ pub fn vote_bonus(state: &GameState, player: &PlayerId) -> i64 {
     crate::factions::vote_bonus(state, player)
 }
 
+/// `promissory::has_commander_ability`, through the typed leader rules.
+fn commander_ability(state: &GameState, player: &PlayerId, commander: &str) -> bool {
+    #[cfg(feature = "typed-core")]
+    let typed = || {
+        crate::leaders_view::LeaderView::of(
+            state,
+            None,
+            ti4_model::content_types::FULL,
+            None,
+            crate::leaders_view::READS_ABILITY,
+        )
+        .and_then(|v| v.has_commander_ability(player, commander))
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::LeadersAbilities,
+        "leaders::commander_ability",
+        typed(),
+        crate::promissory::has_commander_ability(state, player, commander)
+    )
+}
+
 /// Elder Qanoj, Xxcha's commander: "Each planet you exhaust to cast votes provides 1 additional
 /// vote. Game effects cannot prevent you from voting on an agenda."
 #[must_use]
 pub fn elder_qanoj(state: &GameState, player: &PlayerId) -> bool {
-    crate::promissory::has_commander_ability(state, player, "xxchacommander")
+    commander_ability(state, player, "xxchacommander")
 }
 
 /// Whether this player's units ignore a planetary shield when bombarding.
 #[must_use]
 pub fn ignores_planetary_shield(state: &GameState, player: &PlayerId) -> bool {
-    crate::promissory::has_commander_ability(state, player, "l1z1xcommander")
+    commander_ability(state, player, "l1z1xcommander")
 }
 
 /// Xxekir Grom: whether this player's exhausted planets pay their combined value.
@@ -860,6 +1078,28 @@ pub fn ignores_planetary_shield(state: &GameState, player: &PlayerId) -> bool {
 /// and forgotten on another.
 #[must_use]
 pub fn combines_planet_values(state: &GameState, player: &PlayerId) -> bool {
+    #[cfg(feature = "typed-core")]
+    let typed = || {
+        crate::leaders_view::LeaderView::of(
+            state,
+            None,
+            ti4_model::content_types::FULL,
+            None,
+            crate::leaders_view::READS_STATUS,
+        )
+        .and_then(|v| v.combines_planet_values(player))
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::LeadersAbilities,
+        "leaders::combines_planet_values",
+        typed(),
+        combines_planet_values_text(state, player)
+    )
+}
+
+fn combines_planet_values_text(state: &GameState, player: &PlayerId) -> bool {
     state.player(player).is_some_and(|seat| {
         seat.leaders.iter().any(|(leader, status)| {
             leader.as_str() == "xxchahero" && *status == LeaderStatus::Unlocked
@@ -871,7 +1111,7 @@ pub fn combines_planet_values(state: &GameState, player: &PlayerId) -> bool {
 #[must_use]
 pub fn pays_on_sustain(state: &GameState, content: &ContentStore, player: &PlayerId) -> bool {
     let _ = content;
-    crate::promissory::has_commander_ability(state, player, "letnevcommander")
+    commander_ability(state, player, "letnevcommander")
 }
 
 /// Leaders this engine can use, by id.

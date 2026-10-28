@@ -509,6 +509,13 @@ pub fn typed_map(galaxy: &Galaxy) -> Option<TypedMap> {
     })
 }
 
+/// The typed enum of a string id (`None` for an id the generated tables do not know). The one copy
+/// every view of the string engine's typed areas uses.
+#[must_use]
+pub(crate) fn typed<T: IdStr>(id: &str) -> Option<T> {
+    T::from_id(id)
+}
+
 /// The typed adjacency of `galaxy`; `None` when the galaxy cannot be expressed.
 #[must_use]
 pub fn adjacency_for(galaxy: &Galaxy) -> Option<std::sync::Arc<Adjacency>> {

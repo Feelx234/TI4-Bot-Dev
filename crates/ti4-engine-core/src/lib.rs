@@ -15,6 +15,7 @@ pub mod bits;
 pub mod board;
 pub mod choice;
 pub mod containers;
+pub mod driver;
 pub mod galaxy;
 pub mod hex;
 pub mod ids;
@@ -22,6 +23,7 @@ pub mod kernel;
 pub mod keys;
 pub mod movement;
 pub mod query;
+pub mod rules;
 pub mod state;
 pub mod tables;
 

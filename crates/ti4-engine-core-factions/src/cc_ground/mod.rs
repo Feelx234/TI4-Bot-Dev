@@ -8,6 +8,7 @@ pub mod ghost;
 pub mod mahact;
 pub mod mentak;
 pub mod borrowed;
+pub mod sides;
 
 /// The modules this package provides, with all their tiers.
 pub const MODULES: Modules = &[
@@ -24,3 +25,6 @@ pub const MOVEMENT: Modules = &[
     (Id::Ghost, ghost::register_movement),
     (Id::Mentak, mentak::register_movement),
 ];
+
+#[cfg(test)]
+pub(crate) use crate::common::testkit;

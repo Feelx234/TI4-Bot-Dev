@@ -7,7 +7,6 @@ use ti4_model::state::GameState;
 
 use crate::choice::{Choice, ChoiceOption, IllegalChoice, validate};
 use crate::decision_context::{DecisionContext, DecisionSource};
-use crate::phase::next_strategy_picker;
 
 /// The stable option kind for a strategy-card selection.
 pub const STRATEGY_CARD_KIND: &str = "strategy_card";
@@ -32,9 +31,14 @@ pub enum DraftError {
 /// corpus id remains visible rather than vanishing from a legal choice.
 #[must_use]
 pub fn strategy_options(state: &GameState, content: &ContentStore) -> Option<Choice> {
-    let picker = next_strategy_picker(state)?;
-    let options = state
-        .unclaimed_strategy_cards
+    // One typed view answers the picker and the cards together.
+    let (picker, cards) = crate::dual_typed!(
+        crate::dual::Area::Strategy,
+        "draft::strategy_options",
+        crate::strategy_typed::draft(state),
+        crate::phase::next_strategy_picker_text(state).map(|p| (p, state.unclaimed_strategy_cards.clone()))
+    )?;
+    let options = cards
         .iter()
         .map(|card| {
             ChoiceOption::labelled(

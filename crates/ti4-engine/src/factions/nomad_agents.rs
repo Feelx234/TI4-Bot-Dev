@@ -454,6 +454,15 @@ fn mercer(owner_name: &str, seat: &PlayerId) -> Ability {
 /// logs are exactly what they were before the agent existed.
 #[must_use]
 pub fn watches_roll_step(state: &GameState) -> bool {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Direct,
+        "nomad_agents::watches_roll_step",
+        watches_roll_step_text(state),
+        crate::core_factions::ce::nomad_watches_roll_step(state)
+    )
+}
+
+fn watches_roll_step_text(state: &GameState) -> bool {
     let holds = |seat: &ti4_model::state::Player, status: &[LeaderStatus]| {
         seat.leaders
             .get(ti4_model::id::text(&THUNDARIAN))
@@ -542,6 +551,20 @@ fn cavalry_ship_type(state: &GameState, player: &PlayerId, system: &SystemId) ->
 /// other ship of that type can sustain.
 fn grants_sustain(
     state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    unit: &CombatUnit<'_>,
+) -> bool {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Combat,
+        "nomad_agents::grants_sustain",
+        grants_sustain_text(state, content, sources, unit),
+        crate::core_factions::ce::nomad_grants_sustain(state, sources, unit)
+    )
+}
+
+fn grants_sustain_text(
+    state: &GameState,
     _content: &ContentStore,
     _sources: SourceSet,
     unit: &CombatUnit<'_>,
@@ -575,6 +598,26 @@ fn grants_sustain(
 /// that borrows is the damaged one of its type when the type cannot sustain by itself (it is the
 /// one that used the borrowed ability), else the first of its type in board order.
 fn borrowed_stats(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+) -> Option<BorrowedStats> {
+    // The core answer is the borrowing kind and the lent values; the piece (the damaged one of its type) is the
+    // window's pick, so the dual compares the kind and the values.
+    let facts = |found: Option<BorrowedStats>| found.map(|b| (b.unit.type_id.to_string(), b.hits_on, b.barrage));
+    let string = borrowed_stats_text(state, content, sources, player, system);
+    crate::cb_dual!(
+        crate::dual::HookGroup::Combat,
+        "nomad_agents::borrowed_stats",
+        facts(string.clone()),
+        crate::core_factions::ce::nomad_borrowed_stats(state, sources, player, system)
+    );
+    string
+}
+
+fn borrowed_stats_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,

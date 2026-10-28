@@ -175,6 +175,43 @@ impl Dice {
         record
     }
 
+    /// Record a roll that was drawn elsewhere (the typed rules draw from their own copy of the streams
+    /// and hand back the faces): the same entry [`Dice::roll_by`] or [`Dice::reroll`] would have left.
+    pub fn record_drawn(
+        &mut self,
+        reason: &str,
+        faces: Vec<u32>,
+        hits_on: Option<u32>,
+        rerolled: BTreeSet<usize>,
+        by: &ti4_model::id::PlayerId,
+    ) -> Roll {
+        let record = Roll {
+            reason: reason.to_owned(),
+            faces,
+            hits_on,
+            rerolled,
+            by: Some(by.to_string()),
+            system: self.scene.clone(),
+            outcome: None,
+            source: None,
+        };
+        self.history.push(record.clone());
+        record
+    }
+
+    /// Whether test faces are preloaded (the dual cannot predict those draws).
+    #[must_use]
+    pub fn is_preloaded(&self) -> bool {
+        #[cfg(test)]
+        {
+            self.preload.is_some()
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
+    }
+
     /// Say which system the following rolls belong to (`None` outside one).
     pub fn set_scene(&mut self, system: Option<&str>) {
         self.scene = system.map(str::to_owned);

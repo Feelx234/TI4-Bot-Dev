@@ -167,8 +167,23 @@ impl AreaMask {
         if cfg!(all(feature = "typed-core", not(feature = "string-movement"))) {
             mask = mask.with(Area::Movement, Backend::Core);
         }
+        if cfg!(all(feature = "typed-core", not(feature = "string-objectives"))) {
+            mask = mask.with(Area::Objectives, Backend::Core);
+        }
         // Wave C (docs/ENGINE_CORE_FACTIONS_PLAN.md 6): when the first faction shard is merged and gated,
         // add `Area::Factions` the same way, behind `not(feature = "string-factions")`.
+        if cfg!(all(feature = "typed-core", not(feature = "string-trade"))) {
+            mask = mask.with(Area::TradeDiplomacy, Backend::Core);
+        }
+        if cfg!(all(feature = "typed-core", not(feature = "string-exploration"))) {
+            mask = mask.with(Area::ExplorationRelics, Backend::Core);
+        }
+        if cfg!(all(feature = "typed-core", not(feature = "string-strategy"))) {
+            mask = mask.with(Area::Strategy, Backend::Core);
+        }
+        if cfg!(all(feature = "typed-core", not(feature = "string-agenda"))) {
+            mask = mask.with(Area::AgendaLaws, Backend::Core);
+        }
         mask
     }
 
@@ -375,10 +390,21 @@ pub struct DualReport {
     pub areas: BTreeMap<Area, AreaCounts>,
     /// Hook-level checks ([`dual_hook!`]), by slot name (`"hit_shift"`): calls and differing answers.
     pub hooks: BTreeMap<&'static str, HookCounts>,
+    /// Window call sites ([`dual_window!`]), by label: compared runs and runs the core bowed out of.
+    pub windows: BTreeMap<String, WindowCounts>,
     /// The first [`MAX_KEPT`] differences.
     pub differences: Vec<Difference>,
     /// Differences beyond [`MAX_KEPT`] (counted only).
     pub dropped: u64,
+}
+
+/// What happened at one [`dual_window!`] call site.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct WindowCounts {
+    /// The core window ran and was compared.
+    pub compared: u64,
+    /// The core bowed out (`None`): nothing was compared and the string result stood.
+    pub bailed: u64,
 }
 
 /// Differences kept with their detail.
@@ -426,6 +452,11 @@ impl DualReport {
             into.calls += counts.calls;
             into.differing += counts.differing;
         }
+        for (label, counts) in &other.windows {
+            let into = self.windows.entry(label.clone()).or_default();
+            into.compared += counts.compared;
+            into.bailed += counts.bailed;
+        }
         for d in &other.differences {
             if self.differences.len() < MAX_KEPT {
                 self.differences.push(d.clone());
@@ -470,6 +501,12 @@ impl fmt::Display for DualReport {
                 if h.differing > 0 {
                     writeln!(f, "    {slot}: {} of {} calls differ", h.differing, h.calls)?;
                 }
+            }
+        }
+        if !self.windows.is_empty() {
+            writeln!(f, "  windows: {} call sites", self.windows.len())?;
+            for (label, w) in &self.windows {
+                writeln!(f, "    {label}: {} compared, {} bailed", w.compared, w.bailed)?;
             }
         }
         for d in &self.differences {
@@ -954,6 +991,13 @@ impl<R> Run<R> {
         self
     }
 
+    /// The events as already-normalised values (the window dual builds them from the core's records).
+    #[must_use]
+    pub fn with_events_vec(mut self, events: Vec<Event>) -> Self {
+        self.events = Some(events);
+        self
+    }
+
     #[must_use]
     pub fn with_rng(mut self, rng: &GameRng) -> Self {
         self.rng = Some(rng.positions());
@@ -1020,6 +1064,67 @@ pub fn run_dual<R: PartialEq + Debug>(
     string_run.value
 }
 
+/// The core half of a window run: what the lockstep driver saw.
+#[derive(Debug, Clone)]
+pub struct CoreWindow<R> {
+    /// The value, the events the window emitted itself and the rng positions (unset parts are not compared).
+    pub run: Run<R>,
+    /// The questions the core window put, rendered, in order.
+    pub questions: Vec<Choice>,
+}
+
+/// The `Dual` path of [`dual_window!`]: a stateful window run on both sides from the same state, in lockstep
+/// (package D1, docs/ENGINE_CORE_DRIVER.md).
+///
+/// The string side runs for real and its questions, the answers it got and the events it emitted at the
+/// outermost level are recorded (`dual_window`). The core side runs the same window on a copy of the
+/// state through the driver; each question it puts is rendered and compared with the string one, and is
+/// answered with the string side's answer, so both sides stay on the same path. Afterwards the returned
+/// values, the resulting states, the events and the rng positions are compared. `core` returns `None` when
+/// the position holds something the core cannot express yet (the string result stands, nothing compared).
+pub fn run_dual_window<R: PartialEq + Debug>(
+    area: Area,
+    label: &str,
+    state: &mut GameState,
+    string: impl FnOnce(&mut GameState) -> Run<R>,
+    core: impl FnOnce(&mut GameState, &crate::dual_window::Recording) -> Option<CoreWindow<R>>,
+) -> R {
+    if !crate::dual_window::start() {
+        // A window inside a window: the outer one compares the whole.
+        return string(state).value;
+    }
+    let mut core_state = state.clone();
+    let mut string_run = string(state);
+    let recording = crate::dual_window::finish();
+    let Some(core_run) = core(&mut core_state, &recording) else {
+        with_report(|r| r.windows.entry(label.to_owned()).or_default().bailed += 1);
+        return string_run.value;
+    };
+    with_report(|r| r.windows.entry(label.to_owned()).or_default().compared += 1);
+    string_run.events = Some(crate::dual_window::normalized(&recording.emits));
+    let ok = compare_value(area, &format!("{label}.questions"), &recording.questions.len(), &core_run.questions.len());
+    if ok {
+        for (asked, rendered) in recording.questions.iter().zip(&core_run.questions) {
+            compare_choice(area, label, Some(&asked.choice), Some(rendered));
+        }
+    }
+    compare_runs(area, label, state, &string_run, &core_state, &core_run.run);
+    string_run.value
+}
+
+/// The question half of a stage window (`Window::ask_of`): the string window's pending question, compared
+/// with the one the core window puts at the same position. `core` returns `None` when the position holds
+/// something the core cannot express (counted as a bail-out under `label`, nothing compared).
+pub fn run_dual_ask(area: Area, label: &str, string: Option<&Choice>, core: impl FnOnce() -> Option<Choice>) {
+    let Some(core) = core() else {
+        with_report(|r| r.windows.entry(label.to_owned()).or_default().bailed += 1);
+        return;
+    };
+    with_report(|r| r.windows.entry(label.to_owned()).or_default().compared += 1);
+    note_call(area);
+    compare_choice(area, label, string, Some(&core));
+}
+
 /// The `Dual` path of [`dual_query!`]: a read-only call compared by its returned value.
 pub fn run_dual_query<R: PartialEq + Debug>(
     area: Area,
@@ -1082,6 +1187,22 @@ macro_rules! dual {
     };
 }
 
+/// A stateful window call site (package D1): `dual_window!(Area::Driver, "label", state, |s| string side, |s,
+/// script| core side)`. The string closure returns a [`Run`]; the core closure gets the state copy and the
+/// recording of the string side's questions and answers and returns `Option<CoreWindow<R>>`. `String` runs
+/// the string closure; `Core` too until the driver owns the table (D2); `Dual` runs both in lockstep.
+#[macro_export]
+macro_rules! dual_window {
+    ($area:expr, $label:expr, $state:expr, $string:expr, $core:expr) => {
+        match $crate::dual::backend($area) {
+            $crate::dual::Backend::String | $crate::dual::Backend::Core => ($string)($state).value,
+            $crate::dual::Backend::Dual => {
+                $crate::dual::run_dual_window($area, $label, $state, $string, $core)
+            }
+        }
+    };
+}
+
 /// A read-only call site: `dual_query!(Area::X, "label", string_expr, core_expr)`; the expressions
 /// are evaluated only on their backend (both in `Dual`, compared by `PartialEq`).
 #[macro_export]
@@ -1115,7 +1236,7 @@ macro_rules! dual_hook {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::collections::BTreeMap;
 
     use serde_json::json;
@@ -1128,7 +1249,7 @@ mod tests {
 
     /// Holds the report lock and turns fail-fast off (the tests inject differences on purpose, also
     /// when the suite runs with `TI4_DUAL_FAIL_FAST`); restored on drop.
-    struct Serial(#[allow(dead_code)] std::sync::MutexGuard<'static, ()>, bool);
+    pub(crate) struct Serial(#[allow(dead_code)] std::sync::MutexGuard<'static, ()>, bool);
 
     impl Drop for Serial {
         fn drop(&mut self) {
@@ -1136,7 +1257,7 @@ mod tests {
         }
     }
 
-    fn serial() -> Serial {
+    pub(crate) fn serial() -> Serial {
         let guard = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let before = fail_fast();
         set_fail_fast(false);

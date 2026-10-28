@@ -916,6 +916,17 @@ impl Resolver {
 
     fn emit_inner(
         &mut self,
+        event: Event,
+        resolve: impl FnOnce(&mut Event),
+    ) -> Result<Event, TimingError> {
+        let guard = crate::dual_window::enter_emit();
+        let result = self.emit_inner_raw(event, resolve);
+        crate::dual_window::leave_emit(guard, result.as_ref().ok());
+        result
+    }
+
+    fn emit_inner_raw(
+        &mut self,
         mut event: Event,
         resolve: impl FnOnce(&mut Event),
     ) -> Result<Event, TimingError> {
@@ -998,6 +1009,18 @@ impl Resolver {
     }
 
     fn emit_with_context_inner(
+        &mut self,
+        context: &mut TimingContext<'_>,
+        event: Event,
+        resolve: impl FnOnce(&mut Event, &mut TimingContext<'_>),
+    ) -> Result<Event, TimingError> {
+        let guard = crate::dual_window::enter_emit();
+        let result = self.emit_with_context_inner_raw(context, event, resolve);
+        crate::dual_window::leave_emit(guard, result.as_ref().ok());
+        result
+    }
+
+    fn emit_with_context_inner_raw(
         &mut self,
         context: &mut TimingContext<'_>,
         mut event: Event,
@@ -1113,6 +1136,7 @@ impl Resolver {
                         ability.id
                     ));
                     crate::kernel_sync::trace::effect_begin(&ability.id);
+                    crate::dual_window::note_effect();
                     let effect_result = (ability.effect)(event, self);
                     crate::kernel_sync::trace::effect_end(event.cancelled);
                     effect_result?;
@@ -1185,6 +1209,7 @@ impl Resolver {
                         ability.id
                     ));
                     crate::kernel_sync::trace::effect_begin(&ability.id);
+                    crate::dual_window::note_effect();
                     let effect_result = if let Some(effect) = ability.stateful_effect {
                         effect(event, self, context)
                     } else {
