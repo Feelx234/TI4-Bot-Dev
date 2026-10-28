@@ -586,11 +586,22 @@ mod tests {
             (C::CourageousToTheEnd, "dice and a casualty choice"),
             (C::Strategize1, "performs another area's ability"),
             (C::Bribery, "the trade-good payment"),
-            (C::WarEffort, "unit placement"),
         ] {
             assert_eq!(Fx::of(card), None, "{card:?}: {why}");
         }
-        for card in [C::Sabotage3, C::Veto4, C::DiplomaticPressure2, C::Sanction, C::Uprising, C::Counterstroke] {
+        for card in [
+            C::Sabotage3,
+            C::Veto4,
+            C::DiplomaticPressure2,
+            C::Sanction,
+            C::Uprising,
+            C::Counterstroke,
+            C::TacticalBombardment,
+            C::RiseOfAMessiah,
+            C::FrontlineDeployment,
+            C::WarEffort,
+            C::InsiderInformation,
+        ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }
     }
