@@ -77,11 +77,7 @@ impl Pos {
 
 /// Run `f` over the typed view of `gs`.
 fn with<T>(gs: &GameState, sources: SourceSet, f: impl FnOnce(&Pos) -> Option<T>) -> Option<T> {
-    let p = Pos::of(gs, sources);
-    if p.is_none() && std::env::var_os("TI4_CD_TRACE").is_some() {
-        eprintln!("CD_TRACE typed view unavailable");
-    }
-    f(&p?)
+    f(&Pos::of(gs, sources)?)
 }
 
 fn full() -> SourceSet {
@@ -783,6 +779,9 @@ fn dual_effect<F: PartialEq + std::fmt::Debug>(
     facts_core: impl Fn(&CoreState, &Pos) -> F,
 ) {
     use ti4_engine_core::kernel::{Cx, FirstOption};
+    if crate::dual::backend(crate::dual::Area::Factions) != crate::dual::Backend::Dual {
+        return string(gs);
+    }
     let Some(before) = Pos::of(gs, sources) else { return string(gs) };
     crate::dual::run_dual_hook(
         group,
@@ -849,6 +848,9 @@ pub fn dual_yin_research_waiver_paid(
     string: impl FnOnce(&mut GameState) -> bool,
 ) -> bool {
     use ti4_engine_core::kernel::{Cx, FirstOption};
+    if crate::dual::backend(crate::dual::Area::Factions) != crate::dual::Backend::Dual {
+        return string(gs);
+    }
     let before = Pos::of(gs, sources);
     // `ground|<system>|<planet>` or `space|<system>`.
     let parsed = (|| {
