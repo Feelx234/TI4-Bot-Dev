@@ -44,7 +44,7 @@ given are from the package reports.
   - B6-bail-05: no `Fx` (the string effect runs alone; one test, `every_bail_has_no_window_and_the_ported_cards_have_one`): Spy and Plague (the seeded roller is outside the state), Unstable Planet (the destroyed ground forces are a string marker, not a typed event), Repeal Law (a law leaving play is B9's), Direct Hit x4 (the exact sustain-target mark and the ship-lost observers), Intercept (planet-based combatants), Pirate Contract x4 (the neutral destroyer has no seat), Summit (the token-pool question with previews), Skilled Retreat x4, Courageous To The End (dice and a casualty question), Strategize x4 / Overrule (perform another area's ability), Bribery (the trade-good payment), Lucky Shot and Scuttle (per-unit `details` of the options), Ghost Ship (the game's map), Reparations (two questions with state-located planets), Public Disgrace, Harness Energy, Lie in Wait, and the cards that place through faction hooks or the unit-form flip (Fighter Conscription, Refit Troops, Decoy Operation, Ghost Squad, Experimental Battlestation, Upgrade, Parley, Scramble, Fire Team, Exploration Probe, Archaeological Expedition, Divert Funding, Impersonation, Plagiarize, Focused Research, Reveal Prototype, Mercenary Contract, Pirate Fleet, Manipulate Investments, Exchange Program, Brilliance, Seize Artifact, Signal Jamming, Rescue, Crash Landing, Infiltrate, ...).
   - B6-bail-06: Veto declines (`Play::of` is `None`) while the string state carries a deck reserve (a turn-redo replay): the string draws through it.
   - B6-bail-07: `Play::of` is `None` for a Rider played with no agenda in play and two or more outcomes (the question has no frame); the placed unit form of War Effort, Rise of a Messiah and Frontline Deployment that the core does not know (`play_window` returns `None`).
-- **Others**: B4 offer/diplomacy remainder; B5 (mutation half partly ported, see the B5 section below); B8 mutation half; A4 mutation half (see the A4 section below: the scoring window's bookkeeping, prices, plots and the status-phase order are still string); S8 partial (only reaction slots as data).
+- **Others**: B4 (mutation half partly ported, see the B4 section below: the TradeWindow, the diplomacy window, deal book, signals and promises stay string); B5 (mutation half partly ported, see the B5 section below); B8 mutation half; A4 mutation half (see the A4 section below: the scoring window's bookkeeping, prices, plots and the status-phase order are still string); S8 partial (only reaction slots as data).
 
 ## D. Design / known issues
 
@@ -204,3 +204,20 @@ Branch `core-b8-strategy`. Ported: the reads (slice 1: pick order, draft, unused
 | B8-design-03 | `take_card`'s core half collects goods with the unclamped string sum only below `i16::MAX` (the core counter is i16) |
 | B8-design-04 | equivalent mutant: the `unwrap_or(99)` initiative of a card the map has no number for (every dealt card has one) |
 | B8-design-05 | a stray parse of the Trade option id picks the first seat of that faction in owner order; the string picks the first in seating order; the two agree because duplicate factions bail |
+
+## B4 trade/diplomacy mutations: bails, still-string list and design lines
+
+Branch `core-b4-trade`. Ported behind `dual::write` on `Area::TradeDiplomacy` (glue `trade_write.rs`, rules `rules::diplomacy` and `rules::trade`): the diplomacy relationship table (13 events), its decay, the initiation tally; promissory notes changing hands (take, give back, ACTION placements, Support loan with its VP ledger row, return all foreign), and the note leg of a deal; Trade Agreement on replenish; the turn, action and round trade records. Earlier slices: reads, goods exchange, records, the Propose/Answer questions rendered byte-exact.
+
+NOT ported (still string): the `TradeWindow` stage machine (driven question by question by `Game`, so there is no run-to-completion function for `dual_window!`; its options come from the unported `offer_options` pricing), `DiplomacyWindow`, the deal book (create_deal, add_counter, archive_deal, apply_acceptance), signals (emit/judge), the promise ledger (fulfill_payment, settle_deadlines, evaluate_event), a deal with a planet card (Pride of Kenara moves board units).
+
+| id | note |
+|----|------|
+| B4-bail-01 | `relationship_event` bails for an owner without a seat (neutral units) and for a relationships row the flat typed map cannot hold (empty row) |
+| B4-bail-02 | note writes bail for a note id or faction the tables do not know and for a faction played by two seats (give_back, receive_support, trade_agreement, return_all_foreign); a bail writes nothing |
+| B4-bail-03 | `trade_core::exchange` bails for a planet-card leg and for a note whose id has no typed form |
+| B4-copy-01 | `traded_goods`, `traded_goods_for_promissory` and `promises` are never written by the engine (only codec round trip): nothing to port |
+| B4-design-01 | note rules live in `rules/trade.rs`, not a separate file: `check_layers` forbids one rules area importing another (`exchange` needs them) |
+| B4-design-02 | staged events (`TRADE_GOODS_GAINED` of a Trade Agreement) and the Cabal observer stay string, run after the write on both backends |
+| B4-design-03 | `promissory::*` writes use `Area::TradeDiplomacy` although B5 owns the reads; `dual::write` came from the B5 merge |
+| B4-design-04 | `play_convoys` picks the first copy by the text order of the faction id (closure `text_order`), as the string map does |
