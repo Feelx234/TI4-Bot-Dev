@@ -20,6 +20,7 @@ pub mod hooks;
 pub mod next;
 pub mod reaction;
 pub mod resolver;
+pub mod seam;
 pub mod trigger;
 
 pub use hooks::HookTable;

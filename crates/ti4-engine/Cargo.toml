@@ -18,6 +18,7 @@ thiserror.workspace = true
 ts-rs = { workspace = true, optional = true }
 # The typed core (docs/ENGINE_CORE.md), behind `typed-core` (on by default).
 ti4-engine-core = { workspace = true, optional = true }
+# The faction modules of the typed core (wave C): `register_all` fills the kernel hook table. Unused until a shard is merged.
 ti4-engine-core-factions = { workspace = true, optional = true }
 
 # The TypeScript types of the wire (`ti4_wasm::wire_ts`); off but in the tests of the browser game.
@@ -33,6 +34,9 @@ typed-core = ["dep:ti4-engine-core", "dep:ti4-engine-core-factions"]
 string-movement = []
 # The same off switch for the objectives area (`objectives_core`; package A4).
 string-objectives = []
+# The same for the faction modules (`Area::Factions`, wave C): forces the string `factions::MODULES` dispatch.
+# Read by `AreaMask::build_default` once the first shard is switched to `Core`.
+string-factions = []
 
 [dev-dependencies]
 strum.workspace = true

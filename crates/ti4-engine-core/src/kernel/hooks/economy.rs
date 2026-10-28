@@ -8,7 +8,8 @@ use crate::kernel::{Cx, Kernel};
 use crate::state::CoreState;
 
 /// Destinations a module adds for production: `(system, planet)`.
-pub type Destinations = SmallList<(System, Option<Planet>), 4>;
+pub type Destination = (System, Option<Planet>);
+pub type Destinations = SmallList<Destination, 4>;
 /// Alternative PDS placements a module offers: `(code, arg)` of the module (rendered by the adapter).
 pub type Alternatives = SmallList<super::ComponentAction, 4>;
 

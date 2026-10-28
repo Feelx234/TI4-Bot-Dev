@@ -170,6 +170,8 @@ impl AreaMask {
         if cfg!(all(feature = "typed-core", not(feature = "string-objectives"))) {
             mask = mask.with(Area::Objectives, Backend::Core);
         }
+        // Wave C (docs/ENGINE_CORE_FACTIONS_PLAN.md 6): when the first faction shard is merged and gated,
+        // add `Area::Factions` the same way, behind `not(feature = "string-factions")`.
         mask
     }
 
@@ -362,10 +364,20 @@ pub struct AreaCounts {
     pub lend_ns: u64,
 }
 
+/// Counters of one hook slot.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HookCounts {
+    pub group: Option<HookGroup>,
+    pub calls: u64,
+    pub differing: u64,
+}
+
 /// Everything the dual run saw in this process.
 #[derive(Debug, Clone, Default)]
 pub struct DualReport {
     pub areas: BTreeMap<Area, AreaCounts>,
+    /// Hook-level checks ([`dual_hook!`]), by slot name (`"hit_shift"`): calls and differing answers.
+    pub hooks: BTreeMap<&'static str, HookCounts>,
     /// The first [`MAX_KEPT`] differences.
     pub differences: Vec<Difference>,
     /// Differences beyond [`MAX_KEPT`] (counted only).
@@ -411,6 +423,12 @@ impl DualReport {
             into.lend_bytes += counts.lend_bytes;
             into.lend_ns += counts.lend_ns;
         }
+        for (slot, counts) in &other.hooks {
+            let into = self.hooks.entry(slot).or_default();
+            into.group = into.group.or(counts.group);
+            into.calls += counts.calls;
+            into.differing += counts.differing;
+        }
         for d in &other.differences {
             if self.differences.len() < MAX_KEPT {
                 self.differences.push(d.clone());
@@ -448,6 +466,14 @@ impl fmt::Display for DualReport {
                 )?;
             }
             writeln!(f)?;
+        }
+        if !self.hooks.is_empty() {
+            writeln!(f, "  hooks: {} slots, {} calls, {} differences", self.hooks.len(), self.hooks.values().map(|h| h.calls).sum::<u64>(), self.hooks.values().map(|h| h.differing).sum::<u64>())?;
+            for (slot, h) in &self.hooks {
+                if h.differing > 0 {
+                    writeln!(f, "    {slot}: {} of {} calls differ", h.differing, h.calls)?;
+                }
+            }
         }
         for d in &self.differences {
             writeln!(f, "{d}")?;
@@ -530,6 +556,149 @@ fn tally(area: Area, category: Category, label: &str, found: Vec<(String, String
         return false;
     }
     true
+}
+
+// --- the hook level ----------------------------------------------------------------------------
+
+/// The group of a hook slot (the files of `kernel/hooks/` plus the seams of `kernel/seam/`): a package
+/// turns on only its own groups, `TI4_HOOKS=combat,economy` (default: all).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u8)]
+pub enum HookGroup {
+    General,
+    Combat,
+    Ground,
+    Economy,
+    Movement,
+    Cards,
+    Strategy,
+    Direct,
+    /// The uniform seams: stacks, predicates, gathers, replacements, observers, offers.
+    Seam,
+}
+
+impl HookGroup {
+    pub const ALL: [Self; 9] =
+        [Self::General, Self::Combat, Self::Ground, Self::Economy, Self::Movement, Self::Cards, Self::Strategy, Self::Direct, Self::Seam];
+
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::General => "general",
+            Self::Combat => "combat",
+            Self::Ground => "ground",
+            Self::Economy => "economy",
+            Self::Movement => "movement",
+            Self::Cards => "cards",
+            Self::Strategy => "strategy",
+            Self::Direct => "direct",
+            Self::Seam => "seam",
+        }
+    }
+
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|g| g.name() == name)
+    }
+
+    /// The groups of a `TI4_HOOKS` text: names separated by commas, `all`, or empty for all.
+    pub fn parse_mask(spec: &str) -> Result<u16, String> {
+        let spec = spec.trim();
+        if spec.is_empty() || spec == "all" {
+            return Ok(Self::ALL_BITS);
+        }
+        let mut bits = 0;
+        for name in spec.split(',').map(str::trim).filter(|n| !n.is_empty()) {
+            bits |= 1 << Self::from_name(name).ok_or_else(|| format!("unknown hook group `{name}`"))? as u16;
+        }
+        Ok(bits)
+    }
+
+    const ALL_BITS: u16 = (1 << Self::ALL.len()) - 1;
+}
+
+static HOOK_GROUPS: AtomicU64 = AtomicU64::new(u64::MAX);
+
+/// Turn the hook groups of `bits` on (the others fall back to the string answer in `Dual`).
+pub fn set_hook_groups(bits: u16) {
+    HOOK_GROUPS.store(u64::from(bits), Ordering::Relaxed);
+}
+
+/// Whether `dual_hook!` compares slots of `group` (`TI4_HOOKS`, read once; default: all).
+#[must_use]
+pub fn hook_enabled(group: HookGroup) -> bool {
+    let mut bits = HOOK_GROUPS.load(Ordering::Relaxed);
+    if bits == u64::MAX {
+        let from_env = std::env::var("TI4_HOOKS").ok().and_then(|s| HookGroup::parse_mask(&s).ok());
+        bits = u64::from(from_env.unwrap_or(HookGroup::ALL_BITS));
+        HOOK_GROUPS.store(bits, Ordering::Relaxed);
+    }
+    bits & (1 << group as u64) != 0
+}
+
+fn note_hook(group: HookGroup, slot: &'static str, differing: bool) {
+    with_report(|r| {
+        let h = r.hooks.entry(slot).or_default();
+        h.group = Some(group);
+        h.calls += 1;
+        h.differing += u64::from(differing);
+    });
+}
+
+/// The `Dual` path of [`dual_hook!`]: one seam call on each side, compared by value (an `Evaluated`
+/// compares `value` and `parts`; a gather compares the ordered list). The label is `hook::<slot>` in
+/// `Area::Factions`; the slot is counted in [`DualReport::hooks`].
+pub fn run_dual_hook<R: PartialEq + Debug>(
+    group: HookGroup,
+    slot: &'static str,
+    string: impl FnOnce() -> R,
+    core: impl FnOnce() -> R,
+) -> R {
+    let s = string();
+    if !hook_enabled(group) {
+        return s;
+    }
+    let c = core();
+    note_call(Area::Factions);
+    let mut label = String::from("hook::");
+    label.push_str(slot);
+    let ok = compare_value(Area::Factions, &label, &s, &c);
+    note_hook(group, slot, !ok);
+    s
+}
+
+/// The order-mutation audit's verdict for one slot: `failing` names the permutations (`"reverse"`,
+/// `"shuffle(<seed>)"`) under which the core answer changed. Empty means the slot commutes.
+/// A difference is reported as `order::<slot>` in `Area::Factions`.
+pub fn report_order_audit(group: HookGroup, slot: &'static str, failing: &[String]) -> bool {
+    note_call(Area::Factions);
+    let mut label = String::from("order::");
+    label.push_str(slot);
+    let found = failing.iter().map(|p| (p.clone(), "registration order".to_owned(), "permuted".to_owned())).collect();
+    let ok = tally(Area::Factions, Category::Value, &label, found);
+    note_hook(group, slot, !ok);
+    ok
+}
+
+/// Run the order audit of `table` for one probe (`probe` builds a kernel from the table it is given and makes the seam
+/// call) and report it. The same positions as the hook dual feed `probe`; the cross-product runner calls this
+/// per slot.
+#[cfg(feature = "typed-core")]
+pub fn audit_hook_order<R: PartialEq>(
+    group: HookGroup,
+    slot: &'static str,
+    table: &ti4_engine_core::kernel::HookTable,
+    probe: impl Fn(&ti4_engine_core::kernel::HookTable) -> R,
+) -> bool {
+    let failing: Vec<String> = table
+        .audit_commutative(probe)
+        .into_iter()
+        .map(|p| match p {
+            ti4_engine_core::kernel::seam::Permute::Reverse => "reverse".to_owned(),
+            ti4_engine_core::kernel::seam::Permute::Shuffle(seed) => format!("shuffle({seed:#x})"),
+        })
+        .collect();
+    report_order_audit(group, slot, &failing)
 }
 
 // --- the JSON-path diff reporter ---------------------------------------------------------------
@@ -931,6 +1100,23 @@ macro_rules! dual_query {
     };
 }
 
+/// A hook-level call site: `dual_hook!(HookGroup::Seam, "hit_shift", string_expr, core_expr)`. The expressions are
+/// one seam call each (the S-step function on the string side, `stack.eval`/`pred.decide`/`gather.collect` on the
+/// core side). Evaluated only on their backend of `Area::Factions`; in `Dual` both run, are compared by value and
+/// the slot is counted. A group switched off with `TI4_HOOKS` stays on the string answer.
+#[macro_export]
+macro_rules! dual_hook {
+    ($group:expr, $slot:expr, $string:expr, $core:expr) => {
+        match $crate::dual::backend($crate::dual::Area::Factions) {
+            $crate::dual::Backend::String => $string,
+            $crate::dual::Backend::Core => $core,
+            $crate::dual::Backend::Dual => {
+                $crate::dual::run_dual_hook($group, $slot, || $string, || $core)
+            }
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -1101,5 +1287,43 @@ mod tests {
         assert_eq!(s.players[0].trade_goods, before + 1);
         assert_eq!(report().total_differences(), 2);
         let _ = take_report();
+    }
+
+    #[test]
+    fn dual_hook_compares_one_seam_call_and_counts_the_slot() {
+        let _guard = serial();
+        let _ = take_report();
+        set_hook_groups(HookGroup::parse_mask("all").unwrap());
+        let both = AreaMask::all(Backend::Dual);
+        let same = with_mask(both, || dual_hook!(HookGroup::Seam, "hit_shift", vec![1, 2], vec![1, 2]));
+        assert_eq!(same, vec![1, 2]);
+        assert_eq!(report().total_differences(), 0);
+        // A gather whose order differs is a difference, and the string order is what the game keeps.
+        let out = with_mask(both, || dual_hook!(HookGroup::Seam, "alastor_participants", vec![1, 2], vec![2, 1]));
+        assert_eq!(out, vec![1, 2]);
+        let r = take_report();
+        assert_eq!(r.total_differences(), 1);
+        assert_eq!(r.hooks["hit_shift"], HookCounts { group: Some(HookGroup::Seam), calls: 1, differing: 0 });
+        assert_eq!(r.hooks["alastor_participants"].differing, 1);
+        assert!(r.differences[0].label.starts_with("hook::"));
+        // A group that is switched off stays on the string answer without a comparison.
+        set_hook_groups(HookGroup::parse_mask("combat").unwrap());
+        let off = with_mask(both, || dual_hook!(HookGroup::Seam, "dice", 1, 2));
+        assert_eq!(off, 1);
+        assert!(take_report().hooks.is_empty());
+        assert!(HookGroup::parse_mask("nonsense").is_err());
+        set_hook_groups(HookGroup::parse_mask("all").unwrap());
+    }
+
+    #[test]
+    fn the_order_audit_reports_a_slot_that_does_not_commute() {
+        let _guard = serial();
+        let _ = take_report();
+        assert!(report_order_audit(HookGroup::Combat, "may_sustain", &[]));
+        assert!(!report_order_audit(HookGroup::Combat, "fold_like", &["reverse".to_owned()]));
+        let r = take_report();
+        assert_eq!(r.hooks["fold_like"].differing, 1);
+        assert_eq!(r.hooks["may_sustain"].differing, 0);
+        assert!(r.differences[0].label.starts_with("order::"));
     }
 }

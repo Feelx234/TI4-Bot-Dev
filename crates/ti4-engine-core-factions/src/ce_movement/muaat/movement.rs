@@ -30,3 +30,28 @@ fn may_enter_supernova(s: &CoreState, _: &Kernel, who: Seat) -> bool {
 fn may_pass_through_supernova(s: &CoreState, _: &Kernel, who: Seat) -> bool {
     is_muaat(s, who)
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_muaat_seat_passes_and_it_needs_the_reactor_to_enter() {
+        let mut t = HookTable::new();
+        register(&mut t);
+        assert_eq!(t.registered(), 2);
+        let k = Kernel::plain();
+        let mut s = CoreState::all_loaded();
+        let muaat = Faction::TheEmbersOfMuaat;
+        let other = if Faction::ALL[0] == muaat { Faction::ALL[1] } else { Faction::ALL[0] };
+        *s.players_mut() = ti4_engine_core::state::Players::from_vec(vec![
+            ti4_engine_core::state::Player::new(Seat(0), muaat),
+            ti4_engine_core::state::Player::new(Seat(1), other),
+        ]);
+        assert!(t.movement.may_pass_through_supernova(&s, &k, Seat(0)));
+        assert!(!t.movement.may_pass_through_supernova(&s, &k, Seat(1)));
+        assert!(!t.movement.may_enter_supernova(&s, &k, Seat(0)), "no reactor");
+        s.players_mut().edit(0).tech.owned.insert(Technology::MagmusReactor);
+        assert!(t.movement.may_enter_supernova(&s, &k, Seat(0)));
+        assert!(!t.movement.may_enter_supernova(&s, &k, Seat(1)));
+    }
+}
