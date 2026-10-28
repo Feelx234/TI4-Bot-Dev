@@ -658,6 +658,16 @@ impl<'g> CombatView<'g> {
         Some(guns.iter().map(|p| p.kind().as_str().to_owned()).collect())
     }
 
+    /// `space_cannon_guns`' attachment cannons as `(owner, planet, hit number, dice)`.
+    #[must_use]
+    pub fn attachment_cannon_guns(&self, system: &SystemId, active: &PlayerId) -> Option<Vec<(String, String, u32, usize)>> {
+        let (seat, sys) = (self.seat(active)?, typed::<System>(system.as_str())?);
+        self.with(|rd| cc::cannon_guns::attachment_guns(rd, sys, seat))
+            .into_iter()
+            .map(|(who, planet, value, count)| Some((self.player(who)?.to_string(), planet.as_str().to_owned(), value, count)))
+            .collect()
+    }
+
     /// The barrage plan of a side: (ship type or none for the relic, hit number, dice).
     #[must_use]
     pub fn barrage_plan(&self, player: &PlayerId, system: &SystemId) -> Option<Vec<(Option<String>, i64, usize)>> {

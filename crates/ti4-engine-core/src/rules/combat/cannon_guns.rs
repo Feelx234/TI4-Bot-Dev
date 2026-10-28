@@ -5,7 +5,7 @@
 
 use super::{planets_of_sorted, Rd};
 use crate::galaxy::Adjacency;
-use crate::generated::{System, Unit};
+use crate::generated::{Planet, System, Unit};
 use crate::ids::Seat;
 use crate::kernel::seam::CannonSite;
 use crate::state::{Piece, RoundKind};
@@ -95,4 +95,30 @@ pub fn unit_guns(rd: Rd<'_>, system: System, active: Seat, adjacency: Option<&Ad
     }
     guns.extend(k.hooks.direct.ralnel_linkship_guns(s, k, system).iter().filter(|p| gate.may_fire_here(p.owner())).copied());
     guns
+}
+
+/// The SPACE CANNON an attachment gives its planet "as if it were a unit" (and Custodian's Favour on
+/// Mecatol Rex): `(owner, planet, hit number, dice)` for each controlled planet of `system` in planet
+/// order, for the owners that may fire.
+#[must_use]
+pub fn attachment_guns(rd: Rd<'_>, system: System, active: Seat) -> Vec<(Seat, Planet, u32, usize)> {
+    let (s, k) = (rd.s, rd.k);
+    let gate = Gate::new(rd, system, active);
+    let mut out = Vec::new();
+    for planet in planets_of_sorted(s, system).iter() {
+        let cell = s.board().planet(*planet);
+        let Some(owner) = cell.control else { continue };
+        let mut found: Vec<(Seat, u32, usize)> = cell
+            .attach
+            .iter()
+            .filter_map(|a| a.data().space_cannon)
+            .filter(|r| r.dice > 0)
+            .map(|r| (owner, u32::from(r.hits_on), usize::from(r.dice)))
+            .collect();
+        if let Some((who, count, hit_on)) = k.hooks.direct.keleres_custodian_cannon(s, *planet, owner) {
+            found.push((who, u32::from(hit_on), count as usize));
+        }
+        out.extend(found.into_iter().filter(|(who, ..)| gate.may_fire(*who)).map(|(who, value, count)| (who, *planet, value, count)));
+    }
+    out
 }

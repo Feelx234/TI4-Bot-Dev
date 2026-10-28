@@ -2507,6 +2507,15 @@ pub fn space_cannon_guns(
             guns.iter().map(|unit| unit.type_id.to_string()).collect::<Vec<_>>()
         });
     }
+    if crate::dual::backend(crate::dual::Area::Combat) == crate::dual::Backend::Dual {
+        #[cfg(feature = "typed-core")]
+        let typed = || crate::core_combat::CombatView::of(state, content, sources)?.attachment_cannon_guns(system, active);
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None::<Vec<(String, String, u32, usize)>>;
+        let _ = crate::dual::run_dual_typed(crate::dual::Area::Combat, "combat::attachment_cannon_guns", typed, || {
+            attachment_guns.iter().map(|(who, planet, value, count)| (who.to_string(), planet.to_string(), *value, *count)).collect::<Vec<_>>()
+        });
+    }
     CannonGuns {
         units: guns,
         attachments: attachment_guns,
