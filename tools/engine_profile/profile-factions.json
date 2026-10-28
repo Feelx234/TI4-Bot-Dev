@@ -1,0 +1,86 @@
+{
+  "limits": {
+    "max_rounds": 50,
+    "max_steps": 400000,
+    "max_seconds": 300,
+    "loop_steps": 5000
+  },
+  "setups": [
+    {
+      "name": "f1",
+      "players": 6,
+      "maps": [
+        "6pStandard"
+      ],
+      "map_policy": "cycle",
+      "factions": [
+        "arborec",
+        "muaat",
+        "saar",
+        "naalu",
+        "ghost",
+        "mentak"
+      ],
+      "seeds": "1..4",
+      "starting_tech": true,
+      "rules_version": 23
+    },
+    {
+      "name": "f2",
+      "players": 6,
+      "maps": [
+        "6pStandard"
+      ],
+      "map_policy": "cycle",
+      "factions": [
+        "winnu",
+        "cabal",
+        "argent",
+        "nekro",
+        "sardakk",
+        "yin"
+      ],
+      "seeds": "1..4",
+      "starting_tech": true,
+      "rules_version": 23
+    },
+    {
+      "name": "f3",
+      "players": 6,
+      "maps": [
+        "6pStandard"
+      ],
+      "map_policy": "cycle",
+      "factions": [
+        "naaz",
+        "yssaril",
+        "titans",
+        "empyrean",
+        "mahact",
+        "xxcha"
+      ],
+      "seeds": "1..4",
+      "starting_tech": true,
+      "rules_version": 23
+    },
+    {
+      "name": "f4",
+      "players": 6,
+      "maps": [
+        "6pStandard"
+      ],
+      "map_policy": "cycle",
+      "factions": [
+        "nomad",
+        "letnev",
+        "l1z1x",
+        "jolnar",
+        "hacan",
+        "sol"
+      ],
+      "seeds": "1..4",
+      "starting_tech": true,
+      "rules_version": 23
+    }
+  ]
+}

@@ -42,7 +42,7 @@ pub fn step(
     script: &Recording,
     emit_timing: bool,
 ) -> Option<CoreWindow<WindowSnap>> {
-    if crate::production_view::unported_window(gs) {
+    if crate::production_view::unported_window(gs, player) {
         return None;
     }
     let (mut cx, r) = tables(gs)?;
@@ -108,7 +108,7 @@ pub fn pay_step(
 ) -> Option<CoreWindow<Option<i64>>> {
     use ti4_engine_core::query::economy::Spend as CoreSpend;
     use ti4_engine_core::rules::production::pay::{PayStep, Stage};
-    if crate::production_view::unported_window(gs) {
+    if crate::production_view::unported_window(gs, player) {
         return None;
     }
     let (mut cx, r) = tables(gs)?;
