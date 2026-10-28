@@ -6,8 +6,7 @@
 //! here because the round-1 form flip that would change it is a bail.
 //!
 //! Not covered (the adapter returns `None`, the string result stands; see `dual_window::begin_round`):
-//! diplomacy enabled (the attack-promise evaluation), a Naaz or Letnev seat or a Yssaril copy of the Letnev
-//! agent (Voltron repair, Supercharge, Munitions, the round agent and its extra payload), a dual-form unit in
+//! diplomacy enabled (the attack-promise evaluation), a Naaz or Letnev seat (Voltron repair, Supercharge, Munitions), a dual-form unit in
 //! the space area (Eidolon flip), and a self-repairing flagship damaged in the system.
 
 use super::{ships_of, Rd};
@@ -37,6 +36,8 @@ pub struct Facts {
     pub phase: Code,
     /// The resolver carries the timing machinery (`ctx.emit` announces).
     pub announce: bool,
+    /// A round agent (Letnev's own, or a Yssaril copy of it) listens: `COMBAT_ROUND_STARTED` carries `round_seq`.
+    pub round_seq_listens: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -90,7 +91,13 @@ impl Window for BeginRound {
             if f.round == 1 {
                 let _ = sx.emit(fx::event(EventKind::SpaceCombatStarted, base.clone().with(Key::Player, Val::Seat(f.attacker))));
             }
-            let _ = sx.emit(fx::event(EventKind::CombatRoundStarted, base));
+            let announced = if f.round_seq_listens {
+                let seq = i64::from(sx.state.meta().combat_round_seq);
+                base.with(Key::RoundSeq, Val::Int(seq))
+            } else {
+                base
+            };
+            let _ = sx.emit(fx::event(EventKind::CombatRoundStarted, announced));
         }
         self.stage = Stage::Done;
         Next::Done

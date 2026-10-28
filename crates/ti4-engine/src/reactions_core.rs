@@ -249,15 +249,17 @@ mod tests {
             let id = id_text(&Render::new(Vec::new()), t.of_slot(slot).unwrap(), "sol");
             assert_eq!(slot_of(&id), Some(slot), "{id}");
         }
-        assert_eq!(slot_of("leader:sol:solagent:GROUND_COMBAT_ROUND_STARTED:after"), None);
+        assert!(slot_of("leader:sol:solagent:GROUND_COMBAT_ROUND_STARTED:after").is_some());
+        assert_eq!(slot_of("leader:yssaril:a:solagent:b:GROUND_COMBAT_ROUND_STARTED:after"), None, "a Ssruu copy is another ability");
         assert_eq!(slot_of("technology:hacan:inf2:SHIP_DESTROYED:after"), None, "the event is part of the identity");
     }
 
     #[test]
     fn bail_an_eligible_ability_the_table_lacks_is_named() {
         let t = table();
-        let why = rec(&["leader:sol:solagent:GROUND_COMBAT_ROUND_STARTED:after"], &[]).unported(&t);
-        assert_eq!(why.as_deref(), Some("unported ability leader:*:solagent:GROUND_COMBAT_ROUND_STARTED:after"));
+        let copy = "leader:yssaril:a:solagent:b:GROUND_COMBAT_ROUND_STARTED:after";
+        let why = rec(&[copy], &[]).unported(&t);
+        assert_eq!(why.as_deref(), Some("unported ability leader:*:a:solagent:b:GROUND_COMBAT_ROUND_STARTED:after"));
         assert_eq!(rec(&["technology:hacan:inf2:GROUND_FORCE_DESTROYED:after"], &["technology:hacan:inf2:GROUND_FORCE_DESTROYED:after"]).unported(&t), None);
     }
 

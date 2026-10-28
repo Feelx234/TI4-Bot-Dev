@@ -6879,6 +6879,8 @@ impl CombatWindow {
                 state.rules_version >= ti4_model::state::RULES_MUNITIONS_AFTER_ROLL && crate::faction_abilities::has(state, content, side, "munitions")
             }),
             opening_unported,
+            round_seq_listens: crate::factions::borrowed_round_agents::has_round_copy(state, content, "letnevagent")
+                || crate::factions::borrowed_round_agents::has_owner_space_round_agent(state),
             barrage_unported,
             roll_unported: !reproducible || self.roll_unported(state, content),
             retreat_unported,
@@ -9618,6 +9620,50 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Viscount Unlenn (the Letnev agent) is an ability of the core table: a Letnev seat outside the fight that holds
+    /// the readied agent is offered every ship of the system at the start of each round, the choice is marked and
+    /// the card exhausted, and the core `BeginRound` window announces the round with the `round_seq` the agent reads.
+    #[test]
+    fn the_letnev_agent_chooses_a_ship_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut marked = 0;
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+            for seed in 1..=3_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan"), ("c", "letnev")], ti4_model::content_types::DEFAULT);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                state.player_mut(&PlayerId::new("c")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("letnevagent"), ti4_model::state::LeaderStatus::Readied);
+                let system = SystemId::new("18");
+                put(&mut state, &system, "cruiser", &attacker(), 3);
+                put(&mut state, &system, "cruiser", &defender(), 3);
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+                marked += state.faction_marks.keys().filter(|k| k.starts_with("yssaril:ssruu-round-agent:c:letnevagent:")).count();
+            }
+        });
+        let r = report();
+        let w = r.windows.get("combat::begin_round").copied().unwrap_or_default();
+        assert!(marked > 0, "the agent marked a ship");
+        assert!(w.compared >= 1, "the round opening with the agent is compared: {:?}", r.windows);
+        assert!(r.windows.keys().all(|k| !k.contains("unported ability leader:*:letnevagent")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
     #[test]
     fn the_end_report_of_a_fight_is_checked_against_the_core() {
         // `combat=dual`: the reason, losers, retreats and lost ships of `SPACE_COMBAT_ENDED` are computed by
@@ -9844,7 +9890,7 @@ mod tests {
         // string `settle` stands there and the windows inside are compared one by one instead.
         let plain = settle_gates(&|_, _| {});
         assert!(!plain.opening_unported && !plain.barrage_unported && !plain.roll_unported && !plain.retreat_unported);
-        // Naaz and Letnev (Voltron repair, Supercharge, Munitions, the Eidolon flip, the round agent), diplomacy.
+        // Naaz and Letnev (Voltron repair, Supercharge, Munitions, the Eidolon flip), diplomacy.
         for faction in ["naaz", "letnev"] {
             let g = settle_gates(&|state, _| state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new(faction));
             assert!(g.opening_unported, "{faction}");

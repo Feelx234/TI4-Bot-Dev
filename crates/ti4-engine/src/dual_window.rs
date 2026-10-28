@@ -1187,7 +1187,7 @@ pub struct BeginRoundArgs<'a> {
 
 /// Whether the round opening holds something the core window does not carry: diplomacy (attack promises),
 /// a Naaz or Letnev side (Voltron repair, Supercharge, Munitions, the Eidolon flip, the self-repairing
-/// flagship) or a Letnev round agent (own or copied).
+/// flagship). A Letnev round agent (own or copied) is an ability of the table (the copy bails when it is eligible).
 #[must_use]
 pub fn round_opening_unported(
     gs: &GameState,
@@ -1195,11 +1195,8 @@ pub fn round_opening_unported(
     a: &BeginRoundArgs<'_>,
 ) -> bool {
     let side = |id: &PlayerId| gs.player(id).is_none_or(|p| matches!(p.faction.as_str(), "naaz" | "letnev"));
-    gs.diplomacy.enabled
-        || side(a.attacker)
-        || side(a.defender)
-        || crate::factions::borrowed_round_agents::has_round_copy(gs, content, "letnevagent")
-        || crate::factions::borrowed_round_agents::has_owner_space_round_agent(gs)
+    let _ = content;
+    gs.diplomacy.enabled || side(a.attacker) || side(a.defender)
 }
 
 /// The core half of `CombatWindow::begin_round`. `None` for the positions of [`round_opening_unported`],
@@ -1226,7 +1223,9 @@ pub fn begin_round(
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
     let before = gs.clone();
     let env = crate::core_combat::window_env(&before, &cx, sources)?;
-    let facts = Facts { attacker, defender, system, round: a.round, phase: cx.texts.intern(Slice::Transient, "pre_roll").ok()?, announce: a.announce };
+    let round_seq_listens = crate::factions::borrowed_round_agents::has_round_copy(gs, content, "letnevagent")
+        || crate::factions::borrowed_round_agents::has_owner_space_round_agent(gs);
+    let facts = Facts { attacker, defender, system, round: a.round, phase: cx.texts.intern(Slice::Transient, "pre_roll").ok()?, announce: a.announce, round_seq_listens };
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
     let mut driver = Driver::new(BeginRound::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
@@ -2943,6 +2942,8 @@ pub struct SettleArgs {
     pub begin_occurrence: bool,
     pub munitions_after: [bool; 2],
     pub opening_unported: bool,
+    /// A Letnev round agent listens (`COMBAT_ROUND_STARTED` carries `round_seq`).
+    pub round_seq_listens: bool,
     pub barrage_unported: bool,
     pub roll_unported: bool,
     pub retreat_unported: bool,
@@ -3088,6 +3089,7 @@ fn settle_run(
         occurrence: a.occurrence.unwrap_or(0),
         phases: phase_codes,
         opening_unported: a.opening_unported,
+        round_seq_listens: a.round_seq_listens,
         barrage_unported: a.barrage_unported,
         barrage_cause: r.code("unit_ability:anti_fighter_barrage"),
         barrage_kind: r.code("anti_fighter_barrage"),

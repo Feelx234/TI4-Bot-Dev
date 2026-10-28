@@ -58,8 +58,10 @@ pub struct Env {
     pub occurrence: u64,
     /// The presentation phases: `pre_roll`, `barrage`, `resolving_hits`, `retreating`, `complete`.
     pub phases: [Code; 5],
-    /// `round_opening_unported` (Naaz, Letnev, diplomacy, round agents): the opening of a round is the string's.
+    /// `round_opening_unported` (Naaz, Letnev, diplomacy): the opening of a round is the string's.
     pub opening_unported: bool,
+    /// A Letnev round agent (own or a Yssaril copy) listens: `COMBAT_ROUND_STARTED` carries `round_seq`.
+    pub round_seq_listens: bool,
     /// `barrage_unported`, or dice the core cannot reproduce.
     pub barrage_unported: bool,
     pub barrage_cause: Code,
@@ -395,7 +397,7 @@ impl Machine {
 
     fn begin(&self, sx: &mut Sx<'_>, round: u32) {
         let e = &self.env;
-        let mut w = BeginRound::new(BeginFacts { attacker: e.attacker, defender: e.defender, system: e.system, round, phase: e.phases[0], announce: e.announce });
+        let mut w = BeginRound::new(BeginFacts { attacker: e.attacker, defender: e.defender, system: e.system, round, phase: e.phases[0], announce: e.announce, round_seq_listens: e.round_seq_listens });
         let _ = w.step(sx);
     }
 

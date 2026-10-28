@@ -907,6 +907,8 @@ pub fn combat_kernel(sources: SourceSet) -> Option<Kernel> {
     providers::register_core(&mut kernel.hooks);
     adapters::bridge_legacy(&mut kernel.hooks.seam);
     cc::register_naaz_nomad(&mut kernel.hooks);
+    // The agents' exhaustion is announced to a Nomad that listens (the round agents read it).
+    kernel.hooks.direct.nomad_watches_agent_exhaustion.push(ti4_engine_core_factions::ce_movement::nomad::query::watches_agent_exhaustion);
     // Bastion's ship-lost bookkeeping and the Nekro Alastor queries and bookkeeping are native.
     ti4_engine_core_factions::ca_combat::bastion::register_observers(&mut kernel.hooks);
     ti4_engine_core_factions::ca_combat::nekro::register(&mut kernel.hooks);
