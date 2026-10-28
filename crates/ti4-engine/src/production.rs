@@ -6898,10 +6898,10 @@ mod tests {
                     .insert(ti4_model::id::LeaderId::new("winnuagent"), ti4_model::state::LeaderStatus::Readied);
             } else {
                 state
-                    .player_mut(&PlayerId::new("b"))
+                    .player_mut(&player())
                     .unwrap()
                     .captured_units
-                    .push((player(), ti4_model::id::UnitTypeId::new("carrier")));
+                    .push((PlayerId::new("b"), ti4_model::id::UnitTypeId::new("carrier")));
             }
             state.player_mut(&player()).unwrap().trade_goods = 10;
             let mut dice = crate::dice::Dice::new();
