@@ -283,24 +283,52 @@ of the end announcement or the Argent seat; they are counted and named now.)
 
 ## 6. Gate (on this branch)
 
-* `tools/engine_core/verify_package.sh driver` (CARGO_BUILD_JOBS=3, `--profile gate`, `RUN_AB`/`RUN_WASM` off):
-  layers 0 violations (324 files), lint_core 0 hits, clippy 0 in core/bridge/dual/core_sync/render, immutable
-  surfaces unchanged (web/, RULES_VERSION.md, model state.rs, wasm fixtures, vs `core-integration`), 41 test suites
-  ok, `gen-cards --check` ok, xtask and wasm tests ok, benches `bench` + `bench-v1..v5` with `driver=core` all 200
-  identical / 0 different, `bench` with the driver on String 200/0.
-* The first run of the gate failed two steps, both fixed on the branch: the dual suite (a window test counts into
-  the process-wide report, and a global `TI4_AREAS=driver=dual` makes every test a dual run: `FOCUS` now routes the
-  other threads into a throwaway report while a `serial()` test holds it) and the golden dual (52 differences in the
-  `context.previews` of reaction windows: display facts the string builds from its position; they are the recorded
-  question's now, like the option previews of B1g-10). After the fixes: dual suite (all targets) ok; golden dual
-  `driver=dual` 0 differences, hashes equal; the wide mask above 0 differences, hashes equal.
-* The benches were measured on the commit before those two fixes; the fixes touch the Dual path and test code only.
-* Mutation checks (each fails the lockstep test): Infantry II threshold 6 -> 5 (dice and `inf2:card` mark differ);
-  Devour taking the captor's own models (state differs).
-* Tests per documented bail: `reactions_core::tests` (`bail_*`), registry equivalence for the ported abilities
-  (`the_native_registry_equals_the_string_one_for_the_ported_abilities`), lockstep tests in `invasion.rs`
-  (`infantry_ii_rolls_in_the_core_window_in_lockstep`, `a_reaction_slot_that_is_declined_is_followed_by_the_core_window`,
-  `the_cabal_captures_in_the_core_window_in_lockstep`) and the driver tests for the nested facts.
+Stage 1 (238b6b55): layers, lint_core, clippy, the immutable surfaces, 41 test suites, the dual suite, golden dual
+`driver=dual` and the wide mask 0 differences, benches 200/200; its mutation checks and bail tests are in the history of
+this file (Infantry II threshold, Devour's captor, `reactions_core::tests` and the lockstep tests of `invasion.rs`).
+
+Stage 2 (final commit, `tools/engine_core/verify_package.sh driver OUT none 6`, `CARGO_BUILD_JOBS=3`, `--profile gate`,
+`SKIP_AB=1 SKIP_WASM=1`, a private target dir): `PACKAGE OK (driver)`.
+
+* layers 0 violations (333 files), lint_core 0 hits (335 files), clippy 0 in core/bridge/dual/core_sync/render,
+  immutable surfaces unchanged (web/, RULES_VERSION.md, model state.rs, wasm fixtures, against the cut point 04578c39),
+  41 test suites ok, `gen-cards --check`, xtask and wasm tests ok, dual suite (6 suites, `driver=dual`, fail fast) ok;
+* golden dual `driver=dual` (20 games): 4459 calls, 25539 comparisons, **0 differences**, hashes equal; the wide mask
+  (`driver,invasion,production,leaders,exploration,agenda=dual`): 11.65 M comparisons, **0 differences**, hashes equal;
+* benches `bench` + `bench-v1..v5` with `driver=core`: **200 identical / 0 different** each; `bench` with the driver on
+  String 200/0;
+* `board_equivalence templates` and `golden profile-20 20 10`: 0 mismatches (board, strategy, agenda, action card reads).
+* Not run (as agreed): the CPU A/B, the wasm size gate, release builds, `state_size`.
+
+Failures found on the way (each fixed with a test that fails on the code before the fix):
+1. `check_layers.py core` (first gate run): the round agents sat in `rules/reactions` and imported the L4 areas combat and
+   invasion; moved to the faction crate. Test `rules::reactions::layering::the_reactions_area_imports_no_other_rule_area`.
+2. `vote::typed_render_tests::a_whole_vote_runs_in_lockstep_on_the_core_window` ("compared 0", only in the full suite): a
+   test that takes the process-wide dual report without `serial()` counts into the throwaway report while a holder runs.
+   Seven tests got the lock; test `dual::tests::every_test_that_takes_the_report_holds_the_serial_lock` scans for the rest.
+3. `decision_delivery_inventory::every_producer_and_delivery_site_matches_the_reviewed_registry`: the renderer built a
+   `Choice` to reuse `Choice::offered`; the details now come from `choice::offer_details` (no new decision site). The
+   inventory test is the regression test.
+4. Found while developing (not by the gate), each with its lockstep test: the sources of the kernel scope were not lent to
+   `BeginGroundRound` (the round agent saw no ground forces: `the_sol_agent_chooses_a_unit_in_the_core_window_in_lockstep`);
+   the production dual dropped Argent's grant (`the_argent_agent_redirects_in_the_core_production_window_in_lockstep`);
+   the end announcement bailed on any note an ability left (`salvage_operations_pays_in_the_core_window_in_lockstep`); the
+   `HITS_TO_ASSIGN` flow did not spend what the window granted (`tellurian_cancels_a_hit_in_the_core_window_in_lockstep`).
+
+Mutation checks (each fails the named test, run one by one): round agents: the exhaustion dropped, the roster index +1 (Sol
+and Letnev tests), the `round_seq` payload dropped (Letnev); Argent: the exhaustion dropped, the adjacency inverted, the
+window's clearing of the grant dropped; Self-Assembly Routines: the amount 1 -> 2, the nested `TRADE_GOODS_GAINED` emission
+dropped (found by the new `nested.events` comparison); Tellurian: the grant dropped, the flow's spend dropped; Instinct
+Training: the cancel, the token and the exhaustion dropped; I48S: the exhaustion dropped, the wrong unit form placed;
+Letani Warrior II: threshold 6 -> 5, the count not raised; Brother Milor: count 2 -> 1, the exhaustion dropped; Salvage
+Operations: the amount 1 -> 2, the gain not staged. (Two mutations are equivalent mutants, not caught: the unit roster
+built without the `upgrades_from` filter, as the first match is the base unit.)
+
+Tests per documented bail: `reactions_core::tests` (`bail_*`), registry equivalence for the ported abilities
+(`the_native_registry_equals_the_string_one_for_the_ported_abilities`), the bail tests of section 3.1, and the lockstep
+tests (`infantry_ii_...`, `a_reaction_slot_that_is_declined_...`, `a_yssaril_seat_with_a_reaction_card_...`, `the_cabal_captures_...`,
+`the_sol_agent_...`, `the_letnev_agent_...`, `the_argent_agent_...`, `tellurian_...` (space combat and barrage),
+`self_assembly_routines_...`, `letani_warrior_ii_...`, `brother_milor_...` (ground and ships), `salvage_operations_...`).
 
 ## 7. What the next package needs to know
 
