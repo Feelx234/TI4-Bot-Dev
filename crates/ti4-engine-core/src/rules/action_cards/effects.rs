@@ -21,7 +21,7 @@ use crate::choice::cards::{Ask, Opt, Subtype, What};
 use crate::choice::generic::Rule;
 use crate::choice::{Choice, Ctx, Opts, Origin, Pick};
 use crate::containers::SmallList;
-use crate::generated::{ActionCard, Agenda, Planet, PlanetTrait, System, UnitBaseType};
+use crate::generated::{ActionCard, Agenda, Planet, PlanetTrait, StrategyCard, System, UnitBaseType};
 use crate::ids::Seat;
 use crate::keys::{Prediction, PredictionTag, VoteBar};
 use crate::kernel::stage::{Illegal, Sx, Window};
@@ -88,6 +88,8 @@ pub enum Fx {
     Rescue,
     /// Fighter Conscription: a fighter in each system with a dock or a carrier and no foreign ship.
     Conscription,
+    /// Manipulate Investments: five trade goods on strategy cards, on at least three different ones.
+    Invest,
 }
 
 impl Fx {
@@ -131,6 +133,7 @@ impl Fx {
             C::Intercept => Self::Intercept,
             C::Rescue => Self::Rescue,
             C::FighterConscription => Self::Conscription,
+            C::ManipulateInvestments => Self::Invest,
             _ => return None,
         })
     }
@@ -160,6 +163,9 @@ pub struct Play {
     stage: Stage,
     /// The options of the pending question.
     opts: SmallList<Opt, 16>,
+    /// Manipulate Investments: the trade goods placed so far and the cards they went on.
+    placed: u8,
+    used: SmallList<StrategyCard, 8>,
 }
 
 fn sorted(mut spots: SmallList<(System, Planet), 16>) -> SmallList<(System, Planet), 16> {
@@ -213,7 +219,7 @@ impl Play {
             }
             _ => None,
         };
-        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new() })
+        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new() })
     }
 
     fn what(&self) -> Option<What> {
@@ -228,8 +234,30 @@ impl Play {
             Fx::Mining | Fx::Uprising | Fx::Cripple | Fx::Meltdown | Fx::Frontline => What::Planet,
             Fx::WarEffort => What::Deploy,
             Fx::Rescue => What::Rescue,
+            Fx::Invest => What::Invest { step: self.placed + 1, owed: Self::INVEST_DISTINCT.saturating_sub(self.used.len() as u8) },
             _ => return None,
         })
+    }
+
+    const INVEST_TOKENS: u8 = 5;
+    const INVEST_DISTINCT: u8 = 3;
+
+    /// The strategy cards a trade good may go on: the cards of the sources in play, or, when a card in play is
+    /// not among them, the cards in play.
+    fn invest_cards(&self, core: &CoreState) -> SmallList<StrategyCard, 12> {
+        let mut in_play: SmallList<StrategyCard, 12> = core.strategy().unclaimed.as_slice().iter().copied().collect();
+        for p in core.players().iter() {
+            for c in p.strat.as_slice() {
+                in_play.push(*c);
+            }
+        }
+        let scope = self.env.scope.0;
+        let mut cards: SmallList<StrategyCard, 12> =
+            StrategyCard::ALL.iter().copied().filter(|c| scope & crate::tables::source_bit(c.data().source) != 0).collect();
+        if in_play.as_slice().iter().any(|c| !cards.as_slice().contains(c)) {
+            cards = StrategyCard::ALL.iter().copied().filter(|c| in_play.as_slice().contains(c)).collect();
+        }
+        cards
     }
 
     fn seat_opts(seats: impl Iterator<Item = Seat>) -> SmallList<Opt, 16> {
@@ -285,6 +313,15 @@ impl Play {
                     board::systems_with_units_of(core, who).iter().filter_map(|i| System::ALL.get(i).copied()).collect();
                 held.as_mut_slice().sort_unstable();
                 held.as_slice().iter().map(|s| Opt::System(*s)).collect()
+            }
+            Fx::Invest => {
+                let cards = self.invest_cards(core);
+                if cards.len() < usize::from(Self::INVEST_DISTINCT) || self.placed >= Self::INVEST_TOKENS {
+                    return SmallList::new();
+                }
+                let remaining = Self::INVEST_TOKENS - self.placed;
+                let owed = Self::INVEST_DISTINCT.saturating_sub(self.used.len() as u8);
+                cards.as_slice().iter().filter(|c| remaining > owed || !self.used.as_slice().contains(c)).map(|c| Opt::Strat(*c)).collect()
             }
             Fx::Rescue => {
                 // "After a player moves ships into a system that contains your ships": somebody else activated, and
@@ -481,6 +518,16 @@ impl Play {
             }
             (Fx::Recall, Opt::System(system)) => {
                 core.board_mut().sys_mut(system).cmd.remove(who);
+            }
+            (Fx::Invest, Opt::Strat(card)) => {
+                let goods = &mut core.strategy_mut().goods;
+                let held = goods.get(&card).copied().unwrap_or(0);
+                goods.insert(card, held + 1);
+                if !self.used.as_slice().contains(&card) {
+                    self.used.push(card);
+                }
+                self.placed += 1;
+                return self.placed < Self::INVEST_TOKENS;
             }
             (Fx::Rescue, Opt::System(origin)) => {
                 let Some(destination) = core.meta().active_system else { return false };
@@ -707,6 +754,7 @@ mod tests {
             C::Intercept,
             C::Rescue,
             C::FighterConscription,
+            C::ManipulateInvestments,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }

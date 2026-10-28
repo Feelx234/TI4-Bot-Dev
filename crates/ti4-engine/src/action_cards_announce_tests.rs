@@ -416,3 +416,33 @@ fn fighter_conscription_places_fighters_where_a_dock_or_a_carrier_stands_in_the_
     assert_compared_clean(2);
     let _ = crate::dual::take_report();
 }
+
+/// Manipulate Investments: five trade goods on strategy cards, three different cards at least; the question names the
+/// step and the distinct cards still owed.
+#[test]
+fn manipulate_investments_places_five_goods_on_three_cards_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let a = PlayerId::new("a");
+    let _ = crate::dual::take_report();
+    let mut state = question_position();
+    let cards = ["pok1leadership", "pok3politics", "pok5trade", "pok7technology"];
+    state.unclaimed_strategy_cards = cards.iter().map(|c| ti4_model::id::StrategyCardId::new(*c)).collect();
+    let after = played(state.clone(), "investments");
+    let on: Vec<i32> = after.strategy_card_goods.values().copied().collect();
+    assert_eq!(on.iter().sum::<i32>(), 5);
+    assert!(on.len() >= 3, "three different cards: {on:?}");
+    // A card in play from a source outside the game: the cards in play are the choice.
+    let mut odd = state;
+    odd.unclaimed_strategy_cards = ["pok1leadership", "pok3politics", "te4construction"].iter().map(|c| ti4_model::id::StrategyCardId::new(*c)).collect();
+    let after = played(odd, "investments");
+    assert_eq!(after.strategy_card_goods.len(), 3, "{:?}", after.strategy_card_goods);
+    assert!(after.strategy_card_goods.contains_key(&ti4_model::id::StrategyCardId::new("te4construction")));
+    // Fewer than three cards to put goods on: a card that cannot fully resolve does nothing (22.3).
+    let mut few = question_position();
+    few.unclaimed_strategy_cards = ["pok1leadership", "te4construction"].iter().map(|c| ti4_model::id::StrategyCardId::new(*c)).collect();
+    let after = played(few, "investments");
+    assert!(after.strategy_card_goods.is_empty());
+    let _ = a;
+    assert_compared_clean(3);
+    let _ = crate::dual::take_report();
+}

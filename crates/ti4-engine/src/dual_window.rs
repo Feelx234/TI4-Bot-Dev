@@ -609,8 +609,8 @@ const ABILITY_DICE_FP: Footprint = Footprint::new(&[Slice::Rng, Slice::Ledger], 
 /// ... and what the play of an action card touches (the reaction slot's play; the decks for Veto and Insider
 /// Information, the agenda for the Riders).
 const CARD_PLAY_FP: Footprint = Footprint::new(
-    &[Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending],
-    &[Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending],
+    &[Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending, Slice::Strategy],
+    &[Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending, Slice::Strategy],
 );
 
 /// `base`, widened by what the table's abilities touch when the string run had nested activity.

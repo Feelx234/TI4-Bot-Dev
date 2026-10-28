@@ -82,6 +82,10 @@ impl Family for Fam {
             }
             Opt::Spot(system, planet) => ChoiceOption::labelled(format!("{}|{}", system.as_str(), planet.as_str()), "planet", planet.as_str())
                 .with_planet(planet.as_str(), Some(system.as_str())),
+            Opt::Strat(card) => {
+                let id = card.as_str();
+                ChoiceOption::labelled(id, "strategy_card", format!("place a trade good on {id}"))
+            }
             Opt::Note(key) => {
                 let id = note_text(*key);
                 ChoiceOption::labelled(id.clone(), "promissory note", id)
@@ -105,6 +109,16 @@ impl Family for Fam {
         }
     }
 
+    fn details(_: &Render, a: &Ask) -> serde_json::Map<String, serde_json::Value> {
+        let mut out = serde_json::Map::new();
+        if let Ask::Pick { what: What::Invest { step, owed }, .. } = a {
+            out.insert("step".to_owned(), (*step).into());
+            out.insert("of".to_owned(), 5.into());
+            out.insert("distinct_owed".to_owned(), (*owed).into());
+        }
+        out
+    }
+
     fn parse(r: &Render, a: &Ask, id: &str) -> Option<Opt> {
         match a {
             Ask::OwnHand { .. } | Ask::PlayCard { .. } => ActionCard::from_id(id).map(Opt::Card),
@@ -115,6 +129,7 @@ impl Family for Fam {
                 Some(Opt::Spot(System::from_id(system)?, Planet::from_id(planet)?))
             }
             Ask::Pick { what: What::Note, .. } => parse_note(id).map(Opt::Note),
+            Ask::Pick { what: What::Invest { .. }, .. } => ti4_engine_core::generated::StrategyCard::from_id(id).map(Opt::Strat),
             Ask::Predict { frame, .. } => super::agenda::parse_outcome(r, frame, id).map(Opt::Outcome),
         }
     }
@@ -131,6 +146,7 @@ const fn pick_kind(what: What) -> &'static str {
         What::Note => "promissory note",
         What::Planet => "planet",
         What::Rescue => "rescue_from",
+        What::Invest { .. } => "strategy_card",
     }
 }
 
@@ -164,6 +180,7 @@ const fn pick_prompt(card: ActionCard, what: What) -> &'static str {
             "Diplomatic Pressure: choose another player"
         }
         (C::Rescue, _) => "Rescue: bring a ship from where",
+        (C::ManipulateInvestments, _) => "Manipulate Investments: place a trade good on which strategy card",
         (C::Uprising, _) => "Uprising: which planet",
         (C::CrippleDefenses, _) => "Cripple Defenses: which planet",
         (C::ReactorMeltdown, _) => "Reactor Meltdown: which space dock",
