@@ -2382,6 +2382,20 @@ pub(crate) fn replenish(state: &mut GameState, content: &ContentStore, player: &
     crate::promissory::trade_agreement_on_replenish(state, player);
 }
 
+/// The Trade secondary beside its core half (`strategy_cards_core::replenish_secondary`).
+fn trade_secondary(state: &mut GameState, content: &ContentStore, player: &PlayerId) {
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        "strategy_cards::trade_secondary",
+        state,
+        |state: &mut GameState| {
+            replenish(state, content, player);
+            crate::dual::Run::new(true)
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_cards_core::replenish_secondary(state, content, player, script)
+    );
+}
+
 /// The Trade primary beside its core window (`strategy_core::trade_primary`).
 pub(crate) fn trade_primary(
     state: &mut GameState,
@@ -2690,7 +2704,32 @@ fn imperial_secret(state: &mut GameState, content: &ContentStore, table: &mut Ta
     result
 }
 
+/// Imperial's primary beside its core window (`strategy_cards_core::imperial_primary`).
 fn imperial_primary(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        "strategy_cards::imperial_primary",
+        state,
+        |state: &mut GameState| {
+            result = imperial_primary_string(state, content, sources, galaxy, table, player);
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_cards_core::imperial_primary(
+            state, content, sources, galaxy, player, script
+        )
+    );
+    result
+}
+
+fn imperial_primary_string(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -3005,7 +3044,7 @@ pub fn secondary(
         StrategyCardKind::Construction => {
             construction_ability(state, content, sources, galaxy, table, player, false)?;
         }
-        StrategyCardKind::Trade => replenish(state, content, player),
+        StrategyCardKind::Trade => trade_secondary(state, content, player),
         StrategyCardKind::Warfare => {
             home_production(state, content, sources, galaxy, table, player)?
         }

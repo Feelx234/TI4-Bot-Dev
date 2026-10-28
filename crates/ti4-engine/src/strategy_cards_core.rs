@@ -21,7 +21,7 @@ mod real {
     use ti4_engine_core::kernel::stage::{AbilityTable, Window};
     use ti4_engine_core::kernel::{fx, Kernel, Resolver};
     use ti4_engine_core::rules::production::strategy_cards::{Construction, Leadership, Placement, StructureFacts};
-    use ti4_engine_core::rules::strategy_primaries::{DMode, Diplomacy, Politics, WarfarePrimary};
+    use ti4_engine_core::rules::strategy_primaries::{DMode, Diplomacy, ImperialPrimary, Politics, WarfarePrimary};
     use ti4_engine_core::state::{CoreState, Slice};
     use ti4_model::content_types::SourceSet;
     use ti4_model::id::{PlayerId, SystemId};
@@ -363,6 +363,31 @@ mod real {
         Some(finish(&driven, &window))
     }
 
+    // -- Trade secondary ------------------------------------------------------------------------------------
+
+    const REPLENISH: Footprint =
+        Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Pending], &[Slice::Players]);
+
+    /// The core half of the Trade secondary (`strategy_cards::replenish` for the follower): the commodities go
+    /// to the printed value. `None` where a commodity change causes events the core does not hold (Cabal, a
+    /// siphoning plot, a Trade Agreement), where the game's limit is not the faction's printed value, inside a
+    /// battle, an invasion or a nested emission, and with diplomacy on.
+    pub fn replenish_secondary(gs: &mut GameState, content: &ContentStore, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
+        if outside(gs, script) || crate::leaders_core::replenish_causes_events(gs) {
+            return None;
+        }
+        let limit = crate::strategy_cards::commodity_limit(gs, content, player);
+        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let seat = r.seat(player.as_str())?;
+        let same = with_core(gs, &mut cx, Sources::default(), REPLENISH, |core, _| {
+            let printed = core.players().by_seat(seat).map(|p| i32::from(p.faction.data().commodities));
+            (printed == Some(limit)).then(|| fx::replenish_commodities(core, seat))
+        })
+        .ok()?;
+        same?;
+        Some(CoreWindow { run: Run::new(true).with_events_vec(Vec::new()), questions: Vec::new() })
+    }
+
     // -- Imperial ------------------------------------------------------------------------------------------
 
     const SECRET: Footprint =
@@ -383,6 +408,68 @@ mod real {
         let seat = r.seat(player.as_str())?;
         with_core(gs, &mut cx, Sources::default(), SECRET, |core, _| fx::draw_secret(core, seat)).ok()?;
         Some(CoreWindow { run: Run::new(true).with_events_vec(Vec::new()), questions: Vec::new() })
+    }
+
+    /// The core half of Imperial's primary (`strategy_cards::imperial_primary`). The scoreable objectives are
+    /// the string's (`objectives::scoreable_on`); scoring one, which the core cannot do, declines the run, as
+    /// do a Keleres seat (Custodian's Favour), a point that would pass the target, an objective that is no
+    /// public objective of the tables, and a secret draw that is not plain.
+    pub fn imperial_primary(
+        gs: &mut GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        galaxy: Option<&ti4_content::galaxy::Galaxy>,
+        player: &PlayerId,
+        script: &Recording,
+    ) -> Option<CoreWindow<bool>> {
+        if outside(gs, script) || gs.deck_reserve.is_some() || gs.players.iter().any(|p| p.faction.as_str().starts_with("keleres")) {
+            return None;
+        }
+        let scoreable = crate::objectives::scoreable_on(gs, content, sources, player, galaxy);
+        let typed: Vec<_> = scoreable
+            .iter()
+            .map(|o| crate::core_adapter::typed::<ti4_engine_core::generated::PublicObjective>(o.as_str()))
+            .collect::<Option<_>>()?;
+        let controls = gs.controlled_planets(player).into_iter().any(|(system, _)| crate::seating::is_mecatol(system.as_str()));
+        if controls {
+            if gs.player(player)?.victory_points + 1 > crate::objectives::VICTORY_TARGET {
+                return None;
+            }
+        } else {
+            let limit = crate::secrets::HAND_LIMIT + crate::relics::secret_objective_bonus(gs, player);
+            if crate::secrets::held_count(gs, content, player) + 1 > limit {
+                return None;
+            }
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let seat = r.seat(player.as_str())?;
+        let before = gs.clone();
+        let held = crate::secrets::held_count(gs, content, player);
+        let max = crate::secrets::HAND_LIMIT + crate::relics::secret_objective_bonus(gs, player);
+        let window = ImperialPrimary::new(seat, typed.into_iter().collect());
+        let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let kernel = Kernel::plain();
+        let fp = Footprint::new(
+            &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Decks, Slice::Ledger, Slice::Pending],
+            &[Slice::Players, Slice::Decks, Slice::Ledger],
+        );
+        let driven = with_core(gs, &mut cx, Sources::default(), fp, |core, _| {
+            drive_with(&mut driver, core, &kernel, &r, &before, script, &|c, _, rendered| {
+                if matches!(c.ask, Ask::Strategy(SAsk::ImperialScore)) {
+                    rendered.details.insert("kind".to_owned(), "imperial".into());
+                    rendered.details.insert("controls_mecatol".to_owned(), controls.into());
+                    rendered.details.insert("secrets_held".to_owned(), held.into());
+                    rendered.details.insert("secrets_max".to_owned(), max.into());
+                }
+            })
+        })
+        .ok()?
+        .ok()?;
+        if driver.window.scored.is_some() {
+            return None;
+        }
+        gs.finished = crate::objectives::winner(gs).is_some();
+        Some(finish(&driven, &driver.window))
     }
 
     // -- Politics ------------------------------------------------------------------------------------------
@@ -454,6 +541,21 @@ mod stub {
     }
 
     pub fn draw_secret(_: &mut GameState, _: &ContentStore, _: &PlayerId, _: &Recording) -> Option<CoreWindow<bool>> {
+        None
+    }
+
+    pub fn replenish_secondary(_: &mut GameState, _: &ContentStore, _: &PlayerId, _: &Recording) -> Option<CoreWindow<bool>> {
+        None
+    }
+
+    pub fn imperial_primary(
+        _: &mut GameState,
+        _: &ContentStore,
+        _: SourceSet,
+        _: Option<&ti4_content::galaxy::Galaxy>,
+        _: &PlayerId,
+        _: &Recording,
+    ) -> Option<CoreWindow<bool>> {
         None
     }
 
@@ -689,7 +791,7 @@ mod tests {
         let label = "strategy_cards::imperial_secret";
         assert_eq!(run(label, &F3, |_| {}, &[], secondary("pok8imperial")).0, 1);
         // The primary of a seat without Mecatol Rex draws one too (nothing is scoreable at the start).
-        assert_eq!(run(label, &F3, |_| {}, &[], primary("pok8imperial")).0, 1);
+        assert_eq!(run("strategy_cards::imperial_primary", &F3, |_| {}, &[], primary("pok8imperial")).0, 1);
         // A full hand: the draw would end in a question to hand one back.
         let full = |s: &mut GameState| {
             let cards: Vec<_> = s.secret_deck.drain(..3).collect();
@@ -852,5 +954,49 @@ mod tests {
             run(label, &F3, lodor, &["decline"], secondary("pok4construction"))
         });
         assert_eq!(declined, (0, 1));
+    }
+
+    #[test]
+    fn imperial_primary_scores_nothing_gains_a_point_for_mecatol_and_declines_a_scoring() {
+        let label = "strategy_cards::imperial_primary";
+        let mecatol = |s: &mut GameState| {
+            s.system_mut(&SystemId::new("18")).set_control(PlanetId::new("mr"), a());
+        };
+        assert_eq!(run(label, &F3, mecatol, &[], primary("pok8imperial")).0, 1);
+        // The ninth point and the tenth: the game is over.
+        let ninth = |s: &mut GameState| {
+            mecatol(s);
+            s.player_mut(&a()).unwrap().victory_points = 9;
+        };
+        assert_eq!(run(label, &F3, ninth, &[], primary("pok8imperial")).0, 1);
+        // An objective the holder can score (three tokens): the question is asked, a decline goes on.
+        let scoreable = |s: &mut GameState| s.revealed_objectives.push(ti4_model::id::ObjectiveId::new("lead"));
+        assert_eq!(run(label, &F3, scoreable, &["decline"], primary("pok8imperial")).0, 1);
+        // Scoring it is the string's.
+        assert_eq!(run(label, &F3, scoreable, &["lead"], primary("pok8imperial")), (0, 1));
+        // Past the target, a Keleres seat, a full secret hand and a reserve are the string's too.
+        let tenth = |s: &mut GameState| {
+            mecatol(s);
+            s.player_mut(&a()).unwrap().victory_points = 10;
+        };
+        assert_eq!(run(label, &F3, tenth, &[], primary("pok8imperial")), (0, 1));
+        let keleres = [("a", "sol"), ("b", "keleresm")];
+        assert_eq!(run(label, &keleres, |_| {}, &[], primary("pok8imperial")), (0, 1));
+        let full = |s: &mut GameState| {
+            let cards: Vec<_> = s.secret_deck.drain(..3).collect();
+            s.player_mut(&a()).unwrap().secret_objectives = cards;
+        };
+        assert_eq!(run(label, &F3, full, &[], primary("pok8imperial")), (0, 1));
+    }
+
+    #[test]
+    fn the_trade_secondary_replenishes_in_lockstep_and_declines_what_causes_events() {
+        let label = "strategy_cards::trade_secondary";
+        assert_eq!(run(label, &F3, |_| {}, &[], secondary("pok5trade")).0, 1);
+        let spent = |s: &mut GameState| s.player_mut(&a()).unwrap().commodities = 1;
+        assert_eq!(run(label, &F3, spent, &[], secondary("pok5trade")).0, 1);
+        // A Cabal at the table: the replenish is announced to it.
+        let cabal = [("a", "sol"), ("b", "cabal")];
+        assert_eq!(run(label, &cabal, spent, &[], secondary("pok5trade")), (0, 1));
     }
 }

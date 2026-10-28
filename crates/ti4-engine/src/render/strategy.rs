@@ -12,7 +12,7 @@
 use ti4_engine_core::choice::agenda::Shown;
 use ti4_engine_core::choice::strategy::{Ask, Opt, Pool, Subtype};
 use ti4_engine_core::choice::Opt as AnyOpt;
-use ti4_engine_core::generated::{Planet, System};
+use ti4_engine_core::generated::{Planet, PublicObjective, System};
 use ti4_engine_core::ids::Seat;
 
 use super::{Family, Render, Wording};
@@ -54,6 +54,7 @@ impl Family for Fam {
                 format!("spend {owed}{} influence for a command token", if *more { " more" } else { "" })
             }
             Ask::PlaceStructure { .. } => "place a structure".to_owned(),
+            Ask::ImperialScore => "score a public objective with Imperial".to_owned(),
         }
     }
 
@@ -69,6 +70,7 @@ impl Family for Fam {
             Subtype::PoliticsPlaceAgenda => "politics_place_agenda",
             Subtype::BuyTokenWithInfluence => "buy_token_with_influence",
             Subtype::PlaceStructure => "place_structure",
+            Subtype::ImperialScoreObjective => "imperial_score_objective",
         }
         .to_owned()
     }
@@ -113,6 +115,7 @@ impl Family for Fam {
                     .with_planet(planet, Some(system))
                     .with("unit", kind)
             }
+            Opt::Objective(o) => ChoiceOption::labelled(o.as_str(), "objective", o.as_str()),
             Opt::Buy(false) => ChoiceOption::labelled("no", crate::strategy::STRATEGY_KIND, "spend nothing further"),
             Opt::Buy(true) => {
                 let (owed, more) = match a {
@@ -153,6 +156,7 @@ impl Family for Fam {
                 rest.is_none().then_some(())?;
                 Some(Opt::Structure { pds, system: System::from_id(system)?, planet: Planet::from_id(planet)? })
             }
+            Ask::ImperialScore => PublicObjective::from_id(id).map(Opt::Objective),
             Ask::LeadershipBuy { .. } => match id {
                 "no" => Some(Opt::Buy(false)),
                 "yes" => Some(Opt::Buy(true)),

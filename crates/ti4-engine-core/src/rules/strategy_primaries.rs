@@ -13,7 +13,7 @@ use crate::choice::generic::Rule;
 use crate::choice::strategy::{ctx, gain_pool_choice, rule_ctx, Ask as SAsk, Opt as SOpt, Subtype as SSub};
 use crate::choice::{Ask, Choice, Opt, Opts, Pick};
 use crate::containers::SmallList;
-use crate::generated::{Agenda, Faction, Planet, StrategyCard, System};
+use crate::generated::{Agenda, Faction, Planet, PublicObjective, StrategyCard, System};
 use crate::ids::Seat;
 use crate::kernel::fx;
 use crate::kernel::stage::{Illegal, Sx, Window};
@@ -452,6 +452,100 @@ impl Window for Politics {
                 }
             }
             _ => return Err(Illegal),
+        }
+        Ok(())
+    }
+}
+
+// -- Imperial --------------------------------------------------------------------------------------------
+
+/// The suspension points of [`ImperialPrimary`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IStage {
+    Start,
+    /// Waiting on "score a public objective with Imperial".
+    Score,
+    Done,
+}
+
+/// Imperial's primary: score a public objective (the options are the caller's `scoreable_on`: the scoring
+/// itself, `objectives::award`, is not in the core, so an accepted objective ends the window with
+/// [`ImperialPrimary::scored`] set and the adapter declines the whole run), then gain a victory point for
+/// Mecatol Rex or draw a secret objective.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImperialPrimary {
+    pub who: Seat,
+    scoreable: SmallList<PublicObjective, 16>,
+    stage: IStage,
+    /// The objective the holder chose to score, if any (the core cannot score it).
+    pub scored: Option<PublicObjective>,
+}
+
+impl ImperialPrimary {
+    #[must_use]
+    pub const fn new(who: Seat, scoreable: SmallList<PublicObjective, 16>) -> Self {
+        Self { who, scoreable, stage: IStage::Start, scored: None }
+    }
+
+    /// Whether the seat controls Mecatol Rex (either printing).
+    #[must_use]
+    pub fn controls_mecatol(core: &CoreState, who: Seat) -> bool {
+        board::controlled_planets(core, who).as_slice().iter().any(|(system, _)| crate::query::objectives::is_mecatol(*system))
+    }
+
+    /// The tail of the ability: a point for Mecatol, else a secret objective.
+    fn finish(&mut self, core: &mut CoreState) {
+        if Self::controls_mecatol(core, self.who) {
+            fx::gain_victory_points(core, self.who, 1, crate::state::LedgerReason::ImperialPrimary);
+        } else {
+            fx::draw_secret(core, self.who);
+        }
+        self.stage = IStage::Done;
+    }
+}
+
+impl Window for ImperialPrimary {
+    type Stage = IStage;
+
+    fn stage(&self) -> IStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == IStage::Start {
+            if self.scoreable.is_empty() {
+                self.finish(sx.state);
+            } else {
+                self.stage = IStage::Score;
+            }
+        }
+        match self.stage {
+            IStage::Score => Next::Continue(ask(SAsk::ImperialScore)),
+            IStage::Start | IStage::Done => Next::Done,
+        }
+    }
+
+    fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {
+        (self.stage == IStage::Score).then(|| {
+            let mut options = opts(self.scoreable.as_slice().iter().map(|o| SOpt::Objective(*o)));
+            options.push(Opt::Decline);
+            Choice { actor: self.who, ask: ask(SAsk::ImperialScore), ctx: ctx(StrategyCard::Imperial, false, SSub::ImperialScoreObjective), opts: options }
+        })
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        if self.stage != IStage::Score {
+            return Err(Illegal);
+        }
+        match pick {
+            Pick::Opt(Opt::Decline) => {}
+            Pick::Opt(Opt::Strategy(SOpt::Objective(o))) if self.scoreable.as_slice().contains(&o) => self.scored = Some(o),
+            _ => return Err(Illegal),
+        }
+        if self.scored.is_some() {
+            self.stage = IStage::Done;
+        } else {
+            self.finish(sx.state);
         }
         Ok(())
     }
