@@ -674,3 +674,59 @@ const BEGIN_ROUND: Footprint = Footprint::new(
     &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
     &[Slice::Meta, Slice::Transient, Slice::Pending],
 );
+
+/// What the string `CombatWindow::barrage_step` was called with.
+#[derive(Debug, Clone, Copy)]
+pub struct BarrageIdleArgs<'a> {
+    pub attacker: &'a PlayerId,
+    pub defender: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    pub round: u32,
+    /// The resolver carries the timing machinery.
+    pub announce: bool,
+}
+
+/// The core half of `CombatWindow::barrage_step` for a step where neither side has anything to roll.
+/// `None` when either side has a barrage (the typed plan is not empty), neutral sides, reaction activity
+/// in the announcements (Waylay binds there), or a position the codecs refuse.
+#[must_use]
+pub fn barrage_idle(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    a: BarrageIdleArgs<'_>,
+    script: &Recording,
+) -> Option<CoreWindow<bool>> {
+    use ti4_engine_core::rules::combat::barrage_idle::{BarrageIdle, Facts};
+    if script.nested || crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
+        return None;
+    }
+    #[cfg(feature = "typed-core")]
+    {
+        let view = crate::core_combat::CombatView::of(gs, ti4_content::ContentStore::embedded(), sources)?;
+        for side in [a.attacker, a.defender] {
+            if !view.barrage_plan(side, a.system)?.is_empty() {
+                return None;
+            }
+        }
+    }
+    let (mut cx, r) = tables(gs)?;
+    let attacker = r.seat(a.attacker.as_str())?;
+    let defender = r.seat(a.defender.as_str())?;
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let before = gs.clone();
+    let env = crate::core_combat::window_env(&before, &cx, sources)?;
+    let facts = Facts { attacker, defender, system, round: a.round, phase: cx.texts.intern(Slice::Transient, "barrage").ok()?, announce: a.announce };
+    let resolver = Resolver::new(&[attacker, defender], Some(attacker));
+    let mut driver = Driver::new(BarrageIdle::new(facts), resolver, AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let driven = with_core(gs, &mut cx, Sources::default(), BEGIN_ROUND, |core, _| {
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .ok()?
+    .ok()?;
+    apply_staged(gs, &r, &staged)?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(events), questions: driven.rendered })
+}

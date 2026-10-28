@@ -5989,7 +5989,45 @@ impl CombatWindow {
 
     /// Both anti-fighter barrages (78.3): rolled one side at a time with its reroll windows, then applied.
     /// The players that scored a barrage feat.
+    ///
+    /// On `driver=dual` a step with nothing to roll for either side also runs as a core window
+    /// (`rules::combat::barrage_idle`).
     fn barrage_step(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>, round: u32) -> Result<Vec<PlayerId>, CombatError> {
+        let sources = ctx.sources;
+        let failed = std::cell::Cell::new(false);
+        let mut outcome = None;
+        let announce = ctx.timing.is_some();
+        let (attacker, defender, system) = (self.attacker.clone(), self.defender.clone(), self.system.clone());
+        crate::dual_window!(
+            crate::dual::Area::Driver,
+            "combat::barrage_step",
+            state,
+            |s: &mut GameState| {
+                let result = self.barrage_step_string(s, ctx, round);
+                failed.set(result.is_err());
+                let ok = result.as_ref().is_ok_and(Vec::is_empty);
+                outcome = Some(result);
+                crate::dual::Run::new(ok)
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                if failed.get() {
+                    return None;
+                }
+                let args = crate::dual_window::BarrageIdleArgs {
+                    attacker: &attacker,
+                    defender: &defender,
+                    system: &system,
+                    round,
+                    announce,
+                };
+                crate::dual_window::barrage_idle(s, sources, args, script)
+            }
+        );
+        outcome.unwrap_or_else(|| Ok(Vec::new()))
+    }
+
+    /// The string body of [`Self::barrage_step`].
+    fn barrage_step_string(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>, round: u32) -> Result<Vec<PlayerId>, CombatError> {
         let (content, sources) = (ctx.content, ctx.sources);
     let occurrence = self.ensure_combat_occurrence(state);
     // Both barrages are rolled before either is applied (78.3), one side at a time:
@@ -8916,7 +8954,7 @@ mod tests {
         });
         let r = report();
         let counts = &r.areas[&Area::Driver];
-        assert!(counts.calls >= 2, "the round openings were compared: {counts:?}");
+        assert!(counts.calls >= 3, "the round openings and the idle barrage were compared: {counts:?}");
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }

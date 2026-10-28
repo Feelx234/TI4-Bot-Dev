@@ -14,6 +14,7 @@
 
 pub mod assault_cannon;
 pub mod assign;
+pub mod barrage_idle;
 pub mod begin_round;
 pub mod destroy_fighters;
 pub mod sustain_commander;
