@@ -17,6 +17,7 @@ pub mod assign;
 pub mod barrage_idle;
 pub mod begin_round;
 pub mod destroy_fighters;
+pub mod end;
 pub mod sustain_commander;
 pub mod sustain_offer;
 

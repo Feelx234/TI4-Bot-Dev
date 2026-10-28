@@ -579,6 +579,48 @@ impl<'g> CombatView<'g> {
         Some(rows)
     }
 
+    /// `CombatWindow::end_payload`'s reason, losers, retreats and lost ships, as text:
+    /// `(reason, losers, retreated, destroyed (player, unit))`.
+    #[must_use]
+    #[allow(clippy::type_complexity, reason = "the dual compares this tuple as it is")]
+    pub fn end_report(
+        &self,
+        system: &SystemId,
+        sides: [&PlayerId; 2],
+        winner: Option<&PlayerId>,
+        declared_draw: bool,
+        fled: &[(PlayerId, Vec<String>)],
+        at_start: &[(PlayerId, Vec<String>)],
+    ) -> Option<(String, Vec<String>, Vec<String>, Vec<(String, String)>)> {
+        use ti4_engine_core::rules::combat::end::{end_report, EndReason};
+        let sys = typed::<System>(system.as_str())?;
+        let seats = [self.seat(sides[0])?, self.seat(sides[1])?];
+        let winner = match winner {
+            Some(w) => Some(self.seat(w)?),
+            None => None,
+        };
+        let fleets = |list: &[(PlayerId, Vec<String>)]| -> Option<Vec<(Seat, Vec<Unit>)>> {
+            list.iter()
+                .map(|(who, kinds)| Some((self.seat(who)?, kinds.iter().map(|k| typed::<Unit>(k)).collect::<Option<Vec<_>>>()?)))
+                .collect()
+        };
+        let (fled, at_start) = (fleets(fled)?, fleets(at_start)?);
+        let report = self.with(|rd| end_report(rd, sys, seats, winner, declared_draw, &fled, &at_start));
+        let reason = match report.reason {
+            EndReason::Retreat => "retreat",
+            EndReason::Draw => "draw",
+            EndReason::Destruction => "destruction",
+            EndReason::RoundLimit => "round_limit",
+        };
+        let name = |s: Seat| self.player(s).map(|p| p.to_string());
+        Some((
+            reason.to_owned(),
+            report.losers.iter().map(|s| name(*s)).collect::<Option<_>>()?,
+            report.retreated.iter().map(|s| name(*s)).collect::<Option<_>>()?,
+            report.destroyed.iter().map(|(s, u)| Some((name(*s)?, u.as_str().to_owned()))).collect::<Option<_>>()?,
+        ))
+    }
+
     /// The barrage plan of a side: (ship type or none for the relic, hit number, dice).
     #[must_use]
     pub fn barrage_plan(&self, player: &PlayerId, system: &SystemId) -> Option<Vec<(Option<String>, i64, usize)>> {
