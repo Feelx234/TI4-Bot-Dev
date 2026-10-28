@@ -128,4 +128,21 @@ mod tests {
         }
         assert!(w.contains(&(EventKind::HitsToAssign, Relation::When)));
     }
+
+    #[test]
+    fn a_condition_the_core_cannot_answer_is_unknown_not_false() {
+        use crate::state::{Payload, Player, Players};
+        let mut s = CoreState::all_loaded();
+        s.players = Players::from_vec(vec![Player::new(Seat(0), Faction::TheYssarilTribes), Player::new(Seat(1), Faction::TheVuilraithCabal)]);
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand.push(ActionCard::ShieldsHolding1);
+        let k = Kernel::plain();
+        let e = EventRec { id: 1, kind: EventKind::HitsToAssign, payload: Payload::new().with(Key::Player, crate::state::Val::Seat(Seat(0))), cancelled: false };
+        assert_eq!(playable(&s, &k, false, Seat(0), &e, Relation::When), Err(Unknown::YssarilTransparasteel));
+        // Another faction with the card in hand: Shields Holding listens to the hits before they are assigned.
+        s.players_mut().by_seat_mut(Seat(1)).unwrap().cards.hand.push(ActionCard::ShieldsHolding1);
+        let e1 = EventRec { id: 1, kind: EventKind::HitsToAssign, payload: Payload::new().with(Key::Player, crate::state::Val::Seat(Seat(1))), cancelled: false };
+        assert_eq!(playable(&s, &k, false, Seat(1), &e1, Relation::When).unwrap().as_slice(), &[ActionCard::ShieldsHolding1]);
+        assert!(playable(&s, &k, true, Seat(1), &e1, Relation::When).unwrap().is_empty(), "Political Secret bars the play");
+        assert!(playable(&s, &k, false, Seat(1), &e1, Relation::After).unwrap().is_empty(), "the other relation is another window");
+    }
 }

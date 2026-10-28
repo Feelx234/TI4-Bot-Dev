@@ -163,7 +163,7 @@ A window bails (counted under its own label, reason `nested (...)`) when the str
    cost the core does not judge, Harness Energy / Infiltrate);
 6. rolled dice in an ability in a window that is lent no stream (the lend fails and the window bails silently).
 
-Each has a unit test (`reactions_core::tests`). An ability whose condition failed never bails a window.
+Bails 1-4 have a unit test in `reactions_core::tests`, 5 in `rules::action_cards::reaction_slot::tests`; 6 (no stream lent) is not tested. An ability whose condition failed never bails a window.
 
 ## 4. Ported abilities
 
