@@ -2921,6 +2921,7 @@ impl Table {
             .unwrap_or(&mut self.default);
         let answer = decider.choose(choice);
         let outcome = answer.and_then(|answer| self.settle(choice, answer));
+        crate::dual_window::note_ask(choice, &outcome);
         self.remember_choice_error(&outcome);
         outcome
     }
@@ -2974,6 +2975,7 @@ impl Table {
         let seat_view = SeatObservation::bind(seen, choice.player.clone());
         let answer = decider.choose_seeing(choice, &seat_view);
         let outcome = answer.and_then(|answer| self.settle(choice, answer));
+        crate::dual_window::note_ask(choice, &outcome);
         self.remember_choice_error(&outcome);
         outcome
     }
