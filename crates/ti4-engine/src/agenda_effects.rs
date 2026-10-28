@@ -499,10 +499,12 @@ pub fn resolve_with(
     // both from `ctx`.
     match agenda {
         "secret" => effect_secret(state, ctx, galaxy, agenda, outcome, ballot),
-        "censure" | "shard_of_the_throne" | "crown_of_emphidia" => {
-            effect_censure(state, ctx, galaxy, agenda, outcome, ballot)
-        }
-        "classified" => effect_classified(state, ctx, galaxy, agenda, outcome, ballot),
+        "censure" | "shard_of_the_throne" | "crown_of_emphidia" => windowed(state, agenda, outcome, |s| {
+            effect_censure(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
+        "classified" => windowed(state, agenda, outcome, |s| {
+            effect_classified(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
         "execution" => effect_execution(state, ctx, galaxy, agenda, outcome, ballot),
         "redistribution" => effect_redistribution(state, ctx, galaxy, agenda, outcome, ballot),
         "artifact" => effect_artifact(state, ctx, galaxy, agenda, outcome, ballot),
@@ -2017,6 +2019,36 @@ mod tests {
 
     fn no_votes() -> Ballot {
         Ballot::default()
+    }
+
+    /// The effects the core has a window for run beside it on `agenda=dual`: a point, a revealed secret and a
+    /// repealed law are compared (and counted), not bailed.
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn the_ported_effects_run_as_core_windows_in_lockstep() {
+        use crate::dual::{AreaMask, Backend, take_report, with_mask};
+        let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();
+        let _ = take_report();
+        let secret = crate::generated::IdStr::as_str(ti4_engine_core::generated::SecretObjective::ALL[0]);
+        with_mask(mask, || {
+            let players = [PlayerId::new("a"), PlayerId::new("b")];
+            let mut state = crate::setup::start_game(ti4_content::ContentStore::embedded(), &players, POK, Some(players[0].clone())).unwrap();
+            for (p, faction) in players.iter().zip(["sol", "letnev"]) {
+                state.player_mut(p).unwrap().faction = ti4_model::id::FactionId::new(faction);
+            }
+            run(&mut state, "censure", "a", &no_votes());
+            run(&mut state, "censure", "a", &no_votes());
+            run(&mut state, "classified", secret, &no_votes());
+            state.laws.insert("censure".to_owned(), "a".to_owned());
+            assert!(crate::laws::repeal(&mut state, "censure"));
+            assert!(!crate::laws::repeal(&mut state, "censure"));
+        });
+        let report = take_report();
+        assert_eq!(report.total_differences(), 0, "{report:?}");
+        for label in ["agenda_effects::resolve_with", "laws::repeal"] {
+            let w = report.windows.get(label).cloned().unwrap_or_default();
+            assert!(w.compared > 0, "{label}: {w:?}");
+        }
     }
 
     /// Nexus Sovereignty, Against: a gamma wormhole into Mecatol Rex.
