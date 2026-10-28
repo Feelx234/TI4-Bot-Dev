@@ -22,6 +22,7 @@ pub mod end;
 pub mod end_announce;
 pub mod flow;
 pub mod raid_formation;
+pub mod retreat;
 pub mod roll;
 pub mod sustain_commander;
 pub mod sustain_offer;

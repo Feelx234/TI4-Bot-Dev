@@ -4823,6 +4823,27 @@ pub fn retreat_to(
     system: &SystemId,
     destination: &SystemId,
 ) -> usize {
+    crate::dual_window!(
+        crate::dual::Area::Driver,
+        "combat::retreat_to",
+        state,
+        |s: &mut GameState| crate::dual::Run::new(retreat_to_string(s, content, sources, player, system, destination)),
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            let args = crate::dual_window::RetreatArgs { player, system, destination };
+            crate::dual_window::retreat_to(s, content, sources, args, script)
+        }
+    )
+}
+
+/// The string body of [`retreat_to`].
+fn retreat_to_string(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    destination: &SystemId,
+) -> usize {
     let types = catalogue(content, sources);
     // Ground forces an Alastor brought into the battle stay on their planets and leave it with the
     // fleet: they are no longer in this combat.
@@ -6268,7 +6289,7 @@ impl CombatWindow {
     ) -> Result<(), CombatError> {
         let (attacker, defender, system) = (self.attacker.clone(), self.defender.clone(), self.system.clone());
         let (content, sources) = (ctx.content, ctx.sources);
-        let unported = self.roll_unported(state, ctx);
+        let unported = self.roll_unported(state, ctx.content);
         let ctx_announce = ctx.timing.is_some();
         let munitions_after = [&attacker, &defender].map(|side| {
             state.rules_version >= ti4_model::state::RULES_MUNITIONS_AFTER_ROLL
@@ -6335,7 +6356,7 @@ impl CombatWindow {
     /// side that may pay for Munitions Reserves or Wrath of Kenara. Everything else (the Crowns of
     /// Thalnos, the Heart of Ixth, Munitions Reserves after the roll, War Funding, Wrath of Kenara) is a
     /// stage of the window.
-    fn roll_unported(&self, state: &GameState, ctx: &Resolving<'_>) -> bool {
+    fn roll_unported(&self, state: &GameState, content: &ContentStore) -> bool {
         let sides = [&self.attacker, &self.defender];
         crate::neutral_units::is_neutral(&self.attacker)
             || crate::neutral_units::is_neutral(&self.defender)
@@ -6344,7 +6365,7 @@ impl CombatWindow {
                 crate::supply::potential_goods(state, side) > crate::supply::spendable_goods(state, side)
                     && (crate::factions::has_text_in(state, side, &self.system, crate::factions::FlagshipText::Hacan)
                         || (state.rules_version >= ti4_model::state::RULES_MUNITIONS_AFTER_ROLL
-                            && crate::faction_abilities::has(state, ctx.content, side, "munitions")))
+                            && crate::faction_abilities::has(state, content, side, "munitions")))
             })
     }
 
@@ -9480,6 +9501,11 @@ mod tests {
     /// the first option of every question): the roll step's dice, questions, events, state and queue must
     /// come out of the core window as the string step leaves them. Returns every question that was asked.
     fn roll_step_lockstep(setup: &dyn Fn(&mut GameState, u64), calls_at_least: u64) -> Vec<crate::choice::Choice> {
+        roll_step_counts(setup, calls_at_least).0
+    }
+
+    /// [`roll_step_lockstep`], also the (compared, bailed) counts of the roll step window.
+    fn roll_step_counts(setup: &dyn Fn(&mut GameState, u64), calls_at_least: u64) -> (Vec<crate::choice::Choice>, u64, u64) {
         use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
@@ -9522,8 +9548,96 @@ mod tests {
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         assert!(r.areas[&Area::Driver].calls >= calls_at_least, "the steps were compared: {:?}", r.areas[&Area::Driver]);
+        let counts = r.windows.get("combat::roll_round").cloned().unwrap_or_default();
         let _ = take_report();
-        asked
+        (asked, counts.compared, counts.bailed)
+    }
+
+    /// `roll_unported` of the arena's window after `setup`.
+    fn roll_unported_after(setup: &dyn Fn(&mut GameState, &SystemId)) -> bool {
+        let (mut state, system) = arena();
+        put(&mut state, &system, "cruiser", &attacker(), 1);
+        put(&mut state, &system, "cruiser", &defender(), 1);
+        setup(&mut state, &system);
+        let window = CombatWindow::new(&state, ContentStore::embedded(), POK, &system);
+        window.roll_unported(&state, ContentStore::embedded())
+    }
+
+    #[test]
+    fn the_round_opening_of_naaz_letnev_and_diplomacy_games_stays_string() {
+        // Voltron repair, Supercharge, Munitions, the Eidolon flip, the Letnev round agent and the attack
+        // promises are not in the core window: `begin_round` bails there and counts it.
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        fn args<'a>(a: &'a PlayerId, d: &'a PlayerId, system: &'a SystemId) -> crate::dual_window::BeginRoundArgs<'a> {
+            crate::dual_window::BeginRoundArgs { attacker: a, defender: d, system, round: 2, announce: false }
+        }
+        let content = ContentStore::embedded();
+        let (a, d, system) = (attacker(), defender(), SystemId::new("18"));
+        let plain = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+        assert!(!crate::dual_window::round_opening_unported(&plain, content, &args(&a, &d, &system)));
+        for faction in ["naaz", "letnev"] {
+            let mut state = plain.clone();
+            state.player_mut(&d).unwrap().faction = ti4_model::id::FactionId::new(faction);
+            assert!(crate::dual_window::round_opening_unported(&state, content, &args(&a, &d, &system)), "{faction}");
+        }
+        let mut state = plain.clone();
+        state.diplomacy.enabled = true;
+        assert!(crate::dual_window::round_opening_unported(&state, content, &args(&a, &d, &system)), "diplomacy");
+        // and through the call site: the window counts the bail-out and nothing is compared
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut state = plain.clone();
+        state.player_mut(&d).unwrap().faction = ti4_model::id::FactionId::new("letnev");
+        put(&mut state, &system, "cruiser", &a, 1);
+        put(&mut state, &system, "cruiser", &d, 1);
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+            let (mut dice, mut rng, mut table) = (Dice::new(), GameRng::new(1), Table::with_default(Box::new(crate::choice::FirstOption)));
+            let mut ctx = Resolving { content, sources: ti4_model::content_types::DEFAULT, dice: &mut dice, rng: &mut rng, table: &mut table, timing: None };
+            let _ = resolve_resolving(&mut state, &mut ctx, &system, None);
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let counts = r.windows.get("combat::begin_round").cloned().unwrap_or_default();
+        assert!(counts.bailed > 0 && counts.compared == 0, "{counts:?}");
+        let _ = take_report();
+    }
+
+    #[test]
+    fn a_readied_thundarian_keeps_the_roll_step_in_the_string() {
+        // The core ability table is empty: the roll step with a readied The Thundarian runs bare.
+        assert!(!roll_unported_after(&|_, _| {}));
+        assert!(roll_unported_after(&|state, _| {
+            state.player_mut(&attacker()).unwrap().leaders.insert(
+                ti4_model::id::LeaderId::new("nomadagentthundarian"),
+                ti4_model::state::LeaderStatus::Readied,
+            );
+        }));
+    }
+
+    #[test]
+    fn a_keleres_agent_that_could_pay_keeps_the_roll_step_in_the_string() {
+        // A Hacan flagship (Wrath of Kenara) whose owner holds commodities a readied Keleres agent could turn
+        // into trade goods: the payment window is the string's.
+        let keleres = |state: &mut GameState, ready: bool| {
+            let seat = state.player_mut(&attacker()).unwrap();
+            seat.commodities = 2;
+            seat.trade_goods = 0;
+            state.player_mut(&defender()).unwrap().faction = ti4_model::id::FactionId::new("keleresx");
+            if ready {
+                state.player_mut(&defender()).unwrap().leaders.insert(
+                    ti4_model::id::LeaderId::new("keleresagent"),
+                    ti4_model::state::LeaderStatus::Readied,
+                );
+            }
+        };
+        assert!(!roll_unported_after(&|state, system| {
+            put(state, system, "hacan_flagship", &attacker(), 1);
+            keleres(state, false);
+        }));
+        assert!(roll_unported_after(&|state, system| {
+            put(state, system, "hacan_flagship", &attacker(), 1);
+            keleres(state, true);
+        }));
     }
 
     #[test]
@@ -9543,6 +9657,26 @@ mod tests {
         let per_die = |source: &str| asked.iter().filter(|c| c.context.as_ref().is_some_and(|x| x.subtype == source)).count();
         assert!(per_die("crown_of_thalnos_relic_reroll") > 10, "the relic asked about dice");
         assert!(per_die("crown_of_thalnos_law_reroll") > 10, "the law asked about dice");
+    }
+
+    #[test]
+    fn a_roll_that_ends_the_fight_stays_string() {
+        // A reroll of the Crown of Thalnos destroys the lone ship of a fleet whose die missed again: the fight is
+        // over inside the roll step, which the core window does not follow. The string result stands (counted as a
+        // bail-out, nothing compared) and the other seeds still run in the window.
+        let (_, compared, bailed) = roll_step_counts(
+            &|state, _| {
+                let system = SystemId::new("18");
+                state.system_mut(&system).units.clear();
+                put(state, &system, "cruiser", &attacker(), 1);
+                put(state, &system, "cruiser", &defender(), 1);
+                state.player_mut(&attacker()).unwrap().relics.push(ti4_model::id::RelicId::new("thalnos"));
+                state.player_mut(&defender()).unwrap().relics.push(ti4_model::id::RelicId::new("thalnos"));
+            },
+            0,
+        );
+        assert!(bailed > 0, "some roll ended the fight: compared {compared}, bailed {bailed}");
+        assert!(compared > 0, "the others ran in the window");
     }
 
     #[test]
@@ -10396,6 +10530,85 @@ mod tests {
             landed.iter().all(|id| id != "naaz_mech_space"),
             "{landed:?}"
         );
+    }
+
+    /// `retreat_to` on `driver=dual` for the given fleets: the label's (compared, bailed) counts.
+    fn retreat_lockstep(factions: &[(&str, &str)], fleet: &dyn Fn(&mut GameState, &SystemId), setup: &dyn Fn(&mut GameState)) -> (u64, u64, usize) {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut state = crate::fixtures::seated_game(factions, ti4_model::content_types::DEFAULT);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        let (centre, refuge) = (SystemId::new("18"), SystemId::new("19"));
+        fleet(&mut state, &centre);
+        setup(&mut state);
+        let lost = with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+            retreat_to(&mut state, ContentStore::embedded(), ti4_model::content_types::DEFAULT, &attacker(), &centre, &refuge)
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let counts = r.windows.get("combat::retreat_to").cloned().unwrap_or_default();
+        let _ = take_report();
+        (counts.compared, counts.bailed, lost)
+    }
+
+    #[test]
+    fn a_retreat_runs_in_the_core_window() {
+        // Carrier with its fighters and a mech (capacity enough), a sustained dreadnought, a galvanized
+        // cruiser, and a destroyer fleet that strands its fighters; with and without staging (Argent is a
+        // module faction).
+        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "argent"), ("b", "hacan")]] {
+            for stranding in [false, true] {
+                let (compared, bailed, lost) = retreat_lockstep(
+                    &factions,
+                    &|state, centre| {
+                        put(state, centre, "carrier", &attacker(), 1);
+                        put(state, centre, "dreadnought", &attacker(), 1);
+                        put(state, centre, "cruiser", &attacker(), 1);
+                        put(state, centre, "fighter", &attacker(), if stranding { 6 } else { 3 });
+                        put(state, centre, "mech", &attacker(), 1);
+                        put(state, centre, "cruiser", &defender(), 1);
+                        let units = &mut state.system_mut(centre).units;
+                        let at = units.iter().position(|u| u.type_id.as_str() == "dreadnought").unwrap();
+                        units[at].sustained_damage = true;
+                        let at = units.iter().position(|u| u.type_id.as_str() == "cruiser" && u.owner == attacker()).unwrap();
+                        units[at].galvanized = true;
+                    },
+                    &|_| {},
+                );
+                assert_eq!((compared, bailed), (1, 0), "{factions:?} stranding={stranding}");
+                assert_eq!(lost > 0, stranding);
+            }
+        }
+    }
+
+    #[test]
+    fn a_retreat_in_a_game_with_the_last_bastion_stays_string() {
+        // `bastion_note_retreat` is not in the core: the note of the retreat is the string's.
+        let (compared, bailed, _) = retreat_lockstep(
+            &[("a", "sol"), ("b", "bastion")],
+            &|state, centre| put(state, centre, "carrier", &attacker(), 1),
+            &|_| {},
+        );
+        assert_eq!((compared, bailed), (0, 1));
+    }
+
+    #[test]
+    fn a_retreat_of_a_dual_form_or_loose_unit_stays_string() {
+        // Bails: a ship-form Eidolon (flips back where it lands), a Voltron fighting from its planet, a
+        // Floating Factory (moves like a ship without being one). The string result stands.
+        for unit in ["naaz_mech_space", "saar_spacedock"] {
+            let (compared, bailed, _) = retreat_lockstep(
+                &[("a", "sol"), ("b", "hacan")],
+                &|state, centre| {
+                    put(state, centre, "carrier", &attacker(), 1);
+                    put(state, centre, unit, &attacker(), 1);
+                },
+                &|_| {},
+            );
+            assert_eq!((compared, bailed), (0, 1), "{unit}");
+        }
     }
 
     #[test]

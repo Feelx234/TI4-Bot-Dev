@@ -160,6 +160,21 @@ The example lives under `driver/` only because `rules/` is created by B1 and B3;
   (hit phase, resume flag, retreats announced, once-per-round announcement). Bails: cancellations granted, a
   single casualty candidate, neutral sides, Duranium Armor repairs, a lone retreat destination (the move is
   `retreat_to`, string), Devotion, staged destructions, reaction windows in an announcement.
-* Left string: `retreat_to` (observers, move, command token), begin_round's Naaz /
-  Letnev / diplomacy cases, and the composition of all stages into one core Stage machine (each stage is its own
-  dual window today; they run inside the string loop `settle_stages`).
+* `rules/combat/retreat.rs` (`Retreat`): the move of a retreat (string `combat::retreat_to`, now a `dual_window!`
+  around `retreat_to_string`; the value compared is the number of units stranded). Alastor participants forgotten,
+  Bastion's retreat note, movers (ships with a move value), carried fighters and ground forces within capacity, the
+  stranded lost (`remove_ship`, a staged `retreat_capacity` destruction with staging), the command token and its staged
+  `COMMAND_TOKEN_PLACED`. No new `Obs` variants: `ParticipantsCleared` and `ShipLostTaken` are the direct hooks
+  `nekro_units_alastor_clear` and `bastion_take_ship_lost` (as `assign.rs` already calls them) and the `ShipRetreated`
+  observer has no ship list, so the window calls `bastion_note_retreat` directly. Bails (`dual_window::retreat_unported`,
+  one test each): a unit that flips form or fights from its planet (Eidolon in the fleet or where it lands, Voltron), a
+  Floating Factory, a Last Bastion seat (`bastion_note_retreat` is not ported in core-factions: its list is sorted by the
+  unit type TEXT), neutral players. Tests: `a_retreat_runs_in_the_core_window` (sustained and galvanized pieces,
+  stranding, with and without staging), mutation-checked.
+* Left string: the composition of all stages into one core `CombatWindow` Stage machine (each stage is its own dual
+  window today and they run inside the string loop `settle_stages`; the composed machine needs the remaining string-only
+  stages below ported first, and is not done), and `begin_round`'s Naaz / Letnev / diplomacy cases
+  (Voltron repair, Supercharge, Munitions, the Eidolon flip, the Letnev round agent, attack promises: a documented bail,
+  `the_round_opening_of_naaz_letnev_and_diplomacy_games_stays_string`; the golden games take it for about half of the
+  round openings). Roll-step bails have a test each: `a_readied_thundarian_keeps_the_roll_step_in_the_string`,
+  `a_keleres_agent_that_could_pay_keeps_the_roll_step_in_the_string`, `a_roll_that_ends_the_fight_stays_string`.

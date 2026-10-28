@@ -843,6 +843,96 @@ const BEGIN_ROUND: Footprint = Footprint::new(
     &[Slice::Meta, Slice::Transient, Slice::Pending],
 );
 
+/// Whether a retreat holds something the core window does not carry: a unit that flips between its ship and
+/// its ground form (in the fleet or where it lands), a Voltron fighting from its planet, or a unit that moves
+/// like a ship without being one (Floating Factory), or a Last Bastion seat (its retreat note).
+#[must_use]
+pub fn retreat_unported(
+    gs: &GameState,
+    content: &ti4_content::ContentStore,
+    sources: ti4_model::content_types::SourceSet,
+    player: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    destination: &ti4_model::id::SystemId,
+) -> bool {
+    // The Last Bastion keeps a note of the retreat (`bastion_note_retreat` is not ported: its list is sorted by
+    // the text of the unit type, package CA).
+    if gs.players.iter().any(|p| p.faction.as_str() == "bastion") {
+        return true;
+    }
+    let types = ti4_content::units::catalogue(content, sources);
+    let mine = |id: &ti4_model::id::SystemId| gs.system_state(id).units_of(player).into_iter().cloned().collect::<Vec<_>>();
+    let dual_form = |u: &ti4_model::units::Unit| crate::fleet::other_form(&types, u.type_id.as_str()).is_some();
+    let loose = |u: &ti4_model::units::Unit| types.get(u.type_id.as_str()).is_some_and(|k| k.moves_as_ship() && !k.is_ship());
+    mine(system).iter().any(|u| dual_form(u) || loose(u))
+        || mine(destination).iter().any(dual_form)
+        || gs
+            .system_state(system)
+            .planet_units
+            .values()
+            .any(|units| units.iter().any(|u| &u.owner == player && u.type_id.as_str() == "naaz_voltron"))
+}
+
+/// What the string `retreat_to` was called with.
+#[derive(Debug, Clone, Copy)]
+pub struct RetreatArgs<'a> {
+    pub player: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    pub destination: &'a ti4_model::id::SystemId,
+}
+
+/// The core half of `combat::retreat_to`; the value is the number of units lost for lack of capacity. `None`
+/// for the positions of [`retreat_unported`], neutral players, or a position the codecs refuse.
+#[must_use]
+pub fn retreat_to(
+    gs: &mut GameState,
+    content: &ti4_content::ContentStore,
+    sources: ti4_model::content_types::SourceSet,
+    a: RetreatArgs<'_>,
+    script: &Recording,
+) -> Option<CoreWindow<usize>> {
+    use ti4_engine_core::rules::combat::retreat::{Facts, Retreat};
+    if crate::neutral_units::is_neutral(a.player) || retreat_unported(gs, content, sources, a.player, a.system, a.destination) {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let player = r.seat(a.player.as_str())?;
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let destination = <ti4_engine_core::generated::System as IdStr>::from_id(a.destination.as_str())?;
+    let staging = crate::supply::staging_enabled(gs);
+    let before = gs.clone();
+    let env = crate::core_combat::window_env(&before, &cx, sources)?;
+    let facts = Facts {
+        player,
+        system,
+        destination,
+        staging,
+        cause: cx.texts.intern(Slice::Transient, "retreat_capacity").ok()?,
+        pool: r.code("reinforcements"),
+    };
+    let resolver = Resolver::new(&[player], Some(player));
+    let mut driver = Driver::new(Retreat::new(facts), resolver, AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let mut stranded = 0;
+    let driven = with_core(gs, &mut cx, Sources::default(), RETREAT, |core, _| {
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        stranded = driver.window.stranded;
+        driven
+    })
+    .ok()?
+    .ok()?;
+    apply_staged(gs, &r, &staged)?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    let _ = driven.finished;
+    Some(CoreWindow { run: Run::new(stranded).with_events_vec(events), questions: driven.rendered })
+}
+
+const RETREAT: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
+    &[Slice::Board, Slice::Transient, Slice::Marks, Slice::Pending],
+);
+
 /// What the string `CombatWindow::barrage_step` was called with.
 #[derive(Debug, Clone, Copy)]
 pub struct BarrageArgs<'a> {
