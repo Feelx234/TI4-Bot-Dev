@@ -155,6 +155,15 @@ pub fn gain_victory_points(s: &mut CoreState, who: Seat, delta: i32, reason: Led
     total
 }
 
+/// `objectives::reveal_stage` (61.13, 61.14a): the first facedown public objective of this stage turns faceup,
+/// wherever it is in the deck. Shared with the agenda effects (Incentive Program); areas do not import each other.
+pub fn reveal_stage(s: &mut CoreState, stage: u8) -> Option<crate::generated::PublicObjective> {
+    let at = s.decks().objective.cards().iter().position(|o| crate::query::objectives::stage_of(*o) == Some(stage))?;
+    let card = s.decks_mut().objective.remove(at);
+    s.objectives_mut().revealed.push(ObjectiveRef::Public(card));
+    Some(card)
+}
+
 /// `objectives::VICTORY_TARGET`: no seat holds more points than this (98.4a).
 pub const VICTORY_TARGET: i32 = 10;
 

@@ -276,7 +276,7 @@ impl Table {
             }
             Self::Plowshares => return plowshares(core, f),
             Self::Incentive(stage) => {
-                crate::rules::objectives::reveal_stage(core, stage);
+                fx::reveal_stage(core, stage);
             }
             Self::TravelBan => travel_ban(core, f),
             Self::WormholeShips => wormhole_ships(core, f),

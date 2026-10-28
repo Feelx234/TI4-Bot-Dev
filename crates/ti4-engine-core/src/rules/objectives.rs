@@ -11,7 +11,6 @@
 //! A4).
 
 use crate::generated::PublicObjective;
-use crate::query::objectives as q;
 use crate::state::{CoreState, ObjectiveRef};
 
 /// `GameState::reveal_objective` (81.2): the top facedown public objective turns faceup.
@@ -24,8 +23,5 @@ pub fn reveal_top(core: &mut CoreState) -> Option<PublicObjective> {
 /// `objectives::reveal_stage` (61.13, 61.14a): the first facedown objective of this stage, wherever it is in
 /// the deck.
 pub fn reveal_stage(core: &mut CoreState, stage: u8) -> Option<PublicObjective> {
-    let at = core.decks().objective.cards().iter().position(|o| q::stage_of(*o) == Some(stage))?;
-    let card = core.decks_mut().objective.remove(at);
-    core.objectives_mut().revealed.push(ObjectiveRef::Public(card));
-    Some(card)
+    crate::kernel::fx::reveal_stage(core, stage)
 }
