@@ -1035,17 +1035,27 @@ pub fn offer_production_hero(
 /// set. Returns what was purged, for events.
 pub fn end_of_round(state: &mut GameState) -> Vec<(PlayerId, LeaderId)> {
     let hero = LeaderId::new("letnevhero");
-    let mut purged = Vec::new();
-    for seat in &mut state.players {
-        if seat.fleet_supply_unlimited_until == Some(state.round) {
-            seat.fleet_supply_unlimited_until = None;
-            if seat.leaders.get(&hero) == Some(&LeaderStatus::Unlocked) {
-                seat.leaders.insert(hero.clone(), LeaderStatus::Purged);
-                purged.push((seat.id.clone(), hero.clone()));
+    dual_write(
+        state,
+        "leaders::end_of_round",
+        |state| {
+            let mut purged = Vec::new();
+            for seat in &mut state.players {
+                if seat.fleet_supply_unlimited_until == Some(state.round) {
+                    seat.fleet_supply_unlimited_until = None;
+                    if seat.leaders.get(&hero) == Some(&LeaderStatus::Unlocked) {
+                        seat.leaders.insert(hero.clone(), LeaderStatus::Purged);
+                        purged.push((seat.id.clone(), hero.clone()));
+                    }
+                }
             }
-        }
-    }
-    purged
+            purged
+        },
+        |s| {
+            let seats = crate::leaders_core::end_of_round(s)?;
+            Some(seats.into_iter().map(|p| (p, hero.clone())).collect())
+        },
+    )
 }
 
 // -- abilities (M07-002 to M07-009) --------------------------------------------------------------
@@ -1385,11 +1395,18 @@ fn dispatch_leader(
                 wanted,
             )
             .unwrap_or_else(|| ti4_model::id::UnitTypeId::new(wanted));
-            if let Some(seat) = context.state.player_mut(player) {
-                seat.extra_die_round = Some(round);
-                seat.extra_die_unit = Some(unit);
-            }
-            true
+            dual_write(
+                context.state,
+                "leaders::extra_die_agent",
+                |s| {
+                    if let Some(seat) = s.player_mut(player) {
+                        seat.extra_die_round = Some(round);
+                        seat.extra_die_unit = Some(unit.clone());
+                    }
+                    true
+                },
+                |s| crate::leaders_core::extra_die_agent(s, player, unit.as_str()),
+            )
         }
         // Claire Gibson: an infantry onto a planet you control, as a ground combat opens.
         "solcommander" => {
@@ -1849,10 +1866,17 @@ fn dispatch_leader(
         // acting now, so a later production in the same game is not free as well.
         "hacanhero" => {
             let seq = context.state.production_seq;
-            if let Some(seat) = context.state.player_mut(player) {
-                seat.free_production_use = Some(seq);
-            }
-            true
+            dual_write(
+                context.state,
+                "leaders::activate_hacan_hero",
+                |s| {
+                    if let Some(seat) = s.player_mut(player) {
+                        seat.free_production_use = Some(seq);
+                    }
+                    true
+                },
+                |s| crate::leaders_core::activate_hacan_hero(s, player),
+            )
         }
 
         // The Helmsman: gather the flagship and any dreadnoughts into one system holding no
@@ -2163,17 +2187,20 @@ fn dispatch_leader(
         // Darktalon Treilla: fleet supply is limited by neither laws nor the pool this round.
         "letnevhero" => {
             let round = context.state.round;
-            if context
-                .state
-                .player(player)
-                .is_some_and(|seat| seat.fleet_supply_unlimited_until == Some(round))
-            {
-                return false; // already active this round, so it was not offered twice
-            }
-            if let Some(seat) = context.state.player_mut(player) {
-                seat.fleet_supply_unlimited_until = Some(round);
-            }
-            true
+            dual_write(
+                context.state,
+                "leaders::activate_letnev_hero",
+                |s| {
+                    if s.player(player).is_some_and(|seat| seat.fleet_supply_unlimited_until == Some(round)) {
+                        return false; // already active this round, so it was not offered twice
+                    }
+                    if let Some(seat) = s.player_mut(player) {
+                        seat.fleet_supply_unlimited_until = Some(round);
+                    }
+                    true
+                },
+                |s| crate::leaders_core::activate_letnev_hero(s, player),
+            )
         }
         _ => crate::factions::use_leader(context, player, leader).unwrap_or(false),
     }
@@ -2496,6 +2523,36 @@ mod tests {
         });
         let r = report();
         assert!(r.total_calls() >= 6, "the core half ran: {r:?}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    /// The decision-free leader effects (extra die, Darktalon Treilla, the Hacan hero) and the end-of-round
+    /// purge run on the core under `leaders=dual` and agree with the string side.
+    #[test]
+    fn the_decision_free_effects_run_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual);
+        with_mask(mask, || {
+            let mut state = crate::fixtures::seated_game(&[("a", "letnev"), ("b", "hacan")], POK);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.round = 2;
+            let agent = holding(&mut state, "letnevagent", LeaderStatus::Readied);
+            let hero = holding(&mut state, "letnevhero", LeaderStatus::Unlocked);
+            assert!(use_it(&mut state, &agent));
+            assert!(use_it(&mut state, &hero));
+            assert!(!use_it(&mut state, &hero), "purged after use");
+            let mut state2 = state.clone();
+            state2.player_mut(&player()).unwrap().leaders.insert(hero.clone(), LeaderStatus::Unlocked);
+            state2.player_mut(&player()).unwrap().fleet_supply_unlimited_until = Some(2);
+            assert_eq!(end_of_round(&mut state2), vec![(player(), hero.clone())]);
+            assert_eq!(status(&state2, &player(), &hero), Some(LeaderStatus::Purged));
+        });
+        let r = report();
+        assert!(r.total_calls() >= 3, "the core half ran: {r:?}");
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }

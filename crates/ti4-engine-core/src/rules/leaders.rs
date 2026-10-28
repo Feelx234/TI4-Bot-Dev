@@ -317,6 +317,56 @@ pub fn unlock(core: &mut CoreState, who: Seat, leaders: &[Leader]) {
     }
 }
 
+// -- the effects of leaders that ask nothing (`dispatch_leader` arms without a decision) -----------
+
+/// Evelyn DeLouis / Viscount Unlenn: one unit rolls an extra die this combat round (`unit` is the base type
+/// the caller resolved for the seat). Held as the round number, so it expires with the round.
+pub fn extra_die_agent(core: &mut CoreState, who: Seat, unit: Unit) -> bool {
+    let round = core.meta().combat_round_seq;
+    let Some(p) = core.players_mut().by_seat_mut(who) else { return false };
+    p.combat_timers.extra_die_round = crate::Opt32::some(round);
+    p.combat_timers.extra_die_unit = Some(unit);
+    true
+}
+
+/// Darktalon Treilla: fleet supply is unlimited until the end of this round; `false` when already active.
+pub fn activate_letnev_hero(core: &mut CoreState, who: Seat) -> bool {
+    let round = core.meta().round;
+    let Some(p) = core.players_mut().by_seat_mut(who) else { return false };
+    if p.production_timers.fleet_supply_unlimited_until.is(round) {
+        return false;
+    }
+    p.production_timers.fleet_supply_unlimited_until = crate::Opt32::some(round);
+    true
+}
+
+/// Hacan's hero: production of this sequence is free.
+pub fn activate_hacan_hero(core: &mut CoreState, who: Seat) -> bool {
+    let seq = core.meta().production_seq;
+    let Some(p) = core.players_mut().by_seat_mut(who) else { return false };
+    p.production_timers.free_production_use = crate::Opt32::some(seq);
+    true
+}
+
+/// `leaders::end_of_round`: Darktalon Treilla's effect ends with the round she was used in; she is purged.
+/// Returns the seats whose hero was purged.
+pub fn end_of_round(core: &mut CoreState) -> SmallList<Seat, 8> {
+    let round = core.meta().round;
+    let mut purged = SmallList::new();
+    let seats: SmallList<Seat, 8> = core.players().iter().map(|p| p.seat).collect();
+    for seat in seats.as_slice() {
+        let Some(p) = core.players_mut().by_seat_mut(*seat) else { continue };
+        if p.production_timers.fleet_supply_unlimited_until.is(round) {
+            p.production_timers.fleet_supply_unlimited_until = crate::Opt32::NONE;
+            if p.leaders.status.get(&Leader::DarktalonTreilla) == Some(&LeaderStatus::Unlocked) {
+                p.leaders.status.insert(Leader::DarktalonTreilla, LeaderStatus::Purged);
+                purged.push(*seat);
+            }
+        }
+    }
+    purged
+}
+
 /// The arms of `can_resolve_action` the core can decide itself; the rest is asked of the [`Env`].
 fn can_resolve_action(cx: &Cx<'_>, who: Seat, leader: Leader) -> bool {
     let core = cx.core;

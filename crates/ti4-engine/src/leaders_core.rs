@@ -58,6 +58,33 @@ mod real {
         lend(gs, player, |core, who| rules::purge(core, who, l))
     }
 
+    /// Evelyn DeLouis / Viscount Unlenn: the extra die of this combat round. `base` is the unit type the
+    /// string side resolved (a form the tables do not know bails).
+    pub fn extra_die_agent(gs: &mut GameState, player: &PlayerId, base: &str) -> Option<bool> {
+        let unit = typed::<ti4_engine_core::generated::Unit>(base)?;
+        lend(gs, player, |core, who| rules::extra_die_agent(core, who, unit))
+    }
+
+    /// Darktalon Treilla's activation.
+    pub fn activate_letnev_hero(gs: &mut GameState, player: &PlayerId) -> Option<bool> {
+        lend(gs, player, |core, who| rules::activate_letnev_hero(core, who))
+    }
+
+    /// Hacan's hero activation.
+    pub fn activate_hacan_hero(gs: &mut GameState, player: &PlayerId) -> Option<bool> {
+        lend(gs, player, |core, who| rules::activate_hacan_hero(core, who))
+    }
+
+    /// `leaders::end_of_round`.
+    pub fn end_of_round(gs: &mut GameState) -> Option<Vec<PlayerId>> {
+        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let seats = crate::core_sync::with_core(gs, &mut cx, Sources::default(), WRITES, |core, _| {
+            rules::end_of_round(core).as_slice().to_vec()
+        })
+        .ok()?;
+        Some(seats.into_iter().map(|s| PlayerId::new(r.seat_text(s))).collect())
+    }
+
     /// The status write of `leaders::check_unlocks`.
     pub fn unlock(gs: &mut GameState, player: &PlayerId, leaders: &[LeaderId]) -> Option<()> {
         let list: Option<Vec<Leader>> = leaders.iter().map(|l| typed::<Leader>(l.as_str())).collect();
@@ -84,6 +111,18 @@ mod stub {
         None
     }
     pub fn unlock(_: &mut GameState, _: &PlayerId, _: &[LeaderId]) -> Option<()> {
+        None
+    }
+    pub fn extra_die_agent(_: &mut GameState, _: &PlayerId, _: &str) -> Option<bool> {
+        None
+    }
+    pub fn activate_letnev_hero(_: &mut GameState, _: &PlayerId) -> Option<bool> {
+        None
+    }
+    pub fn activate_hacan_hero(_: &mut GameState, _: &PlayerId) -> Option<bool> {
+        None
+    }
+    pub fn end_of_round(_: &mut GameState) -> Option<Vec<PlayerId>> {
         None
     }
 }
