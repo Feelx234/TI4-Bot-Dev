@@ -21,6 +21,7 @@ package branches (`core-*`), not from this branch.
 | id | description | where | why open | resolution |
 |----|-------------|-------|----------|------------|
 | B1 | `heart_ixth` emits option ids `hfix\|{entry}:{die}:{sign}` (checked: `combat.rs` ~l.902-923) but parses by splitting on `\|` and expecting four parts (checked: ~l.968-975, only three come out). Every pick fails to parse, no die shifts, the card never exhausts. The seed named `combat/roll_window.rs`; in this tree it is `crates/ti4-engine/src/combat.rs`. | string: `crates/ti4-engine/src/combat.rs`; core copy: `crates/ti4-engine-core/src/rules/combat/roll.rs` ~l.654 on branch `core-b1-combat` (comment names the bug) | core must match the string engine for dual-run parity | fix both together under a `RULES_VERSION` bump (A1): parse three parts after `hfix\|` |
+| B2-K7 | Copied string behaviour of Harrow (package B2): it bombards with the invader's space-area units only, with no Assail, Bunker or galvanize bonus, and Plasma Scoring applies to the first roller only. | core: `crates/ti4-engine-core/src/rules/invasion/harrow.rs`; string: `crates/ti4-engine/src/invasion.rs` | core must match the string engine for dual-run parity | rules review, then fix both together (probably under a `RULES_VERSION` bump) |
 
 ## C. Documented bails per package
 
@@ -29,6 +30,10 @@ given are from the package reports.
 
 - **Combat (B1)**: readied The Thundarian (core ability table empty); Keleres agent paying for Munitions/Wrath; neutral sides; `begin_round` Naaz/Letnev/diplomacy (278 of 550 calls); retreat window (Eidolon/Voltron, Floating Factory, Last Bastion seat, neutrals); composed `CombatWindow` (in progress, B1g).
 - **Invasion (B2)**: nested reaction windows in `GroundRoundHits` (82/361); Begin/Tail/Advance bails; Harrow and `commit_deploy`/Keleres toll; zero-coverage Advance bails.
+  - B2-K1 (new bail): `commit_one`/`commit_deploy` dual bails on a landing the Keleres toll bars (`dual_window::land_one`); goes away when the toll is a core rule fact.
+  - B2-K2 (new bail): toll owed at a table `production_view::unported_window` declines (Crimson/Bastion tables, Keleres/Deepwrought/Naaz/Mentak invader, Argent/Nomad/Yssaril present); resolved by B3 and the faction ports.
+  - B2-K3 (new bail): Harrow with irreproducible dice or Proxima Targeting VI at the table (`round_hits_unported`).
+  - B2-K6 (dead guard): the "seats not in id order" bail in `advance` cannot trigger (Owners are sorted).
 - **Production (B3)**: Bastion and Crimson declined for typed reads; Argent/Yssaril/Nomad cross-seat guard; Naaz mech staging; empty tier-W offers (Keleres/Winnu agent, Hacan hero, payment-window agent, Argent agent redirect); `sling_relay`/`integrated_economy`; supply mutations; `ProductionCounters`/timer split.
 - **Agenda (B9)**: ~28 effects with no core window (event staging, questions, secret deck draw, Regulations Mahact token count, Crisis version-gated); reveal/resolution windows; `laws::offer_discard`.
 - **Action cards (B6)**: 12 cards' legal-target checks bail; rest of B6 not ported.
@@ -50,6 +55,9 @@ given are from the package reports.
 | D10 | Harrow dice-ordering risk | verify against string order |
 | D11 | `state_size.sh` needs a release binary | build first |
 | D12 | `gate` cargo profile exists only on branch `build-speed`; `string-disentangle` uses env vars | unify when merging (`docs/ENGINE_BUILD_SPEED.md`) |
+| B2-K4 | open design: 82 nested-reaction bails in `ground_round_hits` | needs the reaction/ability port |
+| B2-K5 | open design: the `FinalizingControl`/`finish_control_gain` hook chain, the rest of `finish_committing`, the setup/end hooks and the scoring pauses are still string | B5 exploration, technology and the ability port |
+| B2-K8 | bench-v1 seed 25 (`selfplay replay --seed 25 --players 6 --map 6pStandard --factions mentak,yin,nekro,mahact,ghost,letnev --speaker random --rules-version 11 --bot bot_version=1`) differed under `invasion=core` (hash 285d9162e1f792f0 instead of f1347a5256c63ade). Cause: Nekro Mordred's +2 was counted twice, by the native Nekro row and by the combat kernel's string bridge (ground rolled on 2 instead of 4; space combat had the same double count). FIXED on `core-b2-invasion` in d3c9316e (`core_combat.rs` bridge no longer adds it), with a regression test. | `dual` had not flagged it |
 
 ## E. Process / ops notes
 
