@@ -214,6 +214,12 @@ fn supported(state: &GameState, choices: &[String], order: &[PlayerId], spender:
 
 #[cfg(feature = "typed-core")]
 fn replay(inner: &Inner, now: &GameState, winner: Option<&str>, counts: &std::collections::BTreeMap<String, i64>) {
+    let compared = replay_inner(inner, now, winner, counts).is_some();
+    crate::dual::note_window("vote::VoteWindow", compared);
+}
+
+/// `None` when the core could not follow the position (nothing was compared).
+fn replay_inner(inner: &Inner, now: &GameState, winner: Option<&str>, counts: &std::collections::BTreeMap<String, i64>) -> Option<()> {
     use ti4_engine_core::generated::Agenda;
     use ti4_engine_core::kernel::stage::{AbilityTable, Window};
     use ti4_engine_core::kernel::Resolver;
@@ -231,17 +237,17 @@ fn replay(inner: &Inner, now: &GameState, winner: Option<&str>, counts: &std::co
         &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Agenda, Slice::Marks, Slice::Cards, Slice::Pending],
         &[Slice::Board, Slice::Players],
     );
-    let (Some(sources), Some(agenda)) = (inner.sources, Agenda::from_id(&inner.alias)) else { return };
-    let Some(open) = inner.open.as_ref() else { return };
-    let Ok(mut cx) = Ctx::of(open) else { return };
+    let (Some(sources), Some(agenda)) = (inner.sources, Agenda::from_id(&inner.alias)) else { return None };
+    let open = inner.open.as_ref()?;
+    let Ok(mut cx) = Ctx::of(open) else { return None };
     let r = Render::new(cx.owners.ids().to_vec());
     let voted = match open.covert_agenda.as_deref() {
         Some(hidden) if inner.alias == "covert" => Agenda::from_id(hidden),
         _ => Some(agenda),
     };
-    let Some(elects) = voted.map(|a| a.data().elects) else { return };
-    let Some(choices) = inner.choices.iter().map(|c| cx.keys.parse_outcome(c, Some(elects))).collect::<Option<Vec<_>>>() else { return };
-    let Some(order) = inner.order.iter().map(|p| cx.owners.seat(p.as_str())).collect::<Option<Vec<_>>>() else { return };
+    let elects = voted.map(|a| a.data().elects)?;
+    let choices = inner.choices.iter().map(|c| cx.keys.parse_outcome(c, Some(elects))).collect::<Option<Vec<_>>>()?;
+    let order = inner.order.iter().map(|p| cx.owners.seat(p.as_str())).collect::<Option<Vec<_>>>()?;
     let mut facts = Facts::new(crate::core_adapter::scope(sources), crate::laws::blanked(open));
     for (p, seat) in inner.order.iter().zip(&order) {
         let at = usize::from(seat.0) & 7;
@@ -253,17 +259,17 @@ fn replay(inner: &Inner, now: &GameState, winner: Option<&str>, counts: &std::co
     }
     let mut window = Vote::new(agenda, &choices, &order, facts);
     if let Some(spender) = inner.spender.as_ref() {
-        let Some(seat) = cx.owners.seat(spender.as_str()) else { return };
+        let seat = cx.owners.seat(spender.as_str())?;
         window = window.with_spender(seat);
     }
-    let Some(speaker) = cx.owners.seat(open.speaker.as_str()) else { return };
+    let speaker = cx.owners.seat(open.speaker.as_str())?;
     let mut driver = ti4_engine_core::driver::Driver::new(window, Resolver::new(&order, Some(speaker)), AbilityTable::default(), 1);
     let mut script = Recording::default();
     script.questions = inner.script.iter().map(|(c, a)| Asked { choice: c.clone(), answer: Some(a.clone()) }).collect();
     let kernel = crate::production_view::kernel();
     let mut core_state = open.clone();
     let driven = with_core(&mut core_state, &mut cx, Sources::default(), FOOTPRINT, |core, _| drive(&mut driver, core, kernel, &r, open, &script));
-    let Ok(Ok(driven)) = driven else { return };
+    let Ok(Ok(driven)) = driven else { return None };
     let area = Area::AgendaLaws;
     if compare_value(area, &format!("{LABEL}.questions"), &inner.script.len(), &driven.rendered.len()) {
         for ((asked, _), rendered) in inner.script.iter().zip(&driven.rendered) {
@@ -289,4 +295,5 @@ fn replay(inner: &Inner, now: &GameState, winner: Option<&str>, counts: &std::co
     compare_runs(area, LABEL, &string_view, &Run::new(winner), &core_state, &Run::new(core_winner));
     compare_value(area, &format!("{LABEL}.finished"), &true, &(driven.finished && driver.window.is_done()));
     let _ = <Vote as Window>::stage;
+    Some(())
 }

@@ -522,6 +522,19 @@ impl fmt::Display for DualReport {
 static REPORT: Mutex<Option<DualReport>> = Mutex::new(None);
 static FAIL_FAST: AtomicBool = AtomicBool::new(false);
 
+/// Count one run of a window the dual cannot follow as a call (`compared`) or a bail, for the windows that are
+/// recorded outside [`run_dual_window`] (the vote).
+pub(crate) fn note_window(label: &str, compared: bool) {
+    with_report(|r| {
+        let w = r.windows.entry(label.to_owned()).or_default();
+        if compared {
+            w.compared += 1;
+        } else {
+            w.bailed += 1;
+        }
+    });
+}
+
 fn with_report<T>(body: impl FnOnce(&mut DualReport) -> T) -> T {
     let mut guard = REPORT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     body(guard.get_or_insert_with(DualReport::default))
