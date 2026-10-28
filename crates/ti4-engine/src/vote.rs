@@ -2570,7 +2570,7 @@ mod typed_render_tests {
     /// every question, the winner and the planets exhausted.
     #[test]
     fn a_whole_vote_runs_in_lockstep_on_the_core_window() {
-        use crate::dual::{Area, AreaMask, Backend, take_report, with_mask};
+        use crate::dual::{AreaMask, Backend, take_report, with_mask};
         let content = ContentStore::embedded();
         let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();
         let _ = take_report();
@@ -2603,10 +2603,10 @@ mod typed_render_tests {
             });
         }
         let report = take_report();
-        let counts = report.areas.get(&Area::AgendaLaws).cloned().unwrap_or_default();
         assert_eq!(report.total_differences(), 0, "{report:?}");
-        let compared: u64 = counts.compared.iter().sum();
-        assert!(compared > 20 && votes_cast > 0, "compared {compared} planets {votes_cast}");
+        // Per thread: the dual report is shared by the parallel tests, which take it from each other.
+        let (replayed, bailed) = crate::vote_dual::replays();
+        assert!(replayed == 3 && bailed == 0 && votes_cast > 0, "replayed {replayed} bailed {bailed} planets {votes_cast}");
     }
 
     /// Whole votes through every stage of the core window: Genetic Recombination (the tribute paid in a vote and
@@ -2622,7 +2622,7 @@ mod typed_render_tests {
         let _ = take_report();
         let alias = Agenda::ALL.iter().find(|a| a.data().elects == AgendaElects::ForAgainst).unwrap().as_str();
         let mut seen = std::collections::BTreeSet::new();
-        for variant in 0..4 {
+        for variant in 0..6 {
             let (mut state, players) = game();
             state.player_mut(&players[0]).unwrap().technologies.insert(TechnologyId::new("gr"));
             state.player_mut(&players[1]).unwrap().technologies.insert(TechnologyId::new("pi"));
@@ -2631,6 +2631,16 @@ mod typed_render_tests {
             }
             if variant == 2 {
                 state.player_mut(&players[2]).unwrap().fleet_tokens = 0;
+            }
+            if variant == 4 {
+                // Zeal: one extra vote per player, and the Argent votes first.
+                state.player_mut(&players[0]).unwrap().faction = ti4_model::id::FactionId::new("argent");
+            }
+            if variant == 5 {
+                // Blood Pact: the Empyrean's note, faceup in the hands of `c`.
+                state.player_mut(&players[1]).unwrap().faction = ti4_model::id::FactionId::new("empyrean");
+                state.promissory_notes.insert("blood_pact:empyrean".to_owned(), players[2].clone());
+                state.promissory_faceup.insert("blood_pact:empyrean".to_owned());
             }
             let choices = outcomes_text(&state, content, POK, alias);
             with_mask(mask, || {
@@ -2660,7 +2670,7 @@ mod typed_render_tests {
         }
         let report = take_report();
         assert_eq!(report.total_differences(), 0, "{report:?}");
-        assert_eq!(crate::vote_dual::replays(), (4, 0), "every variant is replayed on the core window");
+        assert_eq!(crate::vote_dual::replays(), (6, 0), "every variant is replayed on the core window");
         for stage in ["recombination_outcome", "recombination_tribute", "vote_spend_trade_goods", "vote_predictive_intelligence", "vote_tiebreak"] {
             assert!(seen.contains(stage) || stage == "vote_tiebreak", "stage {stage} not reached: {seen:?}");
         }
