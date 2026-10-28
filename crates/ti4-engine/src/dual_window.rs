@@ -743,3 +743,69 @@ pub fn barrage_idle(
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(events), questions: driven.rendered })
 }
+
+/// What the string `CombatWindow::announce_end` holds.
+#[derive(Debug, Clone, Copy)]
+pub struct EndArgs<'a> {
+    pub attacker: &'a PlayerId,
+    pub defender: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    pub rounds: u32,
+    pub winner: Option<&'a PlayerId>,
+    pub declared_draw: bool,
+    pub fled: &'a [(PlayerId, Vec<String>)],
+    pub at_start: &'a std::collections::BTreeMap<PlayerId, Vec<String>>,
+    /// The resolver carries the timing machinery.
+    pub announce: bool,
+}
+
+/// The core half of `CombatWindow::announce_end`: `SPACE_COMBAT_ENDED` with its lists. `None` for neutral
+/// sides, ship types the core has no unit for, reaction activity in the announcement, or a position the
+/// codecs refuse (the caller already excludes the flip, the blockaded dock and the faction notes).
+#[must_use]
+pub fn announce_end(
+    gs: &mut GameState,
+    _content: &ti4_content::ContentStore,
+    sources: ti4_model::content_types::SourceSet,
+    a: EndArgs<'_>,
+    script: &Recording,
+) -> Option<CoreWindow<bool>> {
+    use ti4_engine_core::rules::combat::end_announce::{Codes, EndAnnounce, Facts};
+    if script.nested || crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let seat = |p: &PlayerId| r.seat(p.as_str());
+    let (attacker, defender) = (seat(a.attacker)?, seat(a.defender)?);
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let units = |kinds: &[String]| -> Option<Vec<ti4_engine_core::generated::Unit>> {
+        kinds.iter().map(|k| <ti4_engine_core::generated::Unit as IdStr>::from_id(k)).collect()
+    };
+    let fled = a.fled.iter().map(|(p, k)| Some((seat(p)?, units(k)?))).collect::<Option<Vec<_>>>()?;
+    let at_start = a.at_start.iter().map(|(p, k)| Some((seat(p)?, units(k)?))).collect::<Option<Vec<_>>>()?;
+    let winner = match a.winner {
+        Some(w) => Some(seat(w)?),
+        None => None,
+    };
+    let before = gs.clone();
+    let env = crate::core_combat::window_env(&before, &cx, sources)?;
+    let codes = Codes {
+        losers: r.code("losers"),
+        retreated: r.code("retreated"),
+        reasons: [r.code("retreat"), r.code("draw"), r.code("destruction"), r.code("round_limit")],
+    };
+    let facts = Facts { attacker, defender, system, rounds: a.rounds, winner, declared_draw: a.declared_draw, fled, at_start, codes, announce: a.announce };
+    let resolver = Resolver::new(&[attacker, defender], Some(attacker));
+    let mut driver = Driver::new(EndAnnounce::new(facts), resolver, AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let driven = with_core(gs, &mut cx, Sources::default(), BEGIN_ROUND, |core, _| {
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .ok()?
+    .ok()?;
+    apply_staged(gs, &r, &staged)?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(events), questions: driven.rendered })
+}

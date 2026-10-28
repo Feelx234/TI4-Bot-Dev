@@ -5619,11 +5619,31 @@ impl CombatWindow {
         let outcome = outcome.clone();
         let sides = [self.attacker.clone(), self.defender.clone()];
         let payload = self.end_payload(state, content, sources, &outcome);
+        // The rest runs on `driver=dual` as a core window too (`rules::combat::end_announce`); the string body
+        // notes what the window does not carry.
+        let bail = std::cell::Cell::new(!state.pending_destructions.is_empty());
+        let facts = crate::dual_window::EndArgs {
+            attacker: &self.attacker,
+            defender: &self.defender,
+            system: &self.system,
+            rounds: outcome.rounds,
+            winner: outcome.winner.as_ref(),
+            declared_draw: declared_draw(state),
+            fled: &self.fled,
+            at_start: &self.fleet_at_start,
+            announce: ctx.timing.is_some(),
+        };
+        crate::dual_window!(
+            crate::dual::Area::Driver,
+            "combat::announce_end",
+            state,
+            |state: &mut GameState| {
+                let marks = state.faction_marks.clone();
         // "At the end of a space battle in the active system, flip this card" (Z-Grav Eidolon):
         // the survivors in this system's space area return to their ground form. Measured after
         // the losses above, which count ships, so a flipped mech is not reported destroyed.
-        crate::fleet::flip_to_ground_forms(state, content, sources, &sides, &self.system);
-        let _ = ctx.emit(state, "SPACE_COMBAT_ENDED", payload);
+        bail.set(bail.get() || !crate::fleet::flip_to_ground_forms(state, content, sources, &sides, &self.system).is_empty());
+        let _ = ctx.emit(state, "SPACE_COMBAT_ENDED", payload.clone());
         crate::factions::observe(
             state,
             crate::factions::Obs::ParticipantsCleared {
@@ -5639,13 +5659,21 @@ impl CombatWindow {
         );
         // A mobile space dock left in a space area with another player's ships is destroyed
         // (Floating Factory); checked when the combat that could have cleared them ends.
-        let _ = crate::production::destroy_blockaded_mobile_docks(
-            state,
-            ctx.content,
-            ctx.sources,
-            &self.system,
+        bail.set(
+            bail.get()
+                || !crate::production::destroy_blockaded_mobile_docks(state, ctx.content, ctx.sources, &self.system).is_empty()
+                || state.faction_marks != marks,
         );
         announce_staged_destructions(state, ctx);
+                crate::dual::Run::new(true)
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                if bail.get() {
+                    return None;
+                }
+                crate::dual_window::announce_end(s, content, sources, facts, script)
+            }
+        );
     }
 
     /// The `SPACE_COMBAT_ENDED` payload (see [`Self::announce_end`]): pure over the position, so the
@@ -9025,16 +9053,27 @@ mod tests {
             let system = SystemId::new("18");
             put(&mut state, &system, "cruiser", &attacker(), 3);
             put(&mut state, &system, "destroyer", &defender(), 2);
-            with_mask(AreaMask::STRING.with(Area::Combat, Backend::Dual), || {
+            with_mask(AreaMask::STRING.with(Area::Combat, Backend::Dual).with(Area::Driver, Backend::Dual), || {
                 let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
                 let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
-                resolve(&mut state, ContentStore::embedded(), ti4_model::content_types::DEFAULT, &mut table, &mut dice, &mut rng, &system).unwrap();
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
             });
             lost += 5 - ships_of(&state, ContentStore::embedded(), ti4_model::content_types::DEFAULT, &attacker(), &system).len()
                 - ships_of(&state, ContentStore::embedded(), ti4_model::content_types::DEFAULT, &defender(), &system).len();
         }
         let r = report();
         assert!(lost > 0, "some ships were lost");
+        assert!(r.areas[&Area::Driver].calls >= 6, "the announcements were compared: {:?}", r.areas[&Area::Driver]);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }

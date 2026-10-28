@@ -19,6 +19,7 @@ pub mod begin_round;
 pub mod cannon_guns;
 pub mod destroy_fighters;
 pub mod end;
+pub mod end_announce;
 pub mod sustain_commander;
 pub mod sustain_offer;
 
