@@ -1497,7 +1497,7 @@ pub fn bombard(
                 .filter_map(|o| if let Opt::Invasion(IOpt::BombardTarget { seat }) = o { Some(PlayerId::new(r.seats.get(usize::from(seat.0))?.clone())) } else { None })
                 .collect();
             let (system, planet) = (ti4_model::id::SystemId::new(system.as_str()), ti4_model::id::PlanetId::new(planet.as_str()));
-            let taken = std::mem::replace(c, Choice::new(a.invader.clone(), String::new(), Vec::new()));
+            let taken = c.clone();
             *c = crate::invasion::with_bombard_offer(taken, a.invader, &system, &planet, usize::from(hits), &present, before.system_state(&system).on_planet(&planet));
         }
     };
