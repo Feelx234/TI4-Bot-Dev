@@ -26,7 +26,7 @@ use crate::state::CoreState;
 use crate::tables::Scope;
 
 use super::{Cx, Env, Tiebreak};
-use crate::rules::leaders;
+use crate::query::leaders;
 
 /// Votes of Predictive Intelligence's additional cast.
 pub const PREDICTIVE_VOTES: i64 = 3;
