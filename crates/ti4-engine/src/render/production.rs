@@ -46,6 +46,9 @@ impl Family for Fam {
             Ask::Pay(p) => format!("pay {} more {}", p.owed, name(p.kind)),
             Ask::Choose(c) => format!("produce in {} ({} left)", <System as IdStr>::as_str(c.system), c.remaining),
             Ask::Place(p) => format!("place the {}", unit_id(p.unit)),
+            Ask::SlingSystem(_) => "Sling Relay: produce in which dock system".to_owned(),
+            Ask::SlingShip(_) => "Sling Relay: produce one ship".to_owned(),
+            Ask::Economy(e) => format!("Integrated Economy on {} ({} cost left)", planet_id(e.planet), e.budget),
         }
     }
 
@@ -54,6 +57,9 @@ impl Family for Fam {
             Subtype::Pay(kind) => format!("pay_{}", name(*kind)),
             Subtype::Choose => "produce_unit".to_owned(),
             Subtype::Place => "place_unit".to_owned(),
+            Subtype::SlingSystem => "sling_relay_system".to_owned(),
+            Subtype::SlingShip => "sling_relay_ship".to_owned(),
+            Subtype::Economy => "integrated_economy".to_owned(),
         }
     }
 
@@ -62,6 +68,7 @@ impl Family for Fam {
             Ask::Pay(p) => p,
             Ask::Choose(c) => return build_option(r, &c, o),
             Ask::Place(p) => return place_option(r, &p, o),
+            Ask::SlingSystem(_) | Ask::SlingShip(_) | Ask::Economy(_) => return triggered_option(a, o),
         };
         match *o {
             Opt::Exhaust { planet, source, shown } => {
@@ -97,7 +104,14 @@ impl Family for Fam {
                         Delta::new(Quantity::TradeGoods, goods, goods - 1),
                     ]))
             }
-            Opt::Build { .. } | Opt::Exchange { .. } | Opt::Place { .. } | Opt::Stop | Opt::Agent => unreachable!("builds are asked by Ask::Choose"),
+            Opt::Build { .. }
+            | Opt::Exchange { .. }
+            | Opt::Place { .. }
+            | Opt::Stop
+            | Opt::Agent
+            | Opt::SlingSystem { .. }
+            | Opt::SlingShip { .. }
+            | Opt::Economy { .. } => unreachable!("builds are asked by Ask::Choose"),
             Opt::Commodity { shown } => {
                 let worth = i64::from(shown.worth);
                 ChoiceOption::labelled("commodity", crate::production::PAY_KIND, "spend a commodity as a trade good")
@@ -121,6 +135,9 @@ impl Family for Fam {
             Ask::Pay(p) => p.kind,
             Ask::Choose(_) => return parse_build(id),
             Ask::Place(p) => return parse_place(&p, id),
+            Ask::SlingSystem(_) => return Some(Opt::SlingSystem { system: <System as IdStr>::from_id(id)? }),
+            Ask::SlingShip(_) => return parse_sling_ship(id),
+            Ask::Economy(_) => return parse_economy(id),
         };
         match id {
             "trade_good" => Some(Opt::TradeGood { shown: Shown::default() }),
@@ -163,6 +180,53 @@ mod tests {
         let influence = crate::render::option(&r, &ask, &CoreOpt::Production(opts[1]));
         assert_eq!(influence.id, "exhaust|abyz|influence");
         assert_eq!(influence.label, "exhaust abyz for 1 resources using its influence");
+    }
+}
+
+/// `build|unit|made` of Sling Relay's ship question (one copy).
+fn parse_sling_ship(id: &str) -> Option<Opt> {
+    let unit = id.strip_prefix("build|")?.strip_suffix("|1")?;
+    Some(Opt::SlingShip { unit: <Unit as IdStr>::from_id(unit)?, shown: Shown::default() })
+}
+
+/// Integrated Economy's `build|unit|made` and the decline.
+fn parse_economy(id: &str) -> Option<Opt> {
+    if id == "done_producing" {
+        return Some(Opt::Stop);
+    }
+    let (unit, made) = id.strip_prefix("build|")?.split_once('|')?;
+    Some(Opt::Economy { unit: <Unit as IdStr>::from_id(unit)?, made: made.parse().ok()?, shown: Shown::default() })
+}
+
+/// The options of Sling Relay's and Integrated Economy's questions, as `sling_relay` and `integrated_economy`
+/// build them. The numbers an option shows are in the option (`Shown`), so no position is read.
+fn triggered_option(a: &Ask, o: &Opt) -> ChoiceOption {
+    match (*a, *o) {
+        (Ask::SlingSystem(_), Opt::SlingSystem { system }) => {
+            let id = <System as IdStr>::as_str(system);
+            ChoiceOption::labelled(id, crate::production::PLACE_KIND, format!("produce in {id}")).with("sling_relay", true).with("system", id)
+        }
+        (Ask::SlingShip(s), Opt::SlingShip { unit, shown }) => {
+            let (id, cost) = (unit_id(unit), i64::from(shown.worth));
+            ChoiceOption::labelled(format!("build|{id}|1"), crate::production::PRODUCE_KIND, format!("produce 1x {id} for {cost}"))
+                .with("unit", id)
+                .with("count", 1)
+                .with("cost", cost)
+                .with("sling_relay", true)
+                .with("system", <System as IdStr>::as_str(s.system))
+        }
+        (Ask::Economy(e), Opt::Economy { unit, made, shown }) => {
+            let (id, cost) = (unit_id(unit), i64::from(shown.worth));
+            ChoiceOption::labelled(format!("build|{id}|{made}"), crate::production::PRODUCE_KIND, format!("Integrated Economy: produce {made}x {id} for {cost}"))
+                .with("unit", id)
+                .with("count", i64::from(made))
+                .with("cost", cost)
+                .with("system", <System as IdStr>::as_str(e.system))
+                .with("planet", planet_id(e.planet))
+                .with("integrated_economy", true)
+        }
+        (Ask::Economy(_), Opt::Stop) => ChoiceOption::labelled("done_producing", crate::choice::DECLINE_KIND, "finish production"),
+        _ => unreachable!("an option of a question the area did not put"),
     }
 }
 

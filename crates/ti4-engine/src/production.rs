@@ -1148,6 +1148,41 @@ pub fn sling_relay(
     table: &mut Table,
     player: &PlayerId,
 ) -> Result<bool, IllegalChoice> {
+    // The whole use is also a run of the core's `SlingRelay` window on `production=dual`: both start from this
+    // position and are compared (questions, answers, state, whether a ship was produced).
+    let mut outcome: Result<bool, IllegalChoice> = Ok(false);
+    crate::dual_window!(
+        crate::dual::Area::Production,
+        "production::sling_relay",
+        state,
+        |s: &mut GameState| {
+            outcome = sling_relay_text(s, content, sources, galaxy, table, player);
+            crate::dual::Run::new(outcome.as_ref().ok().copied().unwrap_or(false))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            #[cfg(feature = "typed-core")]
+            {
+                crate::production_window_dual::sling_relay(s, content, sources, player, script)
+            }
+            #[cfg(not(feature = "typed-core"))]
+            {
+                let _ = (s, script);
+                None
+            }
+        }
+    );
+    outcome
+}
+
+#[doc(hidden)]
+pub fn sling_relay_text(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<bool, IllegalChoice> {
     let candidates = sling_relay_candidates(state, content, sources, player);
     let Some(mut system) = candidates.keys().next().cloned() else {
         return Ok(false);
@@ -1252,10 +1287,54 @@ pub fn integrated_economy(
     system: &SystemId,
     planet: &PlanetId,
 ) -> Result<bool, IllegalChoice> {
-    let mut budget = planet_value_now(state, content, sources, planet, Spend::Resources);
+    let budget = planet_value_now(state, content, sources, planet, Spend::Resources);
     if budget <= 0 {
         return Ok(false);
     }
+    // The loop is also a run of the core's `EconomyWindow` on `production=dual`; the fleet-supply enforcement
+    // after it stays with this function.
+    let mut outcome: Result<bool, IllegalChoice> = Ok(false);
+    crate::dual_window!(
+        crate::dual::Area::Production,
+        "production::integrated_economy",
+        state,
+        |s: &mut GameState| {
+            outcome = integrated_economy_loop(s, content, sources, galaxy, table, player, system, planet, budget);
+            crate::dual::Run::new(outcome.as_ref().ok().copied().unwrap_or(false))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            #[cfg(feature = "typed-core")]
+            {
+                crate::production_window_dual::integrated_economy(s, content, sources, player, system, planet, budget, script)
+            }
+            #[cfg(not(feature = "typed-core"))]
+            {
+                let _ = (s, script);
+                None
+            }
+        }
+    );
+    let built = outcome?;
+    crate::fleet::enforce_seeing(state, content, sources, galaxy, table, player, system)?;
+    Ok(built)
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    reason = "the triggered producer needs the full observed rules position"
+)]
+fn integrated_economy_loop(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    system: &SystemId,
+    planet: &PlanetId,
+    mut budget: i64,
+) -> Result<bool, IllegalChoice> {
     let types = catalogue(content, sources);
     let mut built = false;
 
@@ -1376,7 +1455,6 @@ pub fn integrated_economy(
         budget -= cost;
     }
 
-    crate::fleet::enforce_seeing(state, content, sources, galaxy, table, player, system)?;
     Ok(built)
 }
 
@@ -7144,6 +7222,128 @@ mod tests {
             .count()
     }
 
+    /// A dock in a second system, to give Sling Relay a system question.
+    fn second_dock_system(state: &mut GameState, first: &SystemId) -> SystemId {
+        let (system, planet) = ti4_content::galaxy::all_planets(ContentStore::embedded(), POK)
+            .iter()
+            .find(|(_, p)| p.system_id().is_some_and(|s| s != first.as_str()) && p.homeworld_of().is_none() && !p.is_placed_during_play())
+            .map(|(id, p)| (SystemId::new(p.system_id().unwrap_or("18")), PlanetId::new(*id)))
+            .expect("a second placed planet");
+        state.system_mut(&system).set_control(planet.clone(), player());
+        put_on_planet(state, &system, &planet, "spacedock", &player(), 1);
+        system
+    }
+
+    /// Run `body` on `production=dual` with fail-fast and check that the window `label` was compared
+    /// `compared` times, bailed never and differed never.
+    fn lockstep(label: &str, compared: usize, body: impl FnOnce()) {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let fail_fast = crate::dual::fail_fast();
+        crate::dual::set_fail_fast(true);
+        with_mask(AreaMask::STRING.with(Area::Production, Backend::Dual), body);
+        crate::dual::set_fail_fast(fail_fast);
+        let r = report();
+        let w = r.windows.get(label).copied().unwrap_or_default();
+        assert_eq!(w.compared as usize, compared, "{label} compared: {:?}", r.windows);
+        assert_eq!(w.bailed, 0, "{label} bailed: {:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    fn sling_table() -> (GameState, SystemId, PlanetId) {
+        let (mut state, system, planet) = seated();
+        state.player_mut(&player()).unwrap().faction = ti4_model::id::FactionId::new("sol");
+        state.player_mut(&PlayerId::new("b")).unwrap().faction = ti4_model::id::FactionId::new("sardakk");
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        state.system_mut(&system).set_control(planet.clone(), player());
+        put_on_planet(&mut state, &system, &planet, "spacedock", &player(), 1);
+        state.player_mut(&player()).unwrap().trade_goods = 10;
+        (state, system, planet)
+    }
+
+    /// Builds `unit` once, pays with trade goods and then declines.
+    struct BuildOnce {
+        build: &'static str,
+        built: bool,
+    }
+
+    impl crate::choice::Decider for BuildOnce {
+        fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+            let pick = if let Some(good) = choice.options.iter().find(|o| o.id == "trade_good") {
+                good
+            } else if !self.built && choice.options.iter().any(|o| o.id == self.build) {
+                self.built = true;
+                choice.options.iter().find(|o| o.id == self.build).expect("checked")
+            } else {
+                choice.options.iter().find(|o| o.id == "done_producing").unwrap_or(&choice.options[0])
+            };
+            Ok(pick.clone())
+        }
+    }
+
+    /// Sling Relay on the core window (`production=dual`): the system question, the ship question, the
+    /// payment, the placement; a blockaded dock and an empty purse produce nothing.
+    #[test]
+    fn sling_relay_runs_in_lockstep_on_the_core_window() {
+        let content = ContentStore::embedded();
+        lockstep("production::sling_relay", 5, || {
+            // One dock, several ships: the ship question, then the payment.
+            let (mut state, system, _) = sling_table();
+            let mut table = Table::with_default(Box::new(crate::choice::Scripted::new(["build|destroyer|1".to_owned()])));
+            assert_eq!(sling_relay(&mut state, content, POK, None, &mut table, &player()), Ok(true));
+            assert!(state.system_state(&system).units_of(&player()).iter().any(|u| u.type_id.as_str() == "destroyer"));
+            // Two dock systems: the system question first.
+            let (mut state, system, _) = sling_table();
+            let other = second_dock_system(&mut state, &system);
+            let mut table = Table::with_default(Box::new(crate::choice::Scripted::new([other.to_string(), "build|cruiser|1".to_owned()])));
+            assert_eq!(sling_relay(&mut state, content, POK, None, &mut table, &player()), Ok(true));
+            assert!(state.system_state(&other).units_of(&player()).iter().any(|u| u.type_id.as_str() == "cruiser"));
+            // An enemy ship blockades the only dock.
+            let (mut state, system, _) = sling_table();
+            put(&mut state, &system, "destroyer", &PlayerId::new("b"), 1);
+            let mut table = Table::new();
+            assert_eq!(sling_relay(&mut state, content, POK, None, &mut table, &player()), Ok(false));
+            // Nothing to pay with.
+            let (mut state, _, planet) = sling_table();
+            state.player_mut(&player()).unwrap().trade_goods = 0;
+            state.exhausted_planets.insert(planet);
+            let mut table = Table::new();
+            assert_eq!(sling_relay(&mut state, content, POK, None, &mut table, &player()), Ok(false));
+            // The payment is a real choice (a planet and trade goods).
+            let (mut state, system, _) = sling_table();
+            state.player_mut(&player()).unwrap().trade_goods = 1;
+            let mut table = Table::with_default(Box::new(crate::choice::Scripted::new(["build|dreadnought|1".to_owned(), "trade_good".to_owned()])));
+            let _ = sling_relay(&mut state, content, POK, None, &mut table, &player());
+            let _ = system;
+        });
+    }
+
+    /// Integrated Economy on the core window: a planet's worth of units, a payment, the placement on the planet
+    /// or in space, the decline.
+    #[test]
+    fn integrated_economy_runs_in_lockstep_on_the_core_window() {
+        let content = ContentStore::embedded();
+        lockstep("production::integrated_economy", 3, || {
+            // A destroyer in space, paid with a trade good, then done.
+            let (mut state, system, planet) = sling_table();
+            let mut table = Table::with_default(Box::new(BuildOnce { build: "build|destroyer|1", built: false }));
+            assert_eq!(integrated_economy(&mut state, content, POK, None, &mut table, &player(), &system, &planet), Ok(true));
+            assert!(state.system_state(&system).units_of(&player()).iter().any(|u| u.type_id.as_str() == "destroyer"));
+            // Ground forces land on the planet; a second round, then the decline.
+            let (mut state, system, planet) = sling_table();
+            let mut table = Table::with_default(Box::new(BuildOnce { build: "build|sol_infantry|2", built: false }));
+            assert_eq!(integrated_economy(&mut state, content, POK, None, &mut table, &player(), &system, &planet), Ok(true));
+            assert!(state.system_state(&system).on_planet(&planet).iter().any(|u| u.type_id.as_str() == "sol_infantry"));
+            // Declined at once.
+            let (mut state, system, planet) = sling_table();
+            let mut table = Table::with_default(Box::new(crate::choice::Scripted::new(["done_producing".to_owned()])));
+            assert_eq!(integrated_economy(&mut state, content, POK, None, &mut table, &player(), &system, &planet), Ok(false));
+        });
+    }
+
     /// Trilossa Aun Mirik is an ability of the core table: in the production window run on the core
     /// (`production=dual`), the producing player's ground-force build opens the agent's window, the core resolver
     /// offers it (the adjacency is the adapter's fact), exhausts the card and writes the same grant, and the
@@ -7784,7 +7984,7 @@ mod tests {
                 });
             }
             if !self.built
-                && let Some(build) = choice.options.iter().find(|o| o.id == "build|infantry|2")
+                && let Some(build) = choice.options.iter().find(|o| o.id == "build|sol_infantry|2")
             {
                 self.built = true;
                 return Ok(build.clone());

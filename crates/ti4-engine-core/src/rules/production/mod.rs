@@ -235,6 +235,7 @@ pub fn structure_allowed(cx: &Cx<'_>, who: Seat, planet: Planet, base: UnitBaseT
 
 pub mod pay;
 pub mod supply;
+pub mod triggered;
 
 /// What the table adds to a context when it asks (`DecisionContext::about_invasion`): the invasion of the system
 /// the question is about (production contexts never name a battle).

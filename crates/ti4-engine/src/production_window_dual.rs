@@ -151,3 +151,93 @@ pub fn pay_step(
     .ok()?;
     Some(CoreWindow { run: Run::new(driver.window.took), questions: rendered })
 }
+
+const TRIGGERED_FOOTPRINT: Footprint = Footprint {
+    reads: crate::production_view::READS,
+    writes: SliceSet::of(&[Slice::Board, Slice::Players]),
+};
+
+/// The seat's buildable units as the windows carry them (`None`: more than nine, or an id the tables do not know).
+fn buildable_of(gs: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId) -> Option<[Option<ti4_engine_core::generated::Unit>; 9]> {
+    let ids = crate::production_view::buildable_for(gs, content, sources, player)?;
+    if ids.len() > 9 {
+        return None;
+    }
+    let mut out = [None; 9];
+    for (slot, id) in out.iter_mut().zip(&ids) {
+        *slot = Some(<ti4_engine_core::generated::Unit as crate::generated::IdStr>::from_id(id)?);
+    }
+    Some(out)
+}
+
+/// Drive a whole window of the triggered productions to its end on a copy of the position, answering with
+/// the recorded string answers; the questions it asked, rendered, and `value` of the window at the end.
+fn run_triggered<W: ti4_engine_core::kernel::stage::Window>(
+    gs: &mut GameState,
+    player: &PlayerId,
+    window: impl FnOnce(ti4_engine_core::ids::Seat) -> Option<W>,
+    script: &Recording,
+    value: impl FnOnce(&W) -> bool,
+) -> Option<CoreWindow<bool>> {
+    if crate::production_view::unported_triggered(gs, player) {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let seat = r.seat(player.as_str())?;
+    let window = window(seat)?;
+    let kernel = crate::production_view::kernel();
+    let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+    let before_state = gs.clone();
+    let mut rendered = Vec::new();
+    with_core(gs, &mut cx, Sources::default(), nested_fp(TRIGGERED_FOOTPRINT, script), |core, _| {
+        let driven = crate::dual_window::drive_positioned(&mut driver, core, kernel, Some(kernel), &r, &before_state, script, &|_, _, _| {});
+        if let Ok(d) = &driven {
+            rendered = d.rendered.clone();
+        }
+        driven.map(|_| ())
+    })
+    .ok()?
+    .ok()?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    Some(CoreWindow { run: Run::new(value(&driver.window)).with_events_vec(events), questions: rendered })
+}
+
+/// The core half of `production::sling_relay`: whether the ship was produced.
+#[must_use]
+pub fn sling_relay(gs: &mut GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
+    let buildable = buildable_of(gs, content, sources, player)?;
+    run_triggered(
+        gs,
+        player,
+        |seat| Some(ti4_engine_core::rules::production::triggered::SlingRelay::new(seat, buildable)),
+        script,
+        |w| w.produced,
+    )
+}
+
+/// The core half of the loop of `production::integrated_economy` (the fleet-supply enforcement after it stays
+/// with the caller): whether a unit was built.
+#[must_use]
+pub fn integrated_economy(
+    gs: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    planet: &ti4_model::id::PlanetId,
+    budget: i64,
+    script: &Recording,
+) -> Option<CoreWindow<bool>> {
+    use crate::generated::IdStr;
+    let buildable = buildable_of(gs, content, sources, player)?;
+    let fleet_limit = crate::fleet::limit_for_enforcement(gs, content, player);
+    let (system, planet) = (ti4_engine_core::generated::System::from_id(system.as_str())?, ti4_engine_core::generated::Planet::from_id(planet.as_str())?);
+    let (budget, fleet_limit) = (i32::try_from(budget).ok()?, i32::try_from(fleet_limit).ok()?);
+    run_triggered(
+        gs,
+        player,
+        |seat| Some(ti4_engine_core::rules::production::triggered::EconomyWindow::new(seat, system, planet, budget, fleet_limit, buildable)),
+        script,
+        |w| w.built,
+    )
+}

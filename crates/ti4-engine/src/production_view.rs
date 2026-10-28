@@ -65,6 +65,15 @@ pub(crate) fn unported_window(state: &GameState, player: &PlayerId) -> bool {
         || state.players.iter().any(|p| cross.contains(&p.faction.as_str()))
 }
 
+/// [`unported_window`], and any Keleres seat at the table: the triggered productions (Sling Relay, Integrated
+/// Economy) pay through the shared payment window, which offers a Keleres holder the agent when the payer holds
+/// commodities (the tier-W offer stays string).
+pub(crate) fn unported_triggered(state: &GameState, player: &PlayerId) -> bool {
+    use crate::factions::keleres;
+    let keleres = [keleres::MODULE_M.alias, keleres::MODULE_X.alias, keleres::MODULE_A.alias];
+    unported_window(state, player) || state.players.iter().any(|p| keleres.contains(&p.faction.as_str()))
+}
+
 /// The kernel of the production reads: the seams of the laws and relics, and the bridge to the legacy
 /// hook slots (empty here: every faction that fills one is declined by [`unported_economy`]). Built once.
 pub(crate) fn kernel() -> &'static Kernel {
