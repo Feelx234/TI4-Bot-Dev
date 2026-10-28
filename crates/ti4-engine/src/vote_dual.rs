@@ -216,7 +216,7 @@ fn supported(state: &GameState, choices: &[String], order: &[PlayerId], spender:
 fn replay(inner: &Inner, now: &GameState, winner: Option<&str>, counts: &std::collections::BTreeMap<String, i64>) {
     use ti4_engine_core::generated::Agenda;
     use ti4_engine_core::kernel::stage::{AbilityTable, Window};
-    use ti4_engine_core::kernel::{Kernel, Resolver};
+    use ti4_engine_core::kernel::Resolver;
     use ti4_engine_core::rules::agenda::window::{Facts, Vote};
     use ti4_engine_core::state::Slice;
 
@@ -228,7 +228,7 @@ fn replay(inner: &Inner, now: &GameState, winner: Option<&str>, counts: &std::co
 
     const LABEL: &str = "vote::VoteWindow";
     const FOOTPRINT: Footprint = Footprint::new(
-        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Agenda, Slice::Pending],
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Agenda, Slice::Marks, Slice::Cards, Slice::Pending],
         &[Slice::Board, Slice::Players],
     );
     let (Some(sources), Some(agenda)) = (inner.sources, Agenda::from_id(&inner.alias)) else { return };
@@ -244,14 +244,7 @@ fn replay(inner: &Inner, now: &GameState, winner: Option<&str>, counts: &std::co
     let Some(order) = inner.order.iter().map(|p| cx.owners.seat(p.as_str())).collect::<Option<Vec<_>>>() else { return };
     let mut facts = Facts::new(crate::core_adapter::scope(sources), crate::laws::blanked(open));
     for (p, seat) in inner.order.iter().zip(&order) {
-        if crate::leaders::elder_qanoj(open, p) {
-            facts.qanoj.insert(*seat);
-        }
-        if crate::promissory::has_commander_ability(open, p, "hacancommander") {
-            facts.gila.insert(*seat);
-        }
         let at = usize::from(seat.0) & 7;
-        facts.bonus[at] = crate::leaders::vote_bonus(open, p) + vote_bonus_content(open, p);
         for partner in pact_partners(open, p) {
             if let Some(other) = cx.owners.seat(partner.as_str()) {
                 facts.pact[at].insert(other);
@@ -267,9 +260,9 @@ fn replay(inner: &Inner, now: &GameState, winner: Option<&str>, counts: &std::co
     let mut driver = ti4_engine_core::driver::Driver::new(window, Resolver::new(&order, Some(speaker)), AbilityTable::default(), 1);
     let mut script = Recording::default();
     script.questions = inner.script.iter().map(|(c, a)| Asked { choice: c.clone(), answer: Some(a.clone()) }).collect();
-    let kernel = Kernel::plain();
+    let kernel = crate::production_view::kernel();
     let mut core_state = open.clone();
-    let driven = with_core(&mut core_state, &mut cx, Sources::default(), FOOTPRINT, |core, _| drive(&mut driver, core, &kernel, &r, open, &script));
+    let driven = with_core(&mut core_state, &mut cx, Sources::default(), FOOTPRINT, |core, _| drive(&mut driver, core, kernel, &r, open, &script));
     let Ok(Ok(driven)) = driven else { return };
     let area = Area::AgendaLaws;
     if compare_value(area, &format!("{LABEL}.questions"), &inner.script.len(), &driven.rendered.len()) {
