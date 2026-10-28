@@ -1271,27 +1271,15 @@ pub(crate) fn timing_abilities(
 
 #[cfg(test)]
 pub(crate) mod testkit {
-    use ti4_content::ContentStore;
+    pub(crate) use crate::factions::shared_testkit::{a, b, c, content};
     use ti4_content::galaxy::Galaxy;
     use ti4_model::content_types::DEFAULT;
     use ti4_model::id::{PlayerId, SystemId};
     use ti4_model::state::GameState;
 
-    pub(crate) fn a() -> PlayerId {
-        PlayerId::new("a")
-    }
-    pub(crate) fn b() -> PlayerId {
-        PlayerId::new("b")
-    }
-    pub(crate) fn c() -> PlayerId {
-        PlayerId::new("c")
-    }
-    pub(crate) fn content() -> &'static ContentStore {
-        ContentStore::embedded()
-    }
     /// `a` the Firmament, `b` Sol, `c` Hacan.
     pub(crate) fn game() -> GameState {
-        crate::fixtures::seated_game(&[("a", "firmament"), ("b", "sol"), ("c", "hacan")], DEFAULT)
+        super::super::shared_testkit::trio("firmament")
     }
     /// A one-ring map: `centre` with `ring` (six systems) around it, tiles of the whole corpus.
     pub(crate) fn ring(centre: &str, ring: &[&str]) -> Galaxy {
