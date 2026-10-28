@@ -90,7 +90,7 @@ Branch `core-b7-leaders`. Ported: status writes, the decision-free effects (extr
 | B7-bail-6 | `hacanagent` bails at a table with a Cabal, a Firmament siphon watcher or a Trade Agreement in play (commodity events, replenish hooks stay string); `xxchaagent` and `l1z1xagent` bail with diplomacy enabled (promise kept on a favour) |
 | B7-bail-7 | `l1z1xagent` bails for the Naaz mech (announced placement); `jolnarhero` bails when `apply_unit_upgrades` would change the position |
 | B7-bail-8 | `xxchaagent` and `l1z1xhero` run without the Map slice when the string arm has no galaxy; the removal / the whole use is then never offered, as in the string |
-| B7-bail-9 | `xxchahero-te` (Thunder's Edge hero) and the Evelyn/Viscount choose-a-unit paths are not ported; `solhero` has no question and is ported |
+| B7-bail-9 | `xxchahero-te` (Thunder's Edge hero, a multi-placement loop) is not ported; `solhero` has no question and is ported |
 | B7-design-1 | Nomad `agent_readied` and the agent-exhausted staged event live in the string callers outside the core status write (move to core hooks at D2) |
 | B7-design-2 | tests build `seated_game` and clear promissory notes by hand to avoid unmapped Cards |
 | B7-design-3 | `RinHero` takes the corpus (file) order of the technologies and the alias-text order from the adapter: the generated enum is in neither order and the generator emits no table for them; replace by generated tables when the generator grows them |
