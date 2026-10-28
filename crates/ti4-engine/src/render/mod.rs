@@ -214,7 +214,7 @@ macro_rules! uninhabited {
 }
 uninhabited!(
     tactical, technology, objectives, tokens, diplomacy, explore,
-    relic, legendary, promissory, cards, strategy, agenda
+    relic, legendary, promissory, cards, strategy
 );
 
 impl<A: Uninhabited, O: Uninhabited, S: Uninhabited> Family for Unported<A, O, S> {
