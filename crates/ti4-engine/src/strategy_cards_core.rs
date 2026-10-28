@@ -664,7 +664,6 @@ mod tests {
 
     use crate::choice::{Scripted, Table};
     use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
-    use crate::dual_window::Recording;
 
     /// The windows of `label` this thread ran: the shared report also holds what other test threads ran under a
     /// global `TI4_AREAS`.
