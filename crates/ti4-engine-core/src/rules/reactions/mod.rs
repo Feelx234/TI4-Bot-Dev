@@ -77,3 +77,26 @@ pub(crate) mod testkit {
         Driver::new(Emit { rec, done: false }, resolver, table, 10)
     }
 }
+
+#[cfg(test)]
+mod layering {
+    /// `tools/engine_core/check_layers.py core` failed the first gate run of stage 2: the round agents sat in this
+    /// area and imported the L4 areas `combat` and `invasion`. The abilities that read another area live in the
+    /// faction crate (L6); this area imports no other rule area.
+    #[test]
+    fn the_reactions_area_imports_no_other_rule_area() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/rules/reactions");
+        let mut checked = 0;
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let text = std::fs::read_to_string(&path).unwrap();
+            for other in ["combat", "invasion", "production", "agenda", "leaders", "strategy", "trade", "action_cards"] {
+                let import = format!("crate::rules::{other}");
+                let in_tests_only = text.matches(&import).count() == text.split("#[cfg(test)]").nth(1).map_or(0, |t| t.matches(&import).count());
+                assert!(!text.contains(&import) || in_tests_only, "{} imports {import}", path.display());
+            }
+            checked += 1;
+        }
+        assert!(checked >= 5);
+    }
+}
