@@ -38,7 +38,7 @@ mod real {
     use ti4_content::galaxy::Galaxy;
     use ti4_engine_core::bits::SysSet;
     use ti4_engine_core::galaxy::Adjacency;
-    use ti4_engine_core::generated::{ActionCard, ExploreType, SecretObjective, System};
+    use ti4_engine_core::generated::{ActionCard, ExploreType, Faction, SecretObjective, System};
     use ti4_engine_core::ids::Seat;
     use ti4_engine_core::query::trade as q;
     use ti4_engine_core::rules::trade as rules;
@@ -52,7 +52,7 @@ use crate::generated::IdStr;
     use crate::transactions::{Offer, OfferError, Terms};
 
     /// How often the typed mutators answered and how often they handed the call back to the string
-    /// engine (a deal with a note or a planet card, an unmapped id): reported by `trade_dual`.
+    /// engine (a deal with a planet card, an unmapped id): reported by `trade_dual`.
     pub static TYPED_WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     pub static STRING_WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -355,6 +355,10 @@ use crate::generated::IdStr;
             note: t.promissory.as_ref().map(|note| q::NoteFacts {
                 payable: crate::transactions::note_payable(state, content, giver, note),
                 receivable: crate::promissory::may_receive(state, receiver, note),
+                mv: match note.strip_prefix(crate::promissory::SUPPORT_PREFIX) {
+                    Some(owner) => typed::<Faction>(owner).map(q::NoteMove::Support),
+                    None => crate::trade_write::note_key(note).map(q::NoteMove::Held),
+                },
             }),
             action_card: match &t.action_card {
                 Some(c) => Some(typed::<ActionCard>(c.as_str())?),
@@ -441,15 +445,16 @@ use crate::generated::IdStr;
 
     use crate::core_sync::{Footprint, with_core};
 
-    const GOODS: Footprint = Footprint::new(&[Slice::Players], &[Slice::Players]);
+    const GOODS: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Cards, Slice::Trade, Slice::Ledger],
+        &[Slice::Players, Slice::Cards, Slice::Trade, Slice::Ledger],
+    );
     const TRADE: Footprint = Footprint::new(&[Slice::Trade], &[Slice::Trade]);
 
     /// The goods half of `transactions::resolve` on the typed state. `None` when the deal has a
     /// term the core does not move (a note or a planet card) or the position is not expressible.
     pub fn exchange(state: &mut GameState, content: &ContentStore, offer: &Offer) -> Option<()> {
         if !content.is_embedded()
-            || offer.given.promissory.is_some()
-            || offer.received.promissory.is_some()
             || offer.given.planet.is_some()
             || offer.received.planet.is_some()
         {
@@ -463,7 +468,10 @@ use crate::generated::IdStr;
             given: terms(state, content, &offer.proposer, &offer.partner, &offer.given)?,
             received: terms(state, content, &offer.partner, &offer.proposer, &offer.received)?,
         };
-        counted(with_core(state, &mut cx, Sources { galaxy: None, rng: None }, GOODS, |core, _| rules::exchange(core, &typed_offer)).ok())
+        if [&typed_offer.given, &typed_offer.received].iter().any(|t| t.note.is_some_and(|n| n.mv.is_none())) {
+            return counted(None);
+        }
+        counted(with_core(state, &mut cx, Sources { galaxy: None, rng: None }, GOODS, |core, _| rules::exchange(core, &typed_offer)).ok().flatten())
     }
 
     /// `GameState::record_transaction` on the typed state.

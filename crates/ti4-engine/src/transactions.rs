@@ -862,8 +862,8 @@ pub fn resolve(
 }
 
 /// The goods half of [`resolve`]: both sides are taken before either is given. The typed core moves
-/// goods, commodities, fragments, an action card and a secret; a deal with a note or a planet card
-/// stays on the string engine (those slices belong to other packages).
+/// goods, commodities, fragments, an action card, a secret and a promissory note (a Support for the
+/// Throne with its point); a deal with a planet card stays on the string engine (the board's control).
 fn settle(state: &mut GameState, content: &ContentStore, offer: &Offer) {
     let string = |s: &mut GameState| {
         take(s, &offer.proposer, &offer.given);

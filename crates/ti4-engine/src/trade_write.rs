@@ -15,12 +15,17 @@ pub use stub::*;
 #[cfg(feature = "typed-core")]
 mod real {
     use ti4_engine_core::ids::Seat;
+    use ti4_engine_core::generated::Faction;
     use ti4_engine_core::rules::diplomacy as rules;
-    use ti4_engine_core::state::{CoreState, Slice};
+    use ti4_engine_core::rules::trade as rules_notes;
+    use ti4_engine_core::state::{CoreState, NoteKey, Slice};
     use ti4_model::diplomacy::SignalKind;
     use ti4_model::state::GameState;
     use ti4_model::{DiplomacyError, PlayerId};
 
+    use crate::core_adapter::typed;
+    use crate::generated::IdStr;
+    use crate::core_sync::keys::text::parse_note;
     use crate::core_sync::{Ctx, Footprint, Sources, with_core};
     use crate::diplomacy::RelationshipEvent;
 
@@ -89,6 +94,70 @@ mod real {
     pub fn clear_turn_initiations(gs: &mut GameState) -> Option<()> {
         lend(gs, |core| rules::clear_turn_initiations(core))
     }
+
+    // -- promissory notes changing hands ------------------------------------------------------
+
+    /// The notes: the table of holders and faceup notes (Cards), the Support loans (Trade), the points
+    /// (Players, Ledger). Faction ids come from the seats.
+    const NOTES: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Cards, Slice::Trade, Slice::Ledger],
+        &[Slice::Players, Slice::Cards, Slice::Trade, Slice::Ledger],
+    );
+
+    /// The typed key of a `alias:faction` note id.
+    pub fn note_key(text: &str) -> Option<NoteKey> {
+        let (alias, faction) = text.split_once(':')?;
+        Some(NoteKey { note: parse_note(alias)?, faction: typed::<Faction>(faction)? })
+    }
+
+    fn notes<T>(gs: &mut GameState, f: impl FnOnce(&mut CoreState, &Ctx) -> Option<T>) -> Option<T> {
+        let mut cx = Ctx::of(gs).ok()?;
+        let seats = Ctx::of(gs).ok()?;
+        with_core(gs, &mut cx, Sources::default(), NOTES, |core, _| f(core, &seats)).ok().flatten()
+    }
+
+    /// `promissory::take`.
+    pub fn take_note(gs: &mut GameState, holder: &PlayerId, note: &str) -> Option<()> {
+        let k = note_key(note)?;
+        notes(gs, |core, cx| {
+            rules_notes::take_note(core, cx.owners.seat(holder.as_str())?, k);
+            Some(())
+        })
+    }
+
+    /// `promissory::give_back`.
+    pub fn give_back(gs: &mut GameState, note: &str) -> Option<()> {
+        let k = note_key(note)?;
+        notes(gs, |core, _| rules_notes::give_back(core, k))
+    }
+
+    /// `promissory::play_action_note`.
+    pub fn play_action_note(gs: &mut GameState, player: &PlayerId, note: &str) -> Option<bool> {
+        let k = note_key(note)?;
+        notes(gs, |core, cx| Some(rules_notes::play_action_note(core, cx.owners.seat(player.as_str())?, k)))
+    }
+
+    /// `promissory::play_convoys`.
+    pub fn play_convoys(gs: &mut GameState, player: &PlayerId) -> Option<bool> {
+        notes(gs, |core, cx| Some(rules_notes::play_convoys(core, cx.owners.seat(player.as_str())?, |f| f.as_str())))
+    }
+
+    /// `promissory::receive` (a `support:<faction>` note).
+    pub fn receive_support(gs: &mut GameState, holder: &PlayerId, note: &str) -> Option<bool> {
+        let faction = typed::<Faction>(note.strip_prefix(crate::promissory::SUPPORT_PREFIX)?)?;
+        notes(gs, |core, cx| rules_notes::receive_support(core, cx.owners.seat(holder.as_str())?, faction))
+    }
+
+    /// `promissory::return_support`.
+    pub fn return_support(gs: &mut GameState, owner: &PlayerId) -> Option<bool> {
+        notes(gs, |core, cx| Some(rules_notes::return_support(core, cx.owners.seat(owner.as_str())?)))
+    }
+
+    /// `promissory::return_all_foreign`.
+    pub fn return_all_foreign(gs: &mut GameState, alias: &str) -> Option<()> {
+        let note = parse_note(alias)?;
+        notes(gs, |core, _| rules_notes::return_all_foreign(core, note))
+    }
 }
 
 #[cfg(not(feature = "typed-core"))]
@@ -108,6 +177,27 @@ mod stub {
         None
     }
     pub fn clear_turn_initiations(_: &mut GameState) -> Option<()> {
+        None
+    }
+    pub fn take_note(_: &mut GameState, _: &PlayerId, _: &str) -> Option<()> {
+        None
+    }
+    pub fn give_back(_: &mut GameState, _: &str) -> Option<()> {
+        None
+    }
+    pub fn play_action_note(_: &mut GameState, _: &PlayerId, _: &str) -> Option<bool> {
+        None
+    }
+    pub fn play_convoys(_: &mut GameState, _: &PlayerId) -> Option<bool> {
+        None
+    }
+    pub fn receive_support(_: &mut GameState, _: &PlayerId, _: &str) -> Option<bool> {
+        None
+    }
+    pub fn return_support(_: &mut GameState, _: &PlayerId) -> Option<bool> {
+        None
+    }
+    pub fn return_all_foreign(_: &mut GameState, _: &str) -> Option<()> {
         None
     }
 }
@@ -207,6 +297,100 @@ mod tests {
         let r = report();
         let counts = &r.areas[&Area::TradeDiplomacy];
         assert!(counts.calls > 20);
+        assert!(r.differences.is_empty(), "{:?}", r.differences);
+    }
+
+    /// Every promissory write agrees with the core, state for state: a note taken (faceup or in hand), sent
+    /// home, played from the hand, Trade Convoys, a Support lent (its point and ledger row) and returned,
+    /// every foreign copy returned. A faction played by two seats is a bail.
+    #[test]
+    fn the_promissory_writes_run_in_lockstep_with_the_core() {
+        use crate::promissory as pn;
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::TradeDiplomacy, Backend::Dual);
+        with_mask(mask, || {
+            let mut state = table(false);
+            pn::deal(&mut state, ti4_content::ContentStore::embedded(), POK);
+            let (a, b) = (p("a"), p("b"));
+            let notes: Vec<String> = state.promissory_notes.keys().cloned().collect();
+            assert!(notes.len() > 10, "dealt: {notes:?}");
+            let mut core_runs = 0;
+            let mut check = |name: &str, run: &dyn Fn(&mut GameState, bool) -> bool| {
+                let mut s = state.clone();
+                let mut c = state.clone();
+                let from_core = run(&mut c, true);
+                run(&mut s, false);
+                if from_core {
+                    core_runs += 1;
+                    assert_eq!(c, s, "{name}");
+                }
+            };
+            for note in &notes {
+                check(&format!("take {note}"), &|s, core| {
+                    if core {
+                        super::take_note(s, &a, note).is_some()
+                    } else {
+                        pn::take(s, ti4_content::ContentStore::embedded(), &a, note);
+                        true
+                    }
+                });
+                check(&format!("give_back {note}"), &|s, core| {
+                    // A note first lent to a, then sent home.
+                    pn::take(s, ti4_content::ContentStore::embedded(), &a, note);
+                    if core {
+                        super::give_back(s, note).is_some()
+                    } else {
+                        pn::give_back(s, note);
+                        true
+                    }
+                });
+                check(&format!("play_action_note {note}"), &|s, core| {
+                    pn::take(s, ti4_content::ContentStore::embedded(), &a, note);
+                    if core {
+                        super::play_action_note(s, &a, note).is_some()
+                    } else {
+                        pn::play_action_note(s, &a, note);
+                        true
+                    }
+                });
+            }
+            for owner in ["sol", "hacan", "letnev"] {
+                let support = pn::support(owner);
+                check(&format!("support {owner}"), &|s, core| {
+                    let lend = |s: &mut GameState| {
+                        let _ = pn::receive(s, &b, &support);
+                    };
+                    if core {
+                        let ok = super::receive_support(s, &b, &support).is_some();
+                        let id = s.players.iter().find(|x| x.faction.as_str() == owner).map(|x| x.id.clone()).unwrap();
+                        ok && super::return_support(s, &id).is_some()
+                    } else {
+                        lend(s);
+                        let id = s.players.iter().find(|x| x.faction.as_str() == owner).map(|x| x.id.clone()).unwrap();
+                        pn::return_support(s, &id);
+                        true
+                    }
+                });
+            }
+            for alias in ["convoys", "ceasefire", "ta", "cf"] {
+                check(&format!("foreign {alias}"), &|s, core| {
+                    for note in s.promissory_notes.clone().keys().filter(|n| pn::alias_of(n) == alias) {
+                        pn::take(s, ti4_content::ContentStore::embedded(), &a, note);
+                    }
+                    if core {
+                        let ok = super::return_all_foreign(s, alias).is_some();
+                        ok && super::play_convoys(s, &a).is_some()
+                    } else {
+                        pn::return_all_foreign(s, alias);
+                        pn::play_convoys(s, &a);
+                        true
+                    }
+                });
+            }
+            assert!(core_runs > 30, "the core half ran {core_runs} times");
+        });
+        let r = report();
         assert!(r.differences.is_empty(), "{:?}", r.differences);
     }
 }
