@@ -31,7 +31,16 @@ pub enum Ask {
         ability: bool,
         /// The hit is part of a space combat (not SPACE CANNON OFFENSE).
         in_combat: bool,
+        /// The combat window's own pending question (not the absorb path's): the owner's ships in the system.
+        /// Its space sustainers are named by their index (`sustain|3`) and every option carries the
+        /// `ShipsInSystem` preview.
+        window: Option<u16>,
     },
+    /// "announce a retreat from {system}" (78.9): `ships` of the asked player are in the system; `forced`: a Rout
+    /// leaves no "stay".
+    AnnounceRetreat { system: System, forced: bool, ships: u16 },
+    /// "retreat to which system" (78.7): the whole fleet of `fleet` ships moves to the chosen neighbour.
+    RetreatTo { system: System, fleet: u16 },
     /// "assign a hit": the owner picks which of the listed units is lost. The list is the caller's
     /// (ships, a group, a planet's units); the options are derived from it by `casualty_opts`.
     AssignHit,
@@ -67,6 +76,12 @@ pub enum RerollSource {
 pub enum Opt {
     /// Sustain damage on this unit of the given type; the decline is the generic one ("take the hit").
     Sustain { site: SustainSite, unit: Unit, galvanized: bool },
+    /// Stay and fight (the announcement of a retreat).
+    Stay,
+    /// Announce a retreat.
+    Announce,
+    /// Retreat to `system`, where `there` of the player's ships stand already.
+    RetreatTo { system: System, there: u16 },
     /// Destroy the unit at `index` of the caller's list (the first of its type and damage).
     Destroy { index: u16, unit: Unit, damaged: bool },
     /// Damage a ship of this type (the first undamaged one).
@@ -86,6 +101,8 @@ pub enum Opt {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Subtype {
     SustainDamage,
+    AnnounceRetreat,
+    RetreatTo,
     /// The caller's subtype text (interned) of a casualty question.
     Casualty(crate::state::Code),
     /// The per-die reroll question of a card.

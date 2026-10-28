@@ -160,6 +160,7 @@ pub struct Wording {
     pub kind: Option<String>,
     pub label: Option<String>,
     pub payload: BTreeMap<String, Value>,
+    pub preview: Option<crate::preview::Preview>,
 }
 
 /// The renderer of one area (or of the generic asks).

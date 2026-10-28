@@ -25,10 +25,18 @@ use super::begin_round::{BeginRound, Facts as BeginFacts};
 use super::end::{finished, winner};
 use super::end_announce::{Codes as EndCodes, EndAnnounce, Facts as EndFacts};
 use super::flow::{Facts as FlowFacts, Flow, Out, Pend, Phase, Step, MAX_ROUNDS};
+use super::assign::{announce_loss, remove_ship};
 use super::retreat::{Facts as RetreatFacts, Retreat};
+use super::sustain_commander::SustainCommander;
+use super::sustain_offer::{emit_used, Offer};
 use super::roll::{Facts as RollFacts, Name, RollStep};
-use super::{hit_targets, ships_of, sustain_candidates, Rd};
-use crate::choice::{Choice, Pick};
+use super::{apply_sustain, cancel_per_sustain, hit_targets, ships_of, sustain_candidates, sustain_opts, Rd};
+use crate::choice::combat::{Ask as CAsk, Opt as COpt, Subtype as CSub};
+use crate::choice::generic::Rule;
+use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Owed, OwedKind, Pick, Subtype, Target};
+use crate::containers::SmallList;
+use crate::kernel::fx;
+use crate::state::{EventKind, Key, Payload, Piece, Val};
 use crate::generated::{System, Unit};
 use crate::ids::Seat;
 use crate::kernel::stage::{Illegal, Sx, Window};
@@ -80,6 +88,10 @@ pub struct Env {
     pub duranium: [bool; 2],
     pub devotion: bool,
     pub end_codes: EndCodes,
+    /// The interned subtype text of the casualty question (`"assign_casualty"`).
+    pub casualty: Code,
+    /// The interned source of the trade good of the Letnev commander (`"letnevcommander"`).
+    pub commander: Code,
 }
 
 /// The window fields the string `CombatWindow` keeps between the stages.
@@ -127,7 +139,19 @@ pub enum Stop {
 pub enum Stage {
     Running,
     Rolling,
+    /// The pending decision (or the commander's offer inside its answer) waits on the players.
+    Asking,
     Done,
+}
+
+/// A sustain being answered: the commander's offer runs before the hits are counted.
+#[derive(Debug, Clone)]
+struct Sustaining {
+    commander: SustainCommander,
+    offer: Offer,
+    unit: Unit,
+    round: u32,
+    queue: Vec<Pend>,
 }
 
 #[derive(Debug, Clone)]
@@ -142,12 +166,40 @@ pub struct Machine {
     roll: Option<RollStep>,
     roll_round: u32,
     stage: Stage,
+    /// Built for the answer to the decision the settle stopped at (`Machine::awaiting`).
+    awaiting: bool,
+    answered: bool,
+    sustaining: Option<Sustaining>,
+    /// The last unit that sustained: where it stood and how it stands now.
+    pub last_sustain: Option<(crate::choice::combat::SustainSite, Piece)>,
 }
 
 impl Machine {
     #[must_use]
     pub fn new(env: Env, fields: Fields) -> Self {
-        Self { env, fields, stop: None, drawn: Vec::new(), feat: Vec::new(), roll: None, roll_round: 0, stage: Stage::Running }
+        Self {
+            env,
+            fields,
+            stop: None,
+            drawn: Vec::new(),
+            feat: Vec::new(),
+            roll: None,
+            roll_round: 0,
+            stage: Stage::Running,
+            awaiting: false,
+            answered: false,
+            sustaining: None,
+            last_sustain: None,
+        }
+    }
+
+    /// A machine that puts the decision the settle stopped at (`fields.step`) and applies the answer to it,
+    /// nothing more: the settle that follows is a machine of its own.
+    #[must_use]
+    pub fn awaiting(env: Env, fields: Fields) -> Self {
+        let mut m = Self::new(env, fields);
+        m.awaiting = true;
+        m
     }
 
     fn side(&self, seat: Seat) -> usize {
@@ -572,6 +624,9 @@ impl Window for Machine {
         if self.stage == Stage::Done {
             return Next::Done;
         }
+        if self.awaiting {
+            return self.step_awaiting(sx);
+        }
         match self.run(sx) {
             Some(next) => {
                 if matches!(next, Next::Done) {
@@ -590,10 +645,25 @@ impl Window for Machine {
     }
 
     fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        if self.awaiting {
+            if let Some(sus) = &self.sustaining {
+                return sus.commander.ask_of(s, k);
+            }
+            return if self.answered { None } else { self.pending_choice(s, k) };
+        }
         self.roll.as_ref().and_then(|r| r.ask_of(s, k))
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        if self.awaiting {
+            if let Some(sus) = self.sustaining.as_mut() {
+                return sus.commander.answer(sx, pick);
+            }
+            if self.answered {
+                return Err(Illegal);
+            }
+            return self.answer_pending(sx, pick);
+        }
         match self.roll.as_mut() {
             Some(r) => r.answer(sx, pick),
             None => Err(Illegal),
@@ -613,5 +683,266 @@ impl Machine {
     #[must_use]
     pub const fn max_rounds() -> u32 {
         MAX_ROUNDS
+    }
+}
+
+// -- the decisions the settle stops at (string `pending_choice` / `resolve`) ----------------------------------
+
+impl Machine {
+    fn bail(&mut self) {
+        self.stop = Some(Stop::Bailed(Bail::Unported));
+        self.answered = true;
+    }
+
+    fn step_awaiting(&mut self, sx: &mut Sx<'_>) -> Next {
+        if let Some(sus) = self.sustaining.as_mut() {
+            if let Next::Continue(ask) = sus.commander.step(sx) {
+                self.stage = Stage::Asking;
+                return Next::Continue(ask);
+            }
+            // The commander has answered (or there is none): the use is announced, the hits it cancels counted.
+            let Some(sus) = self.sustaining.take() else { return Next::Done };
+            let _ = emit_used(sx, &sus.offer, sus.unit);
+            let cancels = cancel_per_sustain(Self::rd(sx.state, sx.kernel), sus.offer.player);
+            let mut queue = sus.queue;
+            if let Some(front) = queue.first_mut() {
+                front.hits = front.hits.saturating_sub(u32::try_from(cancels).unwrap_or(u32::MAX));
+            }
+            self.fields.step = Step::Queue { assigning: false, round: sus.round, queue };
+            self.answered = true;
+        }
+        if self.answered {
+            self.stage = Stage::Done;
+            return Next::Done;
+        }
+        match self.pending_choice(sx.state, sx.kernel) {
+            Some(choice) => {
+                self.stage = Stage::Asking;
+                Next::Continue(choice.ask)
+            }
+            None => {
+                self.bail();
+                self.stage = Stage::Done;
+                Next::Done
+            }
+        }
+    }
+
+    fn ctx(&self, rule: Rule, subtype: Subtype, owed: Option<u32>) -> Ctx {
+        Ctx {
+            origin: Origin::Rule(rule),
+            subtype,
+            optional: false,
+            target: Some(Target::System(self.env.system)),
+            outstanding: owed
+                .map(|n| Owed { kind: OwedKind::UnitsToRemove, amount: i64::from(n), paid: 0 })
+                .into_iter()
+                .collect::<SmallList<Owed, 4>>(),
+            space_battle: false,
+            invasion_seq: None,
+        }
+    }
+
+    /// The ships a hit may be assigned to with their index in the owner's ship list (`casualty_candidates`): every
+    /// ship, or only the non-fighters when the hit is bound to them and one is left.
+    fn candidates(rd: Rd<'_>, front: &Pend, system: System) -> Vec<(u16, Piece)> {
+        let units: Vec<(u16, Piece)> = ships_of(rd, front.player, system).into_iter().enumerate().map(|(i, p)| (i as u16, p)).collect();
+        if front.non_fighters_only && units.iter().any(|(_, p)| !rd.is_fighter(p.kind())) {
+            units.into_iter().filter(|(_, p)| !rd.is_fighter(p.kind())).collect()
+        } else {
+            units
+        }
+    }
+
+    /// The decision the settle stopped at, as the string `pending_choice` puts it. `None`: nothing is asked or the
+    /// position is one the machine does not carry (a producer-assigned hit).
+    #[must_use]
+    pub fn pending_choice(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        let env = &self.env;
+        let rd = Self::rd(s, k);
+        let ships = |seat: Seat, at: System| u16::try_from(ships_of(rd, seat, at).len()).unwrap_or(u16::MAX);
+        match &self.fields.step {
+            Step::Announcing { asking, .. } => {
+                if self.retreats(s, k, *asking).is_empty() {
+                    return None;
+                }
+                let forced = *asking == env.attacker
+                    && s.players().by_seat(env.defender).is_some_and(|p| p.combat_timers.rout_round.is(s.meta().combat_round_seq));
+                let opts: Opts = if forced { [Opt::Combat(COpt::Announce)].into_iter().collect() } else { [Opt::Combat(COpt::Stay), Opt::Combat(COpt::Announce)].into_iter().collect() };
+                Some(Choice {
+                    actor: *asking,
+                    ask: Ask::Combat(CAsk::AnnounceRetreat { system: env.system, forced, ships: ships(*asking, env.system) }),
+                    ctx: self.ctx(Rule::R78_9, Subtype::Combat(CSub::AnnounceRetreat), None),
+                    opts,
+                })
+            }
+            Step::Retreating { leaving, .. } => {
+                let player = *leaving.first()?;
+                let destinations = self.retreats(s, k, player);
+                if destinations.len() < 2 {
+                    return None;
+                }
+                let opts: Opts = destinations
+                    .iter()
+                    .map(|d| Opt::Combat(COpt::RetreatTo { system: *d, there: ships(player, *d) }))
+                    .collect();
+                Some(Choice {
+                    actor: player,
+                    ask: Ask::Combat(CAsk::RetreatTo { system: env.system, fleet: ships(player, env.system) }),
+                    ctx: self.ctx(Rule::R78_7, Subtype::Combat(CSub::RetreatTo), None),
+                    opts,
+                })
+            }
+            Step::Queue { assigning: false, queue, .. } => {
+                let front = queue.first()?;
+                let own = ships(front.player, env.system);
+                let ask = CAsk::CancelHit {
+                    system: env.system,
+                    hits: u16::try_from(front.hits).unwrap_or(u16::MAX),
+                    non_fighters_first: front.non_fighters_only && ships_of(rd, front.player, env.system).iter().any(|p| !rd.is_fighter(p.kind())),
+                    staging: env.staging,
+                    ability: false,
+                    in_combat: true,
+                    window: Some(own),
+                };
+                let opts = sustain_opts(rd, front.player, ask);
+                if opts.as_slice().is_empty() {
+                    return None;
+                }
+                Some(Choice {
+                    actor: front.player,
+                    ask: Ask::Combat(ask),
+                    ctx: self.ctx(Rule::R82, Subtype::Combat(CSub::SustainDamage), Some(front.hits)),
+                    opts,
+                })
+            }
+            Step::Queue { assigning: true, queue, .. } => {
+                let front = queue.first()?;
+                if front.producer_assigns {
+                    return None;
+                }
+                let candidates = Self::candidates(rd, front, env.system);
+                if candidates.len() < 2 {
+                    return None;
+                }
+                let mut seen: Vec<(Unit, bool)> = Vec::new();
+                let mut opts = Opts::default();
+                for (index, piece) in candidates {
+                    let key = (piece.kind(), piece.sustained());
+                    if seen.contains(&key) {
+                        continue;
+                    }
+                    seen.push(key);
+                    opts.push(Opt::Combat(COpt::Destroy { index, unit: key.0, damaged: key.1 }));
+                }
+                Some(Choice {
+                    actor: front.player,
+                    ask: Ask::Combat(CAsk::AssignHit),
+                    ctx: self.ctx(Rule::R78_4, Subtype::Combat(CSub::Casualty(env.casualty)), Some(front.hits)),
+                    opts,
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// The answer to the decision the settle stopped at (string `resolve`, without the settle that follows).
+    fn answer_pending(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        let choice = self.pending_choice(sx.state, sx.kernel).ok_or(Illegal)?;
+        let Pick::Opt(opt) = pick else { return Err(Illegal) };
+        if !choice.opts.as_slice().contains(&opt) {
+            return Err(Illegal);
+        }
+        let env_system = self.env.system;
+        match self.fields.step.clone() {
+            Step::Announcing { round, asking, mut announced } => {
+                if opt == Opt::Combat(COpt::Announce) {
+                    announced.push(asking);
+                    if self.env.announce {
+                        let payload = Payload::new()
+                            .with(Key::System, Val::System(env_system))
+                            .with(Key::Player, Val::Seat(asking))
+                            .with(Key::Round, Val::Int(i64::from(round)));
+                        let _ = sx.emit(fx::event(EventKind::RetreatDeclared, payload));
+                    }
+                }
+                if asking == self.env.defender && !announced.contains(&self.env.defender) {
+                    self.fields.step = Step::Announcing { round, asking: self.env.attacker, announced };
+                } else {
+                    if !announced.is_empty() {
+                        self.fields.pending_retreats = announced;
+                    }
+                    self.fields.step = Step::Rolling { round };
+                }
+            }
+            Step::Retreating { round, leaving } => {
+                let Opt::Combat(COpt::RetreatTo { system, .. }) = opt else { return Err(Illegal) };
+                if self.retreat_fleet(sx, round, &leaving, system).is_none() {
+                    self.bail();
+                    return Ok(());
+                }
+            }
+            Step::Queue { assigning: false, round, mut queue } => {
+                let front = *queue.first().ok_or(Illegal)?;
+                match opt {
+                    Opt::Decline => self.fields.step = Step::Queue { assigning: true, round, queue },
+                    Opt::Combat(COpt::Sustain { site, unit, .. }) => {
+                        let rd = Self::rd(sx.state, sx.kernel);
+                        match apply_sustain(rd, front.player, env_system, site) {
+                            None => {
+                                // No such unit sustains: nothing happens, but the use still cancels its hits.
+                                let cancels = cancel_per_sustain(rd, front.player);
+                                if let Some(f) = queue.first_mut() {
+                                    f.hits = f.hits.saturating_sub(u32::try_from(cancels).unwrap_or(u32::MAX));
+                                }
+                                self.fields.step = Step::Queue { assigning: false, round, queue };
+                            }
+                            Some((after, piece)) => {
+                                *sx.state = after;
+                                self.last_sustain = Some((site, piece));
+                                let offer = Offer {
+                                    player: front.player,
+                                    producer: front.producer,
+                                    system: env_system,
+                                    ability: false,
+                                    in_combat: true,
+                                    non_fighters_first: false,
+                                    source: self.env.commander,
+                                    staging: self.env.staging,
+                                    announce: self.env.announce,
+                                };
+                                self.sustaining = Some(Sustaining { commander: SustainCommander::new(front.player, self.env.commander), offer, unit, round, queue });
+                                return Ok(());
+                            }
+                        }
+                    }
+                    _ => return Err(Illegal),
+                }
+            }
+            Step::Queue { assigning: true, round, mut queue } => {
+                let front = *queue.first().ok_or(Illegal)?;
+                let Opt::Combat(COpt::Destroy { index, .. }) = opt else { return Err(Illegal) };
+                let units = ships_of(Self::rd(sx.state, sx.kernel), front.player, env_system);
+                if let Some(doomed) = units.get(usize::from(index)).copied() {
+                    remove_ship(sx, env_system, front.player, doomed);
+                    announce_loss(sx, env_system, front.player, doomed.kind(), self.env.end_cause(), true, self.env.announce);
+                }
+                if let Some(f) = queue.first_mut() {
+                    f.hits = f.hits.saturating_sub(1);
+                }
+                self.fields.step = Step::Queue { assigning: false, round, queue };
+            }
+            _ => return Err(Illegal),
+        }
+        self.answered = true;
+        Ok(())
+    }
+}
+
+impl Env {
+    /// The cause of a ship lost in a combat round (`"space_combat"`).
+    #[must_use]
+    pub fn end_cause(&self) -> Code {
+        self.roll_cause
     }
 }

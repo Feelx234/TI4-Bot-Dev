@@ -1147,6 +1147,9 @@ pub fn roll_step(
     let driven = with_core(gs, &mut cx, src, ROLL_STEP, |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|c, st, rendered| {
             roll_details(content, &texts, &held, c, st, rendered);
+            if let ti4_engine_core::choice::Ask::Combat(ask @ ti4_engine_core::choice::combat::Ask::CancelHit { .. }) = &c.ask {
+                rendered.details.insert("sustainers".to_owned(), crate::core_combat::sustainers_detail(&env.kernel, st, ask, c.actor));
+            }
         });
         staged = std::mem::take(&mut core.pending_mut().staged);
         rng_after = Some(core.rng().clone());
@@ -1556,13 +1559,56 @@ const SETTLE: Footprint = Footprint::new(
 /// decision or the end of the fight. `None` for the positions the machine bails at (`Machine::bailed`), neutral
 /// sides, reaction activity inside an emission, or a position the codecs refuse.
 #[must_use]
-#[allow(clippy::too_many_lines, reason = "one environment, built field by field")]
 pub fn settle_machine(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    a: SettleArgs,
+    rng_before: &crate::rng::RngPositions,
+    script: &Recording,
+) -> Option<CoreWindow<SettleOut>> {
+    settle_run(gs, sources, a, rng_before, script, None)
+}
+
+/// The core half of the answer to the decision a settle stopped at (`CombatWindow::resolve` without the settle
+/// that follows): the script holds the pending question and the answer, then the commander's question of a
+/// sustain. `string_pays`: the string asks the Letnev commander's payment. `None` (the bail-outs): those of
+/// [`settle_machine`], a sustain below `RULES_FACTION_BUGFIXES`, a commander held another way than as an unlocked
+/// leader, and the positions `Machine::bailed` names.
+#[must_use]
+pub fn answer_machine(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    a: SettleArgs,
+    rng_before: &crate::rng::RngPositions,
+    script: &Recording,
+    string_pays: bool,
+) -> Option<CoreWindow<SettleOut>> {
+    if matches!(a.step, StepS::Queue(false, ..)) {
+        if gs.rules_version < ti4_model::state::RULES_FACTION_BUGFIXES {
+            return None;
+        }
+        let front = match &a.step {
+            StepS::Queue(_, _, queue) => queue.first().map(|p| p.player.clone()),
+            _ => None,
+        }?;
+        let unlocked = gs
+            .player(&front)
+            .is_some_and(|p| p.leaders.get(ti4_model::id::text("letnevcommander")) == Some(&ti4_model::state::LeaderStatus::Unlocked));
+        if string_pays && !unlocked {
+            return None;
+        }
+    }
+    settle_run(gs, sources, a, rng_before, script, Some(()))
+}
+
+#[allow(clippy::too_many_lines, reason = "one environment, built field by field")]
+fn settle_run(
     gs: &mut GameState,
     sources: ti4_model::content_types::SourceSet,
     mut a: SettleArgs,
     rng_before: &crate::rng::RngPositions,
     script: &Recording,
+    answering: Option<()>,
 ) -> Option<CoreWindow<SettleOut>> {
     use ti4_engine_core::rules::combat::flow::{Pend, Phase, Step};
     use ti4_engine_core::rules::combat::machine::{Env, Fields, Machine, Stop};
@@ -1650,6 +1696,8 @@ pub fn settle_machine(
         may_retreat: a.may_retreat,
         duranium: a.duranium,
         devotion: a.devotion,
+        casualty: r.code("assign_casualty"),
+        commander: r.code("letnevcommander"),
         end_codes: ti4_engine_core::rules::combat::end_announce::Codes {
             losers: r.code("losers"),
             retreated: r.code("retreated"),
@@ -1692,7 +1740,8 @@ pub fn settle_machine(
     };
     let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
-    let mut driver = Driver::new(Machine::new(menv, fields), resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let machine = if answering.is_some() { Machine::awaiting(menv, fields) } else { Machine::new(menv, fields) };
+    let mut driver = Driver::new(machine, resolver, AbilityTable::default(), 1).with_seeds(seeds);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
@@ -1701,6 +1750,9 @@ pub fn settle_machine(
     let driven = with_core(gs, &mut cx, src, SETTLE, |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|c, st, rendered| {
             roll_details(content, &texts, &held, c, st, rendered);
+            if let ti4_engine_core::choice::Ask::Combat(ask @ ti4_engine_core::choice::combat::Ask::CancelHit { .. }) = &c.ask {
+                rendered.details.insert("sustainers".to_owned(), crate::core_combat::sustainers_detail(&env.kernel, st, ask, c.actor));
+            }
         });
         staged = std::mem::take(&mut core.pending_mut().staged);
         rng_after = Some(core.rng().clone());
@@ -1712,7 +1764,34 @@ pub fn settle_machine(
     if matches!(w.stop, Some(Stop::Bailed(_))) {
         return None;
     }
+    if answering.is_some() {
+        // The previews are not part of the serialized option (`serde(skip)`), so the whole-choice comparison
+        // does not see them: compare them here, question by question.
+        let previews = |c: &Choice| c.options.iter().map(|o| o.preview.clone()).collect::<Vec<_>>();
+        for (asked, rendered) in script.questions.iter().zip(&driven.rendered) {
+            crate::dual::compare_value(crate::dual::Area::Driver, "combat::answer.previews", &previews(&asked.choice), &previews(rendered));
+        }
+    }
     apply_staged(gs, &r, &staged)?;
+    // `remember_sustain_target`: the string writes the handoff of the unit that sustained.
+    if a.staging
+        && let Some((site, piece)) = w.last_sustain
+    {
+        let unit = ti4_model::units::Unit {
+            type_id: ti4_model::id::UnitTypeId::new(piece.kind().as_str()),
+            owner: PlayerId::new(r.seat_text(piece.owner())),
+            sustained_damage: piece.sustained(),
+            galvanized: piece.galvanized(),
+        };
+        let planet = match site {
+            ti4_engine_core::choice::combat::SustainSite::Planet { planet, .. } => Some(planet.as_str()),
+            ti4_engine_core::choice::combat::SustainSite::Space(_) => None,
+        };
+        gs.faction_marks.insert(
+            "combat:sustain_target".to_owned(),
+            serde_json::json!({"system": a.system, "planet": planet, "unit": unit}).to_string(),
+        );
+    }
     let positions = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     let player = |s: ti4_engine_core::ids::Seat| Some(PlayerId::new(r.seats.get(usize::from(s.0))?.clone()));
