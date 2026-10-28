@@ -1146,13 +1146,38 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
-        // LEADER-FIX-001: the action-phase leaders ask their targets here — which planet to
-        // ready, whether to remove the infantry, gain-or-replenish, which system to gather in,
-        // and per-technology swap or keep.
+        // LEADER-FIX-001: the action-phase leaders ask their targets in `dispatch_leader` (the Thunder's Edge
+        // Xxcha hero) and in the string halves split out of it for package B7, which stand beside their
+        // core windows: which planet to ready, whether to remove the infantry, gain-or-replenish, which
+        // system to gather in, and per-technology swap or keep. They ask through `ask_seeing_parts`.
         module: "leaders.rs",
         function: "dispatch_leader",
-        count: 7,
+        count: 2,
         delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "leaders.rs",
+        function: "xxcha_agent_string",
+        count: 2,
+        delivery: Delivery::ObservedVia("leaders.rs::ask_seeing_parts"),
+    },
+    Producer {
+        module: "leaders.rs",
+        function: "hacan_agent_string",
+        count: 1,
+        delivery: Delivery::ObservedVia("leaders.rs::ask_seeing_parts"),
+    },
+    Producer {
+        module: "leaders.rs",
+        function: "l1z1x_hero_string",
+        count: 1,
+        delivery: Delivery::ObservedVia("leaders.rs::ask_seeing_parts"),
+    },
+    Producer {
+        module: "leaders.rs",
+        function: "jolnar_hero_string",
+        count: 1,
+        delivery: Delivery::ObservedVia("leaders.rs::ask_seeing_parts"),
     },
     Producer {
         module: "borrowed_round_agents.rs",
@@ -1737,7 +1762,8 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("invasion.rs", "apply_bombard_plan", 1),
     ("invasion.rs", "dunlain_reaper", 1),
     ("laws.rs", "offer_discard", 1),
-    ("leaders.rs", "dispatch_leader", 7),
+    ("leaders.rs", "dispatch_leader", 2),
+    ("leaders.rs", "ask_seeing_parts", 1),
     ("leaders.rs", "offer_production_hero", 1),
     ("borrowed_round_agents.rs", "resolve_copy", 1),
     ("leaders.rs", "ssruu_l1z1x_activation_abilities", 1),

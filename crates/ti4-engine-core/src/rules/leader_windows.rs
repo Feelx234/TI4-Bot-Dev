@@ -16,7 +16,8 @@ use crate::choice::agenda::Shown;
 use crate::choice::leaders::{Ask as LAsk, Opt as LOpt, Subtype as LSub};
 use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use crate::containers::SmallList;
-use crate::generated::{Leader, Planet, UnitBaseType};
+use crate::generated::{Leader, Planet, System, TechType, Technology, UnitBaseType};
+use crate::query::tech;
 use crate::ids::Seat;
 use crate::kernel::fx;
 use crate::kernel::stage::{Illegal, Sx, Window};
@@ -290,6 +291,287 @@ impl Window for HacanAgent {
         }
         self.used = true;
         self.stage = HStage::Done;
+        Ok(())
+    }
+}
+
+// -- The Helmsman -----------------------------------------------------------------------------------
+
+/// The suspension points of [`Helmsman`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LStage {
+    Start,
+    Destination,
+    Done,
+}
+
+/// "Choose 1 system that contains no ships of other players; place your flagship and dreadnoughts there." The
+/// ships are *placed*, not moved: range and anomalies do not apply. Never offered without a map or a ship to
+/// gather.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Helmsman {
+    pub who: Seat,
+    /// The string arm had a map (`context.galaxy`).
+    pub has_map: bool,
+    stage: LStage,
+    pub used: bool,
+}
+
+impl Helmsman {
+    #[must_use]
+    pub const fn new(who: Seat, has_map: bool) -> Self {
+        Self { who, has_map, stage: LStage::Start, used: false }
+    }
+
+    const ASK: Ask = Ask::Leaders(LAsk::L1z1xDestination);
+
+    fn named(&self, scope: Scope, p: crate::state::Piece) -> bool {
+        p.owner() == self.who
+            && scope.unit(p.kind()).is_some_and(|d| matches!(d.base_type, UnitBaseType::Flagship | UnitBaseType::Dreadnought))
+    }
+
+    /// The systems that may receive the ships, in the string galaxy's order (hex order): on the map, not a
+    /// hyperlane tile, holding no ship of another seat.
+    fn safe(&self, core: &CoreState, k: &Kernel) -> Vec<System> {
+        let Some(galaxy) = core.galaxy() else { return Vec::new() };
+        let scope = scope(k);
+        let mut at: Vec<(crate::hex::Hex, System)> = galaxy
+            .in_play()
+            .iter()
+            .filter(|s| !galaxy.is_hyperlane(crate::ids::system_at(*s)))
+            .filter_map(|s| {
+                let system = crate::ids::system_at(s);
+                galaxy.coord_of(system).map(|hex| (hex, system))
+            })
+            .collect();
+        at.sort_unstable_by_key(|(hex, _)| *hex);
+        at.into_iter()
+            .map(|(_, system)| system)
+            .filter(|system| {
+                !core
+                    .board()
+                    .sys(*system)
+                    .units
+                    .as_slice()
+                    .iter()
+                    .any(|u| u.owner() != self.who && scope.unit(u.kind()).is_some_and(|d| d.ship))
+            })
+            .collect()
+    }
+
+    fn gather(&mut self, sx: &mut Sx<'_>, destination: System) {
+        let scope = scope(sx.kernel);
+        let mut gathered: Vec<crate::state::Piece> = Vec::new();
+        for system in System::ALL {
+            if system == destination {
+                continue;
+            }
+            let has = sx.state.board().sys(system).units.as_slice().iter().any(|u| self.named(scope, *u));
+            if !has {
+                continue;
+            }
+            let list = &mut sx.state.board_mut().sys_mut(system).units;
+            gathered.extend(list.as_slice().iter().copied().filter(|u| self.named(scope, *u)));
+            list.retain(|u| !self.named(scope, *u));
+        }
+        if !gathered.is_empty() {
+            let cell = sx.state.board_mut().sys_mut(destination);
+            cell.flags.set(crate::state::SysFlags::TOUCHED, true);
+            for piece in &gathered {
+                cell.units.push(*piece);
+            }
+        }
+        self.used = !gathered.is_empty();
+        self.stage = LStage::Done;
+    }
+}
+
+impl Window for Helmsman {
+    type Stage = LStage;
+
+    fn stage(&self) -> LStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == LStage::Start {
+            let scope = scope(sx.kernel);
+            // Nothing anywhere to gather: the use could do nothing, so it was never offered.
+            let ships = self.has_map && sx.state.board().systems().any(|(_, c)| c.units.as_slice().iter().any(|u| self.named(scope, *u)));
+            let safe = if ships { self.safe(sx.state, sx.kernel) } else { Vec::new() };
+            match safe.as_slice() {
+                [] => self.stage = LStage::Done,
+                [only] => {
+                    let only = *only;
+                    self.gather(sx, only);
+                }
+                _ => self.stage = LStage::Destination,
+            }
+        }
+        match self.stage {
+            LStage::Destination => Next::Continue(Self::ASK),
+            LStage::Start | LStage::Done => Next::Done,
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        (self.stage == LStage::Destination).then(|| Choice {
+            actor: self.who,
+            ask: Self::ASK,
+            ctx: ctx(Leader::TheHelmsman, LSub::L1z1xDestination),
+            opts: self.safe(s, k).into_iter().map(|system| Opt::Leaders(LOpt::System(system))).collect::<Opts>(),
+        })
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        match (self.stage, pick) {
+            (LStage::Destination, Pick::Opt(Opt::Leaders(LOpt::System(system)))) if self.safe(sx.state, sx.kernel).contains(&system) => {
+                self.gather(sx, system);
+                Ok(())
+            }
+            _ => Err(Illegal),
+        }
+    }
+}
+
+// -- Rin, the Masters' Legacy -----------------------------------------------------------------------
+
+/// The suspension points of [`RinHero`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RStage {
+    Start,
+    /// Waiting on the swap of `held` (the technology at `next - 1` of the eligible list).
+    Swap,
+    Done,
+}
+
+/// "For each non-unit upgrade technology you own, you may replace that technology with any technology of the
+/// same colour from the deck." One question per technology that has a replacement on offer; declining all is a
+/// legal resolution, but a use with nothing on offer at all is not one (`used` stays false).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RinHero {
+    pub who: Seat,
+    /// The technologies in the order of the corpus file (the string lists replacements in record order, which
+    /// is not the generated enum order; the generator emits no such table yet, the adapter supplies it).
+    order: Vec<Technology>,
+    /// The technologies sorted by alias text (the string's `BTreeSet<TechnologyId>` order, which also is not
+    /// the enum order); supplied by the adapter, which owns the alias texts.
+    by_alias: Vec<Technology>,
+    stage: RStage,
+    /// The eligible technologies, in the order of their alias text (the string set's order).
+    eligible: Vec<Technology>,
+    /// The eligible technology the window is at.
+    at: Option<Technology>,
+    opportunity: bool,
+    pub used: bool,
+}
+
+impl RinHero {
+    #[must_use]
+    pub fn new(who: Seat, order: Vec<Technology>, by_alias: Vec<Technology>) -> Self {
+        Self { who, order, by_alias, stage: RStage::Start, eligible: Vec::new(), at: None, opportunity: false, used: false }
+    }
+
+    /// The technologies that can stand in for `held` now: same first type, not a unit upgrade, in the game's
+    /// scope, open to the seat's faction, not owned; in table (record) order.
+    fn replacements(&self, core: &CoreState, k: &Kernel, held: Technology) -> Vec<Technology> {
+        let who = self.who;
+        let (Some(colour), Some(p)) = (held.data().types.first().copied(), core.players().by_seat(who)) else { return Vec::new() };
+        let scope = scope(k);
+        self.order
+            .iter()
+            .copied()
+            .filter(|t| {
+                let d = t.data();
+                crate::tables::source_bit(d.source) & scope.0 != 0
+                    && d.types.first() == Some(&colour)
+                    && !d.types.contains(&TechType::Unitupgrade)
+                    && d.faction.is_none_or(|tag| tech::tag_is(tag, p.faction))
+                    && !p.tech.owned.contains(*t)
+            })
+            .collect()
+    }
+
+    fn eligible_of(&self, core: &CoreState) -> Vec<Technology> {
+        let Some(p) = core.players().by_seat(self.who) else { return Vec::new() };
+        self.by_alias
+            .iter()
+            .copied()
+            .filter(|t| p.tech.owned.contains(*t) && !tech::is_unit_upgrade(*t) && !t.data().types.is_empty())
+            .collect()
+    }
+
+    /// The next eligible technology after `after` (or the first) that has a replacement; sets `at`.
+    fn advance(&mut self, core: &CoreState, k: &Kernel, after: Option<Technology>) -> bool {
+        let from = after.map_or(0, |a| self.eligible.iter().position(|t| *t == a).map_or(self.eligible.len(), |i| i + 1));
+        for t in self.eligible[from..].iter().copied() {
+            if !self.replacements(core, k, t).is_empty() {
+                self.at = Some(t);
+                self.opportunity = true;
+                return true;
+            }
+        }
+        false
+    }
+
+    const ASK: fn(Technology) -> Ask = |held| Ask::Leaders(LAsk::JolnarSwap { held });
+}
+
+impl Window for RinHero {
+    type Stage = RStage;
+
+    fn stage(&self) -> RStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == RStage::Start {
+            self.eligible = self.eligible_of(sx.state);
+            // Nothing swappable: the hero is not spent.
+            self.stage = if self.eligible.is_empty() {
+                RStage::Done
+            } else if self.advance(sx.state, sx.kernel, None) {
+                RStage::Swap
+            } else {
+                RStage::Done
+            };
+        }
+        match (self.stage, self.at) {
+            (RStage::Swap, Some(held)) => Next::Continue(Self::ASK(held)),
+            _ => {
+                self.used = self.opportunity;
+                Next::Done
+            }
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        let held = self.at.filter(|_| self.stage == RStage::Swap)?;
+        Some(Choice {
+            actor: self.who,
+            ask: Self::ASK(held),
+            ctx: ctx(Leader::RinTheMastersLegacy, LSub::JolnarSwap),
+            // The decline comes last: a decider that takes the first option trades.
+            opts: self.replacements(s, k, held)
+                .into_iter()
+                .map(|t| Opt::Leaders(LOpt::Trade(t)))
+                .chain(std::iter::once(Opt::Leaders(LOpt::Keep)))
+                .collect::<Opts>(),
+        })
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        let (RStage::Swap, Some(held)) = (self.stage, self.at) else { return Err(Illegal) };
+        match pick {
+            Pick::Opt(Opt::Leaders(LOpt::Keep)) => {}
+            Pick::Opt(Opt::Leaders(LOpt::Trade(t))) if self.replacements(sx.state, sx.kernel, held).contains(&t) => {
+                let Some(p) = sx.state.players_mut().by_seat_mut(self.who) else { return Err(Illegal) };
+                p.tech.owned.remove(held);
+                p.tech.owned.insert(t);
+            }
+            _ => return Err(Illegal),
+        }
+        self.stage = if self.advance(sx.state, sx.kernel, Some(held)) { RStage::Swap } else { RStage::Done };
         Ok(())
     }
 }

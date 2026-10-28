@@ -22,7 +22,7 @@ mod real {
     use ti4_engine_core::driver::Driver;
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::{Kernel, Resolver};
-    use ti4_engine_core::rules::leader_windows::{HacanAgent, XxchaAgent};
+    use ti4_engine_core::rules::leader_windows::{HacanAgent, Helmsman, RinHero, XxchaAgent};
     use ti4_model::content_types::SourceSet;
 
     use crate::core_adapter::typed;
@@ -102,6 +102,54 @@ mod real {
         Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Pending], &[Slice::Board]);
     const HACAN: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Pending], &[Slice::Players]);
 
+    const BOARD: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board], &[Slice::Board]);
+
+    /// Jace X. 4th Air Legion.
+    pub fn sol_hero(gs: &mut GameState, player: &PlayerId) -> Option<bool> {
+        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let who = r.seat(player.as_str())?;
+        crate::core_sync::with_core(gs, &mut cx, Sources::default(), BOARD, |core, _| rules::sol_hero(core, who)).ok()
+    }
+
+    /// Claire Gibson: the placement of `count` units of `unit` (resolved by the string side) on the planet.
+    pub fn sol_commander(
+        gs: &mut GameState,
+        player: &PlayerId,
+        system: &ti4_model::id::SystemId,
+        planet: &ti4_model::id::PlanetId,
+        unit: &str,
+        count: usize,
+    ) -> Option<bool> {
+        let unit = typed::<ti4_engine_core::generated::Unit>(unit)?;
+        let (system, planet) = (
+            typed::<ti4_engine_core::generated::System>(system.as_str())?,
+            typed::<ti4_engine_core::generated::Planet>(planet.as_str())?,
+        );
+        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let who = r.seat(player.as_str())?;
+        crate::core_sync::with_core(gs, &mut cx, Sources::default(), BOARD, |core, _| rules::sol_commander(core, who, system, planet, unit, count)).ok()
+    }
+
+    /// I48S: the swap of one infantry of `target` for `mech` (a unit form without a core `Unit`, the Naaz mech
+    /// whose placement is announced, and a favour that keeps a diplomacy promise stay with the string arm).
+    pub fn l1z1x_agent(
+        gs: &mut GameState,
+        sources: SourceSet,
+        player: &PlayerId,
+        target: &PlayerId,
+        system: &ti4_model::id::SystemId,
+        mech: &str,
+    ) -> Option<bool> {
+        if mech == "naaz_mech" || (gs.diplomacy.enabled && target != player) {
+            return None;
+        }
+        let (mech, system) = (typed::<ti4_engine_core::generated::Unit>(mech)?, typed::<ti4_engine_core::generated::System>(system.as_str())?);
+        let scope = ti4_engine_core::tables::Scope(u32::try_from(crate::core_adapter::scope(sources).0).ok()?);
+        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let seat = r.seat(target.as_str())?;
+        crate::core_sync::with_core(gs, &mut cx, Sources::default(), BOARD, |core, _| rules::l1z1x_agent(core, scope, seat, system, mech)).ok()
+    }
+
     /// What a window of this file cannot follow: a question asked inside a battle or an invasion (its context
     /// carries the battle), diplomacy promises a favour keeps, a nested emission.
     fn outside(gs: &GameState, script: &Recording) -> bool {
@@ -134,6 +182,64 @@ mod real {
             Some(crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script))
         })
         .ok()??
+        .ok()?;
+        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
+        Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
+    }
+
+    /// The core half of `leaders::l1z1x_hero` (The Helmsman). `None` as for [`xxcha_agent`].
+    pub fn l1z1x_hero(gs: &mut GameState, player: &PlayerId, galaxy: Option<&ti4_content::galaxy::Galaxy>, sources: SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
+        if outside(gs, script) {
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let seat = r.seat(player.as_str())?;
+        let kernel = kernel(sources)?;
+        let before = gs.clone();
+        let has_map = galaxy.is_some();
+        let mut driver = Driver::new(Helmsman::new(seat, has_map), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources { galaxy, rng: None }, if has_map { XXCHA } else { XXCHA_NO_MAP }, |core, _| {
+            if has_map && core.galaxy().is_none() {
+                return None;
+            }
+            Some(crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script))
+        })
+        .ok()??
+        .ok()?;
+        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
+        Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
+    }
+
+    const PLAYERS: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Pending], &[Slice::Players]);
+
+    /// The core half of `leaders::jolnar_hero` (Rin). `None` where `apply_unit_upgrades` would change the
+    /// position (the units are not in the form the owned upgrades demand: the string re-forms them after a swap
+    /// and the core does not), and as [`xxcha_agent`] otherwise.
+    pub fn jolnar_hero(gs: &mut GameState, content: &ti4_content::ContentStore, player: &PlayerId, sources: SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
+        if outside(gs, script) {
+            return None;
+        }
+        let mut formed = gs.clone();
+        crate::technology::apply_unit_upgrades(&mut formed, content, sources, player);
+        if !formed.identical(gs) {
+            return None;
+        }
+        // The corpus file's order of the technologies (the string lists replacements in it).
+        let order: Vec<_> = content
+            .from_sources(ti4_model::content_types::ContentType::Technologies, sources)
+            .filter_map(|r| r.text("alias").and_then(typed::<ti4_engine_core::generated::Technology>))
+            .collect();
+        let mut by_alias: Vec<_> = ti4_engine_core::generated::Technology::ALL.to_vec();
+        by_alias.sort_by_key(|t| t.as_str());
+        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let seat = r.seat(player.as_str())?;
+        let kernel = kernel(sources)?;
+        let before = gs.clone();
+        let mut driver = Driver::new(RinHero::new(seat, order, by_alias), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), PLAYERS, |core, _| {
+            crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script)
+        })
+        .ok()?
         .ok()?;
         let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
@@ -207,6 +313,47 @@ mod stub {
         None
     }
     pub fn end_of_round(_: &mut GameState) -> Option<Vec<PlayerId>> {
+        None
+    }
+    pub fn sol_commander(
+        _: &mut GameState,
+        _: &PlayerId,
+        _: &ti4_model::id::SystemId,
+        _: &ti4_model::id::PlanetId,
+        _: &str,
+        _: usize,
+    ) -> Option<bool> {
+        None
+    }
+    pub fn sol_hero(_: &mut GameState, _: &PlayerId) -> Option<bool> {
+        None
+    }
+    pub fn l1z1x_agent(
+        _: &mut GameState,
+        _: ti4_model::content_types::SourceSet,
+        _: &PlayerId,
+        _: &PlayerId,
+        _: &ti4_model::id::SystemId,
+        _: &str,
+    ) -> Option<bool> {
+        None
+    }
+    pub fn l1z1x_hero(
+        _: &mut GameState,
+        _: &PlayerId,
+        _: Option<&ti4_content::galaxy::Galaxy>,
+        _: ti4_model::content_types::SourceSet,
+        _: &crate::dual_window::Recording,
+    ) -> Option<crate::dual::CoreWindow<bool>> {
+        None
+    }
+    pub fn jolnar_hero(
+        _: &mut GameState,
+        _: &ti4_content::ContentStore,
+        _: &PlayerId,
+        _: ti4_model::content_types::SourceSet,
+        _: &crate::dual_window::Recording,
+    ) -> Option<crate::dual::CoreWindow<bool>> {
         None
     }
     pub fn xxcha_agent(
