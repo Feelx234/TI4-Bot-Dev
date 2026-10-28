@@ -6993,6 +6993,38 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Brother Milor (the Yin agent), ground branch: after a ground force is destroyed in a ground combat the readied
+    /// agent lets its owner place 2 infantry on the planet; the core resolver places the same units (form, count)
+    /// and exhausts the card.
+    #[test]
+    fn brother_milor_places_infantry_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        let mut exhausted = 0;
+        with_mask(mask, || {
+            for (seed, who) in (1..=4_u64).zip(["hacan", "arborec", "sol", "naalu"]) {
+                let mut state = crate::fixtures::seated_game(&[("a", who), ("b", "yin")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                state.player_mut(&PlayerId::new("b")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("yinagent"), ti4_model::state::LeaderStatus::Readied);
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 6);
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 4);
+                run_invasion_first_option(&mut state, seed, &system);
+                exhausted += usize::from(state.player(&PlayerId::new("b")).unwrap().leaders.get(ti4_model::id::text(&"yinagent")) == Some(&ti4_model::state::LeaderStatus::Exhausted));
+            }
+        });
+        let r = report();
+        assert!(exhausted > 0, "the agent was used");
+        assert!(r.windows.keys().all(|k| !k.contains("unported ability leader:*:yinagent")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
     use ti4_model::content_types::DEFAULT as ALL_SOURCES;
     use ti4_model::content_types::POK;
 

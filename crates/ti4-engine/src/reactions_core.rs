@@ -39,6 +39,8 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core::rules::reactions::tellurian::GROUND_HITS, kind: "leader", card: "titansagent" },
     Named { slot: ti4_engine_core::rules::reactions::tellurian::BARRAGE_HITS, kind: "leader", card: "titansagent" },
     Named { slot: ti4_engine_core_factions::ce_movement::arborec::timing::WARRIOR_ROLLS, kind: "unit", card: "arborec_infantry2" },
+    Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::MILOR_SHIPS, kind: "leader", card: "yinagent" },
+    Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::MILOR_GROUND, kind: "leader", card: "yinagent" },
     Named { slot: ti4_engine_core::rules::reactions::saar::SAAR_TRADE_GOOD, kind: "tech", card: "sar" },
     Named { slot: ti4_engine_core::rules::reactions::round_agent::SOL_AGENT, kind: "leader", card: "solagent" },
     Named { slot: ti4_engine_core::rules::reactions::round_agent::LETNEV_AGENT, kind: "leader", card: "letnevagent" },
@@ -98,6 +100,7 @@ pub fn table() -> AbilityTable {
             ti4_engine_core::rules::reactions::register(&mut t);
             ti4_engine_core_factions::cb_economy::register_abilities(&mut t);
             ti4_engine_core_factions::ce_movement::register_abilities(&mut t);
+            ti4_engine_core_factions::cd_registry::register_abilities(&mut t);
             ti4_engine_core::rules::reactions::register_after_factions(&mut t);
             t
         })
@@ -249,6 +252,7 @@ impl Follow {
         let owner_name = |who: Seat| crate::promissory::faction_name(gs, &ti4_model::id::PlayerId::new(r.seat_text(who)));
         let mut name = |spec: &Spec, who: Seat| -> AbilityId { ability_id(r, &id_text(r, spec, &owner_name(who))) };
         self.table.codes.ground_combat = r.code("ground_combat");
+        self.table.codes.harrow = r.code("harrow");
         self.table.codes.self_assembly = r.code("self_assembly_routines");
         self.table.codes.instinct_training = r.code("instinct_training");
         let defs = self.table.registry(core, &order, &mut name);

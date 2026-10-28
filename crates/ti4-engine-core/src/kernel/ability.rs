@@ -105,6 +105,8 @@ impl CondCx<'_> {
 pub struct Codes {
     /// The cause `ground_combat` of a destroyed ground force.
     pub ground_combat: crate::state::Code,
+    /// The cause `harrow` of a destroyed ground force.
+    pub harrow: crate::state::Code,
     /// The `source` of the trade good Self-Assembly Routines gains.
     pub self_assembly: crate::state::Code,
     /// The `reason` of the strategy token Instinct Training spends.
