@@ -3593,7 +3593,70 @@ impl InvasionWindow {
         let planets = self.report.committed.clone();
         // Research Team: "When ground forces are committed", before anything else follows.
         self.offer_research_team(state, ctx, &planets)?;
-        // "After you commit ground forces": the step is over, before space cannon defense.
+        self.announce_and_defend_windowed(state, ctx, &planets);
+        self.add_forced_combats(state, ctx)?;
+        let planets = self.report.committed.clone();
+        if planets.is_empty() {
+            self.stage = Stage::Done;
+        } else {
+            self.advance_fighting(state, ctx, &planets, 0);
+        }
+        Ok(())
+    }
+
+    /// The commitment announcement and the space cannon defense of every committed planet, which on
+    /// `driver=dual` also run as the core `SpaceCannonDefense` window (`rules::invasion::defense`): the same
+    /// event, dice, hits, step record and stream positions. Positions the adapter bails on (entropic scars,
+    /// L4 Disruptors, attachment cannons, nested activity) run the string body bare.
+    fn announce_and_defend_windowed(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>, planets: &[PlanetId]) {
+        #[cfg(feature = "typed-core")]
+        {
+            if crate::dual::backend(crate::dual::Area::Invasion) == crate::dual::Backend::Dual {
+                let (content, sources) = (ctx.content, ctx.sources);
+                let announce = ctx.timing.is_some();
+                let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed;
+                let (invader, system) = (self.invader.clone(), self.system.clone());
+                let args = crate::dual_window::DefenseArgs { invader: &invader, system: &system, planets, announce, reproducible };
+                if let Some(why) = crate::dual_window::defense_unported(state, content, sources, &args) {
+                    crate::dual::note_bail("invasion::space_cannon_defense", why);
+                    self.announce_and_defend(state, ctx, planets);
+                    return;
+                }
+                let rng_before = ctx.rng.positions();
+                let history_start = ctx.dice.history().len();
+                let cell = std::cell::RefCell::new(&mut *self);
+                let ctx = std::cell::RefCell::new(ctx);
+                crate::dual_window!(
+                    crate::dual::Area::Invasion,
+                    "invasion::space_cannon_defense",
+                    state,
+                    |s: &mut GameState| {
+                        let mut ctx = ctx.borrow_mut();
+                        cell.borrow_mut().announce_and_defend(s, &mut **ctx, planets);
+                        let drawn: crate::dual_window::DefenseOut = (
+                            ctx.dice
+                                .history()
+                                .iter()
+                                .skip(history_start)
+                                .filter(|roll| roll.reason == "space cannon defense")
+                                .map(|roll| (roll.hits_on.unwrap_or(0), roll.faces.clone()))
+                                .collect(),
+                            ctx.rng.positions(),
+                        );
+                        crate::dual::Run::new(drawn)
+                    },
+                    |s: &mut GameState, script: &crate::dual_window::Recording| {
+                        crate::dual_window::space_cannon_defense(s, sources, &args, &rng_before, script)
+                    }
+                );
+                return;
+            }
+        }
+        self.announce_and_defend(state, ctx, planets);
+    }
+
+    /// "After you commit ground forces": the step is over, then space cannon defense on each planet.
+    fn announce_and_defend(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>, planets: &[PlanetId]) {
         let mut payload = std::collections::BTreeMap::new();
         payload.insert("system".to_owned(), self.system.to_string().into());
         payload.insert("player".to_owned(), self.invader.to_string().into());
@@ -3606,17 +3669,9 @@ impl InvasionWindow {
                 .into(),
         );
         let _ = ctx.emit(state, "GROUND_COMMITMENT_FINISHED", payload);
-        for planet in &planets {
+        for planet in planets {
             space_cannon_defense(state, ctx, &self.system, planet, &self.invader);
         }
-        self.add_forced_combats(state, ctx)?;
-        let planets = self.report.committed.clone();
-        if planets.is_empty() {
-            self.stage = Stage::Done;
-        } else {
-            self.advance_fighting(state, ctx, &planets, 0);
-        }
-        Ok(())
     }
 
     /// The Deepwrought's Research Team: "When ground forces are committed: if your units on that
@@ -4068,6 +4123,58 @@ impl InvasionWindow {
         Some(RoundStart { copied_round, before })
     }
 
+    /// Both sides' ground dice of a round, which on `invasion=dual` also run as the core `GroundRoll` window
+    /// (`rules::invasion::roll`): the same dice from the stream, hits, reroll staging and stream positions.
+    fn roll_ground_pair_windowed(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>, planet: &PlanetId, defender: &PlayerId) -> (usize, usize) {
+        #[cfg(feature = "typed-core")]
+        {
+            if crate::dual::backend(crate::dual::Area::Invasion) == crate::dual::Backend::Dual {
+                let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed;
+                let (invader, system) = (self.invader.clone(), self.system.clone());
+                let args = crate::dual_window::GroundRollArgs { attacker: &invader, defender, system: &system, planet, sources: ctx.sources, reproducible };
+                if let Some(why) = crate::dual_window::ground_roll_unported(state, &args) {
+                    crate::dual::note_bail("invasion::roll_ground", why);
+                    return self.roll_ground_pair(state, ctx, planet, defender);
+                }
+                let rng_before = ctx.rng.positions();
+                let history_start = ctx.dice.history().len();
+                let cell = std::cell::RefCell::new(&mut *self);
+                let ctx = std::cell::RefCell::new(ctx);
+                return crate::dual_window!(
+                    crate::dual::Area::Invasion,
+                    "invasion::roll_ground",
+                    state,
+                    |s: &mut GameState| {
+                        let mut ctx = ctx.borrow_mut();
+                        let hits = cell.borrow_mut().roll_ground_pair(s, &mut **ctx, planet, defender);
+                        let drawn: Vec<(u32, Vec<u32>)> = ctx
+                            .dice
+                            .history()
+                            .iter()
+                            .skip(history_start)
+                            .filter(|roll| roll.reason == "ground combat")
+                            .map(|roll| (roll.hits_on.unwrap_or(0), roll.faces.clone()))
+                            .collect();
+                        crate::dual::Run::new(crate::dual_window::GroundRollOut { hits, drawn, rng: ctx.rng.positions() })
+                    },
+                    |s: &mut GameState, script: &crate::dual_window::Recording| {
+                        crate::dual_window::ground_roll(s, &args, &rng_before, script)
+                    }
+                )
+                .hits;
+            }
+        }
+        self.roll_ground_pair(state, ctx, planet, defender)
+    }
+
+    /// The two `roll_ground` calls: the invader rolls, then the defender.
+    fn roll_ground_pair(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>, planet: &PlanetId, defender: &PlayerId) -> (usize, usize) {
+        let (content, sources) = (ctx.content, ctx.sources);
+        let attacker_hits = roll_ground(state, content, sources, ctx.dice, ctx.rng, &self.invader, &self.system, planet);
+        let defender_hits = roll_ground(state, content, sources, ctx.dice, ctx.rng, defender, &self.system, planet);
+        (attacker_hits, defender_hits)
+    }
+
     /// The "Roll Dice" step (42.2) with its replays: both sides roll, the roll-made windows open, the
     /// dice are read back after rerolls. `None` when a handler refused.
     fn roll_ground_step(
@@ -4078,7 +4185,6 @@ impl InvasionWindow {
         defender: &PlayerId,
         copied_round: bool,
     ) -> Option<(usize, usize, Vec<InvasionDie>)> {
-        let (content, sources) = (ctx.content, ctx.sources);
         let defender = defender.clone();
         let planet = planet.clone();
         let round_before = state.combat_round_seq;
@@ -4087,26 +4193,7 @@ impl InvasionWindow {
         let (attacker_hits, defender_hits) = loop {
             state.combat_round_seq = round_before;
             // 42.2: hits are simultaneous, so both sides roll before either loses anything.
-            let attacker_hits = roll_ground(
-                state,
-                content,
-                sources,
-                ctx.dice,
-                ctx.rng,
-                &self.invader,
-                &self.system,
-                &planet,
-            );
-            let defender_hits = roll_ground(
-                state,
-                content,
-                sources,
-                ctx.dice,
-                ctx.rng,
-                &defender,
-                &self.system,
-                &planet,
-            );
+            let (attacker_hits, defender_hits) = self.roll_ground_pair_windowed(state, ctx, &planet, &defender);
             if !copied_round {
                 state.combat_round_seq = state.combat_round_seq.saturating_add(1);
             }

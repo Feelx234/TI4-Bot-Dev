@@ -168,6 +168,7 @@ pub fn event_of(r: &Render, rec: &EventRec) -> Option<Event> {
         let seat = |s: &ti4_engine_core::ids::Seat| Some(Value::from(r.seats.get(usize::from(s.0))?.clone()));
         let v: Value = match list {
             ti4_engine_core::state::List::Seats(seats) => Value::Array(seats.iter().map(seat).collect::<Option<_>>()?),
+            ti4_engine_core::state::List::Planets(planets) => Value::Array(planets.iter().map(|p| Value::from(p.as_str())).collect()),
             ti4_engine_core::state::List::Units(units) => Value::Array(
                 units
                     .iter()
@@ -1769,5 +1770,206 @@ pub fn bombard(
     };
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     let out = BombardOut { index: w.index, stage, cursor: if stage == "choosing" { cursor } else { None }, kills: w.kills, scoring: w.scoring.clone() };
+    Some(CoreWindow { run: Run::new(out).with_events_vec(events), questions: driven.rendered })
+}
+
+// --- space cannon defense (B2) -------------------------------------------------------------------------
+
+/// What the string `announce_and_defend` was called with.
+#[derive(Debug, Clone, Copy)]
+pub struct DefenseArgs<'a> {
+    pub invader: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    pub planets: &'a [ti4_model::id::PlanetId],
+    /// The resolver carries the timing machinery.
+    pub announce: bool,
+    /// The dice and streams are the ones the core can reproduce (no test faces, no pending restore).
+    pub reproducible: bool,
+}
+
+/// What the defense leaves besides the state: the dice of the window (hit number, faces) and where the streams stand.
+pub type DefenseOut = (Vec<(u32, Vec<u32>)>, crate::rng::RngPositions);
+
+const DEFENSE: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger],
+    &[Slice::Players, Slice::Board, Slice::Transient, Slice::Pending, Slice::Rng, Slice::Ledger],
+);
+
+/// Why the position holds something the core window does not carry (`None`: it is carried): entropic scars, L4
+/// Disruptors, a planet attachment that gives SPACE CANNON, test faces or a pending stream restore, a neutral invader.
+#[must_use]
+pub fn defense_unported(gs: &GameState, content: &ti4_content::ContentStore, sources: ti4_model::content_types::SourceSet, a: &DefenseArgs<'_>) -> Option<&'static str> {
+    if !a.reproducible {
+        Some("irreproducible dice (test faces or a stream restore)")
+    } else if crate::neutral_units::is_neutral(a.invader) {
+        Some("neutral invader")
+    } else if !crate::entropic_scars::abilities_usable(content, sources, a.system, Some(a.system)) {
+        Some("entropic scar")
+    } else if crate::technology::has_technology_text(gs, a.invader, "l4") {
+        Some("L4 Disruptors")
+    } else if a.planets.iter().any(|p| !crate::planets::attachment_cannons(gs, content, a.system, p).is_empty()) {
+        Some("attachment cannon")
+    } else {
+        None
+    }
+}
+
+/// The core half of `InvasionWindow::announce_and_defend`. `None` for the positions of [`defense_unported`], nested
+/// activity (a reaction to the announcement or to the hits window) and a position the codecs refuse.
+#[must_use]
+pub fn space_cannon_defense(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    a: &DefenseArgs<'_>,
+    rng_before: &crate::rng::RngPositions,
+    script: &Recording,
+) -> Option<CoreWindow<DefenseOut>> {
+    use ti4_engine_core::rules::invasion::defense::{Facts, SpaceCannonDefense};
+    const LABEL: &str = "invasion::space_cannon_defense";
+    if script.nested {
+        crate::dual::note_bail(LABEL, "nested (a reaction ran)");
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let invader = r.seat(a.invader.as_str())?;
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let mut planets = Vec::new();
+    for p in a.planets {
+        planets.push(<ti4_engine_core::generated::Planet as IdStr>::from_id(p.as_str())?);
+    }
+    let before = gs.clone();
+    let env = crate::core_invasion::ground_env(&before, &cx, sources)?;
+    let mut unit_codes = Vec::new();
+    for planet in a.planets {
+        for p in before.system_state(a.system).on_planet(planet) {
+            let unit = <ti4_engine_core::generated::Unit as IdStr>::from_id(p.type_id.as_str())?;
+            if !unit_codes.iter().any(|(u, _)| *u == unit) {
+                unit_codes.push((unit, cx.texts.intern(Slice::Transient, p.type_id.as_str()).ok()?));
+            }
+        }
+    }
+    let facts = Facts {
+        invader,
+        system,
+        planets,
+        announce: a.announce,
+        cause: r.code("space_cannon_defense"),
+        kind: cx.texts.intern(Slice::Transient, "space_cannon_defense").ok()?,
+        planets_key: r.code("planets"),
+        unit_codes,
+    };
+    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
+    let resolver = Resolver::new(&[invader], Some(invader));
+    let mut driver = Driver::new(SpaceCannonDefense::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let mut staged = Vec::new();
+    let mut rng_after = None;
+    let src = Sources { galaxy: None, rng: Some(rng_before) };
+    let driven = with_core(gs, &mut cx, src, DEFENSE, |core, _| {
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        rng_after = Some(core.rng().clone());
+        driven
+    })
+    .ok()?
+    .ok()?;
+    apply_staged(gs, &r, &staged)?;
+    let positions = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    let value: DefenseOut = (driver.window.drawn.clone(), positions);
+    Some(CoreWindow { run: Run::new(value).with_events_vec(events), questions: driven.rendered })
+}
+
+// --- the ground round's dice (B2) ----------------------------------------------------------------------
+
+/// What the string `roll_ground_pair` was called with.
+#[derive(Debug, Clone, Copy)]
+pub struct GroundRollArgs<'a> {
+    pub attacker: &'a PlayerId,
+    pub defender: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    pub planet: &'a ti4_model::id::PlanetId,
+    pub sources: ti4_model::content_types::SourceSet,
+    /// The dice and streams are the ones the core can reproduce (no test faces, no pending restore).
+    pub reproducible: bool,
+}
+
+/// What the ground roll leaves besides the state: both sides' hits, the dice (hit number, faces) and the streams.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroundRollOut {
+    pub hits: (usize, usize),
+    pub drawn: Vec<(u32, Vec<u32>)>,
+    pub rng: crate::rng::RngPositions,
+}
+
+const GROUND_ROLL: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger],
+    &[Slice::Transient, Slice::Pending, Slice::Rng, Slice::Ledger],
+);
+
+/// Why the position holds something the core window does not carry: test faces or a stream restore, a neutral
+/// side, X-89 Bacterial Weapon (the doubled hits).
+#[must_use]
+pub fn ground_roll_unported(gs: &GameState, a: &GroundRollArgs<'_>) -> Option<&'static str> {
+    if !a.reproducible {
+        Some("irreproducible dice (test faces or a stream restore)")
+    } else if crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
+        Some("neutral side")
+    } else if [a.attacker, a.defender].into_iter().any(|id| gs.player(id).is_some_and(|p| p.technologies.contains(ti4_model::id::text(&"x89c4")))) {
+        Some("X-89 Bacterial Weapon")
+    } else {
+        None
+    }
+}
+
+/// The core half of `InvasionWindow::roll_ground_pair`. `None` for the positions of [`ground_roll_unported`], a pool
+/// the window cannot name, nested activity and a position the codecs refuse.
+#[must_use]
+pub fn ground_roll(gs: &mut GameState, a: &GroundRollArgs<'_>, rng_before: &crate::rng::RngPositions, script: &Recording) -> Option<CoreWindow<GroundRollOut>> {
+    use ti4_engine_core::rules::invasion::roll::{Facts, GroundRoll, NAMED};
+    if script.nested {
+        crate::dual::note_bail("invasion::roll_ground", "nested (a reaction ran)");
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let attacker = r.seat(a.attacker.as_str())?;
+    let defender = r.seat(a.defender.as_str())?;
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let planet = <ti4_engine_core::generated::Planet as IdStr>::from_id(a.planet.as_str())?;
+    let before = gs.clone();
+    let env = crate::core_invasion::ground_env(&before, &cx, a.sources)?;
+    let mut unit_codes = Vec::new();
+    for p in before.system_state(a.system).on_planet(a.planet) {
+        let unit = <ti4_engine_core::generated::Unit as IdStr>::from_id(p.type_id.as_str())?;
+        if !unit_codes.iter().any(|(u, _)| *u == unit) {
+            unit_codes.push((unit, cx.texts.intern(Slice::Transient, p.type_id.as_str()).ok()?));
+        }
+    }
+    let mut names = Vec::new();
+    for n in 1..=NAMED {
+        names.push(cx.texts.intern(Slice::Transient, &format!("combat value {n}")).ok()?);
+    }
+    let facts = Facts { attacker, defender, system, planet, kind: cx.texts.intern(Slice::Transient, "ground").ok()?, names, unit_codes };
+    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
+    let mut driver = Driver::new(GroundRoll::new(facts), Resolver::new(&[attacker, defender], Some(attacker)), AbilityTable::default(), 1).with_seeds(seeds);
+    let mut staged = Vec::new();
+    let mut rng_after = None;
+    let src = Sources { galaxy: None, rng: Some(rng_before) };
+    let driven = with_core(gs, &mut cx, src, GROUND_ROLL, |core, _| {
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        rng_after = Some(core.rng().clone());
+        driven
+    })
+    .ok()?
+    .ok()?;
+    if driver.window.unsupported {
+        crate::dual::note_bail("invasion::roll_ground", "a pool the window cannot name");
+        return None;
+    }
+    apply_staged(gs, &r, &staged)?;
+    let positions = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    let (ah, dh) = driver.window.hits;
+    let out = GroundRollOut { hits: (ah as usize, dh as usize), drawn: driver.window.drawn.clone(), rng: positions };
     Some(CoreWindow { run: Run::new(out).with_events_vec(events), questions: driven.rendered })
 }

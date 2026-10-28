@@ -14,7 +14,9 @@
 pub mod absorb;
 pub mod bombard;
 pub mod commit;
+pub mod defense;
 pub mod hits;
+pub mod roll;
 pub mod stages;
 
 use crate::containers::SeatSet;
