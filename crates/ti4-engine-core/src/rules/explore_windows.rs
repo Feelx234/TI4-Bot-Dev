@@ -58,6 +58,7 @@ macro_rules! in_invasion {
     )*};
 }
 in_invasion!(ChooseDeck, DistantSuns, IonStorm, Reward, DominusOrb, CrownExplore);
+pub(super) use in_invasion;
 
 /// The suspension points of the windows of this file: at the start, at the question, finished.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -321,7 +322,7 @@ impl Window for Reward {
 
 // -- relics that ask ----------------------------------------------------------------------------------
 
-fn relic_ctx(relic: Relic, subtype: RSub, inv: Option<u64>) -> Ctx {
+pub(super) fn relic_ctx(relic: Relic, subtype: RSub, inv: Option<u64>) -> Ctx {
     Ctx {
         origin: Origin::Content(Content::Relic(relic)),
         subtype: Subtype::Relic(subtype),
@@ -333,7 +334,7 @@ fn relic_ctx(relic: Relic, subtype: RSub, inv: Option<u64>) -> Ctx {
     }
 }
 
-fn holds(core: &CoreState, who: Seat, relic: Relic) -> bool {
+pub(super) fn holds(core: &CoreState, who: Seat, relic: Relic) -> bool {
     core.players().by_seat(who).is_some_and(|p| p.cards.relics.as_slice().contains(&relic))
 }
 

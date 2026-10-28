@@ -18,11 +18,12 @@ pub use stub::*;
 mod real {
     use ti4_engine_core::choice::explore::{Opt as EOpt, Step};
     use ti4_engine_core::driver::Driver;
-    use ti4_engine_core::generated::{Attachment, Explore, ExploreType, Planet, Relic, System, Wormhole};
+    use ti4_engine_core::generated::{Attachment, Explore, ExploreType, Planet, PublicObjective, Relic, System, Technology, Wormhole};
     use ti4_engine_core::ids::Seat;
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::{Kernel, Resolver};
     use ti4_engine_core::rules::explore as rules;
+    use ti4_engine_core::rules::relic_windows::{Codex, GainTechnology, Neuraloop, StellarConverter, TitanPrototype};
     use ti4_engine_core::rules::explore_windows::{InInvasion, ChooseDeck, CrownExplore, DistantSuns, DominusOrb, IonStorm, Reward};
     use ti4_engine_core::state::{CoreState, Slice};
     use ti4_model::content_types::SourceSet;
@@ -138,6 +139,16 @@ mod real {
         &[Slice::Players],
     );
 
+    /// The Codex moves cards between the discard pile and the hand; the Stellar Converter destroys a planet.
+    const CODEX_WINDOW: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Cards, Slice::Pending],
+        &[Slice::Players, Slice::Cards],
+    );
+    const STELLAR_WINDOW: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Pending],
+        &[Slice::Board],
+    );
+
     /// What a window of this file cannot follow: a question asked inside a battle or an invasion (its context
     /// carries the battle), diplomacy promises a favour keeps, a nested emission, a question nobody answered
     /// yet (the string window unwound; its value is not an answer).
@@ -221,6 +232,58 @@ mod real {
         let scope = crate::core_adapter::scope(sources);
         drive_window(gs, RELIC_WINDOW, player, |s| CrownExplore::new(s, scope), script, &no_details, |w| {
             Some(w.planet.map(|p| p.as_str().to_owned()))
+        })
+    }
+
+    /// The core half of the Neuraloop's question (the value: the relic named, `None` for a decline).
+    pub fn neuraloop(gs: &mut GameState, holder: &PlayerId, revealed: &str, script: &Recording) -> Option<CoreWindow<Option<String>>> {
+        let revealed = typed::<PublicObjective>(revealed)?;
+        drive_window(gs, RELIC_WINDOW, holder, |s| Neuraloop::new(s, revealed), script, &no_details, |w| {
+            Some(w.chosen.map(|r| r.as_str().to_owned()))
+        })
+    }
+
+    /// The core half of `relics::codex` (up to three cards from the discard pile into the hand).
+    pub fn codex(gs: &mut GameState, player: &PlayerId, script: &Recording) -> Option<CoreWindow<()>> {
+        drive_window(gs, CODEX_WINDOW, player, Codex::new, script, &no_details, |_| Some(()))
+    }
+
+    /// The core half of the Titan Prototype's question (the value: the player named).
+    pub fn titan_prototype(gs: &mut GameState, player: &PlayerId, script: &Recording) -> Option<CoreWindow<Option<String>>> {
+        let (_, r) = crate::dual_window::tables(gs)?;
+        drive_window(gs, RELIC_WINDOW, player, TitanPrototype::new, script, &no_details, |w| {
+            Some(w.chosen.map(|seat| r.seat_text(seat).to_owned()))
+        })
+    }
+
+    /// The core half of the Stellar Converter's choice and destruction (the value: the planet destroyed).
+    pub fn stellar_converter(
+        gs: &mut GameState,
+        player: &PlayerId,
+        targets: &[(SystemId, PlanetId)],
+        script: &Recording,
+    ) -> Option<CoreWindow<Option<String>>> {
+        let list: Option<Vec<(System, Planet)>> =
+            targets.iter().map(|(s, p)| Some((typed::<System>(s.as_str())?, typed::<Planet>(p.as_str())?))).collect();
+        let list = list?;
+        drive_window(gs, STELLAR_WINDOW, player, |s| StellarConverter::new(s, &list), script, &no_details, |w| {
+            Some(w.destroyed.map(|p| p.as_str().to_owned()))
+        })
+    }
+
+    /// The core half of "gain which technology" (the value: the technology named).
+    pub fn gain_technology(
+        gs: &mut GameState,
+        player: &PlayerId,
+        relic: &str,
+        options: &[String],
+        script: &Recording,
+    ) -> Option<CoreWindow<Option<String>>> {
+        let relic = typed::<Relic>(relic)?;
+        let list: Option<Vec<Technology>> = options.iter().map(|t| typed::<Technology>(t)).collect();
+        let list = list?;
+        drive_window(gs, RELIC_WINDOW, player, |s| GainTechnology::new(s, relic, &list), script, &no_details, |w| {
+            Some(w.chosen.map(|t| t.as_str().to_owned()))
         })
     }
 
@@ -325,6 +388,32 @@ mod stub {
         None
     }
     pub fn ion_storm(_: &mut GameState, _: &PlayerId, _: &SystemId, _: &Recording) -> Option<CoreWindow<String>> {
+        None
+    }
+    pub fn neuraloop(_: &mut GameState, _: &PlayerId, _: &str, _: &Recording) -> Option<CoreWindow<Option<String>>> {
+        None
+    }
+    pub fn codex(_: &mut GameState, _: &PlayerId, _: &Recording) -> Option<CoreWindow<()>> {
+        None
+    }
+    pub fn titan_prototype(_: &mut GameState, _: &PlayerId, _: &Recording) -> Option<CoreWindow<Option<String>>> {
+        None
+    }
+    pub fn stellar_converter(
+        _: &mut GameState,
+        _: &PlayerId,
+        _: &[(SystemId, PlanetId)],
+        _: &Recording,
+    ) -> Option<CoreWindow<Option<String>>> {
+        None
+    }
+    pub fn gain_technology(
+        _: &mut GameState,
+        _: &PlayerId,
+        _: &str,
+        _: &[String],
+        _: &Recording,
+    ) -> Option<CoreWindow<Option<String>>> {
         None
     }
     pub fn reward(

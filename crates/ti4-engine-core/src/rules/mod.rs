@@ -21,5 +21,6 @@ pub mod invasion;
 pub mod leader_windows;
 pub mod leaders;
 pub mod production;
+pub mod relic_windows;
 pub mod strategy;
 pub mod trade;

@@ -156,3 +156,64 @@ pub fn crown_point(core: &mut CoreState, who: Seat) -> bool {
     core.ledger_mut().vp.push(VpRec { player: who, delta: after - before, reason: LedgerReason::Relic(crown) });
     true
 }
+
+/// `exploration::purge_for_relic`'s sibling in `relics::codex`: the card leaves the discard pile (its first
+/// occurrence) for the seat's hand. `false` when the pile does not hold it or the seat is not there.
+pub fn take_discarded_action_card(core: &mut CoreState, who: Seat, card: crate::generated::ActionCard) -> bool {
+    if core.players().by_seat(who).is_none() {
+        return false;
+    }
+    let pile = core.cards_mut().discarded_action.edit();
+    let Some(at) = pile.iter().position(|held| *held == card) else { return false };
+    pile.remove(at);
+    if let Some(p) = core.players_mut().by_seat_mut(who) {
+        p.cards.hand.push(card);
+    }
+    true
+}
+
+/// `SystemState::purge_planet` and `planet_attachments.remove` (Stellar Converter): the planet's units, control,
+/// coexistence and attachments go and it is marked purged.
+pub fn purge_planet(core: &mut CoreState, planet: Planet) {
+    let cell = core.board_mut().planet_mut(planet);
+    cell.units = Default::default();
+    cell.control = None;
+    cell.coexist = Default::default();
+    cell.attach = Default::default();
+    for flag in [PlanetFlags::UNITS_ENTRY, PlanetFlags::COEXIST_ENTRY, PlanetFlags::ATTACH_ENTRY] {
+        cell.flags.set(flag, false);
+    }
+    cell.flags.set(PlanetFlags::PURGED, true);
+}
+
+/// Status phase 81.6 (`status::resolve_after_token_gain`), the relic and legendary half: every seat's relic cards
+/// and legendary ability cards are readied. (The technologies it readies there are the strategy area's.)
+pub fn ready_relics_and_legendary(core: &mut CoreState) {
+    for i in 0..core.players().len() {
+        let p = core.players_mut().edit(i);
+        p.cards.relics_exhausted.clear();
+        p.cards.legendary_exhausted.clear();
+    }
+}
+
+/// `legendary::exhaust`: the ability card of a legendary planet is spent.
+pub fn exhaust_legendary(core: &mut CoreState, who: Seat, planet: Planet) {
+    if let Some(p) = core.players_mut().by_seat_mut(who) {
+        p.cards.legendary_exhausted.insert(planet, ());
+    }
+}
+
+/// `seat.exploration_cards.push(card)` (Enigmatic Device, the exploration card): kept faceup in the play area.
+pub fn play_area_card(core: &mut CoreState, who: Seat, card: Explore) {
+    if let Some(p) = core.players_mut().by_seat_mut(who) {
+        p.cards.explore.push(card);
+    }
+}
+
+/// Maw of Worlds: every planet the seat controls is exhausted (the cost, paid whatever is chosen).
+pub fn exhaust_controlled_planets(core: &mut CoreState, who: Seat) {
+    let planets: Vec<Planet> = crate::query::board::controlled_planets(core, who).as_slice().iter().map(|(_, p)| *p).collect();
+    for planet in planets {
+        crate::kernel::fx::exhaust_planet(core, planet);
+    }
+}
