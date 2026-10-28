@@ -395,6 +395,16 @@ mod tests {
             assert_eq!(seat.relic_fragments.get("FRONTIER"), Some(&0));
             assert_eq!(seat.relics, vec![RelicId::new("thetriad")]);
 
+            // Three matching fragments are spent first; the frontier one stays.
+            let mut full = seated();
+            for _ in 0..4 {
+                exploration::gain_fragment(&mut full, &me(), "CULTURAL");
+            }
+            exploration::gain_fragment(&mut full, &me(), "FRONTIER");
+            assert_eq!(exploration::purge_for_relic(&mut full, &me(), "CULTURAL"), Some(RelicId::new("thetriad")));
+            let seat = full.player(&me()).unwrap();
+            assert_eq!((seat.relic_fragments.get("CULTURAL"), seat.relic_fragments.get("FRONTIER")), (Some(&1), Some(&1)));
+
             // A relic gained: the Shard scores at once, the deck runs out at last.
             let before = state.player(&me()).unwrap().victory_points;
             assert!(super::relic_gain(&mut state.clone(), &me()).is_some());
