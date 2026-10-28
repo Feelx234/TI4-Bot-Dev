@@ -21,6 +21,7 @@ use ti4_model::state::GameState;
 
 use crate::core_sync::{CoreView, Ctx, Sources};
 use crate::fleet::Standing;
+use crate::core_adapter::typed;
 use crate::generated::IdStr;
 use crate::production::Spend;
 
@@ -39,9 +40,6 @@ pub struct BoardView {
     blanked: bool,
 }
 
-fn typed<T: IdStr>(id: &str) -> Option<T> {
-    T::from_id(id)
-}
 
 fn spend(s: Spend) -> CoreSpend {
     match s {

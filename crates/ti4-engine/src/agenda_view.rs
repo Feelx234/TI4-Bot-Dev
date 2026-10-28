@@ -16,6 +16,7 @@ use ti4_model::id::{PlanetId, PlayerId};
 use ti4_model::state::GameState;
 
 use crate::core_sync::{CoreView, Ctx, Sources};
+use crate::core_adapter::typed;
 use crate::generated::IdStr;
 
 /// The typed counts and choices of a ballot.
@@ -43,9 +44,6 @@ pub struct AgendaView<'a> {
     blanked: bool,
 }
 
-fn typed<T: IdStr>(id: &str) -> Option<T> {
-    T::from_id(id)
-}
 
 impl<'a> AgendaView<'a> {
     fn build(state: &'a GameState, sources: SourceSet, reads: SliceSet) -> Option<Self> {

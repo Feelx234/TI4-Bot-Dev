@@ -47,7 +47,8 @@ mod real {
     use ti4_model::state::GameState;
 
     use crate::core_sync::{CoreView, Ctx, Sources};
-    use crate::generated::IdStr;
+    use crate::core_adapter::typed;
+use crate::generated::IdStr;
     use crate::transactions::{Offer, OfferError, Terms};
 
     /// How often the typed mutators answered and how often they handed the call back to the string
@@ -128,9 +129,6 @@ mod real {
         })
     }
 
-    fn typed<T: IdStr>(id: &str) -> Option<T> {
-        T::from_id(id)
-    }
 
     impl TradeView {
         /// `None` when the typed state cannot hold the position (an unknown id, more than 16

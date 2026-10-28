@@ -23,12 +23,10 @@ use ti4_model::state::GameState;
 
 use crate::core_combat::{window_env, WindowEnv, READS};
 use crate::core_sync::{CoreView, Ctx, Sources};
+use crate::core_adapter::typed;
 use crate::generated::IdStr;
 use crate::invasion::PlannedBombard;
 
-fn typed<T: IdStr>(id: &str) -> Option<T> {
-    T::from_id(id)
-}
 
 /// The typed view of one position, for the invasion queries.
 pub struct InvasionView<'g> {

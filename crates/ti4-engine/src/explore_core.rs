@@ -105,7 +105,8 @@ mod real {
 
     use crate::core_sync::keys::text::{note_text, parse_note};
     use crate::core_sync::{CoreView, Ctx, Sources};
-    use crate::generated::IdStr;
+    use crate::core_adapter::typed;
+use crate::generated::IdStr;
 
     /// What the reads need.
     pub const READS: SliceSet = SliceSet::of(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Cards]);
@@ -150,9 +151,6 @@ mod real {
         f(&CardsView::of(state)?)
     }
 
-    fn typed<T: IdStr>(id: &str) -> Option<T> {
-        T::from_id(id)
-    }
 
     /// The string key of a fragment trait (`relic_fragments`).
     fn trait_key(kind: ExploreType) -> &'static str {
