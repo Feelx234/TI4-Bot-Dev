@@ -16,7 +16,7 @@ pub use stub::*;
 
 #[cfg(feature = "typed-core")]
 mod real {
-    use ti4_engine_core::choice::explore::{Opt as EOpt, Step};
+    use ti4_engine_core::choice::explore::{Opt as EOpt, PayReward, Step};
     use ti4_engine_core::driver::Driver;
     use ti4_engine_core::generated::{Attachment, Explore, ExploreType, Planet, PublicObjective, Relic, System, Technology, Wormhole};
     use ti4_engine_core::ids::Seat;
@@ -24,7 +24,7 @@ mod real {
     use ti4_engine_core::kernel::{Kernel, Resolver};
     use ti4_engine_core::rules::explore as rules;
     use ti4_engine_core::rules::relic_windows::{Codex, GainTechnology, Neuraloop, StellarConverter, TitanPrototype};
-    use ti4_engine_core::rules::explore_windows::{InInvasion, ChooseDeck, CrownExplore, DistantSuns, DominusOrb, IonStorm, Reward};
+    use ti4_engine_core::rules::explore_windows::{PayMechOrInfantry, InInvasion, ChooseDeck, CrownExplore, DistantSuns, DominusOrb, IonStorm, Reward};
     use ti4_engine_core::state::{CoreState, Slice};
     use ti4_model::content_types::SourceSet;
     use ti4_model::id::{PlanetId, PlayerId, RelicId, SystemId};
@@ -188,6 +188,12 @@ mod real {
         &[Slice::Players],
     );
 
+    /// An infantry leaves a planet.
+    const WINDOW_BOARD: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Pending],
+        &[Slice::Board],
+    );
+
     /// The Codex moves cards between the discard pile and the hand; the Stellar Converter destroys a planet.
     const CODEX_WINDOW: Footprint = Footprint::new(
         &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Cards, Slice::Pending],
@@ -336,6 +342,31 @@ mod real {
         })
     }
 
+    /// The core half of `exploration::pay_with_mech_or_infantry` (the value: the card was paid for).
+    pub fn pay_infantry(
+        gs: &mut GameState,
+        content: &ti4_content::ContentStore,
+        player: &PlayerId,
+        card: &str,
+        planet: &PlanetId,
+        reward: &str,
+        script: &Recording,
+    ) -> Option<CoreWindow<bool>> {
+        let (card_id, planet_id) = (typed::<Explore>(card)?, typed::<Planet>(planet.as_str())?);
+        let kind = match reward {
+            "gain 1 trade good" => PayReward::TradeGood,
+            "ready this planet" => PayReward::ReadyPlanet,
+            "gain 1 command token" => PayReward::CommandToken,
+            _ => return None,
+        };
+        let system = crate::exploration::system_of(gs, planet).map(|s| s.to_string()).unwrap_or_default();
+        let details = |_: &ti4_engine_core::choice::Choice, _: &CoreState, rendered: &mut crate::choice::Choice| {
+            let offer = crate::exploration::pay_offer(content, card, planet, &system, reward);
+            *rendered = offer(rendered.clone());
+        };
+        drive_window(gs, WINDOW_BOARD, player, |s| PayMechOrInfantry::new(s, card_id, planet_id, kind), script, &details, |w| Some(w.paid))
+    }
+
     /// The core half of a reward question of an instant card. `options` are the ids the string side offers, in
     /// its order; `details` completes the rendered question (the commodity standing of the four commodity cards).
     pub fn reward(
@@ -464,6 +495,17 @@ mod stub {
         None
     }
     pub fn silver_flame(_: &mut GameState, _: &PlayerId, _: bool) -> Option<()> {
+        None
+    }
+    pub fn pay_infantry(
+        _: &mut GameState,
+        _: &ti4_content::ContentStore,
+        _: &PlayerId,
+        _: &str,
+        _: &PlanetId,
+        _: &str,
+        _: &Recording,
+    ) -> Option<CoreWindow<bool>> {
         None
     }
     pub fn neuraloop(_: &mut GameState, _: &PlayerId, _: &str, _: &Recording) -> Option<CoreWindow<Option<String>>> {

@@ -290,3 +290,12 @@ pub fn silver_flame(core: &mut CoreState, who: Seat, rolled_ten: bool) {
     cell.flags.set(crate::state::SysFlags::TOUCHED, false);
     cell.flags.set(crate::state::SysFlags::PURGED, true);
 }
+
+/// `planet_units.get_mut(planet).remove(index)`: one unit leaves a planet (the infantry an exploration card
+/// asks for). Nothing for an index past the list.
+pub fn remove_unit_at(core: &mut CoreState, planet: Planet, index: usize) {
+    let units = &mut core.board_mut().planet_mut(planet).units;
+    if index < units.len() {
+        units.remove(index);
+    }
+}

@@ -382,7 +382,7 @@ const COMMODITY_REWARDS: [&str; 4] = [
 ];
 
 /// The system a planet sits in, according to the board.
-fn system_of(state: &GameState, planet: &PlanetId) -> Option<ti4_model::id::SystemId> {
+pub(crate) fn system_of(state: &GameState, planet: &PlanetId) -> Option<ti4_model::id::SystemId> {
     state
         .board
         .iter()
@@ -441,6 +441,73 @@ fn pay_with_mech_or_infantry(
     card: &str,
     reward: &str,
 ) -> bool {
+    // One core window (`rules::explore_windows::PayMechOrInfantry`), lockstep on the `Dual` backend.
+    crate::dual_window!(
+        crate::dual::Area::ExplorationRelics,
+        "exploration::pay_with_mech_or_infantry",
+        state,
+        |s: &mut GameState| crate::dual::Run::new(pay_with_mech_or_infantry_text(
+            ctx, s, content, sources, player, planet, card, reward
+        )),
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::explore_write::pay_infantry(s, content, player, card, planet, reward, script)
+        }
+    )
+}
+
+/// The offer of the infantry question as the string engine decorates it: the card as printed, what is lost and
+/// exactly what is gained. Display only; the core window's question is decorated by the same function.
+pub(crate) fn pay_offer(
+    content: &ContentStore,
+    card: &str,
+    planet: &PlanetId,
+    system_name: &str,
+    reward: &str,
+) -> impl FnOnce(crate::choice::Choice) -> crate::choice::Choice {
+    let record = content.get(ContentType::Explores, card);
+    let name = record.and_then(|r| r.text("name")).unwrap_or(card).to_owned();
+    let tag = format!(
+        "{} exploration card",
+        record.and_then(|r| r.text("type")).unwrap_or("").to_ascii_lowercase()
+    );
+    let printed = record.and_then(|r| r.text("text")).map(ToOwned::to_owned);
+    let (planet, system_name, reward) = (planet.clone(), system_name.to_owned(), reward.to_owned());
+    move |choice| {
+        choice.offered(
+            crate::choice::offer_card(&name, &tag, Some("on exploring this planet"), printed.as_deref()),
+            vec![
+                crate::choice::offer_fact_planet("Planet", planet.as_str(), &system_name),
+                crate::choice::offer_fact("You lose", "1 infantry on this planet"),
+                crate::choice::offer_fact("You gain", reward.as_str()),
+            ],
+            &[
+                (
+                    "remove_infantry",
+                    crate::choice::offer_caption(
+                        &format!("Remove 1 infantry and {reward}"),
+                        Some("the infantry is returned to your reinforcements"),
+                    ),
+                ),
+                (
+                    "decline",
+                    crate::choice::offer_caption("Keep the infantry", Some("the card has no effect")),
+                ),
+            ],
+        )
+    }
+}
+
+/// [`pay_with_mech_or_infantry`] on the string state.
+fn pay_with_mech_or_infantry_text(
+    ctx: &mut crate::choice::Resolving<'_>,
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    planet: &PlanetId,
+    card: &str,
+    reward: &str,
+) -> bool {
     let Some(system) = system_of(state, planet) else {
         return false;
     };
@@ -470,20 +537,6 @@ fn pay_with_mech_or_infantry(
     let Some(index) = infantry else {
         return false;
     };
-    // Display only: the card as printed, what is lost and exactly what is gained.
-    let record = content.get(ContentType::Explores, card);
-    let name = record
-        .and_then(|r| r.text("name"))
-        .unwrap_or(card)
-        .to_owned();
-    let tag = format!(
-        "{} exploration card",
-        record
-            .and_then(|r| r.text("type"))
-            .unwrap_or("")
-            .to_ascii_lowercase()
-    );
-    let printed = record.and_then(|r| r.text("text")).map(ToOwned::to_owned);
     let system_name = system.to_string();
     let chosen = ask_decorated(
         ctx,
@@ -495,37 +548,7 @@ fn pay_with_mech_or_infantry(
             ("remove_infantry", "remove 1 infantry and gain the reward"),
             ("decline", "do not remove an infantry"),
         ],
-        |choice| {
-            choice.offered(
-                crate::choice::offer_card(
-                    &name,
-                    &tag,
-                    Some("on exploring this planet"),
-                    printed.as_deref(),
-                ),
-                vec![
-                    crate::choice::offer_fact_planet("Planet", planet.as_str(), &system_name),
-                    crate::choice::offer_fact("You lose", "1 infantry on this planet"),
-                    crate::choice::offer_fact("You gain", reward),
-                ],
-                &[
-                    (
-                        "remove_infantry",
-                        crate::choice::offer_caption(
-                            &format!("Remove 1 infantry and {reward}"),
-                            Some("the infantry is returned to your reinforcements"),
-                        ),
-                    ),
-                    (
-                        "decline",
-                        crate::choice::offer_caption(
-                            "Keep the infantry",
-                            Some("the card has no effect"),
-                        ),
-                    ),
-                ],
-            )
-        },
+        pay_offer(content, card, planet, &system_name, reward),
     );
     if chosen.as_deref() != Some("remove_infantry") {
         return false;
@@ -4092,6 +4115,46 @@ mod window_tests {
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         assert!(r.total_calls() >= 12, "{r:?}");
+        let _ = take_report();
+    }
+
+    /// A mech or an infantry pays for Cultural Archaeology, Expedition and Volatile Fuel Source: the mech without a
+    /// question, the infantry when agreed to, neither not at all.
+    #[test]
+    fn paying_with_a_mech_or_an_infantry_runs_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        dual(|| {
+            let (system, _) = crate::fixtures::a_placed_planet();
+            let with_units = |kinds: &[&str]| {
+                let (mut state, planet) = table(0, 0);
+                for kind in kinds {
+                    state.system_mut(&system).planet_units.entry(planet.clone()).or_default().push(
+                        ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new(*kind), me()),
+                    );
+                }
+                (state, planet)
+            };
+            for (card, answers) in [("cm1", vec!["remove_infantry"]), ("cm1", vec!["decline"]), ("vfs1", vec!["remove_infantry"])] {
+                let (mut state, planet) = with_units(&["infantry", "infantry"]);
+                let strategic = state.player(&me()).unwrap().strategic_tokens;
+                explore_card(&mut state, &planet, card, &answers);
+                let left = state.system_state(&system).planet_units[&planet].len();
+                assert_eq!(left, if answers[0] == "decline" { 2 } else { 1 });
+                let _ = strategic;
+            }
+            // A mech pays without a question; nothing at all cannot pay.
+            let (mut state, planet) = with_units(&["mech"]);
+            explore_card(&mut state, &planet, "cm1", &[]);
+            assert_eq!(state.player(&me()).unwrap().trade_goods, 1);
+            let (mut state, planet) = with_units(&[]);
+            explore_card(&mut state, &planet, "cm1", &[]);
+            assert_eq!(state.player(&me()).unwrap().trade_goods, 0);
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let c = counts("exploration::pay_with_mech_or_infantry");
+        assert!(c.0 >= 4 && c.1 == 0, "{r:?}");
         let _ = take_report();
     }
 
