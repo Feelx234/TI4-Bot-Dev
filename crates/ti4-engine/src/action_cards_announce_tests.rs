@@ -54,7 +54,7 @@ pub(crate) fn announce(state: &mut GameState, alias: &str, player: &PlayerId, de
         event_sequence: &mut sequence,
         galaxy: None,
     };
-    crate::reactions::announce(&mut context, &mut resolver, player, &ActionCardId::new(alias)).expect("announced")
+    crate::reactions::announce(&mut context, &mut resolver, player, &ActionCardId::new(alias)).unwrap_or(false)
 }
 
 const MASK: AreaMask = AreaMask::STRING;
@@ -444,5 +444,52 @@ fn manipulate_investments_places_five_goods_on_three_cards_in_the_core_window() 
     assert!(after.strategy_card_goods.is_empty());
     let _ = a;
     assert_compared_clean(3);
+    let _ = crate::dual::take_report();
+}
+
+/// Plays the slot of every seat but `a`, whose slots it declines; every other question takes the last option.
+struct ThenDecline;
+
+impl Decider for ThenDecline {
+    fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+        if choice.player.as_str() == "a" {
+            return DeclineSlots.choose(choice);
+        }
+        PlaySlots.choose(choice)
+    }
+}
+
+/// The first golden dual of the announce window found 44 differences in `context.trigger.chain`: a card declared in
+/// a window is announced at that window's close, inside the emission of its event, so the questions of the windows it
+/// opens name that emission in their chain. The core window started with an empty emission stack.
+#[test]
+fn a_card_announced_at_the_close_of_a_window_inside_an_emission_names_the_chain() {
+    let _serial = crate::dual::tests::serial();
+    let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+    let _ = crate::dual::take_report();
+    let mut state = question_position();
+    state.player_mut(&b).unwrap().action_cards = vec![ActionCardId::new("investments")];
+    state.player_mut(&a).unwrap().action_cards = vec![ActionCardId::new("sabo1")];
+    state.unclaimed_strategy_cards = ["pok1leadership", "pok3politics", "pok5trade"].iter().map(|c| ti4_model::id::StrategyCardId::new(*c)).collect();
+    let mut table = Table::with_default(Box::new(ThenDecline));
+    let (mut dice, mut rng) = (crate::dice::Dice::new(), crate::rng::GameRng::new(0));
+    let mut sequence = crate::event::EventSequence::new();
+    let mut resolver = crate::fixtures::armed_resolver(&state);
+    with_mask(dual(), || {
+        let mut context = crate::timing::TimingContext {
+            state: &mut state,
+            content: ContentStore::embedded(),
+            sources: ti4_model::content_types::POK,
+            table: &mut table,
+            dice: &mut dice,
+            rng: &mut rng,
+            event_sequence: &mut sequence,
+            galaxy: None,
+        };
+        let event = context.event_sequence.next("STRATEGY_PHASE_BEGAN", std::collections::BTreeMap::new()).unwrap();
+        resolver.emit_with_context(&mut context, event, |_, _| {}).unwrap();
+    });
+    assert!(state.strategy_card_goods.values().sum::<i32>() == 5, "Manipulate Investments was played at the close");
+    assert_compared_clean(1);
     let _ = crate::dual::take_report();
 }

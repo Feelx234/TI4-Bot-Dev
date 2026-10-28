@@ -113,7 +113,7 @@ impl<'a> Sx<'a> {
             rec.id = *self.next_id;
             *self.next_id += 1;
         }
-        let top = self.resolver.emission_stack().is_empty();
+        let top = self.resolver.emission_stack().len() == self.resolver.base_depth();
         let mut host = RulesHost { state: &mut *self.state, kernel: self.kernel, table: self.table, tape: &mut *self.tape, next_id: &mut *self.next_id, seeds: self.seeds };
         let done = self.resolver.emit(&mut host, rec, resolve)?;
         if top {

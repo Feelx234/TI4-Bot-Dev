@@ -347,6 +347,8 @@ pub struct Resolver {
     applied_events: Vec<EventRec>,
     relation_being_resolved: Option<Relation>,
     emission_stack: Vec<(EventKind, u64)>,
+    /// The depth the window started at (`set_emission_stack`).
+    base_depth: usize,
     maximum_depth: usize,
     used: UsedKeys,
     round_number: u64,
@@ -371,6 +373,7 @@ impl Resolver {
             applied_events: Vec::new(),
             relation_being_resolved: None,
             emission_stack: Vec::new(),
+            base_depth: 0,
             maximum_depth: Self::DEFAULT_MAXIMUM_DEPTH,
             used: UsedKeys::default(),
             round_number: 1,
@@ -379,6 +382,19 @@ impl Resolver {
     }
 
     // -- configuration ---------------------------------------------------------------------------
+
+    /// The emissions open around the window about to run (a window opened by a rule that itself runs inside an
+    /// emission): the chain a question's trigger names.
+    pub fn set_emission_stack(&mut self, stack: &[(EventKind, u64)]) {
+        self.emission_stack = stack.to_vec();
+        self.base_depth = stack.len();
+    }
+
+    /// The emission depth the window started at: the events emitted at this depth are the window's own.
+    #[must_use]
+    pub const fn base_depth(&self) -> usize {
+        self.base_depth
+    }
 
     pub fn set_phase(&mut self, phase: Phase) {
         self.phase = phase;

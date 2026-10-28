@@ -18,7 +18,7 @@ use ti4_model::state::GameState;
 use ti4_engine_core_factions::cb_economy::cabal::timing as cabal;
 
 use crate::dual_window::{Recording, ResolverCfg};
-use crate::kernel_sync::text::{ability_id, event_text, relation_text};
+use crate::kernel_sync::text::{ability_id, event_kind, event_text, relation_text};
 use crate::render::Render;
 
 /// One ported ability rule, named: the registered id of an owner is `{kind}:{owner}:{card}:{EVENT}:{rel}`; the
@@ -285,6 +285,7 @@ pub fn resolver_of(r: &Render, cfg: &ResolverCfg) -> Option<Resolver> {
     core.set_seating_order(&seats(&cfg.seating)?);
     core.set_speaker(cfg.speaker.as_deref().and_then(|s| r.seat(s)));
     core.set_counters(cfg.round, cfg.turn);
+    core.set_emission_stack(&cfg.stack.iter().map(|(kind, id)| (event_kind(r, kind), *id)).collect::<Vec<_>>());
     core.set_maximum_depth(cfg.max_depth);
     for (id, scope) in &cfg.used {
         let Some((kind, rest)) = scope.split_once('(') else { continue };
@@ -358,12 +359,13 @@ mod tests {
     }
 
     #[test]
-    fn bail_a_declined_reaction_slot_is_followed_and_a_played_one_is_not() {
+    fn a_reaction_slot_is_followed_whether_it_was_declined_or_played() {
         let t = table();
         let id = "reaction:hacan:HITS_TO_ASSIGN:when";
         assert!(slot_of(id).is_some());
         assert_eq!(rec(&[id], &[]).unported(&t), None, "offered and declined");
-        assert_eq!(rec(&[id], &[id]).unported(&t).as_deref(), Some("unported ability reaction:*:HITS_TO_ASSIGN:when"), "a card was played");
+        // Playing the card is ported (B6: `reaction_slot::play`); it used to be the bail "a card was played".
+        assert_eq!(rec(&[id], &[id]).unported(&t), None, "a card was played");
     }
 
     #[test]

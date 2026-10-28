@@ -895,6 +895,7 @@ impl Resolver {
             max_depth: self.maximum_depth,
             used: self.used.order.iter().map(|(id, scope)| (id.clone(), format!("{scope:?}"))).collect(),
             sources: sources.clone(),
+            stack: self.emission_stack.clone(),
         }
     }
 

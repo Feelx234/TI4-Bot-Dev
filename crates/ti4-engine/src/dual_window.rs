@@ -60,6 +60,8 @@ pub struct ResolverCfg {
     pub used: Vec<(String, String)>,
     /// The sources in play (the play of an action card reads them).
     pub sources: ti4_model::content_types::SourceSet,
+    /// The emissions open around the window's first emission (`(event type, trace id)`, outermost first).
+    pub stack: Vec<(String, u64)>,
 }
 
 /// What the string window did at its own level.

@@ -12328,6 +12328,7 @@ mod core_ground_round_prechecks {
             max_depth: 16,
             used: Vec::new(),
             sources: POK,
+            stack: Vec::new(),
         };
         let mut script = Recording::default();
         script.nested = true;
