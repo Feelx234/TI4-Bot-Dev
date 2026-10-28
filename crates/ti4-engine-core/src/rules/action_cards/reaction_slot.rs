@@ -4,15 +4,22 @@
 //!
 //! Ported: the eligibility (hand, reaction modes, the printed window and its guard, 22.3 `reaction_can_matter`,
 //! the faction and law bars) and the list of cards the slot would offer ([`playable`]), which the adapter reads
-//! to render the option ("Play X" / "Choose an action card…"). Not ported: playing the card (the spec is
-//! `eligibility_only`; a run in which the string played one is not followed).
+//! to render the option ("Play X" / "Choose an action card…"). The play ([`play`]): the second question when
+//! cards of several printed names could be played, then, from rules version 3 and outside the Sabotage window,
+//! the card is only declared (spent, announced when the window closes: `announce::announce_declared`); otherwise
+//! it is spent and announced at once, and a played Sabotage cancels the play that opened the window.
 //!
 //! The windows: every non-`Action` printed timing maps to an event and a relation (`kernel::reaction::window_of`);
 //! the distinct pairs, sorted, are the slots `SLOT_BASE + index`. The string sorts the same pairs by event text;
 //! the order between windows is not observable (a bucket holds one slot per owner).
 
+use crate::choice::cards::{Ask, Opt, Subtype};
+use crate::choice::generic::Rule;
 use crate::choice::reaction::{AbilityKind, Relation};
+use crate::choice::{Choice, Ctx, Opts, Origin, Pick};
 use crate::containers::SmallList;
+use crate::kernel::ability::{Eff, Runner};
+use crate::kernel::resolver::TimingError;
 use crate::generated::{ActionCard, Timing};
 use crate::ids::Seat;
 use crate::kernel::ability::{AbilityTable, CondCx, Slot, Spec};
@@ -95,12 +102,119 @@ fn condition(c: &CondCx<'_>) -> bool {
     }
 }
 
+/// `RULES_SABOTAGE_TIMING`: from this version a play in an ordinary window is declared, not announced.
+pub const RULES_SABOTAGE_TIMING: u32 = 3;
+
+/// `reactions::spend`: the card leaves the hand (or the salvage yard) for the announcement; `false` when the seat
+/// holds no such card.
+fn spend(s: &mut CoreState, who: Seat, card: ActionCard) -> bool {
+    let Some(p) = s.players_mut().by_seat_mut(who) else { return false };
+    if let Some(at) = p.cards.hand.as_slice().iter().position(|c| *c == card) {
+        p.cards.hand.remove(at);
+        return true;
+    }
+    if !crate::query::explore::salvaged(s, who).contains(&card) {
+        return false;
+    }
+    match s.cards().salvage_yard.iter().position(|c| *c == card) {
+        Some(at) => {
+            s.cards_mut().salvage_yard.edit().remove(at);
+            true
+        }
+        None => false,
+    }
+}
+
+const fn is_sabotage(card: ActionCard) -> bool {
+    matches!(card, ActionCard::Sabotage1 | ActionCard::Sabotage2 | ActionCard::Sabotage3 | ActionCard::Sabotage4)
+}
+
+/// The question that picks the card to play when the cards could not be told apart by name.
+fn card_question(who: Seat, relation: Relation, event: EventKind, cards: &[ActionCard]) -> Choice {
+    let mut opts: Opts = cards.iter().map(|c| crate::choice::Opt::Cards(Opt::Card(*c))).collect();
+    opts.push(crate::choice::Opt::Decline);
+    Choice {
+        actor: who,
+        ask: crate::choice::Ask::Cards(Ask::PlayCard { relation, event }),
+        ctx: Ctx {
+            origin: Origin::Rule(Rule::R22_1),
+            subtype: crate::choice::Subtype::Cards(Subtype::PlayReaction { relation, event }),
+            optional: true,
+            target: None,
+            outstanding: SmallList::new(),
+            space_battle: false,
+            invasion_seq: None,
+        },
+        opts,
+    }
+}
+
+/// The effect of the slot (`reactions::slot`'s closure): play a card into the window.
+///
+/// # Errors
+/// What the resolver refuses with.
+pub fn play(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    let (who, relation) = (eff.owner(), eff.def.relation);
+    let event = eff.event.clone();
+    let barred = eff.barred();
+    let cards = {
+        let (s, k) = eff.read();
+        playable(s, k, barred, who, &event, relation)
+    };
+    let cards = match cards {
+        Ok(cards) => cards,
+        Err(why) => {
+            eff.inline().unknown(why);
+            return Ok(());
+        }
+    };
+    let Some(&first) = cards.as_slice().first() else { return Ok(()) };
+    let Some(groups) = eff.adapter_facts().plays.as_ref().map(|p| p.name_group.clone()) else {
+        eff.inline().unknown(Unknown::PlayFacts);
+        return Ok(());
+    };
+    let group = |c: ActionCard| groups.get(c as usize).copied().unwrap_or(u8::MAX);
+    let chosen = if cards.as_slice().iter().all(|c| group(*c) == group(first)) {
+        first
+    } else {
+        // One option per printed name, in the string's order: the walk from the back fixes each name's slot, and the
+        // card kept is the first of that name in hand order.
+        let mut slots: SmallList<ActionCard, 12> = SmallList::new();
+        for card in cards.as_slice().iter().rev() {
+            match slots.as_mut_slice().iter_mut().find(|slot| group(**slot) == group(*card)) {
+                Some(slot) => *slot = *card,
+                None => slots.push(*card),
+            }
+        }
+        match eff.ask(&card_question(who, relation, event.kind, slots.as_slice())) {
+            Pick::Opt(crate::choice::Opt::Cards(Opt::Card(card))) => card,
+            _ => return Ok(()),
+        }
+    };
+    if eff.read().0.meta().rules_at_least(RULES_SABOTAGE_TIMING) && event.kind != EventKind::ActionCardPlayed {
+        if spend(eff.state(), who, chosen) {
+            eff.state().transient_mut().misc.declared_card_plays.push((who, chosen));
+        }
+        return Ok(());
+    }
+    if !spend(eff.state(), who, chosen) {
+        return Ok(());
+    }
+    let played = super::announce::play_inline(&mut eff.inline(), who, chosen)?;
+    if played && event.kind == EventKind::ActionCardPlayed && is_sabotage(chosen) {
+        eff.cancel();
+    }
+    Ok(())
+}
+
 /// Register the slot of every window.
 pub fn register(t: &mut AbilityTable) {
+    super::announce::register(t);
     for (i, (event, relation)) in windows().into_iter().enumerate() {
         let slot = Slot(SLOT_BASE + u16::try_from(i).unwrap_or(0));
         t.add(
-            Spec::eligibility_only(slot, AbilityKind::Reaction, event, relation, condition)
+            Spec::new(slot, AbilityKind::Reaction, event, relation, play)
+                .when(condition)
                 .optional()
                 .frequency(crate::choice::reaction::Frequency::Unlimited)
                 .repeatable(),

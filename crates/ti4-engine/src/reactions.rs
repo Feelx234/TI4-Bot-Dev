@@ -716,6 +716,48 @@ pub fn announce(
     player: &PlayerId,
     alias: &ActionCardId,
 ) -> Result<bool, TimingError> {
+    // The announcement, the effect and the discard as one window of the core (package B6), compared in lockstep
+    // with the area on `dual`; the value is whether the play stood (`None`: the resolver refused).
+    let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, galaxy, sources) = (*content, *galaxy, sources.clone());
+    let mut refused = None;
+    let stood = crate::dual_window!(
+        crate::dual::Area::ActionCards,
+        "action_cards::announce",
+        &mut **state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext {
+                state: s,
+                content,
+                sources: sources.clone(),
+                table: &mut **table,
+                dice: &mut **dice,
+                rng: &mut **rng,
+                event_sequence: &mut **event_sequence,
+                galaxy,
+            };
+            crate::dual::Run::new(match announce_text(&mut inner, resolver, player, alias) {
+                Ok(stood) => Some(stood),
+                Err(e) => {
+                    refused = Some(e);
+                    None
+                }
+            })
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::action_cards_typed::announce_window(s, player, alias, &sources, script)
+    );
+    match (stood, refused) {
+        (_, Some(e)) => Err(e),
+        (stood, None) => Ok(stood.unwrap_or(false)),
+    }
+}
+
+fn announce_text(
+    context: &mut TimingContext<'_>,
+    resolver: &mut Resolver,
+    player: &PlayerId,
+    alias: &ActionCardId,
+) -> Result<bool, TimingError> {
     let mut payload = BTreeMap::new();
     payload.insert("player".to_owned(), player.to_string().into());
     payload.insert("card".to_owned(), alias.to_string().into());

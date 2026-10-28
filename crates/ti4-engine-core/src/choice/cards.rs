@@ -4,7 +4,9 @@
 //! (`action_cards::choose_from_own_hand`): one option per distinct printed card, then optionally decline.
 //! The adapter side is `ti4-engine/src/render/cards.rs`. Never text; every type is `Copy`.
 
+use crate::choice::reaction::Relation;
 use crate::generated::{ActionCard, Planet, System};
+use crate::state::EventKind;
 use crate::state::NoteKey;
 use crate::ids::Seat;
 use crate::keys::Outcome;
@@ -58,6 +60,9 @@ pub enum Ask {
     Pick { card: ActionCard, what: What },
     /// `action_cards::predicted_outcome`: a Rider (or Sanction) names the outcome it predicts on the agenda in `frame`.
     Predict { card: ActionCard, frame: Frame },
+    /// The reaction slot's second question, when the seat could play cards of several names into the window of
+    /// `event` (`reactions::slot`: "play an action card (when X)"); the options are one card per printed name, then decline.
+    PlayCard { relation: Relation, event: EventKind },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -89,6 +94,8 @@ pub enum Subtype {
     Pick { card: ActionCard, what: What },
     /// `predict_agenda_outcome`.
     PredictOutcome,
+    /// `play_reaction_<rel>_<EVENT>`.
+    PlayReaction { relation: Relation, event: EventKind },
 }
 
 impl Reason {

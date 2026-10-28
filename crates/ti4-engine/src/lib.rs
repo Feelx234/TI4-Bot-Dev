@@ -127,6 +127,8 @@ pub mod agenda_check;
 pub mod action_cards_view;
 /// The `typed-core`-independent entry points of `action_cards_view` (a `None` without the feature).
 pub(crate) mod action_cards_typed;
+#[cfg(test)]
+mod action_cards_announce_tests;
 /// The offline dual of Area::ActionCards.
 #[cfg(feature = "typed-core")]
 #[doc(hidden)]

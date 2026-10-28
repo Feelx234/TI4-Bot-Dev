@@ -308,7 +308,7 @@ pub fn discard(state: &mut GameState, player: &PlayerId, index: usize) -> Option
 /// What `action_cards::place_units` would place of a base type for `player`: the unit form (upgrades, faction
 /// overrides), nothing when the faction forbids effect placement, and the ships on the Crimson card. `None`
 /// when the form is not a unit the core knows.
-fn placed(state: &GameState, player: &PlayerId, sources: &ti4_model::content_types::SourceSet, base: &str) -> Option<rules::Placed> {
+pub(crate) fn placed(state: &GameState, player: &PlayerId, sources: &ti4_model::content_types::SourceSet, base: &str) -> Option<rules::Placed> {
     use ti4_engine_core::generated::Unit;
     let content = ti4_content::ContentStore::embedded();
     let on_card = crate::factions::crimson_cards::held_on_card(state, content, sources.clone(), player, base);
@@ -319,4 +319,65 @@ fn placed(state: &GameState, player: &PlayerId, sources: &ti4_model::content_typ
         return Some(rules::Placed { unit: None, on_card });
     }
     Some(rules::Placed { unit: Some(Unit::from_id(id.as_str())?), on_card })
+}
+
+/// Why a play cannot be compared: the Data Skimmer could take the discard (the string moves the card to a
+/// breakthrough, which the core does not hold).
+const SKIMMER_BAIL: &str = "a discard the Data Skimmer could take";
+
+/// The core half of `reactions::announce`: the announcement of a played card, its effect and its discard, as one
+/// lockstep window (the reaction windows around `ACTION_CARD_PLAYED` and `ACTION_CARD_DISCARDED` are followed by
+/// the ability table). `None` when the card has no core effect or the position holds something the core cannot
+/// express; the value is whether the play stood.
+#[must_use]
+pub fn announce_window(
+    gs: &mut GameState,
+    player: &PlayerId,
+    alias: &ActionCardId,
+    sources: &ti4_model::content_types::SourceSet,
+    script: &crate::dual_window::Recording,
+) -> Option<crate::dual::CoreWindow<Option<bool>>> {
+    use ti4_engine_core::driver::Driver;
+    use ti4_engine_core::kernel::stage::AbilityTable;
+    let card = ActionCard::from_id(alias.as_str())?;
+    if !rules::announce::plays(card) && crate::action_cards::effect_for(alias).is_some() {
+        return None;
+    }
+    let (mut cx, r) = crate::dual_window::tables(gs)?;
+    let seat = r.seat(player.as_str())?;
+    let mut env = env_of(gs, player, sources, &r);
+    env.infantry = placed(gs, player, sources, "infantry")?;
+    env.cruiser = placed(gs, player, sources, "cruiser")?;
+    if crate::factions::ralnel_cards::skimmer_holder(gs).is_some() {
+        crate::dual::note_bail("action_cards::announce", SKIMMER_BAIL);
+        return None;
+    }
+    let has_effect = crate::action_cards::effect_for(alias).is_some();
+    let before = gs.clone();
+    let window = crate::core_combat::window_env(gs, &cx, sources.clone())?;
+    let kernel = &window.kernel;
+    let mut staged = Vec::new();
+    let mut emitted = Vec::new();
+    let mut played = None;
+    let fp = crate::dual_window::nested_fp(PLAY, script);
+    let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), fp, |core, _| {
+        let announce = rules::announce::Announce::of(core, card, seat, env, has_effect)?;
+        let mut driver = Driver::new(announce, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let battle = |_: &ti4_engine_core::choice::Choice, _: &ti4_engine_core::state::CoreState, rendered: &mut crate::choice::Choice| {
+            // The effect's questions are asked through `ask_seeing`: the battle or invasion the position is in.
+            if let Some(ctx) = rendered.context.take() {
+                rendered.context = Some(ctx.about_battle(&before).about_invasion(&before));
+            }
+        };
+        let driven = crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &battle);
+        played = Some(driver.window.played());
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        emitted = std::mem::take(&mut driver.emitted);
+        Some(driven)
+    })
+    .ok()??
+    .ok()?;
+    crate::dual_window::apply_staged(gs, &r, &staged)?;
+    let events: Vec<crate::event::Event> = emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
+    Some(crate::dual::CoreWindow { run: crate::dual::Run::new(played).with_events_vec(events), questions: driven.rendered })
 }

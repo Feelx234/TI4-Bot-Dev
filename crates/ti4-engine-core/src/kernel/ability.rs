@@ -70,6 +70,13 @@ pub enum Unknown {
     NekroCarriedCard,
     /// A fact the adapter should have computed for the window is missing (`Facts`).
     MissingFact,
+    /// A card was played while destructions were staged (`pending_destructions`: the announcement of the removals is
+    /// not ported).
+    PendingDestructions,
+    /// A card was discarded while the Data Skimmer could take it (a breakthrough's pile).
+    DataSkimmer,
+    /// The play of a card needs what the adapter did not compute (`AdapterFacts::plays`).
+    PlayFacts,
 }
 
 /// What a condition reads: the state, the kernel, the ability and the event it is asked about.
@@ -115,11 +122,48 @@ pub struct Codes {
     pub instinct_training: crate::state::Code,
 }
 
+/// What the effects of the action cards read from outside the core, per seat (the faction and source answers of
+/// the string side): the placed unit forms, the Mahact tokens held.
+#[derive(Debug, Clone, Copy)]
+pub struct SeatPlay {
+    pub who: Seat,
+    /// `GameState::tokens_held_by_mahact`.
+    pub mahact_held: i32,
+    /// The infantry the seat places (`None`: nothing) and the infantry on the Crimson card.
+    pub infantry: (Option<crate::generated::Unit>, i64),
+    /// The cruiser the seat places and the cruisers on the Crimson card.
+    pub cruiser: (Option<crate::generated::Unit>, i64),
+}
+
+/// The play of an action card from inside a window (the reaction slot, the cards declared in a window): the
+/// facts the string side answers.
+#[derive(Debug, Clone)]
+pub struct PlayFacts {
+    /// The sources in play (`tables::Scope` bits).
+    pub scope: u32,
+    /// A law blanks the law-reading answers.
+    pub blanked: bool,
+    /// The interned `action_card` and `forward_supply_base`.
+    pub action_card: crate::state::Code,
+    pub supply_base: crate::state::Code,
+    /// The order of the promissory notes of a hand.
+    pub note_order: fn(crate::state::NoteKey, crate::state::NoteKey) -> core::cmp::Ordering,
+    pub seats: Vec<SeatPlay>,
+    /// The printed name of each card as the index of the first card with the same name (the slot offers one option per name).
+    pub name_group: Vec<u8>,
+    /// The cards the string side has an effect for (`action_cards::effect_for`); a card without one is announced unresolved.
+    pub has_effect: Vec<bool>,
+    /// A Data Skimmer could take a discard.
+    pub skimmer: bool,
+}
+
 /// Facts the adapter computes for the window and the core cannot (no galaxy is lent to the windows that follow
 /// abilities): the systems adjacent to a system as one seat sees them (`PlayerAdjacency::neighbours`).
 #[derive(Debug, Clone, Default)]
 pub struct AdapterFacts {
     reach: Vec<(Seat, crate::generated::System, Vec<crate::generated::System>)>,
+    /// The play of action cards (B6).
+    pub plays: Option<PlayFacts>,
 }
 
 impl AdapterFacts {
@@ -248,6 +292,9 @@ pub struct AbilityTable {
     /// Political Secret (`laws::political_secret_bars`): no faction ability for this seat. Set by the rules
     /// package that owns it (the kernel cannot import the agenda area).
     pub bars: Option<fn(&CoreState, Seat) -> bool>,
+    /// After a window's loop ended cleanly: announce the cards declared in it (the rules package that owns the
+    /// plays sets it; the kernel cannot import it).
+    pub on_close: Option<fn(&mut Inline<'_, '_>) -> Result<(), TimingError>>,
     pub codes: Codes,
     pub facts: AdapterFacts,
 }
@@ -435,6 +482,11 @@ impl Host for RulesHost<'_> {
         effect(&mut eff)
     }
 
+    fn window_closed(&mut self, resolver: &mut Resolver) -> Result<(), TimingError> {
+        let Some(close) = self.table.on_close else { return Ok(()) };
+        close(&mut Inline { host: self, resolver, facts: None })
+    }
+
     fn decide(&mut self, choice: &Choice, event: &EventRec, chain: &[u64]) -> Pick {
         let relation = match choice.ask {
             crate::choice::Ask::Reaction(crate::choice::reaction::Ask::Window { relation, .. }) => Some(relation),
@@ -455,7 +507,7 @@ pub struct Eff<'h, 'a> {
     pub event: &'h mut EventRec,
 }
 
-impl Eff<'_, '_> {
+impl<'a> Eff<'_, 'a> {
     pub fn state(&mut self) -> &mut CoreState {
         self.host.state
     }
@@ -463,6 +515,12 @@ impl Eff<'_, '_> {
     #[must_use]
     pub fn kernel(&self) -> &Kernel {
         self.host.kernel
+    }
+
+    /// Political Secret bars this ability's owner (`AbilityTable::bars`).
+    #[must_use]
+    pub fn barred(&self) -> bool {
+        self.host.table.bars.is_some_and(|f| f(self.host.state, self.def.owner))
     }
 
     /// The texts the adapter interned for the abilities.
@@ -544,5 +602,70 @@ impl Eff<'_, '_> {
     /// "Cancel that event."
     pub fn cancel(&mut self) {
         self.event.cancelled = true;
+    }
+
+    /// The services of this effect as a [`Runner`] (an effect that plays an action card): its questions carry the
+    /// facts of the effect's window.
+    pub fn inline(&mut self) -> Inline<'_, 'a> {
+        let facts = self.facts();
+        Inline { host: &mut *self.host, resolver: &mut *self.resolver, facts: Some(facts) }
+    }
+}
+
+/// What a rule that runs inside a window or an effect needs from its surroundings: the state, the kernel, the
+/// adapter's facts, an emission and a question. A [`Window`](super::stage::Window) implements it over its `Sx`
+/// (its own questions are stages; `ask` is for the nested ones), an effect or the close of a window over
+/// [`Inline`] (every question goes to the tape).
+pub trait Runner {
+    fn state(&mut self) -> &mut CoreState;
+    fn read(&self) -> (&CoreState, &Kernel);
+    fn facts(&self) -> &AdapterFacts;
+    /// Emit an event through the windows around it (a zero id is replaced by the next trace id).
+    ///
+    /// # Errors
+    /// What the resolver refuses with.
+    fn emit(&mut self, rec: EventRec) -> Result<EventRec, TimingError>;
+    /// Put a question to the tape and take the answer.
+    fn ask(&mut self, choice: &Choice) -> Pick;
+    /// The run cannot be trusted (a documented bail of the rule being run): the adapter falls back to the string.
+    fn unknown(&mut self, why: Unknown);
+}
+
+/// The services of a rule that runs inside an effect or at the close of a window.
+pub struct Inline<'h, 'a> {
+    host: &'h mut RulesHost<'a>,
+    resolver: &'h mut Resolver,
+    facts: Option<NestedFacts>,
+}
+
+impl Runner for Inline<'_, '_> {
+    fn state(&mut self) -> &mut CoreState {
+        self.host.state
+    }
+
+    fn read(&self) -> (&CoreState, &Kernel) {
+        (&*self.host.state, self.host.kernel)
+    }
+
+    fn facts(&self) -> &AdapterFacts {
+        &self.host.table.facts
+    }
+
+    fn emit(&mut self, mut rec: EventRec) -> Result<EventRec, TimingError> {
+        if rec.id == 0 {
+            rec.id = *self.host.next_id;
+            *self.host.next_id += 1;
+        }
+        self.resolver.emit(&mut *self.host, rec, |_, _, _| {})
+    }
+
+    fn ask(&mut self, choice: &Choice) -> Pick {
+        self.host.tape.pick_with(choice, self.facts.clone())
+    }
+
+    fn unknown(&mut self, why: Unknown) {
+        if self.host.tape.unknown.get().is_none() {
+            self.host.tape.unknown.set(Some(why));
+        }
     }
 }

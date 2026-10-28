@@ -55,7 +55,7 @@ pub trait Window: Clone {
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal>;
 }
 
-pub use super::ability::{AbilityTable, Applies, CondCx, Codes, Condition, Eff, Effect, Forbids, NestedFacts, RulesHost, Slot, Spec, Tape};
+pub use super::ability::{Runner, AbilityTable, Applies, CondCx, Codes, Condition, Eff, Effect, Forbids, NestedFacts, RulesHost, Slot, Spec, Tape};
 
 /// The services of a window's `step` and `answer` (the string `Resolving` + `TimingContext`).
 pub struct Sx<'a> {
@@ -128,5 +128,33 @@ impl<'a> Sx<'a> {
     /// What the resolver refuses with.
     pub fn emit(&mut self, rec: EventRec) -> Result<EventRec, TimingError> {
         self.emit_with(rec, |_, _, _| {})
+    }
+}
+
+impl super::ability::Runner for Sx<'_> {
+    fn state(&mut self) -> &mut CoreState {
+        self.state
+    }
+
+    fn read(&self) -> (&CoreState, &Kernel) {
+        (&*self.state, self.kernel)
+    }
+
+    fn facts(&self) -> &super::ability::AdapterFacts {
+        &self.table.facts
+    }
+
+    fn emit(&mut self, rec: EventRec) -> Result<EventRec, TimingError> {
+        Sx::emit(self, rec)
+    }
+
+    fn ask(&mut self, choice: &Choice) -> Pick {
+        Sx::ask(self, choice)
+    }
+
+    fn unknown(&mut self, why: super::ability::Unknown) {
+        if self.tape.unknown.get().is_none() {
+            self.tape.unknown.set(Some(why));
+        }
     }
 }

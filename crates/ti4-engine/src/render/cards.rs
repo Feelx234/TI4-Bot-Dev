@@ -35,11 +35,17 @@ impl Family for Fam {
             },
             Ask::Pick { card, what } => pick_prompt(*card, *what).to_owned(),
             Ask::Predict { card, .. } => format!("{}: predict the agenda outcome", rider_name(*card)),
+            Ask::PlayCard { relation, event } => {
+                format!("play an action card ({} {})", crate::kernel_sync::text::relation_text(*relation), crate::kernel_sync::event_text(r, *event))
+            }
         }
     }
 
-    fn subtype(_: &Render, s: &Subtype) -> String {
+    fn subtype(r: &Render, s: &Subtype) -> String {
         match s {
+            Subtype::PlayReaction { relation, event } => {
+                return format!("play_reaction_{}_{}", crate::kernel_sync::text::relation_text(*relation), crate::kernel_sync::event_text(r, *event));
+            }
             Subtype::StallTacticsDiscard => "stall_tactics_discard",
             Subtype::DeepgloomStallTacticsDiscard => "deepgloom_stall_tactics_discard",
             Subtype::MalleonDiscard => "malleon_discard",
@@ -84,6 +90,13 @@ impl Family for Fam {
                 let named = super::agenda::outcome_label(r, frame, *outcome);
                 ChoiceOption::labelled(super::agenda::outcome_text(r, *outcome), "prediction", format!("predict {named}"))
             }
+            Opt::Card(card) if matches!(a, Ask::PlayCard { .. }) => {
+                let id = ActionCardId::new(card.as_str());
+                let name = crate::action_cards::name_of(ContentStore::embedded(), &id);
+                ChoiceOption::labelled(card.as_str(), crate::reactions::ACTION_CARD_KIND, format!("play {name}"))
+                    .with("card", card.as_str())
+                    .with("card_name", name)
+            }
             Opt::Card(card) => {
                 let id = ActionCardId::new(card.as_str());
                 ChoiceOption::labelled(card.as_str(), crate::action_cards::OWN_HAND_KIND, crate::action_cards::name_of(ContentStore::embedded(), &id))
@@ -93,7 +106,7 @@ impl Family for Fam {
 
     fn parse(r: &Render, a: &Ask, id: &str) -> Option<Opt> {
         match a {
-            Ask::OwnHand { .. } => ActionCard::from_id(id).map(Opt::Card),
+            Ask::OwnHand { .. } | Ask::PlayCard { .. } => ActionCard::from_id(id).map(Opt::Card),
             Ask::Pick { what: What::Player | What::Elect, .. } => r.seat(id).map(Opt::Seat),
             Ask::Pick { what: What::Recall | What::Silence | What::Bombard | What::Deploy, .. } => System::from_id(id).map(Opt::System),
             Ask::Pick { what: What::Planet, .. } => {
@@ -123,7 +136,7 @@ fn pick_of(a: &Ask) -> (ActionCard, What) {
     match a {
         Ask::Pick { card, what } => (*card, *what),
         Ask::Predict { card, .. } => (*card, What::Player),
-        Ask::OwnHand { .. } => (ActionCard::Spy, What::Player),
+        Ask::OwnHand { .. } | Ask::PlayCard { .. } => (ActionCard::Spy, What::Player),
     }
 }
 

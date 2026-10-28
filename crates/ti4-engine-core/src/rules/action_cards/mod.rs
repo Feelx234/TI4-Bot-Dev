@@ -4,6 +4,7 @@
 //! asked here and the string function stands; each such place is a documented bail (see
 //! [`has_legal_target`]). No `Env` trait: the faction answers are plain arguments.
 
+pub mod announce;
 pub mod effects;
 pub mod reaction_slot;
 

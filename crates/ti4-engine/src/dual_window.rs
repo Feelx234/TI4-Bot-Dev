@@ -58,6 +58,8 @@ pub struct ResolverCfg {
     pub max_depth: usize,
     /// `(ability id, scope Debug text)`
     pub used: Vec<(String, String)>,
+    /// The sources in play (the play of an action card reads them).
+    pub sources: ti4_model::content_types::SourceSet,
 }
 
 /// What the string window did at its own level.
@@ -197,6 +199,33 @@ impl EffectGuard {
 }
 
 impl Drop for EffectGuard {
+    fn drop(&mut self) {
+        REC.with(|r| {
+            if let Some(rec) = r.borrow_mut().as_mut() {
+                rec.effect_depth = rec.effect_depth.saturating_sub(1);
+            }
+        });
+    }
+}
+
+/// The cards declared in a window are announced while this guard lives (the close of the window, outside any
+/// ability's effect): what is asked or emitted meanwhile belongs to the plays, which the core follows.
+pub struct CloseGuard;
+
+impl CloseGuard {
+    #[must_use]
+    pub fn enter() -> Self {
+        REC.with(|r| {
+            if let Some(rec) = r.borrow_mut().as_mut() {
+                rec.nested = true;
+                rec.effect_depth += 1;
+            }
+        });
+        Self
+    }
+}
+
+impl Drop for CloseGuard {
     fn drop(&mut self) {
         REC.with(|r| {
             if let Some(rec) = r.borrow_mut().as_mut() {
@@ -458,6 +487,9 @@ pub fn drive_positioned<W: Window>(
                 ti4_engine_core::kernel::ability::Unknown::NomadAgentExhaustion => "Nomad Temporal Command Suite (agent exhaustion)",
                 ti4_engine_core::kernel::ability::Unknown::NekroCarriedCard => "a technology carried by a Nekro Valefar Assimilator",
                 ti4_engine_core::kernel::ability::Unknown::MissingFact => "a fact the adapter did not compute for the window",
+                ti4_engine_core::kernel::ability::Unknown::PendingDestructions => "an action card that staged destructions",
+                ti4_engine_core::kernel::ability::Unknown::DataSkimmer => "a discard the Data Skimmer could take",
+                ti4_engine_core::kernel::ability::Unknown::PlayFacts => "an action card the core does not play",
             };
             crate::dual::note_bail(LABEL.with(Cell::get), &format!("nested ({why})"));
             return Err(DriverError::NotAsking);
@@ -574,13 +606,23 @@ pub(crate) const fn ability_fp() -> Footprint {
 /// ... and the streams, when the abilities draw (the window has to be lent them: `Sources::rng`).
 const ABILITY_DICE_FP: Footprint = Footprint::new(&[Slice::Rng, Slice::Ledger], &[Slice::Rng, Slice::Ledger]);
 
+/// ... and what the play of an action card touches (the reaction slot's play; the decks for Veto and Insider
+/// Information, the agenda for the Riders).
+const CARD_PLAY_FP: Footprint = Footprint::new(
+    &[Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending],
+    &[Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending],
+);
+
 /// `base`, widened by what the table's abilities touch when the string run had nested activity.
 #[must_use]
 pub(crate) fn nested_fp(base: Footprint, script: &Recording) -> Footprint {
     if !script.nested {
         return base;
     }
-    let fp = base.union(ability_fp());
+    let mut fp = base.union(ability_fp());
+    if script.effects.iter().any(|e| e.starts_with("reaction:")) {
+        fp = fp.union(CARD_PLAY_FP);
+    }
     if script.dice.is_empty() { fp } else { fp.union(ABILITY_DICE_FP) }
 }
 
@@ -624,7 +666,10 @@ fn complete_nested(
 /// Whether a nested question carries the trigger of its window in its context: the window's own pick, and the
 /// questions whose string ability builds one (`DecisionTrigger::from_event`).
 fn with_trigger_of(choice: &CoreChoice) -> bool {
-    matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(_))
+    matches!(
+        choice.ask,
+        ti4_engine_core::choice::Ask::Reaction(_) | ti4_engine_core::choice::Ask::Cards(ti4_engine_core::choice::cards::Ask::PlayCard { .. })
+    )
 }
 
 /// Whether a nested question is the window's own pick (the one that carries the `active` detail of the action phase).

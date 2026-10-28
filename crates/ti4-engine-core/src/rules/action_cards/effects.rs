@@ -493,12 +493,54 @@ impl Play {
         if self.fx == Fx::Pressure { self.victim.unwrap_or(self.who) } else { self.who }
     }
 
-    fn ask(&self) -> Ask {
+    pub(super) fn ask_value(&self) -> Ask {
         match (self.what(), self.frame) {
             (Some(what), _) => Ask::Pick { card: self.card, what },
             (None, Some(frame)) => Ask::Predict { card: self.card, frame },
             (None, None) => Ask::Pick { card: self.card, what: What::Player },
         }
+    }
+}
+
+impl Play {
+    /// The part of the play before its first question (the effect that needs no pick, then the options of the
+    /// first question); `asking` says whether it waits on a pick afterwards.
+    pub fn begin(&mut self, core: &mut CoreState) {
+        if self.stage != Stage::Start {
+            return;
+        }
+        self.before(core);
+        if self.what().is_none() && !matches!(self.fx, Fx::Rider(_)) {
+            self.stage = Stage::Done;
+            return;
+        }
+        self.advance(core);
+    }
+
+    /// Whether the play waits on the holder's pick.
+    #[must_use]
+    pub fn asking(&self) -> bool {
+        self.stage == Stage::Asking
+    }
+
+    /// Apply a pick to the pending question (`Window::answer` without the services).
+    ///
+    /// # Errors
+    /// The pick is not an option of the pending question.
+    pub fn choose(&mut self, core: &mut CoreState, pick: Pick) -> Result<(), Illegal> {
+        if self.stage != Stage::Asking {
+            return Err(Illegal);
+        }
+        let Pick::Opt(crate::choice::Opt::Cards(opt)) = pick else { return Err(Illegal) };
+        if !self.opts.as_slice().contains(&opt) {
+            return Err(Illegal);
+        }
+        if self.apply(core, opt) {
+            self.advance(core);
+        } else {
+            self.stage = Stage::Done;
+        }
+        Ok(())
     }
 }
 
@@ -510,16 +552,9 @@ impl Window for Play {
     }
 
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
-        if self.stage == Stage::Start {
-            self.before(sx.state);
-            if self.what().is_none() && !matches!(self.fx, Fx::Rider(_)) {
-                self.stage = Stage::Done;
-                return Next::Done;
-            }
-            self.advance(sx.state);
-        }
+        self.begin(sx.state);
         match self.stage {
-            Stage::Asking => Next::Continue(crate::choice::Ask::Cards(self.ask())),
+            Stage::Asking => Next::Continue(crate::choice::Ask::Cards(self.ask_value())),
             Stage::Start | Stage::Done => Next::Done,
         }
     }
@@ -527,7 +562,7 @@ impl Window for Play {
     fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {
         (self.stage == Stage::Asking).then(|| Choice {
             actor: self.actor(),
-            ask: crate::choice::Ask::Cards(self.ask()),
+            ask: crate::choice::Ask::Cards(self.ask_value()),
             ctx: Ctx {
                 origin: if self.frame.is_some() { Origin::Rule(Rule::R8) } else { Origin::ActionCard(self.card) },
                 subtype: crate::choice::Subtype::Cards(match self.what() {
@@ -545,19 +580,7 @@ impl Window for Play {
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
-        if self.stage != Stage::Asking {
-            return Err(Illegal);
-        }
-        let Pick::Opt(crate::choice::Opt::Cards(opt)) = pick else { return Err(Illegal) };
-        if !self.opts.as_slice().contains(&opt) {
-            return Err(Illegal);
-        }
-        if self.apply(sx.state, opt) {
-            self.advance(sx.state);
-        } else {
-            self.stage = Stage::Done;
-        }
-        Ok(())
+        self.choose(sx.state, pick)
     }
 }
 
