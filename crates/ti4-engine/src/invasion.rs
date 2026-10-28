@@ -6740,6 +6740,64 @@ mod tests {
         let _ = take_report();
     }
 
+    /// The Cabal's Reanimator, Devour and The Terror Between are abilities of the core table: the ground losses of a
+    /// fight the Cabal takes part in are captured by the core resolver exactly as the string one does.
+    #[test]
+    fn the_cabal_captures_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        let mut captured = 0;
+        for flagship in [false, true] {
+            with_mask(mask, || {
+                for seed in 1..=5_u64 {
+                    let mut state = crate::fixtures::seated_game(&[("a", "cabal"), ("b", "sol")], POK);
+                    state.promissory_notes.clear();
+                    state.promissory_faceup.clear();
+                    state.rng_seed = seed;
+                    let (system, planet) = crate::fixtures::a_placed_planet();
+                    crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                    if flagship {
+                        crate::fixtures::put(&mut state, &system, "cabal_flagship", &PlayerId::new("a"), 1);
+                    }
+                    crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 5);
+                    crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 5);
+                    crate::fixtures::put_on_planet(&mut state, &system, &planet, "cabal_mech", &PlayerId::new("a"), 1);
+                    let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                    let mut dice = Dice::new();
+                    let mut rng = GameRng::new(seed);
+                    let content = ContentStore::embedded();
+                    let mut resolver = armed_resolver(&state, vec![PlayerId::new("a"), PlayerId::new("b")]);
+                    let mut sequence = crate::event::EventSequence::new();
+                    let mut window = InvasionWindow::new(&mut state, content, POK, &mut dice, &mut rng, &PlayerId::new("a"), &system);
+                    let mut ctx = Resolving {
+                        content,
+                        sources: POK,
+                        dice: &mut dice,
+                        rng: &mut rng,
+                        table: &mut table,
+                        timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                    };
+                    while !window.is_done() {
+                        window.drive(&mut state, &mut ctx).unwrap();
+                        while window.take_scoring_occurrence().is_some() {}
+                        window.settle(&mut state, &mut ctx);
+                    }
+                    drop(ctx);
+                    captured += state.player(&PlayerId::new("a")).unwrap().captured_units.len();
+                }
+            });
+        }
+        let r = report();
+        let w = r.windows.get("invasion::ground_round_hits").copied().unwrap_or_default();
+        assert!(captured > 0, "the Cabal captured something");
+        assert!(w.compared >= 1, "{:?}", r.windows);
+        assert!(r.windows.keys().all(|k| !k.contains("unported ability ability:*:devour") && !k.contains("unported ability unit:*:cabal")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
     use ti4_model::content_types::DEFAULT as ALL_SOURCES;
     use ti4_model::content_types::POK;
 

@@ -55,7 +55,7 @@ pub trait Window: Clone {
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal>;
 }
 
-pub use super::ability::{AbilityTable, Applies, CondCx, Condition, Eff, Effect, Forbids, NestedFacts, RulesHost, Slot, Spec, Tape};
+pub use super::ability::{AbilityTable, Applies, CondCx, Codes, Condition, Eff, Effect, Forbids, NestedFacts, RulesHost, Slot, Spec, Tape};
 
 /// The services of a window's `step` and `answer` (the string `Resolving` + `TimingContext`).
 pub struct Sx<'a> {

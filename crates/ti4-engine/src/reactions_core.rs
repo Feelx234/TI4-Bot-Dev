@@ -15,6 +15,8 @@ use ti4_engine_core::state::CoreState;
 use ti4_engine_core::Seat;
 use ti4_model::state::GameState;
 
+use ti4_engine_core_factions::cb_economy::cabal::timing as cabal;
+
 use crate::dual_window::{Recording, ResolverCfg};
 use crate::kernel_sync::text::{ability_id, event_text, relation_text};
 use crate::render::Render;
@@ -28,10 +30,22 @@ struct Named {
 }
 
 /// The ported rules with a card key, in table order (the per-owner registration order of `reactions::arm`).
-const NAMED: &[Named] = &[Named { slot: ti4_engine_core::rules::reactions::INFANTRY_II_ROLLS, kind: "technology", card: "inf2" }];
+const NAMED: &[Named] = &[
+    Named { slot: ti4_engine_core::rules::reactions::INFANTRY_II_ROLLS, kind: "technology", card: "inf2" },
+    Named { slot: cabal::REANIMATOR, kind: "unit", card: "cabal_mech" },
+    Named { slot: cabal::DEVOUR_SHIPS, kind: "ability", card: "devour" },
+    Named { slot: cabal::DEVOUR_GROUND, kind: "ability", card: "devour" },
+    Named { slot: cabal::TERROR_SHIPS, kind: "unit", card: "cabal_flagship" },
+    Named { slot: cabal::TERROR_GROUND, kind: "unit", card: "cabal_flagship" },
+    Named { slot: cabal::MARK_SPACE, kind: "ability", card: "devour_mark" },
+    Named { slot: cabal::CLEAR_SPACE, kind: "ability", card: "devour_clear" },
+    Named { slot: cabal::MARK_GROUND, kind: "ability", card: "devour_mark" },
+    Named { slot: cabal::CLEAR_GROUND, kind: "ability", card: "devour_clear" },
+];
 
 fn is_reaction_slot(slot: Slot) -> bool {
-    slot.0 >= ti4_engine_core::rules::action_cards::reaction_slot::SLOT_BASE
+    let base = ti4_engine_core::rules::action_cards::reaction_slot::SLOT_BASE;
+    (base..base + 100).contains(&slot.0)
 }
 
 /// The registered id of `spec` for an owner called `owner`.
@@ -56,6 +70,7 @@ pub fn table() -> AbilityTable {
             // Infantry II, Magen Defense, the factions.
             ti4_engine_core::rules::action_cards::reaction_slot::register(&mut t);
             ti4_engine_core::rules::reactions::register(&mut t);
+            ti4_engine_core_factions::cb_economy::register_abilities(&mut t);
             t
         })
         .clone()
@@ -96,9 +111,11 @@ pub fn slot_of(id: &str) -> Option<Slot> {
     let (kind, rest) = (parts[0], &parts[2..]);
     let (event, rel) = (rest[rest.len() - 2], rest[rest.len() - 1]);
     let card = rest[..rest.len() - 2].join(":");
-    let named = NAMED.iter().find(|n| n.kind == kind && n.card == card)?;
-    let spec = specs().into_iter().find(|s| s.slot == named.slot)?;
-    (event_text(&r, spec.event) == event && relation_text(spec.relation) == rel).then_some(named.slot)
+    let all = specs();
+    NAMED.iter().filter(|n| n.kind == kind && n.card == card).find_map(|n| {
+        let spec = all.iter().find(|s| s.slot == n.slot)?;
+        (event_text(&r, spec.event) == event && relation_text(spec.relation) == rel).then_some(n.slot)
+    })
 }
 
 impl Recording {
@@ -186,6 +203,7 @@ impl Follow {
         let order: Vec<Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(Seat)).collect();
         let owner_name = |who: Seat| crate::promissory::faction_name(gs, &ti4_model::id::PlayerId::new(r.seat_text(who)));
         let mut name = |spec: &Spec, who: Seat| -> AbilityId { ability_id(r, &id_text(r, spec, &owner_name(who))) };
+        self.table.codes.ground_combat = r.code("ground_combat");
         let defs = self.table.registry(core, &order, &mut name);
         self.resolver.register(defs);
     }

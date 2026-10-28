@@ -64,6 +64,8 @@ pub struct CondCx<'a> {
     pub resolver: &'a Resolver,
     /// Political Secret bars this seat's faction abilities and action cards (`AbilityTable::bars`).
     pub barred: bool,
+    /// The texts the payloads carry as codes (`AbilityTable::codes`).
+    pub codes: Codes,
     unknown: &'a std::cell::Cell<Option<&'static str>>,
 }
 
@@ -76,6 +78,14 @@ impl CondCx<'_> {
         }
         false
     }
+}
+
+/// The few texts an ability compares an event payload against (a payload holds `Code`s, interned by the
+/// adapter; the core has no text). Set once by the adapter when it builds the resolver.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Codes {
+    /// The cause `ground_combat` of a destroyed ground force.
+    pub ground_combat: crate::state::Code,
 }
 
 /// A rule-specific eligibility (`Host::condition`).
@@ -190,6 +200,7 @@ pub struct AbilityTable {
     /// Political Secret (`laws::political_secret_bars`): no faction ability for this seat. Set by the rules
     /// package that owns it (the kernel cannot import the agenda area).
     pub bars: Option<fn(&CoreState, Seat) -> bool>,
+    pub codes: Codes,
 }
 
 impl AbilityTable {
@@ -358,7 +369,7 @@ impl Host for RulesHost<'_> {
         match self.table.of(ability).and_then(|a| a.condition) {
             Some(c) => {
                 let barred = self.table.bars.is_some_and(|f| f(self.state, ability.owner));
-                c(&CondCx { state: self.state, kernel: self.kernel, def: ability, event, resolver, barred, unknown: &self.tape.unknown })
+                c(&CondCx { state: self.state, kernel: self.kernel, def: ability, event, resolver, barred, codes: self.table.codes, unknown: &self.tape.unknown })
             }
             None => true,
         }
