@@ -33,6 +33,8 @@ pub enum What {
     Note,
     /// kind `planet`: a `system|planet` spot.
     Planet,
+    /// kind `rescue_from`: a system holding a ship of the asked seat (Rescue).
+    Rescue,
 }
 
 /// Why a seat is asked to pick a card from its own hand; it decides the prompt and the subtype.

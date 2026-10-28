@@ -255,6 +255,7 @@ fn play_facts(r: &Render, gs: &GameState, sources: &ti4_model::content_types::So
             mahact_held: gs.tokens_held_by_mahact(&player),
             infantry: (infantry.unit, infantry.on_card),
             cruiser: (cruiser.unit, cruiser.on_card),
+            fighter_on_card: crate::action_cards_view::fighter_on_card(gs, &player, sources),
         });
     }
     Some(PlayFacts {

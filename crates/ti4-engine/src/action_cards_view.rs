@@ -242,7 +242,13 @@ fn env_of(state: &GameState, player: &PlayerId, sources: &ti4_model::content_typ
         note_order: |a, b| crate::render::cards::note_text(a).cmp(&crate::render::cards::note_text(b)),
         infantry: rules::Placed::NONE,
         cruiser: rules::Placed::NONE,
+        fighter: rules::Placed { unit: Some(ti4_engine_core::generated::Unit::FighterI), on_card: fighter_on_card(state, player, sources) },
     }
+}
+
+/// The fighters on the Crimson hero card (Fighter Conscription places the plain fighter against the supply).
+pub(crate) fn fighter_on_card(state: &GameState, player: &PlayerId, sources: &ti4_model::content_types::SourceSet) -> i64 {
+    crate::factions::crimson_cards::held_on_card(state, ti4_content::ContentStore::embedded(), sources.clone(), player, "fighter")
 }
 
 /// Whether the core has a window for the card (`rules::action_cards::effects::Fx`).

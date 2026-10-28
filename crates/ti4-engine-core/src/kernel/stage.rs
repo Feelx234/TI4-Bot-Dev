@@ -140,6 +140,10 @@ impl super::ability::Runner for Sx<'_> {
         (&*self.state, self.kernel)
     }
 
+    fn with_kernel<T>(&mut self, f: impl FnOnce(&mut CoreState, &Kernel) -> T) -> T {
+        f(&mut *self.state, self.kernel)
+    }
+
     fn facts(&self) -> &super::ability::AdapterFacts {
         &self.table.facts
     }

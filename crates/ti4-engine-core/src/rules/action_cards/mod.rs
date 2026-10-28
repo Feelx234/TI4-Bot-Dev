@@ -337,6 +337,8 @@ pub struct Env {
     pub infantry: Placed,
     /// The cruiser the seat places (War Effort).
     pub cruiser: Placed,
+    /// The fighters on the Crimson hero card (Fighter Conscription places the plain fighter).
+    pub fighter: Placed,
 }
 
 impl Simple {

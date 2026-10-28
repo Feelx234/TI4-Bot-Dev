@@ -209,6 +209,7 @@ fn env_of(rt: &impl Runner, who: Seat) -> Option<Env> {
         note_order: f.note_order,
         infantry: Placed { unit: seat.infantry.0, on_card: seat.infantry.1 },
         cruiser: Placed { unit: seat.cruiser.0, on_card: seat.cruiser.1 },
+        fighter: Placed { unit: Some(crate::generated::Unit::FighterI), on_card: seat.fighter_on_card },
     };
     Some(env)
 }
@@ -276,6 +277,7 @@ mod tests {
             note_order: |a, b| a.cmp(&b),
             infantry: Placed::NONE,
             cruiser: Placed::NONE,
+            fighter: Placed::NONE,
         }
     }
 

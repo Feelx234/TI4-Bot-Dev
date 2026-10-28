@@ -133,6 +133,8 @@ pub struct SeatPlay {
     pub infantry: (Option<crate::generated::Unit>, i64),
     /// The cruiser the seat places and the cruisers on the Crimson card.
     pub cruiser: (Option<crate::generated::Unit>, i64),
+    /// The fighters on the Crimson card.
+    pub fighter_on_card: i64,
 }
 
 /// The play of an action card from inside a window (the reaction slot, the cards declared in a window): the
@@ -635,6 +637,8 @@ impl<'a> Eff<'_, 'a> {
 pub trait Runner {
     fn state(&mut self) -> &mut CoreState;
     fn read(&self) -> (&CoreState, &Kernel);
+    /// Change the state with the kernel at hand (a rule that reads through hooks while it writes).
+    fn with_kernel<T>(&mut self, f: impl FnOnce(&mut CoreState, &Kernel) -> T) -> T;
     fn facts(&self) -> &AdapterFacts;
     /// Emit an event through the windows around it (a zero id is replaced by the next trace id).
     ///
@@ -661,6 +665,10 @@ impl Runner for Inline<'_, '_> {
 
     fn read(&self) -> (&CoreState, &Kernel) {
         (&*self.host.state, self.host.kernel)
+    }
+
+    fn with_kernel<T>(&mut self, f: impl FnOnce(&mut CoreState, &Kernel) -> T) -> T {
+        f(&mut *self.host.state, self.host.kernel)
     }
 
     fn facts(&self) -> &AdapterFacts {

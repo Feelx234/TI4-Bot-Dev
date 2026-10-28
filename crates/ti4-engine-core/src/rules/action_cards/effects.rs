@@ -82,6 +82,12 @@ pub enum Fx {
     Bombard,
     /// Diplomatic Pressure: a chosen seat gives the holder a promissory note of its choice.
     Pressure,
+    /// Intercept: the other combatants of the active system may not retreat this combat round.
+    Intercept,
+    /// Rescue: a ship of the holder joins the ships in the active system, from a system without its token.
+    Rescue,
+    /// Fighter Conscription: a fighter in each system with a dock or a carrier and no foreign ship.
+    Conscription,
 }
 
 impl Fx {
@@ -122,6 +128,9 @@ impl Fx {
             C::FrontlineDeployment => Self::Frontline,
             C::WarEffort => Self::WarEffort,
             C::DiplomaticPressure1 | C::DiplomaticPressure2 | C::DiplomaticPressure3 | C::DiplomaticPressure4 => Self::Pressure,
+            C::Intercept => Self::Intercept,
+            C::Rescue => Self::Rescue,
+            C::FighterConscription => Self::Conscription,
             _ => return None,
         })
     }
@@ -182,6 +191,13 @@ impl Play {
     #[must_use]
     pub fn of(core: &CoreState, card: ActionCard, who: Seat, env: Env) -> Option<Self> {
         let fx = Fx::of(card)?;
+        // Intercept's combatants include the units that fight from a planet (a Naaz Eidolon Maximum, the ground
+        // forces a Nekro Alastor chose): the kernel's combat rules decide them, which this area may not import.
+        if fx == Fx::Intercept
+            && core.players().iter().any(|p| matches!(p.faction, crate::generated::Faction::TheNaazRokhaAlliance | crate::generated::Faction::TheNekroVirus))
+        {
+            return None;
+        }
         // The deck reserve (a replay's forced draws) is the host's: the string draws through it.
         if fx == Fx::Veto && core.cards().reserve.is_some() {
             return None;
@@ -211,6 +227,7 @@ impl Play {
             Fx::Pressure => What::Player,
             Fx::Mining | Fx::Uprising | Fx::Cripple | Fx::Meltdown | Fx::Frontline => What::Planet,
             Fx::WarEffort => What::Deploy,
+            Fx::Rescue => What::Rescue,
             _ => return None,
         })
     }
@@ -266,6 +283,19 @@ impl Play {
             Fx::WarEffort => {
                 let mut held: SmallList<System, 16> =
                     board::systems_with_units_of(core, who).iter().filter_map(|i| System::ALL.get(i).copied()).collect();
+                held.as_mut_slice().sort_unstable();
+                held.as_slice().iter().map(|s| Opt::System(*s)).collect()
+            }
+            Fx::Rescue => {
+                // "After a player moves ships into a system that contains your ships": somebody else activated, and
+                // the holder has a ship there. The origins are systems without the holder's token that hold a ship of it.
+                let ship = |s: System| board::space_units(core, s).iter().any(|p| p.owner() == who && self.env.scope.unit(p.kind()).is_some_and(|d| d.ship));
+                let Some(destination) = core.meta().active_system else { return SmallList::new() };
+                if !ship(destination) || core.meta().active == Some(who) {
+                    return SmallList::new();
+                }
+                let mut held: SmallList<System, 16> =
+                    System::ALL.iter().copied().filter(|s| *s != destination && !board::has_token(core, *s, who) && ship(*s)).collect();
                 held.as_mut_slice().sort_unstable();
                 held.as_slice().iter().map(|s| Opt::System(*s)).collect()
             }
@@ -358,6 +388,48 @@ impl Play {
                     .count();
                 self.goods(core, self.who, i64::try_from(count).unwrap_or(0));
             }
+            Fx::Intercept => {
+                // The combatants are the seats with ships in the active system (the seated ones, in seating order).
+                let Some(system) = core.meta().active_system else { return };
+                let ships = |seat: Seat| board::space_units(core, system).iter().any(|p| p.owner() == seat && self.env.scope.unit(p.kind()).is_some_and(|d| d.ship));
+                let combatants: SmallList<Seat, 8> = seats::seating_order(core).as_slice().iter().copied().filter(|s| ships(*s)).collect();
+                if !combatants.as_slice().contains(&self.who) {
+                    return;
+                }
+                let round = core.meta().combat_round_seq;
+                for seat in combatants.as_slice().iter().filter(|s| **s != self.who) {
+                    if let Some(p) = core.players_mut().by_seat_mut(*seat) {
+                        p.card_timers.retreat_barred_round = crate::containers::Opt32::some(round);
+                    }
+                }
+            }
+            Fx::Conscription => {
+                let who = self.who;
+                let scope = self.env.scope;
+                let unit_of = |p: &Piece| scope.unit(p.kind());
+                let mut eligible: SmallList<System, 16> = SmallList::new();
+                for system in System::ALL {
+                    let docked = board::planets_of(core, system)
+                        .any(|pl| board::planet_units(core, pl).iter().any(|p| p.owner() == who && unit_of(p).is_some_and(|d| d.base_type == UnitBaseType::Spacedock)));
+                    let space = board::space_units(core, system);
+                    let has_capacity = space.iter().any(|p| p.owner() == who && unit_of(p).is_some_and(|d| d.capacity.is_some_and(|c| c > 0)));
+                    if !docked && !has_capacity {
+                        continue;
+                    }
+                    if space.iter().any(|p| p.owner() != who && unit_of(p).is_some_and(|d| d.ship)) {
+                        continue;
+                    }
+                    eligible.push(system);
+                }
+                eligible.as_mut_slice().sort_unstable();
+                for system in eligible.as_slice() {
+                    let left = crate::query::fleet::remaining(core, scope, who, crate::generated::Unit::FighterI, self.env.fighter.on_card);
+                    if left <= 0 {
+                        break;
+                    }
+                    fx::place_unit(core, who, *system, None, crate::generated::Unit::FighterI);
+                }
+            }
             Fx::Counterstroke => {
                 let Some(system) = core.meta().active_system else { return };
                 if !board::has_token(core, system, self.who) {
@@ -409,6 +481,15 @@ impl Play {
             }
             (Fx::Recall, Opt::System(system)) => {
                 core.board_mut().sys_mut(system).cmd.remove(who);
+            }
+            (Fx::Rescue, Opt::System(origin)) => {
+                let Some(destination) = core.meta().active_system else { return false };
+                let scope = self.env.scope;
+                let units = &mut core.board_mut().sys_mut(origin).units;
+                if let Some(at) = units.as_slice().iter().position(|p| p.owner() == who && scope.unit(p.kind()).is_some_and(|d| d.ship)) {
+                    let ship = units.remove(at);
+                    core.board_mut().sys_mut(destination).units.push(ship);
+                }
             }
             (Fx::Frontline, Opt::Spot(system, planet)) => self.place(core, self.env.infantry, system, Some(planet), 3),
             (Fx::WarEffort, Opt::System(system)) => self.place(core, self.env.cruiser, system, None, 1),
@@ -600,7 +681,6 @@ mod tests {
             (C::RepealLaw, "a law leaving play is B9's"),
             (C::DirectHit1, "the exact sustain mark and the ship-lost observers"),
             (C::DirectHit4, "the exact sustain mark and the ship-lost observers"),
-            (C::Intercept, "combatants include planet-based ships"),
             (C::PirateContract1, "the neutral destroyer has no seat"),
             (C::Summit, "the pool question has previews and details of the tokens area"),
             (C::SkilledRetreat1, "destinations and previews"),
@@ -624,6 +704,9 @@ mod tests {
             C::FrontlineDeployment,
             C::WarEffort,
             C::InsiderInformation,
+            C::Intercept,
+            C::Rescue,
+            C::FighterConscription,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }
@@ -641,6 +724,7 @@ mod tests {
             note_order: |a, b| a.cmp(&b),
             infantry: super::super::Placed::NONE,
             cruiser: super::super::Placed::NONE,
+            fighter: super::super::Placed::NONE,
         };
         let who = Seat(0);
         assert!(Play::of(&core, ActionCard::Veto, who, env).is_some());

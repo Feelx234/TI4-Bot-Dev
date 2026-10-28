@@ -294,3 +294,131 @@ fn bail_an_unported_card_played_in_a_fight_bails_the_window_with_its_reason() {
         "{windows:?}"
     );
 }
+
+fn unit(kind: &str, owner: &PlayerId) -> ti4_model::units::Unit {
+    ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new(kind), owner.clone())
+}
+
+/// Play `alias` as the component action of `a` in `state` under the dual, the last option answering every question.
+fn played(mut state: GameState, alias: &str) -> GameState {
+    let a = PlayerId::new("a");
+    state.player_mut(&a).unwrap().action_cards = vec![ActionCardId::new(alias)];
+    crate::action_cards::discard(&mut state, &a, 0);
+    let stood = with_mask(dual(), || announce(&mut state, alias, &a, Box::new(DeclineSlots)));
+    assert!(stood, "{alias} stood");
+    state
+}
+
+fn assert_compared_clean(label_count: u64) {
+    let report = crate::dual::report();
+    let shown: String = format!("{:?}", report.differences).chars().take(1500).collect();
+    assert!(report.differences.is_empty(), "{} differences: {shown}", report.differences.len());
+    assert_eq!(windows("action_cards::announce"), (label_count, 0), "{:?}", report.windows);
+}
+
+/// Intercept: the other combatants of the active system may not retreat this combat round.
+#[test]
+fn intercept_bars_the_retreat_of_the_other_combatants_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let (a, b, c) = (PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c"));
+    let _ = crate::dual::take_report();
+    let mut state = question_position();
+    let sys = ti4_model::id::SystemId::new("33");
+    state.combat_round_seq = 3;
+    state.active_system = Some(sys.clone());
+    state.system_mut(&sys).units.push(unit("cruiser", &b));
+    let after = played(state.clone(), "intercept");
+    assert_eq!(after.player(&b).unwrap().retreat_barred_round, Some(3));
+    assert_eq!(after.player(&c).unwrap().retreat_barred_round, None, "c has no ship there");
+    assert_eq!(after.player(&a).unwrap().retreat_barred_round, None, "the holder is not barred");
+    // Not a combatant: the holder has no ship in the active system.
+    state.system_mut(&sys).units.retain(|u| u.owner != a);
+    let after = played(state, "intercept");
+    assert_eq!(after.player(&b).unwrap().retreat_barred_round, None);
+    assert_compared_clean(2);
+    let _ = crate::dual::take_report();
+}
+
+/// Bail: Intercept at a table with a Naaz or Nekro seat (units that fight from a planet are the combat rules').
+#[test]
+fn bail_intercept_at_a_table_with_a_nekro_seat_keeps_the_string_announcement() {
+    let _serial = crate::dual::tests::serial();
+    let _ = crate::dual::take_report();
+    let mut state = question_position();
+    state.players[2].faction = ti4_model::id::FactionId::new("nekro");
+    state.active_system = Some(ti4_model::id::SystemId::new("33"));
+    let _ = played(state, "intercept");
+    assert_eq!(windows("action_cards::announce"), (0, 1));
+    let _ = crate::dual::take_report();
+}
+
+/// Rescue: bring a ship from a system without the holder's token into the system another player activated.
+#[test]
+fn rescue_moves_a_ship_into_the_active_system_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+    let _ = crate::dual::take_report();
+    let mut state = question_position();
+    let (dest, from_a, from_b) = (ti4_model::id::SystemId::new("33"), ti4_model::id::SystemId::new("34"), ti4_model::id::SystemId::new("35"));
+    state.active = Some(b.clone());
+    state.active_system = Some(dest.clone());
+    for sys in [&dest, &from_a, &from_b] {
+        state.system_mut(sys).command_tokens.remove(&a);
+    }
+    let after = played(state.clone(), "rescue");
+    // Two origins: the question is asked and the last option (35) answers.
+    assert_eq!(after.system_state(&from_b).units.iter().filter(|u| u.owner == a).count(), 0);
+    assert_eq!(after.system_state(&dest).units.iter().filter(|u| u.owner == a).count(), 2);
+    assert_eq!(after.system_state(&from_a).units.iter().filter(|u| u.owner == a).count(), 1);
+    // One origin only (34 holds the holder's token): nothing is asked, the ship comes.
+    let mut one = state.clone();
+    one.system_mut(&from_a).command_tokens.insert(a.clone());
+    let after = played(one, "rescue");
+    assert_eq!(after.system_state(&dest).units.iter().filter(|u| u.owner == a).count(), 2);
+    // The holder has no ship in the active system: nothing to rescue into.
+    let mut empty = state.clone();
+    empty.active_system = Some(ti4_model::id::SystemId::new("36"));
+    let after = played(empty.clone(), "rescue");
+    assert_eq!(after.system_state(&from_b).units.iter().filter(|u| u.owner == a).count(), 1);
+    assert_eq!(after.system_state(&ti4_model::id::SystemId::new("36")).units.len(), empty.system_state(&ti4_model::id::SystemId::new("36")).units.len());
+    // The holder activated: the window is not theirs.
+    let mut own = state;
+    own.active = Some(a.clone());
+    let after = played(own.clone(), "rescue");
+    assert_eq!(serde_json::to_string(&after.system_state(&dest)).unwrap(), serde_json::to_string(&own.system_state(&dest)).unwrap());
+    assert_compared_clean(4);
+    let _ = crate::dual::take_report();
+}
+
+/// Fighter Conscription: a fighter in each system with a space dock or a ship with capacity and no foreign ship.
+#[test]
+fn fighter_conscription_places_fighters_where_a_dock_or_a_carrier_stands_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+    let _ = crate::dual::take_report();
+    let mut state = question_position();
+    // Carriers of the holder in 33 and 35, a foreign ship in 35 bars it.
+    state.system_mut(&ti4_model::id::SystemId::new("33")).units.push(unit("carrier", &a));
+    state.system_mut(&ti4_model::id::SystemId::new("35")).units.push(unit("carrier", &a));
+    state.system_mut(&ti4_model::id::SystemId::new("35")).units.push(unit("cruiser", &b));
+    let fighters = |s: &GameState, sys: &str| s.system_state(&ti4_model::id::SystemId::new(sys)).units.iter().filter(|u| u.owner == a && u.type_id.as_str() == "fighter").count();
+    let after = played(state.clone(), "f_conscription");
+    assert_eq!(fighters(&after, "33"), 1);
+    assert_eq!(fighters(&after, "35"), 0, "a foreign ship is there");
+    // The supply holds two fighters only (the cap is 10 of the plastic): the first system takes the last one.
+    let mut tight = state;
+    tight.system_mut(&ti4_model::id::SystemId::new("34")).units.extend((0..9).map(|_| unit("fighter", &a)));
+    tight.system_mut(&ti4_model::id::SystemId::new("34")).units.push(unit("carrier", &a));
+    let after = played(tight, "f_conscription");
+    assert_eq!(fighters(&after, "33"), 1, "the tenth fighter");
+    assert_eq!(fighters(&after, "34"), 9, "the supply is empty: no eleventh");
+    // A space dock alone is enough: a placed planet with the holder's dock, no ship in orbit.
+    let (system, planet) = crate::fixtures::a_placed_planet();
+    let mut docked = question_position();
+    crate::fixtures::put_on_planet(&mut docked, &system, &planet, "spacedock", &a, 1);
+    docked.system_mut(&system).units.retain(|u| u.owner != a);
+    let after = played(docked, "f_conscription");
+    assert_eq!(after.system_state(&system).units.iter().filter(|u| u.owner == a && u.type_id.as_str() == "fighter").count(), 1);
+    assert_compared_clean(3);
+    let _ = crate::dual::take_report();
+}
