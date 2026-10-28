@@ -827,6 +827,29 @@ pub fn offer_discard(gs: &mut GameState, alias: &str, prompt: &str, script: &Rec
     Some(CoreWindow { run: Run::new(driver.window.taken()), questions: driven.rendered })
 }
 
+const COVERT_DRAW: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Strategy, Slice::Objectives, Slice::Decks, Slice::Agenda, Slice::Pending],
+    &[Slice::Decks, Slice::Agenda],
+);
+
+/// The core half of `Game::draw_covert_agenda`: the outcomes of the face-down agenda. `None` while the string
+/// state carries a deck reserve (a turn-redo replay draws through it) or for a position the codecs refuse.
+#[must_use]
+pub fn covert_draw(gs: &mut GameState, sources: ti4_model::content_types::SourceSet, script: &Recording) -> Option<CoreWindow<Vec<String>>> {
+    use ti4_engine_core::rules::agenda::covert::CovertDraw;
+    if script.nested || gs.deck_reserve.is_some() {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let window = CovertDraw::new(crate::core_adapter::scope(sources), crate::laws::blanked(gs));
+    let before = gs.clone();
+    let kernel = crate::production_view::kernel();
+    let mut driver = Driver::new(window, Resolver::new(&[], None), AbilityTable::default(), 1);
+    let driven = with_core(gs, &mut cx, Sources::default(), COVERT_DRAW, |core, _| drive(&mut driver, core, kernel, &r, &before, script)).ok()?.ok()?;
+    let choices = driver.window.choices().iter().map(|o| cx.keys.render_outcome(*o)).collect::<Option<Vec<_>>>()?;
+    Some(CoreWindow { run: Run::new(choices), questions: driven.rendered })
+}
+
 /// The core half of `laws::repeal`. `None` for a law the core does not know or a position the codecs refuse.
 #[must_use]
 pub fn laws_repeal(gs: &mut GameState, alias: &str, script: &Recording) -> Option<CoreWindow<bool>> {

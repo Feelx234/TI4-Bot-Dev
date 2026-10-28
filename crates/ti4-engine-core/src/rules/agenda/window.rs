@@ -53,9 +53,9 @@ impl Facts {
 }
 
 /// The [`Env`] of the vote: the hook table and the commander ability, over the state.
-struct KernelEnv<'a> {
-    core: &'a CoreState,
-    kernel: &'a Kernel,
+pub(super) struct KernelEnv<'a> {
+    pub(super) core: &'a CoreState,
+    pub(super) kernel: &'a Kernel,
 }
 
 impl Env for KernelEnv<'_> {
