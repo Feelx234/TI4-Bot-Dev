@@ -16,6 +16,7 @@ pub mod abilities;
 pub mod agenda;
 pub mod combat;
 pub mod invasion;
+pub mod leader_windows;
 pub mod leaders;
 pub mod production;
 pub mod strategy;

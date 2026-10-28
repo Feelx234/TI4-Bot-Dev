@@ -267,6 +267,106 @@ pub fn unlockable(cx: &Cx<'_>, who: Seat) -> Leaders {
     out
 }
 
+// -- status writes (the mutation half) -----------------------------------------------------------
+
+/// Set a leader the player holds to `to` when `from` accepts its status; `false` otherwise.
+fn move_status(core: &mut CoreState, who: Seat, leader: Leader, from: impl Fn(LeaderStatus) -> bool, to: LeaderStatus) -> bool {
+    let Some(p) = core.players_mut().by_seat_mut(who) else { return false };
+    match p.leaders.status.get_mut(&leader) {
+        Some(status) if from(*status) => {
+            *status = to;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// `leaders::ready_all`: every exhausted leader of the player becomes readied; returns them in leader order.
+pub fn ready_all(core: &mut CoreState, who: Seat) -> Leaders {
+    let mut out = Leaders::new();
+    let Some(p) = core.players_mut().by_seat_mut(who) else { return out };
+    for leader in p.leaders.status.keys().collect::<Leaders>().as_slice() {
+        if p.leaders.status.get(leader) == Some(&LeaderStatus::Exhausted) {
+            p.leaders.status.insert(*leader, LeaderStatus::Readied);
+            out.push(*leader);
+        }
+    }
+    out
+}
+
+/// `leaders::ready`: ready one exhausted leader; `false` when it was not exhausted.
+pub fn ready(core: &mut CoreState, who: Seat, leader: Leader) -> bool {
+    move_status(core, who, leader, |s| s == LeaderStatus::Exhausted, LeaderStatus::Readied)
+}
+
+/// `leaders::exhaust`: exhaust a readied leader; `false` when it was not readied.
+pub fn exhaust(core: &mut CoreState, who: Seat, leader: Leader) -> bool {
+    move_status(core, who, leader, |s| s == LeaderStatus::Readied, LeaderStatus::Exhausted)
+}
+
+/// `leaders::purge`: purge a leader the player holds (permanent); `false` when it holds none such.
+pub fn purge(core: &mut CoreState, who: Seat, leader: Leader) -> bool {
+    move_status(core, who, leader, |_| true, LeaderStatus::Purged)
+}
+
+/// The write of `leaders::check_unlocks`: the given leaders become unlocked (the list is [`unlockable`]'s).
+pub fn unlock(core: &mut CoreState, who: Seat, leaders: &[Leader]) {
+    let Some(p) = core.players_mut().by_seat_mut(who) else { return };
+    for leader in leaders {
+        p.leaders.status.insert(*leader, LeaderStatus::Unlocked);
+    }
+}
+
+// -- the effects of leaders that ask nothing (`dispatch_leader` arms without a decision) -----------
+
+/// Evelyn DeLouis / Viscount Unlenn: one unit rolls an extra die this combat round (`unit` is the base type
+/// the caller resolved for the seat). Held as the round number, so it expires with the round.
+pub fn extra_die_agent(core: &mut CoreState, who: Seat, unit: Unit) -> bool {
+    let round = core.meta().combat_round_seq;
+    let Some(p) = core.players_mut().by_seat_mut(who) else { return false };
+    p.combat_timers.extra_die_round = crate::Opt32::some(round);
+    p.combat_timers.extra_die_unit = Some(unit);
+    true
+}
+
+/// Darktalon Treilla: fleet supply is unlimited until the end of this round; `false` when already active.
+pub fn activate_letnev_hero(core: &mut CoreState, who: Seat) -> bool {
+    let round = core.meta().round;
+    let Some(p) = core.players_mut().by_seat_mut(who) else { return false };
+    if p.production_timers.fleet_supply_unlimited_until.is(round) {
+        return false;
+    }
+    p.production_timers.fleet_supply_unlimited_until = crate::Opt32::some(round);
+    true
+}
+
+/// Hacan's hero: production of this sequence is free.
+pub fn activate_hacan_hero(core: &mut CoreState, who: Seat) -> bool {
+    let seq = core.meta().production_seq;
+    let Some(p) = core.players_mut().by_seat_mut(who) else { return false };
+    p.production_timers.free_production_use = crate::Opt32::some(seq);
+    true
+}
+
+/// `leaders::end_of_round`: Darktalon Treilla's effect ends with the round she was used in; she is purged.
+/// Returns the seats whose hero was purged.
+pub fn end_of_round(core: &mut CoreState) -> SmallList<Seat, 8> {
+    let round = core.meta().round;
+    let mut purged = SmallList::new();
+    let seats: SmallList<Seat, 8> = core.players().iter().map(|p| p.seat).collect();
+    for seat in seats.as_slice() {
+        let Some(p) = core.players_mut().by_seat_mut(*seat) else { continue };
+        if p.production_timers.fleet_supply_unlimited_until.is(round) {
+            p.production_timers.fleet_supply_unlimited_until = crate::Opt32::NONE;
+            if p.leaders.status.get(&Leader::DarktalonTreilla) == Some(&LeaderStatus::Unlocked) {
+                p.leaders.status.insert(Leader::DarktalonTreilla, LeaderStatus::Purged);
+                purged.push(*seat);
+            }
+        }
+    }
+    purged
+}
+
 /// The arms of `can_resolve_action` the core can decide itself; the rest is asked of the [`Env`].
 fn can_resolve_action(cx: &Cx<'_>, who: Seat, leader: Leader) -> bool {
     let core = cx.core;
@@ -375,5 +475,25 @@ mod tests {
         let cx = Cx { core: &core, scope: Scope(u32::MAX), blanked: false, env: &env };
         assert_eq!(commander_unlocked(&cx, Seat(0), Leader::DirzugaRophal), None);
         assert!(unlockable(&cx, Seat(0)).is_empty());
+    }
+
+    #[test]
+    fn status_writes_follow_the_string_rules() {
+        let mut core = core_with(&[
+            (Leader::LetaniOspha, LeaderStatus::Readied),
+            (Leader::DirzugaRophal, LeaderStatus::Locked),
+            (Leader::LetaniMiasmiala, LeaderStatus::Exhausted),
+        ]);
+        let me = Seat(0);
+        assert!(!ready(&mut core, me, Leader::LetaniOspha), "only an exhausted leader readies");
+        assert!(exhaust(&mut core, me, Leader::LetaniOspha));
+        assert!(!exhaust(&mut core, me, Leader::LetaniOspha), "only a readied leader exhausts");
+        assert_eq!(ready_all(&mut core, me).as_slice().len(), 2);
+        assert_eq!(status(&core, me, Leader::LetaniMiasmiala), Some(LeaderStatus::Readied));
+        assert!(!purge(&mut core, Seat(1), Leader::LetaniOspha));
+        assert!(purge(&mut core, me, Leader::DirzugaRophal));
+        assert_eq!(status(&core, me, Leader::DirzugaRophal), Some(LeaderStatus::Purged));
+        unlock(&mut core, me, &[Leader::LetaniMiasmiala]);
+        assert_eq!(status(&core, me, Leader::LetaniMiasmiala), Some(LeaderStatus::Unlocked));
     }
 }
