@@ -1041,7 +1041,7 @@ impl Resolver {
         event: Event,
         resolve: impl FnOnce(&mut Event, &mut TimingContext<'_>),
     ) -> Result<Event, TimingError> {
-        crate::dual_window::note_resolver(|| self.core_cfg());
+        crate::dual_window::note_resolver(event.id, || self.core_cfg());
         let guard = crate::dual_window::enter_emit();
         let result = self.emit_with_context_inner_raw(context, event, resolve);
         crate::dual_window::leave_emit(guard, result.as_ref().ok());

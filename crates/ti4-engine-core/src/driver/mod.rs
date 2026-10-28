@@ -94,6 +94,7 @@ pub struct Driver<W: Window> {
     pub seeds: std::rc::Rc<dyn SeedSource>,
     tape: Tape,
     facts: Option<NestedFacts>,
+    unknown: Option<&'static str>,
     awaiting: Awaiting,
     finished: bool,
 }
@@ -121,6 +122,7 @@ impl<W: Window> Driver<W> {
             seeds: std::rc::Rc::new(NoSeeds),
             tape: Tape::default(),
             facts: None,
+            unknown: None,
             awaiting: Awaiting::Nothing,
             finished: false,
         }
@@ -181,6 +183,9 @@ impl<W: Window> Driver<W> {
             let snapshot = (s.clone(), self.window.clone(), self.resolver.checkpoint(), self.emitted.len(), self.opened.len(), self.next_id);
             self.tape.rewind();
             let outcome = self.once(s, k, &op);
+            if let Some(why) = self.tape.take_unknown() {
+                self.unknown.get_or_insert(why);
+            }
             let dry = self.tape.needed().cloned();
             if dry.is_some() || outcome.is_err() {
                 // Undo the run: a nested question found the tape dry (ask it), or the run failed (the
@@ -256,6 +261,13 @@ impl<W: Window> Driver<W> {
             }
         }
         Ok(flow)
+    }
+
+    /// A condition of the ability table the core could not answer (a documented bail of the rule it reads); the
+    /// run is not to be trusted.
+    #[must_use]
+    pub fn unknown(&self) -> Option<&'static str> {
+        self.unknown
     }
 
     /// What the nested question reported last was asked about (the event of its window, the relation, the

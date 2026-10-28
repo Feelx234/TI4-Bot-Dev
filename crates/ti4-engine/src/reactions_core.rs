@@ -20,15 +20,29 @@ use crate::kernel_sync::text::{ability_id, event_text, relation_text};
 use crate::render::Render;
 
 /// One ported ability rule, named: the registered id of an owner is `{kind}:{owner}:{card}:{EVENT}:{rel}`; the
-/// event and the relation are the spec's.
+/// event and the relation are the spec's. The reaction-card slots have no card segment.
 struct Named {
     slot: Slot,
     kind: &'static str,
     card: &'static str,
 }
 
-/// Every ported rule, in table order (the per-owner registration order of `reactions::arm`).
+/// The ported rules with a card key, in table order (the per-owner registration order of `reactions::arm`).
 const NAMED: &[Named] = &[Named { slot: ti4_engine_core::rules::reactions::INFANTRY_II_ROLLS, kind: "technology", card: "inf2" }];
+
+fn is_reaction_slot(slot: Slot) -> bool {
+    slot.0 >= ti4_engine_core::rules::action_cards::reaction_slot::SLOT_BASE
+}
+
+/// The registered id of `spec` for an owner called `owner`.
+fn id_text(r: &Render, spec: &Spec, owner: &str) -> String {
+    let (event, rel) = (event_text(r, spec.event), relation_text(spec.relation));
+    if is_reaction_slot(spec.slot) {
+        return format!("reaction:{owner}:{event}:{rel}");
+    }
+    let n = NAMED.iter().find(|n| n.slot == spec.slot).expect("every spec is named");
+    format!("{}:{owner}:{}:{event}:{rel}", n.kind, n.card)
+}
 
 /// The core table: every ported ability rule.
 #[must_use]
@@ -38,6 +52,9 @@ pub fn table() -> AbilityTable {
         .get_or_init(|| {
             let mut t = AbilityTable::default();
             t.bars = Some(ti4_engine_core::rules::agenda::political_secret_bars);
+            // The string order of `reactions::arm`, per owner: the reaction slots, then Instinct Training, I48S,
+            // Infantry II, Magen Defense, the factions.
+            ti4_engine_core::rules::action_cards::reaction_slot::register(&mut t);
             ti4_engine_core::rules::reactions::register(&mut t);
             t
         })
@@ -62,10 +79,17 @@ fn kind_text(kind: AbilityKind) -> &'static str {
     }
 }
 
-/// The slot of a registered string id (`kind:owner:card:EVENT:rel`), if the table has a rule for it.
+/// The slot of a registered string id (`kind:owner:card:EVENT:rel`, or `reaction:owner:EVENT:rel`), if the table
+/// has a rule for it.
 #[must_use]
 pub fn slot_of(id: &str) -> Option<Slot> {
     let parts: Vec<&str> = id.split(':').collect();
+    let r = Render::new(Vec::new());
+    if parts.len() == 4 && parts[0] == "reaction" {
+        let w = ti4_engine_core::rules::action_cards::reaction_slot::windows();
+        let at = w.iter().position(|(e, rel)| event_text(&r, *e) == parts[2] && relation_text(*rel) == parts[3])?;
+        return Some(Slot(ti4_engine_core::rules::action_cards::reaction_slot::SLOT_BASE + u16::try_from(at).ok()?));
+    }
     if parts.len() < 5 {
         return None;
     }
@@ -73,17 +97,8 @@ pub fn slot_of(id: &str) -> Option<Slot> {
     let (event, rel) = (rest[rest.len() - 2], rest[rest.len() - 1]);
     let card = rest[..rest.len() - 2].join(":");
     let named = NAMED.iter().find(|n| n.kind == kind && n.card == card)?;
-    let spec_event_rel = specs().into_iter().find(|s| s.slot == named.slot)?;
-    let ok = event_name(&spec_event_rel) == event && relation_name(&spec_event_rel) == rel;
-    ok.then_some(named.slot)
-}
-
-fn event_name(s: &Spec) -> String {
-    event_text(&Render::new(Vec::new()), s.event)
-}
-
-fn relation_name(s: &Spec) -> &'static str {
-    relation_text(s.relation)
+    let spec = specs().into_iter().find(|s| s.slot == named.slot)?;
+    (event_text(&r, spec.event) == event && relation_text(spec.relation) == rel).then_some(named.slot)
 }
 
 impl Recording {
@@ -95,7 +110,9 @@ impl Recording {
             return Some("nested outside an ability".to_owned());
         }
         for id in &self.eligible {
-            if slot_of(id).is_some_and(|s| table.of_slot(s).is_some()) {
+            let known = slot_of(id).and_then(|s| table.of_slot(s));
+            let ran = self.effects.iter().any(|e| e == id);
+            if known.is_some_and(|spec| spec.effect_ported || !ran) {
                 continue;
             }
             let mut parts: Vec<&str> = id.split(':').collect();
@@ -168,18 +185,7 @@ impl Follow {
     pub fn arm(&mut self, r: &Render, gs: &GameState, core: &CoreState) {
         let order: Vec<Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(Seat)).collect();
         let owner_name = |who: Seat| crate::promissory::faction_name(gs, &ti4_model::id::PlayerId::new(r.seat_text(who)));
-        let mut name = |spec: &Spec, who: Seat| -> AbilityId {
-            let n = NAMED.iter().find(|n| n.slot == spec.slot).expect("every spec is named");
-            let text = format!(
-                "{}:{}:{}:{}:{}",
-                n.kind,
-                owner_name(who),
-                n.card,
-                event_text(r, spec.event),
-                relation_text(spec.relation)
-            );
-            ability_id(r, &text)
-        };
+        let mut name = |spec: &Spec, who: Seat| -> AbilityId { ability_id(r, &id_text(r, spec, &owner_name(who))) };
         let defs = self.table.registry(core, &order, &mut name);
         self.resolver.register(defs);
     }

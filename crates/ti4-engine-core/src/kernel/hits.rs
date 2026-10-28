@@ -3,7 +3,7 @@
 //! `HITS_TO_ASSIGN`).
 //!
 //! A card played in the window (Titans' Tellurian, Shields Holding) grants cancellations to the victim for the
-//! current combat round (`Player.combat_timers.cancel_hits_round`, scoped to `meta.combat_round_seq`). Only the
+//! current combat round (`Player.card_timers.cancel_hits_round`, scoped to `meta.combat_round_seq`). Only the
 //! growth of the pool while the event resolves is spent by the window, capped at the hits of the batch; an
 //! older grant stays for the assignment that spends it.
 
@@ -17,7 +17,7 @@ use crate::state::{CoreState, EventKind, Payload};
 pub fn cancellable(s: &CoreState, who: Seat) -> u32 {
     s.players()
         .by_seat(who)
-        .and_then(|p| p.combat_timers.cancel_hits_round)
+        .and_then(|p| p.card_timers.cancel_hits_round)
         .filter(|(round, _)| *round == s.meta().combat_round_seq)
         .map_or(0, |(_, hits)| hits)
 }
@@ -27,7 +27,7 @@ pub fn grant(s: &mut CoreState, who: Seat, hits: u32) {
     let round = s.meta().combat_round_seq;
     let held = cancellable(s, who);
     if let Some(p) = s.players_mut().by_seat_mut(who) {
-        p.combat_timers.cancel_hits_round = Some((round, held + hits));
+        p.card_timers.cancel_hits_round = Some((round, held + hits));
     }
 }
 
@@ -38,7 +38,7 @@ pub fn spend(s: &mut CoreState, who: Seat, wanted: u32) -> u32 {
     if spent > 0 {
         let round = s.meta().combat_round_seq;
         if let Some(p) = s.players_mut().by_seat_mut(who) {
-            p.combat_timers.cancel_hits_round = Some((round, available - spent));
+            p.card_timers.cancel_hits_round = Some((round, available - spent));
         }
     }
     spent

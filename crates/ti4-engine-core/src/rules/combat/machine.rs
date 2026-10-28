@@ -227,7 +227,7 @@ impl Machine {
     pub fn retreats(&self, s: &CoreState, k: &Kernel, seat: Seat) -> Vec<System> {
         let side = self.side(seat);
         // Intercept bars a retreat for one round: read as the rounds go by.
-        let barred = s.players().by_seat(seat).is_some_and(|p| p.combat_timers.retreat_barred_round.is(s.meta().combat_round_seq));
+        let barred = s.players().by_seat(seat).is_some_and(|p| p.card_timers.retreat_barred_round.is(s.meta().combat_round_seq));
         if !self.env.may_retreat[side] || barred {
             return Vec::new();
         }
@@ -290,7 +290,7 @@ impl Machine {
                     sustainers = !sustain_candidates(rd, front.player, env.system, true, false, env.staging).is_empty();
                     let producer_picks = front.producer_assigns && *assigning;
                     if front.hits > 0 && front_alive > 0 {
-                        let cancel = sx.state.players().by_seat(front.player).and_then(|p| p.combat_timers.cancel_hits_round);
+                        let cancel = sx.state.players().by_seat(front.player).and_then(|p| p.card_timers.cancel_hits_round);
                         let cancelled = cancel.is_some_and(|(r, h)| r == sx.state.meta().combat_round_seq && h > 0);
                         if cancelled || (super::is_neutral(sx.state, front.player) && !producer_picks) {
                             return None;
@@ -378,7 +378,7 @@ impl Machine {
         if front.hits == 0 || ships_of(rd, front.player, env_system).is_empty() {
             return false;
         }
-        let cancelled = sx.state.players().by_seat(front.player).and_then(|p| p.combat_timers.cancel_hits_round).is_some_and(|(r, h)| r == sx.state.meta().combat_round_seq && h > 0);
+        let cancelled = sx.state.players().by_seat(front.player).and_then(|p| p.card_timers.cancel_hits_round).is_some_and(|(r, h)| r == sx.state.meta().combat_round_seq && h > 0);
         let targets = hit_targets(rd, front.player, env_system, false, front.non_fighters_only);
         let [only] = targets.as_slice() else { return false };
         if cancelled || super::is_neutral(sx.state, front.player) {
@@ -793,7 +793,7 @@ impl Machine {
                     return None;
                 }
                 let forced = *asking == env.attacker
-                    && s.players().by_seat(env.defender).is_some_and(|p| p.combat_timers.rout_round.is(s.meta().combat_round_seq));
+                    && s.players().by_seat(env.defender).is_some_and(|p| p.card_timers.rout_round.is(s.meta().combat_round_seq));
                 let opts: Opts = if forced { [Opt::Combat(COpt::Announce)].into_iter().collect() } else { [Opt::Combat(COpt::Stay), Opt::Combat(COpt::Announce)].into_iter().collect() };
                 Some(Choice {
                     actor: *asking,

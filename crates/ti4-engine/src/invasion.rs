@@ -6677,6 +6677,69 @@ mod tests {
         let _ = take_report();
     }
 
+    /// The standing reaction-card slot is in the core table (eligibility, the card list of the option, the label):
+    /// a defender holding Fire Team is asked after the ground rolls, declines, and the window that opened the
+    /// question is compared rather than bailed. Playing the card is not ported: that run is not followed.
+    #[test]
+    fn a_reaction_slot_that_is_declined_is_followed_by_the_core_window() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        let mut asked = 0;
+        with_mask(mask, || {
+            for seed in 1..=4_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                state.player_mut(&PlayerId::new("b")).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("fire_team")];
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 6);
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 5);
+                let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+                struct DeclineSlots(std::rc::Rc<std::cell::RefCell<Vec<Vec<String>>>>);
+                impl crate::choice::Decider for DeclineSlots {
+                    fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+                        self.0.borrow_mut().push(choice.ids().into_iter().map(String::from).collect());
+                        if choice.ids().iter().any(|id| id.starts_with("reaction:")) {
+                            return crate::choice::AlwaysDecline.choose(choice);
+                        }
+                        crate::choice::FirstOption.choose(choice)
+                    }
+                }
+                let mut table = Table::with_default(Box::new(DeclineSlots(seen.clone())));
+                let mut dice = Dice::new();
+                let mut rng = GameRng::new(seed);
+                let content = ContentStore::embedded();
+                let mut resolver = armed_resolver(&state, vec![PlayerId::new("a"), PlayerId::new("b")]);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut window = InvasionWindow::new(&mut state, content, POK, &mut dice, &mut rng, &PlayerId::new("a"), &system);
+                let mut ctx = Resolving {
+                    content,
+                    sources: POK,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                while !window.is_done() {
+                    window.drive(&mut state, &mut ctx).unwrap();
+                    while window.take_scoring_occurrence().is_some() {}
+                    window.settle(&mut state, &mut ctx);
+                }
+                drop(ctx);
+                asked += seen.borrow().iter().filter(|options| options.iter().any(|o| o.starts_with("reaction:"))).count();
+            }
+        });
+        let r = report();
+        assert!(asked > 0, "the slot was offered");
+        assert!(r.windows.keys().all(|k| !k.contains("unported ability reaction:")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
     use ti4_model::content_types::DEFAULT as ALL_SOURCES;
     use ti4_model::content_types::POK;
 

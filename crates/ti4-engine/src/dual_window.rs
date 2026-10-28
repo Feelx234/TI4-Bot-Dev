@@ -82,6 +82,8 @@ pub struct Recording {
     pub foreign: bool,
     /// The resolver as the window's first emission found it.
     pub cfg: Option<ResolverCfg>,
+    /// The trace id of the first event the window emitted (the core numbers its own from there).
+    pub first_event_id: Option<u64>,
     effect_depth: u32,
     in_pick: u32,
     /// The emission depth the window started at: a window may itself run inside an emission (an ability's
@@ -241,11 +243,12 @@ pub fn note_dice(roll: &crate::dice::Roll) {
 }
 
 /// The first emission of the recording reads the resolver's configuration (`make` is called once).
-pub fn note_resolver(make: impl FnOnce() -> ResolverCfg) {
+pub fn note_resolver(first_event_id: u64, make: impl FnOnce() -> ResolverCfg) {
     REC.with(|r| {
         if let Some(rec) = r.borrow_mut().as_mut() {
             if rec.cfg.is_none() {
                 rec.cfg = Some(make());
+                rec.first_event_id = Some(first_event_id);
             }
         }
     });
@@ -411,6 +414,9 @@ pub fn drive_with<W: Window>(
             fol.arm(r, gs, core);
             driver.resolver = fol.resolver;
             driver.table = fol.table;
+            if let Some(id) = script.first_event_id {
+                driver.next_id = id;
+            }
         }
         Ok(None) => {}
         Err(why) => {
@@ -420,6 +426,10 @@ pub fn drive_with<W: Window>(
     }
     let mut status = driver.run(core, kernel)?;
     loop {
+        if let Some(why) = driver.unknown() {
+            crate::dual::note_bail(LABEL.with(Cell::get), &format!("nested ({why})"));
+            return Err(DriverError::NotAsking);
+        }
         match status {
             Status::Done => {
                 out.finished = true;
@@ -432,7 +442,7 @@ pub fn drive_with<W: Window>(
                 let mut rendered = typed.rendered;
                 complete(&choice, core, &mut rendered);
                 if let Some(facts) = driver.nested_facts() {
-                    complete_nested(r, &choice, facts, gs, &mut rendered);
+                    complete_nested(r, &choice, facts, gs, core, kernel, &mut rendered);
                 }
                 out.rendered.push(rendered);
                 let Some(id) = script.questions.get(out.questions.len() - 1).and_then(|q| q.answer.clone()) else {
@@ -516,7 +526,15 @@ pub(crate) fn nested_fp(base: Footprint, script: &Recording) -> Footprint {
 /// The display facts of a question asked inside an emission (a reaction window's pick, an ability's question):
 /// the trigger of its window, the `active` detail of a pick, the battle or invasion the position is in. What
 /// the string builds from the event in hand and `TimingContext::ask_seeing`.
-fn complete_nested(r: &Render, choice: &CoreChoice, facts: &ti4_engine_core::kernel::NestedFacts, gs: &GameState, rendered: &mut Choice) {
+fn complete_nested(
+    r: &Render,
+    choice: &CoreChoice,
+    facts: &ti4_engine_core::kernel::NestedFacts,
+    gs: &GameState,
+    core: &CoreState,
+    kernel: &Kernel,
+    rendered: &mut Choice,
+) {
     if let Some(ctx) = rendered.context.take() {
         let trigger = crate::kernel_sync::convert::trigger_text(
             r,
@@ -524,11 +542,57 @@ fn complete_nested(r: &Render, choice: &CoreChoice, facts: &ti4_engine_core::ker
         );
         rendered.context = Some(ctx.with_trigger(trigger).about_battle(gs).about_invasion(gs));
     }
+    if matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(_)) {
+        slot_options(r, choice, facts, core, kernel, rendered);
+    }
     if matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(_)) && gs.phase == ti4_model::state::Phase::Action {
         if let Some(active) = &gs.active {
             rendered.details.insert(crate::timing::ACTIVE_DETAIL.to_owned(), active.to_string().into());
         }
     }
+}
+
+/// The options of a reaction window that are the standing card slot show what the seat could play: the label
+/// ("Play X", "Choose an action card…") and the card payload (`reaction_card_options` and `pick_with_context`).
+fn slot_options(
+    r: &Render,
+    choice: &CoreChoice,
+    facts: &ti4_engine_core::kernel::NestedFacts,
+    core: &CoreState,
+    kernel: &Kernel,
+    rendered: &mut Choice,
+) {
+    use ti4_engine_core::choice::reaction::{AbilityKind, Opt as ROpt};
+    let content = ti4_content::ContentStore::embedded();
+    for (i, o) in choice.opts.iter().enumerate() {
+        let ti4_engine_core::choice::Opt::Reaction(ROpt::Ability(id)) = o else { continue };
+        if id.kind != AbilityKind::Reaction {
+            continue;
+        }
+        let barred = ti4_engine_core::rules::agenda::political_secret_bars(core, choice.actor);
+        let Ok(cards) = ti4_engine_core::rules::action_cards::reaction_slot::playable(core, kernel, barred, choice.actor, &facts.event, facts.relation) else {
+            continue;
+        };
+        let name_of = |c: &ti4_engine_core::generated::ActionCard| crate::action_cards::name_of(content, &ti4_model::id::ActionCardId::new(c.as_str()));
+        let mut names: Vec<String> = Vec::new();
+        for c in cards.as_slice() {
+            let n = name_of(c);
+            if !names.contains(&n) {
+                names.push(n);
+            }
+        }
+        let Some(option) = rendered.options.get_mut(i) else { continue };
+        option.payload.insert("card_names".to_owned(), serde_json::json!(names));
+        if let Some(first) = cards.as_slice().first().filter(|f| cards.as_slice().iter().all(|c| name_of(c) == name_of(f))) {
+            let name = name_of(first);
+            option.label = format!("Play {name}");
+            option.payload.insert("card".to_owned(), first.as_str().into());
+            option.payload.insert("card_name".to_owned(), name.into());
+        } else if cards.len() > 1 {
+            option.label = "Choose an action card…".to_owned();
+        }
+    }
+    let _ = r;
 }
 
 /// The tables a core half needs, for one position. `None`: more than 16 owners.

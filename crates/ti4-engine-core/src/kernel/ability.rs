@@ -62,6 +62,20 @@ pub struct CondCx<'a> {
     pub def: &'a AbilityDef,
     pub event: &'a EventRec,
     pub resolver: &'a Resolver,
+    /// Political Secret bars this seat's faction abilities and action cards (`AbilityTable::bars`).
+    pub barred: bool,
+    unknown: &'a std::cell::Cell<Option<&'static str>>,
+}
+
+impl CondCx<'_> {
+    /// The condition cannot be answered by the core (a documented bail of the rule it reads): the answer given
+    /// stands for nothing, and the driver reports `why` (the dual falls back to the string run).
+    pub fn unknown(&self, why: &'static str) -> bool {
+        if self.unknown.get().is_none() {
+            self.unknown.set(Some(why));
+        }
+        false
+    }
 }
 
 /// A rule-specific eligibility (`Host::condition`).
@@ -84,6 +98,15 @@ pub struct Spec {
     pub repeatable: bool,
     pub condition: Option<Condition>,
     pub effect: Effect,
+    /// The effect is the core's. `false`: only the eligibility is (the offer is rendered and a decline is
+    /// followed); a run in which the string took the ability is not followed.
+    pub effect_ported: bool,
+}
+
+/// The effect of a spec whose eligibility only is ported.
+#[allow(clippy::unnecessary_wraps)]
+pub fn no_effect(_: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    Ok(())
 }
 
 impl Spec {
@@ -101,7 +124,17 @@ impl Spec {
             repeatable: false,
             condition: None,
             effect,
+            effect_ported: true,
         }
+    }
+
+    /// An ability whose eligibility is ported and whose effect is not (yet): it can be offered and declined.
+    #[must_use]
+    pub const fn eligibility_only(slot: Slot, kind: AbilityKind, event: EventKind, relation: Relation, condition: Condition) -> Self {
+        let mut s = Self::new(slot, kind, event, relation, no_effect);
+        s.condition = Some(condition);
+        s.effect_ported = false;
+        s
     }
 
     #[must_use]
@@ -240,12 +273,19 @@ pub struct Tape {
     used: usize,
     needed: Option<Choice>,
     facts: Option<NestedFacts>,
+    /// A condition the core could not answer (`CondCx::unknown`); survives the rewind of a re-run.
+    pub unknown: std::cell::Cell<Option<&'static str>>,
 }
 
 impl Tape {
     pub fn clear(&mut self) {
         self.answers.clear();
         self.rewind();
+    }
+
+    /// The reason a condition could not be answered since the last call, if any.
+    pub fn take_unknown(&self) -> Option<&'static str> {
+        self.unknown.take()
     }
 
     /// Start reading from the first answer again (a re-run of the step).
@@ -281,8 +321,9 @@ impl Tape {
             self.needed = Some(choice.clone());
             self.facts = facts;
         }
-        // The run is rolled back; any option lets it finish.
-        choice.pick(0).unwrap_or(Pick::Opt(crate::choice::Opt::Decline))
+        // The run is rolled back; an option that ends the question lets it finish: the decline when there is one
+        // (a repeatable, unlimited ability that is picked again and again would never end the window).
+        choice.decline_index().and_then(|i| choice.pick(i)).or_else(|| choice.pick(0)).unwrap_or(Pick::Opt(crate::choice::Opt::Decline))
     }
 }
 
@@ -315,7 +356,10 @@ impl Host for RulesHost<'_> {
 
     fn condition(&mut self, ability: &AbilityDef, event: &EventRec, resolver: &Resolver) -> bool {
         match self.table.of(ability).and_then(|a| a.condition) {
-            Some(c) => c(&CondCx { state: self.state, kernel: self.kernel, def: ability, event, resolver }),
+            Some(c) => {
+                let barred = self.table.bars.is_some_and(|f| f(self.state, ability.owner));
+                c(&CondCx { state: self.state, kernel: self.kernel, def: ability, event, resolver, barred, unknown: &self.tape.unknown })
+            }
             None => true,
         }
     }

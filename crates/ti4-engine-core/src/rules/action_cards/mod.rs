@@ -5,6 +5,7 @@
 //! [`has_legal_target`]). No `Env` trait: the faction answers are plain arguments.
 
 pub mod effects;
+pub mod reaction_slot;
 
 use crate::generated::{ActionCard, System, Unit, UnitBaseType};
 use crate::query::board;
