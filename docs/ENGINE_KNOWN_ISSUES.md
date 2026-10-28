@@ -42,7 +42,7 @@ given are from the package reports.
   - B6-bail-03: `reaction_can_matter` answers `None` for Harness Energy and Infiltrate.
   - B6-bail-04: `own_hand_choice` answers `None` for an unknown (subtype, prompt) pair; the string question stands.
   - B6-bail-05: Industrial Initiative, Intercept, Parley, Direct Hit, Scramble and the other effects that stage events, need a combatants read, a dice roll or a unit-form flip are still string (event staging outside a window has no adapter path yet).
-- **Others**: B4 offer/diplomacy remainder; B5 mutations; B8/A4 mutation halves (B7 see its own section); A4 scoring/reveal not ported; S8 partial (only reaction slots as data).
+- **Others**: B4 offer/diplomacy remainder; B5 (mutation half partly ported, see the B5 section below); B8/A4 mutation halves (B7 see its own section); A4 scoring/reveal not ported; S8 partial (only reaction slots as data).
 
 ## D. Design / known issues
 
@@ -61,7 +61,7 @@ given are from the package reports.
 | D11 | `state_size.sh` needs a release binary | build first |
 | D12 | `gate` cargo profile exists only on branch `build-speed`; `string-disentangle` uses env vars | unify when merging (`docs/ENGINE_BUILD_SPEED.md`) |
 | B2-K4 | open design: 82 nested-reaction bails in `ground_round_hits` | needs the reaction/ability port |
-| B2-K5 | open design: the `FinalizingControl`/`finish_control_gain` hook chain, the rest of `finish_committing`, the setup/end hooks and the scoring pauses are still string | B5 exploration, technology and the ability port |
+| B2-K5 | open design (B5 split the exploration tail into `control_gain_fracture_relic`/`control_gain_exploration`, see B5-bail-05): the `FinalizingControl`/`finish_control_gain` hook chain, the rest of `finish_committing`, the setup/end hooks and the scoring pauses are still string | B5 exploration, technology and the ability port |
 | B2-K8 | bench-v1 seed 25 (`selfplay replay --seed 25 --players 6 --map 6pStandard --factions mentak,yin,nekro,mahact,ghost,letnev --speaker random --rules-version 11 --bot bot_version=1`) differed under `invasion=core` (hash 285d9162e1f792f0 instead of f1347a5256c63ade). Cause: Nekro Mordred's +2 was counted twice, by the native Nekro row and by the combat kernel's string bridge (ground rolled on 2 instead of 4; space combat had the same double count). FIXED on `core-b2-invasion` in d3c9316e (`core_combat.rs` bridge no longer adds it), with a regression test. | `dual` had not flagged it |
 
 ## B6 copied behaviour and design lines
@@ -115,6 +115,28 @@ Branch `core-b1-combat`. Ported: the composed space-combat `Machine` (`rules/com
 | B1g-9 | design: `Ask::CancelHit.window` marks the sustain question of the combat window itself (space sustainers named `sustain|3`, `ShipsInSystem` previews) against the absorb path's (`sustain|space:3`, no previews): two string spellings of one core question; unify when the string absorb path is ported |
 | B1g-10 | design: option previews are `serde(skip)`, so `compare_choice` never sees them; the answering mode of `settle_run` compares them itself (`combat::answer.previews`). Other windows' previews are still uncompared (the core renders none for them) |
 | B1g-11 | design: the assign question's option ids index the owner's whole ship list (`casualty_candidates`), not the filtered list the `AssignHits` window of `assign_remaining` uses; the two differ when a hit is bound to non-fighters |
+
+## B5 bails, copied behaviour and design lines (explore/relics, branch `core-b5-explore-relics`)
+
+Ported in the mutation half: `rules::explore` (draw, fragment gain, purge for a relic, relic gain/exhaust/purge, attachment, frontier and gamma tokens, ion storm token, Crown point), `rules::explore_windows` (deck choice, Distant Suns, Ion Storm, reward questions, Dominus Orb offer, Crown choice). Adapter: `explore_write.rs`; render: `render/explore.rs`, `render/relic.rs`. Lockstep tests: `explore_write::tests`, `exploration::window_tests`, `relics::relic_window_tests`.
+
+| id | note |
+|----|------|
+| B5-bail-01 | writes (`explore_write`) bail to the string write on: a deck reserve (turn redo draws through `deck_reserve`), more than 16 owners, a trait/deck/attachment/relic/planet/system id the tables do not know, a value the codecs refuse |
+| B5-bail-02 | windows bail when the question is asked inside a space battle or an invasion (the string context carries `space_battle`/`invasion_seq`; the exploration after an invasion capture, i.e. most golden-game exploration, is therefore not compared), with diplomacy on, inside a nested emission, or when the string side got no answer yet (unwound) |
+| B5-bail-03 | the reward questions of the instant cards (Abandoned Warehouses, Merchant Station, Functioning Base, Local Fabricators, Mercenary Outfit) are core windows, but their option list (it depends on holdings and on rules-version gates) and the effect behind the answer (commodities, trade goods, action card, mech/infantry placement, production) stay string; the Distant Suns hook (`explore_extra_draw`) that decides the window applies is string |
+| B5-bail-04 | not ported (string only): `explore_drawn`/`explore_in` (log record with outcome/result/gains/placed strings, `Holdings`), `resolve_instant` effects (command tokens, `mirage`, `frln*`, `dv*`, `lc*`, `dw`, `cm*`, `exp*`, `vfs*`, `ed*`), `demilitarize`, `explore_frontier` flow, `place_on_planet`; relics: `use_relic` and its questions (Enigmatic Device, Codex, Silver Flame, Titan prototype, Stellar Converter, Neuraloop), the Crown's exploring after the choice; the status-phase relic readying (`status.rs`), Heart of Ixth exhaust (`combat.rs`), legendary exhaust |
+| B5-bail-05 | invasion `finish_control_gain` chain (B2-K5): only split into named steps (`control_gain_fracture_relic`, `control_gain_exploration`); the hooks (Assimilate, `control_gained` emissions, technology AFTER windows, Infiltrate) are string. The exploration step ends in `choose_deck` (core window) and `explore_with` (string) |
+| B5-copy-01 | `purge_for_relic` logs the relic with 0 victory points even if it is the Shard (only `relics::gain` scores it); core copies this |
+| B5-copy-02 | `purge_for_relic` for the FRONTIER trait takes matching and shortfall from the same pile and can leave a negative count; core copies it with signed counts (`purgeable` never offers FRONTIER) |
+| B5-copy-03 | the Shard / Crown point ledger row carries the applied amount (0 at the victory target) while `relic_log` records 1 point; core copies both |
+| B5-copy-04 | the Crown of Emphidia offers every controlled planet with a printed type; every planet has one (`Mr`, `Fake`, `Faction`, `Spacestation` included), so Mecatol and station planets are offered; the core filter `!traits.is_empty()` is an equivalent mutant of the string filter |
+| B5-design-01 | `dual::write` (dual.rs) is the shared `dual_write`; B7's local `leaders::dual_write` delegates to it |
+| B5-design-02 | `choice::generic::Content::Step` is new: the "card" of a string exploration question that is no card (`exploration`, `ion_storm`, ...). Strings live in `render/explore.rs`; the foundation steward should confirm the variant |
+| B5-design-03 | `core_sync::conv` is `pub(crate)` now (text<->`ExploreType` for the adapter and the renderer) |
+| B5-design-04 | `exploration::choose_deck` takes `&GameState`; on the Dual backend the windowed ask runs on a clone of the state (no clone on the other backends) |
+| B5-design-05 | `explore_write::lend` bails on `gs.deck_reserve` itself: the Decks slice codec does not look at it (the Cards codec does) |
+| B5-design-06 | tests need real faction ids (see B6-design-02) and a `ti4-engine/tests/content_ids_resolve.rs`-clean spelling of unknown ids (build them, do not write them as literals) |
 
 ## E. Process / ops notes
 
