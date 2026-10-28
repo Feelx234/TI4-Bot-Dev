@@ -192,3 +192,69 @@ impl Window for FightRound {
         Err(Illegal)
     }
 }
+
+/// The question "start another ground combat on {planet}?" (coexistence 12) of the winner `invader`, against the
+/// first of the coexisters still standing, `next`. "Leave" ends the chain (the planet is done); "fight" removes
+/// the coexister from the coexisting set and starts the combat (`GROUND_COMBAT_STARTED`), which is the string
+/// side's: the window refuses it and the adapter only compares the question.
+#[derive(Debug, Clone, Copy)]
+pub struct NextCombat {
+    pub invader: Seat,
+    pub system: System,
+    pub planet: Planet,
+    pub next: Seat,
+    stage: Stage,
+}
+
+impl NextCombat {
+    #[must_use]
+    pub const fn new(invader: Seat, system: System, planet: Planet, next: Seat) -> Self {
+        Self { invader, system, planet, next, stage: Stage::Checking }
+    }
+
+    /// The question, which reads nothing from the state.
+    #[must_use]
+    pub fn question(&self) -> Choice {
+        let mut opts = Opts::default();
+        opts.push(Opt::Invasion(IOpt::FightNext { next: self.next }));
+        opts.push(Opt::Invasion(IOpt::LeaveCoexisting { next: self.next }));
+        Choice {
+            actor: self.invader,
+            ask: Ask::Invasion(IAsk::StartNextCombat { system: self.system, planet: self.planet, next: self.next }),
+            ctx: ctx(ISub::StartNextGroundCombat, Origin::Rule(Rule::Coexistence), Target::Planet { system: self.system, planet: self.planet }),
+            opts,
+        }
+    }
+}
+
+impl Window for NextCombat {
+    type Stage = Stage;
+
+    fn stage(&self) -> Stage {
+        self.stage
+    }
+
+    fn step(&mut self, _sx: &mut Sx<'_>) -> Next {
+        if self.stage == Stage::Checking {
+            self.stage = Stage::Asking;
+        }
+        match self.stage {
+            Stage::Asking => Next::Continue(Ask::Invasion(IAsk::StartNextCombat { system: self.system, planet: self.planet, next: self.next })),
+            Stage::Checking | Stage::Done => Next::Done,
+        }
+    }
+
+    fn ask_of(&self, _s: &CoreState, _k: &Kernel) -> Option<Choice> {
+        (self.stage == Stage::Asking).then(|| self.question())
+    }
+
+    fn answer(&mut self, _sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        match pick {
+            Pick::Opt(Opt::Invasion(IOpt::LeaveCoexisting { .. })) if self.stage == Stage::Asking => {
+                self.stage = Stage::Done;
+                Ok(())
+            }
+            _ => Err(Illegal),
+        }
+    }
+}

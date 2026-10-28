@@ -846,3 +846,23 @@ pub fn land_one(
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     Some(CoreWindow { run: Run::new(()).with_events_vec(events), questions: driven.rendered })
 }
+
+/// The question of the `ChoosingNextCombat` stage as the core `NextCombat` window puts it, for
+/// `InvasionWindow::ask_next_combat`'s dual. `None`: an id the tables do not know.
+#[must_use]
+pub fn next_combat_ask(
+    gs: &GameState,
+    invader: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    planet: &ti4_model::id::PlanetId,
+    next: &PlayerId,
+) -> Option<Choice> {
+    use ti4_engine_core::rules::invasion::stages::NextCombat;
+    let (_cx, r) = tables(gs)?;
+    let (seat, next) = (r.seat(invader.as_str())?, r.seat(next.as_str())?);
+    let sys = <ti4_engine_core::generated::System as IdStr>::from_id(system.as_str())?;
+    let pl = <ti4_engine_core::generated::Planet as IdStr>::from_id(planet.as_str())?;
+    let choice = NextCombat::new(seat, sys, pl, next).question();
+    let (phase, round) = (render::generic::core_phase(gs.phase), gs.round);
+    Some(Typed::new(&r, choice, phase, round).rendered)
+}

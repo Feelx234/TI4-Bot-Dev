@@ -4,6 +4,7 @@
 //! (LRR 49.2). The adapter side is `ti4-engine/src/render/invasion.rs`.
 
 use crate::generated::{Planet, System, Unit};
+use crate::ids::Seat;
 
 /// What the area asks. Parameters only; the option list is derived by `opts(state, ask)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -20,6 +21,9 @@ pub enum Ask {
     RemoveCustodians { system: System, cost: u8 },
     /// "fight a round on {planet}": the single option that rolls one round of the ground combat (42).
     FightRound { system: System, planet: Planet },
+    /// "start another ground combat on {planet}": the winner of a combat on a coexisting planet may fight the
+    /// next coexister `next` (coexistence 12) or leave them coexisting.
+    StartNextCombat { system: System, planet: Planet, next: Seat },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -37,6 +41,10 @@ pub enum Opt {
     RemoveCustodians,
     /// Roll one round of the ground combat on the planet.
     FightRound { planet: Planet },
+    /// Start a ground combat against `next`.
+    FightNext { next: Seat },
+    /// Leave `next` coexisting (and end the chain).
+    LeaveCoexisting { next: Seat },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -46,4 +54,5 @@ pub enum Subtype {
     AssignGroundCasualty,
     RemoveCustodians,
     FightGroundCombatRound,
+    StartNextGroundCombat,
 }

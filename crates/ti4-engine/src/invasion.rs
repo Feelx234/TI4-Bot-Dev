@@ -4737,8 +4737,7 @@ impl InvasionWindow {
         remaining: &[PlayerId],
     ) -> Option<Choice> {
         let next = remaining.first()?;
-        Some(
-            Choice::new(
+        let choice = Choice::new(
                 self.invader.clone(),
                 format!("start another ground combat on {planet}"),
                 vec![
@@ -4766,8 +4765,15 @@ impl InvasionWindow {
                     system: self.system.clone(),
                     planet: planet.clone(),
                 }),
-            ),
-        )
+            );
+        // On `invasion=dual` the core `NextCombat` window puts the same question.
+        #[cfg(feature = "typed-core")]
+        if crate::dual::backend(crate::dual::Area::Invasion) == crate::dual::Backend::Dual {
+            crate::dual::run_dual_ask(crate::dual::Area::Invasion, "invasion::next_combat_ask", Some(&choice), || {
+                crate::dual_window::next_combat_ask(state, &self.invader, &self.system, planet, next)
+            });
+        }
+        Some(choice)
     }
 
     /// 27.2: the custodians offer; falls through to the commit question when it does not apply.
@@ -9749,6 +9755,33 @@ mod ground_routes {
         let r = report();
         let w = r.windows.get("invasion::commit_one").copied().unwrap_or_default();
         assert!(w.compared >= 2, "both landings are compared: {:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    #[test]
+    fn the_next_combat_question_is_put_by_the_core_window_in_lockstep() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual);
+        with_mask(mask, || {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "letnev")], POK);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            let (system, planet) = ti4_content::galaxy::all_planets(ContentStore::embedded(), POK)
+                .iter()
+                .find(|(_, p)| p.system_id().is_some() && !p.is_placed_during_play())
+                .map(|(id, p)| (SystemId::new(p.system_id().unwrap()), PlanetId::new(*id)))
+                .expect("a placed planet");
+            let mut window = InvasionWindow::at_commit_step(&mut state, &a(), &system);
+            window.stage = Stage::ChoosingNextCombat { planets: vec![planet.clone()], index: 0, planet: planet.clone(), remaining: vec![b()] };
+            let choice = window.pending_choice(&state, ContentStore::embedded(), POK).expect("asked");
+            assert_eq!(choice.options.len(), 2);
+        });
+        let r = report();
+        let w = r.windows.get("invasion::next_combat_ask").copied().unwrap_or_default();
+        assert_eq!(w.compared, 1, "{:?}", r.windows);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }
