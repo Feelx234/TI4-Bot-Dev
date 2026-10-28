@@ -166,8 +166,12 @@ fi
 fi
 
 # 10 state size
-check state-size tools/engine_core/state_size.sh
-sed 's/^/     /' "$out/state-size.log" | head -8 | tee -a "$out/summary.txt"
+if [[ -x "$target/release/state_size" ]]; then
+  check state-size tools/engine_core/state_size.sh
+  sed 's/^/     /' "$out/state-size.log" | head -8 | tee -a "$out/summary.txt"
+else
+  note "skip state-size (no release state_size binary in $target; build it with cargo build --release -p ti4-engine-core-bridge --bins)"
+fi
 
 [[ $fail == 0 ]] && note "PACKAGE OK ($area)" || note "PACKAGE FAILED ($area)"
 exit $fail
