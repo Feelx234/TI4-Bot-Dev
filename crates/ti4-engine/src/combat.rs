@@ -5776,7 +5776,44 @@ impl CombatWindow {
 
     /// The opening of a round that is not resumed: the round counter, the presentation, the round's
     /// announcements and the faction offers made before any dice (string `open_round`, first part).
+    ///
+    /// On `driver=dual` the step also runs as a core window (`rules::combat::begin_round`) for the positions
+    /// `dual_window::round_opening_unported` does not exclude.
     fn begin_round(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>, round: u32) -> Result<(), CombatError> {
+        let (content, sources) = (ctx.content, ctx.sources);
+        let failed = std::cell::Cell::new(false);
+        let mut outcome = None;
+        let announce = ctx.timing.is_some();
+        let (attacker, defender, system) = (self.attacker.clone(), self.defender.clone(), self.system.clone());
+        crate::dual_window!(
+            crate::dual::Area::Driver,
+            "combat::begin_round",
+            state,
+            |s: &mut GameState| {
+                let result = self.begin_round_string(s, ctx, round);
+                failed.set(result.is_err());
+                outcome = Some(result);
+                crate::dual::Run::new(!failed.get())
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                if failed.get() {
+                    return None;
+                }
+                let args = crate::dual_window::BeginRoundArgs {
+                    attacker: &attacker,
+                    defender: &defender,
+                    system: &system,
+                    round,
+                    announce,
+                };
+                crate::dual_window::begin_round(s, content, sources, args, script)
+            }
+        );
+        outcome.unwrap_or(Ok(()))
+    }
+
+    /// The string body of [`Self::begin_round`].
+    fn begin_round_string(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>, round: u32) -> Result<(), CombatError> {
         let (content, sources) = (ctx.content, ctx.sources);
         state.combat_round_seq = state.combat_round_seq.saturating_add(1);
         state.combat_presentation.phase = "pre_roll".to_owned();
@@ -8855,6 +8892,31 @@ mod tests {
         let r = report();
         let counts = &r.areas[&Area::Driver];
         assert!(counts.calls >= 2, "both openings were compared: {counts:?}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    #[test]
+    fn a_round_opening_runs_as_a_core_window_in_lockstep() {
+        // Several rounds of a plain fight with `driver=dual`: the string `begin_round` and the core
+        // `BeginRound` window leave the same counters, presentation and events.
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        let system = SystemId::new("18");
+        put(&mut state, &system, "cruiser", &attacker(), 3);
+        put(&mut state, &system, "cruiser", &defender(), 3);
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+            let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+            let (mut dice, mut rng) = (Dice::new(), GameRng::new(5));
+            resolve(&mut state, ContentStore::embedded(), ti4_model::content_types::DEFAULT, &mut table, &mut dice, &mut rng, &system).unwrap();
+        });
+        let r = report();
+        let counts = &r.areas[&Area::Driver];
+        assert!(counts.calls >= 2, "the round openings were compared: {counts:?}");
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }

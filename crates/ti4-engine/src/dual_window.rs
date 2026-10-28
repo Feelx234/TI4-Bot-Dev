@@ -601,3 +601,76 @@ pub fn assault_cannon(
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(events), questions: driven.rendered })
 }
+
+/// What the string `CombatWindow::begin_round` was called with.
+#[derive(Debug, Clone, Copy)]
+pub struct BeginRoundArgs<'a> {
+    pub attacker: &'a PlayerId,
+    pub defender: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    pub round: u32,
+    /// The resolver carries the timing machinery.
+    pub announce: bool,
+}
+
+/// Whether the round opening holds something the core window does not carry: diplomacy (attack promises),
+/// a Naaz or Letnev side (Voltron repair, Supercharge, Munitions, the Eidolon flip, the self-repairing
+/// flagship) or a Letnev round agent (own or copied).
+#[must_use]
+pub fn round_opening_unported(
+    gs: &GameState,
+    content: &ti4_content::ContentStore,
+    a: &BeginRoundArgs<'_>,
+) -> bool {
+    let side = |id: &PlayerId| gs.player(id).is_none_or(|p| matches!(p.faction.as_str(), "naaz" | "letnev"));
+    gs.diplomacy.enabled
+        || side(a.attacker)
+        || side(a.defender)
+        || crate::factions::borrowed_round_agents::has_round_copy(gs, content, "letnevagent")
+        || crate::factions::borrowed_round_agents::has_owner_space_round_agent(gs)
+}
+
+/// The core half of `CombatWindow::begin_round`. `None` for the positions of [`round_opening_unported`],
+/// neutral sides, reaction activity inside the announcements, or a position the codecs refuse.
+#[must_use]
+pub fn begin_round(
+    gs: &mut GameState,
+    content: &ti4_content::ContentStore,
+    sources: ti4_model::content_types::SourceSet,
+    a: BeginRoundArgs<'_>,
+    script: &Recording,
+) -> Option<CoreWindow<bool>> {
+    use ti4_engine_core::rules::combat::begin_round::{BeginRound, Facts};
+    if script.nested
+        || crate::neutral_units::is_neutral(a.attacker)
+        || crate::neutral_units::is_neutral(a.defender)
+        || round_opening_unported(gs, content, &a)
+    {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let attacker = r.seat(a.attacker.as_str())?;
+    let defender = r.seat(a.defender.as_str())?;
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let before = gs.clone();
+    let env = crate::core_combat::window_env(&before, &cx, sources)?;
+    let facts = Facts { attacker, defender, system, round: a.round, phase: cx.texts.intern(Slice::Transient, "pre_roll").ok()?, announce: a.announce };
+    let resolver = Resolver::new(&[attacker, defender], Some(attacker));
+    let mut driver = Driver::new(BeginRound::new(facts), resolver, AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let driven = with_core(gs, &mut cx, Sources::default(), BEGIN_ROUND, |core, _| {
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .ok()?
+    .ok()?;
+    apply_staged(gs, &r, &staged)?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(events), questions: driven.rendered })
+}
+
+const BEGIN_ROUND: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
+    &[Slice::Meta, Slice::Transient, Slice::Pending],
+);
