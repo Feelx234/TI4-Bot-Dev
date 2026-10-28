@@ -113,3 +113,82 @@ impl<'a> ActionView<'a> {
         rules::cost_is_payable(&self.view, seat, card, goods)
     }
 }
+
+/// The own-hand question as the core renders it, for `choose_from_own_hand`: the options are the distinct
+/// printed cards of `hand` (the caller derived them: names are text), `None` for a reason the core has no
+/// word for (the documented bail: any other prompt or subtype) or an unmapped seat or card.
+#[must_use]
+pub fn own_hand_choice(
+    state: &GameState,
+    player: &PlayerId,
+    source: &str,
+    subtype: &str,
+    prompt: &str,
+    firsts: &[ActionCardId],
+    optional: bool,
+) -> Option<crate::choice::Choice> {
+    use ti4_engine_core::choice as core;
+    use ti4_engine_core::choice::cards as cards;
+    let cx = Ctx::of(state).ok()?;
+    let r = crate::render::Render::new(cx.owners.ids().to_vec());
+    let seat = cx.owners.seat(player.as_str())?;
+    let reason = match subtype {
+        "stall_tactics_discard" => cards::Reason::StallTactics,
+        "deepgloom_stall_tactics_discard" => cards::Reason::DeepgloomStallTactics,
+        "malleon_discard" => cards::Reason::MalleonDiscard,
+        "c4r_discard" => cards::Reason::C4rDiscard,
+        "show_action_card" => {
+            let viewer = prompt.strip_prefix("show ")?.strip_suffix(" 1 action card from your hand")?;
+            cards::Reason::Show { viewer: cx.owners.seat(viewer)? }
+        }
+        _ => return None,
+    };
+    let mut opts = core::Opts::default();
+    for alias in firsts {
+        opts.push(core::Opt::Cards(cards::Opt::Card(ActionCard::from_id(alias.as_str())?)));
+    }
+    if optional {
+        opts.push(core::Opt::Decline);
+    }
+    let choice = core::Choice {
+        actor: seat,
+        ask: core::Ask::Cards(cards::Ask::OwnHand { reason }),
+        ctx: core::Ctx {
+            origin: core::Origin::FactionAbility(crate::render::generic::content_of(&r, source)),
+            subtype: core::Subtype::Cards(reason.subtype()),
+            optional: false,
+            target: None,
+            outstanding: ti4_engine_core::containers::SmallList::new(),
+            space_battle: false,
+            invasion_seq: None,
+        },
+        opts,
+    };
+    let (phase, round) = (crate::render::generic::core_phase(state.phase), state.round);
+    let rendered = crate::render::Typed::new(&r, choice, phase, round).rendered;
+    // Bail: a caller with wording the core does not know (tests, new callers) keeps the string question.
+    (rendered.prompt == prompt).then_some(rendered)
+}
+
+/// Play a stamp-or-flag effect (`rules::action_cards::Simple`, by name) on the core's copy of the position
+/// and write the result back; `None` when the position is outside the tables (the string effect then runs).
+#[must_use]
+pub fn play_simple(state: &mut GameState, player: &PlayerId, effect: &str) -> Option<()> {
+    use rules::Simple;
+    let effect = match effect {
+        "morale_boost" => Simple::MoraleBoost,
+        "flank_speed" => Simple::FlankSpeed,
+        "solar_flare" => Simple::SolarFlare,
+        "coup" => Simple::Coup,
+        "crisis" => Simple::Crisis,
+        "master_plan" => Simple::MasterPlan,
+        _ => return None,
+    };
+    let (mut cx, r) = crate::dual_window::tables(state)?;
+    let seat = r.seat(player.as_str())?;
+    let fp = crate::core_sync::Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Transient],
+        &[Slice::Players, Slice::Transient],
+    );
+    crate::core_sync::with_core(state, &mut cx, Sources::default(), fp, |core, _| rules::play_simple(core, seat, effect)).ok()
+}

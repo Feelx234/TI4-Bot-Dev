@@ -304,13 +304,23 @@ pub fn choose_from_own_hand(
     if optional {
         options.push(ChoiceOption::decline());
     }
-    let choice = Choice::new(player.clone(), prompt, options).contextualized(DecisionContext::new(
-        player.clone(),
-        DecisionSource::FactionAbility(source.to_owned()),
-        subtype,
-        context.state.phase,
-        context.state.round,
-    ));
+    let firsts: Vec<ActionCardId> = options
+        .iter()
+        .filter(|option| option.kind == OWN_HAND_KIND)
+        .map(|option| ActionCardId::new(option.id.clone()))
+        .collect();
+    let choice = crate::dual_typed!(
+        crate::dual::Area::ActionCards,
+        "action_cards::choose_from_own_hand",
+        crate::action_cards_typed::own_hand_choice(context.state, player, source, subtype, prompt, &firsts, optional),
+        Choice::new(player.clone(), prompt, options).contextualized(DecisionContext::new(
+            player.clone(),
+            DecisionSource::FactionAbility(source.to_owned()),
+            subtype,
+            context.state.phase,
+            context.state.round,
+        ))
+    );
     let answer = context.ask_seeing(&choice)?;
     if answer.is_decline() {
         return Ok(None);
@@ -1034,15 +1044,43 @@ fn played_card_source(fallback: &str) -> DecisionSource {
     )
 }
 
+
+/// Run a stamp-or-flag effect on whichever backend the area has: the string closure, the core's
+/// `rules::action_cards::play_simple`, or both compared (`dual!` compares the resulting positions).
+fn stamped(
+    context: &mut crate::timing::TimingContext<'_>,
+    player: &PlayerId,
+    effect: &'static str,
+    string: impl Fn(&mut GameState),
+) {
+    crate::dual!(
+        crate::dual::Area::ActionCards,
+        effect,
+        context.state,
+        |s: &mut GameState| {
+            string(s);
+            crate::dual::Run::new(())
+        },
+        |s: &mut GameState| {
+            if crate::action_cards_typed::play_simple(s, player, effect).is_none() {
+                string(s);
+            }
+            crate::dual::Run::new(())
+        }
+    );
+}
+
 /// Morale Boost: "+1 to the result of each of your unit's combat rolls during this combat round."
 ///
 /// Scoped to [`GameState::combat_round_seq`] rather than a flag, so the bonus expires with the
 /// round it was played in. A flag would improve every later round of the same combat too.
 fn morale_boost(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let round = context.state.combat_round_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.combat_bonus_round = Some(round);
-    }
+    stamped(context, player, "morale_boost", |state| {
+        let round = state.combat_round_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.combat_bonus_round = Some(round);
+        }
+    });
 }
 
 /// Flank Speed: "+1 to the move value of each of your ships during this tactical action."
@@ -1050,10 +1088,12 @@ fn morale_boost(context: &mut crate::timing::TimingContext<'_>, player: &PlayerI
 /// Scoped to [`GameState::activation_seq`] for the same reason: the card says *this* tactical
 /// action, and an unscoped bonus would follow the fleet for the rest of the game.
 fn flank_speed(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let activation = context.state.activation_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.move_bonus_activation = Some(activation);
-    }
+    stamped(context, player, "flank_speed", |state| {
+        let activation = state.activation_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.move_bonus_activation = Some(activation);
+        }
+    });
 }
 
 /// Solar Flare: "During the 'Movement' step of this tactical action, other players cannot use
@@ -1064,10 +1104,12 @@ fn flank_speed(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId
 /// it and suppresses the whole step: every gun in that step belongs to another player and fires
 /// at this player's ships, which is exactly what the card forbids.
 fn solar_flare(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let activation = context.state.activation_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.solar_flare.push(activation);
-    }
+    stamped(context, player, "solar_flare", |state| {
+        let activation = state.activation_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.solar_flare.push(activation);
+        }
+    });
 }
 
 /// Lost Star Chart: "During this tactical action, systems that contain alpha and beta wormholes
@@ -1218,11 +1260,8 @@ fn deadly_plot(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId
 /// setting `TransientFlags::STRATEGIC_CANCELLED` here still undoes the action entirely:
 /// the card goes back to hand unexhausted, no token is placed, no ability runs, and the
 /// victim's turn simply ends.
-fn coup(context: &mut crate::timing::TimingContext<'_>, _: &PlayerId) {
-    context
-        .state
-        .transient_flags
-        .set(TransientFlags::STRATEGIC_CANCELLED);
+fn coup(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
+    stamped(context, player, "coup", |state| state.transient_flags.set(TransientFlags::STRATEGIC_CANCELLED));
 }
 
 /// Crisis: "At the end of any player's turn, if there are at least 2 players who have not
@@ -1231,11 +1270,8 @@ fn coup(context: &mut crate::timing::TimingContext<'_>, _: &PlayerId) {
 /// The guard counts the unpassed seats at the moment a turn ends; the effect arms
 /// `TransientFlags::SKIP_NEXT_TURN`, which the turn driver consumes on the very next advance —
 /// the seat the turn just landed on is skipped and never acts.
-fn crisis(context: &mut crate::timing::TimingContext<'_>, _: &PlayerId) {
-    context
-        .state
-        .transient_flags
-        .set(TransientFlags::SKIP_NEXT_TURN);
+fn crisis(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
+    stamped(context, player, "crisis", |state| state.transient_flags.set(TransientFlags::SKIP_NEXT_TURN));
 }
 
 /// Master Plan: "After you perform an action: Perform an additional action."
@@ -1244,11 +1280,8 @@ fn crisis(context: &mut crate::timing::TimingContext<'_>, _: &PlayerId) {
 /// `TransientFlags::ADDITIONAL_ACTION`: the next turn advance keeps the same seat — no
 /// `turn_seq` bump, no end-of-turn tech, no transaction reset — and the player simply takes
 /// another action.
-fn master_plan(context: &mut crate::timing::TimingContext<'_>, _: &PlayerId) {
-    context
-        .state
-        .transient_flags
-        .set(TransientFlags::ADDITIONAL_ACTION);
+fn master_plan(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
+    stamped(context, player, "master_plan", |state| state.transient_flags.set(TransientFlags::ADDITIONAL_ACTION));
 }
 
 /// Hack Election: "After an agenda is revealed: During this agenda, you vote last."
@@ -7908,6 +7941,35 @@ mod tests {
             galaxy: None,
         };
         effect(&mut context, player);
+    }
+
+    #[test]
+    fn the_stamp_and_flag_effects_agree_with_the_core_on_the_whole_position() {
+        // Every card with a core effect, played with the area on Dual: the string and the core position are
+        // compared by the harness, so any difference panics here.
+        #[cfg(feature = "typed-core")]
+        {
+            use crate::dual::{AreaMask, Backend, with_mask};
+            let mask = AreaMask::all(Backend::String).with(crate::dual::Area::ActionCards, Backend::Dual);
+            let mut played = 0;
+            let _ = crate::dual::take_report();
+            for card in ti4_engine_core::generated::ActionCard::ALL {
+                if ti4_engine_core::rules::action_cards::Simple::of(card).is_none() {
+                    continue;
+                }
+                let mut state = crate::fixtures::game(&["a", "b"]);
+                state.combat_round_seq = 3;
+                state.activation_seq = 5;
+                for (seat, faction) in state.players.iter_mut().zip(["arborec", "hacan"]) {
+                    seat.faction = ti4_model::id::FactionId::new(faction);
+                }
+                with_mask(mask, || play_effect(&mut state, crate::generated::IdStr::as_str(card), &PlayerId::new("a")));
+                played += 1;
+            }
+            let report = crate::dual::take_report();
+            assert!(report.differences.is_empty(), "{:?}", report.differences.first());
+            assert_eq!(played, 12, "four morale boosts, four flank speeds, solar flare, coup, crisis, master plan");
+        }
     }
 
     #[test]

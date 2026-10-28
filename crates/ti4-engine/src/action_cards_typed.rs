@@ -90,3 +90,37 @@ pub(crate) fn cost_is_payable(state: &GameState, player: &PlayerId, alias: &Acti
         None
     }
 }
+
+/// The own-hand question rendered by the core (`None`: bail).
+pub(crate) fn own_hand_choice(
+    state: &GameState,
+    player: &PlayerId,
+    source: &str,
+    subtype: &str,
+    prompt: &str,
+    firsts: &[ActionCardId],
+    optional: bool,
+) -> Option<crate::choice::Choice> {
+    #[cfg(feature = "typed-core")]
+    {
+        crate::action_cards_view::own_hand_choice(state, player, source, subtype, prompt, firsts, optional)
+    }
+    #[cfg(not(feature = "typed-core"))]
+    {
+        let _ = (state, player, source, subtype, prompt, firsts, optional);
+        None
+    }
+}
+
+/// Play a stamp-or-flag effect on the core (`None`: the string effect runs).
+pub(crate) fn play_simple(state: &mut GameState, player: &PlayerId, effect: &str) -> Option<()> {
+    #[cfg(feature = "typed-core")]
+    {
+        crate::action_cards_view::play_simple(state, player, effect)
+    }
+    #[cfg(not(feature = "typed-core"))]
+    {
+        let _ = (state, player, effect);
+        None
+    }
+}

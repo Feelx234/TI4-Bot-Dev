@@ -143,7 +143,7 @@ fn id_of<T: IdStr>(x: T) -> String {
 }
 
 /// Which table an alias came from (first match in this order).
-fn content_of(r: &Render, alias: &str) -> Content {
+pub fn content_of(r: &Render, alias: &str) -> Content {
     macro_rules! try_tables {
         ($($ty:ty => $v:ident),*) => {$(
             if let Some(x) = <$ty as IdStr>::from_id(alias) { return Content::$v(x); }

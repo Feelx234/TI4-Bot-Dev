@@ -144,6 +144,68 @@ pub fn cost_is_payable(core: &CoreState, who: Seat, card: ActionCard, goods: i64
     }
 }
 
+/// The played effects that only set a stamp or a flag (the mutation half of the package, first batch).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Simple {
+    /// "+1 to each combat roll during this combat round": `combat_bonus_round`.
+    MoraleBoost,
+    /// "+1 to move value during this tactical action": `move_bonus_activation`.
+    FlankSpeed,
+    /// "other players cannot use SPACE CANNON against your ships": the activation joins the `SolarFlare` marks.
+    SolarFlare,
+    /// `STRATEGIC_CANCELLED`.
+    Coup,
+    /// `SKIP_NEXT_TURN`.
+    Crisis,
+    /// `ADDITIONAL_ACTION`.
+    MasterPlan,
+}
+
+impl Simple {
+    /// The effect a card plays, `None` for a card whose effect is not one of these (the bail: every other
+    /// card keeps its string effect).
+    #[must_use]
+    pub const fn of(card: ActionCard) -> Option<Self> {
+        use ActionCard as C;
+        Some(match card {
+            C::MoraleBoost1 | C::MoraleBoost2 | C::MoraleBoost3 | C::MoraleBoost4 => Self::MoraleBoost,
+            C::FlankSpeed1 | C::FlankSpeed2 | C::FlankSpeed3 | C::FlankSpeed4 => Self::FlankSpeed,
+            C::SolarFlare => Self::SolarFlare,
+            C::CoupDEtat => Self::Coup,
+            C::Crisis => Self::Crisis,
+            C::MasterPlan => Self::MasterPlan,
+            _ => return None,
+        })
+    }
+}
+
+/// Play a [`Simple`] effect for `who`.
+pub fn play_simple(core: &mut CoreState, who: Seat, effect: Simple) {
+    use crate::state::{RoundKind, TransientFlags};
+    use crate::containers::Opt32;
+    let (round, activation) = (core.meta().combat_round_seq, core.meta().activation_seq);
+    match effect {
+        Simple::Coup => core.transient_mut().misc.flags.set(TransientFlags::STRATEGIC_CANCELLED),
+        Simple::Crisis => core.transient_mut().misc.flags.set(TransientFlags::SKIP_NEXT_TURN),
+        Simple::MasterPlan => core.transient_mut().misc.flags.set(TransientFlags::ADDITIONAL_ACTION),
+        Simple::MoraleBoost => {
+            if let Some(p) = core.players_mut().by_seat_mut(who) {
+                p.combat_timers.combat_bonus_round = Opt32::some(round);
+            }
+        }
+        Simple::FlankSpeed => {
+            if let Some(p) = core.players_mut().by_seat_mut(who) {
+                p.timers.move_bonus_activation = Opt32::some(activation);
+            }
+        }
+        Simple::SolarFlare => {
+            if let Some(p) = core.players_mut().by_seat_mut(who) {
+                p.round_marks.push(RoundKind::SolarFlare, activation);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
