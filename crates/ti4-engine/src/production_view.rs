@@ -36,13 +36,11 @@ pub struct ProdView<'a> {
 /// The factions whose string modules still answer production questions with hooks the typed seams do not
 /// carry yet (package CB): the typed reads decline and the caller keeps the string answer.
 fn unported_economy(state: &GameState) -> bool {
-    use crate::factions::{arborec, bastion, crimson, ghost, mentak, muaat, naalu, naaz, saar};
+    use crate::factions::{arborec, bastion, crimson, muaat, naalu, naaz, saar};
     let held = [
         arborec::MODULE.alias,
         bastion::MODULE.alias,
         crimson::MODULE.alias,
-        ghost::MODULE.alias,
-        mentak::MODULE.alias,
         muaat::MODULE.alias,
         naalu::MODULE.alias,
         naaz::MODULE.alias,
@@ -276,7 +274,8 @@ const fn engine_spend(s: ti4_engine_core::query::economy::Spend) -> crate::produ
 #[must_use]
 pub fn buildable_for(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId) -> Option<Vec<String>> {
     use ti4_engine_core::query::tech as q;
-    if unported_economy(state) {
+    // Mentak's Corsair form override (`unit_form_override`) is not a core hook yet.
+    if unported_economy(state) || state.players.iter().any(|p| p.faction.as_str() == crate::factions::mentak::MODULE.alias) {
         return None;
     }
     let seat = state.player(player)?;
