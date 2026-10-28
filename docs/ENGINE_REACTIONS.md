@@ -256,3 +256,33 @@ agent, the Nekro Technological Singularity pair.
 * `Unknown` is the way a condition says "the core cannot answer": add a variant and its wording in `drive_with`.
 * Event trace ids: the core numbers its events from the first id the string run used (`Recording.first_event_id`);
   an ability whose nested events skip ids in the string would show up as a trigger `event_id` difference.
+
+## 8. Resume note (stage 2, WIP)
+
+Private target dir: `/root/deploytmp/core-reactions2` (delete when the package is done). `CARGO_BUILD_JOBS=3`, one cargo run at a time.
+
+Done (compiles, `cargo check -p ti4-engine --tests` clean, NOT yet tested or mutation-checked):
+* Core: `rules/reactions/round_agent.rs` (Sol agent slot 2, Letnev agent slot 3; `Spec`s, plan/candidates, question, mark write, exhaust),
+  `rules::reactions::register_first` (registered before the reaction-card slots, as `reactions::arm` does), `Eff::read`,
+  `Unknown::NomadAgentExhaustion`, `choice::leaders::{RoundTarget, Ask::RoundAgentUnit, Opt::RoundAgentUnit, Subtype::RoundAgentUnit}`.
+* Adapter: `render/leaders.rs` (prompt, option id/label, `complete_round_agent` for details/captions), `core_sync/keys/mark_values.rs`
+  (`Sh::RoundBonus`: the JSON of `YssarilSsruuRoundAgent` as twelve typed fields, `Alt` with the blob fallback), `RoundBonus` is `pub(crate)`,
+  `reactions_core.rs` (NAMED lines, `follow(r, gs, script)` with the diplomacy bail, `anonymous`), `dual_window.rs`
+  (`with_trigger_of`: only a reaction window's own pick carries the trigger; Nomad wording).
+
+Half done / next step (in this order):
+1. Sol agent lockstep test (invasion.rs, like `the_cabal_captures_in_the_core_window_in_lockstep`: sol seat with `solagent` Readied, rules version >= 16,
+   `begin_ground_round` window with a copied round) + mutation check; registry-equivalence test already covers the registration (sol is in its factions).
+   Check the `Opt` size test (`opt_stays_small`), and that `begin_ground_unported` / `copied_round` allow the owner agent.
+2. Letnev agent: `dual_window::round_opening_unported` still bails on any Letnev agent/side; the core `BeginRound` must add `Key::RoundSeq` to the
+   `COMBAT_ROUND_STARTED` payload when a round agent listens (string `combat.rs` begin_round_string), then drop the `has_round_copy`/`has_owner_space_round_agent` gating.
+3. Then: Instinct Training + I48S slots (S8), tier-W offers (Argent agent in `production_window_dual.rs`: its dual still builds an empty resolver, use `drive_with`'s nested handling),
+   reaction-card plays, Yssaril Transparasteel, Saar, Yin/Titans agents, Nekro Technological Singularity, Empyrean flagship.
+4. Add the missing test for the silent bail "dice rolled by an ability in a window lent no stream".
+5. Census: baseline binary `/root/deploytmp/core-reactions2-dual_run.base` (built from 238b6b55); its run was started detached and writes
+   `/root/deploytmp/core-reactions2-census0.log` (empty until it ends):
+   `TI4_NESTED_LOG=1 <bin> tools/engine_profile/profile-20.json 20 driver=dual,invasion=dual,production=dual,leaders=dual,exploration=dual,agenda=dual`.
+   After: `cargo build --profile gate -p ti4-engine-core-bridge --bin dual_run`, same command, compare, update section 5 of this doc and R-bail lines in
+   `docs/ENGINE_KNOWN_ISSUES.md` (core-integration worktree, commit only that hunk).
+6. Gate (only at the end, on the final commit): `CARGO_TARGET_DIR=/root/deploytmp/core-reactions2 CARGO_BUILD_JOBS=3 RUN_AB=0 RUN_WASM=0 SKIP_AB=1 SKIP_WASM=1 tools/engine_core/verify_package.sh driver <out_dir> <base_selfplay>`
+   (profile gate; benches bench + bench-v1..v5 must be 200/200, golden dual 0 differences, board_equivalence 0 mismatches, clippy clean).

@@ -66,6 +66,8 @@ pub enum Unknown {
     CardCost,
     /// Harness Energy / Infiltrate: the tile catalogue and the swap rules.
     HarnessOrInfiltrate,
+    /// A Nomad that listens to the exhaustion of an agent (Temporal Command Suite): the exhaustion is announced.
+    NomadAgentExhaustion,
 }
 
 /// What a condition reads: the state, the kernel, the ability and the event it is asked about.
@@ -427,6 +429,12 @@ impl Eff<'_, '_> {
     #[must_use]
     pub fn kernel(&self) -> &Kernel {
         self.host.kernel
+    }
+
+    /// The state and the kernel, read together (`state()` borrows the effect mutably).
+    #[must_use]
+    pub fn read(&self) -> (&CoreState, &Kernel) {
+        (&*self.host.state, self.host.kernel)
     }
 
     #[must_use]

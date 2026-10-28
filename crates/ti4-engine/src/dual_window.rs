@@ -409,7 +409,7 @@ pub fn drive_with<W: Window>(
 ) -> Result<Driven, DriverError> {
     let (phase, round) = (render::generic::core_phase(gs.phase), gs.round);
     let mut out = Driven { questions: Vec::new(), rendered: Vec::new(), finished: false };
-    match crate::reactions_core::follow(r, script) {
+    match crate::reactions_core::follow(r, gs, script) {
         Ok(Some(mut fol)) => {
             fol.arm(r, gs, core);
             driver.resolver = fol.resolver;
@@ -432,6 +432,7 @@ pub fn drive_with<W: Window>(
                 ti4_engine_core::kernel::ability::Unknown::BriberyGoods => "Bribery's goods (the Keleres agent)",
                 ti4_engine_core::kernel::ability::Unknown::CardCost => "a card cost the core does not judge",
                 ti4_engine_core::kernel::ability::Unknown::HarnessOrInfiltrate => "Harness Energy / Infiltrate",
+                ti4_engine_core::kernel::ability::Unknown::NomadAgentExhaustion => "Nomad Temporal Command Suite (agent exhaustion)",
             };
             crate::dual::note_bail(LABEL.with(Cell::get), &format!("nested ({why})"));
             return Err(DriverError::NotAsking);
@@ -548,12 +549,20 @@ fn complete_nested(
     rendered: &mut Choice,
 ) {
     if let Some(ctx) = rendered.context.take() {
-        let trigger = crate::kernel_sync::convert::trigger_text(
-            r,
-            &ti4_engine_core::kernel::trigger::Trigger::from_event(&facts.event, facts.relation, &facts.chain),
-        );
-        rendered.context = Some(ctx.with_trigger(trigger).about_battle(gs).about_invasion(gs));
+        // The window's own pick carries its trigger; a question an ability asks carries one only when the ability
+        // puts it there (`with_trigger_of`).
+        let ctx = if with_trigger_of(choice) {
+            let trigger = crate::kernel_sync::convert::trigger_text(
+                r,
+                &ti4_engine_core::kernel::trigger::Trigger::from_event(&facts.event, facts.relation, &facts.chain),
+            );
+            ctx.with_trigger(trigger)
+        } else {
+            ctx
+        };
+        rendered.context = Some(ctx.about_battle(gs).about_invasion(gs));
     }
+    crate::render::leaders::complete_round_agent(r, choice, rendered);
     if matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(_)) {
         slot_options(r, choice, facts, core, kernel, rendered);
     }
@@ -562,6 +571,12 @@ fn complete_nested(
             rendered.details.insert(crate::timing::ACTIVE_DETAIL.to_owned(), active.to_string().into());
         }
     }
+}
+
+/// Whether a nested question carries the trigger of its window in its context: the window's own pick, and the
+/// questions whose string ability builds one (`DecisionTrigger::from_event`).
+fn with_trigger_of(choice: &CoreChoice) -> bool {
+    matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(_))
 }
 
 /// The options of a reaction window that are the standing card slot show what the seat could play: the label

@@ -31,6 +31,8 @@ struct Named {
 
 /// The ported rules with a card key, in table order (the per-owner registration order of `reactions::arm`).
 const NAMED: &[Named] = &[
+    Named { slot: ti4_engine_core::rules::reactions::round_agent::SOL_AGENT, kind: "leader", card: "solagent" },
+    Named { slot: ti4_engine_core::rules::reactions::round_agent::LETNEV_AGENT, kind: "leader", card: "letnevagent" },
     Named { slot: ti4_engine_core::rules::reactions::INFANTRY_II_ROLLS, kind: "technology", card: "inf2" },
     Named { slot: cabal::REANIMATOR, kind: "unit", card: "cabal_mech" },
     Named { slot: cabal::DEVOUR_SHIPS, kind: "ability", card: "devour" },
@@ -68,6 +70,7 @@ pub fn table() -> AbilityTable {
             t.bars = Some(ti4_engine_core::rules::agenda::political_secret_bars);
             // The string order of `reactions::arm`, per owner: the reaction slots, then Instinct Training, I48S,
             // Infantry II, Magen Defense, the factions.
+            ti4_engine_core::rules::reactions::register_first(&mut t);
             ti4_engine_core::rules::action_cards::reaction_slot::register(&mut t);
             ti4_engine_core::rules::reactions::register(&mut t);
             ti4_engine_core_factions::cb_economy::register_abilities(&mut t);
@@ -118,6 +121,15 @@ pub fn slot_of(id: &str) -> Option<Slot> {
     })
 }
 
+/// An ability id with the owner's faction left out (`technology:*:inf2:GROUND_FORCE_DESTROYED:after`).
+fn anonymous(id: &str) -> String {
+    let mut parts: Vec<&str> = id.split(':').collect();
+    if parts.len() > 2 {
+        parts[1] = "*";
+    }
+    parts.join(":")
+}
+
 impl Recording {
     /// The first ability the string run found eligible (or ran) that the core table has no rule for, anonymised
     /// (`technology:*:inf2:GROUND_FORCE_DESTROYED:after`), or the reason the nested activity cannot be followed.
@@ -129,11 +141,7 @@ impl Recording {
             if known.is_some_and(|spec| spec.effect_ported || !ran) {
                 continue;
             }
-            let mut parts: Vec<&str> = id.split(':').collect();
-            if parts.len() > 2 {
-                parts[1] = "*";
-            }
-            return Some(format!("unported ability {}", parts.join(":")));
+            return Some(format!("unported ability {}", anonymous(id)));
         }
         // After the abilities, so that a card played from a window (announced when the window closes, outside the
         // effect that declared it) is reported as the slot that played it.
@@ -152,13 +160,19 @@ pub struct Follow {
 ///
 /// # Errors
 /// The reason the nested activity cannot be followed (the adapter bails with it).
-pub fn follow(r: &Render, script: &Recording) -> Result<Option<Follow>, String> {
+pub fn follow(r: &Render, gs: &GameState, script: &Recording) -> Result<Option<Follow>, String> {
     if !script.nested {
         return Ok(None);
     }
     let table = table();
     if let Some(why) = script.unported(&table) {
         return Err(why);
+    }
+    // The use of a leader is an event of the diplomacy promises (`LeaderUsedFor`); the core does not evaluate them.
+    if gs.diplomacy.enabled {
+        if let Some(id) = script.effects.iter().find(|e| e.starts_with("leader:")) {
+            return Err(format!("unported ability {} (diplomacy promises on a leader's use)", anonymous(id)));
+        }
     }
     let Some(cfg) = script.cfg.as_ref() else {
         return Err("nested activity without a resolver".to_owned());
