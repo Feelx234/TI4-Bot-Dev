@@ -32,6 +32,7 @@ struct Named {
 /// The ported rules with a card key, in table order (the per-owner registration order of `reactions::arm`).
 const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::cb_economy::argent::timing::AGENT, kind: "leader", card: "argentagent" },
+    Named { slot: ti4_engine_core::rules::reactions::saar::SAAR_TRADE_GOOD, kind: "tech", card: "sar" },
     Named { slot: ti4_engine_core::rules::reactions::round_agent::SOL_AGENT, kind: "leader", card: "solagent" },
     Named { slot: ti4_engine_core::rules::reactions::round_agent::LETNEV_AGENT, kind: "leader", card: "letnevagent" },
     Named { slot: ti4_engine_core::rules::reactions::INFANTRY_II_ROLLS, kind: "technology", card: "inf2" },
@@ -89,6 +90,7 @@ pub fn table() -> AbilityTable {
             ti4_engine_core::rules::action_cards::reaction_slot::register(&mut t);
             ti4_engine_core::rules::reactions::register(&mut t);
             ti4_engine_core_factions::cb_economy::register_abilities(&mut t);
+            ti4_engine_core::rules::reactions::register_after_factions(&mut t);
             t
         })
         .clone()
@@ -239,6 +241,7 @@ impl Follow {
         let owner_name = |who: Seat| crate::promissory::faction_name(gs, &ti4_model::id::PlayerId::new(r.seat_text(who)));
         let mut name = |spec: &Spec, who: Seat| -> AbilityId { ability_id(r, &id_text(r, spec, &owner_name(who))) };
         self.table.codes.ground_combat = r.code("ground_combat");
+        self.table.codes.self_assembly = r.code("self_assembly_routines");
         let defs = self.table.registry(core, &order, &mut name);
         self.resolver.register(defs);
     }

@@ -103,6 +103,8 @@ impl CondCx<'_> {
 pub struct Codes {
     /// The cause `ground_combat` of a destroyed ground force.
     pub ground_combat: crate::state::Code,
+    /// The `source` of the trade good Self-Assembly Routines gains.
+    pub self_assembly: crate::state::Code,
 }
 
 /// Facts the adapter computes for the window and the core cannot (no galaxy is lent to the windows that follow
@@ -453,6 +455,12 @@ impl Eff<'_, '_> {
     #[must_use]
     pub fn kernel(&self) -> &Kernel {
         self.host.kernel
+    }
+
+    /// The texts the adapter interned for the abilities.
+    #[must_use]
+    pub fn codes(&self) -> Codes {
+        self.host.table.codes
     }
 
     /// What the adapter computed for the window.

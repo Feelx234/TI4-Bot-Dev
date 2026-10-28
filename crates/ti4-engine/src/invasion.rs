@@ -6924,6 +6924,40 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Self-Assembly Routines pays a trade good for each mech lost: the destroyed mech's AFTER window runs the ability of
+    /// the core table, which gains the good and announces `TRADE_GOODS_GAINED` through the resolver.
+    #[test]
+    fn self_assembly_routines_pays_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        let mut paid = 0;
+        with_mask(mask, || {
+            for seed in 1..=5_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                crate::technology::grant(&mut state, &PlayerId::new("b"), &ti4_model::id::TechnologyId::new("sar"));
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 8);
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "hacan_mech", &PlayerId::new("b"), 2);
+                let before = state.player(&PlayerId::new("b")).unwrap().trade_goods;
+                run_invasion_first_option(&mut state, seed, &system);
+                paid += state.player(&PlayerId::new("b")).unwrap().trade_goods - before;
+            }
+        });
+        let r = report();
+        let w = r.windows.get("invasion::ground_round_hits").copied().unwrap_or_default();
+        assert!(paid > 0, "a mech was lost and paid");
+        assert!(w.compared >= 1, "{:?}", r.windows);
+        assert!(r.windows.keys().all(|k| !k.contains("unported ability tech:*:sar")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
     use ti4_model::content_types::DEFAULT as ALL_SOURCES;
     use ti4_model::content_types::POK;
 

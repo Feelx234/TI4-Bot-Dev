@@ -10,6 +10,7 @@ use crate::kernel::ability::{AbilityTable, Slot};
 
 pub mod infantry_ii;
 pub mod round_agent;
+pub mod saar;
 
 /// Infantry II (`inf2`): after the owner's Infantry II is destroyed, roll a die.
 pub const INFANTRY_II_ROLLS: Slot = Slot(1);
@@ -23,4 +24,10 @@ pub fn register_first(t: &mut AbilityTable) {
 /// Add the ported generic abilities that follow the slots, in the string registration order.
 pub fn register(t: &mut AbilityTable) {
     infantry_ii::register(t);
+}
+
+/// Add the technologies the string registers after the faction modules (`factions::timing_abilities` chains
+/// `technology::timing_abilities` behind the per-faction hooks).
+pub fn register_after_factions(t: &mut AbilityTable) {
+    saar::register(t);
 }
