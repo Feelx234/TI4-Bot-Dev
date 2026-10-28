@@ -23,7 +23,13 @@ use ti4_engine_core::hex::Hex;
 use ti4_engine_core::movement::CoreRules;
 use crate::generated::IdStr;
 use ti4_engine_core::generated::{Source as CoreSource, Wormhole};
+use ti4_engine_core::containers::Cow;
+use ti4_engine_core::kernel::{Kernel, Sources as CoreSources};
+use ti4_engine_core::query::reach::{SeatFleet as CoreSeatFleet, SeatReach as CoreSeatReach};
+use ti4_engine_core::state::{CoreState, Slice, SliceSet};
 use ti4_engine_core::tables::Scope;
+use crate::core_sync::{CoreView, Ctx};
+use crate::core_sync::codec::Sources as CodecSources;
 use ti4_engine_core::{Seat, SysSet, SystemIx, UnitIx, UnitSet};
 use ti4_model::content_types::SourceSet;
 use ti4_model::state::GameState;
@@ -174,16 +180,26 @@ pub fn galaxy_from_legacy(galaxy: &Galaxy) -> Result<CoreGalaxy, Unmapped> {
         raw.place_off_map(sys(id)?)
             .map_err(|_| Unmapped::Duplicate(id.to_owned()))?;
     }
-    // Kinds as the string galaxy reports them: that already merges what the raw galaxy would
-    // otherwise split (printed, token, a copy's retained or suppressed kinds, the Nexus switch).
+    // Kinds as the string galaxy reports them (printed, token, a copy's retained or suppressed kinds)
+    // with Nexus Sovereignty lifted; the switch itself is copied below, so `wormhole_kinds` applies it
+    // like the string galaxy does and the Ghosts' "cannot be prevented" can read the lifted kinds.
+    let lifted;
+    let galaxy_kinds = if galaxy.nexus_wormholes_off {
+        let mut copy = galaxy.clone();
+        copy.nexus_wormholes_off = false;
+        lifted = copy;
+        &lifted
+    } else {
+        galaxy
+    };
     let in_play: Vec<SystemIx> = raw.in_play().iter().map(ti4_engine_core::ids::system_at).collect();
     for ix in in_play {
-        raw.set_wormholes(ix, wormhole_mask(galaxy.wormhole_kinds(system_id(ix)))?);
+        raw.set_wormholes(ix, wormhole_mask(galaxy_kinds.wormhole_kinds(system_id(ix)))?);
     }
     for id in galaxy.token_wormholes.keys() {
         let ix = sys(id)?;
         if !raw.in_play().contains(ix.index()) {
-            raw.set_token_wormholes(ix, wormhole_mask(galaxy.wormhole_kinds(id))?);
+            raw.set_token_wormholes(ix, wormhole_mask(galaxy_kinds.wormhole_kinds(id))?);
         }
     }
     let hyperlanes: BTreeSet<&str> = galaxy.hyperlanes().into_iter().collect();
@@ -197,7 +213,7 @@ pub fn galaxy_from_legacy(galaxy: &Galaxy) -> Result<CoreGalaxy, Unmapped> {
     raw.wormholes_off = galaxy.wormholes_off;
     raw.wormholes_all_linked = galaxy.wormholes_all_linked;
     raw.wormhole_star_links = galaxy.wormhole_star_links;
-    raw.nexus_wormholes_off = false; // applied above
+    raw.nexus_wormholes_off = galaxy.nexus_wormholes_off;
     for (id, linked) in &galaxy.extra_links {
         raw.extra_links
             .push((sys(id)?, sys_set(linked.iter().map(String::as_str))?));
@@ -327,7 +343,7 @@ fn names(set: &BTreeSet<String>) -> impl Iterator<Item = &str> {
 pub fn rules_from_legacy(
     rules: &MovementRules<'_>,
     sources: SourceSet,
-    adjacency: &std::rc::Rc<Adjacency>,
+    adjacency: &std::sync::Arc<Adjacency>,
 ) -> Result<CoreRules, Unmapped> {
     let p = rules.parts();
     let mut blocked: Vec<(SystemIx, SysSet)> = Vec::new();
@@ -384,6 +400,7 @@ pub fn rules_from_legacy(
         nebulae_ignored: p.nebulae_ignored,
         blocked_edges: blocked,
         unladen_pass: p.unladen_pass,
+        scratch: ti4_engine_core::movement::ScratchCell::default(),
     })
 }
 
@@ -452,28 +469,50 @@ pub fn route_text(route: &[SystemIx]) -> Vec<String> {
 }
 
 thread_local! {
-    /// The adjacency of the last few galaxies asked about on this thread. A galaxy is a plain value
-    /// the game edits between steps, so the cache compares the whole value, as
-    /// `ti4_host::projection::placed_galaxy` does.
-    static ADJACENCY: std::cell::RefCell<Vec<(Galaxy, std::rc::Rc<Adjacency>)>> =
+    /// The typed galaxy and adjacency of the last few string galaxies asked about on this thread. A
+    /// galaxy is a plain value the game edits between steps, so the cache compares the whole value, as
+    /// `ti4_host::projection::placed_galaxy` does; a position asks once (`Position`), not per query.
+    static GALAXIES: std::cell::RefCell<GalaxyCache> =
         const { std::cell::RefCell::new(Vec::new()) };
 }
 
-/// The typed adjacency of `galaxy`, cached per thread; `None` when the galaxy cannot be expressed.
+/// The galaxies a thread has asked about, with their typed maps.
+type GalaxyCache = Vec<(Galaxy, TypedMap)>;
+
+/// The memoised ships that reach each system, for one seat.
+type MovableRow = Vec<Option<std::rc::Rc<[crate::tactical::Movable]>>>;
+
+/// A string galaxy as the typed map slice holds it.
+#[derive(Clone)]
+pub struct TypedMap {
+    pub galaxy: Cow<CoreGalaxy>,
+    pub adjacency: std::sync::Arc<Adjacency>,
+}
+
+/// The typed galaxy and adjacency of `galaxy`, cached per thread; `None` when the galaxy cannot be
+/// expressed.
 #[must_use]
-pub fn adjacency_for(galaxy: &Galaxy) -> Option<std::rc::Rc<Adjacency>> {
-    ADJACENCY.with(|cache| {
+pub fn typed_map(galaxy: &Galaxy) -> Option<TypedMap> {
+    GALAXIES.with(|cache| {
         let mut cache = cache.borrow_mut();
         if let Some((_, found)) = cache.iter().find(|(g, _)| g == galaxy) {
             return Some(found.clone());
         }
-        let adjacency = std::rc::Rc::new(galaxy_from_legacy(galaxy).ok()?.adjacency());
+        let raw = galaxy_from_legacy(galaxy).ok()?;
+        let adjacency = std::sync::Arc::new(raw.adjacency());
+        let map = TypedMap { galaxy: Cow::new(raw), adjacency };
         if cache.len() >= 4 {
             cache.remove(0);
         }
-        cache.push((galaxy.clone(), adjacency.clone()));
-        Some(adjacency)
+        cache.push((galaxy.clone(), map.clone()));
+        Some(map)
     })
+}
+
+/// The typed adjacency of `galaxy`; `None` when the galaxy cannot be expressed.
+#[must_use]
+pub fn adjacency_for(galaxy: &Galaxy) -> Option<std::sync::Arc<Adjacency>> {
+    typed_map(galaxy).map(|m| m.adjacency)
 }
 
 /// `rules.path_from_ship(origin, move_value, ship_type)`, searched by the typed core; the string
@@ -543,143 +582,273 @@ pub fn typed_all_routes_from_ship(
     )
 }
 
-/// One seat's movement rules for every destination of one position (docs/ENGINE_CORE.md, stage 2).
-///
-/// `MovementRules::with_laws` depends on the destination in one place only: the hooks that take a
-/// `PassSite` (which ship types may pass other players' ships, and which earn steps through the
-/// mover's own systems; Mentak's Corsair reads the active system). Everything else (the board facts,
-/// laws, technologies, cards, the other hooks, the map copies) is the same for every destination.
-/// So the string rules are built **once** per seat and translated, and each destination gets a
-/// copy with its active system and those two sets asked again. The dual run checks, for every
-/// seat and destination of the checked positions, that this equals translating `with_laws` built
-/// for that destination, field by field.
-#[derive(Debug, Clone)]
-pub struct SeatReach {
-    template: CoreRules,
-    player: ti4_model::id::PlayerId,
-    /// The mover's unit types on the board, as `with_laws` collects them for the `PassSite` hooks.
-    types: Vec<String>,
-    /// Systems holding any of the mover's units (`own_unit_systems` when a type earns steps).
-    own_unit_systems: SysSet,
-    site_hooks: bool,
+/// The kernel of a source scope: the hook table with the movement modules registered. Built once per
+/// scope and process.
+#[must_use]
+pub fn kernel_for(sources: SourceSet) -> &'static Kernel {
+    static KERNELS: [std::sync::OnceLock<Kernel>; 128] = [const { std::sync::OnceLock::new() }; 128];
+    let slot = usize::try_from(sources.as_u32()).ok().and_then(|i| KERNELS.get(i)).unwrap_or(&KERNELS[127]);
+    slot.get_or_init(|| Kernel {
+        hooks: ti4_engine_core_factions::movement_table(),
+        sources: CoreSources(u8::try_from(scope(sources).0).unwrap_or(u8::MAX)),
+    })
 }
 
-impl SeatReach {
-    /// `effects`: also `action_cards::apply_movement_effects` (what a real move and `movable_into`
-    /// use); without it, the rules `Observed::can_reach` builds (laws only, no cards in hand).
+/// A position as the typed rules read it: the loaded slices movement needs, the owner table that maps
+/// player ids to seats, and the kernel. Built once per `Observed`, on the first typed question.
+pub struct Position {
+    view: CoreView,
+    cx: Ctx,
+    kernel: &'static Kernel,
+}
+
+/// The key texts of the marks the movement hooks read (`ti4-engine-core-factions`): Crimson's sever
+/// tokens and active breaches, the Empyrean's marks, the Firmament agent, the Ghosts' agent link, the
+/// Nekro Z tokens, the Nomad hero, the Cabal's Crucible, the Saar agent, Winnu's Imperator and Law's
+/// Order. Every other mark is left out of the reach view.
+const REACH_MARKS: [&str; 11] = [
+    "cabal:crucible:",
+    "crimson:breach:active:",
+    "crimson:sever:",
+    "empyrean|",
+    "firmament:agent",
+    "ghost:agent_link",
+    "keleres|laws_blank",
+    "nekro:token:",
+    "nomad:hero:",
+    "private:",
+    "saar:agent:boost:",
+];
+
+/// The board as movement reads it: the units of every space area and planet, command tokens, which
+/// systems have an entry, who controls each planet (Mecatol Rex and Tempesta are asked) and where a
+/// placed planet sits. Not read: exhaustion, attachments, coexistence, purges (the full codec copies
+/// a chunk of the planet table for each of them).
+fn load_reach_board(cx: &Ctx, gs: &GameState, core: &mut CoreState) -> Option<()> {
+    use ti4_engine_core::generated::Planet;
+    let seat = |id: &ti4_model::id::PlayerId| cx.owners.seat(id.as_str());
+    let piece = |u: &ti4_model::units::Unit| -> Option<ti4_engine_core::state::Piece> {
+        Some(
+            ti4_engine_core::state::Piece::new(unit_ix(u.type_id.as_str())?, seat(&u.owner)?)
+                .with_sustained(u.sustained_damage)
+                .with_galvanized(u.galvanized),
+        )
+    };
+    let board = &mut core.board;
+    for (sid, st) in &gs.board {
+        let cell = board.sys_mut(system_ix(sid.as_str())?);
+        for u in &st.units {
+            cell.units.push(piece(u)?);
+        }
+        for p in &st.command_tokens {
+            cell.cmd.insert(seat(p)?);
+        }
+        cell.flags.set(ti4_engine_core::state::SysFlags::TOUCHED, true);
+        for (pid, owner) in &st.planet_control {
+            board.planet_mut(<Planet as IdStr>::from_id(pid.as_str())?).control = Some(seat(owner)?);
+        }
+        for (pid, units) in &st.planet_units {
+            let cell = board.planet_mut(<Planet as IdStr>::from_id(pid.as_str())?);
+            for u in units {
+                cell.units.push(piece(u)?);
+            }
+        }
+    }
+    for (pid, sid) in &gs.placed_planets {
+        board.planet_mut(<Planet as IdStr>::from_id(pid.as_str())?).placed_in = Some(system_ix(sid.as_str())?);
+    }
+    core.mark_loaded(Slice::Board);
+    Some(())
+}
+
+/// The slices the movement rules read, loaded the cheap way: the board, the players and the map by
+/// their codecs; of the explore, agenda, transient and marks slices only the few facts movement reads
+/// (the full codecs load every exploration record, every law outcome and every mark).
+fn load_reach(cx: &mut Ctx, gs: &GameState, galaxy: &Galaxy) -> Option<CoreState> {
+    use ti4_engine_core::generated::{Agenda, Wormhole};
+    use ti4_engine_core::keys::Outcome;
+    let src = CodecSources { galaxy: Some(galaxy), rng: None };
+    let mut core = CoreState::with_loaded(SliceSet::EMPTY);
+    for slice in [Slice::Meta, Slice::Players, Slice::Map] {
+        crate::core_sync::Codec::load_slice(cx, gs, src, slice, &mut core).ok()?;
+    }
+    load_reach_board(cx, gs, &mut core)?;
+    let e = &mut core.explore;
+    for (set, texts) in [(&mut e.ingress, &gs.ingress_tokens), (&mut e.breach, &gs.breach_tokens)] {
+        for t in texts {
+            set.insert(system_ix(t.as_str())?);
+        }
+    }
+    for (kind, system) in &gs.wormhole_tokens {
+        e.wormhole_tokens.insert(<Wormhole as IdStr>::from_id(kind)?, system_ix(system.as_str())?);
+    }
+    core.mark_loaded(Slice::Explore);
+    if gs.laws.contains_key("shared_research") {
+        core.agenda.laws.insert(Agenda::SharedResearch, Outcome::Empty);
+    }
+    core.mark_loaded(Slice::Agenda);
+    for (system, value) in &gs.gravleash_move_values {
+        core.transient.production.gravleash_move_values.insert(system_ix(system.as_str())?, *value);
+    }
+    core.mark_loaded(Slice::Transient);
+    let mut marks = ti4_engine_core::state::MarkMap::new();
+    for (key, value) in &gs.faction_marks {
+        if REACH_MARKS.iter().any(|p| key.starts_with(p)) {
+            let (k, v) = cx.keys.parse_mark(key, value)?;
+            marks.insert(k, v);
+        }
+    }
+    core.marks.tail = Cow::new(marks);
+    core.mark_loaded(Slice::Marks);
+    Some(core)
+}
+
+impl Position {
+    /// `None` when a value of the position cannot be held by the typed state (the caller asks the
+    /// string engine).
     #[must_use]
     pub fn new(
         state: &GameState,
-        content: &ti4_content::ContentStore,
         sources: SourceSet,
         galaxy: &Galaxy,
-        player: &ti4_model::id::PlayerId,
-        effects: bool,
-    ) -> Option<Self> {
-        use crate::factions::hooks_movement as hooks;
-        let any_destination = galaxy.system_ids_holding_things().into_iter().next()?;
-        let board = crate::movement::Board::for_player(state, content, sources, player);
-        let mut rules =
-            MovementRules::with_laws(galaxy, content, sources, any_destination, board, Some(state));
-        if effects {
-            crate::action_cards::apply_movement_effects(&mut rules, state, player);
-        }
-        let adjacency = adjacency_for(rules.parts().galaxy)?;
-        let template = rules_from_legacy(&rules, sources, &adjacency).ok()?;
-        let site_hooks = hooks::any(|table| {
-            table.may_move_through_ships.is_some()
-                || table.own_unit_passage.is_some()
-                || table.unit_adjacent_systems.is_some()
-                || table.ignores_command_tokens.is_some()
-        });
-        let types: Vec<String> = state
-            .board
-            .values()
-            .flat_map(|system| system.units.iter())
-            .filter(|unit| &unit.owner == player)
-            .map(|unit| unit.type_id.as_str())
-            .collect::<BTreeSet<&str>>()
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
-        let own_unit_systems = sys_set_lossy(
-            state
-                .board
-                .iter()
-                .filter(|(_, b)| {
-                    b.units
-                        .iter()
-                        .chain(b.planet_units.values().flatten())
-                        .any(|unit| &unit.owner == player)
-                })
-                .map(|(system, _)| system.as_str()),
-        );
-        Some(Self {
-            template,
-            player: player.clone(),
-            types,
-            own_unit_systems,
-            site_hooks,
-        })
+    ) -> Option<std::rc::Rc<Self>> {
+        let mut cx = Ctx::of(state).ok()?;
+        let view = CoreView::from_state(load_reach(&mut cx, state, galaxy)?);
+        Some(std::rc::Rc::new(Self { view, cx, kernel: kernel_for(sources) }))
     }
 
-    /// The rules for moving into `destination`; `None` when it is not a corpus system.
+    /// The seat of a player id.
     #[must_use]
-    pub fn rules_for(
-        &self,
-        state: &GameState,
-        content: &ti4_content::ContentStore,
-        sources: SourceSet,
-        destination: &ti4_model::id::SystemId,
-    ) -> Option<CoreRules> {
-        use crate::factions::hooks_movement as hooks;
-        let mut rules = self.template.clone();
-        rules.active = system_ix(destination.as_str())?;
-        rules.passing_ship_types = UnitSet::EMPTY;
-        rules.own_passage_types = UnitSet::EMPTY;
-        rules.own_unit_systems = SysSet::EMPTY;
-        if self.site_hooks {
-            for ship_type in &self.types {
-                let site = hooks::PassSite {
-                    player: &self.player,
-                    active: destination,
-                    ship_type,
-                };
-                if let Some(kind) = unit_ix(ship_type) {
-                    if hooks::may_move_through_ships(state, content, sources, &site) {
-                        rules.passing_ship_types.insert(kind.index());
-                    }
-                    if hooks::own_unit_passage(state, content, sources, &site) {
-                        rules.own_passage_types.insert(kind.index());
-                    }
-                }
-            }
-            if !rules.own_passage_types.is_empty() {
-                rules.own_unit_systems = self.own_unit_systems;
-            }
-        }
-        Some(rules)
+    pub fn seat(&self, player: &ti4_model::id::PlayerId) -> Option<Seat> {
+        self.cx.owners.seat(player.as_str())
+    }
+
+    /// The typed state.
+    #[must_use]
+    pub fn core(&self) -> &CoreState {
+        &self.view
+    }
+
+    #[must_use]
+    pub const fn kernel(&self) -> &'static Kernel {
+        self.kernel
     }
 }
 
-/// What one position's `Observed` keeps for the typed queries: per seat the rules template (with
-/// and without the cards in play) and the fleet.
-#[derive(Debug, Default)]
+/// One seat's movement rules for every destination of one position, built by the typed core from the
+/// hook table (no string `MovementRules`). The rules of a destination are built once and shared.
+pub struct SeatReach {
+    pos: std::rc::Rc<Position>,
+    reach: CoreSeatReach,
+    rules: std::cell::RefCell<Vec<Option<std::rc::Rc<CoreRules>>>>,
+}
+
+impl SeatReach {
+    /// `effects`: also the cards in play (what a real move and `movable_into` use); without it, the
+    /// rules `Observed::can_reach` builds (laws only, no cards in hand).
+    #[must_use]
+    pub fn new(pos: &std::rc::Rc<Position>, player: &ti4_model::id::PlayerId, effects: bool) -> Option<Self> {
+        let seat = pos.seat(player)?;
+        let reach = CoreSeatReach::new(pos.core(), pos.kernel, seat, effects)?;
+        Some(Self { pos: pos.clone(), reach, rules: std::cell::RefCell::new(Vec::new()) })
+    }
+
+    /// The rules for moving into `destination`.
+    #[must_use]
+    pub fn rules_for(&self, destination: SystemIx) -> std::rc::Rc<CoreRules> {
+        let mut rules = self.rules.borrow_mut();
+        if rules.is_empty() {
+            rules.resize(SystemIx::ALL.len(), None);
+        }
+        rules[destination.index()]
+            .get_or_insert_with(|| std::rc::Rc::new(self.reach.rules_for(self.pos.core(), self.pos.kernel, destination)))
+            .clone()
+    }
+
+    #[must_use]
+    pub const fn seat(&self) -> Seat {
+        self.reach.seat()
+    }
+}
+
+/// What one position's `Observed` keeps for the typed queries, indexed by seat and system.
+#[derive(Default)]
 pub struct SeatCache {
-    pub reach: BTreeMap<(ti4_model::id::PlayerId, bool), Option<std::rc::Rc<SeatReach>>>,
-    #[cfg(feature = "typed-core")]
-    pub fleets: BTreeMap<ti4_model::id::PlayerId, std::rc::Rc<crate::tactical::SeatFleet>>,
+    position: Option<Option<std::rc::Rc<Position>>>,
+    reach: [[Option<Option<std::rc::Rc<SeatReach>>>; 2]; 16],
+    fleets: [Option<std::rc::Rc<CoreSeatFleet>>; 16],
+    movable: [Option<MovableRow>; 8],
+    rift_exits: std::collections::HashMap<u32, usize>,
 }
 
 impl SeatCache {
     #[must_use]
-    pub const fn new() -> Self {
-        Self {
-            reach: BTreeMap::new(),
-            #[cfg(feature = "typed-core")]
-            fleets: BTreeMap::new(),
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The typed position, built on first use.
+    pub fn position(
+        &mut self,
+        state: &GameState,
+        sources: SourceSet,
+        galaxy: &Galaxy,
+    ) -> Option<std::rc::Rc<Position>> {
+        self.position.get_or_insert_with(|| Position::new(state, sources, galaxy)).clone()
+    }
+
+    /// The rules of one seat.
+    pub fn reach(
+        &mut self,
+        pos: &std::rc::Rc<Position>,
+        player: &ti4_model::id::PlayerId,
+        effects: bool,
+    ) -> Option<std::rc::Rc<SeatReach>> {
+        let seat = pos.seat(player)?;
+        self.reach[usize::from(seat.0)][usize::from(effects)]
+            .get_or_insert_with(|| SeatReach::new(pos, player, effects).map(std::rc::Rc::new))
+            .clone()
+    }
+
+    /// The ships of one seat.
+    pub fn fleet(&mut self, pos: &Position, seat: Seat) -> std::rc::Rc<CoreSeatFleet> {
+        self.fleets[usize::from(seat.0)]
+            .get_or_insert_with(|| std::rc::Rc::new(CoreSeatFleet::new(pos.core(), pos.kernel, seat)))
+            .clone()
+    }
+
+    /// The memoised ships that reach a system, when asked before.
+    #[must_use]
+    pub fn known_movable(&self, row: usize, system: SystemIx) -> Option<std::rc::Rc<[crate::tactical::Movable]>> {
+        self.movable.get(row)?.as_ref()?[system.index()].clone()
+    }
+
+    pub fn remember_movable(&mut self, row: usize, system: SystemIx, found: std::rc::Rc<[crate::tactical::Movable]>) {
+        if let Some(cell) = self.movable.get_mut(row) {
+            cell.get_or_insert_with(|| vec![None; SystemIx::ALL.len()])[system.index()] = Some(found);
         }
     }
+
+    /// The memoised rift exits of one ship type and route, when asked before.
+    #[must_use]
+    pub fn known_rift_exits(&self, key: u32) -> Option<usize> {
+        self.rift_exits.get(&key).copied()
+    }
+
+    pub fn remember_rift_exits(&mut self, key: u32, exits: usize) {
+        self.rift_exits.insert(key, exits);
+    }
+}
+
+/// The key of a rift-exit query: seat, destination, origin, ship type and boosts.
+#[must_use]
+pub fn rift_key(row: usize, destination: SystemIx, origin: SystemIx, kind: UnitIx, boosts: (bool, bool)) -> u32 {
+    ((row as u32) << 28)
+        | ((destination.index() as u32) << 19)
+        | ((origin.index() as u32) << 10)
+        | ((kind.index() as u32) << 2)
+        | u32::from(boosts.0) << 1
+        | u32::from(boosts.1)
 }
 
 /// `transactions::present_together` (LRR 60: two presences share a system or occupy adjacent ones)
@@ -779,20 +948,38 @@ pub fn planet_value(
 }
 
 /// The printed technology specialties of a planet, lower case (`tech_specialties_now`'s printed
-/// part), from the generated row.
+/// part), from the generated row: a static slice per planet, built once.
 #[must_use]
 pub fn printed_specialties(
     content: &ti4_content::ContentStore,
     sources: SourceSet,
     planet: &str,
-) -> Option<Vec<String>> {
-    Some(planet_in_scope(content, planet, sources)?.map_or_else(Vec::new, |p| {
-        p.data()
-            .specialties
+) -> Option<&'static [&'static str]> {
+    use ti4_engine_core::generated::TechType;
+    static ROWS: std::sync::OnceLock<Vec<&'static [&'static str]>> = std::sync::OnceLock::new();
+    let planet = planet_in_scope(content, planet, sources)?;
+    let Some(p) = planet else { return Some(&[]) };
+    let rows = ROWS.get_or_init(|| {
+        ti4_engine_core::PlanetIx::ALL
             .iter()
-            .map(|t| t.as_str().to_ascii_lowercase())
+            .map(|p| {
+                let names: Vec<&'static str> = p
+                    .data()
+                    .specialties
+                    .iter()
+                    .map(|t| match t {
+                        TechType::Biotic => "biotic",
+                        TechType::Cybernetic => "cybernetic",
+                        TechType::Propulsion => "propulsion",
+                        TechType::Warfare => "warfare",
+                        TechType::Unitupgrade => "unitupgrade",
+                    })
+                    .collect();
+                &*Box::leak(names.into_boxed_slice())
+            })
             .collect()
-    }))
+    });
+    Some(rows[p.index()])
 }
 
 /// `space_stations::stations_in` from the generated rows: the space stations printed on a tile.

@@ -344,14 +344,15 @@ mod tests {
 
     #[test]
     fn the_inventory_has_every_string_slot() {
-        // 26 general + 9 combat + 8 ground + 20 economy + 21 movement + 7 cards + 8 strategy = 99 (the string `Hooks`).
+        // 26 general + 9 combat + 8 ground + 20 economy + 21 movement + 7 cards + 8 strategy = 99 (the string `Hooks`),
+        // plus A2's split of `may_move_through_ships` (the part that ignores the active system).
         assert_eq!(GeneralHooks::SLOTS, 26);
         assert_eq!(combat::CombatHooks::SLOTS, 9);
         assert_eq!(ground::GroundHooks::SLOTS, 8);
         assert_eq!(economy::EconomyHooks::SLOTS, 20);
-        assert_eq!(movement::MovementHooks::SLOTS, 21);
+        assert_eq!(movement::MovementHooks::SLOTS, 21 + 1);
         assert_eq!(cards::CardHooks::SLOTS, 7);
         assert_eq!(strategy::StrategyHooks::SLOTS, 8);
-        assert_eq!(HookTable::SLOTS, 99 + direct::DirectHooks::SLOTS);
+        assert_eq!(HookTable::SLOTS, 99 + 1 + direct::DirectHooks::SLOTS);
     }
 }
