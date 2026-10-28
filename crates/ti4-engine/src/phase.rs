@@ -130,7 +130,7 @@ pub fn begin_action_turn(state: &mut GameState, player: &PlayerId) {
 /// the two actions are explicitly the same turn.
 pub fn advance_turn(state: &mut GameState) -> Option<PlayerId> {
     state.clear_transactions();
-    state.diplomacy.clear_turn_initiations();
+    crate::diplomacy::relations::clear_turn_initiations(state);
     if state.all_passed() {
         state.active = None;
         return None;

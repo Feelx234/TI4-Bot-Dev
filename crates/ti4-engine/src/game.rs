@@ -1822,7 +1822,7 @@ impl<'a> Game<'a> {
         self.state.production_discount_remaining = 0;
         self.state.production_value_swapped_planet = None;
         self.state.clear_transactions();
-        self.state.diplomacy.clear_turn_initiations();
+        crate::diplomacy::relations::clear_turn_initiations(&mut self.state);
         self.state.negotiations_this_action.clear();
 
         self.state.activation_seq += 1;
@@ -5844,7 +5844,7 @@ impl<'a> Game<'a> {
                     if self.state.diplomacy.enabled && self.galaxy.is_some() {
                         // 94: each agenda is a fresh negotiation, open to every pair again.
                         self.state.clear_transactions();
-                        self.state.diplomacy.clear_turn_initiations();
+                        crate::diplomacy::relations::clear_turn_initiations(&mut self.state);
                         // Voting order: clockwise from the speaker's left, the speaker last.
                         let mut seats = self.state.clockwise_from(&self.state.speaker);
                         if !seats.is_empty() {

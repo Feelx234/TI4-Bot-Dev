@@ -77,6 +77,20 @@ pub fn apply_relationship_event(
     state: &mut GameState,
     event: &RelationshipEvent,
 ) -> Result<(), DiplomacyError> {
+    crate::dual::write(
+        crate::dual::Area::TradeDiplomacy,
+        state,
+        "diplomacy::apply_relationship_event",
+        |s| apply_relationship_event_text(s, event),
+        |s| crate::trade_write::relationship_event(s, event),
+    )
+}
+
+/// [`apply_relationship_event`] on the string state: the oracle of the dual run.
+fn apply_relationship_event_text(
+    state: &mut GameState,
+    event: &RelationshipEvent,
+) -> Result<(), DiplomacyError> {
     if !state.diplomacy.enabled || !participants_seated(state, event) {
         return Ok(());
     }
@@ -230,6 +244,39 @@ fn adjust(
 }
 
 pub fn decay_relationships(state: &mut GameState) {
+    crate::dual::write(
+        crate::dual::Area::TradeDiplomacy,
+        state,
+        "diplomacy::decay_relationships",
+        decay_relationships_text,
+        crate::trade_write::decay_relationships,
+    );
+}
+
+/// `DiplomacyState::consume_initiation` behind the dual: the first contact of `actor` with `target`
+/// this turn.
+pub fn consume_initiation(state: &mut GameState, actor: &PlayerId, target: &PlayerId) -> bool {
+    crate::dual::write(
+        crate::dual::Area::TradeDiplomacy,
+        state,
+        "diplomacy::consume_initiation",
+        |s| s.diplomacy.consume_initiation(actor, target),
+        |s| crate::trade_write::consume_initiation(s, actor, target),
+    )
+}
+
+/// `DiplomacyState::clear_turn_initiations` behind the dual.
+pub fn clear_turn_initiations(state: &mut GameState) {
+    crate::dual::write(
+        crate::dual::Area::TradeDiplomacy,
+        state,
+        "diplomacy::clear_turn_initiations",
+        |s| s.diplomacy.clear_turn_initiations(),
+        crate::trade_write::clear_turn_initiations,
+    );
+}
+
+fn decay_relationships_text(state: &mut GameState) {
     if !state.diplomacy.enabled {
         return;
     }

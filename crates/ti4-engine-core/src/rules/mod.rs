@@ -15,6 +15,7 @@
 pub mod abilities;
 pub mod agenda;
 pub mod combat;
+pub mod diplomacy;
 pub mod explore;
 pub mod explore_windows;
 pub mod invasion;

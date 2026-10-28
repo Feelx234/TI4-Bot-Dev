@@ -2094,7 +2094,7 @@ impl TradeWindow {
     ) -> Self {
         record_unless_exempt(state, content, proposer, partner);
         if state.diplomacy.enabled {
-            let _ = state.diplomacy.consume_initiation(proposer, partner);
+            let _ = crate::diplomacy::relations::consume_initiation(state, proposer, partner);
         }
         Self {
             proposer: proposer.clone(),
