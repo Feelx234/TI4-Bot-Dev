@@ -225,6 +225,7 @@ fn env_of(state: &GameState, player: &PlayerId, sources: &ti4_model::content_typ
         blanked: crate::laws::blanked(state),
         action_card: r.code("action_card"),
         supply_base: r.code("forward_supply_base"),
+        note_text: crate::render::cards::note_text,
     }
 }
 
@@ -236,7 +237,7 @@ pub fn plays(alias: &ActionCardId) -> bool {
 
 const PLAY: crate::core_sync::Footprint = crate::core_sync::Footprint::new(
     &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Transient, Slice::Pending],
-    &[Slice::Players, Slice::Board, Slice::Decks, Slice::Agenda, Slice::Transient, Slice::Pending],
+    &[Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Transient, Slice::Pending],
 );
 
 /// The core half of a played card effect (`action_cards::effect_for`), as a lockstep window. `None` when the

@@ -8201,6 +8201,10 @@ mod tests {
         state.agenda_in_play = Some("regulations".to_owned());
         state.agenda_choices = vec!["for".to_owned(), "against".to_owned()];
         state.activation_seq = 4;
+        // c holds a note that goes faceup on receipt, a generic one and an action-placed one, so the option order matters.
+        for key in ["cf:hacan", "convoys:hacan", "an:sol", "ps:hacan"] {
+            state.promissory_notes.insert(key.to_owned(), c.clone());
+        }
         state.system_mut(&ti4_model::id::SystemId::new("33")).units.push(unit("cruiser", &a));
         state.system_mut(&ti4_model::id::SystemId::new("35")).units.push(unit("destroyer", &a));
         state
@@ -8216,7 +8220,7 @@ mod tests {
             "sabo1", "insub", "assassin", "abs", "fsb", "confusing", "imp_rider", "const_rider", "diplo_rider", "lead_rider",
             "politic_rider", "tech_rider", "trade_rider", "war_rider", "sanction", "puppetsonastring", "extremeduress",
             "counterstroke", "unexpected", "mining_initiative", "uprising", "cripple", "meltdown", "veto", "veto3", "veto4",
-            "industrial_initiative", "silence_space",
+            "industrial_initiative", "silence_space", "dp1", "dp2", "dp3", "dp4",
         ];
         let _ = crate::dual::take_report();
         for alias in cases {

@@ -73,6 +73,10 @@ impl Family for Fam {
             }
             Opt::Spot(system, planet) => ChoiceOption::labelled(format!("{}|{}", system.as_str(), planet.as_str()), "planet", planet.as_str())
                 .with_planet(planet.as_str(), Some(system.as_str())),
+            Opt::Note(key) => {
+                let id = note_text(*key);
+                ChoiceOption::labelled(id.clone(), "promissory note", id)
+            }
             Opt::Outcome(outcome) => {
                 let Ask::Predict { frame, .. } = a else { return ChoiceOption::labelled("", "", "") };
                 let named = super::agenda::outcome_label(r, frame, *outcome);
@@ -94,6 +98,7 @@ impl Family for Fam {
                 let (system, planet) = id.split_once('|')?;
                 Some(Opt::Spot(System::from_id(system)?, Planet::from_id(planet)?))
             }
+            Ask::Pick { what: What::Note, .. } => parse_note(id).map(Opt::Note),
             Ask::Predict { frame, .. } => super::agenda::parse_outcome(r, frame, id).map(Opt::Outcome),
         }
     }
@@ -106,6 +111,7 @@ const fn pick_kind(what: What) -> &'static str {
         What::Elect => "elect",
         What::Recall => "recall",
         What::Silence => "silence",
+        What::Note => "promissory note",
         What::Planet => "planet",
     }
 }
@@ -130,6 +136,12 @@ const fn pick_prompt(card: ActionCard, what: What) -> &'static str {
         (C::UnexpectedAction, _) => "Unexpected Action: recall your token from where",
         (C::MiningInitiative, _) => "Mining Initiative: mine which planet",
         (C::InTheSilenceOfSpace, _) => "In The Silence Of Space: whose ships ignore blockades",
+        (C::DiplomaticPressure1 | C::DiplomaticPressure2 | C::DiplomaticPressure3 | C::DiplomaticPressure4, What::Note) => {
+            "Diplomatic Pressure: which note do you give"
+        }
+        (C::DiplomaticPressure1 | C::DiplomaticPressure2 | C::DiplomaticPressure3 | C::DiplomaticPressure4, _) => {
+            "Diplomatic Pressure: choose another player"
+        }
         (C::Uprising, _) => "Uprising: which planet",
         (C::CrippleDefenses, _) => "Cripple Defenses: which planet",
         (C::ReactorMeltdown, _) => "Reactor Meltdown: which space dock",
@@ -146,6 +158,7 @@ const fn seat_label(card: ActionCard, what: What) -> &'static str {
         (C::AssassinateRepresentative, _) => "assassinate ",
         (C::AncientBurialSites, _) => "target ",
         (C::ForwardSupplyBase, _) => "pay ",
+        (C::DiplomaticPressure1 | C::DiplomaticPressure2 | C::DiplomaticPressure3 | C::DiplomaticPressure4, _) => "pressure ",
         _ => "",
     }
 }
@@ -182,4 +195,17 @@ mod tests {
         assert_eq!(Fam::parse(&r, &ask, "bribery"), Some(Opt::Card(ActionCard::Bribery)));
         assert_eq!(Fam::parse(&r, &ask, "nonsense"), None);
     }
+}
+
+/// The state's text of a promissory note (`"{alias}:{faction}"`).
+pub(crate) fn note_text(key: ti4_engine_core::state::NoteKey) -> String {
+    format!("{}:{}", crate::core_sync::keys::text::note_text(key.note), key.faction.as_str())
+}
+
+/// The note a state text names.
+fn parse_note(id: &str) -> Option<ti4_engine_core::state::NoteKey> {
+    let (alias, faction) = id.split_once(':')?;
+    let note = crate::core_sync::keys::text::parse_note(alias)?;
+    let key = ti4_engine_core::state::NoteKey { note, faction: ti4_engine_core::generated::Faction::from_id(faction)? };
+    (note_text(key) == id).then_some(key)
 }

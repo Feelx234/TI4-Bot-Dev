@@ -251,6 +251,8 @@ pub struct Env {
     pub action_card: crate::state::Code,
     /// The interned `forward_supply_base`.
     pub supply_base: crate::state::Code,
+    /// The state's text of a promissory note (the string orders a hand by it; the core has no id text).
+    pub note_text: fn(crate::state::NoteKey) -> String,
 }
 
 impl Simple {

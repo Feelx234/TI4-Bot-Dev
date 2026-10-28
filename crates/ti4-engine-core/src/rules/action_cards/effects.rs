@@ -70,6 +70,8 @@ pub enum Fx {
     Industrial,
     /// In The Silence Of Space: the holder's ships in a chosen system ignore blockades.
     Silence,
+    /// Diplomatic Pressure: a chosen seat gives the holder a promissory note of its choice.
+    Pressure,
 }
 
 impl Fx {
@@ -104,6 +106,7 @@ impl Fx {
             C::Veto | C::Veto3 | C::Veto4 => Self::Veto,
             C::IndustrialInitiative => Self::Industrial,
             C::InTheSilenceOfSpace => Self::Silence,
+            C::DiplomaticPressure1 | C::DiplomaticPressure2 | C::DiplomaticPressure3 | C::DiplomaticPressure4 => Self::Pressure,
             _ => return None,
         })
     }
@@ -128,6 +131,8 @@ pub struct Play {
     env: Env,
     /// The agenda a prediction is about (the `Predict` question's frame).
     frame: Option<Frame>,
+    /// Diplomatic Pressure: the seat that was chosen (asked for the note).
+    victim: Option<Seat>,
     stage: Stage,
     /// The options of the pending question.
     opts: SmallList<Opt, 16>,
@@ -177,7 +182,7 @@ impl Play {
             }
             _ => None,
         };
-        Some(Self { card, fx, who, env, frame, stage: Stage::Start, opts: SmallList::new() })
+        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new() })
     }
 
     fn what(&self) -> Option<What> {
@@ -186,6 +191,8 @@ impl Play {
             Fx::Confusing => What::Elect,
             Fx::Recall => What::Recall,
             Fx::Silence => What::Silence,
+            Fx::Pressure if self.victim.is_some() => What::Note,
+            Fx::Pressure => What::Player,
             Fx::Mining | Fx::Uprising | Fx::Cripple | Fx::Meltdown => What::Planet,
             _ => return None,
         })
@@ -206,6 +213,14 @@ impl Play {
             Fx::Assassinate | Fx::BurialSites => Self::seat_opts(seats::seating_order(core).as_slice().iter().copied()),
             Fx::SupplyBase => Self::seat_opts(seats::seating_order(core).as_slice().iter().copied().filter(|s| *s != who)),
             Fx::Confusing => Self::seat_opts(others()),
+            Fx::Pressure => match self.victim {
+                None => Self::seat_opts(seats::seating_order(core).as_slice().iter().copied().filter(|s| *s != who)),
+                Some(victim) => {
+                    let mut held = crate::query::promissory::held_by(core, victim);
+                    held.sort_by_cached_key(|k| (self.env.note_text)(*k));
+                    held.into_iter().map(Opt::Note).collect()
+                }
+            },
             Fx::Rider(_) => core.agenda().choices.as_slice().iter().map(|o| Opt::Outcome(*o)).collect(),
             Fx::Recall => {
                 let mut held: SmallList<System, 16> =
@@ -301,7 +316,8 @@ impl Play {
     }
 
     /// Apply the chosen option.
-    fn apply(&self, core: &mut CoreState, opt: Opt) {
+    /// Apply the chosen option; `true` when another question of the same card follows.
+    fn apply(&mut self, core: &mut CoreState, opt: Opt) -> bool {
         let who = self.who;
         match (self.fx, opt) {
             (Fx::Insubordination, Opt::Seat(target)) => {
@@ -350,6 +366,19 @@ impl Play {
                 fx::exhaust_planet(core, planet);
                 self.goods(core, who, worth);
             }
+            (Fx::Pressure, Opt::Seat(victim)) => {
+                self.victim = Some(victim);
+                return true;
+            }
+            (Fx::Pressure, Opt::Note(key)) => {
+                core.cards_mut().promissory.edit().insert(key, who);
+                let faceup = crate::query::promissory::is_play_area(key.note, key.faction)
+                    && !crate::query::promissory::is_action_placed(core, key.note)
+                    && key.note != crate::generated::PromissoryNote::Antivirus;
+                if faceup {
+                    core.cards_mut().promissory_faceup.edit().insert(key, ());
+                }
+            }
             (Fx::Cripple | Fx::Meltdown, Opt::Spot(_, planet)) => {
                 let (base, limit) = if self.fx == Fx::Cripple { (UnitBaseType::Pds, usize::MAX) } else { (UnitBaseType::Spacedock, 1) };
                 let scope = self.env.scope;
@@ -364,6 +393,35 @@ impl Play {
             }
             _ => {}
         }
+        false
+    }
+
+    /// Compute the options of the next question and apply the options that need no asking.
+    fn advance(&mut self, core: &mut CoreState) {
+        loop {
+            self.opts = self.options(core);
+            match self.opts.as_slice() {
+                [] => {
+                    self.stage = Stage::Done;
+                    return;
+                }
+                [only] => {
+                    let only = *only;
+                    if !self.apply(core, only) {
+                        self.stage = Stage::Done;
+                        return;
+                    }
+                }
+                _ => {
+                    self.stage = Stage::Asking;
+                    return;
+                }
+            }
+        }
+    }
+
+    fn actor(&self) -> Seat {
+        if self.fx == Fx::Pressure { self.victim.unwrap_or(self.who) } else { self.who }
     }
 
     fn ask(&self) -> Ask {
@@ -389,16 +447,7 @@ impl Window for Play {
                 self.stage = Stage::Done;
                 return Next::Done;
             }
-            self.opts = self.options(sx.state);
-            match self.opts.as_slice() {
-                [] => self.stage = Stage::Done,
-                [only] => {
-                    let only = *only;
-                    self.apply(sx.state, only);
-                    self.stage = Stage::Done;
-                }
-                _ => self.stage = Stage::Asking,
-            }
+            self.advance(sx.state);
         }
         match self.stage {
             Stage::Asking => Next::Continue(crate::choice::Ask::Cards(self.ask())),
@@ -408,7 +457,7 @@ impl Window for Play {
 
     fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {
         (self.stage == Stage::Asking).then(|| Choice {
-            actor: self.who,
+            actor: self.actor(),
             ask: crate::choice::Ask::Cards(self.ask()),
             ctx: Ctx {
                 origin: if self.frame.is_some() { Origin::Rule(Rule::R8) } else { Origin::ActionCard(self.card) },
@@ -434,8 +483,62 @@ impl Window for Play {
         if !self.opts.as_slice().contains(&opt) {
             return Err(Illegal);
         }
-        self.apply(sx.state, opt);
-        self.stage = Stage::Done;
+        if self.apply(sx.state, opt) {
+            self.advance(sx.state);
+        } else {
+            self.stage = Stage::Done;
+        }
         Ok(())
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One check for every documented bail of the play window: the card has no `Fx`, so the string effect runs.
+    #[test]
+    fn every_bail_has_no_window_and_the_ported_cards_have_one() {
+        use ActionCard as C;
+        for (card, why) in [
+            (C::Spy, "the seeded roller"),
+            (C::Plague, "the seeded roller, staged ground-force deaths"),
+            (C::UnstablePlanet, "staged ground-force deaths"),
+            (C::RepealLaw, "a law leaving play is B9's"),
+            (C::DirectHit1, "the exact sustain mark and the ship-lost observers"),
+            (C::DirectHit4, "the exact sustain mark and the ship-lost observers"),
+            (C::Intercept, "combatants include planet-based ships"),
+            (C::PirateContract1, "the neutral destroyer has no seat"),
+            (C::Summit, "the pool question has previews and details of the tokens area"),
+            (C::SkilledRetreat1, "destinations and previews"),
+            (C::CourageousToTheEnd, "dice and a casualty choice"),
+            (C::Strategize1, "performs another area's ability"),
+            (C::Bribery, "the trade-good payment"),
+            (C::WarEffort, "unit placement"),
+            (C::InsiderInformation, "the string-only peek mark"),
+        ] {
+            assert_eq!(Fx::of(card), None, "{card:?}: {why}");
+        }
+        for card in [C::Sabotage3, C::Veto4, C::DiplomaticPressure2, C::Sanction, C::Uprising, C::Counterstroke] {
+            assert!(Fx::of(card).is_some(), "{card:?}");
+        }
+    }
+
+    #[test]
+    fn veto_declines_while_a_replay_reserve_is_installed() {
+        let mut core = CoreState::all_loaded();
+        let env = Env {
+            mahact_held: 0,
+            scope: crate::tables::Scope(u32::MAX),
+            blanked: false,
+            action_card: crate::state::Code(0),
+            supply_base: crate::state::Code(0),
+            note_text: |_| String::new(),
+        };
+        let who = Seat(0);
+        assert!(Play::of(&core, ActionCard::Veto, who, env).is_some());
+        core.cards_mut().reserve = Some(crate::containers::Cow::new(Default::default()));
+        assert!(Play::of(&core, ActionCard::Veto, who, env).is_none(), "the string draws through the reserve");
     }
 }

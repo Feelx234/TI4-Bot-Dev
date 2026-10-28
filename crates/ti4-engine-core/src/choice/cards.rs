@@ -5,6 +5,7 @@
 //! The adapter side is `ti4-engine/src/render/cards.rs`. Never text; every type is `Copy`.
 
 use crate::generated::{ActionCard, Planet, System};
+use crate::state::NoteKey;
 use crate::ids::Seat;
 use crate::keys::Outcome;
 
@@ -22,6 +23,8 @@ pub enum What {
     Recall,
     /// kind `silence`: a system holding the asked seat's ships (In The Silence Of Space).
     Silence,
+    /// kind `promissory note`: a note of the asked seat's hand (Diplomatic Pressure).
+    Note,
     /// kind `planet`: a `system|planet` spot.
     Planet,
 }
@@ -66,6 +69,8 @@ pub enum Opt {
     Spot(System, Planet),
     /// A predicted outcome.
     Outcome(Outcome),
+    /// A promissory note (`What::Note`).
+    Note(NoteKey),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
