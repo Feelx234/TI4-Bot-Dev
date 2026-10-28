@@ -124,3 +124,35 @@ pub(crate) fn play_simple(state: &mut GameState, player: &PlayerId, effect: &str
         None
     }
 }
+
+/// Whether the core has a window for the card's effect.
+pub(crate) fn plays(alias: &ActionCardId) -> bool {
+    #[cfg(feature = "typed-core")]
+    {
+        crate::action_cards_view::plays(alias)
+    }
+    #[cfg(not(feature = "typed-core"))]
+    {
+        let _ = alias;
+        false
+    }
+}
+
+/// The core half of a played card effect (`None`: bail).
+pub(crate) fn play_window(
+    state: &mut GameState,
+    player: &PlayerId,
+    alias: &ActionCardId,
+    sources: &ti4_model::content_types::SourceSet,
+    script: &crate::dual_window::Recording,
+) -> Option<crate::dual::CoreWindow<()>> {
+    #[cfg(feature = "typed-core")]
+    {
+        crate::action_cards_view::play_window(state, player, alias, sources, script)
+    }
+    #[cfg(not(feature = "typed-core"))]
+    {
+        let _ = (state, player, alias, sources, script);
+        None
+    }
+}

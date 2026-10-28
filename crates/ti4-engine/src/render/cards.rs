@@ -6,7 +6,8 @@
 //! printed name).
 
 use ti4_content::ContentStore;
-use ti4_engine_core::choice::cards::{Ask, Opt, Reason, Subtype};
+use ti4_engine_core::choice::cards::{Ask, Opt, Reason, Subtype, What};
+use ti4_engine_core::generated::{ActionCard, Planet, System};
 use ti4_model::id::ActionCardId;
 
 use super::{Family, Render};
@@ -32,6 +33,8 @@ impl Family for Fam {
                 Reason::C4rDiscard => "???_ERROR_ERROR_???: discard 1 action card".to_owned(),
                 Reason::Show { viewer } => format!("show {} 1 action card from your hand", r.seat_text(*viewer)),
             },
+            Ask::Pick { card, what } => pick_prompt(*card, *what).to_owned(),
+            Ask::Predict { card, .. } => format!("{}: predict the agenda outcome", rider_name(*card)),
         }
     }
 
@@ -42,12 +45,32 @@ impl Family for Fam {
             Subtype::MalleonDiscard => "malleon_discard",
             Subtype::C4rDiscard => "c4r_discard",
             Subtype::ShowActionCard => "show_action_card",
+            Subtype::PredictOutcome => "predict_agenda_outcome",
+            Subtype::Pick { card, what } => {
+                return match what {
+                    What::Elect => "confusing_legal_text_elect".to_owned(),
+                    _ => format!("{}_pick_{}", card.as_str(), pick_kind(*what)),
+                };
+            }
         }
         .to_owned()
     }
 
-    fn option(_: &Render, _: &Ask, o: &Opt) -> ChoiceOption {
+    fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
         match o {
+            Opt::Seat(seat) => {
+                let id = r.seat_text(*seat);
+                let (card, what) = pick_of(a);
+                ChoiceOption::labelled(id, pick_kind(what), format!("{}{id}", seat_label(card, what)))
+            }
+            Opt::System(system) => ChoiceOption::labelled(system.as_str(), "recall", format!("recall your token from {}", system.as_str())),
+            Opt::Spot(system, planet) => ChoiceOption::labelled(format!("{}|{}", system.as_str(), planet.as_str()), "planet", planet.as_str())
+                .with_planet(planet.as_str(), Some(system.as_str())),
+            Opt::Outcome(outcome) => {
+                let Ask::Predict { frame, .. } = a else { return ChoiceOption::labelled("", "", "") };
+                let named = super::agenda::outcome_label(r, frame, *outcome);
+                ChoiceOption::labelled(super::agenda::outcome_text(r, *outcome), "prediction", format!("predict {named}"))
+            }
             Opt::Card(card) => {
                 let id = ActionCardId::new(card.as_str());
                 ChoiceOption::labelled(card.as_str(), crate::action_cards::OWN_HAND_KIND, crate::action_cards::name_of(ContentStore::embedded(), &id))
@@ -55,8 +78,82 @@ impl Family for Fam {
         }
     }
 
-    fn parse(_: &Render, _: &Ask, id: &str) -> Option<Opt> {
-        ti4_engine_core::generated::ActionCard::from_id(id).map(Opt::Card)
+    fn parse(r: &Render, a: &Ask, id: &str) -> Option<Opt> {
+        match a {
+            Ask::OwnHand { .. } => ActionCard::from_id(id).map(Opt::Card),
+            Ask::Pick { what: What::Player | What::Elect, .. } => r.seat(id).map(Opt::Seat),
+            Ask::Pick { what: What::Recall, .. } => System::from_id(id).map(Opt::System),
+            Ask::Pick { what: What::Planet, .. } => {
+                let (system, planet) = id.split_once('|')?;
+                Some(Opt::Spot(System::from_id(system)?, Planet::from_id(planet)?))
+            }
+            Ask::Predict { frame, .. } => super::agenda::parse_outcome(r, frame, id).map(Opt::Outcome),
+        }
+    }
+}
+
+/// The `kind` of a pick question's options.
+const fn pick_kind(what: What) -> &'static str {
+    match what {
+        What::Player => "player",
+        What::Elect => "elect",
+        What::Recall => "recall",
+        What::Planet => "planet",
+    }
+}
+
+fn pick_of(a: &Ask) -> (ActionCard, What) {
+    match a {
+        Ask::Pick { card, what } => (*card, *what),
+        Ask::Predict { card, .. } => (*card, What::Player),
+        Ask::OwnHand { .. } => (ActionCard::Spy, What::Player),
+    }
+}
+
+/// The prompt of a card's pick question, as `action_cards.rs` words it.
+const fn pick_prompt(card: ActionCard, what: What) -> &'static str {
+    use ActionCard as C;
+    match (card, what) {
+        (C::Insubordination, _) => "Insubordination: whose tactic pool",
+        (C::AssassinateRepresentative, _) => "Assassinate Representative: choose 1 player",
+        (C::AncientBurialSites, _) => "Ancient Burial Sites: choose 1 player",
+        (C::ForwardSupplyBase, _) => "Forward Supply Base: choose another player",
+        (C::ConfusingLegalText, _) => "Confusing Legal Text: who is the elected player instead",
+        (C::UnexpectedAction, _) => "Unexpected Action: recall your token from where",
+        (C::MiningInitiative, _) => "Mining Initiative: mine which planet",
+        (C::Uprising, _) => "Uprising: which planet",
+        (C::CrippleDefenses, _) => "Cripple Defenses: which planet",
+        (C::ReactorMeltdown, _) => "Reactor Meltdown: which space dock",
+        _ => "",
+    }
+}
+
+/// The label prefix of a seat option.
+const fn seat_label(card: ActionCard, what: What) -> &'static str {
+    use ActionCard as C;
+    match (card, what) {
+        (_, What::Elect) => "elect ",
+        (C::Insubordination, _) => "take a tactic token from ",
+        (C::AssassinateRepresentative, _) => "assassinate ",
+        (C::AncientBurialSites, _) => "target ",
+        (C::ForwardSupplyBase, _) => "pay ",
+        _ => "",
+    }
+}
+
+/// The name a Rider's prediction prompt starts with.
+const fn rider_name(card: ActionCard) -> &'static str {
+    use ActionCard as C;
+    match card {
+        C::ImperialRider => "Imperial Rider",
+        C::ConstructionRider => "Construction Rider",
+        C::DiplomacyRider => "Diplomacy Rider",
+        C::LeadershipRider => "Leadership Rider",
+        C::PoliticsRider => "Politics Rider",
+        C::TechnologyRider => "Technology Rider",
+        C::TradeRider => "Trade Rider",
+        C::WarfareRider => "Warfare Rider",
+        _ => "Sanction",
     }
 }
 

@@ -1019,6 +1019,46 @@ thread_local! {
     static ACTIVE_ACTION_CARD: std::cell::RefCell<Option<ActionCardId>> = const { std::cell::RefCell::new(None) };
 }
 
+/// Play the registered effect of a card: on the string side, or in lockstep with the core's window when the
+/// area is on `dual` and the core has one for the card (`rules::action_cards::effects`).
+pub(crate) fn play_effect(
+    context: &mut crate::timing::TimingContext<'_>,
+    alias: &ActionCardId,
+    player: &PlayerId,
+    effect: Effect,
+) {
+    with_action_card_source(alias, || {
+        if !crate::action_cards_typed::plays(alias) {
+            effect(context, player);
+            return;
+        }
+        let crate::timing::TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+        let (content, galaxy, sources) = (*content, *galaxy, sources.clone());
+        crate::dual_window!(
+            crate::dual::Area::ActionCards,
+            "action_cards::play",
+            &mut **state,
+            |s: &mut GameState| {
+                let mut inner = crate::timing::TimingContext {
+                    state: s,
+                    content,
+                    sources: sources.clone(),
+                    table: &mut **table,
+                    dice: &mut **dice,
+                    rng: &mut **rng,
+                    event_sequence: &mut **event_sequence,
+                    galaxy,
+                };
+                effect(&mut inner, player);
+                crate::dual::Run::new(())
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                crate::action_cards_typed::play_window(s, player, alias, &sources, script)
+            }
+        );
+    });
+}
+
 /// Run one card effect while exposing its identity to helpers shared by many card effects.
 pub(crate) fn with_action_card_source<T>(card: &ActionCardId, action: impl FnOnce() -> T) -> T {
     ACTIVE_ACTION_CARD.with(|active| {
@@ -8082,6 +8122,112 @@ mod tests {
         }
         let report = crate::dual::take_report();
         assert!(report.differences.is_empty(), "{:?}", report.differences.first());
+    }
+
+    /// Play a card's registered effect through [`super::play_effect`] (the dual wrapper) with scripted answers.
+    #[cfg(feature = "typed-core")]
+    fn dual_card(state: &mut GameState, alias: &str, player: &PlayerId) {
+        /// Takes the last option, so a first-option default would differ.
+        struct LastOption;
+        impl crate::choice::Decider for LastOption {
+            fn choose(&mut self, choice: &Choice) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
+                choice.options.last().cloned().ok_or_else(|| crate::choice::IllegalChoice::NoOptions {
+                    player: choice.player.clone(),
+                    prompt: choice.prompt.clone(),
+                })
+            }
+        }
+        let alias = ActionCardId::new(alias);
+        let effect = effect_for(&alias).expect("a registered effect");
+        let mut table = crate::choice::Table::with_default(Box::new(LastOption));
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut context = crate::timing::TimingContext {
+            state,
+            content: ContentStore::embedded(),
+            sources: ti4_model::content_types::POK,
+            table: &mut table,
+            dice: &mut dice,
+            rng: &mut rng,
+            event_sequence: &mut sequence,
+            galaxy: None,
+        };
+        super::play_effect(&mut context, &alias, player, effect);
+    }
+
+    /// The position the question effects are played in: three seats, a rival with tokens and cultural planets,
+    /// planets with PDS and docks, a pending agenda with two outcomes.
+    #[cfg(feature = "typed-core")]
+    fn question_position() -> GameState {
+        use crate::generated::IdStr;
+        use ti4_engine_core::generated::{Planet, PlanetTrait, Source};
+        let (a, b, c) = (PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c"));
+        let mut state = crate::fixtures::game(&["a", "b", "c"]);
+        for (seat, faction) in state.players.iter_mut().zip(["arborec", "hacan", "sol"]) {
+            seat.faction = ti4_model::id::FactionId::new(faction);
+        }
+        state.promissory_notes.clear();
+        let free: Vec<Planet> = Planet::ALL
+            .iter()
+            .copied()
+            .filter(|p| {
+                let d = p.data();
+                d.system.is_some() && d.homeworld_of.is_none() && d.source == Source::Base && d.traits.contains(&PlanetTrait::Cultural)
+            })
+            .take(2)
+            .chain(
+                Planet::ALL.iter().copied().filter(|p| {
+                    let d = p.data();
+                    d.system.is_some() && d.homeworld_of.is_none() && d.source == Source::Base && !d.traits.contains(&PlanetTrait::Cultural)
+                }).take(4),
+            )
+            .collect();
+        let unit = |kind: &str, owner: &PlayerId| ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new(kind), owner.clone());
+        for (i, planet) in free.iter().enumerate() {
+            let sys = ti4_model::id::SystemId::new(planet.data().system.unwrap().as_str());
+            let pid = ti4_model::id::PlanetId::new(planet.as_str());
+            let owner = [&c, &b, &a, &b, &a, &b][i];
+            state.system_mut(&sys).planet_control.insert(pid.clone(), owner.clone());
+            let kind = if i < 3 { "pds" } else { "spacedock" };
+            state.system_mut(&sys).planet_units.insert(pid, vec![unit(kind, &c), unit("pds", &b)]);
+            state.system_mut(&sys).command_tokens.insert(a.clone());
+        }
+        state.player_mut(&a).unwrap().passed = true;
+        state.player_mut(&b).unwrap().tactic_tokens = 2;
+        state.player_mut(&c).unwrap().tactic_tokens = 1;
+        state.active = Some(b.clone());
+        state.active_system = Some(ti4_model::id::SystemId::new(free[0].data().system.unwrap().as_str()));
+        state.agenda_in_play = Some("regulations".to_owned());
+        state.agenda_choices = vec!["for".to_owned(), "against".to_owned()];
+        state
+    }
+
+    #[test]
+    #[cfg(feature = "typed-core")]
+    fn the_question_effects_agree_with_the_core_window_in_lockstep() {
+        use crate::dual::{AreaMask, Backend, with_mask};
+        let mask = AreaMask::all(Backend::String).with(crate::dual::Area::ActionCards, Backend::Dual);
+        let a = PlayerId::new("a");
+        let cases: &[&str] = &[
+            "sabo1", "insub", "assassin", "abs", "fsb", "confusing", "imp_rider", "const_rider", "diplo_rider", "lead_rider",
+            "politic_rider", "tech_rider", "trade_rider", "war_rider", "sanction", "puppetsonastring", "extremeduress",
+            "counterstroke", "unexpected", "mining_initiative", "uprising", "cripple", "meltdown",
+        ];
+        let _ = crate::dual::take_report();
+        for alias in cases {
+            let mut state = question_position();
+            let before = state.clone();
+            with_mask(mask, || dual_card(&mut state, alias, &a));
+            if *alias != "sabo1" {
+                assert!(serde_json::to_string(&state).unwrap() != serde_json::to_string(&before).unwrap(), "{alias} changed nothing");
+            }
+        }
+        let report = crate::dual::take_report();
+        let shown: String = format!("{:?}", report.differences).chars().take(1200).collect();
+        assert!(report.differences.is_empty(), "{} differences: {shown}", report.differences.len());
+        let window = report.windows.get("action_cards::play").expect("the window ran");
+        assert_eq!((window.compared, window.bailed), (cases.len() as u64, 0), "every case ran on the core");
     }
 
     #[test]

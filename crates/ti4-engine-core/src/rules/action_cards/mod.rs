@@ -4,6 +4,8 @@
 //! asked here and the string function stands; each such place is a documented bail (see
 //! [`has_legal_target`]). No `Env` trait: the faction answers are plain arguments.
 
+pub mod effects;
+
 use crate::generated::{ActionCard, System, Unit, UnitBaseType};
 use crate::query::board;
 use crate::state::Piece;
@@ -89,7 +91,7 @@ pub fn has_legal_target(core: &CoreState, blanked: bool, scope: Scope, who: Seat
 }
 
 /// `galaxy::is_home_system`: the printed system of a homeworld planet in scope.
-fn is_home_system(scope: Scope, system: System) -> bool {
+pub(super) fn is_home_system(scope: Scope, system: System) -> bool {
     crate::generated::Planet::ALL.iter().any(|p| {
         let d = p.data();
         d.homeworld_of.is_some() && d.system == Some(system) && scope.0 & crate::tables::source_bit(d.source) != 0
@@ -243,6 +245,12 @@ pub struct Env {
     pub mahact_held: i32,
     /// The sources in play.
     pub scope: Scope,
+    /// A law blanks the law-reading answers (`laws::blanked`).
+    pub blanked: bool,
+    /// The interned `action_card`, the source of the trade goods a card gains.
+    pub action_card: crate::state::Code,
+    /// The interned `forward_supply_base`.
+    pub supply_base: crate::state::Code,
 }
 
 impl Simple {

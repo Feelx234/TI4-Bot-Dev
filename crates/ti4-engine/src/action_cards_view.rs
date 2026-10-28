@@ -213,9 +213,64 @@ pub fn play_simple(state: &mut GameState, player: &PlayerId, effect: &str, sourc
         &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Transient, Slice::Board, Slice::Agenda, Slice::Cards],
         &[Slice::Players, Slice::Transient, Slice::Board, Slice::Agenda, Slice::Cards],
     );
-    let env = rules::Env {
+    let env = env_of(state, player, sources, &r);
+    crate::core_sync::with_core(state, &mut cx, Sources::default(), fp, |core, _| rules::play_simple(core, seat, effect, env)).ok()
+}
+
+/// What the played effects read from outside the core.
+fn env_of(state: &GameState, player: &PlayerId, sources: &ti4_model::content_types::SourceSet, r: &crate::render::Render) -> rules::Env {
+    rules::Env {
         mahact_held: state.tokens_held_by_mahact(player),
         scope: crate::core_adapter::scope(sources.clone()),
-    };
-    crate::core_sync::with_core(state, &mut cx, Sources::default(), fp, |core, _| rules::play_simple(core, seat, effect, env)).ok()
+        blanked: crate::laws::blanked(state),
+        action_card: r.code("action_card"),
+        supply_base: r.code("forward_supply_base"),
+    }
+}
+
+/// Whether the core has a window for the card (`rules::action_cards::effects::Fx`).
+#[must_use]
+pub fn plays(alias: &ActionCardId) -> bool {
+    ActionCard::from_id(alias.as_str()).and_then(rules::effects::Fx::of).is_some()
+}
+
+const PLAY: crate::core_sync::Footprint = crate::core_sync::Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Agenda, Slice::Transient, Slice::Pending],
+    &[Slice::Players, Slice::Board, Slice::Agenda, Slice::Transient, Slice::Pending],
+);
+
+/// The core half of a played card effect (`action_cards::effect_for`), as a lockstep window. `None` when the
+/// card has no window or the position holds something the core cannot express.
+#[must_use]
+pub fn play_window(
+    gs: &mut GameState,
+    player: &PlayerId,
+    alias: &ActionCardId,
+    sources: &ti4_model::content_types::SourceSet,
+    script: &crate::dual_window::Recording,
+) -> Option<crate::dual::CoreWindow<()>> {
+    use ti4_engine_core::driver::Driver;
+    use ti4_engine_core::kernel::stage::AbilityTable;
+    use ti4_engine_core::kernel::Kernel;
+    let card = ActionCard::from_id(alias.as_str())?;
+    let (mut cx, r) = crate::dual_window::tables(gs)?;
+    let seat = r.seat(player.as_str())?;
+    let env = env_of(gs, player, sources, &r);
+    let before = gs.clone();
+    let kernel = Kernel::plain();
+    let mut staged = Vec::new();
+    let mut emitted = Vec::new();
+    let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), PLAY, |core, _| {
+        let play = rules::effects::Play::of(core, card, seat, env)?;
+        let mut driver = Driver::new(play, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let driven = crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script);
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        emitted = std::mem::take(&mut driver.emitted);
+        Some(driven)
+    })
+    .ok()??
+    .ok()?;
+    crate::dual_window::apply_staged(gs, &r, &staged)?;
+    let events: Vec<crate::event::Event> = emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
+    Some(crate::dual::CoreWindow { run: crate::dual::Run::new(()).with_events_vec(events), questions: driven.rendered })
 }

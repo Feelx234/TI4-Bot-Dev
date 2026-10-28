@@ -48,7 +48,7 @@ pub fn outcome_text(r: &Render, o: Outcome) -> String {
 
 /// `vote::outcome_label`: a strategy card or a secret objective by its printed name, everything else as
 /// the outcome itself.
-fn outcome_label(r: &Render, frame: &Frame, o: Outcome) -> String {
+pub(super) fn outcome_label(r: &Render, frame: &Frame, o: Outcome) -> String {
     let text = outcome_text(r, o);
     let category = match frame.voted().data().elects {
         AgendaElects::StrategyCard => ContentType::StrategyCards,
@@ -247,7 +247,7 @@ impl Family for Fam {
 }
 
 /// The outcome an id names in a vote on `frame`'s voted agenda.
-fn parse_outcome(r: &Render, frame: &Frame, id: &str) -> Option<Outcome> {
+pub(super) fn parse_outcome(r: &Render, frame: &Frame, id: &str) -> Option<Outcome> {
     match id {
         "for" => return Some(Outcome::For),
         "against" => return Some(Outcome::Against),
