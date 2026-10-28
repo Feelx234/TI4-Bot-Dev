@@ -257,3 +257,24 @@ NOT ported (still string): the `TradeWindow` stage machine (driven question by q
 | B4-design-02 | staged events (`TRADE_GOODS_GAINED` of a Trade Agreement) and the Cabal observer stay string, run after the write on both backends |
 | B4-design-03 | `promissory::*` writes use `Area::TradeDiplomacy` although B5 owns the reads; `dual::write` came from the B5 merge |
 | B4-design-04 | `play_convoys` picks the first copy by the text order of the faction id (closure `text_order`), as the string map does |
+
+## B9 agenda: bails, copied behaviour and design lines
+
+Branch `core-b9-agenda` (merged with core-a4-objectives, core-reactions and core-integration). Ported behind `Area::AgendaLaws`: the vote window (`Vote`), 24 agenda effects as `rules::agenda::effects::Resolve` windows (`Table` in `table_effects.rs`: Regulated Conscription, Armed Forces Standardization, Clandestine Operations, Fleet Regulations Against, Economic Equality, Articles of War Against, Public Execution, Conventions of War Against, Unconventional Measures Against, Publicize Weapon Schematics Against, Shared Research Against, Wormhole Reconstruction Against, Arms Reduction, Rearmament Against, Compensated Disarmament, Swords to Plowshares For, Core Mining, Demilitarized Zone, Incentive Program, Enforced Travel Ban, Wormhole Research; and with questions Seed of an Empire and Homeland Defense Act Against), `laws::offer_discard` (`OfferDiscard`) and Covert Legislation's face-down draw (`CovertDraw`).
+
+| id | note |
+|----|------|
+| B9-bail-01 | Executive Sanctions (Against) and Ixthian Artifact (For) roll the game's seeded dice (`ctx.dice`/`ctx.rng`), which are outside the state: no core window (`the_dice_effects_have_no_window`) |
+| B9-bail-02 | Rearmament For (supply, unit-form flip, Naaz staging, placement hook), Swords to Plowshares Against, Colonial Redistribution (all place an infantry through `supply::allowed`/`placed_unit_id`) and Unconventional Measures For (`draw_announced`) have no window (`the_placing_and_drawing_halves_have_no_window`) |
+| B9-bail-03 | Minister of Antiquities (relic deck), Research Grant Reallocation (technology question) and Galactic Crisis Pact (a question per seat, then a secondary) stay string (`the_relic_technology_and_crisis_effects_have_no_window`) |
+| B9-bail-04 | an agenda effect in the action phase is not followed (the Ral Nel breakthrough can take a discarded hand) (`the_action_phase_has_no_window`) |
+| B9-bail-05 | a galvanized ground force that falls stages a `#staged:ground:` row with one more field than the typed mark holds: the window is dropped after it ran (`a_galvanized_ground_force_drops_the_window`) |
+| B9-bail-06 | `laws::offer_discard` for a law nobody holds or on a blanked table (the string asks nothing) has no core window (`a_law_nobody_holds_has_no_window`) |
+| B9-bail-07 | `Game::draw_covert_agenda` bails while the string state carries a deck reserve (`a_deck_reserve_has_no_covert_window`); so does the Incentive Program reveal |
+| B9-bail-08 | not ported (string only): the agenda reveal chain (`reveal_agenda`: AGENDA_REVEALED emissions, Quash / Political Favor / Political Secret offers on promissory notes, Veto replacement), `close_vote` and `resolve_agenda_outcome` (redirect, predictions, enact) as core Stage machines; they are split into named steps in the string (slice 9) but need the agenda log, the promissory note offers and the game's emission queue in the core |
+| B9-copy-01 | `windowed` compares the effect only for the ballot's FOR/AGAINST voters it can seat; a voter without a seat bails the window |
+| B9-copy-02 | `offer_discard`: the display facts under the question (`details.card`, `facts`, `captions`) are the four callers' text; the core window takes them from the recorded question (the convention of R-copy-01), and the prompt is interned as a code |
+| B9-copy-03 | Enforced Travel Ban and Wormhole Research read the placed systems and the printed wormholes of the map slice (lent through `Sources.galaxy`, footprint `AGENDA_EFFECT_MAP`); without a galaxy both end deferred, as the string |
+| B9-design-01 | `EffectFacts` (voters, Mahact fleet pools per seat, the game's and the default source scope, three interned texts, `has_galaxy`) is what a table effect reads besides the state; `Table::of` maps (agenda, outcome) to the effect and whether it ends `Done::Deferred` |
+| B9-design-02 | `agenda::Ask::frame()` is now an `Option`: the questions of an effect (`NameTied`, `Structure`, `DiscardLaw`) carry no agenda frame and render no `details.agenda` |
+| B9-design-03 | staged trade-good and command-token events leave the core as `pending.staged` and are written through the string `supply::stage_event` (`apply_staged`), so the string's `staging_enabled` gate decides alike; staged ground rows are `PrivateStagedGround` marks in the Marks slice |
