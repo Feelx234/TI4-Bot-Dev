@@ -215,8 +215,7 @@ impl Table {
             }
             Self::WormholeRecon => {
                 for system in System::ALL {
-                    let cell = core.board().sys(system);
-                    if !cell.flags.has(SysFlags::TOUCHED) || !in_scope(f.scope, system.data().source) || system.data().wormholes.is_empty() {
+                    if !in_scope(f.scope, system.data().source) || system.data().wormholes.is_empty() {
                         continue;
                     }
                     for seat in everyone(core).as_slice() {

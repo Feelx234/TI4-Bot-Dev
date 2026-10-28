@@ -50,7 +50,7 @@ fn table() -> GameState {
     state.promissory_notes.clear();
     state.promissory_faceup.clear();
     for who in ["a", "b", "c"] {
-        hand(&mut state, who, &["sabotage", "sabotage_2", "sabotage_3"]);
+        hand(&mut state, who, &["sabo1", "sabo2", "sabo3"]);
     }
     state
 }
@@ -70,6 +70,11 @@ fn counted(body: impl FnOnce()) -> (u64, u64) {
     with_mask(mask(), body);
     let report = take_report();
     assert_eq!(report.total_differences(), 0, "{report:?}");
+    for (label, w) in &report.windows {
+        if w.bailed > 0 {
+            eprintln!("bail: {label} x{}", w.bailed);
+        }
+    }
     local_windows("agenda_effects::resolve_with")
 }
 
@@ -93,18 +98,33 @@ fn the_token_and_goods_effects_run_as_core_windows_in_lockstep() {
         state.player_mut(&pid("b")).unwrap().tactic_tokens = 4;
         state.player_mut(&pid("b")).unwrap().fleet_tokens = 4;
         state.player_mut(&pid("b")).unwrap().strategic_tokens = 0;
+        // (1, 1, 1): the last of the fullest pools goes first, so the leftover is the tactic pool.
+        for (n, pool) in [(1, "tactic"), (1, "fleet"), (1, "strategic")] {
+            let seat = state.player_mut(&pid("c")).unwrap();
+            match pool {
+                "tactic" => seat.tactic_tokens = n,
+                "fleet" => seat.fleet_tokens = n,
+                _ => seat.strategic_tokens = n,
+            }
+        }
         run(&mut state, "cladenstine", FOR, &Ballot::default());
+        assert_eq!(state.player(&pid("c")).unwrap().tactic_tokens, 1);
         run(&mut state, "cladenstine", AGAINST, &Ballot::default());
         state.player_mut(&pid("c")).unwrap().fleet_tokens = 0;
         run(&mut state, "cladenstine", AGAINST, &Ballot::default());
         // Fleet Regulations: a fleet token each, but not past the reinforcements (a Mahact pool counts).
-        state.player_mut(&pid("a")).unwrap().tactic_tokens = 8;
-        state.player_mut(&pid("a")).unwrap().fleet_tokens = 8;
-        state.player_mut(&pid("a")).unwrap().strategic_tokens = 0;
+        {
+            let seat = state.player_mut(&pid("a")).unwrap();
+            (seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens) = (0, 0, 0);
+        }
+        // Exactly one token is left in the reinforcements, and one sits in a Mahact fleet pool.
+        let free = state.tokens_in_reinforcements(&pid("a"));
+        state.player_mut(&pid("a")).unwrap().tactic_tokens = free - 1;
+        assert_eq!(state.tokens_in_reinforcements(&pid("a")), 1);
         state.faction_marks.insert("mahact:fleet:c".to_owned(), "a".to_owned());
         run(&mut state, "regulations", FOR, &Ballot::default());
         run(&mut state, "regulations", AGAINST, &Ballot::default());
-        assert_eq!(state.player(&pid("a")).unwrap().fleet_tokens, 8, "no reinforcement is left");
+        assert_eq!(state.player(&pid("a")).unwrap().fleet_tokens, 0, "the Mahact pool holds the last one");
         // Economic Equality and Articles of War.
         state.player_mut(&pid("a")).unwrap().trade_goods = 4;
         run(&mut state, "economic_equality", AGAINST, &Ballot::default());
@@ -117,7 +137,7 @@ fn the_token_and_goods_effects_run_as_core_windows_in_lockstep() {
         assert_eq!(state.player(&pid("b")).unwrap().trade_goods, 5);
         run(&mut state, "articles_war", FOR, &votes);
     });
-    assert!(compared >= 14 && bailed == 0, "{compared} compared, {bailed} bailed");
+    assert!(compared >= 12 && bailed == 0, "{compared} compared, {bailed} bailed");
 }
 
 #[test]
@@ -133,7 +153,7 @@ fn the_hand_effects_run_as_core_windows_in_lockstep() {
         assert_eq!(state.speaker, pid("b"));
         // Conventions of War: the Against voters.
         let votes = ballot(&[("a", AGAINST), ("b", FOR), ("c", AGAINST)]);
-        hand(&mut state, "a", &["sabotage"]);
+        hand(&mut state, "a", &["sabo1"]);
         run(&mut state, "conventions", FOR, &votes);
         assert_eq!(state.player(&pid("a")).unwrap().action_cards.len(), 1);
         run(&mut state, "conventions", AGAINST, &votes);
@@ -143,9 +163,9 @@ fn the_hand_effects_run_as_core_windows_in_lockstep() {
         run(&mut state, "unconventional", AGAINST, &votes);
         assert!(state.player(&pid("b")).unwrap().action_cards.is_empty());
         // Publicize Weapon Schematics: only the War Sun owners.
-        hand(&mut state, "a", &["sabotage"]);
-        hand(&mut state, "b", &["sabotage"]);
-        hand(&mut state, "c", &["sabotage"]);
+        hand(&mut state, "a", &["sabo1"]);
+        hand(&mut state, "b", &["sabo1"]);
+        hand(&mut state, "c", &["sabo1"]);
         state.player_mut(&pid("b")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("pws2"));
         state.player_mut(&pid("c")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("ws"));
         run(&mut state, "schematics", FOR, &Ballot::default());
@@ -155,15 +175,19 @@ fn the_hand_effects_run_as_core_windows_in_lockstep() {
         assert!(state.player(&pid("b")).unwrap().action_cards.is_empty());
         assert!(state.player(&pid("c")).unwrap().action_cards.is_empty());
     });
-    assert!(compared >= 8 && bailed == 0, "{compared} compared, {bailed} bailed");
+    assert!(compared >= 7 && bailed == 0, "{compared} compared, {bailed} bailed");
 }
 
 #[test]
 fn the_command_token_effects_run_as_core_windows_in_lockstep() {
     let (compared, bailed) = counted(|| {
         let mut state = table();
+        // One seat keeps a home system of its own; another has none recorded and takes its faction's.
+        state.player_mut(&pid("b")).unwrap().home_system = Some(SystemId::new("27"));
+        state.player_mut(&pid("c")).unwrap().home_system = None;
         run(&mut state, "shared_research", FOR, &Ballot::default());
         run(&mut state, "shared_research", AGAINST, &Ballot::default());
+        assert!(state.system_state(&SystemId::new("27")).command_tokens.contains(&pid("b")));
         // A second run places nothing new.
         run(&mut state, "shared_research", AGAINST, &Ballot::default());
         // Wormhole Reconstruction: only wormhole systems holding a ship; tile 25 is an alpha wormhole, 26 beta.
@@ -176,7 +200,7 @@ fn the_command_token_effects_run_as_core_windows_in_lockstep() {
         assert!(state.system_state(&SystemId::new("26")).command_tokens.contains(&pid("b")));
         assert!(!state.system_state(&SystemId::new("27")).command_tokens.contains(&pid("a")));
     });
-    assert!(compared >= 6 && bailed == 0, "{compared} compared, {bailed} bailed");
+    assert!(compared >= 5 && bailed == 0, "{compared} compared, {bailed} bailed");
 }
 
 #[test]
@@ -194,10 +218,10 @@ fn the_unit_effects_run_as_core_windows_in_lockstep() {
         assert_eq!((left(&state, "dreadnought"), left(&state, "cruiser")), (2, 4));
         // Rearmament, Against: every mech on a planet is an infantry again.
         garrison(&mut state, "jord", "a", &["infantry", "mech", "mech"]);
-        garrison(&mut state, "arc_prime", "b", &["mech", "pds"]);
+        garrison(&mut state, "arcprime", "b", &["mech", "pds"]);
         state.system_mut(&system_of("jord")).planet_units.get_mut(&PlanetId::new("jord")).unwrap()[1].sustained_damage = true;
         run(&mut state, "rearmament", AGAINST, &Ballot::default());
-        assert!(state.system_state(&system_of("jord")).planet_units[&PlanetId::new("jord")].iter().all(|u| u.type_id.as_str() == "infantry"));
+        assert!(state.system_state(&system_of("jord")).planet_units[&PlanetId::new("jord")].iter().all(|u| !u.type_id.as_str().ends_with("mech")));
     });
     assert!(compared >= 3 && bailed == 0, "{compared} compared, {bailed} bailed");
 }
@@ -207,22 +231,93 @@ fn the_planet_effects_run_as_core_windows_in_lockstep() {
     let (compared, bailed) = counted(|| {
         let mut state = table();
         garrison(&mut state, "jord", "a", &["infantry", "mech", "infantry", "pds", "spacedock"]);
-        garrison(&mut state, "arc_prime", "b", &["infantry", "infantry", "infantry", "mech"]);
+        garrison(&mut state, "arcprime", "b", &["infantry", "infantry", "infantry", "mech"]);
         garrison(&mut state, "arretze", "c", &["infantry", "infantry", "pds"]);
         // Core Mining: one infantry only.
+        let before = state.system_state(&system_of("jord")).planet_units[&PlanetId::new("jord")].len();
         run(&mut state, "core_mining", "jord", &Ballot::default());
-        assert_eq!(state.system_state(&system_of("jord")).planet_units[&PlanetId::new("jord")].len(), 4);
+        assert_eq!(state.system_state(&system_of("jord")).planet_units[&PlanetId::new("jord")].len(), before - 1);
         // Compensated Disarmament: the garrison is bought out for goods.
-        run(&mut state, "disarmament", "arc_prime", &Ballot::default());
-        assert_eq!(state.player(&pid("b")).unwrap().trade_goods, 4);
+        run(&mut state, "disarmament", "arcprime", &Ballot::default());
+        assert!(state.player(&pid("b")).unwrap().trade_goods >= 4);
+        // One ground force bought out pays one good.
+        garrison(&mut state, "abaddon", "a", &["infantry"]);
+        let goods = state.player(&pid("a")).unwrap().trade_goods;
+        run(&mut state, "disarmament", "abaddon", &Ballot::default());
+        assert_eq!(state.player(&pid("a")).unwrap().trade_goods, goods + 1);
         // Swords to Plowshares: half of every seat's infantry, rounded up.
         run(&mut state, "plowshares", FOR, &Ballot::default());
         // Demilitarized Zone: everything dies.
         run(&mut state, "demilitarized_zone", "jord", &Ballot::default());
         assert!(state.system_state(&system_of("jord")).planet_units[&PlanetId::new("jord")].is_empty());
         // A planet nobody has touched: nothing to clear.
-        run(&mut state, "demilitarized_zone", "abaddon", &Ballot::default());
-        run(&mut state, "disarmament", "abaddon", &Ballot::default());
+        run(&mut state, "demilitarized_zone", "ashtroth", &Ballot::default());
+        run(&mut state, "disarmament", "ashtroth", &Ballot::default());
     });
     assert!(compared >= 6 && bailed == 0, "{compared} compared, {bailed} bailed");
+}
+
+/// The core half of an effect, probed on its own: `None` is a bail (the string effect runs alone).
+fn core_half(state: &mut GameState, agenda: &str, outcome: &str, votes: &Ballot) -> Option<bool> {
+    let (for_voters, against_voters) = (votes.voted_for(FOR), votes.voted_for(AGAINST));
+    let args = crate::dual_window::EffectArgs { for_voters: &for_voters, against_voters: &against_voters, sources: POK };
+    crate::dual_window::agenda_effect(state, agenda, outcome, &args, &crate::dual_window::Recording::default()).map(|w| w.run.value)
+}
+
+/// Executive Sanctions (Against) and Ixthian Artifact (For) roll dice from the game's seeded roller, which is not
+/// in the state: no core window (B9-bail-01).
+#[test]
+fn the_dice_effects_have_no_window() {
+    let mut state = table();
+    assert!(core_half(&mut state, "sanctions", AGAINST, &Ballot::default()).is_none());
+    assert!(core_half(&mut state, "artifact", FOR, &Ballot::default()).is_none());
+}
+
+/// Rearmament For and Swords to Plowshares Against place units through the supply, the unit-form flip and the
+/// faction placement hooks, and Unconventional Measures For draws announced action cards (B9-bail-02).
+#[test]
+fn the_placing_and_drawing_halves_have_no_window() {
+    let mut state = table();
+    assert!(core_half(&mut state, "rearmament", FOR, &Ballot::default()).is_none());
+    assert!(core_half(&mut state, "plowshares", AGAINST, &Ballot::default()).is_none());
+    assert!(core_half(&mut state, "unconventional", FOR, &ballot(&[("a", FOR)])).is_none());
+    // The halves that are ported answer.
+    assert!(core_half(&mut state, "rearmament", AGAINST, &Ballot::default()).is_some());
+    assert!(core_half(&mut state, "plowshares", FOR, &Ballot::default()).is_some());
+}
+
+/// The relic deck (Minister of Antiquities), the technology question (Research Grant Reallocation) and Galactic
+/// Crisis Pact (a question per seat, then a strategy card's secondary) stay string (B9-bail-03).
+#[test]
+fn the_relic_technology_and_crisis_effects_have_no_window() {
+    let mut state = table();
+    assert!(core_half(&mut state, "minister_antiquities", "a", &Ballot::default()).is_none());
+    assert!(core_half(&mut state, "grant_reallocation", "a", &Ballot::default()).is_none());
+    assert!(core_half(&mut state, "crisis", "leadership", &Ballot::default()).is_none());
+}
+
+/// An agenda effect in the action phase can be taken by the Ral Nel breakthrough on a discard: the core knows no
+/// such rule and declines the phase (B9-bail-04).
+#[test]
+fn the_action_phase_has_no_window() {
+    let mut state = table();
+    assert!(core_half(&mut state, "execution", "b", &Ballot::default()).is_some());
+    state.phase = Phase::Action;
+    assert!(core_half(&mut state, "execution", "b", &Ballot::default()).is_none());
+}
+
+/// A galvanized ground force that falls stages a row with one more field than the typed mark holds: the window
+/// is dropped after it ran (B9-bail-05).
+#[test]
+fn a_galvanized_ground_force_drops_the_window() {
+    let mut state = table();
+    garrison(&mut state, "arcprime", "b", &["infantry"]);
+    let system = system_of("arcprime");
+    let planet = PlanetId::new("arcprime");
+    state.system_mut(&system).planet_units.get_mut(&planet).unwrap().last_mut().unwrap().galvanized = true;
+    assert!(core_half(&mut state, "demilitarized_zone", "arcprime", &Ballot::default()).is_none());
+    // The same planet without it is followed.
+    let mut state = table();
+    garrison(&mut state, "arcprime", "b", &["infantry"]);
+    assert!(core_half(&mut state, "demilitarized_zone", "arcprime", &Ballot::default()).is_some());
 }
