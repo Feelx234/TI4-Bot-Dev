@@ -103,12 +103,13 @@ mod tests {
     use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
 
     fn counts(label: &str) -> (u64, u64) {
-        report().windows.get(label).map_or((0, 0), |w| (w.compared, w.bailed))
+        crate::dual::thread_window_counts(label)
     }
 
     fn run(answers: &[&str], stock: &[i32], factions: &[(&str, &str)]) -> (u64, u64) {
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
+        crate::dual::reset_thread_windows();
         with_mask(AreaMask::STRING.with(Area::Strategy, Backend::Dual), || {
             let mut state = crate::fixtures::seated_game(factions, POK);
             for (seat, n) in factions.iter().zip(stock) {

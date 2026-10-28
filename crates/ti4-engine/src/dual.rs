@@ -1086,6 +1086,37 @@ pub fn write<R: PartialEq + Debug>(
     )
 }
 
+#[cfg(test)]
+thread_local! {
+    /// `(compared, bailed)` of the windows this thread ran, by label: the shared report also counts the windows
+    /// other test threads run under a global `TI4_AREAS`, so a test that asserts exact counts reads this one.
+    static THREAD_WINDOWS: std::cell::RefCell<BTreeMap<String, (u64, u64)>> = const { std::cell::RefCell::new(BTreeMap::new()) };
+}
+
+#[cfg(test)]
+fn note_thread_window(label: &str, compared: bool) {
+    THREAD_WINDOWS.with(|w| {
+        let mut w = w.borrow_mut();
+        let entry = w.entry(label.to_owned()).or_default();
+        if compared { entry.0 += 1 } else { entry.1 += 1 }
+    });
+}
+
+#[cfg(not(test))]
+fn note_thread_window(_: &str, _: bool) {}
+
+/// `(compared, bailed)` of the windows of `label` this thread ran since [`reset_thread_windows`].
+#[cfg(test)]
+pub(crate) fn thread_window_counts(label: &str) -> (u64, u64) {
+    THREAD_WINDOWS.with(|w| w.borrow().get(label).copied().unwrap_or((0, 0)))
+}
+
+/// Forget the windows this thread ran.
+#[cfg(test)]
+pub(crate) fn reset_thread_windows() {
+    THREAD_WINDOWS.with(|w| w.borrow_mut().clear());
+}
+
 /// The core half of a window run: what the lockstep driver saw.
 #[derive(Debug, Clone)]
 pub struct CoreWindow<R> {
@@ -1120,9 +1151,11 @@ pub fn run_dual_window<R: PartialEq + Debug>(
     let recording = crate::dual_window::finish();
     let Some(core_run) = core(&mut core_state, &recording) else {
         with_report(|r| r.windows.entry(label.to_owned()).or_default().bailed += 1);
+        note_thread_window(label, false);
         return string_run.value;
     };
     with_report(|r| r.windows.entry(label.to_owned()).or_default().compared += 1);
+    note_thread_window(label, true);
     string_run.events = Some(crate::dual_window::normalized(&recording.emits));
     let ok = compare_value(area, &format!("{label}.questions"), &recording.questions.len(), &core_run.questions.len());
     if ok {

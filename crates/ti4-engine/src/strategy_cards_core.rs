@@ -666,8 +666,10 @@ mod tests {
     use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
     use crate::dual_window::Recording;
 
+    /// The windows of `label` this thread ran: the shared report also holds what other test threads ran under a
+    /// global `TI4_AREAS`.
     fn counts(label: &str) -> (u64, u64) {
-        report().windows.get(label).map_or((0, 0), |w| (w.compared, w.bailed))
+        crate::dual::thread_window_counts(label)
     }
 
     const F3: [(&str, &str); 3] = [("a", "sol"), ("b", "hacan"), ("c", "arborec")];
@@ -694,6 +696,7 @@ mod tests {
     ) -> (u64, u64) {
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
+        crate::dual::reset_thread_windows();
         with_mask(AreaMask::STRING.with(Area::Strategy, Backend::Dual), || {
             let mut state = crate::fixtures::seated_game(factions, sources);
             // The notes are dealt to the factions once they are seated (the lobby does this; the typed cards
@@ -835,7 +838,12 @@ mod tests {
         };
         assert_eq!(run(label, &F3, broke, &free, primary("pok1leadership")).0, 1);
         // Paid by goods alone, one by one (each lone option is taken without a question).
-        assert_eq!(run(label, &F3, |s| { goods(3)(s); s.exhausted_planets.insert(PlanetId::new("jord")); }, &[&free[..], &["yes", "tactic_tokens"]].concat(), primary("pok1leadership")).0, 1);
+        let goods_only = |s: &mut GameState| {
+            goods(3)(s);
+            s.exhausted_planets.insert(PlanetId::new("jord"));
+        };
+        let answers = [&free[..], &["yes", "tactic_tokens"]].concat();
+        assert_eq!(run(label, &F3, goods_only, &answers, primary("pok1leadership")).0, 1);
     }
 
     #[test]
@@ -1177,5 +1185,30 @@ mod tests {
             run(label, &F3, goods(4), &[&techs[0], "decline"], primary("pok7technology"))
         });
         assert_eq!(declined, (0, 1));
+    }
+
+    /// Regression: under a global `TI4_AREAS=strategy=dual` the dual-suite step runs game tests on other threads
+    /// that play the same cards; their windows were counted into the exact counts of these tests
+    /// (`imperial_primary_scores_nothing...` saw `(0, 2)` for `(0, 1)`). The counts are per thread now.
+    #[test]
+    fn a_window_another_thread_runs_does_not_change_the_counts_of_this_thread() {
+        let label = "strategy_cards::politics_secondary";
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        std::thread::spawn(|| {
+            with_mask(AreaMask::STRING.with(Area::Strategy, Backend::Dual), || {
+                let mut state = crate::fixtures::seated_game(&F3, POK);
+                crate::promissory::deal(&mut state, ContentStore::embedded(), POK);
+                let mut table = Table::with_default(Box::new(Scripted::new(Vec::<String>::new())));
+                crate::strategy_cards::secondary(&mut state, ContentStore::embedded(), POK, None, &mut table, &a(), "pok3politics").unwrap();
+            });
+        })
+        .join()
+        .unwrap();
+        let shared = report().windows.get(label).map_or(0, |w| w.compared + w.bailed);
+        assert!(shared >= 1, "the shared report holds the other thread's window");
+        assert_eq!(counts(label), (0, 0), "this thread ran none");
+        let _ = take_report();
     }
 }
