@@ -71,7 +71,7 @@ mod real {
         galaxy_addr: usize,
         view: CoreView,
         cx: Ctx,
-        adj: Rc<Adjacency>,
+        adj: std::sync::Arc<Adjacency>,
         mecatol: System,
     }
 
