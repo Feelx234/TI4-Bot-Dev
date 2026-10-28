@@ -824,3 +824,28 @@ impl Window for Construction {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn all(total: u8, floor: u8) -> Vec<(u8, u8, u8)> {
+        splits(total, floor)
+            .map(|o| match o {
+                SOpt::Split { tactic, fleet, strategic } => (tactic, fleet, strategic),
+                _ => unreachable!(),
+            })
+            .collect()
+    }
+
+    /// `tokens::distribution_options`: every split of the tokens, tactic pool first, at least `floor` in fleet.
+    #[test]
+    fn the_splits_keep_the_fleet_floor_and_the_string_order() {
+        assert_eq!(all(2, 2), vec![(0, 2, 0)], "a total at the floor leaves one split");
+        assert_eq!(all(3, 2), vec![(0, 2, 1), (0, 3, 0), (1, 2, 0)]);
+        assert_eq!(all(1, 2), vec![(0, 0, 1), (0, 1, 0), (1, 0, 0)], "below the floor every split is offered");
+        assert_eq!(all(9, 2).len(), 36);
+        assert_eq!(all(9, 0).len(), 55);
+        assert!(all(9, 2).iter().all(|(t, f, s)| t + f + s == 9 && *f >= 2));
+    }
+}

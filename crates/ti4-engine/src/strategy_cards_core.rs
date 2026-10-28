@@ -711,4 +711,23 @@ mod tests {
         };
         assert_eq!(run(label, &F3, minister, &["spacedock|26|lodor"], secondary("pok4construction")), (0, 1));
     }
+
+    #[test]
+    fn a_token_gain_stops_at_the_reinforcements_and_mecatol_is_no_diplomacy_system() {
+        // Eight tokens on the sheet and eight on the board: nothing is left to gain, the questions are asked.
+        let spent = |s: &mut GameState| {
+            for system in ["19", "20", "21", "22", "23", "24", "25", "27"] {
+                token_in(s, system);
+            }
+            s.player_mut(&a()).unwrap().trade_goods = 4;
+        };
+        let answers = ["tactic_tokens", "tactic_tokens", "fleet_tokens", "no"];
+        assert_eq!(run("strategy_cards::leadership_primary", &F3, spent, &answers, primary("pok1leadership")).0, 1);
+        // Mecatol Rex is not a system Diplomacy may choose.
+        let mecatol = |s: &mut GameState| {
+            s.system_mut(&SystemId::new("18")).set_control(PlanetId::new("mr"), a());
+            s.exhausted_planets.insert(PlanetId::new("mr"));
+        };
+        assert_eq!(run("strategy_cards::diplomacy_primary", &F3, mecatol, &["01", "mr"], primary("pok2diplomacy")).0, 1);
+    }
 }
