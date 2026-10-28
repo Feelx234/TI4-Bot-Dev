@@ -97,7 +97,7 @@ impl Family for Fam {
                         Delta::new(Quantity::TradeGoods, goods, goods - 1),
                     ]))
             }
-            Opt::Build { .. } | Opt::Exchange { .. } | Opt::Place { .. } | Opt::Stop => unreachable!("builds are asked by Ask::Choose"),
+            Opt::Build { .. } | Opt::Exchange { .. } | Opt::Place { .. } | Opt::Stop | Opt::Agent => unreachable!("builds are asked by Ask::Choose"),
             Opt::Commodity { shown } => {
                 let worth = i64::from(shown.worth);
                 ChoiceOption::labelled("commodity", crate::production::PAY_KIND, "spend a commodity as a trade good")
@@ -188,6 +188,9 @@ fn parse_build(id: &str) -> Option<Opt> {
     if id == "done_producing" {
         return Some(Opt::Stop);
     }
+    if id == crate::production::AGENT_OPTION_ID {
+        return Some(Opt::Agent);
+    }
     if let Some(rest) = id.strip_prefix("build|") {
         let (unit, made) = rest.split_once('|')?;
         return Some(Opt::Build { unit: <Unit as IdStr>::from_id(unit)?, made: made.parse().ok()? });
@@ -241,6 +244,15 @@ fn capacity_facts(option: ChoiceOption, unit: Unit, placed: usize, spots: &[Stri
 fn build_option(r: &Render, ask: &ChooseAsk, o: &Opt) -> ChoiceOption {
     let (unit, exchange) = match *o {
         Opt::Stop => return ChoiceOption::labelled("done_producing", "decline", "produce nothing further"),
+        Opt::Agent => {
+            return ChoiceOption::labelled(
+                crate::production::AGENT_OPTION_ID,
+                crate::production::AGENT_OPTION_KIND,
+                "Exhaust Berekar Berekon: -2 cost",
+            )
+            .with("leader", "winnuagent")
+            .with("discount_offered", 2_i64);
+        }
         Opt::Build { unit, .. } => (unit, false),
         Opt::Exchange { unit } => (unit, true),
         _ => unreachable!("payment options are asked by Ask::Pay"),

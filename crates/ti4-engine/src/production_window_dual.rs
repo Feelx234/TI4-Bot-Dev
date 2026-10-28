@@ -27,7 +27,7 @@ use crate::render::{self, Position, Typed};
 
 const FOOTPRINT: Footprint = Footprint {
     reads: crate::production_view::READS,
-    writes: SliceSet::of(&[Slice::Board, Slice::Players]),
+    writes: SliceSet::of(&[Slice::Board, Slice::Players, Slice::Transient]),
 };
 
 /// Run one step of `before` (the string window as it stood at the question) on the core. `None`: the
