@@ -133,11 +133,26 @@ The example lives under `driver/` only because `rules/` is created by B1 and B3;
   `dual_window!` around `roll_round_string`): presentation, both sides' dice from `Sx::die` recorded in
   `ledger.dice` (Munitions Reserves' pre-roll reroll included), free/forced hits (tag 2 = the hulls 0.0.1 binds,
   tag 1 = Hylarim's two extra hits on 9-10), `combat_round_hits`, `combat_round_dice` and the queue.
-  Compared: queue, damaged-before-round, dice (hit number, faces), stream positions, resulting state.
-  Bails (`CombatWindow::roll_unported`, the string result stands, windows inside run bare): Crown of Thalnos
-  (relic or law), Heart of Ixth, Munitions Reserves after the roll (rules >= 8), War Funding note, Hacan flagship
-  (Wrath of Kenara), a readied The Thundarian / Yssaril agent, neutral sides, test faces or `rng.seed() !=
-  state.rng_seed`, a roll that ends the fight, a hit a module produces after the roll.
+  Reroll questions are stages of the same window (string `reroll_window` of the fleet kind, `heart_ixth`,
+  `wrath_of_kenara`, `war_funding_step`): per side, after its dice are staged (a `RerollSet`, mirrored to
+  `transient.combat.reroll_staging` while a question is open so the adapter can fill `Choice.details`), Munitions
+  Reserves after the roll (offer, then "choose which dice"), the Crown of Thalnos relic and law (one question per
+  die, `Ask::RerollDie`, the picks drawn again at the end of the walk, +1 for the relic, the casualties of entries
+  whose rerolled dice missed), the Heart of Ixth (one question per holder), Wrath of Kenara (purchase); after both
+  sides, War Funding per holder. Compared: queue, damaged-before-round, dice (hit number, faces, rerolls
+  included), stream positions, every question (ids, labels, payload, context, details), events, resulting state.
+  Bails (`CombatWindow::roll_unported`, the string result stands, windows inside run bare): a readied The
+  Thundarian / Yssaril agent (roll-step reaction: the ability table is empty in core), the Keleres agent granting
+  commodities as trade goods to a side that may pay Munitions or Wrath, neutral sides, test faces or
+  `rng.seed() != state.rng_seed`, a roll that ends the fight (a reroll casualty emptied a fleet), a hit a module
+  produces after the roll, reaction activity inside a casualty's announcement. Golden coverage: the unit tests
+  `the_crowns_of_thalnos_reroll_questions_run_in_the_core_roll_window`, `the_heart_of_ixth_runs_in_the_core_roll_window`,
+  `war_funding_runs_in_the_core_roll_window`, `wrath_of_kenara_runs_in_the_core_roll_window`,
+  `munitions_after_the_roll_runs_in_the_core_roll_window` (16 seeds each, whole fights on `driver=dual`, seeded
+  random and first-option deciders), mutation-checked.
+  Known string defect copied on purpose: `heart_ixth` splits the option id `hfix|e:d:sign` on `|` and wants four
+  parts, so every pick fails to parse: no die is shifted and the card is never exhausted. The window asks the
+  same questions and ignores the answers; fixing it is a RULES_VERSION change.
 * `rules/combat/flow.rs` (`Flow`): one transition of `settle_stages` (`announcing_step`, `retreating_step`,
   `hit_queue_head`, wrapped by `CombatWindow::flow_dual`). The string answers the rule facts (over, can retreat,
   destinations, ships left, sustain candidates); the core owns the control flow, the events
@@ -145,6 +160,6 @@ The example lives under `driver/` only because `rules/` is created by B1 and B3;
   (hit phase, resume flag, retreats announced, once-per-round announcement). Bails: cancellations granted, a
   single casualty candidate, neutral sides, Duranium Armor repairs, a lone retreat destination (the move is
   `retreat_to`, string), Devotion, staged destructions, reaction windows in an announcement.
-* Left string: the Roll step's reroll questions, `retreat_to` (observers, move, command token), begin_round's Naaz /
+* Left string: `retreat_to` (observers, move, command token), begin_round's Naaz /
   Letnev / diplomacy cases, and the composition of all stages into one core Stage machine (each stage is its own
   dual window today; they run inside the string loop `settle_stages`).

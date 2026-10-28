@@ -74,19 +74,6 @@ pub fn secondary_waivers(
     out
 }
 
-/// `promissory::give_back`: the note goes home to the first seat (in seating order) that plays its faction.
-fn give_back(s: &mut CoreState, note: NoteKey) {
-    let Some(owner) = s.seats().seating_order().iter().copied().find(|seat| player(s, *seat).is_some_and(|p| p.faction == note.faction)) else {
-        return;
-    };
-    if s.cards().promissory.get(&note) == Some(&owner) {
-        return;
-    }
-    let cards = s.cards_mut();
-    cards.promissory.edit().insert(note, owner);
-    cards.promissory_faceup.edit().remove(&note);
-}
-
 /// The follower used Acquiescence: the note goes back.
 pub fn secondary_waived(cx: &mut Cx<'_>, follower: Seat, primary: Seat, waiver: Waiver) {
     if waiver.module == Faction::TheWinnu
@@ -94,7 +81,7 @@ pub fn secondary_waived(cx: &mut Cx<'_>, follower: Seat, primary: Seat, waiver: 
         && holds_acquiescence(cx.state, follower)
         && is_winnu(cx.state, primary)
     {
-        give_back(cx.state, ACQUIESCENCE_NOTE);
+        ti4_engine_core::kernel::fx::give_back_note(cx.state, ACQUIESCENCE_NOTE);
     }
 }
 

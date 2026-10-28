@@ -6269,6 +6269,11 @@ impl CombatWindow {
         let (attacker, defender, system) = (self.attacker.clone(), self.defender.clone(), self.system.clone());
         let (content, sources) = (ctx.content, ctx.sources);
         let unported = self.roll_unported(state, ctx);
+        let ctx_announce = ctx.timing.is_some();
+        let munitions_after = [&attacker, &defender].map(|side| {
+            state.rules_version >= ti4_model::state::RULES_MUNITIONS_AFTER_ROLL
+                && crate::faction_abilities::has(state, content, side, "munitions")
+        });
         let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed;
         // Positions the window does not carry run bare, so the windows inside (the reroll questions) are
         // compared on their own.
@@ -6317,7 +6322,7 @@ impl CombatWindow {
                 if failed.get() {
                     return None;
                 }
-                let args = crate::dual_window::RollArgs { attacker: &attacker, defender: &defender, system: &system, reproducible };
+                let args = crate::dual_window::RollArgs { attacker: &attacker, defender: &defender, system: &system, reproducible, munitions_after, announce: ctx_announce };
                 crate::dual_window::roll_step(s, content, sources, args, &rng_before, script)
             }
         );
@@ -6325,24 +6330,21 @@ impl CombatWindow {
         if end.settle { self.settle(state, ctx) } else { Ok(()) }
     }
 
-    /// Whether the "Roll Dice" step can hold something the core roll window does not carry: a reroll
-    /// question (the Crowns of Thalnos, the Heart of Ixth, Munitions Reserves after the roll, War Funding,
-    /// Wrath of Kenara), a roll-step reaction (The Thundarian), neutral sides.
+    /// Whether the "Roll Dice" step can hold something the core roll window does not carry: neutral sides,
+    /// a roll-step reaction (The Thundarian), the Keleres agent granting commodities as trade goods to a
+    /// side that may pay for Munitions Reserves or Wrath of Kenara. Everything else (the Crowns of
+    /// Thalnos, the Heart of Ixth, Munitions Reserves after the roll, War Funding, Wrath of Kenara) is a
+    /// stage of the window.
     fn roll_unported(&self, state: &GameState, ctx: &Resolving<'_>) -> bool {
         let sides = [&self.attacker, &self.defender];
         crate::neutral_units::is_neutral(&self.attacker)
             || crate::neutral_units::is_neutral(&self.defender)
             || crate::factions::nomad_agents::watches_roll_step(state)
-            || owns_crown_law(state, &self.attacker)
-            || owns_crown_law(state, &self.defender)
-            || state.players.iter().any(|p| {
-                holds_crown_relic(state, &p.id) || crate::relics::holds(state, &p.id, &RelicId::new("heartofixth"))
-            })
             || sides.into_iter().any(|side| {
-                war_funding_note(state, side).is_some()
-                    || crate::factions::has_text_in(state, side, &self.system, crate::factions::FlagshipText::Hacan)
-                    || (state.rules_version >= ti4_model::state::RULES_MUNITIONS_AFTER_ROLL
-                        && crate::faction_abilities::has(state, ctx.content, side, "munitions"))
+                crate::supply::potential_goods(state, side) > crate::supply::spendable_goods(state, side)
+                    && (crate::factions::has_text_in(state, side, &self.system, crate::factions::FlagshipText::Hacan)
+                        || (state.rules_version >= ti4_model::state::RULES_MUNITIONS_AFTER_ROLL
+                            && crate::faction_abilities::has(state, ctx.content, side, "munitions")))
             })
     }
 
@@ -9471,6 +9473,134 @@ mod tests {
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         assert!(r.areas[&Area::Driver].calls >= 24, "the steps were compared: {:?}", r.areas[&Area::Driver]);
         let _ = take_report();
+    }
+
+    /// Whole fights on `driver=dual` with `setup` applied to a fresh 18-system fight per seed (the attacker `a`
+    /// and defender `b`, a third seat `c` for the Heart of Ixth), answered by a seeded random decider (and by
+    /// the first option of every question): the roll step's dice, questions, events, state and queue must
+    /// come out of the core window as the string step leaves them. Returns every question that was asked.
+    fn roll_step_lockstep(setup: &dyn Fn(&mut GameState, u64), calls_at_least: u64) -> Vec<crate::choice::Choice> {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut asked = Vec::new();
+        for seed in 0..16_u64 {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan"), ("c", "xxcha")], ti4_model::content_types::DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = seed;
+            let system = SystemId::new("18");
+            put(&mut state, &system, "cruiser", &attacker(), 3);
+            put(&mut state, &system, "dreadnought", &attacker(), 1);
+            put(&mut state, &system, "fighter", &attacker(), 2);
+            put(&mut state, &system, "destroyer", &defender(), 2);
+            put(&mut state, &system, "carrier", &defender(), 1);
+            put(&mut state, &system, "fighter", &defender(), 3);
+            state.player_mut(&attacker()).unwrap().trade_goods = 8;
+            state.player_mut(&defender()).unwrap().trade_goods = 8;
+            setup(&mut state, seed);
+            with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+                let decider: Box<dyn crate::choice::Decider> =
+                    if seed % 4 == 0 { Box::new(crate::choice::FirstOption) } else { Box::new(crate::choice::SeededRandom::new(seed)) };
+                let (decider, seen) = crate::choice::Capturing::new(decider);
+                let mut table = Table::with_default(Box::new(decider));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+                asked.extend(seen.borrow().iter().cloned());
+            });
+        }
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.areas[&Area::Driver].calls >= calls_at_least, "the steps were compared: {:?}", r.areas[&Area::Driver]);
+        let _ = take_report();
+        asked
+    }
+
+    #[test]
+    fn the_crowns_of_thalnos_reroll_questions_run_in_the_core_roll_window() {
+        let asked = roll_step_lockstep(
+            &|state, seed| {
+                // The relic with the attacker, the law elected onto the defender (and both on a few seeds).
+                if seed % 3 != 1 {
+                    state.player_mut(&attacker()).unwrap().relics.push(ti4_model::id::RelicId::new("thalnos"));
+                }
+                if seed % 3 != 0 {
+                    state.laws.insert("crown_of_thalnos".to_owned(), "b".to_owned());
+                }
+            },
+            24,
+        );
+        let per_die = |source: &str| asked.iter().filter(|c| c.context.as_ref().is_some_and(|x| x.subtype == source)).count();
+        assert!(per_die("crown_of_thalnos_relic_reroll") > 10, "the relic asked about dice");
+        assert!(per_die("crown_of_thalnos_law_reroll") > 10, "the law asked about dice");
+    }
+
+    #[test]
+    fn the_heart_of_ixth_runs_in_the_core_roll_window() {
+        let asked = roll_step_lockstep(
+            &|state, seed| {
+                for (who, bit) in [("a", 1), ("b", 2), ("c", 4)] {
+                    if (seed + 1) & bit != 0 || seed % 5 == 0 {
+                        state.player_mut(&PlayerId::new(who)).unwrap().relics.push(ti4_model::id::RelicId::new("heartofixth"));
+                    }
+                }
+            },
+            24,
+        );
+        let heart = asked.iter().filter(|c| c.context.as_ref().is_some_and(|x| x.subtype == "heart_ixth_die_adjust")).count();
+        assert!(heart > 10, "the holders were asked: {heart}");
+    }
+
+    #[test]
+    fn war_funding_runs_in_the_core_roll_window() {
+        let asked = roll_step_lockstep(
+            &|state, seed| {
+                state.player_mut(&defender()).unwrap().faction = ti4_model::id::FactionId::new("letnev");
+                state.player_mut(&PlayerId::new("c")).unwrap().faction = ti4_model::id::FactionId::new("hacan");
+                let (holder, owner) = if seed % 2 == 0 { (attacker(), "letnev") } else { (PlayerId::new("c"), "letnev") };
+                state.promissory_notes.insert(crate::promissory::note_id("war_funding", owner), holder);
+            },
+            24,
+        );
+        let offers = asked.iter().filter(|c| c.prompt.starts_with("War Funding")).count();
+        assert!(offers > 5, "War Funding was offered: {offers}");
+    }
+
+    #[test]
+    fn wrath_of_kenara_runs_in_the_core_roll_window() {
+        let asked = roll_step_lockstep(
+            &|state, seed| {
+                let system = SystemId::new("18");
+                put(state, &system, "hacan_flagship", &attacker(), 1);
+                put(state, &system, "hacan_flagship", &defender(), (seed % 2) as usize);
+            },
+            24,
+        );
+        let offers = asked.iter().filter(|c| c.prompt.starts_with("Wrath of Kenara")).count();
+        assert!(offers > 5, "Wrath of Kenara was offered: {offers}");
+    }
+
+    #[test]
+    fn munitions_after_the_roll_runs_in_the_core_roll_window() {
+        let asked = roll_step_lockstep(
+            &|state, _| {
+                state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("letnev");
+                state.rules_version = ti4_model::state::RULES_MUNITIONS_AFTER_ROLL.max(state.rules_version);
+            },
+            24,
+        );
+        let offers = asked.iter().filter(|c| c.options.iter().any(|o| o.id == "munitions")).count();
+        assert!(offers > 5, "Munitions Reserves was offered after the roll: {offers}");
     }
 
     #[test]

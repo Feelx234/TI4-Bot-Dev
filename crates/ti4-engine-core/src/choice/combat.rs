@@ -38,6 +38,28 @@ pub enum Ask {
     /// Raid Formation (Argent): the barrage's producer picks which of `target`'s ships with SUSTAIN DAMAGE
     /// becomes damaged, for a hit beyond the fighters.
     RaidDamage { target: crate::ids::Seat },
+    /// "reroll die {n} of {unit}": one optional question per staged die (the Crowns of Thalnos, Munitions
+    /// Reserves' "choose which dice").
+    RerollDie { source: RerollSource, unit: crate::state::Code, die: u8 },
+    /// Heart of Ixth: add or subtract 1 from a die just rolled (one question per holder).
+    HeartIxth,
+    /// War Funding: reroll all of the opponent's dice and the holder's misses.
+    WarFunding,
+    /// Wrath of Kenara: spend trade goods to add 1 to near misses.
+    Wrath,
+    /// Munitions Reserves after the roll: pay 2 trade goods to reroll missed dice.
+    MunitionsRoll,
+}
+
+/// Which card asked the per-die reroll question.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RerollSource {
+    /// The Crown of Thalnos relic.
+    Relic,
+    /// The Crown of Thalnos law.
+    Law,
+    /// Munitions Reserves ("choose which dice to reroll").
+    Munitions,
 }
 
 /// One answer the area offers (not stored in the state).
@@ -49,6 +71,15 @@ pub enum Opt {
     Destroy { index: u16, unit: Unit, damaged: bool },
     /// Damage a ship of this type (the first undamaged one).
     RaidDamage { unit: Unit },
+    /// Reroll the die `die` of staged entry `entry` (`unit` is its rendered text, `face` what it shows).
+    RerollDie { unit: crate::state::Code, entry: u8, die: u8, face: u8, hits_on: Option<u8> },
+    /// Heart of Ixth: add (or subtract) 1 on the die `die` of entry `entry`; `single`: the only die rolled.
+    HeartIxth { unit: crate::state::Code, entry: u8, die: u8, add: bool, single: bool },
+    UseWarFunding,
+    /// Wrath of Kenara: spend `count` trade goods.
+    Kenara { count: u8 },
+    /// Munitions Reserves: `choose` the dice one by one, or reroll all `misses` missed dice.
+    Munitions { choose: bool, misses: u8 },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -57,4 +88,10 @@ pub enum Subtype {
     SustainDamage,
     /// The caller's subtype text (interned) of a casualty question.
     Casualty(crate::state::Code),
+    /// The per-die reroll question of a card.
+    Reroll(RerollSource),
+    HeartIxth,
+    WarFunding,
+    WrathBump,
+    MunitionsRoll,
 }

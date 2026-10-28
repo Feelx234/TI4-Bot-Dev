@@ -972,6 +972,10 @@ pub struct RollArgs<'a> {
     pub system: &'a ti4_model::id::SystemId,
     /// The dice and streams are the ones the core can reproduce (no test faces, no pending restore).
     pub reproducible: bool,
+    /// Munitions Reserves after the roll is offered to this side (rules version and the ability), attacker first.
+    pub munitions_after: [bool; 2],
+    /// The resolver carries the timing machinery.
+    pub announce: bool,
 }
 
 /// What the roll step leaves besides the state: the assignment queue (player, hits, producer, non-fighters
@@ -986,7 +990,7 @@ pub type RollOut = (
 
 const ROLL_STEP: Footprint = Footprint::new(
     &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger],
-    &[Slice::Transient, Slice::Pending, Slice::Rng, Slice::Ledger],
+    &[Slice::Players, Slice::Board, Slice::Transient, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger],
 );
 
 /// The core half of `CombatWindow::roll_round` (see `rules::combat::roll` for what it does not carry; the
@@ -1012,25 +1016,46 @@ pub fn roll_step(
     let before = gs.clone();
     let env = crate::core_combat::window_env(&before, &cx, sources)?;
     let mut names = Vec::new();
+    let mut texts: Vec<(ti4_engine_core::state::Code, String)> = Vec::new();
     {
         let view = crate::core_combat::CombatView::of(&before, content, sources)?;
         for (seat, id) in [(attacker, a.attacker), (defender, a.defender)] {
             for (value, tag, _, types) in view.fleet_groups(id, a.system)? {
-                let mut kinds: Vec<&str> = types.iter().map(|(u, _)| u.as_str()).collect();
+                let mut kinds: Vec<(&str, u32)> = types.iter().map(|(u, n)| (u.as_str(), *n)).collect();
                 kinds.sort_unstable();
-                names.push((seat, value, tag, cx.texts.intern(Slice::Transient, &kinds.join("+")).ok()?));
+                let joined = kinds.iter().map(|(u, _)| *u).collect::<Vec<_>>().join("+");
+                let state = cx.texts.intern(Slice::Transient, &joined).ok()?;
+                texts.push((state, joined.clone()));
+                let types = kinds
+                    .iter()
+                    .map(|(u, n)| Some((<ti4_engine_core::generated::Unit as IdStr>::from_id(u)?, *n)))
+                    .collect::<Option<Vec<_>>>()?;
+                names.push(ti4_engine_core::rules::combat::roll::Name { seat, value, tag, state, shown: r.code(&joined), types });
             }
         }
     }
-    let facts = Facts { attacker, defender, system, phase: cx.texts.intern(Slice::Transient, "resolving_hits").ok()?, names };
+    let facts = Facts {
+        attacker,
+        defender,
+        system,
+        phase: cx.texts.intern(Slice::Transient, "resolving_hits").ok()?,
+        names,
+        munitions_after: a.munitions_after,
+        announce: a.announce,
+        cause: r.code("space_combat"),
+        hacan: r.code("hacan_flagship"),
+    };
     let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
     let mut driver = Driver::new(RollStep::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
+    let held = |seat: ti4_engine_core::ids::Seat| before.player(&PlayerId::new(r.seats[usize::from(seat.0)].clone())).map_or(0, |p| i64::from(p.trade_goods.max(0)));
     let driven = with_core(gs, &mut cx, src, ROLL_STEP, |core, _| {
-        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|c, st, rendered| {
+            roll_details(content, &texts, &held, c, st, rendered);
+        });
         staged = std::mem::take(&mut core.pending_mut().staged);
         rng_after = Some(core.rng().clone());
         driven
@@ -1059,6 +1084,71 @@ pub fn roll_step(
     damaged.sort();
     let value: RollOut = (queue, damaged, w.drawn.clone(), positions);
     Some(CoreWindow { run: Run::new(value).with_events_vec(events), questions: driven.rendered })
+}
+
+/// The display facts of a roll step's questions (`Choice.details`): the staged dice, which one is asked
+/// about, and Munitions Reserves' printed card and cost.
+fn roll_details(
+    content: &ti4_content::ContentStore,
+    texts: &[(ti4_engine_core::state::Code, String)],
+    held: &dyn Fn(ti4_engine_core::ids::Seat) -> i64,
+    c: &CoreChoice,
+    st: &CoreState,
+    rendered: &mut Choice,
+) {
+    use ti4_engine_core::choice::combat::Ask as CAsk;
+    let ti4_engine_core::choice::Ask::Combat(ask) = &c.ask else { return };
+    let set = st.transient().combat.reroll_staging.iter().find(|(s, _)| *s == c.actor).map(|(_, set)| set);
+    let dice: Vec<serde_json::Value> = set
+        .map(|set| {
+            set.rolls
+                .iter()
+                .enumerate()
+                .flat_map(|(unit, entry)| {
+                    let name = texts.iter().find(|(code, _)| *code == entry.unit).map(|(_, t)| t.clone()).unwrap_or_default();
+                    entry.faces.iter().enumerate().map(move |(die, face)| {
+                        let bonus = u8::try_from(die).ok().and_then(|d| entry.deltas.get(&d).copied()).unwrap_or(0);
+                        serde_json::json!({
+                            "unit": name,
+                            "unit_index": unit,
+                            "die": die,
+                            "face": face,
+                            "bonus": bonus,
+                            "hits_on": entry.hits_on,
+                            "rerolled": die < 64 && entry.rerolled & (1 << die) != 0,
+                        })
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    match ask {
+        CAsk::RerollDie { die, .. } => {
+            let entry = c.opts.iter().find_map(|o| match o {
+                ti4_engine_core::choice::Opt::Combat(ti4_engine_core::choice::combat::Opt::RerollDie { entry, .. }) => Some(usize::from(*entry)),
+                _ => None,
+            });
+            // The walk asks every die in order: the asked die's place is the number of dice before it.
+            let current = set.zip(entry).map_or(0, |(set, e)| set.rolls[..e].iter().map(|r| r.faces.len()).sum::<usize>() + usize::from(*die));
+            rendered.details.insert("dice".to_owned(), serde_json::Value::Array(dice));
+            rendered.details.insert("current".to_owned(), current.into());
+        }
+        CAsk::MunitionsRoll => {
+            let misses = dice
+                .iter()
+                .filter(|d| {
+                    let on = d["hits_on"].as_i64();
+                    on.is_some_and(|on| d["face"].as_i64().unwrap_or(0) + d["bonus"].as_i64().unwrap_or(0) < on)
+                })
+                .count();
+            rendered.details.insert("kind".to_owned(), "ability_offer".into());
+            rendered.details.insert("ability".to_owned(), crate::faction_abilities::ability_card(content, "munitions"));
+            rendered.details.insert("cost".to_owned(), serde_json::json!({ "trade_goods": crate::faction_abilities::MUNITIONS_COST, "have": held(c.actor) }));
+            rendered.details.insert("dice".to_owned(), serde_json::Value::Array(dice));
+            rendered.details.insert("misses".to_owned(), misses.into());
+        }
+        _ => {}
+    }
 }
 
 /// A pending hit of the string window (`Pending`).

@@ -10,7 +10,7 @@
 //! `parse` cannot recover the unit type from an id without the state, so it answers `None`: the typed side
 //! answers by index.
 
-use ti4_engine_core::choice::combat::{Ask, Opt, Subtype, SustainSite};
+use ti4_engine_core::choice::combat::{Ask, Opt, RerollSource, Subtype, SustainSite};
 use ti4_engine_core::choice::Opt as AnyOpt;
 use ti4_engine_core::generated::Unit;
 
@@ -36,7 +36,7 @@ pub fn location(site: SustainSite) -> String {
 fn label(a: &Ask, site: SustainSite, unit: Unit, galvanized: bool) -> String {
     let staging = match a {
         Ask::CancelHit { staging, .. } => staging,
-        Ask::AssignHit | Ask::RaidDamage { .. } => &false,
+        _ => &false,
     };
     if let (true, SustainSite::Planet { planet, .. }) = (*staging, site) {
         let id = planet.as_str();
@@ -57,11 +57,16 @@ impl Family for Fam {
     type Opt = Opt;
     type Subtype = Subtype;
 
-    fn prompt(_: &Render, a: &Ask) -> String {
+    fn prompt(_r: &Render, a: &Ask) -> String {
         match a {
             Ask::CancelHit { system, .. } => format!("cancel a hit at {}", system.as_str()),
             Ask::AssignHit => "assign a hit".to_owned(),
             Ask::RaidDamage { .. } => "Raid Formation: choose a ship with SUSTAIN DAMAGE to become damaged".to_owned(),
+            Ask::RerollDie { unit, die, .. } => format!("reroll die {} of {}", u16::from(*die) + 1, _r.code_text(*unit)),
+            Ask::HeartIxth => "Heart of Ixth: add or subtract 1 from a die that was just rolled".to_owned(),
+            Ask::WarFunding => "War Funding: reroll all of your opponent's dice and your misses".to_owned(),
+            Ask::Wrath => "Wrath of Kenara: spend trade goods to add 1 to dice".to_owned(),
+            Ask::MunitionsRoll => "spend 2 trade goods for Munitions Reserves".to_owned(),
         }
     }
 
@@ -69,6 +74,13 @@ impl Family for Fam {
         match s {
             Subtype::SustainDamage => "sustain_damage".to_owned(),
             Subtype::Casualty(code) => _r.code_text(*code),
+            Subtype::Reroll(RerollSource::Relic) => "crown_of_thalnos_relic_reroll".to_owned(),
+            Subtype::Reroll(RerollSource::Law) => "crown_of_thalnos_law_reroll".to_owned(),
+            Subtype::Reroll(RerollSource::Munitions) => "munitions_reroll_die".to_owned(),
+            Subtype::HeartIxth => "heart_ixth_die_adjust".to_owned(),
+            Subtype::WarFunding => "war_funding".to_owned(),
+            Subtype::WrathBump => "wrath_of_kenara_bump".to_owned(),
+            Subtype::MunitionsRoll => "munitions_reserves_reroll".to_owned(),
         }
     }
 
@@ -81,6 +93,44 @@ impl Family for Fam {
                 };
                 return ChoiceOption::labelled(unit.as_str().to_owned(), "raid_formation_damage", format!("damage 1 {} of {target}", unit.as_str()));
             }
+            Opt::RerollDie { unit, entry, die, face, hits_on } => {
+                let name = r.code_text(*unit);
+                let mut option = ChoiceOption::labelled(
+                    format!("reroll|{entry}:{die}"),
+                    "reroll_die",
+                    format!("reroll die {} of {name} (shows {face})", u16::from(*die) + 1),
+                )
+                .with("unit", name)
+                .with("face", i64::from(*face));
+                if let Some(on) = hits_on {
+                    option = option.with("hits_on", i64::from(*on));
+                }
+                return option;
+            }
+            Opt::HeartIxth { unit, entry, die, add, single } => {
+                let name = r.code_text(*unit);
+                let (sign, verb, prep) = if *add { ("add", "add 1", "to") } else { ("sub", "subtract 1", "from") };
+                let label = if *single {
+                    format!("{verb} {prep} the die of {name}")
+                } else {
+                    format!("{verb} {prep} die {} of {die} of {name}", u16::from(*die) + 1)
+                };
+                let entry = if *single { 0 } else { *entry };
+                return ChoiceOption::labelled(format!("hfix|{entry}:{die}:{sign}"), "heart_ixth", label);
+            }
+            Opt::UseWarFunding => return ChoiceOption::labelled("use", "promissory_note", "use War Funding"),
+            Opt::Kenara { count } => {
+                return ChoiceOption::labelled(
+                    format!("kenara|{count}"),
+                    "trade_goods",
+                    format!("spend {count} trade good(s): +1 to {count} die/dice, {count} more hit(s)"),
+                )
+                .with("count", usize::from(*count));
+            }
+            Opt::Munitions { choose: false, misses } => {
+                return ChoiceOption::labelled("munitions", "ability", format!("reroll all {misses} missed dice"));
+            }
+            Opt::Munitions { choose: true, .. } => return ChoiceOption::labelled("munitions_choose", "ability", "choose which dice to reroll"),
             Opt::Destroy { index, unit, damaged } => {
                 let tag = if *damaged { " (damaged)" } else { "" };
                 return ChoiceOption::labelled(
@@ -104,16 +154,24 @@ impl Family for Fam {
         }
     }
 
-    fn wording(_: &Render, a: &Ask, o: &AnyOpt) -> Wording {
+    fn wording(_r: &Render, a: &Ask, o: &AnyOpt) -> Wording {
         let non_fighters_first = match a {
             Ask::CancelHit { non_fighters_first, .. } => non_fighters_first,
-            Ask::AssignHit | Ask::RaidDamage { .. } => &false,
+            _ => &false,
         };
         let mut w = Wording::default();
         if matches!(o, AnyOpt::Decline) {
-            w.label = Some("take the hit".to_owned());
-            if *non_fighters_first {
-                w.payload.insert("non_fighters_first".to_owned(), serde_json::Value::Bool(true));
+            match a {
+                Ask::RerollDie { unit, .. } => {
+                    w.payload.insert("unit".to_owned(), serde_json::Value::String(_r.code_text(*unit)));
+                }
+                Ask::HeartIxth | Ask::WarFunding | Ask::Wrath | Ask::MunitionsRoll => {}
+                _ => {
+                    w.label = Some("take the hit".to_owned());
+                    if *non_fighters_first {
+                        w.payload.insert("non_fighters_first".to_owned(), serde_json::Value::Bool(true));
+                    }
+                }
             }
         }
         w
