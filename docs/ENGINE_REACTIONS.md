@@ -294,7 +294,7 @@ Stage 2 (final commit, `tools/engine_core/verify_package.sh driver OUT none 6`, 
   immutable surfaces unchanged (web/, RULES_VERSION.md, model state.rs, wasm fixtures, against the cut point 04578c39),
   41 test suites ok, `gen-cards --check`, xtask and wasm tests ok, dual suite (6 suites, `driver=dual`, fail fast) ok;
 * golden dual `driver=dual` (20 games): 4459 calls, 25539 comparisons, **0 differences**, hashes equal; the wide mask
-  (`driver,invasion,production,leaders,exploration,agenda=dual`): 11.65 M comparisons, **0 differences**, hashes equal;
+  (`driver,invasion,production,leaders,exploration,agenda=dual`, run on the final binary): 11.65 M comparisons, **0 differences**, hashes equal, the nested census as in section 5;
 * benches `bench` + `bench-v1..v5` with `driver=core`: **200 identical / 0 different** each; `bench` with the driver on
   String 200/0;
 * `board_equivalence templates` and `golden profile-20 20 10`: 0 mismatches (board, strategy, agenda, action card reads).
@@ -321,8 +321,8 @@ window's clearing of the grant dropped; Self-Assembly Routines: the amount 1 -> 
 dropped (found by the new `nested.events` comparison); Tellurian: the grant dropped, the flow's spend dropped; Instinct
 Training: the cancel, the token and the exhaustion dropped; I48S: the exhaustion dropped, the wrong unit form placed;
 Letani Warrior II: threshold 6 -> 5, the count not raised; Brother Milor: count 2 -> 1, the exhaustion dropped; Salvage
-Operations: the amount 1 -> 2, the gain not staged. (Two mutations are equivalent mutants, not caught: the unit roster
-built without the `upgrades_from` filter, as the first match is the base unit.)
+Operations: the amount 1 -> 2, the gain not staged. (One equivalent mutant is not caught: the unit roster built without the `upgrades_from` filter, as the first match is
+the base unit.)
 
 Tests per documented bail: `reactions_core::tests` (`bail_*`), registry equivalence for the ported abilities
 (`the_native_registry_equals_the_string_one_for_the_ported_abilities`), the bail tests of section 3.1, and the lockstep
