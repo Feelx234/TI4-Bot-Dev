@@ -210,6 +210,9 @@ pub fn play(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
 /// Register the slot of every window.
 pub fn register(t: &mut AbilityTable) {
     super::announce::register(t);
+    t.slot_cards = Some(|s, k, barred, who, event, relation| {
+        playable(s, k, barred, who, event, relation).map(|c| c.as_slice().to_vec()).unwrap_or_default()
+    });
     for (i, (event, relation)) in windows().into_iter().enumerate() {
         let slot = Slot(SLOT_BASE + u16::try_from(i).unwrap_or(0));
         t.add(
@@ -260,5 +263,105 @@ mod tests {
         assert_eq!(playable(&s, &k, false, Seat(1), &e1, Relation::When).unwrap().as_slice(), &[ActionCard::ShieldsHolding1]);
         assert!(playable(&s, &k, true, Seat(1), &e1, Relation::When).unwrap().is_empty(), "Political Secret bars the play");
         assert!(playable(&s, &k, false, Seat(1), &e1, Relation::After).unwrap().is_empty(), "the other relation is another window");
+    }
+
+    /// A window of the table holds cards of several printed names: the slot asks which to play, one option per name
+    /// (the card kept for a name is its first copy in hand order), then a decline; a single name asks nothing.
+    #[test]
+    fn a_hand_of_two_printed_names_asks_which_card_and_keeps_the_first_copy_of_a_name() {
+        use crate::driver::{Driver, Status};
+        use crate::kernel::stage::{Illegal, Sx};
+        use crate::kernel::{fx, Next, Resolver};
+        use crate::state::{Payload, Player, Players, Val};
+
+        #[derive(Clone)]
+        struct Activate;
+        impl crate::kernel::stage::Window for Activate {
+            type Stage = ();
+            fn stage(&self) {}
+            fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+                let rec = fx::event(
+                    EventKind::SystemActivated,
+                    Payload::new().with(Key::Player, Val::Seat(Seat(0))).with(Key::System, Val::System(crate::generated::System::ALL[0])),
+                );
+                let _ = sx.emit(rec);
+                Next::Done
+            }
+            fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<crate::choice::Choice> {
+                None
+            }
+            fn answer(&mut self, _: &mut Sx<'_>, _: Pick) -> Result<(), Illegal> {
+                Err(Illegal)
+            }
+        }
+        let mut s = CoreState::all_loaded();
+        s.players = Players::from_vec(vec![Player::new(Seat(0), Faction::TheYssarilTribes), Player::new(Seat(1), Faction::TheVuilraithCabal)]);
+        // Flank Speed x2, Nav Suite: two printed names in the window after a system is activated by the holder.
+        let hand = [ActionCard::FlankSpeed2, ActionCard::NavSuite, ActionCard::FlankSpeed1];
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand = hand.into_iter().collect();
+        let mut table = AbilityTable::default();
+        register(&mut table);
+        let mut groups = vec![0u8; ActionCard::COUNT];
+        for (i, g) in groups.iter_mut().enumerate() {
+            *g = u8::try_from(i).unwrap();
+        }
+        let (a, b) = (ActionCard::FlankSpeed1 as usize, ActionCard::FlankSpeed2 as usize);
+        groups[b] = u8::try_from(a).unwrap();
+        table.facts.plays = Some(crate::kernel::ability::PlayFacts {
+            scope: u32::MAX,
+            blanked: false,
+            action_card: crate::state::Code(0),
+            supply_base: crate::state::Code(0),
+            note_order: |x, y| x.cmp(&y),
+            seats: Vec::new(),
+            name_group: groups,
+            has_effect: vec![true; ActionCard::COUNT],
+            skimmer: false,
+        });
+        let k = Kernel::plain();
+        let mut resolver = Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0)));
+        let order = [Seat(0), Seat(1)];
+        resolver.register(table.registry(&s, &order, &mut |spec, who| crate::choice::reaction::AbilityId { kind: spec.kind, key: crate::state::Code(spec.slot.0 * 4 + u16::from(who.0)) }));
+        let mut d = Driver::new(Activate, resolver, table, 1);
+        let mut asked = Vec::new();
+        let mut status = d.run(&mut s, &k).unwrap();
+        while let Status::Asking(choice) = status {
+            asked.push(choice.clone());
+            // Take the slot in the window's pick, then the first card of the card question.
+            let at = choice.opts.iter().position(|o| matches!(o, crate::choice::Opt::Reaction(crate::choice::reaction::Opt::Ability(_)))).unwrap_or(0);
+            let pick = choice.pick(at).unwrap();
+            status = d.resume(&mut s, &k, pick).unwrap();
+        }
+        let card_q = asked.iter().find(|c| matches!(c.ask, crate::choice::Ask::Cards(Ask::PlayCard { .. }))).expect("the card question is asked");
+        let offered: Vec<_> = card_q.opts.iter().copied().collect();
+        // One option per name, the first copy of Flank Speed in hand order (the walk from the back replaces), then decline.
+        assert_eq!(
+            offered,
+            vec![
+                crate::choice::Opt::Cards(Opt::Card(ActionCard::FlankSpeed2)),
+                crate::choice::Opt::Cards(Opt::Card(ActionCard::NavSuite)),
+                crate::choice::Opt::Decline
+            ]
+        );
+        assert_eq!(card_q.actor, Seat(0));
+        assert!(card_q.ctx.optional);
+    }
+
+    /// `reactions::spend`: the card leaves the hand, or the salvage yard while Garbozia is controlled, and a card the
+    /// seat does not hold is not spent.
+    #[test]
+    fn spend_takes_the_card_from_the_hand_or_the_salvage_yard() {
+        use crate::state::{Player, Players};
+        let mut s = CoreState::all_loaded();
+        s.players = Players::from_vec(vec![Player::new(Seat(0), Faction::TheYssarilTribes)]);
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand = [ActionCard::Rally, ActionCard::CoupDEtat].into_iter().collect();
+        s.cards_mut().salvage_yard.edit().push(ActionCard::MoraleBoost1);
+        assert!(spend(&mut s, Seat(0), ActionCard::CoupDEtat));
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.hand.as_slice(), &[ActionCard::Rally]);
+        assert!(!spend(&mut s, Seat(0), ActionCard::MoraleBoost1), "the yard is the controller of Garbozia's");
+        s.board_mut().planet_mut(crate::generated::Planet::Garbozia).control = Some(Seat(0));
+        assert!(spend(&mut s, Seat(0), ActionCard::MoraleBoost1));
+        assert!(s.cards().salvage_yard.is_empty());
+        assert!(!spend(&mut s, Seat(0), ActionCard::MoraleBoost1), "nothing left to spend");
     }
 }

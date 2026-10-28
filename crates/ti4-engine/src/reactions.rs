@@ -899,7 +899,7 @@ pub const ACTION_CARD_KIND: &str = "action_card";
 /// 319–324): a card printed four times has four aliases, and holding two copies must not offer
 /// it twice — a bot that samples per option would draw extra weight from the duplicate. The
 /// reverse walk fixes each name's slot; the alias kept is the first one in hand order.
-fn reaction_card_options(
+pub(crate) fn reaction_card_options(
     content: &ContentStore,
     options: &[ActionCardId],
 ) -> Vec<crate::choice::ChoiceOption> {

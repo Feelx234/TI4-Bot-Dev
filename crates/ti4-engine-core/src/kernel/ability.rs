@@ -295,6 +295,9 @@ pub struct AbilityTable {
     /// After a window's loop ended cleanly: announce the cards declared in it (the rules package that owns the
     /// plays sets it; the kernel cannot import it).
     pub on_close: Option<fn(&mut Inline<'_, '_>) -> Result<(), TimingError>>,
+    /// The cards a seat's reaction slot could play into a window now (`reaction_slot::playable`, `Err` read as none):
+    /// recorded with the question of a reaction window.
+    pub slot_cards: Option<fn(&CoreState, &Kernel, bool, Seat, &EventRec, Relation) -> Vec<crate::generated::ActionCard>>,
     pub codes: Codes,
     pub facts: AdapterFacts,
 }
@@ -370,6 +373,10 @@ pub struct NestedFacts {
     pub event: EventRec,
     pub relation: Relation,
     pub chain: Vec<u64>,
+    /// The cards the asked seat's reaction slot could play when the question was put (a reaction window's pick):
+    /// read from the state of that moment, which the driver's rollback of the step no longer holds when the
+    /// question is rendered.
+    pub offered: Vec<crate::generated::ActionCard>,
 }
 
 /// The answers of the current operation, in the order they were given; the nested questions of a step
@@ -492,7 +499,16 @@ impl Host for RulesHost<'_> {
             crate::choice::Ask::Reaction(crate::choice::reaction::Ask::Window { relation, .. }) => Some(relation),
             _ => None,
         };
-        let facts = relation.map(|relation| NestedFacts { event: event.clone(), relation, chain: chain.to_vec() });
+        let facts = relation.map(|relation| {
+            let offered = match (self.table.slot_cards, relation) {
+                (Some(cards), _) if choice.opts.iter().any(|o| matches!(o, crate::choice::Opt::Reaction(crate::choice::reaction::Opt::Ability(id)) if id.kind == AbilityKind::Reaction)) => {
+                    let barred = self.table.bars.is_some_and(|f| f(self.state, choice.actor));
+                    cards(&*self.state, self.kernel, barred, choice.actor, event, relation)
+                }
+                _ => Vec::new(),
+            };
+            NestedFacts { event: event.clone(), relation, chain: chain.to_vec(), offered }
+        });
         self.tape.pick_with(choice, facts)
     }
 }
@@ -555,7 +571,7 @@ impl<'a> Eff<'_, 'a> {
     /// The facts a question asked by this ability carries (its trigger).
     #[must_use]
     pub fn facts(&self) -> NestedFacts {
-        NestedFacts { event: self.event.clone(), relation: self.def.relation, chain: self.chain() }
+        NestedFacts { event: self.event.clone(), relation: self.def.relation, chain: self.chain(), offered: Vec::new() }
     }
 
     /// Put a question and take the answer.

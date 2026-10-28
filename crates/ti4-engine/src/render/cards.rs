@@ -214,6 +214,30 @@ mod tests {
         assert_eq!(Fam::parse(&r, &ask, "bribery"), Some(Opt::Card(ActionCard::Bribery)));
         assert_eq!(Fam::parse(&r, &ask, "nonsense"), None);
     }
+
+    /// The slot's card question renders as `reactions::slot` words it: the prompt, the subtype and one option per
+    /// printed name (id, kind, label and the card payload of `reaction_card_options`).
+    #[test]
+    fn the_play_card_question_renders_as_the_reaction_slot_words_it() {
+        use ti4_engine_core::choice::reaction::Relation;
+        use ti4_engine_core::state::EventKind;
+        let r = Render::new(vec!["a".to_owned(), "b".to_owned()]);
+        let ask = Ask::PlayCard { relation: Relation::After, event: EventKind::SystemActivated };
+        assert_eq!(Fam::prompt(&r, &ask), "play an action card (after SYSTEM_ACTIVATED)");
+        assert_eq!(
+            Fam::subtype(&r, &Subtype::PlayReaction { relation: Relation::When, event: EventKind::HitsToAssign }),
+            "play_reaction_when_HITS_TO_ASSIGN"
+        );
+        let content = ContentStore::embedded();
+        let hand = [ActionCardId::new("fs2"), ActionCardId::new("nav_suite"), ActionCardId::new("fs1")];
+        let string = crate::reactions::reaction_card_options(content, &hand);
+        assert_eq!(string.len(), 2);
+        for (want, card) in string.iter().zip([ActionCard::FlankSpeed2, ActionCard::NavSuite]) {
+            let got = Fam::option(&r, &ask, &Opt::Card(card));
+            assert_eq!((&got.id, &got.kind, &got.label, &got.payload), (&want.id, &want.kind, &want.label, &want.payload));
+            assert_eq!(Fam::parse(&r, &ask, &want.id), Some(Opt::Card(card)));
+        }
+    }
 }
 
 /// The state's text of a promissory note (`"{alias}:{faction}"`).

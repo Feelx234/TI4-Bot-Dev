@@ -145,3 +145,152 @@ fn a_card_declared_in_a_window_is_announced_at_its_close_in_the_core_window() {
     assert_eq!(windows("action_cards::announce"), (1, 0), "{:?}", report.windows);
     let _ = crate::dual::take_report();
 }
+
+/// Takes the first card of the "play an action card" question (the slot's second question) and a slot whenever
+/// one is offered, the last option of everything else.
+pub(crate) struct FirstCard;
+
+impl Decider for FirstCard {
+    fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+        if choice.prompt.starts_with("play an action card") {
+            return Ok(choice.options[0].clone());
+        }
+        PlaySlots.choose(choice)
+    }
+}
+
+/// Fights in system 18 (seeds 0..6) with the given hands, the slots played by `decider`; the differences, the cards
+/// that ended on the pile and the report's window counts.
+fn fights(a_hand: &[&str], b_hand: &[&str], rules_version: Option<u32>, decider: &dyn Fn() -> Box<dyn Decider>) -> (u64, usize, std::collections::BTreeMap<String, crate::dual::WindowCounts>) {
+    use crate::dual::{report, take_report, Area};
+    use crate::choice::Resolving;
+    let _ = take_report();
+    let mut played = 0;
+    for seed in 0..6_u64 {
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan"), ("c", "xxcha")], ti4_model::content_types::DEFAULT);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        state.rng_seed = seed;
+        if let Some(v) = rules_version {
+            state.rules_version = v;
+        }
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        let system = ti4_model::id::SystemId::new("18");
+        crate::fixtures::put(&mut state, &system, "cruiser", &a, 3);
+        crate::fixtures::put(&mut state, &system, "destroyer", &b, 2);
+        crate::fixtures::put(&mut state, &system, "fighter", &b, 3);
+        state.player_mut(&a).unwrap().action_cards = a_hand.iter().map(|x| ActionCardId::new(*x)).collect();
+        state.player_mut(&b).unwrap().action_cards = b_hand.iter().map(|x| ActionCardId::new(*x)).collect();
+        with_mask(MASK.with(Area::Driver, Backend::Dual).with(Area::ActionCards, Backend::Dual).with(Area::Combat, Backend::Dual), || {
+            let mut table = Table::with_default(decider());
+            let (mut dice, mut rng) = (crate::dice::Dice::new(), crate::rng::GameRng::new(seed));
+            let mut resolver = crate::fixtures::armed_resolver(&state);
+            let mut sequence = crate::event::EventSequence::new();
+            let mut ctx = Resolving {
+                content: ContentStore::embedded(),
+                sources: ti4_model::content_types::DEFAULT,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+            };
+            crate::combat::resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+        });
+        played += state.discarded_action_cards.len();
+    }
+    let r = report();
+    let shown: String = format!("{:?}", r.differences).chars().take(1500).collect();
+    assert_eq!(r.total_differences(), 0, "{shown}");
+    let slot_bails: Vec<&String> = r.windows.keys().filter(|k| k.contains("unported ability reaction:")).collect();
+    assert!(slot_bails.is_empty(), "{slot_bails:?}");
+    let out = (r.total_differences(), played, r.windows.clone());
+    let _ = take_report();
+    out
+}
+
+fn compared(w: &std::collections::BTreeMap<String, crate::dual::WindowCounts>, label: &str) -> u64 {
+    w.get(label).map_or(0, |c| c.compared)
+}
+
+/// A fight whose seats hold reaction cards the core plays (Morale Boost into the start of a combat round): the
+/// combat windows follow the plays through the ability table and compare them, instead of bailing on the slot.
+#[test]
+fn a_reaction_card_played_in_a_fight_is_followed_by_the_combat_windows() {
+    let _serial = crate::dual::tests::serial();
+    let (_, played, windows) = fights(&["mb1"], &["mb2", "rally"], None, &|| Box::new(PlaySlots));
+    assert!(played > 0, "cards were played");
+    assert!(compared(&windows, "combat::begin_round") > 0, "{windows:?}");
+}
+
+/// The window is offered again after a card was declared in it: the second offer names the cards held at that moment
+/// (a regression of the first port, which rendered the offer from the state the driver had rolled back to).
+#[test]
+fn a_second_offer_in_the_same_window_names_the_cards_held_at_that_moment() {
+    let _serial = crate::dual::tests::serial();
+    let (_, played, windows) = fights(&[], &["mb2", "f_prototype", "mb3"], None, &|| Box::new(FirstCard));
+    assert!(played > 0, "cards were played");
+    assert!(compared(&windows, "combat::begin_round") > 0, "{windows:?}");
+}
+
+/// Before rules version 3 a card played into an ordinary window is announced at once, not declared.
+#[test]
+fn before_rules_version_three_a_card_played_into_a_window_is_announced_at_once() {
+    let _serial = crate::dual::tests::serial();
+    // A second card of the same seat is offered after the first: with an immediate play the Sabotage window of the first
+    // (b holds one) is asked before that second offer, with a declared play after the window closes.
+    let (_, played, windows) = fights(&["mb1", "mb2"], &["sabo1"], Some(2), &|| Box::new(PlaySlots));
+    assert!(played > 0, "cards were played");
+    assert!(compared(&windows, "combat::begin_round") > 0, "{windows:?}");
+}
+
+/// Bail: a Data Skimmer in play could take the discard (a breakthrough's pile, not the core's): the string
+/// announcement stands, counted under its reason.
+#[test]
+fn bail_a_discard_the_data_skimmer_could_take_keeps_the_string_announcement() {
+    let _serial = crate::dual::tests::serial();
+    let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+    let _ = crate::dual::take_report();
+    let mut state = question_position();
+    state.player_mut(&b).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new(crate::factions::ralnel_cards::BREAKTHROUGH));
+    state.player_mut(&a).unwrap().action_cards = vec![ActionCardId::new("coup")];
+    crate::action_cards::discard(&mut state, &a, 0);
+    with_mask(dual(), || announce(&mut state, "coup", &a, Box::new(DeclineSlots)));
+    let report = crate::dual::report();
+    assert_eq!(report.total_differences(), 0, "{:?}", report.differences);
+    assert!(
+        report.windows.keys().any(|k| k.contains("action_cards::announce [bail: a discard the Data Skimmer could take]")),
+        "{:?}",
+        report.windows
+    );
+    assert_eq!(windows("action_cards::announce"), (0, 1));
+    let _ = crate::dual::take_report();
+}
+
+/// Bail: a card whose effect the core does not play keeps the string announcement (counted as a bailed window).
+#[test]
+fn bail_a_card_with_an_unported_effect_keeps_the_string_announcement() {
+    let _serial = crate::dual::tests::serial();
+    let a = PlayerId::new("a");
+    let _ = crate::dual::take_report();
+    let mut state = question_position();
+    state.player_mut(&a).unwrap().action_cards = vec![ActionCardId::new("dh1")];
+    crate::action_cards::discard(&mut state, &a, 0);
+    with_mask(dual(), || announce(&mut state, "dh1", &a, Box::new(DeclineSlots)));
+    let report = crate::dual::report();
+    assert_eq!(report.total_differences(), 0, "{:?}", report.differences);
+    assert_eq!(windows("action_cards::announce"), (0, 1));
+    let _ = crate::dual::take_report();
+}
+
+/// Bail: a card the core does not play (Skilled Retreat) played from the slot of a fight: the combat window that
+/// followed the offer bails with the reason, instead of comparing a play the core cannot make.
+#[test]
+fn bail_an_unported_card_played_in_a_fight_bails_the_window_with_its_reason() {
+    let _serial = crate::dual::tests::serial();
+    let (_, played, windows) = fights(&["s_retreat1"], &[], None, &|| Box::new(PlaySlots));
+    assert!(played > 0, "the card was played");
+    assert!(
+        windows.keys().any(|k| k.starts_with("combat::begin_round [bail: nested (an action card the core does not play)]")),
+        "{windows:?}"
+    );
+}
