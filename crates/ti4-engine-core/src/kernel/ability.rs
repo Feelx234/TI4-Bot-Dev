@@ -186,6 +186,10 @@ impl AdapterFacts {
 pub type Condition = fn(&CondCx<'_>) -> bool;
 /// The effect of a selected ability.
 pub type Effect = fn(&mut Eff<'_, '_>) -> Result<(), TimingError>;
+/// The close hook of a window (`AbilityTable::on_close`).
+pub type CloseHook = fn(&mut Inline<'_, '_>) -> Result<(), TimingError>;
+/// The cards a seat's reaction slot could play (`AbilityTable::slot_cards`).
+pub type SlotCards = fn(&CoreState, &Kernel, bool, Seat, &EventRec, Relation) -> Vec<crate::generated::ActionCard>;
 /// The predicate of a registered "cannot" (`Host::forbids`).
 pub type Forbids = fn(&CoreState, &CannotDef, &EventRec) -> bool;
 
@@ -296,10 +300,10 @@ pub struct AbilityTable {
     pub bars: Option<fn(&CoreState, Seat) -> bool>,
     /// After a window's loop ended cleanly: announce the cards declared in it (the rules package that owns the
     /// plays sets it; the kernel cannot import it).
-    pub on_close: Option<fn(&mut Inline<'_, '_>) -> Result<(), TimingError>>,
+    pub on_close: Option<CloseHook>,
     /// The cards a seat's reaction slot could play into a window now (`reaction_slot::playable`, `Err` read as none):
     /// recorded with the question of a reaction window.
-    pub slot_cards: Option<fn(&CoreState, &Kernel, bool, Seat, &EventRec, Relation) -> Vec<crate::generated::ActionCard>>,
+    pub slot_cards: Option<SlotCards>,
     pub codes: Codes,
     pub facts: AdapterFacts,
 }
