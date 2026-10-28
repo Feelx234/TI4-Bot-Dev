@@ -4648,6 +4648,20 @@ impl InvasionWindow {
         // Jupiter Brain: taking Thunder's Edge off somebody hands the taker their breakthrough.
         crate::legendary::control_gained(state, ctx.content, ctx.sources, &self.invader, planet);
 
+        self.control_gain_fracture_relic(state, ctx, planet, previous);
+        self.control_gain_exploration(state, ctx, planet, previous);
+    }
+
+    /// Fracture rule 15 (package B5): the first claim of a Fracture planet gains a relic.
+    fn control_gain_fracture_relic(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        planet: &PlanetId,
+        previous: Option<&PlayerId>,
+    ) {
+        let content = ctx.content;
+        let sources = ctx.sources;
         // Fracture rule 15: the first player to take one of its planets gains a relic. `previous`
         // is captured before control changed, so it distinguishes the first claim from a later
         // conquest without trying to infer history from the now-updated control map.
@@ -4661,7 +4675,16 @@ impl InvasionWindow {
             payload.insert("relic".to_owned(), relic.to_string().into());
             let _ = ctx.emit(state, "FRACTURE_RELIC_GAINED", payload);
         }
+    }
 
+    /// 35.1 on a first claim: choose the deck (two-trait planets ask) and explore the planet.
+    fn control_gain_exploration(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        planet: &PlanetId,
+        previous: Option<&PlayerId>,
+    ) {
         // 35.1: a planet nobody controlled is explored; one taken off another player is not.
         // Only this frame knows which, which is why `captured` carries the previous holder — a
         // caller told merely that control changed would explore every conquest and draw cards

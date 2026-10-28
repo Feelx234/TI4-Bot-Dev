@@ -156,6 +156,9 @@ fn content_of(r: &Render, alias: &str) -> Content {
         cg::GenericCard => GenericCard, cg::Attachment => Attachment,
         cg::ActionCard => ActionCard
     );
+    if let Some(step) = super::explore::step_of(alias) {
+        return Content::Step(step);
+    }
     Content::Other(r.code(alias))
 }
 
@@ -171,6 +174,7 @@ fn content_text(r: &Render, c: Content) -> String {
         Content::GenericCard(x) => id_of(x),
         Content::Attachment(x) => id_of(x),
         Content::ActionCard(x) => id_of(x),
+        Content::Step(s) => super::explore::step_text(s).to_owned(),
         Content::Other(c) => r.code_text(c),
     }
 }

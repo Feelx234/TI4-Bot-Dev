@@ -118,6 +118,27 @@ pub fn choose_deck(
 
 /// Draw the top card of one exploration deck.
 pub fn draw(state: &mut GameState, deck: &str) -> Option<String> {
+    dual_write(
+        state,
+        "exploration::draw",
+        |s| draw_text(s, deck),
+        |s| crate::explore_write::draw(s, deck),
+    )
+}
+
+/// One state write of this file on both backends: `string` is the original code, `core` the typed
+/// `rules::explore` write (`None`: the position is outside the tables, the string write runs).
+pub(crate) fn dual_write<R: PartialEq + std::fmt::Debug>(
+    state: &mut GameState,
+    label: &str,
+    string: impl Fn(&mut GameState) -> R,
+    core: impl Fn(&mut GameState) -> Option<R>,
+) -> R {
+    crate::dual::write(crate::dual::Area::ExplorationRelics, state, label, string, core)
+}
+
+/// [`draw`] on the string state: the oracle of the dual run.
+fn draw_text(state: &mut GameState, deck: &str) -> Option<String> {
     let cards = state.exploration_decks.get_mut(deck)?;
     ti4_model::deck_reserve::take_top(
         &mut state.deck_reserve,
@@ -193,12 +214,20 @@ fn commodity_limit(state: &GameState, content: &ContentStore, player: &PlayerId)
 /// Gain up to `count` commodities, never past the faction's value (21.2).
 fn gain_commodities(state: &mut GameState, content: &ContentStore, player: &PlayerId, count: i32) {
     let limit = commodity_limit(state, content, player);
-    let mut gained = 0;
-    if let Some(seat) = state.player_mut(player) {
-        let after = (seat.commodities + count).min(limit);
-        gained = (after - seat.commodities).max(0);
-        seat.commodities = after;
-    }
+    let gained = dual_write(
+        state,
+        "exploration::gain_commodities",
+        |s| {
+            let mut gained = 0;
+            if let Some(seat) = s.player_mut(player) {
+                let after = (seat.commodities + count).min(limit);
+                gained = (after - seat.commodities).max(0);
+                seat.commodities = after;
+            }
+            gained
+        },
+        |s| crate::explore_write::gain_commodities(s, player, count),
+    );
     crate::supply::note_commodities_gained(state, player, gained);
 }
 
@@ -212,11 +241,18 @@ fn convert_commodities(
     player: &PlayerId,
     most: Option<i32>,
 ) {
-    let moved = state.player_mut(player).map_or(0, |seat| {
-        let moved = most.map_or(seat.commodities, |cap| seat.commodities.min(cap));
-        seat.commodities -= moved;
-        moved
-    });
+    let moved = dual_write(
+        state,
+        "exploration::convert_commodities",
+        |s| {
+            s.player_mut(player).map_or(0, |seat| {
+                let moved = most.map_or(seat.commodities, |cap| seat.commodities.min(cap));
+                seat.commodities -= moved;
+                moved
+            })
+        },
+        |s| crate::explore_write::spend_commodities(s, player, most),
+    );
     crate::supply::gain_trade_goods_announced(state, ctx, player, moved, "exploration");
 }
 
@@ -239,10 +275,53 @@ fn ask_unless_single(
     prompt: &str,
     options: &[(&str, &str)],
 ) -> Option<String> {
-    if options.len() == 1 {
-        return Some(options[0].0.to_owned());
+    windowed_ask(ctx, state, player, card, prompt, options, true)
+}
+
+/// A question of this file beside its core window (`rules::explore_windows`, lockstep on the `Dual`
+/// backend): the choice of a deck and the reward questions of the instant cards. Any other card, and the
+/// other backends, run the string question alone. `skip_single` is [`ask_unless_single`].
+fn windowed_ask(
+    ctx: &mut crate::choice::Resolving<'_>,
+    state: &GameState,
+    player: &PlayerId,
+    card: &str,
+    prompt: &str,
+    options: &[(&str, &str)],
+    skip_single: bool,
+) -> Option<String> {
+    let string = |ctx: &mut crate::choice::Resolving<'_>, state: &GameState| {
+        if skip_single && options.len() == 1 {
+            return Some(options[0].0.to_owned());
+        }
+        ask_decorated(ctx, state, player, card, prompt, options, |choice| choice)
+    };
+    let windowed = crate::dual::backend(crate::dual::Area::ExplorationRelics) == crate::dual::Backend::Dual
+        && crate::render::explore::step_of(card).is_some_and(|step| {
+            !matches!(step, ti4_engine_core::choice::explore::Step::IonStorm)
+        });
+    if !windowed {
+        return string(ctx, state);
     }
-    ask(ctx, state, player, card, prompt, options)
+    let ids: Vec<&str> = options.iter().map(|(id, _)| *id).collect();
+    let content = ctx.content;
+    let mut copy = state.clone();
+    crate::dual::run_dual_window(
+        crate::dual::Area::ExplorationRelics,
+        &format!("exploration::ask:{card}"),
+        &mut copy,
+        |s| crate::dual::Run::new(string(ctx, s)),
+        |gs, script| {
+            if card == "exploration" {
+                let traits: Vec<String> = ids.iter().map(|id| (*id).to_owned()).collect();
+                return crate::explore_write::choose_deck(gs, player, &traits, script);
+            }
+            let commodities = COMMODITY_REWARDS
+                .contains(&card)
+                .then(|| crate::strategy_cards::commodity_standing(gs, content, player));
+            crate::explore_write::reward(gs, player, card, &ids, skip_single, commodities, script)
+        },
+    )
 }
 
 /// Ask this player one question with the given options.
@@ -254,7 +333,7 @@ fn ask(
     prompt: &str,
     options: &[(&str, &str)],
 ) -> Option<String> {
-    ask_decorated(ctx, state, player, card, prompt, options, |choice| choice)
+    windowed_ask(ctx, state, player, card, prompt, options, false)
 }
 
 /// [`ask`] with display-only details added to the choice (an offer card). The options, their
@@ -303,7 +382,7 @@ const COMMODITY_REWARDS: [&str; 4] = [
 ];
 
 /// The system a planet sits in, according to the board.
-fn system_of(state: &GameState, planet: &PlanetId) -> Option<ti4_model::id::SystemId> {
+pub(crate) fn system_of(state: &GameState, planet: &PlanetId) -> Option<ti4_model::id::SystemId> {
     state
         .board
         .iter()
@@ -362,6 +441,73 @@ fn pay_with_mech_or_infantry(
     card: &str,
     reward: &str,
 ) -> bool {
+    // One core window (`rules::explore_windows::PayMechOrInfantry`), lockstep on the `Dual` backend.
+    crate::dual_window!(
+        crate::dual::Area::ExplorationRelics,
+        "exploration::pay_with_mech_or_infantry",
+        state,
+        |s: &mut GameState| crate::dual::Run::new(pay_with_mech_or_infantry_text(
+            ctx, s, content, sources, player, planet, card, reward
+        )),
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::explore_write::pay_infantry(s, content, player, card, planet, reward, script)
+        }
+    )
+}
+
+/// The offer of the infantry question as the string engine decorates it: the card as printed, what is lost and
+/// exactly what is gained. Display only; the core window's question is decorated by the same function.
+pub(crate) fn pay_offer(
+    content: &ContentStore,
+    card: &str,
+    planet: &PlanetId,
+    system_name: &str,
+    reward: &str,
+) -> impl FnOnce(crate::choice::Choice) -> crate::choice::Choice {
+    let record = content.get(ContentType::Explores, card);
+    let name = record.and_then(|r| r.text("name")).unwrap_or(card).to_owned();
+    let tag = format!(
+        "{} exploration card",
+        record.and_then(|r| r.text("type")).unwrap_or("").to_ascii_lowercase()
+    );
+    let printed = record.and_then(|r| r.text("text")).map(ToOwned::to_owned);
+    let (planet, system_name, reward) = (planet.clone(), system_name.to_owned(), reward.to_owned());
+    move |choice| {
+        choice.offered(
+            crate::choice::offer_card(&name, &tag, Some("on exploring this planet"), printed.as_deref()),
+            vec![
+                crate::choice::offer_fact_planet("Planet", planet.as_str(), &system_name),
+                crate::choice::offer_fact("You lose", "1 infantry on this planet"),
+                crate::choice::offer_fact("You gain", reward.as_str()),
+            ],
+            &[
+                (
+                    "remove_infantry",
+                    crate::choice::offer_caption(
+                        &format!("Remove 1 infantry and {reward}"),
+                        Some("the infantry is returned to your reinforcements"),
+                    ),
+                ),
+                (
+                    "decline",
+                    crate::choice::offer_caption("Keep the infantry", Some("the card has no effect")),
+                ),
+            ],
+        )
+    }
+}
+
+/// [`pay_with_mech_or_infantry`] on the string state.
+fn pay_with_mech_or_infantry_text(
+    ctx: &mut crate::choice::Resolving<'_>,
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    planet: &PlanetId,
+    card: &str,
+    reward: &str,
+) -> bool {
     let Some(system) = system_of(state, planet) else {
         return false;
     };
@@ -391,20 +537,6 @@ fn pay_with_mech_or_infantry(
     let Some(index) = infantry else {
         return false;
     };
-    // Display only: the card as printed, what is lost and exactly what is gained.
-    let record = content.get(ContentType::Explores, card);
-    let name = record
-        .and_then(|r| r.text("name"))
-        .unwrap_or(card)
-        .to_owned();
-    let tag = format!(
-        "{} exploration card",
-        record
-            .and_then(|r| r.text("type"))
-            .unwrap_or("")
-            .to_ascii_lowercase()
-    );
-    let printed = record.and_then(|r| r.text("text")).map(ToOwned::to_owned);
     let system_name = system.to_string();
     let chosen = ask_decorated(
         ctx,
@@ -416,37 +548,7 @@ fn pay_with_mech_or_infantry(
             ("remove_infantry", "remove 1 infantry and gain the reward"),
             ("decline", "do not remove an infantry"),
         ],
-        |choice| {
-            choice.offered(
-                crate::choice::offer_card(
-                    &name,
-                    &tag,
-                    Some("on exploring this planet"),
-                    printed.as_deref(),
-                ),
-                vec![
-                    crate::choice::offer_fact_planet("Planet", planet.as_str(), &system_name),
-                    crate::choice::offer_fact("You lose", "1 infantry on this planet"),
-                    crate::choice::offer_fact("You gain", reward),
-                ],
-                &[
-                    (
-                        "remove_infantry",
-                        crate::choice::offer_caption(
-                            &format!("Remove 1 infantry and {reward}"),
-                            Some("the infantry is returned to your reinforcements"),
-                        ),
-                    ),
-                    (
-                        "decline",
-                        crate::choice::offer_caption(
-                            "Keep the infantry",
-                            Some("the card has no effect"),
-                        ),
-                    ),
-                ],
-            )
-        },
+        pay_offer(content, card, planet, &system_name, reward),
     );
     if chosen.as_deref() != Some("remove_infantry") {
         return false;
@@ -793,7 +895,7 @@ fn resolve_instant(
             let Some(system) = state.active_system.clone() else {
                 return false;
             };
-            state.wormhole_tokens.insert("GAMMA".to_owned(), system);
+            place_gamma_token(state, &system);
             return true;
         }
         "ion" => {
@@ -812,16 +914,7 @@ fn resolve_instant(
             else {
                 return false;
             };
-            let face = ask(
-                ctx,
-                state,
-                player,
-                "ion_storm",
-                "Ion Storm: which side faceup",
-                &[("ALPHA", "alpha wormhole"), ("BETA", "beta wormhole")],
-            )
-            .unwrap_or_else(|| "ALPHA".to_owned());
-            state.ion_storm = Some((system, face));
+            ion_storm(state, ctx, player, &system);
             return true;
         }
         "ed1" | "ed2" => {
@@ -832,9 +925,16 @@ fn resolve_instant(
             // `available_actions`. Same text as the Enigmatic Device relic, and the same helper
             // resolves both -- but it is not a relic, so it lives in its own place rather than
             // borrowing the relic list and picking up every relic effect on the way.
-            if let Some(seat) = state.player_mut(player) {
-                seat.exploration_cards.push(card.to_owned());
-            }
+            dual_write(
+                state,
+                "exploration::play_area_card",
+                |s| {
+                    if let Some(seat) = s.player_mut(player) {
+                        seat.exploration_cards.push(card.to_owned());
+                    }
+                },
+                |s| crate::explore_write::play_area_card(s, player, card),
+            );
             return true;
         }
         "mirage" => {
@@ -1061,7 +1161,12 @@ fn resolve_instant(
                 card,
                 "ready this planet",
             ) {
-                state.exhausted_planets.remove(planet);
+                dual_write(
+                    state,
+                    "exploration::ready_planet",
+                    |s| s.exhausted_planets.remove(planet),
+                    |s| crate::explore_write::ready_planet(s, planet),
+                );
             }
             return true;
         }
@@ -1163,6 +1268,38 @@ pub fn frontier_systems(
     systems
 }
 
+/// The frontier tokens become exactly `systems`.
+pub(crate) fn set_frontier_tokens(state: &mut GameState, systems: &[SystemId]) {
+    dual_write(
+        state,
+        "exploration::place_frontier_tokens",
+        |s| s.frontier_tokens = systems.iter().cloned().collect(),
+        |s| crate::explore_write::place_frontier_tokens(s, systems),
+    );
+}
+
+/// The frontier token of `system` is spent.
+pub(crate) fn take_frontier_token(state: &mut GameState, system: &SystemId) {
+    dual_write(
+        state,
+        "exploration::take_frontier",
+        |s| s.frontier_tokens.remove(system),
+        |s| crate::explore_write::take_frontier(s, system),
+    );
+}
+
+/// Gamma Wormhole and Gamma Relay: the gamma token goes into `system`.
+pub(crate) fn place_gamma_token(state: &mut GameState, system: &SystemId) {
+    dual_write(
+        state,
+        "exploration::gamma_token",
+        |s| {
+            s.wormhole_tokens.insert("GAMMA".to_owned(), system.clone());
+        },
+        |s| crate::explore_write::place_gamma_token(s, system),
+    );
+}
+
 /// Put a frontier token on every planetless system (35.5). Returns how many were placed.
 ///
 /// Nothing in this engine placed one: `frontier_tokens` was declared, initialised empty, and never
@@ -1176,7 +1313,7 @@ pub fn place_frontier_tokens(
 ) -> usize {
     let systems = frontier_systems(content, sources, galaxy);
     let count = systems.len();
-    state.frontier_tokens = systems.into_iter().collect();
+    set_frontier_tokens(state, &systems);
     count
 }
 
@@ -1206,12 +1343,19 @@ pub fn explore_frontier(
     if !has_ship {
         return None;
     }
-    state.frontier_tokens.remove(system);
+    take_frontier_token(state, system);
     let logged = state.exploration_log.len();
     let outcome = explore_in(state, ctx, player, FRONTIER, None, Some(system));
-    if let Some(record) = state.exploration_log.get_mut(logged) {
-        record.system = Some(system.to_string());
-    }
+    dual_write(
+        state,
+        "exploration::record_system",
+        |s| {
+            if let Some(record) = s.exploration_log.get_mut(logged) {
+                record.system = Some(system.to_string());
+            }
+        },
+        |s| crate::explore_write::set_record_system(s, logged, system),
+    );
     outcome
 }
 
@@ -1313,12 +1457,20 @@ fn explore_in(
     {
         placed.push(format!("attachment:{id}:{planet}"));
     }
-    if let Some(record) = state.exploration_log.get_mut(logged) {
-        record.outcome = text;
-        record.result = result;
-        record.gains = gains;
-        record.placed = placed;
-    }
+    // The row is closed with the texts above: one core write (`rules::explore::close_record`).
+    dual_write(
+        state,
+        "exploration::close_record",
+        |s| {
+            if let Some(record) = s.exploration_log.get_mut(logged) {
+                record.outcome = text.clone();
+                record.result = result.clone();
+                record.gains = gains.clone();
+                record.placed = placed.clone();
+            }
+        },
+        |s| crate::explore_write::close_record(s, logged, &text, &result, &gains, &placed),
+    );
     if let Some(explored) = planet {
         // Pre-Fab Arcologies et al. run first (they change the state), then the typed event.
         crate::factions::hooks_economy::explored(state, ctx.content, ctx.sources, player, explored);
@@ -1342,7 +1494,8 @@ fn explore_in(
 
 /// What a seat holds that an exploration card can change; compared before and after a card to say
 /// what it did. Display only.
-struct Holdings {
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Holdings {
     trade_goods: i32,
     commodities: i32,
     command_tokens: i32,
@@ -1357,7 +1510,36 @@ struct Holdings {
 }
 
 impl Holdings {
+    /// The reading of a position, answered by the typed core under `Dual`/`Core` (`query::explore::holdings`).
     fn of(state: &GameState, player: &PlayerId, planet: Option<&PlanetId>) -> Self {
+        crate::dual_typed!(
+            crate::dual::Area::ExplorationRelics,
+            "exploration::holdings",
+            crate::cards_typed!(state, v => v.holdings(player, planet)),
+            Self::of_text(state, player, planet)
+        )
+    }
+
+    /// The typed core's reading as the string struct.
+    #[cfg(feature = "typed-core")]
+    pub(crate) fn from_core(h: ti4_engine_core::query::explore::Holdings) -> Self {
+        Self {
+            trade_goods: h.trade_goods,
+            commodities: h.commodities,
+            command_tokens: h.command_tokens,
+            action_cards: h.action_cards,
+            secrets: h.secrets,
+            relics: h.relics,
+            technologies: h.technologies,
+            play_area: h.play_area,
+            own_infantry: h.own_infantry,
+            own_mechs: h.own_mechs,
+            exhausted: h.exhausted,
+        }
+    }
+
+    /// [`Self::of`] on the string state: the oracle of the dual run.
+    fn of_text(state: &GameState, player: &PlayerId, planet: Option<&PlanetId>) -> Self {
         let seat = state.player(player);
         let (mut own_infantry, mut own_mechs) = (0, 0);
         if let Some(planet) = planet
@@ -1540,39 +1722,29 @@ fn explore_drawn(
             player,
             here,
         )
-        && let Some(second) = draw(state, deck)
     {
-        let label = |id: &str| format!("resolve {id}");
-        let (first_label, second_label) = (label(&card), label(&second));
-        let picked = ask(
-            ctx,
-            state,
-            player,
-            &card,
-            "Distant Suns: which exploration card to resolve",
-            &[
-                (card.as_str(), &first_label),
-                (second.as_str(), &second_label),
-            ],
-        );
-        if picked.as_deref() == Some(second.as_str()) {
-            card = second;
-        }
+        card = distant_suns(state, ctx, player, deck, card);
     }
-    state
-        .exploration_log
-        .push(ti4_model::state::ExplorationRecord {
-            round: state.round,
-            player: player.clone(),
-            deck: deck.to_owned(),
-            card: card.clone(),
-            planet: planet.cloned(),
-            outcome: String::new(),
-            system: system.map(ToString::to_string),
-            result: String::new(),
-            gains: Default::default(),
-            placed: Vec::new(),
-        });
+    // The row of the log opened before the card resolves: one core write (`rules::explore::open_record`).
+    dual_write(
+        state,
+        "exploration::open_record",
+        |s| {
+            s.exploration_log.push(ti4_model::state::ExplorationRecord {
+                round: s.round,
+                player: player.clone(),
+                deck: deck.to_owned(),
+                card: card.clone(),
+                planet: planet.cloned(),
+                outcome: String::new(),
+                system: system.map(ToString::to_string),
+                result: String::new(),
+                gains: Default::default(),
+                placed: Vec::new(),
+            });
+        },
+        |s| crate::explore_write::open_record(s, player, deck, &card, planet, system),
+    );
     let kind = resolution(content, &card).unwrap_or_default();
 
     let outcome = match kind.as_str() {
@@ -1598,11 +1770,7 @@ fn explore_drawn(
             // Crown's check, the attachment record for the planet's value). The explore card id
             // (`toe`, `ds`) named nothing outside this deck.
             let attachment = attachment_for(content, &card, planet);
-            state
-                .planet_attachments
-                .entry(planet.clone())
-                .or_default()
-                .push(attachment);
+            attach(state, planet, &attachment);
             if card == crate::laws::DMZ_ATTACHMENT
                 && state.rules_version >= ti4_model::state::RULES_DMZ_EXPLORATION
             {
@@ -1622,6 +1790,100 @@ fn explore_drawn(
         }
     };
     Some(outcome)
+}
+
+/// Naaz Distant Suns, after the hook said it applies: draw the second card and ask which of the two to
+/// resolve; the other leaves the deck. Without a second card the first stands. The whole step is one core
+/// window (`rules::explore_windows::DistantSuns`).
+fn distant_suns(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    player: &PlayerId,
+    deck: &str,
+    card: String,
+) -> String {
+    crate::dual_window!(
+        crate::dual::Area::ExplorationRelics,
+        "exploration::distant_suns",
+        state,
+        |s: &mut GameState| crate::dual::Run::new(distant_suns_text(s, ctx, player, deck, &card)),
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::explore_write::distant_suns(s, player, deck, &card, script)
+        }
+    )
+}
+
+fn distant_suns_text(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    player: &PlayerId,
+    deck: &str,
+    card: &str,
+) -> String {
+    let Some(second) = draw(state, deck) else {
+        return card.to_owned();
+    };
+    let label = |id: &str| format!("resolve {id}");
+    let (first_label, second_label) = (label(card), label(&second));
+    let picked = ask(
+        ctx,
+        state,
+        player,
+        card,
+        "Distant Suns: which exploration card to resolve",
+        &[(card, &first_label), (second.as_str(), &second_label)],
+    );
+    if picked.as_deref() == Some(second.as_str()) {
+        second
+    } else {
+        card.to_owned()
+    }
+}
+
+/// "Place the ion storm token in this system with either side faceup": asks the side and places the
+/// token (one core window, `rules::explore_windows::IonStorm`). Nobody answering leaves alpha.
+fn ion_storm(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    player: &PlayerId,
+    system: &ti4_model::id::SystemId,
+) {
+    let _ = crate::dual_window!(
+        crate::dual::Area::ExplorationRelics,
+        "exploration::ion_storm",
+        state,
+        |s: &mut GameState| {
+            let face = ask(
+                ctx,
+                s,
+                player,
+                "ion_storm",
+                "Ion Storm: which side faceup",
+                &[("ALPHA", "alpha wormhole"), ("BETA", "beta wormhole")],
+            )
+            .unwrap_or_else(|| "ALPHA".to_owned());
+            s.ion_storm = Some((system.clone(), face.clone()));
+            crate::dual::Run::new(face)
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::explore_write::ion_storm(s, player, system, script)
+        }
+    );
+}
+
+/// `planet_attachments[planet].push(attachment)`: the Attach arm of a drawn card.
+pub(crate) fn attach(state: &mut GameState, planet: &PlanetId, attachment: &str) {
+    dual_write(
+        state,
+        "exploration::attach",
+        |s| {
+            s.planet_attachments
+                .entry(planet.clone())
+                .or_default()
+                .push(attachment.to_owned());
+        },
+        |s| crate::explore_write::attach(s, planet, attachment),
+    );
 }
 
 /// Demilitarized Zone (exploration, rules version 34): "Return all structures on this planet to
@@ -1672,6 +1934,15 @@ pub(crate) fn demilitarize(
 
 /// Add one relic fragment of a trait to a player's play area.
 pub fn gain_fragment(state: &mut GameState, player: &PlayerId, trait_name: &str) {
+    dual_write(
+        state,
+        "exploration::gain_fragment",
+        |s| gain_fragment_text(s, player, trait_name),
+        |s| crate::explore_write::gain_fragment(s, player, trait_name),
+    );
+}
+
+fn gain_fragment_text(state: &mut GameState, player: &PlayerId, trait_name: &str) {
     if let Some(seat) = state.player_mut(player) {
         *seat
             .relic_fragments
@@ -1715,6 +1986,20 @@ pub fn purgeable_text(state: &GameState, player: &PlayerId) -> Vec<String> {
 /// Frontier fragments make up any shortfall, and are spent only after the matching ones — a
 /// wildcard spent first would be a wildcard wasted.
 pub fn purge_for_relic(
+    state: &mut GameState,
+    player: &PlayerId,
+    trait_name: &str,
+) -> Option<RelicId> {
+    dual_write(
+        state,
+        "exploration::purge_for_relic",
+        |s| purge_for_relic_text(s, player, trait_name),
+        |s| crate::explore_write::purge_for_relic(s, player, trait_name),
+    )
+}
+
+/// [`purge_for_relic`] on the string state: the oracle of the dual run.
+fn purge_for_relic_text(
     state: &mut GameState,
     player: &PlayerId,
     trait_name: &str,
@@ -3679,5 +3964,384 @@ mod dmz_tests {
             Some(&vec!["dmz".to_owned()])
         );
         assert!(!crate::laws::planet_is_demilitarized(&state, &planet));
+    }
+}
+
+/// The exploration questions beside their core windows (`rules::explore_windows`), lockstep on `Dual`.
+#[cfg(test)]
+mod window_tests {
+    use super::*;
+    use crate::choice::{Resolving, Scripted, Table};
+    use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+    use crate::factions::hooks_economy::{EconomyHooks, with_test_hooks};
+    use ti4_model::content_types::POK;
+
+    fn me() -> PlayerId {
+        PlayerId::new("a")
+    }
+
+    /// Two seated players (real factions: the codec refuses the fixture one); `a` controls a placed planet.
+    fn table(goods: i32, commodities: i32) -> (GameState, PlanetId) {
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], POK);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        state.exploration_decks.clear();
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        state.system_mut(&system).set_control(planet.clone(), me());
+        let seat = state.player_mut(&me()).unwrap();
+        seat.trade_goods = goods;
+        seat.commodities = commodities;
+        (state, planet)
+    }
+
+    fn with_ctx<T>(answers: &[&str], f: impl FnOnce(&mut Resolving<'_>) -> T) -> T {
+        let mut table = Table::with_default(Box::new(Scripted::new(answers.iter().map(|a| (*a).to_owned()))));
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut ctx = Resolving {
+            content: ContentStore::embedded(),
+            sources: ti4_model::content_types::FULL,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: None,
+        };
+        f(&mut ctx)
+    }
+
+    fn counts(label: &str) -> (u64, u64) {
+        report().windows.get(label).map_or((0, 0), |w| (w.compared, w.bailed))
+    }
+
+    fn dual<T>(body: impl FnOnce() -> T) -> T {
+        with_mask(AreaMask::STRING.with(Area::ExplorationRelics, Backend::Dual), body)
+    }
+
+    /// Which deck a two-trait planet explores into; one trait asks nothing.
+    #[test]
+    fn the_deck_choice_runs_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        dual(|| {
+            let (state, _) = table(0, 0);
+            let planet = PlanetId::new("lazulrex");
+            let chosen = with_ctx(&["CULTURAL"], |ctx| choose_deck(ctx, &state, &me(), &planet));
+            assert_eq!(chosen.as_deref(), Some("CULTURAL"));
+            let chosen = with_ctx(&["INDUSTRIAL"], |ctx| choose_deck(ctx, &state, &me(), &planet));
+            assert_eq!(chosen.as_deref(), Some("INDUSTRIAL"));
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(counts("exploration::ask:exploration").0 >= 2, "{r:?}");
+        let _ = take_report();
+    }
+
+    /// The ion storm: the side is asked, the token is placed.
+    #[test]
+    fn the_ion_storm_runs_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        dual(|| {
+            for face in ["BETA", "ALPHA"] {
+                let (mut state, planet) = table(0, 0);
+                state.exploration_decks.insert("CULTURAL".to_owned(), vec!["ion".to_owned()]);
+                let outcome = with_ctx(&[face], |ctx| explore_with(&mut state, ctx, &me(), "CULTURAL", Some(&planet)));
+                assert!(matches!(outcome, Some(Explored::Resolved { .. })));
+                assert_eq!(state.ion_storm.as_ref().map(|(_, f)| f.as_str()), Some(face));
+            }
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(counts("exploration::ion_storm").0 >= 2, "{r:?}");
+        let _ = take_report();
+    }
+
+    /// Naaz Distant Suns: the second card is drawn and one of the two resolves.
+    #[test]
+    fn distant_suns_runs_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let hook = EconomyHooks { explore_extra_draw: Some(|_, _, _, _, _| true), ..EconomyHooks::NONE };
+        dual(|| {
+            for (answer, goods) in [("majent", 3), ("minent", 1)] {
+                let (mut state, planet) = table(0, 0);
+                state.exploration_decks.insert(
+                    "CULTURAL".to_owned(),
+                    vec!["minent".to_owned(), "majent".to_owned(), "ent".to_owned()],
+                );
+                with_test_hooks(hook, || {
+                    with_ctx(&[answer], |ctx| explore_with(&mut state, ctx, &me(), "CULTURAL", Some(&planet)))
+                });
+                assert_eq!(state.player(&me()).unwrap().trade_goods, goods);
+                assert_eq!(state.exploration_decks["CULTURAL"], ["ent"]);
+            }
+            // A lone card: nothing to choose.
+            let (mut state, planet) = table(0, 0);
+            state.exploration_decks.insert("CULTURAL".to_owned(), vec!["minent".to_owned()]);
+            with_test_hooks(hook, || {
+                with_ctx(&[], |ctx| explore_with(&mut state, ctx, &me(), "CULTURAL", Some(&planet)))
+            });
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(counts("exploration::distant_suns").0 >= 3, "{r:?}");
+        let _ = take_report();
+    }
+
+    fn explore_card(state: &mut GameState, planet: &PlanetId, card: &str, answers: &[&str]) {
+        state.exploration_decks.insert("CULTURAL".to_owned(), vec![card.to_owned()]);
+        with_ctx(answers, |ctx| explore_with(state, ctx, &me(), "CULTURAL", Some(planet)));
+    }
+
+    /// The reward questions of the instant cards (the options and the effect stay with the string side).
+    #[test]
+    fn the_reward_questions_run_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        dual(|| {
+            // Abandoned Warehouses: two options asked; with no commodities the lone option is taken unasked.
+            let (mut state, planet) = table(0, 2);
+            explore_card(&mut state, &planet, "aw1", &["convert"]);
+            assert_eq!(state.player(&me()).unwrap().trade_goods, 2);
+            let (mut state, planet) = table(0, 0);
+            explore_card(&mut state, &planet, "aw1", &[]);
+            assert_eq!(state.player(&me()).unwrap().commodities, 2);
+            // Merchant Station.
+            let (mut state, planet) = table(0, 1);
+            explore_card(&mut state, &planet, "ms1", &["convert"]);
+            assert_eq!(state.player(&me()).unwrap().trade_goods, 1);
+            // Functioning Base: three options.
+            let (mut state, planet) = table(1, 1);
+            explore_card(&mut state, &planet, "fb1", &["spend_tg"]);
+            assert_eq!(state.player(&me()).unwrap().trade_goods, 0);
+            // Local Fabricators.
+            let (mut state, planet) = table(1, 1);
+            explore_card(&mut state, &planet, "lf1", &["gain"]);
+            // Mercenary Outfit.
+            let (mut state, planet) = table(0, 0);
+            explore_card(&mut state, &planet, "mo1", &["place"]);
+            let (mut state, planet) = table(0, 0);
+            explore_card(&mut state, &planet, "mo1", &["decline"]);
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        for card in ["abandoned_warehouses", "merchant_station", "functioning_base", "local_fabricators", "mercenary_outfit"] {
+            assert!(counts(&format!("exploration::ask:{card}")).0 >= 1, "{card}: {r:?}");
+        }
+        let _ = take_report();
+    }
+
+    /// The writes behind the instant cards (commodities gained and converted, a card kept in the play area,
+    /// a planet readied) run on the core and agree with the string write.
+    #[test]
+    fn the_instant_effect_writes_run_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        dual(|| {
+            // Gain 2 commodities (capped at the faction's value), then convert (one, and up to two).
+            for (commodities, answer) in [(0, "gain"), (1, "gain"), (2, "convert"), (1, "convert")] {
+                let (mut state, planet) = table(0, commodities);
+                explore_card(&mut state, &planet, "aw1", &[answer]);
+            }
+            let (mut state, planet) = table(0, 1);
+            explore_card(&mut state, &planet, "ms1", &["convert"]);
+            assert_eq!(state.player(&me()).unwrap().commodities, 0);
+            let (mut state, planet) = table(0, 0);
+            explore_card(&mut state, &planet, "ms1", &[]);
+            // Enigmatic Device: kept faceup.
+            let (mut state, planet) = table(0, 0);
+            explore_card(&mut state, &planet, "ed1", &[]);
+            assert_eq!(state.player(&me()).unwrap().exploration_cards, ["ed1"]);
+            // Expedition: an infantry is removed and the planet is readied.
+            let (mut state, planet) = table(0, 0);
+            let (system, _) = crate::fixtures::a_placed_planet();
+            state.system_mut(&system).planet_units.entry(planet.clone()).or_default().push(ti4_model::units::Unit::new(
+                ti4_model::id::UnitTypeId::new("infantry"),
+                me(),
+            ));
+            state.exhausted_planets.insert(planet.clone());
+            explore_card(&mut state, &planet, "exp1", &["remove_infantry"]);
+            assert!(!state.exhausted_planets.contains(&planet));
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.total_calls() >= 12, "{r:?}");
+        let _ = take_report();
+    }
+
+    /// A mech or an infantry pays for Cultural Archaeology, Expedition and Volatile Fuel Source: the mech without a
+    /// question, the infantry when agreed to, neither not at all.
+    #[test]
+    fn paying_with_a_mech_or_an_infantry_runs_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        dual(|| {
+            let (system, _) = crate::fixtures::a_placed_planet();
+            let with_units = |kinds: &[&str]| {
+                let (mut state, planet) = table(0, 0);
+                for kind in kinds {
+                    state.system_mut(&system).planet_units.entry(planet.clone()).or_default().push(
+                        ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new(*kind), me()),
+                    );
+                }
+                (state, planet)
+            };
+            for (card, answers) in [("cm1", vec!["remove_infantry"]), ("cm1", vec!["decline"]), ("vfs1", vec!["remove_infantry"])] {
+                let (mut state, planet) = with_units(&["infantry", "infantry"]);
+                let strategic = state.player(&me()).unwrap().strategic_tokens;
+                explore_card(&mut state, &planet, card, &answers);
+                let left = state.system_state(&system).planet_units[&planet].len();
+                assert_eq!(left, if answers[0] == "decline" { 2 } else { 1 });
+                let _ = strategic;
+            }
+            // A mech pays without a question; nothing at all cannot pay.
+            let (mut state, planet) = with_units(&["mech"]);
+            explore_card(&mut state, &planet, "cm1", &[]);
+            assert_eq!(state.player(&me()).unwrap().trade_goods, 1);
+            let (mut state, planet) = with_units(&[]);
+            explore_card(&mut state, &planet, "cm1", &[]);
+            assert_eq!(state.player(&me()).unwrap().trade_goods, 0);
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let c = counts("exploration::pay_with_mech_or_infantry");
+        assert!(c.0 >= 4 && c.1 == 0, "{r:?}");
+        let _ = take_report();
+    }
+
+    /// The log row of an exploration (opened at the draw, closed with the outcome, the result text, the gains and
+    /// the placed tokens, given its system for a frontier token) and the holdings it is read from run on the core
+    /// and agree with the string record.
+    #[test]
+    fn the_exploration_log_row_runs_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        dual(|| {
+            // A fragment, an attachment, a card that cannot resolve, an ion storm, a trade-good card, a mech card.
+            for (card, answers) in [
+                ("crf1", vec![]),
+                ("toe", vec![]),
+                ("ent", vec![]),
+                ("minent", vec![]),
+                ("ion", vec!["ALPHA"]),
+                ("aw1", vec!["gain"]),
+                ("ed1", vec![]),
+                ("mirage", vec![]),
+            ] {
+                let (mut state, planet) = table(0, 1);
+                state.exploration_decks.insert("CULTURAL".to_owned(), vec![card.to_owned()]);
+                with_ctx(&answers, |ctx| explore_with(&mut state, ctx, &me(), "CULTURAL", Some(&planet)));
+                assert_eq!(state.exploration_log.len(), 1, "{card}");
+                assert_eq!(state.exploration_log[0].card, card);
+            }
+            // A frontier token: the row carries the system.
+            let (mut state, _) = table(0, 0);
+            let (system, _) = crate::fixtures::a_placed_planet();
+            state.frontier_tokens.insert(system.clone());
+            crate::fixtures::put(&mut state, &system, "destroyer", &me(), 1);
+            state.exploration_decks.insert("FRONTIER".to_owned(), vec!["gamma".to_owned()]);
+            let outcome = with_ctx(&[], |ctx| explore_frontier(&mut state, ctx, &me(), &system));
+            assert!(outcome.is_some());
+            assert_eq!(state.exploration_log[0].system.as_deref(), Some(system.as_str()));
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.total_calls() >= 60, "{r:?}");
+        let _ = take_report();
+    }
+
+    /// The effects that stay string (docs/ENGINE_KNOWN_ISSUES.md, B5-bail-04): command tokens, the Mirage and
+    /// the Dead World, Freelancers' production, the secret and action cards drawn, the Gamma wormhole, the
+    /// Demilitarized Zone and a unit placed by Mercenary Outfit. Under `Dual` each runs alone: the card
+    /// resolves, the log row (a core write) agrees, and nothing differs.
+    #[test]
+    fn the_effects_that_stay_string_run_alone_under_dual() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        dual(|| {
+            for (card, answers) in [
+                ("minent", vec!["tactic_tokens"]),
+                ("kel1", vec!["tactic_tokens", "fleet_tokens"]),
+                ("dw", vec![]),
+                ("frln1", vec![]),
+                ("dv1", vec![]),
+                ("lc1", vec![]),
+                ("mirage", vec![]),
+                ("gw", vec![]),
+                ("dmz", vec![]),
+                ("mo1", vec!["place"]),
+            ] {
+                let (mut state, planet) = table(0, 0);
+                state.relic_deck = vec![ti4_model::id::RelicId::new("thetriad")];
+                state.exploration_decks.insert("CULTURAL".to_owned(), vec![card.to_owned()]);
+                state.active_system = Some(crate::fixtures::a_placed_planet().0);
+                let outcome = with_ctx(&answers, |ctx| explore_with(&mut state, ctx, &me(), "CULTURAL", Some(&planet)));
+                assert!(outcome.is_some(), "{card}");
+                assert_eq!(state.exploration_log.len(), 1, "{card}");
+            }
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    /// Exploring after an invasion capture: the question carries the invasion's sequence number, which the
+    /// core windows now put into their context, so the golden games compare them.
+    #[test]
+    fn a_question_inside_an_invasion_is_compared_with_its_sequence_number() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        dual(|| {
+            let invading = |state: &mut GameState| {
+                state.active_invasion = Some(ti4_model::state::ActiveInvasion {
+                    system: ti4_model::id::SystemId::new("26"),
+                    invader: me(),
+                    seq: 7,
+                    phase: "commit".to_owned(),
+                    planet: None,
+                    defender: None,
+                    ground_round: 0,
+                    last_step: None,
+                });
+            };
+            let (mut state, planet) = table(0, 0);
+            invading(&mut state);
+            let chosen = with_ctx(&["CULTURAL"], |ctx| choose_deck(ctx, &state, &me(), &PlanetId::new("lazulrex")));
+            assert_eq!(chosen.as_deref(), Some("CULTURAL"));
+            state.exploration_decks.insert("CULTURAL".to_owned(), vec!["ion".to_owned()]);
+            with_ctx(&["BETA"], |ctx| explore_with(&mut state, ctx, &me(), "CULTURAL", Some(&planet)));
+            let (mut state, planet) = table(1, 1);
+            invading(&mut state);
+            explore_card(&mut state, &planet, "fb1", &["spend_tg"]);
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        for label in ["exploration::ask:exploration", "exploration::ion_storm", "exploration::ask:functioning_base"] {
+            assert!(counts(label).0 >= 1 && counts(label).1 == 0, "{label}: {r:?}");
+        }
+        let _ = take_report();
+    }
+
+    /// The documented bails: a question inside an invasion, diplomacy promises, a custom card the tables
+    /// do not know; the string question answers alone and nothing differs.
+    #[test]
+    fn the_questions_bail_where_the_core_holds_less() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        dual(|| {
+            let (mut state, planet) = table(0, 0);
+            state.diplomacy.enabled = true;
+            state.exploration_decks.insert("CULTURAL".to_owned(), vec!["ion".to_owned()]);
+            with_ctx(&["BETA"], |ctx| explore_with(&mut state, ctx, &me(), "CULTURAL", Some(&planet)));
+            assert!(state.ion_storm.is_some());
+            let (mut state, _) = table(0, 0);
+            state.active_space_combat = Some((ti4_model::id::SystemId::new("26"), me(), PlayerId::new("b")));
+            with_ctx(&["CULTURAL"], |ctx| choose_deck(ctx, &state, &me(), &PlanetId::new("lazulrex")));
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(counts("exploration::ion_storm").1 >= 1, "{r:?}");
+        assert!(counts("exploration::ask:exploration").1 >= 1, "{r:?}");
+        let _ = take_report();
     }
 }

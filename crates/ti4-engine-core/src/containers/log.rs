@@ -18,6 +18,12 @@ struct Node<T> {
     prev: Option<Arc<Node<T>>>,
 }
 
+impl<T> Clone for Node<T> {
+    fn clone(&self) -> Self {
+        Self { items: Arc::clone(&self.items), prev: self.prev.clone() }
+    }
+}
+
 impl<T> Drop for Node<T> {
     fn drop(&mut self) {
         // Unlink iteratively: a long chain must not recurse on drop.
@@ -81,6 +87,27 @@ impl<T: Clone, const CHUNK: usize> Log<T, CHUNK> {
             steps -= 1;
         }
         node.items.get(index % CHUNK)
+    }
+
+    /// Edit a record in place (a row the log opened and closes later). A clone keeps the old row: the chain from
+    /// the newest chunk down to the one holding `index` is copied if it is shared, the other chunks stay shared.
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
+        if index >= self.len() {
+            return None;
+        }
+        let chunk = index / CHUNK;
+        if chunk >= self.sealed_count() {
+            return self.tail.as_mut()?.edit().get_mut(index % CHUNK);
+        }
+        let steps = self.sealed_count() - 1 - chunk;
+        fn walk<T: Clone>(node: &mut Arc<Node<T>>, steps: usize, at: usize) -> Option<&mut T> {
+            let n = Arc::make_mut(node);
+            if steps == 0 {
+                return Arc::make_mut(&mut n.items).get_mut(at);
+            }
+            walk(n.prev.as_mut()?, steps - 1, at)
+        }
+        walk(self.sealed.as_mut()?, steps, index % CHUNK)
     }
 
     #[must_use]
@@ -201,6 +228,20 @@ mod tests {
         assert!(!a.shares_prefix_with(&b));
         assert_eq!(b.len(), 10);
         assert_eq!(a.get(3), b.get(3));
+    }
+
+    #[test]
+    fn a_row_edited_in_place_is_not_seen_by_a_clone() {
+        let mut a: Log<u32, 4> = (0..11).collect();
+        let b = a.clone();
+        for index in [0, 5, 9, 10] {
+            *a.get_mut(index).unwrap() += 100;
+        }
+        assert!(a.get_mut(11).is_none());
+        assert_eq!(b.to_vec(), (0..11).collect::<Vec<_>>());
+        assert_eq!(a.to_vec(), vec![100, 1, 2, 3, 4, 105, 6, 7, 8, 109, 110]);
+        a.push(11);
+        assert_eq!(a.len(), 12);
     }
 
     #[test]
