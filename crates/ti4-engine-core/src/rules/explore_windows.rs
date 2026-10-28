@@ -8,15 +8,19 @@
 //! question and the effect behind them (commodities, trade goods, an action card, a mech or infantry placed:
 //! other areas' rules, see `docs/ENGINE_KNOWN_ISSUES.md`), and the hook that decides Distant Suns applies.
 
+use crate::choice::agenda::Shown;
 use crate::choice::explore::{Ask as EAsk, Opt as EOpt, Step, Subtype as ESub};
+use crate::choice::relic::{Ask as RAsk, Opt as ROpt, Subtype as RSub};
 use crate::choice::generic::Content;
 use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use crate::containers::SmallList;
-use crate::generated::{Explore, ExploreType, System, Wormhole};
+use crate::generated::{Explore, ExploreType, Planet, Relic, System, Wormhole};
 use crate::ids::Seat;
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
-use crate::state::CoreState;
+use crate::query::board;
+use crate::state::{CoreState, RoundKind};
+use crate::tables::Scope;
 
 use super::explore;
 
@@ -284,6 +288,177 @@ impl Window for Reward {
         match (self.stage, pick) {
             (XStage::Asking, Pick::Opt(Opt::Explore(o))) if self.options.as_slice().contains(&o) => {
                 self.chosen = Some(o);
+                self.stage = XStage::Done;
+                Ok(())
+            }
+            _ => Err(Illegal),
+        }
+    }
+}
+
+// -- relics that ask ----------------------------------------------------------------------------------
+
+fn relic_ctx(relic: Relic, subtype: RSub) -> Ctx {
+    Ctx {
+        origin: Origin::Content(Content::Relic(relic)),
+        subtype: Subtype::Relic(subtype),
+        optional: false,
+        target: None,
+        outstanding: SmallList::new(),
+        space_battle: false,
+        invasion_seq: None,
+    }
+}
+
+fn holds(core: &CoreState, who: Seat, relic: Relic) -> bool {
+    core.players().by_seat(who).is_some_and(|p| p.cards.relics.as_slice().contains(&relic))
+}
+
+/// `relics::offer_dominus_orb`: "before you move units, you may purge this card to move out of systems that
+/// hold your own command tokens". Offered while a command token of the holder pins units of theirs outside
+/// the active system. `used` is the string function's answer (the card was purged).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DominusOrb {
+    pub who: Seat,
+    stage: XStage,
+    pub used: bool,
+}
+
+impl DominusOrb {
+    #[must_use]
+    pub const fn new(who: Seat) -> Self {
+        Self { who, stage: XStage::Start, used: false }
+    }
+
+    const ASK: Ask = Ask::Relic(RAsk::DominusOrb);
+
+    fn pinned(&self, core: &CoreState) -> bool {
+        let active = core.meta().active_system;
+        board::systems_with_token(core, self.who).iter().filter_map(System::from_index).any(|system| {
+            Some(system) != active && board::has_space_units_of(core, system, self.who)
+        })
+    }
+}
+
+impl Window for DominusOrb {
+    type Stage = XStage;
+
+    fn stage(&self) -> XStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == XStage::Start {
+            self.stage = if holds(sx.state, self.who, Relic::DominusOrb) && self.pinned(sx.state) {
+                XStage::Asking
+            } else {
+                XStage::Done
+            };
+        }
+        if self.stage == XStage::Asking { Next::Continue(Self::ASK) } else { Next::Done }
+    }
+
+    fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {
+        (self.stage == XStage::Asking).then(|| Choice {
+            actor: self.who,
+            ask: Self::ASK,
+            ctx: relic_ctx(Relic::DominusOrb, RSub::DominusOrbPurgeToMove),
+            opts: [Opt::Relic(ROpt::Purge), Opt::Decline].into_iter().collect::<Opts>(),
+        })
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        match (self.stage, pick) {
+            (XStage::Asking, Pick::Opt(Opt::Relic(ROpt::Purge))) => {
+                let activation = sx.state.meta().activation_seq;
+                if let Some(p) = sx.state.players_mut().by_seat_mut(self.who) {
+                    p.round_marks.push(RoundKind::DominusOrb, activation);
+                }
+                explore::purge_relic(sx.state, self.who, Relic::DominusOrb);
+                self.used = true;
+                self.stage = XStage::Done;
+                Ok(())
+            }
+            (XStage::Asking, Pick::Opt(Opt::Decline)) => {
+                self.stage = XStage::Done;
+                Ok(())
+            }
+            _ => Err(Illegal),
+        }
+    }
+}
+
+/// `relics::crown_of_emphidia_explore_with`, up to the choice: a ready Crown, a planet the holder controls
+/// that has a trait to explore. The answer exhausts the Crown; the exploring itself is the string caller's
+/// (`planet` is the chosen planet).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CrownExplore {
+    pub who: Seat,
+    scope: Scope,
+    stage: XStage,
+    pub planet: Option<Planet>,
+}
+
+impl CrownExplore {
+    #[must_use]
+    pub const fn new(who: Seat, scope: Scope) -> Self {
+        Self { who, scope, stage: XStage::Start, planet: None }
+    }
+
+    const ASK: Ask = Ask::Relic(RAsk::CrownOfEmphidia);
+
+    fn options(&self, core: &CoreState) -> Vec<Planet> {
+        board::controlled_planets(core, self.who)
+            .as_slice()
+            .iter()
+            .map(|(_, p)| *p)
+            .filter(|p| {
+                let d = p.data();
+                crate::tables::source_bit(d.source) & self.scope.0 != 0 && !d.traits.is_empty()
+            })
+            .collect()
+    }
+}
+
+impl Window for CrownExplore {
+    type Stage = XStage;
+
+    fn stage(&self) -> XStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == XStage::Start {
+            let ready = crate::query::relic::ready(sx.state, self.who, Relic::TheCrownOfEmphidia);
+            self.stage = if ready && !self.options(sx.state).is_empty() { XStage::Asking } else { XStage::Done };
+        }
+        if self.stage == XStage::Asking { Next::Continue(Self::ASK) } else { Next::Done }
+    }
+
+    fn ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> {
+        (self.stage == XStage::Asking).then(|| Choice {
+            actor: self.who,
+            ask: Self::ASK,
+            ctx: relic_ctx(Relic::TheCrownOfEmphidia, RSub::CrownOfEmphidiaChoosePlanet),
+            opts: self
+                .options(s)
+                .into_iter()
+                .map(|p| Opt::Relic(ROpt::Planet(p, Shown { votes: 0, system: board::system_of(s, self.scope, p) })))
+                .chain(std::iter::once(Opt::Decline))
+                .collect::<Opts>(),
+        })
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        match (self.stage, pick) {
+            (XStage::Asking, Pick::Opt(Opt::Relic(ROpt::Planet(p, _)))) if self.options(sx.state).contains(&p) => {
+                if explore::exhaust_relic(sx.state, self.who, Relic::TheCrownOfEmphidia) {
+                    self.planet = Some(p);
+                }
+                self.stage = XStage::Done;
+                Ok(())
+            }
+            (XStage::Asking, Pick::Opt(Opt::Decline)) => {
                 self.stage = XStage::Done;
                 Ok(())
             }

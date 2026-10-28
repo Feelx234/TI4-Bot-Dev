@@ -23,8 +23,9 @@ mod real {
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::{Kernel, Resolver};
     use ti4_engine_core::rules::explore as rules;
-    use ti4_engine_core::rules::explore_windows::{ChooseDeck, DistantSuns, IonStorm, Reward};
+    use ti4_engine_core::rules::explore_windows::{ChooseDeck, CrownExplore, DistantSuns, DominusOrb, IonStorm, Reward};
     use ti4_engine_core::state::{CoreState, Slice};
+    use ti4_model::content_types::SourceSet;
     use ti4_model::id::{PlanetId, PlayerId, RelicId, SystemId};
     use ti4_model::state::GameState;
 
@@ -119,11 +120,22 @@ mod real {
         lend(gs, None, |core, _| rules::place_wormhole_token(core, Wormhole::Gamma, s))
     }
 
+    /// `relics::crown_of_emphidia_point`.
+    pub fn crown_point(gs: &mut GameState, player: &PlayerId) -> Option<bool> {
+        lend(gs, Some(player), |core, who| rules::crown_point(core, seat_of(who)))
+    }
+
     // -- the windows -----------------------------------------------------------------------------------
 
     const WINDOW: Footprint = Footprint::new(
         &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Decks, Slice::Pending],
         &[Slice::Meta, Slice::Decks],
+    );
+
+    /// The relic windows read the board (command tokens, units, control) and write the seat's cards.
+    const RELIC_WINDOW: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Pending],
+        &[Slice::Players],
     );
 
     /// What a window of this file cannot follow: a question asked inside a battle or an invasion (its context
@@ -140,6 +152,7 @@ mod real {
 
     fn drive_window<W: ti4_engine_core::kernel::stage::Window + Clone, T>(
         gs: &mut GameState,
+        fp: Footprint,
         player: &PlayerId,
         window: impl FnOnce(Seat) -> W,
         script: &Recording,
@@ -154,7 +167,7 @@ mod real {
         let before = gs.clone();
         let kernel = Kernel::plain();
         let mut driver = Driver::new(window(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
-        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), WINDOW, |core, _| {
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), fp, |core, _| {
             crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, details)
         })
         .ok()?
@@ -169,14 +182,14 @@ mod real {
     pub fn choose_deck(gs: &mut GameState, player: &PlayerId, traits: &[String], script: &Recording) -> Option<CoreWindow<Option<String>>> {
         let kinds: Option<Vec<ExploreType>> = traits.iter().map(|t| explore_type(Slice::Decks, t).ok()).collect();
         let kinds = kinds?;
-        drive_window(gs, player, |s| ChooseDeck::new(s, &kinds), script, &no_details, |w| Some(w.chosen.map(explore_key)))
+        drive_window(gs, WINDOW, player, |s| ChooseDeck::new(s, &kinds), script, &no_details, |w| Some(w.chosen.map(explore_key)))
     }
 
     /// The core half of Distant Suns' pick: draws the second card, asks, the value is the card to resolve.
     pub fn distant_suns(gs: &mut GameState, player: &PlayerId, deck: &str, first: &str, script: &Recording) -> Option<CoreWindow<String>> {
         let deck = explore_type(Slice::Decks, deck).ok()?;
         let first = typed::<Explore>(first)?;
-        drive_window(gs, player, |s| DistantSuns::new(s, deck, first), script, &no_details, |w| Some(w.chosen.as_str().to_owned()))
+        drive_window(gs, WINDOW, player, |s| DistantSuns::new(s, deck, first), script, &no_details, |w| Some(w.chosen.as_str().to_owned()))
     }
 
     /// The core half of the ion storm card's question: asks the side, places the token; the value is the side.
@@ -184,12 +197,32 @@ mod real {
         let system = typed::<System>(system.as_str())?;
         drive_window(
             gs,
+            WINDOW,
             player,
             |s| IonStorm::new(s, system),
             script,
             &no_details,
             |w| w.face.map(|f| if f == Wormhole::Beta { "BETA" } else { "ALPHA" }.to_owned()),
         )
+    }
+
+    /// The core half of `relics::offer_dominus_orb` (the value: the card was purged).
+    pub fn dominus_orb(gs: &mut GameState, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
+        drive_window(gs, RELIC_WINDOW, player, DominusOrb::new, script, &no_details, |w| Some(w.used))
+    }
+
+    /// The core half of the Crown of Emphidia's choice of a planet (the value: the planet chosen and the Crown
+    /// exhausted; exploring it is the string caller's).
+    pub fn crown_explore(
+        gs: &mut GameState,
+        player: &PlayerId,
+        sources: SourceSet,
+        script: &Recording,
+    ) -> Option<CoreWindow<Option<String>>> {
+        let scope = crate::core_adapter::scope(sources);
+        drive_window(gs, RELIC_WINDOW, player, |s| CrownExplore::new(s, scope), script, &no_details, |w| {
+            Some(w.planet.map(|p| p.as_str().to_owned()))
+        })
     }
 
     /// The core half of a reward question of an instant card. `options` are the ids the string side offers, in
@@ -220,6 +253,7 @@ mod real {
         };
         drive_window(
             gs,
+            WINDOW,
             player,
             |s| Reward::new(s, step, &parsed, skip_single),
             script,
@@ -269,6 +303,20 @@ mod stub {
         None
     }
     pub fn place_gamma_token(_: &mut GameState, _: &SystemId) -> Option<()> {
+        None
+    }
+    pub fn crown_point(_: &mut GameState, _: &PlayerId) -> Option<bool> {
+        None
+    }
+    pub fn dominus_orb(_: &mut GameState, _: &PlayerId, _: &Recording) -> Option<CoreWindow<bool>> {
+        None
+    }
+    pub fn crown_explore(
+        _: &mut GameState,
+        _: &PlayerId,
+        _: ti4_model::content_types::SourceSet,
+        _: &Recording,
+    ) -> Option<CoreWindow<Option<String>>> {
         None
     }
     pub fn choose_deck(_: &mut GameState, _: &PlayerId, _: &[String], _: &Recording) -> Option<CoreWindow<Option<String>>> {

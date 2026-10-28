@@ -789,9 +789,51 @@ pub fn crown_of_emphidia_explore_with(
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
     player: &PlayerId,
 ) -> bool {
+    let content = ctx.content;
+    let sources = ctx.sources;
+    let Some(planet) = crown_of_emphidia_choose(state, ctx, galaxy, player) else {
+        return false;
+    };
+    let deck = ti4_content::galaxy::planet(content, planet.as_str(), sources)
+        .and_then(|record| record.planet_type())
+        .unwrap_or_default()
+        .to_owned();
+    crate::exploration::explore_with(state, ctx, player, &deck, Some(&planet)).is_some()
+}
+
+/// The first half of the Crown's explore: ask which planet and exhaust the Crown for it. `None`: nothing
+/// to explore, declined, or the Crown could not be exhausted. One core window
+/// (`rules::explore_windows::CrownExplore`).
+fn crown_of_emphidia_choose(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    player: &PlayerId,
+) -> Option<PlanetId> {
+    let sources = ctx.sources;
+    let chosen = crate::dual_window!(
+        crate::dual::Area::ExplorationRelics,
+        "relics::crown_of_emphidia_choose",
+        state,
+        |s: &mut GameState| crate::dual::Run::new(
+            crown_of_emphidia_choose_text(s, ctx, galaxy, player).map(|planet| planet.to_string())
+        ),
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::explore_write::crown_explore(s, player, sources, script)
+        }
+    );
+    chosen.map(PlanetId::new)
+}
+
+fn crown_of_emphidia_choose_text(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    player: &PlayerId,
+) -> Option<PlanetId> {
     let (content, sources) = (ctx.content, ctx.sources);
     if !ready(state, player, "emphidia") {
-        return false;
+        return None;
     }
     let held: Vec<PlanetId> = state
         .controlled_planets(player)
@@ -817,7 +859,7 @@ pub fn crown_of_emphidia_explore_with(
         .chain(std::iter::once(crate::choice::ChoiceOption::decline()))
         .collect();
     if options.len() == 1 {
-        return false;
+        return None;
     }
     let choice = crate::choice::Choice::new(
         player.clone(),
@@ -835,17 +877,12 @@ pub fn crown_of_emphidia_explore_with(
         .table
         .ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))
     else {
-        return false;
+        return None;
     };
     if answer.is_decline() || !exhaust(state, player, "emphidia") {
-        return false;
+        return None;
     }
-    let planet = PlanetId::new(answer.id);
-    let deck = ti4_content::galaxy::planet(content, planet.as_str(), sources)
-        .and_then(|record| record.planet_type())
-        .unwrap_or_default()
-        .to_owned();
-    crate::exploration::explore_with(state, ctx, player, &deck, Some(&planet)).is_some()
+    Some(PlanetId::new(answer.id))
 }
 
 /// The Crown of Emphidia, second half: a victory point for holding the Tomb.
@@ -856,6 +893,16 @@ pub fn crown_of_emphidia_explore_with(
 /// The Tomb is an *attachment*, not a planet -- the `toe` exploration card attaches it to whatever
 /// planet was explored -- so "control the Tomb" means controlling a planet that carries it.
 pub fn crown_of_emphidia_point(state: &mut GameState, player: &PlayerId) -> bool {
+    crate::exploration::dual_write(
+        state,
+        "relics::crown_of_emphidia_point",
+        |s| crown_of_emphidia_point_text(s, player),
+        |s| crate::explore_write::crown_point(s, player),
+    )
+}
+
+/// [`crown_of_emphidia_point`] on the string state: the oracle of the dual run.
+fn crown_of_emphidia_point_text(state: &mut GameState, player: &PlayerId) -> bool {
     if !holds(state, player, &RelicId::new("emphidia")) {
         return false;
     }
@@ -885,6 +932,25 @@ pub fn crown_of_emphidia_point(state: &mut GameState, player: &PlayerId) -> bool
 /// permission is recorded against the activation sequence rather than as a flag, so a purge in one
 /// tactical action cannot loosen the next -- the same shape as the Lost Star Chart beside it.
 pub fn offer_dominus_orb(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    table: &mut crate::choice::Table,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    player: &PlayerId,
+) -> bool {
+    crate::dual_window!(
+        crate::dual::Area::ExplorationRelics,
+        "relics::dominus_orb",
+        state,
+        |s: &mut GameState| crate::dual::Run::new(offer_dominus_orb_text(s, content, sources, table, galaxy, player)),
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::explore_write::dominus_orb(s, player, script)
+        }
+    )
+}
+
+fn offer_dominus_orb_text(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -2507,5 +2573,124 @@ mod bf_f3_tests {
             crate::supply::staged_event_types(&state),
             ["TRADE_GOODS_GAINED"]
         );
+    }
+}
+
+/// The Dominus Orb and the Crown of Emphidia beside their core windows, lockstep on `Dual`.
+#[cfg(test)]
+mod relic_window_tests {
+    use super::*;
+    use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+    use ti4_model::content_types::POK;
+    use ti4_model::id::SystemId;
+
+    fn me() -> PlayerId {
+        PlayerId::new("a")
+    }
+
+    fn seated() -> GameState {
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], POK);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        state
+    }
+
+    fn counts(label: &str) -> (u64, u64) {
+        report().windows.get(label).map_or((0, 0), |w| (w.compared, w.bailed))
+    }
+
+    fn dual<T>(body: impl FnOnce() -> T) -> T {
+        with_mask(AreaMask::STRING.with(Area::ExplorationRelics, Backend::Dual), body)
+    }
+
+    fn table(answers: &[&str]) -> crate::choice::Table {
+        crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(answers.iter().map(|a| (*a).to_owned()))))
+    }
+
+    /// A seat pinned by its own command token in a system other than the active one.
+    fn pinned() -> GameState {
+        let mut state = seated();
+        state.player_mut(&me()).unwrap().relics = vec![RelicId::new("dominusorb")];
+        let pinned = SystemId::new("26");
+        crate::fixtures::put(&mut state, &pinned, "destroyer", &me(), 1);
+        state.system_mut(&pinned).command_tokens.insert(me());
+        state.active_system = Some(SystemId::new("28"));
+        state
+    }
+
+    #[test]
+    fn the_dominus_orb_offer_runs_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let content = ti4_content::ContentStore::embedded();
+        dual(|| {
+            for (answer, purged) in [("purge", true), (crate::choice::DECLINE_ID, false)] {
+                let mut state = pinned();
+                let mut table = table(&[answer]);
+                assert_eq!(offer_dominus_orb(&mut state, content, POK, &mut table, None, &me()), purged);
+                assert_eq!(holds(&state, &me(), &RelicId::new("dominusorb")), !purged);
+                assert_eq!(state.player(&me()).unwrap().dominus_orb.len(), usize::from(purged));
+            }
+            // Nothing pinned, nothing offered; a seat without the card is not asked either.
+            let mut state = pinned();
+            state.active_system = Some(SystemId::new("26"));
+            assert!(!offer_dominus_orb(&mut state, content, POK, &mut table(&[]), None, &me()));
+            let mut state = pinned();
+            state.player_mut(&me()).unwrap().relics.clear();
+            assert!(!offer_dominus_orb(&mut state, content, POK, &mut table(&[]), None, &me()));
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(counts("relics::dominus_orb").0 >= 4, "{r:?}");
+        let _ = take_report();
+    }
+
+    fn crown_holder() -> GameState {
+        let mut state = seated();
+        state.player_mut(&me()).unwrap().relics = vec![RelicId::new("emphidia")];
+        for (system, planet) in [("26", "lodor"), ("28", "torkan")] {
+            state.system_mut(&SystemId::new(system)).set_control(ti4_model::id::PlanetId::new(planet), me());
+        }
+        for deck in ["CULTURAL", "HAZARDOUS", "INDUSTRIAL"] {
+            state.exploration_decks.insert(deck.to_owned(), vec!["minent".to_owned()]);
+        }
+        state
+    }
+
+    #[test]
+    fn the_crown_of_emphidia_runs_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let content = ti4_content::ContentStore::embedded();
+        dual(|| {
+            // Exploring a chosen planet exhausts the Crown; declining leaves it ready; a spent Crown is not asked.
+            let mut state = crown_holder();
+            assert!(crown_of_emphidia_explore(&mut state, content, POK, &mut table(&["lodor"]), None, &me()));
+            assert!(!ready(&state, &me(), "emphidia"));
+            assert!(!crown_of_emphidia_explore(&mut state, content, POK, &mut table(&["torkan"]), None, &me()));
+            let mut state = crown_holder();
+            assert!(!crown_of_emphidia_explore(&mut state, content, POK, &mut table(&[crate::choice::DECLINE_ID]), None, &me()));
+            assert!(ready(&state, &me(), "emphidia"));
+
+            // The point: the Tomb on a controlled planet, then not again.
+            let mut state = crown_holder();
+            assert!(!crown_of_emphidia_point(&mut state, &me()), "no Tomb");
+            state.planet_attachments.insert(ti4_model::id::PlanetId::new("lodor"), vec!["tombofemphidia".to_owned()]);
+            let before = state.player(&me()).unwrap().victory_points;
+            assert!(crown_of_emphidia_point(&mut state, &me()));
+            assert_eq!(state.player(&me()).unwrap().victory_points, before + 1);
+            assert!(!holds(&state, &me(), &RelicId::new("emphidia")));
+            assert!(!crown_of_emphidia_point(&mut state, &me()), "purged");
+            // At the target the point is capped (the ledger row says 0).
+            let mut state = crown_holder();
+            state.planet_attachments.insert(ti4_model::id::PlanetId::new("lodor"), vec!["tombofemphidia".to_owned()]);
+            state.player_mut(&me()).unwrap().victory_points = 10;
+            assert!(crown_of_emphidia_point(&mut state, &me()));
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(counts("relics::crown_of_emphidia_choose").0 >= 2, "{r:?}");
+        assert!(r.total_calls() >= 6, "{r:?}");
+        let _ = take_report();
     }
 }

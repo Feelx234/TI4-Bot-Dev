@@ -133,3 +133,26 @@ pub fn place_wormhole_token(core: &mut CoreState, kind: Wormhole, system: System
 pub fn place_ion_storm(core: &mut CoreState, system: System, face: Wormhole) {
     core.meta_mut().ion_storm = Some((system, face));
 }
+
+/// `relics::crown_of_emphidia_point`: a held Crown with the Tomb of Emphidia on a planet the seat controls is
+/// purged for 1 victory point (capped at the target; the ledger row carries the applied amount, 0 included).
+pub fn crown_point(core: &mut CoreState, who: Seat) -> bool {
+    let crown = Relic::TheCrownOfEmphidia;
+    if !core.players().by_seat(who).is_some_and(|p| p.cards.relics.as_slice().contains(&crown)) {
+        return false;
+    }
+    let has_tomb = crate::query::board::controlled_planets(core, who)
+        .as_slice()
+        .iter()
+        .any(|(_, planet)| core.board().planet(*planet).attach.as_slice().contains(&Attachment::TombOfEmphidia));
+    if !has_tomb {
+        return false;
+    }
+    purge_relic(core, who, crown);
+    let Some(p) = core.players_mut().by_seat_mut(who) else { return true };
+    let before = i32::from(p.econ.victory_points);
+    let after = (before + 1).min(VICTORY_TARGET);
+    p.econ.victory_points = i16::try_from(after).unwrap_or(0);
+    core.ledger_mut().vp.push(VpRec { player: who, delta: after - before, reason: LedgerReason::Relic(crown) });
+    true
+}
