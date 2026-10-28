@@ -79,6 +79,18 @@ const FRACTURE_BACK: &str = "fracture";
 /// Every Fracture system, in corpus order.
 #[must_use]
 pub fn systems(content: &ContentStore, sources: SourceSet) -> Vec<SystemId> {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "fracture::systems",
+        crate::explore_core::fracture_systems(content, sources),
+        systems_text(content, sources)
+    )
+}
+
+/// [`systems`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn systems_text(content: &ContentStore, sources: SourceSet) -> Vec<SystemId> {
     content
         .from_sources(ContentType::Systems, sources)
         .filter(|record| record.text("tileBack") == Some(FRACTURE_BACK))
@@ -89,6 +101,18 @@ pub fn systems(content: &ContentStore, sources: SourceSet) -> Vec<SystemId> {
 /// Whether a system belongs to the Fracture rather than the regular map.
 #[must_use]
 pub fn is_fracture_system(content: &ContentStore, sources: SourceSet, system: &SystemId) -> bool {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "fracture::is_fracture_system",
+        crate::explore_core::is_fracture_system(content, sources, system),
+        is_fracture_system_text(content, sources, system)
+    )
+}
+
+/// [`is_fracture_system`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn is_fracture_system_text(content: &ContentStore, sources: SourceSet, system: &SystemId) -> bool {
     ti4_content::galaxy::system(content, system.as_str(), sources)
         .is_some_and(|tile| tile.record().text("tileBack") == Some(FRACTURE_BACK))
 }
@@ -99,6 +123,18 @@ pub fn is_fracture_system(content: &ContentStore, sources: SourceSet, system: &S
 /// named "Fracture Egress Left" and "Fracture Egress Right". There is no separate flag to read.
 #[must_use]
 pub fn egress_systems(content: &ContentStore, sources: SourceSet) -> Vec<SystemId> {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "fracture::egress_systems",
+        crate::explore_core::egress_systems(content, sources),
+        egress_systems_text(content, sources)
+    )
+}
+
+/// [`egress_systems`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn egress_systems_text(content: &ContentStore, sources: SourceSet) -> Vec<SystemId> {
     content
         .from_sources(ContentType::Systems, sources)
         .filter(|record| record.text("tileBack") == Some(FRACTURE_BACK))

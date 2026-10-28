@@ -39,6 +39,8 @@ string-objectives = []
 string-factions = []
 # The same off switch for the trade area (`trade_core`; package B4).
 string-trade = []
+# The same off switch for the exploration / relics / promissory area (`explore_core`; package B5).
+string-exploration = []
 
 [dev-dependencies]
 strum.workspace = true

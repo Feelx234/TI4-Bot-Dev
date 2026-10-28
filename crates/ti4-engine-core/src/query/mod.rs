@@ -11,6 +11,8 @@
 //! * [`laws`]: laws in play and the standing rules they impose.
 //! * [`tech`]: technology (package A3): printed data, owned/researchable, prerequisites, synergy, unit forms.
 //! * [`trade`]: neighbours, who may transact, what a deal may be paid with and why it is not legal (B4).
+//! * [`relic`], [`promissory`], [`explore`] (package B5): relics held, notes in hand and play areas,
+//!   exploration traits, fragments, legendary abilities and the Fracture.
 //!
 //! **What the core cannot see** is passed in by the caller, never guessed: the source scope
 //! ([`Scope`], the game's `SourceSet`), the "all laws are blank this turn" flag (`blanked`: a
@@ -21,9 +23,12 @@
 pub mod board;
 pub mod economy;
 pub mod fleet;
+pub mod explore;
 pub mod laws;
 pub mod objectives;
 pub mod reach;
+pub mod promissory;
+pub mod relic;
 pub mod seats;
 pub mod tech;
 pub mod trade;

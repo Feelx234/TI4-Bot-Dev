@@ -89,6 +89,18 @@ pub fn action_aliases() -> Vec<&'static str> {
 /// "held and worth three".
 #[must_use]
 pub fn triad_value(state: &GameState, player: &PlayerId) -> Option<i64> {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "relics::triad_value",
+        crate::cards_typed!(state, v => v.triad_value(player)),
+        triad_value_text(state, player)
+    )
+}
+
+/// [`triad_value`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn triad_value_text(state: &GameState, player: &PlayerId) -> Option<i64> {
     if !holds(state, player, &RelicId::new("thetriad")) {
         return None;
     }
@@ -108,6 +120,18 @@ pub fn triad_value(state: &GameState, player: &PlayerId) -> Option<i64> {
 /// round. Recorded where it is returned rather than left to be discovered.
 #[must_use]
 pub fn substitutes_strategy_token(state: &GameState, player: &PlayerId) -> bool {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "relics::substitutes_strategy_token",
+        crate::cards_typed!(state, v => v.substitutes_strategy_token(player)),
+        substitutes_strategy_token_text(state, player)
+    )
+}
+
+/// [`substitutes_strategy_token`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn substitutes_strategy_token_text(state: &GameState, player: &PlayerId) -> bool {
     holds(state, player, &RelicId::new("emelpar"))
 }
 
@@ -119,16 +143,19 @@ pub fn substitutes_strategy_token(state: &GameState, player: &PlayerId) -> bool 
 /// a dreadnought already sustains, and this must not give it a second one.
 #[must_use]
 pub fn grants_sustain(state: &GameState, player: &PlayerId) -> bool {
-    #[cfg(feature = "typed-core")]
-    let typed = || crate::board_view::BoardView::light(state).and_then(|v| v.relic_grants_sustain(player));
-    #[cfg(not(feature = "typed-core"))]
-    let typed = || None;
     crate::dual_typed!(
-        crate::dual::Area::Combat,
+        crate::dual::Area::ExplorationRelics,
         "relics::grants_sustain",
-        typed(),
-        holds(state, player, &RelicId::new("metalivoidshielding"))
+        crate::cards_typed!(state, v => v.grants_sustain(player)),
+        grants_sustain_text(state, player)
     )
+}
+
+/// [`grants_sustain`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn grants_sustain_text(state: &GameState, player: &PlayerId) -> bool {
+    holds(state, player, &RelicId::new("metalivoidshielding"))
 }
 
 /// Metali Void Armaments: ANTI-FIGHTER BARRAGE 6 (x3) during the barrage step.
@@ -137,12 +164,36 @@ pub fn grants_sustain(state: &GameState, player: &PlayerId) -> bool {
 /// (x3) against your opponent's units", so it fires once for its holder rather than once per ship.
 #[must_use]
 pub fn extra_barrage(state: &GameState, player: &PlayerId) -> Option<(u32, usize)> {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "relics::extra_barrage",
+        crate::cards_typed!(state, v => v.extra_barrage(player)),
+        extra_barrage_text(state, player)
+    )
+}
+
+/// [`extra_barrage`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn extra_barrage_text(state: &GameState, player: &PlayerId) -> Option<(u32, usize)> {
     holds(state, player, &RelicId::new("metalivoidarmaments")).then_some((6, 3))
 }
 
 /// Lightrail Ordnance: space docks gain SPACE CANNON 5 (x2).
 #[must_use]
 pub fn space_dock_cannon(state: &GameState, player: &PlayerId) -> Option<(i64, i64)> {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "relics::space_dock_cannon",
+        crate::cards_typed!(state, v => v.space_dock_cannon(player)),
+        space_dock_cannon_text(state, player)
+    )
+}
+
+/// [`space_dock_cannon`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn space_dock_cannon_text(state: &GameState, player: &PlayerId) -> Option<(i64, i64)> {
     holds(state, player, &RelicId::new("lightrailordnance")).then_some((5, 2))
 }
 
@@ -153,6 +204,18 @@ pub fn space_dock_cannon(state: &GameState, player: &PlayerId) -> Option<(i64, i
 /// three are the same sentence and the requirement is only checked once.
 #[must_use]
 pub fn prerequisite_waivers(state: &GameState, player: &PlayerId) -> usize {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "relics::prerequisite_waivers",
+        crate::cards_typed!(state, v => v.prerequisite_waivers(player)),
+        prerequisite_waivers_text(state, player)
+    )
+}
+
+/// [`prerequisite_waivers`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn prerequisite_waivers_text(state: &GameState, player: &PlayerId) -> usize {
     let relic = RelicId::new("prophetstears");
     if !holds(state, player, &relic) {
         return 0;
@@ -167,6 +230,18 @@ pub fn prerequisite_waivers(state: &GameState, player: &PlayerId) -> usize {
 /// The Obsidian: one extra secret objective, scored or unscored.
 #[must_use]
 pub fn secret_objective_bonus(state: &GameState, player: &PlayerId) -> usize {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "relics::secret_objective_bonus",
+        crate::cards_typed!(state, v => v.secret_objective_bonus(player)),
+        secret_objective_bonus_text(state, player)
+    )
+}
+
+/// [`secret_objective_bonus`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn secret_objective_bonus_text(state: &GameState, player: &PlayerId) -> usize {
     usize::from(holds(state, player, &RelicId::new("obsidian")))
 }
 
@@ -647,6 +722,18 @@ pub fn exhaust(state: &mut GameState, player: &PlayerId, relic: &str) -> bool {
 /// Whether a held relic is ready to be exhausted.
 #[must_use]
 pub fn ready(state: &GameState, player: &PlayerId, relic: &str) -> bool {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "relics::ready",
+        crate::cards_typed!(state, v => v.ready(player, relic)),
+        ready_text(state, player, relic)
+    )
+}
+
+/// [`ready`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn ready_text(state: &GameState, player: &PlayerId, relic: &str) -> bool {
     let id = RelicId::new(relic);
     holds(state, player, &id)
         && state
@@ -937,6 +1024,18 @@ pub fn neuraloop(
 /// Whether a player holds a relic.
 #[must_use]
 pub fn holds(state: &GameState, player: &PlayerId, relic: &RelicId) -> bool {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "relics::holds",
+        crate::cards_typed!(state, v => v.holds(player, relic)),
+        holds_text(state, player, relic)
+    )
+}
+
+/// [`holds`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn holds_text(state: &GameState, player: &PlayerId, relic: &RelicId) -> bool {
     state
         .player(player)
         .is_some_and(|seat| seat.relics.contains(relic))
@@ -948,6 +1047,18 @@ pub fn holds(state: &GameState, player: &PlayerId, relic: &RelicId) -> bool {
 /// and forgotten in another — the mistake Nav Suite nearly made in `transit`.
 #[must_use]
 pub fn ignores_gravity_rifts(state: &GameState, player: &PlayerId) -> bool {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "relics::ignores_gravity_rifts",
+        crate::cards_typed!(state, v => v.ignores_gravity_rifts(player)),
+        ignores_gravity_rifts_text(state, player)
+    )
+}
+
+/// [`ignores_gravity_rifts`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn ignores_gravity_rifts_text(state: &GameState, player: &PlayerId) -> bool {
     holds(state, player, &RelicId::new(CIRCLET))
 }
 
