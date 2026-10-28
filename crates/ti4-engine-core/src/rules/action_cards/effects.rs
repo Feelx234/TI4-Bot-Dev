@@ -70,6 +70,12 @@ pub enum Fx {
     Industrial,
     /// In The Silence Of Space: the holder's ships in a chosen system ignore blockades.
     Silence,
+    /// Rise of a Messiah: 1 infantry on each planet the holder controls (no question).
+    Messiah,
+    /// Frontline Deployment: 3 infantry on a planet the holder controls.
+    Frontline,
+    /// War Effort: 1 cruiser in a system with the holder's ships.
+    WarEffort,
     /// Tactical Bombardment: the planets of rivals in a chosen system exhaust.
     Bombard,
     /// Diplomatic Pressure: a chosen seat gives the holder a promissory note of its choice.
@@ -109,6 +115,9 @@ impl Fx {
             C::IndustrialInitiative => Self::Industrial,
             C::InTheSilenceOfSpace => Self::Silence,
             C::TacticalBombardment => Self::Bombard,
+            C::RiseOfAMessiah => Self::Messiah,
+            C::FrontlineDeployment => Self::Frontline,
+            C::WarEffort => Self::WarEffort,
             C::DiplomaticPressure1 | C::DiplomaticPressure2 | C::DiplomaticPressure3 | C::DiplomaticPressure4 => Self::Pressure,
             _ => return None,
         })
@@ -197,7 +206,8 @@ impl Play {
             Fx::Bombard => What::Bombard,
             Fx::Pressure if self.victim.is_some() => What::Note,
             Fx::Pressure => What::Player,
-            Fx::Mining | Fx::Uprising | Fx::Cripple | Fx::Meltdown => What::Planet,
+            Fx::Mining | Fx::Uprising | Fx::Cripple | Fx::Meltdown | Fx::Frontline => What::Planet,
+            Fx::WarEffort => What::Deploy,
             _ => return None,
         })
     }
@@ -250,7 +260,13 @@ impl Play {
                 held.as_mut_slice().sort_unstable();
                 held.as_slice().iter().map(|s| Opt::System(*s)).collect()
             }
-            Fx::Mining => board::controlled_planets(core, who).as_slice().iter().map(|(s, p)| Opt::Spot(*s, *p)).collect(),
+            Fx::WarEffort => {
+                let mut held: SmallList<System, 16> =
+                    board::systems_with_units_of(core, who).iter().filter_map(|i| System::ALL.get(i).copied()).collect();
+                held.as_mut_slice().sort_unstable();
+                held.as_slice().iter().map(|s| Opt::System(*s)).collect()
+            }
+            Fx::Mining | Fx::Frontline => board::controlled_planets(core, who).as_slice().iter().map(|(s, p)| Opt::Spot(*s, *p)).collect(),
             Fx::Uprising => planets_where(core, |system, _, cell| {
                 cell.control.is_some_and(|owner| owner != who) && !is_home_system(self.env.scope, system)
             })
@@ -271,6 +287,15 @@ impl Play {
             .map(|(s, p)| Opt::Spot(*s, *p))
             .collect(),
             _ => SmallList::new(),
+        }
+    }
+
+    /// `action_cards::place_units`: up to `count` of the unit, as many as the supply still holds.
+    fn place(&self, core: &mut CoreState, placed: super::Placed, system: System, planet: Option<Planet>, count: usize) {
+        let Some(unit) = placed.unit else { return };
+        let left = crate::query::fleet::remaining(core, self.env.scope, self.who, unit, placed.on_card);
+        for _ in 0..usize::try_from(left).unwrap_or(0).min(count) {
+            fx::place_unit(core, self.who, system, planet, unit);
         }
     }
 
@@ -296,6 +321,11 @@ impl Play {
                     && let Some(p) = core.players_mut().by_seat_mut(target)
                 {
                     p.econ.duress_by = Some(self.who);
+                }
+            }
+            Fx::Messiah => {
+                for (system, planet) in board::controlled_planets(core, self.who).as_slice() {
+                    self.place(core, self.env.infantry, *system, Some(*planet), 1);
                 }
             }
             Fx::Veto => {
@@ -366,6 +396,8 @@ impl Play {
             (Fx::Recall, Opt::System(system)) => {
                 core.board_mut().sys_mut(system).cmd.remove(who);
             }
+            (Fx::Frontline, Opt::Spot(system, planet)) => self.place(core, self.env.infantry, system, Some(planet), 3),
+            (Fx::WarEffort, Opt::System(system)) => self.place(core, self.env.cruiser, system, None, 1),
             (Fx::Bombard, Opt::System(system)) => {
                 let hit: SmallList<Planet, 8> =
                     board::planets_of(core, system).filter(|p| board::control(core, *p).is_some_and(|owner| owner != who)).collect();
@@ -536,6 +568,7 @@ mod tests {
             (C::Summit, "the pool question has previews and details of the tokens area"),
             (C::SkilledRetreat1, "destinations and previews"),
             (C::LuckyShot, "the per-unit details of the options"),
+            (C::GhostShip, "the game's map and the wormhole systems"),
             (C::CourageousToTheEnd, "dice and a casualty choice"),
             (C::Strategize1, "performs another area's ability"),
             (C::Bribery, "the trade-good payment"),

@@ -298,6 +298,19 @@ pub enum Simple {
     Disable,
 }
 
+/// A unit an effect places from the reinforcements: the form the seat places (its upgrades and faction overrides
+/// are the string side's answer), `None` when it places nothing, and the ships of that type on the Crimson hero
+/// card (counted against the supply).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Placed {
+    pub unit: Option<Unit>,
+    pub on_card: i64,
+}
+
+impl Placed {
+    pub const NONE: Self = Self { unit: None, on_card: 0 };
+}
+
 /// What a [`Simple`] effect reads from outside the core (faction and source answers).
 #[derive(Debug, Clone, Copy)]
 pub struct Env {
@@ -313,6 +326,10 @@ pub struct Env {
     pub supply_base: crate::state::Code,
     /// The state's text of a promissory note (the string orders a hand by it; the core has no id text).
     pub note_text: fn(crate::state::NoteKey) -> String,
+    /// The infantry the seat places (Rise of a Messiah, Frontline Deployment).
+    pub infantry: Placed,
+    /// The cruiser the seat places (War Effort).
+    pub cruiser: Placed,
 }
 
 impl Simple {

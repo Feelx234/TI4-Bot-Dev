@@ -240,6 +240,8 @@ fn env_of(state: &GameState, player: &PlayerId, sources: &ti4_model::content_typ
         action_card: r.code("action_card"),
         supply_base: r.code("forward_supply_base"),
         note_text: crate::render::cards::note_text,
+        infantry: rules::Placed::NONE,
+        cruiser: rules::Placed::NONE,
     }
 }
 
@@ -270,7 +272,9 @@ pub fn play_window(
     let card = ActionCard::from_id(alias.as_str())?;
     let (mut cx, r) = crate::dual_window::tables(gs)?;
     let seat = r.seat(player.as_str())?;
-    let env = env_of(gs, player, sources, &r);
+    let mut env = env_of(gs, player, sources, &r);
+    env.infantry = placed(gs, player, sources, "infantry")?;
+    env.cruiser = placed(gs, player, sources, "cruiser")?;
     let before = gs.clone();
     let kernel = Kernel::plain();
     let mut staged = Vec::new();
@@ -299,4 +303,20 @@ pub fn discard(state: &mut GameState, player: &PlayerId, index: usize) -> Option
     let fp = crate::core_sync::Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players], &[Slice::Players]);
     let taken = crate::core_sync::with_core(state, &mut cx, Sources::default(), fp, |core, _| rules::discard_from_hand(core, seat, index)).ok()?;
     Some(taken.map(|card| ActionCardId::new(card.as_str())))
+}
+
+/// What `action_cards::place_units` would place of a base type for `player`: the unit form (upgrades, faction
+/// overrides), nothing when the faction forbids effect placement, and the ships on the Crimson card. `None`
+/// when the form is not a unit the core knows.
+fn placed(state: &GameState, player: &PlayerId, sources: &ti4_model::content_types::SourceSet, base: &str) -> Option<rules::Placed> {
+    use ti4_engine_core::generated::Unit;
+    let content = ti4_content::ContentStore::embedded();
+    let on_card = crate::factions::crimson_cards::held_on_card(state, content, sources.clone(), player, base);
+    let Some(id) = crate::action_cards::placed_unit_id(state, content, sources.clone(), player, base) else {
+        return Some(rules::Placed { unit: None, on_card });
+    };
+    if crate::factions::hooks_economy::effect_placement_forbidden(state, content, sources.clone(), player, &id) {
+        return Some(rules::Placed { unit: None, on_card });
+    }
+    Some(rules::Placed { unit: Some(Unit::from_id(id.as_str())?), on_card })
 }

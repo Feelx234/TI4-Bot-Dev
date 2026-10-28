@@ -23,6 +23,8 @@ pub enum What {
     Recall,
     /// kind `system`: a system to bombard (Tactical Bombardment).
     Bombard,
+    /// kind `system`: a system a cruiser is placed in (War Effort).
+    Deploy,
     /// kind `silence`: a system holding the asked seat's ships (In The Silence Of Space).
     Silence,
     /// kind `promissory note`: a note of the asked seat's hand (Diplomatic Pressure).

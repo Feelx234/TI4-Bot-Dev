@@ -1,5 +1,4 @@
 use crate::containers::Opt32;
-use crate::generated::System;
 
 /// `Player.extra_votes_agenda`: the agenda sequence and the votes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
