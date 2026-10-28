@@ -70,6 +70,8 @@ pub enum Fx {
     Industrial,
     /// In The Silence Of Space: the holder's ships in a chosen system ignore blockades.
     Silence,
+    /// Tactical Bombardment: the planets of rivals in a chosen system exhaust.
+    Bombard,
     /// Diplomatic Pressure: a chosen seat gives the holder a promissory note of its choice.
     Pressure,
 }
@@ -106,6 +108,7 @@ impl Fx {
             C::Veto | C::Veto3 | C::Veto4 => Self::Veto,
             C::IndustrialInitiative => Self::Industrial,
             C::InTheSilenceOfSpace => Self::Silence,
+            C::TacticalBombardment => Self::Bombard,
             C::DiplomaticPressure1 | C::DiplomaticPressure2 | C::DiplomaticPressure3 | C::DiplomaticPressure4 => Self::Pressure,
             _ => return None,
         })
@@ -191,6 +194,7 @@ impl Play {
             Fx::Confusing => What::Elect,
             Fx::Recall => What::Recall,
             Fx::Silence => What::Silence,
+            Fx::Bombard => What::Bombard,
             Fx::Pressure if self.victim.is_some() => What::Note,
             Fx::Pressure => What::Player,
             Fx::Mining | Fx::Uprising | Fx::Cripple | Fx::Meltdown => What::Planet,
@@ -225,6 +229,18 @@ impl Play {
             Fx::Recall => {
                 let mut held: SmallList<System, 16> =
                     board::systems_with_token(core, who).iter().filter_map(|i| System::ALL.get(i).copied()).collect();
+                held.as_mut_slice().sort_unstable();
+                held.as_slice().iter().map(|s| Opt::System(*s)).collect()
+            }
+            Fx::Bombard => {
+                let mut held: SmallList<System, 16> = System::ALL
+                    .iter()
+                    .copied()
+                    .filter(|s| {
+                        board::has_space_units_of(core, *s, who)
+                            && board::planets_of(core, *s).any(|p| board::control(core, p).is_some_and(|owner| owner != who))
+                    })
+                    .collect();
                 held.as_mut_slice().sort_unstable();
                 held.as_slice().iter().map(|s| Opt::System(*s)).collect()
             }
@@ -349,6 +365,13 @@ impl Play {
             }
             (Fx::Recall, Opt::System(system)) => {
                 core.board_mut().sys_mut(system).cmd.remove(who);
+            }
+            (Fx::Bombard, Opt::System(system)) => {
+                let hit: SmallList<Planet, 8> =
+                    board::planets_of(core, system).filter(|p| board::control(core, *p).is_some_and(|owner| owner != who)).collect();
+                for planet in hit.as_slice() {
+                    fx::exhaust_planet(core, *planet);
+                }
             }
             (Fx::Silence, Opt::System(system)) => {
                 let activation = core.meta().activation_seq;
@@ -512,6 +535,7 @@ mod tests {
             (C::PirateContract1, "the neutral destroyer has no seat"),
             (C::Summit, "the pool question has previews and details of the tokens area"),
             (C::SkilledRetreat1, "destinations and previews"),
+            (C::LuckyShot, "the per-unit details of the options"),
             (C::CourageousToTheEnd, "dice and a casualty choice"),
             (C::Strategize1, "performs another area's ability"),
             (C::Bribery, "the trade-good payment"),

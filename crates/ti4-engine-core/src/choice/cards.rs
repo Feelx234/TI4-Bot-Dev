@@ -21,6 +21,8 @@ pub enum What {
     Elect,
     /// kind `recall`: a system holding the asked seat's command token.
     Recall,
+    /// kind `system`: a system to bombard (Tactical Bombardment).
+    Bombard,
     /// kind `silence`: a system holding the asked seat's ships (In The Silence Of Space).
     Silence,
     /// kind `promissory note`: a note of the asked seat's hand (Diplomatic Pressure).

@@ -68,6 +68,7 @@ impl Family for Fam {
                 let id = system.as_str();
                 match pick_of(a).1 {
                     What::Silence => ChoiceOption::labelled(id, "silence", format!("ships in {id} may pass blockades")),
+                    What::Bombard => ChoiceOption::labelled(id, "system", format!("bombard {id}")),
                     _ => ChoiceOption::labelled(id, "recall", format!("recall your token from {id}")),
                 }
             }
@@ -93,7 +94,7 @@ impl Family for Fam {
         match a {
             Ask::OwnHand { .. } => ActionCard::from_id(id).map(Opt::Card),
             Ask::Pick { what: What::Player | What::Elect, .. } => r.seat(id).map(Opt::Seat),
-            Ask::Pick { what: What::Recall | What::Silence, .. } => System::from_id(id).map(Opt::System),
+            Ask::Pick { what: What::Recall | What::Silence | What::Bombard, .. } => System::from_id(id).map(Opt::System),
             Ask::Pick { what: What::Planet, .. } => {
                 let (system, planet) = id.split_once('|')?;
                 Some(Opt::Spot(System::from_id(system)?, Planet::from_id(planet)?))
@@ -110,6 +111,7 @@ const fn pick_kind(what: What) -> &'static str {
         What::Player => "player",
         What::Elect => "elect",
         What::Recall => "recall",
+        What::Bombard => "system",
         What::Silence => "silence",
         What::Note => "promissory note",
         What::Planet => "planet",
@@ -135,6 +137,7 @@ const fn pick_prompt(card: ActionCard, what: What) -> &'static str {
         (C::ConfusingLegalText, _) => "Confusing Legal Text: who is the elected player instead",
         (C::UnexpectedAction, _) => "Unexpected Action: recall your token from where",
         (C::MiningInitiative, _) => "Mining Initiative: mine which planet",
+        (C::TacticalBombardment, _) => "Tactical Bombardment: which system",
         (C::InTheSilenceOfSpace, _) => "In The Silence Of Space: whose ships ignore blockades",
         (C::DiplomaticPressure1 | C::DiplomaticPressure2 | C::DiplomaticPressure3 | C::DiplomaticPressure4, What::Note) => {
             "Diplomatic Pressure: which note do you give"

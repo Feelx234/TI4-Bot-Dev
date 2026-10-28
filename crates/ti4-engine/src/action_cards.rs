@@ -1042,6 +1042,23 @@ thread_local! {
     static ACTIVE_ACTION_CARD: std::cell::RefCell<Option<ActionCardId>> = const { std::cell::RefCell::new(None) };
 }
 
+thread_local! {
+    /// Per thread: the plays the dual ran on the core window, and those it had to leave to the string. (The
+    /// shared dual report is taken by parallel tests from each other, so tests count here.)
+    static CORE_PLAYS: std::cell::Cell<(u32, u32)> = const { std::cell::Cell::new((0, 0)) };
+}
+
+/// `(on the core, bailed)` plays of this thread since [`reset_core_plays`].
+#[cfg(test)]
+fn core_plays() -> (u32, u32) {
+    CORE_PLAYS.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+fn reset_core_plays() {
+    CORE_PLAYS.with(|c| c.set((0, 0)));
+}
+
 /// Play the registered effect of a card: on the string side, or in lockstep with the core's window when the
 /// area is on `dual` and the core has one for the card (`rules::action_cards::effects`).
 pub(crate) fn play_effect(
@@ -1076,7 +1093,12 @@ pub(crate) fn play_effect(
                 crate::dual::Run::new(())
             },
             |s: &mut GameState, script: &crate::dual_window::Recording| {
-                crate::action_cards_typed::play_window(s, player, alias, &sources, script)
+                let window = crate::action_cards_typed::play_window(s, player, alias, &sources, script);
+                CORE_PLAYS.with(|c| {
+                    let (ran, bailed) = c.get();
+                    c.set(if window.is_some() { (ran + 1, bailed) } else { (ran, bailed + 1) });
+                });
+                window
             }
         );
     });
@@ -8230,6 +8252,7 @@ mod tests {
         }
         state.system_mut(&ti4_model::id::SystemId::new("33")).units.push(unit("cruiser", &a));
         state.system_mut(&ti4_model::id::SystemId::new("35")).units.push(unit("destroyer", &a));
+        state.system_mut(&ti4_model::id::SystemId::new("34")).units.push(unit("cruiser", &a));
         state
     }
 
@@ -8244,8 +8267,10 @@ mod tests {
             "politic_rider", "tech_rider", "trade_rider", "war_rider", "sanction", "puppetsonastring", "extremeduress",
             "counterstroke", "unexpected", "mining_initiative", "uprising", "cripple", "meltdown", "veto", "veto3", "veto4",
             "industrial_initiative", "silence_space", "dp1", "dp2", "dp3", "dp4",
+            "tactical",
         ];
         let _ = crate::dual::take_report();
+        reset_core_plays();
         for alias in cases {
             let mut state = question_position();
             let before = state.clone();
@@ -8257,8 +8282,7 @@ mod tests {
         let report = crate::dual::take_report();
         let shown: String = format!("{:?}", report.differences).chars().take(1200).collect();
         assert!(report.differences.is_empty(), "{} differences: {shown}", report.differences.len());
-        let window = report.windows.get("action_cards::play").expect("the window ran");
-        assert_eq!((window.compared, window.bailed), (cases.len() as u64, 0), "every case ran on the core");
+        assert_eq!(core_plays(), (cases.len() as u32, 0), "every case ran on the core");
     }
 
     #[test]
