@@ -12,6 +12,7 @@
 //!   repealed): `Done::Deferred`, as the string effect defers what needs a question.
 //! * Judicial Abolishment (the elected law leaves play), New Constitution (every law, on For), Mutiny (a point
 //!   for or against each For voter), Holy Planet of Ixth (the controller of the elected planet gains a point).
+//! * Nexus Sovereignty: Against puts a gamma wormhole token into Mecatol Rex (For is a standing rule).
 //! * A law leaving play (`laws::repeal`): the law is removed; Political Censure's holder loses its point.
 //!
 //! Not ported, so the adapter runs the string effect alone (documented bails of the dual): every other agenda
@@ -19,12 +20,12 @@
 
 use crate::choice::{Choice, Pick};
 use crate::containers::SmallList;
-use crate::generated::{Agenda, Planet, SecretObjective};
+use crate::generated::{Agenda, Planet, SecretObjective, System, Wormhole};
 use crate::ids::Seat;
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
 use crate::keys::{LedgerReason, Outcome};
-use crate::state::{CoreState, ObjectiveRef, VpRec};
+use crate::state::{CoreState, ObjectiveRef, SysFlags, VpRec};
 
 /// `objectives::VICTORY_TARGET`.
 pub const VICTORY_TARGET: i32 = 10;
@@ -44,6 +45,8 @@ pub enum Kind {
     Voters(Agenda, i32, SmallList<Seat, 8>),
     /// Holy Planet of Ixth: whoever controls the planet gains a point.
     Controller(Agenda, Planet),
+    /// Nexus Sovereignty, Against: a gamma wormhole token in the Mecatol Rex system of the map.
+    Gamma,
     /// The card does nothing when it passes.
     Nothing,
 }
@@ -91,6 +94,8 @@ impl Resolve {
             (A::Mutiny, Outcome::For | Outcome::Against) => {
                 Kind::Voters(agenda, if outcome == Outcome::For { 1 } else { -1 }, SmallList::from_slice(for_voters))
             }
+            (A::NexusSovereignty, Outcome::Against) => Kind::Gamma,
+            (A::NexusSovereignty, Outcome::For) => Kind::Nothing,
             (A::HolyPlanetOfIxth, Outcome::Planet(p)) => Kind::Controller(agenda, p),
             (A::AntiIntellectualRevolution | A::RepresentativeGovernmentBaseGame, Outcome::For) => Kind::Nothing,
             (A::AntiIntellectualRevolution | A::RepresentativeGovernmentBaseGame, Outcome::Against) => {
@@ -196,6 +201,12 @@ impl Window for Resolve {
                     if let Some(owner) = crate::query::board::control(sx.state, *planet) {
                         Self::point(sx.state, *agenda, owner, 1);
                     }
+                }
+                Kind::Gamma => {
+                    // `seating::mecatol_on`: the Thunder's Edge tile when the map has it, else the base one.
+                    let placed = |tile: System| sx.state.board().systems().any(|(s, c)| s == tile && c.flags.has(SysFlags::TOUCHED));
+                    let mecatol = if placed(System::MecatolRex112) { System::MecatolRex112 } else { System::MecatolRex18 };
+                    sx.state.explore_mut().wormhole_tokens.insert(Wormhole::Gamma, mecatol);
                 }
                 Kind::Nothing => {}
                 Kind::Reveal(secret) => {

@@ -304,8 +304,8 @@ pub fn sustain_commander(
 }
 
 const AGENDA_EFFECT: Footprint = Footprint::new(
-    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Objectives, Slice::Ledger, Slice::Agenda, Slice::Pending],
-    &[Slice::Players, Slice::Objectives, Slice::Ledger, Slice::Agenda],
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Objectives, Slice::Ledger, Slice::Agenda, Slice::Explore, Slice::Pending],
+    &[Slice::Players, Slice::Objectives, Slice::Ledger, Slice::Agenda, Slice::Explore],
 );
 
 /// The core half of `agenda_effects::resolve_with` for the effects the core has a window for

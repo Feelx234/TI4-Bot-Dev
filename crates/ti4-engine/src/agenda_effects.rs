@@ -569,7 +569,9 @@ pub fn resolve_with(
             agenda: agenda.to_owned(),
         }),
         "articles_war" => effect_articles_war(state, ctx, galaxy, agenda, outcome, ballot),
-        "nexus" => effect_nexus(state, ctx, galaxy, agenda, outcome, ballot),
+        "nexus" => windowed(state, agenda, outcome, ballot, |s| {
+            effect_nexus(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
         "warrant" => effect_warrant(state, ctx, galaxy, agenda, outcome, ballot),
         "grant_reallocation" => {
             effect_grant_reallocation(state, ctx, galaxy, agenda, outcome, ballot)
@@ -2095,6 +2097,13 @@ mod tests {
             for alias in ["rt_biotic", "committee", "minister_war", "senate_sanctuary", "checks", "covert"] {
                 seen.push(run(&mut state, alias, FOR, &no_votes()));
             }
+            seen.push(run(&mut state, "nexus", FOR, &no_votes()));
+            seen.push(run(&mut state, "nexus", AGAINST, &no_votes()));
+            assert!(state.wormhole_tokens.contains_key("GAMMA"));
+            // A Thunder's Edge map places tile 112 instead of 18.
+            let _ = state.system_mut(&ti4_model::id::SystemId::new("112"));
+            seen.push(run(&mut state, "nexus", AGAINST, &no_votes()));
+            assert_eq!(state.wormhole_tokens.get("GAMMA").map(|s| s.as_str()), Some("112"));
             seen.push(run(&mut state, "revolution", FOR, &no_votes()));
             seen.push(run(&mut state, "revolution", AGAINST, &no_votes()));
             seen.push(run(&mut state, "representative_government", AGAINST, &no_votes()));
