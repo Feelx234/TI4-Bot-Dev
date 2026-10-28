@@ -1434,6 +1434,68 @@ fn core_fleet_rolls(
     }
 }
 
+/// The `Core` backend of one side's anti-fighter barrage dice: the typed plan's rolls drawn from the core's
+/// copy of the dice stream, in plan order; the streams take the result at once and the string sites then
+/// record each entry in the dice history instead of rolling. `None` when the string rolls must run (as
+/// [`core_fleet_rolls`]).
+fn core_barrage_rolls(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    rng: &mut GameRng,
+    dice: &Dice,
+    player: &PlayerId,
+    system: &SystemId,
+) -> Option<std::vec::IntoIter<(u32, Vec<u32>)>> {
+    if crate::dual::backend(crate::dual::Area::Combat) != crate::dual::Backend::Core
+        || rng.sync_pending()
+        || dice.is_preloaded()
+    {
+        return None;
+    }
+    #[cfg(feature = "typed-core")]
+    {
+        let positions = rng.positions();
+        let (rolls, after) = crate::core_combat::CombatView::of(state, content, sources)?.roll_barrage_raw(
+            rng.seed(),
+            &positions,
+            player,
+            system,
+        )?;
+        let mut out = Vec::new();
+        for roll in rolls {
+            rng.observe_randomness();
+            out.push((roll.hits_on, roll.faces));
+        }
+        rng.set_positions(&after);
+        Some(out.into_iter())
+    }
+    #[cfg(not(feature = "typed-core"))]
+    {
+        let _ = (state, content, sources, rng, player, system);
+        None
+    }
+}
+
+/// One barrage roll of `count` dice needing `value`: the next typed one when `drawn` is on, else a roll.
+fn barrage_roll(
+    drawn: &mut Option<std::vec::IntoIter<(u32, Vec<u32>)>>,
+    dice: &mut Dice,
+    rng: &mut GameRng,
+    count: usize,
+    reason: &str,
+    value: u32,
+    player: &PlayerId,
+) -> crate::dice::Roll {
+    match drawn.as_mut() {
+        Some(drawn) => {
+            let (_, faces) = drawn.next().expect("the typed barrage rolls follow the string plan");
+            dice.record_drawn(reason, faces, Some(value), std::collections::BTreeSet::new(), player)
+        }
+        None => dice.roll_by(rng, count, reason, Some(value), player),
+    }
+}
+
 /// The stream positions to check a roll against, only when the combat area is on `Dual`.
 fn dual_positions(rng: &GameRng) -> Option<crate::rng::RngPositions> {
     (crate::dual::backend(crate::dual::Area::Combat) == crate::dual::Backend::Dual && !rng.sync_pending())
@@ -1751,6 +1813,7 @@ pub fn roll_barrage_side(
         check_barrage_plan(state, content, sources, player, system, &plan);
         return 0;
     }
+    let mut drawn = core_barrage_rolls(state, content, sources, rng, dice, player, system);
     let types = catalogue(content, sources);
     let mut set = RerollSet {
         kind: "anti_fighter_barrage".into(),
@@ -1762,7 +1825,7 @@ pub fn roll_barrage_side(
     // barrage to the player.
     if let Some((value, count)) = crate::relics::extra_barrage(state, player) {
         plan.push((None, i64::from(value), count));
-        let roll = dice.roll_by(rng, count, "anti_fighter_barrage", Some(value), player);
+        let roll = barrage_roll(&mut drawn, dice, rng, count, "anti_fighter_barrage", value, player);
         hits += roll.hits();
         set.rolls.push(RerollEntry {
             unit: "extra barrage".into(),
@@ -1830,11 +1893,13 @@ pub fn roll_barrage_side(
             value,
         );
         plan.push((Some(unit.type_id.to_string()), value, count));
-        let roll = dice.roll_by(
+        let roll = barrage_roll(
+            &mut drawn,
+            dice,
             rng,
             count,
             "anti-fighter barrage",
-            Some(u32::try_from(value).unwrap_or(u32::MAX)),
+            u32::try_from(value).unwrap_or(u32::MAX),
             player,
         );
         hits += roll.hits();
@@ -2025,11 +2090,33 @@ fn apply_barrage(
                         system,
                         excess,
                     };
-                    let made = with_timing(state, ctx, |timing| {
-                        crate::factions::hooks_combat::afb_excess(timing, &site)
-                    });
-                    announce_staged_destructions(state, ctx);
-                    made?;
+                    // On `driver=dual` Raid Formation also runs as a core window (`rules::combat::raid_formation`).
+                    let failed = std::cell::Cell::new(false);
+                    let mut outcome = None;
+                    crate::dual_window!(
+                        crate::dual::Area::Driver,
+                        "combat::raid_formation",
+                        state,
+                        |s: &mut GameState| {
+                            let made = with_timing(s, ctx, |timing| {
+                                crate::factions::hooks_combat::afb_excess(timing, &site)
+                            });
+                            announce_staged_destructions(s, ctx);
+                            failed.set(made.is_err());
+                            outcome = Some(made);
+                            crate::dual::Run::new(!failed.get())
+                        },
+                        |s: &mut GameState, script: &crate::dual_window::Recording| {
+                            if failed.get() {
+                                return None;
+                            }
+                            let args = crate::dual_window::RaidArgs { producer: player, target, system, excess };
+                            crate::dual_window::raid_formation(s, sources, args, script)
+                        }
+                    );
+                    if let Some(made) = outcome {
+                        made?;
+                    }
                 }
             }
         }
@@ -2375,6 +2462,15 @@ pub fn space_cannon_guns(
         );
     }
 
+    if crate::dual::backend(crate::dual::Area::Combat) == crate::dual::Backend::Dual {
+        #[cfg(feature = "typed-core")]
+        let typed = || crate::core_combat::CombatView::of(state, content, sources)?.local_cannon_guns(system, active);
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None::<Vec<String>>;
+        let _ = crate::dual::run_dual_typed(crate::dual::Area::Combat, "combat::local_cannon_guns", typed, || {
+            guns.iter().map(|unit| unit.type_id.to_string()).collect::<Vec<_>>()
+        });
+    }
     // PDS II and Xxcha's Indomitus mech both read "You may use this unit's SPACE CANNON against
     // ships that are in adjacent systems." Two cards, one clause, and neither reached the active
     // system before: `space_cannon_offense` read only the system being activated, so an upgraded
@@ -5545,11 +5641,31 @@ impl CombatWindow {
         let outcome = outcome.clone();
         let sides = [self.attacker.clone(), self.defender.clone()];
         let payload = self.end_payload(state, content, sources, &outcome);
+        // The rest runs on `driver=dual` as a core window too (`rules::combat::end_announce`); the string body
+        // notes what the window does not carry.
+        let bail = std::cell::Cell::new(!state.pending_destructions.is_empty());
+        let facts = crate::dual_window::EndArgs {
+            attacker: &self.attacker,
+            defender: &self.defender,
+            system: &self.system,
+            rounds: outcome.rounds,
+            winner: outcome.winner.as_ref(),
+            declared_draw: declared_draw(state),
+            fled: &self.fled,
+            at_start: &self.fleet_at_start,
+            announce: ctx.timing.is_some(),
+        };
+        crate::dual_window!(
+            crate::dual::Area::Driver,
+            "combat::announce_end",
+            state,
+            |state: &mut GameState| {
+                let marks = state.faction_marks.clone();
         // "At the end of a space battle in the active system, flip this card" (Z-Grav Eidolon):
         // the survivors in this system's space area return to their ground form. Measured after
         // the losses above, which count ships, so a flipped mech is not reported destroyed.
-        crate::fleet::flip_to_ground_forms(state, content, sources, &sides, &self.system);
-        let _ = ctx.emit(state, "SPACE_COMBAT_ENDED", payload);
+        bail.set(bail.get() || !crate::fleet::flip_to_ground_forms(state, content, sources, &sides, &self.system).is_empty());
+        let _ = ctx.emit(state, "SPACE_COMBAT_ENDED", payload.clone());
         crate::factions::observe(
             state,
             crate::factions::Obs::ParticipantsCleared {
@@ -5565,13 +5681,21 @@ impl CombatWindow {
         );
         // A mobile space dock left in a space area with another player's ships is destroyed
         // (Floating Factory); checked when the combat that could have cleared them ends.
-        let _ = crate::production::destroy_blockaded_mobile_docks(
-            state,
-            ctx.content,
-            ctx.sources,
-            &self.system,
+        bail.set(
+            bail.get()
+                || !crate::production::destroy_blockaded_mobile_docks(state, ctx.content, ctx.sources, &self.system).is_empty()
+                || state.faction_marks != marks,
         );
         announce_staged_destructions(state, ctx);
+                crate::dual::Run::new(true)
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                if bail.get() {
+                    return None;
+                }
+                crate::dual_window::announce_end(s, content, sources, facts, script)
+            }
+        );
     }
 
     /// The `SPACE_COMBAT_ENDED` payload (see [`Self::announce_end`]): pure over the position, so the
@@ -5638,8 +5762,50 @@ impl CombatWindow {
                 .collect::<Vec<_>>()
                 .into(),
         );
-        payload.insert("destroyed".to_owned(), destroyed.into());
+        payload.insert("destroyed".to_owned(), destroyed.clone().into());
+        self.check_end_report(state, content, sources, &outcome, reason, &sides, &destroyed);
         payload
+    }
+
+    /// Dual check of the end report (`rules::combat::end`): reason, losers, retreats and lost ships.
+    fn check_end_report(
+        &self,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        outcome: &CombatOutcome,
+        reason: &str,
+        sides: &[PlayerId; 2],
+        destroyed: &[serde_json::Value],
+    ) {
+        if crate::dual::backend(crate::dual::Area::Combat) != crate::dual::Backend::Dual {
+            return;
+        }
+        let string = || {
+            let text = |v: &serde_json::Value, key: &str| v[key].as_str().unwrap_or_default().to_owned();
+            (
+                reason.to_owned(),
+                sides.iter().filter(|side| outcome.winner.as_ref().is_some_and(|won| won != *side)).map(ToString::to_string).collect::<Vec<_>>(),
+                self.fled.iter().map(|(who, _)| who.to_string()).collect::<Vec<_>>(),
+                destroyed.iter().map(|d| (text(d, "player"), text(d, "unit"))).collect::<Vec<_>>(),
+            )
+        };
+        #[cfg(feature = "typed-core")]
+        let typed = || {
+            let fled: Vec<(PlayerId, Vec<String>)> = self.fled.clone();
+            let start: Vec<(PlayerId, Vec<String>)> = self.fleet_at_start.iter().map(|(p, f)| (p.clone(), f.clone())).collect();
+            crate::core_combat::CombatView::of(state, content, sources)?.end_report(
+                &self.system,
+                [&self.attacker, &self.defender],
+                outcome.winner.as_ref(),
+                declared_draw(state),
+                &fled,
+                &start,
+            )
+        };
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None::<(String, Vec<String>, Vec<String>, Vec<(String, String)>)>;
+        let _ = crate::dual::run_dual_typed(crate::dual::Area::Combat, "combat::end_report", typed, string);
     }
 
     /// Roll a round and queue both sides' hits, or finish.
@@ -5711,7 +5877,44 @@ impl CombatWindow {
 
     /// The opening of a round that is not resumed: the round counter, the presentation, the round's
     /// announcements and the faction offers made before any dice (string `open_round`, first part).
+    ///
+    /// On `driver=dual` the step also runs as a core window (`rules::combat::begin_round`) for the positions
+    /// `dual_window::round_opening_unported` does not exclude.
     fn begin_round(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>, round: u32) -> Result<(), CombatError> {
+        let (content, sources) = (ctx.content, ctx.sources);
+        let failed = std::cell::Cell::new(false);
+        let mut outcome = None;
+        let announce = ctx.timing.is_some();
+        let (attacker, defender, system) = (self.attacker.clone(), self.defender.clone(), self.system.clone());
+        crate::dual_window!(
+            crate::dual::Area::Driver,
+            "combat::begin_round",
+            state,
+            |s: &mut GameState| {
+                let result = self.begin_round_string(s, ctx, round);
+                failed.set(result.is_err());
+                outcome = Some(result);
+                crate::dual::Run::new(!failed.get())
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                if failed.get() {
+                    return None;
+                }
+                let args = crate::dual_window::BeginRoundArgs {
+                    attacker: &attacker,
+                    defender: &defender,
+                    system: &system,
+                    round,
+                    announce,
+                };
+                crate::dual_window::begin_round(s, content, sources, args, script)
+            }
+        );
+        outcome.unwrap_or(Ok(()))
+    }
+
+    /// The string body of [`Self::begin_round`].
+    fn begin_round_string(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>, round: u32) -> Result<(), CombatError> {
         let (content, sources) = (ctx.content, ctx.sources);
         state.combat_round_seq = state.combat_round_seq.saturating_add(1);
         state.combat_presentation.phase = "pre_roll".to_owned();
@@ -5887,7 +6090,78 @@ impl CombatWindow {
 
     /// Both anti-fighter barrages (78.3): rolled one side at a time with its reroll windows, then applied.
     /// The players that scored a barrage feat.
+    ///
+    /// On `driver=dual` the step also runs as a core window (`rules::combat::barrage`) for the positions
+    /// `dual_window::barrage_unported` does not exclude.
     fn barrage_step(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>, round: u32) -> Result<Vec<PlayerId>, CombatError> {
+        let sources = ctx.sources;
+        let failed = std::cell::Cell::new(false);
+        let mut outcome = None;
+        let announce = ctx.timing.is_some();
+        let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending();
+        let (attacker, defender, system) = (self.attacker.clone(), self.defender.clone(), self.system.clone());
+        let occurrence = self.ensure_combat_occurrence(state).0;
+        let staging = crate::supply::staging_enabled(state);
+        let probe = crate::dual_window::BarrageArgs {
+            attacker: &attacker,
+            defender: &defender,
+            system: &system,
+            round,
+            occurrence,
+            staging,
+            announce,
+            reproducible,
+        };
+        // Positions the window does not carry run bare, so the windows inside (fighter removal, Raid
+        // Formation) are compared on their own.
+        if crate::dual::backend(crate::dual::Area::Driver) == crate::dual::Backend::Dual && crate::dual_window::barrage_unported(state, &probe) {
+            return self.barrage_step_string(state, ctx, round);
+        }
+        let rng_before = ctx.rng.positions();
+        let history_start = ctx.dice.history().len();
+        crate::dual_window!(
+            crate::dual::Area::Driver,
+            "combat::barrage_step",
+            state,
+            |s: &mut GameState| {
+                let result = self.barrage_step_string(s, ctx, round);
+                failed.set(result.is_err());
+                let value: crate::dual_window::BarrageOut = (
+                    result.as_ref().map(Clone::clone).unwrap_or_default(),
+                    ctx.dice
+                        .history()
+                        .iter()
+                        .skip(history_start)
+                        .filter(|roll| roll.reason.starts_with("anti"))
+                        .map(|roll| (roll.hits_on.unwrap_or(0), roll.faces.clone()))
+                        .collect(),
+                    ctx.rng.positions(),
+                );
+                outcome = Some(result);
+                crate::dual::Run::new(value)
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                if failed.get() {
+                    return None;
+                }
+                let args = crate::dual_window::BarrageArgs {
+                    attacker: &attacker,
+                    defender: &defender,
+                    system: &system,
+                    round,
+                    occurrence,
+                    staging,
+                    announce,
+                    reproducible,
+                };
+                crate::dual_window::barrage_step(s, sources, args, &rng_before, script)
+            }
+        );
+        outcome.unwrap_or_else(|| Ok(Vec::new()))
+    }
+
+    /// The string body of [`Self::barrage_step`].
+    fn barrage_step_string(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>, round: u32) -> Result<Vec<PlayerId>, CombatError> {
         let (content, sources) = (ctx.content, ctx.sources);
     let occurrence = self.ensure_combat_occurrence(state);
     // Both barrages are rolled before either is applied (78.3), one side at a time:
@@ -8260,6 +8534,34 @@ mod tests {
     }
 
     #[test]
+    fn the_core_backend_draws_the_barrage_dice_the_string_backend_rolls() {
+        // `combat=core`: the barrage's dice come from the typed plan and the core's copy of the stream; the
+        // hits, the dice history, the staged dice and the stream positions are the string roll's.
+        use crate::dual::{with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let run = |backend: Backend| {
+            let mut seen = Vec::new();
+            for seed in 0..12_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "letnev")], ti4_model::content_types::DEFAULT);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                let system = SystemId::new("18");
+                put(&mut state, &system, &a_barrage_unit(), &attacker(), 3);
+                put(&mut state, &system, "fighter", &defender(), 3);
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let hits = with_mask(AreaMask::STRING.with(Area::Combat, backend), || {
+                    roll_barrage_side(&mut state, ContentStore::embedded(), ti4_model::content_types::DEFAULT, &mut dice, &mut rng, &system, &attacker())
+                });
+                seen.push(format!("{hits} {:?} {:?} {:?}", dice.history(), rng.positions(), state.reroll_staging));
+            }
+            seen
+        };
+        let (string, core) = (run(Backend::String), run(Backend::Core));
+        assert!(string.iter().any(|s| !s.starts_with("0 ")), "some seed hits");
+        assert_eq!(string, core);
+    }
+
+    #[test]
     fn a_barrage_kills_only_fighters() {
         // 78.3: hits fall on fighters and nothing else, so a cruiser standing beside them is
         // untouched however well the barrage rolls. Swept across seeds rather than pinned to
@@ -8762,6 +9064,155 @@ mod tests {
         let r = report();
         let counts = &r.areas[&Area::Driver];
         assert!(counts.calls >= 2, "both openings were compared: {counts:?}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    #[test]
+    fn a_round_opening_runs_as_a_core_window_in_lockstep() {
+        // Several rounds of a plain fight with `driver=dual`: the string `begin_round` and the core
+        // `BeginRound` window leave the same counters, presentation and events.
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        let system = SystemId::new("18");
+        put(&mut state, &system, "cruiser", &attacker(), 3);
+        put(&mut state, &system, "cruiser", &defender(), 3);
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+            let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+            let (mut dice, mut rng) = (Dice::new(), GameRng::new(5));
+            resolve(&mut state, ContentStore::embedded(), ti4_model::content_types::DEFAULT, &mut table, &mut dice, &mut rng, &system).unwrap();
+        });
+        let r = report();
+        let counts = &r.areas[&Area::Driver];
+        assert!(counts.calls >= 3, "the round openings and the idle barrage were compared: {counts:?}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    #[test]
+    fn the_end_report_of_a_fight_is_checked_against_the_core() {
+        // `combat=dual`: the reason, losers, retreats and lost ships of `SPACE_COMBAT_ENDED` are computed by
+        // `rules::combat::end` and compared; a fight with losses has a non-empty fleet diff.
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut lost = 0;
+        for seed in 0..6_u64 {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            let system = SystemId::new("18");
+            put(&mut state, &system, "cruiser", &attacker(), 3);
+            put(&mut state, &system, "destroyer", &defender(), 2);
+            with_mask(AreaMask::STRING.with(Area::Combat, Backend::Dual).with(Area::Driver, Backend::Dual), || {
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+            });
+            lost += 5 - ships_of(&state, ContentStore::embedded(), ti4_model::content_types::DEFAULT, &attacker(), &system).len()
+                - ships_of(&state, ContentStore::embedded(), ti4_model::content_types::DEFAULT, &defender(), &system).len();
+        }
+        let r = report();
+        assert!(lost > 0, "some ships were lost");
+        assert!(r.areas[&Area::Driver].calls >= 6, "the announcements were compared: {:?}", r.areas[&Area::Driver]);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    #[test]
+    fn the_barrage_step_runs_as_a_core_window_in_lockstep() {
+        // Round 1 with a barrage on `driver=dual`: the core window draws the same dice from the same stream
+        // positions, removes the same fighters, records the same feat and announces the same events.
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut killed = 0;
+        for seed in 0..10_u64 {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = seed;
+            let system = SystemId::new("18");
+            put(&mut state, &system, &a_barrage_unit(), &attacker(), 3);
+            put(&mut state, &system, "fighter", &defender(), if seed % 2 == 0 { 1 } else { 4 });
+            put(&mut state, &system, "cruiser", &defender(), 1);
+            with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+                killed += usize::from(dice.history().iter().any(|r| r.reason.starts_with("anti") && r.hits() > 0));
+            });
+        }
+        let r = report();
+        assert!(killed > 0, "some barrage hit");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.areas[&Area::Driver].calls >= 20, "the steps were compared: {:?}", r.areas[&Area::Driver]);
+        let _ = take_report();
+    }
+
+    #[test]
+    fn raid_formation_runs_as_a_core_window_in_lockstep() {
+        // Argent's barrage hits beyond the fighters damage the target's ships: one candidate type without a
+        // question, two with the producer's choice; the core window asks and answers the same.
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut damaged = 0;
+        for seed in 0..12_u64 {
+            let mut state = crate::fixtures::seated_game(&[("a", "argent"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = seed;
+            let system = SystemId::new("18");
+            put(&mut state, &system, &a_barrage_unit(), &attacker(), 6);
+            put(&mut state, &system, "fighter", &defender(), 1);
+            put(&mut state, &system, "dreadnought", &defender(), 1);
+            if seed % 2 == 0 {
+                put(&mut state, &system, "warsun", &defender(), 1);
+            }
+            with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+            });
+            damaged += state.system_state(&system).units.iter().filter(|u| u.sustained_damage).count().min(1);
+        }
+        let r = report();
+        assert!(damaged > 0, "Raid Formation damaged something");
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }

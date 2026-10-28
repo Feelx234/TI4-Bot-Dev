@@ -19,7 +19,11 @@ pub mod cc;
 macro_rules! cb_dual {
     ($group:expr, $slot:expr, $string:expr, $typed:expr) => {{
         #[cfg(feature = "typed-core")]
-        let answer = $crate::dual_hook!($group, $slot, $string, ($typed).unwrap_or_else(|| $string));
+        let answer = if $crate::dual::backend($crate::dual::Area::Factions) == $crate::dual::Backend::Dual {
+            $crate::dual_hook!($group, $slot, $string, ($typed).unwrap_or_else(|| $string))
+        } else {
+            $string
+        };
         #[cfg(not(feature = "typed-core"))]
         let answer = $string;
         answer

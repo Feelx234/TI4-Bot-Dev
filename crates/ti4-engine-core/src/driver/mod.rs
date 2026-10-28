@@ -15,7 +15,7 @@
 use crate::choice::{Choice, Pick};
 use crate::kernel::stage::{AbilityTable, Illegal, Sx, Tape, Window};
 use crate::kernel::{Kernel, Next, Resolver, TimingError};
-use crate::state::{CoreState, EventRec, Window as OpenWindow};
+use crate::state::{CoreState, EventRec, RngDomain, SeedSource, Window as OpenWindow};
 
 pub mod windows;
 
@@ -90,9 +90,21 @@ pub struct Driver<W: Window> {
     pub emitted: Vec<EventRec>,
     /// The windows the rule areas asked the driver to open (`Next::Open`), in order.
     pub opened: Vec<OpenWindow>,
+    /// The seeds of the random streams a window draws from (`Sx::die`); `NoSeeds` until the adapter gives some.
+    pub seeds: std::rc::Rc<dyn SeedSource>,
     tape: Tape,
     awaiting: Awaiting,
     finished: bool,
+}
+
+/// The seeds of a driver that never draws: every stream is all zeros.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoSeeds;
+
+impl SeedSource for NoSeeds {
+    fn seed_for(&self, _: u64, _: RngDomain) -> [u8; 32] {
+        [0; 32]
+    }
 }
 
 impl<W: Window> Driver<W> {
@@ -105,10 +117,18 @@ impl<W: Window> Driver<W> {
             next_id,
             emitted: Vec::new(),
             opened: Vec::new(),
+            seeds: std::rc::Rc::new(NoSeeds),
             tape: Tape::default(),
             awaiting: Awaiting::Nothing,
             finished: false,
         }
+    }
+
+    /// The same driver drawing its dice from streams seeded by `seeds`.
+    #[must_use]
+    pub fn with_seeds(mut self, seeds: std::rc::Rc<dyn SeedSource>) -> Self {
+        self.seeds = seeds;
+        self
     }
 
     /// Step the window to its next question or its end.
@@ -204,6 +224,7 @@ impl<W: Window> Driver<W> {
             tape: &mut self.tape,
             next_id: &mut self.next_id,
             emitted: &mut self.emitted,
+            seeds: &*self.seeds,
         };
         let next = match op {
             Op::Step => self.window.step(&mut sx),
@@ -344,5 +365,57 @@ mod tests {
         };
         let (a, b) = (run(), run());
         assert!(a.0 == b.0 && a.1 == b.1 && a.2 == b.2);
+    }
+
+    /// A window that draws three dice and then emits (so the driver may roll the step back).
+    #[derive(Clone)]
+    struct Roller {
+        done: bool,
+        faces: Vec<u32>,
+    }
+
+    impl Window for Roller {
+        type Stage = bool;
+        fn stage(&self) -> bool {
+            self.done
+        }
+        fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+            if !self.done {
+                self.done = true;
+                self.faces = (0..3).map(|_| sx.die(RngDomain::Dice, 10)).collect();
+                let _ = sx.emit(fx::event(EventKind::TradeGoodsGained, Payload::new()));
+            }
+            Next::Done
+        }
+        fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {
+            None
+        }
+        fn answer(&mut self, _: &mut Sx<'_>, _: Pick) -> Result<(), Illegal> {
+            Err(Illegal)
+        }
+    }
+
+    struct Plain;
+    impl SeedSource for Plain {
+        fn seed_for(&self, seed: u64, _: RngDomain) -> [u8; 32] {
+            let mut out = [0u8; 32];
+            out[..8].copy_from_slice(&seed.to_le_bytes());
+            out
+        }
+    }
+
+    #[test]
+    fn dice_drawn_in_a_step_that_is_rolled_back_are_drawn_once() {
+        let (mut s, k, d) = setup();
+        s.rng = crate::state::Rng::new(5);
+        let mut d = Driver::new(Roller { done: false, faces: Vec::new() }, d.resolver, d.table, 10).with_seeds(std::rc::Rc::new(Plain));
+        // The reaction window asks inside the emission: the step is rolled back, the dice with it.
+        assert!(matches!(d.run(&mut s, &k).unwrap(), Status::Asking(_)));
+        d.resume(&mut s, &k, Pick::Opt(Opt::Reaction(ROpt::Ability(ability())))).unwrap();
+        d.resume(&mut s, &k, Pick::Opt(Opt::Decline)).unwrap();
+        let mut bare = crate::state::Rng::new(5);
+        let expect: Vec<u32> = (0..3).map(|_| bare.die(RngDomain::Dice, &Plain, 10)).collect();
+        assert_eq!(d.window.faces, expect);
+        assert!(s.rng.positions().eq(bare.positions()), "three draws were taken, not six");
     }
 }

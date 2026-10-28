@@ -164,6 +164,19 @@ pub fn event_of(r: &Render, rec: &EventRec) -> Option<Event> {
         };
         payload.insert(key_text(r, *key), v);
     }
+    for (key, list) in &rec.payload.lists {
+        let seat = |s: &ti4_engine_core::ids::Seat| Some(Value::from(r.seats.get(usize::from(s.0))?.clone()));
+        let v: Value = match list {
+            ti4_engine_core::state::List::Seats(seats) => Value::Array(seats.iter().map(seat).collect::<Option<_>>()?),
+            ti4_engine_core::state::List::Units(units) => Value::Array(
+                units
+                    .iter()
+                    .map(|(s, u)| Some(serde_json::json!({"player": seat(s)?, "unit": u.as_str()})))
+                    .collect::<Option<_>>()?,
+            ),
+        };
+        payload.insert(key_text(r, *key), v);
+    }
     let mut e = Event::new(0, crate::kernel_sync::event_text(r, rec.kind), payload);
     e.cancelled = rec.cancelled;
     Some(e)
@@ -695,6 +708,7 @@ pub fn fight_round_ask(
 }
 
 /// What the string barrage's fighter removal was called with.
+/// What the string barrage's fighter removal was called with.
 #[derive(Debug, Clone, Copy)]
 pub struct FightersArgs<'a> {
     pub target: &'a PlayerId,
@@ -799,6 +813,313 @@ pub fn assault_cannon(
                 }));
             }
         });
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .ok()?
+    .ok()?;
+    apply_staged(gs, &r, &staged)?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(events), questions: driven.rendered })
+}
+
+/// What the string `CombatWindow::begin_round` was called with.
+#[derive(Debug, Clone, Copy)]
+pub struct BeginRoundArgs<'a> {
+    pub attacker: &'a PlayerId,
+    pub defender: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    pub round: u32,
+    /// The resolver carries the timing machinery.
+    pub announce: bool,
+}
+
+/// Whether the round opening holds something the core window does not carry: diplomacy (attack promises),
+/// a Naaz or Letnev side (Voltron repair, Supercharge, Munitions, the Eidolon flip, the self-repairing
+/// flagship) or a Letnev round agent (own or copied).
+#[must_use]
+pub fn round_opening_unported(
+    gs: &GameState,
+    content: &ti4_content::ContentStore,
+    a: &BeginRoundArgs<'_>,
+) -> bool {
+    let side = |id: &PlayerId| gs.player(id).is_none_or(|p| matches!(p.faction.as_str(), "naaz" | "letnev"));
+    gs.diplomacy.enabled
+        || side(a.attacker)
+        || side(a.defender)
+        || crate::factions::borrowed_round_agents::has_round_copy(gs, content, "letnevagent")
+        || crate::factions::borrowed_round_agents::has_owner_space_round_agent(gs)
+}
+
+/// The core half of `CombatWindow::begin_round`. `None` for the positions of [`round_opening_unported`],
+/// neutral sides, reaction activity inside the announcements, or a position the codecs refuse.
+#[must_use]
+pub fn begin_round(
+    gs: &mut GameState,
+    content: &ti4_content::ContentStore,
+    sources: ti4_model::content_types::SourceSet,
+    a: BeginRoundArgs<'_>,
+    script: &Recording,
+) -> Option<CoreWindow<bool>> {
+    use ti4_engine_core::rules::combat::begin_round::{BeginRound, Facts};
+    if script.nested
+        || crate::neutral_units::is_neutral(a.attacker)
+        || crate::neutral_units::is_neutral(a.defender)
+        || round_opening_unported(gs, content, &a)
+    {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let attacker = r.seat(a.attacker.as_str())?;
+    let defender = r.seat(a.defender.as_str())?;
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let before = gs.clone();
+    let env = crate::core_combat::window_env(&before, &cx, sources)?;
+    let facts = Facts { attacker, defender, system, round: a.round, phase: cx.texts.intern(Slice::Transient, "pre_roll").ok()?, announce: a.announce };
+    let resolver = Resolver::new(&[attacker, defender], Some(attacker));
+    let mut driver = Driver::new(BeginRound::new(facts), resolver, AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let driven = with_core(gs, &mut cx, Sources::default(), BEGIN_ROUND, |core, _| {
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .ok()?
+    .ok()?;
+    apply_staged(gs, &r, &staged)?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(events), questions: driven.rendered })
+}
+
+const BEGIN_ROUND: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
+    &[Slice::Meta, Slice::Transient, Slice::Pending],
+);
+
+/// What the string `CombatWindow::barrage_step` was called with.
+#[derive(Debug, Clone, Copy)]
+pub struct BarrageArgs<'a> {
+    pub attacker: &'a PlayerId,
+    pub defender: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    pub round: u32,
+    pub occurrence: u64,
+    /// `supply::staging_enabled`.
+    pub staging: bool,
+    /// The resolver carries the timing machinery.
+    pub announce: bool,
+    /// The dice and streams are the ones the core can reproduce (no test faces, no pending restore).
+    pub reproducible: bool,
+}
+
+/// What the barrage step leaves besides the state: the seats that scored the feat, the dice of the step
+/// (hit number, faces) and where the streams stand.
+pub type BarrageOut = (Vec<PlayerId>, Vec<(u32, Vec<u32>)>, crate::rng::RngPositions);
+
+/// The seeds of the Dice stream (the only one a window draws from here): `SHA-256(seed || "dice")`.
+struct DiceSeeds(String);
+
+impl ti4_engine_core::state::SeedSource for DiceSeeds {
+    fn seed_for(&self, seed: u64, domain: ti4_engine_core::state::RngDomain) -> [u8; 32] {
+        if domain == ti4_engine_core::state::RngDomain::Dice {
+            crate::rng::GameRng::derive_seed(seed, &self.0)
+        } else {
+            [0; 32]
+        }
+    }
+}
+
+/// Whether the barrage step holds something the core window does not carry: a reroll question (Jol-Nar
+/// commander, Heart of Ixth), a Waylay played this round, an Argent side (`afb_excess`).
+#[must_use]
+pub fn barrage_unported(gs: &GameState, a: &BarrageArgs<'_>) -> bool {
+    let heart = ti4_model::id::RelicId::new("heartofixth");
+    gs.players.iter().any(|p| crate::relics::holds(gs, &p.id, &heart))
+        || [a.attacker, a.defender].into_iter().any(|id| {
+            gs.player(id).is_none_or(|p| {
+                p.faction.as_str() == "argent"
+                    || p.waylay_barrage_round.is_some_and(|r| r == gs.combat_round_seq)
+            }) || crate::promissory::has_commander_ability(gs, id, "jolnarcommander")
+        })
+}
+
+/// The core half of `CombatWindow::barrage_step`. `rng_before` is where the streams stood before the string
+/// step. `None` for the positions of [`barrage_unported`], neutral sides, irreproducible dice, reaction
+/// activity in the announcements, or a position the codecs refuse.
+#[must_use]
+pub fn barrage_step(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    a: BarrageArgs<'_>,
+    rng_before: &crate::rng::RngPositions,
+    script: &Recording,
+) -> Option<CoreWindow<BarrageOut>> {
+    use ti4_engine_core::rules::combat::barrage::{BarrageStep, Facts};
+    if script.nested
+        || !a.reproducible
+        || crate::neutral_units::is_neutral(a.attacker)
+        || crate::neutral_units::is_neutral(a.defender)
+        || barrage_unported(gs, &a)
+    {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let attacker = r.seat(a.attacker.as_str())?;
+    let defender = r.seat(a.defender.as_str())?;
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let before = gs.clone();
+    let env = crate::core_combat::window_env(&before, &cx, sources)?;
+    let mut unit_codes = Vec::new();
+    for p in before.system_state(a.system).units.iter().chain(before.system_state(a.system).planet_units.values().flatten()) {
+        let unit = <ti4_engine_core::generated::Unit as IdStr>::from_id(p.type_id.as_str())?;
+        if !unit_codes.iter().any(|(u, _)| *u == unit) {
+            unit_codes.push((unit, cx.texts.intern(Slice::Transient, p.type_id.as_str()).ok()?));
+        }
+    }
+    let facts = Facts {
+        attacker,
+        defender,
+        system,
+        round: a.round,
+        occurrence: a.occurrence,
+        staging: a.staging,
+        announce: a.announce,
+        phase: cx.texts.intern(Slice::Transient, "barrage").ok()?,
+        cause: r.code("unit_ability:anti_fighter_barrage"),
+        kind: r.code("anti_fighter_barrage"),
+        extra: cx.texts.intern(Slice::Transient, "extra barrage").ok()?,
+        unit_codes,
+    };
+    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
+    let resolver = Resolver::new(&[attacker, defender], Some(attacker));
+    let mut driver = Driver::new(BarrageStep::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let mut staged = Vec::new();
+    let mut rng_after = None;
+    let src = Sources { galaxy: None, rng: Some(rng_before) };
+    let driven = with_core(gs, &mut cx, src, BARRAGE_STEP, |core, _| {
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        rng_after = Some(core.rng().clone());
+        driven
+    })
+    .ok()?
+    .ok()?;
+    apply_staged(gs, &r, &staged)?;
+    let positions = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    let feat = driver.window.feat.iter().map(|s| Some(PlayerId::new(r.seats.get(usize::from(s.0))?.clone()))).collect::<Option<Vec<_>>>()?;
+    let value: BarrageOut = (feat, driver.window.drawn.clone(), positions);
+    Some(CoreWindow { run: Run::new(value).with_events_vec(events), questions: driven.rendered })
+}
+
+const BARRAGE_STEP: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger],
+    &[Slice::Players, Slice::Board, Slice::Transient, Slice::Pending, Slice::Rng, Slice::Ledger],
+);
+
+/// What the string `CombatWindow::announce_end` holds.
+#[derive(Debug, Clone, Copy)]
+pub struct EndArgs<'a> {
+    pub attacker: &'a PlayerId,
+    pub defender: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    pub rounds: u32,
+    pub winner: Option<&'a PlayerId>,
+    pub declared_draw: bool,
+    pub fled: &'a [(PlayerId, Vec<String>)],
+    pub at_start: &'a std::collections::BTreeMap<PlayerId, Vec<String>>,
+    /// The resolver carries the timing machinery.
+    pub announce: bool,
+}
+
+/// The core half of `CombatWindow::announce_end`: `SPACE_COMBAT_ENDED` with its lists. `None` for neutral
+/// sides, ship types the core has no unit for, reaction activity in the announcement, or a position the
+/// codecs refuse (the caller already excludes the flip, the blockaded dock and the faction notes).
+#[must_use]
+pub fn announce_end(
+    gs: &mut GameState,
+    _content: &ti4_content::ContentStore,
+    sources: ti4_model::content_types::SourceSet,
+    a: EndArgs<'_>,
+    script: &Recording,
+) -> Option<CoreWindow<bool>> {
+    use ti4_engine_core::rules::combat::end_announce::{Codes, EndAnnounce, Facts};
+    if script.nested || crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let seat = |p: &PlayerId| r.seat(p.as_str());
+    let (attacker, defender) = (seat(a.attacker)?, seat(a.defender)?);
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let units = |kinds: &[String]| -> Option<Vec<ti4_engine_core::generated::Unit>> {
+        kinds.iter().map(|k| <ti4_engine_core::generated::Unit as IdStr>::from_id(k)).collect()
+    };
+    let fled = a.fled.iter().map(|(p, k)| Some((seat(p)?, units(k)?))).collect::<Option<Vec<_>>>()?;
+    let at_start = a.at_start.iter().map(|(p, k)| Some((seat(p)?, units(k)?))).collect::<Option<Vec<_>>>()?;
+    let winner = match a.winner {
+        Some(w) => Some(seat(w)?),
+        None => None,
+    };
+    let before = gs.clone();
+    let env = crate::core_combat::window_env(&before, &cx, sources)?;
+    let codes = Codes {
+        losers: r.code("losers"),
+        retreated: r.code("retreated"),
+        reasons: [r.code("retreat"), r.code("draw"), r.code("destruction"), r.code("round_limit")],
+    };
+    let facts = Facts { attacker, defender, system, rounds: a.rounds, winner, declared_draw: a.declared_draw, fled, at_start, codes, announce: a.announce };
+    let resolver = Resolver::new(&[attacker, defender], Some(attacker));
+    let mut driver = Driver::new(EndAnnounce::new(facts), resolver, AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let driven = with_core(gs, &mut cx, Sources::default(), BEGIN_ROUND, |core, _| {
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .ok()?
+    .ok()?;
+    apply_staged(gs, &r, &staged)?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(events), questions: driven.rendered })
+}
+
+/// What the string Raid Formation hook was called with (`hooks_combat::afb_excess`).
+#[derive(Debug, Clone, Copy)]
+pub struct RaidArgs<'a> {
+    pub producer: &'a PlayerId,
+    pub target: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    pub excess: usize,
+}
+
+/// The core half of the barrage's excess hits. `None` unless the producer is Argent (the only module with
+/// the hook), for neutral sides, reaction activity, or a position the codecs refuse.
+#[must_use]
+pub fn raid_formation(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    a: RaidArgs<'_>,
+    script: &Recording,
+) -> Option<CoreWindow<bool>> {
+    use ti4_engine_core::rules::combat::raid_formation::{Facts, RaidFormation};
+    if script.nested
+        || gs.player(a.producer).is_none_or(|p| p.faction.as_str() != "argent")
+        || crate::neutral_units::is_neutral(a.target)
+    {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let producer = r.seat(a.producer.as_str())?;
+    let target = r.seat(a.target.as_str())?;
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let before = gs.clone();
+    let env = crate::core_combat::window_env(&before, &cx, sources)?;
+    let facts = Facts { producer, target, system, excess: u16::try_from(a.excess).ok()?, subtype: r.code("raid_formation_damage") };
+    let resolver = Resolver::new(&[producer], Some(producer));
+    let mut driver = Driver::new(RaidFormation::new(facts), resolver, AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let driven = with_core(gs, &mut cx, Sources::default(), ASSIGN_HITS, |core, _| {
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
         staged = std::mem::take(&mut core.pending_mut().staged);
         driven
     })

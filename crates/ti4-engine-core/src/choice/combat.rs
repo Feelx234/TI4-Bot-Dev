@@ -35,6 +35,9 @@ pub enum Ask {
     /// "assign a hit": the owner picks which of the listed units is lost. The list is the caller's
     /// (ships, a group, a planet's units); the options are derived from it by `casualty_opts`.
     AssignHit,
+    /// Raid Formation (Argent): the barrage's producer picks which of `target`'s ships with SUSTAIN DAMAGE
+    /// becomes damaged, for a hit beyond the fighters.
+    RaidDamage { target: crate::ids::Seat },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -44,6 +47,8 @@ pub enum Opt {
     Sustain { site: SustainSite, unit: Unit, galvanized: bool },
     /// Destroy the unit at `index` of the caller's list (the first of its type and damage).
     Destroy { index: u16, unit: Unit, damaged: bool },
+    /// Damage a ship of this type (the first undamaged one).
+    RaidDamage { unit: Unit },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
