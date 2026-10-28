@@ -167,3 +167,19 @@ Ported in the mutation half: `rules::explore` (draw, fragment gain, purge for a 
 - E6: six `torch-sys` crates cannot build here.
 - E7: do not touch the live branch `nightly-fixes-2026-10-26` from port work.
 - E8: the live branch has 8 commits not in `core-state-main`; conflicts expected only in `ti4-host/src/view/scenario/mod.rs`, `ti4-server/src/session/{mod,registry,worker}.rs`, `ti4-server/tests/it/main.rs`.
+
+## B8 strategy cards: bails, copied behaviour and design lines
+
+Branch `core-b8-strategy`. Ported: the reads (slice 1: pick order, draft, unused cards, commodity limit, secondary eligibility), the phase-flow writes (`rules::strategy_flow`, glue `strategy_write.rs`, behind `dual::write` on `Area::Strategy`: card taken with its trade goods, deal, exhaust, swap, exchange, clear, stock the mat, lay out the mat, the commodity write of `replenish`) and the Trade primary as a window (`rules::strategy_windows::TradePrimary`, glue `strategy_core.rs`, renderer `render/strategy.rs`). NOT ported (still string): the primary and secondary effects of Leadership, Diplomacy, Politics, Construction, Warfare, Technology, Imperial, the Thunder's Edge variants (`te6warfare` etc.), the Trade secondary beyond the commodity write, the secondary sequencing window (`StrategySecondaryWindow`), `gain_tokens` pools, Leadership's purchase loop, Technology's research and payment.
+
+| id | note |
+|----|------|
+| B8-bail-01 | `trade_primary` window bails inside a battle or an invasion, with diplomacy on, in a nested emission, at a table with a Cabal, a siphoning Firmament plot or a Trade Agreement in play (`leaders_core::replenish_causes_events`, shared with the Hacan agent), and with two seats of one faction (options are named by faction) |
+| B8-bail-02 | `strategy_write::replenish` takes the core path only when the string's limit equals the faction's printed value (a seat on the placeholder faction "generic" is refused by the Players codec anyway) |
+| B8-bail-03 | every `strategy_write` function bails with more than 16 owners or a card id the tables do not know (custom/fixture cards) |
+| B8-copy-01 | `replenish` sets the commodities to the limit even above it (the string does); the core copies it |
+| B8-design-01 | staged events (`TRADE_GOODS_GAINED` of a taken card with goods, of the Trade primary's 3 goods) are not a codec slice: the core half writes the goods, the string side stages the event afterwards on both backends |
+| B8-design-02 | `Render` gained `factions`/`with_factions`/`faction_text`: the Trade options are named by faction text (the string option id), the details `seats` and `commodities` are completed by `strategy_core` from the core state |
+| B8-design-03 | `take_card`'s core half collects goods with the unclamped string sum only below `i16::MAX` (the core counter is i16) |
+| B8-design-04 | equivalent mutant: the `unwrap_or(99)` initiative of a card the map has no number for (every dealt card has one) |
+| B8-design-05 | a stray parse of the Trade option id picks the first seat of that faction in owner order; the string picks the first in seating order; the two agree because duplicate factions bail |
