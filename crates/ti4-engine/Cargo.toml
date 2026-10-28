@@ -37,6 +37,8 @@ string-objectives = []
 # The same for the faction modules (`Area::Factions`, wave C): forces the string `factions::MODULES` dispatch.
 # Read by `AreaMask::build_default` once the first shard is switched to `Core`.
 string-factions = []
+# The same off switch for the trade area (`trade_core`; package B4).
+string-trade = []
 
 [dev-dependencies]
 strum.workspace = true
