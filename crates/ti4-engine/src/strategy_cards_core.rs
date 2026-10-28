@@ -1102,6 +1102,21 @@ mod tests {
         assert_eq!(run(label, &F3, broke, &[&techs[0]], primary("pok7technology")).0, 1);
         // The secondary: one research for four resources.
         let label = "strategy_cards::technology_secondary";
+        // Exactly four to spend: the home planet alone pays (a lone option is taken without a question).
+        let exact = |s: &mut GameState| s.player_mut(&a()).unwrap().trade_goods = 0;
+        assert_eq!(run(label, &F3, exact, &[&techs[2]], secondary("pok7technology")).0, 1);
+        // Everything researched already: the free research is not asked, the paid one has nothing to offer.
+        let everything = |s: &mut GameState| {
+            goods(4)(s);
+            // Not Inheritance Systems (another faction's, and its owner leaves the plain path).
+            for t in ti4_engine_core::generated::Technology::ALL {
+                let id = <ti4_engine_core::generated::Technology as crate::generated::IdStr>::as_str(t);
+                if id != "is" {
+                    s.player_mut(&a()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(id));
+                }
+            }
+        };
+        assert_eq!(run("strategy_cards::technology_primary", &F3, everything, &[], primary("pok7technology")).0, 1);
         assert_eq!(run(label, &F3, &rich, &[&techs[2], "exhaust|jord"], secondary("pok7technology")).0, 1);
         assert_eq!(run(label, &F3, &rich, &["decline"], secondary("pok7technology")).0, 1);
         assert_eq!(run(label, &F3, broke, &[], secondary("pok7technology")).0, 1);
@@ -1123,11 +1138,11 @@ mod tests {
             s.enact_law("revolution", "for");
         };
         assert_eq!(run(label, &F3, law, &[&techs[0], "decline"], primary("pok7technology")), (0, 1));
-        // A unit upgrade changes the units on the board: the free research is one.
+        // A unit upgrade changes the units on the board: the free research is one (Infantry II, with two green).
         let content = ContentStore::embedded();
         let upgrade = |s: &mut GameState| {
             goods(4)(s);
-            for t in ["ps", "gd", "ca", "so", "bs", "ml", "aa", "pa"] {
+            for t in ["nm", "dxa"] {
                 s.player_mut(&a()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(t));
             }
         };
@@ -1139,5 +1154,28 @@ mod tests {
             .map(|t| t.to_string())
             .expect("an upgrade is researchable");
         assert_eq!(run(label, &F3, upgrade, &[&first_upgrade, "decline"], primary("pok7technology")), (0, 1));
+        // Inheritance Systems can research past a prerequisite: a research the plain path does not carry.
+        let inheritance = |s: &mut GameState| {
+            goods(4)(s);
+            s.player_mut(&a()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("is"));
+        };
+        assert_eq!(run(label, &F3, inheritance, &[&techs[0], "decline"], primary("pok7technology")), (0, 1));
+        // Below the rules version that asks which planets pay, the plan is chosen for the player.
+        let old_rules = |s: &mut GameState| {
+            goods(4)(s);
+            s.rules_version = ti4_model::state::RULES_TECH_PAYMENT_CHOICE - 1;
+        };
+        assert_eq!(run(label, &F3, old_rules, &[&techs[0], &techs[1]], primary("pok7technology")), (0, 1));
+        // A faction effect that offers to waive prerequisites.
+        let waiver = crate::factions::hooks_strategy::StrategyHooks {
+            research_waiver_offer: Some(|_, _, _, _| {
+                Some(crate::factions::hooks_strategy::ResearchWaiver { id: "t".to_owned(), label: "t".to_owned(), payments: Vec::new() })
+            }),
+            ..crate::factions::hooks_strategy::StrategyHooks::NONE
+        };
+        let declined = crate::factions::hooks_strategy::with_test_hooks(waiver, || {
+            run(label, &F3, goods(4), &[&techs[0], "decline"], primary("pok7technology"))
+        });
+        assert_eq!(declined, (0, 1));
     }
 }
