@@ -2187,7 +2187,9 @@ pub fn round_hits(gs: &mut GameState, sources: ti4_model::content_types::SourceS
     let driven = with_core(gs, &mut cx, src, footprint, |core, _| {
         let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
         staged = std::mem::take(&mut core.pending_mut().staged);
-        rng_after = Some(core.rng().clone());
+        if a.harrow {
+            rng_after = Some(core.rng().clone());
+        }
         driven
     })
     .ok()?
