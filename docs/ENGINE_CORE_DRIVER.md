@@ -79,6 +79,15 @@ Illegal picks are refused with the state untouched; `resume` after `Done` is `No
 The mutation test (change the gain to 2 in the core window) fails the unit test
 `letnevcommander_2_the_sustain_offer_runs_as_a_core_window_in_lockstep`.
 
+### Dice in a window (B1c)
+
+`Sx::die(domain, sides)` draws from the stream of the state's `rng` slice (`Rng::die`, the same ChaCha8 words
+as `GameRng::die`). The streams are seeded by `Sx::seeds`, which the adapter gives the driver with
+`Driver::with_seeds(Rc<dyn SeedSource>)` (default `NoSeeds`: all-zero seeds, for windows that never draw). The
+rng is part of the state, so a step rolled back for a nested question restores the streams with everything
+else and the re-run draws the same dice (unit test `dice_drawn_in_a_step_that_is_rolled_back_are_drawn_once`).
+Recording the roll in `ledger.dice` is the rule area's (`rules::combat::record_rolls`), not the kernel's.
+
 ## 4. The worked example (`driver/windows/sustain_commander.rs`)
 
 String `combat::ask_sustain_commander`: if the holder has an unlocked Letnev commander, ask "gain 1 trade good for the

@@ -25,6 +25,7 @@
 
 use super::resolver::{AbilityDef, CannotDef, Host, Resolver, TimingError};
 use super::seam::{Obs, Phase, Q};
+use crate::state::{RngDomain, SeedSource};
 use super::{Asker, Cx, Kernel, Next};
 use crate::choice::reaction::AbilityId;
 use crate::choice::{self, Choice, Pick};
@@ -186,6 +187,8 @@ pub struct Sx<'a> {
     pub next_id: &'a mut u64,
     /// The events the window itself emitted (not the ones the abilities of those windows caused).
     pub emitted: &'a mut Vec<EventRec>,
+    /// Seeds the random streams (`SHA-256(seed || domain text)`, the adapter's): see [`Sx::die`].
+    pub seeds: &'a dyn SeedSource,
 }
 
 impl<'a> Sx<'a> {
@@ -197,6 +200,12 @@ impl<'a> Sx<'a> {
     #[must_use]
     pub fn q(&self) -> Q<'_> {
         Q::new(&*self.state, self.kernel)
+    }
+
+    /// Draw a die with `sides` sides from the state's stream of `domain` (`GameRng::die`). The streams are in
+    /// the state (`rng` slice), so a rolled-back step restores them with the rest and a re-run draws the same.
+    pub fn die(&mut self, domain: RngDomain, sides: u32) -> u32 {
+        self.state.rng_mut().die(domain, self.seeds, sides)
     }
 
     /// Fire the observers of a program point (P5).
