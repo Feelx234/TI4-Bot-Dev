@@ -482,7 +482,7 @@ mod stub {
 #[cfg(all(test, feature = "typed-core"))]
 mod tests {
     use ti4_content::ContentStore;
-    use ti4_model::content_types::POK;
+    use ti4_model::content_types::{DEFAULT, POK};
     use ti4_model::id::{PlanetId, PlayerId, SystemId};
     use ti4_model::state::GameState;
 
@@ -505,13 +505,24 @@ mod tests {
         answers: &[&str],
         act: impl FnOnce(&mut GameState, &mut Table),
     ) -> (u64, u64) {
+        run_in(POK, label, factions, setup, answers, act)
+    }
+
+    fn run_in(
+        sources: ti4_model::content_types::SourceSet,
+        label: &str,
+        factions: &[(&str, &str)],
+        setup: impl FnOnce(&mut GameState),
+        answers: &[&str],
+        act: impl FnOnce(&mut GameState, &mut Table),
+    ) -> (u64, u64) {
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
         with_mask(AreaMask::STRING.with(Area::Strategy, Backend::Dual), || {
-            let mut state = crate::fixtures::seated_game(factions, POK);
+            let mut state = crate::fixtures::seated_game(factions, sources);
             // The notes are dealt to the factions once they are seated (the lobby does this; the typed cards
             // slice has no generic faction).
-            crate::promissory::deal(&mut state, ContentStore::embedded(), POK);
+            crate::promissory::deal(&mut state, ContentStore::embedded(), sources);
             setup(&mut state);
             let mut table = Table::with_default(Box::new(Scripted::new(answers.iter().map(|a| (*a).to_owned()))));
             act(&mut state, &mut table);
@@ -534,8 +545,12 @@ mod tests {
     }
 
     fn secondary(card: &'static str) -> impl FnOnce(&mut GameState, &mut Table) {
+        secondary_in(POK, card)
+    }
+
+    fn secondary_in(sources: ti4_model::content_types::SourceSet, card: &'static str) -> impl FnOnce(&mut GameState, &mut Table) {
         move |state, table| {
-            crate::strategy_cards::secondary(state, ContentStore::embedded(), POK, None, table, &a(), card).unwrap();
+            crate::strategy_cards::secondary(state, ContentStore::embedded(), sources, None, table, &a(), card).unwrap();
         }
     }
 
@@ -808,15 +823,25 @@ mod tests {
             }
         };
         let probe = {
-            let mut s = crate::fixtures::seated_game(&saar, POK);
+            let mut s = crate::fixtures::seated_game(&saar, DEFAULT);
             strip(&mut s);
-            crate::strategy_cards::structure_options(&s, ContentStore::embedded(), POK, &a(), false)
+            crate::strategy_cards::structure_options(&s, ContentStore::embedded(), DEFAULT, &a(), false)
                 .into_iter()
                 .find(|o| o.id.starts_with("spacedock|"))
                 .expect("a dock spot")
                 .id
         };
-        assert_eq!(run(label, &saar, strip, &[probe.as_str()], secondary("pok4construction")).0, 1);
+        assert_eq!(run_in(DEFAULT, label, &saar, strip, &[probe.as_str()], secondary_in(DEFAULT, "pok4construction")).0, 1);
+        // The factory ignores the dock the planet already holds.
+        let held = {
+            let s = crate::fixtures::seated_game(&saar, DEFAULT);
+            crate::strategy_cards::structure_options(&s, ContentStore::embedded(), DEFAULT, &a(), false)
+                .into_iter()
+                .find(|o| o.id.starts_with("spacedock|"))
+                .expect("a dock spot beside the dock")
+                .id
+        };
+        assert_eq!(run_in(DEFAULT, label, &saar, |_| {}, &[held.as_str()], secondary_in(DEFAULT, "pok4construction")).0, 1);
         // A PDS alternative a faction offers is the string's.
         let alt = crate::factions::hooks_economy::EconomyHooks {
             pds_placement_alternative: Some(|_, _, _, _, _, _| vec![crate::choice::ChoiceOption::labelled("x:alt", "build", "alt")]),
