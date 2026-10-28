@@ -146,7 +146,7 @@ fn register_string_bridge(seams: &mut Seams) {
                 let player = o.player(site.unit.owner)?;
                 let system = SystemId::new(site.unit.system?.as_str());
                 let planet = PlanetId::new(site.unit.planet?.as_str());
-                Some(crate::combat_effects::ground_roll_shift(
+                let whole = crate::combat_effects::ground_roll_shift(
                     &o.gs,
                     ContentStore::embedded(),
                     o.sources,
@@ -154,7 +154,19 @@ fn register_string_bridge(seams: &mut Seams) {
                     &system,
                     &planet,
                     site.unit.unit.as_str(),
-                ))
+                );
+                // The Nekro mech's term is native (`ca_combat::nekro`'s Mordred row, registered in the combat
+                // kernel): counted once, not again through the string total.
+                let mordred = crate::factions::nekro_units::mech_roll_bonus(
+                    &o.gs,
+                    ContentStore::embedded(),
+                    o.sources,
+                    &player,
+                    site.unit.unit.as_str(),
+                    Some(&system),
+                    Some(&planet),
+                );
+                Some(whole - mordred)
             })
             .flatten()
             .unwrap_or(0));
@@ -178,18 +190,9 @@ fn register_string_bridge(seams: &mut Seams) {
                 &player,
                 u.unit.as_str(),
             );
-            let nekro = crate::factions::nekro_units::mech_roll_bonus(
-                &o.gs,
-                ContentStore::embedded(),
-                o.sources,
-                &player,
-                u.unit.as_str(),
-                system.as_ref(),
-                None,
-            );
             let assail =
                 crate::factions::firmament_plots::assail_space(&o.gs, ContentStore::embedded(), o.sources, &player, system.as_ref());
-            module + unit_mod + mahact + nekro + assail
+            module + unit_mod + mahact + assail
         })
         .unwrap_or(0))
     });

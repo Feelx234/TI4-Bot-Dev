@@ -10364,6 +10364,33 @@ mod ground_routes {
     }
 
     #[test]
+    fn the_nekro_mech_rolls_two_better_once_on_the_core_backend() {
+        // `invasion=core` answers the ground value from the typed rows: the Mordred row is native and the string
+        // bridge of the combat kernel must not add it again (bench-v1 seed 25 rolled on 2 instead of 4).
+        use crate::dual::{Area, AreaMask, Backend, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let mut state = crate::fixtures::seated_game(&[("a", "nekro"), ("b", "sol")], POK);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        let (system, planet) = ti4_content::galaxy::all_planets(ContentStore::embedded(), POK)
+            .iter()
+            .find(|(_, p)| p.system_id().is_some() && !p.is_placed_during_play())
+            .map(|(id, p)| (SystemId::new(p.system_id().unwrap()), PlanetId::new(*id)))
+            .expect("a placed planet");
+        // Sol owns Mageon Implants, which carries Nekro's X token.
+        crate::technology_effects_tests::give(&mut state, "b", "mi");
+        state.player_mut(&a()).unwrap().assimilated_technologies.insert("vax".to_owned(), ti4_model::id::TechnologyId::new("mi"));
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "nekro_mech", &a(), 1);
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b(), 1);
+        let value = |backend: Backend| {
+            with_mask(AreaMask::STRING.with(Area::Invasion, backend), || ground_combat_value(&state, ContentStore::embedded(), POK, &a(), &system, &planet, "nekro_mech"))
+        };
+        let printed = value(Backend::String);
+        assert_eq!(printed, Some(4), "6 with Mordred's +2");
+        assert_eq!(value(Backend::Core), printed);
+    }
+
+    #[test]
     fn a_landing_runs_as_a_core_window_in_lockstep() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
         let _guard = crate::dual::tests::serial();
