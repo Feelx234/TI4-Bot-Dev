@@ -42,7 +42,7 @@ given are from the package reports.
   - B6-bail-03: `reaction_can_matter` answers `None` for Harness Energy and Infiltrate.
   - B6-bail-04: `own_hand_choice` answers `None` for an unknown (subtype, prompt) pair; the string question stands.
   - B6-bail-05: Industrial Initiative, Intercept, Parley, Direct Hit, Scramble and the other effects that stage events, need a combatants read, a dice roll or a unit-form flip are still string (event staging outside a window has no adapter path yet).
-- **Others**: B4 offer/diplomacy remainder; B5 mutations; B7/B8/A4 mutation halves (B7 in progress); A4 scoring/reveal not ported; S8 partial (only reaction slots as data).
+- **Others**: B4 offer/diplomacy remainder; B5 mutations; B8/A4 mutation halves (B7 see its own section); A4 scoring/reveal not ported; S8 partial (only reaction slots as data).
 
 ## D. Design / known issues
 
@@ -75,6 +75,28 @@ given are from the package reports.
 | B6-design-01 | `dual!`/`dual_typed!` panic on a difference only with fail-fast; `with_mask` in a unit test does not enable it, so tests must read `dual::take_report()` |
 | B6-design-02 | the fixture faction "generic" (and fixture promissory notes keyed "generic") is refused by the Players/Cards codec, so the core half silently bails; tests must use real faction ids and assert the core half ran (probe `play_simple(...).is_some()`) |
 | B6-design-03 | `board_equivalence` prints one action-cards summary line with no per-area switch |
+
+## B7 leaders: bails and design lines
+
+Branch `core-b7-leaders`. Ported: status writes, the decision-free effects (extra-die agents, Darktalon Treilla, Hacan hero, Jace X., I48S, Claire Gibson's placement, end of round) and the question-asking windows of Ggrocuto Rinn (Xxcha agent), Carth of Golden Sands (Hacan agent), The Helmsman (L1Z1X hero) and Rin (Jol-Nar hero), all behind dual on `leaders`.
+
+| id | note |
+|----|------|
+| B7-bail-1 | a leader id the core tables do not know makes every status write fall back to string (`leaders_core.rs`) |
+| B7-bail-2 | positions the Players slice cannot map (placeholder faction "generic", more than 16 owners) bail every leader write |
+| B7-bail-3 | `extra_die_agent` bails when the string-resolved unit form has no core `Unit` variant (A3 `unit_form` table at D2); the same holds for `l1z1x_agent` and `sol_commander` |
+| B7-bail-4 | the ability arms owned by faction modules (`factions::use_leader_timed`, `use_leader_strategy_primary`, Ssruu's `use_leader_text` wrapper, Nomad, Titans, Mahact, Naaz, Yssaril leaders) stay string; the generic arms Ssruu borrows (xxcha, hacan, l1z1x agent, ...) are covered through `dispatch_leader` |
+| B7-bail-5 | the four question windows bail inside a space battle or an invasion (the string context carries the battle), with diplomacy enabled, or when a nested emission was recorded |
+| B7-bail-6 | `hacanagent` bails at a table with a Cabal, a Firmament siphon watcher or a Trade Agreement in play (commodity events, replenish hooks stay string); `xxchaagent` and `l1z1xagent` bail with diplomacy enabled (promise kept on a favour) |
+| B7-bail-7 | `l1z1xagent` bails for the Naaz mech (announced placement); `jolnarhero` bails when `apply_unit_upgrades` would change the position |
+| B7-bail-8 | `xxchaagent` and `l1z1xhero` run without the Map slice when the string arm has no galaxy; the removal / the whole use is then never offered, as in the string |
+| B7-bail-9 | `xxchahero-te` (Thunder's Edge hero) and the Evelyn/Viscount choose-a-unit paths are not ported; `solhero` has no question and is ported |
+| B7-design-1 | Nomad `agent_readied` and the agent-exhausted staged event live in the string callers outside the core status write (move to core hooks at D2) |
+| B7-design-2 | tests build `seated_game` and clear promissory notes by hand to avoid unmapped Cards |
+| B7-design-3 | `RinHero` takes the corpus (file) order of the technologies and the alias-text order from the adapter: the generated enum is in neither order and the generator emits no table for them; replace by generated tables when the generator grows them |
+| B7-design-4 | the planet option of `XxchaPlanet` reuses B9's `agenda::Shown` (equal-always system payload) so a parsed answer equals the offered option; no copy of the type |
+| B7-design-5 | `GameState: PartialEq` ignores the board; code that must see a board change (e.g. the `jolnar_hero` guard) uses `GameState::identical` |
+| B7-design-6 | the lockstep tests assert the core half ran (probes call the `leaders_core` function and require `Some`), since a bail is silent |
 
 ## E. Process / ops notes
 
