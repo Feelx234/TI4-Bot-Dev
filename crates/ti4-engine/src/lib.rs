@@ -82,6 +82,8 @@ pub mod reach_query;
 pub mod core_adapter;
 #[cfg(feature = "typed-core")]
 pub mod core_sync;
+#[cfg(feature = "typed-core")]
+pub mod technology_core;
 /// Area::BoardQueries (package A1): the typed board queries behind a string interface.
 #[cfg(feature = "typed-core")]
 pub mod board_view;
