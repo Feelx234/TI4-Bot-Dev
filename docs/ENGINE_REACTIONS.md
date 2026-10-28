@@ -210,7 +210,7 @@ Bails 1-4 have a unit test in `reactions_core::tests`, 5 in `rules::action_cards
 | slot | string id (`*` = the owner's faction) | notes |
 |---|---|---|
 | 1 | `technology:*:inf2:GROUND_FORCE_DESTROYED:after` | rolls a die from the dice stream, `Inf2Card` mark; the return at TURN_BEGAN is string |
-| 2 / 3 | `leader:sol:solagent:GROUND_COMBAT_ROUND_STARTED:after` / `leader:letnev:letnevagent:COMBAT_ROUND_STARTED:after` | the round agents (own, rules 16 / 17): the unit question, the `YssarilSsruuRoundAgent` mark, the exhaustion; the Ssruu copies stay string |
+| 9001 / 9002 | `leader:sol:solagent:GROUND_COMBAT_ROUND_STARTED:after` / `leader:letnev:letnevagent:COMBAT_ROUND_STARTED:after` | the round agents (own, rules 16 / 17): the unit question, the `YssarilSsruuRoundAgent` mark, the exhaustion; the Ssruu copies stay string |
 | 4001 | `leader:argent:argentagent:GROUND_FORCES_BEING_PRODUCED:when` | the production window's grant mark; adjacency is an adapter fact |
 | 5 | `technology:*:it:ACTION_CARD_PLAYED:when` | Instinct Training: question, token, exhaustion, staged `STRATEGY_TOKEN_SPENT`, cancel (core tests only: no followed window emits a card play yet) |
 | 6 | `leader:*:l1z1xagent:SYSTEM_ACTIVATED:after` | I48S: question, the mech swap, exhaustion (core tests only: no window emits the activation) |
@@ -225,7 +225,7 @@ Bails 1-4 have a unit test in `reactions_core::tests`, 5 in `rules::action_cards
 | 10 | `tech:*:sar:GROUND_FORCE_DESTROYED:after` | Self-Assembly Routines' trade good (announced through the resolver) |
 | 11-14 | `leader:*:titansagent:{HITS_TO_ASSIGN,SPACE_CANNON_HITS,GROUND_HITS_TO_ASSIGN,ANTI_FIGHTER_BARRAGE_HITS}:when` | Tellurian: exhaust, one cancellation in the round pool |
 
-Registration order in the table (per owner, the string order of `reactions::arm`): round agents, reaction slots, Instinct
+Registration order in the table (per owner, the string order of `reactions::arm`): round agents (`cc_ground::borrowed::timing`: a core area may not import the combat and invasion areas, the faction crate may), reaction slots, Instinct
 Training, I48S, Infantry II, the faction packages (Argent, Cabal, Arborec, Yin, Mentak), then the technologies the string
 chains behind the faction hooks (Tellurian, Self-Assembly Routines).
 

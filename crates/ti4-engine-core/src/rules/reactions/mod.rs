@@ -11,18 +11,11 @@ use crate::kernel::ability::{AbilityTable, Slot};
 pub mod infantry_ii;
 pub mod instinct_training;
 pub mod l1z1x_agent;
-pub mod round_agent;
 pub mod saar;
 pub mod tellurian;
 
 /// Infantry II (`inf2`): after the owner's Infantry II is destroyed, roll a die.
 pub const INFANTRY_II_ROLLS: Slot = Slot(1);
-
-/// The abilities the string registers ahead of the per-seat reaction-card slots (`reactions::arm`): the round
-/// agents.
-pub fn register_first(t: &mut AbilityTable) {
-    round_agent::register(t);
-}
 
 /// Add the ported generic abilities that follow the slots, in the string registration order.
 pub fn register(t: &mut AbilityTable) {

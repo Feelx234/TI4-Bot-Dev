@@ -1,4 +1,4 @@
-//! The two combat-round agents (`borrowed_round_agents.rs`, `owner_abilities` of the string engine): Evelyn De Louis
+//! borrowed: the timing abilities (the reaction windows), docs/ENGINE_REACTIONS.md. The two combat-round agents (`borrowed_round_agents.rs`, `owner_abilities` of the string engine): Evelyn De Louis
 //! (Sol, "at the start of a ground combat round: exhaust to choose 1 ground force in the active system: it rolls
 //! 1 additional die during this combat round", rules version 16) and Viscount Unlenn (Letnev, the same for
 //! 1 ship in a space combat round, rules version 17).
@@ -12,25 +12,25 @@
 //! Not covered (the adapter bails): a Nomad that listens to agent exhaustion (the exhaustion is announced), and
 //! a game with diplomacy promises on (the use of a leader is a promise event).
 
-use crate::choice::leaders::{Ask as LAsk, Opt as LOpt, RoundTarget, Subtype as LSub};
-use crate::choice::reaction::{AbilityKind, Relation};
-use crate::choice::generic::Content;
-use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
-use crate::containers::SmallList;
-use crate::generated::{Faction, Leader, Planet, System};
-use crate::ids::Seat;
-use crate::kernel::ability::{AbilityTable, Applies, CondCx, Eff, Slot, Spec, Unknown};
-use crate::kernel::read::Rd;
-use crate::kernel::resolver::TimingError;
-use crate::kernel::Kernel;
-use crate::keys::{Atom, DecimalTextOrd, MarkKey, MarkVal};
-use crate::query::reach;
-use crate::state::{CoreState, EventKind, EventRec, Key, LeaderStatus};
+use ti4_engine_core::choice::leaders::{Ask as LAsk, Opt as LOpt, RoundTarget, Subtype as LSub};
+use ti4_engine_core::choice::reaction::{AbilityKind, Relation};
+use ti4_engine_core::choice::generic::Content;
+use ti4_engine_core::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
+use ti4_engine_core::containers::SmallList;
+use ti4_engine_core::generated::{Faction, Leader, Planet, System};
+use ti4_engine_core::ids::Seat;
+use ti4_engine_core::kernel::ability::{AbilityTable, Applies, CondCx, Eff, Slot, Spec, Unknown};
+use ti4_engine_core::kernel::read::Rd;
+use ti4_engine_core::kernel::resolver::TimingError;
+use ti4_engine_core::kernel::Kernel;
+use ti4_engine_core::keys::{Atom, DecimalTextOrd, MarkKey, MarkVal};
+use ti4_engine_core::query::reach;
+use ti4_engine_core::state::{CoreState, EventKind, EventRec, Key, LeaderStatus};
 
 /// Evelyn De Louis (`leader:sol:solagent:GROUND_COMBAT_ROUND_STARTED:after`).
-pub const SOL_AGENT: Slot = Slot(2);
+pub const SOL_AGENT: Slot = Slot(9001);
 /// Viscount Unlenn (`leader:letnev:letnevagent:COMBAT_ROUND_STARTED:after`).
-pub const LETNEV_AGENT: Slot = Slot(3);
+pub const LETNEV_AGENT: Slot = Slot(9002);
 
 /// `RULES_FACTION_EFFECTS` and `RULES_FACTION_BUGFIXES`.
 const RULES_SOL: u32 = 16;
@@ -60,7 +60,7 @@ fn readied(s: &CoreState, who: Seat, agent: Leader) -> bool {
     s.players().by_seat(who).is_some_and(|p| p.leaders.status.get(&agent) == Some(&LeaderStatus::Readied))
 }
 
-fn target(unit: crate::state::Piece, planet: Option<Planet>, index: usize) -> RoundTarget {
+fn target(unit: ti4_engine_core::state::Piece, planet: Option<Planet>, index: usize) -> RoundTarget {
     RoundTarget {
         owner: unit.owner(),
         planet,
@@ -100,18 +100,18 @@ fn plan(s: &CoreState, k: &Kernel, event: &EventRec, owner: Seat, ground: bool) 
     let mut candidates = Vec::new();
     for seat in s.players().iter().map(|pl| pl.seat) {
         if ground {
-            for planet in crate::rules::combat::planets_of_sorted(s, system).iter() {
+            for planet in ti4_engine_core::rules::combat::planets_of_sorted(s, system).iter() {
                 let roster = s
                     .board()
                     .planet(*planet)
                     .units
                     .iter()
                     .filter(|u| u.owner() == seat)
-                    .filter(|u| crate::rules::invasion::is_ground_force_here(rd, seat, system, *planet, **u));
+                    .filter(|u| ti4_engine_core::rules::invasion::is_ground_force_here(rd, seat, system, *planet, **u));
                 candidates.extend(roster.enumerate().map(|(i, u)| target(*u, Some(*planet), i)));
             }
         } else {
-            candidates.extend(crate::rules::combat::ships_of(rd, seat, system).into_iter().enumerate().map(|(i, u)| target(u, None, i)));
+            candidates.extend(ti4_engine_core::rules::combat::ships_of(rd, seat, system).into_iter().enumerate().map(|(i, u)| target(u, None, i)));
         }
     }
     (!candidates.is_empty()).then_some(Plan { system, combat_planet, round_seq, candidates })
@@ -199,7 +199,7 @@ fn effect(eff: &mut Eff<'_, '_>, ground: bool) -> Result<(), TimingError> {
 }
 
 /// Register both agents (before the reaction-card slots: the string registers them ahead of the per-seat slots).
-pub fn register(t: &mut AbilityTable) {
+pub fn register_abilities(t: &mut AbilityTable) {
     t.add(
         Spec::new(SOL_AGENT, AbilityKind::Leader, EventKind::GroundCombatRoundStarted, Relation::After, |e| effect(e, true))
             .applies(Applies::Held(sol_holds))
@@ -221,7 +221,7 @@ mod tests {
     #[test]
     fn the_agents_are_registered_for_their_factions_only() {
         let mut t = AbilityTable::default();
-        register(&mut t);
+        register_abilities(&mut t);
         assert_eq!(t.specs().len(), 2);
         assert!(t.specs().iter().all(|s| s.optional && s.condition.is_some()));
     }

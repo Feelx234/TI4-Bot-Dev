@@ -43,8 +43,8 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::MILOR_GROUND, kind: "leader", card: "yinagent" },
     Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::SALVAGE_TRADE_GOOD, kind: "technology", card: "so" },
     Named { slot: ti4_engine_core::rules::reactions::saar::SAAR_TRADE_GOOD, kind: "tech", card: "sar" },
-    Named { slot: ti4_engine_core::rules::reactions::round_agent::SOL_AGENT, kind: "leader", card: "solagent" },
-    Named { slot: ti4_engine_core::rules::reactions::round_agent::LETNEV_AGENT, kind: "leader", card: "letnevagent" },
+    Named { slot: ti4_engine_core_factions::cc_ground::borrowed::timing::SOL_AGENT, kind: "leader", card: "solagent" },
+    Named { slot: ti4_engine_core_factions::cc_ground::borrowed::timing::LETNEV_AGENT, kind: "leader", card: "letnevagent" },
     Named { slot: ti4_engine_core::rules::reactions::INFANTRY_II_ROLLS, kind: "technology", card: "inf2" },
     Named { slot: cabal::REANIMATOR, kind: "unit", card: "cabal_mech" },
     Named { slot: cabal::DEVOUR_SHIPS, kind: "ability", card: "devour" },
@@ -96,7 +96,7 @@ pub fn table() -> AbilityTable {
             t.bars = Some(ti4_engine_core::rules::agenda::political_secret_bars);
             // The string order of `reactions::arm`, per owner: the reaction slots, then Instinct Training, I48S,
             // Infantry II, Magen Defense, the factions.
-            ti4_engine_core::rules::reactions::register_first(&mut t);
+            ti4_engine_core_factions::cc_ground::register_first(&mut t);
             ti4_engine_core::rules::action_cards::reaction_slot::register(&mut t);
             ti4_engine_core::rules::reactions::register(&mut t);
             ti4_engine_core_factions::cb_economy::register_abilities(&mut t);
