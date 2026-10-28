@@ -330,7 +330,7 @@ fn the_status_scoring_window_runs_in_lockstep_with_the_core() {
 /// declines, so the string write stands. Bails are silent in the lockstep, so each is probed here.
 #[test]
 fn the_documented_bails_stay_with_the_string_side() {
-    use crate::choice::{Choice, ChoiceOption};
+    use crate::choice::ChoiceOption;
     use crate::dual_window::Recording;
     use crate::objectives_write::{ScoreArgs, adjust, draw_secret, reveal_stage, reveal_top, score_one, score_public, score_secret};
     let content = ContentStore::embedded();
