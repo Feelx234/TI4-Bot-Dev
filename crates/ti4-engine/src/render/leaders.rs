@@ -75,12 +75,7 @@ pub fn complete_round_agent(r: &Render, choice: &ti4_engine_core::choice::Choice
         })
         .collect();
     let captions: Vec<(&str, serde_json::Value)> = captions.iter().map(|(id, c)| (id.as_str(), c.clone())).collect();
-    let offered = crate::choice::Choice::new(rendered.player.clone(), String::new(), Vec::new()).offered(
-        crate::strategy_cards::leader_card(content, agent.as_str(), "agent"),
-        Vec::new(),
-        &captions,
-    );
-    rendered.details = offered.details;
+    rendered.details = crate::choice::offer_details(crate::strategy_cards::leader_card(content, agent.as_str(), "agent"), Vec::new(), &captions);
 }
 
 pub const GAIN_ID: &str = "gain";

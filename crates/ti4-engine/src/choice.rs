@@ -251,6 +251,19 @@ pub fn offer_caption_for_seat(label: &str, hint: Option<&str>, seat: &str) -> Va
     serde_json::json!({ "label": label, "hint": hint, "seat": seat })
 }
 
+/// The `details` an offer carries (`kind`, `card`, `facts`, `captions`): what [`Choice::offered`] adds, for a producer
+/// that completes the details of a question it did not build (the core dual's round agent question).
+#[must_use]
+pub fn offer_details(card: Value, facts: Vec<Value>, captions: &[(&str, Value)]) -> serde_json::Map<String, Value> {
+    let captions: serde_json::Map<String, Value> = captions.iter().map(|(id, caption)| ((*id).to_owned(), caption.clone())).collect();
+    let mut details = serde_json::Map::new();
+    details.insert("kind".to_owned(), Value::String("offer".to_owned()));
+    details.insert("card".to_owned(), card);
+    details.insert("facts".to_owned(), Value::Array(facts));
+    details.insert("captions".to_owned(), Value::Object(captions));
+    details
+}
+
 impl Choice {
     #[must_use]
     pub fn new(player: PlayerId, prompt: impl Into<String>, options: Vec<ChoiceOption>) -> Self {
@@ -307,15 +320,9 @@ impl Choice {
     /// `captions` maps option ids to [`offer_caption`]s that say what each answer does. Option ids,
     /// order and kinds are untouched, so decision records and replays are unaffected.
     #[must_use]
-    pub fn offered(self, card: Value, facts: Vec<Value>, captions: &[(&str, Value)]) -> Self {
-        let captions: serde_json::Map<String, Value> = captions
-            .iter()
-            .map(|(id, caption)| ((*id).to_owned(), caption.clone()))
-            .collect();
-        self.detailed("kind", "offer")
-            .detailed("card", card)
-            .detailed("facts", Value::Array(facts))
-            .detailed("captions", Value::Object(captions))
+    pub fn offered(mut self, card: Value, facts: Vec<Value>, captions: &[(&str, Value)]) -> Self {
+        self.details.extend(offer_details(card, facts, captions));
+        self
     }
 
     /// Attach producer-authored typed semantics to this decision.
