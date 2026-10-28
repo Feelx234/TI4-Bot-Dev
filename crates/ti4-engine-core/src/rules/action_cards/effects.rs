@@ -234,7 +234,7 @@ impl Play {
                 None => Self::seat_opts(seats::seating_order(core).as_slice().iter().copied().filter(|s| *s != who)),
                 Some(victim) => {
                     let mut held = crate::query::promissory::held_by(core, victim);
-                    held.sort_by_cached_key(|k| (self.env.note_text)(*k));
+                    held.sort_by(|a, b| (self.env.note_order)(*a, *b));
                     held.into_iter().map(Opt::Note).collect()
                 }
             },
@@ -604,7 +604,9 @@ mod tests {
             blanked: false,
             action_card: crate::state::Code(0),
             supply_base: crate::state::Code(0),
-            note_text: |_| String::new(),
+            note_order: |a, b| a.cmp(&b),
+            infantry: super::super::Placed::NONE,
+            cruiser: super::super::Placed::NONE,
         };
         let who = Seat(0);
         assert!(Play::of(&core, ActionCard::Veto, who, env).is_some());

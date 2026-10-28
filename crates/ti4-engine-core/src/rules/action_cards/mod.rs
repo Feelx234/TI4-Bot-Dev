@@ -329,8 +329,8 @@ pub struct Env {
     pub action_card: crate::state::Code,
     /// The interned `forward_supply_base`.
     pub supply_base: crate::state::Code,
-    /// The state's text of a promissory note (the string orders a hand by it; the core has no id text).
-    pub note_text: fn(crate::state::NoteKey) -> String,
+    /// The order of the state's note ids (the string orders a hand by their text; the core has no id text).
+    pub note_order: fn(crate::state::NoteKey, crate::state::NoteKey) -> core::cmp::Ordering,
     /// The infantry the seat places (Rise of a Messiah, Frontline Deployment).
     pub infantry: Placed,
     /// The cruiser the seat places (War Effort).

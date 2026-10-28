@@ -239,7 +239,7 @@ fn env_of(state: &GameState, player: &PlayerId, sources: &ti4_model::content_typ
         blanked: crate::laws::blanked(state),
         action_card: r.code("action_card"),
         supply_base: r.code("forward_supply_base"),
-        note_text: crate::render::cards::note_text,
+        note_order: |a, b| crate::render::cards::note_text(a).cmp(&crate::render::cards::note_text(b)),
         infantry: rules::Placed::NONE,
         cruiser: rules::Placed::NONE,
     }
