@@ -6069,14 +6069,19 @@ impl CombatWindow {
     /// Both anti-fighter barrages (78.3): rolled one side at a time with its reroll windows, then applied.
     /// The players that scored a barrage feat.
     ///
-    /// On `driver=dual` a step with nothing to roll for either side also runs as a core window
-    /// (`rules::combat::barrage_idle`).
+    /// On `driver=dual` the step also runs as a core window (`rules::combat::barrage`) for the positions
+    /// `dual_window::barrage_unported` does not exclude.
     fn barrage_step(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>, round: u32) -> Result<Vec<PlayerId>, CombatError> {
         let sources = ctx.sources;
         let failed = std::cell::Cell::new(false);
         let mut outcome = None;
         let announce = ctx.timing.is_some();
+        let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending();
         let (attacker, defender, system) = (self.attacker.clone(), self.defender.clone(), self.system.clone());
+        let occurrence = self.ensure_combat_occurrence(state).0;
+        let staging = crate::supply::staging_enabled(state);
+        let rng_before = ctx.rng.positions();
+        let history_start = ctx.dice.history().len();
         crate::dual_window!(
             crate::dual::Area::Driver,
             "combat::barrage_step",
@@ -6084,22 +6089,35 @@ impl CombatWindow {
             |s: &mut GameState| {
                 let result = self.barrage_step_string(s, ctx, round);
                 failed.set(result.is_err());
-                let ok = result.as_ref().is_ok_and(Vec::is_empty);
+                let value: crate::dual_window::BarrageOut = (
+                    result.as_ref().map(Clone::clone).unwrap_or_default(),
+                    ctx.dice
+                        .history()
+                        .iter()
+                        .skip(history_start)
+                        .filter(|roll| roll.reason.starts_with("anti"))
+                        .map(|roll| (roll.hits_on.unwrap_or(0), roll.faces.clone()))
+                        .collect(),
+                    ctx.rng.positions(),
+                );
                 outcome = Some(result);
-                crate::dual::Run::new(ok)
+                crate::dual::Run::new(value)
             },
             |s: &mut GameState, script: &crate::dual_window::Recording| {
                 if failed.get() {
                     return None;
                 }
-                let args = crate::dual_window::BarrageIdleArgs {
+                let args = crate::dual_window::BarrageArgs {
                     attacker: &attacker,
                     defender: &defender,
                     system: &system,
                     round,
+                    occurrence,
+                    staging,
                     announce,
+                    reproducible,
                 };
-                crate::dual_window::barrage_idle(s, sources, args, script)
+                crate::dual_window::barrage_step(s, sources, args, &rng_before, script)
             }
         );
         outcome.unwrap_or_else(|| Ok(Vec::new()))
@@ -9075,6 +9093,47 @@ mod tests {
         assert!(lost > 0, "some ships were lost");
         assert!(r.areas[&Area::Driver].calls >= 6, "the announcements were compared: {:?}", r.areas[&Area::Driver]);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    #[test]
+    fn the_barrage_step_runs_as_a_core_window_in_lockstep() {
+        // Round 1 with a barrage on `driver=dual`: the core window draws the same dice from the same stream
+        // positions, removes the same fighters, records the same feat and announces the same events.
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut killed = 0;
+        for seed in 0..10_u64 {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = seed;
+            let system = SystemId::new("18");
+            put(&mut state, &system, &a_barrage_unit(), &attacker(), 3);
+            put(&mut state, &system, "fighter", &defender(), if seed % 2 == 0 { 1 } else { 4 });
+            put(&mut state, &system, "cruiser", &defender(), 1);
+            with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+                killed += usize::from(dice.history().iter().any(|r| r.reason.starts_with("anti") && r.hits() > 0));
+            });
+        }
+        let r = report();
+        assert!(killed > 0, "some barrage hit");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.areas[&Area::Driver].calls >= 20, "the steps were compared: {:?}", r.areas[&Area::Driver]);
         let _ = take_report();
     }
 

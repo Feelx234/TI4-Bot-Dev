@@ -690,37 +690,70 @@ const BEGIN_ROUND: Footprint = Footprint::new(
 
 /// What the string `CombatWindow::barrage_step` was called with.
 #[derive(Debug, Clone, Copy)]
-pub struct BarrageIdleArgs<'a> {
+pub struct BarrageArgs<'a> {
     pub attacker: &'a PlayerId,
     pub defender: &'a PlayerId,
     pub system: &'a ti4_model::id::SystemId,
     pub round: u32,
+    pub occurrence: u64,
+    /// `supply::staging_enabled`.
+    pub staging: bool,
     /// The resolver carries the timing machinery.
     pub announce: bool,
+    /// The dice and streams are the ones the core can reproduce (no test faces, no pending restore).
+    pub reproducible: bool,
 }
 
-/// The core half of `CombatWindow::barrage_step` for a step where neither side has anything to roll.
-/// `None` when either side has a barrage (the typed plan is not empty), neutral sides, reaction activity
-/// in the announcements (Waylay binds there), or a position the codecs refuse.
+/// What the barrage step leaves besides the state: the seats that scored the feat, the dice of the step
+/// (hit number, faces) and where the streams stand.
+pub type BarrageOut = (Vec<PlayerId>, Vec<(u32, Vec<u32>)>, crate::rng::RngPositions);
+
+/// The seeds of the Dice stream (the only one a window draws from here): `SHA-256(seed || "dice")`.
+struct DiceSeeds(String);
+
+impl ti4_engine_core::state::SeedSource for DiceSeeds {
+    fn seed_for(&self, seed: u64, domain: ti4_engine_core::state::RngDomain) -> [u8; 32] {
+        if domain == ti4_engine_core::state::RngDomain::Dice {
+            crate::rng::GameRng::derive_seed(seed, &self.0)
+        } else {
+            [0; 32]
+        }
+    }
+}
+
+/// Whether the barrage step holds something the core window does not carry: a reroll question (Jol-Nar
+/// commander, Heart of Ixth), a Waylay played this round, an Argent side (`afb_excess`).
 #[must_use]
-pub fn barrage_idle(
+pub fn barrage_unported(gs: &GameState, a: &BarrageArgs<'_>) -> bool {
+    let heart = ti4_model::id::RelicId::new("heartofixth");
+    gs.players.iter().any(|p| crate::relics::holds(gs, &p.id, &heart))
+        || [a.attacker, a.defender].into_iter().any(|id| {
+            gs.player(id).is_none_or(|p| {
+                p.faction.as_str() == "argent"
+                    || p.waylay_barrage_round.is_some_and(|r| r == gs.combat_round_seq)
+            }) || crate::promissory::has_commander_ability(gs, id, "jolnarcommander")
+        })
+}
+
+/// The core half of `CombatWindow::barrage_step`. `rng_before` is where the streams stood before the string
+/// step. `None` for the positions of [`barrage_unported`], neutral sides, irreproducible dice, reaction
+/// activity in the announcements, or a position the codecs refuse.
+#[must_use]
+pub fn barrage_step(
     gs: &mut GameState,
     sources: ti4_model::content_types::SourceSet,
-    a: BarrageIdleArgs<'_>,
+    a: BarrageArgs<'_>,
+    rng_before: &crate::rng::RngPositions,
     script: &Recording,
-) -> Option<CoreWindow<bool>> {
-    use ti4_engine_core::rules::combat::barrage_idle::{BarrageIdle, Facts};
-    if script.nested || crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
-        return None;
-    }
-    #[cfg(feature = "typed-core")]
+) -> Option<CoreWindow<BarrageOut>> {
+    use ti4_engine_core::rules::combat::barrage::{BarrageStep, Facts};
+    if script.nested
+        || !a.reproducible
+        || crate::neutral_units::is_neutral(a.attacker)
+        || crate::neutral_units::is_neutral(a.defender)
+        || barrage_unported(gs, &a)
     {
-        let view = crate::core_combat::CombatView::of(gs, ti4_content::ContentStore::embedded(), sources)?;
-        for side in [a.attacker, a.defender] {
-            if !view.barrage_plan(side, a.system)?.is_empty() {
-                return None;
-            }
-        }
+        return None;
     }
     let (mut cx, r) = tables(gs)?;
     let attacker = r.seat(a.attacker.as_str())?;
@@ -728,21 +761,53 @@ pub fn barrage_idle(
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
     let before = gs.clone();
     let env = crate::core_combat::window_env(&before, &cx, sources)?;
-    let facts = Facts { attacker, defender, system, round: a.round, phase: cx.texts.intern(Slice::Transient, "barrage").ok()?, announce: a.announce };
+    let mut unit_codes = Vec::new();
+    for p in before.system_state(a.system).units.iter().chain(before.system_state(a.system).planet_units.values().flatten()) {
+        let unit = <ti4_engine_core::generated::Unit as IdStr>::from_id(p.type_id.as_str())?;
+        if !unit_codes.iter().any(|(u, _)| *u == unit) {
+            unit_codes.push((unit, cx.texts.intern(Slice::Transient, p.type_id.as_str()).ok()?));
+        }
+    }
+    let facts = Facts {
+        attacker,
+        defender,
+        system,
+        round: a.round,
+        occurrence: a.occurrence,
+        staging: a.staging,
+        announce: a.announce,
+        phase: cx.texts.intern(Slice::Transient, "barrage").ok()?,
+        cause: r.code("unit_ability:anti_fighter_barrage"),
+        kind: r.code("anti_fighter_barrage"),
+        extra: cx.texts.intern(Slice::Transient, "extra barrage").ok()?,
+        unit_codes,
+    };
+    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
-    let mut driver = Driver::new(BarrageIdle::new(facts), resolver, AbilityTable::default(), 1);
+    let mut driver = Driver::new(BarrageStep::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
     let mut staged = Vec::new();
-    let driven = with_core(gs, &mut cx, Sources::default(), BEGIN_ROUND, |core, _| {
+    let mut rng_after = None;
+    let src = Sources { galaxy: None, rng: Some(rng_before) };
+    let driven = with_core(gs, &mut cx, src, BARRAGE_STEP, |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
         staged = std::mem::take(&mut core.pending_mut().staged);
+        rng_after = Some(core.rng().clone());
         driven
     })
     .ok()?
     .ok()?;
     apply_staged(gs, &r, &staged)?;
+    let positions = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
-    Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(events), questions: driven.rendered })
+    let feat = driver.window.feat.iter().map(|s| Some(PlayerId::new(r.seats.get(usize::from(s.0))?.clone()))).collect::<Option<Vec<_>>>()?;
+    let value: BarrageOut = (feat, driver.window.drawn.clone(), positions);
+    Some(CoreWindow { run: Run::new(value).with_events_vec(events), questions: driven.rendered })
 }
+
+const BARRAGE_STEP: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger],
+    &[Slice::Players, Slice::Board, Slice::Transient, Slice::Pending, Slice::Rng, Slice::Ledger],
+);
 
 /// What the string `CombatWindow::announce_end` holds.
 #[derive(Debug, Clone, Copy)]
