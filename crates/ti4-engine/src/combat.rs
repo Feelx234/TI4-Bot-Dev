@@ -5083,6 +5083,13 @@ pub struct CombatWindow {
     resuming_round: bool,
 }
 
+/// What the "Roll Dice" step leaves for [`CombatWindow::roll_round`]: whether the window settles afterwards
+/// (not when a reroll ended the fight), and whether a module produced hits after the roll.
+struct RollEnd {
+    settle: bool,
+    produced: bool,
+}
+
 /// What a stage helper tells `settle_stages`: go round the loop again, stop at a pending decision, or
 /// answer on behalf of a neutral player.
 enum Flow {
@@ -6111,7 +6118,7 @@ impl CombatWindow {
         let failed = std::cell::Cell::new(false);
         let mut outcome = None;
         let announce = ctx.timing.is_some();
-        let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending();
+        let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed;
         let (attacker, defender, system) = (self.attacker.clone(), self.defender.clone(), self.system.clone());
         let occurrence = self.ensure_combat_occurrence(state).0;
         let staging = crate::supply::staging_enabled(state);
@@ -6259,6 +6266,93 @@ impl CombatWindow {
         ctx: &mut Resolving<'_>,
         round: u32,
     ) -> Result<(), CombatError> {
+        let (attacker, defender, system) = (self.attacker.clone(), self.defender.clone(), self.system.clone());
+        let (content, sources) = (ctx.content, ctx.sources);
+        let unported = self.roll_unported(state, ctx);
+        let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed;
+        // Positions the window does not carry run bare, so the windows inside (the reroll questions) are
+        // compared on their own.
+        if crate::dual::backend(crate::dual::Area::Driver) == crate::dual::Backend::Dual && unported {
+            let end = self.roll_round_string(state, ctx, round)?;
+            return if end.settle { self.settle(state, ctx) } else { Ok(()) };
+        }
+        let rng_before = ctx.rng.positions();
+        let history_start = ctx.dice.history().len();
+        let failed = std::cell::Cell::new(false);
+        let mut outcome = None;
+        crate::dual_window!(
+            crate::dual::Area::Driver,
+            "combat::roll_round",
+            state,
+            |s: &mut GameState| {
+                let result = self.roll_round_string(s, ctx, round);
+                let queue: Vec<(PlayerId, usize, PlayerId, bool, bool)> = match &self.stage {
+                    Stage::Sustaining { queue, .. } => queue
+                        .iter()
+                        .map(|p| (p.player.clone(), p.hits, p.producer.clone(), p.non_fighters_only, p.producer_assigns))
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                failed.set(result.as_ref().map_or(true, |end| end.produced) || !matches!(self.stage, Stage::Sustaining { .. }));
+                let mut damaged: Vec<(PlayerId, Vec<String>)> = self
+                    .damaged_before_round
+                    .iter()
+                    .map(|(side, kinds)| {
+                        let mut kinds = kinds.clone();
+                        kinds.sort();
+                        (side.clone(), kinds)
+                    })
+                    .collect();
+                damaged.sort();
+                let value: crate::dual_window::RollOut = (
+                    queue,
+                    damaged,
+                    ctx.dice.history().iter().skip(history_start).map(|roll| (roll.hits_on.unwrap_or(0), roll.faces.clone())).collect(),
+                    ctx.rng.positions(),
+                );
+                outcome = Some(result);
+                crate::dual::Run::new(value)
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                if failed.get() {
+                    return None;
+                }
+                let args = crate::dual_window::RollArgs { attacker: &attacker, defender: &defender, system: &system, reproducible };
+                crate::dual_window::roll_step(s, content, sources, args, &rng_before, script)
+            }
+        );
+        let end = outcome.unwrap_or(Ok(RollEnd { settle: false, produced: false }))?;
+        if end.settle { self.settle(state, ctx) } else { Ok(()) }
+    }
+
+    /// Whether the "Roll Dice" step can hold something the core roll window does not carry: a reroll
+    /// question (the Crowns of Thalnos, the Heart of Ixth, Munitions Reserves after the roll, War Funding,
+    /// Wrath of Kenara), a roll-step reaction (The Thundarian), neutral sides.
+    fn roll_unported(&self, state: &GameState, ctx: &Resolving<'_>) -> bool {
+        let sides = [&self.attacker, &self.defender];
+        crate::neutral_units::is_neutral(&self.attacker)
+            || crate::neutral_units::is_neutral(&self.defender)
+            || crate::factions::nomad_agents::watches_roll_step(state)
+            || owns_crown_law(state, &self.attacker)
+            || owns_crown_law(state, &self.defender)
+            || state.players.iter().any(|p| {
+                holds_crown_relic(state, &p.id) || crate::relics::holds(state, &p.id, &RelicId::new("heartofixth"))
+            })
+            || sides.into_iter().any(|side| {
+                war_funding_note(state, side).is_some()
+                    || crate::factions::has_text_in(state, side, &self.system, crate::factions::FlagshipText::Hacan)
+                    || (state.rules_version >= ti4_model::state::RULES_MUNITIONS_AFTER_ROLL
+                        && crate::faction_abilities::has(state, ctx.content, side, "munitions"))
+            })
+    }
+
+    /// The string body of [`Self::roll_round`], up to (not including) the settle.
+    fn roll_round_string(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        round: u32,
+    ) -> Result<RollEnd, CombatError> {
         let (content, sources) = (ctx.content, ctx.sources);
         state.combat_presentation.phase = "resolving_hits".to_owned();
         state.combat_presentation.round_start =
@@ -6279,15 +6373,15 @@ impl CombatWindow {
         let Some((attacker_hits, attacker_dice, defender_hits, defender_dice)) =
             self.roll_both_sides(state, ctx, round)
         else {
-            return Ok(());
+            return Ok(RollEnd { settle: false, produced: false });
         };
         let mut sets = [attacker_dice, defender_dice];
         self.war_funding_step(state, ctx, &mut sets)?;
         if self.roll_step_end(state, ctx, round)? {
-            return self.roll_round(state, ctx, round);
+            return self.roll_round_string(state, ctx, round);
         }
-        self.queue_round_hits(state, ctx, round, &sets, [attacker_hits, defender_hits])?;
-        self.settle(state, ctx)
+        let produced = self.queue_round_hits(state, ctx, round, &sets, [attacker_hits, defender_hits])?;
+        Ok(RollEnd { settle: true, produced })
     }
 
     /// The "Roll Dice" step's dice (78.5f), the attacker's first. `None` when a reroll window emptied a
@@ -6457,7 +6551,7 @@ impl CombatWindow {
         round: u32,
         sets: &[Option<RerollSet>],
         rolled: [usize; 2],
-    ) -> Result<(), CombatError> {
+    ) -> Result<bool, CombatError> {
         let (content, sources) = (ctx.content, ctx.sources);
         let [attacker_hits, defender_hits] = rolled;
         let split = |set: &Option<RerollSet>, rolled: usize, side: &PlayerId| {
@@ -6473,6 +6567,7 @@ impl CombatWindow {
         // simultaneous hits (78.6), assigned by the opponent like the dice's own.
         let [by_attacker, by_defender] =
             self.produce_hits(state, ctx, round, CombatMoment::AfterRoll)?;
+        let produced = [by_attacker, by_defender].iter().any(|made| *made != ProducedHits::NONE);
         attacker_free += by_attacker.any_ship;
         attacker_forced += by_attacker.non_fighter;
         defender_free += by_defender.any_ship;
@@ -6559,7 +6654,7 @@ impl CombatWindow {
             })
             .collect();
         self.stage = Stage::Sustaining { queue, round };
-        Ok(())
+        Ok(produced)
     }
 
     /// Settle a freshly opened window, so a fight that is already over reports so.
@@ -9185,6 +9280,50 @@ mod tests {
         assert!(killed > 0, "some barrage hit");
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         assert!(r.areas[&Area::Driver].calls >= 20, "the steps were compared: {:?}", r.areas[&Area::Driver]);
+        let _ = take_report();
+    }
+
+    #[test]
+    fn the_roll_step_runs_as_a_core_window_in_lockstep() {
+        // Whole fights on `driver=dual`: every round's dice, hits, round records and assignment queue come out
+        // of the core window as the string step leaves them (no reroll question in these fleets).
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut rolled = 0;
+        for seed in 0..12_u64 {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = seed;
+            let system = SystemId::new("18");
+            put(&mut state, &system, "cruiser", &attacker(), 2);
+            put(&mut state, &system, "dreadnought", &attacker(), 1);
+            put(&mut state, &system, "fighter", &attacker(), 2);
+            put(&mut state, &system, "destroyer", &defender(), 2);
+            put(&mut state, &system, "carrier", &defender(), 1);
+            put(&mut state, &system, "fighter", &defender(), 3);
+            with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+                rolled += dice.history().iter().filter(|r| r.reason == "space combat").count();
+            });
+        }
+        let r = report();
+        assert!(rolled > 20, "dice were rolled: {rolled}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.areas[&Area::Driver].calls >= 24, "the steps were compared: {:?}", r.areas[&Area::Driver]);
         let _ = take_report();
     }
 

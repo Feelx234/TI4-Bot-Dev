@@ -21,6 +21,7 @@ pub mod destroy_fighters;
 pub mod end;
 pub mod end_announce;
 pub mod raid_formation;
+pub mod roll;
 pub mod sustain_commander;
 pub mod sustain_offer;
 

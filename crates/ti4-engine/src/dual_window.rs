@@ -809,6 +809,103 @@ const BARRAGE_STEP: Footprint = Footprint::new(
     &[Slice::Players, Slice::Board, Slice::Transient, Slice::Pending, Slice::Rng, Slice::Ledger],
 );
 
+/// What the string `CombatWindow::roll_round` was called with.
+#[derive(Debug, Clone, Copy)]
+pub struct RollArgs<'a> {
+    pub attacker: &'a PlayerId,
+    pub defender: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    /// The dice and streams are the ones the core can reproduce (no test faces, no pending restore).
+    pub reproducible: bool,
+}
+
+/// What the roll step leaves besides the state: the assignment queue (player, hits, producer, non-fighters
+/// only, producer assigns), each side's damaged ships (sorted type ids), the step's dice (hit number, faces)
+/// and where the streams stand.
+pub type RollOut = (
+    Vec<(PlayerId, usize, PlayerId, bool, bool)>,
+    Vec<(PlayerId, Vec<String>)>,
+    Vec<(u32, Vec<u32>)>,
+    crate::rng::RngPositions,
+);
+
+const ROLL_STEP: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger],
+    &[Slice::Transient, Slice::Pending, Slice::Rng, Slice::Ledger],
+);
+
+/// The core half of `CombatWindow::roll_round` (see `rules::combat::roll` for what it does not carry; the
+/// caller excludes the positions with a reroll question). `None` for neutral sides, irreproducible dice,
+/// reaction activity, or a position the codecs refuse.
+#[must_use]
+pub fn roll_step(
+    gs: &mut GameState,
+    content: &ti4_content::ContentStore,
+    sources: ti4_model::content_types::SourceSet,
+    a: RollArgs<'_>,
+    rng_before: &crate::rng::RngPositions,
+    script: &Recording,
+) -> Option<CoreWindow<RollOut>> {
+    use ti4_engine_core::rules::combat::roll::{Facts, RollStep};
+    if script.nested || !a.reproducible || crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let attacker = r.seat(a.attacker.as_str())?;
+    let defender = r.seat(a.defender.as_str())?;
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let before = gs.clone();
+    let env = crate::core_combat::window_env(&before, &cx, sources)?;
+    let mut names = Vec::new();
+    {
+        let mut view = crate::core_combat::CombatView::of(&before, content, sources)?;
+        for (seat, id) in [(attacker, a.attacker), (defender, a.defender)] {
+            for (value, tag, _, types) in view.fleet_groups(id, a.system)? {
+                let mut kinds: Vec<&str> = types.iter().map(|(u, _)| u.as_str()).collect();
+                kinds.sort_unstable();
+                names.push((seat, value, tag, cx.texts.intern(Slice::Transient, &kinds.join("+")).ok()?));
+            }
+        }
+    }
+    let facts = Facts { attacker, defender, system, phase: cx.texts.intern(Slice::Transient, "resolving_hits").ok()?, names };
+    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
+    let resolver = Resolver::new(&[attacker, defender], Some(attacker));
+    let mut driver = Driver::new(RollStep::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let mut staged = Vec::new();
+    let mut rng_after = None;
+    let src = Sources { galaxy: None, rng: Some(rng_before) };
+    let driven = with_core(gs, &mut cx, src, ROLL_STEP, |core, _| {
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        rng_after = Some(core.rng().clone());
+        driven
+    })
+    .ok()?
+    .ok()?;
+    apply_staged(gs, &r, &staged)?;
+    let positions = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    let player = |s: ti4_engine_core::ids::Seat| Some(PlayerId::new(r.seats.get(usize::from(s.0))?.clone()));
+    let w = &driver.window;
+    let queue = w
+        .queue
+        .iter()
+        .map(|q| Some((player(q.player)?, q.hits as usize, player(q.producer)?, q.non_fighters_only, false)))
+        .collect::<Option<Vec<_>>>()?;
+    let mut damaged = w
+        .damaged
+        .iter()
+        .map(|(s, kinds)| {
+            let mut ids: Vec<String> = kinds.iter().map(|u| u.as_str().to_owned()).collect();
+            ids.sort();
+            Some((player(*s)?, ids))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    damaged.sort();
+    let value: RollOut = (queue, damaged, w.drawn.clone(), positions);
+    Some(CoreWindow { run: Run::new(value).with_events_vec(events), questions: driven.rendered })
+}
+
 /// What the string `CombatWindow::announce_end` holds.
 #[derive(Debug, Clone, Copy)]
 pub struct EndArgs<'a> {
