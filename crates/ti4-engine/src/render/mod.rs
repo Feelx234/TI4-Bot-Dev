@@ -318,7 +318,7 @@ registry! {
     Cards => unported!(cards),
     Leaders => leaders::Fam,
     Strategy => unported!(strategy),
-    Agenda => unported!(agenda),
+    Agenda => agenda::Fam,
 }
 
 /// Phase of the core to the wire phase.

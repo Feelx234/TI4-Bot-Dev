@@ -2,6 +2,7 @@
 //! never imports another area (it returns [`crate::kernel::Next`] instead).
 
 pub mod abilities;
+pub mod agenda;
 pub mod combat;
 pub mod invasion;
 pub mod leaders;

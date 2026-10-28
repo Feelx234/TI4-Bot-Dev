@@ -110,6 +110,17 @@ pub mod leaders_view;
 pub mod production_view;
 #[cfg(feature = "typed-core")]
 pub mod production_window_dual;
+/// The window dual of the vote (package B9).
+pub(crate) mod vote_dual;
+/// Area::AgendaLaws (package B9): the typed agenda reads behind a string interface.
+#[cfg(feature = "typed-core")]
+pub mod agenda_view;
+/// The `typed-core`-independent entry points of `agenda_view` (a `None` without the feature).
+pub(crate) mod agenda_typed;
+/// The offline dual of Area::AgendaLaws.
+#[cfg(feature = "typed-core")]
+#[doc(hidden)]
+pub mod agenda_check;
 /// Area::Strategy (package B8): the typed strategy reads behind a string interface.
 #[cfg(feature = "typed-core")]
 pub mod strategy_view;
