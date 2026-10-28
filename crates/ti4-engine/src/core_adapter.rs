@@ -695,7 +695,7 @@ fn load_reach(cx: &mut Ctx, gs: &GameState, galaxy: &Galaxy) -> Option<CoreState
     }
     core.mark_loaded(Slice::Agenda);
     for (system, value) in &gs.gravleash_move_values {
-        core.transient.production.gravleash_move_values.insert(system_ix(system.as_str())?, *value);
+        core.transient.movement.gravleash_move_values.insert(system_ix(system.as_str())?, *value);
     }
     core.mark_loaded(Slice::Transient);
     let mut marks = ti4_engine_core::state::MarkMap::new();
