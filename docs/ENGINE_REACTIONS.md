@@ -181,3 +181,78 @@ Not ported (designed, not done in this package): Instinct Training and I48S (the
 hero, payment-window agent, Argent agent redirect: they are `Stage::Offering` points of B3's production window, not
 reaction windows, and need the production dual to follow nested activity as `drive_with` now does for the others),
 and every other registered ability (about 270; the census names them by frequency).
+
+## 5. Census: the nested bails before and after
+
+`TI4_NESTED_LOG=1 dual_run tools/engine_profile/profile-20.json 20 driver=dual,invasion=dual,production=dual,leaders=dual,exploration=dual,agenda=dual`
+(the 20 golden games, 0 differences, hashes equal both times). The run prints `nested activity: N signatures, M
+runs`: 203 signatures, **736 runs** in which a string window had nested activity (a reaction window, an ability).
+Before this package every one of them was a bail; only the invasion windows said so (199 reported; the combat
+windows bailed silently).
+
+| window | nested bails before | after | compared before -> after |
+|---|--:|--:|---|
+| invasion::ground_round_hits | 82 | 61 | 280 -> 301 |
+| invasion::begin_ground_round | 69 | 69 | 248 -> 248 (every one is the Sol agent) |
+| invasion::commit_one | 23 | 16 | 2007 -> 2014 |
+| invasion::roll_ground_tail | 13 | 7 | 307 -> 313 |
+| invasion::bombard_step | 6 | 2 | 1371 -> 1375 |
+| invasion::space_cannon_defense | 6 | 6 | 1074 -> 1074 |
+| combat::settle | silent | 64 | 319 -> 360 |
+| combat::begin_round | silent | 61 | 151 -> 182 |
+| combat::answer | silent | 50 | 793 -> 814 |
+| combat::flow_step | silent | 41 | 1822 -> 1838 |
+| combat::barrage_step / offer_sustain / announce_end / destroy_fighters | silent | 9 / 3 / 4 / 1 | 183 -> 185 / 98 -> 101 / 195 -> 195 / 11 -> 11 |
+
+152 windows that bailed on nested activity before are compared now (21% of the 736 runs); every bail that remains
+is reported with the ability that causes it. Reasons, by runs, after:
+
+| runs | reason |
+|--:|---|
+| 64 | `leader:*:solagent:GROUND_COMBAT_ROUND_STARTED:after` (Sol agent, 69 with the Ssruu copies; the next port) |
+| 42 + 30 + 14 + 13 + 3 | `reaction:*:...` a card was played (COMBAT_ROUND_STARTED, HITS_TO_ASSIGN, SUSTAIN_DAMAGE_USED, UNITS_COMMITTED, ...): the play is B6's effect set |
+| 38 | Yssaril Transparasteel Plating (the faction hook is not in the core kernel the windows use) |
+| 17 | `tech:*:sar:GROUND_FORCE_DESTROYED:after` (Saar) |
+| 16 + 15 + 9 + 7 | Yin agent (and the Ssruu copy), ground forces and ships |
+| 15 + 8 | Titans agent (HITS_TO_ASSIGN, GROUND_HITS_TO_ASSIGN) |
+| 15 | `ability:*:technological_singularity_open:SPACE_COMBAT_STARTED:after` (Nekro) |
+| 14 | `unit:*:empyrean_flagship:SUSTAIN_DAMAGE_USED:after` |
+| 9 | Mentak hero |
+| rest | Mahact infantry II/Crimson Legionnaire, Sardakk, Arborec infantry II, `so` (Sol's Spec Ops), promissory notes (Cavalry, Antivirus) |
+
+Greedy order of the next ports by the runs they free (the covering of `reaction:` as a decline is already counted):
+Sol agent (+60), Argent agent in the production window (+50), Cabal done, Letnev agent (+30), Saar, Yin agent, Titans
+agent, the Nekro Technological Singularity pair.
+
+## 6. Gate (on this branch)
+
+* `tools/engine_core/verify_package.sh driver` (CARGO_BUILD_JOBS=3, `--profile gate`, `RUN_AB`/`RUN_WASM` off):
+  layers 0 violations (324 files), lint_core 0 hits, clippy 0 in core/bridge/dual/core_sync/render, immutable
+  surfaces unchanged (web/, RULES_VERSION.md, model state.rs, wasm fixtures, vs `core-integration`), 41 test suites
+  ok, `gen-cards --check` ok, xtask and wasm tests ok, benches `bench` + `bench-v1..v5` with `driver=core` all 200
+  identical / 0 different, `bench` with the driver on String 200/0.
+* The first run of the gate failed two steps, both fixed on the branch: the dual suite (a window test counts into
+  the process-wide report, and a global `TI4_AREAS=driver=dual` makes every test a dual run: `FOCUS` now routes the
+  other threads into a throwaway report while a `serial()` test holds it) and the golden dual (52 differences in the
+  `context.previews` of reaction windows: display facts the string builds from its position; they are the recorded
+  question's now, like the option previews of B1g-10). After the fixes: dual suite (all targets) ok; golden dual
+  `driver=dual` 0 differences, hashes equal; the wide mask above 0 differences, hashes equal.
+* The benches were measured on the commit before those two fixes; the fixes touch the Dual path and test code only.
+* Mutation checks (each fails the lockstep test): Infantry II threshold 6 -> 5 (dice and `inf2:card` mark differ);
+  Devour taking the captor's own models (state differs).
+* Tests per documented bail: `reactions_core::tests` (`bail_*`), registry equivalence for the ported abilities
+  (`the_native_registry_equals_the_string_one_for_the_ported_abilities`), lockstep tests in `invasion.rs`
+  (`infantry_ii_rolls_in_the_core_window_in_lockstep`, `a_reaction_slot_that_is_declined_is_followed_by_the_core_window`,
+  `the_cabal_captures_in_the_core_window_in_lockstep`) and the driver tests for the nested facts.
+
+## 7. What the next package needs to know
+
+* Adding an ability: a `Spec` in the owning crate (slot range, `Applies`, condition, effect), one `Named` line in
+  `reactions_core.rs`, a lockstep test with the string scenario; the registry-equivalence test then checks its
+  registration. A question the effect asks needs `Ask`/`Opt`/`Subtype` variants and a byte-exact renderer (the
+  trigger and the `active` detail of a window are completed by `complete_nested`).
+* The production window (`ProductionWindow::step`, `pay_step`) has its own dual (`production_window_dual.rs`) that still
+  builds an empty resolver: the Argent agent (54 runs) and the tier-W offers need `drive_with`'s nested handling there.
+* `Unknown` is the way a condition says "the core cannot answer": add a variant and its wording in `drive_with`.
+* Event trace ids: the core numbers its events from the first id the string run used (`Recording.first_event_id`);
+  an ability whose nested events skip ids in the string would show up as a trigger `event_id` difference.
