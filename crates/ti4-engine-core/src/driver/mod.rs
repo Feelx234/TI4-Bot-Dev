@@ -93,6 +93,8 @@ pub struct Driver<W: Window> {
     pub opened: Vec<OpenWindow>,
     /// The seeds of the random streams a window draws from (`Sx::die`); `NoSeeds` until the adapter gives some.
     pub seeds: std::rc::Rc<dyn SeedSource>,
+    /// The adapter gave the driver seeds (`with_seeds`): it draws from the streams of the game.
+    seeded: bool,
     tape: Tape,
     facts: Option<NestedFacts>,
     unknown: Option<Unknown>,
@@ -121,6 +123,7 @@ impl<W: Window> Driver<W> {
             emitted: Vec::new(),
             opened: Vec::new(),
             seeds: std::rc::Rc::new(NoSeeds),
+            seeded: false,
             tape: Tape::default(),
             facts: None,
             unknown: None,
@@ -133,6 +136,7 @@ impl<W: Window> Driver<W> {
     #[must_use]
     pub fn with_seeds(mut self, seeds: std::rc::Rc<dyn SeedSource>) -> Self {
         self.seeds = seeds;
+        self.seeded = true;
         self
     }
 
@@ -276,6 +280,12 @@ impl<W: Window> Driver<W> {
     #[must_use]
     pub fn nested_facts(&self) -> Option<&NestedFacts> {
         self.facts.as_ref()
+    }
+
+    /// Whether the driver draws from the streams of the game (`with_seeds`); without, its dice are all zeros.
+    #[must_use]
+    pub fn is_seeded(&self) -> bool {
+        self.seeded
     }
 
     /// Whether the window ended.

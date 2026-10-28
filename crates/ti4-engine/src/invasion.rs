@@ -12236,6 +12236,44 @@ mod core_ground_round_prechecks {
         assert_eq!(begin_ground_unported(&state, &begin(&neutral, &b, &s, &p, false)), Some("neutral side"));
     }
 
+    /// Dice an ability rolled need the streams (`Sources::rng`, a seeded driver); a window that is lent none cannot
+    /// follow the roll: it is counted under the window's label (it was not: the roll came out of a stream at position
+    /// zero and showed as a `nested.ability_dice` difference). The same recording without dice is followed.
+    #[test]
+    fn bail_dice_rolled_by_an_ability_in_a_window_lent_no_stream_is_silent() {
+        use crate::dual::{report, take_report};
+        use crate::dual_window::{begin_ground, Recording, ResolverCfg};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        let (mut state, s, p) = game("sol", "hacan");
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        crate::fixtures::put_on_planet(&mut state, &s, &p, "infantry", &b, 1);
+        let cfg = ResolverCfg {
+            initiative: vec!["a".to_owned(), "b".to_owned()],
+            seating: vec!["a".to_owned(), "b".to_owned()],
+            active: Some("a".to_owned()),
+            speaker: None,
+            phase: ti4_model::state::Phase::Action,
+            round: 1,
+            turn: 1,
+            max_depth: 16,
+            used: Vec::new(),
+        };
+        let mut script = Recording::default();
+        script.nested = true;
+        script.cfg = Some(cfg);
+        let args = begin(&a, &b, &s, &p, false);
+        assert!(begin_ground(&mut state.clone(), &args, &script).is_some(), "nested activity with no dice is followed");
+        script.dice = vec![(Some(6), vec![3])];
+        assert!(begin_ground(&mut state.clone(), &args, &script).is_none(), "dice with no stream lent: the string result stands");
+        let r = report();
+        assert!(r.windows.keys().any(|k| k.contains("lent no stream")), "the bail is counted: {:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
     fn advance_args<'a>(a: &'a PlayerId, s: &'a SystemId, planets: &'a [PlanetId], none: &'a [PlanetId]) -> crate::dual_window::AdvanceArgs<'a> {
         crate::dual_window::AdvanceArgs { invader: a, system: s, planets, index: 0, coexisted: none, sources: POK }
     }

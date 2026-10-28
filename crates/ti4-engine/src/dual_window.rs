@@ -443,6 +443,11 @@ pub fn drive_positioned<W: Window>(
             return Err(DriverError::NotAsking);
         }
     }
+    // The core draws an ability's die from the game's stream; a window that was lent none cannot reproduce the roll.
+    if script.nested && !script.dice.is_empty() && !driver.is_seeded() {
+        crate::dual::note_bail(LABEL.with(Cell::get), "nested (dice rolled by an ability in a window lent no stream)");
+        return Err(DriverError::NotAsking);
+    }
     let mut status = driver.run(core, kernel)?;
     loop {
         if let Some(why) = driver.unknown() {
