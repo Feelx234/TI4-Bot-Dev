@@ -178,6 +178,9 @@ impl AreaMask {
         if cfg!(all(feature = "typed-core", not(feature = "string-exploration"))) {
             mask = mask.with(Area::ExplorationRelics, Backend::Core);
         }
+        if cfg!(all(feature = "typed-core", not(feature = "string-strategy"))) {
+            mask = mask.with(Area::Strategy, Backend::Core);
+        }
         mask
     }
 

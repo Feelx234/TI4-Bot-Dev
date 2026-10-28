@@ -17,6 +17,7 @@
 //! Exit status 1 when any answer differs.
 
 use ti4_engine::board_check::{BoardCheck, compare, compare_laws};
+use ti4_engine::strategy_check::{StrategyCheck, compare as compare_strategy};
 use ti4_engine_core_bridge::workload::{golden_positions, template_openings};
 
 #[global_allocator]
@@ -77,12 +78,14 @@ fn main() {
         return cards(&args[1..]);
     }
     let mut out = BoardCheck::default();
+    let mut strategy = StrategyCheck::default();
     match args.first().map(String::as_str) {
         Some("templates") => {
             let (positions, refused) = template_openings();
             println!("templates built {}, refused {}", positions.len(), refused.len());
             for p in &positions {
                 compare(&p.label, &p.state, Some(&p.galaxy), p.sources, &mut out);
+                compare_strategy(&p.label, &p.state, p.sources, &mut strategy);
             }
             if let Some(p) = positions.first() {
                 compare_laws(&p.label, &p.state, Some(&p.galaxy), p.sources, &mut out);
@@ -98,6 +101,7 @@ fn main() {
             }
             for (i, p) in positions.iter().enumerate() {
                 compare(&p.label, &p.state, Some(&p.galaxy), p.sources, &mut out);
+                compare_strategy(&p.label, &p.state, p.sources, &mut strategy);
                 if i % law_stride == 0 {
                     compare_laws(&p.label, &p.state, Some(&p.galaxy), p.sources, &mut out);
                 }
@@ -119,7 +123,17 @@ fn main() {
     for m in &out.mismatches {
         println!("MISMATCH {m}");
     }
-    if !out.mismatches.is_empty() {
+    println!(
+        "strategy reads: positions {} | answers compared {} | unmapped {} | mismatches {}",
+        strategy.positions,
+        strategy.compared,
+        strategy.unmapped,
+        strategy.mismatches.len()
+    );
+    for m in &strategy.mismatches {
+        println!("MISMATCH {m}");
+    }
+    if !out.mismatches.is_empty() || !strategy.mismatches.is_empty() {
         std::process::exit(1);
     }
 }
