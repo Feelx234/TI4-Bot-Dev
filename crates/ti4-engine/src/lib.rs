@@ -67,6 +67,7 @@ pub mod neutral_units;
 #[cfg(test)]
 mod nexus_reach_tests;
 pub mod objectives;
+pub mod objectives_core;
 #[cfg(test)]
 mod objectives_monument_tests;
 pub mod observation;

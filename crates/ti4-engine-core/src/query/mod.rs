@@ -21,6 +21,7 @@ pub mod board;
 pub mod economy;
 pub mod fleet;
 pub mod laws;
+pub mod objectives;
 pub mod reach;
 pub mod seats;
 pub mod tech;
