@@ -9761,6 +9761,66 @@ mod tests {
         static SETTLE_COUNTS: std::cell::Cell<(u64, u64)> = const { std::cell::Cell::new((0, 0)) };
     }
 
+    /// The gates the composed machine starts from, for the arena after `setup`.
+    fn settle_gates(setup: &dyn Fn(&mut GameState, &SystemId)) -> crate::dual_window::SettleArgs {
+        let (mut state, system) = arena();
+        put(&mut state, &system, "cruiser", &attacker(), 1);
+        put(&mut state, &system, "cruiser", &defender(), 1);
+        setup(&mut state, &system);
+        let window = CombatWindow::new(&state, ContentStore::embedded(), POK, &system);
+        let (mut dice, mut rng) = (Dice::new(), GameRng::new(state.rng_seed));
+        let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+        let ctx = Resolving { content: ContentStore::embedded(), sources: POK, dice: &mut dice, rng: &mut rng, table: &mut table, timing: None };
+        window.settle_args(&state, &ctx).expect("a map-less fight has gates")
+    }
+
+    #[test]
+    fn the_composed_combat_stays_string_where_the_core_does_not_carry_the_position() {
+        // Each string-only case of the composed machine is a gate (or a machine bail) with a reason: the
+        // string `settle` stands there and the windows inside are compared one by one instead.
+        let plain = settle_gates(&|_, _| {});
+        assert!(!plain.opening_unported && !plain.barrage_unported && !plain.roll_unported && !plain.retreat_unported);
+        // Naaz and Letnev (Voltron repair, Supercharge, Munitions, the Eidolon flip, the round agent), diplomacy.
+        for faction in ["naaz", "letnev"] {
+            let g = settle_gates(&|state, _| state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new(faction));
+            assert!(g.opening_unported, "{faction}");
+        }
+        assert!(settle_gates(&|state, _| state.diplomacy.enabled = true).opening_unported);
+        // Hits a module makes at the start of a combat (Mentak's Ambush, Assault Cannon, Dimensional Splicer,
+        // Impulse Core): the string asks the modules, the core ability table is empty.
+        assert!(settle_gates(&|state, _| state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("mentak")).opening_unported);
+        // The Thundarian (a roll-step reaction): the roll is the string's.
+        assert!(settle_gates(&|state, _| {
+            state.player_mut(&attacker()).unwrap().leaders.insert(
+                ti4_model::id::LeaderId::new("nomadagentthundarian"),
+                ti4_model::state::LeaderStatus::Readied,
+            );
+        })
+        .roll_unported);
+        // A Last Bastion seat's retreat note; a unit that flips (Eidolon) or fights from its planet (Voltron);
+        // a Floating Factory: the retreat gate (`retreat_unported`) names them destination by destination.
+        let retreat = |setup: &dyn Fn(&mut GameState, &SystemId)| {
+            let (mut state, system) = arena();
+            put(&mut state, &system, "cruiser", &attacker(), 1);
+            put(&mut state, &system, "cruiser", &defender(), 1);
+            setup(&mut state, &system);
+            crate::dual_window::retreat_unported(&state, ContentStore::embedded(), POK, &attacker(), &system, &SystemId::new("19"))
+        };
+        assert!(!retreat(&|_, _| {}));
+        assert!(retreat(&|state, _| state.player_mut(&defender()).unwrap().faction = ti4_model::id::FactionId::new("bastion")));
+        assert!(retreat(&|state, system| put(state, system, "naaz_mech_space", &attacker(), 1)));
+        assert!(retreat(&|state, system| put(state, system, "saar_spacedock", &attacker(), 1)));
+        // Duranium Armor repairs and Devotion's hits after a round: flags the machine bails on when it reaches them.
+        let g = settle_gates(&|state, _| {
+            state.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("da"));
+            state.player_mut(&defender()).unwrap().faction = ti4_model::id::FactionId::new("yin");
+        });
+        assert_eq!(g.duranium, [true, false]);
+        assert!(g.devotion);
+        // Neutral sides never reach the core machine.
+        assert!(crate::neutral_units::is_neutral(&crate::neutral_units::owner()));
+    }
+
     #[test]
     fn the_composed_combat_machine_runs_whole_fights_in_lockstep() {
         // Whole fights on `driver=dual`: every settle from the stage it starts in to the next decision is run by

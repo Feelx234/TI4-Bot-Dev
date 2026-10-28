@@ -171,10 +171,31 @@ The example lives under `driver/` only because `rules/` is created by B1 and B3;
   Floating Factory, a Last Bastion seat (`bastion_note_retreat` is not ported in core-factions: its list is sorted by the
   unit type TEXT), neutral players. Tests: `a_retreat_runs_in_the_core_window` (sustained and galvanized pieces,
   stranding, with and without staging), mutation-checked.
-* Left string: the composition of all stages into one core `CombatWindow` Stage machine (each stage is its own dual
-  window today and they run inside the string loop `settle_stages`; the composed machine needs the remaining string-only
-  stages below ported first, and is not done), and `begin_round`'s Naaz / Letnev / diplomacy cases
-  (Voltron repair, Supercharge, Munitions, the Eidolon flip, the Letnev round agent, attack promises: a documented bail,
-  `the_round_opening_of_naaz_letnev_and_diplomacy_games_stays_string`; the golden games take it for about half of the
-  round openings). Roll-step bails have a test each: `a_readied_thundarian_keeps_the_roll_step_in_the_string`,
-  `a_keleres_agent_that_could_pay_keeps_the_roll_step_in_the_string`, `a_roll_that_ends_the_fight_stays_string`.
+* `rules/combat/machine.rs` (`Machine`, package B1g): the composition. `CombatWindow::settle` (string
+  `settle_stages` + `announce_end`) is now compared as ONE core Window on `driver=dual`
+  (`CombatWindow::settle_machine_dual`, label `combat::settle`, adapter `dual_window::settle_machine`). The machine owns
+  the stage loop: round opening (`BeginRound`), round-1 barrage (`BarrageStep`), announce/retreat/queue transitions
+  (`Flow`, facts now read from the core state: fight over, retreat destinations, ships left, sustain candidates),
+  the roll step with its reroll questions (`RollStep`, its questions are the machine's questions), the move of a
+  retreat (`Retreat`), the end (`EndAnnounce`). It stops at a pending decision (announce a retreat, choose a
+  destination, sustain, assign), at the barrage's scoring pause and at the end. The string hands it the stage and the
+  window fields (`Fields`) and gates that cannot change inside one settle (`Env`: interned texts, the neighbours a
+  retreat may enter, `may_retreat`, Duranium/Devotion flags); the compared value is the stage, outcome, fields,
+  the dice of the settle and the stream positions, besides events, state and questions. Windows nested in the string
+  loop run bare under the outer window (`run_dual_window` nests). Where the machine is known not to carry the
+  position (`settle_args` gates) the string loop runs with its inner windows compared one by one as before, so no
+  coverage is lost; unit tests of the inner windows switch the composed comparison off (`dual_window::with_composed`,
+  default off under `cfg(test)`, on in the binaries).
+  Bails (string stands; test `the_composed_combat_stays_string_where_the_core_does_not_carry_the_position`, plus the
+  lockstep test `the_composed_combat_machine_runs_whole_fights_in_lockstep`): Naaz / Letnev / diplomacy round
+  openings; start-of-combat hits (Assault Cannon, Mentak Ambush, Dimensional Splicer, Impulse Core) and the factions
+  of the module hooks; barrage with reactions (core ability table empty) and the barrage cases of `barrage_unported`;
+  The Thundarian / Keleres agent / test dice (roll gates); a roll that ends the fight; neutral sides; hit
+  cancellations; a single casualty candidate; Duranium Armor repairs; Devotion's hits after a round; destructions
+  waiting for their announcement (also after a retreat); a retreat of a flipping unit (Eidolon), Voltron, a Floating
+  Factory, a Last Bastion seat, Dark Energy Tap, a Ralnel flagship arriving; the announcement of the end when a
+  survivor flips back, a blockaded dock dies or faction marks change; reaction windows inside any emission.
+* Not done: the PENDING questions themselves (announce a retreat, retreat to which system, sustain, assign a hit)
+  and their answers are still the string's `pending_choice` / `resolve`; the machine only stops where they are asked
+  (`Stop::Pending`). Core `Ask` variants and renderers for them (with the previews and the `sustainers` detail the string
+  question carries) are the next slice.
