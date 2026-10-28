@@ -48,6 +48,9 @@ pub struct EffectFacts {
     pub source: Code,
     /// `"reinforcements"`, the pool of a placed command token.
     pub pool: Code,
+    /// The map slice is loaded (the string was given a galaxy): the effects that read the map act, and without
+    /// it they end deferred.
+    pub has_galaxy: bool,
 }
 
 /// Technologies whose printed name mentions a war sun (`owns_a_war_sun_technology`).
@@ -88,6 +91,12 @@ pub enum Table {
     Disarmament(Planet),
     /// Swords to Plowshares, For.
     Plowshares,
+    /// Incentive Program: the first facedown public objective of this stage turns faceup.
+    Incentive(u8),
+    /// Enforced Travel Ban, Against: every PDS in or beside a wormhole system on the map is destroyed.
+    TravelBan,
+    /// Wormhole Research, For: every ship in an alpha or beta wormhole system on the map is destroyed.
+    WormholeShips,
     /// Core Mining.
     CoreMining(Planet),
     /// Demilitarized Zone.
@@ -98,7 +107,7 @@ impl Table {
     /// The effect of `agenda` electing `outcome` (`Some(Outcome::For/Against)` as `for_`), and whether it ends
     /// deferred (`Effect::Deferred`); `None` for what this module does not express.
     #[must_use]
-    pub fn of(agenda: Agenda, outcome: crate::keys::Outcome) -> Option<(Self, bool)> {
+    pub fn of(agenda: Agenda, outcome: crate::keys::Outcome, has_galaxy: bool) -> Option<(Self, bool)> {
         use crate::keys::Outcome as O;
         use Agenda as A;
         let (table, deferred) = match (agenda, outcome) {
@@ -127,6 +136,13 @@ impl Table {
             (A::RearmamentAgreement, O::Against) => (Self::Rearm, false),
             (A::CompensatedDisarmament, O::Planet(p)) => (Self::Disarmament(p), false),
             (A::SwordsToPlowshares, O::For) => (Self::Plowshares, false),
+            (A::IncentiveProgram, O::For) => (Self::Incentive(1), false),
+            (A::IncentiveProgram, _) => (Self::Incentive(2), false),
+            (A::EnforcedTravelBan, O::For) => (Self::Nothing, false),
+            (A::EnforcedTravelBan, O::Against) if has_galaxy => (Self::TravelBan, false),
+            (A::EnforcedTravelBan, O::Against) => (Self::Nothing, true),
+            (A::WormholeResearch, O::For) if has_galaxy => (Self::WormholeShips, true),
+            (A::WormholeResearch, _) => (Self::Nothing, true),
             (A::CoreMining, O::Planet(p)) => (Self::CoreMining(p), false),
             (A::DemilitarizedZone, O::Planet(p)) => (Self::Demilitarized(p), false),
             _ => return None,
@@ -134,14 +150,16 @@ impl Table {
         Some((table, deferred))
     }
 
-    /// Whether the effect stages a ground row or a command token (the string only stages them while a faction
-    /// module is seated; the adapter writes the staged events through the string's own gate).
+    /// Whether the effect reads the map slice.
     #[must_use]
-    pub const fn reads_map_units(&self) -> bool {
-        matches!(
-            self,
-            Self::ArmsReduction | Self::Rearm | Self::Disarmament(_) | Self::Plowshares | Self::CoreMining(_) | Self::Demilitarized(_)
-        )
+    pub const fn needs_map(&self) -> bool {
+        matches!(self, Self::TravelBan | Self::WormholeShips)
+    }
+
+    /// Whether the effect turns a card of a deck (a turn-redo reserve of the string would draw through it).
+    #[must_use]
+    pub const fn draws_from_deck(&self) -> bool {
+        matches!(self, Self::Incentive(_))
     }
 
     /// Run the effect. `false` when the position holds something the effect does not express (a galvanized
@@ -254,6 +272,11 @@ impl Table {
                 }
             }
             Self::Plowshares => return plowshares(core, f),
+            Self::Incentive(stage) => {
+                crate::rules::objectives::reveal_stage(core, stage);
+            }
+            Self::TravelBan => travel_ban(core, f),
+            Self::WormholeShips => wormhole_ships(core, f),
         }
         true
     }
@@ -487,4 +510,61 @@ fn plowshares(core: &mut CoreState, f: &EffectFacts) -> bool {
         }
     }
     true
+}
+
+/// The systems on the map (`Galaxy::system_ids`: placed on the grid).
+fn on_map(core: &CoreState) -> SmallList<System, 64> {
+    let Some(g) = core.galaxy() else { return SmallList::new() };
+    System::ALL.iter().copied().filter(|s| g.coord_of(*s).is_some()).collect()
+}
+
+/// Enforced Travel Ban, Against: PDS in the systems with a printed wormhole and in the ones beside them.
+fn travel_ban(core: &mut CoreState, f: &EffectFacts) {
+    let mut exposed = [false; System::COUNT];
+    for system in on_map(core).as_slice() {
+        let data = system.data();
+        if !in_scope(f.scope, data.source) || data.wormholes.is_empty() {
+            continue;
+        }
+        exposed[system.index()] = true;
+        if let Some(near) = board::neighbours(core, *system) {
+            for other in near.iter() {
+                if other < System::COUNT {
+                    exposed[other] = true;
+                }
+            }
+        }
+    }
+    for planet in Planet::ALL {
+        let Some(system) = board::home_system(core, planet) else { continue };
+        // Only the systems the string board holds an entry for.
+        if !exposed[system.index()] || !core.board().sys(system).flags.has(SysFlags::TOUCHED) {
+            continue;
+        }
+        let is_pds = |p: &Piece| {
+            let data = p.kind().data();
+            data.base_type == UnitBaseType::Pds && in_scope(f.scope, data.source)
+        };
+        if core.board().planet(planet).units.as_slice().iter().any(is_pds) {
+            core.board_mut().planet_mut(planet).units.retain(|p| !is_pds(p));
+        }
+    }
+}
+
+/// Wormhole Research, For: the ships in the alpha and beta systems of the map.
+fn wormhole_ships(core: &mut CoreState, f: &EffectFacts) {
+    for system in on_map(core).as_slice() {
+        let data = system.data();
+        let hole = data.wormholes.iter().any(|w| matches!(w, crate::generated::Wormhole::Alpha | crate::generated::Wormhole::Beta));
+        if !in_scope(f.scope, data.source) || !hole || !core.board().sys(*system).flags.has(SysFlags::TOUCHED) {
+            continue;
+        }
+        let is_ship = |p: &Piece| {
+            let d = p.kind().data();
+            d.ship && in_scope(f.scope, d.source)
+        };
+        if core.board().sys(*system).units.as_slice().iter().any(is_ship) {
+            core.board_mut().sys_mut(*system).units.retain(|p| !is_ship(p));
+        }
+    }
 }

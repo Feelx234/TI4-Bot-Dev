@@ -156,7 +156,7 @@ impl Resolve {
         if let Some(window) = Self::of(agenda, outcome, facts.for_voters.as_slice()) {
             return Some(window);
         }
-        let (table, deferred) = Table::of(agenda, outcome)?;
+        let (table, deferred) = Table::of(agenda, outcome, facts.has_galaxy)?;
         let done = if deferred { Done::Deferred } else { Done::Resolved };
         Some(Self { kind: Kind::Table(table), stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: Some(facts.clone()), unsupported: false })
     }
@@ -173,11 +173,16 @@ impl Resolve {
         Self { kind: Kind::Repeal(law), stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false, facts: None, unsupported: false }
     }
 
-    /// Whether the effect draws secret objectives (the deck is the string's when a turn redo draws through a
-    /// reserve).
+    /// Whether the table effect reads the map slice.
+    #[must_use]
+    pub const fn needs_map(&self) -> bool {
+        matches!(self.kind, Kind::Table(t) if t.needs_map())
+    }
+
+    /// Whether the effect turns a card of a deck, as a draw does.
     #[must_use]
     pub const fn draws(&self) -> bool {
-        matches!(self.kind, Kind::Draw(..))
+        matches!(self.kind, Kind::Draw(..)) || matches!(self.kind, Kind::Table(t) if t.draws_from_deck())
     }
 
     /// Whether the repealed law was in play.

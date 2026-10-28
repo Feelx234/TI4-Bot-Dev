@@ -260,7 +260,7 @@ fn the_planet_effects_run_as_core_windows_in_lockstep() {
 /// The core half of an effect, probed on its own: `None` is a bail (the string effect runs alone).
 fn core_half(state: &mut GameState, agenda: &str, outcome: &str, votes: &Ballot) -> Option<bool> {
     let (for_voters, against_voters) = (votes.voted_for(FOR), votes.voted_for(AGAINST));
-    let args = crate::dual_window::EffectArgs { for_voters: &for_voters, against_voters: &against_voters, sources: POK };
+    let args = crate::dual_window::EffectArgs { for_voters: &for_voters, against_voters: &against_voters, sources: POK, galaxy: None };
     crate::dual_window::agenda_effect(state, agenda, outcome, &args, &crate::dual_window::Recording::default()).map(|w| w.run.value)
 }
 

@@ -457,13 +457,14 @@ pub fn resolve(
 fn windowed(
     state: &mut GameState,
     sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
     agenda: &str,
     outcome: &str,
     ballot: &Ballot,
     string: impl FnOnce(&mut GameState) -> Effect,
 ) -> Effect {
     let (for_voters, against_voters) = (ballot.voted_for(FOR), ballot.voted_for(AGAINST));
-    let args = crate::dual_window::EffectArgs { for_voters: &for_voters, against_voters: &against_voters, sources };
+    let args = crate::dual_window::EffectArgs { for_voters: &for_voters, against_voters: &against_voters, sources, galaxy };
     let mut string = Some(string);
     let mut result = None;
     crate::dual_window!(
@@ -502,51 +503,53 @@ pub fn resolve_with(
     // decides what a "dreadnought" is (PoK, as everywhere else in this engine): each effect function reads
     // both from `ctx`.
     match agenda {
-        "secret" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "secret" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_secret(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "censure" | "shard_of_the_throne" | "crown_of_emphidia" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "censure" | "shard_of_the_throne" | "crown_of_emphidia" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_censure(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "classified" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "classified" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_classified(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "execution" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "execution" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_execution(s, ctx, galaxy, agenda, outcome, ballot)
         }),
         "redistribution" => effect_redistribution(state, ctx, galaxy, agenda, outcome, ballot),
         "artifact" => effect_artifact(state, ctx, galaxy, agenda, outcome, ballot),
-        "wormhole_research" => {
-            effect_wormhole_research(state, ctx, galaxy, agenda, outcome, ballot)
-        }
-        "regulations" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "wormhole_research" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
+            effect_wormhole_research(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
+        "regulations" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_regulations(s, ctx, galaxy, agenda, outcome, ballot)
         }),
         "sanctions" => effect_sanctions(state, ctx, galaxy, agenda, outcome, ballot),
-        "travel_ban" => effect_travel_ban(state, ctx, galaxy, agenda, outcome, ballot),
+        "travel_ban" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
+            effect_travel_ban(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
         "defense_act" => effect_defense_act(state, ctx, galaxy, agenda, outcome, ballot),
-        "shared_research" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "shared_research" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_shared_research(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "miscount" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "miscount" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_miscount(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "disarmament" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "disarmament" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_disarmament(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "plowshares" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "plowshares" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_plowshares(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "arms_reduction" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "arms_reduction" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_arms_reduction(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "conventions" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "conventions" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_conventions(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "schematics" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "schematics" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_schematics(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "conscription" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "conscription" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_conscription(s, ctx, galaxy, agenda, outcome, ballot)
         }),
         // Five more of the same shape: the card does nothing when it passes, and everything
@@ -558,13 +561,13 @@ pub fn resolve_with(
         | "rt_propulsion"
         | "rt_warfare"
         | "senate_sanctuary"
-        | "terraforming_initiative" => windowed(state, ctx.sources, agenda, outcome, ballot, |_| Effect::Resolved {
+        | "terraforming_initiative" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |_| Effect::Resolved {
             agenda: agenda.to_owned(),
         }),
         // Ministries: the card does nothing when it passes and everything afterwards, so the arm
         // exists only to make the agenda available. Articles of War is the same shape -- its For
         // half is a standing rule, and its Against half pays the players who voted For.
-        "minister_exploration" | "minister_policy" => windowed(state, ctx.sources, agenda, outcome, ballot, |_| Effect::Resolved {
+        "minister_exploration" | "minister_policy" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |_| Effect::Resolved {
             agenda: agenda.to_owned(),
         }),
         // Availability-only arms. Each of these laws is a standing rule owned by the subsystem
@@ -587,65 +590,67 @@ pub fn resolve_with(
         }
         "committee" | "arbiter" | "minister_commerce" | "minister_industry" | "minister_peace"
         | "minister_sciences" | "minister_war" | "prophecy" | "crown_of_thalnos" | "checks"
-        | "covert" | "crisis" => windowed(state, ctx.sources, agenda, outcome, ballot, |_| Effect::Resolved {
+        | "covert" | "crisis" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |_| Effect::Resolved {
             agenda: agenda.to_owned(),
         }),
-        "articles_war" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "articles_war" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_articles_war(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "nexus" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "nexus" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_nexus(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "warrant" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "warrant" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_warrant(s, ctx, galaxy, agenda, outcome, ballot)
         }),
         "grant_reallocation" => {
             effect_grant_reallocation(state, ctx, galaxy, agenda, outcome, ballot)
         }
-        "standardization" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "standardization" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_standardization(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "cladenstine" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "cladenstine" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_cladenstine(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "rearmament" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "rearmament" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_rearmament(s, ctx, galaxy, agenda, outcome, ballot)
         }),
         "minister_antiquities" => {
             effect_minister_antiquities(state, ctx, galaxy, agenda, outcome, ballot)
         }
-        "core_mining" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "core_mining" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_core_mining(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "demilitarized_zone" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "demilitarized_zone" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_demilitarized_zone(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "holy_planet_of_ixth" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "holy_planet_of_ixth" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_holy_planet_of_ixth(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "wormhole_recon" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "wormhole_recon" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_wormhole_recon(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "revolution" | "representative_government" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "revolution" | "representative_government" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_revolution(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "economic_equality" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "economic_equality" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_economic_equality(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "mutiny" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "mutiny" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_mutiny(s, ctx, galaxy, agenda, outcome, ballot)
         }),
         "seed_empire" => effect_seed_empire(state, ctx, galaxy, agenda, outcome, ballot),
-        "abolishment" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "abolishment" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_abolishment(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "constitution" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "constitution" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_constitution(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "unconventional" => windowed(state, ctx.sources, agenda, outcome, ballot, |s| {
+        "unconventional" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_unconventional(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "incentive" => effect_incentive(state, ctx, galaxy, agenda, outcome, ballot),
+        "incentive" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
+            effect_incentive(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
         _ => Effect::Unresolved {
             agenda: agenda.to_owned(),
         },
@@ -2168,6 +2173,98 @@ mod tests {
         assert!(seen.iter().any(|e| matches!(e, Effect::Deferred { .. })));
     }
 
+    /// Enforced Travel Ban, Wormhole Research and Incentive Program run as core windows beside the string effect:
+    /// the map effects with the string galaxy lent to the core (the map slice), deferred without one.
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn the_map_effects_and_the_incentive_run_as_core_windows_in_lockstep() {
+        use crate::dual::{take_report, with_mask, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let content = ContentStore::embedded();
+        let sources = ti4_model::content_types::POK;
+        let systems = ti4_content::galaxy::all_systems(content, sources);
+        let wormhole = |ab: bool| {
+            systems
+                .iter()
+                .find(|(id, s)| {
+                    !s.is_hyperlane()
+                        && if ab {
+                            s.wormholes().contains("ALPHA") || s.wormholes().contains("BETA")
+                        } else {
+                            // One with a planet, so the PDS of the wormhole system itself can be told.
+                            !s.wormholes().is_empty() && !ti4_content::galaxy::planets_in(content, id, sources).is_empty()
+                        }
+                })
+                .map(|(id, _)| (*id).to_owned())
+                .expect("a wormhole system")
+        };
+        let (alpha, any) = (wormhole(true), wormhole(false));
+        let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();
+        let _ = take_report();
+        with_mask(mask, || {
+            // Wormhole Research: the ships of the alpha system go, the far seat keeps its own.
+            let hub = crate::fixtures::hub_with_outer(&alpha);
+            let far = hub.across(&alpha);
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "letnev")], POK);
+            let hole = ti4_model::id::SystemId::new(alpha.clone());
+            let elsewhere = ti4_model::id::SystemId::new(far);
+            crate::fixtures::put(&mut state, &hole, "cruiser", &a(), 2);
+            crate::fixtures::put(&mut state, &hole, "carrier", &PlayerId::new("b"), 1);
+            crate::fixtures::put(&mut state, &elsewhere, "cruiser", &a(), 1);
+            // A ground force riding in the space area is no ship and stays.
+            crate::fixtures::put(&mut state, &hole, "infantry", &a(), 1);
+            run_with(&mut state, Some(&hub.galaxy), "wormhole_research", FOR, &[]);
+            assert_eq!(state.system_state(&hole).units.len(), 1);
+            assert_eq!(state.system_state(&elsewhere).units.len(), 1);
+            run_with(&mut state, Some(&hub.galaxy), "wormhole_research", AGAINST, &[]);
+            run_with(&mut state, None, "wormhole_research", FOR, &[]);
+            // Travel Ban: the PDS of a wormhole system and its neighbours, not the far seat's.
+            let hub = crate::fixtures::hub_with_outer(&any);
+            let far = hub.across(&any);
+            let planet_in = |system: &str| {
+                ti4_content::galaxy::planets_in(content, system, sources).first().map(|planet| ti4_model::id::PlanetId::new(planet.id()))
+            };
+            if let (Some(beside_planet), Some(far_planet)) = (planet_in(&hub.centre), planet_in(&far)) {
+                let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "letnev")], POK);
+                let beside = ti4_model::id::SystemId::new(hub.centre.clone());
+                let far_system = ti4_model::id::SystemId::new(far.clone());
+                crate::fixtures::put_on_planet(&mut state, &beside, &beside_planet, "pds", &a(), 1);
+                crate::fixtures::put_on_planet(&mut state, &beside, &beside_planet, "infantry", &a(), 1);
+                crate::fixtures::put_on_planet(&mut state, &far_system, &far_planet, "pds", &a(), 1);
+                // The wormhole system itself is exposed too.
+                let own = planet_in(&any);
+                if let Some(own) = own.as_ref() {
+                    crate::fixtures::put_on_planet(&mut state, &ti4_model::id::SystemId::new(any.clone()), own, "pds", &a(), 1);
+                }
+                run_with(&mut state, Some(&hub.galaxy), "travel_ban", AGAINST, &[]);
+                if let Some(own) = own.as_ref() {
+                    assert!(state.system_state(&ti4_model::id::SystemId::new(any.clone())).planet_units[own].iter().all(|u| u.type_id.as_str() != "pds"));
+                }
+                let pds = |s: &GameState, sys: &ti4_model::id::SystemId, p: &ti4_model::id::PlanetId| {
+                    s.system_state(sys).planet_units[p].iter().filter(|u| u.type_id.as_str() == "pds").count()
+                };
+                assert_eq!(pds(&state, &beside, &beside_planet), 0);
+                assert_eq!(pds(&state, &far_system, &far_planet), 1);
+                run_with(&mut state, Some(&hub.galaxy), "travel_ban", FOR, &[]);
+            }
+            run_with(&mut state_for_no_map(), None, "travel_ban", AGAINST, &[]);
+            // Incentive Program: stage I on For, stage II on Against.
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "letnev")], POK);
+            let before = state.revealed_objectives.len();
+            run_with(&mut state, None, "incentive", FOR, &[]);
+            run_with(&mut state, None, "incentive", AGAINST, &[]);
+            assert_eq!(state.revealed_objectives.len(), before + 2);
+        });
+        let report = take_report();
+        assert_eq!(report.total_differences(), 0, "{report:?}");
+        let (compared, bailed) = crate::dual::local_windows("agenda_effects::resolve_with");
+        assert!(compared >= 8 && bailed == 0, "{compared} compared, {bailed} bailed");
+    }
+
+    fn state_for_no_map() -> GameState {
+        crate::fixtures::seated_game(&[("a", "sol"), ("b", "letnev")], POK)
+    }
+
     /// Nexus Sovereignty, Against: a gamma wormhole into Mecatol Rex.
     #[test]
     fn nexus_sovereignty_against_puts_a_gamma_wormhole_on_mecatol() {
@@ -2265,7 +2362,7 @@ mod tests {
         // probed itself: it answers for both effects.
         for (agenda, answers) in [("secret", 1), ("warrant", 2)] {
             let mut probe = seated();
-            let window = crate::dual_window::agenda_effect(&mut probe, agenda, "a", &crate::dual_window::EffectArgs { for_voters: &[], against_voters: &[], sources: POK }, &crate::dual_window::Recording::default());
+            let window = crate::dual_window::agenda_effect(&mut probe, agenda, "a", &crate::dual_window::EffectArgs { for_voters: &[], against_voters: &[], sources: POK, galaxy: None }, &crate::dual_window::Recording::default());
             assert!(window.is_some_and(|w| w.questions.len() <= answers), "{agenda}");
         }
         let _ = take_report();

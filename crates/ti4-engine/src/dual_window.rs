@@ -696,12 +696,33 @@ const AGENDA_EFFECT: Footprint = Footprint::new(
     &[Slice::Meta, Slice::Players, Slice::Board, Slice::Objectives, Slice::Decks, Slice::Ledger, Slice::Agenda, Slice::Explore, Slice::Marks],
 );
 
+/// [`AGENDA_EFFECT`] with the map: the effects that read the galaxy.
+const AGENDA_EFFECT_MAP: Footprint = Footprint::new(
+    &[
+        Slice::Meta,
+        Slice::Seats,
+        Slice::Players,
+        Slice::Board,
+        Slice::Map,
+        Slice::Objectives,
+        Slice::Decks,
+        Slice::Ledger,
+        Slice::Agenda,
+        Slice::Explore,
+        Slice::Marks,
+        Slice::Pending,
+    ],
+    &[Slice::Meta, Slice::Players, Slice::Board, Slice::Objectives, Slice::Decks, Slice::Ledger, Slice::Agenda, Slice::Explore, Slice::Marks],
+);
+
 /// What the string agenda effect was called with besides the state: the ballot's voters and the game's sources.
 #[derive(Debug, Clone)]
 pub struct EffectArgs<'a> {
     pub for_voters: &'a [PlayerId],
     pub against_voters: &'a [PlayerId],
     pub sources: ti4_model::content_types::SourceSet,
+    /// The game's map, when the caller has one.
+    pub galaxy: Option<&'a ti4_content::galaxy::Galaxy>,
 }
 
 /// The core half of `agenda_effects::resolve_with` for the effects the core has a window for
@@ -741,6 +762,7 @@ pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, a: &Effect
         default_scope: crate::core_adapter::scope(ti4_model::content_types::DEFAULT),
         source: r.code("agenda"),
         pool: r.code("reinforcements"),
+        has_galaxy: a.galaxy.is_some(),
     };
     let window = Resolve::of_facts(agenda, outcome, &facts)?;
     if window.draws() && gs.deck_reserve.is_some() {
@@ -750,7 +772,9 @@ pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, a: &Effect
     let kernel = Kernel::plain();
     let mut driver = Driver::new(window, Resolver::new(&[], None), AbilityTable::default(), 1);
     let mut staged = Vec::new();
-    let driven = with_core(gs, &mut cx, Sources::default(), AGENDA_EFFECT, |core, _| {
+    let footprint = if driver.window.needs_map() { AGENDA_EFFECT_MAP } else { AGENDA_EFFECT };
+    let src = Sources { galaxy: a.galaxy.filter(|_| driver.window.needs_map()), rng: None };
+    let driven = with_core(gs, &mut cx, src, footprint, |core, _| {
         let driven = drive(&mut driver, core, &kernel, &r, &before, script);
         staged = std::mem::take(&mut core.pending_mut().staged);
         driven
