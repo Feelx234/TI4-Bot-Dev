@@ -71,24 +71,40 @@ duplicates (git merged them cleanly; the FRONTIER spelling is what is in the tre
 3. **A2 x B4**: A2 made `core_adapter::adjacency_for` return `Arc<Adjacency>`; B4's `TradeView` held an `Rc`. Changed to `Arc`.
 4. **B8 x B9**: render `uninhabited!` list still named `agenda` after the B9 merge (see above).
 
-## API duplications to unify
+## API duplications: status after the unification pass
 
-* **`Rd` bundles**: `rules/combat/mod.rs` (B1) and `rules/invasion/mod.rs` (B2) each define `Rd<'a>`; B3/B7/B8/B9 have their
-  own read bundles under other names. One shared read bundle (state + kernel + tables) in `rules/` would remove them.
-* **`Env` traits**: five of them (`query/trade.rs`, `rules/{strategy,abilities,leaders}.rs`, `rules/agenda/mod.rs`); the
-  `Faction` and `KernelFaction` traits of A5/B1 are separate again. Unify into one environment trait (or the kernel's `Cx`).
-* **`has_commander_ability`**: seven copies: `rules/leaders.rs` (canonical), `ce_movement/readers.rs`,
-  `cc_ground/borrowed/query.rs`, `cb_economy/winnu/query.rs`, `cd_registry/mod.rs` in the factions crate; string-side
-  `promissory.rs` and `leaders_view.rs`. Factions crate should call the core one.
-* **`typed::<T: IdStr>(id)`** helper is copied in nine `ti4-engine` view files (`board_view`, `core_combat`, `core_invasion`,
-  `leaders_view`, `agenda_view`, `production_view`, `trade_core`, `explore_core`, `objectives`); move to `core_adapter`.
-* **Test kits**: four `testkit` modules in the factions crate (`cb`, `cc`, `cd`, `ce`) plus four in `ti4-engine/src/factions/*`;
-  `common.rs` of the factions crate is the natural home for one kit.
-* **Relic sustain**: `board_view::relic_grants_sustain` (A1/B1) and the B5 `grants_sustain` are two typed readers of one fact.
-* **`string-*` features / `AreaMask::build_default`**: eight near-identical `cfg!` lines; generate from a table of areas.
-* **`core_factions` guards**: `lib.rs` declares it unguarded but every module inside is `cfg(typed-core)`; decide one rule.
-* **`board_equivalence` bin** has three modes hand-dispatched (`templates/golden`, `leaders`, `cards`) and the strategy and
-  agenda summaries share the default mode; `verify_package.sh` greps each area's line out. Fold into a mode table.
+Each item is its own commit on `core-integration` (behavior-neutral; after each: `cargo check --profile gate --workspace
+--all-targets` and `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1 cargo test -p ti4-engine`, 4022 passed every time).
+
+* **Done: `typed::<T>(id)`**: eight identical copies (`board_view`, `core_combat`, `core_invasion`, `leaders_view`,
+  `agenda_view`, `production_view`, `trade_core`, `explore_core`) replaced by `core_adapter::typed`. (`objectives.rs`'s
+  `typed` is a different method and stays.)
+* **Done: `has_commander_ability`**: the core one in `rules::leaders` is now `has_commander_ability_with(core, who, commander,
+  imperia)`; `has_commander_ability` (via `Cx`/`Env`) and `has_commander_ability_in` (state only, Imperia read off the
+  fleet pool by `imperia_from_pool`) are thin callers. The CB/CD/CE copies are re-exports of `_in`; CC's wrapper passes the
+  `mahact_imperia_grants` direct hook. Left: the string-side `promissory.rs` and `leaders_view.rs` (string engine, the
+  oracle of the dual) and `cc_ground/mahact/query.rs::imperia_grants` (the hook implementation itself; it could call
+  `imperia_from_pool` once CC is quiet).
+* **Done: test kits**: the four identical `table()` kits of CB/CC/CD/CE are `ti4-engine-core-factions::common::testkit`
+  (the per-package `testkit` is a re-export, so no call site changed). The four string-side kits (`bastion`, `crimson`,
+  `deepwrought`, `firmament`) share `factions::shared_testkit` (`a/b/c/content/scripted/trio`); each keeps only what is
+  its own.
+* **Done: relic sustain**: `board_view::relic_grants_sustain` was dead after B5 took the relic dual (nothing called it) and
+  is deleted; `query::relic::grants_sustain` is the reader. The combat rules still ask the seam data row
+  (`seam::data::grants_sustain`), which is the kernel's way of expressing the same card; two answers on purpose until the
+  seam rows replace `query::relic` (note for B1/B5 owners).
+* **Done: `Rd` bundles**: B1 and B2 `Rd` are one `kernel::read::Rd` (L3; `rules::combat::Rd` and `rules::invasion::Rd` are
+  re-exports). A shared home under `rules/` is impossible: `check_layers.py` rejects a rules area importing another, and a
+  `rules::Rd` path counts as one. The L1Z1X commander field is carried by both (None for combat). The other areas
+  (production, trade, strategy, agenda, leaders) use their own `Cx` carrying an `Env`, which is a different shape.
+* **Kept, documented: the five `Env` traits** (`leaders`, `strategy`, `abilities`, `agenda`, `query::trade`). The seam did not
+  replace them: each is still the boundary through which the string engine's views (`leaders_view`, `strategy_view`,
+  `agenda_view`, `trade_core`) supply faction answers, and only trade (`KernelEnv`) and agenda (`Facts`) have a kernel-backed
+  implementation, with some methods answering a neutral `false`. Merging them would touch every implementor for no gain; they go
+  away wholesale when wave C answers through the hook table. Documented in `rules/mod.rs`. `abilities::Env` is implemented by
+  `LeaderView` only. The `Faction`/`KernelFaction` traits of A5/B1 were not touched.
+* **Still open**: eight near-identical `string-*` feature lines and `AreaMask::build_default` branches; the three-mode
+  `board_equivalence` dispatch; the `core_factions` cfg rule (`lib.rs` unguarded, modules `cfg(typed-core)`).
 
 ## Build and test status
 
@@ -102,11 +118,12 @@ duplicates (git merged them cleanly; the FRONTIER spelling is what is in the tre
 * No failing tests, so nothing to assign to an owner. Not run: release golden runs, `dual_run`, `board_equivalence`,
   `gen-cards --check`, wasm, `ti4-selfplay` tests, CPU A/B.
 
-## Recommended unification tasks
+## Recommended next tasks
 
-1. A `rules::common` crate-internal module: shared `Rd`/`Env`, one `has_commander_ability`, and move the factions-crate copies onto it.
-2. Move `typed::<T>` and the other adapter helpers into `core_adapter`; delete the nine copies.
-3. One test kit in `ti4-engine-core-factions/src/common.rs`; one for the string-side faction tests.
-4. Table-driven `AreaMask::build_default`, `string-*` features and `board_equivalence` modes.
-5. Decide the `core_factions` cfg rule and add a CI grep that every package's `pub mod` survives merges.
-6. Re-run the golden dual runs per area on this line before any of it merges to main.
+1. Table-driven `AreaMask::build_default`, `string-*` features and `board_equivalence` modes.
+2. Decide the `core_factions` cfg rule and add a CI grep that every package's `pub mod` survives merges.
+3. When CC is quiet: `mahact::imperia_grants` calls `imperia_from_pool`; when wave C answers through the kernel, delete the `Env` traits.
+4. Re-run the golden dual runs per area on this line before any of it merges to main.
+
+Final checks of the unification pass: `gen-cards --check` current; `check_layers.py core` 0 violations (297 files);
+`lint_core.sh` 0 hits; core, factions (68) and bridge tests green with `TI4_AREAS=all=dual`.
