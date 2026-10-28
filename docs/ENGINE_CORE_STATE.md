@@ -579,7 +579,7 @@ buckets), **not additive**.
 | B9 | agenda-laws | agenda_effects 1370, vote 1217, agenda 116, laws (mutating half) | 3.2 k | A4, A5, B8 | M | | 5 |
 | C1-C6 | faction shards | `factions/*` 41 951 lines in 6 shards (alphabetical by file size to balance, ~7 k each) | 42 k | A5 hooks + the B packages whose hooks a faction uses | M | | 2-3 each (14) |
 | D1 | driver | game 7408, phase 252, wiring 744, setup 205, fixtures; `Pending` windows | 8.6 k | all B, hooks for C | **H** | automatic steps 18% -> ~6% | 10 |
-| D2 | flip-and-delete | authority flip, `materialize`, reverse lend for leftovers, delete string implementations and `core-dual` wiring, checkpoints = `CoreState::clone` | -50 k | D1, C | H | checkpoints 18.7% -> ~2% | 6 |
+| D2 | flip-and-freeze | authority flip, `materialize`, reverse lend for leftovers, MOVE (not delete) the string modules per area into `ti4-engine-legacy`, remove legacy and `core-dual` wiring from production builds, checkpoints = `CoreState::clone` | -50 k from production (moved to `ti4-engine-legacy`) | D1, C | H | checkpoints 18.7% -> ~2% | 6 |
 | D3 | typed-bots (optional, later) | bots on `CoreView` / typed options | - | D2 | - | -2..-4% | - |
 
 ### 4.5 Interfaces each package must expose first ("interface PR", merged within 1-2 days of start)
@@ -930,9 +930,9 @@ Each brief: **Branch / Scope / Owned / Forbidden / Interface (exposes first) / G
 * Gate: whole-game dual (every step of the 20 golden games), benches with `Dual`.
 
 ### D2 `core-d2-flip`
-* Scope: authority flip, `materialize`, reverse lend for the leftovers, deletion commits per area, checkpoints = `CoreState::clone`, remove `core-dual` wiring from production builds.
-* Owned: `Game`, `core_sync`, deletion commits across packages' string modules.
-* Gate: final gate (section 5); measured checkpoint bucket.
+* Scope: authority flip, `materialize`, reverse lend for the leftovers, MOVE (not delete) the string modules per area into `ti4-engine-legacy` (commit per area), checkpoints = `CoreState::clone`, remove legacy and `core-dual` wiring from production builds (server, wasm). See "Final structure after D2" below.
+* Owned: `Game`, `core_sync`, the move commits across packages' string modules.
+* Gate: final gate (section 5); measured checkpoint bucket; the dual harness still green with its allow-list.
 
 ---
 
@@ -954,5 +954,51 @@ Each brief: **Branch / Scope / Owned / Forbidden / Interface (exposes first) / G
    re-applies it; the dual run makes this visible within a night.
 5. **Scope of this program.** Stop at D2 (engine on the core, bots and host unchanged) or include D3
    (typed options and a typed view for the rule bot, est. -2..-4% and removal of ~120 parse sites)?
-   *Recommend:* stop at D2; D3 is a bot project with its own baseline/A-B process and starts only after
-   the flip is a nightly old.
+   *DECIDED (user): D3 is in scope, after D2.* D3 still starts only after the flip is a nightly old and has its
+   own baseline/A-B process. D2 itself is "flip and freeze" (legacy moved, not deleted); see the next section.
+
+---
+
+## 9. Final structure after D2 (decided by the user)
+
+1. **The old string engine is kept, frozen, as `ti4-engine-legacy`.** It is built only for tests and tools
+   (dev profile or a `legacy` feature), never for the server or wasm builds. Deleting it is an optional later
+   step. Relation to the existing workspace crate `crates/ti4-legacy` (package `ti4-legacy`): that crate is
+   unrelated, it is the Python artifact / replay converter stub (`checkpoint`, `converter`, `corpus`,
+   `replay`, `state_import`; it depends on `ti4-engine`). The names are different (`ti4-legacy` vs
+   `ti4-engine-legacy`), so there is no clash; it is neither renamed nor deleted, but the two are easy to
+   confuse and docs should always write the full name.
+2. **The new `ti4-engine` becomes a thin string wrapper around the typed core.** It holds `CoreState`,
+   parses and renders the string `GameState` and the option strings (materialize, cached),
+   `render/<area>.rs` maps Ask/Opt/Subtype <-> byte-exact text, and it owns the serde / wire / save formats.
+   Host, server, wasm and the bots keep the string interface until D3. D3 gives the bots typed options and a
+   typed view; afterwards the wrapper serves only the wire and save formats.
+3. **The dual harness stays as a permanent regression oracle** (`ti4-engine-core-bridge`: legacy vs core on
+   the golden games, benches and alpha replays). Rule fixes go into the core only (e.g. the Heart of Ixth
+   string bug, `ENGINE_KNOWN_ISSUES.md` B1), so legacy and core diverge on purpose. The oracle is valid per
+   `RULES_VERSION` and needs an **allow-list of intended differences** (keyed by rules version, area and
+   game/step). Costs and risks: a duplicated build in the dev profile, frozen legacy tests, allow-list upkeep
+   (a stale entry hides a real regression; every entry needs a reason and a version bound).
+4. **D2 scope**: authority flip, materialize, reverse lend for leftovers, MOVE the string modules into
+   `ti4-engine-legacy` per area, checkpoints = `CoreState::clone`, remove legacy and core-dual wiring from
+   production builds. Wasm size: only the new engine ships.
+5. **Layer diagram** (`ti4-engine-legacy` and `ti4-engine-core-bridge` stand beside the production line):
+
+```text
+bots / host / server / wasm            (string interface until D3)
+        |
+        v
+ti4-engine                 thin wrapper: CoreState + string parse/render, render/<area>.rs, serde/wire/save
+        |
+        v
+ti4-engine-core            L0 data | L1 state + choice | L2 query
+                           L3 kernel (HookTable, AbilityTable, seams, Stage/Driver, fx)
+                           L4 rules/<area> | L5 driver
+        ^
+        |  (fills the hook table)
+ti4-engine-core-factions   L6
+
+beside them (tests / tools only, not in server or wasm):
+ti4-engine-legacy          frozen string engine (moved modules)
+ti4-engine-core-bridge     dual harness: legacy vs core, with the allow-list
+```
