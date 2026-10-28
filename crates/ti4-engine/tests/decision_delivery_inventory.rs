@@ -1143,7 +1143,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "laws.rs",
-        function: "offer_discard",
+        function: "offer_discard_text",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1763,7 +1763,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("obsidian.rs", "ask", 1),
     ("invasion.rs", "apply_bombard_plan", 1),
     ("invasion.rs", "dunlain_reaper", 1),
-    ("laws.rs", "offer_discard", 1),
+    ("laws.rs", "offer_discard_text", 1),
     ("leaders.rs", "dispatch_leader", 2),
     ("leaders.rs", "ask_seeing_parts", 1),
     ("leaders.rs", "offer_production_hero", 1),
