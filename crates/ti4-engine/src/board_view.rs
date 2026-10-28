@@ -305,15 +305,6 @@ impl BoardView {
         Some(ti4_engine_core::rules::combat::sustain_suppressed(&self.view, self.blanked, base))
     }
 
-    /// `relics::grants_sustain`.
-    #[must_use]
-    pub fn relic_grants_sustain(&self, player: &PlayerId) -> Option<bool> {
-        let mut kernel = ti4_engine_core::kernel::Kernel::plain();
-        ti4_engine_core::kernel::seam::providers::register_core(&mut kernel.hooks);
-        let q = ti4_engine_core::kernel::seam::Q::new(&self.view, &kernel);
-        Some(ti4_engine_core::kernel::seam::data::grants_sustain(q, &kernel.hooks.seam.rows, self.seat(player)?))
-    }
-
     /// `laws::holds_ministry`.
     #[must_use]
     pub fn holds_ministry(&self, player: &PlayerId, alias: &str) -> Option<bool> {
