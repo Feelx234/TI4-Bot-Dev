@@ -79,6 +79,15 @@ Illegal picks are refused with the state untouched; `resume` after `Done` is `No
 The mutation test (change the gain to 2 in the core window) fails the unit test
 `letnevcommander_2_the_sustain_offer_runs_as_a_core_window_in_lockstep`.
 
+### Dice in a window (B1c)
+
+`Sx::die(domain, sides)` draws from the stream of the state's `rng` slice (`Rng::die`, the same ChaCha8 words
+as `GameRng::die`). The streams are seeded by `Sx::seeds`, which the adapter gives the driver with
+`Driver::with_seeds(Rc<dyn SeedSource>)` (default `NoSeeds`: all-zero seeds, for windows that never draw). The
+rng is part of the state, so a step rolled back for a nested question restores the streams with everything
+else and the re-run draws the same dice (unit test `dice_drawn_in_a_step_that_is_rolled_back_are_drawn_once`).
+Recording the roll in `ledger.dice` is the rule area's (`rules::combat::record_rolls`), not the kernel's.
+
 ## 4. The worked example (`driver/windows/sustain_commander.rs`)
 
 String `combat::ask_sustain_commander`: if the holder has an unlocked Letnev commander, ask "gain 1 trade good for the
@@ -117,3 +126,100 @@ The example lives under `driver/` only because `rules/` is created by B1 and B3;
 > games (`dual_run tools/engine_profile/profile-20.json 20 driver=dual`); mutate the core half once to see the dual fail.
 > Pure refactor: no CPU A/B, no wasm, `RULES_VERSION`, serde, fixtures unchanged. Stateful `ctx.emit` sites that
 > are reached from several windows (e.g. `emit_sustain_used`) are shared `fx`-style helpers taking `&mut Sx`.
+
+## 6. B1 windows after the first slice: the roll step and the stage transitions
+
+* `rules/combat/roll.rs` (`RollStep`): the "Roll Dice" step of a round (string `CombatWindow::roll_round`, now a
+  `dual_window!` around `roll_round_string`): presentation, both sides' dice from `Sx::die` recorded in
+  `ledger.dice` (Munitions Reserves' pre-roll reroll included), free/forced hits (tag 2 = the hulls 0.0.1 binds,
+  tag 1 = Hylarim's two extra hits on 9-10), `combat_round_hits`, `combat_round_dice` and the queue.
+  Reroll questions are stages of the same window (string `reroll_window` of the fleet kind, `heart_ixth`,
+  `wrath_of_kenara`, `war_funding_step`): per side, after its dice are staged (a `RerollSet`, mirrored to
+  `transient.combat.reroll_staging` while a question is open so the adapter can fill `Choice.details`), Munitions
+  Reserves after the roll (offer, then "choose which dice"), the Crown of Thalnos relic and law (one question per
+  die, `Ask::RerollDie`, the picks drawn again at the end of the walk, +1 for the relic, the casualties of entries
+  whose rerolled dice missed), the Heart of Ixth (one question per holder), Wrath of Kenara (purchase); after both
+  sides, War Funding per holder. Compared: queue, damaged-before-round, dice (hit number, faces, rerolls
+  included), stream positions, every question (ids, labels, payload, context, details), events, resulting state.
+  Bails (`CombatWindow::roll_unported`, the string result stands, windows inside run bare): a readied The
+  Thundarian / Yssaril agent (roll-step reaction: the ability table is empty in core), the Keleres agent granting
+  commodities as trade goods to a side that may pay Munitions or Wrath, neutral sides, test faces or
+  `rng.seed() != state.rng_seed`, a roll that ends the fight (a reroll casualty emptied a fleet), a hit a module
+  produces after the roll, reaction activity inside a casualty's announcement. Golden coverage: the unit tests
+  `the_crowns_of_thalnos_reroll_questions_run_in_the_core_roll_window`, `the_heart_of_ixth_runs_in_the_core_roll_window`,
+  `war_funding_runs_in_the_core_roll_window`, `wrath_of_kenara_runs_in_the_core_roll_window`,
+  `munitions_after_the_roll_runs_in_the_core_roll_window` (16 seeds each, whole fights on `driver=dual`, seeded
+  random and first-option deciders), mutation-checked.
+  Known string defect copied on purpose: `heart_ixth` splits the option id `hfix|e:d:sign` on `|` and wants four
+  parts, so every pick fails to parse: no die is shifted and the card is never exhausted. The window asks the
+  same questions and ignores the answers; fixing it is a RULES_VERSION change.
+* `rules/combat/flow.rs` (`Flow`): one transition of `settle_stages` (`announcing_step`, `retreating_step`,
+  `hit_queue_head`, wrapped by `CombatWindow::flow_dual`). The string answers the rule facts (over, can retreat,
+  destinations, ships left, sustain candidates); the core owns the control flow, the events
+  (RETREAT_STEP_STARTED, SPACE_COMBAT_ROUND_ENDED, HITS_TO_ASSIGN) and the window fields it changes
+  (hit phase, resume flag, retreats announced, once-per-round announcement). Bails: cancellations granted, a
+  single casualty candidate, neutral sides, Duranium Armor repairs, a lone retreat destination (the move is
+  `retreat_to`, string), Devotion, staged destructions, reaction windows in an announcement.
+* `rules/combat/retreat.rs` (`Retreat`): the move of a retreat (string `combat::retreat_to`, now a `dual_window!`
+  around `retreat_to_string`; the value compared is the number of units stranded). Alastor participants forgotten,
+  Bastion's retreat note, movers (ships with a move value), carried fighters and ground forces within capacity, the
+  stranded lost (`remove_ship`, a staged `retreat_capacity` destruction with staging), the command token and its staged
+  `COMMAND_TOKEN_PLACED`. No new `Obs` variants: `ParticipantsCleared` and `ShipLostTaken` are the direct hooks
+  `nekro_units_alastor_clear` and `bastion_take_ship_lost` (as `assign.rs` already calls them) and the `ShipRetreated`
+  observer has no ship list, so the window calls `bastion_note_retreat` directly. Bails (`dual_window::retreat_unported`,
+  one test each): a unit that flips form or fights from its planet (Eidolon in the fleet or where it lands, Voltron), a
+  Floating Factory, a Last Bastion seat (`bastion_note_retreat` is not ported in core-factions: its list is sorted by the
+  unit type TEXT), neutral players. Tests: `a_retreat_runs_in_the_core_window` (sustained and galvanized pieces,
+  stranding, with and without staging), mutation-checked.
+* `rules/combat/machine.rs` (`Machine`, package B1g): the composition. `CombatWindow::settle` (string
+  `settle_stages` + `announce_end`) is now compared as ONE core Window on `driver=dual`
+  (`CombatWindow::settle_machine_dual`, label `combat::settle`, adapter `dual_window::settle_machine`). The machine owns
+  the stage loop: round opening (`BeginRound`), round-1 barrage (`BarrageStep`), announce/retreat/queue transitions
+  (`Flow`, facts now read from the core state: fight over, retreat destinations, ships left, sustain candidates),
+  the roll step with its reroll questions (`RollStep`, its questions are the machine's questions), the move of a
+  retreat (`Retreat`), the end (`EndAnnounce`). It stops at a pending decision (announce a retreat, choose a
+  destination, sustain, assign), at the barrage's scoring pause and at the end. The string hands it the stage and the
+  window fields (`Fields`) and gates that cannot change inside one settle (`Env`: interned texts, the neighbours a
+  retreat may enter, `may_retreat`, Duranium/Devotion flags); the compared value is the stage, outcome, fields,
+  the dice of the settle and the stream positions, besides events, state and questions. Windows nested in the string
+  loop run bare under the outer window (`run_dual_window` nests). Where the machine is known not to carry the
+  position (`settle_args` gates) the string loop runs with its inner windows compared one by one as before, so no
+  coverage is lost; unit tests of the inner windows switch the composed comparison off (`dual_window::with_composed`,
+  default off under `cfg(test)`, on in the binaries).
+  Bails (string stands; test `the_composed_combat_stays_string_where_the_core_does_not_carry_the_position`, plus the
+  lockstep test `the_composed_combat_machine_runs_whole_fights_in_lockstep`): Naaz / Letnev / diplomacy round
+  openings; start-of-combat hits (Assault Cannon, Mentak Ambush, Dimensional Splicer, Impulse Core) and the factions
+  of the module hooks; barrage with reactions (core ability table empty) and the barrage cases of `barrage_unported`;
+  The Thundarian / Keleres agent / test dice (roll gates); a roll that ends the fight; neutral sides; hit
+  cancellations; Duranium Armor repairs; Devotion's hits after a round; destructions
+  waiting for their announcement (also after a retreat); a retreat of a flipping unit (Eidolon), Voltron, a Floating
+  Factory, a Last Bastion seat, Dark Energy Tap, a Ralnel flagship arriving; the announcement of the end when a
+  survivor flips back, a blockaded dock dies or faction marks change; reaction windows inside any emission.
+* The pending decisions (package B1g, second slice): `Machine::awaiting(env, fields)` is the machine built for the answer
+  to the decision a settle stopped at (`Stop::Pending`). It puts the question the string `pending_choice` puts and applies
+  the answer the string `resolve` applies, nothing more (the settle that follows is a machine of its own).
+  `CombatWindow::resolve` is `resolve_answer` (dual, label `combat::answer`, adapter `dual_window::answer_machine`) +
+  `settle`; the string body is `resolve_answer_string`. The recording is made by hand (`note_ask(choice, answer)`), the
+  way `invasion::answer_custodians` does, so the harness compares the pending question and then the commander's.
+  New core vocabulary (`choice/combat.rs`): `Ask::AnnounceRetreat {system, forced, ships}` (Rout: no "stay"),
+  `Ask::RetreatTo {system, fleet}`, `Opt::Stay/Announce/RetreatTo {system, there}`, `Subtype::AnnounceRetreat/RetreatTo`,
+  and `Ask::CancelHit.window: Option<u16>` for the sustain question OF THE WINDOW (space sustainers named by their index
+  `sustain|3` instead of `sustain|space:3`, previews). The assign question reuses `Ask::AssignHit`, its options carry the
+  index into the owner's whole ship list (`casualty_candidates`), not into the filtered list. The renderer
+  (`render/combat.rs`) now attaches the `ShipsInSystem` previews (`Wording.preview` for the generic decline "take the hit");
+  the `sustainers` detail is the adapter's `complete` closure (as for the offer). Previews are `serde(skip)`, so the whole
+  `Choice` comparison cannot see them: `settle_run` compares them question by question in the answering mode
+  (`combat::answer.previews`). The sustain answer is `apply_sustain` + the commander's offer (`SustainCommander` as a
+  sub-window, its question is the machine's) + `sustain_offer::emit_used` + `cancel_per_sustain`; the assign answer is
+  `remove_ship` + `announce_loss`; the retreat answer is `retreat_fleet`; the announce answer emits RETREAT_DECLARED and
+  moves on (defender silences attacker, pending retreats).
+  The single casualty candidate is no longer a bail: `Machine::lone_casualty` loses the ship without a question.
+  Bails of the answer (string stands, counted under `combat::answer`): a hit the producer assigns (Devotion), a retreat the
+  core does not move (`retreat_unported`), a sustain below `RULES_FACTION_BUGFIXES`, a commander held another way than as
+  an unlocked leader, neutral sides, reaction activity (`Recording.nested`). Tests:
+  `the_pending_decisions_of_a_combat_run_in_the_core_machine` (hub map, 24 seeded fights, Rout on a third of them),
+  `a_sustain_in_a_game_below_the_faction_bugfixes_is_answered_in_the_string`,
+  `a_retreat_of_a_fleet_with_a_floating_factory_is_answered_in_the_string`,
+  `a_hit_the_producer_assigns_is_answered_in_the_string`; mutation-checked (pending retreats, hits owed, Rout, the used
+  event, the defender silencing the attacker, every preview).
+  Still string: the settle gates (`settle_args`: round openings, barrage, roll, retreat moves), see ENGINE_KNOWN_ISSUES.md.

@@ -75,6 +75,7 @@ pub fn option(o: &Opt, w: &Wording) -> ChoiceOption {
     };
     let mut out = ChoiceOption::labelled(id, w.kind.as_deref().unwrap_or(kind), w.label.clone().unwrap_or(label));
     out.payload = w.payload.clone();
+    out.preview = w.preview.clone();
     out
 }
 
