@@ -7,8 +7,8 @@
 //! window), the Siphon / Cabal / Trade Agreement reactions to a replenish, the diplomacy promise a favour
 //! keeps, a question asked inside a battle or an invasion.
 
-use crate::choice::strategy::{Ask as SAsk, Opt as SOpt, Subtype as SSub};
-use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
+use crate::choice::strategy::{ctx, Ask as SAsk, Opt as SOpt, Subtype as SSub};
+use crate::choice::{Ask, Choice, Opt, Opts, Pick};
 use crate::containers::SmallList;
 use crate::generated::StrategyCard;
 use crate::ids::Seat;
@@ -17,28 +17,6 @@ use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::Next;
 use crate::query::seats;
 use crate::state::CoreState;
-
-/// The context of a strategy card question.
-pub(crate) fn ctx(card: StrategyCard, secondary: bool, subtype: SSub) -> Ctx {
-    ctx_from(Origin::StrategyCard { card, secondary }, subtype)
-}
-
-/// The context of a question a rule raises inside a strategy card (`DecisionSource::Rule`).
-pub(crate) fn rule_ctx(rule: crate::choice::generic::Rule, subtype: SSub) -> Ctx {
-    ctx_from(Origin::Rule(rule), subtype)
-}
-
-fn ctx_from(origin: Origin, subtype: SSub) -> Ctx {
-    Ctx {
-        origin,
-        subtype: Subtype::Strategy(subtype),
-        optional: false,
-        target: None,
-        outstanding: SmallList::new(),
-        space_battle: false,
-        invasion_seq: None,
-    }
-}
 
 /// The trade goods the Trade primary gives.
 pub const TRADE_PRIMARY_GOODS: i32 = 3;

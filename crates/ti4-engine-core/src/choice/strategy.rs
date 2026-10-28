@@ -5,7 +5,10 @@
 //! (pool counts, planet worth) is completed by the adapter from the state, never carried here.
 
 use super::agenda::Shown;
-use crate::generated::{Agenda, Planet, System};
+use super::generic::Rule;
+use super::{Ask as AnyAsk, Choice, Ctx, Opt as AnyOpt, Opts, Origin, Subtype as AnySubtype};
+use crate::containers::SmallList;
+use crate::generated::{Agenda, Planet, StrategyCard, System};
 use crate::ids::Seat;
 
 /// A command token pool (`TokenPool`).
@@ -83,4 +86,39 @@ pub enum Subtype {
     PoliticsPlaceAgenda,
     BuyTokenWithInfluence,
     PlaceStructure,
+}
+
+/// The context of a strategy card question.
+#[must_use]
+pub fn ctx(card: StrategyCard, secondary: bool, subtype: Subtype) -> Ctx {
+    ctx_from(Origin::StrategyCard { card, secondary }, subtype)
+}
+
+/// The context of a question a rule raises inside a strategy card (`DecisionSource::Rule`).
+#[must_use]
+pub fn rule_ctx(rule: Rule, subtype: Subtype) -> Ctx {
+    ctx_from(Origin::Rule(rule), subtype)
+}
+
+fn ctx_from(origin: Origin, subtype: Subtype) -> Ctx {
+    Ctx {
+        origin,
+        subtype: AnySubtype::Strategy(subtype),
+        optional: false,
+        target: None,
+        outstanding: SmallList::new(),
+        space_battle: false,
+        invasion_seq: None,
+    }
+}
+
+/// The pool question of a token gain (`strategy_cards::gain_tokens`), `left` tokens still to place.
+#[must_use]
+pub fn gain_pool_choice(who: Seat, left: u8) -> Choice {
+    Choice {
+        actor: who,
+        ask: AnyAsk::Strategy(Ask::GainPool { left }),
+        ctx: rule_ctx(Rule::R52_4, Subtype::GainCommandToken),
+        opts: [Pool::Tactic, Pool::Fleet, Pool::Strategic].into_iter().map(|p| AnyOpt::Strategy(Opt::Pool(p))).collect::<Opts>(),
+    }
 }

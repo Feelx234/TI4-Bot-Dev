@@ -20,7 +20,8 @@ mod real {
     use ti4_engine_core::ids::Seat;
     use ti4_engine_core::kernel::stage::{AbilityTable, Window};
     use ti4_engine_core::kernel::{fx, Kernel, Resolver};
-    use ti4_engine_core::rules::strategy_primaries::{Construction, DMode, Diplomacy, Leadership, Politics, Placement, StructureFacts, WarfarePrimary};
+    use ti4_engine_core::rules::production::strategy_cards::{Construction, Leadership, Placement, StructureFacts};
+    use ti4_engine_core::rules::strategy_primaries::{DMode, Diplomacy, Politics, WarfarePrimary};
     use ti4_engine_core::state::{CoreState, Slice};
     use ti4_model::content_types::SourceSet;
     use ti4_model::id::{PlayerId, SystemId};
