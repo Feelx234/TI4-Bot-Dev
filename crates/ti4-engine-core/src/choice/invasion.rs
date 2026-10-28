@@ -37,6 +37,9 @@ pub enum Opt {
     Commit { index: u16, planet: Planet, unit: Unit, damaged: bool, from: Option<(System, Planet)> },
     /// "commit no more ground forces".
     DoneCommitting,
+    /// The Crimson Revenant's deploy: commit a mech from reinforcements to `planet`, with no unit of the
+    /// invader in the system required.
+    Deploy { planet: Planet },
     /// Destroy the ground force at `index` of the candidates (the first of its type and damage).
     DestroyGround { index: u16, unit: Unit, damaged: bool, staging: bool },
     /// Leave the custodians token ("no").

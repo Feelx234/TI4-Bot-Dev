@@ -1,5 +1,5 @@
 //! The hits of a ground combat round (LRR 42.3) and the step report (the string `assign_ground_round_hits`
-//! without Harrow, then `end_ground_round`), as a [`Window`] that never asks.
+//! with L1Z1X's Harrow as the window of its own in [`super::harrow`], then `end_ground_round`), as a [`Window`] that never asks.
 //!
 //! Both hits windows open first (the attacker's hits on the defender, then the defender's on the attacker, each
 //! through [`super::hits::open`], which spends what a card played in it cancelled), then the two removals
@@ -8,7 +8,7 @@
 //! removals and that announcement the `InvasionStep` of the round is recorded in `active_invasion.last_step`.
 //!
 //! Not covered (the adapter returns `None`, the string result stands): hits a faction adds to a roll (Valkyrie
-//! Particle Weave), L1Z1X's Harrow, Alarum (a Ral Nel mech on the planet), neutral sides, nested activity.
+//! Particle Weave), Proxima Targeting VI, Alarum (a Ral Nel mech on the planet), neutral sides, nested activity.
 
 use super::hits::{self as step, Batch};
 use crate::choice::{Choice, Pick};
@@ -40,6 +40,8 @@ pub struct Facts {
     pub cause: Code,
     /// The step as `end_ground_round` records it, `round`, `after`, `hits` and `harrow_hits` still to fill.
     pub template: InvasionStep,
+    /// The invader holds the Harrow ability: its window runs after the removals.
+    pub harrow: Option<super::harrow::Facts>,
 }
 
 #[derive(Debug, Clone)]
@@ -47,13 +49,15 @@ pub struct GroundRoundHits {
     pub f: Facts,
     /// The hits finally assigned (invader's, defender's), after the windows.
     pub assigned: (u32, u32),
+    /// The Harrow window that ran after the removals.
+    pub harrow: Option<super::harrow::Harrow>,
     stage: Stage,
 }
 
 impl GroundRoundHits {
     #[must_use]
     pub fn new(f: Facts) -> Self {
-        Self { f, assigned: (0, 0), stage: Stage::Start }
+        Self { f, assigned: (0, 0), harrow: None, stage: Stage::Start }
     }
 
     fn batch(&self, victim: Seat) -> Batch {
@@ -79,6 +83,14 @@ impl Window for GroundRoundHits {
         step::apply(sx.state, sx.kernel, &db, to_defender);
         step::apply(sx.state, sx.kernel, &ib, to_invader);
         self.assigned = (to_defender, to_invader);
+        // Harrow rolls after both removals, its hits are assigned before the report.
+        let mut harrow_hits = 0;
+        if let Some(facts) = self.f.harrow {
+            let mut harrow = super::harrow::Harrow::new(facts);
+            let _ = harrow.step(sx);
+            harrow_hits = harrow.assigned;
+            self.harrow = Some(harrow);
+        }
         // `end_ground_round`: the step report, then the removals' events.
         let planet = self.f.planet;
         let after: Vec<Piece> = sx.state.board().planet(planet).units.iter().copied().collect();
@@ -91,7 +103,7 @@ impl Window for GroundRoundHits {
             step.round = active.ground_round;
             step.after = after;
             step.hits = counts;
-            step.harrow_hits = 0;
+            step.harrow_hits = harrow_hits;
             active.last_step = Some(step);
         }
         if self.f.announce {

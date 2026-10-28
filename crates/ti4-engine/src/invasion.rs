@@ -4571,7 +4571,10 @@ impl InvasionWindow {
                 let announce = ctx.timing.is_some();
                 let invader = self.invader.clone();
                 let system = self.system.clone();
-                let args = crate::dual_window::RoundHitsArgs { invader: &invader, defender, system: &system, planet, rolled, announce, before: &before, dice: &dice };
+                let harrow = crate::faction_abilities::has(state, content, &invader, "harrow");
+                let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed;
+                let rng_before = ctx.rng.positions();
+                let args = crate::dual_window::RoundHitsArgs { invader: &invader, defender, system: &system, planet, rolled, announce, before: &before, dice: &dice, harrow, reproducible, rng_before: &rng_before };
                 if let Some(why) = crate::dual_window::round_hits_unported(state, content, sources, &args) {
                     crate::dual::note_bail("invasion::ground_round_hits", why);
                     return self.ground_round_hits(state, ctx, planet, defender, rolled, before, dice).0;
@@ -4579,18 +4582,31 @@ impl InvasionWindow {
                 let cell = std::cell::RefCell::new(&mut *self);
                 let ctx = std::cell::RefCell::new(ctx);
                 let (before_s, dice_s) = (before.clone(), dice.clone());
+                let history_start = ctx.borrow().dice.history().len();
                 return crate::dual_window!(
                     crate::dual::Area::Invasion,
                     "invasion::ground_round_hits",
                     state,
                     |s: &mut GameState| {
-                        let (ok, hits) = cell.borrow_mut().ground_round_hits(s, &mut **ctx.borrow_mut(), planet, defender, rolled, before_s, dice_s);
-                        crate::dual::Run::new((ok, hits))
+                        let mut ctx = ctx.borrow_mut();
+                        let (ok, hits) = cell.borrow_mut().ground_round_hits(s, &mut **ctx, planet, defender, rolled, before_s, dice_s);
+                        let drawn: crate::dual_window::DefenseOut = (
+                            ctx.dice
+                                .history()
+                                .iter()
+                                .skip(history_start)
+                                .filter(|roll| roll.reason == "harrow")
+                                .map(|roll| (roll.hits_on.unwrap_or(0), roll.faces.clone()))
+                                .collect(),
+                            ctx.rng.positions(),
+                        );
+                        crate::dual::Run::new(((ok, hits), drawn))
                     },
                     |s: &mut GameState, script: &crate::dual_window::Recording| {
                         crate::dual_window::round_hits(s, sources, &args, script)
                     }
                 )
+                .0
                 .0;
             }
         }
@@ -5590,9 +5606,9 @@ impl InvasionWindow {
         if option.is_decline() {
             self.finish_committing(state, ctx)?;
         } else if let Some(rest) = option.id.strip_prefix("commit|") {
-            return self.commit_one_windowed(state, ctx, choice, option, rest);
+            return self.commit_one_windowed(state, ctx, choice, option, rest, false);
         } else if let Some(planet) = option.id.strip_prefix("deploy_commit|") {
-            return self.commit_deploy(state, ctx, planet);
+            return self.commit_one_windowed(state, ctx, choice, option, planet, true);
         }
         Ok(true)
     }
@@ -5608,6 +5624,7 @@ impl InvasionWindow {
         choice: &Choice,
         option: &ChoiceOption,
         rest: &str,
+        deploy_answer: bool,
     ) -> Result<bool, IllegalChoice> {
         #[cfg(feature = "typed-core")]
         {
@@ -5616,7 +5633,7 @@ impl InvasionWindow {
             let (troops_pool, origins, temporary) = commit_pool(state, content, sources, self.galaxy.as_deref(), &invader, &system, &self.extra_commits);
             let planets = landable_planets(state, content, sources, &system);
             let deploy = crate::factions::crimson::deploy_planets(state, content, sources, &invader, &system, &planets);
-            let plain = if !deploy.is_empty() { Some("Crimson deploy offered") } else { None };
+            let plain: Option<&'static str> = None;
             let pool: Vec<crate::dual_window::PoolIn> = troops_pool
                 .into_iter()
                 .zip(origins)
@@ -5638,7 +5655,11 @@ impl InvasionWindow {
                         let me = cell.borrow();
                         (me.extra_commits.len(), me.temporary_space_commits.values().map(Vec::len).sum::<usize>())
                     };
-                    let result = cell.borrow_mut().commit_one(s, &mut **ctx.borrow_mut(), rest);
+                    let result = if deploy_answer {
+                        cell.borrow_mut().commit_deploy(s, &mut **ctx.borrow_mut(), rest)
+                    } else {
+                        cell.borrow_mut().commit_one(s, &mut **ctx.borrow_mut(), rest)
+                    };
                     failed.set(result.is_err() || matches!(result, Ok(false)));
                     outcome = Some(result);
                     let me = cell.borrow();
@@ -5651,13 +5672,17 @@ impl InvasionWindow {
                     if failed.get() {
                         return None;
                     }
-                    crate::dual_window::land_one(s, sources, &invader, &system, plain, announce, &pool, script)
+                    crate::dual_window::land_one(s, sources, &invader, &system, plain, announce, &pool, &deploy, script)
                 }
             );
             return outcome.unwrap_or(Ok(true));
         }
         #[cfg(not(feature = "typed-core"))]
-        self.commit_one(state, ctx, rest)
+        if deploy_answer {
+            self.commit_deploy(state, ctx, rest)
+        } else {
+            self.commit_one(state, ctx, rest)
+        }
     }
 
     /// One `commit|<index>|<planet>` answer: toll, move, land, announce.
@@ -6563,6 +6588,38 @@ mod tests {
             "and the shield stops it -- which is the gate Harrow now asks"
         );
     }
+    /// Harrow is a window of its own after the removals of a round: its dice come after them, in the dice stream
+    /// order of the string code, and the step report holds its hits.
+    #[test]
+    fn harrow_runs_as_a_core_window_after_the_removals_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual);
+        let mut harrow_dice = 0;
+        with_mask(mask, || {
+            let mut state = crate::fixtures::seated_game(&[("a", "l1z1x"), ("b", "sol")], POK);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = 9;
+            let (system, planet) = crate::fixtures::a_placed_planet();
+            crate::fixtures::put(&mut state, &system, "warsun", &PlayerId::new("a"), 1);
+            crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 6);
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 10);
+            let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+            let mut dice = Dice::new();
+            let mut rng = GameRng::new(9);
+            resolve(&mut state, ContentStore::embedded(), POK, &mut table, &mut dice, &mut rng, &system, &PlayerId::new("a")).unwrap();
+            harrow_dice = dice.history().iter().filter(|r| r.reason == "harrow").count();
+        });
+        let r = report();
+        let w = r.windows.get("invasion::ground_round_hits").copied().unwrap_or_default();
+        assert!(harrow_dice > 0, "Harrow rolled");
+        assert!(w.compared >= 1, "the round with Harrow is compared: {:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
     use ti4_model::content_types::DEFAULT as ALL_SOURCES;
     use ti4_model::content_types::POK;
 

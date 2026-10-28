@@ -17,6 +17,7 @@ pub mod begin;
 pub mod bombard;
 pub mod commit;
 pub mod defense;
+pub mod harrow;
 pub mod hits;
 pub mod roll;
 pub mod round;
@@ -187,7 +188,7 @@ pub fn roll_bombard(plan: &[PlanetBombard], rng: &mut crate::state::Rng, seeds: 
 }
 
 /// Whether `seat` has Plasma Scoring (the data row of the technology).
-fn has_plasma_scoring(rd: Rd<'_>, owner: Seat) -> bool {
+pub(crate) fn has_plasma_scoring(rd: Rd<'_>, owner: Seat) -> bool {
     seam_data::COMBAT_ROWS
         .iter()
         .filter(|r| matches!(r.kind, RowKind::ExtraDice(_)) && r.source == Source::Technology(crate::generated::Technology::PlasmaScoring))
@@ -320,6 +321,13 @@ impl Troop {
 /// first, then the end of the sequence. Moving a unit onto the planet it already stands on is no landing.
 #[must_use]
 pub fn commit_opts_from(system: System, troops: &[Troop], planets: &[Planet]) -> crate::choice::Opts {
+    commit_opts_with(system, troops, planets, &[])
+}
+
+/// [`commit_opts_from`] with the Crimson deploy landings (`deploy`: the planets a Revenant may be committed to)
+/// between the troops' landings and the end of the sequence.
+#[must_use]
+pub fn commit_opts_with(system: System, troops: &[Troop], planets: &[Planet], deploy: &[Planet]) -> crate::choice::Opts {
     use crate::choice::invasion::Opt as IOpt;
     let mut opts = crate::choice::Opts::default();
     type Landing = (Unit, bool, Planet, Option<(System, Planet)>);
@@ -337,6 +345,9 @@ pub fn commit_opts_from(system: System, troops: &[Troop], planets: &[Planet]) ->
             seen.push(key);
             opts.push(crate::choice::Opt::Invasion(IOpt::Commit { index: index as u16, planet: *planet, unit: unit.kind(), damaged: unit.sustained(), from: troop.origin }));
         }
+    }
+    for planet in deploy {
+        opts.push(crate::choice::Opt::Invasion(IOpt::Deploy { planet: *planet }));
     }
     opts.push(crate::choice::Opt::Invasion(IOpt::DoneCommitting));
     opts

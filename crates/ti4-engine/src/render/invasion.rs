@@ -103,6 +103,13 @@ impl Family for Fam {
             Opt::FightRound { planet } => {
                 ChoiceOption::labelled("fight", crate::invasion::GROUND_CASUALTY_KIND, format!("fight a round on {}", planet.as_str()))
             }
+            Opt::Deploy { planet } => ChoiceOption::labelled(
+                format!("deploy_commit|{}", planet.as_str()),
+                COMMIT_KIND,
+                format!("deploy a {} on {}", crate::factions::crimson::MECH, planet.as_str()),
+            )
+            .with("planet", planet.as_str().to_owned())
+            .with("unit", crate::factions::crimson::MECH),
             Opt::DoneCommitting => ChoiceOption::labelled(
                 "done_committing",
                 crate::choice::DECLINE_KIND,

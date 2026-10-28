@@ -2081,6 +2081,28 @@ mod tests {
     }
 
     #[test]
+    fn the_deploy_runs_as_a_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual);
+        with_mask(mask, || {
+            let (mut state, system, planet) = deploy_setup();
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            let report = invade(&mut state, &a(), &[format!("deploy_commit|{planet}").as_str(), "done_committing"], &system);
+            assert!(report.committed.contains(&planet));
+        });
+        let r = report();
+        let w = r.windows.get("invasion::commit_one").copied().unwrap_or_default();
+        let bails: Vec<_> = r.windows.iter().filter(|(k, _)| k.starts_with("invasion::commit_one [bail")).collect();
+        assert!(w.compared >= 1, "the deploy is compared: {:?}", r.windows);
+        assert!(bails.is_empty(), "{bails:?}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    #[test]
     fn the_revenant_is_not_deployed_without_an_active_breach_a_mech_or_the_rebellion() {
         let (state, system, planet) = deploy_setup();
         let offer = format!("deploy_commit|{planet}");

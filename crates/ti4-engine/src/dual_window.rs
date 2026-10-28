@@ -1383,11 +1383,44 @@ const LAND_ONE: Footprint = Footprint::new(
     &[Slice::Board, Slice::Transient, Slice::Pending],
 );
 
-/// The core half of `InvasionWindow::commit_one` (one `commit|<n>|<planet>` landing). `None` (the bail-outs):
-/// `plain` false (the question holds a commit candidate with an origin, a temporary space commit or the Crimson
-/// deploy), nested activity (a reaction to `UNITS_COMMITTED`), a Keleres seat (the toll), the diplomacy promises
-/// switched on, a ship-form unit flipping on landing, and a position the codecs refuse.
+/// The landing with the Omniopiares toll before it: the payment is the production package's `PayStep`.
+const LAND_ONE_TOLL: Footprint = Footprint {
+    reads: ti4_engine_core::state::SliceSet::of(&[
+        Slice::Meta,
+        Slice::Seats,
+        Slice::Players,
+        Slice::Board,
+        Slice::Transient,
+        Slice::Marks,
+        Slice::Agenda,
+        Slice::Cards,
+        Slice::Pending,
+        Slice::Ledger,
+        Slice::Explore,
+        Slice::Objectives,
+    ]),
+    writes: ti4_engine_core::state::SliceSet::of(&[Slice::Meta, Slice::Players, Slice::Board, Slice::Transient, Slice::Ledger, Slice::Pending]),
+};
+
+/// The planet a recorded commit answer (`commit|<n>|<planet>`, `deploy_commit|<planet>`) names.
+fn answered_planet(script: &Recording) -> Option<ti4_model::id::PlanetId> {
+    let id = script.questions.first()?.answer.as_deref()?;
+    if !(id.starts_with("commit|") || id.starts_with("deploy_commit|")) {
+        return None;
+    }
+    id.rsplit('|').next().map(ti4_model::id::PlanetId::new)
+}
+
+/// The core half of `InvasionWindow::commit_one` (one `commit|<n>|<planet>` landing) and of `commit_deploy` (the
+/// Crimson Revenant, `deploy_commit|<planet>`, offered on `deploy`). The Omniopiares toll of a landing is paid
+/// through the production package's `PayStep` between the answer and the landing. `None` (the bail-outs): `plain`
+/// false (the question holds a commit candidate with an origin or a temporary space commit), nested activity
+/// (a reaction to `UNITS_COMMITTED`), the diplomacy promises switched on, a Keleres table where the toll bars a
+/// landing (the string question leaves it out), where the toll is owed at a table the production window does not
+/// carry (`production_view::unported_window`), a ship-form unit flipping on landing, and a position the codecs
+/// refuse.
 #[must_use]
+#[allow(clippy::too_many_arguments, reason = "the string function's own")]
 pub fn land_one(
     gs: &mut GameState,
     sources: ti4_model::content_types::SourceSet,
@@ -1396,19 +1429,26 @@ pub fn land_one(
     plain: Option<&'static str>,
     announce: bool,
     pool: &[PoolIn],
+    deploy: &[ti4_model::id::PlanetId],
     script: &Recording,
 ) -> Option<CoreWindow<LandOut>> {
+    use ti4_engine_core::query::economy::Spend as CoreSpend;
     use ti4_engine_core::rules::invasion::commit::LandOne;
     use ti4_engine_core::rules::invasion::Troop;
+    use ti4_engine_core::rules::production::pay::{PayStep, Stage as PayStage};
     const LABEL: &str = "invasion::commit_one";
+    let keleres = gs.players.iter().any(|p| p.faction.as_str().starts_with("keleres"));
+    let toll = if keleres { answered_planet(script).filter(|p| crate::factions::keleres_units::commit_toll_owed(gs, invader, system, p)) } else { None };
     let why = if let Some(why) = plain {
         Some(why)
     } else if script.nested {
         Some("nested (a reaction to UNITS_COMMITTED ran)")
     } else if gs.diplomacy.enabled {
         Some("diplomacy promises on")
-    } else if gs.players.iter().any(|p| p.faction.as_str().starts_with("keleres")) {
-        Some("keleres seat (toll)")
+    } else if keleres && landing_barred_by_toll(gs, sources, invader, system) {
+        Some("keleres toll bars a landing")
+    } else if toll.is_some() && crate::production_view::unported_window(gs, invader) {
+        Some("keleres toll at a table the production window does not carry")
     } else {
         None
     };
@@ -1429,27 +1469,84 @@ pub fn land_one(
         };
         troops.push(Troop { piece: crate::core_sync::codec::board::piece(&cx, &entry.unit).ok()?, origin, temporary: entry.temporary });
     }
-    let mut driver = Driver::new(LandOne::new(seat, sys, announce).with_pool(troops), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+    let deploy_planets: Vec<_> = deploy.iter().map(|p| <ti4_engine_core::generated::Planet as IdStr>::from_id(p.as_str())).collect::<Option<_>>()?;
+    let mut driver = Driver::new(LandOne::new(seat, sys, announce).with_pool(troops).with_deploy(deploy_planets), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
     let mut staged = Vec::new();
-    let driven = with_core(gs, &mut cx, Sources::default(), LAND_ONE, |core, _| {
-        let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
-        staged = std::mem::take(&mut core.pending_mut().staged);
-        driven
-    })
-    .ok()?
-    .ok()?;
+    let rendered = if toll.is_none() {
+        let driven = with_core(gs, &mut cx, Sources::default(), LAND_ONE, |core, _| {
+            let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            driven
+        })
+        .ok()?
+        .ok()?;
+        driven.rendered
+    } else {
+        let (phase, round) = (render::generic::core_phase(gs.phase), gs.round);
+        let mut rendered = Vec::new();
+        with_core(gs, &mut cx, Sources::default(), LAND_ONE_TOLL, |core, _| -> Result<(), DriverError> {
+            let Status::Asking(choice) = driver.run(core, &env.kernel)? else { return Ok(()) };
+            rendered.push(Typed::new(&r, choice.clone(), phase, round).rendered);
+            let Some(id) = script.questions.first().and_then(|q| q.answer.clone()) else { return Ok(()) };
+            let Some(pick) = render::parse_pick(&r, &choice.ask, &id).or_else(|| {
+                choice.opts.iter().find(|o| render::option(&r, &choice.ask, o).id == id).map(|o| ti4_engine_core::choice::Pick::Opt(*o))
+            }) else {
+                return Ok(());
+            };
+            let cost = crate::factions::keleres_units::TOLL_COST;
+            let (mut paid, mut next) = (0_i64, 1_usize);
+            while paid < cost {
+                let step = PayStep { who: seat, kind: CoreSpend::Influence, cost, used_credit: 0, owed: cost, paid, took: None, stage: PayStage::Paying };
+                let mut pay = Driver::new(step, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+                let pk = crate::production_view::kernel();
+                if let Status::Asking(q) = pay.run(core, pk)? {
+                    let position = render::Position { state: std::rc::Rc::new(core.clone()), kernel: pk };
+                    rendered.push(Typed::new_at(&r, position, q.clone(), phase, round).rendered);
+                    let answer = script.questions.get(next).and_then(|q| q.answer.clone());
+                    next += 1;
+                    let Some(pick) = answer.and_then(|id| render::parse_pick(&r, &q.ask, &id)) else { return Ok(()) };
+                    pay.resume(core, pk, pick)?;
+                }
+                match pay.window.took {
+                    Some(worth) => paid += worth,
+                    None => return Ok(()),
+                }
+            }
+            driver.resume(core, &env.kernel, pick)?;
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            Ok(())
+        })
+        .ok()?
+        .ok()?;
+        if let Some(planet) = &toll {
+            crate::factions::keleres_units::mark_toll_paid(gs, planet);
+        }
+        rendered
+    };
     if driver.window.unsupported {
         crate::dual::note_bail("invasion::commit_one", "ship-form unit flips on landing");
         return None;
     }
     apply_staged(gs, &r, &staged)?;
+    if driver.window.deployed {
+        crate::factions::crimson::note_deployed(gs, invader);
+    }
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     let landed = driver.window.landed;
     let out = LandOut {
         origin: landed.and_then(|t| t.origin).map(|(s, p)| (s.as_str().to_owned(), p.as_str().to_owned())),
         temporary: landed.is_some_and(|t| t.temporary),
     };
-    Some(CoreWindow { run: Run::new(out).with_events_vec(events), questions: driven.rendered })
+    Some(CoreWindow { run: Run::new(out).with_events_vec(events), questions: rendered })
+}
+
+/// Whether the toll the invader cannot pay keeps a landing out of the string question (the core question
+/// does not know the toll).
+fn landing_barred_by_toll(gs: &GameState, sources: ti4_model::content_types::SourceSet, invader: &PlayerId, system: &ti4_model::id::SystemId) -> bool {
+    let content = ti4_content::ContentStore::embedded();
+    crate::invasion::landable_planets(gs, content, sources, system)
+        .iter()
+        .any(|planet| crate::factions::keleres_units::commit_blocked(gs, content, sources, invader, system, planet))
 }
 
 /// One entry of the string `commit_pool`: the unit, where it stands when not in the space area, and whether it is
@@ -1995,11 +2092,26 @@ pub struct RoundHitsArgs<'a> {
     /// The units on the planet at the start of the round and the dice as the board shows them.
     pub before: &'a [ti4_model::units::Unit],
     pub dice: &'a [ti4_model::state::InvasionDie],
+    /// The invader holds the Harrow ability (its bombardment dice follow the removals).
+    pub harrow: bool,
+    /// The dice and streams are the ones the core can reproduce (no test faces, no pending restore).
+    pub reproducible: bool,
+    /// Where the streams stood before the round's hits.
+    pub rng_before: &'a crate::rng::RngPositions,
 }
+
+/// What the round's hits leave besides the state: the hits that landed, then the Harrow dice (hit number, faces)
+/// and where the streams stand.
+pub type RoundOut = ((bool, (usize, usize)), DefenseOut);
 
 const ROUND_HITS: Footprint = Footprint::new(
     &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
     &[Slice::Board, Slice::Players, Slice::Transient, Slice::Pending],
+);
+
+const ROUND_HITS_HARROW: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger],
+    &[Slice::Board, Slice::Players, Slice::Transient, Slice::Pending, Slice::Rng, Slice::Ledger],
 );
 
 /// Why the position holds something the core window does not carry: a faction's added hits, L1Z1X's Harrow, Alarum
@@ -2009,8 +2121,11 @@ pub fn round_hits_unported(gs: &GameState, content: &ti4_content::ContentStore, 
     if crate::neutral_units::is_neutral(a.invader) || crate::neutral_units::is_neutral(a.defender) {
         return Some("neutral side");
     }
-    if gs.player(a.invader).is_some_and(|p| p.faction.as_str().starts_with("l1z1x")) {
-        return Some("L1Z1X Harrow");
+    if a.harrow && !a.reproducible {
+        return Some("irreproducible dice (test faces or a stream restore)");
+    }
+    if a.harrow && crate::factions::bastion_units::watches_ground_round(gs, &[a.invader, a.defender]) {
+        return Some("Proxima Targeting VI");
     }
     if crate::factions::ralnel::alarum_on(gs, a.system, a.planet) {
         return Some("Alarum");
@@ -2025,7 +2140,7 @@ pub fn round_hits_unported(gs: &GameState, content: &ti4_content::ContentStore, 
 /// The core half of `InvasionWindow::ground_round_hits`. `None` for the positions of [`round_hits_unported`], nested
 /// activity (a card played in a hits window) and a position the codecs refuse.
 #[must_use]
-pub fn round_hits(gs: &mut GameState, sources: ti4_model::content_types::SourceSet, a: &RoundHitsArgs<'_>, script: &Recording) -> Option<CoreWindow<(bool, (usize, usize))>> {
+pub fn round_hits(gs: &mut GameState, sources: ti4_model::content_types::SourceSet, a: &RoundHitsArgs<'_>, script: &Recording) -> Option<CoreWindow<RoundOut>> {
     use ti4_engine_core::rules::invasion::round::{Facts, GroundRoundHits};
     if script.nested {
         if std::env::var_os("TI4_NESTED_LOG").is_some() {
@@ -2061,20 +2176,28 @@ pub fn round_hits(gs: &mut GameState, sources: ti4_model::content_types::SourceS
         announce: a.announce,
         cause: r.code("ground_combat"),
         template,
+        harrow: a.harrow.then(|| ti4_engine_core::rules::invasion::harrow::Facts { invader, defender, system, planet, announce: a.announce, cause: r.code("harrow") }),
     };
-    let mut driver = Driver::new(GroundRoundHits::new(facts), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1);
+    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
+    let mut driver = Driver::new(GroundRoundHits::new(facts), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1).with_seeds(seeds);
     let mut staged = Vec::new();
-    let driven = with_core(gs, &mut cx, Sources::default(), ROUND_HITS, |core, _| {
+    let mut rng_after = None;
+    let src = Sources { galaxy: None, rng: Some(a.rng_before) };
+    let footprint = if a.harrow { ROUND_HITS_HARROW } else { ROUND_HITS };
+    let driven = with_core(gs, &mut cx, src, footprint, |core, _| {
         let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
         staged = std::mem::take(&mut core.pending_mut().staged);
+        rng_after = Some(core.rng().clone());
         driven
     })
     .ok()?
     .ok()?;
     apply_staged(gs, &r, &staged)?;
+    let positions = if a.harrow { crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()? } else { a.rng_before.clone() };
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     let (a_hits, d_hits) = driver.window.assigned;
-    Some(CoreWindow { run: Run::new((true, (a_hits as usize, d_hits as usize))).with_events_vec(events), questions: driven.rendered })
+    let drawn = driver.window.harrow.as_ref().map(|h| h.drawn.clone()).unwrap_or_default();
+    Some(CoreWindow { run: Run::new(((true, (a_hits as usize, d_hits as usize)), (drawn, positions))).with_events_vec(events), questions: driven.rendered })
 }
 
 

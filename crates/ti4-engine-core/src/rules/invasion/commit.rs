@@ -8,12 +8,13 @@
 //! candidates other than the space area (faction hooks with a galaxy), and a ship-form unit that flips on
 //! landing (Naaz Eidolon): the window sets `unsupported` and the adapter drops the comparison.
 
-use super::{commit_opts_from, landable, landable_planets, Rd, Troop};
+use super::{commit_opts_with, landable, landable_planets, Rd, Troop};
 use crate::choice::generic::Rule;
 use crate::choice::invasion::{Ask as IAsk, Opt as IOpt, Subtype as ISub};
 use crate::choice::{Ask, Choice, Ctx, Opt, Origin, Pick, Subtype, Target};
 use crate::containers::SmallList;
-use crate::generated::{Planet, System};
+use crate::generated::{Planet, System, Unit};
+use crate::state::Piece;
 use crate::ids::Seat;
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{fx, Kernel, Next};
@@ -58,6 +59,12 @@ impl CommitGround {
     /// candidates with their origins) or, with `None`, over the ground forces standing in the space area.
     #[must_use]
     pub fn question_of(&self, s: &CoreState, k: &Kernel, pool: Option<&[Troop]>) -> Choice {
+        self.question_with(s, k, pool, &[])
+    }
+
+    /// [`Self::question_of`] with the planets a Crimson Revenant may be deployed to.
+    #[must_use]
+    pub fn question_with(&self, s: &CoreState, k: &Kernel, pool: Option<&[Troop]>, deploy: &[Planet]) -> Choice {
         let rd = Self::rd(s, k);
         let own: Vec<Troop>;
         let troops = match pool {
@@ -80,7 +87,7 @@ impl CommitGround {
                 space_battle: false,
                 invasion_seq: None,
             },
-            opts: commit_opts_from(self.system, troops, &planets),
+            opts: commit_opts_with(self.system, troops, &planets, deploy),
         }
     }
 
@@ -169,13 +176,24 @@ pub struct LandOne {
     pub pool: Option<Vec<Troop>>,
     /// The troop the answer landed.
     pub landed: Option<Troop>,
+    /// The planets a Crimson Revenant may be deployed to (offered after the troops' landings).
+    pub deploy: Vec<Planet>,
+    /// The answer was a deploy (the Revenant came from reinforcements).
+    pub deployed: bool,
     stage: Stage,
 }
 
 impl LandOne {
     #[must_use]
     pub const fn new(invader: Seat, system: System, announce: bool) -> Self {
-        Self { invader, system, unsupported: false, announce, pool: None, landed: None, stage: Stage::Choosing }
+        Self { invader, system, unsupported: false, announce, pool: None, landed: None, deploy: Vec::new(), deployed: false, stage: Stage::Choosing }
+    }
+
+    /// The same window offering the Crimson deploy on `planets`.
+    #[must_use]
+    pub fn with_deploy(mut self, planets: Vec<Planet>) -> Self {
+        self.deploy = planets;
+        self
     }
 
     /// The same window over the string side's pool, which may hold troops with an origin and temporary commits.
@@ -198,7 +216,7 @@ impl Window for LandOne {
             let empty = match &self.pool {
                 Some(pool) => pool.is_empty(),
                 None => landable(CommitGround::rd(sx.state, sx.kernel), self.invader, self.system).is_empty(),
-            };
+            } && self.deploy.is_empty();
             self.stage = if empty { Stage::Done } else { Stage::Asking };
         }
         match self.stage {
@@ -208,12 +226,36 @@ impl Window for LandOne {
     }
 
     fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
-        (self.stage == Stage::Asking).then(|| CommitGround::new(self.invader, self.system).question_of(s, k, self.pool.as_deref()))
+        (self.stage == Stage::Asking).then(|| CommitGround::new(self.invader, self.system).question_with(s, k, self.pool.as_deref(), &self.deploy))
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
         if self.stage != Stage::Asking {
             return Err(Illegal);
+        }
+        if let Pick::Opt(Opt::Invasion(IOpt::Deploy { planet })) = pick {
+            if !self.deploy.contains(&planet) {
+                return Err(Illegal);
+            }
+            let piece = Piece::new(Unit::Revenant, self.invader);
+            self.deployed = true;
+            sx.state.transient_mut().combat.last_committed_unit = Some((self.invader, self.system, planet, piece));
+            let cell = sx.state.board_mut().planet_mut(planet);
+            cell.units.push(piece);
+            cell.flags.set(crate::state::PlanetFlags::UNITS_ENTRY, true);
+            sx.state.board_mut().sys_mut(self.system).flags.set(crate::state::SysFlags::TOUCHED, true);
+            let mut payload = Payload::new()
+                .with(Key::System, Val::System(self.system))
+                .with(Key::Planet, Val::Planet(planet))
+                .with(Key::Player, Val::Seat(self.invader));
+            if let Some(holder) = qboard::control(sx.state, planet) {
+                payload.set(Key::Controller, Val::Seat(holder));
+            }
+            if self.announce {
+                let _ = sx.emit(fx::event(EventKind::UnitsCommitted, payload));
+            }
+            self.stage = Stage::Done;
+            return Ok(());
         }
         let Pick::Opt(Opt::Invasion(IOpt::Commit { index, planet, .. })) = pick else { return Err(Illegal) };
         let troop = match &self.pool {
