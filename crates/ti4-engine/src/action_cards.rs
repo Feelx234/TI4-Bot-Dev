@@ -557,6 +557,22 @@ fn cost_is_payable(
     player: &PlayerId,
     alias: &ActionCardId,
 ) -> bool {
+    crate::dual_typed!(
+        crate::dual::Area::ActionCards,
+        "action_cards::cost_is_payable",
+        crate::action_cards_typed::cost_is_payable(state, player, alias),
+        cost_is_payable_text(state, content, sources, player, alias)
+    )
+}
+
+#[doc(hidden)]
+pub fn cost_is_payable_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    alias: &ActionCardId,
+) -> bool {
     use crate::production::Spend;
     match alias.as_str() {
         // Spend 4 trade goods to research 1 technology.
@@ -757,7 +773,31 @@ pub fn reaction_can_matter(
     let Some(system) = event.text("system").map(ti4_model::id::SystemId::new) else {
         return true;
     };
-    let board = state.system_state(&system);
+    crate::dual_typed!(
+        crate::dual::Area::ActionCards,
+        "action_cards::reaction_can_matter",
+        crate::action_cards_typed::reaction_can_matter(state, player, alias, system.as_str(), actor),
+        reaction_window_text(state, content, player, alias, event, &system)
+    )
+}
+
+#[doc(hidden)]
+pub fn reaction_window_text(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+    alias: &ActionCardId,
+    event: &crate::event::Event,
+    system: &ti4_model::id::SystemId,
+) -> bool {
+    let unit_kind = |unit: &Unit| {
+        content
+            .get(ContentType::Units, unit.type_id.as_str())
+            .map(UnitType::new)
+    };
+    let actor = event.text("player");
+    let is_actor = actor == Some(player.as_str());
+    let board = state.system_state(system);
     let has_own_ship = board
         .units_of(player)
         .into_iter()

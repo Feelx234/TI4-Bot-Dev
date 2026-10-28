@@ -4,7 +4,8 @@
 //! from the string modules until package C). A card or player id the tables do not know makes a method
 //! answer `None` and the caller keeps the string answer.
 
-use ti4_engine_core::generated::ActionCard;
+use ti4_engine_core::generated::{ActionCard, System};
+use ti4_engine_core::rules::action_cards::Window;
 use ti4_engine_core::rules::action_cards as rules;
 use ti4_engine_core::state::{Slice, SliceSet};
 use ti4_model::id::{ActionCardId, PlayerId};
@@ -75,5 +76,40 @@ impl<'a> ActionView<'a> {
     pub fn has_legal_target(&self, player: &PlayerId, alias: &ActionCardId) -> Option<bool> {
         let seat = self.cx.owners.seat(player.as_str())?;
         rules::has_legal_target(&self.view, self.blanked, seat, ActionCard::from_id(alias.as_str())?)
+    }
+
+    /// `action_cards::reaction_can_matter` after the cost check, for a window naming `system`; `None` is
+    /// the documented bail. `actor` is the event's `player` text.
+    #[must_use]
+    pub fn reaction_can_matter(
+        &self,
+        player: &PlayerId,
+        alias: &ActionCardId,
+        system: &str,
+        actor: Option<&str>,
+    ) -> Option<bool> {
+        let seat = self.cx.owners.seat(player.as_str())?;
+        let actor = match actor {
+            None => None,
+            Some(a) => Some(self.cx.owners.seat(a)?),
+        };
+        let window = Window { system: System::from_id(system)?, actor };
+        rules::reaction_can_matter(
+            &self.view,
+            crate::core_adapter::scope(ti4_model::content_types::SourceSet::all()),
+            seat,
+            ActionCard::from_id(alias.as_str())?,
+            window,
+        )
+    }
+
+    /// `action_cards::cost_is_payable`; `None` is the documented bail.
+    #[must_use]
+    pub fn cost_is_payable(&self, player: &PlayerId, alias: &ActionCardId) -> Option<bool> {
+        let seat = self.cx.owners.seat(player.as_str())?;
+        let card = ActionCard::from_id(alias.as_str())?;
+        // The goods are asked only for the card that reads them (the string supply rules answer).
+        let goods = if card == ActionCard::Bribery { crate::supply::potential_goods(self.state, player) } else { 0 };
+        rules::cost_is_payable(&self.view, seat, card, goods)
     }
 }

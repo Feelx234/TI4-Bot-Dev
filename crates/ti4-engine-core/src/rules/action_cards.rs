@@ -4,7 +4,10 @@
 //! asked here and the string function stands; each such place is a documented bail (see
 //! [`has_legal_target`]). No `Env` trait: the faction answers are plain arguments.
 
-use crate::generated::ActionCard;
+use crate::generated::{ActionCard, System, Unit, UnitBaseType};
+use crate::query::board;
+use crate::state::Piece;
+use crate::tables::Scope;
 use crate::ids::Seat;
 use crate::query::laws;
 use crate::state::CoreState;
@@ -64,6 +67,83 @@ pub fn has_legal_target(core: &CoreState, blanked: bool, who: Seat, card: Action
     }
 }
 
+/// What `reaction_can_matter` reads of the window's event: who acted and in which system.
+#[derive(Debug, Clone, Copy)]
+pub struct Window {
+    pub system: System,
+    /// The event's `player` as a seat: `None` when the event names nobody (or nobody seated).
+    pub actor: Option<Seat>,
+}
+
+fn pieces_in(core: &CoreState, system: System) -> impl Iterator<Item = Piece> + '_ {
+    let space = board::space_units(core, system).iter().copied();
+    let ground = board::planets_of(core, system).flat_map(move |p| board::planet_units(core, p).iter().copied());
+    space.chain(ground)
+}
+
+/// `action_cards::reaction_can_matter` for a window that names a system, for the cards whose extra
+/// requirement is a read of that system's pieces: `Some(answer)`, or `None` (bail: Harness Energy
+/// needs the tile catalogue and the rift hook, Infiltrate needs the swap rules, and a card without a
+/// requirement is `Some(true)`). The printed-cost check comes first at the call site.
+#[must_use]
+pub fn reaction_can_matter(core: &CoreState, scope: Scope, who: Seat, card: ActionCard, w: Window) -> Option<bool> {
+    use ActionCard as C;
+    let is_actor = w.actor == Some(who);
+    let base = |u: Unit| scope.unit(u).map(|d| d.base_type);
+    let ship = |u: Unit| scope.unit(u).is_some_and(|d| d.ship);
+    let fighter = |u: Unit| base(u) == Some(UnitBaseType::Fighter);
+    let space = board::space_units(core, w.system);
+    let own = || space.iter().filter(|p| p.owner() == who);
+    let own_all = || pieces_in(core, w.system).filter(|p| p.owner() == who);
+    let has_own_ship = own().any(|p| ship(p.kind()));
+    Some(match card {
+        C::Bunker => w.actor.is_some() && !is_actor && board::controls_a_planet_in(core, w.system, who),
+        C::Blitz => {
+            is_actor
+                && own().any(|p| {
+                    let u = p.kind();
+                    ship(u) && !fighter(u) && scope.unit(u).is_some_and(|d| d.bombardment.is_none())
+                })
+        }
+        C::Disable => {
+            is_actor
+                && pieces_in(core, w.system).any(|p| p.owner() != who && base(p.kind()) == Some(UnitBaseType::Pds))
+        }
+        C::FighterPrototype => own_all().any(|p| fighter(p.kind())),
+        C::Upgrade => own_all().any(|p| base(p.kind()) == Some(UnitBaseType::Cruiser)),
+        C::Rally => space.iter().any(|p| p.owner() != who && ship(p.kind())),
+        C::Rescue | C::Intercept => !is_actor && has_own_ship,
+        C::EmergencyRepairs => pieces_in(core, w.system).any(|p| p.owner() == who && p.sustained()),
+        C::HarnessEnergy | C::Infiltrate => return None,
+        _ => true,
+    })
+}
+
+/// `action_cards::cost_is_payable` (rules version 23) for the cards whose bill the core can judge. `goods`
+/// is the seat's spendable trade goods, the Keleres agent's commodities included (the string payment
+/// rules supply it until they land). `Some(true)` for a card without a printed cost; `None` (bail) for
+/// the cards whose bill needs a payment or research rule not yet in the core: Focused Research,
+/// Impersonation, Plagiarize, Mercenary Contract, Pirate Fleet and Reveal Prototype.
+#[must_use]
+pub fn cost_is_payable(core: &CoreState, who: Seat, card: ActionCard, goods: i64) -> Option<bool> {
+    use ActionCard as C;
+    match card {
+        C::FocusedResearch
+        | C::Impersonation
+        | C::Plagiarize
+        | C::MercenaryContract
+        | C::PirateFleet
+        | C::RevealPrototype => None,
+        C::DivertFunding => Some(
+            crate::query::tech::owned(core, who)
+                .iter()
+                .any(|t| !crate::query::tech::is_unit_upgrade(t) && t.data().faction.is_none()),
+        ),
+        C::Bribery => Some(goods >= 1),
+        _ => Some(true),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,6 +175,24 @@ mod tests {
             ActionCard::Scuttle,
         ] {
             assert_eq!(has_legal_target(&core, false, who, card), None, "{card:?}");
+        }
+        for card in [
+            ActionCard::FocusedResearch,
+            ActionCard::Impersonation,
+            ActionCard::Plagiarize,
+            ActionCard::MercenaryContract,
+            ActionCard::PirateFleet,
+            ActionCard::RevealPrototype,
+        ] {
+            assert_eq!(cost_is_payable(&core, who, card, 9), None, "{card:?}");
+        }
+        assert_eq!(cost_is_payable(&core, who, ActionCard::Bribery, 0), Some(false));
+        assert_eq!(cost_is_payable(&core, who, ActionCard::Bribery, 1), Some(true));
+        assert_eq!(cost_is_payable(&core, who, ActionCard::Blitz, 0), Some(true));
+        let scope = Scope(u32::MAX);
+        let w = Window { system: System::ALL[0], actor: None };
+        for card in [ActionCard::HarnessEnergy, ActionCard::Infiltrate] {
+            assert_eq!(reaction_can_matter(&core, scope, who, card, w), None, "{card:?}");
         }
         assert_eq!(has_legal_target(&core, false, who, ActionCard::Blitz), Some(true));
         assert_eq!(has_legal_target(&core, false, who, ActionCard::Spy), Some(false), "no rival");

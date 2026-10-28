@@ -58,3 +58,35 @@ pub(crate) fn has_legal_target(state: &GameState, player: &PlayerId, alias: &Act
         None
     }
 }
+
+/// `action_cards::reaction_can_matter` for a window that names a system (`None`: bail).
+pub(crate) fn reaction_can_matter(
+    state: &GameState,
+    player: &PlayerId,
+    alias: &ActionCardId,
+    system: &str,
+    actor: Option<&str>,
+) -> Option<bool> {
+    #[cfg(feature = "typed-core")]
+    {
+        crate::action_cards_view::ActionView::of(state)?.reaction_can_matter(player, alias, system, actor)
+    }
+    #[cfg(not(feature = "typed-core"))]
+    {
+        let _ = (state, player, alias, system, actor);
+        None
+    }
+}
+
+/// `action_cards::cost_is_payable` (`None`: bail).
+pub(crate) fn cost_is_payable(state: &GameState, player: &PlayerId, alias: &ActionCardId) -> Option<bool> {
+    #[cfg(feature = "typed-core")]
+    {
+        crate::action_cards_view::ActionView::of(state)?.cost_is_payable(player, alias)
+    }
+    #[cfg(not(feature = "typed-core"))]
+    {
+        let _ = (state, player, alias);
+        None
+    }
+}

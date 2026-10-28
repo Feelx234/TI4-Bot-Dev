@@ -64,9 +64,36 @@ pub fn compare(label: &str, gs: &GameState, out: &mut ActionCardsCheck) {
         let barred = crate::laws::action_cards_forbidden(gs, &p) || crate::laws::political_secret_bars(gs, &p);
         out.eq(label, "may_play", &!barred, &v.may_play(&p));
         for card in &cards {
+            match v.cost_is_payable(&p, card) {
+                None => out.bailed += 1,
+                typed => out.eq(label, &format!("cost_is_payable {card}"), &crate::action_cards::cost_is_payable_text(gs, content, ti4_model::content_types::FULL, &p, card), &typed),
+            }
             match v.has_legal_target(&p, card) {
                 None => out.bailed += 1,
                 typed => out.eq(label, &format!("has_legal_target {card}"), &crate::action_cards::has_legal_target_text(gs, content, ti4_model::content_types::FULL, &p, card), &typed),
+            }
+        }
+    }
+    reactions(label, gs, content, &v, &cards, out);
+}
+
+/// The window reads: every reaction card asked in every occupied system, with each seat (and nobody) as actor.
+fn reactions(label: &str, gs: &GameState, content: &ContentStore, v: &ActionView<'_>, cards: &[ActionCardId], out: &mut ActionCardsCheck) {
+    const WINDOW_CARDS: [&str; 11] =
+        ["bunker", "blitz", "disable", "f_prototype", "upgrade", "rally", "rescue", "intercept", "emergency", "harness", "infiltrate"];
+    let systems: Vec<&ti4_model::id::SystemId> = gs.board.iter().filter(|(_, b)| !b.units.is_empty() || b.planet_units.values().any(|u| !u.is_empty())).map(|(id, _)| id).collect();
+    let players: Vec<&ti4_model::id::PlayerId> = gs.players.iter().map(|p| &p.id).collect();
+    for card in cards.iter().filter(|c| WINDOW_CARDS.contains(&c.as_str())) {
+        for sys in &systems {
+            for who in &players {
+                for actor in std::iter::once(None).chain(players.iter().map(|p| Some(p.as_str()))) {
+                    let event = crate::event::Event::new(1, "WINDOW", actor.map(|a| ("player".to_owned(), serde_json::json!(a))).into_iter().collect());
+                    let string = crate::action_cards::reaction_window_text(gs, content, who, card, &event, sys);
+                    match v.reaction_can_matter(who, card, sys.as_str(), actor) {
+                        None => out.bailed += 1,
+                        typed => out.eq(label, &format!("reaction_can_matter {card} {sys} actor {actor:?}"), &string, &typed),
+                    }
+                }
             }
         }
     }
