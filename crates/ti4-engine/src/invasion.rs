@@ -11789,7 +11789,7 @@ mod core_ground_round_prechecks {
 
     fn game(fa: &str, fb: &str) -> (GameState, SystemId, PlanetId) {
         let state = crate::fixtures::seated_game(&[("a", fa), ("b", fb)], POK);
-        (state, SystemId::new("s"), PlanetId::new("p"))
+        (state, SystemId::new("18"), PlanetId::new("mr"))
     }
 
     fn begin<'a>(a: &'a PlayerId, b: &'a PlayerId, s: &'a SystemId, p: &'a PlanetId, copied: bool) -> BeginGroundArgs<'a> {
