@@ -1145,14 +1145,16 @@ pub fn land_one(
     sources: ti4_model::content_types::SourceSet,
     invader: &PlayerId,
     system: &ti4_model::id::SystemId,
-    plain: bool,
+    plain: Option<&'static str>,
     announce: bool,
+    pool: &[PoolIn],
     script: &Recording,
-) -> Option<CoreWindow<()>> {
+) -> Option<CoreWindow<LandOut>> {
     use ti4_engine_core::rules::invasion::commit::LandOne;
+    use ti4_engine_core::rules::invasion::Troop;
     const LABEL: &str = "invasion::commit_one";
-    let why = if !plain {
-        Some("pool with an origin, temporary commit or deploy")
+    let why = if let Some(why) = plain {
+        Some(why)
     } else if script.nested {
         Some("nested (a reaction to UNITS_COMMITTED ran)")
     } else if gs.diplomacy.enabled {
@@ -1171,7 +1173,15 @@ pub fn land_one(
     let sys = <ti4_engine_core::generated::System as IdStr>::from_id(system.as_str())?;
     let before = gs.clone();
     let env = crate::core_invasion::ground_env(&before, &cx, sources)?;
-    let mut driver = Driver::new(LandOne::new(seat, sys, announce), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+    let mut troops = Vec::new();
+    for entry in pool {
+        let origin = match &entry.origin {
+            Some((s, p)) => Some((<ti4_engine_core::generated::System as IdStr>::from_id(s.as_str())?, <ti4_engine_core::generated::Planet as IdStr>::from_id(p.as_str())?)),
+            None => None,
+        };
+        troops.push(Troop { piece: crate::core_sync::codec::board::piece(&cx, &entry.unit).ok()?, origin, temporary: entry.temporary });
+    }
+    let mut driver = Driver::new(LandOne::new(seat, sys, announce).with_pool(troops), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let driven = with_core(gs, &mut cx, Sources::default(), LAND_ONE, |core, _| {
         let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
@@ -1186,7 +1196,29 @@ pub fn land_one(
     }
     apply_staged(gs, &r, &staged)?;
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
-    Some(CoreWindow { run: Run::new(()).with_events_vec(events), questions: driven.rendered })
+    let landed = driver.window.landed;
+    let out = LandOut {
+        origin: landed.and_then(|t| t.origin).map(|(s, p)| (s.as_str().to_owned(), p.as_str().to_owned())),
+        temporary: landed.is_some_and(|t| t.temporary),
+    };
+    Some(CoreWindow { run: Run::new(out).with_events_vec(events), questions: driven.rendered })
+}
+
+/// One entry of the string `commit_pool`: the unit, where it stands when not in the space area, and whether it is
+/// a ship committed as a ground force for the moment.
+#[derive(Debug, Clone)]
+pub struct PoolIn {
+    pub unit: ti4_model::units::Unit,
+    pub origin: Option<(ti4_model::id::SystemId, ti4_model::id::PlanetId)>,
+    pub temporary: bool,
+}
+
+/// What a landing records besides the board: the origin pushed to `extra_commits` and whether a temporary space
+/// commit was recorded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LandOut {
+    pub origin: Option<(String, String)>,
+    pub temporary: bool,
 }
 
 /// The question of the `ChoosingNextCombat` stage as the core `NextCombat` window puts it, for

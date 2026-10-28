@@ -32,8 +32,9 @@ pub enum Ask {
 /// One answer the area offers (not stored in the state).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Opt {
-    /// Land the unit at `index` of the caller's list on `planet`.
-    Commit { index: u16, planet: Planet, unit: Unit, damaged: bool },
+    /// Land the unit at `index` of the caller's list on `planet`; `from` is the planet it stands on when it is not
+    /// in the space area (a faction's commit candidate).
+    Commit { index: u16, planet: Planet, unit: Unit, damaged: bool, from: Option<(System, Planet)> },
     /// "commit no more ground forces".
     DoneCommitting,
     /// Destroy the ground force at `index` of the candidates (the first of its type and damage).

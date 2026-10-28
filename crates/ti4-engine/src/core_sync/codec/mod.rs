@@ -11,7 +11,7 @@ use super::error::R;
 use crate::rng::RngPositions;
 
 mod agenda;
-mod board;
+pub(crate) mod board;
 mod cards;
 mod decks;
 mod explore;

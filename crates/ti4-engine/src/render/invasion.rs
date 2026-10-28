@@ -53,19 +53,23 @@ impl Family for Fam {
 
     fn option(r: &Render, ask: &Ask, o: &Opt) -> ChoiceOption {
         match o {
-            Opt::Commit { index, planet, unit, damaged } => {
+            Opt::Commit { index, planet, unit, damaged, from } => {
                 let mut label = format!("land {}", unit.as_str());
                 if *damaged {
                     label.push_str(" (damaged)");
                 }
-                ChoiceOption::labelled(
+                let option = ChoiceOption::labelled(
                     format!("commit|{index}|{}", planet.as_str()),
                     COMMIT_KIND,
                     format!("{label} on {}", planet.as_str()),
                 )
                 .with("planet", planet.as_str().to_owned())
                 .with("unit", unit.as_str().to_owned())
-                .with("damaged", *damaged)
+                .with("damaged", *damaged);
+                match from {
+                    Some((system, planet)) => option.with("from_system", system.as_str().to_owned()).with("from_planet", planet.as_str().to_owned()),
+                    None => option,
+                }
             }
             Opt::DestroyGround { index, unit, damaged, staging } => {
                 let label = if *staging {

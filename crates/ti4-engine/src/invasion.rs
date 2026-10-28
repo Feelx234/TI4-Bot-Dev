@@ -5364,29 +5364,45 @@ impl InvasionWindow {
         {
             let (content, sources) = (ctx.content, ctx.sources);
             let (invader, system) = (self.invader.clone(), self.system.clone());
-            let (_, origins, temporary) = commit_pool(state, content, sources, self.galaxy.as_deref(), &invader, &system, &self.extra_commits);
+            let (troops_pool, origins, temporary) = commit_pool(state, content, sources, self.galaxy.as_deref(), &invader, &system, &self.extra_commits);
             let planets = landable_planets(state, content, sources, &system);
             let deploy = crate::factions::crimson::deploy_planets(state, content, sources, &invader, &system, &planets);
-            let plain = origins.iter().all(Option::is_none) && temporary.iter().all(|t| !*t) && deploy.is_empty() && self.extra_commits.is_empty();
+            let plain = if !deploy.is_empty() { Some("Crimson deploy offered") } else { None };
+            let pool: Vec<crate::dual_window::PoolIn> = troops_pool
+                .into_iter()
+                .zip(origins)
+                .zip(temporary)
+                .map(|((unit, origin), temporary)| crate::dual_window::PoolIn { unit, origin, temporary })
+                .collect();
             let announce = ctx.timing.is_some();
             let mut outcome = None;
             let failed = std::cell::Cell::new(false);
+            let cell = std::cell::RefCell::new(&mut *self);
+            let ctx = std::cell::RefCell::new(ctx);
             crate::dual_window!(
                 crate::dual::Area::Invasion,
                 "invasion::commit_one",
                 state,
                 |s: &mut GameState| {
                     crate::dual_window::note_ask(choice, &Ok(option.clone()));
-                    let result = self.commit_one(s, ctx, rest);
+                    let (extras, temps) = {
+                        let me = cell.borrow();
+                        (me.extra_commits.len(), me.temporary_space_commits.values().map(Vec::len).sum::<usize>())
+                    };
+                    let result = cell.borrow_mut().commit_one(s, &mut **ctx.borrow_mut(), rest);
                     failed.set(result.is_err() || matches!(result, Ok(false)));
                     outcome = Some(result);
-                    crate::dual::Run::new(())
+                    let me = cell.borrow();
+                    crate::dual::Run::new(crate::dual_window::LandOut {
+                        origin: me.extra_commits.get(extras).map(|(a, b)| (a.to_string(), b.to_string())),
+                        temporary: me.temporary_space_commits.values().map(Vec::len).sum::<usize>() > temps,
+                    })
                 },
                 |s: &mut GameState, script: &crate::dual_window::Recording| {
                     if failed.get() {
                         return None;
                     }
-                    crate::dual_window::land_one(s, sources, &invader, &system, plain, announce, script)
+                    crate::dual_window::land_one(s, sources, &invader, &system, plain, announce, &pool, script)
                 }
             );
             return outcome.unwrap_or(Ok(true));
