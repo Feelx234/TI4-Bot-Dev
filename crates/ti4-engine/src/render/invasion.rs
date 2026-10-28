@@ -34,6 +34,9 @@ impl Family for Fam {
             Ask::RemoveCustodians { cost, .. } => format!("spend {cost} influence to remove the custodians token"),
             Ask::FightRound { planet, .. } => format!("fight a round on {}", planet.as_str()),
             Ask::StartNextCombat { planet, .. } => format!("start another ground combat on {}", planet.as_str()),
+            Ask::BombardTarget { planet, hits, .. } => {
+                format!("whose units on {} take the bombardment's next hits ({hits} hits)", planet.as_str())
+            }
         }
     }
 
@@ -44,6 +47,7 @@ impl Family for Fam {
             Subtype::RemoveCustodians => "remove_custodians".to_owned(),
             Subtype::FightGroundCombatRound => "fight_ground_combat_round".to_owned(),
             Subtype::StartNextGroundCombat => "start_next_ground_combat".to_owned(),
+            Subtype::BombardmentTarget => "bombardment_target".to_owned(),
         }
     }
 
@@ -82,6 +86,14 @@ impl Family for Fam {
                 let planet = if let Ask::StartNextCombat { planet, .. } = ask { planet.as_str() } else { "" };
                 ChoiceOption::labelled("decline", crate::choice::DECLINE_KIND, format!("leave {} coexisting on {planet}", r.seat_text(*next)))
             }
+            Opt::BombardTarget { seat } => {
+                let who = r.seat_text(*seat);
+                let mut o = ChoiceOption::labelled(who.to_owned(), "bombardment_target", format!("{who}'s units"));
+                if let Ask::BombardTarget { system, planet, .. } = ask {
+                    o = o.with("system", system.as_str().to_owned()).with("planet", planet.as_str().to_owned());
+                }
+                o
+            }
             Opt::KeepCustodians => ChoiceOption::labelled("no", crate::choice::DECLINE_KIND, "leave it"),
             Opt::RemoveCustodians => ChoiceOption::labelled("yes", "custodians", "remove it for a victory point"),
             Opt::FightRound { planet } => {
@@ -96,6 +108,9 @@ impl Family for Fam {
     }
 
     fn parse(r: &Render, ask: &Ask, id: &str) -> Option<Opt> {
+        if let Ask::BombardTarget { .. } = ask {
+            return r.seat(id).map(|seat| Opt::BombardTarget { seat });
+        }
         if let Ask::StartNextCombat { next, .. } = ask {
             return match id {
                 "decline" => Some(Opt::LeaveCoexisting { next: *next }),

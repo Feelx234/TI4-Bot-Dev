@@ -20,7 +20,7 @@ use super::{custodians_cost, custodians_gate, Rd};
 use crate::choice::generic::Rule;
 use crate::choice::invasion::{Ask as IAsk, Opt as IOpt, Subtype as ISub};
 use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype, Target};
-use crate::containers::SmallList;
+use crate::containers::{SeatSet, SmallList};
 use crate::generated::{Planet, System};
 use crate::ids::Seat;
 use crate::kernel::stage::{Illegal, Sx, Window};
@@ -256,5 +256,72 @@ impl Window for NextCombat {
             }
             _ => Err(Illegal),
         }
+    }
+}
+
+/// The coexistence target question of the bombardment (7, 7.1): `hits` hits of one bombarding unit on `planet`,
+/// the invader picks whose ground forces take them among the players still holding some there. The answer
+/// (the hits window, the hits, their events and the stage after) is the string side's.
+#[derive(Debug, Clone, Copy)]
+pub struct BombardTarget {
+    pub invader: Seat,
+    pub system: System,
+    pub planet: Planet,
+    pub hits: u16,
+    stage: Stage,
+}
+
+impl BombardTarget {
+    #[must_use]
+    pub const fn new(invader: Seat, system: System, planet: Planet, hits: u16) -> Self {
+        Self { invader, system, planet, hits, stage: Stage::Checking }
+    }
+
+    /// The players other than the invader holding units on the planet, by seat.
+    fn present(&self, s: &CoreState) -> SeatSet {
+        let mut set = SeatSet::EMPTY;
+        for u in &s.board().planet(self.planet).units {
+            if u.owner() != self.invader {
+                set.insert(u.owner());
+            }
+        }
+        set
+    }
+}
+
+impl Window for BombardTarget {
+    type Stage = Stage;
+
+    fn stage(&self) -> Stage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == Stage::Checking {
+            self.stage = if self.present(sx.state).is_empty() { Stage::Done } else { Stage::Asking };
+        }
+        match self.stage {
+            Stage::Asking => Next::Continue(Ask::Invasion(IAsk::BombardTarget { system: self.system, planet: self.planet, hits: self.hits })),
+            Stage::Checking | Stage::Done => Next::Done,
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, _k: &Kernel) -> Option<Choice> {
+        (self.stage == Stage::Asking).then(|| {
+            let mut opts = Opts::default();
+            for seat in self.present(s).iter() {
+                opts.push(Opt::Invasion(IOpt::BombardTarget { seat }));
+            }
+            Choice {
+                actor: self.invader,
+                ask: Ask::Invasion(IAsk::BombardTarget { system: self.system, planet: self.planet, hits: self.hits }),
+                ctx: ctx(ISub::BombardmentTarget, Origin::Rule(Rule::Coexistence7_2), Target::Planet { system: self.system, planet: self.planet }),
+                opts,
+            }
+        })
+    }
+
+    fn answer(&mut self, _sx: &mut Sx<'_>, _pick: Pick) -> Result<(), Illegal> {
+        Err(Illegal)
     }
 }

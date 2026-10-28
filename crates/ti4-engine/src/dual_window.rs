@@ -613,12 +613,19 @@ pub fn custodians(
     use ti4_engine_core::query::economy::Spend as CoreSpend;
     use ti4_engine_core::rules::invasion::stages::{lift, Custodians};
     use ti4_engine_core::rules::production::pay::{PayStep, Stage as PayStage};
-    if script.nested || gs.players.iter().any(|p| p.faction.as_str() == "naalu") {
+    const LABEL: &str = "invasion::answer_custodians";
+    if script.nested {
+        crate::dual::note_bail(LABEL, "nested (a reaction ran)");
+        return None;
+    }
+    if gs.players.iter().any(|p| p.faction.as_str() == "naalu") {
+        crate::dual::note_bail(LABEL, "naalu seat");
         return None;
     }
     let paid_yes = script.questions.first().and_then(|q| q.answer.as_deref()) == Some("yes")
         && crate::invasion::custodians_cost(gs, ti4_content::ContentStore::embedded(), invader) != 0;
     if paid_yes && crate::production_view::unported_window(gs) {
+        crate::dual::note_bail(LABEL, "paid removal at a table with a faction the production window does not carry");
         return None;
     }
     let (mut cx, r) = tables(gs)?;
@@ -822,7 +829,20 @@ pub fn land_one(
     script: &Recording,
 ) -> Option<CoreWindow<()>> {
     use ti4_engine_core::rules::invasion::commit::LandOne;
-    if !plain || script.nested || gs.diplomacy.enabled || gs.players.iter().any(|p| p.faction.as_str().starts_with("keleres")) {
+    const LABEL: &str = "invasion::commit_one";
+    let why = if !plain {
+        Some("pool with an origin, temporary commit or deploy")
+    } else if script.nested {
+        Some("nested (a reaction to UNITS_COMMITTED ran)")
+    } else if gs.diplomacy.enabled {
+        Some("diplomacy promises on")
+    } else if gs.players.iter().any(|p| p.faction.as_str().starts_with("keleres")) {
+        Some("keleres seat (toll)")
+    } else {
+        None
+    };
+    if let Some(why) = why {
+        crate::dual::note_bail(LABEL, why);
         return None;
     }
     let (mut cx, r) = tables(gs)?;
@@ -840,6 +860,7 @@ pub fn land_one(
     .ok()?
     .ok()?;
     if driver.window.unsupported {
+        crate::dual::note_bail("invasion::commit_one", "ship-form unit flips on landing");
         return None;
     }
     apply_staged(gs, &r, &staged)?;
@@ -865,4 +886,44 @@ pub fn next_combat_ask(
     let choice = NextCombat::new(seat, sys, pl, next).question();
     let (phase, round) = (render::generic::core_phase(gs.phase), gs.round);
     Some(Typed::new(&r, choice, phase, round).rendered)
+}
+
+/// The question of the `ChoosingBombardment` stage as the core `BombardTarget` window puts it, with the display
+/// offer card the string side shares (`invasion::with_bombard_offer`). `None`: the seats are not in id order (the
+/// string options are sorted by player id), an id the tables do not know, or a position the codecs refuse.
+#[must_use]
+pub fn bombard_target_ask(
+    gs: &GameState,
+    invader: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    planet: &ti4_model::id::PlanetId,
+    hits: usize,
+    present: &std::collections::BTreeSet<PlayerId>,
+) -> Option<Choice> {
+    use ti4_engine_core::rules::invasion::stages::BombardTarget;
+    let (mut cx, r) = tables(gs)?;
+    if r.seats.windows(2).any(|w| w[0] >= w[1]) {
+        return None;
+    }
+    let seat = r.seat(invader.as_str())?;
+    let sys = <ti4_engine_core::generated::System as IdStr>::from_id(system.as_str())?;
+    let pl = <ti4_engine_core::generated::Planet as IdStr>::from_id(planet.as_str())?;
+    let env = crate::core_invasion::ground_env(gs, &cx, ti4_model::content_types::DEFAULT)?;
+    let mut copy = gs.clone();
+    let mut driver = Driver::new(
+        BombardTarget::new(seat, sys, pl, u16::try_from(hits).ok()?),
+        Resolver::new(&[seat], Some(seat)),
+        AbilityTable::default(),
+        1,
+    );
+    let mut asked = None;
+    with_core(&mut copy, &mut cx, Sources::default(), LAND_ONE, |core, _| {
+        if let Ok(Status::Asking(choice)) = driver.run(core, &env.kernel) {
+            asked = Some(choice);
+        }
+    })
+    .ok()?;
+    let (phase, round) = (render::generic::core_phase(gs.phase), gs.round);
+    let rendered = Typed::new(&r, asked?, phase, round).rendered;
+    Some(crate::invasion::with_bombard_offer(rendered, invader, system, planet, hits, present, gs.system_state(system).on_planet(planet)))
 }

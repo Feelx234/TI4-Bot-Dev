@@ -24,6 +24,9 @@ pub enum Ask {
     /// "start another ground combat on {planet}": the winner of a combat on a coexisting planet may fight the
     /// next coexister `next` (coexistence 12) or leave them coexisting.
     StartNextCombat { system: System, planet: Planet, next: Seat },
+    /// "whose units on {planet} take the bombardment's next hits ({hits} hits)": the invader picks, per
+    /// bombarding unit, the coexisting player whose ground forces take them (coexistence 7, 7.1).
+    BombardTarget { system: System, planet: Planet, hits: u16 },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -45,6 +48,8 @@ pub enum Opt {
     FightNext { next: Seat },
     /// Leave `next` coexisting (and end the chain).
     LeaveCoexisting { next: Seat },
+    /// The units of `seat` take the hits.
+    BombardTarget { seat: Seat },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -55,4 +60,5 @@ pub enum Subtype {
     RemoveCustodians,
     FightGroundCombatRound,
     StartNextGroundCombat,
+    BombardmentTarget,
 }

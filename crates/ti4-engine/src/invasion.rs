@@ -862,35 +862,7 @@ fn bombardment_target_question(
     if present.is_empty() {
         return None;
     }
-    // Display only: what each answer would put at risk ("2 infantry, 1 mech").
-    let forces = |player: &PlayerId| -> String {
-        let mut counts: std::collections::BTreeMap<String, usize> =
-            std::collections::BTreeMap::new();
-        for unit in on_planet.iter().filter(|unit| &unit.owner == player) {
-            *counts
-                .entry(unit.type_id.to_string().replace('_', " "))
-                .or_insert(0) += 1;
-        }
-        counts
-            .into_iter()
-            .map(|(unit, n)| format!("{n} {unit}"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-    let captions: Vec<(&str, serde_json::Value)> = present
-        .iter()
-        .map(|player| {
-            (
-                player.as_str(),
-                crate::choice::offer_caption_for_seat(
-                    "Hit their ground forces",
-                    Some(&format!("{} on {planet}", forces(player))),
-                    player.as_str(),
-                ),
-            )
-        })
-        .collect();
-    Some(Choice::new(
+    let choice = Choice::new(
         invader.clone(),
         format!("whose units on {planet} take the bombardment's next hits ({hits} hits)"),
         present
@@ -910,8 +882,41 @@ fn bombardment_target_question(
                 .with("planet", planet.to_string())
             })
             .collect(),
-    )
-    .offered(
+    );
+    Some(with_bombard_offer(choice, invader, system, planet, hits, present, on_planet))
+}
+
+/// The offer card of the bombardment target question (display only): what each answer would put at risk.
+pub(crate) fn with_bombard_offer(
+    choice: Choice,
+    invader: &PlayerId,
+    system: &SystemId,
+    planet: &PlanetId,
+    hits: usize,
+    present: &std::collections::BTreeSet<PlayerId>,
+    on_planet: &[Unit],
+) -> Choice {
+    let forces = |player: &PlayerId| -> String {
+        let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+        for unit in on_planet.iter().filter(|unit| &unit.owner == player) {
+            *counts.entry(unit.type_id.to_string().replace('_', " ")).or_insert(0) += 1;
+        }
+        counts.into_iter().map(|(unit, n)| format!("{n} {unit}")).collect::<Vec<_>>().join(", ")
+    };
+    let captions: Vec<(&str, serde_json::Value)> = present
+        .iter()
+        .map(|player| {
+            (
+                player.as_str(),
+                crate::choice::offer_caption_for_seat(
+                    "Hit their ground forces",
+                    Some(&format!("{} on {planet}", forces(player))),
+                    player.as_str(),
+                ),
+            )
+        })
+        .collect();
+    choice    .offered(
         crate::choice::offer_card(
             "Bombardment hits",
             "bombardment",
@@ -926,7 +931,7 @@ fn bombardment_target_question(
             crate::choice::offer_fact("Hits to assign", hits.to_string()),
         ],
         &captions,
-    ))
+    )
 }
 
 /// Assign an already-rolled bombardment synchronously, asking the decider on coexisting
@@ -4704,11 +4709,12 @@ impl InvasionWindow {
             .filter(|unit| unit.owner != self.invader)
             .map(|unit| unit.owner.clone())
             .collect();
-        bombardment_target_question(
+        let hits = groups[next];
+        let choice = bombardment_target_question(
             &self.invader,
             &self.system,
             planet,
-            groups[next],
+            hits,
             &present,
             state.system_state(&self.system).on_planet(planet),
         )
@@ -4726,7 +4732,15 @@ impl InvasionWindow {
                     planet: planet.clone(),
                 }),
             )
-        })
+        });
+        // On `invasion=dual` the core `BombardTarget` window puts the same question.
+        #[cfg(feature = "typed-core")]
+        if crate::dual::backend(crate::dual::Area::Invasion) == crate::dual::Backend::Dual {
+            crate::dual::run_dual_ask(crate::dual::Area::Invasion, "invasion::bombard_target_ask", choice.as_ref(), || {
+                crate::dual_window::bombard_target_ask(state, &self.invader, &self.system, planet, hits, &present)
+            });
+        }
+        choice
     }
 
     /// Coexistence 12: the winner may start another ground combat against the next coexister.
@@ -9787,6 +9801,44 @@ mod ground_routes {
     }
 
     #[test]
+    fn the_bombardment_target_question_is_put_by_the_core_window_in_lockstep() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual);
+        with_mask(mask, || {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "letnev"), ("c", "hacan")], POK);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            let (system, planet) = ti4_content::galaxy::all_planets(ContentStore::embedded(), POK)
+                .iter()
+                .find(|(_, p)| p.system_id().is_some() && !p.is_placed_during_play())
+                .map(|(id, p)| (SystemId::new(p.system_id().unwrap()), PlanetId::new(*id)))
+                .expect("a placed planet");
+            on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"));
+            on_planet(&mut state, &system, &planet, "mech", &PlayerId::new("c"));
+            let mut window = InvasionWindow::at_commit_step(&mut state, &a(), &system);
+            window.stage = Stage::ChoosingBombardment(BombardCursor {
+                planet_index: 0,
+                planet: planet.clone(),
+                groups: vec![2, 1],
+                next_group: 0,
+                taken: 0,
+                held: 2,
+                victims: [PlayerId::new("b"), PlayerId::new("c")].into_iter().collect(),
+                occurrence: state.begin_feat_occurrence(),
+            });
+            let choice = window.pending_choice(&state, ContentStore::embedded(), POK).expect("asked");
+            assert_eq!(choice.options.len(), 2);
+        });
+        let r = report();
+        let w = r.windows.get("invasion::bombard_target_ask").copied().unwrap_or_default();
+        assert_eq!(w.compared, 1, "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    #[test]
     fn the_fight_round_question_is_put_by_the_core_window_in_lockstep() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
         let _guard = crate::dual::tests::serial();
@@ -10478,7 +10530,6 @@ mod ground_routes {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
-        let content = ContentStore::embedded();
         let mecatol = SystemId::new(crate::seating::MECATOL);
         let setup = |faction: &str| {
             let mut state = crate::fixtures::seated_game(&[("a", faction), ("b", "letnev")], POK);
