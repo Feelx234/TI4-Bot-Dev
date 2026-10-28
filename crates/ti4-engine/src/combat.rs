@@ -2462,15 +2462,6 @@ pub fn space_cannon_guns(
         );
     }
 
-    if crate::dual::backend(crate::dual::Area::Combat) == crate::dual::Backend::Dual {
-        #[cfg(feature = "typed-core")]
-        let typed = || crate::core_combat::CombatView::of(state, content, sources)?.local_cannon_guns(system, active);
-        #[cfg(not(feature = "typed-core"))]
-        let typed = || None::<Vec<String>>;
-        let _ = crate::dual::run_dual_typed(crate::dual::Area::Combat, "combat::local_cannon_guns", typed, || {
-            guns.iter().map(|unit| unit.type_id.to_string()).collect::<Vec<_>>()
-        });
-    }
     // PDS II and Xxcha's Indomitus mech both read "You may use this unit's SPACE CANNON against
     // ships that are in adjacent systems." Two cards, one clause, and neither reached the active
     // system before: `space_cannon_offense` read only the system being activated, so an upgraded
@@ -2503,6 +2494,28 @@ pub fn space_cannon_guns(
         })
         .filter(|(owner, ..)| may_fire(owner))
         .collect();
+    if crate::dual::backend(crate::dual::Area::Combat) == crate::dual::Backend::Dual {
+        #[cfg(feature = "typed-core")]
+        let typed = || {
+            let reaching: Vec<String> =
+                types.iter().filter(|(_, kind)| reaches_adjacent(**kind)).map(|(id, _)| (*id).to_owned()).collect();
+            crate::core_combat::CombatView::of(state, content, sources)?.unit_cannon_guns(system, active, galaxy, &reaching)
+        };
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None::<Vec<String>>;
+        let _ = crate::dual::run_dual_typed(crate::dual::Area::Combat, "combat::unit_cannon_guns", typed, || {
+            guns.iter().map(|unit| unit.type_id.to_string()).collect::<Vec<_>>()
+        });
+    }
+    if crate::dual::backend(crate::dual::Area::Combat) == crate::dual::Backend::Dual {
+        #[cfg(feature = "typed-core")]
+        let typed = || crate::core_combat::CombatView::of(state, content, sources)?.attachment_cannon_guns(system, active);
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None::<Vec<(String, String, u32, usize)>>;
+        let _ = crate::dual::run_dual_typed(crate::dual::Area::Combat, "combat::attachment_cannon_guns", typed, || {
+            attachment_guns.iter().map(|(who, planet, value, count)| (who.to_string(), planet.to_string(), *value, *count)).collect::<Vec<_>>()
+        });
+    }
     CannonGuns {
         units: guns,
         attachments: attachment_guns,
@@ -9105,6 +9118,7 @@ mod tests {
             let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
             state.promissory_notes.clear();
             state.promissory_faceup.clear();
+            state.rng_seed = seed;
             let system = SystemId::new("18");
             put(&mut state, &system, "cruiser", &attacker(), 3);
             put(&mut state, &system, "destroyer", &defender(), 2);

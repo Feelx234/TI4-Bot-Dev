@@ -10,6 +10,7 @@ use crate::state::{EventRec, Window};
 
 /// The continuation of a rule step.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::large_enum_variant, reason = "one value per step, never stored in bulk; boxing the event would cost an allocation per emission")]
 pub enum Next {
     /// Nothing more to do.
     Done,
