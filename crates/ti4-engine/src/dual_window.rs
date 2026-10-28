@@ -858,7 +858,7 @@ pub fn roll_step(
     let env = crate::core_combat::window_env(&before, &cx, sources)?;
     let mut names = Vec::new();
     {
-        let mut view = crate::core_combat::CombatView::of(&before, content, sources)?;
+        let view = crate::core_combat::CombatView::of(&before, content, sources)?;
         for (seat, id) in [(attacker, a.attacker), (defender, a.defender)] {
             for (value, tag, _, types) in view.fleet_groups(id, a.system)? {
                 let mut kinds: Vec<&str> = types.iter().map(|(u, _)| u.as_str()).collect();
