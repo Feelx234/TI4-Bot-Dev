@@ -92,6 +92,9 @@ pub mod technology_core;
 /// Area::BoardQueries (package A1): the typed board queries behind a string interface.
 #[cfg(feature = "typed-core")]
 pub mod board_view;
+/// Area::Combat (package B1): the typed combat rules behind a string interface.
+#[cfg(feature = "typed-core")]
+pub mod core_combat;
 /// The offline dual of Area::BoardQueries.
 #[cfg(feature = "typed-core")]
 #[doc(hidden)]
