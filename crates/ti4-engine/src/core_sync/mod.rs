@@ -14,7 +14,7 @@
 //! form the codec cannot reproduce byte for byte) is reported as [`Unmapped`]: the caller answers with
 //! the string engine, exactly as `core_adapter` does. Nothing here decides a rule.
 
-mod conv;
+pub(crate) mod conv;
 mod ctx;
 mod error;
 mod footprint;

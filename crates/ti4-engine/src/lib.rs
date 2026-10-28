@@ -35,6 +35,7 @@ pub mod diplomacy;
 pub mod draft;
 pub mod entropic_scars;
 pub mod explore_core;
+pub mod explore_write;
 /// The offline dual of Area::ExplorationRelics.
 #[cfg(feature = "typed-core")]
 #[doc(hidden)]
@@ -104,6 +105,7 @@ pub mod core_combat;
 #[cfg(feature = "typed-core")]
 pub mod core_invasion;
 /// Area::LeadersAbilities (package B7): the typed leader reads behind the string interface.
+pub mod leaders_core;
 #[cfg(feature = "typed-core")]
 pub mod leaders_view;
 #[cfg(feature = "typed-core")]

@@ -387,11 +387,18 @@ pub fn check_unlocks(
     player: &PlayerId,
 ) -> Vec<LeaderId> {
     let unlocking = unlockable(state, content, sources, galaxy, player);
-    if let Some(seat) = state.player_mut(player) {
-        for leader in &unlocking {
-            seat.leaders.insert(leader.clone(), LeaderStatus::Unlocked);
-        }
-    }
+    dual_write(
+        state,
+        "leaders::unlock",
+        |s| {
+            if let Some(seat) = s.player_mut(player) {
+                for leader in &unlocking {
+                    seat.leaders.insert(leader.clone(), LeaderStatus::Unlocked);
+                }
+            }
+        },
+        |s| crate::leaders_core::unlock(s, player, &unlocking),
+    );
     unlocking
 }
 
@@ -472,18 +479,26 @@ fn unlockable_text(
 /// could turn an agent face down when it was used and never turn it back — which after a round
 /// or two reads as a player who has run out of agents.
 pub fn ready_all(state: &mut GameState, player: &PlayerId) -> Vec<LeaderId> {
-    let Some(seat) = state.player_mut(player) else {
-        return Vec::new();
-    };
-    let exhausted: Vec<LeaderId> = seat
-        .leaders
-        .iter()
-        .filter(|(_, status)| **status == LeaderStatus::Exhausted)
-        .map(|(leader, _)| leader.clone())
-        .collect();
-    for leader in &exhausted {
-        seat.leaders.insert(leader.clone(), LeaderStatus::Readied);
-    }
+    let exhausted = dual_write(
+        state,
+        "leaders::ready_all",
+        |s| {
+            let Some(seat) = s.player_mut(player) else {
+                return Vec::new();
+            };
+            let exhausted: Vec<LeaderId> = seat
+                .leaders
+                .iter()
+                .filter(|(_, status)| **status == LeaderStatus::Exhausted)
+                .map(|(leader, _)| leader.clone())
+                .collect();
+            for leader in &exhausted {
+                seat.leaders.insert(leader.clone(), LeaderStatus::Readied);
+            }
+            exhausted
+        },
+        |s| crate::leaders_core::ready_all(s, player),
+    );
     for leader in &exhausted {
         crate::factions::nomad_agents::agent_readied(state, player, leader);
     }
@@ -495,26 +510,47 @@ pub fn ready_all(state: &mut GameState, player: &PlayerId) -> Vec<LeaderId> {
 /// The status phase readies them all at once; this is for the effects that ready a single card
 /// out of turn, like The Acropolis.
 pub fn ready(state: &mut GameState, player: &PlayerId, leader: &LeaderId) -> bool {
-    let Some(seat) = state.player_mut(player) else {
-        return false;
-    };
-    if seat.leaders.get(leader) != Some(&LeaderStatus::Exhausted) {
-        return false;
+    let done = dual_write(
+        state,
+        "leaders::ready",
+        |s| {
+            let Some(seat) = s.player_mut(player) else {
+                return false;
+            };
+            if seat.leaders.get(leader) != Some(&LeaderStatus::Exhausted) {
+                return false;
+            }
+            seat.leaders.insert(leader.clone(), LeaderStatus::Readied);
+            true
+        },
+        |s| crate::leaders_core::ready(s, player, leader),
+    );
+    if done {
+        crate::factions::nomad_agents::agent_readied(state, player, leader);
     }
-    seat.leaders.insert(leader.clone(), LeaderStatus::Readied);
-    crate::factions::nomad_agents::agent_readied(state, player, leader);
-    true
+    done
 }
 
 /// Exhaust a leader to use it. `false` if it was not readied.
 pub fn exhaust(state: &mut GameState, player: &PlayerId, leader: &LeaderId) -> bool {
-    let Some(seat) = state.player_mut(player) else {
-        return false;
-    };
-    if seat.leaders.get(leader) != Some(&LeaderStatus::Readied) {
+    let done = dual_write(
+        state,
+        "leaders::exhaust",
+        |s| {
+            let Some(seat) = s.player_mut(player) else {
+                return false;
+            };
+            if seat.leaders.get(leader) != Some(&LeaderStatus::Readied) {
+                return false;
+            }
+            seat.leaders.insert(leader.clone(), LeaderStatus::Exhausted);
+            true
+        },
+        |s| crate::leaders_core::exhaust(s, player, leader),
+    );
+    if !done {
         return false;
     }
-    seat.leaders.insert(leader.clone(), LeaderStatus::Exhausted);
     // The Nomad's Temporal Command Suite hears every agent becoming exhausted.
     if crate::factions::nomad::watches_agent_exhaustion(state)
         && kind_of(ContentStore::embedded(), leader).as_deref() == Some(AGENT)
@@ -533,14 +569,32 @@ pub fn exhaust(state: &mut GameState, player: &PlayerId, leader: &LeaderId) -> b
 
 /// Purge a leader, which is permanent — a hero is purged when its ability resolves (51.9).
 pub fn purge(state: &mut GameState, player: &PlayerId, leader: &LeaderId) -> bool {
-    let Some(seat) = state.player_mut(player) else {
-        return false;
-    };
-    if !seat.leaders.contains_key(leader) {
-        return false;
-    }
-    seat.leaders.insert(leader.clone(), LeaderStatus::Purged);
-    true
+    dual_write(
+        state,
+        "leaders::purge",
+        |s| {
+            let Some(seat) = s.player_mut(player) else {
+                return false;
+            };
+            if !seat.leaders.contains_key(leader) {
+                return false;
+            }
+            seat.leaders.insert(leader.clone(), LeaderStatus::Purged);
+            true
+        },
+        |s| crate::leaders_core::purge(s, player, leader),
+    )
+}
+
+/// One status write of this file on both backends: `string` is the original code, `core` the typed
+/// `rules::leaders` write (`None`: the position is outside the tables, the string write runs).
+fn dual_write<R: PartialEq + std::fmt::Debug>(
+    state: &mut GameState,
+    label: &str,
+    string: impl Fn(&mut GameState) -> R,
+    core: impl Fn(&mut GameState) -> Option<R>,
+) -> R {
+    crate::dual::write(crate::dual::Area::LeadersAbilities, state, label, string, core)
 }
 
 /// Leaders this player could use now: readied agents, and unlocked heroes.
@@ -972,17 +1026,27 @@ pub fn offer_production_hero(
 /// set. Returns what was purged, for events.
 pub fn end_of_round(state: &mut GameState) -> Vec<(PlayerId, LeaderId)> {
     let hero = LeaderId::new("letnevhero");
-    let mut purged = Vec::new();
-    for seat in &mut state.players {
-        if seat.fleet_supply_unlimited_until == Some(state.round) {
-            seat.fleet_supply_unlimited_until = None;
-            if seat.leaders.get(&hero) == Some(&LeaderStatus::Unlocked) {
-                seat.leaders.insert(hero.clone(), LeaderStatus::Purged);
-                purged.push((seat.id.clone(), hero.clone()));
+    dual_write(
+        state,
+        "leaders::end_of_round",
+        |state| {
+            let mut purged = Vec::new();
+            for seat in &mut state.players {
+                if seat.fleet_supply_unlimited_until == Some(state.round) {
+                    seat.fleet_supply_unlimited_until = None;
+                    if seat.leaders.get(&hero) == Some(&LeaderStatus::Unlocked) {
+                        seat.leaders.insert(hero.clone(), LeaderStatus::Purged);
+                        purged.push((seat.id.clone(), hero.clone()));
+                    }
+                }
             }
-        }
-    }
-    purged
+            purged
+        },
+        |s| {
+            let seats = crate::leaders_core::end_of_round(s)?;
+            Some(seats.into_iter().map(|p| (p, hero.clone())).collect())
+        },
+    )
 }
 
 // -- abilities (M07-002 to M07-009) --------------------------------------------------------------
@@ -1291,6 +1355,599 @@ pub fn use_leader_timed(
     Ok(use_leader(context, player, leader))
 }
 
+/// The pieces of a [`crate::timing::TimingContext`] a question-asking leader arm needs besides the state, split
+/// out so a core window can run beside the arm on the state (`dual_window!` borrows the state on its own).
+macro_rules! split_context {
+    ($context:expr => $state:ident, $content:ident, $sources:ident, $galaxy:ident, $table:ident) => {
+        let $content = $context.content;
+        let $sources = $context.sources;
+        let $galaxy = $context.galaxy;
+        let $table = &mut *$context.table;
+        let $state = &mut *$context.state;
+    };
+}
+
+/// [`crate::timing::TimingContext::ask_seeing`] over the pieces of the context.
+fn ask_seeing_parts(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut crate::choice::Table,
+    choice: &crate::choice::Choice,
+) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
+    let mut choice = choice.clone();
+    if let Some(context) = choice.context.take() {
+        choice.context = Some(context.about_battle(state).about_invasion(state));
+    }
+    table.ask_seeing(&choice, &crate::choice::Observed::new(state, content, sources, galaxy))
+}
+
+/// Ggrocuto Rinn (`xxchaagent`): the string arm of `dispatch_leader` beside its core window.
+fn xxcha_agent(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) -> bool {
+    split_context!(context => state, content, sources, galaxy, table);
+    crate::dual_window!(
+        crate::dual::Area::LeadersAbilities,
+        "leaders::xxchaagent",
+        state,
+        |state: &mut GameState| crate::dual::Run::new(xxcha_agent_string(state, content, sources, galaxy, table, player)),
+        |state: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::leaders_core::xxcha_agent(state, player, galaxy, sources, script)
+        }
+    )
+}
+
+fn xxcha_agent_string(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut crate::choice::Table,
+    player: &PlayerId,
+) -> bool {
+    let exhausted: Vec<ti4_model::id::PlanetId> =
+        state.exhausted_planets.iter().cloned().collect();
+    if exhausted.is_empty() {
+        return false; // nothing to ready, so it was never offered
+    }
+    let planet = if exhausted.len() > 1 {
+        // more than one exhausted planet: the choice is the player's.
+        {
+            let choice = crate::choice::Choice::new(
+                player.clone(),
+                "Leader: ready which planet",
+                exhausted
+                    .iter()
+                    .map(|p| {
+                        crate::choice::ChoiceOption::labelled(
+                            p.to_string(),
+                            "planet",
+                            p.to_string(),
+                        )
+                        .with_planet_located(
+                            state,
+                            content,
+                            sources,
+                            p.as_str(),
+                        )
+                    })
+                    .collect(),
+            )
+            .contextualized(
+                crate::decision_context::DecisionContext::new(
+                    player.clone(),
+                    crate::decision_context::DecisionSource::FactionAbility(
+                        "xxchaagent".to_owned(),
+                    ),
+                    "leader_xxchaagent_ready_planet",
+                    state.phase,
+                    state.round,
+                ),
+            );
+            let Ok(answer) = ask_seeing_parts(state, content, sources, galaxy, table, &choice) else {
+                return false;
+            };
+            match exhausted.into_iter().find(|p| p.as_str() == answer.id) {
+                Some(planet) => planet,
+                None => return false,
+            }
+        }
+    } else {
+        exhausted.into_iter().next().expect("one exhausted planet")
+    };
+    // "If that planet is in a system adjacent to one you control, you may remove 1
+    // infantry from there" — adjacency runs between systems, so the readied planet's
+    // system must touch a system holding a planet of yours.
+    let mut removal = false;
+    if let Some(map) = galaxy {
+        let home: Option<ti4_model::id::SystemId> = state
+            .board
+            .iter()
+            .find(|(_, board)| board.planet_units.contains_key(&planet))
+            .map(|(system, _)| system.clone());
+        if let Some(home) = home {
+            let mine: std::collections::BTreeSet<&str> = state
+                .controlled_planets(player)
+                .iter()
+                .map(|(system, _)| system.as_str())
+                .collect();
+            let adjacent_to_mine = map
+                .adjacent(home.as_str())
+                .into_iter()
+                .any(|system| mine.contains(system));
+            if adjacent_to_mine {
+                let types = ti4_content::units::catalogue(content, sources);
+                let has_infantry = state
+                    .board
+                    .get(&home)
+                    .and_then(|board| board.planet_units.get(&planet))
+                    .is_some_and(|units| {
+                        units.iter().any(|unit| {
+                            unit.owner == *player
+                                && types
+                                    .get(unit.type_id.as_str())
+                                    .is_some_and(|kind| kind.base_type() == "infantry")
+                        })
+                    });
+                if has_infantry {
+                    let choice = crate::choice::Choice::new(
+                        player.clone(),
+                        "Leader: remove 1 infantry from that planet?",
+                        vec![
+                            crate::choice::ChoiceOption::labelled(
+                                "remove",
+                                "leader_xxchaagent_infantry",
+                                "remove 1 infantry",
+                            ),
+                            crate::choice::ChoiceOption::labelled(
+                                "keep",
+                                "leader_xxchaagent_infantry",
+                                "keep it",
+                            ),
+                        ],
+                    )
+                    .contextualized(
+                        crate::decision_context::DecisionContext::new(
+                            player.clone(),
+                            crate::decision_context::DecisionSource::FactionAbility(
+                                "xxchaagent".to_owned(),
+                            ),
+                            "leader_xxchaagent_remove_infantry",
+                            state.phase,
+                            state.round,
+                        ),
+                    );
+                    let Ok(answer) = ask_seeing_parts(state, content, sources, galaxy, table, &choice) else {
+                        return false;
+                    };
+                    removal = answer.id == "remove";
+                }
+            }
+        }
+    }
+    // All choices are settled; now the position changes, atomically.
+    state.exhausted_planets.remove(&planet);
+    // Readying someone else's planet is a favour: a promise to use this agent for them is
+    // kept here.
+    let controller = state
+        .players
+        .iter()
+        .map(|seat| seat.id.clone())
+        .find(|seat| {
+            state
+                .controlled_planets(seat)
+                .iter()
+                .any(|(_, owned)| **owned == planet)
+        });
+    if let Some(helped) = controller.filter(|helped| helped != player) {
+        crate::diplomacy::evaluate_event(
+            state,
+            &crate::diplomacy::DiplomacyEventContext::LeaderUsedFor {
+                user: player.clone(),
+                leader: "xxchaagent".to_owned(),
+                beneficiary: helped,
+            },
+        )
+        .expect("validated diplomacy promises settle deterministically");
+    }
+    if removal {
+        let types = ti4_content::units::catalogue(content, sources);
+        for board in state.board.values_mut() {
+            if let Some(units) = board.planet_units.get_mut(&planet)
+                && let Some(index) = units.iter().position(|unit| {
+                    unit.owner == *player
+                        && types
+                            .get(unit.type_id.as_str())
+                            .is_some_and(|kind| kind.base_type() == "infantry")
+                })
+            {
+                units.remove(index);
+                break;
+            }
+        }
+    }
+    true
+}
+
+/// Carth of Golden Sands (`hacanagent`): the string arm of `dispatch_leader` beside its core window.
+fn hacan_agent(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) -> bool {
+    split_context!(context => state, content, sources, galaxy, table);
+    crate::dual_window!(
+        crate::dual::Area::LeadersAbilities,
+        "leaders::hacanagent",
+        state,
+        |state: &mut GameState| crate::dual::Run::new(hacan_agent_string(state, content, sources, galaxy, table, player)),
+        |state: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::leaders_core::hacan_agent(state, content, player, script)
+        }
+    )
+}
+
+fn hacan_agent_string(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut crate::choice::Table,
+    player: &PlayerId,
+) -> bool {
+    let others: Vec<PlayerId> = state
+        .players
+        .iter()
+        .map(|seat| seat.id.clone())
+        .filter(|id| id != player)
+        .collect();
+    if others.is_empty() {
+        return false; // nobody to replenish and no self-gain branch to offer is a broken table
+    }
+    let choice = crate::choice::Choice::new(
+        player.clone(),
+        "Leader: gain 2 commodities or replenish another player",
+        std::iter::once(crate::choice::ChoiceOption::labelled(
+            "self",
+            "leader_hacanagent_branch",
+            "gain 2 commodities",
+        ))
+        .chain(others.iter().map(|id| {
+            crate::choice::ChoiceOption::labelled(
+                id.to_string(),
+                "leader_hacanagent_branch",
+                format!("replenish {id}"),
+            )
+        }))
+        .collect(),
+    )
+    .contextualized(crate::decision_context::DecisionContext::new(
+        player.clone(),
+        crate::decision_context::DecisionSource::FactionAbility("hacanagent".to_owned()),
+        "leader_hacanagent_branch",
+        state.phase,
+        state.round,
+    ))
+    // Display only: the seat's own commodities, which the "gain 2" branch adds to.
+    .detailed(
+        "commodities",
+        crate::strategy_cards::commodity_standing(state, content, player),
+    );
+    let Ok(answer) = ask_seeing_parts(state, content, sources, galaxy, table, &choice) else {
+        return false;
+    };
+    if answer.id == "self" {
+        let limit = state
+            .player(player)
+            .and_then(|seat| {
+                ti4_content::factions::get(content, seat.faction.as_str())
+                    .map(|faction| faction.commodities())
+            })
+            .unwrap_or(0);
+        let mut gained = 0;
+        if let Some(seat) = state.player_mut(player) {
+            let after = (seat.commodities + 2).min(limit);
+            gained = (after - seat.commodities).max(0);
+            seat.commodities = after;
+        }
+        crate::supply::note_commodities_gained(state, player, gained);
+    } else {
+        // "Replenish" fills the other player's commodities up to their own limit.
+        match others.into_iter().find(|id| id.as_str() == answer.id) {
+            Some(target) => {
+                let limit = state
+                    .player(&target)
+                    .and_then(|seat| {
+                        ti4_content::factions::get(content, seat.faction.as_str())
+                            .map(|faction| faction.commodities())
+                    })
+                    .unwrap_or(0);
+                let mut gained = 0;
+                if let Some(seat) = state.player_mut(&target) {
+                    gained = (limit - seat.commodities).max(0);
+                    seat.commodities = limit;
+                }
+                crate::supply::note_commodities_gained(state, &target, gained);
+                // Trade Agreement: "When the <color> player replenishes commodities".
+                crate::promissory::trade_agreement_on_replenish(state, &target);
+                // A structured promise to use this agent for that seat is kept here.
+                crate::diplomacy::evaluate_event(
+                    state,
+                    &crate::diplomacy::DiplomacyEventContext::LeaderUsedFor {
+                        user: player.clone(),
+                        leader: "hacanagent".to_owned(),
+                        beneficiary: target,
+                    },
+                )
+                .expect("validated diplomacy promises settle deterministically");
+            }
+            None => return false,
+        }
+    }
+    true
+}
+
+/// The Helmsman (`l1z1xhero`): the string arm of `dispatch_leader` beside its core window.
+fn l1z1x_hero(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) -> bool {
+    split_context!(context => state, content, sources, galaxy, table);
+    crate::dual_window!(
+        crate::dual::Area::LeadersAbilities,
+        "leaders::l1z1xhero",
+        state,
+        |state: &mut GameState| crate::dual::Run::new(l1z1x_hero_string(state, content, sources, galaxy, table, player)),
+        |state: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::leaders_core::l1z1x_hero(state, player, galaxy, sources, script)
+        }
+    )
+}
+
+fn l1z1x_hero_string(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut crate::choice::Table,
+    player: &PlayerId,
+) -> bool {
+    let Some(map) = galaxy else {
+        return false; // no map, no system to name
+    };
+    let types = ti4_content::units::catalogue(content, sources);
+    // Nothing anywhere to gather means the use could do nothing, so it was never offered.
+    let has_big_ships = state.board.values().any(|board| {
+        board.units.iter().any(|unit| {
+            &unit.owner == player
+                && types.get(unit.type_id.as_str()).is_some_and(|kind| {
+                    matches!(kind.base_type(), "flagship" | "dreadnought")
+                })
+        })
+    });
+    if !has_big_ships {
+        return false;
+    }
+    let safe: Vec<ti4_model::id::SystemId> = map
+        .system_ids_holding_things()
+        .into_iter()
+        .map(ti4_model::id::SystemId::new)
+        .filter(|system| {
+            !state.system_state(system).units.iter().any(|unit| {
+                &unit.owner != player
+                    && types
+                        .get(unit.type_id.as_str())
+                        .is_some_and(ti4_content::units::UnitType::is_ship)
+            })
+        })
+        .collect();
+    if safe.is_empty() {
+        return false;
+    }
+    let destination = if safe.len() > 1 {
+        // more than one safe system: the choice is the player's.
+        {
+            let choice = crate::choice::Choice::new(
+                player.clone(),
+                "Leader: which system to gather your ships in",
+                safe.iter()
+                    .map(|system| {
+                        crate::choice::ChoiceOption::labelled(
+                            system.to_string(),
+                            "system",
+                            system.to_string(),
+                        )
+                    })
+                    .collect(),
+            )
+            .contextualized(
+                crate::decision_context::DecisionContext::new(
+                    player.clone(),
+                    crate::decision_context::DecisionSource::FactionAbility(
+                        "l1z1xhero".to_owned(),
+                    ),
+                    "leader_l1z1xhero_destination",
+                    state.phase,
+                    state.round,
+                ),
+            );
+            let Ok(answer) = ask_seeing_parts(state, content, sources, galaxy, table, &choice) else {
+                return false;
+            };
+            match safe.into_iter().find(|system| system.as_str() == answer.id) {
+                Some(system) => system,
+                None => return false,
+            }
+        }
+    } else {
+        safe.into_iter().next().expect("one safe system")
+    };
+    let mut gathered = Vec::new();
+    for (system, board) in &mut state.board {
+        if *system == destination {
+            continue;
+        }
+        board.units.retain(|unit| {
+            let named = &unit.owner == player
+                && types.get(unit.type_id.as_str()).is_some_and(|kind| {
+                    matches!(kind.base_type(), "flagship" | "dreadnought")
+                });
+            if named {
+                gathered.push(unit.clone());
+            }
+            !named
+        });
+    }
+    if gathered.is_empty() {
+        return false;
+    }
+    state
+        .system_mut(&destination)
+        .units
+        .extend(gathered);
+    true
+}
+
+/// Rin, the Masters' Legacy (`jolnarhero`): the string arm of `dispatch_leader` beside its core window.
+fn jolnar_hero(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) -> bool {
+    split_context!(context => state, content, sources, galaxy, table);
+    crate::dual_window!(
+        crate::dual::Area::LeadersAbilities,
+        "leaders::jolnarhero",
+        state,
+        |state: &mut GameState| crate::dual::Run::new(jolnar_hero_string(state, content, sources, galaxy, table, player)),
+        |state: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::leaders_core::jolnar_hero(state, content, player, sources, script)
+        }
+    )
+}
+
+fn jolnar_hero_string(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut crate::choice::Table,
+    player: &PlayerId,
+) -> bool {
+    let held: Vec<ti4_model::id::TechnologyId> = state
+        .player(player)
+        .map(|seat| seat.technologies.iter().cloned().collect())
+        .unwrap_or_default();
+    // "For each non-unit upgrade technology you own" (90.7b): an upgrade has no colour,
+    // so there is nothing to replace it with in its own colour. The class is the
+    // UNITUPGRADE type, not `baseUpgrade` — the generic upgrades (Carrier II, War Sun,
+    // ...) carry that key not at all.
+    let eligible: Vec<ti4_model::id::TechnologyId> = held
+        .into_iter()
+        .filter(|alias| {
+            !crate::technology::is_unit_upgrade(content, alias)
+                && content
+                    .get(ContentType::Technologies, alias.as_str())
+                    .and_then(|r| r.strings("types").first().copied())
+                    .is_some()
+        })
+        .collect();
+    if eligible.is_empty() {
+        return false; // nothing swappable, so the hero is not spent
+    }
+    let mut opportunity = false;
+    for alias in &eligible {
+        let colour = content
+            .get(ContentType::Technologies, alias.as_str())
+            .and_then(|r| r.strings("types").first().copied());
+        let Some(colour) = colour else {
+            continue; // unreachable: eligibility required a colour
+        };
+        // Recomputed per swap: what was just traded in is owned now and cannot be
+        // traded for again.
+        let replacements: Vec<ti4_model::id::TechnologyId> = content
+            .from_sources(ContentType::Technologies, sources)
+            .filter(|r| {
+                r.strings("types")
+                    .first()
+                    .is_some_and(|kind| *kind == colour)
+            })
+            // The same UNITUPGRADE class test as above, at record level: an upgrade is
+            // never a valid replacement, whatever its `baseUpgrade` says.
+            .filter(|r| !r.strings("types").contains(&"UNITUPGRADE"))
+            .filter_map(|r| r.text("alias").map(ti4_model::id::TechnologyId::new))
+            // 90.11: a faction technology belongs to its faction alone. "From the deck" is
+            // the player's own technology deck -- the generic technologies and their own
+            // faction's -- so another faction's technology is never a replacement. The
+            // list used to filter only by colour and offered every faction's.
+            .filter(|candidate| {
+                crate::technology::faction_of(content, candidate).is_none_or(
+                    |owner| {
+                        state
+                            .player(player)
+                            .is_some_and(|seat| seat.faction.as_str() == owner)
+                    },
+                )
+            })
+            .filter(|candidate| {
+                state
+                    .player(player)
+                    .is_some_and(|seat| !seat.technologies.contains(candidate))
+            })
+            .collect();
+        if replacements.is_empty() {
+            continue; // nothing to trade this one for
+        }
+        opportunity = true;
+        // The decline comes last: a decider that simply takes the first option trades,
+        // which is what "you may replace" resolves to when nobody says otherwise.
+        let choice = crate::choice::Choice::new(
+            player.clone(),
+            "Leader: replace which technology with what",
+            replacements
+                .iter()
+                .map(|candidate| {
+                    crate::choice::ChoiceOption::labelled(
+                        candidate.to_string(),
+                        "leader_jolnarhero_swap",
+                        format!("trade for {candidate}"),
+                    )
+                })
+                .chain(std::iter::once(crate::choice::ChoiceOption::labelled(
+                    format!("keep|{alias}"),
+                    "leader_jolnarhero_swap",
+                    format!("keep {alias}"),
+                )))
+                .collect(),
+        )
+        .contextualized(crate::decision_context::DecisionContext::new(
+            player.clone(),
+            crate::decision_context::DecisionSource::FactionAbility(
+                "jolnarhero".to_owned(),
+            ),
+            "leader_jolnarhero_swap",
+            state.phase,
+            state.round,
+        ));
+        let Ok(answer) = ask_seeing_parts(state, content, sources, galaxy, table, &choice) else {
+            return false;
+        };
+        if answer.id == format!("keep|{alias}") {
+            continue; // "you may": declining is a legal resolution
+        }
+        match replacements
+            .into_iter()
+            .find(|candidate| candidate.as_str() == answer.id)
+        {
+            Some(replacement) => {
+                if let Some(seat) = state.player_mut(player) {
+                    seat.technologies.remove(alias);
+                    seat.technologies.insert(replacement);
+                }
+                crate::technology::apply_unit_upgrades(
+                    state,
+                    content,
+                    sources,
+                    player,
+                );
+            }
+            None => return false,
+        }
+    }
+    // Declining every swap is a legal resolution, but a use with no swap on offer at all
+    // must not burn the card — that case was never offered in the first place.
+    opportunity
+}
+
 /// The per-leader effect dispatch shared by [`use_leader`] and [`use_leader_text`]: runs the leader's
 /// printed effect for `player` and reports whether it resolved. No status gate, no exhaust or purge:
 /// the callers own both.
@@ -1322,11 +1979,18 @@ fn dispatch_leader(
                 wanted,
             )
             .unwrap_or_else(|| ti4_model::id::UnitTypeId::new(wanted));
-            if let Some(seat) = context.state.player_mut(player) {
-                seat.extra_die_round = Some(round);
-                seat.extra_die_unit = Some(unit);
-            }
-            true
+            dual_write(
+                context.state,
+                "leaders::extra_die_agent",
+                |s| {
+                    if let Some(seat) = s.player_mut(player) {
+                        seat.extra_die_round = Some(round);
+                        seat.extra_die_unit = Some(unit.clone());
+                    }
+                    true
+                },
+                |s| crate::leaders_core::extra_die_agent(s, player, unit.as_str()),
+            )
         }
         // Claire Gibson: an infantry onto a planet you control, as a ground combat opens.
         "solcommander" => {
@@ -1337,198 +2001,50 @@ fn dispatch_leader(
                 .map(|(system, planet)| ((*system).clone(), (*planet).clone()));
             match spot {
                 Some((system, planet)) => {
-                    crate::action_cards::place_units(
-                        context,
-                        player,
-                        &system,
-                        Some(&planet),
-                        "infantry",
-                        1,
-                    );
+                    // What the player's cards make of "infantry" and how many the supply allows is the
+                    // string side's (`place_units_plan`); the placement itself is a core rule.
+                    if let Some((unit, count)) =
+                        crate::action_cards::place_units_plan(context, player, "infantry", 1)
+                    {
+                        dual_write(
+                            context.state,
+                            "leaders::sol_commander",
+                            |s| {
+                                for _ in 0..count {
+                                    s.system_mut(&system)
+                                        .planet_units
+                                        .entry(planet.clone())
+                                        .or_default()
+                                        .push(ti4_model::units::Unit::new(unit.clone(), player.clone()));
+                                }
+                                true
+                            },
+                            |s| {
+                                crate::leaders_core::sol_commander(s, player, &system, &planet, unit.as_str(), count)
+                            },
+                        );
+                    }
                     true
                 }
                 None => false,
             }
         }
         // Jace X: every command token off the board, back to reinforcements.
-        "solhero" => {
-            for board in context.state.board.values_mut() {
-                board.command_tokens.remove(player);
-            }
-            true
-        }
+        "solhero" => dual_write(
+            context.state,
+            "leaders::sol_hero",
+            |s| {
+                for board in s.board.values_mut() {
+                    board.command_tokens.remove(player);
+                }
+                true
+            },
+            |s| crate::leaders_core::sol_hero(s, player),
+        ),
         // Ready any planet — which one is the player's choice, not the engine's. The optional
         // infantry removal is decided before anything mutates, so a refused follow-up leaves the
         // position exactly as it was.
-        "xxchaagent" => {
-            let exhausted: Vec<ti4_model::id::PlanetId> =
-                context.state.exhausted_planets.iter().cloned().collect();
-            if exhausted.is_empty() {
-                return false; // nothing to ready, so it was never offered
-            }
-            let planet = if exhausted.len() > 1 {
-                // more than one exhausted planet: the choice is the player's.
-                {
-                    let choice = crate::choice::Choice::new(
-                        player.clone(),
-                        "Leader: ready which planet",
-                        exhausted
-                            .iter()
-                            .map(|p| {
-                                crate::choice::ChoiceOption::labelled(
-                                    p.to_string(),
-                                    "planet",
-                                    p.to_string(),
-                                )
-                                .with_planet_located(
-                                    context.state,
-                                    context.content,
-                                    context.sources,
-                                    p.as_str(),
-                                )
-                            })
-                            .collect(),
-                    )
-                    .contextualized(
-                        crate::decision_context::DecisionContext::new(
-                            player.clone(),
-                            crate::decision_context::DecisionSource::FactionAbility(
-                                "xxchaagent".to_owned(),
-                            ),
-                            "leader_xxchaagent_ready_planet",
-                            context.state.phase,
-                            context.state.round,
-                        ),
-                    );
-                    let Ok(answer) = context.ask_seeing(&choice) else {
-                        return false;
-                    };
-                    match exhausted.into_iter().find(|p| p.as_str() == answer.id) {
-                        Some(planet) => planet,
-                        None => return false,
-                    }
-                }
-            } else {
-                exhausted.into_iter().next().expect("one exhausted planet")
-            };
-            // "If that planet is in a system adjacent to one you control, you may remove 1
-            // infantry from there" — adjacency runs between systems, so the readied planet's
-            // system must touch a system holding a planet of yours.
-            let mut removal = false;
-            if let Some(galaxy) = context.galaxy {
-                let home: Option<ti4_model::id::SystemId> = context
-                    .state
-                    .board
-                    .iter()
-                    .find(|(_, board)| board.planet_units.contains_key(&planet))
-                    .map(|(system, _)| system.clone());
-                if let Some(home) = home {
-                    let mine: std::collections::BTreeSet<&str> = context
-                        .state
-                        .controlled_planets(player)
-                        .iter()
-                        .map(|(system, _)| system.as_str())
-                        .collect();
-                    let adjacent_to_mine = galaxy
-                        .adjacent(home.as_str())
-                        .into_iter()
-                        .any(|system| mine.contains(system));
-                    if adjacent_to_mine {
-                        let types = ti4_content::units::catalogue(context.content, context.sources);
-                        let has_infantry = context
-                            .state
-                            .board
-                            .get(&home)
-                            .and_then(|board| board.planet_units.get(&planet))
-                            .is_some_and(|units| {
-                                units.iter().any(|unit| {
-                                    unit.owner == *player
-                                        && types
-                                            .get(unit.type_id.as_str())
-                                            .is_some_and(|kind| kind.base_type() == "infantry")
-                                })
-                            });
-                        if has_infantry {
-                            let choice = crate::choice::Choice::new(
-                                player.clone(),
-                                "Leader: remove 1 infantry from that planet?",
-                                vec![
-                                    crate::choice::ChoiceOption::labelled(
-                                        "remove",
-                                        "leader_xxchaagent_infantry",
-                                        "remove 1 infantry",
-                                    ),
-                                    crate::choice::ChoiceOption::labelled(
-                                        "keep",
-                                        "leader_xxchaagent_infantry",
-                                        "keep it",
-                                    ),
-                                ],
-                            )
-                            .contextualized(
-                                crate::decision_context::DecisionContext::new(
-                                    player.clone(),
-                                    crate::decision_context::DecisionSource::FactionAbility(
-                                        "xxchaagent".to_owned(),
-                                    ),
-                                    "leader_xxchaagent_remove_infantry",
-                                    context.state.phase,
-                                    context.state.round,
-                                ),
-                            );
-                            let Ok(answer) = context.ask_seeing(&choice) else {
-                                return false;
-                            };
-                            removal = answer.id == "remove";
-                        }
-                    }
-                }
-            }
-            // All choices are settled; now the position changes, atomically.
-            context.state.exhausted_planets.remove(&planet);
-            // Readying someone else's planet is a favour: a promise to use this agent for them is
-            // kept here.
-            let controller = context
-                .state
-                .players
-                .iter()
-                .map(|seat| seat.id.clone())
-                .find(|seat| {
-                    context
-                        .state
-                        .controlled_planets(seat)
-                        .iter()
-                        .any(|(_, owned)| **owned == planet)
-                });
-            if let Some(helped) = controller.filter(|helped| helped != player) {
-                crate::diplomacy::evaluate_event(
-                    context.state,
-                    &crate::diplomacy::DiplomacyEventContext::LeaderUsedFor {
-                        user: player.clone(),
-                        leader: "xxchaagent".to_owned(),
-                        beneficiary: helped,
-                    },
-                )
-                .expect("validated diplomacy promises settle deterministically");
-            }
-            if removal {
-                let types = ti4_content::units::catalogue(context.content, context.sources);
-                for board in context.state.board.values_mut() {
-                    if let Some(units) = board.planet_units.get_mut(&planet)
-                        && let Some(index) = units.iter().position(|unit| {
-                            unit.owner == *player
-                                && types
-                                    .get(unit.type_id.as_str())
-                                    .is_some_and(|kind| kind.base_type() == "infantry")
-                        })
-                    {
-                        units.remove(index);
-                        break;
-                    }
-                }
-            }
-            true
-        }
+        "xxchaagent" => xxcha_agent(context, player),
         // Thunder's Edge hero (replaces the PoK `xxchahero`): "Place any combination of up to 4
         // PDS or mechs onto planets you control; ready each planet that you place a unit on.
         // Then, purge this card." Every placement is decided before anything is placed, so a
@@ -1687,212 +2203,29 @@ fn dispatch_leader(
         }
         // "Gain 2 commodities or replenish another player's commodities" — the branch is the
         // player's, and so is the target when there is more than one way to spend it.
-        "hacanagent" => {
-            let others: Vec<PlayerId> = context
-                .state
-                .players
-                .iter()
-                .map(|seat| seat.id.clone())
-                .filter(|id| id != player)
-                .collect();
-            if others.is_empty() {
-                return false; // nobody to replenish and no self-gain branch to offer is a broken table
-            }
-            let choice = crate::choice::Choice::new(
-                player.clone(),
-                "Leader: gain 2 commodities or replenish another player",
-                std::iter::once(crate::choice::ChoiceOption::labelled(
-                    "self",
-                    "leader_hacanagent_branch",
-                    "gain 2 commodities",
-                ))
-                .chain(others.iter().map(|id| {
-                    crate::choice::ChoiceOption::labelled(
-                        id.to_string(),
-                        "leader_hacanagent_branch",
-                        format!("replenish {id}"),
-                    )
-                }))
-                .collect(),
-            )
-            .contextualized(crate::decision_context::DecisionContext::new(
-                player.clone(),
-                crate::decision_context::DecisionSource::FactionAbility("hacanagent".to_owned()),
-                "leader_hacanagent_branch",
-                context.state.phase,
-                context.state.round,
-            ))
-            // Display only: the seat's own commodities, which the "gain 2" branch adds to.
-            .detailed(
-                "commodities",
-                crate::strategy_cards::commodity_standing(context.state, context.content, player),
-            );
-            let Ok(answer) = context.ask_seeing(&choice) else {
-                return false;
-            };
-            if answer.id == "self" {
-                let limit = context
-                    .state
-                    .player(player)
-                    .and_then(|seat| {
-                        ti4_content::factions::get(context.content, seat.faction.as_str())
-                            .map(|faction| faction.commodities())
-                    })
-                    .unwrap_or(0);
-                let mut gained = 0;
-                if let Some(seat) = context.state.player_mut(player) {
-                    let after = (seat.commodities + 2).min(limit);
-                    gained = (after - seat.commodities).max(0);
-                    seat.commodities = after;
-                }
-                crate::supply::note_commodities_gained(context.state, player, gained);
-            } else {
-                // "Replenish" fills the other player's commodities up to their own limit.
-                match others.into_iter().find(|id| id.as_str() == answer.id) {
-                    Some(target) => {
-                        let limit = context
-                            .state
-                            .player(&target)
-                            .and_then(|seat| {
-                                ti4_content::factions::get(context.content, seat.faction.as_str())
-                                    .map(|faction| faction.commodities())
-                            })
-                            .unwrap_or(0);
-                        let mut gained = 0;
-                        if let Some(seat) = context.state.player_mut(&target) {
-                            gained = (limit - seat.commodities).max(0);
-                            seat.commodities = limit;
-                        }
-                        crate::supply::note_commodities_gained(context.state, &target, gained);
-                        // Trade Agreement: "When the <color> player replenishes commodities".
-                        crate::promissory::trade_agreement_on_replenish(context.state, &target);
-                        // A structured promise to use this agent for that seat is kept here.
-                        crate::diplomacy::evaluate_event(
-                            context.state,
-                            &crate::diplomacy::DiplomacyEventContext::LeaderUsedFor {
-                                user: player.clone(),
-                                leader: "hacanagent".to_owned(),
-                                beneficiary: target,
-                            },
-                        )
-                        .expect("validated diplomacy promises settle deterministically");
-                    }
-                    None => return false,
-                }
-            }
-            true
-        }
+        "hacanagent" => hacan_agent(context, player),
         // Harrugh Gefhara: this use of PRODUCTION costs nothing. Marks the use rather than
         // acting now, so a later production in the same game is not free as well.
         "hacanhero" => {
             let seq = context.state.production_seq;
-            if let Some(seat) = context.state.player_mut(player) {
-                seat.free_production_use = Some(seq);
-            }
-            true
+            dual_write(
+                context.state,
+                "leaders::activate_hacan_hero",
+                |s| {
+                    if let Some(seat) = s.player_mut(player) {
+                        seat.free_production_use = Some(seq);
+                    }
+                    true
+                },
+                |s| crate::leaders_core::activate_hacan_hero(s, player),
+            )
         }
 
         // The Helmsman: gather the flagship and any dreadnoughts into one system holding no
         // rival ships. "Choose 1 system" — which safe system is the player's call when more than
         // one qualifies. The card names no move value and is not a tactical action, so this
         // *places* rather than moves — range and anomalies do not apply by its own wording.
-        "l1z1xhero" => {
-            let Some(galaxy) = context.galaxy else {
-                return false; // no map, no system to name
-            };
-            let types = ti4_content::units::catalogue(context.content, context.sources);
-            // Nothing anywhere to gather means the use could do nothing, so it was never offered.
-            let has_big_ships = context.state.board.values().any(|board| {
-                board.units.iter().any(|unit| {
-                    &unit.owner == player
-                        && types.get(unit.type_id.as_str()).is_some_and(|kind| {
-                            matches!(kind.base_type(), "flagship" | "dreadnought")
-                        })
-                })
-            });
-            if !has_big_ships {
-                return false;
-            }
-            let safe: Vec<ti4_model::id::SystemId> = galaxy
-                .system_ids_holding_things()
-                .into_iter()
-                .map(ti4_model::id::SystemId::new)
-                .filter(|system| {
-                    !context.state.system_state(system).units.iter().any(|unit| {
-                        &unit.owner != player
-                            && types
-                                .get(unit.type_id.as_str())
-                                .is_some_and(ti4_content::units::UnitType::is_ship)
-                    })
-                })
-                .collect();
-            if safe.is_empty() {
-                return false;
-            }
-            let destination = if safe.len() > 1 {
-                // more than one safe system: the choice is the player's.
-                {
-                    let choice = crate::choice::Choice::new(
-                        player.clone(),
-                        "Leader: which system to gather your ships in",
-                        safe.iter()
-                            .map(|system| {
-                                crate::choice::ChoiceOption::labelled(
-                                    system.to_string(),
-                                    "system",
-                                    system.to_string(),
-                                )
-                            })
-                            .collect(),
-                    )
-                    .contextualized(
-                        crate::decision_context::DecisionContext::new(
-                            player.clone(),
-                            crate::decision_context::DecisionSource::FactionAbility(
-                                "l1z1xhero".to_owned(),
-                            ),
-                            "leader_l1z1xhero_destination",
-                            context.state.phase,
-                            context.state.round,
-                        ),
-                    );
-                    let Ok(answer) = context.ask_seeing(&choice) else {
-                        return false;
-                    };
-                    match safe.into_iter().find(|system| system.as_str() == answer.id) {
-                        Some(system) => system,
-                        None => return false,
-                    }
-                }
-            } else {
-                safe.into_iter().next().expect("one safe system")
-            };
-            let mut gathered = Vec::new();
-            for (system, board) in &mut context.state.board {
-                if *system == destination {
-                    continue;
-                }
-                board.units.retain(|unit| {
-                    let named = &unit.owner == player
-                        && types.get(unit.type_id.as_str()).is_some_and(|kind| {
-                            matches!(kind.base_type(), "flagship" | "dreadnought")
-                        });
-                    if named {
-                        gathered.push(unit.clone());
-                    }
-                    !named
-                });
-            }
-            if gathered.is_empty() {
-                return false;
-            }
-            context
-                .state
-                .system_mut(&destination)
-                .units
-                .extend(gathered);
-            true
-        }
+        "l1z1xhero" => l1z1x_hero(context, player),
         // I48S: one infantry in the active system becomes a mech. The card lets the *activating*
         // player benefit, which is usually somebody else — agents are traded favours.
         "l1z1xagent" => {
@@ -1928,189 +2261,70 @@ fn dispatch_leader(
                 return false;
             }
             let types = ti4_content::units::catalogue(context.content, context.sources);
-            let board = context.state.system_mut(&system);
-            let mut swapped = false;
-            for units in board.planet_units.values_mut() {
-                if let Some(index) = units.iter().position(|unit| {
-                    unit.owner == target
-                        && types
-                            .get(unit.type_id.as_str())
-                            .is_some_and(|kind| kind.base_type() == "infantry")
-                }) {
-                    units[index] = ti4_model::units::Unit::new(mech.clone(), target.clone());
-                    swapped = true;
-                    break;
-                }
-            }
-            if swapped {
-                crate::supply::stage_naaz_mech_placed(context.state, &target, &system, &mech);
-            }
-            // Agents are traded favours: a structured promise to use this one for the active
-            // seat is kept when the swap happens.
-            if swapped && &target != player {
-                crate::diplomacy::evaluate_event(
-                    context.state,
-                    &crate::diplomacy::DiplomacyEventContext::LeaderUsedFor {
-                        user: player.clone(),
-                        leader: "l1z1xagent".to_owned(),
-                        beneficiary: target,
-                    },
-                )
-                .expect("validated diplomacy promises settle deterministically");
-            }
-            swapped
+            let sources = context.sources;
+            dual_write(
+                context.state,
+                "leaders::l1z1x_agent",
+                |s| {
+                    let board = s.system_mut(&system);
+                    let mut swapped = false;
+                    for units in board.planet_units.values_mut() {
+                        if let Some(index) = units.iter().position(|unit| {
+                            unit.owner == target
+                                && types
+                                    .get(unit.type_id.as_str())
+                                    .is_some_and(|kind| kind.base_type() == "infantry")
+                        }) {
+                            units[index] = ti4_model::units::Unit::new(mech.clone(), target.clone());
+                            swapped = true;
+                            break;
+                        }
+                    }
+                    if swapped {
+                        crate::supply::stage_naaz_mech_placed(s, &target, &system, &mech);
+                    }
+                    // Agents are traded favours: a structured promise to use this one for the active
+                    // seat is kept when the swap happens.
+                    if swapped && &target != player {
+                        crate::diplomacy::evaluate_event(
+                            s,
+                            &crate::diplomacy::DiplomacyEventContext::LeaderUsedFor {
+                                user: player.clone(),
+                                leader: "l1z1xagent".to_owned(),
+                                beneficiary: target.clone(),
+                            },
+                        )
+                        .expect("validated diplomacy promises settle deterministically");
+                    }
+                    swapped
+                },
+                |s| crate::leaders_core::l1z1x_agent(s, sources, player, &target, &system, mech.as_str()),
+            )
         }
         // Rin, the Masters' Legacy: "for each non-unit upgrade technology you own, you may
         // replace that technology with any technology of the same colour from the deck. Then,
         // purge this card." One use settles every swap — each is its own "you may", so the
         // player decides per technology whether to trade it and, if so, for what — and the hero
         // purges in the tail that follows.
-        "jolnarhero" => {
-            let held: Vec<ti4_model::id::TechnologyId> = context
-                .state
-                .player(player)
-                .map(|seat| seat.technologies.iter().cloned().collect())
-                .unwrap_or_default();
-            // "For each non-unit upgrade technology you own" (90.7b): an upgrade has no colour,
-            // so there is nothing to replace it with in its own colour. The class is the
-            // UNITUPGRADE type, not `baseUpgrade` — the generic upgrades (Carrier II, War Sun,
-            // ...) carry that key not at all.
-            let eligible: Vec<ti4_model::id::TechnologyId> = held
-                .into_iter()
-                .filter(|alias| {
-                    !crate::technology::is_unit_upgrade(context.content, alias)
-                        && context
-                            .content
-                            .get(ContentType::Technologies, alias.as_str())
-                            .and_then(|r| r.strings("types").first().copied())
-                            .is_some()
-                })
-                .collect();
-            if eligible.is_empty() {
-                return false; // nothing swappable, so the hero is not spent
-            }
-            let mut opportunity = false;
-            for alias in &eligible {
-                let colour = context
-                    .content
-                    .get(ContentType::Technologies, alias.as_str())
-                    .and_then(|r| r.strings("types").first().copied());
-                let Some(colour) = colour else {
-                    continue; // unreachable: eligibility required a colour
-                };
-                // Recomputed per swap: what was just traded in is owned now and cannot be
-                // traded for again.
-                let replacements: Vec<ti4_model::id::TechnologyId> = context
-                    .content
-                    .from_sources(ContentType::Technologies, context.sources)
-                    .filter(|r| {
-                        r.strings("types")
-                            .first()
-                            .is_some_and(|kind| *kind == colour)
-                    })
-                    // The same UNITUPGRADE class test as above, at record level: an upgrade is
-                    // never a valid replacement, whatever its `baseUpgrade` says.
-                    .filter(|r| !r.strings("types").contains(&"UNITUPGRADE"))
-                    .filter_map(|r| r.text("alias").map(ti4_model::id::TechnologyId::new))
-                    // 90.11: a faction technology belongs to its faction alone. "From the deck" is
-                    // the player's own technology deck -- the generic technologies and their own
-                    // faction's -- so another faction's technology is never a replacement. The
-                    // list used to filter only by colour and offered every faction's.
-                    .filter(|candidate| {
-                        crate::technology::faction_of(context.content, candidate).is_none_or(
-                            |owner| {
-                                context
-                                    .state
-                                    .player(player)
-                                    .is_some_and(|seat| seat.faction.as_str() == owner)
-                            },
-                        )
-                    })
-                    .filter(|candidate| {
-                        context
-                            .state
-                            .player(player)
-                            .is_some_and(|seat| !seat.technologies.contains(candidate))
-                    })
-                    .collect();
-                if replacements.is_empty() {
-                    continue; // nothing to trade this one for
-                }
-                opportunity = true;
-                // The decline comes last: a decider that simply takes the first option trades,
-                // which is what "you may replace" resolves to when nobody says otherwise.
-                let choice = crate::choice::Choice::new(
-                    player.clone(),
-                    "Leader: replace which technology with what",
-                    replacements
-                        .iter()
-                        .map(|candidate| {
-                            crate::choice::ChoiceOption::labelled(
-                                candidate.to_string(),
-                                "leader_jolnarhero_swap",
-                                format!("trade for {candidate}"),
-                            )
-                        })
-                        .chain(std::iter::once(crate::choice::ChoiceOption::labelled(
-                            format!("keep|{alias}"),
-                            "leader_jolnarhero_swap",
-                            format!("keep {alias}"),
-                        )))
-                        .collect(),
-                )
-                .contextualized(crate::decision_context::DecisionContext::new(
-                    player.clone(),
-                    crate::decision_context::DecisionSource::FactionAbility(
-                        "jolnarhero".to_owned(),
-                    ),
-                    "leader_jolnarhero_swap",
-                    context.state.phase,
-                    context.state.round,
-                ));
-                let Ok(answer) = context.ask_seeing(&choice) else {
-                    return false;
-                };
-                if answer.id == format!("keep|{alias}") {
-                    continue; // "you may": declining is a legal resolution
-                }
-                match replacements
-                    .into_iter()
-                    .find(|candidate| candidate.as_str() == answer.id)
-                {
-                    Some(replacement) => {
-                        if let Some(seat) = context.state.player_mut(player) {
-                            seat.technologies.remove(alias);
-                            seat.technologies.insert(replacement);
-                        }
-                        crate::technology::apply_unit_upgrades(
-                            context.state,
-                            context.content,
-                            context.sources,
-                            player,
-                        );
-                    }
-                    None => return false,
-                }
-            }
-            // Declining every swap is a legal resolution, but a use with no swap on offer at all
-            // must not burn the card — that case was never offered in the first place.
-            opportunity
-        }
+        "jolnarhero" => jolnar_hero(context, player),
 
         // Darktalon Treilla: fleet supply is limited by neither laws nor the pool this round.
         "letnevhero" => {
             let round = context.state.round;
-            if context
-                .state
-                .player(player)
-                .is_some_and(|seat| seat.fleet_supply_unlimited_until == Some(round))
-            {
-                return false; // already active this round, so it was not offered twice
-            }
-            if let Some(seat) = context.state.player_mut(player) {
-                seat.fleet_supply_unlimited_until = Some(round);
-            }
-            true
+            dual_write(
+                context.state,
+                "leaders::activate_letnev_hero",
+                |s| {
+                    if s.player(player).is_some_and(|seat| seat.fleet_supply_unlimited_until == Some(round)) {
+                        return false; // already active this round, so it was not offered twice
+                    }
+                    if let Some(seat) = s.player_mut(player) {
+                        seat.fleet_supply_unlimited_until = Some(round);
+                    }
+                    true
+                },
+                |s| crate::leaders_core::activate_letnev_hero(s, player),
+            )
         }
         _ => crate::factions::use_leader(context, player, leader).unwrap_or(false),
     }
@@ -2403,6 +2617,363 @@ fn l1z1x_copy_activation_plan(
 
 #[cfg(test)]
 mod tests {
+
+    /// The status writes run on the core under `leaders=dual` and agree with the string writes; a leader id
+    /// the tables do not know bails to the string write (the documented bail of `leaders_core`).
+    #[test]
+    fn the_status_writes_run_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual);
+        with_mask(mask, || {
+            let mut state = crate::fixtures::seated_game(&[("a", "letnev"), ("b", "sol")], POK);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            let agent = holding(&mut state, "letnevagent", LeaderStatus::Readied);
+            let hero = holding(&mut state, "letnevhero", LeaderStatus::Locked);
+            let me = player();
+            assert!(!ready(&mut state, &me, &agent));
+            assert!(exhaust(&mut state, &me, &agent));
+            assert!(!exhaust(&mut state, &me, &agent));
+            assert_eq!(ready_all(&mut state, &me), vec![agent.clone()]);
+            assert!(purge(&mut state, &me, &hero));
+            assert!(!purge(&mut state, &me, &LeaderId::new("sunknown")));
+            assert_eq!(status(&state, &me, &hero), Some(LeaderStatus::Purged));
+            // Bail: a leader id outside the tables stays on the string write.
+            let odd = holding(&mut state, "notaleader", LeaderStatus::Readied);
+            assert!(exhaust(&mut state, &me, &odd));
+            assert_eq!(status(&state, &me, &odd), Some(LeaderStatus::Exhausted));
+        });
+        let r = report();
+        assert!(r.total_calls() >= 6, "the core half ran: {r:?}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    /// The decision-free leader effects (extra die, Darktalon Treilla, the Hacan hero) and the end-of-round
+    /// purge run on the core under `leaders=dual` and agree with the string side.
+    #[test]
+    fn the_decision_free_effects_run_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual);
+        with_mask(mask, || {
+            let mut state = crate::fixtures::seated_game(&[("a", "letnev"), ("b", "hacan")], POK);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.round = 2;
+            let agent = holding(&mut state, "letnevagent", LeaderStatus::Readied);
+            let hero = holding(&mut state, "letnevhero", LeaderStatus::Unlocked);
+            assert!(use_it(&mut state, &agent));
+            assert!(use_it(&mut state, &hero));
+            assert!(!use_it(&mut state, &hero), "purged after use");
+            let mut state2 = state.clone();
+            state2.player_mut(&player()).unwrap().leaders.insert(hero.clone(), LeaderStatus::Unlocked);
+            state2.player_mut(&player()).unwrap().fleet_supply_unlimited_until = Some(2);
+            assert_eq!(end_of_round(&mut state2), vec![(player(), hero.clone())]);
+            assert_eq!(status(&state2, &player(), &hero), Some(LeaderStatus::Purged));
+        });
+        let r = report();
+        assert!(r.total_calls() >= 3, "the core half ran: {r:?}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    /// A lockstep run of the question-asking agents: the string arm and the core window put the same
+    /// questions, take the same answers and leave the same position.
+    fn seated_clean(seats: &[(&str, &str)]) -> GameState {
+        let mut state = crate::fixtures::seated_game(seats, POK);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        state
+    }
+
+    fn window_counts(label: &str) -> (u64, u64) {
+        let r = crate::dual::report();
+        r.windows.get(label).map_or((0, 0), |w| (w.compared, w.bailed))
+    }
+
+    #[test]
+    fn the_questioning_agents_run_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual);
+        with_mask(mask, || {
+            // Xxcha: two exhausted planets, no map: which one, then nothing else is asked.
+            let mut state = seated_clean(&[("a", "xxcha"), ("b", "hacan")]);
+            holding(&mut state, "xxchaagent", LeaderStatus::Readied);
+            for planet in ["lodor", "torkan"] {
+                state.exhausted_planets.insert(ti4_model::id::PlanetId::new(planet));
+            }
+            assert!(use_scripted(&mut state, "xxchaagent", None, vec!["torkan".to_owned()]));
+            assert!(state.exhausted_planets.contains(&ti4_model::id::PlanetId::new("lodor")));
+            assert!(!state.exhausted_planets.contains(&ti4_model::id::PlanetId::new("torkan")));
+
+            // Xxcha: one exhausted planet beside a system of the holder on a map; the removal is asked.
+            let ids: Vec<String> = ti4_content::galaxy::all_systems(ContentStore::embedded(), POK)
+                .iter()
+                .filter(|(_, system)| !system.is_anomaly() && !system.is_hyperlane() && !system.planets().is_empty())
+                .map(|(id, _)| (*id).to_owned())
+                .filter(|id| !state.board.contains_key(&ti4_model::id::SystemId::new(id.as_str())))
+                .take(7)
+                .collect();
+            let hub = crate::fixtures::hub_from(&ids);
+            let first_planet = |id: &str| {
+                let (_, system) = ti4_content::galaxy::all_systems(ContentStore::embedded(), POK)
+                    .into_iter()
+                    .find(|(sid, _)| *sid == id)
+                    .expect("a system");
+                ti4_model::id::PlanetId::new(system.planets()[0])
+            };
+            let (centre, outer) = (ti4_model::id::SystemId::new(hub.centre.clone()), ti4_model::id::SystemId::new(hub.outer[0].clone()));
+            let (target, mine) = (first_planet(&hub.centre), first_planet(&hub.outer[0]));
+            let mut state = seated_clean(&[("a", "xxcha"), ("b", "hacan")]);
+            holding(&mut state, "xxchaagent", LeaderStatus::Readied);
+            state.system_mut(&outer).planet_control.insert(mine, player());
+            crate::fixtures::put_on_planet(&mut state, &centre, &target, "infantry", &player(), 2);
+            state.exhausted_planets.insert(target.clone());
+            let mut keep = state.clone();
+            assert!(use_scripted(&mut state, "xxchaagent", Some(&hub.galaxy), vec!["remove".to_owned()]));
+            assert_eq!(state.system_state(&centre).planet_units.get(&target).map(Vec::len), Some(1));
+            // Declining the removal keeps both infantry.
+            assert!(use_scripted(&mut keep, "xxchaagent", Some(&hub.galaxy), vec!["keep".to_owned()]));
+            assert_eq!(keep.system_state(&centre).planet_units.get(&target).map(Vec::len), Some(2));
+
+            // Hacan: gain 2, and replenish another.
+            let mut state = seated_clean(&[("a", "hacan"), ("b", "sol")]);
+            holding(&mut state, "hacanagent", LeaderStatus::Readied);
+            state.player_mut(&player()).unwrap().commodities = 0;
+            let mut other = state.clone();
+            assert!(use_scripted(&mut state, "hacanagent", None, vec!["self".to_owned()]));
+            assert!(use_scripted(&mut other, "hacanagent", None, vec!["b".to_owned()]));
+            assert_eq!(state.player(&player()).unwrap().commodities, 2);
+            assert!(other.player(&PlayerId::new("b")).unwrap().commodities > 0);
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        // At least: the suite may run on `leaders=dual` and other tests add their own (bailed) calls.
+        assert!(window_counts("leaders::xxchaagent").0 >= 3, "{r:?}");
+        assert!(window_counts("leaders::hacanagent").0 >= 2, "{r:?}");
+        let _ = take_report();
+    }
+
+    #[test]
+    fn jace_and_i48s_run_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual);
+        with_mask(mask, || {
+            let mut state = seated_clean(&[("a", "sol"), ("b", "hacan")]);
+            let hero = holding(&mut state, "solhero", LeaderStatus::Unlocked);
+            for system in ["26", "28"] {
+                state.system_mut(&ti4_model::id::SystemId::new(system)).command_tokens.insert(player());
+            }
+            state.system_mut(&ti4_model::id::SystemId::new("28")).command_tokens.insert(PlayerId::new("b"));
+            assert!(crate::leaders_core::sol_hero(&mut state.clone(), &player()).is_some(), "the core takes the position");
+            assert!(use_it(&mut state, &hero));
+            assert!(!state.system_state(&ti4_model::id::SystemId::new("26")).command_tokens.contains(&player()));
+            assert!(state.system_state(&ti4_model::id::SystemId::new("28")).command_tokens.contains(&PlayerId::new("b")));
+
+            // Claire Gibson: an infantry onto the first planet the holder controls.
+            let mut state = seated_clean(&[("a", "sol"), ("b", "hacan")]);
+            let commander = holding(&mut state, "solcommander", LeaderStatus::Unlocked);
+            let count = |s: &GameState| s.board.values().flat_map(|b| b.planet_units.values()).flatten().filter(|u| u.owner == player()).count();
+            let (system, planet) = {
+                let (system, planet) = state.controlled_planets(&player())[0];
+                (system.clone(), planet.clone())
+            };
+            let infantry = crate::action_cards::placed_unit_id(&state, ContentStore::embedded(), POK, &player(), "infantry").expect("infantry");
+            assert!(
+                crate::leaders_core::sol_commander(&mut state.clone(), &player(), &system, &planet, infantry.as_str(), 1).is_some(),
+                "the core takes the position"
+            );
+            let before = count(&state);
+            assert!(use_it(&mut state, &commander));
+            assert_eq!(count(&state), before + 1);
+
+            // I48S for the active seat: its infantry on Lodor becomes a mech.
+            let mut state = seated_clean(&[("a", "l1z1x"), ("b", "sol")]);
+            holding(&mut state, "l1z1xagent", LeaderStatus::Readied);
+            let (lodor, system) = (ti4_model::id::PlanetId::new("lodor"), ti4_model::id::SystemId::new("26"));
+            crate::fixtures::put_on_planet(&mut state, &system, &lodor, "infantry", &PlayerId::new("b"), 2);
+            state.active = Some(PlayerId::new("b"));
+            state.active_system = Some(system.clone());
+            let mech = ti4_content::units::faction_unit(ContentStore::embedded(), "sol", "mech", POK).expect("a Sol mech").id().to_owned();
+            assert!(
+                crate::leaders_core::l1z1x_agent(&mut state.clone(), POK, &player(), &PlayerId::new("b"), &system, &mech).is_some(),
+                "the core takes the position"
+            );
+            assert!(use_it(&mut state, &LeaderId::new("l1z1xagent")));
+            let units = state.system_state(&system).planet_units.get(&lodor).cloned().unwrap_or_default();
+            assert_eq!(units.len(), 2);
+            assert!(units.iter().any(|u| u.type_id.as_str().ends_with("mech")), "{units:?}");
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    #[test]
+    fn the_helmsman_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual);
+        with_mask(mask, || {
+            let hub = crate::fixtures::plain_hub();
+            let id = |s: &str| ti4_model::id::SystemId::new(s);
+            let mut state = seated_clean(&[("a", "l1z1x"), ("b", "sol")]);
+            let hero = holding(&mut state, "l1z1xhero", LeaderStatus::Unlocked);
+            let flagship = ti4_content::units::faction_unit(ContentStore::embedded(), "l1z1x", "flagship", POK).expect("flagship").id().to_owned();
+            crate::fixtures::put(&mut state, &id(&hub.outer[0]), "dreadnought", &player(), 2);
+            crate::fixtures::put(&mut state, &id(&hub.outer[1]), &flagship, &player(), 1);
+            crate::fixtures::put(&mut state, &id(&hub.outer[2]), "cruiser", &PlayerId::new("b"), 1);
+            let ask = crate::dual_window::Recording::default();
+            assert!(
+                crate::leaders_core::l1z1x_hero(&mut state.clone(), &player(), Some(&hub.galaxy), POK, &ask).is_some(),
+                "the core takes the position"
+            );
+            // Two or more systems are safe: the destination is asked.
+            let mut asked = state.clone();
+            let answers = vec![hub.outer[3].clone()];
+            assert!(use_hero(&mut asked, &hero, Some(&hub.galaxy), answers));
+            assert!(asked.system_state(&id(&hub.outer[3])).units.len() >= 3, "the named hulls arrived");
+            assert!(asked.system_state(&id(&hub.outer[0])).units.is_empty());
+            assert_eq!(asked.system_state(&id(&hub.outer[2])).units.len(), 1, "the rival fleet stays");
+            // Only one safe system left: nothing is asked.
+            for outer in &hub.outer[3..] {
+                crate::fixtures::put(&mut state, &id(outer), "cruiser", &PlayerId::new("b"), 1);
+            }
+            crate::fixtures::put(&mut state, &id(&hub.centre), "cruiser", &PlayerId::new("b"), 1);
+            assert!(use_hero(&mut state.clone(), &hero, Some(&hub.galaxy), vec![]));
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(window_counts("leaders::l1z1xhero").0 >= 2, "{r:?}");
+        let _ = take_report();
+    }
+
+    fn use_hero(state: &mut GameState, leader: &LeaderId, galaxy: Option<&ti4_content::galaxy::Galaxy>, answers: Vec<String>) -> bool {
+        use_scripted(state, leader.as_str(), galaxy, answers)
+    }
+
+    #[test]
+    fn rin_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual);
+        with_mask(mask, || {
+            let content = ContentStore::embedded();
+            let mut state = seated_clean(&[("a", "jolnar"), ("b", "sol")]);
+            let hero = holding(&mut state, "jolnarhero", LeaderStatus::Unlocked);
+            // Four generic coloured technologies to trade, of at least two colours.
+            let generic: Vec<String> = content
+                .from_sources(ContentType::Technologies, POK)
+                .filter(|r| r.text("faction").is_none_or(str::is_empty) && !r.strings("types").contains(&"UNITUPGRADE") && !r.strings("types").is_empty())
+                .filter_map(|r| r.text("alias").map(str::to_owned))
+                .step_by(5)
+                .take(4)
+                .collect();
+            assert_eq!(generic.len(), 4);
+            for alias in &generic {
+                state.player_mut(&player()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(alias.as_str()));
+            }
+            assert!(
+                crate::leaders_core::jolnar_hero(&mut state.clone(), content, &player(), POK, &crate::dual_window::Recording::default()).is_some(),
+                "the core takes the position"
+            );
+            // Every swap taken (the first option), then every swap declined.
+            let mut traded = state.clone();
+            let before = traded.player(&player()).unwrap().technologies.clone();
+            assert!(use_scripted(&mut traded, "jolnarhero", None, vec![]));
+            assert_ne!(traded.player(&player()).unwrap().technologies, before);
+            let mut kept = state.clone();
+            let eligible: Vec<String> = before
+                .iter()
+                .filter(|a| !crate::technology::is_unit_upgrade(content, a) && content.get(ContentType::Technologies, a.as_str()).and_then(|r| r.strings("types").first().copied()).is_some())
+                .map(|a| format!("keep|{a}"))
+                .collect();
+            assert!(!eligible.is_empty());
+            assert!(use_scripted(&mut kept, "jolnarhero", None, eligible));
+            assert_eq!(kept.player(&player()).unwrap().technologies, before, "declining every swap keeps the hand");
+            // Nothing swappable: not used, so the hero is not spent.
+            let mut bare = state.clone();
+            bare.player_mut(&player()).unwrap().technologies.clear();
+            assert!(!use_scripted(&mut bare, "jolnarhero", None, vec![]));
+            assert_eq!(status(&bare, &player(), &hero), Some(LeaderStatus::Unlocked));
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(window_counts("leaders::jolnarhero").0 >= 2, "{r:?}");
+        let _ = take_report();
+    }
+
+    /// The documented bails of the questioning agents: a question inside a battle, diplomacy promises, a Cabal
+    /// at the table. The string arm answers alone; nothing is compared and nothing differs.
+    #[test]
+    fn the_questioning_agents_bail_where_the_core_holds_less() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual);
+        with_mask(mask, || {
+            let exhausted = |state: &mut GameState| {
+                for planet in ["lodor", "torkan"] {
+                    state.exhausted_planets.insert(ti4_model::id::PlanetId::new(planet));
+                }
+            };
+            // In a space battle.
+            let mut state = seated_clean(&[("a", "xxcha"), ("b", "hacan")]);
+            holding(&mut state, "xxchaagent", LeaderStatus::Readied);
+            exhausted(&mut state);
+            state.active_space_combat = Some((ti4_model::id::SystemId::new("26"), player(), PlayerId::new("b")));
+            assert!(use_scripted(&mut state, "xxchaagent", None, vec!["lodor".to_owned()]));
+            // With diplomacy on.
+            let mut state = seated_clean(&[("a", "xxcha"), ("b", "hacan")]);
+            holding(&mut state, "xxchaagent", LeaderStatus::Readied);
+            exhausted(&mut state);
+            state.diplomacy.enabled = true;
+            assert!(use_scripted(&mut state, "xxchaagent", None, vec!["lodor".to_owned()]));
+            // The Helmsman in a space battle: the question would carry the battle.
+            let mut state = seated_clean(&[("a", "l1z1x"), ("b", "sol")]);
+            state.active_space_combat = Some((ti4_model::id::SystemId::new("26"), player(), PlayerId::new("b")));
+            let none = crate::dual_window::Recording::default();
+            assert!(crate::leaders_core::l1z1x_hero(&mut state, &player(), None, POK, &none).is_none());
+            // Rin with units not in the form the owned upgrades demand: the string re-forms them after a swap.
+            let mut state = seated_clean(&[("a", "sol"), ("b", "hacan")]);
+            let content = ContentStore::embedded();
+            crate::fixtures::put(&mut state, &ti4_model::id::SystemId::new("26"), "mech", &player(), 1);
+            let none = crate::dual_window::Recording::default();
+            let mut formed = state.clone();
+            crate::technology::apply_unit_upgrades(&mut formed, content, POK, &player());
+            assert!(!formed.identical(&state), "the owned upgrade changes the units' form");
+            assert!(crate::leaders_core::jolnar_hero(&mut state, content, &player(), POK, &none).is_none());
+            // I48S: the Naaz mech announces its placement, and a favour keeps a diplomacy promise: both string.
+            let mut state = seated_clean(&[("a", "l1z1x"), ("b", "sol")]);
+            let system = ti4_model::id::SystemId::new("26");
+            let take = |state: &mut GameState, mech: &str| {
+                crate::leaders_core::l1z1x_agent(state, POK, &player(), &PlayerId::new("b"), &system, mech)
+            };
+            assert!(take(&mut state.clone(), "sol_mech").is_some());
+            assert_eq!(take(&mut state.clone(), "naaz_mech"), None, "the Naaz mech placement is announced by the string side");
+            state.diplomacy.enabled = true;
+            assert_eq!(take(&mut state, "sol_mech"), None, "a favour for another seat keeps a promise");
+            // A Cabal at the table: the replenish event is the string side's.
+            let mut state = seated_clean(&[("a", "hacan"), ("b", "cabal")]);
+            holding(&mut state, "hacanagent", LeaderStatus::Readied);
+            assert!(use_scripted(&mut state, "hacanagent", None, vec!["self".to_owned()]));
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(window_counts("leaders::xxchaagent").1 >= 2, "{r:?}");
+        assert!(window_counts("leaders::hacanagent").1 >= 1, "{r:?}");
+        let _ = take_report();
+    }
 
     /// Give this player a leader in a usable state.
     fn holding(state: &mut GameState, leader: &str, status: LeaderStatus) -> LeaderId {
