@@ -407,6 +407,25 @@ pub fn drive_with<W: Window>(
     script: &Recording,
     complete: &dyn Fn(&CoreChoice, &CoreState, &mut Choice),
 ) -> Result<Driven, DriverError> {
+    drive_positioned(driver, core, kernel, None, r, gs, script, complete)
+}
+
+/// [`drive_with`] for a family that reads the position it is asked in (production: costs, spots): the question is
+/// rendered with the core state and `position`'s kernel (`Typed::new_at`).
+///
+/// # Errors
+/// As [`drive`].
+#[allow(clippy::too_many_arguments)]
+pub fn drive_positioned<W: Window>(
+    driver: &mut Driver<W>,
+    core: &mut CoreState,
+    kernel: &Kernel,
+    position: Option<&'static Kernel>,
+    r: &Render,
+    gs: &GameState,
+    script: &Recording,
+    complete: &dyn Fn(&CoreChoice, &CoreState, &mut Choice),
+) -> Result<Driven, DriverError> {
     let (phase, round) = (render::generic::core_phase(gs.phase), gs.round);
     let mut out = Driven { questions: Vec::new(), rendered: Vec::new(), finished: false };
     match crate::reactions_core::follow(r, gs, script) {
@@ -433,6 +452,7 @@ pub fn drive_with<W: Window>(
                 ti4_engine_core::kernel::ability::Unknown::CardCost => "a card cost the core does not judge",
                 ti4_engine_core::kernel::ability::Unknown::HarnessOrInfiltrate => "Harness Energy / Infiltrate",
                 ti4_engine_core::kernel::ability::Unknown::NomadAgentExhaustion => "Nomad Temporal Command Suite (agent exhaustion)",
+                ti4_engine_core::kernel::ability::Unknown::MissingFact => "a fact the adapter did not compute for the window",
             };
             crate::dual::note_bail(LABEL.with(Cell::get), &format!("nested ({why})"));
             return Err(DriverError::NotAsking);
@@ -444,7 +464,10 @@ pub fn drive_with<W: Window>(
                 return Ok(out);
             }
             Status::Asking(choice) => {
-                let typed = Typed::new(r, choice.clone(), phase, round);
+                let typed = match position {
+                    Some(k) => Typed::new_at(r, render::Position { state: std::rc::Rc::new(core.clone()), kernel: k }, choice.clone(), phase, round),
+                    None => Typed::new(r, choice.clone(), phase, round),
+                };
                 out.questions.push(choice.clone());
                 let mut rendered = typed.rendered;
                 complete(&choice, core, &mut rendered);

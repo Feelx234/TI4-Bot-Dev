@@ -68,6 +68,8 @@ pub enum Unknown {
     HarnessOrInfiltrate,
     /// A Nomad that listens to the exhaustion of an agent (Temporal Command Suite): the exhaustion is announced.
     NomadAgentExhaustion,
+    /// A fact the adapter should have computed for the window is missing (`Facts`).
+    MissingFact,
 }
 
 /// What a condition reads: the state, the kernel, the ability and the event it is asked about.
@@ -81,6 +83,8 @@ pub struct CondCx<'a> {
     pub barred: bool,
     /// The texts the payloads carry as codes (`AbilityTable::codes`).
     pub codes: Codes,
+    /// What the adapter computed for the window (`AbilityTable::facts`).
+    pub facts: &'a AdapterFacts,
     unknown: &'a std::cell::Cell<Option<Unknown>>,
 }
 
@@ -101,6 +105,27 @@ impl CondCx<'_> {
 pub struct Codes {
     /// The cause `ground_combat` of a destroyed ground force.
     pub ground_combat: crate::state::Code,
+}
+
+/// Facts the adapter computes for the window and the core cannot (no galaxy is lent to the windows that follow
+/// abilities): the systems adjacent to a system as one seat sees them (`PlayerAdjacency::neighbours`).
+#[derive(Debug, Clone, Default)]
+pub struct AdapterFacts {
+    reach: Vec<(Seat, crate::generated::System, Vec<crate::generated::System>)>,
+}
+
+impl AdapterFacts {
+    /// Record the neighbours of `system` for `who`.
+    pub fn set_reach(&mut self, who: Seat, system: crate::generated::System, neighbours: Vec<crate::generated::System>) {
+        self.reach.retain(|(w, s, _)| !(*w == who && *s == system));
+        self.reach.push((who, system, neighbours));
+    }
+
+    /// The neighbours of `system` for `who`, if the adapter computed them.
+    #[must_use]
+    pub fn reach(&self, who: Seat, system: crate::generated::System) -> Option<&[crate::generated::System]> {
+        self.reach.iter().find(|(w, s, _)| *w == who && *s == system).map(|(_, _, n)| n.as_slice())
+    }
 }
 
 /// A rule-specific eligibility (`Host::condition`).
@@ -216,6 +241,7 @@ pub struct AbilityTable {
     /// package that owns it (the kernel cannot import the agenda area).
     pub bars: Option<fn(&CoreState, Seat) -> bool>,
     pub codes: Codes,
+    pub facts: AdapterFacts,
 }
 
 impl AbilityTable {
@@ -384,7 +410,7 @@ impl Host for RulesHost<'_> {
         match self.table.of(ability).and_then(|a| a.condition) {
             Some(c) => {
                 let barred = self.table.bars.is_some_and(|f| f(self.state, ability.owner));
-                c(&CondCx { state: self.state, kernel: self.kernel, def: ability, event, resolver, barred, codes: self.table.codes, unknown: &self.tape.unknown })
+                c(&CondCx { state: self.state, kernel: self.kernel, def: ability, event, resolver, barred, codes: self.table.codes, facts: &self.table.facts, unknown: &self.tape.unknown })
             }
             None => true,
         }
@@ -429,6 +455,12 @@ impl Eff<'_, '_> {
     #[must_use]
     pub fn kernel(&self) -> &Kernel {
         self.host.kernel
+    }
+
+    /// What the adapter computed for the window.
+    #[must_use]
+    pub fn adapter_facts(&self) -> &AdapterFacts {
+        &self.host.table.facts
     }
 
     /// The state and the kernel, read together (`state()` borrows the effect mutably).

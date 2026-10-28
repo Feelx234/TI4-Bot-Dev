@@ -31,6 +31,7 @@ struct Named {
 
 /// The ported rules with a card key, in table order (the per-owner registration order of `reactions::arm`).
 const NAMED: &[Named] = &[
+    Named { slot: ti4_engine_core_factions::cb_economy::argent::timing::AGENT, kind: "leader", card: "argentagent" },
     Named { slot: ti4_engine_core::rules::reactions::round_agent::SOL_AGENT, kind: "leader", card: "solagent" },
     Named { slot: ti4_engine_core::rules::reactions::round_agent::LETNEV_AGENT, kind: "leader", card: "letnevagent" },
     Named { slot: ti4_engine_core::rules::reactions::INFANTRY_II_ROLLS, kind: "technology", card: "inf2" },
@@ -48,6 +49,20 @@ const NAMED: &[Named] = &[
 fn is_reaction_slot(slot: Slot) -> bool {
     let base = ti4_engine_core::rules::action_cards::reaction_slot::SLOT_BASE;
     (base..base + 100).contains(&slot.0)
+}
+
+thread_local! {
+    /// `(player, system, neighbours)`: the systems adjacent to `system` as `player` sees them, for the window being
+    /// run (`PlayerAdjacency::neighbours`; the core is lent no galaxy).
+    static REACH: std::cell::RefCell<Vec<(String, String, Vec<String>)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Run `body` with the adjacency facts of the window installed (read by [`follow`]).
+pub fn with_reach<T>(entries: Vec<(String, String, Vec<String>)>, body: impl FnOnce() -> T) -> T {
+    let before = REACH.with(|v| v.replace(entries));
+    let out = body();
+    REACH.with(|v| *v.borrow_mut() = before);
+    out
 }
 
 /// The registered id of `spec` for an owner called `owner`.
@@ -164,13 +179,20 @@ pub fn follow(r: &Render, gs: &GameState, script: &Recording) -> Result<Option<F
     if !script.nested {
         return Ok(None);
     }
-    let table = table();
+    let mut table = table();
     if let Some(why) = script.unported(&table) {
         return Err(why);
     }
-    // The use of a leader is an event of the diplomacy promises (`LeaderUsedFor`); the core does not evaluate them.
+    REACH.with(|v| {
+        for (who, system, neighbours) in v.borrow().iter() {
+            let (Some(who), Some(system)) = (r.seat(who), <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(system)) else { continue };
+            let neighbours = neighbours.iter().filter_map(|n| <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(n)).collect();
+            table.facts.set_reach(who, system, neighbours);
+        }
+    });
+    // The use of a round agent is an event of the diplomacy promises (`LeaderUsedFor`); the core does not evaluate them.
     if gs.diplomacy.enabled {
-        if let Some(id) = script.effects.iter().find(|e| e.starts_with("leader:")) {
+        if let Some(id) = script.effects.iter().find(|e| e.starts_with("leader:") && (e.contains(":solagent:") || e.contains(":letnevagent:"))) {
             return Err(format!("unported ability {} (diplomacy promises on a leader's use)", anonymous(id)));
         }
     }
