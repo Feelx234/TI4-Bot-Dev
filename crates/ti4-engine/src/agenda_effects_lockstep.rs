@@ -281,6 +281,8 @@ fn the_placing_and_drawing_halves_have_no_window() {
     assert!(core_half(&mut state, "rearmament", FOR, &Ballot::default()).is_none());
     assert!(core_half(&mut state, "plowshares", AGAINST, &Ballot::default()).is_none());
     assert!(core_half(&mut state, "unconventional", FOR, &ballot(&[("a", FOR)])).is_none());
+    // Colonial Redistribution places an infantry through the supply and the faction hooks.
+    assert!(core_half(&mut state, "redistribution", "jord", &Ballot::default()).is_none());
     // The halves that are ported answer.
     assert!(core_half(&mut state, "rearmament", AGAINST, &Ballot::default()).is_some());
     assert!(core_half(&mut state, "plowshares", FOR, &Ballot::default()).is_some());

@@ -51,6 +51,8 @@ pub struct EffectFacts {
     /// The map slice is loaded (the string was given a galaxy): the effects that read the map act, and without
     /// it they end deferred.
     pub has_galaxy: bool,
+    /// `"defense_act"`, the content Homeland Defense Act's question cites.
+    pub defense_act: Code,
 }
 
 /// Technologies whose printed name mentions a war sun (`owns_a_war_sun_technology`).
@@ -112,6 +114,7 @@ impl Table {
         use Agenda as A;
         let (table, deferred) = match (agenda, outcome) {
             (A::RegulatedConscription, _) => (Self::Nothing, false),
+            (A::HomelandDefenseAct, O::For) => (Self::Nothing, false),
             (A::ArmedForcesStandardization, O::Seat(who)) => (Self::Standardize(who), false),
             (A::ClandestineOperations, O::For) => (Self::Clandestine { both: true }, false),
             (A::ClandestineOperations, _) => (Self::Clandestine { both: false }, false),

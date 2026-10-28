@@ -527,7 +527,9 @@ pub fn resolve_with(
         "travel_ban" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_travel_ban(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "defense_act" => effect_defense_act(state, ctx, galaxy, agenda, outcome, ballot),
+        "defense_act" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
+            effect_defense_act(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
         "shared_research" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_shared_research(s, ctx, galaxy, agenda, outcome, ballot)
         }),
@@ -638,7 +640,9 @@ pub fn resolve_with(
         "mutiny" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_mutiny(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "seed_empire" => effect_seed_empire(state, ctx, galaxy, agenda, outcome, ballot),
+        "seed_empire" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
+            effect_seed_empire(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
         "abolishment" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_abolishment(s, ctx, galaxy, agenda, outcome, ballot)
         }),
@@ -2263,6 +2267,43 @@ mod tests {
 
     fn state_for_no_map() -> GameState {
         crate::fixtures::seated_game(&[("a", "sol"), ("b", "letnev")], POK)
+    }
+
+    /// Seed of an Empire and Homeland Defense Act (Against) ask a question: the core window asks the same one, in
+    /// the same words, of the same seat, and the pick is applied alike.
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn the_question_effects_run_as_core_windows_in_lockstep() {
+        use crate::dual::{take_report, with_mask, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();
+        let _ = take_report();
+        let seated = || crate::fixtures::seated_game(&[("a", "sol"), ("b", "letnev"), ("c", "hacan")], POK);
+        with_mask(mask, || {
+            // A three-way tie: the speaker names one (the second option).
+            let mut state = seated();
+            run_with(&mut state, None, "seed_empire", FOR, &["b"]);
+            assert_eq!(state.player(&PlayerId::new("b")).unwrap().victory_points, 1);
+            // A leader needs no question; Against names the trailing seats, two of them tied.
+            run_with(&mut state, None, "seed_empire", FOR, &[]);
+            assert_eq!(state.player(&PlayerId::new("b")).unwrap().victory_points, 2);
+            run_with(&mut state, None, "seed_empire", AGAINST, &["c"]);
+            assert_eq!(state.player(&PlayerId::new("c")).unwrap().victory_points, 1);
+            // Homeland Defense Act: seat a holds two PDS and chooses, b holds one, c none.
+            let mut state = seated();
+            let content = ContentStore::embedded();
+            let planet = |p: &str| (ti4_model::id::SystemId::new(ti4_content::galaxy::planet(content, p, POK).unwrap().system_id().unwrap()), ti4_model::id::PlanetId::new(p));
+            for (who, p) in [("a", "jord"), ("a", "abaddon"), ("b", "arcprime")] {
+                let (sys, pl) = planet(p);
+                crate::fixtures::put_on_planet(&mut state, &sys, &pl, "pds", &PlayerId::new(who), 1);
+            }
+            run_with(&mut state, None, "defense_act", AGAINST, &["1"]);
+            run_with(&mut state, None, "defense_act", FOR, &[]);
+        });
+        let report = take_report();
+        assert_eq!(report.total_differences(), 0, "{report:?}");
+        let (compared, bailed) = crate::dual::local_windows("agenda_effects::resolve_with");
+        assert!(compared >= 5 && bailed == 0, "{compared} compared, {bailed} bailed");
     }
 
     /// Nexus Sovereignty, Against: a gamma wormhole into Mecatol Rex.

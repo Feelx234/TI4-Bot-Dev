@@ -763,6 +763,7 @@ pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, a: &Effect
         source: r.code("agenda"),
         pool: r.code("reinforcements"),
         has_galaxy: a.galaxy.is_some(),
+        defense_act: r.code("defense_act"),
     };
     let window = Resolve::of_facts(agenda, outcome, &facts)?;
     if window.draws() && gs.deck_reserve.is_some() {

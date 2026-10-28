@@ -115,11 +115,16 @@ pub enum Ask {
     Tribute { frame: Frame, outcome: Outcome },
     /// 8.16: the speaker breaks a tie (or decides a silent table).
     Tiebreak { frame: Frame },
+    /// 8.18, an agenda effect that names one player (Seed of an Empire): the speaker picks among the tied.
+    NameTied,
+    /// Homeland Defense Act, Against: the seat destroys one of its PDS.
+    Structure,
 }
 
 impl Ask {
+    /// The agenda a vote question is about; the questions of an effect carry none.
     #[must_use]
-    pub const fn frame(&self) -> &Frame {
+    pub const fn frame(&self) -> Option<&Frame> {
         match self {
             Self::Vote { frame }
             | Self::Planets { frame, .. }
@@ -127,7 +132,8 @@ impl Ask {
             | Self::Predictive { frame, .. }
             | Self::Recombine { frame, .. }
             | Self::Tribute { frame, .. }
-            | Self::Tiebreak { frame } => frame,
+            | Self::Tiebreak { frame } => Some(frame),
+            Self::NameTied | Self::Structure => None,
         }
     }
 }
@@ -156,6 +162,10 @@ pub enum Opt {
     TributeVote,
     /// Genetic Recombination: return a fleet token instead.
     TributeToken,
+    /// `NameTied`: this player is the one the agenda names.
+    Elect(Seat),
+    /// `Structure`: the PDS in position `index` of the planet's units (the option id), on this planet.
+    Structure { index: u8, planet: Planet, system: System },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -168,6 +178,8 @@ pub enum Subtype {
     RecombinationOutcome,
     RecombinationTribute,
     Tiebreak,
+    ElectTiebreak,
+    DefenseStructure,
 }
 
 impl Ask {
@@ -182,6 +194,8 @@ impl Ask {
             Self::Recombine { .. } => Subtype::RecombinationOutcome,
             Self::Tribute { .. } => Subtype::RecombinationTribute,
             Self::Tiebreak { .. } => Subtype::Tiebreak,
+            Self::NameTied => Subtype::ElectTiebreak,
+            Self::Structure => Subtype::DefenseStructure,
         }
     }
 }

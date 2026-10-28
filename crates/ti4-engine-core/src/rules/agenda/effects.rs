@@ -33,6 +33,8 @@ use crate::state::{CoreState, ObjectiveRef, SysFlags};
 
 use super::table_effects::{EffectFacts, Table};
 
+mod questions;
+
 pub use crate::kernel::fx::VICTORY_TARGET;
 
 /// What the effect does.
@@ -58,6 +60,10 @@ pub enum Kind {
     Nothing,
     /// An effect of [`Table`] (the table writes of `table_effects`).
     Table(Table),
+    /// Seed of an Empire: the seat with the most (`true`) or fewest points gains one.
+    Seed(Agenda, bool),
+    /// Homeland Defense Act, Against: each seat destroys one of its PDS.
+    Defense,
 }
 
 /// How the effect ended (`agenda_effects::Effect`).
@@ -91,6 +97,10 @@ pub struct Resolve {
     facts: Option<EffectFacts>,
     /// The position held something the table effect does not express: the adapter drops the window.
     unsupported: bool,
+    /// Seed of an Empire: the tied seats the speaker names one of.
+    tied: SmallList<Seat, 8>,
+    /// Homeland Defense Act: the seat (in seating order) being served.
+    cursor: u8,
 }
 
 impl Resolve {
@@ -147,7 +157,7 @@ impl Resolve {
             ) => Kind::Nothing,
             _ => return None,
         };
-        Some(Self { kind, stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: None, unsupported: false })
+        Some(Self { kind, stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: None, unsupported: false, tied: SmallList::new(), cursor: 0 })
     }
 
     /// [`Resolve::of`], then the table effects: `facts` carries the ballot and everything the table reads.
@@ -156,9 +166,18 @@ impl Resolve {
         if let Some(window) = Self::of(agenda, outcome, facts.for_voters.as_slice()) {
             return Some(window);
         }
+        let special = match (agenda, outcome) {
+            (Agenda::SeedOfAnEmpire, Outcome::For) => Some(Kind::Seed(agenda, true)),
+            (Agenda::SeedOfAnEmpire, _) => Some(Kind::Seed(agenda, false)),
+            (Agenda::HomelandDefenseAct, Outcome::Against) => Some(Kind::Defense),
+            _ => None,
+        };
+        if let Some(kind) = special {
+            return Some(Self { kind, stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false, facts: Some(facts.clone()), unsupported: false, tied: SmallList::new(), cursor: 0 });
+        }
         let (table, deferred) = Table::of(agenda, outcome, facts.has_galaxy)?;
         let done = if deferred { Done::Deferred } else { Done::Resolved };
-        Some(Self { kind: Kind::Table(table), stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: Some(facts.clone()), unsupported: false })
+        Some(Self { kind: Kind::Table(table), stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: Some(facts.clone()), unsupported: false, tied: SmallList::new(), cursor: 0 })
     }
 
     /// Whether the table effect met a position it does not express (its result is not to be compared).
@@ -170,7 +189,7 @@ impl Resolve {
     /// `laws::repeal` of `law`.
     #[must_use]
     pub const fn repeal(law: Agenda) -> Self {
-        Self { kind: Kind::Repeal(law), stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false, facts: None, unsupported: false }
+        Self { kind: Kind::Repeal(law), stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false, facts: None, unsupported: false, tied: SmallList::new(), cursor: 0 }
     }
 
     /// Whether the table effect reads the map slice.
@@ -253,6 +272,14 @@ impl Window for Resolve {
         if let Kind::Draw(who, count) = self.kind {
             return self.draw(sx, who, count);
         }
+        match self.kind {
+            Kind::Seed(agenda, high) => return self.seed(sx, agenda, high),
+            Kind::Defense => {
+                self.stage = Stage::Apply;
+                return self.defense(sx);
+            }
+            _ => {}
+        }
         if self.stage == Stage::Apply {
             match &self.kind {
                 Kind::Point(agenda, who) => Self::point(sx.state, *agenda, *who, 1),
@@ -285,7 +312,7 @@ impl Window for Resolve {
                     let mecatol = if placed(System::MecatolRex112) { System::MecatolRex112 } else { System::MecatolRex18 };
                     sx.state.explore_mut().wormhole_tokens.insert(Wormhole::Gamma, mecatol);
                 }
-                Kind::Nothing | Kind::Draw(..) => {}
+                Kind::Nothing | Kind::Draw(..) | Kind::Seed(..) | Kind::Defense => {}
                 Kind::Table(table) => {
                     if let Some(facts) = &self.facts
                         && !table.apply(sx.state, facts)
@@ -307,6 +334,11 @@ impl Window for Resolve {
     }
 
     fn ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> {
+        match self.kind {
+            Kind::Seed(..) => return self.seed_question(s),
+            Kind::Defense => return self.defense_question(s),
+            _ => {}
+        }
         let Kind::Draw(who, _) = self.kind else { return None };
         if self.stage != Stage::Asking {
             return None;
@@ -318,6 +350,11 @@ impl Window for Resolve {
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        match self.kind {
+            Kind::Seed(agenda, _) => return self.seed_answer(sx, agenda, pick),
+            Kind::Defense => return self.defense_answer(sx, pick),
+            _ => {}
+        }
         let Kind::Draw(who, _) = self.kind else { return Err(Illegal) };
         match pick {
             Pick::Opt(Opt::Objectives(OOpt::Return(secret)))
