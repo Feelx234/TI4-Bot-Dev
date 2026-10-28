@@ -26,14 +26,13 @@ use super::{cost_is_payable, reaction_can_matter, Window, RULES_ACTION_CARD_COST
 /// The first slot number of the reaction-card slots.
 pub const SLOT_BASE: u16 = 100;
 
-/// Why the core cannot say whether a card is playable (a documented bail of a rule it reads).
-pub type Unknown = &'static str;
+pub use crate::kernel::ability::Unknown;
 
 /// The distinct `(event, relation)` windows of the printed timings, sorted.
 #[must_use]
 pub fn windows() -> Vec<(EventKind, Relation)> {
     let mut all: Vec<(EventKind, Relation)> = Timing::ALL.iter().filter_map(|t| window_of(*t)).map(|w| (w.event, w.relation)).collect();
-    all.sort_by_key(|(e, r)| (format!("{e:?}"), *r));
+    all.sort();
     all.dedup();
     all
 }
@@ -54,7 +53,7 @@ pub fn playable(s: &CoreState, k: &Kernel, barred: bool, who: Seat, event: &Even
     let Some(p) = s.players().by_seat(who) else { return Ok(out) };
     if p.faction == Faction::TheYssarilTribes {
         // Transparasteel Plating: the string hook is the faction module's.
-        return Err("Yssaril Transparasteel Plating");
+        return Err(Unknown::YssarilTransparasteel);
     }
     if barred || k.hooks.economy.action_cards_forbidden(s, who) {
         return Ok(out);
@@ -82,15 +81,15 @@ pub fn playable(s: &CoreState, k: &Kernel, barred: bool, who: Seat, event: &Even
 fn can_matter(s: &CoreState, scope: Scope, who: Seat, card: ActionCard, event: &EventRec) -> Result<bool, Unknown> {
     if s.meta().rules_at_least(RULES_ACTION_CARD_COSTS) {
         if card == ActionCard::Bribery {
-            return Err("Bribery's goods (the Keleres agent)");
+            return Err(Unknown::BriberyGoods);
         }
-        if !cost_is_payable(s, who, card, 0).ok_or("a card cost the core does not judge")? {
+        if !cost_is_payable(s, who, card, 0).ok_or(Unknown::CardCost)? {
             return Ok(false);
         }
     }
     let Some(system) = event.payload.system(Key::System) else { return Ok(true) };
     let actor = event.payload.seat(Key::Player);
-    reaction_can_matter(s, scope, who, card, Window { system, actor }).ok_or("Harness Energy / Infiltrate")
+    reaction_can_matter(s, scope, who, card, Window { system, actor }).ok_or(Unknown::HarnessOrInfiltrate)
 }
 
 fn condition(c: &CondCx<'_>) -> bool {

@@ -427,6 +427,12 @@ pub fn drive_with<W: Window>(
     let mut status = driver.run(core, kernel)?;
     loop {
         if let Some(why) = driver.unknown() {
+            let why = match why {
+                ti4_engine_core::kernel::ability::Unknown::YssarilTransparasteel => "Yssaril Transparasteel Plating",
+                ti4_engine_core::kernel::ability::Unknown::BriberyGoods => "Bribery's goods (the Keleres agent)",
+                ti4_engine_core::kernel::ability::Unknown::CardCost => "a card cost the core does not judge",
+                ti4_engine_core::kernel::ability::Unknown::HarnessOrInfiltrate => "Harness Energy / Infiltrate",
+            };
             crate::dual::note_bail(LABEL.with(Cell::get), &format!("nested ({why})"));
             return Err(DriverError::NotAsking);
         }
@@ -2428,7 +2434,6 @@ pub fn space_cannon_defense(
     script: &Recording,
 ) -> Option<CoreWindow<DefenseOut>> {
     use ti4_engine_core::rules::invasion::defense::{Facts, SpaceCannonDefense};
-    const LABEL: &str = "invasion::space_cannon_defense";
     let (mut cx, r) = tables(gs)?;
     nested_check(script)?;
     let invader = r.seat(a.invader.as_str())?;

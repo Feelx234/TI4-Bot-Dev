@@ -13,6 +13,7 @@
 //! `rng` streams, which a rolled-back run restores with the rest of the state.
 
 use crate::choice::{Choice, Pick};
+use crate::kernel::ability::Unknown;
 use crate::kernel::stage::{AbilityTable, Illegal, NestedFacts, Sx, Tape, Window};
 use crate::kernel::{Kernel, Next, Resolver, TimingError};
 use crate::state::{CoreState, EventRec, RngDomain, SeedSource, Window as OpenWindow};
@@ -94,7 +95,7 @@ pub struct Driver<W: Window> {
     pub seeds: std::rc::Rc<dyn SeedSource>,
     tape: Tape,
     facts: Option<NestedFacts>,
-    unknown: Option<&'static str>,
+    unknown: Option<Unknown>,
     awaiting: Awaiting,
     finished: bool,
 }
@@ -266,7 +267,7 @@ impl<W: Window> Driver<W> {
     /// A condition of the ability table the core could not answer (a documented bail of the rule it reads); the
     /// run is not to be trusted.
     #[must_use]
-    pub fn unknown(&self) -> Option<&'static str> {
+    pub fn unknown(&self) -> Option<Unknown> {
         self.unknown
     }
 

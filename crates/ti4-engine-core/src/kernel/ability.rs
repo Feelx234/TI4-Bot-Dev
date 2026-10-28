@@ -55,6 +55,19 @@ impl Applies {
     }
 }
 
+/// Why a condition cannot be answered by the core: a documented bail of the rule it reads (the adapter words it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unknown {
+    /// Yssaril's Transparasteel Plating (the faction module's hook).
+    YssarilTransparasteel,
+    /// Bribery's goods (the Keleres agent's commodities).
+    BriberyGoods,
+    /// A printed card cost the core does not judge.
+    CardCost,
+    /// Harness Energy / Infiltrate: the tile catalogue and the swap rules.
+    HarnessOrInfiltrate,
+}
+
 /// What a condition reads: the state, the kernel, the ability and the event it is asked about.
 pub struct CondCx<'a> {
     pub state: &'a CoreState,
@@ -66,13 +79,13 @@ pub struct CondCx<'a> {
     pub barred: bool,
     /// The texts the payloads carry as codes (`AbilityTable::codes`).
     pub codes: Codes,
-    unknown: &'a std::cell::Cell<Option<&'static str>>,
+    unknown: &'a std::cell::Cell<Option<Unknown>>,
 }
 
 impl CondCx<'_> {
     /// The condition cannot be answered by the core (a documented bail of the rule it reads): the answer given
     /// stands for nothing, and the driver reports `why` (the dual falls back to the string run).
-    pub fn unknown(&self, why: &'static str) -> bool {
+    pub fn unknown(&self, why: Unknown) -> bool {
         if self.unknown.get().is_none() {
             self.unknown.set(Some(why));
         }
@@ -285,7 +298,7 @@ pub struct Tape {
     needed: Option<Choice>,
     facts: Option<NestedFacts>,
     /// A condition the core could not answer (`CondCx::unknown`); survives the rewind of a re-run.
-    pub unknown: std::cell::Cell<Option<&'static str>>,
+    pub unknown: std::cell::Cell<Option<Unknown>>,
 }
 
 impl Tape {
@@ -295,7 +308,7 @@ impl Tape {
     }
 
     /// The reason a condition could not be answered since the last call, if any.
-    pub fn take_unknown(&self) -> Option<&'static str> {
+    pub fn take_unknown(&self) -> Option<Unknown> {
         self.unknown.take()
     }
 
