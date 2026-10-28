@@ -460,6 +460,7 @@ pub fn drive_positioned<W: Window>(
             Status::Done => {
                 out.finished = true;
                 compare_ability_dice(core, script);
+                compare_nested_events(r, driver, script);
                 return Ok(out);
             }
             Status::Asking(choice) => {
@@ -517,6 +518,25 @@ pub(crate) fn nested_check(script: &Recording) -> Option<()> {
         }
         None => Some(()),
     }
+}
+
+/// The events the abilities emitted inside the window (the string's `nested_kinds` without the questions) against
+/// the core's journal without the window's own emissions: the same kinds, in any order of equal kinds.
+fn compare_nested_events<W: Window>(r: &Render, driver: &Driver<W>, script: &Recording) {
+    if !script.nested {
+        return;
+    }
+    let mut core: Vec<String> = driver.resolver.applied_events().iter().map(|e| crate::kernel_sync::event_text(r, e.kind)).collect();
+    for own in &driver.emitted {
+        let text = crate::kernel_sync::event_text(r, own.kind);
+        if let Some(at) = core.iter().position(|k| *k == text) {
+            core.remove(at);
+        }
+    }
+    core.sort();
+    let mut string: Vec<String> = script.nested_kinds.iter().filter(|k| !k.starts_with("ask:")).cloned().collect();
+    string.sort();
+    crate::dual::compare_value(crate::dual::Area::Driver, "nested.events", &string, &core);
 }
 
 /// The dice the abilities of the string run rolled, against the ones the core abilities rolled (the ledger rows
