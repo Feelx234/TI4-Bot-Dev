@@ -730,4 +730,101 @@ mod tests {
         };
         assert_eq!(run("strategy_cards::diplomacy_primary", &F3, mecatol, &["01", "mr"], primary("pok2diplomacy")).0, 1);
     }
+
+    #[test]
+    fn diplomacy_lists_each_system_once_stops_after_two_and_knows_both_mecatols() {
+        let label = "strategy_cards::diplomacy_primary";
+        // Two planets of one system: the system is offered once; three exhausted planets: two are readied.
+        let twins = |s: &mut GameState| {
+            exhausted_planet(s, "11", "lisisii");
+            exhausted_planet(s, "11", "ragh");
+            s.exhausted_planets.insert(PlanetId::new("jord"));
+        };
+        assert_eq!(run(label, &F3, twins, &["11", "lisisii", "ragh"], primary("pok2diplomacy")).0, 1);
+        assert_eq!(run("strategy_cards::diplomacy_secondary", &F3, twins, &["lisisii", "ragh"], secondary("pok2diplomacy")).0, 1);
+        // The Thunder's Edge Mecatol Rex is not a choice either.
+        let te = |s: &mut GameState| {
+            s.system_mut(&SystemId::new("112")).set_control(PlanetId::new("mrte"), a());
+            s.exhausted_planets.insert(PlanetId::new("mrte"));
+        };
+        assert_eq!(run(label, &F3, te, &["01", "mrte"], primary("pok2diplomacy")).0, 1);
+    }
+
+    #[test]
+    fn leadership_carries_an_overpayment_into_the_next_purchase_and_declines_a_mahact_pool() {
+        let label = "strategy_cards::leadership_primary";
+        // Mecatol pays six for a bill of three: the three left pay the next token, "0 more" influence.
+        let mecatol = |s: &mut GameState| {
+            s.system_mut(&SystemId::new("18")).set_control(PlanetId::new("mr"), a());
+            s.player_mut(&a()).unwrap().trade_goods = 0;
+        };
+        let answers = ["tactic_tokens", "tactic_tokens", "fleet_tokens", "yes", "exhaust|mr", "strategic_tokens", "yes", "fleet_tokens"];
+        assert_eq!(run(label, &F3, mecatol, &answers, primary("pok1leadership")).0, 1);
+        let held = |s: &mut GameState| {
+            s.faction_marks.insert("mahact:fleet:b".to_owned(), "a".to_owned());
+        };
+        assert_eq!(run(label, &F3, held, &["tactic_tokens", "tactic_tokens", "fleet_tokens", "no"], primary("pok1leadership")), (0, 1));
+    }
+
+    #[test]
+    fn a_deck_reserve_and_a_draw_hook_keep_the_draws_on_the_string_side() {
+        let reserve = |s: &mut GameState| {
+            s.deck_reserve = Some(ti4_model::deck_reserve::DeckReserve::new(
+                std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(ti4_model::deck_reserve::IDLE)),
+                Vec::new(),
+            ));
+        };
+        assert_eq!(run("strategy_cards::imperial_secret", &F3, reserve, &[], secondary("pok8imperial")), (0, 1));
+        assert_eq!(run("strategy_cards::politics_secondary", &F3, reserve, &[], secondary("pok3politics")), (0, 1));
+        // A bonus card with the draw (Titans' Slumberstate) is the string's.
+        let bonus = crate::factions::hooks_economy::EconomyHooks {
+            action_card_draw_bonus: Some(|_, _, _, _| 1),
+            ..crate::factions::hooks_economy::EconomyHooks::NONE
+        };
+        let drawn = crate::factions::hooks_economy::with_test_hooks(bonus, || {
+            run("strategy_cards::politics_secondary", &F3, |_| {}, &[], secondary("pok3politics"))
+        });
+        assert_eq!(drawn, (0, 1));
+    }
+
+    #[test]
+    fn construction_follows_the_box_the_floating_factory_and_the_pds_alternatives() {
+        let label = "strategy_cards::construction_secondary";
+        // Six PDS on the board: none is left in the box, only a dock can go.
+        let empty_box = |s: &mut GameState| {
+            lodor(s);
+            for system in ["19", "20", "21", "22", "23", "24"] {
+                s.system_mut(&SystemId::new(system)).units.push(ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new("pds"), a()));
+            }
+        };
+        assert_eq!(run(label, &F3, empty_box, &["spacedock|26|lodor"], secondary("pok4construction")).0, 1);
+        // Saar's Floating Factory goes into the space area.
+        let saar = [("a", "saar"), ("b", "hacan")];
+        let strip = |s: &mut GameState| {
+            for system in s.board.values_mut() {
+                for units in system.planet_units.values_mut() {
+                    units.retain(|unit| !unit.type_id.as_str().contains("spacedock"));
+                }
+            }
+        };
+        let probe = {
+            let mut s = crate::fixtures::seated_game(&saar, POK);
+            strip(&mut s);
+            crate::strategy_cards::structure_options(&s, ContentStore::embedded(), POK, &a(), false)
+                .into_iter()
+                .find(|o| o.id.starts_with("spacedock|"))
+                .expect("a dock spot")
+                .id
+        };
+        assert_eq!(run(label, &saar, strip, &[probe.as_str()], secondary("pok4construction")).0, 1);
+        // A PDS alternative a faction offers is the string's.
+        let alt = crate::factions::hooks_economy::EconomyHooks {
+            pds_placement_alternative: Some(|_, _, _, _, _, _| vec![crate::choice::ChoiceOption::labelled("x:alt", "build", "alt")]),
+            ..crate::factions::hooks_economy::EconomyHooks::NONE
+        };
+        let declined = crate::factions::hooks_economy::with_test_hooks(alt, || {
+            run(label, &F3, lodor, &["decline"], secondary("pok4construction"))
+        });
+        assert_eq!(declined, (0, 1));
+    }
 }
