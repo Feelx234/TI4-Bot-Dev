@@ -3,8 +3,8 @@
 //!
 //! Layout, in the order of the string module:
 //!
-//! * [`Rd`]: the read bundle (state, kernel, laws blank or not), a copy of `rules::combat::Rd` because an
-//!   L4 area does not import another (`check_layers.py`);
+//! * [`Rd`]: the read bundle (state, kernel, laws blank or not), shared with combat from `kernel::read`
+//!   (an L4 area does not import another, `check_layers.py`);
 //! * bombardment (49.1): [`bombardable`], [`bombarders`], [`bombard_plan`], the rolls of each planet before
 //!   any die is drawn;
 //! * landing and committing ground forces, and the ground combat itself follow in the later sections.
@@ -21,65 +21,17 @@ use crate::containers::SeatSet;
 use crate::generated::{Leader, Planet, System, Unit, UnitBaseType};
 use crate::ids::Seat;
 use crate::keys::MarkKey;
-use crate::kernel::seam::{data as seam_data, Clamp, RollKind, RowKind, SilenceCtx, SilenceSite, Source, Q};
+use crate::kernel::seam::{data as seam_data, Clamp, RollKind, RowKind, SilenceCtx, SilenceSite, Source};
 use crate::kernel::seam::RollSite;
 use crate::kernel::hooks::{CombatCtx, CombatUnit};
-use crate::kernel::Kernel;
 use crate::query::board as qboard;
 use crate::query::laws as qlaws;
 use crate::state::{CoreState, Piece, RoundKind};
-use crate::tables::{Flags, Scope, SystemFlags};
+use crate::tables::{Flags, SystemFlags};
 
-/// What an invasion rule reads: the state and the kernel (content scope, hook table, seams).
-#[derive(Clone, Copy)]
-pub struct Rd<'a> {
-    pub s: &'a CoreState,
-    pub k: &'a Kernel,
-    /// Law's Order: every law is blank this turn (`laws::blanked`; the caller computes it).
-    pub blanked: bool,
-    /// The leaders package's answer to `has_commander_ability(l1z1xcommander)` for the invader (it needs the
-    /// leaders `Env`: Imperia, Alliance notes); `None`: read the leader slice and the grant mark only.
-    pub l1z1x_commander: Option<bool>,
-}
+pub use crate::kernel::read::Rd;
 
-impl<'a> Rd<'a> {
-    #[must_use]
-    pub fn new(s: &'a CoreState, k: &'a Kernel) -> Self {
-        Self { s, k, blanked: false, l1z1x_commander: None }
-    }
-
-    /// The same read with the invader's L1Z1X commander ability decided by the leaders package.
-    #[must_use]
-    pub fn with_l1z1x_commander(mut self, held: bool) -> Self {
-        self.l1z1x_commander = Some(held);
-        self
-    }
-
-    /// The seam reader over the same state and kernel.
-    #[must_use]
-    pub fn q(&self) -> Q<'a> {
-        Q::new(self.s, self.k)
-    }
-
-    /// The same read with laws blank or not.
-    #[must_use]
-    pub fn with_blanked(mut self, blanked: bool) -> Self {
-        self.blanked = blanked;
-        self
-    }
-
-    /// The source scope as the tables read it.
-    #[must_use]
-    pub fn scope(&self) -> Scope {
-        Scope(u32::from(self.k.sources.0))
-    }
-
-    /// The unit's table row when the unit is in the game's scope.
-    #[must_use]
-    pub fn data(&self, unit: Unit) -> Option<&'static crate::generated::UnitData> {
-        self.scope().unit(unit)
-    }
-
+impl Rd<'_> {
     fn lost(&self, owner: Seat, system: System) -> bool {
         self.k.hooks.seam.silenced.decide(
             self.q(),

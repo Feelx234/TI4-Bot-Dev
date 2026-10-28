@@ -167,8 +167,23 @@ impl AreaMask {
         if cfg!(all(feature = "typed-core", not(feature = "string-movement"))) {
             mask = mask.with(Area::Movement, Backend::Core);
         }
+        if cfg!(all(feature = "typed-core", not(feature = "string-objectives"))) {
+            mask = mask.with(Area::Objectives, Backend::Core);
+        }
         // Wave C (docs/ENGINE_CORE_FACTIONS_PLAN.md 6): when the first faction shard is merged and gated,
         // add `Area::Factions` the same way, behind `not(feature = "string-factions")`.
+        if cfg!(all(feature = "typed-core", not(feature = "string-trade"))) {
+            mask = mask.with(Area::TradeDiplomacy, Backend::Core);
+        }
+        if cfg!(all(feature = "typed-core", not(feature = "string-exploration"))) {
+            mask = mask.with(Area::ExplorationRelics, Backend::Core);
+        }
+        if cfg!(all(feature = "typed-core", not(feature = "string-strategy"))) {
+            mask = mask.with(Area::Strategy, Backend::Core);
+        }
+        if cfg!(all(feature = "typed-core", not(feature = "string-agenda"))) {
+            mask = mask.with(Area::AgendaLaws, Backend::Core);
+        }
         mask
     }
 

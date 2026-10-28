@@ -44,6 +44,18 @@ pub enum Explored {
 /// reached. This returns every matching deck so a caller with a decider can ask which.
 #[must_use]
 pub fn traits_of(content: &ContentStore, sources: SourceSet, planet: &PlanetId) -> Vec<String> {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "exploration::traits_of",
+        crate::explore_core::traits_of(content, sources, planet),
+        traits_of_text(content, sources, planet)
+    )
+}
+
+/// [`traits_of`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn traits_of_text(content: &ContentStore, sources: SourceSet, planet: &PlanetId) -> Vec<String> {
     let catalogue = ti4_content::galaxy::all_planets(content, sources);
     let Some(record) = catalogue.get(planet.as_str()) else {
         return Vec::new();
@@ -118,6 +130,18 @@ pub fn draw(state: &mut GameState, deck: &str) -> Option<String> {
 /// How a card resolves, from the corpus.
 #[must_use]
 pub fn resolution(content: &ContentStore, card: &str) -> Option<String> {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "exploration::resolution",
+        crate::explore_core::resolution(content, card),
+        resolution_text(content, card)
+    )
+}
+
+/// [`resolution`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn resolution_text(content: &ContentStore, card: &str) -> Option<String> {
     content
         .get(ContentType::Explores, card)
         .and_then(|record| record.text("resolution"))
@@ -131,6 +155,18 @@ pub fn resolution(content: &ContentStore, card: &str) -> Option<String> {
 /// +1 resource and +1 influence; otherwise it is the record that gives the planet that specialty.
 #[must_use]
 pub fn attachment_for(content: &ContentStore, card: &str, planet: &PlanetId) -> String {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "exploration::attachment_for",
+        crate::explore_core::attachment_for(content, card, planet),
+        attachment_for_text(content, card, planet)
+    )
+}
+
+/// [`attachment_for`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn attachment_for_text(content: &ContentStore, card: &str, planet: &PlanetId) -> String {
     let id = content
         .get(ContentType::Explores, card)
         .and_then(|record| record.text("attachmentId"))
@@ -1650,6 +1686,18 @@ pub fn gain_fragment(state: &mut GameState, player: &PlayerId, trait_name: &str)
 /// rather than forming a pile of their own that can never be cashed.
 #[must_use]
 pub fn purgeable(state: &GameState, player: &PlayerId) -> Vec<String> {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "exploration::purgeable",
+        crate::cards_typed!(state, v => v.purgeable(player)),
+        purgeable_text(state, player)
+    )
+}
+
+/// [`purgeable`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn purgeable_text(state: &GameState, player: &PlayerId) -> Vec<String> {
     let Some(seat) = state.player(player) else {
         return Vec::new();
     };

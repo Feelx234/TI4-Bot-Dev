@@ -446,7 +446,8 @@ impl StrategySecondaryWindow {
         sources: SourceSet,
         follower: &PlayerId,
     ) -> Option<SecondaryBlocker> {
-        if self.eligible(state, content, sources, follower) {
+        let view = crate::strategy_typed::open_view(state, content, sources);
+        if self.eligible(&view, state, content, sources, follower) {
             return None;
         }
         let kind = crate::strategy_cards::card_kind(content, self.card.as_str());
@@ -512,9 +513,10 @@ impl StrategySecondaryWindow {
         content: &ContentStore,
         sources: SourceSet,
     ) -> Option<Choice> {
+        let view = crate::strategy_typed::open_view(state, content, sources);
         self.followers[self.next_follower..]
             .iter()
-            .find(|player_id| self.eligible(state, content, sources, player_id))
+            .find(|player_id| self.eligible(&view, state, content, sources, player_id))
             .map(|player_id| {
                 let costs_token = secondary_costs_token(content, &self.card)
                     && !secondary_is_free(state, content, player_id, &self.card);
@@ -549,8 +551,9 @@ impl StrategySecondaryWindow {
         content: &ContentStore,
         sources: SourceSet,
     ) -> Option<Choice> {
+        let view = crate::strategy_typed::open_view(state, content, sources);
         while let Some(player_id) = self.followers.get(self.next_follower).cloned() {
-            if self.eligible(state, content, sources, &player_id) {
+            if self.eligible(&view, state, content, sources, &player_id) {
                 let costs_token = secondary_costs_token(content, &self.card)
                     && !secondary_is_free(state, content, &player_id, &self.card);
                 let choice = secondary_choice(
@@ -646,12 +649,13 @@ impl StrategySecondaryWindow {
     /// [`secondary_eligible`], or a follower without a token who holds a waiver.
     fn eligible(
         &self,
+        view: &crate::strategy_typed::View<'_>,
         state: &GameState,
         content: &ContentStore,
         sources: SourceSet,
         player: &PlayerId,
     ) -> bool {
-        secondary_eligible(state, content, sources, player, &self.card)
+        secondary_eligible_in(view, state, content, sources, player, &self.card)
             || crate::factions::firmament_plots::primary_instead_offered(
                 state,
                 player,
@@ -678,6 +682,15 @@ impl StrategySecondaryWindow {
 }
 
 fn secondary_costs_token(content: &ContentStore, card: &StrategyCardId) -> bool {
+    crate::dual_typed!(
+        crate::dual::Area::Strategy,
+        "strategy::secondary_costs_token",
+        crate::strategy_typed::secondary_costs_token(card),
+        secondary_costs_token_text(content, card)
+    )
+}
+
+pub(crate) fn secondary_costs_token_text(content: &ContentStore, card: &StrategyCardId) -> bool {
     crate::strategy_cards::card_kind(content, card.as_str()) != Some(StrategyCardKind::Leadership)
 }
 
@@ -691,7 +704,36 @@ fn secondary_is_free(
     kind.is_some() && crate::faction_abilities::secondary_is_free(state, content, player, kind)
 }
 
+#[cfg(test)]
 fn secondary_eligible(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    card: &StrategyCardId,
+) -> bool {
+    let view = crate::strategy_typed::open_view(state, content, sources);
+    secondary_eligible_in(&view, state, content, sources, player, card)
+}
+
+/// [`secondary_eligible`] on the view that is open for this position (held across a follower loop).
+fn secondary_eligible_in(
+    view: &crate::strategy_typed::View<'_>,
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    card: &StrategyCardId,
+) -> bool {
+    crate::dual_typed!(
+        crate::dual::Area::Strategy,
+        "strategy::secondary_eligible",
+        crate::strategy_typed::eligible(view, player, card),
+        secondary_eligible_text(state, content, sources, player, card)
+    )
+}
+
+pub(crate) fn secondary_eligible_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -814,6 +856,18 @@ fn secondary_can_do_something(
     }
 }
 
+/// `Player::unused_strategy_cards` of a seated player, owned (empty for an unknown id).
+fn unused_cards(state: &GameState, player: &PlayerId) -> Vec<StrategyCardId> {
+    crate::dual_typed!(
+        crate::dual::Area::Strategy,
+        "strategy::unused_cards",
+        crate::strategy_typed::unused_cards(state, player),
+        state
+            .player(player)
+            .map_or_else(Vec::new, |p| p.unused_strategy_cards().into_iter().cloned().collect())
+    )
+}
+
 /// Legal structural strategic actions for one player.
 ///
 /// A one-card holding preserves the oracle's bare `strategic` id for compatibility. A
@@ -825,8 +879,8 @@ pub fn strategic_action_options(
     content: &ContentStore,
     player_id: &PlayerId,
 ) -> Option<Choice> {
-    let player = state.player(player_id)?;
-    let unused = player.unused_strategy_cards();
+    state.player(player_id)?;
+    let unused = unused_cards(state, player_id);
     if unused.is_empty() {
         return None;
     }
@@ -838,7 +892,7 @@ pub fn strategic_action_options(
         )]
     } else {
         unused
-            .into_iter()
+            .iter()
             .map(|card| {
                 ChoiceOption::labelled(
                     format!("{STRATEGIC_ACTION_ID}|{}", card.as_str()),

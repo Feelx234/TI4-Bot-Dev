@@ -21,6 +21,7 @@ use ti4_model::state::GameState;
 
 use crate::core_sync::{CoreView, Ctx, Sources};
 use crate::fleet::Standing;
+use crate::core_adapter::typed;
 use crate::generated::IdStr;
 use crate::production::Spend;
 
@@ -39,9 +40,6 @@ pub struct BoardView {
     blanked: bool,
 }
 
-fn typed<T: IdStr>(id: &str) -> Option<T> {
-    T::from_id(id)
-}
 
 fn spend(s: Spend) -> CoreSpend {
     match s {
@@ -305,15 +303,6 @@ impl BoardView {
     pub fn sustain_suppressed(&self, base_type: &str) -> Option<bool> {
         let base = typed::<ti4_engine_core::generated::UnitBaseType>(base_type)?;
         Some(ti4_engine_core::rules::combat::sustain_suppressed(&self.view, self.blanked, base))
-    }
-
-    /// `relics::grants_sustain`.
-    #[must_use]
-    pub fn relic_grants_sustain(&self, player: &PlayerId) -> Option<bool> {
-        let mut kernel = ti4_engine_core::kernel::Kernel::plain();
-        ti4_engine_core::kernel::seam::providers::register_core(&mut kernel.hooks);
-        let q = ti4_engine_core::kernel::seam::Q::new(&self.view, &kernel);
-        Some(ti4_engine_core::kernel::seam::data::grants_sustain(q, &kernel.hooks.seam.rows, self.seat(player)?))
     }
 
     /// `laws::holds_ministry`.

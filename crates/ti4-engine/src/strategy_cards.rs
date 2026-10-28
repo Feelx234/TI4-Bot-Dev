@@ -2145,6 +2145,15 @@ fn produce_all(
 }
 
 pub(crate) fn commodity_limit(state: &GameState, content: &ContentStore, player: &PlayerId) -> i32 {
+    crate::dual_typed!(
+        crate::dual::Area::Strategy,
+        "strategy_cards::commodity_limit",
+        crate::strategy_typed::commodity_limit(state, player),
+        commodity_limit_text(state, content, player)
+    )
+}
+
+pub(crate) fn commodity_limit_text(state: &GameState, content: &ContentStore, player: &PlayerId) -> i32 {
     state
         .player(player)
         .and_then(|seat| ti4_content::factions::get(content, seat.faction.as_str()))

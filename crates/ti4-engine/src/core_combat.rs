@@ -27,6 +27,7 @@ use ti4_model::state::GameState;
 use ti4_model::units::Unit as StrUnit;
 
 use crate::core_sync::{CoreView, Ctx, Sources};
+use crate::core_adapter::typed;
 use crate::generated::IdStr;
 
 /// The slices the combat queries read.
@@ -42,9 +43,6 @@ pub const READS: SliceSet = SliceSet::of(&[
     Slice::Cards,
 ]);
 
-fn typed<T: IdStr>(id: &str) -> Option<T> {
-    T::from_id(id)
-}
 
 // -- the string bridge --------------------------------------------------------------------------
 //

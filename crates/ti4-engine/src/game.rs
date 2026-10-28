@@ -2972,7 +2972,7 @@ impl<'a> Game<'a> {
                 }
                 if let Some(partner) = crate::transactions::opens_with(&self.state, &answer) {
                     self.settle_extreme_duress(&active, false)?;
-                    self.state.note_negotiation(&active);
+                    crate::transactions::note_negotiation(&mut self.state, &active);
                     self.trade = Some(crate::transactions::TradeWindow::open_with_content(
                         &mut self.state,
                         self.content,
@@ -5164,7 +5164,7 @@ impl<'a> Game<'a> {
                 "diplomatic contact with {partner} needs a map"
             )));
         };
-        self.state.note_negotiation(actor);
+        crate::transactions::note_negotiation(&mut self.state, actor);
         let agenda_phase = self.state.phase == Phase::Agenda;
         let trading = (agenda_phase
             || crate::transactions::may_transact(
@@ -6796,7 +6796,7 @@ impl<'a> Game<'a> {
     ) {
         let ballot = window.ballot();
         let speaker_decided =
-            outcome.is_some() && crate::vote::undisputed_winner(ballot, window.choices()).is_none();
+            outcome.is_some() && crate::vote::undisputed_winner(&self.state, window.alias(), ballot, window.choices()).is_none();
         self.push_agenda_record(
             window.alias(),
             outcome,
@@ -6915,7 +6915,7 @@ impl<'a> Game<'a> {
                 self.emit(&format!("COVERT_AGENDA_RESOLVED:{hidden}:{outcome}"));
                 let ballot = window.ballot();
                 let speaker_decided =
-                    crate::vote::undisputed_winner(ballot, window.choices()).is_none();
+                    crate::vote::undisputed_winner(&self.state, window.alias(), ballot, window.choices()).is_none();
                 self.push_agenda_record(
                     hidden,
                     Some(&outcome),

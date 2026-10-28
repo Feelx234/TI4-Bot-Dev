@@ -29,6 +29,17 @@ use ti4_model::state::{GameState, Phase};
 /// cards in the strategy phase that follows, and the retained cards are already in hand.
 #[must_use]
 pub fn strategy_pick_order(state: &GameState) -> Vec<PlayerId> {
+    crate::dual_typed!(
+        crate::dual::Area::Strategy,
+        "phase::strategy_pick_order",
+        crate::strategy_typed::pick_order(state),
+        strategy_pick_order_text(state)
+    )
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn strategy_pick_order_text(state: &GameState) -> Vec<PlayerId> {
     let seats = state.clockwise_from(&state.speaker);
     let seats: Vec<PlayerId> = seats
         .into_iter()
@@ -56,7 +67,18 @@ pub fn strategy_pick_order(state: &GameState) -> Vec<PlayerId> {
 /// marked seats retained.
 #[must_use]
 pub fn next_strategy_picker(state: &GameState) -> Option<PlayerId> {
-    let order = strategy_pick_order(state);
+    crate::dual_typed!(
+        crate::dual::Area::Strategy,
+        "phase::next_strategy_picker",
+        crate::strategy_typed::next_picker(state),
+        next_strategy_picker_text(state)
+    )
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn next_strategy_picker_text(state: &GameState) -> Option<PlayerId> {
+    let order = strategy_pick_order_text(state);
     if order.is_empty() || state.unclaimed_strategy_cards.is_empty() {
         return None;
     }

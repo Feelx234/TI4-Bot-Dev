@@ -14,6 +14,34 @@ use ti4_model::state::{GameState, TransientFlags};
 
 use crate::decision_context::{DecisionContext, DecisionSource, DecisionTarget};
 
+/// The typed answer of the trade area (`Area::TradeDiplomacy`, `trade_core`): `leaf` builds a view in the
+/// dual run only, `lent` uses the view an entry point opened, `state` the one lent for this state
+/// whatever the galaxy. `None` when no view answers: the string engine does.
+#[cfg(feature = "typed-core")]
+macro_rules! tv {
+    (leaf $state:expr, $galaxy:expr, |$v:ident| $e:expr) => {
+        crate::trade_core::leaf($state, ContentStore::embedded(), $galaxy).and_then(|$v| $e)
+    };
+    (lent $state:expr, $galaxy:expr, |$v:ident| $e:expr) => {
+        crate::trade_core::lent($state, $galaxy).and_then(|$v| $e)
+    };
+    (state $state:expr, |$v:ident| $e:expr) => {
+        crate::trade_core::lent_state($state).and_then(|$v| $e)
+    };
+}
+#[cfg(not(feature = "typed-core"))]
+macro_rules! tv {
+    (leaf $state:expr, $galaxy:expr, |$v:ident| $e:expr) => {
+        None
+    };
+    (lent $state:expr, $galaxy:expr, |$v:ident| $e:expr) => {
+        None
+    };
+    (state $state:expr, |$v:ident| $e:expr) => {
+        None
+    };
+}
+
 /// What one side of a deal hands over.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Terms {
@@ -79,7 +107,7 @@ pub fn pride_of_kenara_planets(
 }
 
 /// Whether `player` may give this planet term away (the mech is on it, the destination is theirs).
-fn planet_term_payable(state: &GameState, player: &PlayerId, term: &PlanetTerm) -> bool {
+pub(crate) fn planet_term_payable(state: &GameState, player: &PlayerId, term: &PlanetTerm) -> bool {
     pride_of_kenara_planets(state, player)
         .iter()
         .any(|(planet, moves)| *planet == term.planet && moves.contains(&term.moves_to))
@@ -266,6 +294,18 @@ pub fn presence(state: &GameState, player: &PlayerId) -> BTreeSet<SystemId> {
 /// nothing special is needed here — asking the galaxy is asking the right question.
 #[must_use]
 pub fn are_neighbours(state: &GameState, galaxy: &Galaxy, a: &PlayerId, b: &PlayerId) -> bool {
+    crate::dual_typed!(
+        crate::dual::Area::TradeDiplomacy,
+        "transactions::are_neighbours",
+        tv!(leaf state, galaxy, |v| v.are_neighbours(state, a, b)),
+        are_neighbours_text(state, galaxy, a, b)
+    )
+}
+
+/// [`are_neighbours`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn are_neighbours_text(state: &GameState, galaxy: &Galaxy, a: &PlayerId, b: &PlayerId) -> bool {
     if a == b {
         return false;
     }
@@ -326,6 +366,22 @@ pub fn neighbours_who_transacted(
     galaxy: &Galaxy,
     player: &PlayerId,
 ) -> Vec<PlayerId> {
+    crate::dual_typed!(
+        crate::dual::Area::TradeDiplomacy,
+        "transactions::neighbours_who_transacted",
+        tv!(leaf state, galaxy, |v| v.neighbours_who_transacted(state, player)),
+        neighbours_who_transacted_text(state, galaxy, player)
+    )
+}
+
+/// [`neighbours_who_transacted`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn neighbours_who_transacted_text(
+    state: &GameState,
+    galaxy: &Galaxy,
+    player: &PlayerId,
+) -> Vec<PlayerId> {
     let mine = neighbours(state, galaxy, player);
     let mut seen: Vec<PlayerId> = Vec::new();
     for (a, b) in &state.transactions_this_round {
@@ -341,6 +397,18 @@ pub fn neighbours_who_transacted(
 /// Everyone this player may transact with.
 #[must_use]
 pub fn neighbours(state: &GameState, galaxy: &Galaxy, player: &PlayerId) -> Vec<PlayerId> {
+    crate::dual_typed!(
+        crate::dual::Area::TradeDiplomacy,
+        "transactions::neighbours",
+        tv!(leaf state, galaxy, |v| v.neighbours(state, player)),
+        neighbours_text(state, galaxy, player)
+    )
+}
+
+/// [`neighbours`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn neighbours_text(state: &GameState, galaxy: &Galaxy, player: &PlayerId) -> Vec<PlayerId> {
     // `are_neighbours(player, other)` for each seat, with the player's presence computed once.
     let mut here = None;
     state
@@ -372,6 +440,25 @@ pub fn partners(
     galaxy: &Galaxy,
     player: &PlayerId,
 ) -> Vec<PlayerId> {
+    crate::trade_core::scoped(state, content, galaxy, || {
+        crate::dual_typed!(
+            crate::dual::Area::TradeDiplomacy,
+            "transactions::partners",
+            tv!(lent state, galaxy, |v| v.partners(state, player)),
+            partners_text(state, content, galaxy, player)
+        )
+    })
+}
+
+/// [`partners`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn partners_text(
+    state: &GameState,
+    content: &ContentStore,
+    galaxy: &Galaxy,
+    player: &PlayerId,
+) -> Vec<PlayerId> {
     // Trade Convoys does for a note what Guild Ships does for a faction.
     if crate::faction_abilities::ignores_neighbours(state, content, player)
         || crate::promissory::reaches_anyone(state, player)
@@ -395,6 +482,24 @@ pub fn partners(
 /// offers and what settlement accepts are the same question.
 #[must_use]
 pub fn may_transact(
+    state: &GameState,
+    content: &ContentStore,
+    galaxy: &Galaxy,
+    proposer: &PlayerId,
+    partner: &PlayerId,
+) -> bool {
+    crate::dual_typed!(
+        crate::dual::Area::TradeDiplomacy,
+        "transactions::may_transact",
+        tv!(leaf state, galaxy, |v| v.may_transact(state, proposer, partner)),
+        may_transact_text(state, content, galaxy, proposer, partner)
+    )
+}
+
+/// [`may_transact`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn may_transact_text(
     state: &GameState,
     content: &ContentStore,
     galaxy: &Galaxy,
@@ -438,6 +543,18 @@ pub fn fragment_key(trait_name: &str) -> String {
     }
 }
 
+/// Whether the player holds this note and may lend it.
+///
+/// Support is tracked by position rather than in the note map, so it is asked about separately -
+/// and a note already lent out is not yours to lend again.
+pub(crate) fn note_payable(state: &GameState, content: &ContentStore, player: &PlayerId, note: &str) -> bool {
+    if note.starts_with(crate::promissory::SUPPORT_PREFIX) {
+        crate::promissory::available_support(state, player).as_deref() == Some(note)
+    } else {
+        crate::promissory::available_notes(state, content, player).iter().any(|n| n == note)
+    }
+}
+
 /// Whether a player holds what they offered.
 #[must_use]
 pub fn can_pay(
@@ -452,17 +569,10 @@ pub fn can_pay(
     if terms.trade_goods > seat.trade_goods || terms.commodities > seat.commodities {
         return false;
     }
-    if let Some(note) = &terms.promissory {
-        // Support is tracked by position rather than in the note map, so it is asked about
-        // separately — and a note already lent out is not yours to lend again.
-        let holds = if note.starts_with(crate::promissory::SUPPORT_PREFIX) {
-            crate::promissory::available_support(state, player).as_deref() == Some(note.as_str())
-        } else {
-            crate::promissory::available_notes(state, content, player).contains(note)
-        };
-        if !holds {
-            return false;
-        }
+    if let Some(note) = &terms.promissory
+        && !note_payable(state, content, player, note)
+    {
+        return false;
     }
     if let Some(term) = &terms.planet
         && !planet_term_payable(state, player, term)
@@ -490,6 +600,25 @@ pub fn can_pay(
 /// Why an offer cannot be resolved, or `None` if it can.
 #[must_use]
 pub fn why_illegal(
+    state: &GameState,
+    content: &ContentStore,
+    galaxy: &Galaxy,
+    offer: &Offer,
+) -> Option<OfferError> {
+    crate::trade_core::scoped(state, content, galaxy, || {
+        crate::dual_typed!(
+            crate::dual::Area::TradeDiplomacy,
+            "transactions::why_illegal",
+            tv!(lent state, galaxy, |v| v.why_illegal(state, content, offer)),
+            why_illegal_text(state, content, galaxy, offer)
+        )
+    })
+}
+
+/// [`why_illegal`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn why_illegal_text(
     state: &GameState,
     content: &ContentStore,
     galaxy: &Galaxy,
@@ -709,10 +838,7 @@ pub fn resolve(
     }
     // Both sides are taken before either is given, so a deal cannot be paid for with what it
     // is about to receive.
-    take(state, &offer.proposer, &offer.given);
-    take(state, &offer.partner, &offer.received);
-    give(state, content, &offer.partner, &offer.given);
-    give(state, content, &offer.proposer, &offer.received);
+    settle(state, content, offer);
     // 21.5: received commodities arrive as trade goods, so both count as trade goods gained.
     crate::supply::note_trade_goods_gained(
         state,
@@ -731,10 +857,85 @@ pub fn resolve(
     crate::factions::empyrean_units::dark_pact_gains(state, content, offer);
     // Recorded here rather than at the window that opened the deal: this is the one place a
     // transaction is *resolved*, and Lie in Wait counts resolutions.
-    state
-        .transactions_this_round
-        .push((offer.proposer.clone(), offer.partner.clone()));
+    record_resolved(state, &offer.proposer, &offer.partner);
     Ok(())
+}
+
+/// The goods half of [`resolve`]: both sides are taken before either is given. The typed core moves
+/// goods, commodities, fragments, an action card and a secret; a deal with a note or a planet card
+/// stays on the string engine (those slices belong to other packages).
+fn settle(state: &mut GameState, content: &ContentStore, offer: &Offer) {
+    let string = |s: &mut GameState| {
+        take(s, &offer.proposer, &offer.given);
+        take(s, &offer.partner, &offer.received);
+        give(s, content, &offer.partner, &offer.given);
+        give(s, content, &offer.proposer, &offer.received);
+        crate::dual::Run::new(())
+    };
+    #[cfg(feature = "typed-core")]
+    let core = |s: &mut GameState| {
+        if crate::trade_core::exchange(s, content, offer).is_none() {
+            return string(s);
+        }
+        crate::dual::Run::new(())
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let core = string;
+    crate::dual!(crate::dual::Area::TradeDiplomacy, "transactions::settle", state, string, core);
+}
+
+/// `GameState.transactions_this_round.push((proposer, partner))`.
+fn record_resolved(state: &mut GameState, proposer: &PlayerId, partner: &PlayerId) {
+    let string = |s: &mut GameState| {
+        s.transactions_this_round.push((proposer.clone(), partner.clone()));
+        crate::dual::Run::new(())
+    };
+    #[cfg(feature = "typed-core")]
+    let core = |s: &mut GameState| {
+        if crate::trade_core::record_resolved(s, proposer, partner).is_none() {
+            return string(s);
+        }
+        crate::dual::Run::new(())
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let core = string;
+    crate::dual!(crate::dual::Area::TradeDiplomacy, "transactions::record_resolved", state, string, core);
+}
+
+/// `GameState::record_transaction`: LRR 94.1 limits each pair, so both sides remember it.
+pub fn record_transaction(state: &mut GameState, a: &PlayerId, b: &PlayerId) {
+    let string = |s: &mut GameState| {
+        s.record_transaction(a, b);
+        crate::dual::Run::new(())
+    };
+    #[cfg(feature = "typed-core")]
+    let core = |s: &mut GameState| {
+        if crate::trade_core::record_transaction(s, a, b).is_none() {
+            return string(s);
+        }
+        crate::dual::Run::new(())
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let core = string;
+    crate::dual!(crate::dual::Area::TradeDiplomacy, "transactions::record_transaction", state, string, core);
+}
+
+/// `GameState::note_negotiation`: one negotiation `player` initiated, this action and this round.
+pub fn note_negotiation(state: &mut GameState, player: &PlayerId) {
+    let string = |s: &mut GameState| {
+        s.note_negotiation(player);
+        crate::dual::Run::new(())
+    };
+    #[cfg(feature = "typed-core")]
+    let core = |s: &mut GameState| {
+        if crate::trade_core::note_negotiation(s, player).is_none() {
+            return string(s);
+        }
+        crate::dual::Run::new(())
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let core = string;
+    crate::dual!(crate::dual::Area::TradeDiplomacy, "transactions::note_negotiation", state, string, core);
 }
 
 // -- opening a transaction on your turn (94.1a) -------------------------------------------------
@@ -931,6 +1132,26 @@ pub fn available_actions(
     galaxy: &Galaxy,
     player: &PlayerId,
 ) -> Vec<crate::choice::ChoiceOption> {
+    crate::trade_core::scoped(state, content, galaxy, || {
+        let partners: Vec<PlayerId> = crate::dual_typed!(
+            crate::dual::Area::TradeDiplomacy,
+            "transactions::open_partners",
+            tv!(lent state, galaxy, |v| v.open_partners(state, player)),
+            open_partners_text(state, content, galaxy, player)
+        );
+        open_options(state, &partners)
+    })
+}
+
+/// The partners `available_actions` offers, on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn open_partners_text(
+    state: &GameState,
+    content: &ContentStore,
+    galaxy: &Galaxy,
+    player: &PlayerId,
+) -> Vec<PlayerId> {
     if state.diplomacy.enabled || !state.may_initiate_negotiation(player) {
         return Vec::new();
     }
@@ -939,6 +1160,13 @@ pub fn available_actions(
         .iter()
         .filter(|other| *other != player && may_transact(state, content, galaxy, player, other))
         .filter(|other| may_open_again(state, content, player, other))
+        .cloned()
+        .collect()
+}
+
+fn open_options(state: &GameState, partners: &[PlayerId]) -> Vec<crate::choice::ChoiceOption> {
+    partners
+        .iter()
         .map(|other| {
             let name = faction_name(state, other);
             crate::choice::ChoiceOption::labelled(
@@ -955,6 +1183,23 @@ pub fn available_actions(
 /// (`hooks_cards::transaction_exempt_from_limit`, Yssaril's Deepgloom Executable).
 #[must_use]
 pub fn may_open_again(
+    state: &GameState,
+    content: &ContentStore,
+    proposer: &PlayerId,
+    partner: &PlayerId,
+) -> bool {
+    crate::dual_typed!(
+        crate::dual::Area::TradeDiplomacy,
+        "transactions::may_open_again",
+        tv!(state state, |v| v.may_open_again(state, proposer, partner)),
+        may_open_again_text(state, content, proposer, partner)
+    )
+}
+
+/// [`may_open_again`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn may_open_again_text(
     state: &GameState,
     content: &ContentStore,
     proposer: &PlayerId,
@@ -977,7 +1222,7 @@ pub fn record_unless_exempt(
     if !crate::factions::hooks_cards::transaction_exempt_from_limit(
         state, content, proposer, partner,
     ) {
-        state.record_transaction(proposer, partner);
+        record_transaction(state, proposer, partner);
     }
 }
 
@@ -1878,7 +2123,7 @@ impl TradeWindow {
         state: &GameState,
         content: &ContentStore,
     ) -> Option<crate::choice::Choice> {
-        match &self.stage {
+        let choice = match &self.stage {
             Stage::Done => None,
             Stage::Proposing => {
                 let mut options = offer_options(state, content, &self.proposer, &self.partner);
@@ -1945,7 +2190,21 @@ impl TradeWindow {
                     ),
                 )
             }
+        };
+        // The dual run renders the question from its typed form and compares (the options are
+        // still the string engine's: the pricing is not ported).
+        #[cfg(feature = "typed-core")]
+        if crate::dual::backend(crate::dual::Area::TradeDiplomacy) == crate::dual::Backend::Dual
+            && let Some(c) = &choice
+        {
+            let _ = crate::dual::run_dual_typed(
+                crate::dual::Area::TradeDiplomacy,
+                "transactions::pending_choice",
+                || crate::trade_core::rendered(state, c).map(Some),
+                || Some(c.clone()),
+            );
         }
+        choice
     }
 
     /// Apply one answer.

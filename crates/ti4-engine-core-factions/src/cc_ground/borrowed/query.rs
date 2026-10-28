@@ -12,18 +12,17 @@
 //! | `borrowed_round_agents_abilities` | `borrowed_round_agents::abilities` | W | `offer.rs` (B1/B7) |
 //! | `borrowed_commanders::timing_abilities`, `borrowed_commanders_b::timing_abilities` | | W | `offer.rs` (B7) |
 
-use ti4_engine_core::generated::{Faction, Leader, Planet, PromissoryNote};
+use ti4_engine_core::generated::{Faction, Leader, Planet};
 use ti4_engine_core::hooks::direct::Planets;
 use ti4_engine_core::hooks::{CombatUnit, HookTable};
 use ti4_engine_core::kernel::seam::{Delta, Layer, Q, RollSite, Source};
 use ti4_engine_core::ids::Seat;
-use ti4_engine_core::keys::MarkKey;
 use ti4_engine_core::kernel::Kernel;
 use ti4_engine_core::query::board;
 use ti4_engine_core::state::{CoreState, LeaderStatus, MetaFlags};
 use ti4_engine_core::generated::TileBack;
 
-use crate::common::{is_faction, mark, player, scope};
+use crate::common::scope;
 
 /// `ti4_model::state::RULES_FACTION_EFFECTS`.
 const RULES_FACTION_EFFECTS: u32 = 16;
@@ -37,29 +36,6 @@ pub fn register(t: &mut HookTable) {
     d.borrowed_commanders_b_firmament_planets.push(firmament_planets);
     d.borrowed_round_agents_has_owner_space_round_agent.push(has_owner_space_round_agent);
     d.borrowed_round_agents_has_owner_round_agent.push(has_owner_round_agent);
-}
-
-/// `promissory::has_commander_ability`: a granted mark, the commander unlocked, the Mahact's Imperia, or a faceup
-/// Alliance from a seated owner whose commander is unlocked.
-pub fn has_commander_ability(s: &CoreState, k: &Kernel, who: Seat, commander: Leader) -> bool {
-    let unlocked = |seat: Seat| player(s, seat).is_some_and(|p| p.leaders.status.get(&commander) == Some(&LeaderStatus::Unlocked));
-    if mark(s, MarkKey::CommanderAbility(who, commander)).is_some() || unlocked(who) {
-        return true;
-    }
-    if k.hooks.direct.mahact_imperia_grants(s, who, commander) {
-        return true;
-    }
-    s.cards().promissory.iter().any(|(key, holder)| {
-        *holder == who
-            && key.note == PromissoryNote::Alliance
-            && s.cards().promissory_faceup.contains_key(key)
-            && s.seats()
-                .seating_order()
-                .iter()
-                .copied()
-                .find(|seat| is_faction(s, *seat, key.faction))
-                .is_some_and(|owner| owner != who && unlocked(owner))
-    })
 }
 
 /// The Obsidian commander on a space or ground combat roll (native: the legacy bridge covers only the space rolls).
@@ -168,4 +144,9 @@ mod tests {
         assert_eq!(unit_roll_modifier(&s, &k, unit(fracture)), 1);
         assert_eq!(unit_roll_modifier(&s, &k, unit(plain)), 0);
     }
+}
+
+/// `promissory::has_commander_ability`: the shared state routes, with Imperia answered by the direct hook.
+pub fn has_commander_ability(s: &CoreState, k: &Kernel, who: Seat, commander: Leader) -> bool {
+    ti4_engine_core::rules::leaders::has_commander_ability_with(s, who, commander, || k.hooks.direct.mahact_imperia_grants(s, who, commander))
 }

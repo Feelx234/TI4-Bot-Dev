@@ -19,6 +19,7 @@ use ti4_model::id::{LeaderId, PlanetId, PlayerId};
 use ti4_model::state::GameState;
 
 use crate::core_sync::{CoreView, Ctx, Sources};
+use crate::core_adapter::typed;
 use crate::generated::IdStr;
 
 /// The slices the unlock check reads (statuses, trade goods, technologies, the board, laws for planet
@@ -46,9 +47,6 @@ pub struct LeaderView<'a> {
     galaxy: Option<&'a Galaxy>,
 }
 
-fn typed<T: IdStr>(id: &str) -> Option<T> {
-    T::from_id(id)
-}
 
 impl<'a> LeaderView<'a> {
     /// The view of a position with these slices; `None` when something is not mapped. A call site

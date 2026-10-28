@@ -44,7 +44,12 @@ pub struct Position<'a> {
     /// Mecatol Rex — which no amount of state can answer. Without a galaxy those requirements
     /// report unmet rather than guessing, exactly as the oracle does.
     pub galaxy: Option<&'a ti4_content::galaxy::Galaxy>,
-    controlled: Vec<Planet<'a>>,
+    /// The scoring view, built on first use: a position answered by the typed core never needs it.
+    controlled: std::cell::OnceCell<Vec<Planet<'a>>>,
+    /// Planets the option would bring under control (`imagining`), applied when `controlled` is built.
+    extra_planets: Vec<PlanetId>,
+    /// The imagined sets in typed form, for the typed answers (`None`: an id without a variant).
+    typed_im: std::cell::OnceCell<Option<crate::objectives_core::TypedImagined>>,
     /// Systems this player is *imagined* to hold a unit in, on top of the real board.
     ///
     /// Presence semantics, deliberately: one generic ship. It is what an activation option can
@@ -272,16 +277,35 @@ impl<'a> Position<'a> {
         sources: SourceSet,
         player: &'a PlayerId,
     ) -> Self {
+        Self {
+            galaxy: None,
+            state,
+            content,
+            sources,
+            player,
+            controlled: std::cell::OnceCell::new(),
+            extra_planets: Vec::new(),
+            typed_im: std::cell::OnceCell::new(),
+            imagined_systems: std::collections::BTreeSet::new(),
+            imagined_technologies: Vec::new(),
+            imagined_structures: Vec::new(),
+        }
+    }
+
+    /// The scoring view of the controlled planets, resolved once.
+    ///
+    /// Space stations rule 7: "Space Stations do not count as planets for the purpose of scoring
+    /// objectives." `Position` is the scoring view and nothing else reads it, so excluding them
+    /// here excludes them from every counting family at once, while leaving voting (rule 6) and
+    /// exhausting for resources or influence (rule 4) untouched -- both of which read control
+    /// directly and both of which are correct as they stand.
+    /// Coexistence rule 13: "A player is considered to control a planet they are coexisting on
+    /// solely when scoring an objective." `Position` is the scoring view and nothing else reads
+    /// it, so this is exactly where that "solely" is honoured -- adding coexisters to
+    /// `controlled_planets` instead would have let them spend and vote with the planet too.
+    fn build_controlled(&self) -> Vec<Planet<'a>> {
+        let (state, content, sources, player) = (self.state, self.content, self.sources, self.player);
         let catalogue = all_planets(content, sources);
-        // Space stations rule 7: "Space Stations do not count as planets for the purpose of scoring
-        // objectives." `Position` is the scoring view and nothing else reads it, so excluding them
-        // here excludes them from every counting family at once, while leaving voting (rule 6) and
-        // exhausting for resources or influence (rule 4) untouched -- both of which read control
-        // directly and both of which are correct as they stand.
-        // Coexistence rule 13: "A player is considered to control a planet they are coexisting on
-        // solely when scoring an objective." `Position` is the scoring view and nothing else reads
-        // it, so this is exactly where that "solely" is honoured -- adding coexisters to
-        // `controlled_planets` instead would have let them spend and vote with the planet too.
         let coexisting = state.board.iter().flat_map(|(_, record)| {
             record
                 .coexisting
@@ -289,7 +313,7 @@ impl<'a> Position<'a> {
                 .filter(|(_, others)| others.contains(player))
                 .map(|(planet, _)| planet)
         });
-        let controlled = state
+        let mut controlled: Vec<Planet<'a>> = state
             .controlled_planets(player)
             .into_iter()
             .map(|(_, planet)| planet)
@@ -297,17 +321,24 @@ impl<'a> Position<'a> {
             .filter_map(|planet| catalogue.get(planet.as_str()).copied())
             .filter(|planet| !planet.is_space_station())
             .collect();
-        Self {
-            galaxy: None,
-            state,
-            content,
-            sources,
-            player,
-            controlled,
-            imagined_systems: std::collections::BTreeSet::new(),
-            imagined_technologies: Vec::new(),
-            imagined_structures: Vec::new(),
+        if self.extra_planets.is_empty() {
+            return controlled;
         }
+        let held: std::collections::BTreeSet<&str> = controlled
+            .iter()
+            .filter_map(ti4_content::galaxy::Planet::name)
+            .collect();
+        let mut added: Vec<Planet<'a>> = self
+            .extra_planets
+            .iter()
+            .filter(|planet| !held.contains(planet.as_str()))
+            .filter_map(|planet| catalogue.get(planet.as_str()).copied())
+            // Rule 7 again: a hypothetical gain of a station moves no objective either, or the
+            // per-option "would this help an objective" fact would recommend taking one.
+            .filter(|planet| !planet.is_space_station())
+            .collect();
+        controlled.append(&mut added);
+        controlled
     }
 
     /// The position as it would stand after everything in `imagined` happened.
@@ -357,24 +388,7 @@ impl<'a> Position<'a> {
         extra: &[ti4_model::id::PlanetId],
     ) -> Self {
         let mut position = Self::new(state, content, sources, player);
-        if extra.is_empty() {
-            return position;
-        }
-        let catalogue = all_planets(content, sources);
-        let held: std::collections::BTreeSet<&str> = position
-            .controlled
-            .iter()
-            .filter_map(ti4_content::galaxy::Planet::name)
-            .collect();
-        let mut added: Vec<Planet<'a>> = extra
-            .iter()
-            .filter(|planet| !held.contains(planet.as_str()))
-            .filter_map(|planet| catalogue.get(planet.as_str()).copied())
-            // Rule 7 again: a hypothetical gain of a station moves no objective either, or the
-            // per-option "would this help an objective" fact would recommend taking one.
-            .filter(|planet| !planet.is_space_station())
-            .collect();
-        position.controlled.append(&mut added);
+        position.extra_planets = extra.to_vec();
         position
     }
 
@@ -428,7 +442,32 @@ impl<'a> Position<'a> {
 
     /// The content records for every planet this player controls.
     fn controlled(&self) -> &[Planet<'a>] {
-        &self.controlled
+        self.controlled.get_or_init(|| self.build_controlled())
+    }
+
+    /// Ask the typed core: `f` gets the imagined sets in typed form. `None` when an imagined id has
+    /// no typed variant or the core is not compiled in (the string engine answers).
+    fn typed<T>(&self, f: impl FnOnce(&crate::objectives_core::TypedImagined) -> Option<T>) -> Option<T> {
+        #[cfg(feature = "typed-core")]
+        {
+            let im = self
+                .typed_im
+                .get_or_init(|| {
+                    crate::objectives_core::TypedImagined::from_ids(
+                        self.extra_planets.iter().map(PlanetId::as_str),
+                        self.imagined_systems.iter().map(String::as_str),
+                        self.imagined_technologies.iter().map(String::as_str),
+                        self.imagined_structures.iter().map(|(s, p)| (s.as_str(), p.as_str())),
+                    )
+                })
+                .as_ref()?;
+            f(im)
+        }
+        #[cfg(not(feature = "typed-core"))]
+        {
+            let _ = f;
+            None
+        }
     }
 
     /// How many technologies this player owns carrying a given corpus type.
@@ -991,8 +1030,34 @@ fn in_notable_systems_count(position: &Position<'_>) -> usize {
 }
 
 /// Exact progress for the six formerly bespoke public position objectives.
+///
+/// Answered by the typed core when the position carries a view (`Area::Objectives`), else by
+/// [`remaining_position_progress_text`].
 #[must_use]
 pub fn remaining_position_progress(
+    alias: &ObjectiveId,
+    position: &Position<'_>,
+) -> Option<RequirementProgress> {
+    crate::dual_typed!(
+        crate::dual::Area::Objectives,
+        "objectives::remaining_position_progress",
+        position.typed(|im| crate::objectives_core::remaining(
+            position.state,
+            position.content,
+            position.sources,
+            position.player,
+            position.galaxy,
+            im,
+            alias
+        )),
+        remaining_position_progress_text(alias, position)
+    )
+}
+
+/// [`remaining_position_progress`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn remaining_position_progress_text(
     alias: &ObjectiveId,
     position: &Position<'_>,
 ) -> Option<RequirementProgress> {
@@ -1120,8 +1185,34 @@ fn rule_distant_lands(position: &Position<'_>) -> bool {
 }
 
 /// Exact progress for public objectives backed by counting families.
+///
+/// Answered by the typed core when the position carries a view (`Area::Objectives`), else by
+/// [`counting_progress_text`].
 #[must_use]
 pub fn counting_progress(
+    alias: &ObjectiveId,
+    position: &Position<'_>,
+) -> Option<RequirementProgress> {
+    crate::dual_typed!(
+        crate::dual::Area::Objectives,
+        "objectives::counting_progress",
+        position.typed(|im| crate::objectives_core::counting(
+            position.state,
+            position.content,
+            position.sources,
+            position.player,
+            position.galaxy,
+            im,
+            alias
+        )),
+        counting_progress_text(alias, position)
+    )
+}
+
+/// [`counting_progress`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn counting_progress_text(
     alias: &ObjectiveId,
     position: &Position<'_>,
 ) -> Option<RequirementProgress> {
@@ -1699,6 +1790,26 @@ pub fn bought_progress(
 /// a planet, so those report the same value on both sides and cancel, correctly.
 #[must_use]
 pub fn bought_progress_at(position: &Position<'_>, alias: &ObjectiveId) -> Option<CostProgress> {
+    crate::dual_typed!(
+        crate::dual::Area::Objectives,
+        "objectives::bought_progress_at",
+        position.typed(|im| crate::objectives_core::bought(
+            position.state,
+            position.content,
+            position.sources,
+            position.player,
+            position.galaxy,
+            im,
+            alias
+        )),
+        bought_progress_at_text(position, alias)
+    )
+}
+
+/// [`bought_progress_at`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn bought_progress_at_text(position: &Position<'_>, alias: &ObjectiveId) -> Option<CostProgress> {
     let base = bought_progress(
         position.state,
         position.content,
