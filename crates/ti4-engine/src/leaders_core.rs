@@ -111,6 +111,25 @@ mod real {
         crate::core_sync::with_core(gs, &mut cx, Sources::default(), BOARD, |core, _| rules::sol_hero(core, who)).ok()
     }
 
+    /// Claire Gibson: the placement of `count` units of `unit` (resolved by the string side) on the planet.
+    pub fn sol_commander(
+        gs: &mut GameState,
+        player: &PlayerId,
+        system: &ti4_model::id::SystemId,
+        planet: &ti4_model::id::PlanetId,
+        unit: &str,
+        count: usize,
+    ) -> Option<bool> {
+        let unit = typed::<ti4_engine_core::generated::Unit>(unit)?;
+        let (system, planet) = (
+            typed::<ti4_engine_core::generated::System>(system.as_str())?,
+            typed::<ti4_engine_core::generated::Planet>(planet.as_str())?,
+        );
+        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let who = r.seat(player.as_str())?;
+        crate::core_sync::with_core(gs, &mut cx, Sources::default(), BOARD, |core, _| rules::sol_commander(core, who, system, planet, unit, count)).ok()
+    }
+
     /// I48S: the swap of one infantry of `target` for `mech` (a unit form without a core `Unit`, the Naaz mech
     /// whose placement is announced, and a favour that keeps a diplomacy promise stay with the string arm).
     pub fn l1z1x_agent(
@@ -294,6 +313,16 @@ mod stub {
         None
     }
     pub fn end_of_round(_: &mut GameState) -> Option<Vec<PlayerId>> {
+        None
+    }
+    pub fn sol_commander(
+        _: &mut GameState,
+        _: &PlayerId,
+        _: &ti4_model::id::SystemId,
+        _: &ti4_model::id::PlanetId,
+        _: &str,
+        _: usize,
+    ) -> Option<bool> {
         None
     }
     pub fn sol_hero(_: &mut GameState, _: &PlayerId) -> Option<bool> {

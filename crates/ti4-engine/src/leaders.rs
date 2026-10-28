@@ -2010,14 +2010,29 @@ fn dispatch_leader(
                 .map(|(system, planet)| ((*system).clone(), (*planet).clone()));
             match spot {
                 Some((system, planet)) => {
-                    crate::action_cards::place_units(
-                        context,
-                        player,
-                        &system,
-                        Some(&planet),
-                        "infantry",
-                        1,
-                    );
+                    // What the player's cards make of "infantry" and how many the supply allows is the
+                    // string side's (`place_units_plan`); the placement itself is a core rule.
+                    if let Some((unit, count)) =
+                        crate::action_cards::place_units_plan(context, player, "infantry", 1)
+                    {
+                        dual_write(
+                            context.state,
+                            "leaders::sol_commander",
+                            |s| {
+                                for _ in 0..count {
+                                    s.system_mut(&system)
+                                        .planet_units
+                                        .entry(planet.clone())
+                                        .or_default()
+                                        .push(ti4_model::units::Unit::new(unit.clone(), player.clone()));
+                                }
+                                true
+                            },
+                            |s| {
+                                crate::leaders_core::sol_commander(s, player, &system, &planet, unit.as_str(), count)
+                            },
+                        );
+                    }
                     true
                 }
                 None => false,
@@ -2771,6 +2786,23 @@ mod tests {
             assert!(use_it(&mut state, &hero));
             assert!(!state.system_state(&ti4_model::id::SystemId::new("26")).command_tokens.contains(&player()));
             assert!(state.system_state(&ti4_model::id::SystemId::new("28")).command_tokens.contains(&PlayerId::new("b")));
+
+            // Claire Gibson: an infantry onto the first planet the holder controls.
+            let mut state = seated_clean(&[("a", "sol"), ("b", "hacan")]);
+            let commander = holding(&mut state, "solcommander", LeaderStatus::Unlocked);
+            let count = |s: &GameState| s.board.values().flat_map(|b| b.planet_units.values()).flatten().filter(|u| u.owner == player()).count();
+            let (system, planet) = {
+                let (system, planet) = state.controlled_planets(&player())[0];
+                (system.clone(), planet.clone())
+            };
+            let infantry = crate::action_cards::placed_unit_id(&state, ContentStore::embedded(), POK, &player(), "infantry").expect("infantry");
+            assert!(
+                crate::leaders_core::sol_commander(&mut state.clone(), &player(), &system, &planet, infantry.as_str(), 1).is_some(),
+                "the core takes the position"
+            );
+            let before = count(&state);
+            assert!(use_it(&mut state, &commander));
+            assert_eq!(count(&state), before + 1);
 
             // I48S for the active seat: its infantry on Lodor becomes a mech.
             let mut state = seated_clean(&[("a", "l1z1x"), ("b", "sol")]);

@@ -379,6 +379,15 @@ pub fn l1z1x_agent(core: &mut CoreState, scope: Scope, target: Seat, system: Sys
     false
 }
 
+/// Claire Gibson (`solcommander`): `count` of `unit` (what the seat's cards make of "infantry", resolved by the
+/// caller together with the supply) onto the planet.
+pub fn sol_commander(core: &mut CoreState, who: Seat, system: System, planet: Planet, unit: Unit, count: usize) -> bool {
+    for _ in 0..count {
+        crate::kernel::fx::place_unit(core, who, system, Some(planet), unit);
+    }
+    true
+}
+
 /// `leaders::end_of_round`: Darktalon Treilla's effect ends with the round she was used in; she is purged.
 /// Returns the seats whose hero was purged.
 pub fn end_of_round(core: &mut CoreState) -> SmallList<Seat, 8> {
@@ -554,6 +563,17 @@ mod tests {
         let empty = System::ALL.iter().copied().find(|s| *s != system).unwrap();
         assert!(!l1z1x_agent(&mut core, scope, Seat(0), empty, mech));
         assert!(core.board().sys(empty).flags.has(crate::state::SysFlags::TOUCHED));
+    }
+
+    #[test]
+    fn claire_places_the_counted_units_on_the_planet_and_none_for_zero() {
+        let mut core = core_with(&[]);
+        let system = System::ALL.iter().copied().find(|s| !s.data().planets.is_empty()).unwrap();
+        let planet = system.data().planets[0];
+        assert!(sol_commander(&mut core, Seat(0), system, planet, Unit::InfantryI, 0));
+        assert!(core.board().planet(planet).units.is_empty());
+        assert!(sol_commander(&mut core, Seat(0), system, planet, Unit::InfantryI, 2));
+        assert_eq!(core.board().planet(planet).units.len(), 2);
     }
 
 }
