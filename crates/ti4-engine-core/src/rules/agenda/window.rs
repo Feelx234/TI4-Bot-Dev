@@ -405,7 +405,7 @@ impl Window for Vote {
                 let voter = self.voter(index).ok_or(Illegal)?;
                 let holder = Self::holder(sx.state, voter).ok_or(Illegal)?;
                 if let Some(p) = sx.state.players_mut().by_seat_mut(holder) {
-                    p.tech.exhausted.insert(Technology::GeneticRecombination); p.econ.fleet_tokens += 1;
+                    p.tech.exhausted.insert(Technology::GeneticRecombination);
                 }
                 let can_vote = !self.offers(sx.state, voter).is_empty();
                 let can_pay = Self::can_pay(sx.state, voter);
@@ -453,7 +453,7 @@ impl Window for Vote {
                 let rate = self.rate(seat, votes);
                 let p = sx.state.players_mut().by_seat_mut(seat).ok_or(Illegal)?;
                 p.econ.trade_goods -= i16::from(spent);
-                self.bank(sx.state, index, outcome, votes + (rate + 1) * i64::from(spent));
+                self.bank(sx.state, index, outcome, votes + rate * i64::from(spent));
             }
             (Stage::Predictive { index, outcome, votes }, TopOpt::Decline) => {
                 self.record(sx.state, index, outcome, votes);
@@ -462,7 +462,7 @@ impl Window for Vote {
             (Stage::Predictive { index, outcome, votes }, TopOpt::Agenda(Opt::CastPredictive)) => {
                 let seat = self.voter(index).ok_or(Illegal)?;
                 self.predictive.push((seat, outcome));
-                self.record(sx.state, index, outcome, votes + PREDICTIVE_VOTES + 1);
+                self.record(sx.state, index, outcome, votes + PREDICTIVE_VOTES);
                 self.stage = Stage::Outcome(index + 1);
             }
             (Stage::Tiebreak, TopOpt::Agenda(Opt::Back(outcome, _))) => {
