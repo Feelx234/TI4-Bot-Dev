@@ -62,7 +62,7 @@ given are from the package reports.
 | D10 | Harrow dice-ordering risk | verify against string order |
 | D11 | `state_size.sh` needs a release binary | build first |
 | D12 | `gate` cargo profile exists only on branch `build-speed`; `string-disentangle` uses env vars | unify when merging (`docs/ENGINE_BUILD_SPEED.md`) |
-| B2-K4 | open design: 82 nested-reaction bails in `ground_round_hits` | needs the reaction/ability port |
+| B2-K4 | 82 nested-reaction bails in `ground_round_hits` | `core-reactions`: 61 left (unported Yin/Saar/Titans/Crimson abilities and played reaction cards, see R-bail-01/02) |
 | B2-K5 | open design (B5 split the exploration tail into `control_gain_fracture_relic`/`control_gain_exploration`, see B5-bail-05): the `FinalizingControl`/`finish_control_gain` hook chain, the rest of `finish_committing`, the setup/end hooks and the scoring pauses are still string | B5 exploration, technology and the ability port |
 | B2-K8 | bench-v1 seed 25 (`selfplay replay --seed 25 --players 6 --map 6pStandard --factions mentak,yin,nekro,mahact,ghost,letnev --speaker random --rules-version 11 --bot bot_version=1`) differed under `invasion=core` (hash 285d9162e1f792f0 instead of f1347a5256c63ade). Cause: Nekro Mordred's +2 was counted twice, by the native Nekro row and by the combat kernel's string bridge (ground rolled on 2 instead of 4; space combat had the same double count). FIXED on `core-b2-invasion` in d3c9316e (`core_combat.rs` bridge no longer adds it), with a regression test. | `dual` had not flagged it |
 
@@ -177,6 +177,27 @@ Branch `core-a4-objectives` (merged with B5/B7 and B9 `2ba851f6`). Ported behind
 | A4-design-7 | the dual report is shared with parallel tests (a `take_report` empties it), so the A4 lockstep tests probe the core half itself instead of counting windows |
 | A4-copy-1 | `objectives::award` records the score before it checks that the player is seated; an empty secret deck skips the hand-limit check; Search Warrant answers the return question with `Table::new()` (the first option). The core copies all three |
 | A4-copy-2 | `objectives::stage_of` reads the stage from the printed points (1 or 2); the core copies it (`query::objectives::stage_of`) |
+
+## R reactions / ability table: bails, copied behaviour and design lines
+
+Branch `core-reactions` (cut from `core-integration` 04578c39 with B1, B2, B3 and B6 merged; design and census in `docs/ENGINE_REACTIONS.md` on that branch). The core ability table (`kernel/ability.rs`) is no longer empty; the window dual follows nested activity when every ability the string run found eligible is in the table.
+
+| id | note |
+|----|------|
+| R-bail-01 | a window bails (`nested (unported ability <kind>:*:<card>:<EVENT>:<rel>)`) when an ability outside the table was eligible; census after (20 golden games): Sol agent 64, Yssaril Transparasteel Plating 38, Saar tech 17, Yin agent 16+15, Titans agent 15+8, Nekro Technological Singularity 15, Empyrean flagship 14, Mentak hero 9 |
+| R-bail-02 | the reaction-card slot is eligibility-only: a window in which a card was played (`reaction:*:<EVENT>:<rel>`, 42+30+14+13 runs) bails; the play is B6's effect set (about 100 effects) |
+| R-bail-03 | `Unknown` conditions (the window bails): Yssaril Transparasteel Plating (the faction hook is not in the kernel the windows build), Bribery's goods (Keleres agent), a printed card cost the core does not judge, Harness Energy / Infiltrate |
+| R-bail-04 | `nested outside an ability`: a question or an event inside an emission outside every effect and every pick; the window bails |
+| R-bail-05 | Infantry II's return at TURN_BEGAN, Instinct Training, I48S and every other registered ability (about 270 in the string registry; 20 ported) are string; the three S8 slots: reaction-card slot (eligibility) done, Instinct Training and I48S designed, not done |
+| R-bail-06 | the production window and `pay_step` (`production_window_dual.rs`) still build an empty resolver: the Argent agent (54 runs) and the tier-W offers (Keleres/Winnu agent, Hacan hero, payment-window agent, Argent agent redirect) are not ported; `drive_with` shows the shape |
+| R-bail-07 | dice rolled by an ability need a lent stream: a window whose lend has no `Sources::rng` bails silently when the string run rolled in an ability |
+| R-copy-01 | `context.previews` of a nested reaction question is the recorded string question's (the core renders none), as the option previews of B1g-10 |
+| R-copy-02 | the core numbers its trace ids from the first id the string run used; an ability whose nested events skip ids in the string would show as a trigger `event_id` difference |
+| R-design-01 | `AbilityDef.arg` carries the `Slot` of the rule; the registered text is the adapter's (`reactions_core.rs`); Cabal slots 3001-3009, reaction-card slots 100+index over the sorted printed windows, Infantry II 1 |
+| R-design-02 | a dry tape now answers a question with its decline when it has one (a repeatable, unlimited slot picked again and again would never end the window) |
+| R-design-03 | `dual::FOCUS` (test only): while a `serial()` test holds the report, other threads count into a throwaway report; a global `TI4_AREAS=driver=dual` otherwise made `a_retreat_runs_in_the_core_window` flaky |
+| R-design-04 | B6 moved `cancel_hits_round`, `retreat_barred_round`, `rout_round` from `combat_timers` to `card_timers`; B1/B2 core code reads them there after the merge |
+| R-design-05 | `RollPurpose::Ability(slot)` is the ledger row of a die an ability rolled; the string `Dice` history is compared through `Recording.dice` (`nested.ability_dice`), not through the ledger |
 
 ## E. Process / ops notes
 
