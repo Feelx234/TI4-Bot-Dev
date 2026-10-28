@@ -5,3 +5,4 @@ pub mod abilities;
 pub mod combat;
 pub mod invasion;
 pub mod leaders;
+pub mod production;

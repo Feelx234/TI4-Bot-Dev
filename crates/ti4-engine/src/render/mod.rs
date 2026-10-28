@@ -45,6 +45,22 @@ pub mod technology;
 pub mod tokens;
 pub mod trade;
 
+/// The position a question is rendered in: the state and the kernel the window read when it built the
+/// question. A [`Family`] whose options show facts of the position (a build's cost, what a placement
+/// leaves of the fleet limit) reads them here instead of carrying them in the option, which keeps
+/// `Opt` identity-only and small. `Rc`, so setting it costs no copy of the state.
+#[derive(Clone)]
+pub struct Position {
+    pub state: std::rc::Rc<ti4_engine_core::state::CoreState>,
+    pub kernel: &'static ti4_engine_core::kernel::Kernel,
+}
+
+impl std::fmt::Debug for Position {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Position")
+    }
+}
+
 /// The per-game tables the renderers need.
 #[derive(Debug, Default)]
 pub struct Render {
@@ -52,12 +68,34 @@ pub struct Render {
     pub seats: Vec<String>,
     /// Texts the core holds as a [`Code`] (open string sets until X1 closes them).
     codes: RefCell<Vec<String>>,
+    /// The position of the question being rendered, when the caller set one (`None` for the families
+    /// that need none; see [`Position`]).
+    position: RefCell<Option<Position>>,
 }
 
 impl Render {
     #[must_use]
     pub fn new(seats: Vec<String>) -> Self {
-        Self { seats, codes: RefCell::new(Vec::new()) }
+        Self { seats, codes: RefCell::new(Vec::new()), position: RefCell::new(None) }
+    }
+
+    /// Set the position the following `prompt`/`option`/`details` calls render in; `None` clears it.
+    pub fn set_position(&self, position: Option<Position>) {
+        *self.position.borrow_mut() = position;
+    }
+
+    /// The position set by the caller, if any. Families that show facts of the position require it.
+    #[must_use]
+    pub fn position(&self) -> Option<Position> {
+        self.position.borrow().clone()
+    }
+
+    /// Run `f` with `position` set, restoring the previous one afterwards.
+    pub fn at<T>(&self, position: Position, f: impl FnOnce(&Self) -> T) -> T {
+        let before = self.position.replace(Some(position));
+        let out = f(self);
+        *self.position.borrow_mut() = before;
+        out
     }
 
     #[must_use]
@@ -157,7 +195,7 @@ macro_rules! uninhabited {
     )*};
 }
 uninhabited!(
-    tactical, technology, objectives, tokens, production, trade, diplomacy, explore,
+    tactical, technology, objectives, tokens, trade, diplomacy, explore,
     relic, legendary, promissory, cards, strategy, agenda
 );
 
@@ -252,7 +290,7 @@ registry! {
     Reaction => reaction::Fam,
     Combat => combat::Fam,
     Invasion => invasion::Fam,
-    Production => unported!(production),
+    Production => production::Fam,
     Trade => unported!(trade),
     Diplomacy => unported!(diplomacy),
     Explore => unported!(explore),
@@ -291,6 +329,12 @@ impl Typed {
     pub fn new(r: &Render, choice: core::Choice, phase_now: CorePhase, round: u32) -> Self {
         let rendered = render_choice(r, &choice, phase_now, round);
         Self { choice, rendered }
+    }
+
+    /// [`Self::new`] with the position the families read their facts from.
+    #[must_use]
+    pub fn new_at(r: &Render, position: Position, choice: core::Choice, phase_now: CorePhase, round: u32) -> Self {
+        r.at(position, |r| Self::new(r, choice, phase_now, round))
     }
 
     #[must_use]
