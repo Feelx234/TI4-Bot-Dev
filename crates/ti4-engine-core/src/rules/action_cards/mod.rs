@@ -41,8 +41,7 @@ pub fn may_play(core: &CoreState, blanked: bool, who: Seat, faction_forbids: boo
 /// `Some(answer)`, or `None` for the arms that need string-only rules (the bail: the string function
 /// answers). A card without a requirement answers `Some(true)`.
 ///
-/// Bails (`None`): Uprising, Seize Artifact, Rise of a Messiah, Frontline Deployment, War Effort and Unstable
-/// Planet (neighbours, the controlled-spot rules, the empty-entry difference of the string board).
+/// Bails (`None`): Seize Artifact (neighbours).
 #[must_use]
 pub fn has_legal_target(core: &CoreState, blanked: bool, scope: Scope, who: Seat, card: ActionCard) -> Option<bool> {
     let rival = |keep: &dyn Fn(&crate::state::Player) -> bool| core.players().iter().any(|p| p.seat != who && keep(p));
@@ -80,12 +79,18 @@ pub fn has_legal_target(core: &CoreState, blanked: bool, scope: Scope, who: Seat
                 .iter()
                 .any(|p| p.owner() == who && scope.unit(p.kind()).is_none_or(|d| d.ship && d.base_type != UnitBaseType::Fighter))
         })),
-        C::UnstablePlanet
-        | C::Uprising
-        | C::SeizeArtifact
-        | C::RiseOfAMessiah
-        | C::FrontlineDeployment
-        | C::WarEffort => None,
+        C::Uprising => Some(planets().any(|(system, _, cell)| cell.control.is_some_and(|owner| owner != who) && !is_home_system(scope, system))),
+        C::RiseOfAMessiah | C::FrontlineDeployment => Some(!board::controlled_planets(core, who).is_empty()),
+        C::WarEffort => Some(System::ALL.iter().any(|&system| {
+            board::space_units(core, system).iter().any(|p| p.owner() == who && scope.unit(p.kind()).is_some_and(|d| d.ship))
+        })),
+        C::UnstablePlanet => Some(core.board().planets().any(|(planet, cell)| {
+            let data = planet.data();
+            cell.flags.has(crate::state::PlanetFlags::UNITS_ENTRY)
+                && scope.0 & crate::tables::source_bit(data.source) != 0
+                && data.traits.contains(&crate::generated::PlanetTrait::Hazardous)
+        })),
+        C::SeizeArtifact => None,
         _ => Some(true),
     }
 }
@@ -565,16 +570,11 @@ mod tests {
         let who = Seat::from_index(0).unwrap();
         let all = Scope(u32::MAX);
         for card in [
-            ActionCard::Uprising,
             ActionCard::SeizeArtifact,
-            ActionCard::RiseOfAMessiah,
-            ActionCard::FrontlineDeployment,
-            ActionCard::WarEffort,
-            ActionCard::UnstablePlanet,
         ] {
             assert_eq!(has_legal_target(&core, false, all, who, card), None, "{card:?}");
         }
-        for card in [ActionCard::ReactorMeltdown, ActionCard::CrippleDefenses, ActionCard::LuckyShot, ActionCard::Plague, ActionCard::TacticalBombardment, ActionCard::Scuttle] {
+        for card in [ActionCard::Uprising, ActionCard::RiseOfAMessiah, ActionCard::FrontlineDeployment, ActionCard::WarEffort, ActionCard::UnstablePlanet, ActionCard::ReactorMeltdown, ActionCard::CrippleDefenses, ActionCard::LuckyShot, ActionCard::Plague, ActionCard::TacticalBombardment, ActionCard::Scuttle] {
             assert_eq!(has_legal_target(&core, false, all, who, card), Some(false), "{card:?}: an empty board has no target");
         }
         for card in [

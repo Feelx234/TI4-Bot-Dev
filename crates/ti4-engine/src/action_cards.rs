@@ -8355,7 +8355,19 @@ mod tests {
             }
             let _ = crate::dual::take_report();
             let mut yes = Vec::new();
-            for card in [ActionCard::Plague, ActionCard::CrippleDefenses, ActionCard::ReactorMeltdown, ActionCard::LuckyShot, ActionCard::TacticalBombardment, ActionCard::Scuttle] {
+            for card in [
+                ActionCard::Plague,
+                ActionCard::CrippleDefenses,
+                ActionCard::ReactorMeltdown,
+                ActionCard::LuckyShot,
+                ActionCard::TacticalBombardment,
+                ActionCard::Scuttle,
+                ActionCard::Uprising,
+                ActionCard::RiseOfAMessiah,
+                ActionCard::FrontlineDeployment,
+                ActionCard::WarEffort,
+                ActionCard::UnstablePlanet,
+            ] {
                 let got = with_mask(mask, || {
                     has_legal_target_text_dual(&state, &a, &ActionCardId::new(card.as_str()))
                 });
@@ -8367,12 +8379,46 @@ mod tests {
             assert!(report.differences.is_empty(), "scene {scene}: {:?}", report.differences.first());
             let want: &[ActionCard] = match scene {
                 0 => &[],
-                1 => &[ActionCard::Plague, ActionCard::TacticalBombardment, ActionCard::Scuttle],
-                2 => &[ActionCard::CrippleDefenses, ActionCard::LuckyShot],
-                _ => &[ActionCard::ReactorMeltdown, ActionCard::LuckyShot],
+                1 => &[ActionCard::Plague, ActionCard::TacticalBombardment, ActionCard::Scuttle, ActionCard::Uprising, ActionCard::WarEffort],
+                2 => &[ActionCard::CrippleDefenses, ActionCard::LuckyShot, ActionCard::RiseOfAMessiah, ActionCard::FrontlineDeployment],
+                _ => &[ActionCard::ReactorMeltdown, ActionCard::LuckyShot, ActionCard::RiseOfAMessiah, ActionCard::FrontlineDeployment],
             };
             assert_eq!(yes, want, "scene {scene}");
         }
+    }
+
+    #[test]
+    #[cfg(feature = "typed-core")]
+    fn unstable_planet_needs_a_hazardous_planet_with_a_unit_entry_even_an_empty_one() {
+        use crate::dual::{AreaMask, Backend, with_mask};
+        use crate::generated::IdStr;
+        use ti4_engine_core::generated::{Planet, PlanetTrait, Source};
+        let mask = AreaMask::all(Backend::String).with(crate::dual::Area::ActionCards, Backend::Dual);
+        let a = PlayerId::new("a");
+        let planet = Planet::ALL
+            .iter()
+            .copied()
+            .find(|p| {
+                let d = p.data();
+                d.traits.contains(&PlanetTrait::Hazardous) && d.system.is_some() && d.source == Source::Base
+            })
+            .expect("a base hazardous planet");
+        let _ = crate::dual::take_report();
+        for entry in [false, true] {
+            let mut state = crate::fixtures::game(&["a", "b"]);
+            for (seat, faction) in state.players.iter_mut().zip(["arborec", "hacan"]) {
+                seat.faction = ti4_model::id::FactionId::new(faction);
+            }
+            state.promissory_notes.clear();
+            if entry {
+                let sys = ti4_model::id::SystemId::new(planet.data().system.unwrap().as_str());
+                state.system_mut(&sys).planet_units.insert(ti4_model::id::PlanetId::new(planet.as_str()), Vec::new());
+            }
+            let got = with_mask(mask, || has_legal_target_text_dual(&state, &a, &ActionCardId::new("unstable")));
+            assert_eq!(got, entry, "an empty entry counts");
+        }
+        let report = crate::dual::take_report();
+        assert!(report.differences.is_empty(), "{:?}", report.differences.first());
     }
 
     #[cfg(feature = "typed-core")]
