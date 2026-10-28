@@ -539,7 +539,20 @@ impl fmt::Display for DualReport {
 static REPORT: Mutex<Option<DualReport>> = Mutex::new(None);
 static FAIL_FAST: AtomicBool = AtomicBool::new(false);
 
+/// The thread of the test that holds the report (`tests::serial`): while it runs, the other threads of the test
+/// process (a global `TI4_AREAS` makes every test a dual run) count into a report nobody reads, so the counts a
+/// window test asserts are its own.
+#[cfg(test)]
+static FOCUS: Mutex<Option<std::thread::ThreadId>> = Mutex::new(None);
+
 fn with_report<T>(body: impl FnOnce(&mut DualReport) -> T) -> T {
+    #[cfg(test)]
+    {
+        let focus = *FOCUS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if focus.is_some_and(|t| t != std::thread::current().id()) {
+            return body(&mut DualReport::default());
+        }
+    }
     let mut guard = REPORT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     body(guard.get_or_insert_with(DualReport::default))
 }
@@ -1282,6 +1295,7 @@ pub(crate) mod tests {
     impl Drop for Serial {
         fn drop(&mut self) {
             set_fail_fast(self.1);
+            *FOCUS.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
         }
     }
 
@@ -1289,6 +1303,7 @@ pub(crate) mod tests {
         let guard = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let before = fail_fast();
         set_fail_fast(false);
+        *FOCUS.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(std::thread::current().id());
         Serial(guard, before)
     }
 

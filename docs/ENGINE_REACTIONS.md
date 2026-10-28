@@ -112,3 +112,72 @@ The port only has to give each `Spec` the same three flags and registration posi
 The reaction-card slot (`reaction:`) needs `playable_now` (hand, window table, `reaction_can_matter`, may-play bars)
 and the whole action-card effect set (B6, not merged). It is registered in no core table; a window where it is
 eligible bails with its id. The same holds for every ability not yet ported.
+
+## 3. How a nested window is followed (what is built)
+
+Core (`ti4-engine-core`):
+
+* `kernel/ability.rs` (new, L3): `Slot`, `Applies`, `Spec` (registry row and behaviour in one value), `AbilityTable`
+  (`registry`, `knows`, `bars`, `codes`), `RulesHost` (the resolver's `Host`: conditions, effects, picks through the
+  tape), `Eff` (state, kernel, `ask`, `roll`, `die`, `emit`, `cancel`), `CondCx` (a condition's inputs, `unknown`),
+  `NestedFacts`, `Tape` (now carries the facts of the first dry question and the `unknown` flag).
+* `driver`: `Driver::nested_facts()` (what the nested question was asked about), `Driver::unknown()` (a condition
+  the core could not answer). A dry tape now answers with the *decline* when the question has one: a repeatable,
+  unlimited ability (the reaction-card slot) picked again and again would otherwise never end the window.
+* `rules/reactions/` (new): the generic abilities registered for every seat: `infantry_ii` (the roll; the
+  return at TURN_BEGAN places units and stays string).
+* `rules/action_cards/reaction_slot.rs` (new, in B6's area): the standing reaction-card slot, one `Spec` per printed
+  window (`SLOT_BASE + index` over `windows()`), `playable` (hand, salvage yard, reaction modes, the printed window
+  and its guard, 22.3 `reaction_can_matter`, the bars). `eligibility_only`: the offer and a decline are followed, a
+  play is not.
+* `ti4-engine-core-factions/src/cb_economy/cabal/timing.rs` (new): Reanimator, Devour (ships, ground forces), The
+  Terror Between (ships, ground forces) and the four participation marks, `Applies::Faction(Cabal)`.
+* `state::RollPurpose::Ability(slot)`: the ledger row of a die an ability rolled.
+
+String side (`ti4-engine`):
+
+* `reactions_core.rs` (new): the table of the adapter (`table()`), the mapping between registered ids and slots
+  (`slot_of`, `id_text`), `Recording::unported`, `follow` (the core resolver configured as the string one: phase,
+  order, speaker, counters, used keys) and `Follow::arm` (the registry built natively from the table).
+* `dual_window.rs`: `Recording` records the whole nested activity (questions with `nested`, effects, eligible
+  abilities, dice rolled by abilities, whether it is *foreign* to every ability, the resolver configuration and the
+  first trace id). `drive_with` arms the core resolver, answers nested questions from the recording in order,
+  completes their display facts (`complete_nested`: trigger, `active` detail, battle/invasion position, the card
+  slot's label and payload) and compares the dice abilities rolled (`nested.ability_dice`). `nested_check` bails
+  under the window's own label and with the reason. All 24 `script.nested` bails are gone; the footprint of every
+  window grows by what the abilities touch (`nested_fp`).
+* `timing.rs`: `EffectGuard`, `PickGuard`, `note_eligible` feed the recording; `core_cfg`.
+* `dual.rs`: `DualReport.nested` (the census, printed with `TI4_NESTED_LOG=1`).
+
+### 3.1 When a nested window still bails
+
+A window bails (counted under its own label, reason `nested (...)`) when the string run:
+
+1. found an ability eligible that the table lacks: `unported ability <kind>:*:<card>:<EVENT>:<rel>` (the id names the next
+   port);
+2. ran the effect of an `eligibility_only` ability (a reaction card was played);
+3. did something nested that no ability explains (`nested outside an ability`: a question or an event inside an
+   emission outside every effect and every pick);
+4. has no resolver configuration (`nested activity without a resolver`);
+5. reached a condition the core cannot answer (`Unknown`: Yssaril Transparasteel Plating, Bribery's goods, a card
+   cost the core does not judge, Harness Energy / Infiltrate);
+6. rolled dice in an ability in a window that is lent no stream (the lend fails and the window bails silently).
+
+Each has a unit test (`reactions_core::tests`). An ability whose condition failed never bails a window.
+
+## 4. Ported abilities
+
+| slot | string id (`*` = the owner's faction) | notes |
+|---|---|---|
+| 1 | `technology:*:inf2:GROUND_FORCE_DESTROYED:after` | rolls a die from the dice stream, `Inf2Card` mark; the return at TURN_BEGAN is string |
+| 100+i | `reaction:*:<EVENT>:<rel>` (one per printed window) | eligibility and offer only |
+| 3001 | `unit:*:cabal_mech:GROUND_FORCE_DESTROYED:after` | Reanimator |
+| 3002 / 3003 | `ability:*:devour:SHIP_DESTROYED:after` / `...GROUND_FORCE_DESTROYED:after` | Devour |
+| 3004 / 3005 | `unit:*:cabal_flagship:SHIP_DESTROYED:after` / `...GROUND_FORCE_DESTROYED:after` | The Terror Between (a Cabal seat; the Nekro-carried text stays string) |
+| 3006-3009 | `ability:*:devour_mark` / `devour_clear` on SPACE/GROUND_COMBAT_STARTED/ENDED | participation marks |
+
+Not ported (designed, not done in this package): Instinct Training and I48S (the two other S8 slots: `Spec`s with an
+`Ask::Reaction` variant each, `Unknown` for a Nekro-carried card), the tier-W faction offers (Keleres/Winnu agent, Hacan
+hero, payment-window agent, Argent agent redirect: they are `Stage::Offering` points of B3's production window, not
+reaction windows, and need the production dual to follow nested activity as `drive_with` now does for the others),
+and every other registered ability (about 270; the census names them by frequency).

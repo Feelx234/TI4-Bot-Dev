@@ -449,6 +449,12 @@ pub fn drive_with<W: Window>(
                 complete(&choice, core, &mut rendered);
                 if let Some(facts) = driver.nested_facts() {
                     complete_nested(r, &choice, facts, gs, core, kernel, &mut rendered);
+                    // The previews of a reaction window ("what each single-card slot would do now") are display facts
+                    // the string builds from its position (`reaction_preview`); the core renders none, so they are the
+                    // recorded question's own (the same convention as the option previews, B1g-10).
+                    if let (Some(ctx), Some(recorded)) = (rendered.context.as_mut(), script.questions.get(out.questions.len() - 1)) {
+                        ctx.previews = recorded.choice.context.as_ref().map(|c| c.previews.clone()).unwrap_or_default();
+                    }
                 }
                 out.rendered.push(rendered);
                 let Some(id) = script.questions.get(out.questions.len() - 1).and_then(|q| q.answer.clone()) else {

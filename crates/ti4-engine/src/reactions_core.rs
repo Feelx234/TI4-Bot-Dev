@@ -208,3 +208,125 @@ impl Follow {
         self.resolver.register(defs);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dual::{report, take_report};
+
+    fn rec(eligible: &[&str], effects: &[&str]) -> Recording {
+        let mut r = Recording::default();
+        r.nested = true;
+        r.eligible = eligible.iter().map(|s| (*s).to_owned()).collect();
+        r.effects = effects.iter().map(|s| (*s).to_owned()).collect();
+        r
+    }
+
+    #[test]
+    fn every_ported_id_maps_to_its_slot_and_back() {
+        let t = table();
+        for n in NAMED {
+            let spec = t.of_slot(n.slot).expect("a named slot is in the table");
+            let id = id_text(&Render::new(Vec::new()), spec, "hacan");
+            assert_eq!(slot_of(&id), Some(n.slot), "{id}");
+        }
+        let w = ti4_engine_core::rules::action_cards::reaction_slot::windows();
+        for (i, _) in w.iter().enumerate() {
+            let slot = Slot(ti4_engine_core::rules::action_cards::reaction_slot::SLOT_BASE + u16::try_from(i).unwrap());
+            let id = id_text(&Render::new(Vec::new()), t.of_slot(slot).unwrap(), "sol");
+            assert_eq!(slot_of(&id), Some(slot), "{id}");
+        }
+        assert_eq!(slot_of("leader:sol:solagent:GROUND_COMBAT_ROUND_STARTED:after"), None);
+        assert_eq!(slot_of("technology:hacan:inf2:SHIP_DESTROYED:after"), None, "the event is part of the identity");
+    }
+
+    #[test]
+    fn bail_an_eligible_ability_the_table_lacks_is_named() {
+        let t = table();
+        let why = rec(&["leader:sol:solagent:GROUND_COMBAT_ROUND_STARTED:after"], &[]).unported(&t);
+        assert_eq!(why.as_deref(), Some("unported ability leader:*:solagent:GROUND_COMBAT_ROUND_STARTED:after"));
+        assert_eq!(rec(&["technology:hacan:inf2:GROUND_FORCE_DESTROYED:after"], &["technology:hacan:inf2:GROUND_FORCE_DESTROYED:after"]).unported(&t), None);
+    }
+
+    #[test]
+    fn bail_a_declined_reaction_slot_is_followed_and_a_played_one_is_not() {
+        let t = table();
+        let id = "reaction:hacan:HITS_TO_ASSIGN:when";
+        assert!(slot_of(id).is_some());
+        assert_eq!(rec(&[id], &[]).unported(&t), None, "offered and declined");
+        assert_eq!(rec(&[id], &[id]).unported(&t).as_deref(), Some("unported ability reaction:*:HITS_TO_ASSIGN:when"), "a card was played");
+    }
+
+    #[test]
+    fn bail_nested_activity_outside_every_ability() {
+        let mut r = rec(&[], &[]);
+        r.foreign = true;
+        assert_eq!(r.unported(&table()).as_deref(), Some("nested outside an ability"));
+    }
+
+    #[test]
+    fn bail_nested_activity_without_a_resolver_is_counted_under_the_label() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let r = rec(&[], &[]);
+        assert!(crate::dual_window::nested_check(&r).is_none());
+        let counted = report().windows.keys().any(|k| k.contains("nested (nested activity without a resolver)"));
+        let _ = take_report();
+        assert!(counted);
+    }
+
+    #[test]
+    fn the_native_registry_equals_the_string_one_for_the_ported_abilities() {
+        use crate::core_sync::{with_core, Footprint, Sources};
+        use ti4_engine_core::state::Slice;
+        let content = ti4_content::ContentStore::embedded();
+        let _ = content;
+        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")]] {
+            let mut gs = crate::fixtures::seated_game(&factions, ti4_model::content_types::POK);
+            gs.promissory_notes.clear();
+            gs.promissory_faceup.clear();
+            let resolver = crate::fixtures::armed_resolver(&gs);
+            let view = resolver.kernel_view();
+            let want: Vec<(String, String, String, bool, bool, bool, bool)> = view
+                .abilities
+                .iter()
+                .filter(|a| slot_of(&a.id).is_some())
+                .map(|a| (a.id.clone(), a.owner.clone(), a.event.clone(), a.when, a.optional, a.repeatable, a.has_condition))
+                .collect();
+            let (mut cx, r) = crate::dual_window::tables(&gs).unwrap();
+            let before = gs.clone();
+            let mut fol = Follow { table: table(), resolver: Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))) };
+            let mut got = Vec::new();
+            let fp = Footprint::reads(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Cards]);
+            with_core(&mut gs, &mut cx, Sources::default(), fp, |core, _| {
+                let order: Vec<Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(Seat)).collect();
+                fol.arm(&r, &before, core);
+                let defs = fol.table.registry(core, &order, &mut |spec, who| {
+                    ability_id(&r, &id_text(&r, spec, &crate::promissory::faction_name(&before, &ti4_model::id::PlayerId::new(r.seat_text(who)))))
+                });
+                for d in defs {
+                    got.push((
+                        crate::kernel_sync::text::ability_text(&r, d.id),
+                        r.seat_text(d.owner).to_owned(),
+                        event_text(&r, d.event),
+                        d.relation == ti4_engine_core::choice::reaction::Relation::When,
+                        d.optional,
+                        d.repeatable,
+                        d.has_condition,
+                    ));
+                }
+            })
+            .unwrap();
+            // The string registers per seat in seat order; the order that matters is each owner's.
+            for owner in ["a", "b"] {
+                // Between windows the order is not observable (a bucket is one window): compare bucket by bucket,
+                // each bucket in registration order (the sort is stable).
+                let mut w: Vec<_> = want.iter().filter(|x| x.1 == owner).cloned().collect();
+                let mut g: Vec<_> = got.iter().filter(|x| x.1 == owner).cloned().collect();
+                w.sort_by(|a, b| (a.2.as_str(), a.3).cmp(&(b.2.as_str(), b.3)));
+                g.sort_by(|a, b| (a.2.as_str(), a.3).cmp(&(b.2.as_str(), b.3)));
+                assert_eq!(g, w, "{factions:?} owner {owner}");
+            }
+        }
+    }
+}
