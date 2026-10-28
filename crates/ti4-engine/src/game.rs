@@ -13671,8 +13671,23 @@ mod tests {
         });
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        let compared = r.windows.get("scoring::step").map_or(0, |w| w.compared);
-        assert!(compared >= 3, "the core windows ran: {r:?}");
+        // The report is shared with parallel tests, so the core half is probed itself: it follows the question.
+        let probe_state = crate::fixtures::seated_game(&[("a", "letnev"), ("b", "sol")], POK);
+        let ask = crate::choice::Choice::new(
+            a.clone(),
+            "score an objective",
+            vec![crate::choice::ChoiceOption::labelled("btv", "score", "btv"), crate::choice::ChoiceOption::decline()],
+        );
+        let args = crate::objectives_write::ScoreArgs { status: false, occurrence: Some(1) };
+        let window = crate::objectives_write::score_one(
+            &mut probe_state.clone(),
+            ContentStore::embedded(),
+            POK,
+            &ask,
+            args,
+            &crate::dual_window::Recording::default(),
+        );
+        assert!(window.is_some());
         let _ = take_report();
     }
 

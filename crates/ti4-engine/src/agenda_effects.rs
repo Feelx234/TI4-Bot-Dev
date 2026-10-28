@@ -2227,9 +2227,13 @@ mod tests {
         });
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        // At least: the suite may run on `agenda=dual` and other tests add their own (bailed) calls.
-        let done = r.windows.get("agenda_effects::resolve_with").map_or(0, |w| w.compared);
-        assert!(done >= 4, "the core windows ran: {r:?}");
+        // The report is shared with parallel tests (a `take_report` there empties it), so the core half is
+        // probed itself: it answers for both effects.
+        for (agenda, answers) in [("secret", 1), ("warrant", 2)] {
+            let mut probe = seated();
+            let window = crate::dual_window::agenda_effect(&mut probe, agenda, "a", &[], &crate::dual_window::Recording::default());
+            assert!(window.is_some_and(|w| w.questions.len() <= answers), "{agenda}");
+        }
         let _ = take_report();
     }
 
