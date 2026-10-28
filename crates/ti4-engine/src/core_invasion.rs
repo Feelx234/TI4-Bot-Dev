@@ -46,7 +46,7 @@ impl<'g> InvasionView<'g> {
         let mut cx = Ctx::of(gs).ok()?;
         let view = CoreView::of(gs, &mut cx, Sources { galaxy: None, rng: None }, READS).ok()?;
         let mut env = window_env(gs, &cx, sources)?;
-        register_ground_bridge(&mut env.kernel.hooks);
+        register_ground_slots(&mut env.kernel.hooks);
         Some(Self { _position: std::marker::PhantomData, view, cx, env, blanked: crate::laws::blanked(gs) })
     }
 
@@ -253,21 +253,15 @@ impl InvasionView<'_> {
     }
 }
 
-/// The ground hook slots answered by the string faction modules (`factions::hooks_ground`), through the oracle of
-/// the combat bridge. Dies with the faction modules (package C shards).
-fn register_ground_bridge(h: &mut ti4_engine_core::kernel::hooks::HookTable) {
+/// The ground hook slots of the faction packages (`ti4_engine_core_factions`), taken from a table of their own
+/// so the seam providers the combat kernel carries are not registered twice. Only the Naalu Matriarch's
+/// `temporary_ground_force` is still answered by the string module (through the oracle of the combat bridge);
+/// it dies with its shard.
+fn register_ground_slots(h: &mut ti4_engine_core::kernel::hooks::HookTable) {
     use crate::core_combat::with_oracle;
-    use ti4_engine_core::kernel::hooks::CombatCtx;
-    h.ground.may_sustain.push(|_, _, unit| {
-        with_oracle(|o| {
-            o.with_unit(unit, |cu| {
-                let cu = crate::factions::CombatUnit { context: if unit.ctx == CombatCtx::Space { "space" } else { "ground" }, ..*cu };
-                crate::factions::hooks_ground::may_sustain(&o.gs, ContentStore::embedded(), o.sources, &cu)
-            })
-        })
-        .flatten()
-        .unwrap_or(true)
-    });
+    let mut native = ti4_engine_core::kernel::hooks::HookTable::new();
+    ti4_engine_core_factions::register_all(&mut native);
+    h.ground = native.ground;
     h.ground.temporary_ground_force.push(|_, _, who, system, planet, piece| {
         with_oracle(|o| {
             let (player, unit) = (o.player(who)?, StrUnit {
@@ -289,15 +283,12 @@ fn register_ground_bridge(h: &mut ti4_engine_core::kernel::hooks::HookTable) {
         .flatten()
         .unwrap_or(false)
     });
-    h.ground.custodians_free.push(|_, _, who| {
-        with_oracle(|o| Some(crate::factions::hooks_ground::custodians_free(&o.gs, ContentStore::embedded(), &o.player(who)?))).flatten().unwrap_or(false)
-    });
 }
 
 /// [`window_env`] with the ground hook slots of the string faction modules (for the invasion windows).
 #[must_use]
 pub fn ground_env(gs: &GameState, cx: &Ctx, sources: SourceSet) -> Option<WindowEnv> {
     let mut env = window_env(gs, cx, sources)?;
-    register_ground_bridge(&mut env.kernel.hooks);
+    register_ground_slots(&mut env.kernel.hooks);
     Some(env)
 }
