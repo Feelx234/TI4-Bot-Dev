@@ -85,6 +85,12 @@ impl Render {
         Code(u16::try_from(i).expect("fewer than 65536 distinct codes"))
     }
 
+    /// The code of a text already interned, without interning it.
+    #[must_use]
+    pub fn find_code(&self, text: &str) -> Option<Code> {
+        self.codes.borrow().iter().position(|c| c == text).and_then(|i| u16::try_from(i).ok()).map(Code)
+    }
+
     #[must_use]
     pub fn code_text(&self, code: Code) -> String {
         self.codes.borrow()[usize::from(code.0)].clone()
@@ -151,7 +157,7 @@ macro_rules! uninhabited {
     )*};
 }
 uninhabited!(
-    tactical, technology, objectives, tokens, reaction, combat, invasion, production, trade, diplomacy, explore,
+    tactical, technology, objectives, tokens, combat, invasion, production, trade, diplomacy, explore,
     relic, legendary, promissory, cards, leaders, strategy, agenda
 );
 
@@ -243,7 +249,7 @@ registry! {
     Technology => unported!(technology),
     Objectives => unported!(objectives),
     Tokens => unported!(tokens),
-    Reaction => unported!(reaction),
+    Reaction => reaction::Fam,
     Combat => unported!(combat),
     Invasion => unported!(invasion),
     Production => unported!(production),

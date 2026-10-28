@@ -359,6 +359,34 @@ fn every_family_is_in_the_corpus() {
     );
 }
 
+/// Covert Legislation (rules version >= 33) is voted on the outcomes of the face-down agenda
+/// (`vote::voted_agenda`): its row must accept every elected kind, not only for / against.
+#[test]
+fn hidden_next_agenda_outcomes_are_any_kind() {
+    use ti4_engine_core::generated::AgendaElects;
+    let codec = codec();
+    assert!(codec.parse_outcome("for", Some(AgendaElects::HiddenNextAgenda)).is_some());
+    let law = Agenda::ALL[0].as_str();
+    assert!(codec.parse_outcome(law, Some(AgendaElects::HiddenNextAgenda)).is_some());
+    assert!(codec.parse_outcome(law, Some(AgendaElects::ForAgainst)).is_none());
+}
+
+/// `agenda_predictions` values (not in the dump's corpus; the gate over the golden games sees them).
+#[test]
+fn predictions_round_trip() {
+    let codec = codec();
+    for text in [
+        "for", "against", "for|tech_rider", "against|trade_rider", "for|keleres_rider", "for|sanction",
+        "none|assassin", "none|political_secret",
+    ] {
+        let p = codec.parse_prediction(text).unwrap_or_else(|| panic!("{text}"));
+        assert_eq!(codec.render_prediction(p).as_deref(), Some(text));
+    }
+    for text in ["none", "none|x", "for|x", "FOR|lead_rider", "|"] {
+        assert!(codec.parse_prediction(text).is_none(), "{text}");
+    }
+}
+
 #[test]
 fn observed_outcomes_round_trip() {
     let codec = codec();

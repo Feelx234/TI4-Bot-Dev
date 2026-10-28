@@ -11,6 +11,7 @@ mod agenda;
 mod board;
 mod cards;
 mod decks;
+mod event;
 mod explore;
 mod ledger;
 mod map;
@@ -27,14 +28,15 @@ mod strategy;
 mod trade;
 mod transient;
 
-pub use agenda::{AgendaCastRec, AgendaRec, AgendaState, Outcome};
+pub use agenda::{AgendaCastRec, AgendaRec, AgendaState, Outcome, Prediction};
 pub use board::{Board, PlanetCell, PlanetFlags, SysCell, SysFlags, UnitList};
 pub use cards::{CardRef, CardZones, DeckReserve, DeckSegment, NoteKey, NoteMap, RESERVE_IDLE, RESERVE_LIVE, RESERVE_OPEN, ReserveDeck, ReservedDraw};
 pub use decks::Decks;
+pub use event::{Key, Payload, Tally, Val};
 pub use explore::{Expedition, ExploreRec, ExploreState};
 pub use ledger::{EventKind, EventRec, Ledger, LedgerReason, RelicRec, RollPurpose, RollRec, VpRec};
 pub use map::MapSlice;
-pub use marks::{MarkFamily, MarkKey, MarkVal, Marks};
+pub use marks::{Family, MarkKey, MarkMap, MarkVal, Marks};
 pub use meta::{Meta, MetaFlags, Phase};
 pub use objectives::{ObjectiveRef, ObjectiveSet, Objectives};
 pub use pending::{DriverFlags, Pending, PendingAsk, PendingTag, Window, WindowKind};
@@ -248,7 +250,7 @@ mod tests {
     #[test]
     fn clone_shares_players_board_logs_and_rng() {
         let mut a = state();
-        a.ledger.events.extend((0..70).map(|id| EventRec { id, kind: EventKind(1), args: [0; 3], cancelled: false }));
+        a.ledger.events.extend((0..70).map(|id| EventRec { id, kind: EventKind::TurnBegan, payload: Payload::new(), cancelled: false }));
         let b = a.clone();
         assert_eq!(a.players.shared_with(&b.players), 6);
         assert_eq!(a.board.shared_chunks(&b.board), 25);
