@@ -709,11 +709,29 @@ pub fn audit(gs: &GameState, sources: SourceSet) {
     }
     audit_hook_order(HookGroup::Seam, "hit_shift", table, |t| {
         let k = kernel(t);
-        sites.iter().map(|site| t.seam.hit_shift.eval(Q::new(s, &k), site, 0, Clamp::None)).collect::<Vec<_>>()
+        // The value and the parts as a multiset: the parts list is display order, not part of the number.
+        sites
+            .iter()
+            .map(|site| {
+                let e = t.seam.hit_shift.eval(Q::new(s, &k), site, 0, Clamp::None);
+                let mut parts: Vec<String> = e.parts.as_slice().iter().map(|p| format!("{p:?}")).collect();
+                parts.sort();
+                (e.value, parts)
+            })
+            .collect::<Vec<_>>()
     });
     audit_hook_order(HookGroup::Seam, "dice", table, |t| {
         let k = kernel(t);
-        sites.iter().map(|site| t.seam.dice.eval(Q::new(s, &k), site, 1, Clamp::None)).collect::<Vec<_>>()
+        // The value and the parts as a multiset: the parts list is display order, not part of the number.
+        sites
+            .iter()
+            .map(|site| {
+                let e = t.seam.dice.eval(Q::new(s, &k), site, 1, Clamp::None);
+                let mut parts: Vec<String> = e.parts.as_slice().iter().map(|p| format!("{p:?}")).collect();
+                parts.sort();
+                (e.value, parts)
+            })
+            .collect::<Vec<_>>()
     });
     let some_system = systems.first().copied().or_else(|| planets.first().map(|(sys, _)| *sys)).unwrap_or_else(|| ti4_engine_core::ids::system_at(0));
     audit_hook_order(HookGroup::Economy, "explore_extra_draw", table, |t| {

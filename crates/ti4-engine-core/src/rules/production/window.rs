@@ -22,7 +22,8 @@ use crate::query::economy::Spend;
 use crate::query::{fleet, reach};
 use crate::rules::production as rules;
 use super::{Cx, Extras, Spot};
-use crate::state::{CoreState, EventKind, Payload};
+use crate::generated::Leader;
+use crate::state::{CoreState, EventKind, LeaderStatus, Payload};
 use crate::state::{Key, Val};
 use crate::tables::Scope;
 
@@ -58,6 +59,10 @@ pub struct ProductionWindow {
     pub produced: SmallList<(Unit, Spot), 12>,
     pub purchased: bool,
     pub placement_timing_done: bool,
+    /// The rules version offers Berekar Berekon inside the production question.
+    pub agent_rules: bool,
+    /// Berekar Berekon was exhausted in this use.
+    pub agent_spent: bool,
     /// The caller has a timing handle: the ground-force production window is announced.
     pub emit_timing: bool,
 }
@@ -101,8 +106,8 @@ impl ProductionWindow {
         PlaceAsk { who: self.who, system: self.system, unit, made, fleet_limit: self.fleet_limit }
     }
 
-    fn ctx(&self, rule: Rule, subtype: PSub, outstanding: SmallList<Owed, 4>) -> Ctx {
-        Ctx {
+    fn ctx(&self, s: &CoreState, rule: Rule, subtype: PSub, outstanding: SmallList<Owed, 4>) -> Ctx {
+        let mut ctx = Ctx {
             origin: Origin::Rule(rule),
             subtype: Subtype::Production(subtype),
             optional: false,
@@ -110,7 +115,18 @@ impl ProductionWindow {
             outstanding,
             space_battle: false,
             invasion_seq: None,
-        }
+        };
+        rules::enrich_ctx(s, &mut ctx);
+        ctx
+    }
+
+    /// Berekar Berekon (Winnu agent) may be offered inside the production question.
+    fn agent_offerable(&self, s: &CoreState) -> bool {
+        self.agent_rules && !self.purchased && !self.agent_spent && !self.free_this_use && Self::agent_ready(s, self.who)
+    }
+
+    fn agent_ready(s: &CoreState, who: Seat) -> bool {
+        s.players().by_seat(who).is_some_and(|p| p.leaders.status.get(&Leader::BerekarBerekon) == Some(&LeaderStatus::Readied))
     }
 
     /// The question of the current stage, if it asks one.
@@ -124,13 +140,23 @@ impl ProductionWindow {
                 }
                 let ask = self.choose_ask();
                 let mut opts: Opts = rules::build_opts(&cx, self.who, &ask, &Extras::default()).as_slice().iter().map(|o| Opt::Production(*o)).collect();
+                if self.agent_offerable(s) && (self.remaining > 0 || self.small_exemptions > 0) {
+                    let reaches = opts.len() > 0 || {
+                        let mut probe = ask;
+                        probe.discount_remaining += 2;
+                        !rules::build_opts(&cx, self.who, &probe, &Extras::default()).as_slice().is_empty()
+                    };
+                    if reaches {
+                        opts.push(Opt::Production(POpt::Agent));
+                    }
+                }
                 if opts.len() == 0 {
                     return None;
                 }
                 opts.push(Opt::Production(POpt::Stop));
                 let mut owed = SmallList::new();
                 owed.push(Owed { kind: OwedKind::ProductionCapacity, amount: i64::from(self.limit), paid: i64::from((self.limit - self.remaining).max(0)) });
-                Some(Choice { actor: self.who, ask: Ask::Production(PAsk::Choose(ask)), ctx: self.ctx(Rule::R68, PSub::Choose, owed), opts })
+                Some(Choice { actor: self.who, ask: Ask::Production(PAsk::Choose(ask)), ctx: self.ctx(s, Rule::R68, PSub::Choose, owed), opts })
             }
             Stage::Paying { owed, cost, paid, .. } => {
                 let (ask, opts) = rules::pay_opts(&cx, self.who, Spend::Resources, 0, i64::from(owed), &Extras::default());
@@ -142,7 +168,7 @@ impl ProductionWindow {
                 Some(Choice {
                     actor: self.who,
                     ask: Ask::Production(PAsk::Pay(ask)),
-                    ctx: self.ctx(Rule::R34_3_75_2_75_3, PSub::Pay(Currency::Resources), out),
+                    ctx: self.ctx(s, Rule::R34_3_75_2_75_3, PSub::Pay(Currency::Resources), out),
                     opts: opts.as_slice().iter().map(|o| Opt::Production(*o)).collect(),
                 })
             }
@@ -159,7 +185,7 @@ impl ProductionWindow {
                 Some(Choice {
                     actor: self.who,
                     ask: Ask::Production(PAsk::Place(ask)),
-                    ctx: self.ctx(Rule::R68, PSub::Place, out),
+                    ctx: self.ctx(s, Rule::R68, PSub::Place, out),
                     opts: opts.as_slice().iter().map(|o| Opt::Production(*o)).collect(),
                 })
             }
@@ -336,6 +362,31 @@ impl Window for ProductionWindow {
                     } else {
                         Stage::Placing { unit, made }
                     };
+                    Ok(())
+                }
+                POpt::Agent => {
+                    if Self::agent_ready(sx.state, self.who) {
+                        if let Some(p) = sx.state.players_mut().by_seat_mut(self.who) {
+                            p.leaders.status.insert(Leader::BerekarBerekon, LeaderStatus::Exhausted);
+                        }
+                        sx.state.transient_mut().production.discount_remaining += 2;
+                        self.discount_remaining += 2;
+                        self.agent_spent = true;
+                    }
+                    Ok(())
+                }
+                POpt::Exchange { unit } => {
+                    let (who, system, kernel) = (self.who, self.system, sx.kernel);
+                    let done = {
+                        let mut cx = sx.cx();
+                        kernel.hooks.economy.production_unit_exchange_performed(&mut cx, who, system, unit)
+                    };
+                    if !done {
+                        self.stage = Stage::Done;
+                        return Ok(());
+                    }
+                    self.purchased = true;
+                    self.stage = Stage::Placing { unit, made: 1 };
                     Ok(())
                 }
                 _ => Err(Illegal),
