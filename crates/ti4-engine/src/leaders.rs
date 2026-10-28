@@ -387,11 +387,18 @@ pub fn check_unlocks(
     player: &PlayerId,
 ) -> Vec<LeaderId> {
     let unlocking = unlockable(state, content, sources, galaxy, player);
-    if let Some(seat) = state.player_mut(player) {
-        for leader in &unlocking {
-            seat.leaders.insert(leader.clone(), LeaderStatus::Unlocked);
-        }
-    }
+    dual_write(
+        state,
+        "leaders::unlock",
+        |s| {
+            if let Some(seat) = s.player_mut(player) {
+                for leader in &unlocking {
+                    seat.leaders.insert(leader.clone(), LeaderStatus::Unlocked);
+                }
+            }
+        },
+        |s| crate::leaders_core::unlock(s, player, &unlocking),
+    );
     unlocking
 }
 
@@ -472,18 +479,26 @@ fn unlockable_text(
 /// could turn an agent face down when it was used and never turn it back — which after a round
 /// or two reads as a player who has run out of agents.
 pub fn ready_all(state: &mut GameState, player: &PlayerId) -> Vec<LeaderId> {
-    let Some(seat) = state.player_mut(player) else {
-        return Vec::new();
-    };
-    let exhausted: Vec<LeaderId> = seat
-        .leaders
-        .iter()
-        .filter(|(_, status)| **status == LeaderStatus::Exhausted)
-        .map(|(leader, _)| leader.clone())
-        .collect();
-    for leader in &exhausted {
-        seat.leaders.insert(leader.clone(), LeaderStatus::Readied);
-    }
+    let exhausted = dual_write(
+        state,
+        "leaders::ready_all",
+        |s| {
+            let Some(seat) = s.player_mut(player) else {
+                return Vec::new();
+            };
+            let exhausted: Vec<LeaderId> = seat
+                .leaders
+                .iter()
+                .filter(|(_, status)| **status == LeaderStatus::Exhausted)
+                .map(|(leader, _)| leader.clone())
+                .collect();
+            for leader in &exhausted {
+                seat.leaders.insert(leader.clone(), LeaderStatus::Readied);
+            }
+            exhausted
+        },
+        |s| crate::leaders_core::ready_all(s, player),
+    );
     for leader in &exhausted {
         crate::factions::nomad_agents::agent_readied(state, player, leader);
     }
@@ -495,26 +510,47 @@ pub fn ready_all(state: &mut GameState, player: &PlayerId) -> Vec<LeaderId> {
 /// The status phase readies them all at once; this is for the effects that ready a single card
 /// out of turn, like The Acropolis.
 pub fn ready(state: &mut GameState, player: &PlayerId, leader: &LeaderId) -> bool {
-    let Some(seat) = state.player_mut(player) else {
-        return false;
-    };
-    if seat.leaders.get(leader) != Some(&LeaderStatus::Exhausted) {
-        return false;
+    let done = dual_write(
+        state,
+        "leaders::ready",
+        |s| {
+            let Some(seat) = s.player_mut(player) else {
+                return false;
+            };
+            if seat.leaders.get(leader) != Some(&LeaderStatus::Exhausted) {
+                return false;
+            }
+            seat.leaders.insert(leader.clone(), LeaderStatus::Readied);
+            true
+        },
+        |s| crate::leaders_core::ready(s, player, leader),
+    );
+    if done {
+        crate::factions::nomad_agents::agent_readied(state, player, leader);
     }
-    seat.leaders.insert(leader.clone(), LeaderStatus::Readied);
-    crate::factions::nomad_agents::agent_readied(state, player, leader);
-    true
+    done
 }
 
 /// Exhaust a leader to use it. `false` if it was not readied.
 pub fn exhaust(state: &mut GameState, player: &PlayerId, leader: &LeaderId) -> bool {
-    let Some(seat) = state.player_mut(player) else {
-        return false;
-    };
-    if seat.leaders.get(leader) != Some(&LeaderStatus::Readied) {
+    let done = dual_write(
+        state,
+        "leaders::exhaust",
+        |s| {
+            let Some(seat) = s.player_mut(player) else {
+                return false;
+            };
+            if seat.leaders.get(leader) != Some(&LeaderStatus::Readied) {
+                return false;
+            }
+            seat.leaders.insert(leader.clone(), LeaderStatus::Exhausted);
+            true
+        },
+        |s| crate::leaders_core::exhaust(s, player, leader),
+    );
+    if !done {
         return false;
     }
-    seat.leaders.insert(leader.clone(), LeaderStatus::Exhausted);
     // The Nomad's Temporal Command Suite hears every agent becoming exhausted.
     if crate::factions::nomad::watches_agent_exhaustion(state)
         && kind_of(ContentStore::embedded(), leader).as_deref() == Some(AGENT)
@@ -533,14 +569,41 @@ pub fn exhaust(state: &mut GameState, player: &PlayerId, leader: &LeaderId) -> b
 
 /// Purge a leader, which is permanent — a hero is purged when its ability resolves (51.9).
 pub fn purge(state: &mut GameState, player: &PlayerId, leader: &LeaderId) -> bool {
-    let Some(seat) = state.player_mut(player) else {
-        return false;
-    };
-    if !seat.leaders.contains_key(leader) {
-        return false;
-    }
-    seat.leaders.insert(leader.clone(), LeaderStatus::Purged);
-    true
+    dual_write(
+        state,
+        "leaders::purge",
+        |s| {
+            let Some(seat) = s.player_mut(player) else {
+                return false;
+            };
+            if !seat.leaders.contains_key(leader) {
+                return false;
+            }
+            seat.leaders.insert(leader.clone(), LeaderStatus::Purged);
+            true
+        },
+        |s| crate::leaders_core::purge(s, player, leader),
+    )
+}
+
+/// One status write of this file on both backends: `string` is the original code, `core` the typed
+/// `rules::leaders` write (`None`: the position is outside the tables, the string write runs).
+fn dual_write<R: PartialEq + std::fmt::Debug>(
+    state: &mut GameState,
+    label: &str,
+    string: impl Fn(&mut GameState) -> R,
+    core: impl Fn(&mut GameState) -> Option<R>,
+) -> R {
+    crate::dual!(
+        crate::dual::Area::LeadersAbilities,
+        label,
+        state,
+        |s: &mut GameState| crate::dual::Run::new(string(s)),
+        |s: &mut GameState| match core(s) {
+            Some(r) => crate::dual::Run::new(r),
+            None => crate::dual::Run::new(string(s)),
+        }
+    )
 }
 
 /// Leaders this player could use now: readied agents, and unlocked heroes.
@@ -2403,6 +2466,39 @@ fn l1z1x_copy_activation_plan(
 
 #[cfg(test)]
 mod tests {
+
+    /// The status writes run on the core under `leaders=dual` and agree with the string writes; a leader id
+    /// the tables do not know bails to the string write (the documented bail of `leaders_core`).
+    #[test]
+    fn the_status_writes_run_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual);
+        with_mask(mask, || {
+            let mut state = crate::fixtures::seated_game(&[("a", "letnev"), ("b", "sol")], POK);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            let agent = holding(&mut state, "letnevagent", LeaderStatus::Readied);
+            let hero = holding(&mut state, "letnevhero", LeaderStatus::Locked);
+            let me = player();
+            assert!(!ready(&mut state, &me, &agent));
+            assert!(exhaust(&mut state, &me, &agent));
+            assert!(!exhaust(&mut state, &me, &agent));
+            assert_eq!(ready_all(&mut state, &me), vec![agent.clone()]);
+            assert!(purge(&mut state, &me, &hero));
+            assert!(!purge(&mut state, &me, &LeaderId::new("sunknown")));
+            assert_eq!(status(&state, &me, &hero), Some(LeaderStatus::Purged));
+            // Bail: a leader id outside the tables stays on the string write.
+            let odd = holding(&mut state, "notaleader", LeaderStatus::Readied);
+            assert!(exhaust(&mut state, &me, &odd));
+            assert_eq!(status(&state, &me, &odd), Some(LeaderStatus::Exhausted));
+        });
+        let r = report();
+        assert!(r.total_calls() >= 6, "the core half ran: {r:?}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
 
     /// Give this player a leader in a usable state.
     fn holding(state: &mut GameState, leader: &str, status: LeaderStatus) -> LeaderId {
