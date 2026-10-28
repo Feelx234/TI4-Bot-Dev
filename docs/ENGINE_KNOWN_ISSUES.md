@@ -36,7 +36,12 @@ given are from the package reports.
   - B2-K6 (dead guard): the "seats not in id order" bail in `advance` cannot trigger (Owners are sorted).
 - **Production (B3)**: Bastion and Crimson declined for typed reads; Argent/Yssaril/Nomad cross-seat guard; Naaz mech staging; empty tier-W offers (Keleres/Winnu agent, Hacan hero, payment-window agent, Argent agent redirect); `sling_relay`/`integrated_economy`; supply mutations; `ProductionCounters`/timer split.
 - **Agenda (B9)**: ~28 effects with no core window (event staging, questions, secret deck draw, Regulations Mahact token count, Crisis version-gated); reveal/resolution windows; `laws::offer_discard`.
-- **Action cards (B6)**: 12 cards' legal-target checks bail; rest of B6 not ported.
+- **Action cards (B6)**: reads and ~38 effects ported (branch `core-b6-action-cards`); the rest (about 100 effects that ask questions or need other areas' rules, the play/announce flow, `available_actions`/`perform`, `card_timers` state) not ported.
+  - B6-bail-01: `has_legal_target` answers `None` for Uprising, Seize Artifact, Rise of a Messiah, Frontline Deployment, War Effort and Unstable Planet (neighbours, controlled-spot rules, the string board keeps empty `planet_units` entries). Earlier list also had Reactor Meltdown, Cripple Defenses, Lucky Shot, Plague, Tactical Bombardment, Scuttle: ported since (slice 6). The core reads use `SourceSet::all()` where the string passes the game's sources.
+  - B6-bail-02: `cost_is_payable` answers `None` for Focused Research, Impersonation, Plagiarize, Mercenary Contract, Pirate Fleet, Reveal Prototype (payment, research, neighbour rules).
+  - B6-bail-03: `reaction_can_matter` answers `None` for Harness Energy and Infiltrate.
+  - B6-bail-04: `own_hand_choice` answers `None` for an unknown (subtype, prompt) pair; the string question stands.
+  - B6-bail-05: Industrial Initiative, Intercept, Parley, Direct Hit, Scramble and the other effects that stage events, need a combatants read, a dice roll or a unit-form flip are still string (event staging outside a window has no adapter path yet).
 - **Others**: B4 offer/diplomacy remainder; B5 mutations; B7/B8/A4 mutation halves (B7 in progress); A4 scoring/reveal not ported; S8 partial (only reaction slots as data).
 
 ## D. Design / known issues
@@ -58,6 +63,18 @@ given are from the package reports.
 | B2-K4 | open design: 82 nested-reaction bails in `ground_round_hits` | needs the reaction/ability port |
 | B2-K5 | open design: the `FinalizingControl`/`finish_control_gain` hook chain, the rest of `finish_committing`, the setup/end hooks and the scoring pauses are still string | B5 exploration, technology and the ability port |
 | B2-K8 | bench-v1 seed 25 (`selfplay replay --seed 25 --players 6 --map 6pStandard --factions mentak,yin,nekro,mahact,ghost,letnev --speaker random --rules-version 11 --bot bot_version=1`) differed under `invasion=core` (hash 285d9162e1f792f0 instead of f1347a5256c63ade). Cause: Nekro Mordred's +2 was counted twice, by the native Nekro row and by the combat kernel's string bridge (ground rolled on 2 instead of 4; space combat had the same double count). FIXED on `core-b2-invasion` in d3c9316e (`core_combat.rs` bridge no longer adds it), with a regression test. | `dual` had not flagged it |
+
+## B6 copied behaviour and design lines
+
+| id | note |
+|----|------|
+| B6-copy-01 | Bribery's goods supply comes from the string `supply::potential_goods`, Keleres agent included (core takes it as an argument) |
+| B6-copy-02 | `may_play` takes the Political Secret and Transparasteel bars from the string (laws module) |
+| B6-copy-03 | own-hand options are built by the string from printed names; the core renders what it is given |
+| B6-copy-04 | the `Simple` effects take `mahact_held` (Rally's reinforcement cap) and the sources as arguments from the string side |
+| B6-design-01 | `dual!`/`dual_typed!` panic on a difference only with fail-fast; `with_mask` in a unit test does not enable it, so tests must read `dual::take_report()` |
+| B6-design-02 | the fixture faction "generic" (and fixture promissory notes keyed "generic") is refused by the Players/Cards codec, so the core half silently bails; tests must use real faction ids and assert the core half ran (probe `play_simple(...).is_some()`) |
+| B6-design-03 | `board_equivalence` prints one action-cards summary line with no per-area switch |
 
 ## E. Process / ops notes
 
