@@ -83,5 +83,7 @@ pub enum Content {
     GenericCard(GenericCard),
     Attachment(Attachment),
     ActionCard(ActionCard),
+    /// A step of the exploration area that is no card (`exploration`, `ion_storm`, ...).
+    Step(super::explore::Step),
     Other(Code),
 }

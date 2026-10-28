@@ -353,6 +353,7 @@ pub(crate) fn ask_technology(
     if options.is_empty() {
         return None;
     }
+    let ids: Vec<String> = options.iter().map(|option| option.id.clone()).collect();
     let choice = crate::choice::Choice::new(player.clone(), "gain which technology", options)
         .contextualized(DecisionContext::new(
             player.clone(),
@@ -361,11 +362,24 @@ pub(crate) fn ask_technology(
             state.phase,
             state.round,
         ));
-    let Ok(answer) = table.ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))
-    else {
-        return None;
-    };
-    Some(ti4_model::id::TechnologyId::new(answer.id))
+    // The question is one core window (`rules::relic_windows::GainTechnology`); the research or the gain
+    // behind the answer stays with the caller.
+    let mut copy = state.clone();
+    let answered = crate::dual_window!(
+        crate::dual::Area::ExplorationRelics,
+        "relics::ask_technology",
+        &mut copy,
+        |s: &mut GameState| crate::dual::Run::new(
+            table
+                .ask_seeing(&choice, &Observed::new(s, content, sources, galaxy))
+                .ok()
+                .map(|answer| answer.id)
+        ),
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::explore_write::gain_technology(s, player, source, &ids, script)
+        }
+    );
+    answered.map(ti4_model::id::TechnologyId::new)
 }
 
 /// The Silver Flame: a ten scores, anything else consumes your home system.
@@ -420,6 +434,28 @@ fn the_silver_flame(
 /// Asked one at a time so a shrinking pile is offered honestly, rather than three questions put to
 /// the pile as it stood when the card was played.
 fn codex(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    table: &mut crate::choice::Table,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    player: &PlayerId,
+) {
+    // One core window (`rules::relic_windows::Codex`), lockstep on the `Dual` backend.
+    crate::dual_window!(
+        crate::dual::Area::ExplorationRelics,
+        "relics::codex",
+        state,
+        |s: &mut GameState| {
+            codex_text(s, content, sources, table, galaxy, player);
+            crate::dual::Run::new(())
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::explore_write::codex(s, player, script)
+    );
+}
+
+/// [`codex`] on the string state: the oracle of the dual run.
+fn codex_text(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -492,6 +528,45 @@ fn codex(
     }
 }
 
+/// The Titan Prototype's question: which player may build. `None`: no seat, or the question is not answered.
+fn titan_choose_builder(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    table: &mut crate::choice::Table,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    player: &PlayerId,
+) -> Option<String> {
+    let options: Vec<crate::choice::ChoiceOption> = state
+        .players
+        .iter()
+        .map(|seat| {
+            crate::choice::ChoiceOption::labelled(
+                seat.id.to_string(),
+                "player",
+                format!("{} may build", seat.id),
+            )
+        })
+        .collect();
+    if options.is_empty() {
+        return None;
+    }
+    let choice = crate::choice::Choice::new(
+        player.clone(),
+        "Titan Prototype: which player may build",
+        options,
+    )
+    .contextualized(DecisionContext::new(
+        player.clone(),
+        DecisionSource::Content("titanprototype".to_owned()),
+        "titan_prototype_choose_builder",
+        state.phase,
+        state.round,
+    ));
+    let answer = table.ask_seeing(&choice, &Observed::new(state, content, sources, galaxy)).ok()?;
+    Some(answer.id)
+}
+
 /// The Titan Prototype: another player may build, or takes a trade good instead.
 ///
 /// Returns whether it resolved. The only relic that asks a decider other than its owner -- the
@@ -510,39 +585,16 @@ fn titan_prototype(
     // The only relic that asks somebody other than its owner. The owner picks who; that
     // player decides whether to build. "If they do not" covers both declining and being
     // unable to pay, so the trade good is the fallback on every path that does not place.
-    let chosen = {
-        let options: Vec<crate::choice::ChoiceOption> = state
-            .players
-            .iter()
-            .map(|seat| {
-                crate::choice::ChoiceOption::labelled(
-                    seat.id.to_string(),
-                    "player",
-                    format!("{} may build", seat.id),
-                )
-            })
-            .collect();
-        if options.is_empty() {
-            return false;
-        }
-        let choice = crate::choice::Choice::new(
-            player.clone(),
-            "Titan Prototype: which player may build",
-            options,
-        )
-        .contextualized(DecisionContext::new(
-            player.clone(),
-            DecisionSource::Content("titanprototype".to_owned()),
-            "titan_prototype_choose_builder",
-            state.phase,
-            state.round,
-        ));
-        let Ok(answer) = table.ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))
-        else {
-            return false;
-        };
-        PlayerId::new(answer.id)
+    let Some(chosen) = crate::dual_window!(
+        crate::dual::Area::ExplorationRelics,
+        "relics::titan_prototype",
+        state,
+        |s: &mut GameState| crate::dual::Run::new(titan_choose_builder(s, content, sources, table, galaxy, player)),
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::explore_write::titan_prototype(s, player, script)
+    ) else {
+        return false;
     };
+    let chosen = PlayerId::new(chosen);
 
     // Charged only once there is somewhere to build and the means to pay for it. Paying
     // first and finding nowhere to put it would spend three resources for the trade good
@@ -606,6 +658,31 @@ fn stellar_converter(
     if targets.is_empty() {
         return false;
     }
+    // The choice and the destruction are one core window (`rules::relic_windows::StellarConverter`).
+    crate::dual_window!(
+        crate::dual::Area::ExplorationRelics,
+        "relics::stellar_converter",
+        state,
+        |s: &mut GameState| crate::dual::Run::new(
+            stellar_destroy(s, content, sources, table, galaxy, player, &targets).map(|planet| planet.to_string())
+        ),
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::explore_write::stellar_converter(s, player, &targets, script)
+        }
+    )
+    .is_some()
+}
+
+/// The Stellar Converter's choice among `targets` and the destruction of the planet chosen.
+fn stellar_destroy(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    table: &mut crate::choice::Table,
+    galaxy: &ti4_content::galaxy::Galaxy,
+    player: &PlayerId,
+    targets: &[(ti4_model::id::SystemId, PlanetId)],
+) -> Option<PlanetId> {
     let options: Vec<crate::choice::ChoiceOption> = targets
         .iter()
         .map(|(system, planet)| {
@@ -629,21 +706,16 @@ fn stellar_converter(
         state.phase,
         state.round,
     ));
-    let Ok(answer) = table.ask_seeing(
-        &choice,
-        &Observed::new(state, content, sources, Some(galaxy)),
-    ) else {
-        return false;
-    };
+    let answer = table
+        .ask_seeing(&choice, &Observed::new(state, content, sources, Some(galaxy)))
+        .ok()?;
     let chosen = PlanetId::new(answer.id);
-    let Some((system, _)) = targets.iter().find(|(_, planet)| *planet == chosen) else {
-        return false;
-    };
+    let (system, _) = targets.iter().find(|(_, planet)| *planet == chosen)?;
     if let Some(here) = state.board.get_mut(system) {
         here.purge_planet(&chosen);
     }
     state.planet_attachments.remove(&chosen);
-    true
+    Some(chosen)
 }
 
 /// Planets the Stellar Converter may be aimed at.
@@ -710,6 +782,16 @@ fn stellar_converter_targets(
 /// Returns whether it was exhausted -- `false` if it is not held, or is exhausted already. The
 /// three cards that say it are once per round, and the status phase readies them.
 pub fn exhaust(state: &mut GameState, player: &PlayerId, relic: &str) -> bool {
+    crate::exploration::dual_write(
+        state,
+        "relics::exhaust",
+        |s| exhaust_text(s, player, relic),
+        |s| crate::explore_write::relic_exhaust(s, player, relic),
+    )
+}
+
+/// [`exhaust`] on the string state: the oracle of the dual run.
+fn exhaust_text(state: &mut GameState, player: &PlayerId, relic: &str) -> bool {
     let id = RelicId::new(relic);
     if !holds(state, player, &id) {
         return false;
@@ -779,9 +861,51 @@ pub fn crown_of_emphidia_explore_with(
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
     player: &PlayerId,
 ) -> bool {
+    let content = ctx.content;
+    let sources = ctx.sources;
+    let Some(planet) = crown_of_emphidia_choose(state, ctx, galaxy, player) else {
+        return false;
+    };
+    let deck = ti4_content::galaxy::planet(content, planet.as_str(), sources)
+        .and_then(|record| record.planet_type())
+        .unwrap_or_default()
+        .to_owned();
+    crate::exploration::explore_with(state, ctx, player, &deck, Some(&planet)).is_some()
+}
+
+/// The first half of the Crown's explore: ask which planet and exhaust the Crown for it. `None`: nothing
+/// to explore, declined, or the Crown could not be exhausted. One core window
+/// (`rules::explore_windows::CrownExplore`).
+fn crown_of_emphidia_choose(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    player: &PlayerId,
+) -> Option<PlanetId> {
+    let sources = ctx.sources;
+    let chosen = crate::dual_window!(
+        crate::dual::Area::ExplorationRelics,
+        "relics::crown_of_emphidia_choose",
+        state,
+        |s: &mut GameState| crate::dual::Run::new(
+            crown_of_emphidia_choose_text(s, ctx, galaxy, player).map(|planet| planet.to_string())
+        ),
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::explore_write::crown_explore(s, player, sources, script)
+        }
+    );
+    chosen.map(PlanetId::new)
+}
+
+fn crown_of_emphidia_choose_text(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    player: &PlayerId,
+) -> Option<PlanetId> {
     let (content, sources) = (ctx.content, ctx.sources);
     if !ready(state, player, "emphidia") {
-        return false;
+        return None;
     }
     let held: Vec<PlanetId> = state
         .controlled_planets(player)
@@ -807,7 +931,7 @@ pub fn crown_of_emphidia_explore_with(
         .chain(std::iter::once(crate::choice::ChoiceOption::decline()))
         .collect();
     if options.len() == 1 {
-        return false;
+        return None;
     }
     let choice = crate::choice::Choice::new(
         player.clone(),
@@ -825,17 +949,12 @@ pub fn crown_of_emphidia_explore_with(
         .table
         .ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))
     else {
-        return false;
+        return None;
     };
     if answer.is_decline() || !exhaust(state, player, "emphidia") {
-        return false;
+        return None;
     }
-    let planet = PlanetId::new(answer.id);
-    let deck = ti4_content::galaxy::planet(content, planet.as_str(), sources)
-        .and_then(|record| record.planet_type())
-        .unwrap_or_default()
-        .to_owned();
-    crate::exploration::explore_with(state, ctx, player, &deck, Some(&planet)).is_some()
+    Some(PlanetId::new(answer.id))
 }
 
 /// The Crown of Emphidia, second half: a victory point for holding the Tomb.
@@ -846,6 +965,16 @@ pub fn crown_of_emphidia_explore_with(
 /// The Tomb is an *attachment*, not a planet -- the `toe` exploration card attaches it to whatever
 /// planet was explored -- so "control the Tomb" means controlling a planet that carries it.
 pub fn crown_of_emphidia_point(state: &mut GameState, player: &PlayerId) -> bool {
+    crate::exploration::dual_write(
+        state,
+        "relics::crown_of_emphidia_point",
+        |s| crown_of_emphidia_point_text(s, player),
+        |s| crate::explore_write::crown_point(s, player),
+    )
+}
+
+/// [`crown_of_emphidia_point`] on the string state: the oracle of the dual run.
+fn crown_of_emphidia_point_text(state: &mut GameState, player: &PlayerId) -> bool {
     if !holds(state, player, &RelicId::new("emphidia")) {
         return false;
     }
@@ -875,6 +1004,25 @@ pub fn crown_of_emphidia_point(state: &mut GameState, player: &PlayerId) -> bool
 /// permission is recorded against the activation sequence rather than as a flag, so a purge in one
 /// tactical action cannot loosen the next -- the same shape as the Lost Star Chart beside it.
 pub fn offer_dominus_orb(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    table: &mut crate::choice::Table,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    player: &PlayerId,
+) -> bool {
+    crate::dual_window!(
+        crate::dual::Area::ExplorationRelics,
+        "relics::dominus_orb",
+        state,
+        |s: &mut GameState| crate::dual::Run::new(offer_dominus_orb_text(s, content, sources, table, galaxy, player)),
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::explore_write::dominus_orb(s, player, script)
+        }
+    )
+}
+
+fn offer_dominus_orb_text(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -984,12 +1132,22 @@ pub fn neuraloop(
         state.phase,
         state.round,
     ));
-    let answer = table
-        .ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))
-        .ok()?;
-    if answer.is_decline() {
-        return None;
-    }
+    // The question is one core window (`rules::relic_windows::Neuraloop`); the roll and the purge are below.
+    let chosen = crate::dual_window!(
+        crate::dual::Area::ExplorationRelics,
+        "relics::neuraloop",
+        state,
+        |s: &mut GameState| crate::dual::Run::new(
+            table
+                .ask_seeing(&choice, &Observed::new(s, content, sources, galaxy))
+                .ok()
+                .filter(|answer| !answer.is_decline())
+                .map(|answer| answer.id)
+        ),
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::explore_write::neuraloop(s, &holder, revealed.as_str(), script)
+        }
+    )?;
 
     // Drawn before anything is purged: an empty pool means the card cannot resolve, and 22.3 says
     // it should not have cost anything.
@@ -1011,7 +1169,7 @@ pub fn neuraloop(
     let roll = rng.die("neuraloop", u32::try_from(pool.len()).unwrap_or(u32::MAX));
     let replacement = pool[(roll as usize).saturating_sub(1).min(pool.len() - 1)].clone();
 
-    purge(state, &holder, &RelicId::new(answer.id));
+    purge(state, &holder, &RelicId::new(chosen));
     state.revealed_objectives.retain(|alias| alias != revealed);
     state.objective_deck.retain(|alias| *alias != replacement);
     state
@@ -1062,7 +1220,16 @@ pub fn ignores_gravity_rifts_text(state: &GameState, player: &PlayerId) -> bool 
     holds(state, player, &RelicId::new(CIRCLET))
 }
 
-fn purge(state: &mut GameState, player: &PlayerId, relic: &RelicId) {
+pub(crate) fn purge(state: &mut GameState, player: &PlayerId, relic: &RelicId) {
+    crate::exploration::dual_write(
+        state,
+        "relics::purge",
+        |s| purge_text(s, player, relic),
+        |s| crate::explore_write::relic_purge(s, player, relic),
+    );
+}
+
+fn purge_text(state: &mut GameState, player: &PlayerId, relic: &RelicId) {
     if let Some(seat) = state.player_mut(player) {
         seat.relics.retain(|held| held != relic);
     }
@@ -1111,6 +1278,16 @@ pub(crate) fn log_gain(state: &mut GameState, player: &PlayerId, relic: &RelicId
 /// point the moment it arrives: the Shard was worth nothing when exploration drew it straight
 /// off the deck, and would have been worth nothing again for the next path written.
 pub fn gain(state: &mut GameState, player: &PlayerId) -> Option<RelicId> {
+    crate::exploration::dual_write(
+        state,
+        "relics::gain",
+        |s| gain_text(s, player),
+        |s| crate::explore_write::relic_gain(s, player),
+    )
+}
+
+/// [`gain`] on the string state: the oracle of the dual run.
+fn gain_text(state: &mut GameState, player: &PlayerId) -> Option<RelicId> {
     // 73.2a: an empty deck yields nothing
     let top = ti4_model::deck_reserve::take_top(
         &mut state.deck_reserve,
@@ -1566,7 +1743,7 @@ mod tests {
     ///
     /// Not `fixtures::a_placed_planet`: the first placed planet in the corpus is a homeworld, and
     /// the card excludes those.
-    fn an_ordinary_planet() -> (ti4_model::id::SystemId, PlanetId) {
+    pub(super) fn an_ordinary_planet() -> (ti4_model::id::SystemId, PlanetId) {
         ti4_content::galaxy::all_planets(
             ti4_content::ContentStore::embedded(),
             ti4_model::content_types::DEFAULT,
@@ -2478,5 +2655,251 @@ mod bf_f3_tests {
             crate::supply::staged_event_types(&state),
             ["TRADE_GOODS_GAINED"]
         );
+    }
+}
+
+/// The Dominus Orb and the Crown of Emphidia beside their core windows, lockstep on `Dual`.
+#[cfg(test)]
+mod relic_window_tests {
+    use super::*;
+    use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+    use ti4_model::content_types::POK;
+    use ti4_model::id::SystemId;
+
+    fn me() -> PlayerId {
+        PlayerId::new("a")
+    }
+
+    fn seated() -> GameState {
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], POK);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        state
+    }
+
+    fn counts(label: &str) -> (u64, u64) {
+        report().windows.get(label).map_or((0, 0), |w| (w.compared, w.bailed))
+    }
+
+    fn dual<T>(body: impl FnOnce() -> T) -> T {
+        with_mask(AreaMask::STRING.with(Area::ExplorationRelics, Backend::Dual), body)
+    }
+
+    fn table(answers: &[&str]) -> crate::choice::Table {
+        crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(answers.iter().map(|a| (*a).to_owned()))))
+    }
+
+    /// A seat pinned by its own command token in a system other than the active one.
+    fn pinned() -> GameState {
+        let mut state = seated();
+        state.player_mut(&me()).unwrap().relics = vec![RelicId::new("dominusorb")];
+        let pinned = SystemId::new("26");
+        crate::fixtures::put(&mut state, &pinned, "destroyer", &me(), 1);
+        state.system_mut(&pinned).command_tokens.insert(me());
+        state.active_system = Some(SystemId::new("28"));
+        state
+    }
+
+    #[test]
+    fn the_dominus_orb_offer_runs_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let content = ti4_content::ContentStore::embedded();
+        dual(|| {
+            for (answer, purged) in [("purge", true), (crate::choice::DECLINE_ID, false)] {
+                let mut state = pinned();
+                let mut table = table(&[answer]);
+                assert_eq!(offer_dominus_orb(&mut state, content, POK, &mut table, None, &me()), purged);
+                assert_eq!(holds(&state, &me(), &RelicId::new("dominusorb")), !purged);
+                assert_eq!(state.player(&me()).unwrap().dominus_orb.len(), usize::from(purged));
+            }
+            // Nothing pinned, nothing offered; a seat without the card is not asked either.
+            let mut state = pinned();
+            state.active_system = Some(SystemId::new("26"));
+            assert!(!offer_dominus_orb(&mut state, content, POK, &mut table(&[]), None, &me()));
+            let mut state = pinned();
+            state.player_mut(&me()).unwrap().relics.clear();
+            assert!(!offer_dominus_orb(&mut state, content, POK, &mut table(&[]), None, &me()));
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(counts("relics::dominus_orb").0 >= 4, "{r:?}");
+        let _ = take_report();
+    }
+
+    fn crown_holder() -> GameState {
+        let mut state = seated();
+        state.player_mut(&me()).unwrap().relics = vec![RelicId::new("emphidia")];
+        for (system, planet) in [("26", "lodor"), ("28", "torkan")] {
+            state.system_mut(&SystemId::new(system)).set_control(ti4_model::id::PlanetId::new(planet), me());
+        }
+        for deck in ["CULTURAL", "HAZARDOUS", "INDUSTRIAL"] {
+            state.exploration_decks.insert(deck.to_owned(), vec!["minent".to_owned()]);
+        }
+        state
+    }
+
+    #[test]
+    fn the_crown_of_emphidia_runs_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let content = ti4_content::ContentStore::embedded();
+        dual(|| {
+            // Exploring a chosen planet exhausts the Crown; declining leaves it ready; a spent Crown is not asked.
+            let mut state = crown_holder();
+            assert!(crown_of_emphidia_explore(&mut state, content, POK, &mut table(&["lodor"]), None, &me()));
+            assert!(!ready(&state, &me(), "emphidia"));
+            assert!(!crown_of_emphidia_explore(&mut state, content, POK, &mut table(&["torkan"]), None, &me()));
+            let mut state = crown_holder();
+            assert!(!crown_of_emphidia_explore(&mut state, content, POK, &mut table(&[crate::choice::DECLINE_ID]), None, &me()));
+            assert!(ready(&state, &me(), "emphidia"));
+
+            // The point: the Tomb on a controlled planet, then not again.
+            let mut state = crown_holder();
+            assert!(!crown_of_emphidia_point(&mut state, &me()), "no Tomb");
+            state.planet_attachments.insert(ti4_model::id::PlanetId::new("lodor"), vec!["tombofemphidia".to_owned()]);
+            let before = state.player(&me()).unwrap().victory_points;
+            assert!(crown_of_emphidia_point(&mut state, &me()));
+            assert_eq!(state.player(&me()).unwrap().victory_points, before + 1);
+            assert!(!holds(&state, &me(), &RelicId::new("emphidia")));
+            assert!(!crown_of_emphidia_point(&mut state, &me()), "purged");
+            // At the target the point is capped (the ledger row says 0).
+            let mut state = crown_holder();
+            state.planet_attachments.insert(ti4_model::id::PlanetId::new("lodor"), vec!["tombofemphidia".to_owned()]);
+            state.player_mut(&me()).unwrap().victory_points = 10;
+            assert!(crown_of_emphidia_point(&mut state, &me()));
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(counts("relics::crown_of_emphidia_choose").0 >= 2, "{r:?}");
+        assert!(r.total_calls() >= 6, "{r:?}");
+        let _ = take_report();
+    }
+
+    fn rng() -> crate::rng::GameRng {
+        crate::rng::GameRng::new(5)
+    }
+
+    /// The Neuraloop's question: a relic is named (the Neuraloop itself included) or the offer is declined.
+    #[test]
+    fn the_neuraloop_question_runs_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let content = ti4_content::ContentStore::embedded();
+        dual(|| {
+            for (answer, replaced) in [("thetriad", true), ("neuraloop", true), (crate::choice::DECLINE_ID, false)] {
+                let mut state = seated();
+                state.player_mut(&me()).unwrap().relics = vec![RelicId::new("neuraloop"), RelicId::new("thetriad")];
+                state.objective_deck = ["amass_wealth", "build_defenses"].map(ti4_model::id::ObjectiveId::new).to_vec();
+                let revealed = ti4_model::id::ObjectiveId::new("become_legend");
+                state.revealed_objectives = vec![revealed.clone()];
+                let got = neuraloop(&mut state, content, POK, &mut table(&[answer]), None, &mut rng(), &revealed);
+                assert_eq!(got.is_some(), replaced);
+                assert_eq!(holds(&state, &me(), &RelicId::new("thetriad")), answer != "thetriad");
+            }
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(counts("relics::neuraloop").0 >= 3, "{r:?}");
+        let _ = take_report();
+    }
+
+    /// The Codex: up to three cards from the discard pile, one at a time; a decline or an empty pile ends it.
+    #[test]
+    fn the_codex_runs_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let content = ti4_content::ContentStore::embedded();
+        dual(|| {
+            for (pile, answers, taken) in [
+                (vec!["abs", "blitz", "assassin", "arch_expedition"], vec!["blitz", "abs", "assassin"], 3),
+                (vec!["abs", "blitz"], vec!["blitz", crate::choice::DECLINE_ID], 1),
+                (vec!["abs"], vec!["abs"], 1),
+                (vec![], vec![], 0),
+            ] {
+                let mut state = seated();
+                state.discarded_action_cards = pile.iter().map(|c| ti4_model::id::ActionCardId::new(*c)).collect();
+                let before = state.player(&me()).unwrap().action_cards.len();
+                codex(&mut state, content, POK, &mut table(&answers), None, &me());
+                assert_eq!(state.player(&me()).unwrap().action_cards.len(), before + taken);
+                assert_eq!(state.discarded_action_cards.len(), pile.len() - taken);
+            }
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(counts("relics::codex").0 >= 4, "{r:?}");
+        let _ = take_report();
+    }
+
+    /// The Titan Prototype names who may build (every seat, the owner included).
+    #[test]
+    fn the_titan_prototype_question_runs_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let content = ti4_content::ContentStore::embedded();
+        dual(|| {
+            for answer in ["a", "b"] {
+                let mut state = seated();
+                assert!(titan_prototype(&mut state, content, POK, &mut table(&[answer]), None, &me()));
+            }
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(counts("relics::titan_prototype").0 >= 2, "{r:?}");
+        let _ = take_report();
+    }
+
+    /// The Stellar Converter: the planet chosen is destroyed, its attachments with it.
+    #[test]
+    fn the_stellar_converter_runs_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let content = ti4_content::ContentStore::embedded();
+        let sources = ti4_model::content_types::DEFAULT;
+        dual(|| {
+            let (target_system, target) = super::tests::an_ordinary_planet();
+            let hub = crate::fixtures::hub_with_outer(target_system.as_str());
+            let centre = SystemId::new(&hub.centre);
+            let mut state = seated();
+            for id in std::iter::once(&hub.centre).chain(hub.outer.iter()) {
+                state.board.entry(SystemId::new(id)).or_default();
+            }
+            crate::fixtures::put(&mut state, &centre, "dreadnought", &me(), 1);
+            crate::fixtures::put(&mut state, &target_system, "infantry", &PlayerId::new("b"), 1);
+            state.planet_attachments.insert(target.clone(), vec!["tombofemphidia".to_owned()]);
+            state.system_mut(&target_system).set_control(target.clone(), PlayerId::new("b"));
+            assert!(stellar_converter(&mut state, content, sources, &mut table(&[target.as_str()]), Some(&hub.galaxy), &me()));
+            assert!(state.planet_attachments.get(&target).is_none());
+            assert!(state.system_state(&target_system).purged_planets.contains(&target));
+            assert!(state.system_state(&target_system).planet_control.get(&target).is_none());
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(counts("relics::stellar_converter").0 >= 1, "{r:?}");
+        let _ = take_report();
+    }
+
+    /// "gain which technology" for the Enigmatic Device and the Maw of Worlds.
+    #[test]
+    fn the_technology_question_runs_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let content = ti4_content::ContentStore::embedded();
+        dual(|| {
+            for source in ["enigmaticdevice", "mawofworlds"] {
+                let state = seated();
+                let mut table = crate::choice::Table::with_default(Box::new(crate::choice::FirstOption));
+                let got = ask_technology(&state, content, POK, &mut table, None, &me(), None, source, false);
+                assert!(got.is_some());
+            }
+            // A source that is no relic (an agenda's research) is the string question alone.
+            let state = seated();
+            let mut table = crate::choice::Table::with_default(Box::new(crate::choice::FirstOption));
+            assert!(ask_technology(&state, content, POK, &mut table, None, &me(), None, "researchteam", false).is_some());
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(counts("relics::ask_technology").0 >= 2 && counts("relics::ask_technology").1 >= 1, "{r:?}");
+        let _ = take_report();
     }
 }

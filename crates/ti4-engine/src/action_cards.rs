@@ -5778,32 +5778,9 @@ pub fn place_units(
     base_type: &str,
     count: usize,
 ) {
-    let Some(type_id) = placed_unit_id(
-        context.state,
-        context.content,
-        context.sources,
-        player,
-        base_type,
-    ) else {
+    let Some((type_id, count)) = place_units_plan(context, player, base_type, count) else {
         return;
     };
-    if crate::factions::hooks_economy::effect_placement_forbidden(
-        context.state,
-        context.content,
-        context.sources,
-        player,
-        &type_id,
-    ) {
-        return;
-    }
-    let count = crate::supply::allowed(
-        context.state,
-        context.content,
-        context.sources,
-        player,
-        &type_id,
-        count,
-    );
     for _ in 0..count {
         let unit = ti4_model::units::Unit::new(type_id.clone(), player.clone());
         match planet {
@@ -5817,6 +5794,42 @@ pub fn place_units(
             None => context.state.system_mut(system).units.push(unit),
         }
     }
+}
+
+/// What [`place_units`] places: the unit type the player's cards resolve `base_type` to and how many of
+/// `count` the supply allows; `None` when there is no such unit or an effect forbids the placement. The
+/// resolution, split from the write so a core rule can do the write (`leaders::solcommander`).
+pub(crate) fn place_units_plan(
+    context: &crate::timing::TimingContext<'_>,
+    player: &PlayerId,
+    base_type: &str,
+    count: usize,
+) -> Option<(ti4_model::id::UnitTypeId, usize)> {
+    let type_id = placed_unit_id(
+        context.state,
+        context.content,
+        context.sources,
+        player,
+        base_type,
+    )?;
+    if crate::factions::hooks_economy::effect_placement_forbidden(
+        context.state,
+        context.content,
+        context.sources,
+        player,
+        &type_id,
+    ) {
+        return None;
+    }
+    let count = crate::supply::allowed(
+        context.state,
+        context.content,
+        context.sources,
+        player,
+        &type_id,
+        count,
+    );
+    Some((type_id, count))
 }
 
 // -- placement from reinforcements, for faction cards (BF-00b-economy) ----------------------------

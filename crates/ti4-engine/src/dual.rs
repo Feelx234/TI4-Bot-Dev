@@ -1064,6 +1064,28 @@ pub fn run_dual<R: PartialEq + Debug>(
     string_run.value
 }
 
+/// One state write of an area on both backends (`dual_write`): `string` is the original code, `core` the typed
+/// rule (`None`: the position is outside the tables, the string write runs). Shared by the mutation halves
+/// (B5 `explore_write`, B7 `leaders`).
+pub fn write<R: PartialEq + Debug>(
+    area: Area,
+    state: &mut GameState,
+    label: &str,
+    string: impl Fn(&mut GameState) -> R,
+    core: impl Fn(&mut GameState) -> Option<R>,
+) -> R {
+    crate::dual!(
+        area,
+        label,
+        state,
+        |s: &mut GameState| Run::new(string(s)),
+        |s: &mut GameState| match core(s) {
+            Some(r) => Run::new(r),
+            None => Run::new(string(s)),
+        }
+    )
+}
+
 /// The core half of a window run: what the lockstep driver saw.
 #[derive(Debug, Clone)]
 pub struct CoreWindow<R> {
