@@ -16,7 +16,6 @@ use crate::kernel::fx;
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::Next;
 use crate::query::seats;
-use crate::rules::strategy_flow::replenish;
 use crate::state::CoreState;
 
 /// The context of a strategy card question.
@@ -78,7 +77,7 @@ impl Window for TradePrimary {
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
         if self.stage == TStage::Start {
             fx::gain_trade_goods(sx.state, self.who, TRADE_PRIMARY_GOODS);
-            replenish(sx.state, self.who);
+            fx::replenish_commodities(sx.state, self.who);
             self.remaining = seats::seating_order(sx.state).as_slice().iter().copied().filter(|s| *s != self.who).collect();
             self.stage = TStage::Pick;
         }
@@ -117,7 +116,7 @@ impl Window for TradePrimary {
         match pick {
             Pick::Opt(Opt::Done) => self.stage = TStage::Done,
             Pick::Opt(Opt::Strategy(SOpt::Replenish(seat))) if self.remaining.as_slice().contains(&seat) => {
-                replenish(sx.state, seat);
+                fx::replenish_commodities(sx.state, seat);
                 self.remaining.retain(|s| *s != seat);
             }
             _ => return Err(Illegal),

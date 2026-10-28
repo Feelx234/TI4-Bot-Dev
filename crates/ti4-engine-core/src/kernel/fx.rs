@@ -86,6 +86,17 @@ pub fn gain_trade_goods(s: &mut CoreState, who: Seat, amount: i32) -> i32 {
     after - before
 }
 
+/// `strategy_cards::replenish` without the announcements: the seat's commodities go to its faction's printed
+/// value (a seat above it is set down to it, as the string does). Returns how many were gained; `0` for a seat
+/// that is not there. The Siphon event, Cabal's note and the Trade Agreement hook are the string callers'.
+pub fn replenish_commodities(s: &mut CoreState, who: Seat) -> i32 {
+    let Some(p) = s.players_mut().by_seat_mut(who) else { return 0 };
+    let limit = i16::from(p.faction.data().commodities);
+    let gained = (limit - p.econ.commodities).max(0);
+    p.econ.commodities = limit;
+    i32::from(gained)
+}
+
 /// The `TRADE_GOODS_GAINED` event of a gain (`player`, `amount`, `source`).
 #[must_use]
 pub fn trade_goods_gained(who: Seat, gained: i32, source: Code) -> EventRec {

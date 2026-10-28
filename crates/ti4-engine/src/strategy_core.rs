@@ -131,10 +131,21 @@ mod tests {
         assert_eq!(run(&[], &[0, 99, 99], &f).0, 1);
     }
 
-    /// A Cabal at the table replenishes with events of its own: the string stands.
+    /// A Cabal, a Trade Agreement or two seats of one faction make the core half decline (the string stands);
+    /// probed directly, since the shared report is also fed by parallel tests.
     #[test]
-    fn a_cabal_at_the_table_bails() {
-        let f = [("a", "sol"), ("b", "cabal"), ("c", "arborec")];
-        assert_eq!(run(&["done"], &[0, 0, 0], &f), (0, 1));
+    fn the_core_half_declines_where_the_position_holds_more() {
+        let script = crate::dual_window::Recording::default();
+        let a = PlayerId::new("a");
+        let probe = |f: &[(&str, &str)]| {
+            let mut state = crate::fixtures::seated_game(f, POK);
+            super::trade_primary(&mut state, &a, &script).is_some()
+        };
+        assert!(probe(&[("a", "sol"), ("b", "hacan"), ("c", "arborec")]));
+        assert!(!probe(&[("a", "sol"), ("b", "cabal"), ("c", "arborec")]));
+        assert!(!probe(&[("a", "sol"), ("b", "sol")]));
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], POK);
+        state.diplomacy.enabled = true;
+        assert!(super::trade_primary(&mut state, &a, &script).is_none());
     }
 }

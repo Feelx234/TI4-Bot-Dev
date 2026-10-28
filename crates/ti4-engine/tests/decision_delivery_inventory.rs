@@ -1460,8 +1460,9 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
     Producer {
+        // Split for package B8: the string half beside its core window `trade_primary`.
         module: "strategy_cards.rs",
-        function: "trade_primary",
+        function: "trade_primary_string",
         count: 1,
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
