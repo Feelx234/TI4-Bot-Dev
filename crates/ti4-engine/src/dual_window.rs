@@ -447,7 +447,6 @@ pub fn drive_positioned<W: Window>(
     loop {
         if let Some(why) = driver.unknown() {
             let why = match why {
-                ti4_engine_core::kernel::ability::Unknown::YssarilTransparasteel => "Yssaril Transparasteel Plating",
                 ti4_engine_core::kernel::ability::Unknown::BriberyGoods => "Bribery's goods (the Keleres agent)",
                 ti4_engine_core::kernel::ability::Unknown::CardCost => "a card cost the core does not judge",
                 ti4_engine_core::kernel::ability::Unknown::HarnessOrInfiltrate => "Harness Energy / Infiltrate",

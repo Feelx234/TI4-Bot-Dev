@@ -6682,6 +6682,17 @@ mod tests {
     /// question is compared rather than bailed. Playing the card is not ported: that run is not followed.
     #[test]
     fn a_reaction_slot_that_is_declined_is_followed_by_the_core_window() {
+        declined_slot_lockstep("hacan");
+    }
+
+    /// A Yssaril seat holding a reaction card is followed too: Transparasteel Plating is the kernel's hook
+    /// (`economy.action_cards_forbidden`), no longer a bail of the seat.
+    #[test]
+    fn a_yssaril_seat_with_a_reaction_card_is_followed_by_the_core_window() {
+        declined_slot_lockstep("yssaril");
+    }
+
+    fn declined_slot_lockstep(faction: &str) {
         use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
@@ -6689,7 +6700,7 @@ mod tests {
         let mut asked = 0;
         with_mask(mask, || {
             for seed in 1..=4_u64 {
-                let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], POK);
+                let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", faction)], POK);
                 state.promissory_notes.clear();
                 state.promissory_faceup.clear();
                 state.rng_seed = seed;
@@ -6735,7 +6746,7 @@ mod tests {
         });
         let r = report();
         assert!(asked > 0, "the slot was offered");
-        assert!(r.windows.keys().all(|k| !k.contains("unported ability reaction:")), "{:?}", r.windows);
+        assert!(r.windows.keys().all(|k| !k.contains("unported ability reaction:") && !k.contains("Transparasteel")), "{:?}", r.windows);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }

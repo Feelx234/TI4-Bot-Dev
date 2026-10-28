@@ -58,8 +58,6 @@ impl Applies {
 /// Why a condition cannot be answered by the core: a documented bail of the rule it reads (the adapter words it).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Unknown {
-    /// Yssaril's Transparasteel Plating (the faction module's hook).
-    YssarilTransparasteel,
     /// Bribery's goods (the Keleres agent's commodities).
     BriberyGoods,
     /// A printed card cost the core does not judge.
