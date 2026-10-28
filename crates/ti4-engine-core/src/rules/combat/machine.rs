@@ -100,6 +100,16 @@ pub struct Fields {
     pub end_announced: bool,
 }
 
+/// Why the machine stopped at a position it does not carry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bail {
+    /// A roll that emptied a fleet mid-way (the fight ends inside the roll step).
+    RollEndsFight,
+    /// A position outside what the machine carries (a gate of the `Env`, a cancellation, a single casualty
+    /// candidate, Duranium Armor, Devotion, staged destructions, a retreat the core does not move).
+    Unported,
+}
+
 /// Where the machine stopped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stop {
@@ -110,7 +120,7 @@ pub enum Stop {
     /// The fight is over and announced.
     Over,
     /// A position the machine does not carry.
-    Bailed(&'static str),
+    Bailed(Bail),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,12 +156,6 @@ impl Machine {
 
     fn rd<'a>(s: &'a CoreState, k: &'a Kernel) -> Rd<'a> {
         Rd::new(s, k).with_blanked(reach::blanked(s))
-    }
-
-    fn bail(&mut self, why: &'static str) -> Next {
-        self.stop = Some(Stop::Bailed(why));
-        self.stage = Stage::Done;
-        Next::Done
     }
 
     fn over(&self, sx: &Sx<'_>) -> bool {
@@ -201,17 +205,14 @@ impl Machine {
             Step::Retreating { .. } => p[3],
             Step::Done => p[4],
         };
-        let mut remaining = std::collections::BTreeMap::new();
-        if let Step::Queue { queue, .. } = &self.fields.step {
-            for pending in queue {
-                *remaining.entry(pending.player).or_insert(0_u32) += pending.hits;
-            }
-        }
         let edit = sx.state.transient_mut().combat.presentation.edit();
         edit.phase = phase;
         edit.remaining_hits.clear();
-        for (seat, hits) in remaining {
-            edit.remaining_hits.insert(seat, hits);
+        if let Step::Queue { queue, .. } = &self.fields.step {
+            for pending in queue {
+                let held = edit.remaining_hits.get(&pending.player).copied().unwrap_or(0);
+                edit.remaining_hits.insert(pending.player, held + pending.hits);
+            }
         }
     }
 
@@ -487,7 +488,7 @@ impl Machine {
                     _ => {
                         self.stage = Stage::Running;
                         self.finish_roll(sx).or_else(|| {
-                            self.stop = Some(Stop::Bailed("a roll that ends the fight"));
+                            self.stop = Some(Stop::Bailed(Bail::RollEndsFight));
                             None
                         })?;
                         continue;
@@ -580,7 +581,7 @@ impl Window for Machine {
             }
             None => {
                 if self.stop.is_none() {
-                    self.stop = Some(Stop::Bailed("a position the machine does not carry"));
+                    self.stop = Some(Stop::Bailed(Bail::Unported));
                 }
                 self.stage = Stage::Done;
                 Next::Done
@@ -600,19 +601,13 @@ impl Window for Machine {
     }
 }
 
-/// Unused outside the adapter: keeps the bail helper reachable for the tests.
 impl Machine {
     #[must_use]
-    pub fn bailed(&self) -> Option<&'static str> {
+    pub fn bailed(&self) -> Option<Bail> {
         match self.stop {
             Some(Stop::Bailed(why)) => Some(why),
             _ => None,
         }
-    }
-
-    #[allow(dead_code)]
-    fn unused(&mut self) -> Next {
-        self.bail("unused")
     }
 
     #[must_use]
