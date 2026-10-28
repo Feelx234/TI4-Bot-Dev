@@ -131,6 +131,8 @@ pub enum Opt {
     Place { spot: Spot },
     /// Produce nothing further (`done_producing`).
     Stop,
+    /// Winnu: exhaust Berekar Berekon for -2 on the use's combined cost.
+    Agent,
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).

@@ -79,6 +79,15 @@ Illegal picks are refused with the state untouched; `resume` after `Done` is `No
 The mutation test (change the gain to 2 in the core window) fails the unit test
 `letnevcommander_2_the_sustain_offer_runs_as_a_core_window_in_lockstep`.
 
+### Dice in a window (B1c)
+
+`Sx::die(domain, sides)` draws from the stream of the state's `rng` slice (`Rng::die`, the same ChaCha8 words
+as `GameRng::die`). The streams are seeded by `Sx::seeds`, which the adapter gives the driver with
+`Driver::with_seeds(Rc<dyn SeedSource>)` (default `NoSeeds`: all-zero seeds, for windows that never draw). The
+rng is part of the state, so a step rolled back for a nested question restores the streams with everything
+else and the re-run draws the same dice (unit test `dice_drawn_in_a_step_that_is_rolled_back_are_drawn_once`).
+Recording the roll in `ledger.dice` is the rule area's (`rules::combat::record_rolls`), not the kernel's.
+
 ## 4. The worked example (`driver/windows/sustain_commander.rs`)
 
 String `combat::ask_sustain_commander`: if the holder has an unlocked Letnev commander, ask "gain 1 trade good for the
@@ -117,3 +126,196 @@ The example lives under `driver/` only because `rules/` is created by B1 and B3;
 > games (`dual_run tools/engine_profile/profile-20.json 20 driver=dual`); mutate the core half once to see the dual fail.
 > Pure refactor: no CPU A/B, no wasm, `RULES_VERSION`, serde, fixtures unchanged. Stateful `ctx.emit` sites that
 > are reached from several windows (e.g. `emit_sustain_used`) are shared `fx`-style helpers taking `&mut Sx`.
+
+## 7. B2 invasion windows (state after the hits-step slice)
+
+Core windows of `Area::Invasion` (each a `dual_window!` with documented bails; counts are the 20 golden games,
+`dual_run profile-20.json 20 invasion=dual,driver=dual`, 0 differences):
+
+| window (string site) | core | compared / bailed |
+|---|---|---|
+| `GroundHits` (`ground_hits_window`, `remove_ground`, `take_bombard_hits`) | `rules/invasion/hits.rs` + `kernel/hits.rs` | 413 / 8, 2487 / 0, nested in `bombard_step` |
+| `Bombardment` (`bombard_settle`, `answer_bombardment_target`, `complete_bombard_plan`) | `rules/invasion/bombard.rs` | step 1371 / 6, answer 0 / 0 (no coexisting bombardment in the golden games; the unit test covers it) |
+| `LandOne` over the string commit pool (`commit_one`) | `rules/invasion/commit.rs` | 2007 / 23 |
+| `Custodians`, `FightRound`/`NextCombat`/`BombardTarget` questions | `rules/invasion/stages.rs` | unchanged |
+
+* `kernel::hits` is the shared "before a hit would be assigned" step: `open_window` (the event, the cancellations a
+  card played in it granted: `combat_timers.cancel_hits_round`), `spend`, `grant`, `flush_staged`. B1's
+  `HITS_TO_ASSIGN` can use it as is.
+* `GroundHits { batch, hits, do_open, do_apply }`: `open` (the `GROUND_HITS_TO_ASSIGN` window) and `apply`
+  (sustain first, Non-Euclidean Shielding, cheapest ground force; stages `GROUND_FORCE_SUSTAINED/DESTROYED`
+  in `pending.staged`; the caller announces them where the string flushes its `log`). Both are plain functions of
+  `Sx` (`hits::open`, `hits::apply`) for the bigger windows.
+* `Bombardment` carries the plan as data (the string window's `bombard_plan` entries, with the `InvasionStep`
+  template built by the `invasion_step` codec): the window mirrors `last_step`, the feat and the scoring occurrence
+  it pushes; the string reads them back as `BombardOut`.
+* Bails, all counted per reason: nested (a card played in the hits window, a reaction to `UNITS_COMMITTED`), a
+  neutral victim, Keleres seat (toll), diplomacy promises, Crimson deploy offered, a ship-form unit flipping on
+  landing (not temporary), seats not in id order (the bombard target answer).
+* The candidates of the commit pool (Sardakk commander origins, Naalu Matriarch fighters) are still computed by
+  the string modules; the core window receives the pool and lands from it (`PoolIn`), so the landing, its events and
+  the question are checked, the candidate rules are not.
+
+Stage 3 and 4 slices (counts are the 20 golden games, `dual_run profile-20.json 20 invasion=dual,driver=dual`, 0 differences;
+each window was mutated once in its core half and the dual failed):
+
+| window (string site) | core | compared / bailed |
+|---|---|---|
+| `SpaceCannonDefense` (`announce_and_defend`: `GROUND_COMMITMENT_FINISHED`, then per committed planet the guns' dice, the hits step, `InvasionStep` `space_cannon_defense`) | `rules/invasion/defense.rs` (`defense_plan`, dice from `Sx::die`, `ledger.dice` `SpaceCannon`) | 1074 / 6 |
+| `GroundRoll` (`roll_ground_pair`: both sides' pools from `ground_pools`, dice, `reroll_staging` kind `ground`, `last_reroll_player`) | `rules/invasion/roll.rs` | 367 / 0 |
+| `GroundRoundHits` (`ground_round_hits`: both hits windows, both removals, the `ground_round` `InvasionStep`, the removals' events) | `rules/invasion/round.rs` | 279 / 83 |
+
+* Bails of the new windows, each counted by reason: defense: entropic scar, L4 Disruptors, attachment cannon (Geoform),
+  irreproducible dice (test faces, stream restore), neutral invader, nested (a reaction to the announcement); roll:
+  irreproducible dice, neutral side, X-89 Bacterial Weapon (doubled hits), a pool the window cannot name; round hits:
+  neutral side, L1Z1X (Harrow), Alarum (Ral Nel mech), hits a faction adds to a roll, nested (a card played in a hits window).
+  Golden coverage: nested (6 / 82) and L1Z1X (1) occur in the 20 games; the others have unit-level cover only
+  (the bail is a pure pre-check of the string side).
+* `List::Planets` is a new payload list (`GROUND_COMMITMENT_FINISHED.planets`); `event_of` renders it.
+* The ground `may_sustain` oracle (`core_invasion::register_ground_slots`) answers from the string position the window
+  started from. A window with several batches (the round: one side's casualties first) now reads the planet's
+  units from the core state when they moved on (`patched_planet`); found by the dual (Mentak's Moll Terminus).
+* Study: `finish_committing` keeps Research Team / Viper offers, forced combats and `advance_fighting` in the string
+  (they ask questions or change `stage`); only the announcement and the defense run in the core window.
+
+Stage 5 slice (counts as above, 0 differences; the begin and tail windows were mutated once in their core half and the dual failed):
+
+| window (string site) | core | compared / bailed |
+|---|---|---|
+| `BeginGroundRound` (`begin_ground_round`: `active_invasion.ground_round`, `combat_round_seq` of a numbered round, `GROUND_COMBAT_ROUND_STARTED` of a copied round agent) | `rules/invasion/begin.rs` | 248 / 69 |
+| `GroundRollTail` (`roll_ground_tail`: round number, `GROUND_ROLLS_MADE` for both sides, hits read back from the staged dice, the dice as the board shows them, staging cleared) | `rules/invasion/tail.rs` | 307 / 13 (+ 47 pre-check bails) |
+| `Advance` (`next_fight`, the selection of `advance_fighting`: planet index, defender, coexisters; starting the combat stays string) | `rules/invasion/advance.rs` | 1253 / 0 |
+
+* Bails: begin: neutral side, Naaz seat (Supercharge, 35 in the golden games), Proxima Targeting VI, a Letnev side with
+  infantry on the planet (Dunlain Reaper, 10), nested (69: the copied-round event always reaches the Sol agent's
+  offer). Tail: neutral side, X-89, a readied The Thundarian (`GROUND_COMBAT_ROLL_STEP_ENDED` and the replays, 47),
+  a roll-replay mark, nested (13). Advance: seats not in id order, nested. X-89, the neutral side, the replay mark
+  and the unit-level begin bails have unit cover only (`core_ground_round_prechecks`).
+* `GROUND_COMBAT_ROLL_STEP_ENDED` and the replay loop stay in the string (a readied Thundarian is the only listener).
+* Nested census of `ground_round_hits` (the 82 bails; `TI4_NESTED_LOG=1 dual_run ...` prints `Recording.nested_kinds`
+  of each): 24 with no event at all (an ability effect ran), 29 asks of reaction windows `after GROUND_FORCE_DESTROYED`
+  (alone or twice), 14 `TRADE_GOODS_GAINED` (a reaction's effect), 8 `when GROUND_HITS_TO_ASSIGN` asks,
+  4 Crimson Legionnaire asks, 2 technology/assimilate asks, 1 `GROUND_FORCE_SUSTAINED` ask. All of them are reaction
+  windows or ability effects: handling them natively is the reaction/ability port (the driver's `AbilityTable`),
+  not a B2 window, so the bail stays.
+* Sensible next step for the hits window: nothing cheaper than the reaction port; the `may_sustain` oracle and
+  `temporary_ground_force` are only consulted with the position of the window start, which the single-batch windows keep.
+
+Stage 6 slice (golden: 0 differences; `commit_one` 2007 / 23, `ground_round_hits` 280 / 82 now with the one L1Z1X game compared):
+
+* Crimson deploy: `IOpt::Deploy { planet }` (`deploy_commit|<planet>`) is an option of the commit question after the
+  troops' landings; `LandOne::with_deploy` lands a Revenant from reinforcements. `commit_deploy` runs through the same
+  `dual_window::land_one` as `commit_one` (the `Crimson deploy offered` bail is gone); `note_deployed` is applied by the adapter.
+* Keleres toll: no blanket Keleres bail any more. When the answered planet owes the toll, the adapter runs B3's `PayStep`
+  (influence, `TOLL_COST`) between the answer and the landing and sets the toll mark (`mark_toll_paid`). Bails: a landing the
+  toll bars (the string question leaves it out), a toll at a table `production_view::unported_window` declines (a Crimson
+  invader, Keleres as invader...). Unit tests with several payable planets (the mutation of the spend kind is caught).
+* Harrow (`rules/invasion/harrow.rs`): its own window run by `GroundRoundHits` after both removals: `bombardable`, the
+  invader's space-area bombarders in order, Plasma Scoring on the first roller, dice from `Sx::die` (ledger `Bombardment`),
+  hits window and removal with cause `harrow`, then the report holds `harrow_hits`. Compared: dice (hit number, faces) and the
+  stream positions. Bails: irreproducible dice, Proxima Targeting VI. Unit cover: a warsun fight; mutation of the dice count caught
+  (a mutation of `harrow_hits` in the report is not caught by that game, no harrow hit lands in it).
+* Advance: unit tests for the nested bail and a lockstep fight (mutation of the planet filter caught; the
+  controller choice needs three seats and is golden-only). "Seats not in id order" is unreachable (the owner table is a sorted set).
+
+Not done, and why: `FinalizingControl` / `finish_control_gain` (a chain of faction, technology, legendary, fracture and
+exploration hooks plus the `PLANET_CONTROL_GAINED` reactions: belongs to B5/technology and the ability port), the rest of
+`finish_committing` (Research Team / Viper asks, forced combats), the setup/end hooks and the scoring pauses (the driver
+pause for occurrences), and `ground_combat_round_ended` modules (no module implements the hook; only Harrow does).
+
+## 6. B1 windows after the first slice: the roll step and the stage transitions
+
+* `rules/combat/roll.rs` (`RollStep`): the "Roll Dice" step of a round (string `CombatWindow::roll_round`, now a
+  `dual_window!` around `roll_round_string`): presentation, both sides' dice from `Sx::die` recorded in
+  `ledger.dice` (Munitions Reserves' pre-roll reroll included), free/forced hits (tag 2 = the hulls 0.0.1 binds,
+  tag 1 = Hylarim's two extra hits on 9-10), `combat_round_hits`, `combat_round_dice` and the queue.
+  Reroll questions are stages of the same window (string `reroll_window` of the fleet kind, `heart_ixth`,
+  `wrath_of_kenara`, `war_funding_step`): per side, after its dice are staged (a `RerollSet`, mirrored to
+  `transient.combat.reroll_staging` while a question is open so the adapter can fill `Choice.details`), Munitions
+  Reserves after the roll (offer, then "choose which dice"), the Crown of Thalnos relic and law (one question per
+  die, `Ask::RerollDie`, the picks drawn again at the end of the walk, +1 for the relic, the casualties of entries
+  whose rerolled dice missed), the Heart of Ixth (one question per holder), Wrath of Kenara (purchase); after both
+  sides, War Funding per holder. Compared: queue, damaged-before-round, dice (hit number, faces, rerolls
+  included), stream positions, every question (ids, labels, payload, context, details), events, resulting state.
+  Bails (`CombatWindow::roll_unported`, the string result stands, windows inside run bare): a readied The
+  Thundarian / Yssaril agent (roll-step reaction: the ability table is empty in core), the Keleres agent granting
+  commodities as trade goods to a side that may pay Munitions or Wrath, neutral sides, test faces or
+  `rng.seed() != state.rng_seed`, a roll that ends the fight (a reroll casualty emptied a fleet), a hit a module
+  produces after the roll, reaction activity inside a casualty's announcement. Golden coverage: the unit tests
+  `the_crowns_of_thalnos_reroll_questions_run_in_the_core_roll_window`, `the_heart_of_ixth_runs_in_the_core_roll_window`,
+  `war_funding_runs_in_the_core_roll_window`, `wrath_of_kenara_runs_in_the_core_roll_window`,
+  `munitions_after_the_roll_runs_in_the_core_roll_window` (16 seeds each, whole fights on `driver=dual`, seeded
+  random and first-option deciders), mutation-checked.
+  Known string defect copied on purpose: `heart_ixth` splits the option id `hfix|e:d:sign` on `|` and wants four
+  parts, so every pick fails to parse: no die is shifted and the card is never exhausted. The window asks the
+  same questions and ignores the answers; fixing it is a RULES_VERSION change.
+* `rules/combat/flow.rs` (`Flow`): one transition of `settle_stages` (`announcing_step`, `retreating_step`,
+  `hit_queue_head`, wrapped by `CombatWindow::flow_dual`). The string answers the rule facts (over, can retreat,
+  destinations, ships left, sustain candidates); the core owns the control flow, the events
+  (RETREAT_STEP_STARTED, SPACE_COMBAT_ROUND_ENDED, HITS_TO_ASSIGN) and the window fields it changes
+  (hit phase, resume flag, retreats announced, once-per-round announcement). Bails: cancellations granted, a
+  single casualty candidate, neutral sides, Duranium Armor repairs, a lone retreat destination (the move is
+  `retreat_to`, string), Devotion, staged destructions, reaction windows in an announcement.
+* `rules/combat/retreat.rs` (`Retreat`): the move of a retreat (string `combat::retreat_to`, now a `dual_window!`
+  around `retreat_to_string`; the value compared is the number of units stranded). Alastor participants forgotten,
+  Bastion's retreat note, movers (ships with a move value), carried fighters and ground forces within capacity, the
+  stranded lost (`remove_ship`, a staged `retreat_capacity` destruction with staging), the command token and its staged
+  `COMMAND_TOKEN_PLACED`. No new `Obs` variants: `ParticipantsCleared` and `ShipLostTaken` are the direct hooks
+  `nekro_units_alastor_clear` and `bastion_take_ship_lost` (as `assign.rs` already calls them) and the `ShipRetreated`
+  observer has no ship list, so the window calls `bastion_note_retreat` directly. Bails (`dual_window::retreat_unported`,
+  one test each): a unit that flips form or fights from its planet (Eidolon in the fleet or where it lands, Voltron), a
+  Floating Factory, a Last Bastion seat (`bastion_note_retreat` is not ported in core-factions: its list is sorted by the
+  unit type TEXT), neutral players. Tests: `a_retreat_runs_in_the_core_window` (sustained and galvanized pieces,
+  stranding, with and without staging), mutation-checked.
+* `rules/combat/machine.rs` (`Machine`, package B1g): the composition. `CombatWindow::settle` (string
+  `settle_stages` + `announce_end`) is now compared as ONE core Window on `driver=dual`
+  (`CombatWindow::settle_machine_dual`, label `combat::settle`, adapter `dual_window::settle_machine`). The machine owns
+  the stage loop: round opening (`BeginRound`), round-1 barrage (`BarrageStep`), announce/retreat/queue transitions
+  (`Flow`, facts now read from the core state: fight over, retreat destinations, ships left, sustain candidates),
+  the roll step with its reroll questions (`RollStep`, its questions are the machine's questions), the move of a
+  retreat (`Retreat`), the end (`EndAnnounce`). It stops at a pending decision (announce a retreat, choose a
+  destination, sustain, assign), at the barrage's scoring pause and at the end. The string hands it the stage and the
+  window fields (`Fields`) and gates that cannot change inside one settle (`Env`: interned texts, the neighbours a
+  retreat may enter, `may_retreat`, Duranium/Devotion flags); the compared value is the stage, outcome, fields,
+  the dice of the settle and the stream positions, besides events, state and questions. Windows nested in the string
+  loop run bare under the outer window (`run_dual_window` nests). Where the machine is known not to carry the
+  position (`settle_args` gates) the string loop runs with its inner windows compared one by one as before, so no
+  coverage is lost; unit tests of the inner windows switch the composed comparison off (`dual_window::with_composed`,
+  default off under `cfg(test)`, on in the binaries).
+  Bails (string stands; test `the_composed_combat_stays_string_where_the_core_does_not_carry_the_position`, plus the
+  lockstep test `the_composed_combat_machine_runs_whole_fights_in_lockstep`): Naaz / Letnev / diplomacy round
+  openings; start-of-combat hits (Assault Cannon, Mentak Ambush, Dimensional Splicer, Impulse Core) and the factions
+  of the module hooks; barrage with reactions (core ability table empty) and the barrage cases of `barrage_unported`;
+  The Thundarian / Keleres agent / test dice (roll gates); a roll that ends the fight; neutral sides; hit
+  cancellations; Duranium Armor repairs; Devotion's hits after a round; destructions
+  waiting for their announcement (also after a retreat); a retreat of a flipping unit (Eidolon), Voltron, a Floating
+  Factory, a Last Bastion seat, Dark Energy Tap, a Ralnel flagship arriving; the announcement of the end when a
+  survivor flips back, a blockaded dock dies or faction marks change; reaction windows inside any emission.
+* The pending decisions (package B1g, second slice): `Machine::awaiting(env, fields)` is the machine built for the answer
+  to the decision a settle stopped at (`Stop::Pending`). It puts the question the string `pending_choice` puts and applies
+  the answer the string `resolve` applies, nothing more (the settle that follows is a machine of its own).
+  `CombatWindow::resolve` is `resolve_answer` (dual, label `combat::answer`, adapter `dual_window::answer_machine`) +
+  `settle`; the string body is `resolve_answer_string`. The recording is made by hand (`note_ask(choice, answer)`), the
+  way `invasion::answer_custodians` does, so the harness compares the pending question and then the commander's.
+  New core vocabulary (`choice/combat.rs`): `Ask::AnnounceRetreat {system, forced, ships}` (Rout: no "stay"),
+  `Ask::RetreatTo {system, fleet}`, `Opt::Stay/Announce/RetreatTo {system, there}`, `Subtype::AnnounceRetreat/RetreatTo`,
+  and `Ask::CancelHit.window: Option<u16>` for the sustain question OF THE WINDOW (space sustainers named by their index
+  `sustain|3` instead of `sustain|space:3`, previews). The assign question reuses `Ask::AssignHit`, its options carry the
+  index into the owner's whole ship list (`casualty_candidates`), not into the filtered list. The renderer
+  (`render/combat.rs`) now attaches the `ShipsInSystem` previews (`Wording.preview` for the generic decline "take the hit");
+  the `sustainers` detail is the adapter's `complete` closure (as for the offer). Previews are `serde(skip)`, so the whole
+  `Choice` comparison cannot see them: `settle_run` compares them question by question in the answering mode
+  (`combat::answer.previews`). The sustain answer is `apply_sustain` + the commander's offer (`SustainCommander` as a
+  sub-window, its question is the machine's) + `sustain_offer::emit_used` + `cancel_per_sustain`; the assign answer is
+  `remove_ship` + `announce_loss`; the retreat answer is `retreat_fleet`; the announce answer emits RETREAT_DECLARED and
+  moves on (defender silences attacker, pending retreats).
+  The single casualty candidate is no longer a bail: `Machine::lone_casualty` loses the ship without a question.
+  Bails of the answer (string stands, counted under `combat::answer`): a hit the producer assigns (Devotion), a retreat the
+  core does not move (`retreat_unported`), a sustain below `RULES_FACTION_BUGFIXES`, a commander held another way than as
+  an unlocked leader, neutral sides, reaction activity (`Recording.nested`). Tests:
+  `the_pending_decisions_of_a_combat_run_in_the_core_machine` (hub map, 24 seeded fights, Rout on a third of them),
+  `a_sustain_in_a_game_below_the_faction_bugfixes_is_answered_in_the_string`,
+  `a_retreat_of_a_fleet_with_a_floating_factory_is_answered_in_the_string`,
+  `a_hit_the_producer_assigns_is_answered_in_the_string`; mutation-checked (pending retreats, hits owed, Rout, the used
+  event, the defender silencing the attacker, every preview).
+  Still string: the settle gates (`settle_args`: round openings, barrage, roll, retreat moves), see ENGINE_KNOWN_ISSUES.md.

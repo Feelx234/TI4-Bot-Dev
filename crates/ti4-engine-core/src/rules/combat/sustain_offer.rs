@@ -76,7 +76,7 @@ impl SustainOffer {
         Self { offer, hits, stage: Stage::Offering, commander: SustainCommander::new(offer.player, offer.source), used: None, last: None }
     }
 
-    fn rd<'a>(s: &'a CoreState, k: &'a Kernel) -> Rd<'a> {
+    pub(super) fn rd<'a>(s: &'a CoreState, k: &'a Kernel) -> Rd<'a> {
         Rd::new(s, k).with_blanked(reach::blanked(s))
     }
 
@@ -88,25 +88,30 @@ impl SustainOffer {
             staging: self.offer.staging,
             ability: self.offer.ability,
             in_combat: self.offer.in_combat,
+            window: None,
         }
     }
 
     fn emit_used(&self, sx: &mut Sx<'_>, unit: Unit) -> Result<(), crate::kernel::TimingError> {
-        let o = self.offer;
-        sx.state.transient_mut().combat.last_sustain = Some((o.system, o.player, unit, o.producer, o.in_combat));
-        let direct = direct_hittable_at(Self::rd(sx.state, sx.kernel), o.player, o.system, unit);
-        let payload = Payload::new()
-            .with(Key::System, Val::System(o.system))
-            .with(Key::Player, Val::Seat(o.player))
-            .with(Key::Unit, Val::Unit(unit))
-            .with(Key::Producer, Val::Seat(o.producer))
-            .with(Key::DuringSpaceCombat, Val::Flag(o.in_combat))
-            .with(Key::DirectHittable, Val::Flag(direct));
-        if !o.announce {
-            return Ok(());
-        }
-        sx.emit(fx::event(EventKind::SustainDamageUsed, payload)).map(|_| ())
+        emit_used(sx, &self.offer, unit)
     }
+}
+
+/// The handoff of the unit that sustained and, when announced, `SUSTAIN_DAMAGE_USED`.
+pub fn emit_used(sx: &mut Sx<'_>, o: &Offer, unit: Unit) -> Result<(), crate::kernel::TimingError> {
+    sx.state.transient_mut().combat.last_sustain = Some((o.system, o.player, unit, o.producer, o.in_combat));
+    let direct = direct_hittable_at(SustainOffer::rd(sx.state, sx.kernel), o.player, o.system, unit);
+    let payload = Payload::new()
+        .with(Key::System, Val::System(o.system))
+        .with(Key::Player, Val::Seat(o.player))
+        .with(Key::Unit, Val::Unit(unit))
+        .with(Key::Producer, Val::Seat(o.producer))
+        .with(Key::DuringSpaceCombat, Val::Flag(o.in_combat))
+        .with(Key::DirectHittable, Val::Flag(direct));
+    if !o.announce {
+        return Ok(());
+    }
+    sx.emit(fx::event(EventKind::SustainDamageUsed, payload)).map(|_| ())
 }
 
 impl Window for SustainOffer {

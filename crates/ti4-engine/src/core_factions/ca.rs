@@ -452,7 +452,7 @@ fn observers(label: &str, gs: &GameState, core: &CoreState, cx: &Ctx, sources: S
     let k = kernel_with(sources, &[bastion::register, crimson::register, nekro::register, ralnel::register]);
     let mut string = gs.clone();
     let mut typed = core.clone();
-    let mut check = |what: &str, string: &GameState, typed: &CoreState, out: &mut CaCheck| {
+    let check = |what: &str, string: &GameState, typed: &CoreState, out: &mut CaCheck| {
         let mut back = string.clone();
         back.faction_marks.retain(|key, _| !(key.starts_with("bastion:lost:") || key.starts_with("bastion:retreated:") || key.starts_with("nekro:alastor") || key.starts_with("crimson:deployed:")));
         if crate::core_sync::Codec::store_slice(cx, typed, &mut back, ti4_engine_core::state::Slice::Marks).is_err() {

@@ -14,7 +14,17 @@
 
 pub mod assault_cannon;
 pub mod assign;
+pub mod barrage;
+pub mod begin_round;
+pub mod cannon_guns;
 pub mod destroy_fighters;
+pub mod end;
+pub mod end_announce;
+pub mod flow;
+pub mod machine;
+pub mod raid_formation;
+pub mod retreat;
+pub mod roll;
 pub mod sustain_commander;
 pub mod sustain_offer;
 
@@ -175,18 +185,21 @@ pub type GroupKey = (i64, u8);
 
 /// The flagship texts the combat reads. Local until the generated `Unit -> FlagshipTextSet` lands.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum FlagshipText {
+pub(crate) enum FlagshipText {
     /// J.N.S. Hylarim: results of 9 or 10 produce 2 additional hits.
     Jolnar,
     /// 0.0.1: hits must be assigned to non-fighter ships if able.
     L1z1x,
+    /// Wrath of Kenara: the Hacan flagship.
+    Hacan,
 }
 
 /// `factions::flagship_has_text`: the unit is the flagship, or a Nekro flagship whose Z token lends it.
-fn flagship_has_text(s: &CoreState, who: Seat, unit: Unit, text: FlagshipText) -> bool {
+pub(crate) fn flagship_has_text(s: &CoreState, who: Seat, unit: Unit, text: FlagshipText) -> bool {
     let (flagship, faction) = match text {
         FlagshipText::Jolnar => (Unit::JNSHylarim, Faction::TheUniversitiesOfJolNar),
         FlagshipText::L1z1x => (Unit::L1z1xFlagship, Faction::TheL1Z1XMindnet),
+        FlagshipText::Hacan => (Unit::WrathOfKenara, Faction::TheEmiratesOfHacan),
     };
     if unit == flagship {
         return true;

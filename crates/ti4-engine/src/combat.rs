@@ -2090,11 +2090,33 @@ fn apply_barrage(
                         system,
                         excess,
                     };
-                    let made = with_timing(state, ctx, |timing| {
-                        crate::factions::hooks_combat::afb_excess(timing, &site)
-                    });
-                    announce_staged_destructions(state, ctx);
-                    made?;
+                    // On `driver=dual` Raid Formation also runs as a core window (`rules::combat::raid_formation`).
+                    let failed = std::cell::Cell::new(false);
+                    let mut outcome = None;
+                    crate::dual_window!(
+                        crate::dual::Area::Driver,
+                        "combat::raid_formation",
+                        state,
+                        |s: &mut GameState| {
+                            let made = with_timing(s, ctx, |timing| {
+                                crate::factions::hooks_combat::afb_excess(timing, &site)
+                            });
+                            announce_staged_destructions(s, ctx);
+                            failed.set(made.is_err());
+                            outcome = Some(made);
+                            crate::dual::Run::new(!failed.get())
+                        },
+                        |s: &mut GameState, script: &crate::dual_window::Recording| {
+                            if failed.get() {
+                                return None;
+                            }
+                            let args = crate::dual_window::RaidArgs { producer: player, target, system, excess };
+                            crate::dual_window::raid_formation(s, sources, args, script)
+                        }
+                    );
+                    if let Some(made) = outcome {
+                        made?;
+                    }
                 }
             }
         }
@@ -2472,6 +2494,28 @@ pub fn space_cannon_guns(
         })
         .filter(|(owner, ..)| may_fire(owner))
         .collect();
+    if crate::dual::backend(crate::dual::Area::Combat) == crate::dual::Backend::Dual {
+        #[cfg(feature = "typed-core")]
+        let typed = || {
+            let reaching: Vec<String> =
+                types.iter().filter(|(_, kind)| reaches_adjacent(**kind)).map(|(id, _)| (*id).to_owned()).collect();
+            crate::core_combat::CombatView::of(state, content, sources)?.unit_cannon_guns(system, active, galaxy, &reaching)
+        };
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None::<Vec<String>>;
+        let _ = crate::dual::run_dual_typed(crate::dual::Area::Combat, "combat::unit_cannon_guns", typed, || {
+            guns.iter().map(|unit| unit.type_id.to_string()).collect::<Vec<_>>()
+        });
+    }
+    if crate::dual::backend(crate::dual::Area::Combat) == crate::dual::Backend::Dual {
+        #[cfg(feature = "typed-core")]
+        let typed = || crate::core_combat::CombatView::of(state, content, sources)?.attachment_cannon_guns(system, active);
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None::<Vec<(String, String, u32, usize)>>;
+        let _ = crate::dual::run_dual_typed(crate::dual::Area::Combat, "combat::attachment_cannon_guns", typed, || {
+            attachment_guns.iter().map(|(who, planet, value, count)| (who.to_string(), planet.to_string(), *value, *count)).collect::<Vec<_>>()
+        });
+    }
     CannonGuns {
         units: guns,
         attachments: attachment_guns,
@@ -3146,6 +3190,7 @@ fn check_sustain_options(
             staging: crate::supply::staging_enabled(state),
             ability,
             in_combat,
+            window: None,
         };
         crate::core_combat::CombatView::of(state, content, sources)?.sustain_options(player, ask)
     };
@@ -4779,6 +4824,27 @@ pub fn retreat_to(
     system: &SystemId,
     destination: &SystemId,
 ) -> usize {
+    crate::dual_window!(
+        crate::dual::Area::Driver,
+        "combat::retreat_to",
+        state,
+        |s: &mut GameState| crate::dual::Run::new(retreat_to_string(s, content, sources, player, system, destination)),
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            let args = crate::dual_window::RetreatArgs { player, system, destination };
+            crate::dual_window::retreat_to(s, content, sources, args, script)
+        }
+    )
+}
+
+/// The string body of [`retreat_to`].
+fn retreat_to_string(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    destination: &SystemId,
+) -> usize {
     let types = catalogue(content, sources);
     // Ground forces an Alastor brought into the battle stay on their planets and leave it with the
     // fleet: they are no longer in this combat.
@@ -5037,6 +5103,17 @@ pub struct CombatWindow {
     /// Round 1's start-of-combat hits were assigned; the next `open_round` resumes at the
     /// anti-fighter barrage instead of opening the round again.
     resuming_round: bool,
+    /// Depth of `settle` (roll rounds settle inside themselves): only the outermost is compared as one.
+    settle_depth: u32,
+    /// The settle did something the composed core machine does not carry (see `settle_args`).
+    machine_bail: bool,
+}
+
+/// What the "Roll Dice" step leaves for [`CombatWindow::roll_round`]: whether the window settles afterwards
+/// (not when a reroll ended the fight), and whether a module produced hits after the roll.
+struct RollEnd {
+    settle: bool,
+    produced: bool,
 }
 
 /// What a stage helper tells `settle_stages`: go round the loop again, stop at a pending decision, or
@@ -5109,6 +5186,8 @@ impl CombatWindow {
                 // No fight happened, so there is no end to announce.
                 end_announced: true,
                 resuming_round: false,
+                settle_depth: 0,
+                machine_bail: false,
             };
         };
         let fleet_at_start = [attacker, defender]
@@ -5139,6 +5218,8 @@ impl CombatWindow {
             fled: Vec::new(),
             end_announced: false,
             resuming_round: false,
+            settle_depth: 0,
+            machine_bail: false,
         }
     }
 
@@ -5422,6 +5503,7 @@ impl CombatWindow {
             payload.insert("player".to_owned(), player.to_string().into());
             payload.insert("destination".to_owned(), destination.to_string().into());
             let _ = ctx.emit(state, "FLAGSHIP_RETREATED", payload);
+            self.machine_bail = true;
         }
         self.fled.push((player.clone(), now));
     }
@@ -5610,11 +5692,32 @@ impl CombatWindow {
         let outcome = outcome.clone();
         let sides = [self.attacker.clone(), self.defender.clone()];
         let payload = self.end_payload(state, content, sources, &outcome);
+        // The rest runs on `driver=dual` as a core window too (`rules::combat::end_announce`); the string body
+        // notes what the window does not carry.
+        let bail = std::cell::Cell::new(!state.pending_destructions.is_empty());
+        let facts = crate::dual_window::EndArgs {
+            attacker: &self.attacker,
+            defender: &self.defender,
+            system: &self.system,
+            rounds: outcome.rounds,
+            winner: outcome.winner.as_ref(),
+            declared_draw: declared_draw(state),
+            fled: &self.fled,
+            at_start: &self.fleet_at_start,
+            announce: ctx.timing.is_some(),
+        };
+        crate::dual_window!(
+            crate::dual::Area::Driver,
+            "combat::announce_end",
+            state,
+            |state: &mut GameState| {
+                let marks = state.faction_marks.clone();
         // "At the end of a space battle in the active system, flip this card" (Z-Grav Eidolon):
         // the survivors in this system's space area return to their ground form. Measured after
         // the losses above, which count ships, so a flipped mech is not reported destroyed.
-        crate::fleet::flip_to_ground_forms(state, content, sources, &sides, &self.system);
-        let _ = ctx.emit(state, "SPACE_COMBAT_ENDED", payload);
+        bail.set(bail.get() || !crate::fleet::flip_to_ground_forms(state, content, sources, &sides, &self.system).is_empty());
+        self.machine_bail |= bail.get();
+        let _ = ctx.emit(state, "SPACE_COMBAT_ENDED", payload.clone());
         crate::factions::observe(
             state,
             crate::factions::Obs::ParticipantsCleared {
@@ -5630,13 +5733,22 @@ impl CombatWindow {
         );
         // A mobile space dock left in a space area with another player's ships is destroyed
         // (Floating Factory); checked when the combat that could have cleared them ends.
-        let _ = crate::production::destroy_blockaded_mobile_docks(
-            state,
-            ctx.content,
-            ctx.sources,
-            &self.system,
+        bail.set(
+            bail.get()
+                || !crate::production::destroy_blockaded_mobile_docks(state, ctx.content, ctx.sources, &self.system).is_empty()
+                || state.faction_marks != marks,
         );
+        self.machine_bail |= bail.get();
         announce_staged_destructions(state, ctx);
+                crate::dual::Run::new(true)
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                if bail.get() {
+                    return None;
+                }
+                crate::dual_window::announce_end(s, content, sources, facts, script)
+            }
+        );
     }
 
     /// The `SPACE_COMBAT_ENDED` payload (see [`Self::announce_end`]): pure over the position, so the
@@ -5703,8 +5815,50 @@ impl CombatWindow {
                 .collect::<Vec<_>>()
                 .into(),
         );
-        payload.insert("destroyed".to_owned(), destroyed.into());
+        payload.insert("destroyed".to_owned(), destroyed.clone().into());
+        self.check_end_report(state, content, sources, &outcome, reason, &sides, &destroyed);
         payload
+    }
+
+    /// Dual check of the end report (`rules::combat::end`): reason, losers, retreats and lost ships.
+    fn check_end_report(
+        &self,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        outcome: &CombatOutcome,
+        reason: &str,
+        sides: &[PlayerId; 2],
+        destroyed: &[serde_json::Value],
+    ) {
+        if crate::dual::backend(crate::dual::Area::Combat) != crate::dual::Backend::Dual {
+            return;
+        }
+        let string = || {
+            let text = |v: &serde_json::Value, key: &str| v[key].as_str().unwrap_or_default().to_owned();
+            (
+                reason.to_owned(),
+                sides.iter().filter(|side| outcome.winner.as_ref().is_some_and(|won| won != *side)).map(ToString::to_string).collect::<Vec<_>>(),
+                self.fled.iter().map(|(who, _)| who.to_string()).collect::<Vec<_>>(),
+                destroyed.iter().map(|d| (text(d, "player"), text(d, "unit"))).collect::<Vec<_>>(),
+            )
+        };
+        #[cfg(feature = "typed-core")]
+        let typed = || {
+            let fled: Vec<(PlayerId, Vec<String>)> = self.fled.clone();
+            let start: Vec<(PlayerId, Vec<String>)> = self.fleet_at_start.iter().map(|(p, f)| (p.clone(), f.clone())).collect();
+            crate::core_combat::CombatView::of(state, content, sources)?.end_report(
+                &self.system,
+                [&self.attacker, &self.defender],
+                outcome.winner.as_ref(),
+                declared_draw(state),
+                &fled,
+                &start,
+            )
+        };
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None::<(String, Vec<String>, Vec<String>, Vec<(String, String)>)>;
+        let _ = crate::dual::run_dual_typed(crate::dual::Area::Combat, "combat::end_report", typed, string);
     }
 
     /// Roll a round and queue both sides' hits, or finish.
@@ -5776,7 +5930,44 @@ impl CombatWindow {
 
     /// The opening of a round that is not resumed: the round counter, the presentation, the round's
     /// announcements and the faction offers made before any dice (string `open_round`, first part).
+    ///
+    /// On `driver=dual` the step also runs as a core window (`rules::combat::begin_round`) for the positions
+    /// `dual_window::round_opening_unported` does not exclude.
     fn begin_round(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>, round: u32) -> Result<(), CombatError> {
+        let (content, sources) = (ctx.content, ctx.sources);
+        let failed = std::cell::Cell::new(false);
+        let mut outcome = None;
+        let announce = ctx.timing.is_some();
+        let (attacker, defender, system) = (self.attacker.clone(), self.defender.clone(), self.system.clone());
+        crate::dual_window!(
+            crate::dual::Area::Driver,
+            "combat::begin_round",
+            state,
+            |s: &mut GameState| {
+                let result = self.begin_round_string(s, ctx, round);
+                failed.set(result.is_err());
+                outcome = Some(result);
+                crate::dual::Run::new(!failed.get())
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                if failed.get() {
+                    return None;
+                }
+                let args = crate::dual_window::BeginRoundArgs {
+                    attacker: &attacker,
+                    defender: &defender,
+                    system: &system,
+                    round,
+                    announce,
+                };
+                crate::dual_window::begin_round(s, content, sources, args, script)
+            }
+        );
+        outcome.unwrap_or(Ok(()))
+    }
+
+    /// The string body of [`Self::begin_round`].
+    fn begin_round_string(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>, round: u32) -> Result<(), CombatError> {
         let (content, sources) = (ctx.content, ctx.sources);
         state.combat_round_seq = state.combat_round_seq.saturating_add(1);
         state.combat_presentation.phase = "pre_roll".to_owned();
@@ -5952,7 +6143,78 @@ impl CombatWindow {
 
     /// Both anti-fighter barrages (78.3): rolled one side at a time with its reroll windows, then applied.
     /// The players that scored a barrage feat.
+    ///
+    /// On `driver=dual` the step also runs as a core window (`rules::combat::barrage`) for the positions
+    /// `dual_window::barrage_unported` does not exclude.
     fn barrage_step(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>, round: u32) -> Result<Vec<PlayerId>, CombatError> {
+        let sources = ctx.sources;
+        let failed = std::cell::Cell::new(false);
+        let mut outcome = None;
+        let announce = ctx.timing.is_some();
+        let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed; // real games always match: Game::new and Game::from_state seed the rng from state.rng_seed (game.rs); only hand-built test rigs differ
+        let (attacker, defender, system) = (self.attacker.clone(), self.defender.clone(), self.system.clone());
+        let occurrence = self.ensure_combat_occurrence(state).0;
+        let staging = crate::supply::staging_enabled(state);
+        let probe = crate::dual_window::BarrageArgs {
+            attacker: &attacker,
+            defender: &defender,
+            system: &system,
+            round,
+            occurrence,
+            staging,
+            announce,
+            reproducible,
+        };
+        // Positions the window does not carry run bare, so the windows inside (fighter removal, Raid
+        // Formation) are compared on their own.
+        if crate::dual::backend(crate::dual::Area::Driver) == crate::dual::Backend::Dual && crate::dual_window::barrage_unported(state, &probe) {
+            return self.barrage_step_string(state, ctx, round);
+        }
+        let rng_before = ctx.rng.positions();
+        let history_start = ctx.dice.history().len();
+        crate::dual_window!(
+            crate::dual::Area::Driver,
+            "combat::barrage_step",
+            state,
+            |s: &mut GameState| {
+                let result = self.barrage_step_string(s, ctx, round);
+                failed.set(result.is_err());
+                let value: crate::dual_window::BarrageOut = (
+                    result.as_ref().map(Clone::clone).unwrap_or_default(),
+                    ctx.dice
+                        .history()
+                        .iter()
+                        .skip(history_start)
+                        .filter(|roll| roll.reason.starts_with("anti"))
+                        .map(|roll| (roll.hits_on.unwrap_or(0), roll.faces.clone()))
+                        .collect(),
+                    ctx.rng.positions(),
+                );
+                outcome = Some(result);
+                crate::dual::Run::new(value)
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                if failed.get() {
+                    return None;
+                }
+                let args = crate::dual_window::BarrageArgs {
+                    attacker: &attacker,
+                    defender: &defender,
+                    system: &system,
+                    round,
+                    occurrence,
+                    staging,
+                    announce,
+                    reproducible,
+                };
+                crate::dual_window::barrage_step(s, sources, args, &rng_before, script)
+            }
+        );
+        outcome.unwrap_or_else(|| Ok(Vec::new()))
+    }
+
+    /// The string body of [`Self::barrage_step`].
+    fn barrage_step_string(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>, round: u32) -> Result<Vec<PlayerId>, CombatError> {
         let (content, sources) = (ctx.content, ctx.sources);
     let occurrence = self.ensure_combat_occurrence(state);
     // Both barrages are rolled before either is applied (78.3), one side at a time:
@@ -6037,6 +6299,95 @@ impl CombatWindow {
         ctx: &mut Resolving<'_>,
         round: u32,
     ) -> Result<(), CombatError> {
+        let (attacker, defender, system) = (self.attacker.clone(), self.defender.clone(), self.system.clone());
+        let (content, sources) = (ctx.content, ctx.sources);
+        let unported = self.roll_unported(state, ctx.content);
+        let ctx_announce = ctx.timing.is_some();
+        let munitions_after = [&attacker, &defender].map(|side| {
+            state.rules_version >= ti4_model::state::RULES_MUNITIONS_AFTER_ROLL
+                && crate::faction_abilities::has(state, content, side, "munitions")
+        });
+        let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed;
+        // Positions the window does not carry run bare, so the windows inside (the reroll questions) are
+        // compared on their own.
+        if crate::dual::backend(crate::dual::Area::Driver) == crate::dual::Backend::Dual && unported {
+            let end = self.roll_round_string(state, ctx, round)?;
+            return if end.settle { self.settle(state, ctx) } else { Ok(()) };
+        }
+        let rng_before = ctx.rng.positions();
+        let history_start = ctx.dice.history().len();
+        let failed = std::cell::Cell::new(false);
+        let mut outcome = None;
+        crate::dual_window!(
+            crate::dual::Area::Driver,
+            "combat::roll_round",
+            state,
+            |s: &mut GameState| {
+                let result = self.roll_round_string(s, ctx, round);
+                let queue: Vec<(PlayerId, usize, PlayerId, bool, bool)> = match &self.stage {
+                    Stage::Sustaining { queue, .. } => queue
+                        .iter()
+                        .map(|p| (p.player.clone(), p.hits, p.producer.clone(), p.non_fighters_only, p.producer_assigns))
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                failed.set(result.as_ref().map_or(true, |end| end.produced) || !matches!(self.stage, Stage::Sustaining { .. }));
+                let mut damaged: Vec<(PlayerId, Vec<String>)> = self
+                    .damaged_before_round
+                    .iter()
+                    .map(|(side, kinds)| {
+                        let mut kinds = kinds.clone();
+                        kinds.sort();
+                        (side.clone(), kinds)
+                    })
+                    .collect();
+                damaged.sort();
+                let value: crate::dual_window::RollOut = (
+                    queue,
+                    damaged,
+                    ctx.dice.history().iter().skip(history_start).map(|roll| (roll.hits_on.unwrap_or(0), roll.faces.clone())).collect(),
+                    ctx.rng.positions(),
+                );
+                outcome = Some(result);
+                crate::dual::Run::new(value)
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                if failed.get() {
+                    return None;
+                }
+                let args = crate::dual_window::RollArgs { attacker: &attacker, defender: &defender, system: &system, reproducible, munitions_after, announce: ctx_announce };
+                crate::dual_window::roll_step(s, content, sources, args, &rng_before, script)
+            }
+        );
+        let end = outcome.unwrap_or(Ok(RollEnd { settle: false, produced: false }))?;
+        if end.settle { self.settle(state, ctx) } else { Ok(()) }
+    }
+
+    /// Whether the "Roll Dice" step can hold something the core roll window does not carry: neutral sides,
+    /// a roll-step reaction (The Thundarian), the Keleres agent granting commodities as trade goods to a
+    /// side that may pay for Munitions Reserves or Wrath of Kenara. Everything else (the Crowns of
+    /// Thalnos, the Heart of Ixth, Munitions Reserves after the roll, War Funding, Wrath of Kenara) is a
+    /// stage of the window.
+    fn roll_unported(&self, state: &GameState, content: &ContentStore) -> bool {
+        let sides = [&self.attacker, &self.defender];
+        crate::neutral_units::is_neutral(&self.attacker)
+            || crate::neutral_units::is_neutral(&self.defender)
+            || crate::factions::nomad_agents::watches_roll_step(state)
+            || sides.into_iter().any(|side| {
+                crate::supply::potential_goods(state, side) > crate::supply::spendable_goods(state, side)
+                    && (crate::factions::has_text_in(state, side, &self.system, crate::factions::FlagshipText::Hacan)
+                        || (state.rules_version >= ti4_model::state::RULES_MUNITIONS_AFTER_ROLL
+                            && crate::faction_abilities::has(state, content, side, "munitions")))
+            })
+    }
+
+    /// The string body of [`Self::roll_round`], up to (not including) the settle.
+    fn roll_round_string(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        round: u32,
+    ) -> Result<RollEnd, CombatError> {
         let (content, sources) = (ctx.content, ctx.sources);
         state.combat_presentation.phase = "resolving_hits".to_owned();
         state.combat_presentation.round_start =
@@ -6057,15 +6408,16 @@ impl CombatWindow {
         let Some((attacker_hits, attacker_dice, defender_hits, defender_dice)) =
             self.roll_both_sides(state, ctx, round)
         else {
-            return Ok(());
+            self.machine_bail = true;
+            return Ok(RollEnd { settle: false, produced: false });
         };
         let mut sets = [attacker_dice, defender_dice];
         self.war_funding_step(state, ctx, &mut sets)?;
         if self.roll_step_end(state, ctx, round)? {
-            return self.roll_round(state, ctx, round);
+            return self.roll_round_string(state, ctx, round);
         }
-        self.queue_round_hits(state, ctx, round, &sets, [attacker_hits, defender_hits])?;
-        self.settle(state, ctx)
+        let produced = self.queue_round_hits(state, ctx, round, &sets, [attacker_hits, defender_hits])?;
+        Ok(RollEnd { settle: true, produced })
     }
 
     /// The "Roll Dice" step's dice (78.5f), the attacker's first. `None` when a reroll window emptied a
@@ -6235,7 +6587,7 @@ impl CombatWindow {
         round: u32,
         sets: &[Option<RerollSet>],
         rolled: [usize; 2],
-    ) -> Result<(), CombatError> {
+    ) -> Result<bool, CombatError> {
         let (content, sources) = (ctx.content, ctx.sources);
         let [attacker_hits, defender_hits] = rolled;
         let split = |set: &Option<RerollSet>, rolled: usize, side: &PlayerId| {
@@ -6251,6 +6603,7 @@ impl CombatWindow {
         // simultaneous hits (78.6), assigned by the opponent like the dice's own.
         let [by_attacker, by_defender] =
             self.produce_hits(state, ctx, round, CombatMoment::AfterRoll)?;
+        let produced = [by_attacker, by_defender].iter().any(|made| *made != ProducedHits::NONE);
         attacker_free += by_attacker.any_ship;
         attacker_forced += by_attacker.non_fighter;
         defender_free += by_defender.any_ship;
@@ -6337,7 +6690,7 @@ impl CombatWindow {
             })
             .collect();
         self.stage = Stage::Sustaining { queue, round };
-        Ok(())
+        Ok(produced)
     }
 
     /// Settle a freshly opened window, so a fight that is already over reports so.
@@ -6360,9 +6713,180 @@ impl CombatWindow {
         state: &mut GameState,
         ctx: &mut Resolving<'_>,
     ) -> Result<(), CombatError> {
-        self.settle_stages(state, ctx)?;
+        if self.settle_depth > 0
+            || !crate::dual_window::composed()
+            || crate::dual::backend(crate::dual::Area::Driver) != crate::dual::Backend::Dual
+        {
+            return self.settle_string(state, ctx);
+        }
+        self.settle_machine_dual(state, ctx)
+    }
+
+    /// The string body of [`Self::settle`].
+    fn settle_string(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+    ) -> Result<(), CombatError> {
+        self.settle_depth += 1;
+        let result = self.settle_stages(state, ctx);
+        self.settle_depth -= 1;
+        result?;
         self.announce_end(state, ctx);
         Ok(())
+    }
+
+    /// `settle` on `driver=dual`: the string loop is compared with the composed core machine
+    /// (`rules::combat::machine`) from the stage it starts in to the next decision or the end of the fight.
+    /// The windows inside the string loop run bare then (the outer window compares the whole).
+    fn settle_machine_dual(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+    ) -> Result<(), CombatError> {
+        let sources = ctx.sources;
+        // A position the machine is known not to carry runs the windows inside one by one instead.
+        let args = self
+            .settle_args(state, ctx)
+            .filter(|a| !(a.opening_unported || a.barrage_unported || a.roll_unported || a.retreat_unported));
+        let Some(args) = args else { return self.settle_string(state, ctx) };
+        let args = Some(args);
+        let rng_before = ctx.rng.positions();
+        let history_start = ctx.dice.history().len();
+        let failed = std::cell::Cell::new(false);
+        let mut outcome = None;
+        crate::dual_window!(
+            crate::dual::Area::Driver,
+            "combat::settle",
+            state,
+            |s: &mut GameState| {
+                self.machine_bail = false;
+                let result = self.settle_string(s, ctx);
+                failed.set(result.is_err() || self.machine_bail);
+                let dice: Vec<(u32, Vec<u32>)> = ctx.dice.history().iter().skip(history_start).map(|roll| (roll.hits_on.unwrap_or(0), roll.faces.clone())).collect();
+                let value = self.settle_out(dice, ctx.rng.positions());
+                outcome = Some(result);
+                crate::dual::Run::new(value)
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                if failed.get() {
+                    return None;
+                }
+                args.and_then(|args| crate::dual_window::settle_machine(s, sources, args, &rng_before, script))
+            }
+        );
+        outcome.unwrap_or(Ok(()))
+    }
+
+    /// What a settle left, as the dual compares it.
+    fn settle_out(&self, dice: Vec<(u32, Vec<u32>)>, rng: crate::rng::RngPositions) -> crate::dual_window::SettleOut {
+        let mut damaged: Vec<(PlayerId, Vec<String>)> = self
+            .damaged_before_round
+            .iter()
+            .map(|(side, kinds)| {
+                let mut kinds = kinds.clone();
+                kinds.sort();
+                (side.clone(), kinds)
+            })
+            .collect();
+        damaged.sort();
+        let outcome = match &self.stage {
+            Stage::Done(o) => Some((o.winner.clone(), o.rounds)),
+            _ => None,
+        };
+        let phase = match self.hit_phase {
+            HitPhase::Round => 0,
+            HitPhase::CombatStart => 1,
+            HitPhase::RoundEnd => 2,
+        };
+        (
+            Self::flow_step_of(&self.stage),
+            outcome,
+            (phase, self.resuming_round, self.pending_retreats.clone(), self.hit_reaction_offered.iter().cloned().collect()),
+            (damaged, self.fled.clone(), self.end_announced),
+            dice,
+            rng,
+        )
+    }
+
+    /// The facts and gates the composed machine starts from. `None`: no map to read the retreats from.
+    fn settle_args(&self, state: &GameState, ctx: &Resolving<'_>) -> Option<crate::dual_window::SettleArgs> {
+        let (content, sources) = (ctx.content, ctx.sources);
+        let sides = [&self.attacker, &self.defender];
+        let announce = ctx.timing.is_some();
+        let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed;
+        let galaxy = self.galaxy.as_ref();
+        let neighbors = sides.map(|side| match galaxy {
+            Some(g) => crate::core_combat::retreat_neighbors(state, sources, g, side, &self.system),
+            None => Some(Vec::new()),
+        });
+        let [Some(n0), Some(n1)] = neighbors else { return None };
+        let has_tech = |side: &PlayerId, id: &str| state.player(side).is_some_and(|p| p.technologies.contains(ti4_model::id::text(&id)));
+        let round_probe = crate::dual_window::BeginRoundArgs { attacker: &self.attacker, defender: &self.defender, system: &self.system, round: 1, announce };
+        let opening_unported = crate::dual_window::round_opening_unported(state, content, &round_probe)
+            || sides.iter().any(|side| {
+                state.player(side).is_none_or(|p| p.faction.as_str() == "mentak")
+                    || ["asc", "ds", "ic"].iter().any(|t| has_tech(side, t))
+            });
+        let occurrence = self.combat_occurrence.map(|o| o.0);
+        let barrage_probe = crate::dual_window::BarrageArgs {
+            attacker: &self.attacker,
+            defender: &self.defender,
+            system: &self.system,
+            round: 1,
+            occurrence: occurrence.unwrap_or(0),
+            staging: crate::supply::staging_enabled(state),
+            announce,
+            reproducible,
+        };
+        let barrage_unported = !reproducible || crate::dual_window::barrage_unported(state, &barrage_probe);
+        let retreat_unported = sides.iter().any(|side| {
+            crate::technology::owns_det(state, side)
+                || [&n0, &n1].iter().any(|list| {
+                    list.iter().any(|(dest, _)| crate::dual_window::retreat_unported(state, content, sources, side, &self.system, dest))
+                })
+        });
+        let may_retreat = sides.map(|side| {
+            !(crate::neutral_units::is_neutral(side) && !crate::neutral_units::may_retreat())
+                && !crate::factions::mahact_units::ship_movement_barred(state)
+        });
+        let begin_occurrence = occurrence.is_none()
+            && matches!(self.stage, Stage::Opening { round: 1 })
+            && !self.resuming_round
+            && !self.over(state, content, sources);
+        Some(crate::dual_window::SettleArgs {
+            attacker: self.attacker.clone(),
+            defender: self.defender.clone(),
+            system: self.system.clone(),
+            step: Self::flow_step_of(&self.stage),
+            phase: match self.hit_phase {
+                HitPhase::Round => 0,
+                HitPhase::CombatStart => 1,
+                HitPhase::RoundEnd => 2,
+            },
+            resuming: self.resuming_round,
+            pending_retreats: self.pending_retreats.clone(),
+            offered: self.hit_reaction_offered.iter().cloned().collect(),
+            damaged: self.damaged_before_round.iter().map(|(p, k)| (p.clone(), k.clone())).collect(),
+            fled: self.fled.clone(),
+            at_start: self.fleet_at_start.iter().map(|(p, k)| (p.clone(), k.clone())).collect(),
+            end_announced: self.end_announced,
+            announce,
+            staging: crate::supply::staging_enabled(state),
+            occurrence,
+            begin_occurrence,
+            munitions_after: sides.map(|side| {
+                state.rules_version >= ti4_model::state::RULES_MUNITIONS_AFTER_ROLL && crate::faction_abilities::has(state, content, side, "munitions")
+            }),
+            opening_unported,
+            barrage_unported,
+            roll_unported: !reproducible || self.roll_unported(state, content),
+            retreat_unported,
+            neighbors: [n0, n1],
+            may_retreat,
+            duranium: sides.map(|side| has_tech(side, "da")),
+            devotion: state.players.iter().any(|p| crate::factions::yin::is_yin(state, &p.id)),
+        })
     }
 
     /// The state machine behind [`Self::settle`].
@@ -6455,11 +6979,158 @@ impl CombatWindow {
         }
     }
 
+    /// [`Self::hit_queue_head_string`] with its bookkeeping checked against the core flow window.
+    fn hit_queue_head(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>, queue: Vec<Pending>, round: u32) -> Result<Flow, CombatError> {
+        self.flow_dual(state, ctx, |me, s, c| me.hit_queue_head_string(s, c, queue, round))
+    }
+
+    /// [`Self::announcing_step_string`] checked against the core flow window.
+    fn announcing_step(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>, round: u32, asking: PlayerId, announced: Vec<PlayerId>) -> Result<Flow, CombatError> {
+        self.flow_dual(state, ctx, |me, s, c| me.announcing_step_string(s, c, round, asking, announced))
+    }
+
+    /// [`Self::retreating_step_string`] checked against the core flow window.
+    fn retreating_step(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>, round: u32, leaving: Vec<PlayerId>) -> Result<Flow, CombatError> {
+        self.flow_dual(state, ctx, |me, s, c| me.retreating_step_string(s, c, round, leaving))
+    }
+
+    /// The stage as the core flow window sees it.
+    fn flow_step_of(stage: &Stage) -> crate::dual_window::StepS {
+        use crate::dual_window::{PendS, StepS};
+        let queue = |queue: &[Pending]| {
+            queue
+                .iter()
+                .map(|p| PendS { player: p.player.clone(), hits: p.hits, producer: p.producer.clone(), non_fighters_only: p.non_fighters_only, producer_assigns: p.producer_assigns })
+                .collect()
+        };
+        match stage {
+            Stage::Opening { round } => StepS::Opening(*round),
+            Stage::Announcing { round, asking, announced } => StepS::Announcing(*round, asking.clone(), announced.clone()),
+            Stage::Rolling { round } => StepS::Rolling(*round),
+            Stage::RollingAfterBarrage { round } => StepS::AfterBarrage(*round),
+            Stage::Sustaining { queue: q, round } => StepS::Queue(false, *round, queue(q)),
+            Stage::Assigning { queue: q, round } => StepS::Queue(true, *round, queue(q)),
+            Stage::Retreating { round, leaving } => StepS::Retreating(*round, leaving.clone()),
+            Stage::Done(_) => StepS::Done,
+        }
+    }
+
+    /// Run one stage transition of `settle_stages` (the string body `run`), compared with the core flow
+    /// window on `driver=dual`. Positions the core window does not carry run bare.
+    fn flow_dual(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        run: impl FnOnce(&mut Self, &mut GameState, &mut Resolving<'_>) -> Result<Flow, CombatError>,
+    ) -> Result<Flow, CombatError> {
+        use crate::dual_window::StepS;
+        if crate::dual::backend(crate::dual::Area::Driver) != crate::dual::Backend::Dual {
+            return run(self, state, ctx);
+        }
+        let (content, sources) = (ctx.content, ctx.sources);
+        let (attacker, defender, system) = (self.attacker.clone(), self.defender.clone(), self.system.clone());
+        let step = Self::flow_step_of(&self.stage);
+        let over = self.over(state, content, sources);
+        let (mut asking_can_retreat, mut leaver_destinations, mut front_alive, mut offered_before, mut sustainers) = (false, 0, 0, false, false);
+        let mut bare = !state.pending_destructions.is_empty();
+        match &self.stage {
+            Stage::Announcing { asking, .. } => asking_can_retreat = !self.retreats(state, content, sources, asking).is_empty(),
+            Stage::Retreating { leaving, .. } => {
+                if let Some(first) = leaving.first() {
+                    leaver_destinations = self.retreats(state, content, sources, first).len();
+                    bare |= leaver_destinations == 1;
+                } else {
+                    // hits modules produce after the round (Devotion) ask their own questions
+                    bare |= !over && state.players.iter().any(|p| crate::factions::yin::is_yin(state, &p.id));
+                }
+            }
+            Stage::Sustaining { queue, round } | Stage::Assigning { queue, round } => {
+                let assigning = matches!(self.stage, Stage::Assigning { .. });
+                if let Some(front) = queue.first() {
+                    front_alive = ships_of(state, content, sources, &front.player, &self.system).len();
+                    offered_before = self.hit_reaction_offered.contains(&(*round, front.player.clone()));
+                    sustainers = !self.sustainers(state, content, sources, &front.player).is_empty();
+                    let producer_picks = front.producer_assigns && assigning;
+                    bare |= front.hits > 0
+                        && front_alive > 0
+                        && (cancellable_hits(state, &front.player) > 0
+                            || (assigning && self.casualty_candidates(state, content, sources, front).len() == 1)
+                            || (crate::neutral_units::is_neutral(&front.player) && !producer_picks));
+                } else if self.hit_phase == HitPhase::Round {
+                    bare |= [&self.attacker, &self.defender].into_iter().any(|side| {
+                        self.damaged_before_round.get(side).is_some_and(|l| !l.is_empty())
+                            && state.player(side).is_some_and(|seat| seat.technologies.contains(ti4_model::id::text(&"da")))
+                    });
+                }
+            }
+            _ => bare = true,
+        }
+        if bare || crate::neutral_units::is_neutral(&attacker) || crate::neutral_units::is_neutral(&defender) {
+            return run(self, state, ctx);
+        }
+        let announce = ctx.timing.is_some();
+        let pending_retreats = self.pending_retreats.clone();
+        let phase = match self.hit_phase {
+            HitPhase::Round => 0,
+            HitPhase::CombatStart => 1,
+            HitPhase::RoundEnd => 2,
+        };
+        let resuming = self.resuming_round;
+        let before_offered = self.hit_reaction_offered.clone();
+        let failed = std::cell::Cell::new(false);
+        let mut outcome = None;
+        crate::dual_window!(
+            crate::dual::Area::Driver,
+            "combat::flow_step",
+            state,
+            |s: &mut GameState| {
+                let result = run(self, s, ctx);
+                let returned = matches!(result, Ok(Flow::Return));
+                failed.set(!matches!(result, Ok(Flow::Continue | Flow::Return)));
+                let next = Self::flow_step_of(&self.stage);
+                // Hits a module queued after the round (not carried): the window left the flow.
+                failed.set(failed.get() || (matches!(step, StepS::Retreating(..)) && matches!(next, StepS::Queue(..))));
+                let offered_now = self.hit_reaction_offered.len() > before_offered.len();
+                let phase_now = match self.hit_phase {
+                    HitPhase::Round => 0,
+                    HitPhase::CombatStart => 1,
+                    HitPhase::RoundEnd => 2,
+                };
+                let value: crate::dual_window::FlowOut = (next, returned, phase_now, self.resuming_round, self.pending_retreats.clone(), offered_now);
+                outcome = Some(result);
+                crate::dual::Run::new(value)
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                if failed.get() {
+                    return None;
+                }
+                let args = crate::dual_window::FlowArgs {
+                    attacker: &attacker,
+                    defender: &defender,
+                    system: &system,
+                    announce,
+                    step: step.clone(),
+                    over,
+                    asking_can_retreat,
+                    leaver_destinations,
+                    front_alive,
+                    offered_before,
+                    sustainers,
+                    pending_retreats: &pending_retreats,
+                    phase,
+                    resuming,
+                };
+                crate::dual_window::flow_step(s, sources, &args, script)
+            }
+        );
+        outcome.unwrap_or(Ok(Flow::Return))
+    }
+
     /// The head of the hit queue (`Sustaining`/`Assigning`): the end of the queue, empty and
     /// unanswerable entries, cancellations, the HITS_TO_ASSIGN reaction, the sustain/casualty
     /// shortcuts, and the neutral answer. `Flow::Return` is a pending decision.
     #[allow(clippy::too_many_lines, reason = "one arm of the old table, moved whole")]
-    fn hit_queue_head(
+    fn hit_queue_head_string(
         &mut self,
         state: &mut GameState,
         ctx: &mut Resolving<'_>,
@@ -6596,7 +7267,7 @@ impl CombatWindow {
 
     /// The `Announce Retreats` step for `asking`: the step-start reaction, the end check, and who is
     /// asked next. `Flow::Return` is a pending announcement question.
-    fn announcing_step(
+    fn announcing_step_string(
         &mut self,
         state: &mut GameState,
         ctx: &mut Resolving<'_>,
@@ -6639,7 +7310,7 @@ impl CombatWindow {
 
     /// The `Retreating` stage: the next leaver (moved without a question when there is one
     /// destination), or the end of the round.
-    fn retreating_step(
+    fn retreating_step_string(
         &mut self,
         state: &mut GameState,
         ctx: &mut Resolving<'_>,
@@ -6979,7 +7650,72 @@ impl Window for CombatWindow {
             return Ok(());
         };
         let option = crate::choice::validate(&choice, answer)?;
+        if !self.resolve_answer(state, ctx, &choice, &option)? {
+            return Ok(());
+        }
+        self.settle(state, ctx)
+            .map_err(CombatError::into_illegal_choice)?;
+        Ok(())
+    }
+}
 
+impl CombatWindow {
+    /// [`Self::resolve_answer_string`], which on `driver=dual` also runs as the core machine awaiting the answer:
+    /// the pending question is recorded with its answer, the core puts the same question, takes the same answer and
+    /// must leave the same state, fields and events. `Ok(false)`: no hit left to settle for.
+    fn resolve_answer(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        choice: &Choice,
+        option: &ChoiceOption,
+    ) -> Result<bool, IllegalChoice> {
+        let (content, sources) = (ctx.content, ctx.sources);
+        let composed = crate::dual_window::composed() && crate::dual::backend(crate::dual::Area::Driver) == crate::dual::Backend::Dual;
+        let args = if composed { self.settle_args(state, ctx) } else { None };
+        let Some(args) = args else { return self.resolve_answer_string(state, ctx, option) };
+        let string_pays = match &self.stage {
+            Stage::Sustaining { queue, .. } => queue.first().is_some_and(|front| crate::leaders::pays_on_sustain(state, content, &front.player)),
+            _ => false,
+        };
+        let rng_before = ctx.rng.positions();
+        let failed = std::cell::Cell::new(false);
+        let mut outcome = None;
+        crate::dual_window!(
+            crate::dual::Area::Driver,
+            "combat::answer",
+            state,
+            |s: &mut GameState| {
+                crate::dual_window::note_ask(choice, &Ok(option.clone()));
+                self.machine_bail = false;
+                let result = self.resolve_answer_string(s, ctx, option);
+                failed.set(result.is_err() || self.machine_bail);
+                let value = self.settle_out(Vec::new(), ctx.rng.positions());
+                outcome = Some(result);
+                crate::dual::Run::new(value)
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                if failed.get() {
+                    return None;
+                }
+                crate::dual_window::answer_machine(s, sources, args, &rng_before, script, string_pays)
+            }
+        );
+        outcome.unwrap_or(Ok(true))
+    }
+
+    /// The answer to the pending decision (without the settle that follows). `Ok(false)`: nothing to settle.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one arm per answer kind, read as a table"
+    )]
+    fn resolve_answer_string(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        option: &ChoiceOption,
+    ) -> Result<bool, IllegalChoice> {
+        let (content, sources) = (ctx.content, ctx.sources);
         match self.stage.clone() {
             Stage::Done(_)
             | Stage::Opening { .. }
@@ -7010,7 +7746,7 @@ impl Window for CombatWindow {
             }
             Stage::Retreating { round, mut leaving } => {
                 if let Some(player) = leaving.first().cloned() {
-                    let destination = SystemId::new(option.id);
+                    let destination = SystemId::new(option.id.clone());
                     self.retreat(state, content, sources, ctx, &player, &destination);
                     leaving.remove(0);
                 }
@@ -7111,7 +7847,7 @@ impl Window for CombatWindow {
             }
             Stage::Assigning { mut queue, round } => {
                 let Some(front) = queue.first().cloned() else {
-                    return Ok(());
+                    return Ok(false);
                 };
                 let units = ships_of(state, content, sources, &front.player, &self.system);
                 let index = option
@@ -7131,9 +7867,7 @@ impl Window for CombatWindow {
                 self.stage = Stage::Sustaining { queue, round };
             }
         }
-        self.settle(state, ctx)
-            .map_err(CombatError::into_illegal_choice)?;
-        Ok(())
+        Ok(true)
     }
 }
 
@@ -8860,6 +9594,681 @@ mod tests {
     }
 
     #[test]
+    fn a_round_opening_runs_as_a_core_window_in_lockstep() {
+        // Several rounds of a plain fight with `driver=dual`: the string `begin_round` and the core
+        // `BeginRound` window leave the same counters, presentation and events.
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        let system = SystemId::new("18");
+        put(&mut state, &system, "cruiser", &attacker(), 3);
+        put(&mut state, &system, "cruiser", &defender(), 3);
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+            let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+            let (mut dice, mut rng) = (Dice::new(), GameRng::new(5));
+            resolve(&mut state, ContentStore::embedded(), ti4_model::content_types::DEFAULT, &mut table, &mut dice, &mut rng, &system).unwrap();
+        });
+        let r = report();
+        let counts = &r.areas[&Area::Driver];
+        assert!(counts.calls >= 3, "the round openings and the idle barrage were compared: {counts:?}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    #[test]
+    fn the_end_report_of_a_fight_is_checked_against_the_core() {
+        // `combat=dual`: the reason, losers, retreats and lost ships of `SPACE_COMBAT_ENDED` are computed by
+        // `rules::combat::end` and compared; a fight with losses has a non-empty fleet diff.
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut lost = 0;
+        for seed in 0..6_u64 {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = seed;
+            let system = SystemId::new("18");
+            put(&mut state, &system, "cruiser", &attacker(), 3);
+            put(&mut state, &system, "destroyer", &defender(), 2);
+            with_mask(AreaMask::STRING.with(Area::Combat, Backend::Dual).with(Area::Driver, Backend::Dual), || {
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+            });
+            lost += 5 - ships_of(&state, ContentStore::embedded(), ti4_model::content_types::DEFAULT, &attacker(), &system).len()
+                - ships_of(&state, ContentStore::embedded(), ti4_model::content_types::DEFAULT, &defender(), &system).len();
+        }
+        let r = report();
+        assert!(lost > 0, "some ships were lost");
+        assert!(r.areas[&Area::Driver].calls >= 6, "the announcements were compared: {:?}", r.areas[&Area::Driver]);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    #[test]
+    fn the_barrage_step_runs_as_a_core_window_in_lockstep() {
+        // Round 1 with a barrage on `driver=dual`: the core window draws the same dice from the same stream
+        // positions, removes the same fighters, records the same feat and announces the same events.
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut killed = 0;
+        for seed in 0..10_u64 {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = seed;
+            let system = SystemId::new("18");
+            put(&mut state, &system, &a_barrage_unit(), &attacker(), 3);
+            put(&mut state, &system, "fighter", &defender(), if seed % 2 == 0 { 1 } else { 4 });
+            put(&mut state, &system, "cruiser", &defender(), 1);
+            with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+                killed += usize::from(dice.history().iter().any(|r| r.reason.starts_with("anti") && r.hits() > 0));
+            });
+        }
+        let r = report();
+        assert!(killed > 0, "some barrage hit");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.areas[&Area::Driver].calls >= 20, "the steps were compared: {:?}", r.areas[&Area::Driver]);
+        let _ = take_report();
+    }
+
+    #[test]
+    fn the_roll_step_runs_as_a_core_window_in_lockstep() {
+        // Whole fights on `driver=dual`: every round's dice, hits, round records and assignment queue come out
+        // of the core window as the string step leaves them (no reroll question in these fleets).
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut rolled = 0;
+        for seed in 0..12_u64 {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = seed;
+            let system = SystemId::new("18");
+            put(&mut state, &system, "cruiser", &attacker(), 2);
+            put(&mut state, &system, "dreadnought", &attacker(), 1);
+            put(&mut state, &system, "fighter", &attacker(), 2);
+            put(&mut state, &system, "destroyer", &defender(), 2);
+            put(&mut state, &system, "carrier", &defender(), 1);
+            put(&mut state, &system, "fighter", &defender(), 3);
+            with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+                rolled += dice.history().iter().filter(|r| r.reason == "space combat").count();
+            });
+        }
+        let r = report();
+        assert!(rolled > 20, "dice were rolled: {rolled}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.areas[&Area::Driver].calls >= 24, "the steps were compared: {:?}", r.areas[&Area::Driver]);
+        let _ = take_report();
+    }
+
+    /// Whole fights on `driver=dual` with `setup` applied to a fresh 18-system fight per seed (the attacker `a`
+    /// and defender `b`, a third seat `c` for the Heart of Ixth), answered by a seeded random decider (and by
+    /// the first option of every question): the roll step's dice, questions, events, state and queue must
+    /// come out of the core window as the string step leaves them. Returns every question that was asked.
+    fn roll_step_lockstep(setup: &dyn Fn(&mut GameState, u64), calls_at_least: u64) -> Vec<crate::choice::Choice> {
+        roll_step_counts(setup, calls_at_least).0
+    }
+
+    /// [`roll_step_lockstep`], also the (compared, bailed) counts of the roll step window.
+    fn roll_step_counts(setup: &dyn Fn(&mut GameState, u64), calls_at_least: u64) -> (Vec<crate::choice::Choice>, u64, u64) {
+        let single = roll_step_fights(setup, calls_at_least, false);
+        // The same fights with `settle` compared as one composed machine.
+        let composed = roll_step_fights(setup, 0, true);
+        SETTLE_COUNTS.with(|c| c.set((composed.1, composed.2)));
+        single
+    }
+
+    fn roll_step_fights(setup: &dyn Fn(&mut GameState, u64), calls_at_least: u64, composed: bool) -> (Vec<crate::choice::Choice>, u64, u64) {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        crate::dual_window::with_composed(composed, || roll_step_fights_inner(setup, calls_at_least, composed))
+    }
+
+    fn roll_step_fights_inner(setup: &dyn Fn(&mut GameState, u64), calls_at_least: u64, composed: bool) -> (Vec<crate::choice::Choice>, u64, u64) {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut asked = Vec::new();
+        for seed in 0..16_u64 {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan"), ("c", "xxcha")], ti4_model::content_types::DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = seed;
+            let system = SystemId::new("18");
+            put(&mut state, &system, "cruiser", &attacker(), 3);
+            put(&mut state, &system, "dreadnought", &attacker(), 1);
+            put(&mut state, &system, "fighter", &attacker(), 2);
+            put(&mut state, &system, "destroyer", &defender(), 2);
+            put(&mut state, &system, "carrier", &defender(), 1);
+            put(&mut state, &system, "fighter", &defender(), 3);
+            state.player_mut(&attacker()).unwrap().trade_goods = 8;
+            state.player_mut(&defender()).unwrap().trade_goods = 8;
+            setup(&mut state, seed);
+            with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+                let decider: Box<dyn crate::choice::Decider> =
+                    if seed % 4 == 0 { Box::new(crate::choice::FirstOption) } else { Box::new(crate::choice::SeededRandom::new(seed)) };
+                let (decider, seen) = crate::choice::Capturing::new(decider);
+                let mut table = Table::with_default(Box::new(decider));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+                asked.extend(seen.borrow().iter().cloned());
+            });
+        }
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        if calls_at_least > 0 {
+            assert!(r.areas[&Area::Driver].calls >= calls_at_least, "the steps were compared: {:?}", r.areas[&Area::Driver]);
+        }
+        let counts = r.windows.get("combat::roll_round").cloned().unwrap_or_default();
+        let settle = r.windows.get("combat::settle").cloned().unwrap_or_default();
+        let _ = take_report();
+        if composed {
+            return (asked, settle.compared, settle.bailed);
+        }
+        (asked, counts.compared, counts.bailed)
+    }
+
+    thread_local! {
+        /// (compared, bailed) of the composed machine in the last `roll_step_counts`.
+        static SETTLE_COUNTS: std::cell::Cell<(u64, u64)> = const { std::cell::Cell::new((0, 0)) };
+    }
+
+    /// The gates the composed machine starts from, for the arena after `setup`.
+    fn settle_gates(setup: &dyn Fn(&mut GameState, &SystemId)) -> crate::dual_window::SettleArgs {
+        let (mut state, system) = arena();
+        put(&mut state, &system, "cruiser", &attacker(), 1);
+        put(&mut state, &system, "cruiser", &defender(), 1);
+        setup(&mut state, &system);
+        let window = CombatWindow::new(&state, ContentStore::embedded(), POK, &system);
+        let (mut dice, mut rng) = (Dice::new(), GameRng::new(state.rng_seed));
+        let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+        let ctx = Resolving { content: ContentStore::embedded(), sources: POK, dice: &mut dice, rng: &mut rng, table: &mut table, timing: None };
+        window.settle_args(&state, &ctx).expect("a map-less fight has gates")
+    }
+
+    #[test]
+    fn the_composed_combat_stays_string_where_the_core_does_not_carry_the_position() {
+        // Each string-only case of the composed machine is a gate (or a machine bail) with a reason: the
+        // string `settle` stands there and the windows inside are compared one by one instead.
+        let plain = settle_gates(&|_, _| {});
+        assert!(!plain.opening_unported && !plain.barrage_unported && !plain.roll_unported && !plain.retreat_unported);
+        // Naaz and Letnev (Voltron repair, Supercharge, Munitions, the Eidolon flip, the round agent), diplomacy.
+        for faction in ["naaz", "letnev"] {
+            let g = settle_gates(&|state, _| state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new(faction));
+            assert!(g.opening_unported, "{faction}");
+        }
+        assert!(settle_gates(&|state, _| state.diplomacy.enabled = true).opening_unported);
+        // Hits a module makes at the start of a combat (Mentak's Ambush, Assault Cannon, Dimensional Splicer,
+        // Impulse Core): the string asks the modules, the core ability table is empty.
+        assert!(settle_gates(&|state, _| state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("mentak")).opening_unported);
+        // The Thundarian (a roll-step reaction): the roll is the string's.
+        assert!(settle_gates(&|state, _| {
+            state.player_mut(&attacker()).unwrap().leaders.insert(
+                ti4_model::id::LeaderId::new("nomadagentthundarian"),
+                ti4_model::state::LeaderStatus::Readied,
+            );
+        })
+        .roll_unported);
+        // A Last Bastion seat's retreat note; a unit that flips (Eidolon) or fights from its planet (Voltron);
+        // a Floating Factory: the retreat gate (`retreat_unported`) names them destination by destination.
+        let retreat = |setup: &dyn Fn(&mut GameState, &SystemId)| {
+            let (mut state, system) = arena();
+            put(&mut state, &system, "cruiser", &attacker(), 1);
+            put(&mut state, &system, "cruiser", &defender(), 1);
+            setup(&mut state, &system);
+            crate::dual_window::retreat_unported(&state, ContentStore::embedded(), POK, &attacker(), &system, &SystemId::new("19"))
+        };
+        assert!(!retreat(&|_, _| {}));
+        assert!(retreat(&|state, _| state.player_mut(&defender()).unwrap().faction = ti4_model::id::FactionId::new("bastion")));
+        assert!(retreat(&|state, system| put(state, system, "naaz_mech_space", &attacker(), 1)));
+        assert!(retreat(&|state, system| put(state, system, "saar_spacedock", &attacker(), 1)));
+        // Duranium Armor repairs and Devotion's hits after a round: flags the machine bails on when it reaches them.
+        let g = settle_gates(&|state, _| {
+            state.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("da"));
+            state.player_mut(&defender()).unwrap().faction = ti4_model::id::FactionId::new("yin");
+        });
+        assert_eq!(g.duranium, [true, false]);
+        assert!(g.devotion);
+        // Neutral sides never reach the core machine.
+        assert!(crate::neutral_units::is_neutral(&crate::neutral_units::owner()));
+    }
+
+    #[test]
+    fn the_composed_combat_machine_runs_whole_fights_in_lockstep() {
+        // Whole fights on `driver=dual`: every settle from the stage it starts in to the next decision is run by
+        // the composed core machine and compared (state, events, dice, streams, the window's fields).
+        let _ = roll_step_counts(&|_, _| {}, 10);
+        let (compared, bailed) = SETTLE_COUNTS.with(std::cell::Cell::get);
+        assert!(compared > 20, "settles were compared: {compared} compared, {bailed} bailed");
+    }
+
+    /// Whole fights on a hub map, where a retreat has somewhere to go, on `driver=dual` with `settle` composed: the
+    /// attacker may retreat to the first two outer systems, the defender to the next two. Every pending decision
+    /// (announce a retreat, retreat to which system, sustain, assign a hit) is answered by a seeded random decider
+    /// and compared with the core machine's question and answer (`combat::answer`). Returns the questions asked and
+    /// the (compared, bailed) counts of the answers.
+    fn pending_fights(setup: &dyn Fn(&mut GameState, &SystemId, u64), seeds: u64) -> (Vec<crate::choice::Choice>, u64, u64) {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        crate::dual_window::with_composed(true, || {
+            let _guard = crate::dual::tests::serial();
+            let _ = take_report();
+            let content = ContentStore::embedded();
+            let mut asked = Vec::new();
+            for seed in 0..seeds {
+                let hub = crate::fixtures::plain_hub();
+                let system = SystemId::new(&hub.centre);
+                let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan"), ("c", "xxcha")], ti4_model::content_types::DEFAULT);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                for id in std::iter::once(&hub.centre).chain(hub.outer.iter().take(4)) {
+                    state.board.entry(SystemId::new(id)).or_default();
+                }
+                put(&mut state, &system, "cruiser", &attacker(), 3);
+                put(&mut state, &system, "dreadnought", &attacker(), 1);
+                put(&mut state, &system, "fighter", &attacker(), 2);
+                put(&mut state, &system, "destroyer", &defender(), 2);
+                put(&mut state, &system, "carrier", &defender(), 1);
+                put(&mut state, &system, "dreadnought", &defender(), 1);
+                put(&mut state, &system, "fighter", &defender(), 3);
+                for (i, id) in hub.outer.iter().take(4).enumerate() {
+                    let owner = if i < 2 { attacker() } else { defender() };
+                    put(&mut state, &SystemId::new(id), "cruiser", &owner, 1);
+                }
+                setup(&mut state, &system, seed);
+                with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+                    let decider: Box<dyn crate::choice::Decider> = Box::new(crate::choice::SeededRandom::new(seed));
+                    let (decider, seen) = crate::choice::Capturing::new(decider);
+                    let mut outer = Table::with_default(Box::new(decider));
+                    let mut inner = Table::with_default(Box::new(crate::choice::SeededRandom::new(seed ^ 0x55)));
+                    let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                    let mut resolver = crate::fixtures::armed_resolver(&state);
+                    let mut sequence = crate::event::EventSequence::new();
+                    let mut ctx = Resolving {
+                        content,
+                        sources: ti4_model::content_types::DEFAULT,
+                        dice: &mut dice,
+                        rng: &mut rng,
+                        table: &mut inner,
+                        timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                    };
+                    let mut window = CombatWindow::new(&state, content, ti4_model::content_types::DEFAULT, &system).with_galaxy(hub.galaxy.clone());
+                    window.settle(&mut state, &mut ctx).unwrap();
+                    for _ in 0..400 {
+                        if window.outcome().is_some() {
+                            break;
+                        }
+                        if let Some(choice) = window.pending_choice(&state, content, ti4_model::content_types::DEFAULT) {
+                            // Rout, played by the defender: the attacker's retreat is forced this round.
+                            if matches!(&window.stage, Stage::Announcing { asking, .. } if *asking == attacker()) && seed % 3 == 0 {
+                                state.player_mut(&defender()).unwrap().rout_round = Some(state.combat_round_seq);
+                            }
+                            let choice = window.pending_choice(&state, content, ti4_model::content_types::DEFAULT).unwrap_or(choice);
+                            let answer = outer.ask(&choice).unwrap();
+                            window.resolve(&mut state, &mut ctx, answer).unwrap();
+                        } else {
+                            let _ = window.take_scoring_occurrence();
+                            window.settle_open(&mut state, &mut ctx).unwrap();
+                        }
+                    }
+                    asked.extend(seen.borrow().iter().cloned());
+                });
+            }
+            let r = report();
+            assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+            let counts = r.windows.get("combat::answer").cloned().unwrap_or_default();
+            let _ = take_report();
+            (asked, counts.compared, counts.bailed)
+        })
+    }
+
+    #[test]
+    fn the_pending_decisions_of_a_combat_run_in_the_core_machine() {
+        // Announce a retreat (also forced by Rout), retreat to which system, sustain (with the `sustainers` detail
+        // and the previews), assign a hit: the core machine puts each question byte for byte and takes the answer.
+        let (asked, compared, bailed) = pending_fights(&|_, _, _| {}, 24);
+        let by = |subtype: &str| asked.iter().filter(|c| c.context.as_ref().is_some_and(|x| x.subtype == subtype)).count();
+        for subtype in ["announce_retreat", "retreat_to", "sustain_damage", "assign_casualty"] {
+            assert!(by(subtype) > 5, "{subtype} was asked: {}", by(subtype));
+        }
+        assert!(asked.iter().any(|c| c.options.iter().any(|o| o.label == "retreat (forced)")), "a forced retreat");
+        assert!(compared > 40, "answers were compared: {compared} compared, {bailed} bailed");
+    }
+
+    #[test]
+    fn a_sustain_in_a_game_below_the_faction_bugfixes_is_answered_in_the_string() {
+        // The commander's offer and the two-hit cancel of Non-Euclidean Shielding differ below
+        // `RULES_FACTION_BUGFIXES`: the core machine does not answer a sustain there (the other answers still run).
+        let (asked, compared, bailed) = pending_fights(&|state, _, _| state.rules_version = ti4_model::state::RULES_FACTION_BUGFIXES - 1, 12);
+        assert!(asked.iter().any(|c| c.context.as_ref().is_some_and(|x| x.subtype == "sustain_damage")));
+        assert!(bailed > 0, "sustains were answered in the string: {bailed}");
+        assert!(compared > 0, "the other answers ran in the core: {compared}");
+    }
+
+    #[test]
+    fn a_retreat_of_a_fleet_with_a_floating_factory_is_answered_in_the_string() {
+        // The move of such a retreat is the string's (`retreat_unported`): its destination question is asked and
+        // answered there, the announcements still run in the core.
+        let (asked, compared, bailed) = pending_fights(&|state, system, _| put(state, system, "saar_spacedock", &attacker(), 1), 24);
+        assert!(asked.iter().any(|c| c.context.as_ref().is_some_and(|x| x.subtype == "retreat_to")));
+        assert!(bailed > 0, "retreat destinations were answered in the string: {bailed}");
+        assert!(compared > 0, "the other answers ran in the core: {compared}");
+    }
+
+    #[test]
+    fn a_hit_the_producer_assigns_is_answered_in_the_string() {
+        // Devotion: the producing player, not the owner, picks the victim. The core machine does not ask that.
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let content = ContentStore::embedded();
+        crate::dual_window::with_composed(true, || {
+            let (mut state, system) = arena();
+            put(&mut state, &system, "cruiser", &defender(), 1);
+            put(&mut state, &system, "destroyer", &defender(), 1);
+            put(&mut state, &system, "cruiser", &attacker(), 1);
+            let mut window = CombatWindow::new(&state, content, POK, &system);
+            window.stage = Stage::Assigning {
+                round: 1,
+                queue: vec![Pending { player: defender(), hits: 1, producer: attacker(), non_fighters_only: false, producer_assigns: true }],
+            };
+            with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(state.rng_seed));
+                let mut table = Table::with_default(Box::new(FirstOption));
+                let mut ctx = Resolving { content, sources: POK, dice: &mut dice, rng: &mut rng, table: &mut table, timing: None };
+                let choice = window.pending_choice(&state, content, POK).expect("the producer is asked");
+                assert_eq!(choice.player, attacker());
+                let answer = choice.options[0].clone();
+                window.resolve(&mut state, &mut ctx, answer).unwrap();
+            });
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let counts = r.windows.get("combat::answer").cloned().unwrap_or_default();
+        assert_eq!((counts.compared, counts.bailed), (0, 1), "{counts:?}");
+        let _ = take_report();
+    }
+
+    /// `roll_unported` of the arena's window after `setup`.
+    fn roll_unported_after(setup: &dyn Fn(&mut GameState, &SystemId)) -> bool {
+        let (mut state, system) = arena();
+        put(&mut state, &system, "cruiser", &attacker(), 1);
+        put(&mut state, &system, "cruiser", &defender(), 1);
+        setup(&mut state, &system);
+        let window = CombatWindow::new(&state, ContentStore::embedded(), POK, &system);
+        window.roll_unported(&state, ContentStore::embedded())
+    }
+
+    #[test]
+    fn the_round_opening_of_naaz_letnev_and_diplomacy_games_stays_string() {
+        // Voltron repair, Supercharge, Munitions, the Eidolon flip, the Letnev round agent and the attack
+        // promises are not in the core window: `begin_round` bails there and counts it.
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        fn args<'a>(a: &'a PlayerId, d: &'a PlayerId, system: &'a SystemId) -> crate::dual_window::BeginRoundArgs<'a> {
+            crate::dual_window::BeginRoundArgs { attacker: a, defender: d, system, round: 2, announce: false }
+        }
+        let content = ContentStore::embedded();
+        let (a, d, system) = (attacker(), defender(), SystemId::new("18"));
+        let plain = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+        assert!(!crate::dual_window::round_opening_unported(&plain, content, &args(&a, &d, &system)));
+        for faction in ["naaz", "letnev"] {
+            let mut state = plain.clone();
+            state.player_mut(&d).unwrap().faction = ti4_model::id::FactionId::new(faction);
+            assert!(crate::dual_window::round_opening_unported(&state, content, &args(&a, &d, &system)), "{faction}");
+        }
+        let mut state = plain.clone();
+        state.diplomacy.enabled = true;
+        assert!(crate::dual_window::round_opening_unported(&state, content, &args(&a, &d, &system)), "diplomacy");
+        // and through the call site: the window counts the bail-out and nothing is compared
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut state = plain.clone();
+        state.player_mut(&d).unwrap().faction = ti4_model::id::FactionId::new("letnev");
+        put(&mut state, &system, "cruiser", &a, 1);
+        put(&mut state, &system, "cruiser", &d, 1);
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+            let (mut dice, mut rng, mut table) = (Dice::new(), GameRng::new(1), Table::with_default(Box::new(crate::choice::FirstOption)));
+            let mut ctx = Resolving { content, sources: ti4_model::content_types::DEFAULT, dice: &mut dice, rng: &mut rng, table: &mut table, timing: None };
+            let _ = resolve_resolving(&mut state, &mut ctx, &system, None);
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let counts = r.windows.get("combat::begin_round").cloned().unwrap_or_default();
+        assert!(counts.bailed > 0 && counts.compared == 0, "{counts:?}");
+        let _ = take_report();
+    }
+
+    #[test]
+    fn a_readied_thundarian_keeps_the_roll_step_in_the_string() {
+        // The core ability table is empty: the roll step with a readied The Thundarian runs bare.
+        assert!(!roll_unported_after(&|_, _| {}));
+        assert!(roll_unported_after(&|state, _| {
+            state.player_mut(&attacker()).unwrap().leaders.insert(
+                ti4_model::id::LeaderId::new("nomadagentthundarian"),
+                ti4_model::state::LeaderStatus::Readied,
+            );
+        }));
+    }
+
+    #[test]
+    fn a_keleres_agent_that_could_pay_keeps_the_roll_step_in_the_string() {
+        // A Hacan flagship (Wrath of Kenara) whose owner holds commodities a readied Keleres agent could turn
+        // into trade goods: the payment window is the string's.
+        let keleres = |state: &mut GameState, ready: bool| {
+            let seat = state.player_mut(&attacker()).unwrap();
+            seat.commodities = 2;
+            seat.trade_goods = 0;
+            state.player_mut(&defender()).unwrap().faction = ti4_model::id::FactionId::new("keleresx");
+            if ready {
+                state.player_mut(&defender()).unwrap().leaders.insert(
+                    ti4_model::id::LeaderId::new("keleresagent"),
+                    ti4_model::state::LeaderStatus::Readied,
+                );
+            }
+        };
+        assert!(!roll_unported_after(&|state, system| {
+            put(state, system, "hacan_flagship", &attacker(), 1);
+            keleres(state, false);
+        }));
+        assert!(roll_unported_after(&|state, system| {
+            put(state, system, "hacan_flagship", &attacker(), 1);
+            keleres(state, true);
+        }));
+    }
+
+    #[test]
+    fn the_crowns_of_thalnos_reroll_questions_run_in_the_core_roll_window() {
+        let asked = roll_step_lockstep(
+            &|state, seed| {
+                // The relic with the attacker, the law elected onto the defender (and both on a few seeds).
+                if seed % 3 != 1 {
+                    state.player_mut(&attacker()).unwrap().relics.push(ti4_model::id::RelicId::new("thalnos"));
+                }
+                if seed % 3 != 0 {
+                    state.laws.insert("crown_of_thalnos".to_owned(), "b".to_owned());
+                }
+            },
+            24,
+        );
+        let per_die = |source: &str| asked.iter().filter(|c| c.context.as_ref().is_some_and(|x| x.subtype == source)).count();
+        assert!(per_die("crown_of_thalnos_relic_reroll") > 10, "the relic asked about dice");
+        assert!(per_die("crown_of_thalnos_law_reroll") > 10, "the law asked about dice");
+    }
+
+    #[test]
+    fn a_roll_that_ends_the_fight_stays_string() {
+        // A reroll of the Crown of Thalnos destroys the lone ship of a fleet whose die missed again: the fight is
+        // over inside the roll step, which the core window does not follow. The string result stands (counted as a
+        // bail-out, nothing compared) and the other seeds still run in the window.
+        let (_, compared, bailed) = roll_step_counts(
+            &|state, _| {
+                let system = SystemId::new("18");
+                state.system_mut(&system).units.clear();
+                put(state, &system, "cruiser", &attacker(), 1);
+                put(state, &system, "cruiser", &defender(), 1);
+                state.player_mut(&attacker()).unwrap().relics.push(ti4_model::id::RelicId::new("thalnos"));
+                state.player_mut(&defender()).unwrap().relics.push(ti4_model::id::RelicId::new("thalnos"));
+            },
+            0,
+        );
+        assert!(bailed > 0, "some roll ended the fight: compared {compared}, bailed {bailed}");
+        assert!(compared > 0, "the others ran in the window");
+    }
+
+    #[test]
+    fn the_heart_of_ixth_runs_in_the_core_roll_window() {
+        let asked = roll_step_lockstep(
+            &|state, seed| {
+                for (who, bit) in [("a", 1), ("b", 2), ("c", 4)] {
+                    if (seed + 1) & bit != 0 || seed % 5 == 0 {
+                        state.player_mut(&PlayerId::new(who)).unwrap().relics.push(ti4_model::id::RelicId::new("heartofixth"));
+                    }
+                }
+            },
+            24,
+        );
+        let heart = asked.iter().filter(|c| c.context.as_ref().is_some_and(|x| x.subtype == "heart_ixth_die_adjust")).count();
+        assert!(heart > 10, "the holders were asked: {heart}");
+    }
+
+    #[test]
+    fn war_funding_runs_in_the_core_roll_window() {
+        let asked = roll_step_lockstep(
+            &|state, seed| {
+                state.player_mut(&defender()).unwrap().faction = ti4_model::id::FactionId::new("letnev");
+                state.player_mut(&PlayerId::new("c")).unwrap().faction = ti4_model::id::FactionId::new("hacan");
+                let (holder, owner) = if seed % 2 == 0 { (attacker(), "letnev") } else { (PlayerId::new("c"), "letnev") };
+                state.promissory_notes.insert(crate::promissory::note_id("war_funding", owner), holder);
+            },
+            24,
+        );
+        let offers = asked.iter().filter(|c| c.prompt.starts_with("War Funding")).count();
+        assert!(offers > 5, "War Funding was offered: {offers}");
+    }
+
+    #[test]
+    fn wrath_of_kenara_runs_in_the_core_roll_window() {
+        let asked = roll_step_lockstep(
+            &|state, seed| {
+                let system = SystemId::new("18");
+                put(state, &system, "hacan_flagship", &attacker(), 1);
+                put(state, &system, "hacan_flagship", &defender(), (seed % 2) as usize);
+            },
+            24,
+        );
+        let offers = asked.iter().filter(|c| c.prompt.starts_with("Wrath of Kenara")).count();
+        assert!(offers > 5, "Wrath of Kenara was offered: {offers}");
+    }
+
+    #[test]
+    fn munitions_after_the_roll_runs_in_the_core_roll_window() {
+        let asked = roll_step_lockstep(
+            &|state, _| {
+                state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("letnev");
+                state.rules_version = ti4_model::state::RULES_MUNITIONS_AFTER_ROLL.max(state.rules_version);
+            },
+            24,
+        );
+        let offers = asked.iter().filter(|c| c.options.iter().any(|o| o.id == "munitions")).count();
+        assert!(offers > 5, "Munitions Reserves was offered after the roll: {offers}");
+    }
+
+    #[test]
+    fn raid_formation_runs_as_a_core_window_in_lockstep() {
+        // Argent's barrage hits beyond the fighters damage the target's ships: one candidate type without a
+        // question, two with the producer's choice; the core window asks and answers the same.
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut damaged = 0;
+        for seed in 0..12_u64 {
+            let mut state = crate::fixtures::seated_game(&[("a", "argent"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = seed;
+            let system = SystemId::new("18");
+            put(&mut state, &system, &a_barrage_unit(), &attacker(), 6);
+            put(&mut state, &system, "fighter", &defender(), 1);
+            put(&mut state, &system, "dreadnought", &defender(), 1);
+            if seed % 2 == 0 {
+                put(&mut state, &system, "warsun", &defender(), 1);
+            }
+            with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+            });
+            damaged += state.system_state(&system).units.iter().filter(|u| u.sustained_damage).count().min(1);
+        }
+        let r = report();
+        assert!(damaged > 0, "Raid Formation damaged something");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    #[test]
     fn assault_cannon_choice_says_it_is_a_destroy_of_a_non_fighter_ship() {
         let (mut state, system) = arena();
         put(&mut state, &system, "cruiser", &attacker(), 3);
@@ -9609,6 +11018,85 @@ mod tests {
             landed.iter().all(|id| id != "naaz_mech_space"),
             "{landed:?}"
         );
+    }
+
+    /// `retreat_to` on `driver=dual` for the given fleets: the label's (compared, bailed) counts.
+    fn retreat_lockstep(factions: &[(&str, &str)], fleet: &dyn Fn(&mut GameState, &SystemId), setup: &dyn Fn(&mut GameState)) -> (u64, u64, usize) {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut state = crate::fixtures::seated_game(factions, ti4_model::content_types::DEFAULT);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        let (centre, refuge) = (SystemId::new("18"), SystemId::new("19"));
+        fleet(&mut state, &centre);
+        setup(&mut state);
+        let lost = with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+            retreat_to(&mut state, ContentStore::embedded(), ti4_model::content_types::DEFAULT, &attacker(), &centre, &refuge)
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let counts = r.windows.get("combat::retreat_to").cloned().unwrap_or_default();
+        let _ = take_report();
+        (counts.compared, counts.bailed, lost)
+    }
+
+    #[test]
+    fn a_retreat_runs_in_the_core_window() {
+        // Carrier with its fighters and a mech (capacity enough), a sustained dreadnought, a galvanized
+        // cruiser, and a destroyer fleet that strands its fighters; with and without staging (Argent is a
+        // module faction).
+        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "argent"), ("b", "hacan")]] {
+            for stranding in [false, true] {
+                let (compared, bailed, lost) = retreat_lockstep(
+                    &factions,
+                    &|state, centre| {
+                        put(state, centre, "carrier", &attacker(), 1);
+                        put(state, centre, "dreadnought", &attacker(), 1);
+                        put(state, centre, "cruiser", &attacker(), 1);
+                        put(state, centre, "fighter", &attacker(), if stranding { 6 } else { 3 });
+                        put(state, centre, "mech", &attacker(), 1);
+                        put(state, centre, "cruiser", &defender(), 1);
+                        let units = &mut state.system_mut(centre).units;
+                        let at = units.iter().position(|u| u.type_id.as_str() == "dreadnought").unwrap();
+                        units[at].sustained_damage = true;
+                        let at = units.iter().position(|u| u.type_id.as_str() == "cruiser" && u.owner == attacker()).unwrap();
+                        units[at].galvanized = true;
+                    },
+                    &|_| {},
+                );
+                assert_eq!((compared, bailed), (1, 0), "{factions:?} stranding={stranding}");
+                assert_eq!(lost > 0, stranding);
+            }
+        }
+    }
+
+    #[test]
+    fn a_retreat_in_a_game_with_the_last_bastion_stays_string() {
+        // `bastion_note_retreat` is not in the core: the note of the retreat is the string's.
+        let (compared, bailed, _) = retreat_lockstep(
+            &[("a", "sol"), ("b", "bastion")],
+            &|state, centre| put(state, centre, "carrier", &attacker(), 1),
+            &|_| {},
+        );
+        assert_eq!((compared, bailed), (0, 1));
+    }
+
+    #[test]
+    fn a_retreat_of_a_dual_form_or_loose_unit_stays_string() {
+        // Bails: a ship-form Eidolon (flips back where it lands), a Voltron fighting from its planet, a
+        // Floating Factory (moves like a ship without being one). The string result stands.
+        for unit in ["naaz_mech_space", "saar_spacedock"] {
+            let (compared, bailed, _) = retreat_lockstep(
+                &[("a", "sol"), ("b", "hacan")],
+                &|state, centre| {
+                    put(state, centre, "carrier", &attacker(), 1);
+                    put(state, centre, unit, &attacker(), 1);
+                },
+                &|_| {},
+            );
+            assert_eq!((compared, bailed), (0, 1), "{unit}");
+        }
     }
 
     #[test]

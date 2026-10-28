@@ -214,27 +214,27 @@ pub fn load_player(cx: &Ctx, p: &m::Player) -> R<Player> {
 
     let t = &mut o.timers;
     t.conduit_activation = opt32(S, "conduit_activation", p.conduit_activation)?;
-    t.move_bonus_activation = opt32(S, "move_bonus_activation", p.move_bonus_activation)?;
+    o.card_timers.move_bonus_activation = opt32(S, "move_bonus_activation", p.move_bonus_activation)?;
     t.gravity_drive_used_activation = opt32(S, "gravity_drive_used_activation", p.gravity_drive_used_activation)?;
-    t.anomalies_ignored_activation = opt32(S, "anomalies_ignored_activation", p.anomalies_ignored_activation)?;
-    t.silence_activation = opt32(S, "silence_activation", p.silence_activation)?;
-    t.silence_system = p.silence_system.as_ref().map(|s| id::<System>(S, "system", s.as_str())).transpose()?;
+    o.card_timers.anomalies_ignored_activation = opt32(S, "anomalies_ignored_activation", p.anomalies_ignored_activation)?;
+    o.card_timers.silence_activation = opt32(S, "silence_activation", p.silence_activation)?;
+    o.card_timers.silence_system = p.silence_system.as_ref().map(|s| id::<System>(S, "system", s.as_str())).transpose()?;
     t.spatial_conduit = opt32(S, "spatial_conduit", p.spatial_conduit)?;
-    t.hack_votes_last_agenda = opt32(S, "hack_votes_last_agenda", p.hack_votes_last_agenda)?;
-    t.extra_votes_agenda = p.extra_votes_agenda.map(|(agenda, votes)| ExtraVotes { agenda, votes });
+    o.card_timers.hack_votes_last_agenda = opt32(S, "hack_votes_last_agenda", p.hack_votes_last_agenda)?;
+    o.card_timers.extra_votes_agenda = p.extra_votes_agenda.map(|(agenda, votes)| ExtraVotes { agenda, votes });
 
     let ct = &mut o.combat_timers;
-    ct.combat_bonus_round = opt32(S, "combat_bonus_round", p.combat_bonus_round)?;
-    ct.rout_round = opt32(S, "rout_round", p.rout_round)?;
-    ct.waylay_barrage_round = opt32(S, "waylay_barrage_round", p.waylay_barrage_round)?;
-    ct.retreat_barred_round = opt32(S, "retreat_barred_round", p.retreat_barred_round)?;
+    o.card_timers.combat_bonus_round = opt32(S, "combat_bonus_round", p.combat_bonus_round)?;
+    o.card_timers.rout_round = opt32(S, "rout_round", p.rout_round)?;
+    o.card_timers.waylay_barrage_round = opt32(S, "waylay_barrage_round", p.waylay_barrage_round)?;
+    o.card_timers.retreat_barred_round = opt32(S, "retreat_barred_round", p.retreat_barred_round)?;
     ct.extra_die_round = opt32(S, "extra_die_round", p.extra_die_round)?;
     ct.extra_die_unit = p.extra_die_unit.as_ref().map(|u| id::<Unit>(S, "unit type", u.as_str())).transpose()?;
     ct.munitions_round = opt32(S, "munitions_round", p.munitions_round)?;
     ct.ground_roll_suppressed_round = opt32(S, "ground_roll_suppressed_round", p.ground_roll_suppressed_round)?;
     ct.sustained_damage_round = opt32(S, "sustained_damage_round", p.sustained_damage_round)?;
     ct.sustained_damage_types = list(S, "unit type", p.sustained_damage_types.iter().map(UnitTypeId::as_str))?;
-    ct.cancel_hits_round = p.cancel_hits_round.map(|(r, h)| Ok((r, narrow::<usize, u32>(S, "cancel_hits", h)?))).transpose()?;
+    o.card_timers.cancel_hits_round = p.cancel_hits_round.map(|(r, h)| Ok((r, narrow::<usize, u32>(S, "cancel_hits", h)?))).transpose()?;
 
     o.production_timers.fleet_supply_unlimited_until = opt32(S, "fleet_supply_unlimited_until", p.fleet_supply_unlimited_until)?;
     o.production_timers.free_production_use = opt32(S, "free_production_use", p.free_production_use)?;
@@ -324,27 +324,27 @@ pub fn store_player(cx: &Ctx, p: &Player) -> R<m::Player> {
 
     let t = &p.timers;
     o.conduit_activation = t.conduit_activation.get();
-    o.move_bonus_activation = t.move_bonus_activation.get();
+    o.move_bonus_activation = p.card_timers.move_bonus_activation.get();
     o.gravity_drive_used_activation = t.gravity_drive_used_activation.get();
-    o.anomalies_ignored_activation = t.anomalies_ignored_activation.get();
-    o.silence_activation = t.silence_activation.get();
-    o.silence_system = t.silence_system.map(|s| SystemId::new(txt(s)));
+    o.anomalies_ignored_activation = p.card_timers.anomalies_ignored_activation.get();
+    o.silence_activation = p.card_timers.silence_activation.get();
+    o.silence_system = p.card_timers.silence_system.map(|s| SystemId::new(txt(s)));
     o.spatial_conduit = t.spatial_conduit.get();
-    o.hack_votes_last_agenda = t.hack_votes_last_agenda.get();
-    o.extra_votes_agenda = t.extra_votes_agenda.map(|e| (e.agenda, e.votes));
+    o.hack_votes_last_agenda = p.card_timers.hack_votes_last_agenda.get();
+    o.extra_votes_agenda = p.card_timers.extra_votes_agenda.map(|e| (e.agenda, e.votes));
 
     let ct = &p.combat_timers;
-    o.combat_bonus_round = ct.combat_bonus_round.get();
-    o.rout_round = ct.rout_round.get();
-    o.waylay_barrage_round = ct.waylay_barrage_round.get();
-    o.retreat_barred_round = ct.retreat_barred_round.get();
+    o.combat_bonus_round = p.card_timers.combat_bonus_round.get();
+    o.rout_round = p.card_timers.rout_round.get();
+    o.waylay_barrage_round = p.card_timers.waylay_barrage_round.get();
+    o.retreat_barred_round = p.card_timers.retreat_barred_round.get();
     o.extra_die_round = ct.extra_die_round.get();
     o.extra_die_unit = ct.extra_die_unit.map(|u| UnitTypeId::new(txt(u)));
     o.munitions_round = ct.munitions_round.get();
     o.ground_roll_suppressed_round = ct.ground_roll_suppressed_round.get();
     o.sustained_damage_round = ct.sustained_damage_round.get();
     o.sustained_damage_types = ct.sustained_damage_types.iter().map(|u| UnitTypeId::new(txt(*u))).collect();
-    o.cancel_hits_round = ct.cancel_hits_round.map(|(r, h)| (r, h as usize));
+    o.cancel_hits_round = p.card_timers.cancel_hits_round.map(|(r, h)| (r, h as usize));
 
     o.fleet_supply_unlimited_until = p.production_timers.fleet_supply_unlimited_until.get();
     o.free_production_use = p.production_timers.free_production_use.get();
