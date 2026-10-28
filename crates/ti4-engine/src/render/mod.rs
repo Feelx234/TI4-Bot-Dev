@@ -213,7 +213,7 @@ macro_rules! uninhabited {
     )*};
 }
 uninhabited!(
-    tactical, technology, objectives, tokens, diplomacy,
+    tactical, technology, tokens, diplomacy,
     legendary, promissory, cards, strategy
 );
 
@@ -303,7 +303,7 @@ macro_rules! registry {
 registry! {
     Tactical => unported!(tactical),
     Technology => unported!(technology),
-    Objectives => unported!(objectives),
+    Objectives => objectives::Fam,
     Tokens => unported!(tokens),
     Reaction => reaction::Fam,
     Combat => combat::Fam,

@@ -263,6 +263,30 @@ pub(crate) fn tables(gs: &GameState) -> Option<(Ctx, Render)> {
     Some((cx, r))
 }
 
+/// One ported state write: `f` on the core state of `gs` over the slices of `fp`, with the seat of `player`
+/// when one is named. `None` (nothing changed) when the position is outside what the core holds (more than 16
+/// owners, a player that has no seat, a value the codecs refuse). The mutation halves (B5 `explore_write`, B7
+/// `leaders_core`, A4 `objectives_write`) lend through here.
+pub(crate) fn lend<T>(
+    gs: &mut GameState,
+    fp: Footprint,
+    player: Option<&PlayerId>,
+    f: impl FnOnce(&mut CoreState, Option<ti4_engine_core::Seat>) -> T,
+) -> Option<T> {
+    let (mut cx, r) = tables(gs)?;
+    let who = match player {
+        Some(p) => Some(r.seat(p.as_str())?),
+        None => None,
+    };
+    with_core(gs, &mut cx, Sources::default(), fp, |core, _| f(core, who)).ok()
+}
+
+/// What a window of the mutation halves cannot follow: a question asked inside a battle or an invasion (its
+/// context carries the battle), diplomacy promises a favour keeps, a nested emission.
+pub(crate) fn outside(gs: &GameState, script: &Recording) -> bool {
+    script.nested || gs.active_space_combat.is_some() || gs.active_invasion.is_some() || gs.diplomacy.enabled
+}
+
 const SUSTAIN_COMMANDER: Footprint =
     Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Pending], &[Slice::Players]);
 

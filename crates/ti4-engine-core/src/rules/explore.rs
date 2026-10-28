@@ -14,11 +14,11 @@ use crate::generated::{Attachment, ExploreType, Planet, Relic, System, Wormhole}
 use crate::generated::Explore;
 use crate::ids::Seat;
 use crate::keys::LedgerReason;
+use crate::kernel::fx;
 use crate::query::explore::FRAGMENTS_PER_RELIC;
-use crate::state::{CoreState, PlanetFlags, RelicRec, VpRec};
+use crate::state::{CoreState, PlanetFlags, RelicRec};
 
-/// `objectives::VICTORY_TARGET`.
-pub const VICTORY_TARGET: i32 = 10;
+pub use crate::kernel::fx::VICTORY_TARGET;
 
 /// `relics::SHARD`.
 pub const SHARD: Relic = Relic::ShardOfTheThrone;
@@ -79,11 +79,8 @@ pub fn relic_gain(core: &mut CoreState, who: Seat) -> Option<Relic> {
     core.players_mut().by_seat_mut(who)?.cards.relics.push(top);
     let mut points = 0;
     if top == SHARD {
-        let p = core.players_mut().by_seat_mut(who)?;
-        let before = i32::from(p.econ.victory_points);
-        let after = (before + 1).min(VICTORY_TARGET);
-        p.econ.victory_points = i16::try_from(after).unwrap_or(0);
-        core.ledger_mut().vp.push(VpRec { player: who, delta: after - before, reason: LedgerReason::Relic(SHARD) });
+        core.players().by_seat(who)?;
+        fx::adjust_victory_points(core, who, 1, LedgerReason::Relic(SHARD));
         points = 1;
     }
     log_relic(core, who, top, points);
@@ -149,11 +146,7 @@ pub fn crown_point(core: &mut CoreState, who: Seat) -> bool {
         return false;
     }
     purge_relic(core, who, crown);
-    let Some(p) = core.players_mut().by_seat_mut(who) else { return true };
-    let before = i32::from(p.econ.victory_points);
-    let after = (before + 1).min(VICTORY_TARGET);
-    p.econ.victory_points = i16::try_from(after).unwrap_or(0);
-    core.ledger_mut().vp.push(VpRec { player: who, delta: after - before, reason: LedgerReason::Relic(crown) });
+    fx::adjust_victory_points(core, who, 1, LedgerReason::Relic(crown));
     true
 }
 

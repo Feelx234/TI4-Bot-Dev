@@ -49,12 +49,7 @@ mod real {
         if gs.deck_reserve.is_some() {
             return None;
         }
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let who = match player {
-            Some(p) => Some(r.seat(p.as_str())?),
-            None => None,
-        };
-        crate::core_sync::with_core(gs, &mut cx, Sources::default(), WRITES, |core, _| f(core, who)).ok()
+        crate::dual_window::lend(gs, WRITES, player, f)
     }
 
     fn seat_of(who: Option<Seat>) -> Seat {

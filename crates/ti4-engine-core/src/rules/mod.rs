@@ -20,6 +20,8 @@ pub mod explore_windows;
 pub mod invasion;
 pub mod leader_windows;
 pub mod leaders;
+pub mod objective_windows;
+pub mod objectives;
 pub mod production;
 pub mod relic_windows;
 pub mod strategy;

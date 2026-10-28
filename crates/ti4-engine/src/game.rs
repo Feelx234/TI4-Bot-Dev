@@ -5526,39 +5526,69 @@ impl<'a> Game<'a> {
         let Some(choice) = self.legal_options() else {
             return self.begin_status_bookkeeping();
         };
-        // Field borrows, not `self`: the table answers while the position stays readable.
-        let answer = match self.table.ask_seeing(
-            &choice,
-            &crate::choice::Observed::new(
-                &self.state,
-                self.content,
-                self.sources,
-                self.galaxy.as_ref(),
-            ),
-        ) {
-            Ok(answer) => answer,
-            Err(error) => return self.result(false, Some(error.into())),
+        let scored = match self.score_step(false, &choice) {
+            Ok(scored) => scored,
+            Err(error) => return self.result(false, Some(error)),
         };
-        let Some(mut window) = self.scoring.take() else {
-            unreachable!("the scoring window is open");
-        };
-        let outcome = window.resolve(&mut self.state, self.content, self.sources, answer);
-        self.scoring = Some(window);
-
-        match outcome {
-            Ok(scored) => {
-                if let Some(alias) = scored {
-                    self.emit(&format!("OBJECTIVE_SCORED:{alias}"));
-                }
-                if self.state.finished {
-                    self.scoring = None;
-                    self.emit("GAME_FINISHED");
-                    return self.result(true, None);
-                }
-                self.result(true, None)
-            }
-            Err(error) => self.result(false, Some(error.into())),
+        if let Some(alias) = scored {
+            self.emit(&format!("OBJECTIVE_SCORED:{alias}"));
         }
+        if self.state.finished {
+            self.scoring = None;
+            self.emit("GAME_FINISHED");
+            return self.result(true, None);
+        }
+        self.result(true, None)
+    }
+
+    /// One player's answer in a scoring window: the question asked of the table, then the answer resolved
+    /// against the window. One string step, beside the core window of the same step (`score_one`).
+    fn score_step(
+        &mut self,
+        event: bool,
+        choice: &Choice,
+    ) -> Result<Option<ti4_model::id::ObjectiveId>, GameError> {
+        let args = if event { &self.event_scoring } else { &self.scoring }
+            .as_ref()
+            .map(ScoringWindow::core_args)
+            .expect("the scoring window is open");
+        let (content, sources) = (self.content, self.sources);
+        let galaxy = self.galaxy.as_ref();
+        let table = &mut self.table;
+        let slot = if event { &mut self.event_scoring } else { &mut self.scoring };
+        let mut failed = None;
+        let (_, scored) = crate::dual_window!(
+            crate::dual::Area::Objectives,
+            "scoring::step",
+            &mut self.state,
+            |state: &mut GameState| {
+                // Field borrows, not `self`: the table answers while the position stays readable.
+                let answer =
+                    match table.ask_seeing(choice, &crate::choice::Observed::new(state, content, sources, galaxy)) {
+                        Ok(answer) => answer,
+                        Err(error) => {
+                            failed = Some(GameError::from(error));
+                            return crate::dual::Run::new((false, None));
+                        }
+                    };
+                let Some(mut window) = slot.take() else {
+                    unreachable!("the scoring window is open");
+                };
+                let outcome = window.resolve(state, content, sources, answer);
+                *slot = Some(window);
+                match outcome {
+                    Ok(scored) => crate::dual::Run::new((true, scored)),
+                    Err(error) => {
+                        failed = Some(GameError::from(error));
+                        crate::dual::Run::new((false, None))
+                    }
+                }
+            },
+            |state: &mut GameState, script: &crate::dual_window::Recording| {
+                crate::objectives_write::score_one(state, content, sources, choice, args, script)
+            }
+        );
+        failed.map_or(Ok(scored), Err)
     }
 
     /// Open a scoring window for one exact event occurrence.
@@ -5593,38 +5623,19 @@ impl<'a> Game<'a> {
             }
             return self.result(false, None);
         };
-        let answer = match self.table.ask_seeing(
-            &choice,
-            &crate::choice::Observed::new(
-                &self.state,
-                self.content,
-                self.sources,
-                self.galaxy.as_ref(),
-            ),
-        ) {
-            Ok(answer) => answer,
-            Err(error) => return self.result(false, Some(error.into())),
+        let scored = match self.score_step(true, &choice) {
+            Ok(scored) => scored,
+            Err(error) => return self.result(false, Some(error)),
         };
-        let Some(mut window) = self.event_scoring.take() else {
-            unreachable!("the event window is open");
-        };
-        let outcome = window.resolve(&mut self.state, self.content, self.sources, answer);
-        self.event_scoring = Some(window);
-
-        match outcome {
-            Ok(scored) => {
-                if let Some(alias) = scored {
-                    self.emit(&format!("OBJECTIVE_SCORED:{alias}"));
-                }
-                if self.state.finished {
-                    self.event_scoring = None;
-                    self.emit("GAME_FINISHED");
-                    return self.result(true, None);
-                }
-                self.result(true, None)
-            }
-            Err(error) => self.result(false, Some(error.into())),
+        if let Some(alias) = scored {
+            self.emit(&format!("OBJECTIVE_SCORED:{alias}"));
         }
+        if self.state.finished {
+            self.event_scoring = None;
+            self.emit("GAME_FINISHED");
+            return self.result(true, None);
+        }
+        self.result(true, None)
     }
 
     /// Steps 81.2 to 81.4, then open the 81.5 token gain.
@@ -13574,6 +13585,51 @@ mod tests {
             game.aftermath.is_some(),
             "the game is paused in the tactical aftermath, before space combat resolves"
         );
+    }
+
+    /// An action-timed secret window (rule 61.7): the question and the answer run on the core under
+    /// `objectives=dual`. One per player records the occurrence; an unlimited window keeps the player pending.
+    #[test]
+    fn an_event_scoring_window_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let a = PlayerId::new("a");
+        let run = |limit: EventScoreLimit, answers: &[&str]| {
+            let mut state = crate::fixtures::seated_game(&[("a", "letnev"), ("b", "sol")], POK);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.player_mut(&a).unwrap().secret_objectives = vec![
+                ti4_model::id::SecretObjectiveId::new("btv"),
+                ti4_model::id::SecretObjectiveId::new("dtgs"),
+            ];
+            let occurrence = state.begin_feat_occurrence();
+            state.record_event_feat(&a, Feat::WonInAnAnomaly, occurrence);
+            state.record_event_feat(&a, Feat::DestroyedACapitalShip, occurrence);
+            let table = Table::with_default(Box::new(Scripted::new(answers.iter().map(|s| (*s).to_owned()))));
+            let mut game = Game::with_table(state, ContentStore::embedded(), table);
+            game.open_occurrence_event_scoring(crate::secrets::Timing::Action, occurrence, limit);
+            let mut guard = 0;
+            while game.event_scoring.is_some() && guard < 10 {
+                assert_eq!(game.step().error, None);
+                guard += 1;
+            }
+            (game, occurrence)
+        };
+        with_mask(AreaMask::STRING.with(Area::Objectives, Backend::Dual), || {
+            let (game, occurrence) = run(EventScoreLimit::OnePerPlayer, &["btv"]);
+            assert_eq!(game.state.player(&a).unwrap().victory_points, 1);
+            assert!(game.state.scored_at_occurrence(&a, occurrence), "the occurrence is used up");
+            assert_eq!(game.state.player(&a).unwrap().secret_objectives.len(), 1);
+            let (game, _) = run(EventScoreLimit::AnyPerPlayer, &["btv", "dtgs"]);
+            assert_eq!(game.state.player(&a).unwrap().victory_points, 2);
+            assert!(game.state.player(&a).unwrap().secret_objectives.is_empty());
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let compared = r.windows.get("scoring::step").map_or((0, 0), |w| (w.compared, w.bailed));
+        assert!(compared.0 >= 3 && compared.1 == 0, "the core windows ran: {r:?}");
+        let _ = take_report();
     }
 
     #[test]

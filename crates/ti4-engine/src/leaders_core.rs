@@ -34,9 +34,7 @@ mod real {
     const WRITES: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players], &[Slice::Players]);
 
     fn lend<T>(gs: &mut GameState, player: &PlayerId, f: impl FnOnce(&mut CoreState, Seat) -> T) -> Option<T> {
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let who = r.seat(player.as_str())?;
-        crate::core_sync::with_core(gs, &mut cx, Sources::default(), WRITES, |core, _| f(core, who)).ok()
+        crate::dual_window::lend(gs, WRITES, Some(player), |core, who| f(core, who.expect("a seated call")))
     }
 
     fn ids(list: &[Leader]) -> Vec<LeaderId> {
@@ -150,11 +148,7 @@ mod real {
         crate::core_sync::with_core(gs, &mut cx, Sources::default(), BOARD, |core, _| rules::l1z1x_agent(core, scope, seat, system, mech)).ok()
     }
 
-    /// What a window of this file cannot follow: a question asked inside a battle or an invasion (its context
-    /// carries the battle), diplomacy promises a favour keeps, a nested emission.
-    fn outside(gs: &GameState, script: &Recording) -> bool {
-        script.nested || gs.active_space_combat.is_some() || gs.active_invasion.is_some() || gs.diplomacy.enabled
-    }
+    use crate::dual_window::outside;
 
     /// The kernel of a leader window: no hooks, the game's source scope.
     fn kernel(sources: SourceSet) -> Option<Kernel> {

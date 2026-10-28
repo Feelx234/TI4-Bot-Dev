@@ -28,7 +28,7 @@ use crate::query::reach;
 use crate::state::{CoreState, LedgerReason, MetaFlags};
 
 /// The victory point target (`objectives::VICTORY_TARGET`): the custodians point is capped at it.
-pub const VICTORY_TARGET: i32 = 10;
+pub use crate::kernel::fx::VICTORY_TARGET;
 
 /// The suspension points.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,9 +114,7 @@ impl Window for Custodians {
                     return Err(Illegal);
                 }
                 sx.state.meta_mut().flags.set(MetaFlags::CUSTODIANS_REMOVED, true);
-                let have = i32::from(sx.state.players().by_seat(self.invader).map_or(0, |p| p.econ.victory_points));
-                let applied = (have + 1).min(VICTORY_TARGET) - have;
-                fx::gain_victory_points(sx.state, self.invader, applied, LedgerReason::Custodians);
+                fx::adjust_victory_points(sx.state, self.invader, 1, LedgerReason::Custodians);
                 self.removed = true;
             }
             _ => return Err(Illegal),

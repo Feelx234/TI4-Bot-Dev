@@ -96,7 +96,7 @@ pub fn resolve_before_token_gain_with(
     let mut report = StatusPhaseReport::default();
 
     // 81.2: revealing is mandatory. The Python oracle finishes immediately if impossible.
-    let Some(objective) = state.reveal_objective() else {
+    let Some(objective) = crate::objectives::reveal_top(state) else {
         state.finished = true;
         report.game_ended = true;
         return Ok(report);

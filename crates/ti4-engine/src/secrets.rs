@@ -90,19 +90,35 @@ pub fn draw(
     table: &mut Table,
     player: &PlayerId,
 ) -> Result<Option<SecretObjectiveId>, IllegalChoice> {
-    let Some(top) = ti4_model::deck_reserve::take_top(
+    let Some(top) = draw_top(state, player) else {
+        return Ok(None);
+    };
+    enforce_hand_limit(state, content, table, player)?;
+    Ok(Some(top))
+}
+
+/// The draw of [`draw`] before the hand limit: the top secret goes to the player's hand.
+fn draw_top(state: &mut GameState, player: &PlayerId) -> Option<SecretObjectiveId> {
+    crate::objectives::dual_write(
+        state,
+        "secrets::draw_top",
+        |s| draw_top_text(s, player),
+        |s| crate::objectives_write::draw_secret(s, player),
+    )
+}
+
+/// [`draw_top`] on the string state: the oracle of the dual run.
+fn draw_top_text(state: &mut GameState, player: &PlayerId) -> Option<SecretObjectiveId> {
+    let top = ti4_model::deck_reserve::take_top(
         &mut state.deck_reserve,
         "secret",
         &mut state.secret_deck,
         Some(player.as_str()),
-    ) else {
-        return Ok(None);
-    };
+    )?;
     if let Some(seat) = state.player_mut(player) {
         seat.secret_objectives.push(top.clone());
     }
-    enforce_hand_limit(state, content, table, player)?;
-    Ok(Some(top))
+    Some(top)
 }
 
 /// 45.4: over three, return an *unscored* one to the deck.
@@ -114,6 +130,29 @@ pub fn draw(
 /// # Errors
 /// [`IllegalChoice`] when a decider answers with something not offered.
 pub fn enforce_hand_limit(
+    state: &mut GameState,
+    content: &ContentStore,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<(), IllegalChoice> {
+    let mut outcome = Ok(());
+    let _finished = crate::dual_window!(
+        crate::dual::Area::Objectives,
+        "secrets::enforce_hand_limit",
+        state,
+        |state: &mut GameState| {
+            outcome = enforce_hand_limit_text(state, content, table, player);
+            crate::dual::Run::new(outcome.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::objectives_write::hand_limit(state, player, script)
+        }
+    );
+    outcome
+}
+
+/// [`enforce_hand_limit`] on the string state: the oracle of the dual run.
+fn enforce_hand_limit_text(
     state: &mut GameState,
     content: &ContentStore,
     table: &mut Table,
@@ -1321,6 +1360,22 @@ pub fn award(
         .and_then(|points| i32::try_from(points).ok())
         .unwrap_or(1);
 
+    score_state(state, player, alias, points)
+}
+
+/// The state half of [`award`] once the price is paid: the score is recorded, the secret leaves the hand, the
+/// points move.
+fn score_state(state: &mut GameState, player: &PlayerId, alias: &SecretObjectiveId, points: i32) -> Option<i32> {
+    crate::objectives::dual_write(
+        state,
+        "secrets::score_state",
+        |s| score_state_text(s, player, alias, points),
+        |s| crate::objectives_write::score_secret(s, player, alias, points),
+    )
+}
+
+/// [`score_state`] on the string state: the oracle of the dual run.
+fn score_state_text(state: &mut GameState, player: &PlayerId, alias: &SecretObjectiveId, points: i32) -> Option<i32> {
     state.record_score(player, ti4_model::id::ObjectiveId::new(alias.as_str()));
     let seat = state.player_mut(player)?;
     seat.secret_objectives.retain(|held| held != alias);

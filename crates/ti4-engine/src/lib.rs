@@ -77,6 +77,10 @@ pub mod neutral_units;
 mod nexus_reach_tests;
 pub mod objectives;
 pub mod objectives_core;
+/// Area::Objectives (package A4): the typed objective writes and questions behind the string interface.
+pub mod objectives_write;
+#[cfg(test)]
+mod objectives_write_tests;
 #[cfg(test)]
 mod objectives_monument_tests;
 pub mod observation;

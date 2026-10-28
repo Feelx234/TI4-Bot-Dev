@@ -1570,6 +1570,16 @@ pub fn reveal_stage(
     content: &ContentStore,
     stage: u8,
 ) -> Option<ObjectiveId> {
+    dual_write(
+        state,
+        "objectives::reveal_stage",
+        |s| reveal_stage_text(s, content, stage),
+        |s| crate::objectives_write::reveal_stage(s, stage),
+    )
+}
+
+/// [`reveal_stage`] on the string state: the oracle of the dual run.
+fn reveal_stage_text(state: &mut GameState, content: &ContentStore, stage: u8) -> Option<ObjectiveId> {
     let alias = ti4_model::deck_reserve::take_where(
         &mut state.deck_reserve,
         "objective",
@@ -1579,6 +1589,28 @@ pub fn reveal_stage(
     )?;
     state.revealed_objectives.push(alias.clone());
     Some(alias)
+}
+
+/// Turn the top facedown public objective faceup (LRR 81.2): `GameState::reveal_objective` beside its core
+/// write.
+pub fn reveal_top(state: &mut GameState) -> Option<ObjectiveId> {
+    dual_write(
+        state,
+        "objectives::reveal_top",
+        GameState::reveal_objective,
+        crate::objectives_write::reveal_top,
+    )
+}
+
+/// One state write of this file on both backends: `string` is the original code, `core` the typed
+/// `rules::objectives` write (`None`: the position is outside the tables, the string write runs).
+pub(crate) fn dual_write<R: PartialEq + std::fmt::Debug>(
+    state: &mut GameState,
+    label: &str,
+    string: impl Fn(&mut GameState) -> R,
+    core: impl Fn(&mut GameState) -> Option<R>,
+) -> R {
+    crate::dual::write(crate::dual::Area::Objectives, state, label, string, core)
 }
 
 /// Objectives bought rather than achieved (61.10).
@@ -2043,12 +2075,42 @@ pub fn award(
         return Err(ScoreError::Unaffordable(alias.clone()));
     }
 
+    score_state(state, player, alias, points)?;
+    award_tail(state, content, sources, player.clone(), alias);
+    Ok(points)
+}
+
+/// The state half of [`award`] once the price is paid: the score is recorded and the points move.
+fn score_state(state: &mut GameState, player: &PlayerId, alias: &ObjectiveId, points: i32) -> Result<(), ScoreError> {
+    dual_write(
+        state,
+        "objectives::score_state",
+        |s| score_state_text(s, player, alias, points),
+        |s| crate::objectives_write::score_public(s, player, alias, points).map(|()| Ok(())),
+    )
+}
+
+/// [`score_state`] on the string state: the oracle of the dual run.
+fn score_state_text(state: &mut GameState, player: &PlayerId, alias: &ObjectiveId, points: i32) -> Result<(), ScoreError> {
     state.record_score(player, alias.clone());
     if state.player(player).is_none() {
         return Err(ScoreError::PlayerMissing(player.clone()));
     }
     // 98.4a: a player cannot hold more than the target.
     adjust_victory_points(state, player, points, "objective");
+    Ok(())
+}
+
+/// What a public score sets off beyond the points: leaders unlock, and Yin's breakthrough hears of it. Also the
+/// part of a scored public objective the core window leaves to the string side.
+pub(crate) fn award_tail(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: PlayerId,
+    alias: &ObjectiveId,
+) {
+    let player = &player;
     // 51.7: leaders unlock the moment their condition is met, not at end of phase. A hero
     // unlocked by a third objective must not wait for a status phase the game may never reach.
     // No galaxy here: only Naalu's commander asks about the map, and awarding an objective is
@@ -2076,7 +2138,6 @@ pub fn award(
             ]),
         );
     }
-    Ok(points)
 }
 
 /// Move a seat's victory points and record the move in [`GameState::vp_ledger`].
@@ -2085,6 +2146,21 @@ pub fn award(
 /// hand. The ledger row is the change that actually happened, not the nominal one, so a seat's
 /// points always equal the sum of its rows. Returns that change; 0 for a seat that does not exist.
 pub fn adjust_victory_points(
+    state: &mut GameState,
+    player: &PlayerId,
+    delta: i32,
+    reason: &str,
+) -> i32 {
+    dual_write(
+        state,
+        "objectives::adjust_victory_points",
+        |s| adjust_victory_points_text(s, player, delta, reason),
+        |s| crate::objectives_write::adjust(s, player, delta, reason),
+    )
+}
+
+/// [`adjust_victory_points`] on the string state: the oracle of the dual run.
+fn adjust_victory_points_text(
     state: &mut GameState,
     player: &PlayerId,
     delta: i32,
@@ -2252,6 +2328,18 @@ impl ScoringWindow {
     #[must_use]
     pub const fn is_complete(&self) -> bool {
         self.pending.is_empty() && self.plot_card.is_none()
+    }
+
+    /// What the core window needs of this one: the timing, and the occurrence its one-per-player cap records.
+    #[must_use]
+    pub(crate) fn core_args(&self) -> crate::objectives_write::ScoreArgs {
+        crate::objectives_write::ScoreArgs {
+            status: self.timing == crate::secrets::Timing::Status,
+            occurrence: match (self.event_score_limit, self.event_occurrence) {
+                (EventScoreLimit::OnePerPlayer, Some(occurrence)) => Some(occurrence.0),
+                _ => None,
+            },
+        }
     }
 
     /// What was scored, in resolution order.

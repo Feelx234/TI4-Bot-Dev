@@ -188,7 +188,7 @@ pub fn start_game_seeded_with_card_set(
     crate::promissory::deal(&mut state, content, sources);
 
     for _ in 0..2 {
-        let _ = state.reveal_objective();
+        let _ = crate::objectives::reveal_top(&mut state);
     }
     for player_id in player_ids {
         let Some(secret) = state.secret_deck.first().cloned() else {
