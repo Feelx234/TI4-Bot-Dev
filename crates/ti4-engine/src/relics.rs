@@ -710,6 +710,16 @@ fn stellar_converter_targets(
 /// Returns whether it was exhausted -- `false` if it is not held, or is exhausted already. The
 /// three cards that say it are once per round, and the status phase readies them.
 pub fn exhaust(state: &mut GameState, player: &PlayerId, relic: &str) -> bool {
+    crate::exploration::dual_write(
+        state,
+        "relics::exhaust",
+        |s| exhaust_text(s, player, relic),
+        |s| crate::explore_write::relic_exhaust(s, player, relic),
+    )
+}
+
+/// [`exhaust`] on the string state: the oracle of the dual run.
+fn exhaust_text(state: &mut GameState, player: &PlayerId, relic: &str) -> bool {
     let id = RelicId::new(relic);
     if !holds(state, player, &id) {
         return false;
@@ -1062,7 +1072,16 @@ pub fn ignores_gravity_rifts_text(state: &GameState, player: &PlayerId) -> bool 
     holds(state, player, &RelicId::new(CIRCLET))
 }
 
-fn purge(state: &mut GameState, player: &PlayerId, relic: &RelicId) {
+pub(crate) fn purge(state: &mut GameState, player: &PlayerId, relic: &RelicId) {
+    crate::exploration::dual_write(
+        state,
+        "relics::purge",
+        |s| purge_text(s, player, relic),
+        |s| crate::explore_write::relic_purge(s, player, relic),
+    );
+}
+
+fn purge_text(state: &mut GameState, player: &PlayerId, relic: &RelicId) {
     if let Some(seat) = state.player_mut(player) {
         seat.relics.retain(|held| held != relic);
     }
@@ -1111,6 +1130,16 @@ pub(crate) fn log_gain(state: &mut GameState, player: &PlayerId, relic: &RelicId
 /// point the moment it arrives: the Shard was worth nothing when exploration drew it straight
 /// off the deck, and would have been worth nothing again for the next path written.
 pub fn gain(state: &mut GameState, player: &PlayerId) -> Option<RelicId> {
+    crate::exploration::dual_write(
+        state,
+        "relics::gain",
+        |s| gain_text(s, player),
+        |s| crate::explore_write::relic_gain(s, player),
+    )
+}
+
+/// [`gain`] on the string state: the oracle of the dual run.
+fn gain_text(state: &mut GameState, player: &PlayerId) -> Option<RelicId> {
     // 73.2a: an empty deck yields nothing
     let top = ti4_model::deck_reserve::take_top(
         &mut state.deck_reserve,

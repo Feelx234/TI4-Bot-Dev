@@ -35,6 +35,7 @@ pub mod diplomacy;
 pub mod draft;
 pub mod entropic_scars;
 pub mod explore_core;
+pub mod explore_write;
 /// The offline dual of Area::ExplorationRelics.
 #[cfg(feature = "typed-core")]
 #[doc(hidden)]

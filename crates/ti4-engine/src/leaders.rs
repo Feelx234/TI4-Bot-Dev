@@ -594,16 +594,7 @@ fn dual_write<R: PartialEq + std::fmt::Debug>(
     string: impl Fn(&mut GameState) -> R,
     core: impl Fn(&mut GameState) -> Option<R>,
 ) -> R {
-    crate::dual!(
-        crate::dual::Area::LeadersAbilities,
-        label,
-        state,
-        |s: &mut GameState| crate::dual::Run::new(string(s)),
-        |s: &mut GameState| match core(s) {
-            Some(r) => crate::dual::Run::new(r),
-            None => crate::dual::Run::new(string(s)),
-        }
-    )
+    crate::dual::write(crate::dual::Area::LeadersAbilities, state, label, string, core)
 }
 
 /// Leaders this player could use now: readied agents, and unlocked heroes.
