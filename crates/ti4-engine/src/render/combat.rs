@@ -36,7 +36,7 @@ pub fn location(site: SustainSite) -> String {
 fn label(a: &Ask, site: SustainSite, unit: Unit, galvanized: bool) -> String {
     let staging = match a {
         Ask::CancelHit { staging, .. } => staging,
-        Ask::AssignHit => &false,
+        Ask::AssignHit | Ask::RaidDamage { .. } => &false,
     };
     if let (true, SustainSite::Planet { planet, .. }) = (*staging, site) {
         let id = planet.as_str();
@@ -61,6 +61,7 @@ impl Family for Fam {
         match a {
             Ask::CancelHit { system, .. } => format!("cancel a hit at {}", system.as_str()),
             Ask::AssignHit => "assign a hit".to_owned(),
+            Ask::RaidDamage { .. } => "Raid Formation: choose a ship with SUSTAIN DAMAGE to become damaged".to_owned(),
         }
     }
 
@@ -71,8 +72,15 @@ impl Family for Fam {
         }
     }
 
-    fn option(_: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
+    fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
         let (site, unit, galvanized) = match o {
+            Opt::RaidDamage { unit } => {
+                let target = match a {
+                    Ask::RaidDamage { target } => r.seat_text(*target),
+                    _ => "",
+                };
+                return ChoiceOption::labelled(unit.as_str().to_owned(), "raid_formation_damage", format!("damage 1 {} of {target}", unit.as_str()));
+            }
             Opt::Destroy { index, unit, damaged } => {
                 let tag = if *damaged { " (damaged)" } else { "" };
                 return ChoiceOption::labelled(
@@ -89,14 +97,17 @@ impl Family for Fam {
             .with("unit", unit.as_str().to_owned())
     }
 
-    fn parse(_: &Render, _: &Ask, _: &str) -> Option<Opt> {
-        None
+    fn parse(_: &Render, a: &Ask, id: &str) -> Option<Opt> {
+        match a {
+            Ask::RaidDamage { .. } => Some(Opt::RaidDamage { unit: <Unit as crate::generated::IdStr>::from_id(id)? }),
+            _ => None,
+        }
     }
 
     fn wording(_: &Render, a: &Ask, o: &AnyOpt) -> Wording {
         let non_fighters_first = match a {
             Ask::CancelHit { non_fighters_first, .. } => non_fighters_first,
-            Ask::AssignHit => &false,
+            Ask::AssignHit | Ask::RaidDamage { .. } => &false,
         };
         let mut w = Wording::default();
         if matches!(o, AnyOpt::Decline) {

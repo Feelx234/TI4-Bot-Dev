@@ -2090,11 +2090,33 @@ fn apply_barrage(
                         system,
                         excess,
                     };
-                    let made = with_timing(state, ctx, |timing| {
-                        crate::factions::hooks_combat::afb_excess(timing, &site)
-                    });
-                    announce_staged_destructions(state, ctx);
-                    made?;
+                    // On `driver=dual` Raid Formation also runs as a core window (`rules::combat::raid_formation`).
+                    let failed = std::cell::Cell::new(false);
+                    let mut outcome = None;
+                    crate::dual_window!(
+                        crate::dual::Area::Driver,
+                        "combat::raid_formation",
+                        state,
+                        |s: &mut GameState| {
+                            let made = with_timing(s, ctx, |timing| {
+                                crate::factions::hooks_combat::afb_excess(timing, &site)
+                            });
+                            announce_staged_destructions(s, ctx);
+                            failed.set(made.is_err());
+                            outcome = Some(made);
+                            crate::dual::Run::new(!failed.get())
+                        },
+                        |s: &mut GameState, script: &crate::dual_window::Recording| {
+                            if failed.get() {
+                                return None;
+                            }
+                            let args = crate::dual_window::RaidArgs { producer: player, target, system, excess };
+                            crate::dual_window::raid_formation(s, sources, args, script)
+                        }
+                    );
+                    if let Some(made) = outcome {
+                        made?;
+                    }
                 }
             }
         }
@@ -6080,6 +6102,21 @@ impl CombatWindow {
         let (attacker, defender, system) = (self.attacker.clone(), self.defender.clone(), self.system.clone());
         let occurrence = self.ensure_combat_occurrence(state).0;
         let staging = crate::supply::staging_enabled(state);
+        let probe = crate::dual_window::BarrageArgs {
+            attacker: &attacker,
+            defender: &defender,
+            system: &system,
+            round,
+            occurrence,
+            staging,
+            announce,
+            reproducible,
+        };
+        // Positions the window does not carry run bare, so the windows inside (fighter removal, Raid
+        // Formation) are compared on their own.
+        if crate::dual::backend(crate::dual::Area::Driver) == crate::dual::Backend::Dual && crate::dual_window::barrage_unported(state, &probe) {
+            return self.barrage_step_string(state, ctx, round);
+        }
         let rng_before = ctx.rng.positions();
         let history_start = ctx.dice.history().len();
         crate::dual_window!(
@@ -9134,6 +9171,49 @@ mod tests {
         assert!(killed > 0, "some barrage hit");
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         assert!(r.areas[&Area::Driver].calls >= 20, "the steps were compared: {:?}", r.areas[&Area::Driver]);
+        let _ = take_report();
+    }
+
+    #[test]
+    fn raid_formation_runs_as_a_core_window_in_lockstep() {
+        // Argent's barrage hits beyond the fighters damage the target's ships: one candidate type without a
+        // question, two with the producer's choice; the core window asks and answers the same.
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut damaged = 0;
+        for seed in 0..12_u64 {
+            let mut state = crate::fixtures::seated_game(&[("a", "argent"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = seed;
+            let system = SystemId::new("18");
+            put(&mut state, &system, &a_barrage_unit(), &attacker(), 6);
+            put(&mut state, &system, "fighter", &defender(), 1);
+            put(&mut state, &system, "dreadnought", &defender(), 1);
+            if seed % 2 == 0 {
+                put(&mut state, &system, "warsun", &defender(), 1);
+            }
+            with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+            });
+            damaged += state.system_state(&system).units.iter().filter(|u| u.sustained_damage).count().min(1);
+        }
+        let r = report();
+        assert!(damaged > 0, "Raid Formation damaged something");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }
 

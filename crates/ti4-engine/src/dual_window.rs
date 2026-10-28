@@ -874,3 +874,50 @@ pub fn announce_end(
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(events), questions: driven.rendered })
 }
+
+/// What the string Raid Formation hook was called with (`hooks_combat::afb_excess`).
+#[derive(Debug, Clone, Copy)]
+pub struct RaidArgs<'a> {
+    pub producer: &'a PlayerId,
+    pub target: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    pub excess: usize,
+}
+
+/// The core half of the barrage's excess hits. `None` unless the producer is Argent (the only module with
+/// the hook), for neutral sides, reaction activity, or a position the codecs refuse.
+#[must_use]
+pub fn raid_formation(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    a: RaidArgs<'_>,
+    script: &Recording,
+) -> Option<CoreWindow<bool>> {
+    use ti4_engine_core::rules::combat::raid_formation::{Facts, RaidFormation};
+    if script.nested
+        || gs.player(a.producer).is_none_or(|p| p.faction.as_str() != "argent")
+        || crate::neutral_units::is_neutral(a.target)
+    {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let producer = r.seat(a.producer.as_str())?;
+    let target = r.seat(a.target.as_str())?;
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let before = gs.clone();
+    let env = crate::core_combat::window_env(&before, &cx, sources)?;
+    let facts = Facts { producer, target, system, excess: u16::try_from(a.excess).ok()?, subtype: r.code("raid_formation_damage") };
+    let resolver = Resolver::new(&[producer], Some(producer));
+    let mut driver = Driver::new(RaidFormation::new(facts), resolver, AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let driven = with_core(gs, &mut cx, Sources::default(), ASSIGN_HITS, |core, _| {
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .ok()?
+    .ok()?;
+    apply_staged(gs, &r, &staged)?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(events), questions: driven.rendered })
+}
