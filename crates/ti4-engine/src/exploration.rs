@@ -4030,6 +4030,43 @@ mod window_tests {
         let _ = take_report();
     }
 
+    /// Exploring after an invasion capture: the question carries the invasion's sequence number, which the
+    /// core windows now put into their context, so the golden games compare them.
+    #[test]
+    fn a_question_inside_an_invasion_is_compared_with_its_sequence_number() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        dual(|| {
+            let invading = |state: &mut GameState| {
+                state.active_invasion = Some(ti4_model::state::ActiveInvasion {
+                    system: ti4_model::id::SystemId::new("26"),
+                    invader: me(),
+                    seq: 7,
+                    phase: "commit".to_owned(),
+                    planet: None,
+                    defender: None,
+                    ground_round: 0,
+                    last_step: None,
+                });
+            };
+            let (mut state, planet) = table(0, 0);
+            invading(&mut state);
+            let chosen = with_ctx(&["CULTURAL"], |ctx| choose_deck(ctx, &state, &me(), &PlanetId::new("lazulrex")));
+            assert_eq!(chosen.as_deref(), Some("CULTURAL"));
+            state.exploration_decks.insert("CULTURAL".to_owned(), vec!["ion".to_owned()]);
+            with_ctx(&["BETA"], |ctx| explore_with(&mut state, ctx, &me(), "CULTURAL", Some(&planet)));
+            let (mut state, planet) = table(1, 1);
+            invading(&mut state);
+            explore_card(&mut state, &planet, "fb1", &["spend_tg"]);
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        for label in ["exploration::ask:exploration", "exploration::ion_storm", "exploration::ask:functioning_base"] {
+            assert!(counts(label).0 >= 1 && counts(label).1 == 0, "{label}: {r:?}");
+        }
+        let _ = take_report();
+    }
+
     /// The documented bails: a question inside an invasion, diplomacy promises, a custom card the tables
     /// do not know; the string question answers alone and nothing differs.
     #[test]

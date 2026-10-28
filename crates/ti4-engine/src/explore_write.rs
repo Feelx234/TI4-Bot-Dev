@@ -23,7 +23,7 @@ mod real {
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::{Kernel, Resolver};
     use ti4_engine_core::rules::explore as rules;
-    use ti4_engine_core::rules::explore_windows::{ChooseDeck, CrownExplore, DistantSuns, DominusOrb, IonStorm, Reward};
+    use ti4_engine_core::rules::explore_windows::{InInvasion, ChooseDeck, CrownExplore, DistantSuns, DominusOrb, IonStorm, Reward};
     use ti4_engine_core::state::{CoreState, Slice};
     use ti4_model::content_types::SourceSet;
     use ti4_model::id::{PlanetId, PlayerId, RelicId, SystemId};
@@ -145,12 +145,11 @@ mod real {
         gs.deck_reserve.is_some()
             || script.nested
             || gs.active_space_combat.is_some()
-            || gs.active_invasion.is_some()
             || gs.diplomacy.enabled
             || script.questions.iter().any(|q| q.answer.is_none())
     }
 
-    fn drive_window<W: ti4_engine_core::kernel::stage::Window + Clone, T>(
+    fn drive_window<W: ti4_engine_core::kernel::stage::Window + Clone + InInvasion, T>(
         gs: &mut GameState,
         fp: Footprint,
         player: &PlayerId,
@@ -166,7 +165,7 @@ mod real {
         let seat = r.seat(player.as_str())?;
         let before = gs.clone();
         let kernel = Kernel::plain();
-        let mut driver = Driver::new(window(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = Driver::new(window(seat).in_invasion(gs.active_invasion.as_ref().map(|a| a.seq)), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), fp, |core, _| {
             crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, details)
         })

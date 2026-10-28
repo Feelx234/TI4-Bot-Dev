@@ -24,7 +24,7 @@ use crate::tables::Scope;
 
 use super::explore;
 
-fn ctx(origin: Content, subtype: ESub) -> Ctx {
+fn ctx(origin: Content, subtype: ESub, inv: Option<u64>) -> Ctx {
     Ctx {
         origin: Origin::Content(origin),
         subtype: Subtype::Explore(subtype),
@@ -32,13 +32,32 @@ fn ctx(origin: Content, subtype: ESub) -> Ctx {
         target: None,
         outstanding: SmallList::new(),
         space_battle: false,
-        invasion_seq: None,
+        invasion_seq: inv,
     }
 }
 
 fn opts(list: impl IntoIterator<Item = EOpt>) -> Opts {
     list.into_iter().map(Opt::Explore).collect::<Opts>()
 }
+
+/// A window whose question is asked while an invasion is active carries the invasion's sequence number
+/// (the string `Table::ask_seeing` adds it to every context with no other target).
+pub trait InInvasion: Sized {
+    #[must_use]
+    fn in_invasion(self, seq: Option<u64>) -> Self;
+}
+
+macro_rules! in_invasion {
+    ($($t:ty),*) => {$(
+        impl InInvasion for $t {
+            fn in_invasion(mut self, seq: Option<u64>) -> Self {
+                self.inv = seq;
+                self
+            }
+        }
+    )*};
+}
+in_invasion!(ChooseDeck, DistantSuns, IonStorm, Reward, DominusOrb, CrownExplore);
 
 /// The suspension points of the windows of this file: at the start, at the question, finished.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,12 +78,13 @@ pub struct ChooseDeck {
     traits: SmallList<ExploreType, 4>,
     stage: XStage,
     pub chosen: Option<ExploreType>,
+    inv: Option<u64>,
 }
 
 impl ChooseDeck {
     #[must_use]
     pub fn new(who: Seat, traits: &[ExploreType]) -> Self {
-        Self { who, traits: SmallList::from_slice(traits), stage: XStage::Start, chosen: None }
+        Self { who, traits: SmallList::from_slice(traits), stage: XStage::Start, chosen: None, inv: None }
     }
 
     const ASK: Ask = Ask::Explore(EAsk::ChooseDeck);
@@ -98,7 +118,7 @@ impl Window for ChooseDeck {
         (self.stage == XStage::Asking).then(|| Choice {
             actor: self.who,
             ask: Self::ASK,
-            ctx: ctx(Content::Step(Step::Exploration), ESub::Step(Step::Exploration)),
+            ctx: ctx(Content::Step(Step::Exploration), ESub::Step(Step::Exploration), self.inv),
             opts: opts(self.traits.as_slice().iter().map(|t| EOpt::Deck(*t))),
         })
     }
@@ -128,12 +148,13 @@ pub struct DistantSuns {
     second: Option<Explore>,
     stage: XStage,
     pub chosen: Explore,
+    inv: Option<u64>,
 }
 
 impl DistantSuns {
     #[must_use]
     pub const fn new(who: Seat, deck: ExploreType, first: Explore) -> Self {
-        Self { who, deck, first, second: None, stage: XStage::Start, chosen: first }
+        Self { who, deck, first, second: None, stage: XStage::Start, chosen: first, inv: None }
     }
 }
 
@@ -160,7 +181,7 @@ impl Window for DistantSuns {
         Some(Choice {
             actor: self.who,
             ask: Ask::Explore(EAsk::DistantSuns { first: self.first, second }),
-            ctx: ctx(Content::Explore(self.first), ESub::Card(self.first)),
+            ctx: ctx(Content::Explore(self.first), ESub::Card(self.first), self.inv),
             opts: opts([EOpt::Card(self.first), EOpt::Card(second)]),
         })
     }
@@ -186,12 +207,13 @@ pub struct IonStorm {
     system: System,
     stage: XStage,
     pub face: Option<Wormhole>,
+    inv: Option<u64>,
 }
 
 impl IonStorm {
     #[must_use]
     pub const fn new(who: Seat, system: System) -> Self {
-        Self { who, system, stage: XStage::Start, face: None }
+        Self { who, system, stage: XStage::Start, face: None, inv: None }
     }
 
     const ASK: Ask = Ask::Explore(EAsk::IonStorm);
@@ -215,7 +237,7 @@ impl Window for IonStorm {
         (self.stage == XStage::Asking).then(|| Choice {
             actor: self.who,
             ask: Self::ASK,
-            ctx: ctx(Content::Step(Step::IonStorm), ESub::Step(Step::IonStorm)),
+            ctx: ctx(Content::Step(Step::IonStorm), ESub::Step(Step::IonStorm), self.inv),
             opts: opts([EOpt::Face(Wormhole::Alpha), EOpt::Face(Wormhole::Beta)]),
         })
     }
@@ -246,13 +268,14 @@ pub struct Reward {
     skip_single: bool,
     stage: XStage,
     pub chosen: Option<EOpt>,
+    inv: Option<u64>,
 }
 
 impl Reward {
     /// `card` is one of the five reward steps.
     #[must_use]
     pub fn new(who: Seat, card: Step, options: &[EOpt], skip_single: bool) -> Self {
-        Self { who, card, options: SmallList::from_slice(options), skip_single, stage: XStage::Start, chosen: None }
+        Self { who, card, options: SmallList::from_slice(options), skip_single, stage: XStage::Start, chosen: None, inv: None }
     }
 }
 
@@ -279,7 +302,7 @@ impl Window for Reward {
         (self.stage == XStage::Asking).then(|| Choice {
             actor: self.who,
             ask: Ask::Explore(EAsk::Reward(self.card)),
-            ctx: ctx(Content::Step(self.card), ESub::Step(self.card)),
+            ctx: ctx(Content::Step(self.card), ESub::Step(self.card), self.inv),
             opts: opts(self.options.as_slice().iter().copied()),
         })
     }
@@ -298,7 +321,7 @@ impl Window for Reward {
 
 // -- relics that ask ----------------------------------------------------------------------------------
 
-fn relic_ctx(relic: Relic, subtype: RSub) -> Ctx {
+fn relic_ctx(relic: Relic, subtype: RSub, inv: Option<u64>) -> Ctx {
     Ctx {
         origin: Origin::Content(Content::Relic(relic)),
         subtype: Subtype::Relic(subtype),
@@ -306,7 +329,7 @@ fn relic_ctx(relic: Relic, subtype: RSub) -> Ctx {
         target: None,
         outstanding: SmallList::new(),
         space_battle: false,
-        invasion_seq: None,
+        invasion_seq: inv,
     }
 }
 
@@ -322,12 +345,13 @@ pub struct DominusOrb {
     pub who: Seat,
     stage: XStage,
     pub used: bool,
+    inv: Option<u64>,
 }
 
 impl DominusOrb {
     #[must_use]
     pub const fn new(who: Seat) -> Self {
-        Self { who, stage: XStage::Start, used: false }
+        Self { who, stage: XStage::Start, used: false, inv: None }
     }
 
     const ASK: Ask = Ask::Relic(RAsk::DominusOrb);
@@ -362,7 +386,7 @@ impl Window for DominusOrb {
         (self.stage == XStage::Asking).then(|| Choice {
             actor: self.who,
             ask: Self::ASK,
-            ctx: relic_ctx(Relic::DominusOrb, RSub::DominusOrbPurgeToMove),
+            ctx: relic_ctx(Relic::DominusOrb, RSub::DominusOrbPurgeToMove, self.inv),
             opts: [Opt::Relic(ROpt::Purge), Opt::Decline].into_iter().collect::<Opts>(),
         })
     }
@@ -397,12 +421,13 @@ pub struct CrownExplore {
     scope: Scope,
     stage: XStage,
     pub planet: Option<Planet>,
+    inv: Option<u64>,
 }
 
 impl CrownExplore {
     #[must_use]
     pub const fn new(who: Seat, scope: Scope) -> Self {
-        Self { who, scope, stage: XStage::Start, planet: None }
+        Self { who, scope, stage: XStage::Start, planet: None, inv: None }
     }
 
     const ASK: Ask = Ask::Relic(RAsk::CrownOfEmphidia);
@@ -439,7 +464,7 @@ impl Window for CrownExplore {
         (self.stage == XStage::Asking).then(|| Choice {
             actor: self.who,
             ask: Self::ASK,
-            ctx: relic_ctx(Relic::TheCrownOfEmphidia, RSub::CrownOfEmphidiaChoosePlanet),
+            ctx: relic_ctx(Relic::TheCrownOfEmphidia, RSub::CrownOfEmphidiaChoosePlanet, self.inv),
             opts: self
                 .options(s)
                 .into_iter()
