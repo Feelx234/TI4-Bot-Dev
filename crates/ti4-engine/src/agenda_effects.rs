@@ -500,7 +500,9 @@ pub fn resolve_with(
     // decides what a "dreadnought" is (PoK, as everywhere else in this engine): each effect function reads
     // both from `ctx`.
     match agenda {
-        "secret" => effect_secret(state, ctx, galaxy, agenda, outcome, ballot),
+        "secret" => windowed(state, agenda, outcome, ballot, |s| {
+            effect_secret(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
         "censure" | "shard_of_the_throne" | "crown_of_emphidia" => windowed(state, agenda, outcome, ballot, |s| {
             effect_censure(s, ctx, galaxy, agenda, outcome, ballot)
         }),
@@ -572,7 +574,9 @@ pub fn resolve_with(
         "nexus" => windowed(state, agenda, outcome, ballot, |s| {
             effect_nexus(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "warrant" => effect_warrant(state, ctx, galaxy, agenda, outcome, ballot),
+        "warrant" => windowed(state, agenda, outcome, ballot, |s| {
+            effect_warrant(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
         "grant_reallocation" => {
             effect_grant_reallocation(state, ctx, galaxy, agenda, outcome, ballot)
         }
@@ -2179,6 +2183,54 @@ mod tests {
             ),
             None
         );
+    }
+
+    /// Archived Secret and Search Warrant draw secrets with the hand limit question after each: the core
+    /// `Resolve::Draw` window runs beside the string effect on `objectives=dual`/`agenda=dual` (package A4).
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn the_secret_draws_run_as_core_windows_in_lockstep() {
+        use crate::dual::{AreaMask, Backend, report, take_report, with_mask};
+        use ti4_model::id::SecretObjectiveId as S;
+        let _guard = crate::dual::tests::serial();
+        let mask = AreaMask::parse("agenda=dual,objectives=dual", AreaMask::all(Backend::String)).unwrap();
+        let _ = take_report();
+        let seated = || {
+            let mut state = crate::fixtures::seated_game(&[("a", "letnev"), ("b", "sol")], POK);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.player_mut(&PlayerId::new("a")).unwrap().secret_objectives = vec![S::new("eap"), S::new("fwm")];
+            state.secret_deck = vec![S::new("ctr"), S::new("faa"), S::new("gamf")];
+            state
+        };
+        with_mask(mask, || {
+            let a = PlayerId::new("a");
+            // Archived Secret: one draw within the limit asks nothing.
+            let mut state = seated();
+            assert!(matches!(run_with(&mut state, None, "secret", "a", &[]), Effect::Resolved { .. }));
+            assert_eq!(state.player(&a).unwrap().secret_objectives.len(), 3);
+            // Search Warrant: the second draw goes over; the table's first option goes back to the deck bottom.
+            let mut state = seated();
+            run(&mut state, "warrant", "a", &no_votes());
+            assert_eq!(state.player(&a).unwrap().secret_objectives, vec![S::new("fwm"), S::new("ctr"), S::new("faa")]);
+            assert_eq!(state.secret_deck, vec![S::new("gamf"), S::new("eap")]);
+            // Archived Secret over the limit with a scripted answer.
+            let mut state = seated();
+            state.player_mut(&a).unwrap().secret_objectives.push(S::new("dtd"));
+            run_with(&mut state, None, "secret", "a", &["fwm"]);
+            assert_eq!(state.player(&a).unwrap().secret_objectives, vec![S::new("eap"), S::new("dtd"), S::new("ctr")]);
+            // An empty deck draws nothing.
+            let mut state = seated();
+            state.secret_deck.clear();
+            run(&mut state, "warrant", "a", &no_votes());
+            assert_eq!(state.player(&a).unwrap().secret_objectives.len(), 2);
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        // At least: the suite may run on `agenda=dual` and other tests add their own (bailed) calls.
+        let done = r.windows.get("agenda_effects::resolve_with").map_or(0, |w| w.compared);
+        assert!(done >= 4, "the core windows ran: {r:?}");
+        let _ = take_report();
     }
 
     /// Search Warrant deals the elected player two secrets.

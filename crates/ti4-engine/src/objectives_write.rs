@@ -104,7 +104,7 @@ mod real {
             return None;
         }
         lend(gs, DRAW, Some(player), |core, who| {
-            rules::draw_secret(core, who.expect("a seated call")).map(|s| SecretObjectiveId::new(s.as_str()))
+            ti4_engine_core::kernel::fx::draw_secret(core, who.expect("a seated call")).map(|s| SecretObjectiveId::new(s.as_str()))
         })
     }
 

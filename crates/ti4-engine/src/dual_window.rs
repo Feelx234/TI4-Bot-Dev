@@ -328,8 +328,8 @@ pub fn sustain_commander(
 }
 
 const AGENDA_EFFECT: Footprint = Footprint::new(
-    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Objectives, Slice::Ledger, Slice::Agenda, Slice::Explore, Slice::Pending],
-    &[Slice::Players, Slice::Objectives, Slice::Ledger, Slice::Agenda, Slice::Explore],
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Objectives, Slice::Decks, Slice::Ledger, Slice::Agenda, Slice::Explore, Slice::Pending],
+    &[Slice::Players, Slice::Objectives, Slice::Decks, Slice::Ledger, Slice::Agenda, Slice::Explore],
 );
 
 /// The core half of `agenda_effects::resolve_with` for the effects the core has a window for
@@ -348,6 +348,9 @@ pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, for_voters
     let outcome = cx.keys.parse_outcome(outcome, Some(agenda.data().elects)).unwrap_or(ti4_engine_core::keys::Outcome::Empty);
     let voters = for_voters.iter().map(|p| r.seat(p.as_str())).collect::<Option<Vec<_>>>()?;
     let window = Resolve::of(agenda, outcome, &voters)?;
+    if window.draws() && gs.deck_reserve.is_some() {
+        return None;
+    }
     let before = gs.clone();
     let kernel = Kernel::plain();
     let mut driver = Driver::new(window, Resolver::new(&[], None), AbilityTable::default(), 1);

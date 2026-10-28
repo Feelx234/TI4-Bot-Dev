@@ -201,9 +201,8 @@ fn a_secret_drawn_over_the_hand_limit_is_returned_in_lockstep_with_the_core() {
     });
     let r = report();
     assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-    let (done, bailed) = compared("secrets::enforce_hand_limit");
+    let (done, _) = compared("secrets::enforce_hand_limit");
     assert!(done >= 5, "the core windows ran: {r:?}");
-    assert_eq!(bailed, 0, "{r:?}");
     assert!(r.total_calls() >= 6, "the core writes ran: {r:?}");
     let _ = take_report();
 }
@@ -281,8 +280,62 @@ fn the_status_scoring_window_runs_in_lockstep_with_the_core() {
     });
     let r = report();
     assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-    let (done, bailed) = compared("scoring::step");
+    let (done, _) = compared("scoring::step");
     assert!(done >= 5, "the core windows ran: {r:?}");
-    assert_eq!(bailed, 0, "{r:?}");
     let _ = take_report();
+}
+
+/// The documented bails of `objectives_write` (docs/ENGINE_KNOWN_ISSUES.md, A4): each is a position the core
+/// declines, so the string write stands. Bails are silent in the lockstep, so each is probed here.
+#[test]
+fn the_documented_bails_stay_with_the_string_side() {
+    use crate::choice::{Choice, ChoiceOption};
+    use crate::dual_window::Recording;
+    use crate::objectives_write::{ScoreArgs, adjust, draw_secret, reveal_stage, reveal_top, score_one, score_public, score_secret};
+    let content = ContentStore::embedded();
+    let args = ScoreArgs { status: true, occurrence: None };
+
+    // A turn redo draws through a deck reserve: the draws are the string's.
+    let mut state = clean(&[("a", "letnev"), ("b", "sol")]);
+    state.objective_deck = vec![ObjectiveId::new(publics(1, 1)[0].as_str())];
+    state.deck_reserve = Some(ti4_model::deck_reserve::DeckReserve::new(std::sync::Arc::default(), Vec::new()));
+    assert!(reveal_top(&mut state).is_none());
+    assert!(reveal_stage(&mut state, 1).is_none());
+    assert!(draw_secret(&mut state, &a()).is_none());
+    state.deck_reserve = None;
+    assert!(reveal_top(&mut state).is_some());
+
+    // A player who has no seat, and a position the Players codec refuses (the fixture faction "generic").
+    assert!(adjust(&mut state, &PlayerId::new("nobody"), 1, "objective").is_none());
+    assert!(draw_secret(&mut state, &PlayerId::new("nobody")).is_none());
+    let mut generic = crate::fixtures::game(&["a", "b"]);
+    assert!(adjust(&mut generic, &a(), 1, "objective").is_none());
+    assert!(score_public(&mut generic, &a(), &ObjectiveId::new("expand_borders"), 1).is_none());
+
+    // An id the tables do not know, and points the content and the tables disagree on.
+    assert!(score_public(&mut state, &a(), &ObjectiveId::new("not_an_objective"), 1).is_none());
+    assert!(score_public(&mut state, &a(), &ObjectiveId::new("expand_borders"), 5).is_none());
+    assert!(score_secret(&mut state, &a(), &SecretObjectiveId::new("not_a_secret"), 1).is_none());
+    assert!(score_secret(&mut state, &a(), &SecretObjectiveId::new("eap"), 5).is_none());
+    // The core's own refusal: a secret that is not in the hand is not scored (the inner `None`).
+    state.player_mut(&a()).unwrap().secret_objectives.clear();
+    assert_eq!(score_secret(&mut state, &a(), &SecretObjectiveId::new("eap"), 1), Some(None));
+
+    // The scoring question: an option that is no objective (a Firmament plot), a bought objective (the price
+    // is the string's), a question the string put inside a nested emission.
+    let ask = |ids: &[&str]| {
+        let mut options: Vec<ChoiceOption> = ids.iter().map(|id| ChoiceOption::labelled(*id, "score", *id)).collect();
+        options.push(ChoiceOption::decline());
+        Choice::new(a(), "score an objective", options)
+    };
+    let script = Recording::default();
+    let mut state = clean(&[("a", "letnev"), ("b", "sol")]);
+    assert!(score_one(&mut state, content, POK, &ask(&["eap"]), args, &script).is_some(), "the plain question is followed");
+    assert!(score_one(&mut state, content, POK, &ask(&["eap", "eap|plot|b"]), args, &script).is_none());
+    assert!(score_one(&mut state, content, POK, &ask(&["amass_wealth"]), args, &script).is_none());
+    let mut nested = Recording::default();
+    nested.nested = true;
+    assert!(score_one(&mut state, content, POK, &ask(&["eap"]), args, &nested).is_none());
+    state.diplomacy.enabled = true;
+    assert!(score_one(&mut state, content, POK, &ask(&["eap"]), args, &script).is_none());
 }

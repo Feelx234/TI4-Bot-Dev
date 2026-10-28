@@ -13671,8 +13671,8 @@ mod tests {
         });
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        let compared = r.windows.get("scoring::step").map_or((0, 0), |w| (w.compared, w.bailed));
-        assert!(compared.0 >= 3 && compared.1 == 0, "the core windows ran: {r:?}");
+        let compared = r.windows.get("scoring::step").map_or(0, |w| w.compared);
+        assert!(compared >= 3, "the core windows ran: {r:?}");
         let _ = take_report();
     }
 

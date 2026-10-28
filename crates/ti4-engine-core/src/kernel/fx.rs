@@ -195,6 +195,15 @@ pub fn finish_if_won(s: &mut CoreState) {
     }
 }
 
+/// The draw of `secrets::draw` (before the hand limit): the top secret goes to the seat's hand. `None` for an
+/// empty deck or a seat that is not there.
+pub fn draw_secret(s: &mut CoreState, who: Seat) -> Option<SecretObjective> {
+    s.players().by_seat(who)?;
+    let top = s.decks_mut().secret.draw()?;
+    s.players_mut().by_seat_mut(who)?.cards.secrets.push(top);
+    Some(top)
+}
+
 /// `secrets::enforce_hand_limit`'s hand-back: the secret leaves the hand for the bottom of the deck.
 pub fn return_secret(s: &mut CoreState, who: Seat, secret: SecretObjective) {
     if let Some(p) = s.players_mut().by_seat_mut(who) {

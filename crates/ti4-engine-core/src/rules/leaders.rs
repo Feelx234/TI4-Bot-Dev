@@ -12,7 +12,7 @@
 //! into [`unlockable`] (here, a pure read) and the status writes (adapter).
 
 use crate::containers::SmallList;
-use crate::generated::{Leader, LeaderType, LeaderWindow, Planet, PromissoryNote, System, Unit, UnitBaseType};
+use crate::generated::{Leader, LeaderType, LeaderWindow, Planet, System, Unit, UnitBaseType};
 use crate::state::Piece;
 use crate::ids::Seat;
 use crate::query::board;

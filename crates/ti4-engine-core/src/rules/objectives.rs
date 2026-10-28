@@ -10,8 +10,7 @@
 //! the leaders a score unlocks, the staged event of Yin's breakthrough, and the log (`docs/ENGINE_KNOWN_ISSUES.md`,
 //! A4).
 
-use crate::generated::{PublicObjective, SecretObjective};
-use crate::ids::Seat;
+use crate::generated::PublicObjective;
 use crate::query::objectives as q;
 use crate::state::{CoreState, ObjectiveRef};
 
@@ -29,13 +28,4 @@ pub fn reveal_stage(core: &mut CoreState, stage: u8) -> Option<PublicObjective> 
     let card = core.decks_mut().objective.remove(at);
     core.objectives_mut().revealed.push(ObjectiveRef::Public(card));
     Some(card)
-}
-
-/// The draw of `secrets::draw` (before the hand limit): the top secret goes to the seat's hand. `None` for an
-/// empty deck.
-pub fn draw_secret(core: &mut CoreState, who: Seat) -> Option<SecretObjective> {
-    core.players().by_seat(who)?;
-    let top = core.decks_mut().secret.draw()?;
-    core.players_mut().by_seat_mut(who)?.cards.secrets.push(top);
-    Some(top)
 }

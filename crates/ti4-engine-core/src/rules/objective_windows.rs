@@ -7,33 +7,20 @@
 //! score what in it, stay with the string `ScoringWindow` (see `docs/ENGINE_KNOWN_ISSUES.md`, A4).
 //! [`HandLimit`] reads everything it needs from the state.
 
-use crate::choice::generic::Rule;
-use crate::choice::objectives::{Ask as OAsk, Opt as OOpt, Subtype as OSub};
-use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
+use crate::choice::objectives::{Ask as OAsk, Opt as OOpt, return_secret_choice, score_choice};
+use crate::choice::{Ask, Choice, Opt, Pick};
 use crate::containers::SmallList;
 use crate::generated::SecretObjective;
 use crate::ids::Seat;
 use crate::kernel::fx;
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
-use crate::query::relic;
+use crate::query::objectives as q;
 use crate::state::{CoreState, ObjectiveRef};
 
 /// The seat's points as the question shows them.
 fn points(core: &CoreState, who: Seat) -> u8 {
     core.players().by_seat(who).map_or(0, |p| u8::try_from(p.econ.victory_points.max(0)).unwrap_or(u8::MAX))
-}
-
-fn ctx(rule: Rule, subtype: OSub) -> Ctx {
-    Ctx {
-        origin: Origin::Rule(rule),
-        subtype: Subtype::Objectives(subtype),
-        optional: false,
-        target: None,
-        outstanding: SmallList::new(),
-        space_battle: false,
-        invasion_seq: None,
-    }
 }
 
 // -- score an objective -----------------------------------------------------------------------------
@@ -88,15 +75,7 @@ impl Window for ScoreOne {
         if self.stage != SStage::Asking {
             return None;
         }
-        let subtype = if self.status { OSub::ScoreObjective } else { OSub::ScoreSecretObjective };
-        let mut opts: Opts = self.offers.iter().map(|o| Opt::Objectives(OOpt::Score(*o))).collect();
-        opts.push(Opt::Decline);
-        Some(Choice {
-            actor: self.who,
-            ask: Ask::Objectives(OAsk::Score { vp: points(s, self.who) }),
-            ctx: ctx(Rule::R61_6, subtype),
-            opts,
-        })
+        Some(score_choice(self.who, points(s, self.who), self.status, self.offers.as_slice()))
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
@@ -133,9 +112,6 @@ impl Window for ScoreOne {
 
 // -- the secret objective hand limit ----------------------------------------------------------------
 
-/// `secrets::HAND_LIMIT` (45.4): three, scored ones counting.
-pub const HAND_LIMIT: usize = 3;
-
 /// The suspension points of [`HandLimit`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HStage {
@@ -156,16 +132,6 @@ impl HandLimit {
     pub const fn new(who: Seat) -> Self {
         Self { who, stage: HStage::Check }
     }
-
-    /// `secrets::held_count`: secrets in hand plus the ones already scored.
-    fn held(core: &CoreState, who: Seat) -> usize {
-        let hand = core.players().by_seat(who).map_or(0, |p| p.cards.secrets.len());
-        hand + core.objectives().scored[usize::from(who.0)].secret.len()
-    }
-
-    fn hand(core: &CoreState, who: Seat) -> SmallList<SecretObjective, 4> {
-        core.players().by_seat(who).map_or_else(SmallList::new, |p| p.cards.secrets.clone())
-    }
 }
 
 impl Window for HandLimit {
@@ -178,22 +144,14 @@ impl Window for HandLimit {
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
         loop {
             match self.stage {
-                HStage::Check => {
-                    let limit = HAND_LIMIT + relic::secret_objective_bonus(sx.state, self.who);
-                    let hand = Self::hand(sx.state, self.who);
-                    if Self::held(sx.state, self.who) <= limit || hand.is_empty() {
-                        // Every one scored: nothing to hand back.
-                        self.stage = HStage::Done;
-                    } else if let [only] = hand.as_slice() {
-                        fx::return_secret(sx.state, self.who, *only);
-                    } else {
+                HStage::Check | HStage::Asking => match q::hand_step(sx.state, self.who) {
+                    q::HandStep::Within => self.stage = HStage::Done,
+                    q::HandStep::Return(only) => fx::return_secret(sx.state, self.who, only),
+                    q::HandStep::Ask { held, .. } => {
                         self.stage = HStage::Asking;
+                        return Next::Continue(Ask::Objectives(OAsk::ReturnSecret { held }));
                     }
-                }
-                HStage::Asking => {
-                    let held = u8::try_from(Self::held(sx.state, self.who)).unwrap_or(u8::MAX);
-                    return Next::Continue(Ask::Objectives(OAsk::ReturnSecret { held }));
-                }
+                },
                 HStage::Done => return Next::Done,
             }
         }
@@ -203,18 +161,15 @@ impl Window for HandLimit {
         if self.stage != HStage::Asking {
             return None;
         }
-        let held = u8::try_from(Self::held(s, self.who)).unwrap_or(u8::MAX);
-        Some(Choice {
-            actor: self.who,
-            ask: Ask::Objectives(OAsk::ReturnSecret { held }),
-            ctx: ctx(Rule::R45_4, OSub::ReturnOverSecretHandLimit),
-            opts: Self::hand(s, self.who).iter().map(|x| Opt::Objectives(OOpt::Return(*x))).collect::<Opts>(),
-        })
+        match q::hand_step(s, self.who) {
+            q::HandStep::Ask { held, hand } => Some(return_secret_choice(self.who, held, hand.as_slice())),
+            _ => None,
+        }
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
         match (self.stage, pick) {
-            (HStage::Asking, Pick::Opt(Opt::Objectives(OOpt::Return(s)))) if Self::hand(sx.state, self.who).as_slice().contains(&s) => {
+            (HStage::Asking, Pick::Opt(Opt::Objectives(OOpt::Return(s)))) if hand_holds(sx.state, self.who, s) => {
                 fx::return_secret(sx.state, self.who, s);
                 self.stage = HStage::Check;
                 Ok(())
@@ -222,4 +177,8 @@ impl Window for HandLimit {
             _ => Err(Illegal),
         }
     }
+}
+
+fn hand_holds(core: &CoreState, who: Seat, secret: SecretObjective) -> bool {
+    core.players().by_seat(who).is_some_and(|p| p.cards.secrets.as_slice().contains(&secret))
 }

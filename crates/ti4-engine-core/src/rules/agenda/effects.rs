@@ -14,21 +14,24 @@
 //!   for or against each For voter), Holy Planet of Ixth (the controller of the elected planet gains a point).
 //! * Nexus Sovereignty: Against puts a gamma wormhole token into Mecatol Rex (For is a standing rule).
 //! * A law leaving play (`laws::repeal`): the law is removed; Political Censure's holder loses its point.
+//! * Archived Secret (the elected player draws a secret objective) and Search Warrant (two): a draw, and the
+//!   hand limit question of rule 45.4 after each (package A4: `fx::draw_secret`, `query::objectives::hand_step`).
 //!
 //! Not ported, so the adapter runs the string effect alone (documented bails of the dual): every other agenda
 //! effect; here an outcome that is not what the effect elects (a card with `For`/`Against` on the table).
 
-use crate::choice::{Choice, Pick};
+use crate::choice::objectives::{Ask as OAsk, Opt as OOpt};
+use crate::choice::{Ask, Choice, Opt, Pick};
 use crate::containers::SmallList;
 use crate::generated::{Agenda, Planet, SecretObjective, System, Wormhole};
 use crate::ids::Seat;
 use crate::kernel::stage::{Illegal, Sx, Window};
-use crate::kernel::{Kernel, Next};
+use crate::kernel::{fx, Kernel, Next};
 use crate::keys::{LedgerReason, Outcome};
-use crate::state::{CoreState, ObjectiveRef, SysFlags, VpRec};
+use crate::query::objectives as q;
+use crate::state::{CoreState, ObjectiveRef, SysFlags};
 
-/// `objectives::VICTORY_TARGET`.
-pub const VICTORY_TARGET: i32 = 10;
+pub use crate::kernel::fx::VICTORY_TARGET;
 
 /// What the effect does.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +50,8 @@ pub enum Kind {
     Controller(Agenda, Planet),
     /// Nexus Sovereignty, Against: a gamma wormhole token in the Mecatol Rex system of the map.
     Gamma,
+    /// Archived Secret, Search Warrant: the seat draws this many secret objectives, each followed by the hand limit.
+    Draw(Seat, u8),
     /// The card does nothing when it passes.
     Nothing,
 }
@@ -62,6 +67,8 @@ pub enum Done {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage {
     Apply,
+    /// Waiting on "return a secret objective to the deck" (a draw went over the limit).
+    Asking,
     Done,
 }
 
@@ -73,6 +80,9 @@ pub struct Resolve {
     /// A repeal found the law in play.
     repealed: bool,
     done: Done,
+    /// Draws made so far, and whether the hand limit of the last one is still to be checked.
+    drawn: u8,
+    checking: bool,
 }
 
 impl Resolve {
@@ -94,6 +104,8 @@ impl Resolve {
             (A::Mutiny, Outcome::For | Outcome::Against) => {
                 Kind::Voters(agenda, if outcome == Outcome::For { 1 } else { -1 }, SmallList::from_slice(for_voters))
             }
+            (A::ArchivedSecret, Outcome::Seat(who)) => Kind::Draw(who, 1),
+            (A::SearchWarrant, Outcome::Seat(who)) => Kind::Draw(who, 2),
             (A::NexusSovereignty, Outcome::Against) => Kind::Gamma,
             (A::NexusSovereignty, Outcome::For) => Kind::Nothing,
             (A::HolyPlanetOfIxth, Outcome::Planet(p)) => Kind::Controller(agenda, p),
@@ -127,13 +139,20 @@ impl Resolve {
             ) => Kind::Nothing,
             _ => return None,
         };
-        Some(Self { kind, stage: Stage::Apply, repealed: false, done })
+        Some(Self { kind, stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false })
     }
 
     /// `laws::repeal` of `law`.
     #[must_use]
     pub const fn repeal(law: Agenda) -> Self {
-        Self { kind: Kind::Repeal(law), stage: Stage::Apply, repealed: false, done: Done::Resolved }
+        Self { kind: Kind::Repeal(law), stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false }
+    }
+
+    /// Whether the effect draws secret objectives (the deck is the string's when a turn redo draws through a
+    /// reserve).
+    #[must_use]
+    pub const fn draws(&self) -> bool {
+        matches!(self.kind, Kind::Draw(..))
     }
 
     /// Whether the repealed law was in play.
@@ -160,11 +179,36 @@ impl Resolve {
     /// `agenda_effects::adjust_victory_points` with +1: capped at the target, the ledger row records the
     /// change that happened (zero included).
     fn point(core: &mut CoreState, agenda: Agenda, who: Seat, delta: i32) {
-        let Some(p) = core.players_mut().by_seat_mut(who) else { return };
-        let before = i32::from(p.econ.victory_points);
-        let after = (before + delta).clamp(0, VICTORY_TARGET);
-        p.econ.victory_points = i16::try_from(after).unwrap_or(0);
-        core.ledger_mut().vp.push(VpRec { player: who, delta: after - before, reason: LedgerReason::Agenda(agenda) });
+        fx::adjust_victory_points(core, who, delta, LedgerReason::Agenda(agenda));
+    }
+}
+
+impl Resolve {
+    /// Archived Secret and Search Warrant: `count` draws, each followed by the hand limit (rule 45.4).
+    fn draw(&mut self, sx: &mut Sx<'_>, who: Seat, count: u8) -> Next {
+        loop {
+            if self.checking || self.stage == Stage::Asking {
+                match q::hand_step(sx.state, who) {
+                    q::HandStep::Within => {
+                        self.checking = false;
+                        self.stage = Stage::Apply;
+                    }
+                    q::HandStep::Return(only) => fx::return_secret(sx.state, who, only),
+                    q::HandStep::Ask { held, .. } => {
+                        self.stage = Stage::Asking;
+                        return Next::Continue(Ask::Objectives(OAsk::ReturnSecret { held }));
+                    }
+                }
+                continue;
+            }
+            if self.drawn >= count {
+                self.stage = Stage::Done;
+                return Next::Done;
+            }
+            self.drawn += 1;
+            // An empty deck draws nothing, and then there is no hand to check.
+            self.checking = fx::draw_secret(sx.state, who).is_some();
+        }
     }
 }
 
@@ -176,6 +220,9 @@ impl Window for Resolve {
     }
 
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if let Kind::Draw(who, count) = self.kind {
+            return self.draw(sx, who, count);
+        }
         if self.stage == Stage::Apply {
             match &self.kind {
                 Kind::Point(agenda, who) => Self::point(sx.state, *agenda, *who, 1),
@@ -208,7 +255,7 @@ impl Window for Resolve {
                     let mecatol = if placed(System::MecatolRex112) { System::MecatolRex112 } else { System::MecatolRex18 };
                     sx.state.explore_mut().wormhole_tokens.insert(Wormhole::Gamma, mecatol);
                 }
-                Kind::Nothing => {}
+                Kind::Nothing | Kind::Draw(..) => {}
                 Kind::Reveal(secret) => {
                     let card = ObjectiveRef::Secret(*secret);
                     let revealed = &mut sx.state.objectives_mut().revealed;
@@ -222,12 +269,30 @@ impl Window for Resolve {
         Next::Done
     }
 
-    fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {
-        None
+    fn ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> {
+        let Kind::Draw(who, _) = self.kind else { return None };
+        if self.stage != Stage::Asking {
+            return None;
+        }
+        match q::hand_step(s, who) {
+            q::HandStep::Ask { held, hand } => Some(crate::choice::objectives::return_secret_choice(who, held, hand.as_slice())),
+            _ => None,
+        }
     }
 
-    fn answer(&mut self, _: &mut Sx<'_>, _: Pick) -> Result<(), Illegal> {
-        Err(Illegal)
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        let Kind::Draw(who, _) = self.kind else { return Err(Illegal) };
+        match pick {
+            Pick::Opt(Opt::Objectives(OOpt::Return(secret)))
+                if self.stage == Stage::Asking
+                    && sx.state.players().by_seat(who).is_some_and(|p| p.cards.secrets.as_slice().contains(&secret)) =>
+            {
+                fx::return_secret(sx.state, who, secret);
+                self.stage = Stage::Apply;
+                Ok(())
+            }
+            _ => Err(Illegal),
+        }
     }
 }
 

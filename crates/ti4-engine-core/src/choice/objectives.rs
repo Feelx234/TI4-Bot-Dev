@@ -34,3 +34,40 @@ pub enum Subtype {
     ScoreSecretObjective,
     ReturnOverSecretHandLimit,
 }
+
+fn ctx(rule: super::generic::Rule, subtype: Subtype) -> super::Ctx {
+    super::Ctx {
+        origin: super::Origin::Rule(rule),
+        subtype: super::Subtype::Objectives(subtype),
+        optional: false,
+        target: None,
+        outstanding: crate::containers::SmallList::new(),
+        space_battle: false,
+        invasion_seq: None,
+    }
+}
+
+/// "Score an objective" (rule 61.6) over `offers`, then the decline.
+#[must_use]
+pub fn score_choice(who: crate::ids::Seat, vp: u8, status: bool, offers: &[ObjectiveRef]) -> super::Choice {
+    let mut opts: super::Opts = offers.iter().map(|o| super::Opt::Objectives(Opt::Score(*o))).collect();
+    opts.push(super::Opt::Decline);
+    super::Choice {
+        actor: who,
+        ask: super::Ask::Objectives(Ask::Score { vp }),
+        ctx: ctx(super::generic::Rule::R61_6, if status { Subtype::ScoreObjective } else { Subtype::ScoreSecretObjective }),
+        opts,
+    }
+}
+
+/// "Return a secret objective to the deck" (rule 45.4) over the hand. The windows that draw secrets share it
+/// (areas do not import each other).
+#[must_use]
+pub fn return_secret_choice(who: crate::ids::Seat, held: u8, hand: &[SecretObjective]) -> super::Choice {
+    super::Choice {
+        actor: who,
+        ask: super::Ask::Objectives(Ask::ReturnSecret { held }),
+        ctx: ctx(super::generic::Rule::R45_4, Subtype::ReturnOverSecretHandLimit),
+        opts: hand.iter().map(|x| super::Opt::Objectives(Opt::Return(*x))).collect(),
+    }
+}
