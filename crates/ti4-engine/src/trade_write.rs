@@ -153,6 +153,15 @@ mod real {
         notes(gs, |core, cx| Some(rules_notes::return_support(core, cx.owners.seat(owner.as_str())?)))
     }
 
+    /// `promissory::trade_agreement_on_replenish` up to the staged event: the holder and the goods.
+    pub fn trade_agreement(gs: &mut GameState, owner: &PlayerId) -> Option<Option<(PlayerId, i32)>> {
+        let ids = Ctx::of(gs).ok()?.owners.clone();
+        notes(gs, |core, cx| {
+            let moved = rules_notes::trade_agreement(core, cx.owners.seat(owner.as_str())?)?;
+            moved.map(|(holder, n)| ids.id(holder).map(|h| Some((PlayerId::new(h), n)))).unwrap_or(Some(None))
+        })
+    }
+
     /// `promissory::return_all_foreign`.
     pub fn return_all_foreign(gs: &mut GameState, alias: &str) -> Option<()> {
         let note = parse_note(alias)?;
@@ -198,6 +207,9 @@ mod stub {
         None
     }
     pub fn return_all_foreign(_: &mut GameState, _: &str) -> Option<()> {
+        None
+    }
+    pub fn trade_agreement(_: &mut GameState, _: &PlayerId) -> Option<Option<(PlayerId, i32)>> {
         None
     }
 }
@@ -384,6 +396,23 @@ mod tests {
                     } else {
                         pn::return_all_foreign(s, alias);
                         pn::play_convoys(s, &a);
+                        true
+                    }
+                });
+            }
+            for (owner_id, owner_faction, holds, commodities) in [("a", "sol", "b", 3), ("b", "hacan", "a", 2), ("a", "sol", "a", 3), ("a", "sol", "b", 0)] {
+                check(&format!("trade agreement {owner_faction} held by {holds}"), &|s, core| {
+                    let owner = p(owner_id);
+                    s.player_mut(&owner).unwrap().commodities = commodities;
+                    s.promissory_notes.insert(pn::note_id("ta", owner_faction), p(holds));
+                    if core {
+                        let moved = super::trade_agreement(s, &owner);
+                        let Some(moved) = moved else { return false };
+                        let expect = (holds != owner_id && commodities > 0).then(|| (p(holds), commodities));
+                        assert_eq!(moved, expect);
+                        true
+                    } else {
+                        let _ = pn::trade_agreement_on_replenish(s, &owner);
                         true
                     }
                 });

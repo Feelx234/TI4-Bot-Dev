@@ -901,6 +901,20 @@ pub fn trade_agreement_on_replenish(state: &mut GameState, player: &PlayerId) ->
     // Every replenish site calls this, so it is also where the replenish is announced (staged) for
     // Cabal's The Stillness of Stars, before this card can take the commodities.
     crate::factions::cabal::note_replenished(state, player);
+    let moved = write(
+        state,
+        "promissory::trade_agreement",
+        |s| trade_agreement_text(s, player),
+        |s| crate::trade_write::trade_agreement(s, player),
+    );
+    let (holder, given) = moved?;
+    crate::supply::note_trade_goods_gained(state, &holder, given, "trade_agreement");
+    Some(holder)
+}
+
+/// The state half of [`trade_agreement_on_replenish`]: the commodities become the holder's trade goods
+/// and the note goes home. The holder and the amount, for the staged event.
+fn trade_agreement_text(state: &mut GameState, player: &PlayerId) -> Option<(PlayerId, i32)> {
     let holder = holder_of(state, "ta", player)?;
     let given = state.player(player).map_or(0, |seat| seat.commodities);
     if given <= 0 {
@@ -912,10 +926,9 @@ pub fn trade_agreement_on_replenish(state: &mut GameState, player: &PlayerId) ->
     if let Some(seat) = state.player_mut(&holder) {
         seat.trade_goods += given;
     }
-    crate::supply::note_trade_goods_gained(state, &holder, given, "trade_agreement");
     let name = faction_name(state, player);
     give_back(state, &note_id("ta", &name));
-    Some(holder)
+    Some((holder, given))
 }
 
 /// How many of other factions' `alias` notes this player holds.

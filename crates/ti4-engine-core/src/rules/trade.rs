@@ -252,3 +252,22 @@ pub fn return_all_foreign(core: &mut CoreState, note: PromissoryNote) -> Option<
     }
     Some(())
 }
+
+/// `promissory::trade_agreement_on_replenish` without the Cabal observer and the staged event: when
+/// `owner` replenishes and another seat holds their Trade Agreement, the commodities become the holder's
+/// trade goods and the note goes home. `Some(Some((holder, goods)))` when it fired, `Some(None)` when it
+/// did not; `None` (nothing written) when the owner's faction is played by two seats.
+pub fn trade_agreement(core: &mut CoreState, owner: Seat) -> Option<Option<(Seat, i32)>> {
+    let faction = qn::faction_of(core, owner)?;
+    owner_of(core, faction)?;
+    let Some(holder) = qn::holder_of(core, PromissoryNote::TradeAgreement, owner) else { return Some(None) };
+    let given = i32::from(core.players().by_seat(owner)?.econ.commodities);
+    if given <= 0 {
+        return Some(None);
+    }
+    core.players_mut().by_seat_mut(owner)?.econ.commodities = 0;
+    let h = core.players_mut().by_seat_mut(holder)?;
+    h.econ.trade_goods = h.econ.trade_goods.saturating_add(i16::try_from(given).unwrap_or(0));
+    give_back(core, NoteKey { note: PromissoryNote::TradeAgreement, faction })?;
+    Some(Some((holder, given)))
+}
