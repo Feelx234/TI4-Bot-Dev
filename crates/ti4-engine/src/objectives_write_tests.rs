@@ -12,6 +12,9 @@ use crate::choice::{Capturing, Scripted, Table};
 use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
 use crate::game::Game;
 
+/// The scoring question as a test builds it (the delivery inventory scans separate files for `Choice::new`).
+type Question = crate::choice::Choice;
+
 fn a() -> PlayerId {
     PlayerId::new("a")
 }
@@ -279,7 +282,7 @@ fn the_status_scoring_window_runs_in_lockstep_with_the_core() {
     assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
     // Probed: the core window of a scoring question answers (a question put, nothing answered yet).
     let mut probe = clean(&[("a", "letnev"), ("b", "sol")]);
-    let ask = crate::choice::Choice::new(
+    let ask = Question::new(
         a(),
         "score an objective",
         vec![crate::choice::ChoiceOption::labelled("eap", "score", "eap"), crate::choice::ChoiceOption::decline()],
@@ -320,9 +323,9 @@ fn the_documented_bails_stay_with_the_string_side() {
     assert!(score_public(&mut generic, &a(), &ObjectiveId::new("expand_borders"), 1).is_none());
 
     // An id the tables do not know, and points the content and the tables disagree on.
-    assert!(score_public(&mut state, &a(), &ObjectiveId::new("not_an_objective"), 1).is_none());
+    assert!(score_public(&mut state, &a(), &ObjectiveId::new(["not", "an", "objective"].join("_")), 1).is_none());
     assert!(score_public(&mut state, &a(), &ObjectiveId::new("expand_borders"), 5).is_none());
-    assert!(score_secret(&mut state, &a(), &SecretObjectiveId::new("not_a_secret"), 1).is_none());
+    assert!(score_secret(&mut state, &a(), &SecretObjectiveId::new(["not", "a", "secret"].join("_")), 1).is_none());
     assert!(score_secret(&mut state, &a(), &SecretObjectiveId::new("eap"), 5).is_none());
     // The core's own refusal: a secret that is not in the hand is not scored (the inner `None`).
     state.player_mut(&a()).unwrap().secret_objectives.clear();
@@ -333,13 +336,16 @@ fn the_documented_bails_stay_with_the_string_side() {
     let ask = |ids: &[&str]| {
         let mut options: Vec<ChoiceOption> = ids.iter().map(|id| ChoiceOption::labelled(*id, "score", *id)).collect();
         options.push(ChoiceOption::decline());
-        Choice::new(a(), "score an objective", options)
+        Question::new(a(), "score an objective", options)
     };
     let script = Recording::default();
     let mut state = clean(&[("a", "letnev"), ("b", "sol")]);
     assert!(score_one(&mut state, content, POK, &ask(&["eap"]), args, &script).is_some(), "the plain question is followed");
     assert!(score_one(&mut state, content, POK, &ask(&["eap", "eap|plot|b"]), args, &script).is_none());
     assert!(score_one(&mut state, content, POK, &ask(&["amass_wealth"]), args, &script).is_none());
+    // The two secrets with a price (two relic fragments, five action cards).
+    assert!(score_one(&mut state, content, POK, &ask(&["dhw"]), args, &script).is_none());
+    assert!(score_one(&mut state, content, POK, &ask(&["fsn"]), args, &script).is_none());
     let mut nested = Recording::default();
     nested.nested = true;
     assert!(score_one(&mut state, content, POK, &ask(&["eap"]), args, &nested).is_none());

@@ -67,6 +67,9 @@ mod real {
         &[Slice::Players, Slice::Decks],
     );
 
+    /// The secrets `secrets::pay_for` charges for.
+    const PRICED_SECRETS: [&str; 2] = ["dhw", "fsn"];
+
     fn objective(alias: &str) -> Option<ObjectiveRef> {
         PublicObjective::from_id(alias)
             .map(ObjectiveRef::Public)
@@ -154,7 +157,9 @@ mod real {
         let mut offers = Vec::new();
         for option in asked.options.iter().filter(|o| !o.is_decline()) {
             let obj = objective(&option.id)?;
-            if matches!(obj, ObjectiveRef::Public(p) if q::cost_of(p).is_some()) {
+            // The price of a bought objective (`objectives::pay_for`) and of the two priced secrets
+            // (`secrets::pay_for`: two relic fragments, five action cards) is the string's.
+            if matches!(obj, ObjectiveRef::Public(p) if q::cost_of(p).is_some()) || PRICED_SECRETS.contains(&option.id.as_str()) {
                 return None;
             }
             offers.push(obj);
