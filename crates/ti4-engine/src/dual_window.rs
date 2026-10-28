@@ -576,49 +576,94 @@ pub fn absorb_ground(
     Some(CoreWindow { run: Run::new(()).with_events_vec(events), questions: driven.rendered })
 }
 
-const CUSTODIANS: Footprint = Footprint::new(
-    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Ledger],
-    &[Slice::Meta, Slice::Players, Slice::Ledger, Slice::Pending],
-);
+const CUSTODIANS: Footprint = Footprint {
+    reads: ti4_engine_core::state::SliceSet::of(&[
+        Slice::Meta,
+        Slice::Seats,
+        Slice::Players,
+        Slice::Board,
+        Slice::Transient,
+        Slice::Marks,
+        Slice::Agenda,
+        Slice::Cards,
+        Slice::Pending,
+        Slice::Ledger,
+        Slice::Explore,
+        Slice::Objectives,
+    ]),
+    writes: ti4_engine_core::state::SliceSet::of(&[Slice::Meta, Slice::Players, Slice::Board, Slice::Ledger, Slice::Pending]),
+};
 
 /// The core half of `InvasionWindow::answer_custodians` (27.2, 27.3), recorded as the pending question and its
-/// answer. `None` (the bail-outs): nested activity, a neutral or unmapped seat, a further question inside the
-/// answer (the payment of the six influence asks which planets to exhaust: the payment rules are package B3's),
-/// the answer "yes" while the removal costs influence, and a position the codecs refuse.
+/// answer (and, for the paid removal, the payment questions after it). The window ends owing the cost; the
+/// payment is the production package's `PayStep` window, run here (an area never imports another) until the bill
+/// is paid, and then the token comes down. `None` (the bail-outs): nested activity, a Naalu seat (the Matriarch's
+/// temporary ground forces are still string-only), a paid removal at a table with a faction the production
+/// window does not carry yet (`production_view::unported_window`), and a position the codecs refuse.
 #[must_use]
 pub fn custodians(
     gs: &mut GameState,
-    sources: ti4_model::content_types::SourceSet,
+    _sources: ti4_model::content_types::SourceSet,
     invader: &PlayerId,
     system: &ti4_model::id::SystemId,
     affordable: bool,
     script: &Recording,
 ) -> Option<CoreWindow<()>> {
-    use ti4_engine_core::rules::invasion::stages::Custodians;
-    if script.nested || script.questions.len() != 1 {
+    use std::rc::Rc;
+    use ti4_engine_core::query::economy::Spend as CoreSpend;
+    use ti4_engine_core::rules::invasion::stages::{lift, Custodians};
+    use ti4_engine_core::rules::production::pay::{PayStep, Stage as PayStage};
+    if script.nested || gs.players.iter().any(|p| p.faction.as_str() == "naalu") {
+        return None;
+    }
+    let paid_yes = script.questions.first().and_then(|q| q.answer.as_deref()) == Some("yes")
+        && crate::invasion::custodians_cost(gs, ti4_content::ContentStore::embedded(), invader) != 0;
+    if paid_yes && crate::production_view::unported_window(gs) {
         return None;
     }
     let (mut cx, r) = tables(gs)?;
     let seat = r.seat(invader.as_str())?;
     let sys = <ti4_engine_core::generated::System as IdStr>::from_id(system.as_str())?;
-    let before = gs.clone();
-    let env = crate::core_invasion::ground_env(&before, &cx, sources)?;
-    if script.questions[0].answer.as_deref() == Some("yes") && crate::invasion::custodians_cost(&before, ti4_content::ContentStore::embedded(), invader) != 0 {
-        return None;
-    }
-    let resolver = Resolver::new(&[seat], Some(seat));
-    let mut driver = Driver::new(Custodians::new(seat, sys, affordable), resolver, AbilityTable::default(), 1);
+    let (phase, round) = (render::generic::core_phase(gs.phase), gs.round);
+    let kernel = crate::production_view::kernel();
+    let mut driver = Driver::new(Custodians::new(seat, sys, affordable), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+    let mut rendered = Vec::new();
     let mut staged = Vec::new();
-    let driven = with_core(gs, &mut cx, Sources::default(), CUSTODIANS, |core, _| {
-        let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
+    with_core(gs, &mut cx, Sources::default(), CUSTODIANS, |core, _| -> Result<(), DriverError> {
+        let Status::Asking(choice) = driver.run(core, kernel)? else { return Ok(()) };
+        rendered.push(Typed::new(&r, choice.clone(), phase, round).rendered);
+        let Some(pick) = script.questions.first().and_then(|q| q.answer.clone()).and_then(|id| render::parse_pick(&r, &choice.ask, &id)) else {
+            return Ok(());
+        };
+        driver.resume(core, kernel, pick)?;
+        if let Some(cost) = driver.window.owes {
+            let (mut paid, mut next) = (0_i64, 1_usize);
+            while paid < cost {
+                let step = PayStep { who: seat, kind: CoreSpend::Influence, cost, used_credit: 0, owed: cost, paid, took: None, stage: PayStage::Paying };
+                let mut pay = Driver::new(step, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+                if let Status::Asking(q) = pay.run(core, kernel)? {
+                    let position = render::Position { state: Rc::new(core.clone()), kernel };
+                    rendered.push(Typed::new_at(&r, position, q.clone(), phase, round).rendered);
+                    let answer = script.questions.get(next).and_then(|q| q.answer.clone());
+                    next += 1;
+                    let Some(pick) = answer.and_then(|id| render::parse_pick(&r, &q.ask, &id)) else { return Ok(()) };
+                    pay.resume(core, kernel, pick)?;
+                }
+                match pay.window.took {
+                    Some(worth) => paid += worth,
+                    None => return Ok(()),
+                }
+            }
+            lift(core, seat);
+        }
         staged = std::mem::take(&mut core.pending_mut().staged);
-        driven
+        Ok(())
     })
     .ok()?
     .ok()?;
     apply_staged(gs, &r, &staged)?;
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
-    Some(CoreWindow { run: Run::new(()).with_events_vec(events), questions: driven.rendered })
+    Some(CoreWindow { run: Run::new(()).with_events_vec(events), questions: rendered })
 }
 
 /// The question of the `Fighting` stage as the core `FightRound` window puts it, for `InvasionWindow::

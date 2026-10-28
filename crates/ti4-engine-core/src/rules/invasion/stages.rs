@@ -8,7 +8,8 @@
 //! force could land there, or the invader cannot pay: `affordable`, the payment rules' answer from package B3)
 //! and otherwise asks. The answer "no" leaves the token. The answer "yes" is complete only when it costs
 //! nothing (Winnu blood ties): it lifts the token and gains the victory point (capped at the target). A paid
-//! "yes" needs the payment rules and is refused (`Illegal`); the adapter bows out before that answer.
+//! "yes" ends the window with `owes = Some(cost)`: the payment is the production package's `PayStep` window
+//! (an area never imports another), which the adapter runs until the bill is paid, and then calls [`lift`].
 //!
 //! # `FightRound`
 //!
@@ -55,13 +56,23 @@ pub struct Custodians {
     pub affordable: bool,
     /// The token was lifted by this window.
     pub removed: bool,
+    /// The influence still to be paid before the token comes down (a paid "yes").
+    pub owes: Option<i64>,
     stage: Stage,
+}
+
+/// Lift the token and gain the victory point (27.3), capped at the target.
+pub fn lift(s: &mut CoreState, who: Seat) {
+    s.meta_mut().flags.set(MetaFlags::CUSTODIANS_REMOVED, true);
+    let have = i32::from(s.players().by_seat(who).map_or(0, |p| p.econ.victory_points));
+    let applied = (have + 1).min(VICTORY_TARGET) - have;
+    fx::gain_victory_points(s, who, applied, LedgerReason::Custodians);
 }
 
 impl Custodians {
     #[must_use]
     pub const fn new(invader: Seat, system: System, affordable: bool) -> Self {
-        Self { invader, system, affordable, removed: false, stage: Stage::Checking }
+        Self { invader, system, affordable, removed: false, owes: None, stage: Stage::Checking }
     }
 
     fn cost(&self, s: &CoreState, k: &Kernel) -> u8 {
@@ -109,15 +120,13 @@ impl Window for Custodians {
         match pick {
             Pick::Opt(Opt::Invasion(IOpt::KeepCustodians)) => {}
             Pick::Opt(Opt::Invasion(IOpt::RemoveCustodians)) => {
-                if self.cost(sx.state, sx.kernel) != 0 {
-                    // The payment is the payment rules' (B3).
-                    return Err(Illegal);
+                let cost = self.cost(sx.state, sx.kernel);
+                if cost != 0 {
+                    self.owes = Some(i64::from(cost));
+                } else {
+                    lift(sx.state, self.invader);
+                    self.removed = true;
                 }
-                sx.state.meta_mut().flags.set(MetaFlags::CUSTODIANS_REMOVED, true);
-                let have = i32::from(sx.state.players().by_seat(self.invader).map_or(0, |p| p.econ.victory_points));
-                let applied = (have + 1).min(VICTORY_TARGET) - have;
-                fx::gain_victory_points(sx.state, self.invader, applied, LedgerReason::Custodians);
-                self.removed = true;
             }
             _ => return Err(Illegal),
         }

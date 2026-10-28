@@ -10362,8 +10362,8 @@ mod ground_routes {
 
     #[test]
     fn the_custodians_stage_runs_as_a_core_window_in_lockstep() {
-        // Declining, the free removal (Winnu), and the paid removal: the first two are compared (the core
-        // puts the same question and leaves the same state); the paid one bows out (the payment is B3's).
+        // Declining, the paid removal (through B3's PayStep) and the free removal (Winnu) are compared: the core
+        // puts the same questions, takes the same answers and leaves the same state.
         use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
@@ -10402,8 +10402,7 @@ mod ground_routes {
         });
         let r = report();
         let w = r.windows.get("invasion::answer_custodians").copied().unwrap_or_default();
-        assert!(w.compared >= 2, "decline and the free removal are compared: {:?}", r.windows);
-        assert!(w.bailed >= 1, "the paid removal bows out: {:?}", r.windows);
+        assert!(w.compared >= 3, "decline, the paid and the free removal are compared: {:?}", r.windows);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }
