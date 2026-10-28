@@ -85,6 +85,17 @@ pub fn elected<'a>(state: &'a GameState, alias: &str) -> Option<&'a String> {
 /// Public Censure is the one with a consequence: its holder loses the victory point it gave
 /// them. A repeal that only deleted the entry would leave that point behind for good.
 pub fn repeal(state: &mut GameState, alias: &str) -> bool {
+    // The core `rules::agenda::effects::Resolve::repeal` window runs beside the string body on `agenda=dual`.
+    crate::dual_window!(
+        crate::dual::Area::AgendaLaws,
+        "laws::repeal",
+        state,
+        |s: &mut GameState| crate::dual::Run::new(repeal_text(s, alias)),
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::dual_window::laws_repeal(s, alias, script)
+    )
+}
+
+fn repeal_text(state: &mut GameState, alias: &str) -> bool {
     let Some(owner) = state.laws.get(alias).cloned() else {
         return false;
     };

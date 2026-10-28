@@ -14,6 +14,8 @@
 //! the A1 prefix table) and the tied set of [`Tiebreak::Tied`] in [`text_cmp`] order (the seats are numbered
 //! in the text order of their owner ids).
 
+pub mod deadly_plot;
+pub mod effects;
 pub mod window;
 
 use core::cmp::Ordering;

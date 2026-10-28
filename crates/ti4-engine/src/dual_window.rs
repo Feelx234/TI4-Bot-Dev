@@ -303,6 +303,68 @@ pub fn sustain_commander(
     Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(events), questions: driven.rendered })
 }
 
+const AGENDA_EFFECT: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Objectives, Slice::Ledger, Slice::Pending],
+    &[Slice::Players, Slice::Objectives, Slice::Ledger],
+);
+
+/// The core half of `agenda_effects::resolve_with` for the effects the core has a window for
+/// (`rules::agenda::effects`). `None` for any other agenda, an outcome that does not parse, or a position the
+/// codecs refuse.
+#[must_use]
+pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, script: &Recording) -> Option<CoreWindow<bool>> {
+    use ti4_engine_core::generated::Agenda;
+    use ti4_engine_core::rules::agenda::effects::Resolve;
+    if script.nested {
+        return None;
+    }
+    let agenda = Agenda::from_id(agenda)?;
+    let (mut cx, r) = tables(gs)?;
+    let outcome = cx.keys.parse_outcome(outcome, Some(agenda.data().elects))?;
+    let window = Resolve::of(agenda, outcome)?;
+    let before = gs.clone();
+    let kernel = Kernel::plain();
+    let mut driver = Driver::new(window, Resolver::new(&[], None), AbilityTable::default(), 1);
+    let driven = with_core(gs, &mut cx, Sources::default(), AGENDA_EFFECT, |core, _| drive(&mut driver, core, &kernel, &r, &before, script)).ok()?.ok()?;
+    Some(CoreWindow { run: Run::new(driven.finished), questions: driven.rendered })
+}
+
+/// The core half of `laws::repeal`. `None` for a law the core does not know or a position the codecs refuse.
+#[must_use]
+pub fn laws_repeal(gs: &mut GameState, alias: &str, script: &Recording) -> Option<CoreWindow<bool>> {
+    use ti4_engine_core::generated::Agenda;
+    use ti4_engine_core::rules::agenda::effects::Resolve;
+    if script.nested {
+        return None;
+    }
+    let law = Agenda::from_id(alias)?;
+    let (mut cx, r) = tables(gs)?;
+    let before = gs.clone();
+    let kernel = Kernel::plain();
+    let mut driver = Driver::new(Resolve::repeal(law), Resolver::new(&[], None), AbilityTable::default(), 1);
+    let driven = with_core(gs, &mut cx, Sources::default(), AGENDA_EFFECT, |core, _| drive(&mut driver, core, &kernel, &r, &before, script)).ok()?.ok()?;
+    Some(CoreWindow { run: Run::new(driver.window.repealed()), questions: driven.rendered })
+}
+
+const DEADLY_PLOT: Footprint =
+    Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Pending], &[Slice::Board, Slice::Transient]);
+
+/// The core half of `action_cards::deadly_plot` (the effect; the guard is the reaction window's).
+#[must_use]
+pub fn deadly_plot(gs: &mut GameState, holder: &PlayerId, script: &Recording) -> Option<CoreWindow<()>> {
+    use ti4_engine_core::rules::agenda::deadly_plot::DeadlyPlot;
+    if script.nested {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let seat = r.seat(holder.as_str())?;
+    let before = gs.clone();
+    let kernel = Kernel::plain();
+    let mut driver = Driver::new(DeadlyPlot::new(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+    let driven = with_core(gs, &mut cx, Sources::default(), DEADLY_PLOT, |core, _| drive(&mut driver, core, &kernel, &r, &before, script)).ok()?.ok()?;
+    Some(CoreWindow { run: Run::new(()), questions: driven.rendered })
+}
+
 const SUSTAIN_OFFER: Footprint = Footprint::new(
     &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
     &[Slice::Board, Slice::Players, Slice::Transient, Slice::Pending],

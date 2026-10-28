@@ -450,6 +450,33 @@ pub fn resolve(
     resolve_with(state, &mut ctx, None, agenda, outcome, ballot)
 }
 
+/// Run the string effect of `agenda`; on `agenda=dual` the core `rules::agenda::effects::Resolve` window runs
+/// beside it from the same state and the two are compared (question-free effects: the state, the ledger).
+/// Positions the core window does not express (an effect it has no window for, an outcome that does not
+/// parse, a position the codecs refuse) are not compared.
+fn windowed(
+    state: &mut GameState,
+    agenda: &str,
+    outcome: &str,
+    string: impl FnOnce(&mut GameState) -> Effect,
+) -> Effect {
+    let mut string = Some(string);
+    let mut result = None;
+    crate::dual_window!(
+        crate::dual::Area::AgendaLaws,
+        "agenda_effects::resolve_with",
+        state,
+        |s: &mut GameState| {
+            let effect = string.take().map_or(Effect::Unresolved { agenda: String::new() }, |f| f(s));
+            let resolved = matches!(effect, Effect::Resolved { .. });
+            result = Some(effect);
+            crate::dual::Run::new(resolved)
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::dual_window::agenda_effect(s, agenda, outcome, script)
+    );
+    result.unwrap_or(Effect::Unresolved { agenda: agenda.to_owned() })
+}
+
 /// Resolve one agenda's effect with the game's own dice, table and map.
 ///
 /// Several cards roll, ask, or read the shape of the board. Given none of those they cannot be
