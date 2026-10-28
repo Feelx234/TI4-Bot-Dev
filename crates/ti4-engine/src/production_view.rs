@@ -18,6 +18,7 @@ use ti4_model::state::GameState;
 use ti4_model::units::Unit as StrUnit;
 
 use crate::core_sync::{CoreView, Ctx, Sources};
+use crate::core_adapter::typed;
 use crate::generated::IdStr;
 
 /// What the production reads need.
@@ -79,9 +80,6 @@ pub(crate) fn kernel() -> &'static Kernel {
     })
 }
 
-fn typed<T: IdStr>(id: &str) -> Option<T> {
-    T::from_id(id)
-}
 
 impl<'a> ProdView<'a> {
     /// The view of a position; `None` when something is not mapped.

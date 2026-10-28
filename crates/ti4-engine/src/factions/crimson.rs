@@ -902,37 +902,20 @@ fn move_bonus(state: &GameState, site: &MoveSite<'_>) -> i32 {
 
 #[cfg(test)]
 pub(crate) mod testkit {
+    pub(crate) use crate::factions::shared_testkit::{a, b, c, content, scripted};
     use std::collections::BTreeMap;
 
-    use ti4_content::ContentStore;
     use ti4_content::galaxy::Galaxy;
     use ti4_model::content_types::DEFAULT;
-    use ti4_model::id::{PlayerId, SystemId};
+    use ti4_model::id::SystemId;
     use ti4_model::state::GameState;
-
-    use crate::choice::{Scripted, Table};
 
     pub(crate) const INCURSION_FLIP: &str = "ability:crimson:incursion:SYSTEM_ACTIVATED:when";
     pub(crate) const EXILE: &str = "unit:crimson:crimson_destroyer:SPACE_COMBAT_ENDED:after";
 
-    pub(crate) fn a() -> PlayerId {
-        PlayerId::new("a")
-    }
-    pub(crate) fn b() -> PlayerId {
-        PlayerId::new("b")
-    }
-    pub(crate) fn c() -> PlayerId {
-        PlayerId::new("c")
-    }
-    pub(crate) fn content() -> &'static ContentStore {
-        ContentStore::embedded()
-    }
     /// `a` the Crimson Rebellion, `b` Sol, `c` Hacan.
     pub(crate) fn game() -> GameState {
-        crate::fixtures::seated_game(&[("a", "crimson"), ("b", "sol"), ("c", "hacan")], DEFAULT)
-    }
-    pub(crate) fn scripted(answers: &[&str]) -> Table {
-        Table::with_default(Box::new(Scripted::new(answers.iter().copied())))
+        super::super::shared_testkit::trio("crimson")
     }
 
     /// Systems that print this wormhole kind, no anomaly, hyperlane or planetless special tile.

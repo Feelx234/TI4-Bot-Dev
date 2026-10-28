@@ -42,6 +42,18 @@ use crate::decision_context::{DecisionContext, DecisionSource};
 /// Whether this seat holds the planet and has not spent its ability card this round.
 #[must_use]
 pub fn available(state: &GameState, player: &PlayerId, planet: &PlanetId) -> bool {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "legendary::available",
+        crate::cards_typed!(state, v => v.legendary_available(player, planet)),
+        available_text(state, player, planet)
+    )
+}
+
+/// [`available`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn available_text(state: &GameState, player: &PlayerId, planet: &PlanetId) -> bool {
     let holds = state
         .controlled_planets(player)
         .into_iter()
@@ -109,6 +121,18 @@ const SALVAGE: &str = "garbozia";
 /// not lock what is already lying on it.
 #[must_use]
 pub fn salvaged(state: &GameState, player: &PlayerId) -> Vec<ti4_model::id::ActionCardId> {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "legendary::salvaged",
+        crate::cards_typed!(state, v => v.salvaged(player)),
+        salvaged_text(state, player)
+    )
+}
+
+/// [`salvaged`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn salvaged_text(state: &GameState, player: &PlayerId) -> Vec<ti4_model::id::ActionCardId> {
     let holds = state
         .controlled_planets(player)
         .into_iter()
@@ -149,6 +173,18 @@ pub fn purge_salvaged(
 /// card before it knew what the card bought.
 #[must_use]
 pub fn ionian_available(state: &GameState, player: &PlayerId) -> bool {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "legendary::ionian_available",
+        crate::cards_typed!(state, v => v.ionian_available(player)),
+        ionian_available_text(state, player)
+    )
+}
+
+/// [`ionian_available`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn ionian_available_text(state: &GameState, player: &PlayerId) -> bool {
     available(state, player, &PlanetId::new(IONIAN))
 }
 

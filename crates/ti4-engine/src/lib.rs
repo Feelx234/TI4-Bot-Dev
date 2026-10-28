@@ -29,13 +29,16 @@ pub mod decision_context;
 pub mod deck;
 pub mod dice;
 pub mod dual;
-#[cfg(feature = "typed-core")]
-#[doc(hidden)]
 pub mod core_factions;
 pub mod dual_window;
 pub mod diplomacy;
 pub mod draft;
 pub mod entropic_scars;
+pub mod explore_core;
+/// The offline dual of Area::ExplorationRelics.
+#[cfg(feature = "typed-core")]
+#[doc(hidden)]
+pub mod explore_check;
 pub mod event;
 pub mod exploration;
 pub mod faction_abilities;
@@ -72,6 +75,7 @@ pub mod neutral_units;
 #[cfg(test)]
 mod nexus_reach_tests;
 pub mod objectives;
+pub mod objectives_core;
 #[cfg(test)]
 mod objectives_monument_tests;
 pub mod observation;
@@ -93,10 +97,39 @@ pub mod technology_core;
 /// Area::BoardQueries (package A1): the typed board queries behind a string interface.
 #[cfg(feature = "typed-core")]
 pub mod board_view;
+/// Area::Combat (package B1): the typed combat rules behind a string interface.
+#[cfg(feature = "typed-core")]
+pub mod core_combat;
+/// Area::Invasion (package B2): the typed invasion rules behind a string interface.
+#[cfg(feature = "typed-core")]
+pub mod core_invasion;
+/// Area::LeadersAbilities (package B7): the typed leader reads behind the string interface.
+#[cfg(feature = "typed-core")]
+pub mod leaders_view;
 #[cfg(feature = "typed-core")]
 pub mod production_view;
 #[cfg(feature = "typed-core")]
 pub mod production_window_dual;
+/// The window dual of the vote (package B9).
+pub(crate) mod vote_dual;
+/// Area::AgendaLaws (package B9): the typed agenda reads behind a string interface.
+#[cfg(feature = "typed-core")]
+pub mod agenda_view;
+/// The `typed-core`-independent entry points of `agenda_view` (a `None` without the feature).
+pub(crate) mod agenda_typed;
+/// The offline dual of Area::AgendaLaws.
+#[cfg(feature = "typed-core")]
+#[doc(hidden)]
+pub mod agenda_check;
+/// Area::Strategy (package B8): the typed strategy reads behind a string interface.
+#[cfg(feature = "typed-core")]
+pub mod strategy_view;
+/// The `typed-core`-independent entry points of `strategy_view` (a `None` without the feature).
+pub(crate) mod strategy_typed;
+/// The offline dual of Area::Strategy.
+#[cfg(feature = "typed-core")]
+#[doc(hidden)]
+pub mod strategy_check;
 /// The offline dual of Area::BoardQueries.
 #[cfg(feature = "typed-core")]
 #[doc(hidden)]
@@ -136,6 +169,7 @@ mod technology_effects_tests;
 pub mod thunders_edge;
 pub mod timing;
 pub mod tokens;
+pub mod trade_core;
 pub mod transactions;
 pub mod transit;
 pub mod trigger;

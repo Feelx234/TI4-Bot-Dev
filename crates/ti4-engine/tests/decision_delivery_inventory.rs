@@ -892,7 +892,7 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         // War Funding: offered to the holder after both sides have rolled a combat round.
         module: "combat.rs",
-        function: "roll_round",
+        function: "war_funding_step",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1093,7 +1093,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "invasion.rs",
-        function: "absorb_ground_with_origin",
+        function: "absorb_ground_text",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1105,7 +1105,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "invasion.rs",
-        function: "commit_ground_forces",
+        function: "commit_ground_forces_text",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1123,8 +1123,20 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "invasion.rs",
-        function: "pending_choice",
-        count: 3,
+        function: "ask_custodians",
+        count: 1,
+        delivery: Delivery::ObservedVia("game.rs::step_aftermath_inner"),
+    },
+    Producer {
+        module: "invasion.rs",
+        function: "ask_fight_round",
+        count: 1,
+        delivery: Delivery::ObservedVia("game.rs::step_aftermath_inner"),
+    },
+    Producer {
+        module: "invasion.rs",
+        function: "ask_next_combat",
+        count: 1,
         delivery: Delivery::ObservedVia("game.rs::step_aftermath_inner"),
     },
     Producer {
@@ -1668,7 +1680,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("combat.rs", "heart_ixth", 1),
     ("combat.rs", "offer_sustain", 1),
     ("combat.rs", "ask_sustain_commander", 1),
-    ("combat.rs", "roll_round", 1),
+    ("combat.rs", "war_funding_step", 1),
     ("combat.rs", "wrath_of_kenara_buy", 1),
     ("exploration.rs", "ask_decorated", 1),
     ("exploration.rs", "ask_device_technology", 1),
@@ -1698,8 +1710,8 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("game.rs", "committee_formation", 1),
     ("game.rs", "imperial_arbiter", 2),
     ("game.rs", "minister_of_war", 1),
-    ("invasion.rs", "absorb_ground_with_origin", 1),
-    ("invasion.rs", "commit_ground_forces", 1),
+    ("invasion.rs", "absorb_ground_text", 1),
+    ("invasion.rs", "commit_ground_forces_text", 1),
     ("invasion.rs", "drive", 1),
     ("production.rs", "integrated_economy", 1),
     ("production.rs", "pay_with_observation_credit", 1),

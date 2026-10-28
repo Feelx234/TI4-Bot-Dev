@@ -24,7 +24,7 @@ pub struct Players;
 
 const FRAGMENT_KEYS: [(ExploreType, &str); 4] = [
     (ExploreType::Cultural, "CULTURAL"),
-    (ExploreType::Frontier, "UNKNOWN"),
+    (ExploreType::Frontier, "FRONTIER"),
     (ExploreType::Hazardous, "HAZARDOUS"),
     (ExploreType::Industrial, "INDUSTRIAL"),
 ];

@@ -796,7 +796,12 @@ pub fn malevolency_holder(state: &GameState) -> Option<PlayerId> {
 /// (`TACTICAL_ACTION_ENDED` is otherwise only announced when a card listens for it).
 #[must_use]
 pub fn listens_for_tactical_end(state: &GameState) -> bool {
-    malevolency_holder(state).is_some()
+    crate::cb_dual!(
+        crate::dual::HookGroup::Direct,
+        "obsidian::listens_for_tactical_end",
+        malevolency_holder(state).is_some(),
+        crate::core_factions::ce::obsidian_listens_for_tactical_end(state)
+    )
 }
 
 /// Malevolency, first sentence: at the end of one of the holder's tactical actions they may spend
