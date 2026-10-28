@@ -405,13 +405,7 @@ fn fighter_conscription_places_fighters_where_a_dock_or_a_carrier_stands_in_the_
     let after = played(state.clone(), "f_conscription");
     assert_eq!(fighters(&after, "33"), 1);
     assert_eq!(fighters(&after, "35"), 0, "a foreign ship is there");
-    // The supply holds two fighters only (the cap is 10 of the plastic): the first system takes the last one.
-    let mut tight = state;
-    tight.system_mut(&ti4_model::id::SystemId::new("34")).units.extend((0..9).map(|_| unit("fighter", &a)));
-    tight.system_mut(&ti4_model::id::SystemId::new("34")).units.push(unit("carrier", &a));
-    let after = played(tight, "f_conscription");
-    assert_eq!(fighters(&after, "33"), 1, "the tenth fighter");
-    assert_eq!(fighters(&after, "34"), 9, "the supply is empty: no eleventh");
+    // Fighters have no plastic limit (only the Crimson card counts against the supply), so every eligible system gets one.
     // A space dock alone is enough: a placed planet with the holder's dock, no ship in orbit.
     let (system, planet) = crate::fixtures::a_placed_planet();
     let mut docked = question_position();
@@ -419,6 +413,6 @@ fn fighter_conscription_places_fighters_where_a_dock_or_a_carrier_stands_in_the_
     docked.system_mut(&system).units.retain(|u| u.owner != a);
     let after = played(docked, "f_conscription");
     assert_eq!(after.system_state(&system).units.iter().filter(|u| u.owner == a && u.type_id.as_str() == "fighter").count(), 1);
-    assert_compared_clean(3);
+    assert_compared_clean(2);
     let _ = crate::dual::take_report();
 }
