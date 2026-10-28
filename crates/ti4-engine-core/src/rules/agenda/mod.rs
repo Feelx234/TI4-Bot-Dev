@@ -172,7 +172,7 @@ pub fn extra_votes(core: &CoreState, seat: Seat) -> i64 {
     core.players()
         .iter()
         .find(|p| p.seat == seat)
-        .and_then(|p| p.timers.extra_votes_agenda)
+        .and_then(|p| p.card_timers.extra_votes_agenda)
         .filter(|e| e.agenda == core.meta().agenda_seq)
         .map_or(0, |e| e.votes)
 }
@@ -231,7 +231,7 @@ pub fn voting_order(cx: &Cx<'_>) -> SmallList<Seat, 8> {
         core.players()
             .iter()
             .find(|p| p.seat == *s)
-            .is_some_and(|p| p.timers.hack_votes_last_agenda.get() == Some(core.meta().agenda_seq))
+            .is_some_and(|p| p.card_timers.hack_votes_last_agenda.get() == Some(core.meta().agenda_seq))
     };
     let mut out = SmallList::new();
     let hackers: SmallList<Seat, 8> = order.as_slice().iter().copied().filter(|s| votes_last(s)).collect_list();

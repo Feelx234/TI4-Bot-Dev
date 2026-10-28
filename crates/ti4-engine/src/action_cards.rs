@@ -245,6 +245,19 @@ pub fn discarded(
 
 /// Remove one card from a hand by index.
 pub fn discard(state: &mut GameState, player: &PlayerId, index: usize) -> Option<ActionCardId> {
+    crate::dual!(
+        crate::dual::Area::ActionCards,
+        "action_cards::discard",
+        state,
+        |s: &mut GameState| crate::dual::Run::new(discard_text(s, player, index)),
+        |s: &mut GameState| match crate::action_cards_typed::discard(s, player, index) {
+            Some(taken) => crate::dual::Run::new(taken),
+            None => crate::dual::Run::new(discard_text(s, player, index)),
+        }
+    )
+}
+
+fn discard_text(state: &mut GameState, player: &PlayerId, index: usize) -> Option<ActionCardId> {
     let seat = state.player_mut(player)?;
     if index >= seat.action_cards.len() {
         return None;
@@ -923,16 +936,26 @@ pub fn available_actions(
             )
         })
         .collect();
-    seat.action_cards
-        .iter()
-        .enumerate()
-        .filter(|(_, alias)| is_component_action(content, alias))
-        .filter(|(_, alias)| is_playable(state, content, sources, galaxy, player, alias))
-        .map(|(index, alias)| {
+    // The hand positions that can be played right now, in hand order: the core's answer where it has one.
+    let playable: Vec<usize> = crate::dual_typed!(
+        crate::dual::Area::ActionCards,
+        "action_cards::playable_hand",
+        crate::action_cards_typed::playable_hand(state, player),
+        seat.action_cards
+            .iter()
+            .enumerate()
+            .filter(|(_, alias)| is_component_action(content, alias))
+            .filter(|(_, alias)| is_playable(state, content, sources, galaxy, player, alias))
+            .map(|(index, _)| index)
+            .collect()
+    );
+    playable
+        .into_iter()
+        .map(|index| {
             crate::choice::ChoiceOption::labelled(
                 format!("{PLAY_PREFIX}{index}"),
                 ACTION_KIND,
-                format!("play {}", name_of(content, alias)),
+                format!("play {}", name_of(content, &seat.action_cards[index])),
             )
         })
         .chain(salvaged)
@@ -8236,6 +8259,38 @@ mod tests {
         assert!(report.differences.is_empty(), "{} differences: {shown}", report.differences.len());
         let window = report.windows.get("action_cards::play").expect("the window ran");
         assert_eq!((window.compared, window.bailed), (cases.len() as u64, 0), "every case ran on the core");
+    }
+
+    #[test]
+    #[cfg(feature = "typed-core")]
+    fn the_offered_component_actions_and_the_discard_agree_with_the_core() {
+        use crate::dual::{AreaMask, Backend, with_mask};
+        let mask = AreaMask::all(Backend::String).with(crate::dual::Area::ActionCards, Backend::Dual);
+        let a = PlayerId::new("a");
+        let hand = |aliases: &[&str]| -> GameState {
+            let mut state = question_position();
+            state.player_mut(&a).unwrap().action_cards = aliases.iter().map(|x| ActionCardId::new(*x)).collect();
+            state
+        };
+        let _ = crate::dual::take_report();
+        // Spy (no rival holds a card), Insubordination (a rival has tokens), Blitz (no component action), Bribery
+        // (no goods to pay with), Uprising (a rival planet off the home systems), Counterstroke (a reaction card).
+        let state = hand(&["spy", "insub", "blitz", "bribery", "uprising", "counterstroke"]);
+        let offered = with_mask(mask, || available_actions(&state, ContentStore::embedded(), ti4_model::content_types::POK, None, &a));
+        let ids: Vec<&str> = offered.iter().map(|o| o.id.as_str()).collect();
+        assert_eq!(ids, ["action_card|1", "action_card|4"]);
+        // Signal Jamming is the documented bail: the string answer stands.
+        let state = hand(&["insub", "jamming"]);
+        let _ = with_mask(mask, || available_actions(&state, ContentStore::embedded(), ti4_model::content_types::POK, None, &a));
+        // The discard.
+        let mut state = hand(&["spy", "insub"]);
+        let taken = with_mask(mask, || discard(&mut state, &a, 1));
+        assert_eq!(taken, Some(ActionCardId::new("insub")));
+        assert_eq!(state.player(&a).unwrap().action_cards, vec![ActionCardId::new("spy")]);
+        assert_eq!(with_mask(mask, || discard(&mut state, &a, 5)), None);
+        let report = crate::dual::take_report();
+        let shown: String = format!("{:?}", report.differences).chars().take(1200).collect();
+        assert!(report.differences.is_empty(), "{} differences: {shown}", report.differences.len());
     }
 
     #[test]

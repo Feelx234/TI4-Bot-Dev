@@ -103,6 +103,20 @@ impl<'a> ActionView<'a> {
         )
     }
 
+    /// The hand positions `action_cards::available_actions` offers; `None` is the documented bail.
+    #[must_use]
+    pub fn playable_hand(&self, player: &PlayerId) -> Option<Vec<usize>> {
+        let seat = self.cx.owners.seat(player.as_str())?;
+        let gates = rules::Gates {
+            faction_forbids: crate::factions::hooks_economy::action_cards_forbidden(self.state, player),
+            political_secret_bars: crate::laws::political_secret_bars(self.state, player),
+            goods: &|| crate::supply::potential_goods(self.state, player),
+        };
+        let scope = crate::core_adapter::scope(ti4_model::content_types::SourceSet::all());
+        let hand = rules::playable_hand(&self.view, self.blanked, scope, seat, &gates)?;
+        Some(hand.as_slice().iter().map(|i| usize::from(*i)).collect())
+    }
+
     /// `action_cards::cost_is_payable`; `None` is the documented bail.
     #[must_use]
     pub fn cost_is_payable(&self, player: &PlayerId, alias: &ActionCardId) -> Option<bool> {
@@ -274,4 +288,15 @@ pub fn play_window(
     crate::dual_window::apply_staged(gs, &r, &staged)?;
     let events: Vec<crate::event::Event> = emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
     Some(crate::dual::CoreWindow { run: crate::dual::Run::new(()).with_events_vec(events), questions: driven.rendered })
+}
+
+/// `action_cards::discard` on the core: remove the card at `index` from `player`'s hand. `Some(card)` is the
+/// card taken (`None` inside: no such position), `None` outside is the bail (the string runs).
+#[must_use]
+pub fn discard(state: &mut GameState, player: &PlayerId, index: usize) -> Option<Option<ActionCardId>> {
+    let (mut cx, r) = crate::dual_window::tables(state)?;
+    let seat = r.seat(player.as_str())?;
+    let fp = crate::core_sync::Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players], &[Slice::Players]);
+    let taken = crate::core_sync::with_core(state, &mut cx, Sources::default(), fp, |core, _| rules::discard_from_hand(core, seat, index)).ok()?;
+    Some(taken.map(|card| ActionCardId::new(card.as_str())))
 }

@@ -353,8 +353,8 @@ impl Play {
             (Fx::Silence, Opt::System(system)) => {
                 let activation = core.meta().activation_seq;
                 if let Some(p) = core.players_mut().by_seat_mut(who) {
-                    p.timers.silence_activation = crate::containers::Opt32::some(activation);
-                    p.timers.silence_system = Some(system);
+                    p.card_timers.silence_activation = crate::containers::Opt32::some(activation);
+                    p.card_timers.silence_system = Some(system);
                 }
             }
             (Fx::Mining, Opt::Spot(_, planet)) => {

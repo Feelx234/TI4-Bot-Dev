@@ -156,3 +156,29 @@ pub(crate) fn play_window(
         None
     }
 }
+
+/// The hand positions `available_actions` offers (`None`: bail).
+pub(crate) fn playable_hand(state: &GameState, player: &PlayerId) -> Option<Vec<usize>> {
+    #[cfg(feature = "typed-core")]
+    {
+        crate::action_cards_view::ActionView::of(state)?.playable_hand(player)
+    }
+    #[cfg(not(feature = "typed-core"))]
+    {
+        let _ = (state, player);
+        None
+    }
+}
+
+/// `action_cards::discard` on the core (`None`: the string runs).
+pub(crate) fn discard(state: &mut GameState, player: &PlayerId, index: usize) -> Option<Option<ActionCardId>> {
+    #[cfg(feature = "typed-core")]
+    {
+        crate::action_cards_view::discard(state, player, index)
+    }
+    #[cfg(not(feature = "typed-core"))]
+    {
+        let _ = (state, player, index);
+        None
+    }
+}

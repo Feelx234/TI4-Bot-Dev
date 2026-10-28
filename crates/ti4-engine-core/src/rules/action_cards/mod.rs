@@ -175,6 +175,66 @@ pub fn cost_is_payable(core: &CoreState, who: Seat, card: ActionCard, goods: i64
     }
 }
 
+/// `ti4_model::state::RULES_ACTION_CARD_TARGETS`: from this version a component action whose card has no legal
+/// target is not offered.
+pub const RULES_ACTION_CARD_TARGETS: u32 = 10;
+/// `ti4_model::state::RULES_ACTION_CARD_COSTS`: from this version a card that makes its player pay is not offered
+/// to a seat that cannot.
+pub const RULES_ACTION_CARD_COSTS: u32 = 23;
+
+/// What `action_cards::is_playable` asks of the string side: the faction and law bars of the head gate and the
+/// seat's spendable trade goods (read only for the card that pays in them).
+pub struct Gates<'a> {
+    pub faction_forbids: bool,
+    pub political_secret_bars: bool,
+    pub goods: &'a dyn Fn() -> i64,
+}
+
+/// `action_cards::is_playable`: the head gates, then (by rules version) the printed cost and the legal target.
+/// `None` is the documented bail: Signal Jamming (the map's blockade rules) or an answer the core declines
+/// (`cost_is_payable`, `has_legal_target`).
+#[must_use]
+pub fn is_playable(core: &CoreState, blanked: bool, scope: Scope, who: Seat, card: ActionCard, gates: &Gates<'_>) -> Option<bool> {
+    if !may_play(core, blanked, who, gates.faction_forbids, gates.political_secret_bars) {
+        return Some(false);
+    }
+    if card == ActionCard::SignalJamming {
+        return None;
+    }
+    if core.meta().rules_at_least(RULES_ACTION_CARD_COSTS) {
+        let goods = if card == ActionCard::Bribery { (gates.goods)() } else { 0 };
+        if !cost_is_payable(core, who, card, goods)? {
+            return Some(false);
+        }
+    }
+    if core.meta().rules_at_least(RULES_ACTION_CARD_TARGETS) {
+        return has_legal_target(core, blanked, scope, who, card);
+    }
+    Some(true)
+}
+
+/// The hand positions `action_cards::available_actions` offers as `play|<index>`: the cards with a component
+/// action that are playable, in hand order. `None` when any card of the hand needs a string answer.
+#[must_use]
+pub fn playable_hand(core: &CoreState, blanked: bool, scope: Scope, who: Seat, gates: &Gates<'_>) -> Option<crate::containers::SmallList<u8, 16>> {
+    let hand = &core.players().by_seat(who)?.cards.hand;
+    let mut out = crate::containers::SmallList::new();
+    for (index, card) in hand.as_slice().iter().enumerate() {
+        if is_component_action(*card) && is_playable(core, blanked, scope, who, *card, gates)? {
+            out.push(u8::try_from(index).ok()?);
+        }
+    }
+    Some(out)
+}
+
+/// `action_cards::discard`: remove the card at `index` from the hand; `None` for a seat or position that is not
+/// there. (The play itself, `perform`: announce, the reaction windows and the effect's resolution, runs through
+/// the string `reactions::announce` until the abilities table is the core's.)
+pub fn discard_from_hand(core: &mut CoreState, who: Seat, index: usize) -> Option<ActionCard> {
+    let hand = &mut core.players_mut().by_seat_mut(who)?.cards.hand;
+    (index < hand.len()).then(|| hand.remove(index))
+}
+
 /// The played effects that only set a stamp or a flag (the mutation half of the package, first batch).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Simple {
@@ -307,12 +367,12 @@ pub fn play_simple(core: &mut CoreState, who: Seat, effect: Simple, env: Env) {
         Simple::MasterPlan => core.transient_mut().misc.flags.set(TransientFlags::ADDITIONAL_ACTION),
         Simple::MoraleBoost => {
             if let Some(p) = core.players_mut().by_seat_mut(who) {
-                p.combat_timers.combat_bonus_round = Opt32::some(round);
+                p.card_timers.combat_bonus_round = Opt32::some(round);
             }
         }
         Simple::FlankSpeed => {
             if let Some(p) = core.players_mut().by_seat_mut(who) {
-                p.timers.move_bonus_activation = Opt32::some(activation);
+                p.card_timers.move_bonus_activation = Opt32::some(activation);
             }
         }
         Simple::LostStar => {
@@ -323,7 +383,7 @@ pub fn play_simple(core: &mut CoreState, who: Seat, effect: Simple, env: Env) {
         Simple::HackElection => {
             let agenda = core.meta().agenda_seq;
             if let Some(p) = core.players_mut().by_seat_mut(who) {
-                p.timers.hack_votes_last_agenda = Opt32::some(agenda);
+                p.card_timers.hack_votes_last_agenda = Opt32::some(agenda);
             }
         }
         Simple::PoliticalStability => {
@@ -333,7 +393,7 @@ pub fn play_simple(core: &mut CoreState, who: Seat, effect: Simple, env: Env) {
         }
         Simple::Rout | Simple::Waylay => {
             if let Some(p) = core.players_mut().by_seat_mut(who) {
-                let slot = if effect == Simple::Rout { &mut p.combat_timers.rout_round } else { &mut p.combat_timers.waylay_barrage_round };
+                let slot = if effect == Simple::Rout { &mut p.card_timers.rout_round } else { &mut p.card_timers.waylay_barrage_round };
                 *slot = Opt32::some(round);
             }
         }
@@ -350,7 +410,7 @@ pub fn play_simple(core: &mut CoreState, who: Seat, effect: Simple, env: Env) {
         }
         Simple::NavSuite => {
             if let Some(p) = core.players_mut().by_seat_mut(who) {
-                p.timers.anomalies_ignored_activation = Opt32::some(activation);
+                p.card_timers.anomalies_ignored_activation = Opt32::some(activation);
             }
         }
         Simple::BlackMarket => core.transient_mut().misc.flags.set(TransientFlags::BLACK_MARKET),
@@ -365,11 +425,11 @@ pub fn play_simple(core: &mut CoreState, who: Seat, effect: Simple, env: Env) {
         Simple::ManeuveringJets | Simple::ShieldsHolding => {
             let hits = if effect == Simple::ManeuveringJets { 1 } else { 2 };
             if let Some(p) = core.players_mut().by_seat_mut(who) {
-                let running = match p.combat_timers.cancel_hits_round {
+                let running = match p.card_timers.cancel_hits_round {
                     Some((held, had)) if held == round => had,
                     _ => 0,
                 };
-                p.combat_timers.cancel_hits_round = Some((round, running + hits));
+                p.card_timers.cancel_hits_round = Some((round, running + hits));
             }
         }
         Simple::Reflective => {
@@ -430,11 +490,11 @@ pub fn play_simple(core: &mut CoreState, who: Seat, effect: Simple, env: Env) {
         Simple::Councilor => {
             let agenda = core.meta().agenda_seq;
             if let Some(p) = core.players_mut().by_seat_mut(who) {
-                let running = match p.timers.extra_votes_agenda {
+                let running = match p.card_timers.extra_votes_agenda {
                     Some(held) if held.agenda == agenda => held.votes,
                     _ => 0,
                 };
-                p.timers.extra_votes_agenda = Some(crate::state::ExtraVotes { agenda, votes: running + 5 });
+                p.card_timers.extra_votes_agenda = Some(crate::state::ExtraVotes { agenda, votes: running + 5 });
             }
         }
         Simple::EmergencyRepairs => {
