@@ -153,6 +153,12 @@ impl Vote {
         }
     }
 
+    /// The votes each outcome has so far (outcomes nobody backed are absent).
+    #[must_use]
+    pub fn counts(&self) -> SmallList<(Outcome, i64), 16> {
+        self.counts_list()
+    }
+
     #[must_use]
     pub const fn is_done(&self) -> bool {
         matches!(self.stage, Stage::Done(_))

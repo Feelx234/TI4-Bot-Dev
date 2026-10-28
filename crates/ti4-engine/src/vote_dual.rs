@@ -128,14 +128,14 @@ impl Log {
     }
 
     /// The vote finished with `winner`; `state` is the position it left. Compares and stops recording.
-    pub fn finish(&mut self, state: &GameState, winner: Option<&str>) {
+    pub fn finish(&mut self, state: &GameState, winner: Option<&str>, counts: &std::collections::BTreeMap<String, i64>) {
         let Some(inner) = self.0.take() else { return };
         #[cfg(feature = "typed-core")]
         if !inner.unstable {
-            replay(&inner, state, winner);
+            replay(&inner, state, winner, counts);
         }
         #[cfg(not(feature = "typed-core"))]
-        let _ = (inner, state, winner);
+        let _ = (inner, state, winner, counts);
     }
 }
 
@@ -213,7 +213,7 @@ fn supported(state: &GameState, choices: &[String], order: &[PlayerId], spender:
 }
 
 #[cfg(feature = "typed-core")]
-fn replay(inner: &Inner, now: &GameState, winner: Option<&str>) {
+fn replay(inner: &Inner, now: &GameState, winner: Option<&str>, counts: &std::collections::BTreeMap<String, i64>) {
     use ti4_engine_core::generated::Agenda;
     use ti4_engine_core::kernel::stage::{AbilityTable, Window};
     use ti4_engine_core::kernel::{Kernel, Resolver};
@@ -277,6 +277,10 @@ fn replay(inner: &Inner, now: &GameState, winner: Option<&str>) {
             compare_choice(area, LABEL, Some(asked), Some(rendered));
         }
     }
+    // The votes each outcome received (zero tallies are not recorded by the string ballot).
+    let core_counts: std::collections::BTreeMap<String, i64> =
+        driver.window.counts().as_slice().iter().filter_map(|(o, c)| Some((cx.keys.render_outcome(*o)?, *c))).collect();
+    compare_value(area, &format!("{LABEL}.counts"), counts, &core_counts);
     let core_winner = driver.window.winner().and_then(|o| cx.keys.render_outcome(o));
     let winner = winner.map(ToOwned::to_owned);
     let mut string_view = open.clone();

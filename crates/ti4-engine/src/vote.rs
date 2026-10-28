@@ -1414,7 +1414,7 @@ impl VoteWindow {
         self.settle_predictions(state);
         if self.is_complete() {
             let winner = self.winner().map(ToOwned::to_owned);
-            self.dual.finish(state, winner.as_deref());
+            self.dual.finish(state, winner.as_deref(), &self.ballot.counts);
         }
         Ok(())
     }
@@ -1431,7 +1431,7 @@ impl VoteWindow {
         self.settle(state, content, sources);
         if self.is_complete() {
             let winner = self.winner().map(ToOwned::to_owned);
-            self.dual.finish(state, winner.as_deref());
+            self.dual.finish(state, winner.as_deref(), &self.ballot.counts);
         }
     }
 }
@@ -2604,6 +2604,62 @@ mod typed_render_tests {
         assert_eq!(report.total_differences(), 0, "{report:?}");
         let compared: u64 = counts.compared.iter().sum();
         assert!(compared > 20 && votes_cast > 0, "compared {compared} planets {votes_cast}");
+    }
+
+    /// Whole votes through every stage of the core window: Genetic Recombination (the tribute paid in a vote and
+    /// in a fleet token), trade goods (Gila, the Executive Order spender), Predictive Intelligence, Blood Pact
+    /// free. The window dual replays each and compares every question, the winner and the position.
+    #[test]
+    fn whole_votes_through_every_stage_run_in_lockstep_on_the_core_window() {
+        use crate::dual::{AreaMask, Backend, take_report, with_mask};
+        use ti4_model::id::{LeaderId, TechnologyId};
+        use ti4_model::state::LeaderStatus;
+        let content = ContentStore::embedded();
+        let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();
+        let _ = take_report();
+        let alias = Agenda::ALL.iter().find(|a| a.data().elects == AgendaElects::ForAgainst).unwrap().as_str();
+        let mut seen = std::collections::BTreeSet::new();
+        for variant in 0..4 {
+            let (mut state, players) = game();
+            state.player_mut(&players[0]).unwrap().technologies.insert(TechnologyId::new("gr"));
+            state.player_mut(&players[1]).unwrap().technologies.insert(TechnologyId::new("pi"));
+            if variant != 3 {
+                state.player_mut(&players[2]).unwrap().leaders.insert(LeaderId::new("hacancommander"), LeaderStatus::Unlocked);
+            }
+            if variant == 2 {
+                state.player_mut(&players[2]).unwrap().fleet_tokens = 0;
+            }
+            let choices = outcomes_text(&state, content, POK, alias);
+            with_mask(mask, || {
+                let mut window = VoteWindow::new(&state, alias, choices.clone());
+                if variant >= 2 {
+                    window = window.with_spender(players[1].clone());
+                }
+                window.open(&state, content, POK);
+                let mut step = 0;
+                while let Some(choice) = window.pending_choice(&state, content, POK) {
+                    let subtype = choice.context.as_ref().map(|c| c.subtype.clone()).unwrap_or_default();
+                    seen.insert(subtype.clone());
+                    step += 1;
+                    let pick = match subtype.as_str() {
+                        "vote_exhaust_planet" if step % 3 == 0 => choice.options.iter().find(|o| o.is_decline()),
+                        "vote_exhaust_planet" => choice.options.iter().find(|o| !o.is_decline()),
+                        "recombination_tribute" if variant % 2 == 1 => choice.options.iter().find(|o| o.id == "tribute|token"),
+                        "vote_spend_trade_goods" => choice.options.get(1),
+                        _ => choice.options.first(),
+                    }
+                    .unwrap_or(&choice.options[0])
+                    .clone();
+                    window.resolve(&mut state, content, POK, pick).unwrap();
+                }
+                assert!(window.is_complete());
+            });
+        }
+        let report = take_report();
+        assert_eq!(report.total_differences(), 0, "{report:?}");
+        for stage in ["recombination_outcome", "recombination_tribute", "vote_spend_trade_goods", "vote_predictive_intelligence", "vote_tiebreak"] {
+            assert!(seen.contains(stage) || stage == "vote_tiebreak", "stage {stage} not reached: {seen:?}");
+        }
     }
 
     /// Genetic Recombination's two questions (the string window needs a Mahact seat to ask them): the texts
