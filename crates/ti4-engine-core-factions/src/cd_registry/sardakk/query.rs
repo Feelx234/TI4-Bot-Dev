@@ -96,11 +96,12 @@ pub fn commander_unlocked(s: &CoreState, _: &Kernel, who: Seat, leader: Leader) 
 
 /// The commander's extra commit sources: one ground force from each planet in the active system and in the adjacent
 /// systems without the invader's command token (a supernova cannot be moved out of).
-pub fn commit_candidates(s: &CoreState, _: &Kernel, invader: Seat, system: System, already: &[CommitOrigin]) -> CandidateList {
+pub fn commit_candidates(s: &CoreState, k: &Kernel, invader: Seat, system: System, already: &[CommitOrigin]) -> CandidateList {
     let mut found = CandidateList::default();
     if !has_commander_ability(s, invader, Leader::GhomSekkus) {
         return found;
     }
+    let scope = crate::common::scope(k);
     let take_from = |from: System, found: &mut CandidateList| {
         // The string walks the system's planets in the text order of their ids, which is the order of the enum.
         let mut planets: Vec<Planet> = board::planets_of(s, from).collect();
@@ -111,7 +112,7 @@ pub fn commit_candidates(s: &CoreState, _: &Kernel, invader: Seat, system: Syste
             }
             let mut seen: Vec<Piece> = Vec::new();
             for unit in board::planet_units(s, planet).iter().filter(|p| p.owner() == invader) {
-                if fleet::is_ground_force(unit.kind()) && !seen.contains(unit) {
+                if scope.unit(unit.kind()).is_some() && fleet::is_ground_force(unit.kind()) && !seen.contains(unit) {
                     seen.push(*unit);
                     found.push(CommitCandidate { system: from, planet, unit: *unit });
                 }

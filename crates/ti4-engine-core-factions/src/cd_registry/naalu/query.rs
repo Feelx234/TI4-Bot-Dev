@@ -79,13 +79,14 @@ fn has_matriarch(s: &CoreState, who: Seat, system: System) -> bool {
 }
 
 /// Matriarch lets its owner's fighters in this system join an invasion temporarily.
-pub fn matriarch_fighters(s: &CoreState, _: &Kernel, invader: Seat, system: System) -> PieceList {
+pub fn matriarch_fighters(s: &CoreState, k: &Kernel, invader: Seat, system: System) -> PieceList {
+    let scope = crate::common::scope(k);
     let mut out = PieceList::default();
     if !has_matriarch(s, invader, system) {
         return out;
     }
     for p in s.board().sys(system).units.as_slice() {
-        if p.owner() == invader && p.kind().data().base_type == UnitBaseType::Fighter {
+        if p.owner() == invader && scope.unit(p.kind()).is_some_and(|d| d.base_type == UnitBaseType::Fighter) {
             out.push(*p);
         }
     }
@@ -93,8 +94,8 @@ pub fn matriarch_fighters(s: &CoreState, _: &Kernel, invader: Seat, system: Syst
 }
 
 /// A fighter counts as a ground force while its owner's Matriarch is in the system.
-pub fn matriarch_temporary_ground_force(s: &CoreState, _: &Kernel, who: Seat, system: System, _planet: Planet, unit: Piece) -> bool {
-    unit.kind().data().base_type == UnitBaseType::Fighter && has_matriarch(s, who, system)
+pub fn matriarch_temporary_ground_force(s: &CoreState, k: &Kernel, who: Seat, system: System, _planet: Planet, unit: Piece) -> bool {
+    crate::common::scope(k).unit(unit.kind()).is_some_and(|d| d.base_type == UnitBaseType::Fighter) && has_matriarch(s, who, system)
 }
 
 /// The code of a Mindsieve waiver: the note and the faction whose note it is.
