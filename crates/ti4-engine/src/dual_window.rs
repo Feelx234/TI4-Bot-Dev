@@ -1248,3 +1248,82 @@ pub fn bombard_target_ask(
     let rendered = Typed::new(&r, asked?, phase, round).rendered;
     Some(crate::invasion::with_bombard_offer(rendered, invader, system, planet, hits, present, gs.system_state(system).on_planet(planet)))
 }
+
+const GROUND_HITS: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
+    &[Slice::Board, Slice::Players, Slice::Pending],
+);
+
+/// What the string hits step was called with: one batch on `victim`'s ground forces on `planet`.
+#[derive(Debug, Clone, Copy)]
+pub struct HitsArgs<'a> {
+    pub victim: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    pub planet: &'a ti4_model::id::PlanetId,
+    pub hits: usize,
+    pub cause: &'static str,
+    pub unit_ability: bool,
+    /// The hits window is part of the call (`ground_hits_window`).
+    pub open: bool,
+    /// The hits are applied (`take_bombard_hits`, `remove_ground`).
+    pub apply: bool,
+    pub announce: bool,
+}
+
+/// A queued event as the string module keeps it in its `log`.
+pub type LogRow = (String, BTreeMap<String, Value>);
+
+/// The outcome of a hits step: the hits that remain after the window, the ground forces destroyed and the
+/// events queued for the caller to flush.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HitsOut {
+    pub remaining: usize,
+    pub destroyed: usize,
+    pub log: Vec<LogRow>,
+}
+
+/// The core half of the hits step (`rules::invasion::hits`). `None` for a neutral victim (the reference card's
+/// order is string-only), nested activity (a card played in the hits window), or a position the codecs refuse.
+#[must_use]
+pub fn ground_hits(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    a: HitsArgs<'_>,
+    script: &Recording,
+) -> Option<CoreWindow<HitsOut>> {
+    use ti4_engine_core::rules::invasion::hits::{Batch, GroundHits};
+    const LABEL: &str = "invasion::ground_hits";
+    if script.nested {
+        crate::dual::note_bail(LABEL, "nested (a card played in the hits window)");
+        return None;
+    }
+    if crate::neutral_units::is_neutral(a.victim) {
+        crate::dual::note_bail(LABEL, "neutral victim");
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let seat = r.seat(a.victim.as_str())?;
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let planet = <ti4_engine_core::generated::Planet as IdStr>::from_id(a.planet.as_str())?;
+    let cause = r.code(a.cause);
+    let hits = u32::try_from(a.hits).ok()?;
+    let before = gs.clone();
+    let env = crate::core_invasion::ground_env(&before, &cx, sources)?;
+    let batch = Batch { victim: seat, system, planet, cause, unit_ability: a.unit_ability, announce: a.announce };
+    let mut driver = Driver::new(GroundHits::new(batch, hits, a.open, a.apply), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let driven = with_core(gs, &mut cx, Sources::default(), GROUND_HITS, |core, _| {
+        let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .ok()?
+    .ok()?;
+    let log = staged
+        .iter()
+        .map(|rec| event_of(&r, rec).map(|e| (e.event_type, e.payload)))
+        .collect::<Option<Vec<_>>>()?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    let out = HitsOut { remaining: driver.window.remaining as usize, destroyed: driver.window.destroyed as usize, log };
+    Some(CoreWindow { run: Run::new(out).with_events_vec(events), questions: driven.rendered })
+}

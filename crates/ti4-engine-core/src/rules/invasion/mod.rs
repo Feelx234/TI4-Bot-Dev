@@ -13,6 +13,7 @@
 
 pub mod absorb;
 pub mod commit;
+pub mod hits;
 pub mod stages;
 
 use crate::containers::SeatSet;

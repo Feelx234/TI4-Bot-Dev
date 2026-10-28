@@ -789,6 +789,59 @@ fn take_bombard_hits(
     log: &mut Vec<PendingEvent>,
 ) -> usize {
     #[cfg(feature = "typed-core")]
+    {
+        // On `invasion=dual` the hits also land through the core's hits step (`rules::invasion::hits`): the same
+        // board, the same destroyed count and the same queued events.
+        let queued = std::cell::RefCell::new(Vec::new());
+        let destroyed = crate::dual_window!(
+            crate::dual::Area::Invasion,
+            "invasion::take_bombard_hits",
+            state,
+            |s: &mut GameState| {
+                let mut own = Vec::new();
+                let destroyed = take_bombard_hits_viewed(s, content, sources, system, planet, owner, produced, &mut own);
+                let rows = own.iter().map(|(n, p)| ((*n).to_owned(), p.clone())).collect();
+                queued.borrow_mut().extend(own);
+                crate::dual::Run::new(crate::dual_window::HitsOut { remaining: produced, destroyed, log: rows })
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                let args = crate::dual_window::HitsArgs {
+                    victim: owner,
+                    system,
+                    planet,
+                    hits: produced,
+                    cause: "bombardment",
+                    unit_ability: true,
+                    open: false,
+                    apply: true,
+                    announce: false,
+                };
+                crate::dual_window::ground_hits(s, sources, args, script)
+            }
+        )
+        .destroyed;
+        log.extend(queued.into_inner());
+        return destroyed;
+    }
+    #[cfg(not(feature = "typed-core"))]
+    take_bombard_hits_viewed(state, content, sources, system, planet, owner, produced, log)
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one parameter per distinct input"
+)]
+fn take_bombard_hits_viewed(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    system: &SystemId,
+    planet: &PlanetId,
+    owner: &PlayerId,
+    produced: usize,
+    log: &mut Vec<PendingEvent>,
+) -> usize {
+    #[cfg(feature = "typed-core")]
     let before = (crate::dual::backend(crate::dual::Area::Invasion) == crate::dual::Backend::Dual).then(|| state.clone());
     let destroyed = take_bombard_hits_text(state, content, sources, system, planet, owner, produced, log);
     #[cfg(feature = "typed-core")]
@@ -5537,6 +5590,61 @@ fn remove_ground(
     cause: &'static str,
     log: &mut Vec<PendingEvent>,
 ) {
+    #[cfg(feature = "typed-core")]
+    {
+        // On `invasion=dual` the removal also lands through the core's hits step (`rules::invasion::hits`).
+        let queued = std::cell::RefCell::new(Vec::new());
+        crate::dual_window!(
+            crate::dual::Area::Invasion,
+            "invasion::remove_ground",
+            state,
+            |s: &mut GameState| {
+                let mut own = Vec::new();
+                remove_ground_text(s, content, sources, system, planet, player, hits, cause, &mut own);
+                let rows = own.iter().map(|(n, p)| ((*n).to_owned(), p.clone())).collect();
+                queued.borrow_mut().extend(own);
+                crate::dual::Run::new(crate::dual_window::HitsOut { remaining: hits, destroyed: 0, log: rows })
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                let args = crate::dual_window::HitsArgs {
+                    victim: player,
+                    system,
+                    planet,
+                    hits,
+                    cause,
+                    unit_ability: matches!(cause, "bombardment" | "space_cannon_defense" | "harrow"),
+                    open: false,
+                    apply: true,
+                    announce: false,
+                };
+                crate::dual_window::ground_hits(s, sources, args, script).map(|mut w| {
+                    w.run.value.destroyed = 0;
+                    w
+                })
+            }
+        );
+        log.extend(queued.into_inner());
+        return;
+    }
+    #[cfg(not(feature = "typed-core"))]
+    remove_ground_text(state, content, sources, system, planet, player, hits, cause, log)
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one parameter per distinct input"
+)]
+fn remove_ground_text(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    system: &SystemId,
+    planet: &PlanetId,
+    player: &PlayerId,
+    hits: usize,
+    cause: &'static str,
+    log: &mut Vec<PendingEvent>,
+) {
     let mut remaining = hits;
     while remaining > 0 {
         remaining -= 1;
@@ -5575,6 +5683,39 @@ fn ground_hits_window(
     if hits == 0 {
         return 0;
     }
+    #[cfg(feature = "typed-core")]
+    {
+        // On `invasion=dual` the window also opens in the core (`rules::invasion::hits`): the same event, the same
+        // cancellations spent. A card played in it (nested activity) is left to the string answer.
+        let (sources, announce) = (ctx.sources, ctx.timing.is_some());
+        return crate::dual_window!(
+            crate::dual::Area::Invasion,
+            "invasion::ground_hits_window",
+            state,
+            |s: &mut GameState| {
+                let remaining = ground_hits_window_text(s, ctx, system, planet, victim, hits, cause);
+                crate::dual::Run::new(crate::dual_window::HitsOut { remaining, destroyed: 0, log: Vec::new() })
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                let args = crate::dual_window::HitsArgs { victim, system, planet, hits, cause, unit_ability: false, open: true, apply: false, announce };
+                crate::dual_window::ground_hits(s, sources, args, script)
+            }
+        )
+        .remaining;
+    }
+    #[cfg(not(feature = "typed-core"))]
+    ground_hits_window_text(state, ctx, system, planet, victim, hits, cause)
+}
+
+fn ground_hits_window_text(
+    state: &mut GameState,
+    ctx: &mut Resolving<'_>,
+    system: &SystemId,
+    planet: &PlanetId,
+    victim: &PlayerId,
+    hits: usize,
+    cause: &'static str,
+) -> usize {
     let payload = std::collections::BTreeMap::from([
         ("system".to_owned(), system.to_string().into()),
         ("planet".to_owned(), planet.to_string().into()),
@@ -11071,10 +11212,24 @@ mod core_bombardment {
             put(&mut state, &system, Some(&planet), "naaz_mech_space", &holder(), 1);
             let mut log = Vec::new();
             let _ = ground_hit_outcome_logged(&mut state, c, s, &system, &planet, &holder(), "bombardment", &mut log, true);
+            // The same batches through the core's hits step (`rules::invasion::hits`): the events queued for the
+            // caller are compared next to the board and the destroyed count.
+            let (mut state, system, planet) = arena();
+            put(&mut state, &system, Some(&planet), "infantry", &holder(), 2);
+            put(&mut state, &system, Some(&planet), "sol_mech", &holder(), 1);
+            let mut log = Vec::new();
+            remove_ground(&mut state, c, s, &system, &planet, &holder(), 2, "ground_combat", &mut log);
+            assert_eq!(log.len(), 2);
+            let mut log = Vec::new();
+            remove_ground(&mut state, c, s, &system, &planet, &holder(), 3, "harrow", &mut log);
         });
         let r = report();
         let counts = &r.areas[&Area::Invasion];
         assert!(counts.calls >= 6, "{counts:?}");
+        for label in ["invasion::take_bombard_hits", "invasion::remove_ground"] {
+            let w = r.windows.get(label).unwrap_or_else(|| panic!("{label} not seen: {:?}", r.windows.keys().collect::<Vec<_>>()));
+            assert!(w.compared >= 1, "{label}: {w:?}");
+        }
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }
