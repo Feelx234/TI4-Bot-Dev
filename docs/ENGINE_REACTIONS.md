@@ -3,6 +3,10 @@
 Branch `core-reactions`, cut from `core-integration` 04578c39, with `core-b1-combat` (a01f1eb9), `core-b2-invasion`
 (d3c9316e) and `core-b3-production` (aac6a4b3, already inside B2) merged in. Nothing pushed.
 
+Stage 2 (this document's sections 3.2, 4, 5, 6 and 8) ported the round agents, the Argent agent in the production
+window, Tellurian, Brother Milor, the two S8 slots, Self-Assembly Routines, Letani Warrior II and Salvage Operations,
+and lifted two bails of stage 1 (Transparasteel Plating, the silent "no stream" bail). Stage 1 text follows.
+
 Problem: the core `AbilityTable` is empty, so every core window that emits an event whose WHEN/AFTER window holds a
 registered ability (a reaction slot, a technology, a faction ability, a leader) bails (`Recording.nested`, 24
 call sites in `dual_window.rs`). This document is the design of the port; section 6 is the census before and after.
@@ -109,9 +113,9 @@ The port only has to give each `Spec` the same three flags and registration posi
 
 ### 2.7 What stays string
 
-The reaction-card slot (`reaction:`) needs `playable_now` (hand, window table, `reaction_can_matter`, may-play bars)
-and the whole action-card effect set (B6, not merged). It is registered in no core table; a window where it is
-eligible bails with its id. The same holds for every ability not yet ported.
+The reaction-card slot (`reaction:`) is registered (eligibility, the offer, a decline); the play needs the whole
+action-card effect set and the announcement choreography (section 4). A window where a card was played bails with the
+slot's id. The same holds for every ability not yet ported.
 
 ## 3. How a nested window is followed (what is built)
 
@@ -159,70 +163,123 @@ A window bails (counted under its own label, reason `nested (...)`) when the str
 3. did something nested that no ability explains (`nested outside an ability`: a question or an event inside an
    emission outside every effect and every pick);
 4. has no resolver configuration (`nested activity without a resolver`);
-5. reached a condition the core cannot answer (`Unknown`: Yssaril Transparasteel Plating, Bribery's goods, a card
-   cost the core does not judge, Harness Energy / Infiltrate);
-6. rolled dice in an ability in a window that is lent no stream (the lend fails and the window bails silently).
+5. reached a condition the core cannot answer (`Unknown`, wording in `drive_with`): Bribery's goods (Keleres agent), a
+   printed card cost the core does not judge, Harness Energy / Infiltrate, a Nomad that listens to the exhaustion of an
+   agent (Temporal Command Suite: Sol, Letnev, Argent, Tellurian, Brother Milor, I48S), a technology carried by a Nekro
+   Valefar Assimilator (Instinct Training), a fact the adapter did not compute (the adjacency of Argent's agent, a
+   faction mech the tables hold twice, a Naaz target of I48S);
+6. rolled dice in an ability in a window that was not lent the dice stream (a driver without seeds): the bail
+   `nested (dice rolled by an ability in a window lent no stream)`. In stage 1 this was documented as a silent bail; it
+   was in fact a `nested.ability_dice` difference (the roll came from a stream at position zero). Now counted and tested;
+7. used a leader while diplomacy promises are on (`LeaderUsedFor` is an event of the promises, the core does not
+   evaluate them): `unported ability leader:*:solagent:... (diplomacy promises on a leader's use)`, round agents only.
 
-Bails 1-4 have a unit test in `reactions_core::tests`, 5 in `rules::action_cards::reaction_slot::tests`; 6 (no stream lent) is not tested. An ability whose condition failed never bails a window.
+Bails 1-4 have a unit test in `reactions_core::tests`, 5 in `rules::action_cards::reaction_slot::tests`,
+`rules::reactions::{instinct_training,l1z1x_agent}::tests` and `invasion::tests::bail_the_sol_agent_with_a_listening_nomad_is_counted`,
+6 in `invasion::core_ground_round_prechecks::bail_dice_rolled_by_an_ability_in_a_window_lent_no_stream_is_silent`, 7 in
+`invasion::tests::bail_the_sol_agent_with_diplomacy_on_is_counted`. An ability whose condition failed never bails a window.
+
+### 3.2 Stage 2: what changed in the machinery
+
+* `Eff::read` (state and kernel together), `Eff::codes`, `Eff::adapter_facts`; `AdapterFacts` (`reach`: the systems
+  adjacent to a system as a seat sees them; the core is lent no galaxy, the adapter computes them for the producing
+  system of the production window and passes them through `reactions_core::with_reach`).
+* `nested.events`: the events the abilities emitted inside the window (the string `nested_kinds` without the questions)
+  are compared with the core resolver's journal minus the window's own emissions. A dropped `eff.emit` now shows.
+* `drive_positioned`: `drive_with` for a family that reads the position it is asked in (the production questions).
+  `production_window_dual::step` uses it, so the production dual follows nested activity; its footprint writes Marks.
+* `complete_nested` adds the trigger only to the questions that carry one in the string (`with_trigger_of`: the window's
+  own pick, Instinct Training, I48S), the `active` detail only to the window's own pick; the Sol/Letnev agent question
+  has neither (`render::leaders::complete_round_agent` builds its `offered` card and captions).
+* Typed mark `YssarilSsruuRoundAgent`: the JSON blob of a round agent's bonus (`RoundBonus`) is twelve typed fields in the
+  core (`Sh::RoundBonus` in `core_sync/keys/mark_values.rs`, an `Alt` with the blob as fallback; the round trip is
+  checked on parse).
+* Windows: `BeginGroundRound` gets the sources (the kernel scope: which units are ground forces); `BeginRound` announces
+  `COMBAT_ROUND_STARTED` with `round_seq` when a Letnev round agent listens (`round_seq_listens`; `round_opening_unported`
+  no longer excludes a Letnev agent, only a Letnev or Naaz side); the combat `Flow` and the barrage spend the cancellations
+  an ability granted in the `HITS_TO_ASSIGN` / `ANTI_FIGHTER_BARRAGE_HITS` window (`hits::open_window`) before a sustain
+  or a casualty; the production window clears Argent's grant when a placement spends it
+  (`ProductionWindowClosed` observers); `announce_end` follows the notes (marks, staged events) the abilities leave when the
+  string run had nested activity.
+* Kernels: the combat kernel carries `economy.action_cards_forbidden` (Transparasteel Plating) and
+  `direct.nomad_watches_agent_exhaustion`; the reaction slot's `playable` no longer bails for a Yssaril seat.
+* The production dual no longer excludes an Argent seat (`unported_window`): Argent's agent is an ability of the table.
 
 ## 4. Ported abilities
 
 | slot | string id (`*` = the owner's faction) | notes |
 |---|---|---|
 | 1 | `technology:*:inf2:GROUND_FORCE_DESTROYED:after` | rolls a die from the dice stream, `Inf2Card` mark; the return at TURN_BEGAN is string |
+| 2 / 3 | `leader:sol:solagent:GROUND_COMBAT_ROUND_STARTED:after` / `leader:letnev:letnevagent:COMBAT_ROUND_STARTED:after` | the round agents (own, rules 16 / 17): the unit question, the `YssarilSsruuRoundAgent` mark, the exhaustion; the Ssruu copies stay string |
+| 4001 | `leader:argent:argentagent:GROUND_FORCES_BEING_PRODUCED:when` | the production window's grant mark; adjacency is an adapter fact |
+| 5 | `technology:*:it:ACTION_CARD_PLAYED:when` | Instinct Training: question, token, exhaustion, staged `STRATEGY_TOKEN_SPENT`, cancel (core tests only: no followed window emits a card play yet) |
+| 6 | `leader:*:l1z1xagent:SYSTEM_ACTIVATED:after` | I48S: question, the mech swap, exhaustion (core tests only: no window emits the activation) |
 | 100+i | `reaction:*:<EVENT>:<rel>` (one per printed window) | eligibility and offer only |
 | 3001 | `unit:*:cabal_mech:GROUND_FORCE_DESTROYED:after` | Reanimator |
 | 3002 / 3003 | `ability:*:devour:SHIP_DESTROYED:after` / `...GROUND_FORCE_DESTROYED:after` | Devour |
 | 3004 / 3005 | `unit:*:cabal_flagship:SHIP_DESTROYED:after` / `...GROUND_FORCE_DESTROYED:after` | The Terror Between (a Cabal seat; the Nekro-carried text stays string) |
 | 3006-3009 | `ability:*:devour_mark` / `devour_clear` on SPACE/GROUND_COMBAT_STARTED/ENDED | participation marks |
+| 6001 | `unit:arborec:arborec_infantry2:GROUND_FORCE_DESTROYED:after` | Letani Warrior II: the roll and the `ArborecLw2` count |
+| 7001 / 7002 | `leader:*:yinagent:SHIP_DESTROYED:after` / `...GROUND_FORCE_DESTROYED:after` | Brother Milor: 2 fighters / 2 infantry of the form the owner places (`placed_form`, checked against `placed_unit_id` for every faction) |
+| 8001 | `technology:*:so:SPACE_COMBAT_ENDED:after` | Salvage Operations' trade good (staged); the produce half is string |
+| 10 | `tech:*:sar:GROUND_FORCE_DESTROYED:after` | Self-Assembly Routines' trade good (announced through the resolver) |
+| 11-14 | `leader:*:titansagent:{HITS_TO_ASSIGN,SPACE_CANNON_HITS,GROUND_HITS_TO_ASSIGN,ANTI_FIGHTER_BARRAGE_HITS}:when` | Tellurian: exhaust, one cancellation in the round pool |
 
-Not ported (designed, not done in this package): Instinct Training and I48S (the two other S8 slots: `Spec`s with an
-`Ask::Reaction` variant each, `Unknown` for a Nekro-carried card), the tier-W faction offers (Keleres/Winnu agent, Hacan
-hero, payment-window agent, Argent agent redirect: they are `Stage::Offering` points of B3's production window, not
-reaction windows, and need the production dual to follow nested activity as `drive_with` now does for the others),
-and every other registered ability (about 270; the census names them by frequency).
+Registration order in the table (per owner, the string order of `reactions::arm`): round agents, reaction slots, Instinct
+Training, I48S, Infantry II, the faction packages (Argent, Cabal, Arborec, Yin, Mentak), then the technologies the string
+chains behind the faction hooks (Tellurian, Self-Assembly Routines).
+
+Not ported, with the reason (each is an `unported ability` bail with a test of the naming): the Ssruu copies of every
+agent; the reaction-card play (the declared plays are announced when the window closes: `ACTION_CARD_PLAYED` with its own
+windows, the effect set of B6 beyond the `Simple` stamps, the discard pile with Data Skimmer, `action_card_plays`,
+`last_action_discarded`, `ACTION_CARD_UNRESOLVED`, the staged destructions, and the "play an action card" question with
+its previews); the Empyrean flagship (Dynamo: adjacency and an influence payment); Nekro's Technological Singularity;
+Mentak's hero and Salvage Operations' produce half; Mahact's Crimson Legionnaire and its infantry II; Sardakk's mech
+(a hit assigned through the timing, with its own windows); Hacan's hero, the Keleres and Winnu agents and the payment
+window's agent (offers of B3's production window, behind `unported_window`: their faction gates stay); the promissory
+notes (Cavalry, Antivirus).
 
 ## 5. Census: the nested bails before and after
 
 `TI4_NESTED_LOG=1 dual_run tools/engine_profile/profile-20.json 20 driver=dual,invasion=dual,production=dual,leaders=dual,exploration=dual,agenda=dual`
-(the 20 golden games, 0 differences, hashes equal both times). The run prints `nested activity: N signatures, M
-runs`: 203 signatures, **736 runs** in which a string window had nested activity (a reaction window, an ability).
-Before this package every one of them was a bail; only the invasion windows said so (199 reported; the combat
-windows bailed silently).
+(the 20 golden games, gate profile). Both runs: 0 differences, hashes equal. The run prints `nested activity: N signatures,
+M runs`: 736 runs in which a string window had nested activity (a reaction window, an ability), 203 signatures before and
+204 after (the new one is the counted "no stream" bail).
 
-| window | nested bails before | after | compared before -> after |
-|---|--:|--:|---|
-| invasion::ground_round_hits | 82 | 61 | 280 -> 301 |
-| invasion::begin_ground_round | 69 | 69 | 248 -> 248 (every one is the Sol agent) |
-| invasion::commit_one | 23 | 16 | 2007 -> 2014 |
-| invasion::roll_ground_tail | 13 | 7 | 307 -> 313 |
-| invasion::bombard_step | 6 | 2 | 1371 -> 1375 |
-| invasion::space_cannon_defense | 6 | 6 | 1074 -> 1074 |
-| combat::settle | silent | 64 | 319 -> 360 |
-| combat::begin_round | silent | 61 | 151 -> 182 |
-| combat::answer | silent | 50 | 793 -> 814 |
-| combat::flow_step | silent | 41 | 1822 -> 1838 |
-| combat::barrage_step / offer_sustain / announce_end / destroy_fighters | silent | 9 / 3 / 4 / 1 | 183 -> 185 / 98 -> 101 / 195 -> 195 / 11 -> 11 |
+Stage 1 (04578c39 + the previous package, 238b6b55) -> stage 2 (this branch), nested bails (window calls that bailed with a
+`nested (...)` reason): **394 -> 264**.
 
-152 windows that bailed on nested activity before are compared now (21% of the 736 runs); every bail that remains
-is reported with the ability that causes it. Reasons, by runs, after:
+| window | compared before -> after | bailed before -> after |
+|---|---|---|
+| invasion::begin_ground_round | 248 -> 308 | 69 -> 9 (Sol agent 64 -> 0; the rest are Ssruu copies and Naaz/Dunlain gates) |
+| invasion::ground_round_hits | 301 -> 341 | 61 -> 21 (Saar 16, Yin 16, Titans 8, Arborec 1 -> 0) |
+| combat::flow_step | 1838 -> 1847 | 41 -> 20 (Transparasteel 14, Tellurian 7 -> 0) |
+| combat::begin_round | 182 -> 197 | 187 -> 169 (Transparasteel 10, Letnev agent -> followed; 24 -> 25 reaction-card plays) |
+| combat::settle | 360 -> 381 | 91 -> 76 |
+| combat::answer | 814 -> 823 | 80 -> 71 (Yin 8, Transparasteel 2) |
+| combat::announce_end | 195 -> 222 | 67 -> 37 (the notes gate lifted; Salvage Operations followed) |
+| combat::barrage_step | 185 -> 187 | 9 -> 4 |
+| invasion::commit_one | 2014 -> 2017 | 16 -> 13 |
+| ProductionWindow::step | 1040 -> 1374 | 2371 -> 2037 (an Argent seat no longer keeps the window string) |
+| production::pay_step | 703 -> 999 | 1478 -> 1182 (the same) |
+
+Reasons by runs, after (nested bails that remain, 264 in all):
 
 | runs | reason |
 |--:|---|
-| 64 | `leader:*:solagent:GROUND_COMBAT_ROUND_STARTED:after` (Sol agent, 69 with the Ssruu copies; the next port) |
-| 42 + 30 + 14 + 13 + 3 | `reaction:*:...` a card was played (COMBAT_ROUND_STARTED, HITS_TO_ASSIGN, SUSTAIN_DAMAGE_USED, UNITS_COMMITTED, ...): the play is B6's effect set |
-| 38 | Yssaril Transparasteel Plating (the faction hook is not in the core kernel the windows use) |
-| 17 | `tech:*:sar:GROUND_FORCE_DESTROYED:after` (Saar) |
-| 16 + 15 + 9 + 7 | Yin agent (and the Ssruu copy), ground forces and ships |
-| 15 + 8 | Titans agent (HITS_TO_ASSIGN, GROUND_HITS_TO_ASSIGN) |
-| 15 | `ability:*:technological_singularity_open:SPACE_COMBAT_STARTED:after` (Nekro) |
-| 14 | `unit:*:empyrean_flagship:SUSTAIN_DAMAGE_USED:after` |
-| 9 | Mentak hero |
-| rest | Mahact infantry II/Crimson Legionnaire, Sardakk, Arborec infantry II, `so` (Sol's Spec Ops), promissory notes (Cavalry, Antivirus) |
+| 43 + 30 + 14 + 13 + 7 + 7 + 5 + 4 + 3 + 2 + 1 | `reaction:*:...` a card was played (COMBAT_ROUND_STARTED, HITS_TO_ASSIGN, SUSTAIN_DAMAGE_USED, UNITS_COMMITTED, RETREAT_DECLARED, GROUND_ROLLS_MADE, ...): the play is B6's effect set and the announcement choreography |
+| 15 + 11 + 2 | Nekro Technological Singularity (open, close, ground) |
+| 14 + 1 | Empyrean flagship (Dynamo) |
+| 9 + 8 + 5 + 4 + 6 + 2 | Ssruu copies (Yin ground and ships, Solagent, Letnevagent) |
+| 9 + 6 + 1 | Mentak hero |
+| 8 | Salvage Operations' produce half (an offer; the trade good is ported) |
+| 6 + 4 + 3 | promissory notes: Cavalry, Antivirus |
+| 5 + 4 | Mahact infantry II and Crimson Legionnaire |
+| 4 + 2 | Sardakk hero and mech |
+| 3 + 1 | `Unknown`: a card cost the core does not judge; the "no stream" bail of the bombardment window (Infantry II) |
 
-Greedy order of the next ports by the runs they free (the covering of `reaction:` as a decline is already counted):
-Sol agent (+60), Argent agent in the production window (+50), Cabal done, Letnev agent (+30), Saar, Yin agent, Titans
-agent, the Nekro Technological Singularity pair.
+(The new reasons of the table are windows that used to bail before they reached the nested check, on the faction notes
+of the end announcement or the Argent seat; they are counted and named now.)
 
 ## 6. Gate (on this branch)
 
@@ -248,41 +305,19 @@ agent, the Nekro Technological Singularity pair.
 ## 7. What the next package needs to know
 
 * Adding an ability: a `Spec` in the owning crate (slot range, `Applies`, condition, effect), one `Named` line in
-  `reactions_core.rs`, a lockstep test with the string scenario; the registry-equivalence test then checks its
-  registration. A question the effect asks needs `Ask`/`Opt`/`Subtype` variants and a byte-exact renderer (the
-  trigger and the `active` detail of a window are completed by `complete_nested`).
-* The production window (`ProductionWindow::step`, `pay_step`) has its own dual (`production_window_dual.rs`) that still
-  builds an empty resolver: the Argent agent (54 runs) and the tier-W offers need `drive_with`'s nested handling there.
-* `Unknown` is the way a condition says "the core cannot answer": add a variant and its wording in `drive_with`.
+  `reactions_core.rs`, a lockstep test with the string scenario and a mutation check of each effect line; the
+  registry-equivalence test then checks its registration. A question the effect asks needs `Ask`/`Opt`/`Subtype`
+  variants and a byte-exact renderer (the trigger and the `active` detail of a window are completed by
+  `complete_nested`: say in `with_trigger_of` / `is_window_pick` which the string question carries).
+* An ability that changes state the codec only knows as text (a JSON blob mark, a staged event) needs a typed shape
+  (`Sh::RoundBonus` is the model) or a staged event the window's adapter announces (`apply_staged`).
+* A fact the core cannot compute (a galaxy, the content store) is the adapter's: `AdapterFacts` (see `with_reach`) or a
+  `Unknown` for the cases it cannot answer. Prefer a core derivation checked against the string answer by a test
+  (`the_core_placed_form_equals_the_string_placed_unit_id`).
+* The production windows follow nested activity (`production_window_dual::step`); `pay_step` still builds an empty
+  resolver, and a table with a Nomad or a Yssaril seat, a Keleres, Deepwrought, Naaz or Mentak producer or a Bastion or
+  Crimson seat still keeps the whole window in the string (`unported_window`): those are the tier-W offers.
+* The reaction-card play is the largest open item (see section 4): start with the declared path
+  (`RULES_SABOTAGE_TIMING`: spend, declare, announce in `Host::window_closed`) and the `Simple` effects of B6.
 * Event trace ids: the core numbers its events from the first id the string run used (`Recording.first_event_id`);
   an ability whose nested events skip ids in the string would show up as a trigger `event_id` difference.
-
-## 8. Resume note (stage 2, WIP)
-
-Private target dir: `/root/deploytmp/core-reactions2` (delete when the package is done). `CARGO_BUILD_JOBS=3`, one cargo run at a time.
-
-Done (compiles, `cargo check -p ti4-engine --tests` clean, NOT yet tested or mutation-checked):
-* Core: `rules/reactions/round_agent.rs` (Sol agent slot 2, Letnev agent slot 3; `Spec`s, plan/candidates, question, mark write, exhaust),
-  `rules::reactions::register_first` (registered before the reaction-card slots, as `reactions::arm` does), `Eff::read`,
-  `Unknown::NomadAgentExhaustion`, `choice::leaders::{RoundTarget, Ask::RoundAgentUnit, Opt::RoundAgentUnit, Subtype::RoundAgentUnit}`.
-* Adapter: `render/leaders.rs` (prompt, option id/label, `complete_round_agent` for details/captions), `core_sync/keys/mark_values.rs`
-  (`Sh::RoundBonus`: the JSON of `YssarilSsruuRoundAgent` as twelve typed fields, `Alt` with the blob fallback), `RoundBonus` is `pub(crate)`,
-  `reactions_core.rs` (NAMED lines, `follow(r, gs, script)` with the diplomacy bail, `anonymous`), `dual_window.rs`
-  (`with_trigger_of`: only a reaction window's own pick carries the trigger; Nomad wording).
-
-Half done / next step (in this order):
-1. Sol agent lockstep test (invasion.rs, like `the_cabal_captures_in_the_core_window_in_lockstep`: sol seat with `solagent` Readied, rules version >= 16,
-   `begin_ground_round` window with a copied round) + mutation check; registry-equivalence test already covers the registration (sol is in its factions).
-   Check the `Opt` size test (`opt_stays_small`), and that `begin_ground_unported` / `copied_round` allow the owner agent.
-2. Letnev agent: `dual_window::round_opening_unported` still bails on any Letnev agent/side; the core `BeginRound` must add `Key::RoundSeq` to the
-   `COMBAT_ROUND_STARTED` payload when a round agent listens (string `combat.rs` begin_round_string), then drop the `has_round_copy`/`has_owner_space_round_agent` gating.
-3. Then: Instinct Training + I48S slots (S8), tier-W offers (Argent agent in `production_window_dual.rs`: its dual still builds an empty resolver, use `drive_with`'s nested handling),
-   reaction-card plays, Yssaril Transparasteel, Saar, Yin/Titans agents, Nekro Technological Singularity, Empyrean flagship.
-4. Add the missing test for the silent bail "dice rolled by an ability in a window lent no stream".
-5. Census: baseline binary `/root/deploytmp/core-reactions2-dual_run.base` (built from 238b6b55); its run was started detached and writes
-   `/root/deploytmp/core-reactions2-census0.log` (empty until it ends):
-   `TI4_NESTED_LOG=1 <bin> tools/engine_profile/profile-20.json 20 driver=dual,invasion=dual,production=dual,leaders=dual,exploration=dual,agenda=dual`.
-   After: `cargo build --profile gate -p ti4-engine-core-bridge --bin dual_run`, same command, compare, update section 5 of this doc and R-bail lines in
-   `docs/ENGINE_KNOWN_ISSUES.md` (core-integration worktree, commit only that hunk).
-6. Gate (only at the end, on the final commit): `CARGO_TARGET_DIR=/root/deploytmp/core-reactions2 CARGO_BUILD_JOBS=3 RUN_AB=0 RUN_WASM=0 SKIP_AB=1 SKIP_WASM=1 tools/engine_core/verify_package.sh driver <out_dir> <base_selfplay>`
-   (profile gate; benches bench + bench-v1..v5 must be 200/200, golden dual 0 differences, board_equivalence 0 mismatches, clippy clean).
