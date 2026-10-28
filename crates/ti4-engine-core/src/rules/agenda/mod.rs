@@ -439,8 +439,11 @@ pub fn vote_question(
 
 /// 8.11, `Stage::Planets`: which planet to exhaust for `outcome`. `None` when nothing is left to exhaust, or
 /// when the vote has more outcomes than the ledger holds (the core does not express it). `must_cast`:
-/// Genetic Recombination makes the first planet not optional.
+/// Genetic Recombination makes the first planet not optional. `spender`: this voter may also exhaust for
+/// resources; `table_spends`: some seat does (Executive Order), which labels every voter's planets with the
+/// face they are exhausted for.
 #[must_use]
+#[allow(clippy::too_many_arguments)]
 pub fn planets_question(
     cx: &Cx<'_>,
     agenda: Agenda,
@@ -448,6 +451,7 @@ pub fn planets_question(
     outcome: Outcome,
     votes: i64,
     spender: bool,
+    table_spends: bool,
     choices: &[Outcome],
     counts: Counts<'_>,
     must_cast: bool,
@@ -470,7 +474,7 @@ pub fn planets_question(
     if !must_cast {
         opts.push(TopOpt::Decline);
     }
-    let ask = Ask::Planets { frame: frame(cx.core, agenda, voter), outcome, votes: votes32(votes), spender, tally };
+    let ask = Ask::Planets { frame: frame(cx.core, agenda, voter), outcome, votes: votes32(votes), spender: table_spends, tally };
     Some(question(voter, ask, Origin::Rule(Rule::R8_11), opts))
 }
 

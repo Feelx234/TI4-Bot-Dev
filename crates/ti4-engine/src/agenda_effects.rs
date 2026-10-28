@@ -456,9 +456,8 @@ pub fn resolve(
 /// written at all, and given borrowed ones from nowhere they would roll off a stream no seed
 /// covers — so a driver that has them must pass its own.
 #[allow(
-    clippy::too_many_lines,
     clippy::match_same_arms,
-    reason = "one arm per agenda: the list is the point, and splitting it hides the set; the empty arms are the availability-only laws documented beside them"
+    reason = "one arm per agenda: the list is the point; the empty arms are the availability-only laws documented beside them"
 )]
 pub fn resolve_with(
     state: &mut GameState,
@@ -469,496 +468,32 @@ pub fn resolve_with(
     ballot: &Ballot,
 ) -> Effect {
     // Every effect that touches units needs the unit catalogue, and the scope it is read under
-    // decides what a "dreadnought" is. PoK, as everywhere else in this engine.
-    let (content, sources) = (ctx.content, ctx.sources);
+    // decides what a "dreadnought" is (PoK, as everywhere else in this engine): each effect function reads
+    // both from `ctx`.
     match agenda {
-        "secret" => {
-            // Archived Secret: the elected player draws a secret objective.
-            if state.player(&PlayerId::new(outcome)).is_some() {
-                let player = PlayerId::new(outcome);
-                let _ = crate::secrets::draw(state, content, ctx.table, &player);
-            }
-        }
+        "secret" => effect_secret(state, ctx, galaxy, agenda, outcome, ballot),
         "censure" | "shard_of_the_throne" | "crown_of_emphidia" => {
-            // All three pay the elected player a point when the card arrives. Only Emphidia's
-            // transfer rule has anywhere to hook (a planet changing hands); the Shard's needs
-            // "win a combat against the owner", which combat does not report.
-            if state.player(&PlayerId::new(outcome)).is_some() {
-                adjust_victory_points(state, agenda, &PlayerId::new(outcome), 1);
-            }
+            effect_censure(state, ctx, galaxy, agenda, outcome, ballot)
         }
-        "classified" => {
-            // Classified Document Leaks: the elected secret becomes public. A law by type, but
-            // nothing standing survives it — the card is spent the instant the objective moves.
-            //
-            // Whoever already scored it keeps their point (61.8 stops anyone scoring the same
-            // objective twice); everyone else may now score it from the public area.
-            let alias = ti4_model::id::ObjectiveId::new(outcome);
-            let is_secret = content
-                .get(
-                    ti4_model::content_types::ContentType::SecretObjectives,
-                    outcome,
-                )
-                .is_some();
-            if is_secret && !state.revealed_objectives.contains(&alias) {
-                state.revealed_objectives.push(alias);
-            }
-        }
-        "execution" => {
-            // Public Execution: the elected player loses their hand and, if they are speaker,
-            // the chair. 8.16 bars them from the rest of this agenda phase, which this path
-            // cannot express — the vote session owns that.
-            let player = PlayerId::new(outcome);
-            if state.player(&player).is_none() {
-                return Effect::Resolved {
-                    agenda: agenda.to_owned(),
-                };
-            }
-            discard_hand(state, &player);
-            if state.speaker == player {
-                // The card's own note says left means clockwise.
-                let order = state.clockwise_from(&player);
-                if let Some(next) = order.get(1) {
-                    state.speaker = next.clone();
-                }
-            }
-            return Effect::Deferred {
-                agenda: agenda.to_owned(),
-                what: "8.16 bars the elected player from voting, which the session owns".to_owned(),
-            };
-        }
-        "redistribution" => {
-            // Colonial Redistribution: wipe the elected planet, then hand it to whoever is
-            // furthest behind. Several may be level, and the controller chooses between them.
-            let controller = controller_of(state, outcome);
-            let system = system_of(state, content, sources, outcome);
-            clear_planet(
-                state,
-                content,
-                sources,
-                outcome,
-                |_| true,
-                None,
-                "redistribution",
-            );
-            let (Some(controller), Some(system)) = (controller, system) else {
-                return Effect::Resolved {
-                    agenda: agenda.to_owned(),
-                };
-            };
-            let fewest = state
-                .players
-                .iter()
-                .map(|seat| seat.victory_points)
-                .min()
-                .unwrap_or(0);
-            let trailing: Vec<PlayerId> = state
-                .players
-                .iter()
-                .filter(|seat| seat.victory_points == fewest)
-                .map(|seat| seat.id.clone())
-                .collect();
-            let chosen = match trailing.as_slice() {
-                [] => None,
-                [only] => Some(only.clone()),
-                many => {
-                    let choice = crate::choice::Choice::new(
-                        controller.clone(),
-                        "which of the trailing players may settle the planet",
-                        many.iter()
-                            .map(|player| {
-                                crate::choice::ChoiceOption::labelled(
-                                    player.to_string(),
-                                    "elect",
-                                    player.to_string(),
-                                )
-                            })
-                            .collect(),
-                    )
-                    .contextualized(DecisionContext::new(
-                        controller,
-                        DecisionSource::Content("redistribution".to_owned()),
-                        "redistribution_choose_settler",
-                        state.phase,
-                        state.round,
-                    ));
-                    ctx.ask_seeing(state, &choice)
-                        .ok()
-                        .map(|answer| PlayerId::new(answer.id))
-                }
-            };
-            if let Some(chosen) = chosen {
-                let planet = ti4_model::id::PlanetId::new(outcome);
-                place_infantry(state, content, sources, &chosen, &system, &planet);
-            }
-        }
-        "artifact" => {
-            // Ixthian Artifact: the speaker rolls, and it is either a windfall or a crater.
-            if outcome != FOR {
-                return Effect::Resolved {
-                    agenda: agenda.to_owned(),
-                };
-            }
-            let roll = ctx
-                .dice
-                .roll(ctx.rng, 1, "ixthian_artifact", None)
-                .faces
-                .first()
-                .copied()
-                .unwrap_or(0);
-            if roll >= 6 {
-                return Effect::Deferred {
-                    agenda: agenda.to_owned(),
-                    what: "the windfall researches two technologies each, which needs a payer"
-                        .to_owned(),
-                };
-            }
-            // The crater: three damage to every ship in every system, which this engine
-            // models as destruction only for units that cannot sustain.
-            let types = ti4_content::units::catalogue(content, sources);
-            for board in state.board.values_mut() {
-                board.units.retain(|unit| {
-                    types
-                        .get(unit.type_id.as_str())
-                        .is_none_or(|kind| !kind.is_ship() || kind.sustain_damage())
-                });
-            }
-        }
+        "classified" => effect_classified(state, ctx, galaxy, agenda, outcome, ballot),
+        "execution" => effect_execution(state, ctx, galaxy, agenda, outcome, ballot),
+        "redistribution" => effect_redistribution(state, ctx, galaxy, agenda, outcome, ballot),
+        "artifact" => effect_artifact(state, ctx, galaxy, agenda, outcome, ballot),
         "wormhole_research" => {
-            // Wormhole Research: a technology for the brave, then the wormholes eat the fleet.
-            if outcome != FOR {
-                return Effect::Deferred {
-                    agenda: agenda.to_owned(),
-                    what: "Against voters return a command token".to_owned(),
-                };
-            }
-            let Some(galaxy) = galaxy else {
-                return Effect::Deferred {
-                    agenda: agenda.to_owned(),
-                    what: "needs the map to know which systems hold wormholes".to_owned(),
-                };
-            };
-            let systems = ti4_content::galaxy::all_systems(content, sources);
-            let types = ti4_content::units::catalogue(content, sources);
-            for id in galaxy.system_ids() {
-                let kinds = systems.get(id).map(ti4_content::galaxy::System::wormholes);
-                let alpha_or_beta =
-                    kinds.is_some_and(|holes| holes.contains("ALPHA") || holes.contains("BETA"));
-                if !alpha_or_beta {
-                    continue;
-                }
-                let system = ti4_model::id::SystemId::new(id);
-                if let Some(board) = state.board.get_mut(&system) {
-                    board.units.retain(|unit| {
-                        types
-                            .get(unit.type_id.as_str())
-                            .is_none_or(|kind| !kind.is_ship())
-                    });
-                }
-            }
-            return Effect::Deferred {
-                agenda: agenda.to_owned(),
-                what: "the technology it offers first needs a payer".to_owned(),
-            };
+            effect_wormhole_research(state, ctx, galaxy, agenda, outcome, ballot)
         }
-        "regulations" => {
-            // Against: everyone gains a fleet token. The For half is the standing cap, and
-            // belongs to `laws`.
-            if outcome == FOR {
-                return Effect::Resolved {
-                    agenda: agenda.to_owned(),
-                };
-            }
-            for player in everyone(state) {
-                state.gain_token(&player, ti4_model::state::TokenPool::Fleet, 1);
-            }
-        }
-        "sanctions" => {
-            // Against: each player discards one *random* action card — random through the
-            // seeded roller, because an unseeded pick here would break replay.
-            if outcome == FOR {
-                return Effect::Resolved {
-                    agenda: agenda.to_owned(),
-                };
-            }
-            for player in everyone(state) {
-                let held = state
-                    .player(&player)
-                    .map_or(0, |seat| seat.action_cards.len());
-                if held == 0 {
-                    continue;
-                }
-                let face = ctx
-                    .dice
-                    .roll(ctx.rng, 1, "sanctions", None)
-                    .faces
-                    .first()
-                    .copied()
-                    .unwrap_or(1) as usize;
-                if let Some(card) = crate::action_cards::discard(state, &player, face % held) {
-                    crate::action_cards::discarded(state, &player, &card, false);
-                }
-            }
-        }
-        "travel_ban" => {
-            // Against: every PDS in or beside a wormhole system is destroyed. Without a map
-            // there is no "beside", so the card cannot be applied at all.
-            if outcome == FOR {
-                return Effect::Resolved {
-                    agenda: agenda.to_owned(),
-                };
-            }
-            let Some(galaxy) = galaxy else {
-                return Effect::Deferred {
-                    agenda: agenda.to_owned(),
-                    what: "needs the map to know what is adjacent to a wormhole".to_owned(),
-                };
-            };
-            let systems = ti4_content::galaxy::all_systems(content, sources);
-            let mut exposed = std::collections::BTreeSet::new();
-            // Only the systems *on this map*. Reading every wormhole system in the corpus
-            // destroys garrisons in systems the game was never set up with.
-            for id in galaxy.system_ids() {
-                if systems
-                    .get(id)
-                    .is_none_or(|system| system.wormholes().is_empty())
-                {
-                    continue;
-                }
-                exposed.insert(id.to_owned());
-                exposed.extend(galaxy.adjacent(id).into_iter().map(ToOwned::to_owned));
-            }
-            let types = ti4_content::units::catalogue(content, sources);
-            for board in state
-                .board
-                .iter_mut()
-                .filter_map(|(id, board)| exposed.contains(id.as_str()).then_some(board))
-            {
-                for units in board.planet_units.values_mut() {
-                    units.retain(|unit| {
-                        types
-                            .get(unit.type_id.as_str())
-                            .is_none_or(|kind| kind.base_type() != "pds")
-                    });
-                }
-            }
-        }
-        "defense_act" => {
-            // Against: each player destroys one of their own PDS, and chooses which. The For
-            // half lifts a cap on PDS per planet that this engine does not enforce, so there
-            // is nothing for it to relax.
-            if outcome == FOR {
-                return Effect::Resolved {
-                    agenda: agenda.to_owned(),
-                };
-            }
-            for player in everyone(state) {
-                let held = structures_of(state, content, sources, &player, "pds");
-                let Some((system, planet, index)) = choose_structure(ctx, state, &player, &held)
-                else {
-                    continue;
-                };
-                if let Some(units) = state.system_mut(&system).planet_units.get_mut(&planet)
-                    && index < units.len()
-                {
-                    units.remove(index);
-                }
-            }
-        }
-        "shared_research" => {
-            // Against: a command token into each player's home system, if they have one.
-            if outcome == FOR {
-                return Effect::Resolved {
-                    agenda: agenda.to_owned(),
-                };
-            }
-            for player in everyone(state) {
-                let home = state.player(&player).and_then(|seat| {
-                    seat.home_system.clone().or_else(|| {
-                        ti4_content::factions::get(content, seat.faction.as_str())
-                            .and_then(|faction| faction.home_system())
-                            .map(ti4_model::id::SystemId::new)
-                    })
-                });
-                if let Some(home) = home {
-                    if state
-                        .system_mut(&home)
-                        .command_tokens
-                        .insert(player.clone())
-                    {
-                        crate::tokens::stage_command_token_placed(
-                            state,
-                            &player,
-                            &home,
-                            crate::factions::hooks_cards::TokenPool::Reinforcements,
-                        );
-                    }
-                }
-            }
-        }
-        "miscount" => {
-            // Miscount Disclosed: the elected law comes off the table. The oracle then puts it
-            // to an immediate re-vote; this repeals it, which is the half that changes state.
-            // Re-opening a vote from inside an effect needs the agenda window, not this path.
-            if !state.laws.contains_key(outcome) {
-                return Effect::Resolved {
-                    agenda: agenda.to_owned(),
-                };
-            }
-            crate::laws::repeal(state, outcome);
-            return Effect::Deferred {
-                agenda: agenda.to_owned(),
-                what: "the elected law is repealed, but the re-vote needs the agenda window"
-                    .to_owned(),
-            };
-        }
-        "disarmament" => {
-            // The elected planet's ground forces are bought out, and its controller is paid for
-            // them — so a planet nobody controls destroys its garrison for nothing.
-            let controller = controller_of(state, outcome);
-            let destroyed = clear_planet(
-                state,
-                content,
-                sources,
-                outcome,
-                |base| matches!(base, "infantry" | "mech"),
-                None,
-                "disarmament",
-            );
-            if let Some(controller) = controller
-                && destroyed > 0
-                && let Some(seat) = state.player_mut(&controller)
-            {
-                seat.trade_goods += i32::try_from(destroyed).unwrap_or(i32::MAX);
-                crate::supply::note_trade_goods_gained(
-                    state,
-                    &controller,
-                    i32::try_from(destroyed).unwrap_or(i32::MAX),
-                    "agenda",
-                );
-            }
-        }
-        "plowshares" => {
-            // For: half of everyone's infantry, rounded *up*, bought back as trade goods.
-            // Rounding down would leave a lone infantry standing, which the card does not.
-            //
-            // Against is the opposite card: everyone *arms*, one infantry per planet held. An
-            // effect that did nothing on Against would make voting it down free, when it is the
-            // half that puts troops on the board.
-            if outcome != FOR {
-                for player in everyone(state) {
-                    let held: Vec<(ti4_model::id::SystemId, ti4_model::id::PlanetId)> = state
-                        .controlled_planets(&player)
-                        .into_iter()
-                        .map(|(system, planet)| (system.clone(), planet.clone()))
-                        .collect();
-                    for (system, planet) in held {
-                        place_infantry(state, content, sources, &player, &system, &planet);
-                    }
-                }
-                return Effect::Resolved {
-                    agenda: agenda.to_owned(),
-                };
-            }
-            for player in everyone(state) {
-                let mut destroyed = 0;
-                let held_planets: Vec<(ti4_model::id::SystemId, ti4_model::id::PlanetId)> = state
-                    .controlled_planets(&player)
-                    .into_iter()
-                    .map(|(system, planet)| (system.clone(), planet.clone()))
-                    .collect();
-                for (system, planet) in held_planets {
-                    let types = ti4_content::units::catalogue(content, sources);
-                    let held: Vec<usize> = state
-                        .system_state(&system)
-                        .planet_units
-                        .get(&planet)
-                        .map(|units| {
-                            units
-                                .iter()
-                                .enumerate()
-                                .filter(|(_, unit)| {
-                                    unit.owner == player
-                                        && types
-                                            .get(unit.type_id.as_str())
-                                            .is_some_and(|kind| kind.base_type() == "infantry")
-                                })
-                                .map(|(index, _)| index)
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    let losses = held.len().div_ceil(2);
-                    let mut fallen: Vec<ti4_model::units::Unit> = Vec::new();
-                    if let Some(units) = state.system_mut(&system).planet_units.get_mut(&planet) {
-                        for index in held.into_iter().take(losses).rev() {
-                            fallen.push(units.remove(index));
-                        }
-                    }
-                    // Staged in the order they fell (highest index first, as removed).
-                    for unit in &fallen {
-                        crate::factions::hooks_ground::stage_ground_force_destroyed(
-                            state,
-                            &system,
-                            &planet,
-                            unit,
-                            "agenda:plowshares",
-                        );
-                    }
-                    destroyed += losses;
-                }
-                if let Some(seat) = state.player_mut(&player) {
-                    seat.trade_goods += i32::try_from(destroyed).unwrap_or(i32::MAX);
-                }
-                crate::supply::note_trade_goods_gained(
-                    state,
-                    &player,
-                    i32::try_from(destroyed).unwrap_or(i32::MAX),
-                    "agenda",
-                );
-            }
-        }
-        "arms_reduction" => {
-            if outcome != FOR {
-                // Against exhausts planets with a technology specialty, which needs an exhaust
-                // this effect cannot ask for. Deferred rather than silently skipped.
-                return Effect::Deferred {
-                    agenda: agenda.to_owned(),
-                    what: "exhaust planets with a technology specialty".to_owned(),
-                };
-            }
-            for player in everyone(state) {
-                cull_ships(state, content, sources, &player, "dreadnought", 2);
-                cull_ships(state, content, sources, &player, "cruiser", 4);
-            }
-        }
-        "conventions" => {
-            // Against: everyone who voted Against loses their hand. Voting for a law that
-            // fails costs nothing; voting against one that fails costs everything.
-            if outcome == FOR {
-                return Effect::Resolved {
-                    agenda: agenda.to_owned(),
-                };
-            }
-            for player in ballot.voted_for(AGAINST) {
-                discard_hand(state, &player);
-            }
-        }
-        "schematics" => {
-            if outcome == FOR {
-                return Effect::Resolved {
-                    agenda: agenda.to_owned(),
-                };
-            }
-            for player in everyone(state) {
-                if owns_a_war_sun_technology(state, content, &player) {
-                    discard_hand(state, &player);
-                }
-            }
-        }
-        "conscription" => {
-            // Against does nothing. The For half is a standing rule and belongs to `laws`,
-            // which is why this arm exists at all: an agenda with no arm is *unavailable*.
-        }
+        "regulations" => effect_regulations(state, ctx, galaxy, agenda, outcome, ballot),
+        "sanctions" => effect_sanctions(state, ctx, galaxy, agenda, outcome, ballot),
+        "travel_ban" => effect_travel_ban(state, ctx, galaxy, agenda, outcome, ballot),
+        "defense_act" => effect_defense_act(state, ctx, galaxy, agenda, outcome, ballot),
+        "shared_research" => effect_shared_research(state, ctx, galaxy, agenda, outcome, ballot),
+        "miscount" => effect_miscount(state, ctx, galaxy, agenda, outcome, ballot),
+        "disarmament" => effect_disarmament(state, ctx, galaxy, agenda, outcome, ballot),
+        "plowshares" => effect_plowshares(state, ctx, galaxy, agenda, outcome, ballot),
+        "arms_reduction" => effect_arms_reduction(state, ctx, galaxy, agenda, outcome, ballot),
+        "conventions" => effect_conventions(state, ctx, galaxy, agenda, outcome, ballot),
+        "schematics" => effect_schematics(state, ctx, galaxy, agenda, outcome, ballot),
+        "conscription" => effect_conscription(state, ctx, galaxy, agenda, outcome, ballot),
         // Five more of the same shape: the card does nothing when it passes, and everything
         // afterwards. Each is enforced in `laws` -- the attachment changes what a planet is worth,
         // the Research Teams waive a prerequisite, Representative Government flattens the vote.
@@ -968,11 +503,15 @@ pub fn resolve_with(
         | "rt_propulsion"
         | "rt_warfare"
         | "senate_sanctuary"
-        | "terraforming_initiative" => {}
+        | "terraforming_initiative" => Effect::Resolved {
+            agenda: agenda.to_owned(),
+        },
         // Ministries: the card does nothing when it passes and everything afterwards, so the arm
         // exists only to make the agenda available. Articles of War is the same shape -- its For
         // half is a standing rule, and its Against half pays the players who voted For.
-        "minister_exploration" | "minister_policy" => {}
+        "minister_exploration" | "minister_policy" => Effect::Resolved {
+            agenda: agenda.to_owned(),
+        },
         // Availability-only arms. Each of these laws is a standing rule owned by the subsystem
         // that runs it, so closing the vote records the outcome and nothing else:
         // - Committee, the seven Ministers, Prophecy of Kings and the Crown of Thalnos are
@@ -989,411 +528,1458 @@ pub fn resolve_with(
         // then clockwise. The clause about command tokens "placed by the ability" has nothing to
         // apply to: no secondary this engine resolves places a command token.
         "crisis" if state.rules_version >= ti4_model::state::RULES_CRISIS_PACT => {
-            let card = ti4_model::id::StrategyCardId::new(outcome);
-            if state.card_initiative.contains_key(&card) {
-                for player in state.clockwise_from(&state.speaker) {
-                    let Some(choice) = crate::strategy::crisis_pact_choice(
-                        state, content, sources, &card, &player,
-                    ) else {
-                        continue;
-                    };
-                    let Ok(answer) = ctx.ask_seeing(state, &choice) else {
-                        continue;
-                    };
-                    if crate::strategy::crisis_pact_accepted(&answer) {
-                        let _ = crate::strategy_cards::secondary(
-                            state,
-                            content,
-                            sources,
-                            galaxy,
-                            ctx.table,
-                            &player,
-                            card.as_str(),
-                        );
-                    }
-                }
-            }
+            effect_crisis(state, ctx, galaxy, agenda, outcome, ballot)
         }
         "committee" | "arbiter" | "minister_commerce" | "minister_industry" | "minister_peace"
         | "minister_sciences" | "minister_war" | "prophecy" | "crown_of_thalnos" | "checks"
-        | "covert" | "crisis" => {}
-        "articles_war" => {
-            if outcome == AGAINST {
-                for player in ballot.voted_for(FOR) {
-                    if let Some(seat) = state.player_mut(&player) {
-                        seat.trade_goods += 3;
-                    }
-                    crate::supply::note_trade_goods_gained(state, &player, 3, "agenda");
-                }
-            }
+        | "covert" | "crisis" => Effect::Resolved {
+            agenda: agenda.to_owned(),
+        },
+        "articles_war" => effect_articles_war(state, ctx, galaxy, agenda, outcome, ballot),
+        "nexus" => effect_nexus(state, ctx, galaxy, agenda, outcome, ballot),
+        "warrant" => effect_warrant(state, ctx, galaxy, agenda, outcome, ballot),
+        "grant_reallocation" => {
+            effect_grant_reallocation(state, ctx, galaxy, agenda, outcome, ballot)
         }
-        "nexus" => {
-            // For is a standing rule about the wormhole nexus. Against places a gamma wormhole in
-            // Mecatol Rex -- gamma, so neither wormhole law touches it: both name alpha and beta.
-            if outcome == AGAINST {
-                state.wormhole_tokens.insert(
-                    "GAMMA".to_owned(),
-                    ti4_model::id::SystemId::new(crate::seating::mecatol_on(state)),
+        "standardization" => effect_standardization(state, ctx, galaxy, agenda, outcome, ballot),
+        "cladenstine" => effect_cladenstine(state, ctx, galaxy, agenda, outcome, ballot),
+        "rearmament" => effect_rearmament(state, ctx, galaxy, agenda, outcome, ballot),
+        "minister_antiquities" => {
+            effect_minister_antiquities(state, ctx, galaxy, agenda, outcome, ballot)
+        }
+        "core_mining" => effect_core_mining(state, ctx, galaxy, agenda, outcome, ballot),
+        "demilitarized_zone" => {
+            effect_demilitarized_zone(state, ctx, galaxy, agenda, outcome, ballot)
+        }
+        "holy_planet_of_ixth" => {
+            effect_holy_planet_of_ixth(state, ctx, galaxy, agenda, outcome, ballot)
+        }
+        "wormhole_recon" => effect_wormhole_recon(state, ctx, galaxy, agenda, outcome, ballot),
+        "revolution" | "representative_government" => {
+            effect_revolution(state, ctx, galaxy, agenda, outcome, ballot)
+        }
+        "economic_equality" => {
+            effect_economic_equality(state, ctx, galaxy, agenda, outcome, ballot)
+        }
+        "mutiny" => effect_mutiny(state, ctx, galaxy, agenda, outcome, ballot),
+        "seed_empire" => effect_seed_empire(state, ctx, galaxy, agenda, outcome, ballot),
+        "abolishment" => effect_abolishment(state, ctx, galaxy, agenda, outcome, ballot),
+        "constitution" => effect_constitution(state, ctx, galaxy, agenda, outcome, ballot),
+        "unconventional" => effect_unconventional(state, ctx, galaxy, agenda, outcome, ballot),
+        "incentive" => effect_incentive(state, ctx, galaxy, agenda, outcome, ballot),
+        _ => Effect::Unresolved {
+            agenda: agenda.to_owned(),
+        },
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_secret(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // Archived Secret: the elected player draws a secret objective.
+    if state.player(&PlayerId::new(outcome)).is_some() {
+        let player = PlayerId::new(outcome);
+        let _ = crate::secrets::draw(state, content, ctx.table, &player);
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_censure(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // All three pay the elected player a point when the card arrives. Only Emphidia's
+    // transfer rule has anywhere to hook (a planet changing hands); the Shard's needs
+    // "win a combat against the owner", which combat does not report.
+    if state.player(&PlayerId::new(outcome)).is_some() {
+        adjust_victory_points(state, agenda, &PlayerId::new(outcome), 1);
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_classified(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // Classified Document Leaks: the elected secret becomes public. A law by type, but
+    // nothing standing survives it — the card is spent the instant the objective moves.
+    //
+    // Whoever already scored it keeps their point (61.8 stops anyone scoring the same
+    // objective twice); everyone else may now score it from the public area.
+    let alias = ti4_model::id::ObjectiveId::new(outcome);
+    let is_secret = content
+        .get(
+            ti4_model::content_types::ContentType::SecretObjectives,
+            outcome,
+        )
+        .is_some();
+    if is_secret && !state.revealed_objectives.contains(&alias) {
+        state.revealed_objectives.push(alias);
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_execution(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // Public Execution: the elected player loses their hand and, if they are speaker,
+    // the chair. 8.16 bars them from the rest of this agenda phase, which this path
+    // cannot express — the vote session owns that.
+    let player = PlayerId::new(outcome);
+    if state.player(&player).is_none() {
+        return Effect::Resolved {
+            agenda: agenda.to_owned(),
+        };
+    }
+    discard_hand(state, &player);
+    if state.speaker == player {
+        // The card's own note says left means clockwise.
+        let order = state.clockwise_from(&player);
+        if let Some(next) = order.get(1) {
+            state.speaker = next.clone();
+        }
+    }
+    return Effect::Deferred {
+        agenda: agenda.to_owned(),
+        what: "8.16 bars the elected player from voting, which the session owns".to_owned(),
+    };
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_redistribution(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // Colonial Redistribution: wipe the elected planet, then hand it to whoever is
+    // furthest behind. Several may be level, and the controller chooses between them.
+    let controller = controller_of(state, outcome);
+    let system = system_of(state, content, sources, outcome);
+    clear_planet(
+        state,
+        content,
+        sources,
+        outcome,
+        |_| true,
+        None,
+        "redistribution",
+    );
+    let (Some(controller), Some(system)) = (controller, system) else {
+        return Effect::Resolved {
+            agenda: agenda.to_owned(),
+        };
+    };
+    let fewest = state
+        .players
+        .iter()
+        .map(|seat| seat.victory_points)
+        .min()
+        .unwrap_or(0);
+    let trailing: Vec<PlayerId> = state
+        .players
+        .iter()
+        .filter(|seat| seat.victory_points == fewest)
+        .map(|seat| seat.id.clone())
+        .collect();
+    let chosen = match trailing.as_slice() {
+        [] => None,
+        [only] => Some(only.clone()),
+        many => {
+            let choice = crate::choice::Choice::new(
+                controller.clone(),
+                "which of the trailing players may settle the planet",
+                many.iter()
+                    .map(|player| {
+                        crate::choice::ChoiceOption::labelled(
+                            player.to_string(),
+                            "elect",
+                            player.to_string(),
+                        )
+                    })
+                    .collect(),
+            )
+            .contextualized(DecisionContext::new(
+                controller,
+                DecisionSource::Content("redistribution".to_owned()),
+                "redistribution_choose_settler",
+                state.phase,
+                state.round,
+            ));
+            ctx.ask_seeing(state, &choice)
+                .ok()
+                .map(|answer| PlayerId::new(answer.id))
+        }
+    };
+    if let Some(chosen) = chosen {
+        let planet = ti4_model::id::PlanetId::new(outcome);
+        place_infantry(state, content, sources, &chosen, &system, &planet);
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_artifact(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // Ixthian Artifact: the speaker rolls, and it is either a windfall or a crater.
+    if outcome != FOR {
+        return Effect::Resolved {
+            agenda: agenda.to_owned(),
+        };
+    }
+    let roll = ctx
+        .dice
+        .roll(ctx.rng, 1, "ixthian_artifact", None)
+        .faces
+        .first()
+        .copied()
+        .unwrap_or(0);
+    if roll >= 6 {
+        return Effect::Deferred {
+            agenda: agenda.to_owned(),
+            what: "the windfall researches two technologies each, which needs a payer".to_owned(),
+        };
+    }
+    // The crater: three damage to every ship in every system, which this engine
+    // models as destruction only for units that cannot sustain.
+    let types = ti4_content::units::catalogue(content, sources);
+    for board in state.board.values_mut() {
+        board.units.retain(|unit| {
+            types
+                .get(unit.type_id.as_str())
+                .is_none_or(|kind| !kind.is_ship() || kind.sustain_damage())
+        });
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_wormhole_research(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // Wormhole Research: a technology for the brave, then the wormholes eat the fleet.
+    if outcome != FOR {
+        return Effect::Deferred {
+            agenda: agenda.to_owned(),
+            what: "Against voters return a command token".to_owned(),
+        };
+    }
+    let Some(galaxy) = galaxy else {
+        return Effect::Deferred {
+            agenda: agenda.to_owned(),
+            what: "needs the map to know which systems hold wormholes".to_owned(),
+        };
+    };
+    let systems = ti4_content::galaxy::all_systems(content, sources);
+    let types = ti4_content::units::catalogue(content, sources);
+    for id in galaxy.system_ids() {
+        let kinds = systems.get(id).map(ti4_content::galaxy::System::wormholes);
+        let alpha_or_beta =
+            kinds.is_some_and(|holes| holes.contains("ALPHA") || holes.contains("BETA"));
+        if !alpha_or_beta {
+            continue;
+        }
+        let system = ti4_model::id::SystemId::new(id);
+        if let Some(board) = state.board.get_mut(&system) {
+            board.units.retain(|unit| {
+                types
+                    .get(unit.type_id.as_str())
+                    .is_none_or(|kind| !kind.is_ship())
+            });
+        }
+    }
+    return Effect::Deferred {
+        agenda: agenda.to_owned(),
+        what: "the technology it offers first needs a payer".to_owned(),
+    };
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_regulations(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // Against: everyone gains a fleet token. The For half is the standing cap, and
+    // belongs to `laws`.
+    if outcome == FOR {
+        return Effect::Resolved {
+            agenda: agenda.to_owned(),
+        };
+    }
+    for player in everyone(state) {
+        state.gain_token(&player, ti4_model::state::TokenPool::Fleet, 1);
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_sanctions(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // Against: each player discards one *random* action card — random through the
+    // seeded roller, because an unseeded pick here would break replay.
+    if outcome == FOR {
+        return Effect::Resolved {
+            agenda: agenda.to_owned(),
+        };
+    }
+    for player in everyone(state) {
+        let held = state
+            .player(&player)
+            .map_or(0, |seat| seat.action_cards.len());
+        if held == 0 {
+            continue;
+        }
+        let face = ctx
+            .dice
+            .roll(ctx.rng, 1, "sanctions", None)
+            .faces
+            .first()
+            .copied()
+            .unwrap_or(1) as usize;
+        if let Some(card) = crate::action_cards::discard(state, &player, face % held) {
+            crate::action_cards::discarded(state, &player, &card, false);
+        }
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_travel_ban(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // Against: every PDS in or beside a wormhole system is destroyed. Without a map
+    // there is no "beside", so the card cannot be applied at all.
+    if outcome == FOR {
+        return Effect::Resolved {
+            agenda: agenda.to_owned(),
+        };
+    }
+    let Some(galaxy) = galaxy else {
+        return Effect::Deferred {
+            agenda: agenda.to_owned(),
+            what: "needs the map to know what is adjacent to a wormhole".to_owned(),
+        };
+    };
+    let systems = ti4_content::galaxy::all_systems(content, sources);
+    let mut exposed = std::collections::BTreeSet::new();
+    // Only the systems *on this map*. Reading every wormhole system in the corpus
+    // destroys garrisons in systems the game was never set up with.
+    for id in galaxy.system_ids() {
+        if systems
+            .get(id)
+            .is_none_or(|system| system.wormholes().is_empty())
+        {
+            continue;
+        }
+        exposed.insert(id.to_owned());
+        exposed.extend(galaxy.adjacent(id).into_iter().map(ToOwned::to_owned));
+    }
+    let types = ti4_content::units::catalogue(content, sources);
+    for board in state
+        .board
+        .iter_mut()
+        .filter_map(|(id, board)| exposed.contains(id.as_str()).then_some(board))
+    {
+        for units in board.planet_units.values_mut() {
+            units.retain(|unit| {
+                types
+                    .get(unit.type_id.as_str())
+                    .is_none_or(|kind| kind.base_type() != "pds")
+            });
+        }
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_defense_act(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // Against: each player destroys one of their own PDS, and chooses which. The For
+    // half lifts a cap on PDS per planet that this engine does not enforce, so there
+    // is nothing for it to relax.
+    if outcome == FOR {
+        return Effect::Resolved {
+            agenda: agenda.to_owned(),
+        };
+    }
+    for player in everyone(state) {
+        let held = structures_of(state, content, sources, &player, "pds");
+        let Some((system, planet, index)) = choose_structure(ctx, state, &player, &held) else {
+            continue;
+        };
+        if let Some(units) = state.system_mut(&system).planet_units.get_mut(&planet)
+            && index < units.len()
+        {
+            units.remove(index);
+        }
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_shared_research(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // Against: a command token into each player's home system, if they have one.
+    if outcome == FOR {
+        return Effect::Resolved {
+            agenda: agenda.to_owned(),
+        };
+    }
+    for player in everyone(state) {
+        let home = state.player(&player).and_then(|seat| {
+            seat.home_system.clone().or_else(|| {
+                ti4_content::factions::get(content, seat.faction.as_str())
+                    .and_then(|faction| faction.home_system())
+                    .map(ti4_model::id::SystemId::new)
+            })
+        });
+        if let Some(home) = home {
+            if state
+                .system_mut(&home)
+                .command_tokens
+                .insert(player.clone())
+            {
+                crate::tokens::stage_command_token_placed(
+                    state,
+                    &player,
+                    &home,
+                    crate::factions::hooks_cards::TokenPool::Reinforcements,
                 );
             }
         }
-        "warrant" => {
-            // "draws 2 secret objectives". The revealed-hand half is information, not mechanics,
-            // and needs no state: nothing in this engine hides a hand from a decider.
-            let elected = PlayerId::new(outcome);
-            if state.player(&elected).is_some() {
-                let mut table = crate::choice::Table::new();
-                for _ in 0..2 {
-                    let _ = crate::secrets::draw(state, content, &mut table, &elected);
-                }
-            }
-        }
-        "grant_reallocation" => {
-            // "gains any 1 technology of their choice. Then, for each prerequisite on that
-            // technology, they remove 1 token from their fleet pool and return it to their
-            // reinforcements."
-            let elected = PlayerId::new(outcome);
-            if state.player(&elected).is_none() {
-                return Effect::Resolved {
-                    agenda: agenda.to_owned(),
-                };
-            }
-            if state.rules_version < ti4_model::state::RULES_AGENDA_GRANT_REVEAL {
-                // Before rules version 14 no technology was granted and a single fleet token was
-                // removed whatever it would have cost.
-                if let Some(seat) = state.player_mut(&elected) {
-                    seat.spend_token(ti4_model::state::TokenPool::Fleet);
-                }
-            } else if let Some(chosen) = crate::relics::ask_technology(
-                state,
-                content,
-                sources,
-                ctx.table,
-                galaxy,
-                &elected,
-                None,
-                "grant_reallocation",
-                false,
-            ) {
-                // Gained, not researched: no prerequisites needed, nothing that fires on research.
-                crate::technology::gain(state, content, sources, &elected, &chosen);
-                let cost: usize = crate::technology::prerequisites(content, &chosen)
-                    .values()
-                    .sum();
-                if let Some(seat) = state.player_mut(&elected) {
-                    for _ in 0..cost {
-                        seat.spend_token(ti4_model::state::TokenPool::Fleet);
-                    }
-                }
-            }
-        }
-        "standardization" => {
-            // "so that they have 3 in tactic, 3 in fleet, and 2 in strategy" -- a target, not a
-            // gain. A seat already above a target keeps what it has: the card says place tokens
-            // from reinforcements, and there is no clause taking any away.
-            let elected = PlayerId::new(outcome);
-            if let Some(seat) = state.player_mut(&elected) {
-                for (pool, target) in [
-                    (ti4_model::state::TokenPool::Tactic, 3),
-                    (ti4_model::state::TokenPool::Fleet, 3),
-                    (ti4_model::state::TokenPool::Strategic, 2),
-                ] {
-                    let short = target - seat.tokens(pool);
-                    if short > 0 {
-                        // Uncapped: this agenda restores a *starting* spread rather than granting
-                        // new plastic, and the tokens it puts back came off the same sheet.
-                        seat.gain_token_uncapped(pool, short);
-                    }
-                }
-            }
-        }
-        "cladenstine" => {
-            // For: two tokens off the command sheet, the player's choice of pools. Against: one
-            // specifically from the fleet pool. Taken from the fullest pool first, so a seat is
-            // never asked to pay from an empty one while another is stocked.
-            if outcome == FOR {
-                for player in everyone(state) {
-                    for _ in 0..2 {
-                        let Some(seat) = state.player(&player) else {
-                            continue;
-                        };
-                        let fullest = ti4_model::state::TokenPool::ALL
-                            .into_iter()
-                            .max_by_key(|pool| seat.tokens(*pool));
-                        if let Some(pool) = fullest
-                            && let Some(seat) = state.player_mut(&player)
-                        {
-                            seat.spend_token(pool);
-                        }
-                    }
-                }
-            } else {
-                for player in everyone(state) {
-                    if let Some(seat) = state.player_mut(&player) {
-                        seat.spend_token(ti4_model::state::TokenPool::Fleet);
-                    }
-                }
-            }
-        }
-        "rearmament" => {
-            // For: a mech onto a home planet. Against: every mech becomes an infantry.
-            if outcome == FOR {
-                for player in everyone(state) {
-                    let home: Option<(ti4_model::id::SystemId, ti4_model::id::PlanetId)> = state
-                        .controlled_planets(&player)
-                        .into_iter()
-                        .find(|(system, _)| {
-                            // The seat's home first: Creuss's home (51) is not the tile its
-                            // faction record names (the Creuss Gate, 17).
-                            state.player(&player).is_some_and(|seat| {
-                                seat.home_system.as_ref().map_or_else(
-                                    || {
-                                        ti4_content::factions::get(content, seat.faction.as_str())
-                                            .and_then(|faction| faction.home_system())
-                                            .is_some_and(|home| home == system.as_str())
-                                    },
-                                    |home| home == *system,
-                                )
-                            })
-                        })
-                        .map(|(system, planet)| (system.clone(), planet.clone()));
-                    if let Some((system, planet)) = home {
-                        // Preserve existing seats' unit identity and agenda behavior. Naaz's
-                        // printed Maximum forbids new mechs and its fourth Eidolon opens Synergy.
-                        let naaz = state
-                            .player(&player)
-                            .is_some_and(|seat| seat.faction.as_str() == "naaz");
-                        let mech =
-                            ti4_model::id::UnitTypeId::new(if naaz { "naaz_mech" } else { "mech" });
-                        if crate::factions::hooks_economy::effect_placement_forbidden(
-                            state, content, sources, &player, &mech,
-                        ) || (naaz
-                            && crate::supply::allowed(state, content, sources, &player, &mech, 1)
-                                == 0)
-                        {
-                            continue;
-                        }
-                        state
-                            .system_mut(&system)
-                            .planet_units
-                            .entry(planet)
-                            .or_default()
-                            .push(ti4_model::units::Unit::new(mech, player.clone()));
-                        if naaz {
-                            crate::supply::stage_event(
-                                state,
-                                "NAAZ_MECH_PLACED",
-                                &[
-                                    ("player".to_owned(), player.to_string().into()),
-                                    ("system".to_owned(), system.to_string().into()),
-                                ]
-                                .into(),
-                            );
-                        }
-                    }
-                }
-            } else {
-                let types =
-                    ti4_content::units::catalogue(content, ti4_model::content_types::DEFAULT);
-                for record in state.board.values_mut() {
-                    for units in record.planet_units.values_mut() {
-                        for unit in units.iter_mut() {
-                            if types
-                                .get(unit.type_id.as_str())
-                                .is_some_and(|kind| kind.base_type() == "mech")
-                            {
-                                unit.type_id = ti4_model::id::UnitTypeId::new("infantry");
-                                unit.sustained_damage = false;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        "minister_antiquities" => {
-            let elected = PlayerId::new(outcome);
-            crate::relics::gain(state, &elected);
-        }
-        "core_mining" => {
-            // An infantry pays for the seam. The planet's +2 resources is the law itself.
-            clear_planet(
-                state,
-                content,
-                sources,
-                outcome,
-                |base| base == "infantry",
-                Some(1),
-                "core_mining",
-            );
-        }
-        "demilitarized_zone" => {
-            // Everything on the planet dies; the standing ban is the law.
-            clear_planet(
-                state,
-                content,
-                sources,
-                outcome,
-                |_| true,
-                None,
-                "demilitarized_zone",
-            );
-        }
-        "holy_planet_of_ixth" => {
-            if let Some(controller) = controller_of(state, outcome) {
-                adjust_victory_points(state, agenda, &controller, 1);
-            }
-        }
-        "wormhole_recon" => {
-            // Against: a command token in each wormhole system holding one of your ships.
-            if outcome == FOR {
-                return Effect::Resolved {
-                    agenda: agenda.to_owned(),
-                };
-            }
-            let systems = ti4_content::galaxy::all_systems(content, sources);
-            for (id, board) in state.board.clone() {
-                let has_wormhole = systems
-                    .get(id.as_str())
-                    .is_some_and(|system| !system.wormholes().is_empty());
-                if !has_wormhole {
-                    continue;
-                }
-                for player in everyone(state) {
-                    if !board.units_of(&player).is_empty() {
-                        if state.system_mut(&id).command_tokens.insert(player.clone()) {
-                            crate::tokens::stage_command_token_placed(
-                                state,
-                                &player,
-                                &id,
-                                crate::factions::hooks_cards::TokenPool::Reinforcements,
-                            );
-                        }
-                    }
-                }
-            }
-        }
-        "revolution" | "representative_government" => {
-            // Both Against halves exhaust planets by a rule this effect cannot ask for.
-            if outcome == FOR {
-                return Effect::Resolved {
-                    agenda: agenda.to_owned(),
-                };
-            }
-            return Effect::Deferred {
-                agenda: agenda.to_owned(),
-                what: "Against voters exhaust planets".to_owned(),
-            };
-        }
-        "economic_equality" => {
-            // Everyone's trade goods go back to the supply first, then For pays five each.
-            // Doing it in that order matters: on Against, the card is purely destructive.
-            for player in everyone(state) {
-                if let Some(seat) = state.player_mut(&player) {
-                    seat.trade_goods = 0;
-                }
-            }
-            if outcome == FOR {
-                for player in everyone(state) {
-                    if let Some(seat) = state.player_mut(&player) {
-                        seat.trade_goods += 5;
-                    }
-                    crate::supply::note_trade_goods_gained(state, &player, 5, "agenda");
-                }
-            }
-        }
-        "mutiny" => {
-            // Those who voted For gain a point on For, and lose one on Against. Read from the
-            // ballot, not from the outcome: who voted which way is the whole card.
-            let delta = if outcome == FOR { 1 } else { -1 };
-            for player in ballot.voted_for(FOR) {
-                adjust_victory_points(state, agenda, &player, delta);
-            }
-        }
-        "seed_empire" => {
-            let mut points: Vec<(PlayerId, i32)> = state
-                .players
-                .iter()
-                .map(|seat| (seat.id.clone(), seat.victory_points))
-                .collect();
-            if points.is_empty() {
-                return Effect::Resolved {
-                    agenda: agenda.to_owned(),
-                };
-            }
-            points.sort_by(|a, b| a.0.cmp(&b.0));
-            let target = if outcome == FOR {
-                points.iter().map(|(_, n)| *n).max()
-            } else {
-                points.iter().map(|(_, n)| *n).min()
-            };
-            let Some(target) = target else {
-                return Effect::Resolved {
-                    agenda: agenda.to_owned(),
-                };
-            };
-            let tied: Vec<PlayerId> = points
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_miscount(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // Miscount Disclosed: the elected law comes off the table. The oracle then puts it
+    // to an immediate re-vote; this repeals it, which is the half that changes state.
+    // Re-opening a vote from inside an effect needs the agenda window, not this path.
+    if !state.laws.contains_key(outcome) {
+        return Effect::Resolved {
+            agenda: agenda.to_owned(),
+        };
+    }
+    crate::laws::repeal(state, outcome);
+    return Effect::Deferred {
+        agenda: agenda.to_owned(),
+        what: "the elected law is repealed, but the re-vote needs the agenda window".to_owned(),
+    };
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_disarmament(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // The elected planet's ground forces are bought out, and its controller is paid for
+    // them — so a planet nobody controls destroys its garrison for nothing.
+    let controller = controller_of(state, outcome);
+    let destroyed = clear_planet(
+        state,
+        content,
+        sources,
+        outcome,
+        |base| matches!(base, "infantry" | "mech"),
+        None,
+        "disarmament",
+    );
+    if let Some(controller) = controller
+        && destroyed > 0
+        && let Some(seat) = state.player_mut(&controller)
+    {
+        seat.trade_goods += i32::try_from(destroyed).unwrap_or(i32::MAX);
+        crate::supply::note_trade_goods_gained(
+            state,
+            &controller,
+            i32::try_from(destroyed).unwrap_or(i32::MAX),
+            "agenda",
+        );
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_plowshares(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // For: half of everyone's infantry, rounded *up*, bought back as trade goods.
+    // Rounding down would leave a lone infantry standing, which the card does not.
+    //
+    // Against is the opposite card: everyone *arms*, one infantry per planet held. An
+    // effect that did nothing on Against would make voting it down free, when it is the
+    // half that puts troops on the board.
+    if outcome != FOR {
+        for player in everyone(state) {
+            let held: Vec<(ti4_model::id::SystemId, ti4_model::id::PlanetId)> = state
+                .controlled_planets(&player)
                 .into_iter()
-                .filter(|(_, n)| *n == target)
-                .map(|(player, _)| player)
+                .map(|(system, planet)| (system.clone(), planet.clone()))
                 .collect();
-            let winner = match tied.as_slice() {
-                [only] => Some(only.clone()),
-                // 8.18 makes resolving the outcome the speaker's job, so a tie where the card
-                // names one player is a decision rather than a guess at an unwritten rule.
-                _ => ask_the_speaker(state, ctx, &tied),
-            };
-            if let Some(winner) = winner {
-                adjust_victory_points(state, agenda, &winner, 1);
+            for (system, planet) in held {
+                place_infantry(state, content, sources, &player, &system, &planet);
             }
         }
-        "abolishment" => {
-            // Judicial Abolishment discards the *elected law*, so the outcome names a law
-            // rather than For/Against. A repeal that ignored the outcome would discard
-            // whatever happened to be first.
-            crate::laws::repeal(state, outcome);
-        }
-        "constitution" => {
-            // New Constitution discards every law in play, on For only.
-            if outcome == FOR {
-                for alias in crate::laws::in_play(state) {
-                    crate::laws::repeal(state, &alias);
+        return Effect::Resolved {
+            agenda: agenda.to_owned(),
+        };
+    }
+    for player in everyone(state) {
+        let mut destroyed = 0;
+        let held_planets: Vec<(ti4_model::id::SystemId, ti4_model::id::PlanetId)> = state
+            .controlled_planets(&player)
+            .into_iter()
+            .map(|(system, planet)| (system.clone(), planet.clone()))
+            .collect();
+        for (system, planet) in held_planets {
+            let types = ti4_content::units::catalogue(content, sources);
+            let held: Vec<usize> = state
+                .system_state(&system)
+                .planet_units
+                .get(&planet)
+                .map(|units| {
+                    units
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, unit)| {
+                            unit.owner == player
+                                && types
+                                    .get(unit.type_id.as_str())
+                                    .is_some_and(|kind| kind.base_type() == "infantry")
+                        })
+                        .map(|(index, _)| index)
+                        .collect()
+                })
+                .unwrap_or_default();
+            let losses = held.len().div_ceil(2);
+            let mut fallen: Vec<ti4_model::units::Unit> = Vec::new();
+            if let Some(units) = state.system_mut(&system).planet_units.get_mut(&planet) {
+                for index in held.into_iter().take(losses).rev() {
+                    fallen.push(units.remove(index));
                 }
             }
-        }
-        "unconventional" => {
-            // Unconventional Measures pays the For voters, or purges them. Either way it acts
-            // on who voted, not on what won.
-            for player in ballot.voted_for(FOR) {
-                if outcome == FOR {
-                    // Two action cards, drawn through the shared draw so draw effects apply
-                    // (Yssaril Scheming) and the draw is announced; the same convention as
-                    // Archived Secret's draw above for a decider's illegal answer.
-                    let _ = crate::action_cards::draw_announced(
-                        state,
-                        ctx,
-                        &player,
-                        2,
-                        "unconventional_measures",
-                    );
-                } else {
-                    discard_hand(state, &player);
-                }
+            // Staged in the order they fell (highest index first, as removed).
+            for unit in &fallen {
+                crate::factions::hooks_ground::stage_ground_force_destroyed(
+                    state,
+                    &system,
+                    &planet,
+                    unit,
+                    "agenda:plowshares",
+                );
             }
+            destroyed += losses;
         }
-        "incentive" => {
-            // Stage I on For, stage II on Against. Not the top card: the deck is stage I then
-            // stage II in order, so taking the top reveals the wrong stage while any stage I
-            // remains, and the card would quietly do the opposite of what it says.
-            let stage = if outcome == FOR { 1 } else { 2 };
-            crate::objectives::reveal_stage(state, content, stage);
+        if let Some(seat) = state.player_mut(&player) {
+            seat.trade_goods += i32::try_from(destroyed).unwrap_or(i32::MAX);
         }
-        _ => {
-            return Effect::Unresolved {
-                agenda: agenda.to_owned(),
-            };
+        crate::supply::note_trade_goods_gained(
+            state,
+            &player,
+            i32::try_from(destroyed).unwrap_or(i32::MAX),
+            "agenda",
+        );
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_arms_reduction(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    if outcome != FOR {
+        // Against exhausts planets with a technology specialty, which needs an exhaust
+        // this effect cannot ask for. Deferred rather than silently skipped.
+        return Effect::Deferred {
+            agenda: agenda.to_owned(),
+            what: "exhaust planets with a technology specialty".to_owned(),
+        };
+    }
+    for player in everyone(state) {
+        cull_ships(state, content, sources, &player, "dreadnought", 2);
+        cull_ships(state, content, sources, &player, "cruiser", 4);
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_conventions(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // Against: everyone who voted Against loses their hand. Voting for a law that
+    // fails costs nothing; voting against one that fails costs everything.
+    if outcome == FOR {
+        return Effect::Resolved {
+            agenda: agenda.to_owned(),
+        };
+    }
+    for player in ballot.voted_for(AGAINST) {
+        discard_hand(state, &player);
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_schematics(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    if outcome == FOR {
+        return Effect::Resolved {
+            agenda: agenda.to_owned(),
+        };
+    }
+    for player in everyone(state) {
+        if owns_a_war_sun_technology(state, content, &player) {
+            discard_hand(state, &player);
         }
     }
-    let _ = AGAINST;
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_conscription(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // Against does nothing. The For half is a standing rule and belongs to `laws`,
+    // which is why this arm exists at all: an agenda with no arm is *unavailable*.
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+// Availability-only arms. Each of these laws is a standing rule owned by the subsystem
+// that runs it, so closing the vote records the outcome and nothing else:
+// - Committee, the seven Ministers, Prophecy of Kings and the Crown of Thalnos are
+//   standing rules the turn driver and `laws` apply on every later turn; their vote
+//   outcome is recorded by `game` (the law enters play) before this effect runs.
+// - Checks: the Against half is a standing cap on planet readiness at the end of the
+//   agenda phase, which the driver owns.
+// - Covert Legislation is played by the driver (rules version 33): its vote is on a
+//   face-down agenda, and that agenda's effect is what resolves (`Game::close_vote`), so
+//   its own arm has nothing to do. Below 33 it was a plain vote with no effect.
+// - Galactic Crisis Pact below rules version 31 (see its arm above).
+// Galactic Crisis Pact (rules version 31): "Each player may perform the secondary ability
+// of the elected strategy card without spending a command token". Asked speaker first,
+// then clockwise. The clause about command tokens "placed by the ability" has nothing to
+// apply to: no secondary this engine resolves places a command token.
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_crisis(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    let card = ti4_model::id::StrategyCardId::new(outcome);
+    if state.card_initiative.contains_key(&card) {
+        for player in state.clockwise_from(&state.speaker) {
+            let Some(choice) =
+                crate::strategy::crisis_pact_choice(state, content, sources, &card, &player)
+            else {
+                continue;
+            };
+            let Ok(answer) = ctx.ask_seeing(state, &choice) else {
+                continue;
+            };
+            if crate::strategy::crisis_pact_accepted(&answer) {
+                let _ = crate::strategy_cards::secondary(
+                    state,
+                    content,
+                    sources,
+                    galaxy,
+                    ctx.table,
+                    &player,
+                    card.as_str(),
+                );
+            }
+        }
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_articles_war(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    if outcome == AGAINST {
+        for player in ballot.voted_for(FOR) {
+            if let Some(seat) = state.player_mut(&player) {
+                seat.trade_goods += 3;
+            }
+            crate::supply::note_trade_goods_gained(state, &player, 3, "agenda");
+        }
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_nexus(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // For is a standing rule about the wormhole nexus. Against places a gamma wormhole in
+    // Mecatol Rex -- gamma, so neither wormhole law touches it: both name alpha and beta.
+    if outcome == AGAINST {
+        state.wormhole_tokens.insert(
+            "GAMMA".to_owned(),
+            ti4_model::id::SystemId::new(crate::seating::mecatol_on(state)),
+        );
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_warrant(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // "draws 2 secret objectives". The revealed-hand half is information, not mechanics,
+    // and needs no state: nothing in this engine hides a hand from a decider.
+    let elected = PlayerId::new(outcome);
+    if state.player(&elected).is_some() {
+        let mut table = crate::choice::Table::new();
+        for _ in 0..2 {
+            let _ = crate::secrets::draw(state, content, &mut table, &elected);
+        }
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_grant_reallocation(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // "gains any 1 technology of their choice. Then, for each prerequisite on that
+    // technology, they remove 1 token from their fleet pool and return it to their
+    // reinforcements."
+    let elected = PlayerId::new(outcome);
+    if state.player(&elected).is_none() {
+        return Effect::Resolved {
+            agenda: agenda.to_owned(),
+        };
+    }
+    if state.rules_version < ti4_model::state::RULES_AGENDA_GRANT_REVEAL {
+        // Before rules version 14 no technology was granted and a single fleet token was
+        // removed whatever it would have cost.
+        if let Some(seat) = state.player_mut(&elected) {
+            seat.spend_token(ti4_model::state::TokenPool::Fleet);
+        }
+    } else if let Some(chosen) = crate::relics::ask_technology(
+        state,
+        content,
+        sources,
+        ctx.table,
+        galaxy,
+        &elected,
+        None,
+        "grant_reallocation",
+        false,
+    ) {
+        // Gained, not researched: no prerequisites needed, nothing that fires on research.
+        crate::technology::gain(state, content, sources, &elected, &chosen);
+        let cost: usize = crate::technology::prerequisites(content, &chosen)
+            .values()
+            .sum();
+        if let Some(seat) = state.player_mut(&elected) {
+            for _ in 0..cost {
+                seat.spend_token(ti4_model::state::TokenPool::Fleet);
+            }
+        }
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_standardization(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // "so that they have 3 in tactic, 3 in fleet, and 2 in strategy" -- a target, not a
+    // gain. A seat already above a target keeps what it has: the card says place tokens
+    // from reinforcements, and there is no clause taking any away.
+    let elected = PlayerId::new(outcome);
+    if let Some(seat) = state.player_mut(&elected) {
+        for (pool, target) in [
+            (ti4_model::state::TokenPool::Tactic, 3),
+            (ti4_model::state::TokenPool::Fleet, 3),
+            (ti4_model::state::TokenPool::Strategic, 2),
+        ] {
+            let short = target - seat.tokens(pool);
+            if short > 0 {
+                // Uncapped: this agenda restores a *starting* spread rather than granting
+                // new plastic, and the tokens it puts back came off the same sheet.
+                seat.gain_token_uncapped(pool, short);
+            }
+        }
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_cladenstine(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // For: two tokens off the command sheet, the player's choice of pools. Against: one
+    // specifically from the fleet pool. Taken from the fullest pool first, so a seat is
+    // never asked to pay from an empty one while another is stocked.
+    if outcome == FOR {
+        for player in everyone(state) {
+            for _ in 0..2 {
+                let Some(seat) = state.player(&player) else {
+                    continue;
+                };
+                let fullest = ti4_model::state::TokenPool::ALL
+                    .into_iter()
+                    .max_by_key(|pool| seat.tokens(*pool));
+                if let Some(pool) = fullest
+                    && let Some(seat) = state.player_mut(&player)
+                {
+                    seat.spend_token(pool);
+                }
+            }
+        }
+    } else {
+        for player in everyone(state) {
+            if let Some(seat) = state.player_mut(&player) {
+                seat.spend_token(ti4_model::state::TokenPool::Fleet);
+            }
+        }
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_rearmament(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // For: a mech onto a home planet. Against: every mech becomes an infantry.
+    if outcome == FOR {
+        for player in everyone(state) {
+            let home: Option<(ti4_model::id::SystemId, ti4_model::id::PlanetId)> = state
+                .controlled_planets(&player)
+                .into_iter()
+                .find(|(system, _)| {
+                    // The seat's home first: Creuss's home (51) is not the tile its
+                    // faction record names (the Creuss Gate, 17).
+                    state.player(&player).is_some_and(|seat| {
+                        seat.home_system.as_ref().map_or_else(
+                            || {
+                                ti4_content::factions::get(content, seat.faction.as_str())
+                                    .and_then(|faction| faction.home_system())
+                                    .is_some_and(|home| home == system.as_str())
+                            },
+                            |home| home == *system,
+                        )
+                    })
+                })
+                .map(|(system, planet)| (system.clone(), planet.clone()));
+            if let Some((system, planet)) = home {
+                // Preserve existing seats' unit identity and agenda behavior. Naaz's
+                // printed Maximum forbids new mechs and its fourth Eidolon opens Synergy.
+                let naaz = state
+                    .player(&player)
+                    .is_some_and(|seat| seat.faction.as_str() == "naaz");
+                let mech = ti4_model::id::UnitTypeId::new(if naaz { "naaz_mech" } else { "mech" });
+                if crate::factions::hooks_economy::effect_placement_forbidden(
+                    state, content, sources, &player, &mech,
+                ) || (naaz
+                    && crate::supply::allowed(state, content, sources, &player, &mech, 1) == 0)
+                {
+                    continue;
+                }
+                state
+                    .system_mut(&system)
+                    .planet_units
+                    .entry(planet)
+                    .or_default()
+                    .push(ti4_model::units::Unit::new(mech, player.clone()));
+                if naaz {
+                    crate::supply::stage_event(
+                        state,
+                        "NAAZ_MECH_PLACED",
+                        &[
+                            ("player".to_owned(), player.to_string().into()),
+                            ("system".to_owned(), system.to_string().into()),
+                        ]
+                        .into(),
+                    );
+                }
+            }
+        }
+    } else {
+        let types = ti4_content::units::catalogue(content, ti4_model::content_types::DEFAULT);
+        for record in state.board.values_mut() {
+            for units in record.planet_units.values_mut() {
+                for unit in units.iter_mut() {
+                    if types
+                        .get(unit.type_id.as_str())
+                        .is_some_and(|kind| kind.base_type() == "mech")
+                    {
+                        unit.type_id = ti4_model::id::UnitTypeId::new("infantry");
+                        unit.sustained_damage = false;
+                    }
+                }
+            }
+        }
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_minister_antiquities(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    let elected = PlayerId::new(outcome);
+    crate::relics::gain(state, &elected);
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_core_mining(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // An infantry pays for the seam. The planet's +2 resources is the law itself.
+    clear_planet(
+        state,
+        content,
+        sources,
+        outcome,
+        |base| base == "infantry",
+        Some(1),
+        "core_mining",
+    );
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_demilitarized_zone(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // Everything on the planet dies; the standing ban is the law.
+    clear_planet(
+        state,
+        content,
+        sources,
+        outcome,
+        |_| true,
+        None,
+        "demilitarized_zone",
+    );
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_holy_planet_of_ixth(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    if let Some(controller) = controller_of(state, outcome) {
+        adjust_victory_points(state, agenda, &controller, 1);
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_wormhole_recon(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // Against: a command token in each wormhole system holding one of your ships.
+    if outcome == FOR {
+        return Effect::Resolved {
+            agenda: agenda.to_owned(),
+        };
+    }
+    let systems = ti4_content::galaxy::all_systems(content, sources);
+    for (id, board) in state.board.clone() {
+        let has_wormhole = systems
+            .get(id.as_str())
+            .is_some_and(|system| !system.wormholes().is_empty());
+        if !has_wormhole {
+            continue;
+        }
+        for player in everyone(state) {
+            if !board.units_of(&player).is_empty() {
+                if state.system_mut(&id).command_tokens.insert(player.clone()) {
+                    crate::tokens::stage_command_token_placed(
+                        state,
+                        &player,
+                        &id,
+                        crate::factions::hooks_cards::TokenPool::Reinforcements,
+                    );
+                }
+            }
+        }
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_revolution(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // Both Against halves exhaust planets by a rule this effect cannot ask for.
+    if outcome == FOR {
+        return Effect::Resolved {
+            agenda: agenda.to_owned(),
+        };
+    }
+    return Effect::Deferred {
+        agenda: agenda.to_owned(),
+        what: "Against voters exhaust planets".to_owned(),
+    };
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_economic_equality(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // Everyone's trade goods go back to the supply first, then For pays five each.
+    // Doing it in that order matters: on Against, the card is purely destructive.
+    for player in everyone(state) {
+        if let Some(seat) = state.player_mut(&player) {
+            seat.trade_goods = 0;
+        }
+    }
+    if outcome == FOR {
+        for player in everyone(state) {
+            if let Some(seat) = state.player_mut(&player) {
+                seat.trade_goods += 5;
+            }
+            crate::supply::note_trade_goods_gained(state, &player, 5, "agenda");
+        }
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_mutiny(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // Those who voted For gain a point on For, and lose one on Against. Read from the
+    // ballot, not from the outcome: who voted which way is the whole card.
+    let delta = if outcome == FOR { 1 } else { -1 };
+    for player in ballot.voted_for(FOR) {
+        adjust_victory_points(state, agenda, &player, delta);
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_seed_empire(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    let mut points: Vec<(PlayerId, i32)> = state
+        .players
+        .iter()
+        .map(|seat| (seat.id.clone(), seat.victory_points))
+        .collect();
+    if points.is_empty() {
+        return Effect::Resolved {
+            agenda: agenda.to_owned(),
+        };
+    }
+    points.sort_by(|a, b| a.0.cmp(&b.0));
+    let target = if outcome == FOR {
+        points.iter().map(|(_, n)| *n).max()
+    } else {
+        points.iter().map(|(_, n)| *n).min()
+    };
+    let Some(target) = target else {
+        return Effect::Resolved {
+            agenda: agenda.to_owned(),
+        };
+    };
+    let tied: Vec<PlayerId> = points
+        .into_iter()
+        .filter(|(_, n)| *n == target)
+        .map(|(player, _)| player)
+        .collect();
+    let winner = match tied.as_slice() {
+        [only] => Some(only.clone()),
+        // 8.18 makes resolving the outcome the speaker's job, so a tie where the card
+        // names one player is a decision rather than a guess at an unwritten rule.
+        _ => ask_the_speaker(state, ctx, &tied),
+    };
+    if let Some(winner) = winner {
+        adjust_victory_points(state, agenda, &winner, 1);
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_abolishment(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // Judicial Abolishment discards the *elected law*, so the outcome names a law
+    // rather than For/Against. A repeal that ignored the outcome would discard
+    // whatever happened to be first.
+    crate::laws::repeal(state, outcome);
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_constitution(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // New Constitution discards every law in play, on For only.
+    if outcome == FOR {
+        for alias in crate::laws::in_play(state) {
+            crate::laws::repeal(state, &alias);
+        }
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_unconventional(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // Unconventional Measures pays the For voters, or purges them. Either way it acts
+    // on who voted, not on what won.
+    for player in ballot.voted_for(FOR) {
+        if outcome == FOR {
+            // Two action cards, drawn through the shared draw so draw effects apply
+            // (Yssaril Scheming) and the draw is announced; the same convention as
+            // Archived Secret's draw above for a decider's illegal answer.
+            let _ = crate::action_cards::draw_announced(
+                state,
+                ctx,
+                &player,
+                2,
+                "unconventional_measures",
+            );
+        } else {
+            discard_hand(state, &player);
+        }
+    }
+    Effect::Resolved {
+        agenda: agenda.to_owned(),
+    }
+}
+
+#[allow(unused_variables, clippy::too_many_lines)]
+fn effect_incentive(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+) -> Effect {
+    let (content, sources) = (ctx.content, ctx.sources);
+    // Stage I on For, stage II on Against. Not the top card: the deck is stage I then
+    // stage II in order, so taking the top reveals the wrong stage while any stage I
+    // remains, and the card would quietly do the opposite of what it says.
+    let stage = if outcome == FOR { 1 } else { 2 };
+    crate::objectives::reveal_stage(state, content, stage);
     Effect::Resolved {
         agenda: agenda.to_owned(),
     }
@@ -2951,10 +3537,7 @@ mod tests {
         run_with(&mut state, None, "grant_reallocation", "b", &["hm"]);
 
         let seat = state.player(&b()).unwrap();
-        assert!(
-            seat.technologies
-                .contains(ti4_model::id::text(&"hm"))
-        );
+        assert!(seat.technologies.contains(ti4_model::id::text(&"hm")));
         assert_eq!(
             seat.tokens(ti4_model::state::TokenPool::Fleet),
             before - 2,
@@ -3031,10 +3614,7 @@ mod tests {
             .tokens(ti4_model::state::TokenPool::Fleet);
         run_with(&mut state, None, "grant_reallocation", "b", &["nm"]);
         let seat = state.player(&b()).unwrap();
-        assert!(
-            seat.technologies
-                .contains(ti4_model::id::text(&"nm"))
-        );
+        assert!(seat.technologies.contains(ti4_model::id::text(&"nm")));
         assert_eq!(seat.tokens(ti4_model::state::TokenPool::Fleet), before);
     }
 
@@ -3047,11 +3627,7 @@ mod tests {
             .tokens(ti4_model::state::TokenPool::Fleet);
         run_with(&mut state, None, "grant_reallocation", "b", &["hm"]);
         let seat = state.player(&b()).unwrap();
-        assert!(
-            !seat
-                .technologies
-                .contains(ti4_model::id::text(&"hm"))
-        );
+        assert!(!seat.technologies.contains(ti4_model::id::text(&"hm")));
         assert_eq!(seat.tokens(ti4_model::state::TokenPool::Fleet), before - 1);
     }
 }

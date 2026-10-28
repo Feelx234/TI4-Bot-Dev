@@ -1,21 +1,22 @@
 //! The vote of one agenda as a [`Window`] (package B9; string `vote::VoteWindow`, LRR 8.2ii to 8.19).
 //!
-//! Stages: each voter names an outcome or abstains (`Outcome`), exhausts planets for it (`Planets`), the
-//! votes are banked; when everyone has voted the most votes win, a tie or a silent table goes to the
-//! speaker (`Tiebreak`). The window carries the order the votes are asked in (the adapter computes it with
-//! the faction hooks: Nekro, Argent, Hack Election) and a snapshot of the facts the string engine reads from
-//! the faction modules ([`Facts`]).
+//! Stages: Genetic Recombination's offer to its holder (`Recombine`) and its tribute (`Tribute`), each voter
+//! names an outcome or abstains (`Outcome`), exhausts planets for it (`Planets`), may spend trade goods
+//! (`TradeGoods`: Gila the Silvertongue, the Executive Order spender) and cast Predictive Intelligence's three
+//! extra votes (`Predictive`); the votes are banked; when everyone has voted the most votes win, a tie or a
+//! silent table goes to the speaker (`Tiebreak`). The window carries the order the votes are asked in (the
+//! adapter computes it with the faction hooks: Nekro, Argent, Hack Election) and a snapshot of the facts the
+//! string engine reads from the faction modules ([`Facts`]).
 //!
 //! Not expressed here, so the adapter does not open this window for such a position (the string window
-//! runs alone): Genetic Recombination (Mahact), Gila the Silvertongue's and the Executive Order's trade
-//! goods, Predictive Intelligence, the Deepwrought oceans, the faction vote bonuses (`vote_bonus`,
-//! Blood Pact) and a vote with more than [`Tally::MAX`] outcomes. Their questions exist as `Ask`s and
-//! render byte for byte (slice 2), their stages are the next step.
+//! runs alone): the Deepwrought oceans, a Valefar Assimilator carrying Genetic Recombination, an open or
+//! grantable Keleres agent for a voter with commodities (the game driver offers it between the stages), a
+//! Last Bastion resource bonus under the Executive Order, and a vote with more than [`Tally::MAX`] outcomes.
 
 use crate::choice::agenda::Opt;
 use crate::choice::{Choice, Opt as TopOpt, Pick};
 use crate::containers::{SeatSet, SmallList, SortedMap};
-use crate::generated::{Agenda, Planet};
+use crate::generated::{Agenda, Planet, Technology};
 use crate::ids::Seat;
 use crate::kernel::fx;
 use crate::kernel::stage::{Illegal, Sx, Window};
@@ -26,6 +27,11 @@ use crate::tables::Scope;
 
 use super::{Cx, Env, Tiebreak};
 
+/// Votes of Predictive Intelligence's additional cast.
+pub const PREDICTIVE_VOTES: i64 = 3;
+/// Votes the Blood Pact adds when the partner backed the same outcome.
+pub const BLOOD_PACT_VOTES: i64 = 4;
+
 /// What the string engine reads from the faction modules, taken when the window opens.
 #[derive(Debug, Clone, Copy)]
 pub struct Facts {
@@ -34,6 +40,19 @@ pub struct Facts {
     pub blanked: bool,
     /// Seats with Elder Qanoj's ability: each planet they exhaust casts one more vote.
     pub qanoj: SeatSet,
+    /// Seats with Gila the Silvertongue's ability: two votes per trade good spent.
+    pub gila: SeatSet,
+    /// Votes a seat's cards and commanders add once it casts any (`leaders::vote_bonus` plus the content hooks).
+    pub bonus: [i64; 8],
+    /// The Blood Pact partners of a seat: it gets [`BLOOD_PACT_VOTES`] for each that backed the same outcome.
+    pub pact: [SeatSet; 8],
+}
+
+impl Facts {
+    #[must_use]
+    pub const fn new(scope: Scope, blanked: bool) -> Self {
+        Self { scope, blanked, qanoj: SeatSet::EMPTY, gila: SeatSet::EMPTY, bonus: [0; 8], pact: [SeatSet::EMPTY; 8] }
+    }
 }
 
 impl Env for Facts {
@@ -59,8 +78,16 @@ impl Env for Facts {
 pub enum Stage {
     /// Asking `order[index]` which outcome to back.
     Outcome(u8),
+    /// Genetic Recombination: asking its holder which outcome `order[index]` must back.
+    Recombine(u8),
+    /// Genetic Recombination was used on `order[index]`: back the outcome or return a fleet token.
+    Tribute(u8),
     /// Asking `order[index]` which planet to exhaust for `outcome`, `votes` cast so far.
     Planets { index: u8, outcome: Outcome, votes: i64 },
+    /// Asking `order[index]` how many trade goods to spend for votes.
+    TradeGoods { index: u8, outcome: Outcome, votes: i64 },
+    /// Asking `order[index]`, who holds a ready Predictive Intelligence, whether to cast 3 more votes.
+    Predictive { index: u8, outcome: Outcome, votes: i64 },
     /// The speaker decides a tie or a silent table.
     Tiebreak,
     /// Finished, with the winning outcome if there was one.
@@ -75,7 +102,19 @@ pub struct Vote {
     order: SmallList<Seat, 8>,
     stage: Stage,
     counts: SortedMap<Outcome, i64, 16>,
+    /// Who backed what (the Blood Pact reads it).
+    ballot: SortedMap<Seat, Outcome, 8>,
     facts: Facts,
+    /// Executive Order: the seat that may spend resources and trade goods as votes.
+    spender: Option<Seat>,
+    /// Bit `i`: voter `i` was already offered to Genetic Recombination's holder.
+    offered: u8,
+    /// Genetic Recombination in force: the voter's index and the outcome they must back.
+    obligation: Option<(u8, Outcome)>,
+    /// The outcome the holder demanded of the voter answering [`Stage::Tribute`].
+    demanded: Option<(u8, Outcome)>,
+    /// Predictive Intelligence holders who cast the 3 extra votes, with the outcome they backed.
+    predictive: SmallList<(Seat, Outcome), 8>,
 }
 
 impl Vote {
@@ -88,8 +127,21 @@ impl Vote {
             order: SmallList::from_slice(order),
             stage: if choices.is_empty() { Stage::Done(None) } else { Stage::Outcome(0) },
             counts: SortedMap::new(),
+            ballot: SortedMap::new(),
             facts,
+            spender: None,
+            offered: 0,
+            obligation: None,
+            demanded: None,
+            predictive: SmallList::new(),
         }
+    }
+
+    /// Let `seat` spend resources and trade goods as votes (Executive Order).
+    #[must_use]
+    pub const fn with_spender(mut self, seat: Seat) -> Self {
+        self.spender = Some(seat);
+        self
     }
 
     /// The winning outcome, once finished.
@@ -122,6 +174,44 @@ impl Vote {
         self.order.as_slice().get(usize::from(index)).copied()
     }
 
+    fn is_spender(&self, seat: Seat) -> bool {
+        self.spender == Some(seat)
+    }
+
+    fn offers(&self, core: &CoreState, seat: Seat) -> SmallList<super::PlanetOffer, 24> {
+        super::planet_offers(&self.cx(core), seat, self.is_spender(seat))
+    }
+
+    /// `VoteWindow::trade_goods_rate`.
+    fn rate(&self, seat: Seat, votes: i64) -> i64 {
+        if votes > 0 && self.facts.gila.contains(seat) { 2 } else { i64::from(self.is_spender(seat)) }
+    }
+
+    fn goods(core: &CoreState, seat: Seat) -> i64 {
+        core.players().by_seat(seat).map_or(0, |p| i64::from(p.econ.trade_goods.max(0)))
+    }
+
+    /// `mahact::recombination_holder`: another seat with a ready Genetic Recombination.
+    fn holder(core: &CoreState, voter: Seat) -> Option<Seat> {
+        core.players()
+            .iter()
+            .find(|p| p.seat != voter && p.tech.owned.contains(Technology::GeneticRecombination) && !p.tech.exhausted.contains(Technology::GeneticRecombination))
+            .map(|p| p.seat)
+    }
+
+    fn can_pay(core: &CoreState, voter: Seat) -> bool {
+        core.players().by_seat(voter).is_some_and(|p| p.econ.fleet_tokens > 0)
+    }
+
+    /// `vote::predictive_ready`.
+    fn predictive_ready(core: &CoreState, seat: Seat) -> bool {
+        core.meta().rules_at_least(super::RULES_TECH_EFFECTS)
+            && core
+                .players()
+                .by_seat(seat)
+                .is_some_and(|p| p.tech.owned.contains(Technology::PredictiveIntelligence) && !p.tech.exhausted.contains(Technology::PredictiveIntelligence))
+    }
+
     /// The question of the current stage (the string `pending_choice`).
     fn question(&self, core: &CoreState) -> Option<Choice> {
         let cx = self.cx(core);
@@ -129,19 +219,43 @@ impl Vote {
         match self.stage {
             Stage::Done(_) => None,
             Stage::Outcome(index) => {
-                Some(super::vote_question(&cx, self.agenda, self.voter(index)?, self.choices.as_slice(), counts.as_slice(), None))
+                let voter = self.voter(index)?;
+                let bound = self.obligation.filter(|(at, _)| *at == index).map(|(_, o)| o);
+                Some(super::vote_question(&cx, self.agenda, voter, self.choices.as_slice(), counts.as_slice(), bound))
             }
-            Stage::Planets { index, outcome, votes } => super::planets_question(
-                &cx,
-                self.agenda,
-                self.voter(index)?,
-                outcome,
-                votes,
-                false,
-                self.choices.as_slice(),
-                counts.as_slice(),
-                false,
-            ),
+            Stage::Recombine(index) => {
+                let voter = self.voter(index)?;
+                let holder = Self::holder(core, voter)?;
+                Some(super::recombine_question(core, self.agenda, holder, voter, self.choices.as_slice()))
+            }
+            Stage::Tribute(index) => {
+                let voter = self.voter(index)?;
+                let (_, outcome) = self.demanded.filter(|(at, _)| *at == index)?;
+                super::tribute_question(core, self.agenda, voter, outcome, !self.offers(core, voter).is_empty(), Self::can_pay(core, voter))
+            }
+            Stage::Planets { index, outcome, votes } => {
+                let voter = self.voter(index)?;
+                let must_cast = votes == 0 && self.obligation.is_some_and(|(at, backed)| at == index && backed == outcome);
+                super::planets_question(
+                    &cx,
+                    self.agenda,
+                    voter,
+                    outcome,
+                    votes,
+                    self.is_spender(voter),
+                    self.spender.is_some(),
+                    self.choices.as_slice(),
+                    counts.as_slice(),
+                    must_cast,
+                )
+            }
+            Stage::TradeGoods { index, outcome, votes } => {
+                let voter = self.voter(index)?;
+                super::trade_goods_question(core, self.agenda, voter, outcome, votes, Self::goods(core, voter), self.rate(voter, votes))
+            }
+            Stage::Predictive { index, outcome, votes } => {
+                Some(super::predictive_question(core, self.agenda, self.voter(index)?, outcome, votes))
+            }
             Stage::Tiebreak => {
                 let candidates = self.tied(&counts);
                 Some(super::tiebreak_question(&cx, self.agenda, candidates.as_slice()))
@@ -156,16 +270,44 @@ impl Vote {
         }
     }
 
-    /// A voter is done exhausting planets: bank the votes (no trade goods or Predictive Intelligence here).
-    fn bank(&mut self, core: &CoreState, index: u8, outcome: Outcome, votes: i64) {
-        if votes > 0
-            && let Some(seat) = self.voter(index)
-        {
-            let total = votes + super::extra_votes(core, seat);
-            let at = self.counts.get_or_insert_with(outcome, || 0);
-            *at += total;
+    /// `VoteWindow::finish_planets`: a voter is done exhausting planets; offer trade goods when they may spend
+    /// them and have some, else bank.
+    fn finish_planets(&mut self, core: &CoreState, index: u8, outcome: Outcome, votes: i64) {
+        let may_spend = self.voter(index).is_some_and(|v| self.rate(v, votes) > 0 && Self::goods(core, v) > 0);
+        if may_spend {
+            self.stage = Stage::TradeGoods { index, outcome, votes };
+        } else {
+            self.bank(core, index, outcome, votes);
         }
-        self.stage = Stage::Outcome(index + 1);
+    }
+
+    /// `VoteWindow::bank`: offer Predictive Intelligence's extra votes when a ready card is held and any vote
+    /// was cast, else record them and move on.
+    fn bank(&mut self, core: &CoreState, index: u8, outcome: Outcome, votes: i64) {
+        if votes > 0 && self.voter(index).is_some_and(|v| Self::predictive_ready(core, v)) {
+            self.stage = Stage::Predictive { index, outcome, votes };
+        } else {
+            self.record(core, index, outcome, votes);
+            self.stage = Stage::Outcome(index + 1);
+        }
+    }
+
+    /// `VoteWindow::record`: bank one voter's votes; nothing cast, nothing recorded.
+    fn record(&mut self, core: &CoreState, index: u8, outcome: Outcome, votes: i64) {
+        let Some(seat) = self.voter(index) else { return };
+        if votes <= 0 {
+            return;
+        }
+        let pact = self.facts.pact[usize::from(seat.0) & 7]
+            .iter()
+            .filter(|other| self.ballot.get(other) == Some(&outcome))
+            .count();
+        let total = votes
+            + self.facts.bonus[usize::from(seat.0) & 7]
+            + super::extra_votes(core, seat)
+            + BLOOD_PACT_VOTES * i64::try_from(pact).unwrap_or(0);
+        self.ballot.insert(seat, outcome);
+        *self.counts.get_or_insert_with(outcome, || 0) += total;
     }
 
     /// Everyone has voted: decide, or hand it to the speaker.
@@ -181,6 +323,27 @@ impl Vote {
             _ => Stage::Tiebreak,
         }
     }
+
+    /// `settle_predictions`: each holder who cast the extra votes exhausts the card unless the outcome won.
+    fn settle_predictions(&mut self, core: &mut CoreState) {
+        let Stage::Done(winner) = self.stage else { return };
+        for (seat, backed) in self.predictive.as_slice() {
+            if winner != Some(*backed)
+                && let Some(p) = core.players_mut().by_seat_mut(*seat)
+            {
+                p.tech.exhausted.insert(Technology::PredictiveIntelligence);
+            }
+        }
+        self.predictive.clear();
+    }
+
+    fn pay_tribute(core: &mut CoreState, voter: Seat) {
+        if let Some(p) = core.players_mut().by_seat_mut(voter)
+            && p.econ.fleet_tokens > 0
+        {
+            p.econ.fleet_tokens -= 1;
+        }
+    }
 }
 
 impl Window for Vote {
@@ -192,19 +355,32 @@ impl Window for Vote {
 
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
         loop {
+            // Genetic Recombination: "before a player casts votes", once per voter, the holder is asked.
+            if let Stage::Outcome(index) = self.stage
+                && usize::from(index) < self.order.len()
+                && self.offered & (1 << index) == 0
+            {
+                self.offered |= 1 << index;
+                if self.voter(index).is_some_and(|v| Self::holder(sx.state, v).is_some()) {
+                    self.stage = Stage::Recombine(index);
+                    break;
+                }
+            }
             match self.stage {
-                Stage::Outcome(index) if usize::from(index) >= self.order.len() => self.stage = self.close(),
-                Stage::Outcome(_) | Stage::Tiebreak => break,
+                Stage::Outcome(index) if usize::from(index) >= self.order.len() => {
+                    self.stage = self.close();
+                    self.settle_predictions(sx.state);
+                }
                 Stage::Planets { index, outcome, votes } => {
-                    let seat = self.voter(index);
-                    let empty = seat.is_none_or(|s| super::planet_offers(&self.cx(sx.state), s, false).is_empty());
+                    let empty = self.voter(index).is_none_or(|s| self.offers(sx.state, s).is_empty());
                     if empty {
-                        self.bank(sx.state, index, outcome, votes);
+                        self.finish_planets(sx.state, index, outcome, votes);
                     } else {
                         break;
                     }
                 }
                 Stage::Done(_) => return Next::Done,
+                _ => break,
             }
         }
         match self.question(sx.state) {
@@ -224,14 +400,45 @@ impl Window for Vote {
             return Err(Illegal);
         }
         match (self.stage, opt) {
+            (Stage::Recombine(index), TopOpt::Decline) => self.stage = Stage::Outcome(index),
+            (Stage::Recombine(index), TopOpt::Agenda(Opt::Demand(outcome))) => {
+                let voter = self.voter(index).ok_or(Illegal)?;
+                let holder = Self::holder(sx.state, voter).ok_or(Illegal)?;
+                if let Some(p) = sx.state.players_mut().by_seat_mut(holder) {
+                    p.tech.exhausted.insert(Technology::GeneticRecombination); p.econ.fleet_tokens += 1;
+                }
+                let can_vote = !self.offers(sx.state, voter).is_empty();
+                let can_pay = Self::can_pay(sx.state, voter);
+                self.stage = Stage::Outcome(index);
+                match (can_vote, can_pay) {
+                    (true, true) => {
+                        self.demanded = Some((index, outcome));
+                        self.stage = Stage::Tribute(index);
+                    }
+                    (true, false) => self.obligation = Some((index, outcome)),
+                    (false, true) => Self::pay_tribute(sx.state, voter),
+                    (false, false) => {}
+                }
+            }
+            (Stage::Tribute(index), TopOpt::Agenda(Opt::TributeVote)) => {
+                self.obligation = self.demanded.take();
+                self.stage = Stage::Outcome(index);
+            }
+            (Stage::Tribute(index), TopOpt::Agenda(Opt::TributeToken)) => {
+                self.demanded = None;
+                let voter = self.voter(index).ok_or(Illegal)?;
+                Self::pay_tribute(sx.state, voter);
+                self.stage = Stage::Outcome(index);
+            }
             (Stage::Outcome(index), TopOpt::Decline) => self.stage = Stage::Outcome(index + 1),
             (Stage::Outcome(index), TopOpt::Agenda(Opt::Back(outcome, _))) => {
                 self.stage = Stage::Planets { index, outcome, votes: 0 };
             }
-            (Stage::Planets { index, outcome, votes }, TopOpt::Decline) => self.bank(sx.state, index, outcome, votes),
+            (Stage::Planets { index, outcome, votes }, TopOpt::Decline) => self.finish_planets(sx.state, index, outcome, votes),
             (Stage::Planets { index, outcome, votes }, TopOpt::Agenda(Opt::Exhaust { planet, face, .. })) => {
                 let seat = self.voter(index).ok_or(Illegal)?;
-                let cast = super::planet_offers(&self.cx(sx.state), seat, false)
+                let cast = self
+                    .offers(sx.state, seat)
                     .as_slice()
                     .iter()
                     .find(|(p, f, _)| *p == planet && *f == face)
@@ -240,7 +447,28 @@ impl Window for Vote {
                 fx::exhaust_planet(sx.state, planet);
                 self.stage = Stage::Planets { index, outcome, votes: votes + cast };
             }
-            (Stage::Tiebreak, TopOpt::Agenda(Opt::Back(outcome, _))) => self.stage = Stage::Done(Some(outcome)),
+            (Stage::TradeGoods { index, outcome, votes }, TopOpt::Decline) => self.bank(sx.state, index, outcome, votes),
+            (Stage::TradeGoods { index, outcome, votes }, TopOpt::Agenda(Opt::Spend(spent))) => {
+                let seat = self.voter(index).ok_or(Illegal)?;
+                let rate = self.rate(seat, votes);
+                let p = sx.state.players_mut().by_seat_mut(seat).ok_or(Illegal)?;
+                p.econ.trade_goods -= i16::from(spent);
+                self.bank(sx.state, index, outcome, votes + (rate + 1) * i64::from(spent));
+            }
+            (Stage::Predictive { index, outcome, votes }, TopOpt::Decline) => {
+                self.record(sx.state, index, outcome, votes);
+                self.stage = Stage::Outcome(index + 1);
+            }
+            (Stage::Predictive { index, outcome, votes }, TopOpt::Agenda(Opt::CastPredictive)) => {
+                let seat = self.voter(index).ok_or(Illegal)?;
+                self.predictive.push((seat, outcome));
+                self.record(sx.state, index, outcome, votes + PREDICTIVE_VOTES + 1);
+                self.stage = Stage::Outcome(index + 1);
+            }
+            (Stage::Tiebreak, TopOpt::Agenda(Opt::Back(outcome, _))) => {
+                self.stage = Stage::Done(Some(outcome));
+                self.settle_predictions(sx.state);
+            }
             _ => return Err(Illegal),
         }
         Ok(())
@@ -257,7 +485,7 @@ mod tests {
     use crate::state::{Player, Players, Seats};
 
     fn facts() -> Facts {
-        Facts { scope: Scope(!0), blanked: false, qanoj: SeatSet::EMPTY }
+        Facts::new(Scope(!0), false)
     }
 
     fn game(n: u8) -> CoreState {

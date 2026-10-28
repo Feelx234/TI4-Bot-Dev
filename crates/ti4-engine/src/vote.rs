@@ -634,8 +634,8 @@ impl VoteWindow {
     /// (Executive Order). Set before [`Self::open`].
     #[must_use]
     pub fn with_spender(mut self, player: PlayerId) -> Self {
+        self.dual.set_spender(&player);
         self.spender = Some(player);
-        self.dual.stop();
         self
     }
 
