@@ -1,6 +1,8 @@
 //! `faction_marks` values: the schema of each family and the parse / render of a value tree.
 
-use ti4_engine_core::keys::{MarkKey, MarkVal, Word};
+use ti4_engine_core::keys::{Atom, MarkKey, MarkVal, Word};
+
+use crate::factions::borrowed_round_agents::RoundBonus;
 
 use super::text::{Codec, K};
 
@@ -15,6 +17,8 @@ pub enum Sh {
     List(u8, &'static Sh),
     /// The first of these shapes that fits.
     Alt(&'static [Sh]),
+    /// The JSON of a Ssruu / round agent bonus (`borrowed_round_agents::RoundBonus`) as twelve fields.
+    RoundBonus,
 }
 
 const NUM: Sh = Sh::A(K::Num);
@@ -111,9 +115,8 @@ pub fn schema(key: &MarkKey) -> Sh {
                 CARD,
             ],
         ),
-        MarkKey::CombatSustainTarget()
-        | MarkKey::PrivateStagedEvent(..)
-        | MarkKey::YssarilSsruuRoundAgent(..) => BLOB,
+        MarkKey::YssarilSsruuRoundAgent(..) => Sh::Alt(&[Sh::RoundBonus, BLOB]),
+        MarkKey::CombatSustainTarget() | MarkKey::PrivateStagedEvent(..) => BLOB,
         MarkKey::CommanderAbility(..) => GRANTED,
         MarkKey::CrimsonCard(..) => Sh::List(b',', &UNIT),
         MarkKey::CrimsonSever(..) => Sh::Rec(b'|', &[SEAT, SYS]),
@@ -230,7 +233,75 @@ impl Codec {
                 Some(MarkVal::List(out))
             }
             Sh::Alt(shapes) => shapes.iter().find_map(|s| self.parse_shape(*s, text)),
+            Sh::RoundBonus => self.parse_round_bonus(text),
         }
+    }
+
+    /// The twelve fields of a round bonus; `None` unless the text is exactly what [`Self::render_round_bonus`]
+    /// writes back.
+    fn parse_round_bonus(&mut self, text: &str) -> Option<MarkVal> {
+        let b: RoundBonus = serde_json::from_str(text).ok()?;
+        let leader = |me: &mut Self, t: &str| me.parse_atom(K::Leader, t).map(MarkVal::Atom);
+        let planet = |me: &mut Self, p: &Option<ti4_model::id::PlanetId>| match p {
+            Some(p) => me.parse_atom(K::Planet, p.as_str()).map(MarkVal::Atom),
+            None => Some(MarkVal::Atom(Atom::Absent)),
+        };
+        let num = |n: u64| u32::try_from(n).ok().map(|n| MarkVal::Atom(Atom::Num(n)));
+        let value = MarkVal::Rec(vec![
+            self.parse_atom(K::Seat, b.borrower.as_str()).map(MarkVal::Atom)?,
+            self.parse_atom(K::Seat, b.source_owner.as_str()).map(MarkVal::Atom)?,
+            leader(self, &b.source_agent)?,
+            self.parse_atom(K::System, b.system.as_str()).map(MarkVal::Atom)?,
+            planet(self, &b.combat_planet)?,
+            planet(self, &b.unit_planet)?,
+            self.parse_atom(K::Seat, b.unit_owner.as_str()).map(MarkVal::Atom)?,
+            self.parse_atom(K::Unit, b.unit_type.as_str()).map(MarkVal::Atom)?,
+            num(u64::from(b.sustained_damage))?,
+            num(u64::from(b.galvanized))?,
+            num(u64::try_from(b.unit_index).ok()?)?,
+            num(u64::from(b.round_seq))?,
+        ]);
+        (self.render_round_bonus(&value).as_deref() == Some(text)).then_some(value)
+    }
+
+    fn render_round_bonus(&self, value: &MarkVal) -> Option<String> {
+        let MarkVal::Rec(f) = value else { return None };
+        let [borrower, source_owner, agent, system, combat_planet, unit_planet, unit_owner, unit, sustained, galvanized, index, round] = f.as_slice() else {
+            return None;
+        };
+        let text = |kind: K, v: &MarkVal| -> Option<String> {
+            let MarkVal::Atom(a) = v else { return None };
+            let mut out = String::new();
+            self.render_atom(kind, *a, &mut out)?;
+            Some(out)
+        };
+        let planet = |v: &MarkVal| -> Option<Option<ti4_model::id::PlanetId>> {
+            match v {
+                MarkVal::Atom(Atom::Absent) => Some(None),
+                v => text(K::Planet, v).map(|p| Some(ti4_model::id::PlanetId::new(p))),
+            }
+        };
+        let num = |v: &MarkVal| -> Option<u32> {
+            match v {
+                MarkVal::Atom(Atom::Num(n)) => Some(*n),
+                _ => None,
+            }
+        };
+        let b = RoundBonus {
+            borrower: ti4_model::id::PlayerId::new(text(K::Seat, borrower)?),
+            source_owner: ti4_model::id::PlayerId::new(text(K::Seat, source_owner)?),
+            source_agent: text(K::Leader, agent)?,
+            system: ti4_model::id::SystemId::new(text(K::System, system)?),
+            combat_planet: planet(combat_planet)?,
+            unit_planet: planet(unit_planet)?,
+            unit_owner: ti4_model::id::PlayerId::new(text(K::Seat, unit_owner)?),
+            unit_type: ti4_model::id::UnitTypeId::new(text(K::Unit, unit)?),
+            sustained_damage: num(sustained)? == 1,
+            galvanized: num(galvanized)? == 1,
+            unit_index: usize::try_from(num(index)?).ok()?,
+            round_seq: num(round)?,
+        };
+        serde_json::to_string(&b).ok()
     }
 
     /// The text of a tree of this shape.
@@ -263,6 +334,7 @@ impl Codec {
                 Some(out)
             }
             (Sh::Alt(shapes), value) => shapes.iter().find_map(|s| self.render_shape(*s, value)),
+            (Sh::RoundBonus, value) => self.render_round_bonus(value),
             _ => None,
         }
     }

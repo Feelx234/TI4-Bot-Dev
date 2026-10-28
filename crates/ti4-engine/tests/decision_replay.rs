@@ -99,7 +99,7 @@ fn check_options(rec: &Choice, r: &Render, st: &mut Stats) {
         assert_eq!(render::parse(r, &ask, &o.id), Some(opt), "recorded id {:?}", o.id);
         assert_eq!((got.id.as_str(), got.kind.as_str()), (o.id.as_str(), o.kind.as_str()));
         // with the recorded wording the whole option is the recorded one
-        let w = render::Wording { kind: None, label: Some(o.label.clone()), payload: o.payload.clone() };
+        let w = render::Wording { kind: None, label: Some(o.label.clone()), payload: o.payload.clone(), preview: None };
         assert!(same_option(&generic::option(&opt, &w), o), "wording of {o:?}");
         if got.label == o.label && o.payload.is_empty() {
             st.default_wording_exact += 1;

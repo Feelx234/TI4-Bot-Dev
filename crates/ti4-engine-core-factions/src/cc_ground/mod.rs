@@ -28,3 +28,13 @@ pub const MOVEMENT: Modules = &[
 
 #[cfg(test)]
 pub(crate) use crate::common::testkit;
+
+/// The timing abilities of the package (the reaction windows), in the string registration order of the factions.
+pub fn register_abilities(t: &mut ti4_engine_core::kernel::ability::AbilityTable) {
+    mentak::timing::register_abilities(t);
+}
+
+/// The abilities the string registers ahead of the per-seat reaction-card slots (`reactions::arm`): the round agents.
+pub fn register_first(t: &mut ti4_engine_core::kernel::ability::AbilityTable) {
+    borrowed::timing::register_abilities(t);
+}

@@ -4,6 +4,7 @@
 //! (LRR 49.2). The adapter side is `ti4-engine/src/render/invasion.rs`.
 
 use crate::generated::{Planet, System, Unit};
+use crate::ids::Seat;
 
 /// What the area asks. Parameters only; the option list is derived by `opts(state, ask)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -20,15 +21,25 @@ pub enum Ask {
     RemoveCustodians { system: System, cost: u8 },
     /// "fight a round on {planet}": the single option that rolls one round of the ground combat (42).
     FightRound { system: System, planet: Planet },
+    /// "start another ground combat on {planet}": the winner of a combat on a coexisting planet may fight the
+    /// next coexister `next` (coexistence 12) or leave them coexisting.
+    StartNextCombat { system: System, planet: Planet, next: Seat },
+    /// "whose units on {planet} take the bombardment's next hits ({hits} hits)": the invader picks, per
+    /// bombarding unit, the coexisting player whose ground forces take them (coexistence 7, 7.1).
+    BombardTarget { system: System, planet: Planet, hits: u16 },
 }
 
 /// One answer the area offers (not stored in the state).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Opt {
-    /// Land the unit at `index` of the caller's list on `planet`.
-    Commit { index: u16, planet: Planet, unit: Unit, damaged: bool },
+    /// Land the unit at `index` of the caller's list on `planet`; `from` is the planet it stands on when it is not
+    /// in the space area (a faction's commit candidate).
+    Commit { index: u16, planet: Planet, unit: Unit, damaged: bool, from: Option<(System, Planet)> },
     /// "commit no more ground forces".
     DoneCommitting,
+    /// The Crimson Revenant's deploy: commit a mech from reinforcements to `planet`, with no unit of the
+    /// invader in the system required.
+    Deploy { planet: Planet },
     /// Destroy the ground force at `index` of the candidates (the first of its type and damage).
     DestroyGround { index: u16, unit: Unit, damaged: bool, staging: bool },
     /// Leave the custodians token ("no").
@@ -37,6 +48,12 @@ pub enum Opt {
     RemoveCustodians,
     /// Roll one round of the ground combat on the planet.
     FightRound { planet: Planet },
+    /// Start a ground combat against `next`.
+    FightNext { next: Seat },
+    /// Leave `next` coexisting (and end the chain).
+    LeaveCoexisting { next: Seat },
+    /// The units of `seat` take the hits.
+    BombardTarget { seat: Seat },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -46,4 +63,6 @@ pub enum Subtype {
     AssignGroundCasualty,
     RemoveCustodians,
     FightGroundCombatRound,
+    StartNextGroundCombat,
+    BombardmentTarget,
 }

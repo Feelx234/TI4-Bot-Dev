@@ -268,3 +268,8 @@ mod tests {
         assert!(super::MODULES.windows(2).all(|w| w[0].0 < w[1].0), "dispatch order");
     }
 }
+
+/// The timing abilities of the package (the reaction windows), in the string registration order of the factions.
+pub fn register_abilities(t: &mut ti4_engine_core::kernel::ability::AbilityTable) {
+    yin::timing::register_abilities(t);
+}

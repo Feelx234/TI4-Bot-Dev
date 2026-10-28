@@ -18,6 +18,7 @@
 
 use ti4_engine::board_check::{BoardCheck, compare, compare_laws};
 use ti4_engine::agenda_check::{AgendaCheck, compare as compare_agenda};
+use ti4_engine::action_cards_check::{ActionCardsCheck, compare as compare_action_cards};
 use ti4_engine::strategy_check::{StrategyCheck, compare as compare_strategy};
 use ti4_engine_core_bridge::workload::{golden_positions, template_openings};
 
@@ -81,6 +82,7 @@ fn main() {
     let mut out = BoardCheck::default();
     let mut strategy = StrategyCheck::default();
     let mut agenda = AgendaCheck::default();
+    let mut action_cards = ActionCardsCheck::default();
     match args.first().map(String::as_str) {
         Some("templates") => {
             let (positions, refused) = template_openings();
@@ -89,6 +91,7 @@ fn main() {
                 compare(&p.label, &p.state, Some(&p.galaxy), p.sources, &mut out);
                 compare_strategy(&p.label, &p.state, p.sources, &mut strategy);
                 compare_agenda(&p.label, &p.state, p.sources, &mut agenda);
+                compare_action_cards(&p.label, &p.state, &mut action_cards);
             }
             if let Some(p) = positions.first() {
                 compare_laws(&p.label, &p.state, Some(&p.galaxy), p.sources, &mut out);
@@ -106,6 +109,7 @@ fn main() {
                 compare(&p.label, &p.state, Some(&p.galaxy), p.sources, &mut out);
                 compare_strategy(&p.label, &p.state, p.sources, &mut strategy);
                 compare_agenda(&p.label, &p.state, p.sources, &mut agenda);
+                compare_action_cards(&p.label, &p.state, &mut action_cards);
                 if i % law_stride == 0 {
                     compare_laws(&p.label, &p.state, Some(&p.galaxy), p.sources, &mut out);
                 }
@@ -147,7 +151,18 @@ fn main() {
     for m in &agenda.mismatches {
         println!("MISMATCH {m}");
     }
-    if !out.mismatches.is_empty() || !strategy.mismatches.is_empty() || !agenda.mismatches.is_empty() {
+    println!(
+        "action card reads: positions {} | answers compared {} | bailed {} | unmapped {} | mismatches {}",
+        action_cards.positions,
+        action_cards.compared,
+        action_cards.bailed,
+        action_cards.unmapped,
+        action_cards.mismatches.len()
+    );
+    for m in &action_cards.mismatches {
+        println!("MISMATCH {m}");
+    }
+    if !out.mismatches.is_empty() || !action_cards.mismatches.is_empty() || !strategy.mismatches.is_empty() || !agenda.mismatches.is_empty() {
         std::process::exit(1);
     }
 }

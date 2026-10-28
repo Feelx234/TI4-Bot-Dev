@@ -2363,7 +2363,7 @@ enum Stage {
 #[derive(Debug, Clone)]
 pub struct ProductionWindow {
     player: PlayerId,
-    system: SystemId,
+    pub(crate) system: SystemId,
     /// Full PRODUCTION limit for this use, after pre-production reactions have settled.
     limit: i64,
     remaining: i64,
@@ -3571,6 +3571,7 @@ impl ProductionWindow {
                 let before = self.clone();
                 let player = self.player.clone();
                 let emit_timing = ctx.timing.is_some();
+                let galaxy = ctx.timing.as_ref().and_then(|t| t.galaxy);
                 let mut outcome = Ok(false);
                 crate::dual_window!(
                     crate::dual::Area::Production,
@@ -3582,7 +3583,7 @@ impl ProductionWindow {
                         crate::dual::Run::new(self.snap())
                     },
                     |s: &mut GameState, script: &crate::dual_window::Recording| {
-                        crate::production_window_dual::step(&before, s, content, sources, &player, script, emit_timing)
+                        crate::production_window_dual::step(&before, s, content, sources, &player, script, emit_timing, galaxy)
                     }
                 );
                 return outcome;
@@ -7141,6 +7142,49 @@ mod tests {
                         .is_some_and(|kind| kind.base_type() == "infantry")
             })
             .count()
+    }
+
+    /// Trilossa Aun Mirik is an ability of the core table: in the production window run on the core
+    /// (`production=dual`), the producing player's ground-force build opens the agent's window, the core resolver
+    /// offers it (the adjacency is the adapter's fact), exhausts the card and writes the same grant, and the
+    /// placement that follows offers the remote planet.
+    #[test]
+    fn the_argent_agent_redirects_in_the_core_production_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Production, Backend::Dual).with(Area::Driver, Backend::Dual);
+        let mut exhausted = false;
+        with_mask(mask, || {
+            let (mut state, galaxy, producing, _, remote, planet) = argent_agent_production_board(Some(player()));
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            let content = ContentStore::embedded();
+            let mut window = ProductionWindow::new(&state, content, POK, &player(), &producing);
+            window.credit = 30;
+            let build = infantry_build_offer(&window.pending_choice(&state, content, POK).expect("ground forces are producible"), content);
+            let (mut resolver, mut sequence, mut dice, mut rng, mut table) = agent_window_services(&state, Some(ARGENT_AGENT_ABILITY));
+            let mut ctx = Resolving {
+                content,
+                sources: POK,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: Some(&galaxy) }),
+            };
+            window.resolve(&mut state, &mut ctx, build).expect("agent window resolves");
+            exhausted = state.player(&PlayerId::new("b")).unwrap().leaders[&ti4_model::id::LeaderId::new("argentagent")] == ti4_model::state::LeaderStatus::Exhausted;
+            let place = window.pending_choice(&state, content, POK).expect("local and adjacent destinations are offered");
+            let answer = place.option(&format!("place|{remote}@{planet}")).cloned().expect("the adjacent planet is offered");
+            window.resolve(&mut state, &mut ctx, answer).expect("remote placement resolves");
+        });
+        let r = report();
+        let w = r.windows.get("ProductionWindow::step").copied().unwrap_or_default();
+        assert!(exhausted, "the agent was used");
+        assert!(w.compared >= 2, "the build and the placement are compared: {:?}", r.windows);
+        assert!(r.windows.keys().all(|k| !k.contains("unported ability leader:*:argentagent")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
     }
 
     #[test]

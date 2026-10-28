@@ -1005,7 +1005,7 @@ pub fn ground_combat_round_ended(
 }
 
 /// Display only: a faction ability as printed (its name, when it can be used and what it does).
-fn ability_card(content: &ContentStore, id: &str) -> serde_json::Value {
+pub(crate) fn ability_card(content: &ContentStore, id: &str) -> serde_json::Value {
     let record = content.get(ContentType::Abilities, id);
     let field = |key: &str| record.as_ref().and_then(|record| record.text(key));
     serde_json::json!({
@@ -1016,7 +1016,7 @@ fn ability_card(content: &ContentStore, id: &str) -> serde_json::Value {
 }
 
 /// The cost of Munitions Reserves, paid at each combat round's opening window.
-const MUNITIONS_COST: i32 = 2;
+pub(crate) const MUNITIONS_COST: i32 = 2;
 
 /// Offer anything a faction does at the start of a space-combat round.
 ///
