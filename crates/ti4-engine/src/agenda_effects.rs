@@ -671,12 +671,9 @@ fn effect_execution(
             state.speaker = next.clone();
         }
     }
-    return Effect::Deferred {
+    Effect::Deferred {
         agenda: agenda.to_owned(),
         what: "8.16 bars the elected player from voting, which the session owns".to_owned(),
-    };
-    Effect::Resolved {
-        agenda: agenda.to_owned(),
     }
 }
 
@@ -843,12 +840,9 @@ fn effect_wormhole_research(
             });
         }
     }
-    return Effect::Deferred {
+    Effect::Deferred {
         agenda: agenda.to_owned(),
         what: "the technology it offers first needs a payer".to_owned(),
-    };
-    Effect::Resolved {
-        agenda: agenda.to_owned(),
     }
 }
 
@@ -1070,12 +1064,9 @@ fn effect_miscount(
         };
     }
     crate::laws::repeal(state, outcome);
-    return Effect::Deferred {
+    Effect::Deferred {
         agenda: agenda.to_owned(),
         what: "the elected law is repealed, but the re-vote needs the agenda window".to_owned(),
-    };
-    Effect::Resolved {
-        agenda: agenda.to_owned(),
     }
 }
 
@@ -1782,12 +1773,9 @@ fn effect_revolution(
             agenda: agenda.to_owned(),
         };
     }
-    return Effect::Deferred {
+    Effect::Deferred {
         agenda: agenda.to_owned(),
         what: "Against voters exhaust planets".to_owned(),
-    };
-    Effect::Resolved {
-        agenda: agenda.to_owned(),
     }
 }
 
