@@ -75,7 +75,7 @@ impl<'a> ActionView<'a> {
     #[must_use]
     pub fn has_legal_target(&self, player: &PlayerId, alias: &ActionCardId) -> Option<bool> {
         let seat = self.cx.owners.seat(player.as_str())?;
-        rules::has_legal_target(&self.view, self.blanked, seat, ActionCard::from_id(alias.as_str())?)
+        rules::has_legal_target(&self.view, self.blanked, crate::core_adapter::scope(ti4_model::content_types::SourceSet::all()), seat, ActionCard::from_id(alias.as_str())?)
     }
 
     /// `action_cards::reaction_can_matter` after the cost check, for a window naming `system`; `None` is

@@ -39,32 +39,61 @@ pub fn may_play(core: &CoreState, blanked: bool, who: Seat, faction_forbids: boo
 /// `Some(answer)`, or `None` for the arms that need string-only rules (the bail: the string function
 /// answers). A card without a requirement answers `Some(true)`.
 ///
-/// Bails (`None`): Meltdown, Cripple Defenses, Lucky Shot, Plague, Uprising, Seize Artifact, Messiah and
-/// Frontline Deployment, War Effort, Tactical Bombardment, Unstable Planet, Scuttle (planet catalogue,
-/// unit catalogue, neighbours or the controlled-spot rules).
+/// Bails (`None`): Uprising, Seize Artifact, Rise of a Messiah, Frontline Deployment, War Effort and Unstable
+/// Planet (neighbours, the controlled-spot rules, the empty-entry difference of the string board).
 #[must_use]
-pub fn has_legal_target(core: &CoreState, blanked: bool, who: Seat, card: ActionCard) -> Option<bool> {
+pub fn has_legal_target(core: &CoreState, blanked: bool, scope: Scope, who: Seat, card: ActionCard) -> Option<bool> {
     let rival = |keep: &dyn Fn(&crate::state::Player) -> bool| core.players().iter().any(|p| p.seat != who && keep(p));
+    let base = |u: Unit| scope.unit(u).map(|d| d.base_type);
+    // Every planet with the system the string board files it under.
+    let planets = || {
+        core.board().planets().filter_map(|(planet, cell)| cell.placed_in.or(planet.data().system).map(|s| (s, planet, cell)))
+    };
     use ActionCard as C;
     match card {
         C::Insubordination => Some(rival(&|p| p.econ.tactic_tokens > 0)),
         C::Spy => Some(rival(&|p| !p.cards.hand.is_empty())),
         C::RepealLaw => Some(!laws::in_play(core, blanked).is_empty()),
         C::UnexpectedAction => Some(!crate::query::board::systems_with_token(core, who).is_empty()),
-        C::ReactorMeltdown
-        | C::CrippleDefenses
-        | C::LuckyShot
-        | C::Plague
+        C::Plague => Some(planets().any(|(_, _, cell)| cell.control.is_some_and(|owner| owner != who))),
+        C::CrippleDefenses => {
+            Some(planets().any(|(_, _, cell)| cell.units.as_slice().iter().any(|p| base(p.kind()) == Some(UnitBaseType::Pds))))
+        }
+        C::ReactorMeltdown => Some(planets().any(|(system, _, cell)| {
+            cell.units.as_slice().iter().any(|p| base(p.kind()) == Some(UnitBaseType::Spacedock)) && !is_home_system(scope, system)
+        })),
+        C::LuckyShot => Some(System::ALL.iter().any(|&system| {
+            board::controls_a_planet_in(core, system, who)
+                && board::space_units(core, system).iter().any(|p| {
+                    p.owner() != who
+                        && matches!(base(p.kind()), Some(UnitBaseType::Dreadnought | UnitBaseType::Cruiser | UnitBaseType::Destroyer))
+                })
+        })),
+        C::TacticalBombardment => Some(System::ALL.iter().any(|&system| {
+            board::has_space_units_of(core, system, who)
+                && board::planets_of(core, system).any(|planet| board::control(core, planet).is_some_and(|owner| owner != who))
+        })),
+        C::Scuttle => Some(System::ALL.iter().any(|&system| {
+            board::space_units(core, system)
+                .iter()
+                .any(|p| p.owner() == who && scope.unit(p.kind()).is_none_or(|d| d.ship && d.base_type != UnitBaseType::Fighter))
+        })),
+        C::UnstablePlanet
         | C::Uprising
         | C::SeizeArtifact
         | C::RiseOfAMessiah
         | C::FrontlineDeployment
-        | C::WarEffort
-        | C::TacticalBombardment
-        | C::UnstablePlanet
-        | C::Scuttle => None,
+        | C::WarEffort => None,
         _ => Some(true),
     }
+}
+
+/// `galaxy::is_home_system`: the printed system of a homeworld planet in scope.
+fn is_home_system(scope: Scope, system: System) -> bool {
+    crate::generated::Planet::ALL.iter().any(|p| {
+        let d = p.data();
+        d.homeworld_of.is_some() && d.system == Some(system) && scope.0 & crate::tables::source_bit(d.source) != 0
+    })
 }
 
 /// What `reaction_can_matter` reads of the window's event: who acted and in which system.
@@ -447,21 +476,19 @@ mod tests {
     fn every_bail_declines_and_the_rest_answers() {
         let core = CoreState::all_loaded();
         let who = Seat::from_index(0).unwrap();
+        let all = Scope(u32::MAX);
         for card in [
-            ActionCard::ReactorMeltdown,
-            ActionCard::CrippleDefenses,
-            ActionCard::LuckyShot,
-            ActionCard::Plague,
             ActionCard::Uprising,
             ActionCard::SeizeArtifact,
             ActionCard::RiseOfAMessiah,
             ActionCard::FrontlineDeployment,
             ActionCard::WarEffort,
-            ActionCard::TacticalBombardment,
             ActionCard::UnstablePlanet,
-            ActionCard::Scuttle,
         ] {
-            assert_eq!(has_legal_target(&core, false, who, card), None, "{card:?}");
+            assert_eq!(has_legal_target(&core, false, all, who, card), None, "{card:?}");
+        }
+        for card in [ActionCard::ReactorMeltdown, ActionCard::CrippleDefenses, ActionCard::LuckyShot, ActionCard::Plague, ActionCard::TacticalBombardment, ActionCard::Scuttle] {
+            assert_eq!(has_legal_target(&core, false, all, who, card), Some(false), "{card:?}: an empty board has no target");
         }
         for card in [
             ActionCard::FocusedResearch,
@@ -481,7 +508,7 @@ mod tests {
         for card in [ActionCard::HarnessEnergy, ActionCard::Infiltrate] {
             assert_eq!(reaction_can_matter(&core, scope, who, card, w), None, "{card:?}");
         }
-        assert_eq!(has_legal_target(&core, false, who, ActionCard::Blitz), Some(true));
-        assert_eq!(has_legal_target(&core, false, who, ActionCard::Spy), Some(false), "no rival");
+        assert_eq!(has_legal_target(&core, false, all, who, ActionCard::Blitz), Some(true));
+        assert_eq!(has_legal_target(&core, false, all, who, ActionCard::Spy), Some(false), "no rival");
     }
 }

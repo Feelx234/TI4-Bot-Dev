@@ -8085,6 +8085,69 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "typed-core")]
+    fn the_legal_target_reads_agree_with_the_core_on_boards_with_and_without_a_target() {
+        use crate::dual::{AreaMask, Backend, with_mask};
+        use crate::generated::IdStr;
+        use ti4_engine_core::generated::{ActionCard, Planet, PlanetTrait};
+        let mask = AreaMask::all(Backend::String).with(crate::dual::Area::ActionCards, Backend::Dual);
+        let planet = Planet::ALL
+            .iter()
+            .copied()
+            .find(|p| {
+                let d = p.data();
+                d.traits.contains(&PlanetTrait::Cultural) && d.system.is_some() && d.homeworld_of.is_none() && d.source == ti4_engine_core::generated::Source::Base
+            })
+            .expect("a base cultural planet");
+        let (planet_id, system_id) = (planet.as_str().to_owned(), planet.data().system.unwrap().as_str().to_owned());
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        let unit = |kind: &str, owner: &PlayerId| ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new(kind), owner.clone());
+        // 0: nothing; 1: a rival owns the planet, we have a ship; 2: we own it, a rival cruiser sits above, docks and PDS on it.
+        for scene in 0..4 {
+            let mut state = crate::fixtures::game(&["a", "b"]);
+            for (seat, faction) in state.players.iter_mut().zip(["arborec", "hacan"]) {
+                seat.faction = ti4_model::id::FactionId::new(faction);
+            }
+            state.promissory_notes.clear();
+            let sys = ti4_model::id::SystemId::new(system_id.clone());
+            let pid = ti4_model::id::PlanetId::new(planet_id.clone());
+            if scene == 1 {
+                state.system_mut(&sys).planet_control.insert(pid.clone(), b.clone());
+                state.system_mut(&sys).units.push(unit("destroyer", &a));
+            }
+            if scene >= 2 {
+                state.system_mut(&sys).planet_control.insert(pid.clone(), a.clone());
+                state.system_mut(&sys).units.push(unit("cruiser", &b));
+                state.system_mut(&sys).planet_units.insert(pid, vec![if scene == 2 { unit("pds", &b) } else { unit("spacedock", &a) }]);
+            }
+            let _ = crate::dual::take_report();
+            let mut yes = Vec::new();
+            for card in [ActionCard::Plague, ActionCard::CrippleDefenses, ActionCard::ReactorMeltdown, ActionCard::LuckyShot, ActionCard::TacticalBombardment, ActionCard::Scuttle] {
+                let got = with_mask(mask, || {
+                    has_legal_target_text_dual(&state, &a, &ActionCardId::new(card.as_str()))
+                });
+                if got {
+                    yes.push(card);
+                }
+            }
+            let report = crate::dual::take_report();
+            assert!(report.differences.is_empty(), "scene {scene}: {:?}", report.differences.first());
+            let want: &[ActionCard] = match scene {
+                0 => &[],
+                1 => &[ActionCard::Plague, ActionCard::TacticalBombardment, ActionCard::Scuttle],
+                2 => &[ActionCard::CrippleDefenses, ActionCard::LuckyShot],
+                _ => &[ActionCard::ReactorMeltdown, ActionCard::LuckyShot],
+            };
+            assert_eq!(yes, want, "scene {scene}");
+        }
+    }
+
+    #[cfg(feature = "typed-core")]
+    fn has_legal_target_text_dual(state: &GameState, player: &PlayerId, alias: &ActionCardId) -> bool {
+        has_legal_target(state, ContentStore::embedded(), ti4_model::content_types::SourceSet::all(), player, alias)
+    }
+
+    #[test]
     fn morale_boost_expires_with_the_round_it_was_played_in() {
         // "During this combat round." Held as the round number rather than a flag, because a
         // flag would improve every later round of the same combat as well.
