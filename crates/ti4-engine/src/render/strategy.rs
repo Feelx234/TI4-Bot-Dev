@@ -3,8 +3,11 @@
 //!
 //! Owner: package B8 (docs/ENGINE_CORE_STATE.md 4.4). Ported: the Trade primary's "let another player
 //! replenish commodities" (subtype `trade_choose_replenish`, option id the seat's faction text, kind
-//! `replenish`, then the generic done worded "nobody else replenishes"). The display details (`seats`,
-//! `commodities`) come from the state and are added by the caller of the window (`strategy_core`).
+//! `replenish`, then the generic done worded "nobody else replenishes"); the command token gain and
+//! Warfare's recall and redistribution; Diplomacy's system and ready-planet questions; Politics' speaker and
+//! agenda questions; Leadership's purchase question. The display details (`seats`, `commodities`, pool counts,
+//! `purchase`, `ready_hints`, `agenda`) and the pool previews come from the state and are added by the caller
+//! of the window (`strategy_core`, `strategy_cards_core`).
 
 use ti4_engine_core::choice::agenda::Shown;
 use ti4_engine_core::choice::strategy::{Ask, Opt, Pool, Subtype};
@@ -47,6 +50,9 @@ impl Family for Fam {
             Ask::ReadyPlanet => "ready which planet".to_owned(),
             Ask::PoliticsSpeaker => "who becomes speaker".to_owned(),
             Ask::PoliticsAgenda { agenda } => format!("place {} where", agenda.as_str()),
+            Ask::LeadershipBuy { owed, more } => {
+                format!("spend {owed}{} influence for a command token", if *more { " more" } else { "" })
+            }
         }
     }
 
@@ -60,6 +66,7 @@ impl Family for Fam {
             Subtype::ReadyPlanet => "ready_planet",
             Subtype::PoliticsChooseSpeaker => "politics_choose_speaker",
             Subtype::PoliticsPlaceAgenda => "politics_place_agenda",
+            Subtype::BuyTokenWithInfluence => "buy_token_with_influence",
         }
         .to_owned()
     }
@@ -98,6 +105,14 @@ impl Family for Fam {
             ),
             Opt::Top => ChoiceOption::labelled("top", "agenda", "on top of the deck"),
             Opt::Bottom => ChoiceOption::labelled("bottom", "agenda", "on the bottom"),
+            Opt::Buy(false) => ChoiceOption::labelled("no", crate::strategy::STRATEGY_KIND, "spend nothing further"),
+            Opt::Buy(true) => {
+                let (owed, more) = match a {
+                    Ask::LeadershipBuy { owed, more } => (*owed, *more),
+                    _ => (0, false),
+                };
+                ChoiceOption::labelled("yes", crate::strategy::STRATEGY_KIND, format!("spend {owed}{} influence", if more { " more" } else { "" }))
+            }
         }
     }
 
@@ -117,6 +132,11 @@ impl Family for Fam {
             Ask::PoliticsAgenda { .. } => match id {
                 "top" => Some(Opt::Top),
                 "bottom" => Some(Opt::Bottom),
+                _ => None,
+            },
+            Ask::LeadershipBuy { .. } => match id {
+                "no" => Some(Opt::Buy(false)),
+                "yes" => Some(Opt::Buy(true)),
                 _ => None,
             },
         }

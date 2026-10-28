@@ -37,6 +37,9 @@ pub enum Ask {
     PoliticsSpeaker,
     /// Politics primary: "place {agenda} where".
     PoliticsAgenda { agenda: Agenda },
+    /// 52.3: "spend {owed} influence for a command token" (`more`: a carried credit pays part of it, so the
+    /// text says "more").
+    LeadershipBuy { owed: u8, more: bool },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -58,6 +61,8 @@ pub enum Opt {
     Top,
     /// An agenda goes on the bottom of the deck.
     Bottom,
+    /// Leadership: spend the influence (`true`) or nothing further (`false`).
+    Buy(bool),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -71,4 +76,5 @@ pub enum Subtype {
     ReadyPlanet,
     PoliticsChooseSpeaker,
     PoliticsPlaceAgenda,
+    BuyTokenWithInfluence,
 }

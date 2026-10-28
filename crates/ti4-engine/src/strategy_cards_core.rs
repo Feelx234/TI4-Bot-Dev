@@ -20,7 +20,7 @@ mod real {
     use ti4_engine_core::ids::Seat;
     use ti4_engine_core::kernel::stage::{AbilityTable, Window};
     use ti4_engine_core::kernel::{fx, Kernel, Resolver};
-    use ti4_engine_core::rules::strategy_primaries::{DMode, Diplomacy, Politics, WarfarePrimary};
+    use ti4_engine_core::rules::strategy_primaries::{DMode, Diplomacy, Leadership, Politics, WarfarePrimary};
     use ti4_engine_core::state::{CoreState, Slice};
     use ti4_model::content_types::SourceSet;
     use ti4_model::id::{PlayerId, SystemId};
@@ -198,6 +198,119 @@ mod real {
         Some(finish(&driven, &window))
     }
 
+    // -- Leadership ----------------------------------------------------------------------------------------
+
+    /// [`drive_with`], rendering each question in its position (the payment options show the worth of a face and
+    /// what the payment leaves).
+    fn drive_at<W: Window>(
+        driver: &mut Driver<W>,
+        core: &mut CoreState,
+        kernel: &'static Kernel,
+        r: &Render,
+        gs: &GameState,
+        script: &Recording,
+        complete: Complete<'_>,
+    ) -> Result<Driven, ti4_engine_core::driver::DriverError> {
+        use ti4_engine_core::driver::Status;
+        let (phase, round) = (crate::render::generic::core_phase(gs.phase), gs.round);
+        let mut out = Driven { questions: Vec::new(), rendered: Vec::new(), finished: false };
+        let mut status = driver.run(core, kernel)?;
+        loop {
+            match status {
+                Status::Done => {
+                    out.finished = true;
+                    return Ok(out);
+                }
+                Status::Asking(choice) => {
+                    let position = crate::render::Position { state: std::rc::Rc::new(core.clone()), kernel };
+                    let mut rendered = crate::render::Typed::new_at(r, position, choice.clone(), phase, round).rendered;
+                    complete(&choice, core, &mut rendered);
+                    out.questions.push(choice.clone());
+                    out.rendered.push(rendered);
+                    let Some(id) = script.questions.get(out.questions.len() - 1).and_then(|q| q.answer.clone()) else {
+                        return Ok(out);
+                    };
+                    let Some(pick) = crate::render::parse_pick(r, &choice.ask, &id) else {
+                        return Ok(out);
+                    };
+                    status = driver.resume(core, kernel, pick)?;
+                }
+            }
+        }
+    }
+
+    /// The string state as a question sees it mid-window: the planets exhausted and the trade goods held now.
+    fn string_now(before: &GameState, core: &CoreState, seat: Seat, player: &PlayerId) -> GameState {
+        let mut now = before.clone();
+        let controlled: Vec<ti4_model::id::PlanetId> = before.controlled_planets(player).into_iter().map(|(_, p)| p.clone()).collect();
+        for id in controlled {
+            match ti4_engine_core::generated::Planet::from_id(id.as_str()).map(|p| ti4_engine_core::query::board::exhausted(core, p)) {
+                Some(true) => {
+                    now.exhausted_planets.insert(id);
+                }
+                Some(false) => {
+                    now.exhausted_planets.remove(&id);
+                }
+                None => {}
+            }
+        }
+        if let (Some(p), Some(held)) = (now.player_mut(player), core.players().by_seat(seat).map(|p| i32::from(p.econ.trade_goods))) {
+            p.trade_goods = held;
+        }
+        now
+    }
+
+    /// The core half of the two Leadership abilities (`secondary`: the follower's, its first purchase accepted).
+    /// `None` as for Warfare, and where the payment rules are not followed (`production_view::unported_window`:
+    /// the Keleres agent and the other faction effects on payment).
+    pub fn leadership(
+        gs: &mut GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        player: &PlayerId,
+        primary: bool,
+        script: &Recording,
+    ) -> Option<CoreWindow<bool>> {
+        if outside(gs, script) || gs.tokens_held_by_mahact(player) > 0 || crate::production_view::unported_window(gs, player) {
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let seat = r.seat(player.as_str())?;
+        let letnev = gs.player(player)?.faction.as_str() == "letnev";
+        let before = gs.clone();
+        let kernel = crate::production_view::kernel();
+        let mut driver = Driver::new(Leadership::new(seat, primary), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let gained = std::cell::Cell::new(0_usize);
+        let purchase_of = |core: &CoreState| crate::strategy_cards::purchase_details(&string_now(&before, core, seat, player), content, sources, player);
+        let fp = Footprint { reads: crate::production_view::READS, writes: ti4_engine_core::state::SliceSet::of(&[Slice::Board, Slice::Players]) };
+        let driven = with_core(gs, &mut cx, Sources::default(), fp, |core, _| {
+            drive_at(&mut driver, core, kernel, &r, &before, script, &|c, core, rendered| {
+                complete_tokens(c, core, rendered, letnev);
+                match c.ask {
+                    Ask::Strategy(SAsk::GainPool { .. }) => {
+                        // Only the three free tokens of the primary announce the purchase that follows.
+                        if primary && gained.get() < 3 {
+                            if let Some(purchase) = purchase_of(core) {
+                                rendered.details.insert("purchase".to_owned(), purchase);
+                            }
+                        }
+                        gained.set(gained.get() + 1);
+                    }
+                    Ask::Strategy(SAsk::LeadershipBuy { more: false, .. }) => {
+                        if let Some(purchase) = purchase_of(core) {
+                            rendered.details.extend(pool_details(core, c.actor, letnev, "buy", Some(0)));
+                            rendered.details.insert("purchase".to_owned(), purchase);
+                        }
+                    }
+                    _ => {}
+                }
+            })
+        })
+        .ok()?
+        .ok()?;
+        Some(finish(&driven, &driver.window))
+    }
+
     // -- Politics ------------------------------------------------------------------------------------------
 
     /// Whether `player` draws `count` action cards plainly: no faction hook changes the draw (Scheming, a bonus
@@ -265,6 +378,17 @@ mod stub {
     pub fn politics(_: &mut GameState, _: &ContentStore, _: &PlayerId, _: bool, _: &Recording) -> Option<CoreWindow<bool>> {
         None
     }
+
+    pub fn leadership(
+        _: &mut GameState,
+        _: &ContentStore,
+        _: SourceSet,
+        _: &PlayerId,
+        _: bool,
+        _: &Recording,
+    ) -> Option<CoreWindow<bool>> {
+        None
+    }
 }
 
 #[cfg(all(test, feature = "typed-core"))]
@@ -297,6 +421,9 @@ mod tests {
         let _ = take_report();
         with_mask(AreaMask::STRING.with(Area::Strategy, Backend::Dual), || {
             let mut state = crate::fixtures::seated_game(factions, POK);
+            // The notes are dealt to the factions once they are seated (the lobby does this; the typed cards
+            // slice has no generic faction).
+            crate::promissory::deal(&mut state, ContentStore::embedded(), POK);
             setup(&mut state);
             let mut table = Table::with_default(Box::new(Scripted::new(answers.iter().map(|a| (*a).to_owned()))));
             act(&mut state, &mut table);
@@ -407,5 +534,49 @@ mod tests {
         let twins = [("a", "sol"), ("b", "hacan"), ("c", "hacan")];
         assert_eq!(run("strategy_cards::politics_primary", &twins, |_| {}, &["hacan"], primary("pok3politics")).1, 1);
     }
-}
 
+    fn goods(n: i32) -> impl Fn(&mut GameState) {
+        move |s| s.player_mut(&a()).unwrap().trade_goods = n
+    }
+
+    #[test]
+    fn leadership_gains_three_tokens_and_buys_more_in_lockstep() {
+        let label = "strategy_cards::leadership_primary";
+        let free = ["tactic_tokens", "tactic_tokens", "fleet_tokens"];
+        // Two purchases: a planet and a trade good, then three trade goods.
+        let two = [&free[..], &["yes", "exhaust|jord", "fleet_tokens", "yes", "strategic_tokens"]].concat();
+        assert_eq!(run(label, &F3, goods(4), &two, primary("pok1leadership")).0, 1);
+        // The holder stops after the free tokens.
+        let none = [&free[..], &["no"]].concat();
+        assert_eq!(run(label, &F3, goods(4), &none, primary("pok1leadership")).0, 1);
+        // Nothing to pay with (the home planet spent, no goods): the free tokens only.
+        let broke = |s: &mut GameState| {
+            s.player_mut(&a()).unwrap().trade_goods = 0;
+            s.exhausted_planets.insert(PlanetId::new("jord"));
+        };
+        assert_eq!(run(label, &F3, broke, &free, primary("pok1leadership")).0, 1);
+        // Paid by goods alone, one by one (each lone option is taken without a question).
+        assert_eq!(run(label, &F3, |s| { goods(3)(s); s.exhausted_planets.insert(PlanetId::new("jord")); }, &[&free[..], &["yes", "tactic_tokens"]].concat(), primary("pok1leadership")).0, 1);
+    }
+
+    #[test]
+    fn leadership_secondary_pays_the_accepted_purchase_then_asks_again() {
+        let label = "strategy_cards::leadership_secondary";
+        let answers = ["trade_good", "trade_good", "exhaust|jord", "fleet_tokens", "no"];
+        assert_eq!(run(label, &F3, goods(4), &answers, secondary("pok1leadership")).0, 1);
+        // Too poor to pay the first purchase: nothing at all.
+        let broke = |s: &mut GameState| {
+            s.player_mut(&a()).unwrap().trade_goods = 0;
+            s.exhausted_planets.insert(PlanetId::new("jord"));
+        };
+        assert_eq!(run(label, &F3, broke, &[], secondary("pok1leadership")).0, 1);
+    }
+
+    #[test]
+    fn leadership_declines_where_payment_is_not_followed() {
+        let label = "strategy_cards::leadership_primary";
+        let argent = [("a", "sol"), ("b", "argent")];
+        let free = ["tactic_tokens", "tactic_tokens", "fleet_tokens", "no"];
+        assert_eq!(run(label, &argent, goods(4), &free, primary("pok1leadership")), (0, 1));
+    }
+}

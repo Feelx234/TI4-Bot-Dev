@@ -17,7 +17,12 @@ use crate::ids::Seat;
 use crate::kernel::fx;
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
-use crate::query::{board, seats};
+use crate::query::economy::Spend;
+use crate::query::{board, reach, seats};
+use crate::rules::production as prod;
+use crate::rules::production::pay::{PayStep, Stage as PayStage};
+use crate::rules::production::{Cx as ProdCx, Extras};
+use crate::tables::Scope;
 use crate::rules::strategy_windows::{ctx, rule_ctx};
 use crate::state::CoreState;
 
@@ -462,6 +467,196 @@ impl Window for Politics {
                     self.stage = PStage::Done;
                 }
             }
+            _ => return Err(Illegal),
+        }
+        Ok(())
+    }
+}
+
+// -- Leadership ------------------------------------------------------------------------------------------
+
+/// Influence one command token costs (`strategy_cards::INFLUENCE_PER_TOKEN`).
+pub const INFLUENCE_PER_TOKEN: i64 = 3;
+/// Tokens the Leadership primary gives.
+pub const LEADERSHIP_TOKENS: u8 = 3;
+
+/// The suspension points of [`Leadership`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LStage {
+    Start,
+    /// The free tokens of the primary.
+    Gain,
+    /// Waiting on "spend 3 influence for a command token".
+    Offer,
+    /// Paying the three influence, one face at a time ([`PayStep`]).
+    Pay,
+    /// The pool of the token just paid for.
+    GainOne,
+    Done,
+}
+
+/// Leadership: the primary (three command tokens, then as many bought for three influence each as the holder
+/// wants and can pay) and the secondary (the same purchase loop, the first purchase already accepted by the
+/// follower window). The Keleres agent's offer and a payment the production rules do not follow stay with the
+/// string caller (the adapter bails).
+#[derive(Debug, Clone)]
+pub struct Leadership {
+    pub who: Seat,
+    primary: bool,
+    stage: LStage,
+    /// Free tokens still to place.
+    left: u8,
+    /// Influence carried over from an overpayment (`pay_seeing_with_credit`'s credit).
+    credit: i64,
+    pay: Option<PayStep>,
+}
+
+impl Leadership {
+    #[must_use]
+    pub const fn new(who: Seat, primary: bool) -> Self {
+        Self { who, primary, stage: LStage::Start, left: 0, credit: 0, pay: None }
+    }
+
+    fn cx<'a>(s: &'a CoreState, k: &'a Kernel) -> ProdCx<'a> {
+        ProdCx::new(s, k, Scope(u32::from(k.sources.0)), reach::blanked(s))
+    }
+
+    /// `leadership_influence_eligible_with_credit`.
+    fn eligible(&self, s: &CoreState, k: &Kernel) -> bool {
+        prod::available(&Self::cx(s, k), self.who, Spend::Influence, &Extras::default()) + self.credit >= INFLUENCE_PER_TOKEN
+    }
+
+    /// The opening of `pay_influence_and_gain_one`: the first payment step, or the end of the loop when the
+    /// bill cannot be met.
+    fn begin_pay(&mut self, s: &CoreState, k: &Kernel) {
+        let used = self.credit.min(INFLUENCE_PER_TOKEN.max(0));
+        let owed = INFLUENCE_PER_TOKEN - used;
+        if owed <= 0 {
+            self.credit -= used;
+            self.free_one();
+        } else if prod::available(&Self::cx(s, k), self.who, Spend::Influence, &Extras::default()) < owed {
+            self.stage = LStage::Done;
+        } else {
+            self.pay = Some(self.pay_step(used, owed, 0));
+            self.stage = LStage::Pay;
+        }
+    }
+
+    fn pay_step(&self, used_credit: i64, owed: i64, paid: i64) -> PayStep {
+        PayStep {
+            who: self.who,
+            kind: Spend::Influence,
+            cost: INFLUENCE_PER_TOKEN,
+            used_credit,
+            owed,
+            paid,
+            took: None,
+            stage: PayStage::Paying,
+        }
+    }
+
+    /// The token is paid for: its pool is asked.
+    fn free_one(&mut self) {
+        self.left = 1;
+        self.stage = LStage::GainOne;
+    }
+
+    /// One payment step ended: collect its worth, pay on or finish the purchase.
+    fn after_step(&mut self) {
+        let Some(step) = self.pay.take() else {
+            self.stage = LStage::Done;
+            return;
+        };
+        let Some(worth) = step.took else {
+            // A payment that collected nothing ends the whole purchase loop.
+            self.stage = LStage::Done;
+            return;
+        };
+        let paid = step.paid + worth;
+        if paid < step.owed {
+            self.pay = Some(self.pay_step(step.used_credit, step.owed, paid));
+        } else {
+            self.credit = self.credit - step.used_credit + paid - step.owed;
+            self.free_one();
+        }
+    }
+
+    fn buy_choice(&self) -> Choice {
+        let owed = (INFLUENCE_PER_TOKEN - self.credit).max(0);
+        Choice {
+            actor: self.who,
+            ask: ask(SAsk::LeadershipBuy { owed: u8::try_from(owed).unwrap_or(0), more: self.credit > 0 }),
+            ctx: rule_ctx(Rule::R52_3, SSub::BuyTokenWithInfluence),
+            opts: opts([SOpt::Buy(false), SOpt::Buy(true)]),
+        }
+    }
+}
+
+impl Window for Leadership {
+    type Stage = LStage;
+
+    fn stage(&self) -> LStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        loop {
+            match self.stage {
+                LStage::Start => {
+                    if self.primary {
+                        self.left = LEADERSHIP_TOKENS;
+                        self.stage = LStage::Gain;
+                    } else {
+                        self.begin_pay(sx.state, sx.kernel);
+                    }
+                }
+                LStage::Gain | LStage::GainOne => return Next::Continue(ask(SAsk::GainPool { left: self.left })),
+                LStage::Offer => {
+                    if !self.eligible(sx.state, sx.kernel) {
+                        self.stage = LStage::Done;
+                    } else {
+                        return Next::Continue(self.buy_choice().ask);
+                    }
+                }
+                LStage::Pay => {
+                    let Some(step) = self.pay.as_mut() else {
+                        self.stage = LStage::Done;
+                        continue;
+                    };
+                    match step.step(sx) {
+                        Next::Done => self.after_step(),
+                        other => return other,
+                    }
+                }
+                LStage::Done => return Next::Done,
+            }
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        match self.stage {
+            LStage::Gain | LStage::GainOne => Some(gain_pool_choice(self.who, self.left)),
+            LStage::Offer => Some(self.buy_choice()),
+            LStage::Pay => self.pay.as_ref()?.ask_of(s, k),
+            LStage::Start | LStage::Done => None,
+        }
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        if self.stage == LStage::Pay {
+            return self.pay.as_mut().ok_or(Illegal)?.answer(sx, pick);
+        }
+        let Pick::Opt(Opt::Strategy(chosen)) = pick else { return Err(Illegal) };
+        match (self.stage, chosen) {
+            (LStage::Gain | LStage::GainOne, SOpt::Pool(pool)) => {
+                fx::gain_token(sx.state, self.who, pool, 1);
+                self.left -= 1;
+                if self.left == 0 {
+                    self.stage = LStage::Offer;
+                }
+            }
+            (LStage::Offer, SOpt::Buy(true)) => self.begin_pay(sx.state, sx.kernel),
+            (LStage::Offer, SOpt::Buy(false)) => self.stage = LStage::Done,
             _ => return Err(Illegal),
         }
         Ok(())

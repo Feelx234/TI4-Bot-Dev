@@ -173,6 +173,38 @@ fn gain_tokens_offering(
     Ok(())
 }
 
+/// Leadership beside its core window (`strategy_cards_core::leadership`): the primary (three free tokens, then
+/// the purchase loop) or the secondary (the follower's first purchase already accepted).
+fn leadership_ability(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    primary: bool,
+) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        if primary { "strategy_cards::leadership_primary" } else { "strategy_cards::leadership_secondary" },
+        state,
+        |state: &mut GameState| {
+            result = if primary {
+                gain_tokens_offering(state, content, sources, galaxy, table, player, LEADERSHIP_TOKENS, true)
+                    .and_then(|()| buy_tokens_with_influence(state, content, sources, galaxy, table, player))
+            } else {
+                buy_tokens_first_yes_assumed(state, content, sources, galaxy, table, player)
+            };
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_cards_core::leadership(
+            state, content, sources, player, primary, script
+        )
+    );
+    result
+}
+
 /// What a client needs to plan Leadership's influence purchases as one screen (display only).
 ///
 /// `max` is how many tokens the seat's influence can pay for in total (`floor(available / 3)`;
@@ -2829,17 +2861,7 @@ pub fn primary(
     };
     match kind {
         StrategyCardKind::Leadership => {
-            gain_tokens_offering(
-                state,
-                content,
-                sources,
-                galaxy,
-                table,
-                player,
-                LEADERSHIP_TOKENS,
-                true,
-            )?;
-            buy_tokens_with_influence(state, content, sources, galaxy, table, player)?;
+            leadership_ability(state, content, sources, galaxy, table, player, true)?;
         }
         StrategyCardKind::Diplomacy => {
             diplomacy_primary(state, content, sources, galaxy, table, player, card)?
@@ -2944,7 +2966,7 @@ pub fn secondary(
     match kind {
         // The window's `yes` already asked the oracle question; pay for it and continue.
         StrategyCardKind::Leadership => {
-            buy_tokens_first_yes_assumed(state, content, sources, galaxy, table, player)?;
+            leadership_ability(state, content, sources, galaxy, table, player, false)?;
         }
         StrategyCardKind::Diplomacy => {
             diplomacy_secondary(state, content, sources, galaxy, table, player, card)?
