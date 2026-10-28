@@ -18,5 +18,6 @@ pub mod combat;
 pub mod invasion;
 pub mod leaders;
 pub mod production;
+pub mod reactions;
 pub mod strategy;
 pub mod trade;

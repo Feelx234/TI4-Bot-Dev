@@ -392,6 +392,9 @@ pub struct DualReport {
     pub hooks: BTreeMap<&'static str, HookCounts>,
     /// Window call sites ([`dual_window!`]), by label: compared runs and runs the core bowed out of.
     pub windows: BTreeMap<String, WindowCounts>,
+    /// The nested activity of the window runs that had any (`Recording::nested`): `"label | events | abilities"`
+    /// with the number of runs (the census of docs/ENGINE_REACTIONS.md; printed with `TI4_NESTED_LOG`).
+    pub nested: BTreeMap<String, u64>,
     /// The first [`MAX_KEPT`] differences.
     pub differences: Vec<Difference>,
     /// Differences beyond [`MAX_KEPT`] (counted only).
@@ -457,6 +460,9 @@ impl DualReport {
             into.compared += counts.compared;
             into.bailed += counts.bailed;
         }
+        for (sig, n) in &other.nested {
+            *self.nested.entry(sig.clone()).or_default() += n;
+        }
         for d in &other.differences {
             if self.differences.len() < MAX_KEPT {
                 self.differences.push(d.clone());
@@ -507,6 +513,14 @@ impl fmt::Display for DualReport {
             writeln!(f, "  windows: {} call sites", self.windows.len())?;
             for (label, w) in &self.windows {
                 writeln!(f, "    {label}: {} compared, {} bailed", w.compared, w.bailed)?;
+            }
+        }
+        if !self.nested.is_empty() && std::env::var_os("TI4_NESTED_LOG").is_some() {
+            writeln!(f, "  nested activity: {} signatures, {} runs", self.nested.len(), self.nested.values().sum::<u64>())?;
+            let mut rows: Vec<_> = self.nested.iter().collect();
+            rows.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+            for (sig, n) in rows {
+                writeln!(f, "    {n:>6}  {sig}")?;
             }
         }
         for d in &self.differences {
@@ -1096,7 +1110,12 @@ pub fn run_dual_window<R: PartialEq + Debug>(
     let mut core_state = state.clone();
     let mut string_run = string(state);
     let recording = crate::dual_window::finish();
-    let Some(core_run) = core(&mut core_state, &recording) else {
+    if recording.nested {
+        let sig = recording.signature();
+        with_report(|r| *r.nested.entry(format!("{label} | {sig}")).or_default() += 1);
+    }
+    let core_run = crate::dual_window::with_label(label, || core(&mut core_state, &recording));
+    let Some(core_run) = core_run else {
         with_report(|r| r.windows.entry(label.to_owned()).or_default().bailed += 1);
         return string_run.value;
     };

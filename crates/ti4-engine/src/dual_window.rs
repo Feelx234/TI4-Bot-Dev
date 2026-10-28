@@ -40,6 +40,24 @@ use crate::render::{self, Render, Typed};
 pub struct Asked {
     pub choice: Choice,
     pub answer: Option<String>,
+    /// Asked inside an emission of the window (a reaction window's pick, an ability's question).
+    pub nested: bool,
+}
+
+/// The string resolver's configuration when the window's first emission began: what a core resolver needs
+/// besides the registry (which the core builds from its ability table) to open the same windows.
+#[derive(Debug, Clone)]
+pub struct ResolverCfg {
+    pub initiative: Vec<String>,
+    pub seating: Vec<String>,
+    pub active: Option<String>,
+    pub speaker: Option<String>,
+    pub phase: ti4_model::state::Phase,
+    pub round: u64,
+    pub turn: u64,
+    pub max_depth: usize,
+    /// `(ability id, scope Debug text)`
+    pub used: Vec<(String, String)>,
 }
 
 /// What the string window did at its own level.
@@ -52,9 +70,44 @@ pub struct Recording {
     pub nested: bool,
     /// The event types and the questions that happened inside the emissions of the window (for the bail census).
     pub nested_kinds: Vec<String>,
+    /// The ids of the abilities whose effect ran inside the window (at any emission depth), in order.
+    pub effects: Vec<String>,
+    /// The ids of the abilities that were eligible in some window of an emission (picked, offered or taken
+    /// as the single mandatory one), in order of first sight. An ability whose condition failed is not here.
+    pub eligible: Vec<String>,
+    /// The dice abilities rolled inside the window: `(hits_on, faces)` of each roll, in order.
+    pub dice: Vec<(Option<u32>, Vec<u32>)>,
+    /// Something nested happened that no ability explains (a question or an event inside an emission, outside
+    /// an effect and outside a window's pick): the core window has no counterpart to follow.
+    pub foreign: bool,
+    /// The resolver as the window's first emission found it.
+    pub cfg: Option<ResolverCfg>,
+    effect_depth: u32,
+    in_pick: u32,
     /// The emission depth the window started at: a window may itself run inside an emission (an ability's
     /// effect opens a combat), and its own level is that depth, not zero.
     base: u32,
+}
+
+impl Recording {
+    /// The nested activity in one line: the event kinds and questions that happened inside the window's
+    /// emissions, then the eligible abilities (the owner's faction name left out so seats pool).
+    #[must_use]
+    pub fn signature(&self) -> String {
+        let mut kinds = self.nested_kinds.clone();
+        kinds.sort();
+        let anon = |id: &String| {
+            let mut parts: Vec<&str> = id.split(':').collect();
+            if parts.len() > 2 {
+                parts[1] = "*";
+            }
+            parts.join(":")
+        };
+        let mut abilities: Vec<String> = self.eligible.iter().map(anon).collect();
+        abilities.sort();
+        abilities.dedup();
+        format!("{} | {}", kinds.join(","), abilities.join(","))
+    }
 }
 
 thread_local! {
@@ -62,6 +115,29 @@ thread_local! {
     static COMPOSED: Cell<bool> = const { Cell::new(!cfg!(test)) };
     static REC: RefCell<Option<Recording>> = const { RefCell::new(None) };
     static DEPTH: Cell<u32> = const { Cell::new(0) };
+    static LABEL: Cell<&'static str> = const { Cell::new("nested") };
+}
+
+/// Run the core half of the window `label` (the bails of the shared driver step are counted under it).
+pub fn with_label<T>(label: &str, body: impl FnOnce() -> T) -> T {
+    // The labels are string literals at the call sites; keep a leaked copy only for the few distinct ones.
+    let leaked: &'static str = intern_label(label);
+    let before = LABEL.with(|l| l.replace(leaked));
+    let out = body();
+    LABEL.with(|l| l.set(before));
+    out
+}
+
+fn intern_label(label: &str) -> &'static str {
+    use std::sync::Mutex;
+    static LABELS: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
+    let mut all = LABELS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(found) = all.iter().find(|l| **l == label) {
+        return found;
+    }
+    let leaked: &'static str = Box::leak(label.to_owned().into_boxed_str());
+    all.push(leaked);
+    leaked
 }
 
 /// Begin a recording; `false` (and nothing changes) when one is running already.
@@ -86,21 +162,104 @@ pub fn note_ask(choice: &Choice, outcome: &Result<ChoiceOption, IllegalChoice>) 
     let depth = DEPTH.with(Cell::get);
     REC.with(|r| {
         if let Some(rec) = r.borrow_mut().as_mut() {
+            let answer = outcome.as_ref().ok().map(|o| o.id.clone());
             if rec.base == depth {
-                rec.questions.push(Asked { choice: choice.clone(), answer: outcome.as_ref().ok().map(|o| o.id.clone()) });
+                rec.questions.push(Asked { choice: choice.clone(), answer, nested: false });
             } else if depth > rec.base {
                 rec.nested = true;
                 rec.nested_kinds.push(format!("ask:{}", choice.prompt));
+                if rec.effect_depth == 0 && rec.in_pick == 0 {
+                    rec.foreign = true;
+                }
+                rec.questions.push(Asked { choice: choice.clone(), answer, nested: true });
             }
         }
     });
 }
 
-/// An ability's effect is about to run: whatever it does is string-only until the abilities are ported.
-pub fn note_effect() {
+/// An ability's effect runs while this guard lives: whatever is asked or emitted meanwhile is the ability's.
+pub struct EffectGuard;
+
+impl EffectGuard {
+    #[must_use]
+    pub fn enter(ability: &str) -> Self {
+        REC.with(|r| {
+            if let Some(rec) = r.borrow_mut().as_mut() {
+                rec.nested = true;
+                rec.effects.push(ability.to_owned());
+                rec.effect_depth += 1;
+            }
+        });
+        Self
+    }
+}
+
+impl Drop for EffectGuard {
+    fn drop(&mut self) {
+        REC.with(|r| {
+            if let Some(rec) = r.borrow_mut().as_mut() {
+                rec.effect_depth = rec.effect_depth.saturating_sub(1);
+            }
+        });
+    }
+}
+
+/// A window's pick question is being asked while this guard lives.
+pub struct PickGuard;
+
+impl PickGuard {
+    #[must_use]
+    pub fn enter() -> Self {
+        REC.with(|r| {
+            if let Some(rec) = r.borrow_mut().as_mut() {
+                rec.in_pick += 1;
+            }
+        });
+        Self
+    }
+}
+
+impl Drop for PickGuard {
+    fn drop(&mut self) {
+        REC.with(|r| {
+            if let Some(rec) = r.borrow_mut().as_mut() {
+                rec.in_pick = rec.in_pick.saturating_sub(1);
+            }
+        });
+    }
+}
+
+/// A roll was made (`Dice::roll`): kept when an ability's effect made it.
+pub fn note_dice(roll: &crate::dice::Roll) {
     REC.with(|r| {
         if let Some(rec) = r.borrow_mut().as_mut() {
-            rec.nested = true;
+            if rec.effect_depth > 0 {
+                rec.dice.push((roll.hits_on, roll.faces.clone()));
+            }
+        }
+    });
+}
+
+/// The first emission of the recording reads the resolver's configuration (`make` is called once).
+pub fn note_resolver(make: impl FnOnce() -> ResolverCfg) {
+    REC.with(|r| {
+        if let Some(rec) = r.borrow_mut().as_mut() {
+            if rec.cfg.is_none() {
+                rec.cfg = Some(make());
+            }
+        }
+    });
+}
+
+/// The abilities one seat found eligible in one window pass (the resolver's `eligible`).
+pub fn note_eligible<'a>(abilities: impl IntoIterator<Item = &'a str>) {
+    REC.with(|r| {
+        if let Some(rec) = r.borrow_mut().as_mut() {
+            for id in abilities {
+                if !rec.eligible.iter().any(|e| e == id) {
+                    rec.eligible.push(id.to_owned());
+                }
+            }
         }
     });
 }
@@ -123,6 +282,9 @@ pub fn leave_emit(began: u32, done: Option<&Event>) {
         if let Some(rec) = r.borrow_mut().as_mut() {
             if began > rec.base {
                 rec.nested = true;
+                if rec.effect_depth == 0 {
+                    rec.foreign = true;
+                }
                 if let Some(event) = done {
                     rec.nested_kinds.push(event.event_type.clone());
                 }
@@ -244,11 +406,24 @@ pub fn drive_with<W: Window>(
 ) -> Result<Driven, DriverError> {
     let (phase, round) = (render::generic::core_phase(gs.phase), gs.round);
     let mut out = Driven { questions: Vec::new(), rendered: Vec::new(), finished: false };
+    match crate::reactions_core::follow(r, script) {
+        Ok(Some(mut fol)) => {
+            fol.arm(r, gs, core);
+            driver.resolver = fol.resolver;
+            driver.table = fol.table;
+        }
+        Ok(None) => {}
+        Err(why) => {
+            crate::dual::note_bail(LABEL.with(Cell::get), &format!("nested ({why})"));
+            return Err(DriverError::NotAsking);
+        }
+    }
     let mut status = driver.run(core, kernel)?;
     loop {
         match status {
             Status::Done => {
                 out.finished = true;
+                compare_ability_dice(core, script);
                 return Ok(out);
             }
             Status::Asking(choice) => {
@@ -256,6 +431,9 @@ pub fn drive_with<W: Window>(
                 out.questions.push(choice.clone());
                 let mut rendered = typed.rendered;
                 complete(&choice, core, &mut rendered);
+                if let Some(facts) = driver.nested_facts() {
+                    complete_nested(r, &choice, facts, gs, &mut rendered);
+                }
                 out.rendered.push(rendered);
                 let Some(id) = script.questions.get(out.questions.len() - 1).and_then(|q| q.answer.clone()) else {
                     return Ok(out);
@@ -274,6 +452,81 @@ pub fn drive_with<W: Window>(
                 };
                 status = driver.resume(core, kernel, pick)?;
             }
+        }
+    }
+}
+
+/// Bail (under the label of the window being run) when the nested activity of the string run cannot be followed.
+pub(crate) fn nested_check(script: &Recording) -> Option<()> {
+    if !script.nested {
+        return Some(());
+    }
+    match script.unported(&crate::reactions_core::table()) {
+        Some(why) => {
+            crate::dual::note_bail(LABEL.with(Cell::get), &format!("nested ({why})"));
+            None
+        }
+        None if script.cfg.is_none() => {
+            crate::dual::note_bail(LABEL.with(Cell::get), "nested (nested activity without a resolver)");
+            None
+        }
+        None => Some(()),
+    }
+}
+
+/// The dice the abilities of the string run rolled, against the ones the core abilities rolled (the ledger rows
+/// of purpose `Ability`): the faces, in order. Equal faces from one stream means equal draws.
+fn compare_ability_dice(core: &CoreState, script: &Recording) {
+    if !script.nested || (script.dice.is_empty() && !core.loaded.has(Slice::Ledger)) {
+        return;
+    }
+    let mut core_dice: Vec<(Option<u32>, Vec<u32>)> = Vec::new();
+    if core.loaded.has(Slice::Ledger) {
+        for r in core.ledger().dice.iter() {
+            if matches!(r.purpose, ti4_engine_core::state::RollPurpose::Ability(_)) {
+                core_dice.push((r.hits_on.map(u32::from), r.faces.iter().map(|f| u32::from(*f)).collect()));
+            }
+        }
+    }
+    crate::dual::compare_value(crate::dual::Area::Driver, "nested.ability_dice", &script.dice, &core_dice);
+}
+
+/// The footprint of a window that follows nested activity: what the abilities of the table read and write.
+#[must_use]
+pub(crate) const fn ability_fp() -> Footprint {
+    Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
+        &[Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Cards, Slice::Pending],
+    )
+}
+
+/// ... and the streams, when the abilities draw (the window has to be lent them: `Sources::rng`).
+const ABILITY_DICE_FP: Footprint = Footprint::new(&[Slice::Rng, Slice::Ledger], &[Slice::Rng, Slice::Ledger]);
+
+/// `base`, widened by what the table's abilities touch when the string run had nested activity.
+#[must_use]
+pub(crate) fn nested_fp(base: Footprint, script: &Recording) -> Footprint {
+    if !script.nested {
+        return base;
+    }
+    let fp = base.union(ability_fp());
+    if script.dice.is_empty() { fp } else { fp.union(ABILITY_DICE_FP) }
+}
+
+/// The display facts of a question asked inside an emission (a reaction window's pick, an ability's question):
+/// the trigger of its window, the `active` detail of a pick, the battle or invasion the position is in. What
+/// the string builds from the event in hand and `TimingContext::ask_seeing`.
+fn complete_nested(r: &Render, choice: &CoreChoice, facts: &ti4_engine_core::kernel::NestedFacts, gs: &GameState, rendered: &mut Choice) {
+    if let Some(ctx) = rendered.context.take() {
+        let trigger = crate::kernel_sync::convert::trigger_text(
+            r,
+            &ti4_engine_core::kernel::trigger::Trigger::from_event(&facts.event, facts.relation, &facts.chain),
+        );
+        rendered.context = Some(ctx.with_trigger(trigger).about_battle(gs).about_invasion(gs));
+    }
+    if matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(_)) && gs.phase == ti4_model::state::Phase::Action {
+        if let Some(active) = &gs.active {
+            rendered.details.insert(crate::timing::ACTIVE_DETAIL.to_owned(), active.to_string().into());
         }
     }
 }
@@ -306,6 +559,7 @@ pub fn sustain_commander(
         return None;
     }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     let seat = r.seat(player.as_str())?;
     let source = r.code("letnevcommander");
     let before = gs.clone();
@@ -313,7 +567,7 @@ pub fn sustain_commander(
     let resolver = Resolver::new(&[seat], Some(seat));
     let mut driver = Driver::new(SustainCommander::new(seat, source), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
-    let driven = with_core(gs, &mut cx, Sources::default(), SUSTAIN_COMMANDER, |core, _| {
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(SUSTAIN_COMMANDER, script), |core, _| {
         let driven = drive(&mut driver, core, &kernel, &r, &before, script);
         staged = std::mem::take(&mut core.pending_mut().staged);
         driven
@@ -358,9 +612,6 @@ pub fn sustain_offer(
     script: &Recording,
 ) -> Option<CoreWindow<usize>> {
     use ti4_engine_core::rules::combat::sustain_offer::{Offer, SustainOffer};
-    if script.nested {
-        return None;
-    }
     if gs.rules_version < ti4_model::state::RULES_FACTION_EFFECTS {
         return None;
     }
@@ -371,6 +622,7 @@ pub fn sustain_offer(
         return None;
     }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     let (player, producer) = (r.seat(a.player.as_str())?, r.seat(a.producer.as_str())?);
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
     let source = r.code("letnevcommander");
@@ -390,7 +642,7 @@ pub fn sustain_offer(
     let resolver = Resolver::new(&[player], Some(player));
     let mut driver = Driver::new(SustainOffer::new(offer, u16::try_from(a.hits).ok()?), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
-    let driven = with_core(gs, &mut cx, Sources::default(), SUSTAIN_OFFER, |core, _| {
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(SUSTAIN_OFFER, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|c, st, rendered| {
             if let ti4_engine_core::choice::Ask::Combat(ask) = &c.ask {
                 rendered.details.insert("sustainers".to_owned(), crate::core_combat::sustainers_detail(&env.kernel, st, ask, c.actor));
@@ -460,10 +712,11 @@ pub fn assign_hits(
     script: &Recording,
 ) -> Option<CoreWindow<bool>> {
     use ti4_engine_core::rules::combat::assign::{Assign, AssignHits};
-    if script.nested || a.neutral {
+    if a.neutral {
         return None;
     }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     let player = r.seat(a.player.as_str())?;
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
     let before = gs.clone();
@@ -488,7 +741,7 @@ pub fn assign_hits(
     } else {
         crate::decision_context::HitRestriction::Any
     };
-    let driven = with_core(gs, &mut cx, Sources::default(), ASSIGN_HITS, |core, _| {
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(ASSIGN_HITS, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, rendered| {
             if let Some(context) = rendered.context.take() {
                 rendered.context = Some(context.with_hit(crate::decision_context::HitDetail {
@@ -526,10 +779,11 @@ pub fn commit_ground(
     script: &Recording,
 ) -> Option<CoreWindow<Vec<ti4_model::id::PlanetId>>> {
     use ti4_engine_core::rules::invasion::commit::CommitGround;
-    if script.nested || gs.players.iter().any(|p| p.faction.as_str().starts_with("keleres")) {
+    if gs.players.iter().any(|p| p.faction.as_str().starts_with("keleres")) {
         return None;
     }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     let seat = r.seat(invader.as_str())?;
     let sys = <ti4_engine_core::generated::System as IdStr>::from_id(system.as_str())?;
     let before = gs.clone();
@@ -537,7 +791,7 @@ pub fn commit_ground(
     let resolver = Resolver::new(&[seat], Some(seat));
     let mut driver = Driver::new(CommitGround::new(seat, sys), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
-    let driven = with_core(gs, &mut cx, Sources::default(), COMMIT_GROUND, |core, _| {
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(COMMIT_GROUND, script), |core, _| {
         let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
         staged = std::mem::take(&mut core.pending_mut().staged);
         driven
@@ -573,10 +827,11 @@ pub fn absorb_ground(
     script: &Recording,
 ) -> Option<CoreWindow<()>> {
     use ti4_engine_core::rules::invasion::absorb::AbsorbGround;
-    if script.nested || crate::neutral_units::is_neutral(player) {
+    if crate::neutral_units::is_neutral(player) {
         return None;
     }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     let seat = r.seat(player.as_str())?;
     let sys = <ti4_engine_core::generated::System as IdStr>::from_id(system.as_str())?;
     let pl = <ti4_engine_core::generated::Planet as IdStr>::from_id(planet.as_str())?;
@@ -586,7 +841,7 @@ pub fn absorb_ground(
     let window = AbsorbGround::new(seat, sys, pl, u16::try_from(hits).ok()?, unit_ability, crate::supply::staging_enabled(&before));
     let mut driver = Driver::new(window, resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
-    let driven = with_core(gs, &mut cx, Sources::default(), ABSORB_GROUND, |core, _| {
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(ABSORB_GROUND, script), |core, _| {
         let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
         staged = std::mem::take(&mut core.pending_mut().staged);
         driven
@@ -636,10 +891,6 @@ pub fn custodians(
     use ti4_engine_core::rules::invasion::stages::{lift, Custodians};
     use ti4_engine_core::rules::production::pay::{PayStep, Stage as PayStage};
     const LABEL: &str = "invasion::answer_custodians";
-    if script.nested {
-        crate::dual::note_bail(LABEL, "nested (a reaction ran)");
-        return None;
-    }
     if gs.players.iter().any(|p| p.faction.as_str() == "naalu") {
         crate::dual::note_bail(LABEL, "naalu seat");
         return None;
@@ -651,6 +902,7 @@ pub fn custodians(
         return None;
     }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     let seat = r.seat(invader.as_str())?;
     let sys = <ti4_engine_core::generated::System as IdStr>::from_id(system.as_str())?;
     let (phase, round) = (render::generic::core_phase(gs.phase), gs.round);
@@ -658,7 +910,7 @@ pub fn custodians(
     let mut driver = Driver::new(Custodians::new(seat, sys, affordable), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
     let mut rendered = Vec::new();
     let mut staged = Vec::new();
-    with_core(gs, &mut cx, Sources::default(), CUSTODIANS, |core, _| -> Result<(), DriverError> {
+    with_core(gs, &mut cx, Sources::default(), nested_fp(CUSTODIANS, script), |core, _| -> Result<(), DriverError> {
         let Status::Asking(choice) = driver.run(core, kernel)? else { return Ok(()) };
         rendered.push(Typed::new(&r, choice.clone(), phase, round).rendered);
         let Some(pick) = script.questions.first().and_then(|q| q.answer.clone()).and_then(|id| render::parse_pick(&r, &choice.ask, &id)) else {
@@ -737,10 +989,8 @@ pub fn destroy_fighters(
     script: &Recording,
 ) -> Option<CoreWindow<bool>> {
     use ti4_engine_core::rules::combat::destroy_fighters::{DestroyFighters, Fighters};
-    if script.nested {
-        return None;
-    }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     let target = r.seat(a.target.as_str())?;
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
     let before = gs.clone();
@@ -756,7 +1006,7 @@ pub fn destroy_fighters(
     let resolver = Resolver::new(&[target], Some(target));
     let mut driver = Driver::new(DestroyFighters::new(f), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
-    let driven = with_core(gs, &mut cx, Sources::default(), ASSIGN_HITS, |core, _| {
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(ASSIGN_HITS, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
         staged = std::mem::take(&mut core.pending_mut().staged);
         driven
@@ -789,10 +1039,11 @@ pub fn assault_cannon(
     script: &Recording,
 ) -> Option<CoreWindow<bool>> {
     use ti4_engine_core::rules::combat::assault_cannon::{AssaultCannon, Facts};
-    if script.nested || crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
+    if crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
         return None;
     }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     let attacker = r.seat(a.attacker.as_str())?;
     let defender = r.seat(a.defender.as_str())?;
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
@@ -810,7 +1061,7 @@ pub fn assault_cannon(
     let mut driver = Driver::new(AssaultCannon::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let (att_id, def_id) = (a.attacker.clone(), a.defender.clone());
-    let driven = with_core(gs, &mut cx, Sources::default(), ASSIGN_HITS, |core, _| {
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(ASSIGN_HITS, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|choice, _, rendered| {
             let producer = if choice.actor == attacker { def_id.clone() } else { att_id.clone() };
             if let Some(context) = rendered.context.take() {
@@ -871,14 +1122,14 @@ pub fn begin_round(
     script: &Recording,
 ) -> Option<CoreWindow<bool>> {
     use ti4_engine_core::rules::combat::begin_round::{BeginRound, Facts};
-    if script.nested
-        || crate::neutral_units::is_neutral(a.attacker)
+    if crate::neutral_units::is_neutral(a.attacker)
         || crate::neutral_units::is_neutral(a.defender)
         || round_opening_unported(gs, content, &a)
     {
         return None;
     }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     let attacker = r.seat(a.attacker.as_str())?;
     let defender = r.seat(a.defender.as_str())?;
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
@@ -888,7 +1139,7 @@ pub fn begin_round(
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
     let mut driver = Driver::new(BeginRound::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
-    let driven = with_core(gs, &mut cx, Sources::default(), BEGIN_ROUND, |core, _| {
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(BEGIN_ROUND, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
         staged = std::mem::take(&mut core.pending_mut().staged);
         driven
@@ -958,6 +1209,7 @@ pub fn retreat_to(
         return None;
     }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     let player = r.seat(a.player.as_str())?;
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
     let destination = <ti4_engine_core::generated::System as IdStr>::from_id(a.destination.as_str())?;
@@ -976,7 +1228,7 @@ pub fn retreat_to(
     let mut driver = Driver::new(Retreat::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let mut stranded = 0;
-    let driven = with_core(gs, &mut cx, Sources::default(), RETREAT, |core, _| {
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(RETREAT, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
         staged = std::mem::take(&mut core.pending_mut().staged);
         stranded = driver.window.stranded;
@@ -1054,8 +1306,7 @@ pub fn barrage_step(
     script: &Recording,
 ) -> Option<CoreWindow<BarrageOut>> {
     use ti4_engine_core::rules::combat::barrage::{BarrageStep, Facts};
-    if script.nested
-        || !a.reproducible
+    if !a.reproducible
         || crate::neutral_units::is_neutral(a.attacker)
         || crate::neutral_units::is_neutral(a.defender)
         || barrage_unported(gs, &a)
@@ -1063,6 +1314,7 @@ pub fn barrage_step(
         return None;
     }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     let attacker = r.seat(a.attacker.as_str())?;
     let defender = r.seat(a.defender.as_str())?;
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
@@ -1095,7 +1347,7 @@ pub fn barrage_step(
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
-    let driven = with_core(gs, &mut cx, src, BARRAGE_STEP, |core, _| {
+    let driven = with_core(gs, &mut cx, src, nested_fp(BARRAGE_STEP, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
         staged = std::mem::take(&mut core.pending_mut().staged);
         rng_after = Some(core.rng().clone());
@@ -1158,10 +1410,11 @@ pub fn roll_step(
     script: &Recording,
 ) -> Option<CoreWindow<RollOut>> {
     use ti4_engine_core::rules::combat::roll::{Facts, RollStep};
-    if script.nested || !a.reproducible || crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
+    if !a.reproducible || crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
         return None;
     }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     let attacker = r.seat(a.attacker.as_str())?;
     let defender = r.seat(a.defender.as_str())?;
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
@@ -1204,7 +1457,7 @@ pub fn roll_step(
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
     let held = |seat: ti4_engine_core::ids::Seat| before.player(&PlayerId::new(r.seats[usize::from(seat.0)].clone())).map_or(0, |p| i64::from(p.trade_goods.max(0)));
-    let driven = with_core(gs, &mut cx, src, ROLL_STEP, |core, _| {
+    let driven = with_core(gs, &mut cx, src, nested_fp(ROLL_STEP, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|c, st, rendered| {
             roll_details(content, &texts, &held, c, st, rendered);
             if let ti4_engine_core::choice::Ask::Combat(ask @ ti4_engine_core::choice::combat::Ask::CancelHit { .. }) = &c.ask {
@@ -1368,10 +1621,11 @@ pub fn flow_step(
     script: &Recording,
 ) -> Option<CoreWindow<FlowOut>> {
     use ti4_engine_core::rules::combat::flow::{Facts, Flow, Pend, Phase, Step};
-    if script.nested || crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
+    if crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
         return None;
     }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     let seat = |p: &PlayerId| r.seat(p.as_str());
     let seats = |l: &[PlayerId]| l.iter().map(seat).collect::<Option<Vec<_>>>();
     let (attacker, defender) = (seat(a.attacker)?, seat(a.defender)?);
@@ -1416,7 +1670,7 @@ pub fn flow_step(
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
     let mut driver = Driver::new(Flow::new(facts, step), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
-    let driven = with_core(gs, &mut cx, Sources::default(), FLOW_STEP, |core, _| {
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(FLOW_STEP, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
         staged = std::mem::take(&mut core.pending_mut().staged);
         driven
@@ -1480,10 +1734,11 @@ pub fn announce_end(
     script: &Recording,
 ) -> Option<CoreWindow<bool>> {
     use ti4_engine_core::rules::combat::end_announce::{Codes, EndAnnounce, Facts};
-    if script.nested || crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
+    if crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
         return None;
     }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     let seat = |p: &PlayerId| r.seat(p.as_str());
     let (attacker, defender) = (seat(a.attacker)?, seat(a.defender)?);
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
@@ -1507,7 +1762,7 @@ pub fn announce_end(
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
     let mut driver = Driver::new(EndAnnounce::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
-    let driven = with_core(gs, &mut cx, Sources::default(), BEGIN_ROUND, |core, _| {
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(BEGIN_ROUND, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
         staged = std::mem::take(&mut core.pending_mut().staged);
         driven
@@ -1538,13 +1793,13 @@ pub fn raid_formation(
     script: &Recording,
 ) -> Option<CoreWindow<bool>> {
     use ti4_engine_core::rules::combat::raid_formation::{Facts, RaidFormation};
-    if script.nested
-        || gs.player(a.producer).is_none_or(|p| p.faction.as_str() != "argent")
+    if gs.player(a.producer).is_none_or(|p| p.faction.as_str() != "argent")
         || crate::neutral_units::is_neutral(a.target)
     {
         return None;
     }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     let producer = r.seat(a.producer.as_str())?;
     let target = r.seat(a.target.as_str())?;
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
@@ -1554,7 +1809,7 @@ pub fn raid_formation(
     let resolver = Resolver::new(&[producer], Some(producer));
     let mut driver = Driver::new(RaidFormation::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
-    let driven = with_core(gs, &mut cx, Sources::default(), ASSIGN_HITS, |core, _| {
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(ASSIGN_HITS, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
         staged = std::mem::take(&mut core.pending_mut().staged);
         driven
@@ -1629,8 +1884,6 @@ pub fn land_one(
     let toll = if keleres { answered_planet(script).filter(|p| crate::factions::keleres_units::commit_toll_owed(gs, invader, system, p)) } else { None };
     let why = if let Some(why) = plain {
         Some(why)
-    } else if script.nested {
-        Some("nested (a reaction to UNITS_COMMITTED ran)")
     } else if gs.diplomacy.enabled {
         Some("diplomacy promises on")
     } else if keleres && landing_barred_by_toll(gs, sources, invader, system) {
@@ -1645,6 +1898,7 @@ pub fn land_one(
         return None;
     }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     let seat = r.seat(invader.as_str())?;
     let sys = <ti4_engine_core::generated::System as IdStr>::from_id(system.as_str())?;
     let before = gs.clone();
@@ -1661,7 +1915,7 @@ pub fn land_one(
     let mut driver = Driver::new(LandOne::new(seat, sys, announce).with_pool(troops).with_deploy(deploy_planets), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let rendered = if toll.is_none() {
-        let driven = with_core(gs, &mut cx, Sources::default(), LAND_ONE, |core, _| {
+        let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(LAND_ONE, script), |core, _| {
             let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
             staged = std::mem::take(&mut core.pending_mut().staged);
             driven
@@ -1672,7 +1926,7 @@ pub fn land_one(
     } else {
         let (phase, round) = (render::generic::core_phase(gs.phase), gs.round);
         let mut rendered = Vec::new();
-        with_core(gs, &mut cx, Sources::default(), LAND_ONE_TOLL, |core, _| -> Result<(), DriverError> {
+        with_core(gs, &mut cx, Sources::default(), nested_fp(LAND_ONE_TOLL, script), |core, _| -> Result<(), DriverError> {
             let Status::Asking(choice) = driver.run(core, &env.kernel)? else { return Ok(()) };
             rendered.push(Typed::new(&r, choice.clone(), phase, round).rendered);
             let Some(id) = script.questions.first().and_then(|q| q.answer.clone()) else { return Ok(()) };
@@ -1858,15 +2112,12 @@ pub fn ground_hits(
 ) -> Option<CoreWindow<HitsOut>> {
     use ti4_engine_core::rules::invasion::hits::{Batch, GroundHits};
     const LABEL: &str = "invasion::ground_hits";
-    if script.nested {
-        crate::dual::note_bail(LABEL, "nested (a card played in the hits window)");
-        return None;
-    }
     if crate::neutral_units::is_neutral(a.victim) {
         crate::dual::note_bail(LABEL, "neutral victim");
         return None;
     }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     let seat = r.seat(a.victim.as_str())?;
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
     let planet = <ti4_engine_core::generated::Planet as IdStr>::from_id(a.planet.as_str())?;
@@ -1877,7 +2128,7 @@ pub fn ground_hits(
     let batch = Batch { victim: seat, system, planet, cause, unit_ability: a.unit_ability, announce: a.announce };
     let mut driver = Driver::new(GroundHits::new(batch, hits, a.open, a.apply), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
     let mut staged = Vec::new();
-    let driven = with_core(gs, &mut cx, Sources::default(), GROUND_HITS, |core, _| {
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(GROUND_HITS, script), |core, _| {
         let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
         staged = std::mem::take(&mut core.pending_mut().staged);
         driven
@@ -1959,11 +2210,8 @@ pub fn bombard(
     use ti4_engine_core::containers::{SeatSet, SmallList};
     use ti4_engine_core::rules::invasion::bombard::{Bombardment, Cursor, Entry};
     const LABEL: &str = "invasion::bombard_step";
-    if script.nested {
-        crate::dual::note_bail(LABEL, "nested (a card played in the hits window)");
-        return None;
-    }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     if a.answering && r.seats.windows(2).any(|w| w[0] >= w[1]) {
         crate::dual::note_bail(LABEL, "seats not in id order");
         return None;
@@ -2034,7 +2282,7 @@ pub fn bombard(
             *c = crate::invasion::with_bombard_offer(taken, a.invader, &system, &planet, usize::from(hits), &present, before.system_state(&system).on_planet(&planet));
         }
     };
-    let driven = with_core(gs, &mut cx, Sources::default(), BOMBARD, |core, _| {
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(BOMBARD, script), |core, _| {
         let driven = drive_with(&mut driver, core, kernel, &r, &before, script, &complete);
         core.pending_mut().staged.clear();
         driven
@@ -2117,11 +2365,8 @@ pub fn space_cannon_defense(
 ) -> Option<CoreWindow<DefenseOut>> {
     use ti4_engine_core::rules::invasion::defense::{Facts, SpaceCannonDefense};
     const LABEL: &str = "invasion::space_cannon_defense";
-    if script.nested {
-        crate::dual::note_bail(LABEL, "nested (a reaction ran)");
-        return None;
-    }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     let invader = r.seat(a.invader.as_str())?;
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
     let mut planets = Vec::new();
@@ -2155,7 +2400,7 @@ pub fn space_cannon_defense(
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
-    let driven = with_core(gs, &mut cx, src, DEFENSE, |core, _| {
+    let driven = with_core(gs, &mut cx, src, nested_fp(DEFENSE, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
         staged = std::mem::take(&mut core.pending_mut().staged);
         rng_after = Some(core.rng().clone());
@@ -2217,11 +2462,8 @@ pub fn ground_roll_unported(gs: &GameState, a: &GroundRollArgs<'_>) -> Option<&'
 #[must_use]
 pub fn ground_roll(gs: &mut GameState, a: &GroundRollArgs<'_>, rng_before: &crate::rng::RngPositions, script: &Recording) -> Option<CoreWindow<GroundRollOut>> {
     use ti4_engine_core::rules::invasion::roll::{Facts, GroundRoll, NAMED};
-    if script.nested {
-        crate::dual::note_bail("invasion::roll_ground", "nested (a reaction ran)");
-        return None;
-    }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     let attacker = r.seat(a.attacker.as_str())?;
     let defender = r.seat(a.defender.as_str())?;
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
@@ -2245,7 +2487,7 @@ pub fn ground_roll(gs: &mut GameState, a: &GroundRollArgs<'_>, rng_before: &crat
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
-    let driven = with_core(gs, &mut cx, src, GROUND_ROLL, |core, _| {
+    let driven = with_core(gs, &mut cx, src, nested_fp(GROUND_ROLL, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
         staged = std::mem::take(&mut core.pending_mut().staged);
         rng_after = Some(core.rng().clone());
@@ -2330,14 +2572,8 @@ pub fn round_hits_unported(gs: &GameState, content: &ti4_content::ContentStore, 
 #[must_use]
 pub fn round_hits(gs: &mut GameState, sources: ti4_model::content_types::SourceSet, a: &RoundHitsArgs<'_>, script: &Recording) -> Option<CoreWindow<RoundOut>> {
     use ti4_engine_core::rules::invasion::round::{Facts, GroundRoundHits};
-    if script.nested {
-        if std::env::var_os("TI4_NESTED_LOG").is_some() {
-            eprintln!("NESTED ground_round_hits {:?}", script.nested_kinds);
-        }
-        crate::dual::note_bail("invasion::ground_round_hits", "nested (a card played in a hits window)");
-        return None;
-    }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     let invader = r.seat(a.invader.as_str())?;
     let defender = r.seat(a.defender.as_str())?;
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
@@ -2372,10 +2608,12 @@ pub fn round_hits(gs: &mut GameState, sources: ti4_model::content_types::SourceS
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(a.rng_before) };
     let footprint = if a.harrow { ROUND_HITS_HARROW } else { ROUND_HITS };
-    let driven = with_core(gs, &mut cx, src, footprint, |core, _| {
+    // Harrow draws, and so do the abilities of the reaction windows the removals open (Infantry II).
+    let draws = a.harrow || !script.dice.is_empty();
+    let driven = with_core(gs, &mut cx, src, nested_fp(footprint, script), |core, _| {
         let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
         staged = std::mem::take(&mut core.pending_mut().staged);
-        if a.harrow {
+        if draws {
             rng_after = Some(core.rng().clone());
         }
         driven
@@ -2383,7 +2621,7 @@ pub fn round_hits(gs: &mut GameState, sources: ti4_model::content_types::SourceS
     .ok()?
     .ok()?;
     apply_staged(gs, &r, &staged)?;
-    let positions = if a.harrow { crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()? } else { a.rng_before.clone() };
+    let positions = if draws { crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()? } else { a.rng_before.clone() };
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     let (a_hits, d_hits) = driver.window.assigned;
     let drawn = driver.window.harrow.as_ref().map(|h| h.drawn.clone()).unwrap_or_default();
@@ -2437,11 +2675,8 @@ const BEGIN_GROUND: Footprint = Footprint::new(
 #[must_use]
 pub fn begin_ground(gs: &mut GameState, a: &BeginGroundArgs<'_>, script: &Recording) -> Option<CoreWindow<bool>> {
     use ti4_engine_core::rules::invasion::begin::{BeginGroundRound, Facts};
-    if script.nested {
-        crate::dual::note_bail("invasion::begin_ground_round", "nested (a reaction ran)");
-        return None;
-    }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     let invader = r.seat(a.invader.as_str())?;
     let defender = r.seat(a.defender.as_str())?;
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
@@ -2451,7 +2686,7 @@ pub fn begin_ground(gs: &mut GameState, a: &BeginGroundArgs<'_>, script: &Record
     let env = crate::core_invasion::ground_env(&before, &cx, ti4_model::content_types::SourceSet::default())?;
     let mut driver = Driver::new(BeginGroundRound::new(Facts { system, planet, invader, defender, copied: a.copied_round, numbered }), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1);
     let mut staged = Vec::new();
-    let driven = with_core(gs, &mut cx, Sources::default(), BEGIN_GROUND, |core, _| {
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(BEGIN_GROUND, script), |core, _| {
         let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
         staged = std::mem::take(&mut core.pending_mut().staged);
         driven
@@ -2505,11 +2740,8 @@ const ROLL_TAIL: Footprint = Footprint::new(
 #[must_use]
 pub fn roll_tail(gs: &mut GameState, a: &RollTailArgs<'_>, script: &Recording) -> Option<CoreWindow<(usize, usize, Vec<ti4_model::state::InvasionDie>)>> {
     use ti4_engine_core::rules::invasion::tail::{Facts, GroundRollTail};
-    if script.nested {
-        crate::dual::note_bail("invasion::roll_ground_tail", "nested (a reaction ran)");
-        return None;
-    }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     let invader = r.seat(a.invader.as_str())?;
     let defender = r.seat(a.defender.as_str())?;
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
@@ -2519,7 +2751,7 @@ pub fn roll_tail(gs: &mut GameState, a: &RollTailArgs<'_>, script: &Recording) -
     let facts = Facts { invader, defender, system, planet, rolled: (u32::try_from(a.rolled.0).ok()?, u32::try_from(a.rolled.1).ok()?), bump: a.bump, announce: a.announce };
     let mut driver = Driver::new(GroundRollTail::new(facts), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1);
     let mut staged = Vec::new();
-    let driven = with_core(gs, &mut cx, Sources::default(), ROLL_TAIL, |core, _| {
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(ROLL_TAIL, script), |core, _| {
         let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
         staged = std::mem::take(&mut core.pending_mut().staged);
         driven
@@ -2571,11 +2803,8 @@ const ADVANCE: Footprint = Footprint::new(
 pub(crate) fn advance(gs: &mut GameState, a: &AdvanceArgs<'_>, script: &Recording) -> Option<CoreWindow<crate::invasion::FightPick>> {
     use ti4_engine_core::rules::invasion::advance::{Advance, Facts, Upcoming};
     const LABEL: &str = "invasion::advance_fighting";
-    if script.nested {
-        crate::dual::note_bail(LABEL, "nested (a reaction ran)");
-        return None;
-    }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     if r.seats.windows(2).any(|w| w[0] >= w[1]) {
         crate::dual::note_bail(LABEL, "seats not in id order");
         return None;
@@ -2589,7 +2818,7 @@ pub(crate) fn advance(gs: &mut GameState, a: &AdvanceArgs<'_>, script: &Recordin
     let env = crate::core_invasion::ground_env(&before, &cx, a.sources)?;
     let facts = Facts { invader, system, planets, index: a.index, coexisted };
     let mut driver = Driver::new(Advance::new(facts), Resolver::new(&[invader], Some(invader)), AbilityTable::default(), 1);
-    let driven = with_core(gs, &mut cx, Sources::default(), ADVANCE, |core, _| drive(&mut driver, core, &env.kernel, &r, &before, script)).ok()?.ok()?;
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(ADVANCE, script), |core, _| drive(&mut driver, core, &env.kernel, &r, &before, script)).ok()?.ok()?;
     let pick = match driver.window.pick.clone()? {
         Upcoming::Fight { index, defender } => crate::invasion::FightPick::Fight { index, defender: r.player(defender) },
         Upcoming::Coexisters { index, remaining } => crate::invasion::FightPick::Coexisters { index, remaining: remaining.into_iter().map(|s| r.player(s)).collect() },
@@ -2704,13 +2933,14 @@ fn settle_run(
 ) -> Option<CoreWindow<SettleOut>> {
     use ti4_engine_core::rules::combat::flow::{Pend, Phase, Step};
     use ti4_engine_core::rules::combat::machine::{Env, Fields, Machine, Stop};
-    if script.nested || crate::neutral_units::is_neutral(&a.attacker) || crate::neutral_units::is_neutral(&a.defender) {
+    if crate::neutral_units::is_neutral(&a.attacker) || crate::neutral_units::is_neutral(&a.defender) {
         return None;
     }
     if a.begin_occurrence && a.occurrence.is_none() {
         a.occurrence = Some(gs.begin_feat_occurrence().0);
     }
     let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
     let seat = |p: &PlayerId| r.seat(p.as_str());
     let seats = |l: &[PlayerId]| l.iter().map(seat).collect::<Option<Vec<_>>>();
     let (attacker, defender) = (seat(&a.attacker)?, seat(&a.defender)?);
@@ -2839,7 +3069,7 @@ fn settle_run(
     let src = Sources { galaxy: None, rng: Some(rng_before) };
     let held = |seat: ti4_engine_core::ids::Seat| before.player(&PlayerId::new(r.seats[usize::from(seat.0)].clone())).map_or(0, |p| i64::from(p.trade_goods.max(0)));
     let content = ti4_content::ContentStore::embedded();
-    let driven = with_core(gs, &mut cx, src, SETTLE, |core, _| {
+    let driven = with_core(gs, &mut cx, src, nested_fp(SETTLE, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|c, st, rendered| {
             roll_details(content, &texts, &held, c, st, rendered);
             if let ti4_engine_core::choice::Ask::Combat(ask @ ti4_engine_core::choice::combat::Ask::CancelHit { .. }) = &c.ask {

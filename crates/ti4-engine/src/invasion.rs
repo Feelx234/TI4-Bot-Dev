@@ -6620,6 +6620,63 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Infantry II is an ability of the core table: the defender's destroyed Infantry II opens the AFTER window of
+    /// `GROUND_FORCE_DESTROYED`, the core resolver (armed from the table) finds the ability eligible and rolls the
+    /// same die from the same stream, and the window is compared, not bailed.
+    #[test]
+    fn infantry_ii_rolls_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        let mut rolled = 0;
+        let mut on_card = 0;
+        with_mask(mask, || {
+            for seed in 1..=6_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                crate::technology::grant(&mut state, &PlayerId::new("b"), &ti4_model::id::TechnologyId::new("inf2"));
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 8);
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry2", &PlayerId::new("b"), 6);
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let mut dice = Dice::new();
+                let mut rng = GameRng::new(seed);
+                let content = ContentStore::embedded();
+                let mut resolver = armed_resolver(&state, vec![PlayerId::new("a"), PlayerId::new("b")]);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut window = InvasionWindow::new(&mut state, content, POK, &mut dice, &mut rng, &PlayerId::new("a"), &system);
+                let mut ctx = Resolving {
+                    content,
+                    sources: POK,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                while !window.is_done() {
+                    window.drive(&mut state, &mut ctx).unwrap();
+                    while window.take_scoring_occurrence().is_some() {}
+                    window.settle(&mut state, &mut ctx);
+                }
+                drop(ctx);
+                rolled += dice.history().iter().filter(|r| r.reason == "infantry II").count();
+                on_card += crate::infantry_ii::units_on_card(&state, &PlayerId::new("b"));
+            }
+        });
+        let r = report();
+        let w = r.windows.get("invasion::ground_round_hits").copied().unwrap_or_default();
+        assert!(rolled > 0, "Infantry II rolled");
+        assert!(on_card > 0, "a six went on the card in one of the seeds");
+        assert!(w.compared >= 1, "the rounds with Infantry II are compared: {:?}", r.windows);
+        assert!(!r.windows.keys().any(|k| k.contains("unported ability technology:*:inf2")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
     use ti4_model::content_types::DEFAULT as ALL_SOURCES;
     use ti4_model::content_types::POK;
 
@@ -11908,7 +11965,7 @@ mod core_ground_round_prechecks {
         let (a, s, p) = (PlayerId::new("a"), SystemId::new("18"), [PlanetId::new("mr")]);
         assert!(crate::dual_window::advance(state, &advance_args(&a, &s, &p, &[]), rec).is_none());
         let r = report();
-        assert!(r.windows.keys().any(|k| k.starts_with("invasion::advance_fighting") && k.contains(reason)), "{:?}", r.windows);
+        assert!(r.windows.keys().any(|k| k.contains(reason)), "{:?}", r.windows);
         let _ = take_report();
     }
 

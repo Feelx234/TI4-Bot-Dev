@@ -172,7 +172,7 @@ fn replay(inner: &Inner, now: &GameState, winner: Option<&str>) {
     let Some(speaker) = cx.owners.seat(open.speaker.as_str()) else { return };
     let mut driver = ti4_engine_core::driver::Driver::new(window, Resolver::new(&order, Some(speaker)), AbilityTable::default(), 1);
     let mut script = Recording::default();
-    script.questions = inner.script.iter().map(|(c, a)| Asked { choice: c.clone(), answer: Some(a.clone()) }).collect();
+    script.questions = inner.script.iter().map(|(c, a)| Asked { choice: c.clone(), answer: Some(a.clone()), nested: false }).collect();
     let kernel = Kernel::plain();
     let mut core_state = open.clone();
     let driven = with_core(&mut core_state, &mut cx, Sources::default(), FOOTPRINT, |core, _| drive(&mut driver, core, &kernel, &r, open, &script));
