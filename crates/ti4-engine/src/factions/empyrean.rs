@@ -162,6 +162,20 @@ fn normal(a: &str, b: &str) -> (String, String) {
 /// faction promissory notes." Called when the seat is deployed as the Empyrean. A note already in
 /// the map (an earlier deal, or one lent out) is left where it is.
 pub(crate) fn deal_notes(state: &mut GameState, content: &ContentStore, player: &PlayerId) {
+    #[cfg(feature = "typed-core")]
+    if matches!(crate::dual::backend(crate::dual::Area::Factions), crate::dual::Backend::Dual) {
+        return crate::core_factions::ce::dual_empyrean_deal_notes(state, ti4_model::content_types::FULL, player, |state| {
+            deal_notes_text(state, content, player);
+        });
+    }
+    deal_notes_text(state, content, player);
+}
+
+pub(crate) fn deal_notes_text_only(state: &mut GameState, content: &ContentStore, player: &PlayerId) {
+    deal_notes_text(state, content, player);
+}
+
+fn deal_notes_text(state: &mut GameState, content: &ContentStore, player: &PlayerId) {
     if !is_empyrean(state, player) {
         return;
     }

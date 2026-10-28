@@ -267,9 +267,14 @@ fn cannot_produce(
     unit_base: &str,
     producer_base: &str,
 ) -> bool {
-    unit_base == "infantry"
-        && producer_base == "spacedock"
-        && crate::faction_abilities::has(state, content, player, "mitosis")
+    crate::cb_dual!(
+        crate::dual::HookGroup::Economy,
+        "arborec::cannot_produce",
+        unit_base == "infantry"
+            && producer_base == "spacedock"
+            && crate::faction_abilities::has(state, content, player, "mitosis"),
+        crate::core_factions::ce::arborec_cannot_produce(state, player, unit_base, producer_base)
+    )
 }
 
 /// One way to resolve Mitosis: place an infantry on a planet, or (Letani Behemoth) replace an

@@ -18,7 +18,7 @@ fn is_muaat(s: &CoreState, who: Seat) -> bool {
 }
 
 /// `holds_reactor`: the technology, or a Valefar Assimilator standing for it (any value of the map).
-fn holds_reactor(s: &CoreState, who: Seat) -> bool {
+pub(crate) fn holds_reactor(s: &CoreState, who: Seat) -> bool {
     has_tech_text(s, who, Technology::MagmusReactor)
         || player(s, who).is_some_and(|p| p.tech.assimilated.values().any(|t| t == Technology::MagmusReactor))
 }

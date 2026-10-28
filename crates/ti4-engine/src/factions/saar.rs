@@ -423,6 +423,28 @@ fn commander_docks(
     content: &ContentStore,
     sources: SourceSet,
     player: &PlayerId,
+    producing: &SystemId,
+    unit_base: &str,
+) -> Vec<(SystemId, Option<PlanetId>)> {
+    // The dispatcher sorts and drops duplicates (`concat_sorted`), so the dual compares the sorted, deduplicated list.
+    let sorted = |mut list: Vec<(SystemId, Option<PlanetId>)>| {
+        list.sort();
+        list.dedup();
+        list
+    };
+    crate::cb_dual!(
+        crate::dual::HookGroup::Economy,
+        "saar::production_destinations",
+        sorted(commander_docks_text(state, content, sources, player, producing, unit_base)),
+        crate::core_factions::ce::saar_commander_docks(state, sources, player, producing, unit_base).map(sorted)
+    )
+}
+
+fn commander_docks_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
     _producing: &SystemId,
     unit_base: &str,
 ) -> Vec<(SystemId, Option<PlanetId>)> {
@@ -831,7 +853,12 @@ fn ragh_call(owner_name: &str, seat: &PlayerId) -> Ability {
 /// "You can score objectives even if you do not control the planets in your home system."
 /// Lifts only the home-control prerequisite (LRR 61.16); objective requirements still apply.
 fn nomadic(state: &GameState, player: &PlayerId) -> bool {
-    is_saar(state, player)
+    crate::cb_dual!(
+        crate::dual::HookGroup::Strategy,
+        "saar::scores_without_home",
+        is_saar(state, player),
+        crate::core_factions::ce::saar_nomadic(state, player)
+    )
 }
 
 /// "Other players cannot activate asteroid fields that contain 1 or more of your ships."

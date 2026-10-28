@@ -9,6 +9,8 @@ pub mod ca;
 
 #[cfg(feature = "typed-core")]
 pub mod cb;
+#[cfg(feature = "typed-core")]
+pub mod ce;
 
 #[cfg(feature = "typed-core")]
 pub mod cc;
