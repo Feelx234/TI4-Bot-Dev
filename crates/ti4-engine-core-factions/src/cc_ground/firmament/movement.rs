@@ -15,7 +15,7 @@ pub fn register(t: &mut HookTable) {
 }
 
 /// `firmament::puppeted`: everyone holding a token on one of `owner`'s plots.
-fn puppeted(s: &CoreState, owner: Seat) -> ti4_engine_core::containers::SeatSet {
+pub(super) fn puppeted(s: &CoreState, owner: Seat) -> ti4_engine_core::containers::SeatSet {
     let mut out = ti4_engine_core::containers::SeatSet::EMPTY;
     if let Some(p) = player(s, owner) {
         for plot in p.cards.plots.as_slice() {

@@ -176,7 +176,11 @@ fn box_has(
 
 // -- Blood Ties ----------------------------------------------------------------------------------
 
-fn custodians_free(state: &GameState, _content: &ContentStore, player: &PlayerId) -> bool {
+fn custodians_free(state: &GameState, content: &ContentStore, player: &PlayerId) -> bool {
+    crate::cb_dual!(crate::dual::HookGroup::Ground, "winnu::custodians_free", custodians_free_text(state, content, player), crate::core_factions::cb::winnu_custodians_free(state, player))
+}
+
+fn custodians_free_text(state: &GameState, _content: &ContentStore, player: &PlayerId) -> bool {
     is_winnu(state, player)
 }
 
@@ -668,6 +672,22 @@ fn planet_spend_value(
     kind: Spend,
     value: i64,
 ) -> i64 {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Economy,
+        "winnu::planet_spend_value",
+        planet_spend_value_text(state, content, player, planet, kind, value),
+        crate::core_factions::cb::winnu_planet_spend_value(state, player, planet, kind, value)
+    )
+}
+
+fn planet_spend_value_text(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+    planet: &PlanetId,
+    kind: Spend,
+    value: i64,
+) -> i64 {
     if !has_technology(state, player, "htp") {
         return value;
     }
@@ -690,8 +710,32 @@ fn planet_spend_value(
 
 // -- Salai Sai Corian ----------------------------------------------------------------------------
 
-/// The flagship has 0 printed dice, so the count here is the whole of its roll.
 fn unit_dice(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    unit: &CombatUnit<'_>,
+    dice: i64,
+) -> i64 {
+    crate::cb_dual!(
+        crate::dual::HookGroup::General,
+        "winnu::unit_dice",
+        unit_dice_text(state, content, sources, unit, dice),
+        crate::core_factions::cb::winnu_unit_dice(
+            state,
+            sources,
+            unit.player,
+            unit.system,
+            unit.planet,
+            unit.unit_type,
+            unit.context != "space",
+            dice
+        )
+    )
+}
+
+/// The flagship has 0 printed dice, so the count here is the whole of its roll.
+fn unit_dice_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -733,6 +777,21 @@ fn unit_dice(
 
 fn secondary_waivers(
     state: &GameState,
+    content: &ContentStore,
+    follower: &PlayerId,
+    primary: &PlayerId,
+    card: Option<ti4_content::StrategyCardKind>,
+) -> Vec<SecondaryWaiver> {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Strategy,
+        "winnu::secondary_waivers",
+        secondary_waivers_text(state, content, follower, primary, card),
+        crate::core_factions::cb::winnu_secondary_waivers(state, follower, primary)
+    )
+}
+
+fn secondary_waivers_text(
+    state: &GameState,
     _content: &ContentStore,
     follower: &PlayerId,
     primary: &PlayerId,
@@ -766,8 +825,12 @@ fn secondary_waived(
 
 // -- Berekar Berekon -----------------------------------------------------------------------------
 
-/// Berekar Berekon is ready for `player` (its owner).
 pub(crate) fn agent_ready(state: &GameState, player: &PlayerId) -> bool {
+    crate::cb_dual!(crate::dual::HookGroup::Direct, "winnu::agent_ready", agent_ready_text(state, player), crate::core_factions::cb::winnu_agent_ready(state, player))
+}
+
+/// Berekar Berekon is ready for `player` (its owner).
+pub(crate) fn agent_ready_text(state: &GameState, player: &PlayerId) -> bool {
     leader_status(state, player, AGENT) == Some(LeaderStatus::Readied)
 }
 
@@ -976,6 +1039,28 @@ fn opponent_of(
 }
 
 fn unit_roll_modifier(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    unit: &CombatUnit<'_>,
+) -> i64 {
+    crate::cb_dual!(
+        crate::dual::HookGroup::General,
+        "winnu::unit_roll_modifier",
+        unit_roll_modifier_text(state, content, sources, unit),
+        crate::core_factions::cb::winnu_unit_roll_modifier(
+            state,
+            sources,
+            unit.player,
+            unit.system,
+            unit.planet,
+            unit.unit_type,
+            unit.context != "space"
+        )
+    )
+}
+
+fn unit_roll_modifier_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,

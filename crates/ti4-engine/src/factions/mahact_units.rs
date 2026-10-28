@@ -389,10 +389,14 @@ fn unlocked(state: &GameState, player: &PlayerId) -> bool {
         .is_some_and(|seat| seat.leaders.get(ti4_model::id::text(&HERO)) == Some(&LeaderStatus::Unlocked))
 }
 
+pub(crate) fn ship_movement_barred(state: &GameState) -> bool {
+    crate::cc_dual!(crate::dual::HookGroup::Direct, "mahact_units::ship_movement_barred", ship_movement_barred_text(state), crate::core_factions::cc::mahact_ship_movement_barred(state))
+}
+
 /// Whether the hero's combat is being fought: neither player can retreat or resolve an ability that
 /// would move their ships. Read by `combat.rs` (retreats, Skilled Retreat).
 #[must_use]
-pub(crate) fn ship_movement_barred(state: &GameState) -> bool {
+pub(crate) fn ship_movement_barred_text(state: &GameState) -> bool {
     state.faction_marks.contains_key(BENEDICTION_MARK)
 }
 
