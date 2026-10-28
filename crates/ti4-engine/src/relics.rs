@@ -364,9 +364,11 @@ pub(crate) fn ask_technology(
         ));
     // The question is one core window (`rules::relic_windows::GainTechnology`); the research or the gain
     // behind the answer stays with the caller.
+    let mut ask = |s: &GameState| {
+        table.ask_seeing(&choice, &Observed::new(s, content, sources, galaxy)).ok().map(|answer| answer.id)
+    };
     if crate::dual::backend(crate::dual::Area::ExplorationRelics) != crate::dual::Backend::Dual {
-        let answer = table.ask_seeing(&choice, &Observed::new(state, content, sources, galaxy)).ok()?;
-        return Some(ti4_model::id::TechnologyId::new(answer.id));
+        return ask(state).map(ti4_model::id::TechnologyId::new);
     }
     // On the `Dual` backend the question runs on a copy of the state (it changes nothing).
     let mut copy = state.clone();
@@ -374,12 +376,7 @@ pub(crate) fn ask_technology(
         crate::dual::Area::ExplorationRelics,
         "relics::ask_technology",
         &mut copy,
-        |s: &mut GameState| crate::dual::Run::new(
-            table
-                .ask_seeing(&choice, &Observed::new(s, content, sources, galaxy))
-                .ok()
-                .map(|answer| answer.id)
-        ),
+        |s: &mut GameState| crate::dual::Run::new(ask(s)),
         |s: &mut GameState, script: &crate::dual_window::Recording| {
             crate::explore_write::gain_technology(s, player, source, &ids, script)
         }
