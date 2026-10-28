@@ -126,3 +126,37 @@ The example lives under `driver/` only because `rules/` is created by B1 and B3;
 > games (`dual_run tools/engine_profile/profile-20.json 20 driver=dual`); mutate the core half once to see the dual fail.
 > Pure refactor: no CPU A/B, no wasm, `RULES_VERSION`, serde, fixtures unchanged. Stateful `ctx.emit` sites that
 > are reached from several windows (e.g. `emit_sustain_used`) are shared `fx`-style helpers taking `&mut Sx`.
+
+## 6. B2 invasion windows (state after the hits-step slice)
+
+Core windows of `Area::Invasion` (each a `dual_window!` with documented bails; counts are the 20 golden games,
+`dual_run profile-20.json 20 invasion=dual,driver=dual`, 0 differences):
+
+| window (string site) | core | compared / bailed |
+|---|---|---|
+| `GroundHits` (`ground_hits_window`, `remove_ground`, `take_bombard_hits`) | `rules/invasion/hits.rs` + `kernel/hits.rs` | 413 / 8, 2487 / 0, nested in `bombard_step` |
+| `Bombardment` (`bombard_settle`, `answer_bombardment_target`, `complete_bombard_plan`) | `rules/invasion/bombard.rs` | step 1371 / 6, answer 0 / 0 (no coexisting bombardment in the golden games; the unit test covers it) |
+| `LandOne` over the string commit pool (`commit_one`) | `rules/invasion/commit.rs` | 2007 / 23 |
+| `Custodians`, `FightRound`/`NextCombat`/`BombardTarget` questions | `rules/invasion/stages.rs` | unchanged |
+
+* `kernel::hits` is the shared "before a hit would be assigned" step: `open_window` (the event, the cancellations a
+  card played in it granted: `combat_timers.cancel_hits_round`), `spend`, `grant`, `flush_staged`. B1's
+  `HITS_TO_ASSIGN` can use it as is.
+* `GroundHits { batch, hits, do_open, do_apply }`: `open` (the `GROUND_HITS_TO_ASSIGN` window) and `apply`
+  (sustain first, Non-Euclidean Shielding, cheapest ground force; stages `GROUND_FORCE_SUSTAINED/DESTROYED`
+  in `pending.staged`; the caller announces them where the string flushes its `log`). Both are plain functions of
+  `Sx` (`hits::open`, `hits::apply`) for the bigger windows.
+* `Bombardment` carries the plan as data (the string window's `bombard_plan` entries, with the `InvasionStep`
+  template built by the `invasion_step` codec): the window mirrors `last_step`, the feat and the scoring occurrence
+  it pushes; the string reads them back as `BombardOut`.
+* Bails, all counted per reason: nested (a card played in the hits window, a reaction to `UNITS_COMMITTED`), a
+  neutral victim, Keleres seat (toll), diplomacy promises, Crimson deploy offered, a ship-form unit flipping on
+  landing (not temporary), seats not in id order (the bombard target answer).
+* The candidates of the commit pool (Sardakk commander origins, Naalu Matriarch fighters) are still computed by
+  the string modules; the core window receives the pool and lands from it (`PoolIn`), so the landing, its events and
+  the question are checked, the candidate rules are not.
+
+Open (not started): `finish_committing` (Research Team, space cannon defense, forced combats), `commit_deploy`,
+the Keleres toll through B3's `PayStep`, the ground round answer (`begin_ground_round`, the roll step with
+rerolls, `assign_ground_round_hits`, Harrow, Dunlain Reaper, end-of-round events), `Advancing`, `FinalizingControl`,
+the setup/end hooks and the scoring pauses.
