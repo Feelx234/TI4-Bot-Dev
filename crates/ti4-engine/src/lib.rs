@@ -29,6 +29,9 @@ pub mod decision_context;
 pub mod deck;
 pub mod dice;
 pub mod dual;
+#[cfg(feature = "typed-core")]
+#[doc(hidden)]
+pub mod core_factions;
 pub mod dual_window;
 pub mod diplomacy;
 pub mod draft;
@@ -85,6 +88,8 @@ pub mod reach_query;
 pub mod core_adapter;
 #[cfg(feature = "typed-core")]
 pub mod core_sync;
+#[cfg(feature = "typed-core")]
+pub mod technology_core;
 /// Area::BoardQueries (package A1): the typed board queries behind a string interface.
 #[cfg(feature = "typed-core")]
 pub mod board_view;
@@ -97,6 +102,10 @@ pub mod core_invasion;
 /// Area::LeadersAbilities (package B7): the typed leader reads behind the string interface.
 #[cfg(feature = "typed-core")]
 pub mod leaders_view;
+#[cfg(feature = "typed-core")]
+pub mod production_view;
+#[cfg(feature = "typed-core")]
+pub mod production_window_dual;
 /// The offline dual of Area::BoardQueries.
 #[cfg(feature = "typed-core")]
 #[doc(hidden)]
@@ -105,10 +114,6 @@ pub mod board_check;
 #[cfg(feature = "typed-core")]
 #[doc(hidden)]
 pub mod reach_check;
-/// The offline duals of the ported faction packages (wave C).
-#[cfg(feature = "typed-core")]
-#[doc(hidden)]
-pub mod core_factions;
 /// The adapter half of `cargo xtask gen-cards` (docs/CONTENT_GENERATOR.md): the id string of every
 /// core enum variant and the display text.
 #[cfg(feature = "typed-core")]

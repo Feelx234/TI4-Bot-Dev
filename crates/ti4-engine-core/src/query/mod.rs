@@ -9,6 +9,7 @@
 //! * [`fleet`]: supply plastic (`supply::held/remaining`), fleet supply and transport (`fleet::standing`).
 //! * [`seats`]: seating, speaker and initiative order.
 //! * [`laws`]: laws in play and the standing rules they impose.
+//! * [`tech`]: technology (package A3): printed data, owned/researchable, prerequisites, synergy, unit forms.
 //!
 //! **What the core cannot see** is passed in by the caller, never guessed: the source scope
 //! ([`Scope`], the game's `SourceSet`), the "all laws are blank this turn" flag (`blanked`: a
@@ -22,5 +23,6 @@ pub mod fleet;
 pub mod laws;
 pub mod reach;
 pub mod seats;
+pub mod tech;
 
 pub use crate::tables::Scope;

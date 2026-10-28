@@ -5852,6 +5852,31 @@ pub(crate) fn placed_unit_id(
     player: &PlayerId,
     base_type: &str,
 ) -> Option<ti4_model::id::UnitTypeId> {
+    // The unit form from the generated unit table (package A3); the faction override stays here.
+    #[cfg(feature = "typed-core")]
+    let typed = || {
+        let form = crate::technology_core::unit_form(state, content, sources, player, base_type)?;
+        Some(Some(crate::technology_core::overridden_form(state, content, sources, player, base_type, form)))
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Technology,
+        "action_cards::placed_unit_id",
+        typed(),
+        placed_unit_id_text(state, content, sources, player, base_type)
+    )
+}
+
+/// [`placed_unit_id`] from the content records: the oracle of the dual run.
+#[doc(hidden)]
+pub fn placed_unit_id_text(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    base_type: &str,
+) -> Option<ti4_model::id::UnitTypeId> {
     let seat = state.player(player)?;
     let faction = seat.faction.to_string();
     let held: Vec<String> = seat
