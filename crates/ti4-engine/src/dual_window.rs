@@ -56,6 +56,8 @@ pub struct Recording {
 }
 
 thread_local! {
+    // The unit tests of the windows inside the loop compare them one by one; the composed tests switch it on.
+    static COMPOSED: Cell<bool> = const { Cell::new(!cfg!(test)) };
     static REC: RefCell<Option<Recording>> = const { RefCell::new(None) };
     static DEPTH: Cell<u32> = const { Cell::new(0) };
 }
@@ -1597,6 +1599,7 @@ pub fn settle_machine(
         unit_codes.push((*u, cx.texts.intern(Slice::Transient, u.as_str()).ok()?));
     }
     let mut groups = Vec::new();
+    let mut texts: Vec<(ti4_engine_core::state::Code, String)> = Vec::new();
     for mask in 1_u32..(1 << present.len()) {
         let kinds: Vec<_> = present.iter().enumerate().filter(|(i, _)| mask & (1 << i) != 0).map(|(_, u)| *u).collect();
         let mut ids: Vec<&str> = kinds.iter().map(|u| u.as_str()).collect();
@@ -1604,7 +1607,9 @@ pub fn settle_machine(
         let joined = ids.join("+");
         // The roll names the group by its ids in alphabetical order; the machine looks the group up by its
         // sorted unit types, so the key must be sorted the same way.
-        groups.push((kinds.clone(), cx.texts.intern(Slice::Transient, &joined).ok()?, r.code(&joined)));
+        let state_code = cx.texts.intern(Slice::Transient, &joined).ok()?;
+        texts.push((state_code, joined.clone()));
+        groups.push((kinds.clone(), state_code, r.code(&joined)));
     }
     let nb = |side: usize| -> Option<Vec<(ti4_engine_core::generated::System, bool)>> {
         a.neighbors[side].iter().map(|(s, ok)| Some((<ti4_engine_core::generated::System as IdStr>::from_id(s.as_str())?, *ok))).collect()
@@ -1692,9 +1697,11 @@ pub fn settle_machine(
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
     let held = |seat: ti4_engine_core::ids::Seat| before.player(&PlayerId::new(r.seats[usize::from(seat.0)].clone())).map_or(0, |p| i64::from(p.trade_goods.max(0)));
-    let _ = &held;
+    let content = ti4_content::ContentStore::embedded();
     let driven = with_core(gs, &mut cx, src, SETTLE, |core, _| {
-        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|c, st, rendered| {
+            roll_details(content, &texts, &held, c, st, rendered);
+        });
         staged = std::mem::take(&mut core.pending_mut().staged);
         rng_after = Some(core.rng().clone());
         driven
@@ -1752,4 +1759,19 @@ pub fn settle_machine(
         positions,
     );
     Some(CoreWindow { run: Run::new(value).with_events_vec(events), questions: driven.rendered })
+}
+
+/// Whether `CombatWindow::settle` is compared as one composed machine (the default on `driver=dual`). Off,
+/// the windows inside the string loop (round opening, barrage, roll, flow, retreat) are compared one by one.
+#[must_use]
+pub fn composed() -> bool {
+    COMPOSED.with(Cell::get)
+}
+
+/// Run `body` with the composed machine switched `on` or off on this thread.
+pub fn with_composed<T>(on: bool, body: impl FnOnce() -> T) -> T {
+    let before = COMPOSED.with(|c| c.replace(on));
+    let out = body();
+    COMPOSED.with(|c| c.set(before));
+    out
 }

@@ -6407,6 +6407,7 @@ impl CombatWindow {
         let Some((attacker_hits, attacker_dice, defender_hits, defender_dice)) =
             self.roll_both_sides(state, ctx, round)
         else {
+            self.machine_bail = true;
             return Ok(RollEnd { settle: false, produced: false });
         };
         let mut sets = [attacker_dice, defender_dice];
@@ -6711,7 +6712,10 @@ impl CombatWindow {
         state: &mut GameState,
         ctx: &mut Resolving<'_>,
     ) -> Result<(), CombatError> {
-        if self.settle_depth > 0 || crate::dual::backend(crate::dual::Area::Driver) != crate::dual::Backend::Dual {
+        if self.settle_depth > 0
+            || !crate::dual_window::composed()
+            || crate::dual::backend(crate::dual::Area::Driver) != crate::dual::Backend::Dual
+        {
             return self.settle_string(state, ctx);
         }
         self.settle_machine_dual(state, ctx)
@@ -6740,7 +6744,12 @@ impl CombatWindow {
         ctx: &mut Resolving<'_>,
     ) -> Result<(), CombatError> {
         let sources = ctx.sources;
-        let args = self.settle_args(state, ctx);
+        // A position the machine is known not to carry runs the windows inside one by one instead.
+        let args = self
+            .settle_args(state, ctx)
+            .filter(|a| !(a.opening_unported || a.barrage_unported || a.roll_unported || a.retreat_unported));
+        let Some(args) = args else { return self.settle_string(state, ctx) };
+        let args = Some(args);
         let rng_before = ctx.rng.positions();
         let history_start = ctx.dice.history().len();
         let failed = std::cell::Cell::new(false);
@@ -6832,7 +6841,6 @@ impl CombatWindow {
         let barrage_unported = !reproducible || crate::dual_window::barrage_unported(state, &barrage_probe);
         let retreat_unported = sides.iter().any(|side| {
             crate::technology::owns_det(state, side)
-                || galaxy.is_none_or(|_| false)
                 || [&n0, &n1].iter().any(|list| {
                     list.iter().any(|(dest, _)| crate::dual_window::retreat_unported(state, content, sources, side, &self.system, dest))
                 })
@@ -9683,6 +9691,19 @@ mod tests {
 
     /// [`roll_step_lockstep`], also the (compared, bailed) counts of the roll step window.
     fn roll_step_counts(setup: &dyn Fn(&mut GameState, u64), calls_at_least: u64) -> (Vec<crate::choice::Choice>, u64, u64) {
+        let single = roll_step_fights(setup, calls_at_least, false);
+        // The same fights with `settle` compared as one composed machine.
+        let composed = roll_step_fights(setup, 0, true);
+        SETTLE_COUNTS.with(|c| c.set((composed.1, composed.2)));
+        single
+    }
+
+    fn roll_step_fights(setup: &dyn Fn(&mut GameState, u64), calls_at_least: u64, composed: bool) -> (Vec<crate::choice::Choice>, u64, u64) {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        crate::dual_window::with_composed(composed, || roll_step_fights_inner(setup, calls_at_least, composed))
+    }
+
+    fn roll_step_fights_inner(setup: &dyn Fn(&mut GameState, u64), calls_at_least: u64, composed: bool) -> (Vec<crate::choice::Choice>, u64, u64) {
         use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
@@ -9724,11 +9745,15 @@ mod tests {
         }
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        assert!(r.areas[&Area::Driver].calls >= calls_at_least, "the steps were compared: {:?}", r.areas[&Area::Driver]);
+        if calls_at_least > 0 {
+            assert!(r.areas[&Area::Driver].calls >= calls_at_least, "the steps were compared: {:?}", r.areas[&Area::Driver]);
+        }
         let counts = r.windows.get("combat::roll_round").cloned().unwrap_or_default();
         let settle = r.windows.get("combat::settle").cloned().unwrap_or_default();
-        SETTLE_COUNTS.with(|c| c.set((settle.compared, settle.bailed)));
         let _ = take_report();
+        if composed {
+            return (asked, settle.compared, settle.bailed);
+        }
         (asked, counts.compared, counts.bailed)
     }
 
