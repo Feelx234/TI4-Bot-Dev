@@ -4047,6 +4047,50 @@ impl InvasionWindow {
         planet: &PlanetId,
         defender: &PlayerId,
     ) -> Option<RoundStart> {
+        #[cfg(feature = "typed-core")]
+        {
+            if crate::dual::backend(crate::dual::Area::Invasion) == crate::dual::Backend::Dual {
+                let copied_round = ctx.timing.is_some()
+                    && (crate::factions::borrowed_round_agents::has_round_copy(state, ctx.content, "solagent")
+                        || crate::factions::borrowed_round_agents::has_owner_round_agent(state));
+                let (invader, system) = (self.invader.clone(), self.system.clone());
+                let args = crate::dual_window::BeginGroundArgs { invader: &invader, defender, system: &system, planet, copied_round };
+                if let Some(why) = crate::dual_window::begin_ground_unported(state, &args) {
+                    crate::dual::note_bail("invasion::begin_ground_round", why);
+                    return self.begin_ground_round_string(state, ctx, planet, defender);
+                }
+                let ok = std::cell::Cell::new(false);
+                let mut out = None;
+                crate::dual_window!(
+                    crate::dual::Area::Invasion,
+                    "invasion::begin_ground_round",
+                    state,
+                    |s: &mut GameState| {
+                        out = self.begin_ground_round_string(s, ctx, planet, defender);
+                        ok.set(out.is_some());
+                        crate::dual::Run::new(ok.get())
+                    },
+                    |s: &mut GameState, script: &crate::dual_window::Recording| {
+                        if !ok.get() {
+                            return None;
+                        }
+                        crate::dual_window::begin_ground(s, &args, script)
+                    }
+                );
+                return out;
+            }
+        }
+        self.begin_ground_round_string(state, ctx, planet, defender)
+    }
+
+    /// The string body of [`Self::begin_ground_round`].
+    fn begin_ground_round_string(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        planet: &PlanetId,
+        defender: &PlayerId,
+    ) -> Option<RoundStart> {
         let (content, sources) = (ctx.content, ctx.sources);
         let defender = defender.clone();
         let planet = planet.clone();

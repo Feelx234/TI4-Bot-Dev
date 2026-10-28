@@ -2067,3 +2067,69 @@ pub fn round_hits(gs: &mut GameState, sources: ti4_model::content_types::SourceS
     let (a_hits, d_hits) = driver.window.assigned;
     Some(CoreWindow { run: Run::new((true, (a_hits as usize, d_hits as usize))).with_events_vec(events), questions: driven.rendered })
 }
+
+
+// --- the start of a ground combat round (B2) -----------------------------------------------------------
+
+/// What the string `begin_ground_round` was called with.
+#[derive(Debug, Clone, Copy)]
+pub struct BeginGroundArgs<'a> {
+    pub invader: &'a PlayerId,
+    pub defender: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    pub planet: &'a ti4_model::id::PlanetId,
+    /// A copied round agent makes the round its own event.
+    pub copied_round: bool,
+}
+
+/// Why the start of the round holds something the core window does not carry: a copied round agent, a Naaz side
+/// (the Supercharge offer), Proxima Targeting VI, a Letnev side with infantry on the planet (the Dunlain Reaper),
+/// a neutral side.
+#[must_use]
+pub fn begin_ground_unported(gs: &GameState, a: &BeginGroundArgs<'_>) -> Option<&'static str> {
+    let sides = [a.invader, a.defender];
+    if sides.into_iter().any(crate::neutral_units::is_neutral) {
+        return Some("neutral side");
+    }
+    if a.copied_round {
+        return Some("copied round agent");
+    }
+    let faction = |id: &PlayerId| gs.player(id).map_or("", |p| p.faction.as_str());
+    if sides.into_iter().any(|id| faction(id) == "naaz") {
+        return Some("Naaz Supercharge");
+    }
+    if crate::factions::bastion_units::watches_ground_round(gs, &sides) {
+        return Some("Proxima Targeting VI");
+    }
+    let infantry = |id: &PlayerId| gs.system_state(a.system).on_planet_of(a.planet, id).into_iter().any(|u| u.type_id.as_str().contains("infantry"));
+    if sides.into_iter().any(|id| faction(id) == "letnev" && infantry(id)) {
+        return Some("Dunlain Reaper");
+    }
+    None
+}
+
+const BEGIN_GROUND: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Pending],
+    &[Slice::Meta, Slice::Transient],
+);
+
+/// The core half of `InvasionWindow::begin_ground_round`. `None` for the positions of [`begin_ground_unported`],
+/// nested activity and a position the codecs refuse.
+#[must_use]
+pub fn begin_ground(gs: &mut GameState, a: &BeginGroundArgs<'_>, script: &Recording) -> Option<CoreWindow<bool>> {
+    use ti4_engine_core::rules::invasion::begin::{BeginGroundRound, Facts};
+    if script.nested {
+        crate::dual::note_bail("invasion::begin_ground_round", "nested (a reaction ran)");
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let invader = r.seat(a.invader.as_str())?;
+    let defender = r.seat(a.defender.as_str())?;
+    let planet = <ti4_engine_core::generated::Planet as IdStr>::from_id(a.planet.as_str())?;
+    let before = gs.clone();
+    let numbered = gs.rules_version >= ti4_model::state::RULES_FACTION_EFFECTS;
+    let env = crate::core_invasion::ground_env(&before, &cx, ti4_model::content_types::SourceSet::default())?;
+    let mut driver = Driver::new(BeginGroundRound::new(Facts { planet, defender, numbered }), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1);
+    let driven = with_core(gs, &mut cx, Sources::default(), BEGIN_GROUND, |core, _| drive(&mut driver, core, &env.kernel, &r, &before, script)).ok()?.ok()?;
+    Some(CoreWindow { run: Run::new(true), questions: driven.rendered })
+}
