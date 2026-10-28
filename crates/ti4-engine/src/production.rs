@@ -7289,7 +7289,7 @@ mod tests {
     #[test]
     fn sling_relay_runs_in_lockstep_on_the_core_window() {
         let content = ContentStore::embedded();
-        lockstep("production::sling_relay", 5, || {
+        lockstep("production::sling_relay", 9, || {
             // One dock, several ships: the ship question, then the payment.
             let (mut state, system, _) = sling_table();
             let mut table = Table::with_default(Box::new(crate::choice::Scripted::new(["build|destroyer|1".to_owned()])));
@@ -7312,6 +7312,34 @@ mod tests {
             state.exhausted_planets.insert(planet);
             let mut table = Table::new();
             assert_eq!(sling_relay(&mut state, content, POK, None, &mut table, &player()), Ok(false));
+            // The purse is exactly the price of the cheapest ship: it is affordable.
+            let (mut state, system, planet) = sling_table();
+            state.player_mut(&player()).unwrap().trade_goods = 1;
+            state.exhausted_planets.insert(planet.clone());
+            let mut table = Table::new();
+            assert_eq!(sling_relay(&mut state, content, POK, None, &mut table, &player()), Ok(true));
+            assert!(!state.system_state(&system).units_of(&player()).is_empty());
+            // Plastic gone from the box: the ship is not offered.
+            let (mut state, system, _) = sling_table();
+            let other = second_dock_system(&mut state, &system);
+            put(&mut state, &other, "cruiser", &player(), 8);
+            let mut table = Table::new();
+            let _ = sling_relay(&mut state, content, POK, None, &mut table, &player());
+            assert!(table.log.records.iter().all(|r| !r.offered.iter().any(|id| id == "build|cruiser|1")), "{:?}", table.log.records);
+            // Another player's dock is not a dock of ours.
+            let (mut state, system, planet) = sling_table();
+            let _ = planet;
+            let theirs = second_dock_system(&mut state, &system);
+            let their_planet = state.system_state(&theirs).planet_units.keys().next().cloned().expect("a planet");
+            state.system_mut(&theirs).planet_units.get_mut(&their_planet).unwrap().iter_mut().for_each(|u| u.owner = PlayerId::new("b"));
+            let mut table = Table::new();
+            assert_eq!(sling_relay(&mut state, content, POK, None, &mut table, &player()), Ok(true));
+            assert!(table.log.records.iter().all(|r| !r.prompt.contains("which dock system")), "{:?}", table.log.records);
+            // A dock built while coexisting is always blockaded.
+            let (mut state, system, planet) = sling_table();
+            state.system_mut(&system).coexisting.entry(planet).or_default().insert(player());
+            let mut table = Table::new();
+            assert_eq!(sling_relay(&mut state, content, POK, None, &mut table, &player()), Ok(false));
             // The payment is a real choice (a planet and trade goods).
             let (mut state, system, _) = sling_table();
             state.player_mut(&player()).unwrap().trade_goods = 1;
@@ -7326,7 +7354,7 @@ mod tests {
     #[test]
     fn integrated_economy_runs_in_lockstep_on_the_core_window() {
         let content = ContentStore::embedded();
-        lockstep("production::integrated_economy", 3, || {
+        lockstep("production::integrated_economy", 6, || {
             // A destroyer in space, paid with a trade good, then done.
             let (mut state, system, planet) = sling_table();
             let mut table = Table::with_default(Box::new(BuildOnce { build: "build|destroyer|1", built: false }));
@@ -7337,6 +7365,24 @@ mod tests {
             let mut table = Table::with_default(Box::new(BuildOnce { build: "build|sol_infantry|2", built: false }));
             assert_eq!(integrated_economy(&mut state, content, POK, None, &mut table, &player(), &system, &planet), Ok(true));
             assert!(state.system_state(&system).on_planet(&planet).iter().any(|u| u.type_id.as_str() == "sol_infantry"));
+            // Fighters arrive in space, two at a time.
+            let (mut state, system, planet) = sling_table();
+            let mut table = Table::with_default(Box::new(BuildOnce { build: "build|fighter|2", built: false }));
+            assert_eq!(integrated_economy(&mut state, content, POK, None, &mut table, &player(), &system, &planet), Ok(true));
+            assert_eq!(state.system_state(&system).units_of(&player()).iter().filter(|u| u.type_id.as_str() == "fighter").count(), 2);
+            // The box holds no destroyer: none is offered, the rest is.
+            let (mut state, system, planet) = sling_table();
+            let elsewhere = second_dock_system(&mut state, &system);
+            put(&mut state, &elsewhere, "destroyer", &player(), 8);
+            let mut table = Table::with_default(Box::new(BuildOnce { build: "build|sol_infantry|2", built: false }));
+            assert_eq!(integrated_economy(&mut state, content, POK, None, &mut table, &player(), &system, &planet), Ok(true));
+            assert!(table.log.records.iter().all(|r| !r.offered.iter().any(|id| id == "build|destroyer|1")), "{:?}", table.log.records);
+            // A full fleet pool offers no ship, only ground forces.
+            let (mut state, system, planet) = sling_table();
+            state.player_mut(&player()).unwrap().fleet_tokens = 0;
+            let mut table = Table::with_default(Box::new(BuildOnce { build: "build|sol_infantry|2", built: false }));
+            assert_eq!(integrated_economy(&mut state, content, POK, None, &mut table, &player(), &system, &planet), Ok(true));
+            assert!(table.log.records.iter().all(|r| !r.offered.iter().any(|id| id == "build|destroyer|1")), "{:?}", table.log.records);
             // Declined at once.
             let (mut state, system, planet) = sling_table();
             let mut table = Table::with_default(Box::new(crate::choice::Scripted::new(["done_producing".to_owned()])));

@@ -2134,6 +2134,30 @@ mod tests {
         assert_eq!((seat.trade_goods, seat.commodities), (0, 0));
     }
 
+    /// The same spends with `production=dual`: the core `spend_goods` takes the commodities of an open agent window
+    /// first and refuses atomically, as the string does.
+    #[test]
+    fn a_fixed_spend_runs_in_lockstep_on_the_core_with_the_agent_window() {
+        let _guard = crate::dual::tests::serial();
+        let fail_fast = crate::dual::fail_fast();
+        crate::dual::set_fail_fast(true);
+        let mask = crate::dual::AreaMask::parse("production=dual", crate::dual::AreaMask::STRING).unwrap();
+        crate::dual::with_mask(mask, || {
+            let mut state = game("keleresm");
+            let seat = state.player_mut(&b()).unwrap();
+            seat.trade_goods = 1;
+            seat.commodities = 2;
+            assert!(!crate::supply::spend_goods(&mut state, &b(), 2), "no window");
+            state.faction_marks.insert(agent_key(&b()), "a".to_owned());
+            assert!(!crate::supply::spend_goods(&mut state, &b(), 4), "too dear");
+            assert!(crate::supply::spend_goods(&mut state, &b(), 2), "the commodities go first");
+            let seat = state.player(&b()).unwrap();
+            assert_eq!((seat.trade_goods, seat.commodities), (1, 0));
+            assert!(crate::supply::spend_goods(&mut state, &b(), 1));
+        });
+        crate::dual::set_fail_fast(fail_fast);
+    }
+
     /// An Executive Order vote where `a` (Keleres, the spender) holds `commodities` and no trade
     /// goods and answers the agent offer with `agent_answer`; returns the finished game.
     fn eo_vote_with_commodities(

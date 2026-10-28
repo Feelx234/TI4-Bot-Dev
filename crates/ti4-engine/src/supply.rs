@@ -1677,9 +1677,10 @@ mod capture_tests {
         let fail_fast = crate::dual::fail_fast();
         crate::dual::set_fail_fast(true);
         let mask = crate::dual::AreaMask::parse("production=dual", crate::dual::AreaMask::STRING).unwrap();
-        let mut state = game(&["a", "b"]);
+        let mut state = game(&["a", "b", "c"]);
         state.player_mut(&pid("a")).unwrap().faction = ti4_model::id::FactionId::new("sol");
         state.player_mut(&pid("b")).unwrap().faction = ti4_model::id::FactionId::new("sardakk");
+        state.player_mut(&pid("c")).unwrap().faction = ti4_model::id::FactionId::new("xxcha");
         let (system, planet) = a_placed_planet();
         put(&mut state, &system, "carrier", &pid("b"), 4);
         put_on_planet(&mut state, &system, &planet, "infantry", &pid("b"), 2);
@@ -1706,15 +1707,22 @@ mod capture_tests {
             // Captures: refused ones first, then real ones from the board and the box.
             assert!(!capture_from_board(&mut state, &pid("b"), &system, None, &carrier("b")));
             assert!(!capture_from_board(&mut state, &pid("a"), &system, None, &carrier("a")));
+            // The exact unit: a damaged carrier behind a sound one, and the other way round.
+            state.system_mut(&system).units.push(carrier("b").sustained());
+            assert!(capture_from_board(&mut state, &pid("a"), &system, None, &carrier("b").sustained()));
+            assert_eq!(state.system_state(&system).units_of(&pid("b")).iter().filter(|u| u.sustained_damage).count(), 0);
             assert!(capture_from_board(&mut state, &pid("a"), &system, None, &carrier("b")));
             assert!(capture_from_board(&mut state, &pid("a"), &system, Some(&planet), &ti4_model::units::Unit::new(UnitTypeId::new("infantry"), pid("b"))));
             assert!(!capture_from_board(&mut state, &pid("a"), &system, Some(&planet), &ti4_model::units::Unit::new(UnitTypeId::new("mech"), pid("b"))));
             assert!(!capture_from_reinforcements(&mut state, content, POK, &pid("a"), &pid("b"), &UnitTypeId::new("carrier")));
             assert!(capture_from_reinforcements(&mut state, content, POK, &pid("a"), &pid("b"), &UnitTypeId::new("cruiser")));
-            // Returns and the release.
+            // Returns and the release: the first model of the owner asked for, not the first of the sheet.
+            state.player_mut(&pid("a")).unwrap().captured_units.insert(0, (pid("c"), UnitTypeId::new("carrier")));
+            assert_eq!(return_captured(&mut state, content, POK, &pid("a"), &pid("b"), "carrier"), Some(UnitTypeId::new("carrier")));
+            assert_eq!(captured_by(&state, &pid("a")).iter().filter(|(who, _)| who == &pid("c")).count(), 1);
             assert_eq!(return_captured(&mut state, content, POK, &pid("a"), &pid("b"), "carrier"), Some(UnitTypeId::new("carrier")));
             assert_eq!(return_captured(&mut state, content, POK, &pid("a"), &pid("b"), "carrier"), None);
-            assert_eq!(release_all_captured(&mut state, &pid("a")), 2);
+            assert_eq!(release_all_captured(&mut state, &pid("a")), 3);
             assert_eq!(release_all_captured(&mut state, &pid("a")), 0);
         });
         crate::dual::set_fail_fast(fail_fast);
