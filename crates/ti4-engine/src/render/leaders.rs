@@ -8,7 +8,7 @@
 use ti4_engine_core::choice::leaders::{Ask, Opt, Subtype};
 
 use ti4_engine_core::choice::agenda::Shown;
-use ti4_engine_core::generated::Planet;
+use ti4_engine_core::generated::{Planet, System};
 
 use super::{Family, Render};
 use crate::choice::ChoiceOption;
@@ -33,6 +33,7 @@ impl Family for Fam {
             Ask::XxchaPlanet => "Leader: ready which planet".to_owned(),
             Ask::XxchaInfantry => "Leader: remove 1 infantry from that planet?".to_owned(),
             Ask::HacanBranch => "Leader: gain 2 commodities or replenish another player".to_owned(),
+            Ask::L1z1xDestination => "Leader: which system to gather your ships in".to_owned(),
         }
     }
 
@@ -42,6 +43,7 @@ impl Family for Fam {
             Subtype::XxchaReadyPlanet => "leader_xxchaagent_ready_planet".to_owned(),
             Subtype::XxchaRemoveInfantry => "leader_xxchaagent_remove_infantry".to_owned(),
             Subtype::HacanBranch => HACAN_KIND.to_owned(),
+            Subtype::L1z1xDestination => "leader_l1z1xhero_destination".to_owned(),
         }
     }
 
@@ -52,6 +54,7 @@ impl Family for Fam {
                 let id = p.as_str();
                 ChoiceOption::labelled(id, "planet", id).with_planet(id, system.system.map(|s| s.as_str()))
             }
+            Opt::System(system) => ChoiceOption::labelled(system.as_str(), "system", system.as_str()),
             Opt::Remove => ChoiceOption::labelled("remove", INFANTRY_KIND, "remove 1 infantry"),
             Opt::Keep => ChoiceOption::labelled("keep", INFANTRY_KIND, "keep it"),
             Opt::GainCommodities => ChoiceOption::labelled("self", HACAN_KIND, "gain 2 commodities"),
@@ -71,6 +74,7 @@ impl Family for Fam {
                 "keep" => Some(Opt::Keep),
                 _ => None,
             },
+            Ask::L1z1xDestination => System::from_id(id).map(Opt::System),
             Ask::HacanBranch => {
                 if id == "self" {
                     return Some(Opt::GainCommodities);

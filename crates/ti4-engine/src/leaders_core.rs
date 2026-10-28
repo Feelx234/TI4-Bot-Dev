@@ -22,7 +22,7 @@ mod real {
     use ti4_engine_core::driver::Driver;
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::{Kernel, Resolver};
-    use ti4_engine_core::rules::leader_windows::{HacanAgent, XxchaAgent};
+    use ti4_engine_core::rules::leader_windows::{HacanAgent, Helmsman, XxchaAgent};
     use ti4_model::content_types::SourceSet;
 
     use crate::core_adapter::typed;
@@ -168,6 +168,29 @@ mod real {
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
     }
 
+    /// The core half of `leaders::l1z1x_hero` (The Helmsman). `None` as for [`xxcha_agent`].
+    pub fn l1z1x_hero(gs: &mut GameState, player: &PlayerId, galaxy: Option<&ti4_content::galaxy::Galaxy>, sources: SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
+        if outside(gs, script) {
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let seat = r.seat(player.as_str())?;
+        let kernel = kernel(sources)?;
+        let before = gs.clone();
+        let has_map = galaxy.is_some();
+        let mut driver = Driver::new(Helmsman::new(seat, has_map), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources { galaxy, rng: None }, if has_map { XXCHA } else { XXCHA_NO_MAP }, |core, _| {
+            if has_map && core.galaxy().is_none() {
+                return None;
+            }
+            Some(crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script))
+        })
+        .ok()??
+        .ok()?;
+        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
+        Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
+    }
+
     /// The core half of `leaders::hacan_agent`. `None` where a commodity change causes events the core does not
     /// hold: a siphoning Firmament plot, a Cabal at the table, a Trade Agreement in play.
     pub fn hacan_agent(gs: &mut GameState, content: &ti4_content::ContentStore, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
@@ -249,6 +272,15 @@ mod stub {
         _: &ti4_model::id::SystemId,
         _: &str,
     ) -> Option<bool> {
+        None
+    }
+    pub fn l1z1x_hero(
+        _: &mut GameState,
+        _: &PlayerId,
+        _: Option<&ti4_content::galaxy::Galaxy>,
+        _: ti4_model::content_types::SourceSet,
+        _: &crate::dual_window::Recording,
+    ) -> Option<crate::dual::CoreWindow<bool>> {
         None
     }
     pub fn xxcha_agent(

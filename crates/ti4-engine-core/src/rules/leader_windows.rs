@@ -16,7 +16,7 @@ use crate::choice::agenda::Shown;
 use crate::choice::leaders::{Ask as LAsk, Opt as LOpt, Subtype as LSub};
 use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use crate::containers::SmallList;
-use crate::generated::{Leader, Planet, UnitBaseType};
+use crate::generated::{Leader, Planet, System, UnitBaseType};
 use crate::ids::Seat;
 use crate::kernel::fx;
 use crate::kernel::stage::{Illegal, Sx, Window};
@@ -291,6 +291,145 @@ impl Window for HacanAgent {
         self.used = true;
         self.stage = HStage::Done;
         Ok(())
+    }
+}
+
+// -- The Helmsman -----------------------------------------------------------------------------------
+
+/// The suspension points of [`Helmsman`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LStage {
+    Start,
+    Destination,
+    Done,
+}
+
+/// "Choose 1 system that contains no ships of other players; place your flagship and dreadnoughts there." The
+/// ships are *placed*, not moved: range and anomalies do not apply. Never offered without a map or a ship to
+/// gather.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Helmsman {
+    pub who: Seat,
+    /// The string arm had a map (`context.galaxy`).
+    pub has_map: bool,
+    stage: LStage,
+    pub used: bool,
+}
+
+impl Helmsman {
+    #[must_use]
+    pub const fn new(who: Seat, has_map: bool) -> Self {
+        Self { who, has_map, stage: LStage::Start, used: false }
+    }
+
+    const ASK: Ask = Ask::Leaders(LAsk::L1z1xDestination);
+
+    fn named(&self, scope: Scope, p: crate::state::Piece) -> bool {
+        p.owner() == self.who
+            && scope.unit(p.kind()).is_some_and(|d| matches!(d.base_type, UnitBaseType::Flagship | UnitBaseType::Dreadnought))
+    }
+
+    /// The systems that may receive the ships, in the string galaxy's order (hex order): on the map, not a
+    /// hyperlane tile, holding no ship of another seat.
+    fn safe(&self, core: &CoreState, k: &Kernel) -> Vec<System> {
+        let Some(galaxy) = core.galaxy() else { return Vec::new() };
+        let scope = scope(k);
+        let mut at: Vec<(crate::hex::Hex, System)> = galaxy
+            .in_play()
+            .iter()
+            .filter(|s| !galaxy.is_hyperlane(crate::ids::system_at(*s)))
+            .filter_map(|s| {
+                let system = crate::ids::system_at(s);
+                galaxy.coord_of(system).map(|hex| (hex, system))
+            })
+            .collect();
+        at.sort_unstable_by_key(|(hex, _)| *hex);
+        at.into_iter()
+            .map(|(_, system)| system)
+            .filter(|system| {
+                !core
+                    .board()
+                    .sys(*system)
+                    .units
+                    .as_slice()
+                    .iter()
+                    .any(|u| u.owner() != self.who && scope.unit(u.kind()).is_some_and(|d| d.ship))
+            })
+            .collect()
+    }
+
+    fn gather(&mut self, sx: &mut Sx<'_>, destination: System) {
+        let scope = scope(sx.kernel);
+        let mut gathered: Vec<crate::state::Piece> = Vec::new();
+        for system in System::ALL {
+            if system == destination {
+                continue;
+            }
+            let has = sx.state.board().sys(system).units.as_slice().iter().any(|u| self.named(scope, *u));
+            if !has {
+                continue;
+            }
+            let list = &mut sx.state.board_mut().sys_mut(system).units;
+            gathered.extend(list.as_slice().iter().copied().filter(|u| self.named(scope, *u)));
+            list.retain(|u| !self.named(scope, *u));
+        }
+        if !gathered.is_empty() {
+            let cell = sx.state.board_mut().sys_mut(destination);
+            cell.flags.set(crate::state::SysFlags::TOUCHED, true);
+            for piece in &gathered {
+                cell.units.push(*piece);
+            }
+        }
+        self.used = !gathered.is_empty();
+        self.stage = LStage::Done;
+    }
+}
+
+impl Window for Helmsman {
+    type Stage = LStage;
+
+    fn stage(&self) -> LStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == LStage::Start {
+            let scope = scope(sx.kernel);
+            // Nothing anywhere to gather: the use could do nothing, so it was never offered.
+            let ships = self.has_map && sx.state.board().systems().any(|(_, c)| c.units.as_slice().iter().any(|u| self.named(scope, *u)));
+            let safe = if ships { self.safe(sx.state, sx.kernel) } else { Vec::new() };
+            match safe.as_slice() {
+                [] => self.stage = LStage::Done,
+                [only] => {
+                    let only = *only;
+                    self.gather(sx, only);
+                }
+                _ => self.stage = LStage::Destination,
+            }
+        }
+        match self.stage {
+            LStage::Destination => Next::Continue(Self::ASK),
+            LStage::Start | LStage::Done => Next::Done,
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        (self.stage == LStage::Destination).then(|| Choice {
+            actor: self.who,
+            ask: Self::ASK,
+            ctx: ctx(Leader::TheHelmsman, LSub::L1z1xDestination),
+            opts: self.safe(s, k).into_iter().map(|system| Opt::Leaders(LOpt::System(system))).collect::<Opts>(),
+        })
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        match (self.stage, pick) {
+            (LStage::Destination, Pick::Opt(Opt::Leaders(LOpt::System(system)))) if self.safe(sx.state, sx.kernel).contains(&system) => {
+                self.gather(sx, system);
+                Ok(())
+            }
+            _ => Err(Illegal),
+        }
     }
 }
 

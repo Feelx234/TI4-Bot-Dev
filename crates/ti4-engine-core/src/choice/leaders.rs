@@ -16,6 +16,8 @@ pub enum Ask {
     XxchaInfantry,
     /// Carth of Golden Sands (Hacan agent): gain 2 commodities, or replenish another player.
     HacanBranch,
+    /// The Helmsman (L1Z1X hero): which system to gather the flagship and dreadnoughts in.
+    L1z1xDestination,
 }
 
 /// One answer the area offers (not stored in the state).
@@ -34,6 +36,8 @@ pub enum Opt {
     GainCommodities,
     /// Hacan agent: replenish this seat's commodities.
     Replenish(crate::ids::Seat),
+    /// A system (the Helmsman's destination).
+    System(crate::generated::System),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -43,4 +47,5 @@ pub enum Subtype {
     XxchaReadyPlanet,
     XxchaRemoveInfantry,
     HacanBranch,
+    L1z1xDestination,
 }

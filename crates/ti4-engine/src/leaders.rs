@@ -1692,6 +1692,124 @@ fn hacan_agent_string(
     true
 }
 
+/// The Helmsman (`l1z1xhero`): the string arm of `dispatch_leader` beside its core window.
+fn l1z1x_hero(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) -> bool {
+    split_context!(context => state, content, sources, galaxy, table);
+    crate::dual_window!(
+        crate::dual::Area::LeadersAbilities,
+        "leaders::l1z1xhero",
+        state,
+        |state: &mut GameState| crate::dual::Run::new(l1z1x_hero_string(state, content, sources, galaxy, table, player)),
+        |state: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::leaders_core::l1z1x_hero(state, player, galaxy, sources, script)
+        }
+    )
+}
+
+fn l1z1x_hero_string(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut crate::choice::Table,
+    player: &PlayerId,
+) -> bool {
+    let Some(map) = galaxy else {
+        return false; // no map, no system to name
+    };
+    let types = ti4_content::units::catalogue(content, sources);
+    // Nothing anywhere to gather means the use could do nothing, so it was never offered.
+    let has_big_ships = state.board.values().any(|board| {
+        board.units.iter().any(|unit| {
+            &unit.owner == player
+                && types.get(unit.type_id.as_str()).is_some_and(|kind| {
+                    matches!(kind.base_type(), "flagship" | "dreadnought")
+                })
+        })
+    });
+    if !has_big_ships {
+        return false;
+    }
+    let safe: Vec<ti4_model::id::SystemId> = map
+        .system_ids_holding_things()
+        .into_iter()
+        .map(ti4_model::id::SystemId::new)
+        .filter(|system| {
+            !state.system_state(system).units.iter().any(|unit| {
+                &unit.owner != player
+                    && types
+                        .get(unit.type_id.as_str())
+                        .is_some_and(ti4_content::units::UnitType::is_ship)
+            })
+        })
+        .collect();
+    if safe.is_empty() {
+        return false;
+    }
+    let destination = if safe.len() > 1 {
+        // more than one safe system: the choice is the player's.
+        {
+            let choice = crate::choice::Choice::new(
+                player.clone(),
+                "Leader: which system to gather your ships in",
+                safe.iter()
+                    .map(|system| {
+                        crate::choice::ChoiceOption::labelled(
+                            system.to_string(),
+                            "system",
+                            system.to_string(),
+                        )
+                    })
+                    .collect(),
+            )
+            .contextualized(
+                crate::decision_context::DecisionContext::new(
+                    player.clone(),
+                    crate::decision_context::DecisionSource::FactionAbility(
+                        "l1z1xhero".to_owned(),
+                    ),
+                    "leader_l1z1xhero_destination",
+                    state.phase,
+                    state.round,
+                ),
+            );
+            let Ok(answer) = ask_seeing_parts(state, content, sources, galaxy, table, &choice) else {
+                return false;
+            };
+            match safe.into_iter().find(|system| system.as_str() == answer.id) {
+                Some(system) => system,
+                None => return false,
+            }
+        }
+    } else {
+        safe.into_iter().next().expect("one safe system")
+    };
+    let mut gathered = Vec::new();
+    for (system, board) in &mut state.board {
+        if *system == destination {
+            continue;
+        }
+        board.units.retain(|unit| {
+            let named = &unit.owner == player
+                && types.get(unit.type_id.as_str()).is_some_and(|kind| {
+                    matches!(kind.base_type(), "flagship" | "dreadnought")
+                });
+            if named {
+                gathered.push(unit.clone());
+            }
+            !named
+        });
+    }
+    if gathered.is_empty() {
+        return false;
+    }
+    state
+        .system_mut(&destination)
+        .units
+        .extend(gathered);
+    true
+}
+
 /// The per-leader effect dispatch shared by [`use_leader`] and [`use_leader_text`]: runs the leader's
 /// printed effect for `player` and reports whether it resolved. No status gate, no exhaust or purge:
 /// the callers own both.
@@ -1954,103 +2072,7 @@ fn dispatch_leader(
         // rival ships. "Choose 1 system" — which safe system is the player's call when more than
         // one qualifies. The card names no move value and is not a tactical action, so this
         // *places* rather than moves — range and anomalies do not apply by its own wording.
-        "l1z1xhero" => {
-            let Some(galaxy) = context.galaxy else {
-                return false; // no map, no system to name
-            };
-            let types = ti4_content::units::catalogue(context.content, context.sources);
-            // Nothing anywhere to gather means the use could do nothing, so it was never offered.
-            let has_big_ships = context.state.board.values().any(|board| {
-                board.units.iter().any(|unit| {
-                    &unit.owner == player
-                        && types.get(unit.type_id.as_str()).is_some_and(|kind| {
-                            matches!(kind.base_type(), "flagship" | "dreadnought")
-                        })
-                })
-            });
-            if !has_big_ships {
-                return false;
-            }
-            let safe: Vec<ti4_model::id::SystemId> = galaxy
-                .system_ids_holding_things()
-                .into_iter()
-                .map(ti4_model::id::SystemId::new)
-                .filter(|system| {
-                    !context.state.system_state(system).units.iter().any(|unit| {
-                        &unit.owner != player
-                            && types
-                                .get(unit.type_id.as_str())
-                                .is_some_and(ti4_content::units::UnitType::is_ship)
-                    })
-                })
-                .collect();
-            if safe.is_empty() {
-                return false;
-            }
-            let destination = if safe.len() > 1 {
-                // more than one safe system: the choice is the player's.
-                {
-                    let choice = crate::choice::Choice::new(
-                        player.clone(),
-                        "Leader: which system to gather your ships in",
-                        safe.iter()
-                            .map(|system| {
-                                crate::choice::ChoiceOption::labelled(
-                                    system.to_string(),
-                                    "system",
-                                    system.to_string(),
-                                )
-                            })
-                            .collect(),
-                    )
-                    .contextualized(
-                        crate::decision_context::DecisionContext::new(
-                            player.clone(),
-                            crate::decision_context::DecisionSource::FactionAbility(
-                                "l1z1xhero".to_owned(),
-                            ),
-                            "leader_l1z1xhero_destination",
-                            context.state.phase,
-                            context.state.round,
-                        ),
-                    );
-                    let Ok(answer) = context.ask_seeing(&choice) else {
-                        return false;
-                    };
-                    match safe.into_iter().find(|system| system.as_str() == answer.id) {
-                        Some(system) => system,
-                        None => return false,
-                    }
-                }
-            } else {
-                safe.into_iter().next().expect("one safe system")
-            };
-            let mut gathered = Vec::new();
-            for (system, board) in &mut context.state.board {
-                if *system == destination {
-                    continue;
-                }
-                board.units.retain(|unit| {
-                    let named = &unit.owner == player
-                        && types.get(unit.type_id.as_str()).is_some_and(|kind| {
-                            matches!(kind.base_type(), "flagship" | "dreadnought")
-                        });
-                    if named {
-                        gathered.push(unit.clone());
-                    }
-                    !named
-                });
-            }
-            if gathered.is_empty() {
-                return false;
-            }
-            context
-                .state
-                .system_mut(&destination)
-                .units
-                .extend(gathered);
-            true
-        }
+        "l1z1xhero" => l1z1x_hero(context, player),
         // I48S: one infantry in the active system becomes a mech. The card lets the *activating*
         // player benefit, which is usually somebody else — agents are traded favours.
         "l1z1xagent" => {
@@ -2755,6 +2777,50 @@ mod tests {
         let _ = take_report();
     }
 
+    #[test]
+    fn the_helmsman_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual);
+        with_mask(mask, || {
+            let hub = crate::fixtures::plain_hub();
+            let id = |s: &str| ti4_model::id::SystemId::new(s);
+            let mut state = seated_clean(&[("a", "l1z1x"), ("b", "sol")]);
+            let hero = holding(&mut state, "l1z1xhero", LeaderStatus::Unlocked);
+            let flagship = ti4_content::units::faction_unit(ContentStore::embedded(), "l1z1x", "flagship", POK).expect("flagship").id().to_owned();
+            crate::fixtures::put(&mut state, &id(&hub.outer[0]), "dreadnought", &player(), 2);
+            crate::fixtures::put(&mut state, &id(&hub.outer[1]), &flagship, &player(), 1);
+            crate::fixtures::put(&mut state, &id(&hub.outer[2]), "cruiser", &PlayerId::new("b"), 1);
+            let ask = crate::dual_window::Recording::default();
+            assert!(
+                crate::leaders_core::l1z1x_hero(&mut state.clone(), &player(), Some(&hub.galaxy), POK, &ask).is_some(),
+                "the core takes the position"
+            );
+            // Two or more systems are safe: the destination is asked.
+            let mut asked = state.clone();
+            let answers = vec![hub.outer[3].clone()];
+            assert!(use_hero(&mut asked, &hero, Some(&hub.galaxy), answers));
+            assert!(asked.system_state(&id(&hub.outer[3])).units.len() >= 3, "the named hulls arrived");
+            assert!(asked.system_state(&id(&hub.outer[0])).units.is_empty());
+            assert_eq!(asked.system_state(&id(&hub.outer[2])).units.len(), 1, "the rival fleet stays");
+            // Only one safe system left: nothing is asked.
+            for outer in &hub.outer[3..] {
+                crate::fixtures::put(&mut state, &id(outer), "cruiser", &PlayerId::new("b"), 1);
+            }
+            crate::fixtures::put(&mut state, &id(&hub.centre), "cruiser", &PlayerId::new("b"), 1);
+            assert!(use_hero(&mut state.clone(), &hero, Some(&hub.galaxy), vec![]));
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(window_counts("leaders::l1z1xhero").0 >= 2, "{r:?}");
+        let _ = take_report();
+    }
+
+    fn use_hero(state: &mut GameState, leader: &LeaderId, galaxy: Option<&ti4_content::galaxy::Galaxy>, answers: Vec<String>) -> bool {
+        use_scripted(state, leader.as_str(), galaxy, answers)
+    }
+
     /// The documented bails of the questioning agents: a question inside a battle, diplomacy promises, a Cabal
     /// at the table. The string arm answers alone; nothing is compared and nothing differs.
     #[test]
@@ -2781,6 +2847,11 @@ mod tests {
             exhausted(&mut state);
             state.diplomacy.enabled = true;
             assert!(use_scripted(&mut state, "xxchaagent", None, vec!["lodor".to_owned()]));
+            // The Helmsman in a space battle: the question would carry the battle.
+            let mut state = seated_clean(&[("a", "l1z1x"), ("b", "sol")]);
+            state.active_space_combat = Some((ti4_model::id::SystemId::new("26"), player(), PlayerId::new("b")));
+            let none = crate::dual_window::Recording::default();
+            assert!(crate::leaders_core::l1z1x_hero(&mut state, &player(), None, POK, &none).is_none());
             // I48S: the Naaz mech announces its placement, and a favour keeps a diplomacy promise: both string.
             let mut state = seated_clean(&[("a", "l1z1x"), ("b", "sol")]);
             let system = ti4_model::id::SystemId::new("26");
