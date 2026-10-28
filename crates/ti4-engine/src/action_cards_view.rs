@@ -235,8 +235,8 @@ pub fn plays(alias: &ActionCardId) -> bool {
 }
 
 const PLAY: crate::core_sync::Footprint = crate::core_sync::Footprint::new(
-    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Agenda, Slice::Transient, Slice::Pending],
-    &[Slice::Players, Slice::Board, Slice::Agenda, Slice::Transient, Slice::Pending],
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Transient, Slice::Pending],
+    &[Slice::Players, Slice::Board, Slice::Decks, Slice::Agenda, Slice::Transient, Slice::Pending],
 );
 
 /// The core half of a played card effect (`action_cards::effect_for`), as a lockstep window. `None` when the

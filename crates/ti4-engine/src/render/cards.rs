@@ -49,6 +49,7 @@ impl Family for Fam {
             Subtype::Pick { card, what } => {
                 return match what {
                     What::Elect => "confusing_legal_text_elect".to_owned(),
+                    What::Silence => "silence_choose_system".to_owned(),
                     _ => format!("{}_pick_{}", card.as_str(), pick_kind(*what)),
                 };
             }
@@ -63,7 +64,13 @@ impl Family for Fam {
                 let (card, what) = pick_of(a);
                 ChoiceOption::labelled(id, pick_kind(what), format!("{}{id}", seat_label(card, what)))
             }
-            Opt::System(system) => ChoiceOption::labelled(system.as_str(), "recall", format!("recall your token from {}", system.as_str())),
+            Opt::System(system) => {
+                let id = system.as_str();
+                match pick_of(a).1 {
+                    What::Silence => ChoiceOption::labelled(id, "silence", format!("ships in {id} may pass blockades")),
+                    _ => ChoiceOption::labelled(id, "recall", format!("recall your token from {id}")),
+                }
+            }
             Opt::Spot(system, planet) => ChoiceOption::labelled(format!("{}|{}", system.as_str(), planet.as_str()), "planet", planet.as_str())
                 .with_planet(planet.as_str(), Some(system.as_str())),
             Opt::Outcome(outcome) => {
@@ -82,7 +89,7 @@ impl Family for Fam {
         match a {
             Ask::OwnHand { .. } => ActionCard::from_id(id).map(Opt::Card),
             Ask::Pick { what: What::Player | What::Elect, .. } => r.seat(id).map(Opt::Seat),
-            Ask::Pick { what: What::Recall, .. } => System::from_id(id).map(Opt::System),
+            Ask::Pick { what: What::Recall | What::Silence, .. } => System::from_id(id).map(Opt::System),
             Ask::Pick { what: What::Planet, .. } => {
                 let (system, planet) = id.split_once('|')?;
                 Some(Opt::Spot(System::from_id(system)?, Planet::from_id(planet)?))
@@ -98,6 +105,7 @@ const fn pick_kind(what: What) -> &'static str {
         What::Player => "player",
         What::Elect => "elect",
         What::Recall => "recall",
+        What::Silence => "silence",
         What::Planet => "planet",
     }
 }
@@ -121,6 +129,7 @@ const fn pick_prompt(card: ActionCard, what: What) -> &'static str {
         (C::ConfusingLegalText, _) => "Confusing Legal Text: who is the elected player instead",
         (C::UnexpectedAction, _) => "Unexpected Action: recall your token from where",
         (C::MiningInitiative, _) => "Mining Initiative: mine which planet",
+        (C::InTheSilenceOfSpace, _) => "In The Silence Of Space: whose ships ignore blockades",
         (C::Uprising, _) => "Uprising: which planet",
         (C::CrippleDefenses, _) => "Cripple Defenses: which planet",
         (C::ReactorMeltdown, _) => "Reactor Meltdown: which space dock",

@@ -64,6 +64,12 @@ pub enum Fx {
     Duress,
     /// Counterstroke: the active system's token goes back to the tactic pool.
     Counterstroke,
+    /// Veto: the next agenda is revealed instead (no question).
+    Veto,
+    /// Industrial Initiative: 1 trade good for each industrial planet of the holder.
+    Industrial,
+    /// In The Silence Of Space: the holder's ships in a chosen system ignore blockades.
+    Silence,
 }
 
 impl Fx {
@@ -95,6 +101,9 @@ impl Fx {
             C::PuppetsOnAString => Self::Puppets,
             C::ExtremeDuress => Self::Duress,
             C::Counterstroke => Self::Counterstroke,
+            C::Veto | C::Veto3 | C::Veto4 => Self::Veto,
+            C::IndustrialInitiative => Self::Industrial,
+            C::InTheSilenceOfSpace => Self::Silence,
             _ => return None,
         })
     }
@@ -153,6 +162,10 @@ impl Play {
     #[must_use]
     pub fn of(core: &CoreState, card: ActionCard, who: Seat, env: Env) -> Option<Self> {
         let fx = Fx::of(card)?;
+        // The deck reserve (a replay's forced draws) is the host's: the string draws through it.
+        if fx == Fx::Veto && core.cards().reserve.is_some() {
+            return None;
+        }
         let frame = match fx {
             Fx::Rider(_) => {
                 let agenda = core.agenda().in_play;
@@ -172,6 +185,7 @@ impl Play {
             Fx::Insubordination | Fx::Assassinate | Fx::BurialSites | Fx::SupplyBase => What::Player,
             Fx::Confusing => What::Elect,
             Fx::Recall => What::Recall,
+            Fx::Silence => What::Silence,
             Fx::Mining | Fx::Uprising | Fx::Cripple | Fx::Meltdown => What::Planet,
             _ => return None,
         })
@@ -196,6 +210,12 @@ impl Play {
             Fx::Recall => {
                 let mut held: SmallList<System, 16> =
                     board::systems_with_token(core, who).iter().filter_map(|i| System::ALL.get(i).copied()).collect();
+                held.as_mut_slice().sort_unstable();
+                held.as_slice().iter().map(|s| Opt::System(*s)).collect()
+            }
+            Fx::Silence => {
+                let mut held: SmallList<System, 16> =
+                    board::systems_with_units_of(core, who).iter().filter_map(|i| System::ALL.get(i).copied()).collect();
                 held.as_mut_slice().sort_unstable();
                 held.as_slice().iter().map(|s| Opt::System(*s)).collect()
             }
@@ -247,6 +267,22 @@ impl Play {
                     p.econ.duress_by = Some(self.who);
                 }
             }
+            Fx::Veto => {
+                if let Some(top) = core.decks_mut().agenda.draw() {
+                    core.agenda_mut().veto_replacement = Some(top);
+                }
+            }
+            Fx::Industrial => {
+                let count = board::controlled_planets(core, self.who)
+                    .as_slice()
+                    .iter()
+                    .filter(|(_, planet)| {
+                        let data = planet.data();
+                        self.env.scope.0 & crate::tables::source_bit(data.source) != 0 && data.traits.contains(&PlanetTrait::Industrial)
+                    })
+                    .count();
+                self.goods(core, self.who, i64::try_from(count).unwrap_or(0));
+            }
             Fx::Counterstroke => {
                 let Some(system) = core.meta().active_system else { return };
                 if !board::has_token(core, system, self.who) {
@@ -297,6 +333,13 @@ impl Play {
             }
             (Fx::Recall, Opt::System(system)) => {
                 core.board_mut().sys_mut(system).cmd.remove(who);
+            }
+            (Fx::Silence, Opt::System(system)) => {
+                let activation = core.meta().activation_seq;
+                if let Some(p) = core.players_mut().by_seat_mut(who) {
+                    p.timers.silence_activation = crate::containers::Opt32::some(activation);
+                    p.timers.silence_system = Some(system);
+                }
             }
             (Fx::Mining, Opt::Spot(_, planet)) => {
                 let worth = economy::value_now(core, self.env.scope, self.env.blanked, planet, economy::Spend::Resources, 0);

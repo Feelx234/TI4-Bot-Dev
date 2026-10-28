@@ -20,6 +20,8 @@ pub enum What {
     Elect,
     /// kind `recall`: a system holding the asked seat's command token.
     Recall,
+    /// kind `silence`: a system holding the asked seat's ships (In The Silence Of Space).
+    Silence,
     /// kind `planet`: a `system|planet` spot.
     Planet,
 }

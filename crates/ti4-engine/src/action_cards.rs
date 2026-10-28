@@ -8200,6 +8200,9 @@ mod tests {
         state.active_system = Some(ti4_model::id::SystemId::new(free[0].data().system.unwrap().as_str()));
         state.agenda_in_play = Some("regulations".to_owned());
         state.agenda_choices = vec!["for".to_owned(), "against".to_owned()];
+        state.activation_seq = 4;
+        state.system_mut(&ti4_model::id::SystemId::new("33")).units.push(unit("cruiser", &a));
+        state.system_mut(&ti4_model::id::SystemId::new("35")).units.push(unit("destroyer", &a));
         state
     }
 
@@ -8212,7 +8215,8 @@ mod tests {
         let cases: &[&str] = &[
             "sabo1", "insub", "assassin", "abs", "fsb", "confusing", "imp_rider", "const_rider", "diplo_rider", "lead_rider",
             "politic_rider", "tech_rider", "trade_rider", "war_rider", "sanction", "puppetsonastring", "extremeduress",
-            "counterstroke", "unexpected", "mining_initiative", "uprising", "cripple", "meltdown",
+            "counterstroke", "unexpected", "mining_initiative", "uprising", "cripple", "meltdown", "veto", "veto3", "veto4",
+            "industrial_initiative", "silence_space",
         ];
         let _ = crate::dual::take_report();
         for alias in cases {
