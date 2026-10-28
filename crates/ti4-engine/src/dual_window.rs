@@ -50,6 +50,8 @@ pub struct Recording {
     /// Something happened inside an emission of the window (a reaction window's question, an event an
     /// ability caused): the abilities are string-only for now, so a core window cannot follow.
     pub nested: bool,
+    /// The event types and the questions that happened inside the emissions of the window (for the bail census).
+    pub nested_kinds: Vec<String>,
     /// The emission depth the window started at: a window may itself run inside an emission (an ability's
     /// effect opens a combat), and its own level is that depth, not zero.
     base: u32,
@@ -86,6 +88,7 @@ pub fn note_ask(choice: &Choice, outcome: &Result<ChoiceOption, IllegalChoice>) 
                 rec.questions.push(Asked { choice: choice.clone(), answer: outcome.as_ref().ok().map(|o| o.id.clone()) });
             } else if depth > rec.base {
                 rec.nested = true;
+                rec.nested_kinds.push(format!("ask:{}", choice.prompt));
             }
         }
     });
@@ -118,6 +121,9 @@ pub fn leave_emit(began: u32, done: Option<&Event>) {
         if let Some(rec) = r.borrow_mut().as_mut() {
             if began > rec.base {
                 rec.nested = true;
+                if let Some(event) = done {
+                    rec.nested_kinds.push(event.event_type.clone());
+                }
             } else if rec.base == began
                 && let Some(event) = done
             {
@@ -2022,6 +2028,9 @@ pub fn round_hits_unported(gs: &GameState, content: &ti4_content::ContentStore, 
 pub fn round_hits(gs: &mut GameState, sources: ti4_model::content_types::SourceSet, a: &RoundHitsArgs<'_>, script: &Recording) -> Option<CoreWindow<(bool, (usize, usize))>> {
     use ti4_engine_core::rules::invasion::round::{Facts, GroundRoundHits};
     if script.nested {
+        if std::env::var_os("TI4_NESTED_LOG").is_some() {
+            eprintln!("NESTED ground_round_hits {:?}", script.nested_kinds);
+        }
         crate::dual::note_bail("invasion::ground_round_hits", "nested (a card played in a hits window)");
         return None;
     }
@@ -2082,7 +2091,7 @@ pub struct BeginGroundArgs<'a> {
     pub copied_round: bool,
 }
 
-/// Why the start of the round holds something the core window does not carry: a copied round agent, a Naaz side
+/// Why the start of the round holds something the core window does not carry: a Naaz side
 /// (the Supercharge offer), Proxima Targeting VI, a Letnev side with infantry on the planet (the Dunlain Reaper),
 /// a neutral side.
 #[must_use]
@@ -2090,9 +2099,6 @@ pub fn begin_ground_unported(gs: &GameState, a: &BeginGroundArgs<'_>) -> Option<
     let sides = [a.invader, a.defender];
     if sides.into_iter().any(crate::neutral_units::is_neutral) {
         return Some("neutral side");
-    }
-    if a.copied_round {
-        return Some("copied round agent");
     }
     let faction = |id: &PlayerId| gs.player(id).map_or("", |p| p.faction.as_str());
     if sides.into_iter().any(|id| faction(id) == "naaz") {
@@ -2109,8 +2115,8 @@ pub fn begin_ground_unported(gs: &GameState, a: &BeginGroundArgs<'_>) -> Option<
 }
 
 const BEGIN_GROUND: Footprint = Footprint::new(
-    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Pending],
-    &[Slice::Meta, Slice::Transient],
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
+    &[Slice::Meta, Slice::Transient, Slice::Pending],
 );
 
 /// The core half of `InvasionWindow::begin_ground_round`. `None` for the positions of [`begin_ground_unported`],
@@ -2125,11 +2131,156 @@ pub fn begin_ground(gs: &mut GameState, a: &BeginGroundArgs<'_>, script: &Record
     let (mut cx, r) = tables(gs)?;
     let invader = r.seat(a.invader.as_str())?;
     let defender = r.seat(a.defender.as_str())?;
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
     let planet = <ti4_engine_core::generated::Planet as IdStr>::from_id(a.planet.as_str())?;
     let before = gs.clone();
     let numbered = gs.rules_version >= ti4_model::state::RULES_FACTION_EFFECTS;
     let env = crate::core_invasion::ground_env(&before, &cx, ti4_model::content_types::SourceSet::default())?;
-    let mut driver = Driver::new(BeginGroundRound::new(Facts { planet, defender, numbered }), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1);
-    let driven = with_core(gs, &mut cx, Sources::default(), BEGIN_GROUND, |core, _| drive(&mut driver, core, &env.kernel, &r, &before, script)).ok()?.ok()?;
-    Some(CoreWindow { run: Run::new(true), questions: driven.rendered })
+    let mut driver = Driver::new(BeginGroundRound::new(Facts { system, planet, invader, defender, copied: a.copied_round, numbered }), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let driven = with_core(gs, &mut cx, Sources::default(), BEGIN_GROUND, |core, _| {
+        let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .ok()?
+    .ok()?;
+    apply_staged(gs, &r, &staged)?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    Some(CoreWindow { run: Run::new(true).with_events_vec(events), questions: driven.rendered })
+}
+
+// --- the tail of the ground roll step (B2) -------------------------------------------------------------
+
+/// What the string `roll_ground_tail` was called with.
+#[derive(Debug, Clone, Copy)]
+pub struct RollTailArgs<'a> {
+    pub invader: &'a PlayerId,
+    pub defender: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    pub planet: &'a ti4_model::id::PlanetId,
+    /// The hits of the two rolls (invader, defender).
+    pub rolled: (usize, usize),
+    pub bump: bool,
+    pub announce: bool,
+}
+
+/// Why the tail holds something the core window does not carry: X-89 Bacterial Weapon (doubled staged hits), a
+/// readied The Thundarian (the step-ended event and its replays), a replay mark, a neutral side.
+#[must_use]
+pub fn roll_tail_unported(gs: &GameState, a: &RollTailArgs<'_>) -> Option<&'static str> {
+    if crate::neutral_units::is_neutral(a.invader) || crate::neutral_units::is_neutral(a.defender) {
+        Some("neutral side")
+    } else if [a.invader, a.defender].into_iter().any(|id| gs.player(id).is_some_and(|p| p.technologies.contains(ti4_model::id::text(&"x89c4")))) {
+        Some("X-89 Bacterial Weapon")
+    } else if crate::factions::nomad_agents::watches_roll_step(gs) {
+        Some("The Thundarian watches the roll step")
+    } else if gs.faction_marks.contains_key(crate::combat::ROLL_REPLAY_MARK) {
+        Some("roll replay mark")
+    } else {
+        None
+    }
+}
+
+const ROLL_TAIL: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
+    &[Slice::Meta, Slice::Transient, Slice::Pending],
+);
+
+/// The core half of `InvasionWindow::roll_ground_tail`. `None` for the positions of [`roll_tail_unported`], nested
+/// activity (a card played in a reroll window) and a position the codecs refuse.
+#[must_use]
+pub fn roll_tail(gs: &mut GameState, a: &RollTailArgs<'_>, script: &Recording) -> Option<CoreWindow<(usize, usize, Vec<ti4_model::state::InvasionDie>)>> {
+    use ti4_engine_core::rules::invasion::tail::{Facts, GroundRollTail};
+    if script.nested {
+        crate::dual::note_bail("invasion::roll_ground_tail", "nested (a reaction ran)");
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let invader = r.seat(a.invader.as_str())?;
+    let defender = r.seat(a.defender.as_str())?;
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let planet = <ti4_engine_core::generated::Planet as IdStr>::from_id(a.planet.as_str())?;
+    let before = gs.clone();
+    let env = crate::core_invasion::ground_env(&before, &cx, ti4_model::content_types::SourceSet::default())?;
+    let facts = Facts { invader, defender, system, planet, rolled: (u32::try_from(a.rolled.0).ok()?, u32::try_from(a.rolled.1).ok()?), bump: a.bump, announce: a.announce };
+    let mut driver = Driver::new(GroundRollTail::new(facts), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let driven = with_core(gs, &mut cx, Sources::default(), ROLL_TAIL, |core, _| {
+        let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .ok()?
+    .ok()?;
+    apply_staged(gs, &r, &staged)?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    let dice = driver
+        .window
+        .dice
+        .iter()
+        .map(|(seat, group, face, target, hit)| {
+            Some(ti4_model::state::InvasionDie {
+                planet: a.planet.clone(),
+                player: r.player(*seat),
+                group: cx.texts.text(Slice::Transient, *group).ok()?.to_owned(),
+                face: *face,
+                target: *target,
+                hit: *hit,
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let (ah, dh) = driver.window.hits;
+    Some(CoreWindow { run: Run::new((ah as usize, dh as usize, dice)).with_events_vec(events), questions: driven.rendered })
+}
+
+// --- which planet the invasion fights on next (B2) -----------------------------------------------------
+
+/// What the string `next_fight` was called with.
+#[derive(Debug, Clone, Copy)]
+pub struct AdvanceArgs<'a> {
+    pub invader: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    pub planets: &'a [ti4_model::id::PlanetId],
+    pub index: usize,
+    pub coexisted: &'a [ti4_model::id::PlanetId],
+    pub sources: ti4_model::content_types::SourceSet,
+}
+
+const ADVANCE: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards],
+    &[],
+);
+
+/// The core half of `InvasionWindow::next_fight`. `None` for seats not in id order (the string breaks ties by
+/// player id), a neutral invader, nested activity and a position the codecs refuse.
+#[must_use]
+pub(crate) fn advance(gs: &mut GameState, a: &AdvanceArgs<'_>, script: &Recording) -> Option<CoreWindow<crate::invasion::FightPick>> {
+    use ti4_engine_core::rules::invasion::advance::{Advance, Facts, Upcoming};
+    const LABEL: &str = "invasion::advance_fighting";
+    if script.nested {
+        crate::dual::note_bail(LABEL, "nested (a reaction ran)");
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    if r.seats.windows(2).any(|w| w[0] >= w[1]) {
+        crate::dual::note_bail(LABEL, "seats not in id order");
+        return None;
+    }
+    let invader = r.seat(a.invader.as_str())?;
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let planet_of = |p: &ti4_model::id::PlanetId| <ti4_engine_core::generated::Planet as IdStr>::from_id(p.as_str());
+    let planets = a.planets.iter().map(planet_of).collect::<Option<Vec<_>>>()?;
+    let coexisted = a.coexisted.iter().map(planet_of).collect::<Option<Vec<_>>>()?;
+    let before = gs.clone();
+    let env = crate::core_invasion::ground_env(&before, &cx, a.sources)?;
+    let facts = Facts { invader, system, planets, index: a.index, coexisted };
+    let mut driver = Driver::new(Advance::new(facts), Resolver::new(&[invader], Some(invader)), AbilityTable::default(), 1);
+    let driven = with_core(gs, &mut cx, Sources::default(), ADVANCE, |core, _| drive(&mut driver, core, &env.kernel, &r, &before, script)).ok()?.ok()?;
+    let pick = match driver.window.pick.clone()? {
+        Upcoming::Fight { index, defender } => crate::invasion::FightPick::Fight { index, defender: r.player(defender) },
+        Upcoming::Coexisters { index, remaining } => crate::invasion::FightPick::Coexisters { index, remaining: remaining.into_iter().map(|s| r.player(s)).collect() },
+        Upcoming::Exhausted => crate::invasion::FightPick::Exhausted,
+    };
+    Some(CoreWindow { run: Run::new(pick), questions: driven.rendered })
 }

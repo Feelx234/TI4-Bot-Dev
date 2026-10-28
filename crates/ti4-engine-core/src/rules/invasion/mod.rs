@@ -12,6 +12,7 @@
 //! Nothing here asks a question or emits an event: those go through the host the later sections take.
 
 pub mod absorb;
+pub mod advance;
 pub mod begin;
 pub mod bombard;
 pub mod commit;
@@ -20,6 +21,7 @@ pub mod hits;
 pub mod roll;
 pub mod round;
 pub mod stages;
+pub mod tail;
 
 use crate::containers::SeatSet;
 use crate::generated::{Leader, Planet, System, Unit, UnitBaseType};

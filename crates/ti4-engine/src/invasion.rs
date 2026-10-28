@@ -2622,6 +2622,14 @@ struct RoundStart {
     before: Vec<Unit>,
 }
 
+/// Where the invasion fights next ([`InvasionWindow::next_fight`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum FightPick {
+    Fight { index: usize, defender: PlayerId },
+    Coexisters { index: usize, remaining: Vec<PlayerId> },
+    Exhausted,
+}
+
 /// What a finished ground combat round reports ([`InvasionWindow::end_ground_round`]).
 struct GroundRound {
     before: Vec<Unit>,
@@ -4219,6 +4227,93 @@ impl InvasionWindow {
         (attacker_hits, defender_hits)
     }
 
+    /// The part of the roll step after both sides rolled: the round number, "ground rolls made" for each side
+    /// (the reroll windows open there), the hits the staged dice now show, the dice as the board shows them, and
+    /// the cleared staging. On `invasion=dual` it also runs as the core `GroundRollTail` window.
+    fn roll_ground_tail(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>, planet: &PlanetId, defender: &PlayerId, copied_round: bool, hits: (usize, usize)) -> (usize, usize, Vec<InvasionDie>) {
+        #[cfg(feature = "typed-core")]
+        {
+            if crate::dual::backend(crate::dual::Area::Invasion) == crate::dual::Backend::Dual {
+                let (invader, system) = (self.invader.clone(), self.system.clone());
+                let args = crate::dual_window::RollTailArgs { invader: &invader, defender, system: &system, planet, rolled: hits, bump: !copied_round, announce: ctx.timing.is_some() };
+                if let Some(why) = crate::dual_window::roll_tail_unported(state, &args) {
+                    crate::dual::note_bail("invasion::roll_ground_tail", why);
+                    return self.roll_ground_tail_string(state, ctx, planet, defender, copied_round, hits);
+                }
+                let ctx = std::cell::RefCell::new(ctx);
+                let this = std::cell::RefCell::new(&mut *self);
+                return crate::dual_window!(
+                    crate::dual::Area::Invasion,
+                    "invasion::roll_ground_tail",
+                    state,
+                    |s: &mut GameState| {
+                        let out = this.borrow_mut().roll_ground_tail_string(s, &mut **ctx.borrow_mut(), planet, defender, copied_round, hits);
+                        crate::dual::Run::new(out)
+                    },
+                    |s: &mut GameState, script: &crate::dual_window::Recording| crate::dual_window::roll_tail(s, &args, script)
+                );
+            }
+        }
+        self.roll_ground_tail_string(state, ctx, planet, defender, copied_round, hits)
+    }
+
+    /// The string body of [`Self::roll_ground_tail`].
+    fn roll_ground_tail_string(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>, planet: &PlanetId, defender: &PlayerId, copied_round: bool, hits: (usize, usize)) -> (usize, usize, Vec<InvasionDie>) {
+        let (attacker_hits, defender_hits) = hits;
+        let defender = defender.clone();
+        let planet = planet.clone();
+        let mut rolls: Vec<InvasionDie> = Vec::new();
+        if !copied_round {
+            state.combat_round_seq = state.combat_round_seq.saturating_add(1);
+        }
+        // "After your ground forces make combat rolls during a round of ground combat." Emitted
+        // between the rolls and the removals, which is what the window means: a card played
+        // here acts on the hits before anyone dies of them.
+        for (who, hits) in [
+            (self.invader.clone(), attacker_hits),
+            (defender.clone(), defender_hits),
+        ] {
+            self.emit_ground_rolls_made(state, ctx, &planet, &who, hits);
+        }
+        // Fire Team's window ("reroll any number of your dice") opened at those emits; the
+        // hits that remove units are what the possibly rerolled dice now show.
+        let (attacker_hits, defender_hits) = Self::rerolled_ground_hits(
+            state,
+            &self.invader,
+            attacker_hits,
+            &defender,
+            defender_hits,
+        );
+        // The dice as the board shows them, for the invasion step's report.
+        rolls.clear();
+        for player in [&self.invader, &defender] {
+            if let Some(set) = state.reroll_staging.get(player) {
+                for roll in set
+                    .rolls
+                    .iter()
+                    .filter(|roll| roll.planet.as_ref() == Some(&planet))
+                {
+                    let target = roll.hits_on.unwrap_or(u32::MAX);
+                    for (index, face) in roll.faces.iter().enumerate() {
+                        let adjusted = i64::from(*face)
+                            + i64::from(roll.deltas.get(&index).copied().unwrap_or(0));
+                        rolls.push(InvasionDie {
+                            planet: planet.clone(),
+                            player: player.clone(),
+                            group: roll.unit.clone(),
+                            face: *face,
+                            target,
+                            hit: adjusted >= i64::from(target),
+                        });
+                    }
+                }
+            }
+        }
+        state.reroll_staging.clear();
+        state.last_reroll_player = None;
+        (attacker_hits, defender_hits, rolls)
+    }
+
     /// The "Roll Dice" step (42.2) with its replays: both sides roll, the roll-made windows open, the
     /// dice are read back after rerolls. `None` when a handler refused.
     fn roll_ground_step(
@@ -4233,59 +4328,13 @@ impl InvasionWindow {
         let planet = planet.clone();
         let round_before = state.combat_round_seq;
         let mut replays = 0u32;
-        let mut rolls: Vec<InvasionDie> = Vec::new();
+        let mut rolls: Vec<InvasionDie>;
         let (attacker_hits, defender_hits) = loop {
             state.combat_round_seq = round_before;
             // 42.2: hits are simultaneous, so both sides roll before either loses anything.
             let (attacker_hits, defender_hits) = self.roll_ground_pair_windowed(state, ctx, &planet, &defender);
-            if !copied_round {
-                state.combat_round_seq = state.combat_round_seq.saturating_add(1);
-            }
-            // "After your ground forces make combat rolls during a round of ground combat." Emitted
-            // between the rolls and the removals, which is what the window means: a card played
-            // here acts on the hits before anyone dies of them.
-            for (who, hits) in [
-                (self.invader.clone(), attacker_hits),
-                (defender.clone(), defender_hits),
-            ] {
-                self.emit_ground_rolls_made(state, ctx, &planet, &who, hits);
-            }
-            // Fire Team's window ("reroll any number of your dice") opened at those emits; the
-            // hits that remove units are what the possibly rerolled dice now show.
-            let (attacker_hits, defender_hits) = Self::rerolled_ground_hits(
-                state,
-                &self.invader,
-                attacker_hits,
-                &defender,
-                defender_hits,
-            );
-            // The dice as the board shows them, for the invasion step's report.
-            rolls.clear();
-            for player in [&self.invader, &defender] {
-                if let Some(set) = state.reroll_staging.get(player) {
-                    for roll in set
-                        .rolls
-                        .iter()
-                        .filter(|roll| roll.planet.as_ref() == Some(&planet))
-                    {
-                        let target = roll.hits_on.unwrap_or(u32::MAX);
-                        for (index, face) in roll.faces.iter().enumerate() {
-                            let adjusted = i64::from(*face)
-                                + i64::from(roll.deltas.get(&index).copied().unwrap_or(0));
-                            rolls.push(InvasionDie {
-                                planet: planet.clone(),
-                                player: player.clone(),
-                                group: roll.unit.clone(),
-                                face: *face,
-                                target,
-                                hit: adjusted >= i64::from(target),
-                            });
-                        }
-                    }
-                }
-            }
-            state.reroll_staging.clear();
-            state.last_reroll_player = None;
+            let (attacker_hits, defender_hits, rolls_now) = self.roll_ground_tail(state, ctx, &planet, &defender, copied_round, (attacker_hits, defender_hits));
+            rolls = rolls_now;
             // The end of the step: both sides' dice are final and nothing has landed.
             let mut ended = std::collections::BTreeMap::new();
             ended.insert("system".to_owned(), self.system.to_string().into());
@@ -4748,6 +4797,68 @@ impl InvasionWindow {
         }
     }
 
+    /// The planet the invasion fights on next from `index` on, without starting anything. On `invasion=dual`
+    /// the choice also runs as the core `Advance` window.
+    fn next_fight_windowed(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>, planets: &[PlanetId], index: usize) -> FightPick {
+        #[cfg(feature = "typed-core")]
+        {
+            if crate::dual::backend(crate::dual::Area::Invasion) == crate::dual::Backend::Dual {
+                let (content, sources) = (ctx.content, ctx.sources);
+                let (invader, system) = (self.invader.clone(), self.system.clone());
+                let coexisted = self.report.coexisted.clone();
+                let args = crate::dual_window::AdvanceArgs { invader: &invader, system: &system, planets, index, coexisted: &coexisted, sources };
+                let this = &*self;
+                return crate::dual_window!(
+                    crate::dual::Area::Invasion,
+                    "invasion::advance_fighting",
+                    state,
+                    |s: &mut GameState| crate::dual::Run::new(this.next_fight(s, content, sources, planets, index)),
+                    |s: &mut GameState, script: &crate::dual_window::Recording| crate::dual_window::advance(s, &args, script)
+                );
+            }
+        }
+        self.next_fight(state, ctx.content, ctx.sources, planets, index)
+    }
+
+    /// The string body of [`Self::next_fight_windowed`]: the selection of `advance_fighting`.
+    fn next_fight(&self, state: &GameState, content: &ContentStore, sources: SourceSet, planets: &[PlanetId], mut index: usize) -> FightPick {
+        while index < planets.len() {
+            let planet = &planets[index];
+            let owners = ground_force_owners(state, content, sources, &self.system, planet);
+            if !owners.contains(&self.invader)
+                || crate::coexistence::is_coexisting(state, &self.system, planet, &self.invader)
+                || self.report.coexisted.contains(planet)
+            {
+                index += 1;
+                continue;
+            }
+            // Coexistence 11: a player who had no units here and commits ground forces "must
+            // start a ground combat against the player that controls that planet" -- not against
+            // whichever rival happens to sort first.
+            let controller = state
+                .system_state(&self.system)
+                .planet_control
+                .get(planet)
+                .cloned()
+                .filter(|holder| *holder != self.invader && owners.contains(holder));
+            let next = controller.or_else(|| owners.iter().find(|owner| **owner != self.invader).cloned());
+            if let Some(defender) = next {
+                return FightPick::Fight { index, defender };
+            }
+            // Coexistence 9 and 12: the invader holds the ground here and coexisters remain; the
+            // rule offers *another* combat rather than forcing one, so this is a choice.
+            let remaining: Vec<PlayerId> = crate::coexistence::coexisters(state, &self.system, planet)
+                .into_iter()
+                .filter(|player| *player != self.invader)
+                .collect();
+            if !remaining.is_empty() {
+                return FightPick::Coexisters { index, remaining };
+            }
+            index += 1;
+        }
+        FightPick::Exhausted
+    }
+
     /// Move to the next planet that still needs a fight, or finish and take control.
     fn advance_fighting(
         &mut self,
@@ -4756,77 +4867,35 @@ impl InvasionWindow {
         planets: &[PlanetId],
         mut index: usize,
     ) {
-        while index < planets.len() {
-            let planet = &planets[index];
-            // LRR 49/42: a fight happens only where the invader landed ground forces and rival
-            // ground forces stand. Structures roll no dice and are not ground forces (KD-2): a
-            // structure-only planet falls without resistance, and its structures die when
-            // control changes hands instead of in a combat that never should have happened.
-            let owners = ground_force_owners(state, ctx.content, ctx.sources, &self.system, planet);
-            if !owners.contains(&self.invader) {
-                index += 1;
-                continue;
-            }
-            // Coexisting units start no combat: the invader chose to coexist here (Research Team),
-            // and units added to a coexisting planet coexist at once (coexistence 5).
-            if crate::coexistence::is_coexisting(state, &self.system, planet, &self.invader) {
-                index += 1;
-                continue;
-            }
-            // A defending Deepwrought chose to coexist (Research Team on defense): no combat here,
-            // and no rule-12 offer to start one either -- the choice was made to avoid the fight.
-            if self.report.coexisted.contains(planet) {
-                index += 1;
-                continue;
-            }
-            // Coexistence 11: a player who had no units here and commits ground forces "must
-            // start a ground combat against the player that controls that planet" -- not against
-            // whichever rival happens to sort first. Off a coexisting planet there is only one
-            // rival anyway, so this ordering is invisible there and load-bearing here.
-            let controller = state
-                .system_state(&self.system)
-                .planet_control
-                .get(planet)
-                .cloned()
-                .filter(|holder| *holder != self.invader && owners.contains(holder));
-            let next =
-                controller.or_else(|| owners.iter().find(|owner| **owner != self.invader).cloned());
-            if let Some(defender) = next {
-                if !self.start_ground_combat(state, ctx, planet, &defender) {
-                    // A handler at the start of the combat removed a side's last ground force;
-                    // look at the planet again.
-                    continue;
+        loop {
+            match self.next_fight_windowed(state, ctx, planets, index) {
+                FightPick::Fight { index: at, defender } => {
+                    index = at;
+                    let planet = &planets[index];
+                    if !self.start_ground_combat(state, ctx, planet, &defender) {
+                        // A handler at the start of the combat removed a side's last ground force;
+                        // look at the planet again.
+                        continue;
+                    }
+                    self.current_ground_occurrence = Some(state.begin_feat_occurrence());
+                    self.stage = Stage::Fighting {
+                        planets: planets.to_vec(),
+                        index,
+                        defender,
+                    };
+                    return;
                 }
-                self.current_ground_occurrence = Some(state.begin_feat_occurrence());
-                self.stage = Stage::Fighting {
-                    planets: planets.to_vec(),
-                    index,
-                    defender,
-                };
-                return;
+                FightPick::Coexisters { index: at, remaining } => {
+                    self.stage = Stage::ChoosingNextCombat {
+                        planets: planets.to_vec(),
+                        index: at,
+                        planet: planets[at].clone(),
+                        remaining,
+                    };
+                    return;
+                }
+                FightPick::Exhausted => break,
             }
-
-            // Coexistence 9 and 12: the invader holds the ground here and coexisters remain. The
-            // rule offers *another* combat rather than forcing one, so this is a choice.
-            //
-            // Reached only after the loop above found no ordinary defender, which is what makes it
-            // the "won the combat" moment: a coexister still standing is not a defender, because
-            // coexistence is precisely the state where their presence starts no fight.
-            let coexisting: Vec<PlayerId> =
-                crate::coexistence::coexisters(state, &self.system, planet)
-                    .into_iter()
-                    .filter(|player| *player != self.invader)
-                    .collect();
-            if !coexisting.is_empty() {
-                self.stage = Stage::ChoosingNextCombat {
-                    planets: planets.to_vec(),
-                    index,
-                    planet: planet.clone(),
-                    remaining: coexisting,
-                };
-                return;
-            }
-            index += 1;
         }
         let committed = self.report.committed.clone();
         self.return_all_temporary_space_commits(state);
