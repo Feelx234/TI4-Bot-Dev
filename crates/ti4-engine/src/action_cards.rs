@@ -1290,7 +1290,7 @@ fn public_disgrace(context: &mut crate::timing::TimingContext<'_>, player: &Play
         return;
     };
     context.state.unclaimed_strategy_cards.remove(at);
-    let _ = context.state.deal_strategy_card(&picker, picked);
+    let _ = crate::strategy_write::deal(context.state, &picker, &picked);
 }
 
 /// Put the first choice back with its picker and off the mat — the exact restoration
@@ -1308,7 +1308,7 @@ fn restore_first_choice(
     {
         context.state.unclaimed_strategy_cards.remove(at);
     }
-    let _ = context.state.deal_strategy_card(picker, first.clone());
+    let _ = crate::strategy_write::deal(context.state, picker, first);
 }
 
 /// Puppets on a String: "At the end of a player's turn, if you have passed: Perform 1

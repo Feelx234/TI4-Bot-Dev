@@ -294,7 +294,7 @@ pub fn resolve_after_token_gain(state: &mut GameState, report: &mut StatusPhaseR
         report
             .returned_strategy_cards
             .extend(cards.iter().cloned().map(|card| (player_id.clone(), card)));
-        state.clear_strategy_cards(&player_id);
+        crate::strategy_write::clear(state, &player_id);
         if let Some(player) = state.player_mut(&player_id) {
             player.passed = false;
         }
