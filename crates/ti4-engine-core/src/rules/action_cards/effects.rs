@@ -76,6 +76,8 @@ pub enum Fx {
     Frontline,
     /// War Effort: 1 cruiser in a system with the holder's ships.
     WarEffort,
+    /// Insider Information: the holder's mark names the top 3 agendas of the deck (no question).
+    Insider,
     /// Tactical Bombardment: the planets of rivals in a chosen system exhaust.
     Bombard,
     /// Diplomatic Pressure: a chosen seat gives the holder a promissory note of its choice.
@@ -115,6 +117,7 @@ impl Fx {
             C::IndustrialInitiative => Self::Industrial,
             C::InTheSilenceOfSpace => Self::Silence,
             C::TacticalBombardment => Self::Bombard,
+            C::InsiderInformation => Self::Insider,
             C::RiseOfAMessiah => Self::Messiah,
             C::FrontlineDeployment => Self::Frontline,
             C::WarEffort => Self::WarEffort,
@@ -321,6 +324,17 @@ impl Play {
                     && let Some(p) = core.players_mut().by_seat_mut(target)
                 {
                     p.econ.duress_by = Some(self.who);
+                }
+            }
+            Fx::Insider => {
+                use crate::keys::{Atom, MarkKey, MarkVal, Word};
+                let key = MarkKey::PrivateSeat(self.who, Word::InsiderPeek);
+                let top: SmallList<Agenda, 3> = core.decks().agenda.cards().iter().copied().take(3).collect();
+                let marks = &mut core.marks_mut().tail.edit();
+                if top.is_empty() {
+                    marks.remove(&key);
+                } else {
+                    marks.insert(key, MarkVal::List(top.as_slice().iter().map(|a| MarkVal::Atom(Atom::Agenda(*a))).collect()));
                 }
             }
             Fx::Messiah => {
@@ -573,7 +587,6 @@ mod tests {
             (C::Strategize1, "performs another area's ability"),
             (C::Bribery, "the trade-good payment"),
             (C::WarEffort, "unit placement"),
-            (C::InsiderInformation, "the string-only peek mark"),
         ] {
             assert_eq!(Fx::of(card), None, "{card:?}: {why}");
         }

@@ -8267,7 +8267,7 @@ mod tests {
             "politic_rider", "tech_rider", "trade_rider", "war_rider", "sanction", "puppetsonastring", "extremeduress",
             "counterstroke", "unexpected", "mining_initiative", "uprising", "cripple", "meltdown", "veto", "veto3", "veto4",
             "industrial_initiative", "silence_space", "dp1", "dp2", "dp3", "dp4",
-            "tactical", "messiah", "f_deployment", "war_effort",
+            "tactical", "messiah", "f_deployment", "war_effort", "insider",
         ];
         let _ = crate::dual::take_report();
         reset_core_plays();
