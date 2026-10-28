@@ -638,11 +638,24 @@ impl<'g> CombatView<'g> {
         ))
     }
 
-    /// `space_cannon_guns`' local guns (this system's space area, then its planets) as unit type ids.
+    /// `space_cannon_guns`' unit guns (local, reaching in from adjacent systems, Linkship) as unit type ids.
+    /// `None` when a unit in `reaching` or the galaxy has no typed form.
     #[must_use]
-    pub fn local_cannon_guns(&self, system: &SystemId, active: &PlayerId) -> Option<Vec<String>> {
+    pub fn unit_cannon_guns(
+        &self,
+        system: &SystemId,
+        active: &PlayerId,
+        galaxy: Option<&ti4_content::galaxy::Galaxy>,
+        reaching: &[String],
+    ) -> Option<Vec<String>> {
         let (seat, sys) = (self.seat(active)?, typed::<System>(system.as_str())?);
-        Some(self.with(|rd| cc::cannon_guns::local_guns(rd, sys, seat)).iter().map(|p| p.kind().as_str().to_owned()).collect())
+        let reaching = reaching.iter().map(|id| typed::<Unit>(id)).collect::<Option<Vec<_>>>()?;
+        let adjacency = match galaxy {
+            Some(g) => Some(crate::core_adapter::adjacency_for(g)?),
+            None => None,
+        };
+        let guns = self.with(|rd| cc::cannon_guns::unit_guns(rd, sys, seat, adjacency.as_deref(), &reaching));
+        Some(guns.iter().map(|p| p.kind().as_str().to_owned()).collect())
     }
 
     /// The barrage plan of a side: (ship type or none for the relic, hit number, dice).
