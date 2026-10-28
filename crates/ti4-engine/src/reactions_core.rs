@@ -123,9 +123,6 @@ impl Recording {
     /// (`technology:*:inf2:GROUND_FORCE_DESTROYED:after`), or the reason the nested activity cannot be followed.
     #[must_use]
     pub fn unported(&self, table: &AbilityTable) -> Option<String> {
-        if self.foreign {
-            return Some("nested outside an ability".to_owned());
-        }
         for id in &self.eligible {
             let known = slot_of(id).and_then(|s| table.of_slot(s));
             let ran = self.effects.iter().any(|e| e == id);
@@ -138,7 +135,9 @@ impl Recording {
             }
             return Some(format!("unported ability {}", parts.join(":")));
         }
-        None
+        // After the abilities, so that a card played from a window (announced when the window closes, outside the
+        // effect that declared it) is reported as the slot that played it.
+        self.foreign.then(|| "nested outside an ability".to_owned())
     }
 }
 
