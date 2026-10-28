@@ -308,14 +308,14 @@ impl SeatReach {
         if p.tech.owned.contains(Technology::LightWaveDeflector) {
             rules.ignore_enemy_ships = true;
         }
-        if p.timers.anomalies_ignored_activation.is(activation) {
+        if p.card_timers.anomalies_ignored_activation.is(activation) {
             rules.anomalies_ignored = true;
         }
         if p.round_marks.contains(RoundKind::DominusOrb, activation) {
             rules.command_tokens_ignored = true;
         }
-        if p.timers.silence_activation.is(activation) {
-            rules.ignore_enemy_ships_from = p.timers.silence_system;
+        if p.card_timers.silence_activation.is(activation) {
+            rules.ignore_enemy_ships_from = p.card_timers.silence_system;
         }
     }
 
@@ -393,7 +393,7 @@ fn ship_value(
     boosts: (bool, bool),
 ) -> i32 {
     let player = core.players().by_seat(seat);
-    let flank = i32::from(player.is_some_and(|p| p.timers.move_bonus_activation.is(core.meta().activation_seq)));
+    let flank = i32::from(player.is_some_and(|p| p.card_timers.move_bonus_activation.is(core.meta().activation_seq)));
     let own = i32::from(movement.unwrap_or(0))
         + flank
         + i32::from(boosts.0)
