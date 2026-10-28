@@ -173,7 +173,7 @@ pub fn own_hand_choice(
 /// Play a stamp-or-flag effect (`rules::action_cards::Simple`, by name) on the core's copy of the position
 /// and write the result back; `None` when the position is outside the tables (the string effect then runs).
 #[must_use]
-pub fn play_simple(state: &mut GameState, player: &PlayerId, effect: &str) -> Option<()> {
+pub fn play_simple(state: &mut GameState, player: &PlayerId, effect: &str, sources: &ti4_model::content_types::SourceSet) -> Option<()> {
     use rules::Simple;
     let effect = match effect {
         "morale_boost" => Simple::MoraleBoost,
@@ -193,13 +193,27 @@ pub fn play_simple(state: &mut GameState, player: &PlayerId, effect: &str) -> Op
         "blitz" => Simple::Blitz,
         "nav_suite" => Simple::NavSuite,
         "black_market" => Simple::BlackMarket,
+        "rally" => Simple::Rally,
+        "maneuvering_jets" => Simple::ManeuveringJets,
+        "shields_holding" => Simple::ShieldsHolding,
+        "reflective" => Simple::Reflective,
+        "confounding" => Simple::Confounding,
+        "deadly_plot" => Simple::DeadlyPlot,
+        "salvage" => Simple::Salvage,
+        "reverse_engineer" => Simple::ReverseEngineer,
+        "economic_initiative" => Simple::EconomicInitiative,
+        "disable" => Simple::Disable,
         _ => return None,
     };
     let (mut cx, r) = crate::dual_window::tables(state)?;
     let seat = r.seat(player.as_str())?;
     let fp = crate::core_sync::Footprint::new(
-        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Transient],
-        &[Slice::Players, Slice::Transient],
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Transient, Slice::Board, Slice::Agenda, Slice::Cards],
+        &[Slice::Players, Slice::Transient, Slice::Board, Slice::Agenda, Slice::Cards],
     );
-    crate::core_sync::with_core(state, &mut cx, Sources::default(), fp, |core, _| rules::play_simple(core, seat, effect)).ok()
+    let env = rules::Env {
+        mahact_held: state.tokens_held_by_mahact(player),
+        scope: crate::core_adapter::scope(sources.clone()),
+    };
+    crate::core_sync::with_core(state, &mut cx, Sources::default(), fp, |core, _| rules::play_simple(core, seat, effect, env)).ok()
 }

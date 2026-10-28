@@ -113,14 +113,14 @@ pub(crate) fn own_hand_choice(
 }
 
 /// Play a stamp-or-flag effect on the core (`None`: the string effect runs).
-pub(crate) fn play_simple(state: &mut GameState, player: &PlayerId, effect: &str) -> Option<()> {
+pub(crate) fn play_simple(state: &mut GameState, player: &PlayerId, effect: &str, sources: &ti4_model::content_types::SourceSet) -> Option<()> {
     #[cfg(feature = "typed-core")]
     {
-        crate::action_cards_view::play_simple(state, player, effect)
+        crate::action_cards_view::play_simple(state, player, effect, sources)
     }
     #[cfg(not(feature = "typed-core"))]
     {
-        let _ = (state, player, effect);
+        let _ = (state, player, effect, sources);
         None
     }
 }

@@ -181,6 +181,35 @@ pub enum Simple {
     NavSuite,
     /// `BLACK_MARKET`.
     BlackMarket,
+    /// Rally: two fleet command tokens, as many as the reinforcements hold.
+    Rally,
+    /// Maneuvering Jets: cancel 1 hit this combat round.
+    ManeuveringJets,
+    /// Shields Holding: cancel 2 hits this combat round.
+    ShieldsHolding,
+    /// Reflective Shielding: stage 2 hits against the producer of the sustained hit.
+    Reflective,
+    /// Confounding Legal Text: the holder is the elected player.
+    Confounding,
+    /// Deadly Plot: discard the outcome, exhaust all the holder's planets.
+    DeadlyPlot,
+    /// Salvage: take the commodities of the combat's other sides.
+    Salvage,
+    /// Reverse Engineer: take the discarded component-action card.
+    ReverseEngineer,
+    /// Economic Initiative: ready each cultural planet the holder controls.
+    EconomicInitiative,
+    /// Disable: the activation joins the `DisableInvasion` marks when an opponent has a PDS in the active system.
+    Disable,
+}
+
+/// What a [`Simple`] effect reads from outside the core (faction and source answers).
+#[derive(Debug, Clone, Copy)]
+pub struct Env {
+    /// `GameState::tokens_held_by_mahact` of the holder (a faction mark of the string state).
+    pub mahact_held: i32,
+    /// The sources in play.
+    pub scope: Scope,
 }
 
 impl Simple {
@@ -207,15 +236,25 @@ impl Simple {
             C::Blitz => Self::Blitz,
             C::NavSuite => Self::NavSuite,
             C::BlackMarketDealings => Self::BlackMarket,
+            C::Rally => Self::Rally,
+            C::ManeuveringJets1 | C::ManeuveringJets2 | C::ManeuveringJets3 | C::ManeuveringJets4 => Self::ManeuveringJets,
+            C::ShieldsHolding1 | C::ShieldsHolding2 | C::ShieldsHolding3 | C::ShieldsHolding4 => Self::ShieldsHolding,
+            C::ReflectiveShielding => Self::Reflective,
+            C::ConfoundingLegalText => Self::Confounding,
+            C::DeadlyPlot => Self::DeadlyPlot,
+            C::Salvage => Self::Salvage,
+            C::ReverseEngineer => Self::ReverseEngineer,
+            C::EconomicInitiative => Self::EconomicInitiative,
+            C::Disable => Self::Disable,
             _ => return None,
         })
     }
 }
 
 /// Play a [`Simple`] effect for `who`.
-pub fn play_simple(core: &mut CoreState, who: Seat, effect: Simple) {
-    use crate::state::{RoundKind, TransientFlags};
+pub fn play_simple(core: &mut CoreState, who: Seat, effect: Simple, env: Env) {
     use crate::containers::Opt32;
+    use crate::state::{RoundKind, TransientFlags};
     let (round, activation) = (core.meta().combat_round_seq, core.meta().activation_seq);
     match effect {
         Simple::Coup => core.transient_mut().misc.flags.set(TransientFlags::STRATEGIC_CANCELLED),
@@ -270,6 +309,88 @@ pub fn play_simple(core: &mut CoreState, who: Seat, effect: Simple) {
             }
         }
         Simple::BlackMarket => core.transient_mut().misc.flags.set(TransientFlags::BLACK_MARKET),
+        Simple::Rally => {
+            let granted = crate::query::economy::tokens_in_reinforcements(core, who, env.mahact_held).min(2);
+            if granted > 0
+                && let Some(p) = core.players_mut().by_seat_mut(who)
+            {
+                p.econ.fleet_tokens += i16::try_from(granted).unwrap_or(0);
+            }
+        }
+        Simple::ManeuveringJets | Simple::ShieldsHolding => {
+            let hits = if effect == Simple::ManeuveringJets { 1 } else { 2 };
+            if let Some(p) = core.players_mut().by_seat_mut(who) {
+                let running = match p.combat_timers.cancel_hits_round {
+                    Some((held, had)) if held == round => had,
+                    _ => 0,
+                };
+                p.combat_timers.cancel_hits_round = Some((round, running + hits));
+            }
+        }
+        Simple::Reflective => {
+            let combat = &mut core.transient_mut().combat;
+            if let Some((system, victim, _unit, producer, _)) = combat.last_sustain
+                && victim == who
+                && producer != who
+            {
+                combat.pending_reflective_hits = Some((system, producer, 2));
+            }
+        }
+        Simple::Confounding => core.agenda_mut().elected_override = Some(who),
+        Simple::DeadlyPlot => {
+            core.transient_mut().misc.flags.set(TransientFlags::AGENDA_DISCARDED);
+            for (_, planet) in crate::query::board::controlled_planets(core, who).as_slice() {
+                crate::kernel::fx::exhaust_planet(core, *planet);
+            }
+        }
+        Simple::Salvage => {
+            let Some((_, sides)) = core.transient().combat.last_combat_sides.clone() else { return };
+            let mut goods = 0i16;
+            for side in sides.as_slice() {
+                if *side == who {
+                    continue;
+                }
+                if let Some(p) = core.players_mut().by_seat_mut(*side) {
+                    goods += p.econ.commodities;
+                    p.econ.commodities = 0;
+                }
+            }
+            if goods > 0
+                && let Some(p) = core.players_mut().by_seat_mut(who)
+            {
+                p.econ.commodities += goods;
+            }
+        }
+        Simple::ReverseEngineer => {
+            let Some((by, card)) = core.transient().combat.last_action_discarded else { return };
+            if by == who || !is_component_action(card) {
+                return;
+            }
+            let Some(at) = core.cards().discarded_action.iter().position(|held| *held == card) else { return };
+            core.cards_mut().discarded_action.edit().remove(at);
+            if let Some(p) = core.players_mut().by_seat_mut(who) {
+                p.cards.hand.push(card);
+            }
+        }
+        Simple::EconomicInitiative => {
+            let owned = crate::query::board::controlled_planets(core, who);
+            for (_, planet) in owned.as_slice() {
+                let data = planet.data();
+                let in_scope = env.scope.0 & crate::tables::source_bit(data.source) != 0;
+                if in_scope && data.traits.contains(&crate::generated::PlanetTrait::Cultural) {
+                    crate::kernel::fx::ready_planet(core, *planet);
+                }
+            }
+        }
+        Simple::Disable => {
+            let Some(system) = core.meta().active_system else { return };
+            let opponent_pds = pieces_in(core, system).any(|p| {
+                p.owner() != who && env.scope.unit(p.kind()).is_some_and(|d| d.base_type == UnitBaseType::Pds)
+            });
+            if opponent_pds && let Some(p) = core.players_mut().by_seat_mut(who) {
+                p.round_marks.push(RoundKind::DisableInvasion, activation);
+            }
+        }
         Simple::SolarFlare => {
             if let Some(p) = core.players_mut().by_seat_mut(who) {
                 p.round_marks.push(RoundKind::SolarFlare, activation);
