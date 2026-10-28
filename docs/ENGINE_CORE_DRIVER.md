@@ -201,10 +201,27 @@ Stage 5 slice (counts as above, 0 differences; the begin and tail windows were m
 * Sensible next step for the hits window: nothing cheaper than the reaction port; the `may_sustain` oracle and
   `temporary_ground_force` are only consulted with the position of the window start, which the single-batch windows keep.
 
-Open: `commit_deploy` and the Keleres toll through B3's `PayStep`, Harrow (the dice of `faction_abilities::
-ground_combat_round_ended` come from units that the round's own removals can destroy, an Annihilator mech: it needs
-the removals' result before the dice, so it is a window of its own after `GroundRoundHits`), `FinalizingControl` /
-`finish_control_gain`, the remainder of `finish_committing`, the setup/end hooks and the scoring pauses.
+Stage 6 slice (golden: 0 differences; `commit_one` 2007 / 23, `ground_round_hits` 280 / 82 now with the one L1Z1X game compared):
+
+* Crimson deploy: `IOpt::Deploy { planet }` (`deploy_commit|<planet>`) is an option of the commit question after the
+  troops' landings; `LandOne::with_deploy` lands a Revenant from reinforcements. `commit_deploy` runs through the same
+  `dual_window::land_one` as `commit_one` (the `Crimson deploy offered` bail is gone); `note_deployed` is applied by the adapter.
+* Keleres toll: no blanket Keleres bail any more. When the answered planet owes the toll, the adapter runs B3's `PayStep`
+  (influence, `TOLL_COST`) between the answer and the landing and sets the toll mark (`mark_toll_paid`). Bails: a landing the
+  toll bars (the string question leaves it out), a toll at a table `production_view::unported_window` declines (a Crimson
+  invader, Keleres as invader...). Unit tests with several payable planets (the mutation of the spend kind is caught).
+* Harrow (`rules/invasion/harrow.rs`): its own window run by `GroundRoundHits` after both removals: `bombardable`, the
+  invader's space-area bombarders in order, Plasma Scoring on the first roller, dice from `Sx::die` (ledger `Bombardment`),
+  hits window and removal with cause `harrow`, then the report holds `harrow_hits`. Compared: dice (hit number, faces) and the
+  stream positions. Bails: irreproducible dice, Proxima Targeting VI. Unit cover: a warsun fight; mutation of the dice count caught
+  (a mutation of `harrow_hits` in the report is not caught by that game, no harrow hit lands in it).
+* Advance: unit tests for the nested bail and a lockstep fight (mutation of the planet filter caught; the
+  controller choice needs three seats and is golden-only). "Seats not in id order" is unreachable (the owner table is a sorted set).
+
+Not done, and why: `FinalizingControl` / `finish_control_gain` (a chain of faction, technology, legendary, fracture and
+exploration hooks plus the `PLANET_CONTROL_GAINED` reactions: belongs to B5/technology and the ability port), the rest of
+`finish_committing` (Research Team / Viper asks, forced combats), the setup/end hooks and the scoring pauses (the driver
+pause for occurrences), and `ground_combat_round_ended` modules (no module implements the hook; only Harrow does).
 
 ## 6. B1 windows after the first slice: the roll step and the stage transitions
 

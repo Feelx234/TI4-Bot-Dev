@@ -11871,6 +11871,59 @@ mod core_ground_round_prechecks {
         assert_eq!(begin_ground_unported(&state, &begin(&neutral, &b, &s, &p, false)), Some("neutral side"));
     }
 
+    fn advance_args<'a>(a: &'a PlayerId, s: &'a SystemId, planets: &'a [PlanetId], none: &'a [PlanetId]) -> crate::dual_window::AdvanceArgs<'a> {
+        crate::dual_window::AdvanceArgs { invader: a, system: s, planets, index: 0, coexisted: none, sources: POK }
+    }
+
+    fn advance_bail(state: &mut GameState, rec: &crate::dual_window::Recording, reason: &str) {
+        use crate::dual::{report, take_report};
+        let _ = take_report();
+        let (a, s, p) = (PlayerId::new("a"), SystemId::new("18"), [PlanetId::new("mr")]);
+        assert!(crate::dual_window::advance(state, &advance_args(&a, &s, &p, &[]), rec).is_none());
+        let r = report();
+        assert!(r.windows.keys().any(|k| k.starts_with("invasion::advance_fighting") && k.contains(reason)), "{:?}", r.windows);
+        let _ = take_report();
+    }
+
+    #[test]
+    fn the_advance_bails_nested_and_seats_out_of_id_order() {
+        let _guard = crate::dual::tests::serial();
+        let (mut state, _, _) = game("sol", "hacan");
+        let nested = { let mut r = crate::dual_window::Recording::default(); r.nested = true; r };
+        advance_bail(&mut state, &nested, "nested");
+        // The owner table is sorted by id (a BTreeSet), so "seats not in id order" cannot arise: the guard is a
+        // defensive check and has no reachable case.
+        let swapped = crate::fixtures::seated_game(&[("b", "sol"), ("a", "hacan")], POK);
+        let (cx, r) = crate::dual_window::tables(&swapped).unwrap();
+        let _ = cx;
+        assert!(r.seats.windows(2).all(|w| w[0] < w[1]));
+    }
+
+    #[test]
+    fn the_choice_of_the_next_fight_runs_as_a_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual);
+        with_mask(mask, || {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], POK);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = 9;
+            let (system, planet) = crate::fixtures::a_placed_planet();
+            crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 3);
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 4);
+            let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+            let (mut dice, mut rng) = (Dice::new(), GameRng::new(9));
+            resolve(&mut state, ContentStore::embedded(), POK, &mut table, &mut dice, &mut rng, &system, &PlayerId::new("a")).unwrap();
+        });
+        let r = report();
+        let w = r.windows.get("invasion::advance_fighting").copied().unwrap_or_default();
+        assert!(w.compared >= 1, "the choice of the fight is compared: {:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
     #[test]
     fn the_roll_tail_bails_name_what_the_core_window_does_not_carry() {
         let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
