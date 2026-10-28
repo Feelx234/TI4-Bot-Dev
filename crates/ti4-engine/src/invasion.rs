@@ -3166,6 +3166,139 @@ impl InvasionWindow {
         }
     }
 
+    /// The `Bombarding` and `ChoosingBombardment` arms of [`Self::settle`], which on `invasion=dual` also run as the
+    /// core `Bombardment` window (`rules::invasion::bombard`): the same hits, events, `last_step`, feat and scoring
+    /// occurrences, and the same place where the step stops.
+    fn bombard_settle_windowed(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>) {
+        #[cfg(feature = "typed-core")]
+        {
+            let sources = ctx.sources;
+            let input = self.bombard_input();
+            let (invader, system, occurrence, announce) = (self.invader.clone(), self.system.clone(), self.bombard_occurrence.0, ctx.timing.is_some());
+            let (kills_before, scoring_before) = (self.report.bombardment_kills, self.pending_scoring_occurrences.len());
+            let cell = std::cell::RefCell::new(&mut *self);
+            let ctx = std::cell::RefCell::new(ctx);
+            crate::dual_window!(
+                crate::dual::Area::Invasion,
+                "invasion::bombard_step",
+                state,
+                |s: &mut GameState| {
+                    cell.borrow_mut().bombard_settle(s, &mut **ctx.borrow_mut());
+                    crate::dual::Run::new(cell.borrow().bombard_output(kills_before, scoring_before))
+                },
+                |s: &mut GameState, script: &crate::dual_window::Recording| {
+                    let a = crate::dual_window::BombardIn {
+                        invader: &invader,
+                        system: &system,
+                        occurrence,
+                        announce,
+                        plan: &input.0,
+                        index: input.1,
+                        cursor: input.2.as_ref(),
+                        answering: false,
+                    };
+                    crate::dual_window::bombard(s, sources, &a, script)
+                }
+            );
+        }
+        #[cfg(not(feature = "typed-core"))]
+        self.bombard_settle(state, ctx);
+    }
+
+    /// The bombardment arms of `settle` (without the one-shot reroll announcement).
+    fn bombard_settle(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>) {
+        loop {
+            match self.stage.clone() {
+                Stage::Bombarding => {
+                    let mut log = Vec::new();
+                    self.step_bombardment(state, ctx, &mut log);
+                    flush_events(state, ctx, log);
+                    // The stage moved on (a later bombardment step, the custodians stage, or
+                    // the coexistence pause); re-match it.
+                }
+                Stage::ChoosingBombardment(BombardCursor {
+                    planet_index,
+                    planet,
+                    taken,
+                    held,
+                    victims,
+                    occurrence,
+                    ..
+                }) => {
+                    // If the planet's ground forces are already gone, the remaining hits have
+                    // no target (coexistence 7.2) and the planet finishes without asking.
+                    let present: std::collections::BTreeSet<PlayerId> = state
+                        .system_state(&self.system)
+                        .on_planet(&planet)
+                        .iter()
+                        .filter(|unit| unit.owner != self.invader)
+                        .map(|unit| unit.owner.clone())
+                        .collect();
+                    if present.is_empty() {
+                        self.complete_bombard_plan(
+                            state, &planet, taken, held, &victims, occurrence,
+                        );
+                        self.bombard_index = planet_index + 1;
+                        self.stage = Stage::Bombarding;
+                    } else {
+                        // Wait for the invader's choice (the driver presents pending_choice).
+                        return;
+                    }
+                }
+                _ => return,
+            }
+        }
+    }
+
+    /// The plan and position the core bombardment window starts from.
+    #[cfg(feature = "typed-core")]
+    fn bombard_input(&self) -> (Vec<crate::dual_window::BombardEntryIn>, usize, Option<crate::dual_window::BombardCursorIn>) {
+        let plan = self
+            .bombard_plan
+            .iter()
+            .map(|e| crate::dual_window::BombardEntryIn {
+                planet: e.planet.clone(),
+                before: e.before.clone(),
+                dice: e.dice.clone(),
+                groups: e.groups.clone(),
+                held: e.held,
+                victims: e.victims.clone(),
+            })
+            .collect();
+        (plan, self.bombard_index, self.bombard_cursor_in())
+    }
+
+    #[cfg(feature = "typed-core")]
+    fn bombard_cursor_in(&self) -> Option<crate::dual_window::BombardCursorIn> {
+        let Stage::ChoosingBombardment(c) = &self.stage else { return None };
+        Some(crate::dual_window::BombardCursorIn {
+            planet_index: c.planet_index,
+            planet: c.planet.clone(),
+            groups: c.groups.clone(),
+            next_group: c.next_group,
+            taken: c.taken,
+            held: c.held,
+            victims: c.victims.clone(),
+        })
+    }
+
+    /// Where a bombardment step left the window, as the dual compares it.
+    #[cfg(feature = "typed-core")]
+    fn bombard_output(&self, kills_before: usize, scoring_before: usize) -> crate::dual_window::BombardOut {
+        let stage = match &self.stage {
+            Stage::Bombarding => "bombarding",
+            Stage::ChoosingBombardment(_) => "choosing",
+            _ => "done",
+        };
+        crate::dual_window::BombardOut {
+            index: self.bombard_index,
+            stage,
+            cursor: self.bombard_cursor_in(),
+            kills: self.report.bombardment_kills - kills_before,
+            scoring: self.pending_scoring_occurrences.iter().skip(scoring_before).map(|(o, flag)| (o.0, *flag)).collect(),
+        }
+    }
+
     /// The one-shot windows after the bombardment rolls: Aglnlan Oln rerolls first, then the
     /// other players' Scramble Frequency. Every planet's groups are then recomputed from the
     /// possibly rerolled dice — same order, same zero-skip, as the plan was built — and the
@@ -3226,43 +3359,14 @@ impl InvasionWindow {
     pub fn settle(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>) {
         loop {
             match self.stage.clone() {
-                Stage::Bombarding => {
-                    if !self.bombard_announced {
+                Stage::Bombarding | Stage::ChoosingBombardment(_) => {
+                    if matches!(self.stage, Stage::Bombarding) && !self.bombard_announced {
                         self.bombard_announced = true;
                         self.announce_bombard_rerolls(state, ctx);
                     }
-                    let mut log = Vec::new();
-                    self.step_bombardment(state, ctx, &mut log);
-                    flush_events(state, ctx, log);
-                    // The stage moved on (a later bombardment step, the custodians stage, or
-                    // the coexistence pause); re-match it.
-                }
-                Stage::ChoosingBombardment(BombardCursor {
-                    planet_index,
-                    planet,
-                    taken,
-                    held,
-                    victims,
-                    occurrence,
-                    ..
-                }) => {
-                    // If the planet's ground forces are already gone, the remaining hits have
-                    // no target (coexistence 7.2) and the planet finishes without asking.
-                    let present: std::collections::BTreeSet<PlayerId> = state
-                        .system_state(&self.system)
-                        .on_planet(&planet)
-                        .iter()
-                        .filter(|unit| unit.owner != self.invader)
-                        .map(|unit| unit.owner.clone())
-                        .collect();
-                    if present.is_empty() {
-                        self.complete_bombard_plan(
-                            state, &planet, taken, held, &victims, occurrence,
-                        );
-                        self.bombard_index = planet_index + 1;
-                        self.stage = Stage::Bombarding;
-                    } else {
-                        // Wait for the invader's choice (the driver presents pending_choice).
+                    self.bombard_settle_windowed(state, ctx);
+                    // A pause waits for the invader's choice (the driver presents pending_choice).
+                    if matches!(self.stage, Stage::ChoosingBombardment(_)) {
                         return;
                     }
                 }
@@ -4967,6 +5071,59 @@ impl InvasionWindow {
         Some(choice)
     }
 
+    /// [`Self::answer_bombardment_target`], which on `invasion=dual` also runs as the core `Bombardment` window
+    /// answering its own question: the recorded pending question and its answer, the same hits window, hits, events
+    /// and place where the step stops.
+    fn answer_bombardment_target_windowed(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        choice: &Choice,
+        option: &ChoiceOption,
+        cursor: BombardCursor,
+    ) {
+        #[cfg(feature = "typed-core")]
+        {
+            let sources = ctx.sources;
+            let input = self.bombard_input();
+            let (invader, system, occurrence, announce) = (self.invader.clone(), self.system.clone(), self.bombard_occurrence.0, ctx.timing.is_some());
+            let (kills_before, scoring_before) = (self.report.bombardment_kills, self.pending_scoring_occurrences.len());
+            let cursor_in = self.bombard_cursor_in();
+            let cell = std::cell::RefCell::new(&mut *self);
+            let ctx = std::cell::RefCell::new(ctx);
+            let cursor = std::cell::RefCell::new(Some(cursor));
+            crate::dual_window!(
+                crate::dual::Area::Invasion,
+                "invasion::bombard_answer",
+                state,
+                |s: &mut GameState| {
+                    crate::dual_window::note_ask(choice, &Ok(option.clone()));
+                    let cursor = cursor.borrow_mut().take().expect("run once");
+                    cell.borrow_mut().answer_bombardment_target(s, &mut **ctx.borrow_mut(), option, cursor);
+                    crate::dual::Run::new(cell.borrow().bombard_output(kills_before, scoring_before))
+                },
+                |s: &mut GameState, script: &crate::dual_window::Recording| {
+                    let a = crate::dual_window::BombardIn {
+                        invader: &invader,
+                        system: &system,
+                        occurrence,
+                        announce,
+                        plan: &input.0,
+                        index: input.1,
+                        cursor: cursor_in.as_ref(),
+                        answering: true,
+                    };
+                    crate::dual_window::bombard(s, sources, &a, script)
+                }
+            );
+        }
+        #[cfg(not(feature = "typed-core"))]
+        {
+            let _ = choice;
+            self.answer_bombardment_target(state, ctx, option, cursor);
+        }
+    }
+
     /// The invader's answer to the coexistence target question: that unit's hits go to `option`.
     fn answer_bombardment_target(
         &mut self,
@@ -5476,7 +5633,7 @@ impl Window for InvasionWindow {
             | Stage::Advancing { .. }
             | Stage::FinalizingControl { .. } => {}
             Stage::ChoosingBombardment(cursor) => {
-                self.answer_bombardment_target(state, ctx, &option, cursor);
+                self.answer_bombardment_target_windowed(state, ctx, &choice, &option, cursor);
             }
             Stage::ChoosingNextCombat {
                 planets,
@@ -9975,6 +10132,49 @@ mod ground_routes {
         let r = report();
         let w = r.windows.get("invasion::bombard_target_ask").copied().unwrap_or_default();
         assert_eq!(w.compared, 1, "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    #[test]
+    fn the_bombardment_steps_and_answers_run_as_a_core_window_in_lockstep() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual);
+        with_mask(mask, || {
+            // The coexisting bombardment of `a_coexisting_planets_bombardment_is_chosen_per_unit_...`, then a plain
+            // one-owner planet: pauses, answers, hits, events and the end of the plan.
+            let (_, system, planet) = arena();
+            let (a, b, c) = (PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c"));
+            let content = ContentStore::embedded();
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "letnev"), ("c", "hacan")], POK);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.system_mut(&system).set_control(planet.clone(), b.clone());
+            on_planet(&mut state, &system, &planet, "infantry", &b);
+            on_planet(&mut state, &system, &planet, "infantry", &c);
+            on_planet(&mut state, &system, &planet, "infantry", &c);
+            for kind in ["dreadnought", "sardakk_dreadnought", "dreadnought"] {
+                state.system_mut(&system).units.push(Unit::new(UnitTypeId::new(kind), a.clone()));
+            }
+            let mut dice = Dice::from_faces([8, 6, 6, 8]);
+            let mut rng = GameRng::new(7);
+            let mut table = Table::with_default(Box::new(crate::choice::Scripted::new(["c", "b", "c"])));
+            let mut window = InvasionWindow::new(&mut state, content, POK, &mut dice, &mut rng, &a, &system);
+            let mut ctx = Resolving { content, sources: POK, dice: &mut dice, rng: &mut rng, table: &mut table, timing: None };
+            while !window.is_done() {
+                window.drive(&mut state, &mut ctx).expect("the script only picks what is offered");
+                while window.take_scoring_occurrence().is_some() {}
+                window.settle(&mut state, &mut ctx);
+            }
+            assert_eq!(window.into_report().bombardment_kills, 3);
+        });
+        let r = report();
+        for label in ["invasion::bombard_step", "invasion::bombard_answer"] {
+            let w = r.windows.get(label).copied().unwrap_or_default();
+            assert!(w.compared >= 1, "{label}: {:?}", r.windows);
+        }
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }

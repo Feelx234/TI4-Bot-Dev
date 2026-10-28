@@ -1327,3 +1327,169 @@ pub fn ground_hits(
     let out = HitsOut { remaining: driver.window.remaining as usize, destroyed: driver.window.destroyed as usize, log };
     Some(CoreWindow { run: Run::new(out).with_events_vec(events), questions: driven.rendered })
 }
+
+const BOMBARD: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
+    &[Slice::Board, Slice::Players, Slice::Transient, Slice::Pending],
+);
+
+/// One planet of the string bombardment plan (`BombardPlan`).
+#[derive(Debug, Clone)]
+pub struct BombardEntryIn {
+    pub planet: ti4_model::id::PlanetId,
+    pub before: Vec<ti4_model::units::Unit>,
+    pub dice: Vec<ti4_model::state::InvasionDie>,
+    pub groups: Vec<usize>,
+    pub held: usize,
+    pub victims: std::collections::BTreeSet<PlayerId>,
+}
+
+/// The string `BombardCursor` (a coexistence pause).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BombardCursorIn {
+    pub planet_index: usize,
+    pub planet: ti4_model::id::PlanetId,
+    pub groups: Vec<usize>,
+    pub next_group: usize,
+    pub taken: usize,
+    pub held: usize,
+    pub victims: std::collections::BTreeSet<PlayerId>,
+}
+
+/// What the string bombardment step started from.
+#[derive(Debug, Clone)]
+pub struct BombardIn<'a> {
+    pub invader: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    pub occurrence: u64,
+    pub announce: bool,
+    pub plan: &'a [BombardEntryIn],
+    pub index: usize,
+    /// `Some`: the window is in `ChoosingBombardment`; `answering`: the step is the answer to its question.
+    pub cursor: Option<&'a BombardCursorIn>,
+    pub answering: bool,
+}
+
+/// Where the bombardment step ended, as both sides report it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BombardOut {
+    pub index: usize,
+    /// `bombarding`, `choosing` (the cursor is set) or `done` (the string's `Stage::Custodians`).
+    pub stage: &'static str,
+    pub cursor: Option<BombardCursorIn>,
+    pub kills: usize,
+    pub scoring: Vec<(u64, bool)>,
+}
+
+/// The core half of the string bombardment step (`settle`'s `Bombarding` and `ChoosingBombardment` arms, or
+/// `answer_bombardment_target`): `rules::invasion::bombard`. `None`: neutral or unsorted seats (the options of the
+/// target question are sorted by player id), nested activity, a diplomacy game, or a position the codecs refuse.
+#[must_use]
+pub fn bombard(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    a: &BombardIn<'_>,
+    script: &Recording,
+) -> Option<CoreWindow<BombardOut>> {
+    use ti4_engine_core::containers::{SeatSet, SmallList};
+    use ti4_engine_core::rules::invasion::bombard::{Bombardment, Cursor, Entry};
+    const LABEL: &str = "invasion::bombard_step";
+    if script.nested {
+        crate::dual::note_bail(LABEL, "nested (a card played in the hits window)");
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    if a.answering && r.seats.windows(2).any(|w| w[0] >= w[1]) {
+        crate::dual::note_bail(LABEL, "seats not in id order");
+        return None;
+    }
+    let seat = |p: &PlayerId| r.seat(p.as_str());
+    let seats = |set: &std::collections::BTreeSet<PlayerId>| -> Option<SeatSet> {
+        let mut out = SeatSet::EMPTY;
+        for p in set {
+            out.insert(seat(p)?);
+        }
+        Some(out)
+    };
+    let planet_of = |p: &ti4_model::id::PlanetId| <ti4_engine_core::generated::Planet as IdStr>::from_id(p.as_str());
+    let invader = seat(a.invader)?;
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let mut plan = Vec::new();
+    for e in a.plan {
+        let template = ti4_model::state::InvasionStep {
+            planet: e.planet.clone(),
+            kind: "bombardment".to_owned(),
+            round: 0,
+            before: e.before.clone(),
+            after: Vec::new(),
+            dice: e.dice.clone(),
+            hits: [(a.invader.clone(), e.groups.iter().sum())].into_iter().collect(),
+            harrow_hits: 0,
+        };
+        plan.push(Entry {
+            planet: planet_of(&e.planet)?,
+            template: crate::core_sync::codec::transient::invasion_step(&mut cx, &template).ok()?,
+            groups: SmallList::from_slice(&e.groups),
+            held: e.held,
+            victims: seats(&e.victims)?,
+        });
+    }
+    let cause = r.code("bombardment");
+    let mut window = Bombardment::new(invader, system, a.occurrence, a.announce, cause, plan, a.index);
+    if let Some(c) = a.cursor {
+        window = window.at_cursor(
+            Cursor {
+                planet_index: c.planet_index,
+                planet: planet_of(&c.planet)?,
+                groups: SmallList::from_slice(&c.groups),
+                next_group: c.next_group,
+                taken: c.taken,
+                held: c.held,
+                victims: seats(&c.victims)?,
+            },
+            a.answering,
+        );
+    }
+    let before = gs.clone();
+    let env = crate::core_invasion::ground_env(&before, &cx, sources)?;
+    let mut driver = Driver::new(window, Resolver::new(&[invader], Some(invader)), AbilityTable::default(), 1);
+    let kernel = &env.kernel;
+    let complete = |asked: &CoreChoice, _: &CoreState, c: &mut Choice| {
+        // The target question carries the offer card the string side shares (`invasion::with_bombard_offer`).
+        use ti4_engine_core::choice::invasion::{Ask as IAsk, Opt as IOpt};
+        use ti4_engine_core::choice::{Ask, Opt};
+        if let Ask::Invasion(IAsk::BombardTarget { system, planet, hits }) = asked.ask {
+            let present: std::collections::BTreeSet<PlayerId> = asked
+                .opts
+                .iter()
+                .filter_map(|o| if let Opt::Invasion(IOpt::BombardTarget { seat }) = o { Some(PlayerId::new(r.seats.get(usize::from(seat.0))?.clone())) } else { None })
+                .collect();
+            let (system, planet) = (ti4_model::id::SystemId::new(system.as_str()), ti4_model::id::PlanetId::new(planet.as_str()));
+            let taken = std::mem::replace(c, Choice::new(a.invader.clone(), String::new(), Vec::new()));
+            *c = crate::invasion::with_bombard_offer(taken, a.invader, &system, &planet, usize::from(hits), &present, before.system_state(&system).on_planet(&planet));
+        }
+    };
+    let driven = with_core(gs, &mut cx, Sources::default(), BOMBARD, |core, _| {
+        let driven = drive_with(&mut driver, core, kernel, &r, &before, script, &complete);
+        core.pending_mut().staged.clear();
+        driven
+    })
+    .ok()?
+    .ok()?;
+    let w = &driver.window;
+    let id_of = |s: ti4_engine_core::ids::Seat| PlayerId::new(r.seats.get(usize::from(s.0)).cloned().unwrap_or_default());
+    let set_of = |set: SeatSet| set.iter().map(id_of).collect::<std::collections::BTreeSet<_>>();
+    let cursor = w.cursor.as_ref().map(|c| BombardCursorIn {
+        planet_index: c.planet_index,
+        planet: ti4_model::id::PlanetId::new(c.planet.as_str()),
+        groups: c.groups.as_slice().to_vec(),
+        next_group: c.next_group,
+        taken: c.taken,
+        held: c.held,
+        victims: set_of(c.victims),
+    });
+    let stage = w.string_stage();
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    let out = BombardOut { index: w.index, stage, cursor: if stage == "choosing" { cursor } else { None }, kills: w.kills, scoring: w.scoring.clone() };
+    Some(CoreWindow { run: Run::new(out).with_events_vec(events), questions: driven.rendered })
+}

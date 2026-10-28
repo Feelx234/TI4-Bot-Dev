@@ -12,6 +12,7 @@
 //! Nothing here asks a question or emits an event: those go through the host the later sections take.
 
 pub mod absorb;
+pub mod bombard;
 pub mod commit;
 pub mod hits;
 pub mod stages;

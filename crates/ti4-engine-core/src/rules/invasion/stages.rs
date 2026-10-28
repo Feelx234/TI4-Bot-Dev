@@ -289,6 +289,29 @@ impl BombardTarget {
     }
 }
 
+impl BombardTarget {
+    /// The `Ask` of the question.
+    #[must_use]
+    pub const fn ask(&self) -> Ask {
+        Ask::Invasion(IAsk::BombardTarget { system: self.system, planet: self.planet, hits: self.hits })
+    }
+
+    /// The question as it stands in `s`: one option per player other than the invader holding units on the planet.
+    #[must_use]
+    pub fn question(&self, s: &CoreState) -> Choice {
+        let mut opts = Opts::default();
+        for seat in self.present(s).iter() {
+            opts.push(Opt::Invasion(IOpt::BombardTarget { seat }));
+        }
+        Choice {
+            actor: self.invader,
+            ask: self.ask(),
+            ctx: ctx(ISub::BombardmentTarget, Origin::Rule(Rule::Coexistence7_2), Target::Planet { system: self.system, planet: self.planet }),
+            opts,
+        }
+    }
+}
+
 impl Window for BombardTarget {
     type Stage = Stage;
 
@@ -307,18 +330,7 @@ impl Window for BombardTarget {
     }
 
     fn ask_of(&self, s: &CoreState, _k: &Kernel) -> Option<Choice> {
-        (self.stage == Stage::Asking).then(|| {
-            let mut opts = Opts::default();
-            for seat in self.present(s).iter() {
-                opts.push(Opt::Invasion(IOpt::BombardTarget { seat }));
-            }
-            Choice {
-                actor: self.invader,
-                ask: Ask::Invasion(IAsk::BombardTarget { system: self.system, planet: self.planet, hits: self.hits }),
-                ctx: ctx(ISub::BombardmentTarget, Origin::Rule(Rule::Coexistence7_2), Target::Planet { system: self.system, planet: self.planet }),
-                opts,
-            }
-        })
+        (self.stage == Stage::Asking).then(|| self.question(s))
     }
 
     fn answer(&mut self, _sx: &mut Sx<'_>, _pick: Pick) -> Result<(), Illegal> {
