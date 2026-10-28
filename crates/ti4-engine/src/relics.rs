@@ -364,6 +364,11 @@ pub(crate) fn ask_technology(
         ));
     // The question is one core window (`rules::relic_windows::GainTechnology`); the research or the gain
     // behind the answer stays with the caller.
+    if crate::dual::backend(crate::dual::Area::ExplorationRelics) != crate::dual::Backend::Dual {
+        let answer = table.ask_seeing(&choice, &Observed::new(state, content, sources, galaxy)).ok()?;
+        return Some(ti4_model::id::TechnologyId::new(answer.id));
+    }
+    // On the `Dual` backend the question runs on a copy of the state (it changes nothing).
     let mut copy = state.clone();
     let answered = crate::dual_window!(
         crate::dual::Area::ExplorationRelics,
