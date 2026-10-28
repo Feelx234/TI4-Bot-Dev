@@ -1125,10 +1125,12 @@ fn solar_flare(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId
 /// partner. The switch and the marker are still implemented as printed, and the link rule is
 /// pinned by the galaxy's own tests.
 fn lost_star(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let activation = context.state.activation_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.lost_star.push(activation);
-    }
+    stamped(context, player, "lost_star", |state| {
+        let activation = state.activation_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.lost_star.push(activation);
+        }
+    });
 }
 
 /// Sabotage: "When another player plays an action card other than 'Sabotage': cancel that
@@ -1292,10 +1294,12 @@ fn master_plan(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId
 /// order reads it in `VoteWindow::new` and moves the holder to the last seat, after the
 /// speaker.
 fn hack_election(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let agenda = context.state.agenda_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.hack_votes_last_agenda = Some(agenda);
-    }
+    stamped(context, player, "hack_election", |state| {
+        let agenda = state.agenda_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.hack_votes_last_agenda = Some(agenda);
+        }
+    });
 }
 
 /// Summit: "At the start of the strategy phase: Gain 2 command tokens."
@@ -1325,9 +1329,11 @@ fn summit(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
 /// strategy phase that follows. It is cleared when that action phase begins, and the
 /// retained cards then go back to the mat in the following round's status phase.
 fn political_stability(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.stability = true;
-    }
+    stamped(context, player, "political_stability", |state| {
+        if let Some(seat) = state.player_mut(player) {
+            seat.stability = true;
+        }
+    });
 }
 
 /// Public Disgrace: "When another player chooses a strategy card during the strategy
@@ -1485,11 +1491,11 @@ fn extreme_duress(context: &mut crate::timing::TimingContext<'_>, player: &Playe
 /// negotiation closes or the turn ends, so it can never bleed into another player's table. The
 /// "cannot be canceled" clause is structural: once the flag is set, nothing else touches it, so
 /// no counter-play can strip the terms back away.
-fn blackmarketdealings(context: &mut crate::timing::TimingContext<'_>, _player: &PlayerId) {
-    context
-        .state
-        .transient_flags
-        .set(ti4_model::state::TransientFlags::BLACK_MARKET);
+fn blackmarketdealings(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
+    stamped(context, player, "black_market", |state| {
+        state.transient_flags
+            .set(ti4_model::state::TransientFlags::BLACK_MARKET);
+    });
 }
 
 /// Infiltrate: "When you gain control of a planet: Replace each PDS and space dock that is on
@@ -1812,10 +1818,12 @@ fn reverse_engineer(context: &mut crate::timing::TimingContext<'_>, player: &Pla
 /// when the marker matches; a defender that cannot legally retreat simply keeps fighting, which
 /// is what "if able" says.
 fn rout(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let round = context.state.combat_round_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.rout_round = Some(round);
-    }
+    stamped(context, player, "rout", |state| {
+        let round = state.combat_round_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.rout_round = Some(round);
+        }
+    });
 }
 
 /// Waylay: "before you roll dice for ANTI-FIGHTER BARRAGE: hits from this roll are produced
@@ -1826,10 +1834,12 @@ fn rout(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
 /// the ordinary casualty absorption (owner-chosen, sustain-eligible) instead of auto-destroying
 /// fighters.
 fn waylay(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let round = context.state.combat_round_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.waylay_barrage_round = Some(round);
-    }
+    stamped(context, player, "waylay", |state| {
+        let round = state.combat_round_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.waylay_barrage_round = Some(round);
+        }
+    });
 }
 
 /// Direct Hit (dh1-dh4): "after another player's ship uses SUSTAIN DAMAGE to cancel a hit
@@ -2235,10 +2245,12 @@ fn choose_crashlanding_planet(
 /// All of them, including a gravity rift's +1 and its destruction roll. A rift's bonus is as much
 /// an effect of an anomaly as a supernova's bar, so the card gives up the one along with the other.
 fn nav_suite(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let activation = context.state.activation_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.anomalies_ignored_activation = Some(activation);
-    }
+    stamped(context, player, "nav_suite", |state| {
+        let activation = state.activation_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.anomalies_ignored_activation = Some(activation);
+        }
+    });
 }
 
 /// In The Silence Of Space: "choose 1 system; during this tactical action, your ships in the
@@ -3478,10 +3490,12 @@ fn intercept(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) 
 /// what keeps it from improving the next combat. One entry per copy, so two copies in the same
 /// round give +4, and the fleet rolls and the anti-fighter barrage both read the marker.
 fn fighter_prototype(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let round = context.state.combat_round_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.fighter_bonus_round.push(round);
-    }
+    stamped(context, player, "f_prototype", |state| {
+        let round = state.combat_round_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.fighter_bonus_round.push(round);
+        }
+    });
 }
 
 /// Bunker: "During this invasion, apply -4 to the result of each BOMBARDMENT roll against
@@ -3493,10 +3507,12 @@ fn fighter_prototype(context: &mut crate::timing::TimingContext<'_>, player: &Pl
 /// (49.1), so the marker is in place by the time the rolls are made. One entry per copy: two
 /// Bunkers give -8.
 fn bunker(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let activation = context.state.activation_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.bunker_invasion.push(activation);
-    }
+    stamped(context, player, "bunker", |state| {
+        let activation = state.activation_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.bunker_invasion.push(activation);
+        }
+    });
 }
 
 /// War Machine (all four copies are identical): "Apply +4 to the total PRODUCTION value of
@@ -3512,10 +3528,12 @@ fn bunker(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
 /// The WILD WILD Galaxy printing ("reduce the combined cost by 5") is not modelled: the engine
 /// plays the base rules.
 fn war_machine(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let activation = context.state.activation_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.war_machine_use.push(activation);
-    }
+    stamped(context, player, "war_machine", |state| {
+        let activation = state.activation_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.war_machine_use.push(activation);
+        }
+    });
 }
 
 /// Blitz: "Each of your non-fighter ships in the active system that do not have BOMBARDMENT
@@ -3526,10 +3544,12 @@ fn war_machine(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId
 /// on 6. The marker is keyed to the activation that owns the invasion, the same way Bunker's
 /// is, so it cannot leak into a later activation.
 fn blitz(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let activation = context.state.activation_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.blitz_invasion.push(activation);
-    }
+    stamped(context, player, "blitz", |state| {
+        let activation = state.activation_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.blitz_invasion.push(activation);
+        }
+    });
 }
 
 /// Disable: "Your opponents' PDS units lose PLANETARY SHIELD and SPACE CANNON during this
@@ -7960,6 +7980,7 @@ mod tests {
                 let mut state = crate::fixtures::game(&["a", "b"]);
                 state.combat_round_seq = 3;
                 state.activation_seq = 5;
+                state.agenda_seq = 2;
                 for (seat, faction) in state.players.iter_mut().zip(["arborec", "hacan"]) {
                     seat.faction = ti4_model::id::FactionId::new(faction);
                 }
@@ -7968,7 +7989,7 @@ mod tests {
             }
             let report = crate::dual::take_report();
             assert!(report.differences.is_empty(), "{:?}", report.differences.first());
-            assert_eq!(played, 12, "four morale boosts, four flank speeds, solar flare, coup, crisis, master plan");
+            assert_eq!(played, 26, "four morale boosts, four flank speeds, then the singles");
         }
     }
 

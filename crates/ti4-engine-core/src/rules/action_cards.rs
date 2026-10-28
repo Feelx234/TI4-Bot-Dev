@@ -159,6 +159,28 @@ pub enum Simple {
     Crisis,
     /// `ADDITIONAL_ACTION`.
     MasterPlan,
+    /// The activation joins the `LostStar` marks.
+    LostStar,
+    /// "you vote last during this agenda": `hack_votes_last_agenda`.
+    HackElection,
+    /// `econ.stability`: keep the strategy cards, skip the next draft.
+    PoliticalStability,
+    /// `rout_round`.
+    Rout,
+    /// `waylay_barrage_round`.
+    Waylay,
+    /// The combat round joins the `FighterBonus` marks.
+    FighterPrototype,
+    /// The activation joins the `BunkerInvasion` marks.
+    Bunker,
+    /// The activation joins the `WarMachine` marks.
+    WarMachine,
+    /// The activation joins the `BlitzInvasion` marks.
+    Blitz,
+    /// `anomalies_ignored_activation`.
+    NavSuite,
+    /// `BLACK_MARKET`.
+    BlackMarket,
 }
 
 impl Simple {
@@ -174,6 +196,17 @@ impl Simple {
             C::CoupDEtat => Self::Coup,
             C::Crisis => Self::Crisis,
             C::MasterPlan => Self::MasterPlan,
+            C::LostStarChart => Self::LostStar,
+            C::HackElection => Self::HackElection,
+            C::PoliticalStability => Self::PoliticalStability,
+            C::Rout => Self::Rout,
+            C::Waylay => Self::Waylay,
+            C::FighterPrototype => Self::FighterPrototype,
+            C::Bunker => Self::Bunker,
+            C::WarMachine1 | C::WarMachine2 | C::WarMachine3 | C::WarMachine4 => Self::WarMachine,
+            C::Blitz => Self::Blitz,
+            C::NavSuite => Self::NavSuite,
+            C::BlackMarketDealings => Self::BlackMarket,
             _ => return None,
         })
     }
@@ -198,6 +231,45 @@ pub fn play_simple(core: &mut CoreState, who: Seat, effect: Simple) {
                 p.timers.move_bonus_activation = Opt32::some(activation);
             }
         }
+        Simple::LostStar => {
+            if let Some(p) = core.players_mut().by_seat_mut(who) {
+                p.round_marks.push(RoundKind::LostStar, activation);
+            }
+        }
+        Simple::HackElection => {
+            let agenda = core.meta().agenda_seq;
+            if let Some(p) = core.players_mut().by_seat_mut(who) {
+                p.timers.hack_votes_last_agenda = Opt32::some(agenda);
+            }
+        }
+        Simple::PoliticalStability => {
+            if let Some(p) = core.players_mut().by_seat_mut(who) {
+                p.econ.stability = true;
+            }
+        }
+        Simple::Rout | Simple::Waylay => {
+            if let Some(p) = core.players_mut().by_seat_mut(who) {
+                let slot = if effect == Simple::Rout { &mut p.combat_timers.rout_round } else { &mut p.combat_timers.waylay_barrage_round };
+                *slot = Opt32::some(round);
+            }
+        }
+        Simple::FighterPrototype | Simple::Bunker | Simple::WarMachine | Simple::Blitz => {
+            let (kind, value) = match effect {
+                Simple::FighterPrototype => (RoundKind::FighterBonus, round),
+                Simple::Bunker => (RoundKind::BunkerInvasion, activation),
+                Simple::WarMachine => (RoundKind::WarMachine, activation),
+                _ => (RoundKind::BlitzInvasion, activation),
+            };
+            if let Some(p) = core.players_mut().by_seat_mut(who) {
+                p.round_marks.push(kind, value);
+            }
+        }
+        Simple::NavSuite => {
+            if let Some(p) = core.players_mut().by_seat_mut(who) {
+                p.timers.anomalies_ignored_activation = Opt32::some(activation);
+            }
+        }
+        Simple::BlackMarket => core.transient_mut().misc.flags.set(TransientFlags::BLACK_MARKET),
         Simple::SolarFlare => {
             if let Some(p) = core.players_mut().by_seat_mut(who) {
                 p.round_marks.push(RoundKind::SolarFlare, activation);

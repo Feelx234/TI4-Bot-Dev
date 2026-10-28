@@ -182,6 +182,17 @@ pub fn play_simple(state: &mut GameState, player: &PlayerId, effect: &str) -> Op
         "coup" => Simple::Coup,
         "crisis" => Simple::Crisis,
         "master_plan" => Simple::MasterPlan,
+        "lost_star" => Simple::LostStar,
+        "hack_election" => Simple::HackElection,
+        "political_stability" => Simple::PoliticalStability,
+        "rout" => Simple::Rout,
+        "waylay" => Simple::Waylay,
+        "f_prototype" => Simple::FighterPrototype,
+        "bunker" => Simple::Bunker,
+        "war_machine" => Simple::WarMachine,
+        "blitz" => Simple::Blitz,
+        "nav_suite" => Simple::NavSuite,
+        "black_market" => Simple::BlackMarket,
         _ => return None,
     };
     let (mut cx, r) = crate::dual_window::tables(state)?;
