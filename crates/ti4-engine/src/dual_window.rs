@@ -801,3 +801,48 @@ pub fn assault_cannon(
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(events), questions: driven.rendered })
 }
+
+const LAND_ONE: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
+    &[Slice::Board, Slice::Transient, Slice::Pending],
+);
+
+/// The core half of `InvasionWindow::commit_one` (one `commit|<n>|<planet>` landing). `None` (the bail-outs):
+/// `plain` false (the question holds a commit candidate with an origin, a temporary space commit or the Crimson
+/// deploy), nested activity (a reaction to `UNITS_COMMITTED`), a Keleres seat (the toll), the diplomacy promises
+/// switched on, a ship-form unit flipping on landing, and a position the codecs refuse.
+#[must_use]
+pub fn land_one(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    invader: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    plain: bool,
+    announce: bool,
+    script: &Recording,
+) -> Option<CoreWindow<()>> {
+    use ti4_engine_core::rules::invasion::commit::LandOne;
+    if !plain || script.nested || gs.diplomacy.enabled || gs.players.iter().any(|p| p.faction.as_str().starts_with("keleres")) {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let seat = r.seat(invader.as_str())?;
+    let sys = <ti4_engine_core::generated::System as IdStr>::from_id(system.as_str())?;
+    let before = gs.clone();
+    let env = crate::core_invasion::ground_env(&before, &cx, sources)?;
+    let mut driver = Driver::new(LandOne::new(seat, sys, announce), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let driven = with_core(gs, &mut cx, Sources::default(), LAND_ONE, |core, _| {
+        let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .ok()?
+    .ok()?;
+    if driver.window.unsupported {
+        return None;
+    }
+    apply_staged(gs, &r, &staged)?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    Some(CoreWindow { run: Run::new(()).with_events_vec(events), questions: driven.rendered })
+}

@@ -5105,16 +5105,64 @@ impl InvasionWindow {
         &mut self,
         state: &mut GameState,
         ctx: &mut Resolving<'_>,
+        choice: &Choice,
         option: &ChoiceOption,
     ) -> Result<bool, IllegalChoice> {
         if option.is_decline() {
             self.finish_committing(state, ctx)?;
         } else if let Some(rest) = option.id.strip_prefix("commit|") {
-            return self.commit_one(state, ctx, rest);
+            return self.commit_one_windowed(state, ctx, choice, option, rest);
         } else if let Some(planet) = option.id.strip_prefix("deploy_commit|") {
             return self.commit_deploy(state, ctx, planet);
         }
         Ok(true)
+    }
+
+    /// [`Self::commit_one`], which on `invasion=dual` also runs as the core `LandOne` window for an ordinary
+    /// candidate: the pending question is recorded with its answer, the core puts the same question, lands the
+    /// same unit and announces the same `UNITS_COMMITTED`. The core bows out of a pool with an origin, a
+    /// temporary space commit or the Crimson deploy (`plain`), of the rest see `dual_window::land_one`.
+    fn commit_one_windowed(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        choice: &Choice,
+        option: &ChoiceOption,
+        rest: &str,
+    ) -> Result<bool, IllegalChoice> {
+        #[cfg(feature = "typed-core")]
+        {
+            let (content, sources) = (ctx.content, ctx.sources);
+            let (invader, system) = (self.invader.clone(), self.system.clone());
+            let (_, origins, temporary) = commit_pool(state, content, sources, self.galaxy.as_deref(), &invader, &system, &self.extra_commits);
+            let planets = landable_planets(state, content, sources, &system);
+            let deploy = crate::factions::crimson::deploy_planets(state, content, sources, &invader, &system, &planets);
+            let plain = origins.iter().all(Option::is_none) && temporary.iter().all(|t| !*t) && deploy.is_empty() && self.extra_commits.is_empty();
+            let announce = ctx.timing.is_some();
+            let mut outcome = None;
+            let failed = std::cell::Cell::new(false);
+            crate::dual_window!(
+                crate::dual::Area::Invasion,
+                "invasion::commit_one",
+                state,
+                |s: &mut GameState| {
+                    crate::dual_window::note_ask(choice, &Ok(option.clone()));
+                    let result = self.commit_one(s, ctx, rest);
+                    failed.set(result.is_err() || matches!(result, Ok(false)));
+                    outcome = Some(result);
+                    crate::dual::Run::new(())
+                },
+                |s: &mut GameState, script: &crate::dual_window::Recording| {
+                    if failed.get() {
+                        return None;
+                    }
+                    crate::dual_window::land_one(s, sources, &invader, &system, plain, announce, script)
+                }
+            );
+            return outcome.unwrap_or(Ok(true));
+        }
+        #[cfg(not(feature = "typed-core"))]
+        self.commit_one(state, ctx, rest)
     }
 
     /// One `commit|<index>|<planet>` answer: toll, move, land, announce.
@@ -5384,7 +5432,7 @@ impl Window for InvasionWindow {
             }
             Stage::Custodians => self.answer_custodians_windowed(state, ctx, &choice, &option)?,
             Stage::Committing => {
-                if !self.answer_commit(state, ctx, &option)? {
+                if !self.answer_commit(state, ctx, &choice, &option)? {
                     return Ok(());
                 }
             }
@@ -9673,6 +9721,36 @@ mod ground_routes {
     fn edict_takes_a_token_when_the_mahact_wins_a_real_ground_combat() {
         assert_eq!(edict_after_real_combat(true), vec![b()], "as the invader");
         assert_eq!(edict_after_real_combat(false), vec![b()], "as the defender");
+    }
+
+    #[test]
+    fn a_landing_runs_as_a_core_window_in_lockstep() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual);
+        with_mask(mask, || {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "letnev")], POK);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            let (system, planet) = ti4_content::galaxy::all_planets(ContentStore::embedded(), POK)
+                .iter()
+                .find(|(_, p)| p.system_id().is_some() && !p.is_placed_during_play())
+                .map(|(id, p)| (SystemId::new(p.system_id().unwrap()), PlanetId::new(*id)))
+                .expect("a placed planet");
+            crate::fixtures::put(&mut state, &system, "infantry", &a(), 2);
+            crate::fixtures::put(&mut state, &system, "mech", &a(), 1);
+            let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+            let mut dice = Dice::new();
+            let mut rng = GameRng::new(4);
+            let report = resolve(&mut state, ContentStore::embedded(), POK, &mut table, &mut dice, &mut rng, &system, &a()).unwrap();
+            assert_eq!(report.committed, vec![planet.clone()]);
+        });
+        let r = report();
+        let w = r.windows.get("invasion::commit_one").copied().unwrap_or_default();
+        assert!(w.compared >= 2, "both landings are compared: {:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
     }
 
     #[test]
