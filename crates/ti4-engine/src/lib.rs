@@ -99,6 +99,10 @@ pub mod board_check;
 #[cfg(feature = "typed-core")]
 #[doc(hidden)]
 pub mod reach_check;
+/// The offline duals of the ported faction packages (wave C).
+#[cfg(feature = "typed-core")]
+#[doc(hidden)]
+pub mod core_factions;
 /// The adapter half of `cargo xtask gen-cards` (docs/CONTENT_GENERATOR.md): the id string of every
 /// core enum variant and the display text.
 #[cfg(feature = "typed-core")]
