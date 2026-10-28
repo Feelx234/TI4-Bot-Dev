@@ -1136,6 +1136,7 @@ impl Resolver {
                         ability.id
                     ));
                     crate::kernel_sync::trace::effect_begin(&ability.id);
+                    crate::dual_window::note_effect();
                     let effect_result = (ability.effect)(event, self);
                     crate::kernel_sync::trace::effect_end(event.cancelled);
                     effect_result?;
@@ -1208,6 +1209,7 @@ impl Resolver {
                         ability.id
                     ));
                     crate::kernel_sync::trace::effect_begin(&ability.id);
+                    crate::dual_window::note_effect();
                     let effect_result = if let Some(effect) = ability.stateful_effect {
                         effect(event, self, context)
                     } else {

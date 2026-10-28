@@ -298,9 +298,13 @@ pub fn flip_plots(state: &mut GameState, owner: &PlayerId) {
     write_plots(state, owner, &cards);
 }
 
+pub fn puppeted(state: &GameState, owner: &PlayerId) -> BTreeSet<PlayerId> {
+    crate::cc_dual!(crate::dual::HookGroup::Direct, "firmament::puppeted", puppeted_text(state, owner), crate::core_factions::cc::firmament_puppeted(state, owner))
+}
+
 /// The players whose control tokens are on any of `owner`'s plot cards (the puppeted players).
 #[must_use]
-pub fn puppeted(state: &GameState, owner: &PlayerId) -> BTreeSet<PlayerId> {
+pub fn puppeted_text(state: &GameState, owner: &PlayerId) -> BTreeSet<PlayerId> {
     plots(state, owner)
         .into_iter()
         .flat_map(|card| card.tokens)
@@ -437,11 +441,15 @@ fn has_viper_on(
         .any(|unit| &unit.owner == player && unit.type_id.as_str() == MECH)
 }
 
+pub fn viper_open(state: &GameState, invader: &PlayerId, system: &SystemId, planet: &PlanetId) -> bool {
+    crate::cc_dual!(crate::dual::HookGroup::Direct, "firmament::viper_open", viper_open_text(state, invader, system, planet), crate::core_factions::cc::firmament_viper_open(state, invader, system, planet))
+}
+
 /// Whether the Viper's choice is open for `invader`, whose ground forces (a Viper among them) have
 /// been committed to `planet`: another player controls it and the invader is not already coexisting
 /// there. The caller adds the rival-ground-force test it already owns.
 #[must_use]
-pub fn viper_open(
+pub fn viper_open_text(
     state: &GameState,
     invader: &PlayerId,
     system: &SystemId,
@@ -456,10 +464,14 @@ pub fn viper_open(
             .is_some_and(|holder| holder != invader)
 }
 
+pub fn viper_defender_open(state: &GameState, defender: &PlayerId, invader: &PlayerId, system: &SystemId, planet: &PlanetId) -> bool {
+    crate::cc_dual!(crate::dual::HookGroup::Direct, "firmament::viper_defender_open", viper_defender_open_text(state, defender, invader, system, planet), crate::core_factions::cc::firmament_viper_defender_open(state, defender, invader, system, planet))
+}
+
 /// Whether the Viper's choice is open for `defender`, whose Viper stands on `planet` when `invader`
 /// commits ground forces there and whose units are not already coexisting. The defender decides.
 #[must_use]
-pub fn viper_defender_open(
+pub fn viper_defender_open_text(
     state: &GameState,
     defender: &PlayerId,
     invader: &PlayerId,
@@ -575,12 +587,16 @@ fn moved_ships(state: &GameState) -> std::collections::BTreeMap<String, u32> {
     moved
 }
 
+pub fn space_cannon_silenced(state: &GameState, content: &ContentStore, sources: SourceSet, active: &PlayerId, system: &SystemId) -> bool {
+    crate::cc_dual!(crate::dual::HookGroup::Direct, "firmament::space_cannon_silenced", space_cannon_silenced_text(state, content, sources, active, system), crate::core_factions::cc::firmament_space_cannon_silenced(state, sources, active, system))
+}
+
 /// SPACE CANNON cannot be used against the ships that moved during an activation Myru Vos covers.
 /// Ships that were already in the system and did not move are not covered, so while the mover has
 /// one there the guns still fire (the engine's units are interchangeable values with no identity,
 /// so the hits then fall as the mover assigns them; see the evidence file).
 #[must_use]
-pub fn space_cannon_silenced(
+pub fn space_cannon_silenced_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1255,27 +1271,15 @@ pub(crate) fn timing_abilities(
 
 #[cfg(test)]
 pub(crate) mod testkit {
-    use ti4_content::ContentStore;
+    pub(crate) use crate::factions::shared_testkit::{a, b, c, content};
     use ti4_content::galaxy::Galaxy;
     use ti4_model::content_types::DEFAULT;
     use ti4_model::id::{PlayerId, SystemId};
     use ti4_model::state::GameState;
 
-    pub(crate) fn a() -> PlayerId {
-        PlayerId::new("a")
-    }
-    pub(crate) fn b() -> PlayerId {
-        PlayerId::new("b")
-    }
-    pub(crate) fn c() -> PlayerId {
-        PlayerId::new("c")
-    }
-    pub(crate) fn content() -> &'static ContentStore {
-        ContentStore::embedded()
-    }
     /// `a` the Firmament, `b` Sol, `c` Hacan.
     pub(crate) fn game() -> GameState {
-        crate::fixtures::seated_game(&[("a", "firmament"), ("b", "sol"), ("c", "hacan")], DEFAULT)
+        super::super::shared_testkit::trio("firmament")
     }
     /// A one-ring map: `centre` with `ring` (six systems) around it, tiles of the whole corpus.
     pub(crate) fn ring(centre: &str, ring: &[&str]) -> Galaxy {

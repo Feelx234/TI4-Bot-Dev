@@ -149,7 +149,7 @@ impl ModifierRow {
 
 /// Of `rows`, the sum of the [`RowKind::CancelOnSustain`] amounts that hold for `who`.
 #[must_use]
-pub fn cancel_on_sustain(q: Q<'_>, rows: &[ModifierRow], who: Seat) -> i64 {
+pub fn cancel_on_sustain(q: Q<'_>, rows: &[&ModifierRow], who: Seat) -> i64 {
     rows.iter()
         .filter(|r| matches!(r.kind, RowKind::CancelOnSustain(_)))
         .map(|r| r.amount(r.times(q, who, SeatSet::EMPTY, None, 0)))
@@ -158,7 +158,7 @@ pub fn cancel_on_sustain(q: Q<'_>, rows: &[ModifierRow], who: Seat) -> i64 {
 
 /// Whether some row of `rows` grants SUSTAIN DAMAGE to `who`'s non-fighter units.
 #[must_use]
-pub fn grants_sustain(q: Q<'_>, rows: &[ModifierRow], who: Seat) -> bool {
+pub fn grants_sustain(q: Q<'_>, rows: &[&ModifierRow], who: Seat) -> bool {
     rows.iter().any(|r| r.kind == RowKind::GrantsSustain && r.times(q, who, SeatSet::EMPTY, None, 0) > 0)
 }
 

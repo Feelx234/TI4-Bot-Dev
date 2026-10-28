@@ -1117,7 +1117,16 @@ fn can_copy_milor(
 /// Brother Omar, unlock: "Use one of your faction abilities." Recorded by Indoctrination and
 /// Devotion, the faction's two abilities, when they resolve. The commander's own text is not
 /// implemented (no route), so the leader is not claimed in [`MODULE`].
-fn commander_unlocked(
+fn commander_unlocked(state: &GameState, content: &ContentStore, sources: SourceSet, galaxy: Option<&ti4_content::galaxy::Galaxy>, player: &PlayerId, leader: &LeaderId) -> Option<bool> {
+    crate::cb_dual!(
+        crate::dual::HookGroup::General,
+        "yin::commander_unlocked",
+        commander_unlocked_text(state, content, sources, galaxy, player, leader),
+        crate::core_factions::cd::yin_commander_unlocked(state, player, leader)
+    )
+}
+
+fn commander_unlocked_text(
     state: &GameState,
     _content: &ContentStore,
     _sources: SourceSet,
@@ -1137,7 +1146,16 @@ fn commander_active(state: &GameState, player: &PlayerId) -> bool {
 }
 
 /// Brother Omar: "This card satisfies a green technology prerequisite."
-fn extra_prerequisite_colours(
+fn extra_prerequisite_colours(state: &GameState, content: &ContentStore, player: &PlayerId) -> Vec<(String, usize)> {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Strategy,
+        "yin::extra_prerequisite_colours",
+        extra_prerequisite_colours_text(state, content, player),
+        crate::core_factions::cd::yin_extra_prerequisite_colours(state, player)
+    )
+}
+
+fn extra_prerequisite_colours_text(
     state: &GameState,
     _content: &ContentStore,
     player: &PlayerId,
@@ -1192,7 +1210,16 @@ fn infantry_payments(
 
 /// Brother Omar: "When you research a tech owned by another player, you may return 1 of your
 /// infantry to reinforcements to ignore its prerequisites."
-fn research_waiver_offer(
+fn research_waiver_offer(state: &GameState, content: &ContentStore, player: &PlayerId, tech: &TechnologyId) -> Option<ResearchWaiver> {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Strategy,
+        "yin::research_waiver_offer",
+        research_waiver_offer_text(state, content, player, tech),
+        crate::core_factions::cd::yin_research_waiver_offer(state, player, tech)
+    )
+}
+
+fn research_waiver_offer_text(
     state: &GameState,
     content: &ContentStore,
     player: &PlayerId,
@@ -1218,6 +1245,21 @@ fn research_waiver_offer(
 /// Pay the player-selected infantry. The payment target is recomputed and revalidated before any
 /// mutation, so a stale choice fails without granting the technology.
 fn research_waiver_paid(
+    state: &mut GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+    tech: &TechnologyId,
+    payment: &str,
+) -> bool {
+    #[cfg(feature = "typed-core")]
+    return crate::core_factions::cd::dual_yin_research_waiver_paid(state, ti4_model::content_types::FULL, player, tech, payment, |s| {
+        research_waiver_paid_text(s, content, player, tech, payment)
+    });
+    #[cfg(not(feature = "typed-core"))]
+    research_waiver_paid_text(state, content, player, tech, payment)
+}
+
+fn research_waiver_paid_text(
     state: &mut GameState,
     content: &ContentStore,
     player: &PlayerId,

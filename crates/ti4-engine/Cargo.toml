@@ -32,9 +32,15 @@ typed-core = ["dep:ti4-engine-core", "dep:ti4-engine-core-factions"]
 # (a default feature, which a dependent cannot turn off) is compiled in. For A/B and spot checks:
 # `cargo build -p ti4-selfplay --features ti4-engine/string-movement`.
 string-movement = []
+# The same off switch for the objectives area (`objectives_core`; package A4).
+string-objectives = []
 # The same for the faction modules (`Area::Factions`, wave C): forces the string `factions::MODULES` dispatch.
 # Read by `AreaMask::build_default` once the first shard is switched to `Core`.
 string-factions = []
+# The same off switch for the trade area (`trade_core`; package B4).
+string-trade = []
+# The same off switch for the exploration / relics / promissory area (`explore_core`; package B5).
+string-exploration = []
 # The same off switch for the strategy area (`strategy_view`; package B8).
 string-strategy = []
 # The same off switch for the agenda area (`agenda_view`; package B9).

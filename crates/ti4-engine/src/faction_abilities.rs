@@ -59,7 +59,7 @@ pub fn blocked() -> BTreeMap<&'static str, &'static str> {
 
 /// Ability ids this player has, through their faction.
 #[must_use]
-pub fn of_player(state: &GameState, content: &ContentStore, player: &PlayerId) -> Vec<String> {
+fn of_player_text(state: &GameState, content: &ContentStore, player: &PlayerId) -> Vec<String> {
     let Some(seat) = state.player(player) else {
         return Vec::new();
     };
@@ -76,10 +76,206 @@ pub fn of_player(state: &GameState, content: &ContentStore, player: &PlayerId) -
 
 /// Whether this player has a particular ability.
 #[must_use]
-pub fn has(state: &GameState, content: &ContentStore, player: &PlayerId, ability: &str) -> bool {
-    of_player(state, content, player)
+fn has_text(state: &GameState, content: &ContentStore, player: &PlayerId, ability: &str) -> bool {
+    of_player_text(state, content, player)
         .iter()
         .any(|id| id == ability)
+}
+
+// -- typed backend (package B7: `rules::abilities`) ----------------------------------------------
+
+/// The typed view of a position for the ability reads of a string call site.
+#[cfg(feature = "typed-core")]
+fn view<'a>(
+    state: &'a GameState,
+    content: &'a ContentStore,
+    sources: SourceSet,
+) -> Option<crate::leaders_view::LeaderView<'a>> {
+    crate::leaders_view::LeaderView::of(state, Some(content), sources, None, crate::leaders_view::READS_ABILITIES)
+}
+
+macro_rules! typed_ability {
+    ($label:literal, $state:expr, $content:expr, $sources:expr, |$v:ident| $typed:expr, $string:expr) => {{
+        #[cfg(feature = "typed-core")]
+        let typed = || view($state, $content, $sources).and_then(|$v| $typed);
+        #[cfg(not(feature = "typed-core"))]
+        let typed = || None;
+        crate::dual_typed!(crate::dual::Area::LeadersAbilities, $label, typed(), $string)
+    }};
+}
+
+/// Ability ids this player has, through their faction.
+#[must_use]
+pub fn of_player(state: &GameState, content: &ContentStore, player: &PlayerId) -> Vec<String> {
+    typed_ability!(
+        "faction_abilities::of_player",
+        state,
+        content,
+        ti4_model::content_types::FULL,
+        |v| v.abilities_of(player),
+        of_player_text(state, content, player)
+    )
+}
+
+/// Whether this player has a particular ability.
+#[must_use]
+pub fn has(state: &GameState, content: &ContentStore, player: &PlayerId, ability: &str) -> bool {
+    typed_ability!(
+        "faction_abilities::has",
+        state,
+        content,
+        ti4_model::content_types::FULL,
+        |v| v.has_ability(player, ability),
+        has_text(state, content, player, ability)
+    )
+}
+
+/// Shift applied to each of this player's combat dice, in `context` ("space" or "ground").
+#[must_use]
+pub fn combat_modifier(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+    context: &str,
+) -> i64 {
+    typed_ability!(
+        "faction_abilities::combat_modifier",
+        state,
+        content,
+        ti4_model::content_types::FULL,
+        |v| v.combat_modifier(player, context),
+        combat_modifier_text(state, content, player, context)
+    )
+}
+
+/// The limit on non-fighter ships in one system, adjusted by anything this player has.
+#[must_use]
+pub fn fleet_supply(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+    base: i32,
+) -> i32 {
+    typed_ability!(
+        "faction_abilities::fleet_supply",
+        state,
+        content,
+        ti4_model::content_types::FULL,
+        |v| v.fleet_supply(player, base),
+        fleet_supply_text(state, content, player, base)
+    )
+}
+
+/// How many ships Armada adds to the per-system limit for this player (0 without the ability).
+#[must_use]
+pub fn armada_bonus(state: &GameState, content: &ContentStore, player: &PlayerId) -> i32 {
+    typed_ability!(
+        "faction_abilities::armada_bonus",
+        state,
+        content,
+        ti4_model::content_types::FULL,
+        |v| v.armada_bonus(player),
+        armada_bonus_text(state, content, player)
+    )
+}
+
+/// Command tokens gained in the status phase, adjusted.
+#[must_use]
+pub fn status_tokens(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+    base: i32,
+) -> i32 {
+    typed_ability!(
+        "faction_abilities::status_tokens",
+        state,
+        content,
+        ti4_model::content_types::FULL,
+        |v| v.status_tokens(player, base),
+        status_tokens_text(state, content, player, base)
+    )
+}
+
+/// Prerequisites this player may skip when researching `technology`.
+#[must_use]
+pub fn waived_prerequisites(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    technology: &str,
+) -> usize {
+    typed_ability!(
+        "faction_abilities::waived_prerequisites",
+        state,
+        content,
+        sources,
+        |v| v.waived_prerequisites(player, technology),
+        waived_prerequisites_text(state, content, sources, player, technology)
+    )
+}
+
+/// Strategy-card secondaries this player resolves as the *primary* instead.
+#[must_use]
+pub fn substitutes_primary(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+    card: Option<ti4_content::StrategyCardKind>,
+) -> bool {
+    typed_ability!(
+        "faction_abilities::substitutes_primary",
+        state,
+        content,
+        ti4_model::content_types::FULL,
+        |v| v.substitutes_primary(player, card),
+        substitutes_primary_text(state, content, player, card)
+    )
+}
+
+/// Whether this player may include an action card in a transaction (94.3's exception).
+#[must_use]
+pub fn trades_action_cards(state: &GameState, content: &ContentStore, player: &PlayerId) -> bool {
+    typed_ability!(
+        "faction_abilities::trades_action_cards",
+        state,
+        content,
+        ti4_model::content_types::FULL,
+        |v| v.trades_action_cards(player),
+        trades_action_cards_text(state, content, player)
+    )
+}
+
+/// Whether this player may transact with anybody, not only their neighbours.
+#[must_use]
+pub fn ignores_neighbours(state: &GameState, content: &ContentStore, player: &PlayerId) -> bool {
+    typed_ability!(
+        "faction_abilities::ignores_neighbours",
+        state,
+        content,
+        ti4_model::content_types::FULL,
+        |v| v.ignores_neighbours(player),
+        ignores_neighbours_text(state, content, player)
+    )
+}
+
+/// Whether a strategy card's secondary costs this player no token.
+#[must_use]
+pub fn secondary_is_free(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+    card: Option<ti4_content::StrategyCardKind>,
+) -> bool {
+    typed_ability!(
+        "faction_abilities::secondary_is_free",
+        state,
+        content,
+        ti4_model::content_types::FULL,
+        |v| v.secondary_is_free(player, card),
+        secondary_is_free_text(state, content, player, card)
+    )
 }
 
 // -- the hooks -----------------------------------------------------------------------------------
@@ -90,13 +286,13 @@ pub fn has(state: &GameState, content: &ContentStore, player: &PlayerId, ability
 
 /// Shift applied to each of this player's combat dice, in `context` ("space" or "ground").
 #[must_use]
-pub fn combat_modifier(
+fn combat_modifier_text(
     state: &GameState,
     content: &ContentStore,
     player: &PlayerId,
     context: &str,
 ) -> i64 {
-    of_player(state, content, player)
+    of_player_text(state, content, player)
         .iter()
         .map(|ability| match ability.as_str() {
             // Jol-Nar's Fragile: -1 to every combat roll, in space and on the ground.
@@ -112,13 +308,13 @@ pub fn combat_modifier(
 
 /// The limit on non-fighter ships in one system, adjusted by anything this player has.
 #[must_use]
-pub fn fleet_supply(
+fn fleet_supply_text(
     state: &GameState,
     content: &ContentStore,
     player: &PlayerId,
     base: i32,
 ) -> i32 {
-    let limit = of_player(state, content, player)
+    let limit = of_player_text(state, content, player)
         .iter()
         .fold(base, |limit, ability| match ability.as_str() {
             // Letnev's Armada: two more non-fighter ships than the fleet pool allows.
@@ -131,8 +327,8 @@ pub fn fleet_supply(
 /// How many ships Armada adds to the per-system limit for this player (0 without the ability).
 /// Display only: [`fleet_supply`] already includes it in the enforced limit.
 #[must_use]
-pub fn armada_bonus(state: &GameState, content: &ContentStore, player: &PlayerId) -> i32 {
-    if has(state, content, player, "armada") {
+fn armada_bonus_text(state: &GameState, content: &ContentStore, player: &PlayerId) -> i32 {
+    if has_text(state, content, player, "armada") {
         2
     } else {
         0
@@ -141,13 +337,13 @@ pub fn armada_bonus(state: &GameState, content: &ContentStore, player: &PlayerId
 
 /// Command tokens gained in the status phase, adjusted.
 #[must_use]
-pub fn status_tokens(
+fn status_tokens_text(
     state: &GameState,
     content: &ContentStore,
     player: &PlayerId,
     base: i32,
 ) -> i32 {
-    let count = of_player(state, content, player)
+    let count = of_player_text(state, content, player)
         .iter()
         .fold(base, |count, ability| match ability.as_str() {
             // Sol's Versatile: one more token every status phase.
@@ -175,7 +371,7 @@ pub fn status_tokens(
 /// II needs two blue — so a lookup that waived a slot for any technology would let Jol-Nar
 /// research upgrades this ability was never meant to touch.
 #[must_use]
-pub fn waived_prerequisites(
+fn waived_prerequisites_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -189,7 +385,7 @@ pub fn waived_prerequisites(
     // opened for them and a Jol-Nar researched Carrier II on one blue. A prior guess at a
     // `unitUpgrade` key matched nothing, which made the ability waive for upgrades too and the
     // test that was meant to catch it vacuous.
-    of_player(state, content, player)
+    of_player_text(state, content, player)
         .iter()
         .map(|ability| match ability.as_str() {
             // Analytical waives; Brilliant does not. Brilliant swaps the Technology *secondary*
@@ -209,13 +405,13 @@ pub fn waived_prerequisites(
 /// ability written to apply everywhere: a faction that could swap any secondary for its primary
 /// would be playing a different game.
 #[must_use]
-pub fn substitutes_primary(
+fn substitutes_primary_text(
     state: &GameState,
     content: &ContentStore,
     player: &PlayerId,
     card: Option<ti4_content::StrategyCardKind>,
 ) -> bool {
-    of_player(state, content, player).iter().any(|ability| {
+    of_player_text(state, content, player).iter().any(|ability| {
         matches!(ability.as_str(), "brilliant")
             && card == Some(ti4_content::StrategyCardKind::Technology)
     }) || crate::factions::substitutes_primary(state, content, player, card)
@@ -288,29 +484,29 @@ pub fn control_gained(
 
 /// Whether this player may include an action card in a transaction (94.3's exception).
 #[must_use]
-pub fn trades_action_cards(state: &GameState, content: &ContentStore, player: &PlayerId) -> bool {
+fn trades_action_cards_text(state: &GameState, content: &ContentStore, player: &PlayerId) -> bool {
     // Hacan's Arbiters.
-    has(state, content, player, "arbiters")
+    has_text(state, content, player, "arbiters")
         || crate::factions::trades_action_cards(state, content, player)
 }
 
 /// Whether this player may transact with anybody, not only their neighbours.
 #[must_use]
-pub fn ignores_neighbours(state: &GameState, content: &ContentStore, player: &PlayerId) -> bool {
+fn ignores_neighbours_text(state: &GameState, content: &ContentStore, player: &PlayerId) -> bool {
     // Hacan's Guild Ships.
-    has(state, content, player, "guild_ships")
+    has_text(state, content, player, "guild_ships")
         || crate::factions::ignores_neighbours(state, content, player)
 }
 
 /// Whether a strategy card's secondary costs this player no token.
 #[must_use]
-pub fn secondary_is_free(
+fn secondary_is_free_text(
     state: &GameState,
     content: &ContentStore,
     player: &PlayerId,
     card: Option<ti4_content::StrategyCardKind>,
 ) -> bool {
-    of_player(state, content, player).iter().any(|ability| {
+    of_player_text(state, content, player).iter().any(|ability| {
         match ability.as_str() {
             // Xxcha's Peace Accords are about Diplomacy; Hacan's Masters of Trade waive Trade.
             "master_of_trade" => card == Some(ti4_content::StrategyCardKind::Trade),

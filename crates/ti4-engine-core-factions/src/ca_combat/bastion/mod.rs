@@ -14,3 +14,9 @@ pub fn register(t: &mut HookTable) {
     observe::register(t);
     offer::register(t);
 }
+
+/// Only the observers (ship-lost note and take, retreat clearing): for a window that still takes the
+/// unit-level queries from the string engine (package B1's bridge).
+pub fn register_observers(t: &mut HookTable) {
+    observe::register(t);
+}

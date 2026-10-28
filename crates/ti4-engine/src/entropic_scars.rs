@@ -53,6 +53,22 @@ use crate::decision_context::{DecisionContext, DecisionSource};
 /// Whether this system is an entropic scar.
 #[must_use]
 pub fn is_scar(content: &ContentStore, sources: SourceSet, system: &SystemId) -> bool {
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::technology_core::is_scar(sources, system.as_str());
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Technology,
+        "entropic_scars::is_scar",
+        typed(),
+        is_scar_text(content, sources, system)
+    )
+}
+
+/// [`is_scar`] from the system record: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn is_scar_text(content: &ContentStore, sources: SourceSet, system: &SystemId) -> bool {
     ti4_content::galaxy::system(content, system.as_str(), sources)
         .is_some_and(|tile| tile.is_scar())
 }
@@ -144,7 +160,16 @@ pub fn grants_available(
     let tokens = state.player(player).map_or(0, |seat| {
         usize::try_from(seat.tokens(TokenPool::Strategic)).unwrap_or(0)
     });
-    let wanted = unowned_faction_technologies(state, content, sources, player).len();
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::technology_core::unowned_faction_technologies_count(state, sources, player);
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    let wanted = crate::dual_typed!(
+        crate::dual::Area::Technology,
+        "entropic_scars::unowned_faction_technologies",
+        typed(),
+        unowned_faction_technologies(state, content, sources, player).len()
+    );
     scars.min(tokens).min(wanted)
 }
 

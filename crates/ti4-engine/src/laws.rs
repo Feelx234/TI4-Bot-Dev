@@ -416,7 +416,16 @@ fn is_war_sun_technology(content: &ContentStore, alias: &ti4_model::id::Technolo
 /// of the game, including after the law is repealed.
 #[must_use]
 pub fn sustain_suppressed(state: &GameState, base_type: &str) -> bool {
-    base_type == "warsun" && active(state, "schematics")
+    #[cfg(feature = "typed-core")]
+    let typed = || crate::board_view::BoardView::light(state).and_then(|v| v.sustain_suppressed(base_type));
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::Combat,
+        "laws::sustain_suppressed",
+        typed(),
+        base_type == "warsun" && active(state, "schematics")
+    )
 }
 
 /// Minister of Sciences: its owner researches without spending resources.

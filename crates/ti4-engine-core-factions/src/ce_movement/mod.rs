@@ -27,3 +27,8 @@ pub const MOVEMENT: Modules = &[
     (Id::Nomad, nomad::register_movement),
     (Id::Saar, saar::register_movement),
 ];
+
+pub(crate) mod readers;
+
+#[cfg(test)]
+pub(crate) use crate::common::testkit;

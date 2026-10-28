@@ -21,6 +21,7 @@ use ti4_model::state::GameState;
 
 use crate::core_sync::{CoreView, Ctx, Sources};
 use crate::fleet::Standing;
+use crate::core_adapter::typed;
 use crate::generated::IdStr;
 use crate::production::Spend;
 
@@ -39,9 +40,6 @@ pub struct BoardView {
     blanked: bool,
 }
 
-fn typed<T: IdStr>(id: &str) -> Option<T> {
-    T::from_id(id)
-}
 
 fn spend(s: Spend) -> CoreSpend {
     match s {
@@ -298,6 +296,13 @@ impl BoardView {
     #[must_use]
     pub fn law_active(&self, alias: &str) -> Option<bool> {
         Some(query::laws::active(&self.view, self.blanked, Self::law(alias)?))
+    }
+
+    /// `laws::sustain_suppressed`.
+    #[must_use]
+    pub fn sustain_suppressed(&self, base_type: &str) -> Option<bool> {
+        let base = typed::<ti4_engine_core::generated::UnitBaseType>(base_type)?;
+        Some(ti4_engine_core::rules::combat::sustain_suppressed(&self.view, self.blanked, base))
     }
 
     /// `laws::holds_ministry`.

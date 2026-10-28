@@ -717,7 +717,16 @@ fn awaken(owner_name: &str, seat: &PlayerId) -> Ability {
 /// beside another player's units this activation, and the invader still has units. The invasion
 /// makes them fight there although nothing was committed. (The space half needs nothing: every ship
 /// the active player has in the active system takes part in its space combat, Ouranos included.)
-fn forced_combat_planets(
+fn forced_combat_planets(state: &GameState, content: &ContentStore, sources: SourceSet, invader: &PlayerId, system: &SystemId) -> Vec<PlanetId> {
+    crate::cb_dual!(
+        crate::dual::HookGroup::Ground,
+        "titans::forced_combat_planets",
+        forced_combat_planets_text(state, content, sources, invader, system),
+        crate::core_factions::cd::titans_forced_combat_planets(state, sources, invader, system)
+    )
+}
+
+fn forced_combat_planets_text(
     state: &GameState,
     content: &ContentStore,
     _sources: SourceSet,

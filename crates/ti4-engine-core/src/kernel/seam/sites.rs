@@ -16,6 +16,10 @@ pub enum RollKind {
     Barrage,
     Bombardment,
     Ground,
+    /// The Assail term alone of a SPACE CANNON roll: the string clamps the value at 1 between Assail and
+    /// Antimass Deflectors, so the two cannot share one `SpaceCannon` evaluation. Only the plot providers
+    /// answer this kind.
+    CannonAssail,
 }
 
 /// A site that rows ([`ModifierRow`]) can be evaluated at: how many times the row applies, 0 for never.
