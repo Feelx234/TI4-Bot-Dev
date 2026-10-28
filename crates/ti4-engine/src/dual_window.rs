@@ -644,7 +644,7 @@ pub fn custodians(
     }
     let paid_yes = script.questions.first().and_then(|q| q.answer.as_deref()) == Some("yes")
         && crate::invasion::custodians_cost(gs, ti4_content::ContentStore::embedded(), invader) != 0;
-    if paid_yes && crate::production_view::unported_window(gs) {
+    if paid_yes && crate::production_view::unported_window(gs, invader) {
         crate::dual::note_bail(LABEL, "paid removal at a table with a faction the production window does not carry");
         return None;
     }
