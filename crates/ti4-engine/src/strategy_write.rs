@@ -117,6 +117,25 @@ pub fn lay_out_mat(state: &mut GameState, cards: &[StrategyCardId]) {
     );
 }
 
+/// The commodity write of `strategy_cards::replenish`: the seat's commodities go to `limit`; returns how many
+/// were gained. The announcements after it (Siphon, Cabal, Trade Agreement) stay with the caller.
+pub fn replenish(state: &mut GameState, player: &PlayerId, limit: i32) -> i32 {
+    write(
+        Area::Strategy,
+        state,
+        "strategy.replenish",
+        |s| {
+            let mut gained = 0;
+            if let Some(seat) = s.player_mut(player) {
+                gained = (limit - seat.commodities).max(0);
+                seat.commodities = limit;
+            }
+            gained
+        },
+        |s| real::replenish(s, player, limit),
+    )
+}
+
 /// `strategy::exchange_strategy_cards` once its checks passed on the string side.
 pub fn exchange(
     state: &mut GameState,
@@ -196,6 +215,15 @@ mod real {
         lend(gs, &[], &[], |core, _, _| rules::lay_out_mat(core, &list))
     }
 
+    pub fn replenish(gs: &mut GameState, p: &PlayerId, limit: i32) -> Option<i32> {
+        // The core replenishes to the faction's printed value: another limit is the string's.
+        let r = lend(gs, &[], &[p], |core, w, _| {
+            let printed = core.players().by_seat(w[0]).map(|pl| i32::from(pl.faction.data().commodities));
+            (printed == Some(limit)).then(|| rules::replenish(core, w[0]))
+        })?;
+        r
+    }
+
     pub fn exchange(
         gs: &mut GameState,
         a: &PlayerId,
@@ -232,6 +260,9 @@ mod real {
         None
     }
     pub fn lay_out_mat(_: &mut GameState, _: &[StrategyCardId]) -> Option<()> {
+        None
+    }
+    pub fn replenish(_: &mut GameState, _: &PlayerId, _: i32) -> Option<i32> {
         None
     }
     pub fn exchange(

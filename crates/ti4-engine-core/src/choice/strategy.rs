@@ -7,12 +7,21 @@
 
 /// What the area asks. Parameters only; the option list is derived by `opts(state, ask)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Ask {}
+pub enum Ask {
+    /// Trade primary: "let another player replenish commodities" (one seat per question, until none is
+    /// left that can or the holder is done).
+    TradeReplenish,
+}
 
 /// One answer the area offers (not stored in the state).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Opt {}
+pub enum Opt {
+    /// Trade primary: this seat replenishes (the end of the list is the generic `Done`).
+    Replenish(crate::ids::Seat),
+}
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Subtype {}
+pub enum Subtype {
+    TradeReplenish,
+}

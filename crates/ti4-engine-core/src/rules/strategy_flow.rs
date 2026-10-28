@@ -110,6 +110,18 @@ pub fn stock_unclaimed(core: &mut CoreState) {
     }
 }
 
+/// `strategy_cards::replenish` without the announcements: the commodities go to the faction's printed value
+/// (`commodity_limit`; a seat above it is set down to it, as the string does). Returns how many were gained.
+/// `0` for a seat that is not there. The Siphon event, Cabal's replenish note and the Trade Agreement hook are
+/// the string callers' (the adapter bails where one applies).
+pub fn replenish(core: &mut CoreState, who: Seat) -> i32 {
+    let Some(p) = core.players_mut().by_seat_mut(who) else { return 0 };
+    let limit = i16::from(p.faction.data().commodities);
+    let gained = (limit - p.econ.commodities).max(0);
+    p.econ.commodities = limit;
+    i32::from(gained)
+}
+
 /// The mat of `phase::begin_next_round`: `cards` in the order given, without the ones a seat under Political
 /// Stability keeps; the initiative overrides lapse.
 pub fn lay_out_mat(core: &mut CoreState, cards: &[StrategyCard]) {

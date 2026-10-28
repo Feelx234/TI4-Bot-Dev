@@ -2219,18 +2219,37 @@ pub(crate) fn commander_payment_offer(
 
 pub(crate) fn replenish(state: &mut GameState, content: &ContentStore, player: &PlayerId) {
     let limit = commodity_limit(state, content, player);
-    let mut gained = 0;
-    if let Some(seat) = state.player_mut(player) {
-        gained = (limit - seat.commodities).max(0);
-        seat.commodities = limit;
-    }
+    let gained = crate::strategy_write::replenish(state, player, limit);
     // Siphon (Obsidian plot): the commodities gained, announced before Trade Agreement can take them.
     crate::supply::note_commodities_gained(state, player, gained);
     // Trade Agreement: "When the <color> player replenishes commodities".
     crate::promissory::trade_agreement_on_replenish(state, player);
 }
 
-fn trade_primary(
+/// The Trade primary beside its core window (`strategy_core::trade_primary`).
+pub(crate) fn trade_primary(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        "strategy_cards::trade_primary",
+        state,
+        |state: &mut GameState| {
+            result = trade_primary_string(state, content, sources, galaxy, table, player);
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_core::trade_primary(state, player, script)
+    );
+    result
+}
+
+fn trade_primary_string(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
