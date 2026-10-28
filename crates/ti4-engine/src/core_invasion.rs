@@ -255,13 +255,25 @@ impl InvasionView<'_> {
 
 /// The ground hook slots of the faction packages (`ti4_engine_core_factions`), taken from a table of their own
 /// so the seam providers the combat kernel carries are not registered twice. Only the Naalu Matriarch's
-/// `temporary_ground_force` is still answered by the string module (through the oracle of the combat bridge);
+/// `temporary_ground_force` and the generic `may_sustain` prohibitions are still answered by the string modules (through the oracle of the combat bridge);
 /// it dies with its shard.
 fn register_ground_slots(h: &mut ti4_engine_core::kernel::hooks::HookTable) {
     use crate::core_combat::with_oracle;
     let mut native = ti4_engine_core::kernel::hooks::HookTable::new();
     ti4_engine_core_factions::register_all(&mut native);
     h.ground = native.ground;
+    // The generic prohibitions of `factions::hooks_combat` (a law or card that takes SUSTAIN DAMAGE away) have no
+    // native provider yet: the string answer, through the oracle of the combat bridge.
+    h.ground.may_sustain.push(|_, _, unit| {
+        with_oracle(|o| {
+            o.with_unit(unit, |cu| {
+                let cu = crate::factions::CombatUnit { context: if unit.ctx == ti4_engine_core::kernel::hooks::CombatCtx::Space { "space" } else { "ground" }, ..*cu };
+                crate::factions::hooks_ground::may_sustain(&o.gs, ContentStore::embedded(), o.sources, &cu)
+            })
+        })
+        .flatten()
+        .unwrap_or(true)
+    });
     h.ground.temporary_ground_force.push(|_, _, who, system, planet, piece| {
         with_oracle(|o| {
             let (player, unit) = (o.player(who)?, StrUnit {
