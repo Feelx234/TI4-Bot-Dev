@@ -11,10 +11,10 @@
 use super::pay::PayStep;
 use super::{price, Cx, Extras, placed_of};
 use crate::choice::generic::Rule;
-use crate::choice::production::{Ask as PAsk, EconomyAsk, Opt as POpt, Shown, SlingAsk, SlingShipAsk, Subtype as PSub};
+use crate::choice::production::{Ask as PAsk, EconomyAsk, HeroAsk, Opt as POpt, Shown, SlingAsk, SlingShipAsk, Subtype as PSub};
 use crate::choice::{Ask, Choice, Ctx, Opt, Origin, Owed, Pick, Subtype, Target};
 use crate::containers::SmallList;
-use crate::generated::{Planet, System, Unit, UnitBaseType};
+use crate::generated::{Leader, Planet, System, Unit, UnitBaseType};
 use crate::ids::Seat;
 use crate::kernel::fx;
 use crate::kernel::stage::{Illegal, Sx, Window};
@@ -22,7 +22,7 @@ use crate::kernel::{Kernel, Next};
 use crate::query::economy::Spend;
 use crate::query::fleet::{self, Arrival};
 use crate::query::{board, reach};
-use crate::state::CoreState;
+use crate::state::{CoreState, LeaderStatus};
 use crate::tables::Scope;
 
 fn cx<'a>(s: &'a CoreState, k: &'a Kernel) -> Cx<'a> {
@@ -490,6 +490,92 @@ impl EconomyWindow {
         match self.question(sx.state, sx.kernel) {
             Some(c) => Next::Continue(c.ask),
             None => Next::Done,
+        }
+    }
+}
+
+// -- Harrugh Gefhara ---------------------------------------------------------------------------------------
+
+/// Where the offer has got to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeroStage {
+    Offering,
+    Done,
+}
+
+/// The offer a use of PRODUCTION makes to the Hacan hero (the string `offer_production_hero`): purge Harrugh
+/// Gefhara to make every unit of this use free. The use's sequence number has already advanced, as the caller
+/// does; the marker names it.
+#[derive(Debug, Clone)]
+pub struct HeroOffer {
+    pub who: Seat,
+    pub stage: HeroStage,
+    /// The hero was used.
+    pub used: bool,
+}
+
+impl HeroOffer {
+    #[must_use]
+    pub const fn new(who: Seat) -> Self {
+        Self { who, stage: HeroStage::Offering, used: false }
+    }
+
+    fn unlocked(s: &CoreState, who: Seat) -> bool {
+        s.players().by_seat(who).is_some_and(|p| p.leaders.status.get(&Leader::HarrughGefhara) == Some(&LeaderStatus::Unlocked))
+    }
+
+    fn question(&self, s: &CoreState) -> Option<Choice> {
+        if self.stage == HeroStage::Done || !Self::unlocked(s, self.who) {
+            return None;
+        }
+        let mut opts = crate::choice::Opts::default();
+        opts.push(Opt::Production(POpt::HeroUse));
+        opts.push(Opt::Production(POpt::Decline));
+        let mut c = ctx(s, PSub::HeroFree, None, SmallList::new());
+        c.origin = Origin::FactionAbility(crate::choice::generic::Content::Leader(Leader::HarrughGefhara));
+        Some(Choice { actor: self.who, ask: Ask::Production(PAsk::Hero(HeroAsk { who: self.who })), ctx: c, opts })
+    }
+}
+
+impl Window for HeroOffer {
+    type Stage = HeroStage;
+
+    fn stage(&self) -> HeroStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        match self.question(sx.state) {
+            Some(c) => Next::Continue(c.ask),
+            None => {
+                self.stage = HeroStage::Done;
+                Next::Done
+            }
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> {
+        self.question(s)
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        let Pick::Opt(Opt::Production(opt)) = pick else { return Err(Illegal) };
+        self.stage = HeroStage::Done;
+        match opt {
+            POpt::Decline => Ok(()),
+            POpt::HeroUse => {
+                let seq = sx.state.meta().production_seq;
+                if let Some(p) = sx.state.players_mut().by_seat_mut(self.who) {
+                    p.production_timers.free_production_use.set(Some(seq));
+                    p.leaders.status.insert(Leader::HarrughGefhara, LeaderStatus::Purged);
+                }
+                self.used = true;
+                Ok(())
+            }
+            _ => {
+                self.stage = HeroStage::Offering;
+                Err(Illegal)
+            }
         }
     }
 }

@@ -7264,6 +7264,36 @@ mod tests {
         (state, system, planet)
     }
 
+    /// The documented bails of the triggered productions (docs/ENGINE_KNOWN_ISSUES.md, B3-bail-01..03): a Keleres
+    /// seat (the tier-W agent offer at the payment window), a Naaz producer (the staged `NAAZ_MECH_PLACED` event)
+    /// and a Bastion table (the Last Bastion's docks) keep the string answer; the dual reports a bail, not a
+    /// difference, and the string run is untouched.
+    #[test]
+    fn the_triggered_productions_bail_where_a_tier_w_offer_could_fire() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let content = ContentStore::embedded();
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        with_mask(AreaMask::STRING.with(Area::Production, Backend::Dual), || {
+            for (mine, theirs) in [("sol", "keleresm"), ("naaz", "sardakk"), ("sol", "bastion")] {
+                let (mut state, system, planet) = sling_table();
+                state.player_mut(&player()).unwrap().faction = ti4_model::id::FactionId::new(mine);
+                state.player_mut(&PlayerId::new("b")).unwrap().faction = ti4_model::id::FactionId::new(theirs);
+                let mut table = Table::new();
+                let _ = sling_relay(&mut state.clone(), content, POK, None, &mut table, &player());
+                let mut table = Table::with_default(Box::new(crate::choice::Scripted::new(["done_producing".to_owned()])));
+                let _ = integrated_economy(&mut state, content, POK, None, &mut table, &player(), &system, &planet);
+            }
+        });
+        let r = report();
+        for label in ["production::sling_relay", "production::integrated_economy"] {
+            let w = r.windows.get(label).copied().unwrap_or_default();
+            assert_eq!((w.compared, w.bailed), (0, 3), "{label}: {:?}", r.windows);
+        }
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
     /// Builds `unit` once, pays with trade goods and then declines.
     struct BuildOnce {
         build: &'static str,

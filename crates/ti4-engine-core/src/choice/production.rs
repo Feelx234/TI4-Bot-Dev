@@ -130,6 +130,12 @@ pub struct EconomyAsk {
     pub buildable: [Option<Unit>; 9],
 }
 
+/// Harrugh Gefhara's offer at the start of a use of PRODUCTION: make every unit of this use free.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct HeroAsk {
+    pub who: Seat,
+}
+
 /// What the area asks. Parameters only; the option list is derived by `rules::production::pay_opts`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Ask {
@@ -145,6 +151,8 @@ pub enum Ask {
     SlingShip(SlingShipAsk),
     /// Integrated Economy: choose what to produce.
     Economy(EconomyAsk),
+    /// Harrugh Gefhara: free production, or not.
+    Hero(HeroAsk),
 }
 
 /// One answer the area offers (not stored in the state).
@@ -172,6 +180,10 @@ pub enum Opt {
     SlingShip { unit: Unit, shown: Shown },
     /// Integrated Economy: produce `made` copies of `unit` for `shown.worth` (`build|unit|made`).
     Economy { unit: Unit, made: u8, shown: Shown },
+    /// Harrugh Gefhara: purge the hero, every unit of this use costs 0 (`use`).
+    HeroUse,
+    /// Decline the offer (`decline`).
+    Decline,
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -183,4 +195,5 @@ pub enum Subtype {
     SlingSystem,
     SlingShip,
     Economy,
+    HeroFree,
 }

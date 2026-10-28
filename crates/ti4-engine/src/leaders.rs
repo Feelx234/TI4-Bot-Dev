@@ -924,6 +924,41 @@ pub fn offer_production_hero(
     table: &mut crate::choice::Table,
     player: &PlayerId,
 ) -> Result<bool, crate::choice::IllegalChoice> {
+    // The offer is also a run of the core's `HeroOffer` window on `production=dual` (the question, the answer,
+    // the marker and the purge are compared).
+    let mut outcome: Result<bool, crate::choice::IllegalChoice> = Ok(false);
+    crate::dual_window!(
+        crate::dual::Area::Production,
+        "production::hero_offer",
+        state,
+        |s: &mut GameState| {
+            outcome = offer_production_hero_text(s, content, sources, galaxy, table, player);
+            crate::dual::Run::new(outcome.as_ref().ok().copied().unwrap_or(false))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            #[cfg(feature = "typed-core")]
+            {
+                crate::production_window_dual::hero_offer(s, player, script)
+            }
+            #[cfg(not(feature = "typed-core"))]
+            {
+                let _ = (s, script);
+                None
+            }
+        }
+    );
+    outcome
+}
+
+#[doc(hidden)]
+pub fn offer_production_hero_text(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut crate::choice::Table,
+    player: &PlayerId,
+) -> Result<bool, crate::choice::IllegalChoice> {
     let hero = LeaderId::new("hacanhero");
     let unlocked = state
         .player(player)
@@ -2973,6 +3008,41 @@ mod tests {
                 assert_eq!(owner, "jolnar", "{id} is {owner}'s faction technology");
             }
         }
+    }
+
+    /// The hero offer on `production=dual`: the question (prompt, options, decision context), the answer, the free
+    /// marker and the purge are compared with the core window, for the use, the decline and a hero not unlocked.
+    #[test]
+    fn the_hacan_hero_offer_runs_in_lockstep_on_the_core_window() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let fail_fast = crate::dual::fail_fast();
+        crate::dual::set_fail_fast(true);
+        with_mask(AreaMask::STRING.with(Area::Production, Backend::Dual), || {
+            for (status, answer, expect) in [
+                (LeaderStatus::Unlocked, "use", true),
+                (LeaderStatus::Unlocked, "decline", false),
+                (LeaderStatus::Locked, "use", false),
+            ] {
+                let mut state = game(&["a", "b"]);
+                state.player_mut(&player()).unwrap().faction = ti4_model::id::FactionId::new("hacan");
+                state.player_mut(&PlayerId::new("b")).unwrap().faction = ti4_model::id::FactionId::new("sardakk");
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                holding(&mut state, "hacanhero", status);
+                state.production_seq = 7;
+                let mut table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new([answer.to_owned()])));
+                let used = offer_production_hero(&mut state, ContentStore::embedded(), POK, None, &mut table, &player()).expect("answered");
+                assert_eq!(used, expect);
+            }
+        });
+        crate::dual::set_fail_fast(fail_fast);
+        let r = report();
+        let w = r.windows.get("production::hero_offer").copied().unwrap_or_default();
+        assert_eq!((w.compared, w.bailed), (3, 0), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
     }
 
     #[test]

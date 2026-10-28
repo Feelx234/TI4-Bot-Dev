@@ -49,6 +49,7 @@ impl Family for Fam {
             Ask::SlingSystem(_) => "Sling Relay: produce in which dock system".to_owned(),
             Ask::SlingShip(_) => "Sling Relay: produce one ship".to_owned(),
             Ask::Economy(e) => format!("Integrated Economy on {} ({} cost left)", planet_id(e.planet), e.budget),
+            Ask::Hero(_) => "Harrugh Gefhara: make this use of PRODUCTION free".to_owned(),
         }
     }
 
@@ -60,6 +61,7 @@ impl Family for Fam {
             Subtype::SlingSystem => "sling_relay_system".to_owned(),
             Subtype::SlingShip => "sling_relay_ship".to_owned(),
             Subtype::Economy => "integrated_economy".to_owned(),
+            Subtype::HeroFree => "leader_hacanhero_free_production".to_owned(),
         }
     }
 
@@ -68,7 +70,7 @@ impl Family for Fam {
             Ask::Pay(p) => p,
             Ask::Choose(c) => return build_option(r, &c, o),
             Ask::Place(p) => return place_option(r, &p, o),
-            Ask::SlingSystem(_) | Ask::SlingShip(_) | Ask::Economy(_) => return triggered_option(a, o),
+            Ask::SlingSystem(_) | Ask::SlingShip(_) | Ask::Economy(_) | Ask::Hero(_) => return triggered_option(a, o),
         };
         match *o {
             Opt::Exhaust { planet, source, shown } => {
@@ -111,7 +113,9 @@ impl Family for Fam {
             | Opt::Agent
             | Opt::SlingSystem { .. }
             | Opt::SlingShip { .. }
-            | Opt::Economy { .. } => unreachable!("builds are asked by Ask::Choose"),
+            | Opt::Economy { .. }
+            | Opt::HeroUse
+            | Opt::Decline => unreachable!("builds are asked by Ask::Choose"),
             Opt::Commodity { shown } => {
                 let worth = i64::from(shown.worth);
                 ChoiceOption::labelled("commodity", crate::production::PAY_KIND, "spend a commodity as a trade good")
@@ -138,6 +142,13 @@ impl Family for Fam {
             Ask::SlingSystem(_) => return Some(Opt::SlingSystem { system: <System as IdStr>::from_id(id)? }),
             Ask::SlingShip(_) => return parse_sling_ship(id),
             Ask::Economy(_) => return parse_economy(id),
+            Ask::Hero(_) => {
+                return match id {
+                    "use" => Some(Opt::HeroUse),
+                    crate::choice::DECLINE_ID => Some(Opt::Decline),
+                    _ => None,
+                };
+            }
         };
         match id {
             "trade_good" => Some(Opt::TradeGood { shown: Shown::default() }),
@@ -225,6 +236,8 @@ fn triggered_option(a: &Ask, o: &Opt) -> ChoiceOption {
                 .with("planet", planet_id(e.planet))
                 .with("integrated_economy", true)
         }
+        (Ask::Hero(_), Opt::HeroUse) => ChoiceOption::labelled("use", "leader_hacanhero_free_production", "purge Harrugh Gefhara: every unit costs 0"),
+        (Ask::Hero(_), Opt::Decline) => ChoiceOption::decline(),
         (Ask::Economy(_), Opt::Stop) => ChoiceOption::labelled("done_producing", crate::choice::DECLINE_KIND, "finish production"),
         _ => unreachable!("an option of a question the area did not put"),
     }

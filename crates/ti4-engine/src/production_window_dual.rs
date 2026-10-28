@@ -175,11 +175,12 @@ fn buildable_of(gs: &GameState, content: &ContentStore, sources: SourceSet, play
 fn run_triggered<W: ti4_engine_core::kernel::stage::Window>(
     gs: &mut GameState,
     player: &PlayerId,
+    declined: fn(&GameState, &PlayerId) -> bool,
     window: impl FnOnce(ti4_engine_core::ids::Seat) -> Option<W>,
     script: &Recording,
     value: impl FnOnce(&W) -> bool,
 ) -> Option<CoreWindow<bool>> {
-    if crate::production_view::unported_triggered(gs, player) {
+    if declined(gs, player) {
         return None;
     }
     let (mut cx, r) = tables(gs)?;
@@ -209,6 +210,7 @@ pub fn sling_relay(gs: &mut GameState, content: &ContentStore, sources: SourceSe
     run_triggered(
         gs,
         player,
+        crate::production_view::unported_triggered,
         |seat| Some(ti4_engine_core::rules::production::triggered::SlingRelay::new(seat, buildable)),
         script,
         |w| w.produced,
@@ -236,8 +238,24 @@ pub fn integrated_economy(
     run_triggered(
         gs,
         player,
+        crate::production_view::unported_triggered,
         |seat| Some(ti4_engine_core::rules::production::triggered::EconomyWindow::new(seat, system, planet, budget, fleet_limit, buildable)),
         script,
         |w| w.built,
+    )
+}
+
+/// The core half of `leaders::offer_production_hero`: whether the Hacan hero was used. The offer reads only the
+/// seat's leaders and the use's sequence number, so only a table whose economy the typed state cannot hold is
+/// declined.
+#[must_use]
+pub fn hero_offer(gs: &mut GameState, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
+    run_triggered(
+        gs,
+        player,
+        |s, _| crate::production_view::unported_economy(s),
+        |seat| Some(ti4_engine_core::rules::production::triggered::HeroOffer::new(seat)),
+        script,
+        |w| w.used,
     )
 }
