@@ -1520,7 +1520,12 @@ pub fn bombard(
         held: c.held,
         victims: set_of(c.victims),
     });
-    let stage = w.string_stage();
+    use ti4_engine_core::rules::invasion::bombard::Where;
+    let stage = match w.string_stage() {
+        Where::Bombarding => "bombarding",
+        Where::Choosing => "choosing",
+        Where::Done => "done",
+    };
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     let out = BombardOut { index: w.index, stage, cursor: if stage == "choosing" { cursor } else { None }, kills: w.kills, scoring: w.scoring.clone() };
     Some(CoreWindow { run: Run::new(out).with_events_vec(events), questions: driven.rendered })

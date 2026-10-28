@@ -364,7 +364,8 @@ impl Troop {
 pub fn commit_opts_from(system: System, troops: &[Troop], planets: &[Planet]) -> crate::choice::Opts {
     use crate::choice::invasion::Opt as IOpt;
     let mut opts = crate::choice::Opts::default();
-    let mut seen: Vec<(Unit, bool, Planet, Option<(System, Planet)>)> = Vec::new();
+    type Landing = (Unit, bool, Planet, Option<(System, Planet)>);
+    let mut seen: Vec<Landing> = Vec::new();
     for (index, troop) in troops.iter().enumerate() {
         let unit = troop.piece;
         for planet in planets {

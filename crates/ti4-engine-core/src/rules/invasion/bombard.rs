@@ -63,6 +63,14 @@ pub enum Stage {
     Done,
 }
 
+/// The string `Stage` the window corresponds to after a step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Where {
+    Bombarding,
+    Choosing,
+    Done,
+}
+
 /// The bombardment of `invader` in `system`.
 #[derive(Debug, Clone)]
 pub struct Bombardment {
@@ -109,13 +117,13 @@ impl Bombardment {
         matches!(self.stage, Stage::Paused | Stage::Choosing | Stage::Asking)
     }
 
-    /// Where the string window stands: `bombarding`, `choosing` (at a pause) or `done` (the plan is exhausted).
+    /// Where the string window stands: bombarding, choosing (at a pause) or done (the plan is exhausted).
     #[must_use]
-    pub fn string_stage(&self) -> &'static str {
+    pub fn string_stage(&self) -> Where {
         match self.stage {
-            Stage::Bombarding => "bombarding",
-            Stage::Done => "done",
-            Stage::Choosing | Stage::Asking | Stage::Paused => "choosing",
+            Stage::Bombarding => Where::Bombarding,
+            Stage::Done => Where::Done,
+            Stage::Choosing | Stage::Asking | Stage::Paused => Where::Choosing,
         }
     }
 
