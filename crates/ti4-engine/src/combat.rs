@@ -5695,6 +5695,7 @@ impl CombatWindow {
         // The rest runs on `driver=dual` as a core window too (`rules::combat::end_announce`); the string body
         // notes what the window does not carry.
         let bail = std::cell::Cell::new(!state.pending_destructions.is_empty());
+        let marks_changed = std::cell::Cell::new(false);
         let facts = crate::dual_window::EndArgs {
             attacker: &self.attacker,
             defender: &self.defender,
@@ -5733,17 +5734,16 @@ impl CombatWindow {
         );
         // A mobile space dock left in a space area with another player's ships is destroyed
         // (Floating Factory); checked when the combat that could have cleared them ends.
-        bail.set(
-            bail.get()
-                || !crate::production::destroy_blockaded_mobile_docks(state, ctx.content, ctx.sources, &self.system).is_empty()
-                || state.faction_marks != marks,
-        );
-        self.machine_bail |= bail.get();
+        bail.set(bail.get() || !crate::production::destroy_blockaded_mobile_docks(state, ctx.content, ctx.sources, &self.system).is_empty());
+        // The notes the announcement leaves (Cabal's marks, a staged event) are the core's when the string run had
+        // nested activity: the abilities of the table write them, and the state comparison tells.
+        marks_changed.set(state.faction_marks != marks);
+        self.machine_bail |= bail.get() || marks_changed.get();
         announce_staged_destructions(state, ctx);
                 crate::dual::Run::new(true)
             },
             |s: &mut GameState, script: &crate::dual_window::Recording| {
-                if bail.get() {
+                if bail.get() || (marks_changed.get() && !script.nested) {
                     return None;
                 }
                 crate::dual_window::announce_end(s, content, sources, facts, script)
@@ -9761,6 +9761,10 @@ mod tests {
                 state.promissory_faceup.clear();
                 state.rng_seed = seed;
                 crate::technology::grant(&mut state, &attacker(), &ti4_model::id::TechnologyId::new("so"));
+                // Nothing to pay the produce half with: it is another ability and stays unoffered.
+                state.player_mut(&attacker()).unwrap().trade_goods = 0;
+                let held: Vec<_> = state.controlled_planets(&attacker()).into_iter().map(|(_, planet)| planet.clone()).collect();
+                state.exhausted_planets.extend(held);
                 let system = SystemId::new("18");
                 put(&mut state, &system, "cruiser", &attacker(), 4);
                 put(&mut state, &system, "cruiser", &defender(), 1);
@@ -9782,7 +9786,9 @@ mod tests {
             }
         });
         let r = report();
+        let ended = r.windows.get("combat::announce_end").copied().unwrap_or_default();
         assert!(paid > 0, "the holder was paid");
+        assert!(ended.compared >= 1, "the end announcement with the ability is compared: {:?}", r.windows);
         assert!(r.windows.keys().all(|k| !k.contains("unported ability technology:*:so")), "{:?}", r.windows);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
