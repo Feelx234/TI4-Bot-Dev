@@ -15619,6 +15619,41 @@ mod tests {
         );
     }
 
+    /// The same game with real factions (the core windows load only seated factions) on `agenda=dual`: the
+    /// vote, the resolution and Deadly Plot's effect run beside their core windows and are compared.
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn deadly_plot_effect_runs_as_a_core_window_in_lockstep() {
+        use crate::dual::{AreaMask, Backend, take_report, with_mask};
+        let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();
+        let _ = take_report();
+        let (mut state, a_planets, b_planets) = deadly_plot_state();
+        for (p, faction) in ["a", "b"].iter().zip(["sol", "letnev"]) {
+            state.player_mut(&PlayerId::new(*p)).unwrap().faction = ti4_model::id::FactionId::new(faction);
+        }
+        let table = Table::with_default(Box::new(Scripted::new([
+            "a".to_owned(),
+            b_planets[0].clone(),
+            b_planets[1].clone(),
+            "b".to_owned(),
+            a_planets[0].clone(),
+            "decline".to_owned(),
+            "reaction:sol:AGENDA_RESOLVED:when".to_owned(),
+        ])));
+        with_mask(mask, || {
+            let mut game = Game::with_table(state, ContentStore::embedded(), table);
+            let mut guard = 0;
+            while !game.events.iter().any(|e| e == "AGENDA_DISCARDED:secret") && guard < 100 {
+                assert_eq!(game.step().error, None);
+                guard += 1;
+            }
+        });
+        let report = take_report();
+        assert_eq!(report.total_differences(), 0, "{report:?}");
+        let w = report.windows.get("action_cards::deadly_plot").cloned().unwrap_or_default();
+        assert!(w.compared > 0, "{w:?} {report:?}");
+    }
+
     #[test]
     fn deadly_plot_stays_silent_when_the_holder_backed_the_winner() {
         // The guard is "if you voted for or predicted another outcome". On the first-option
