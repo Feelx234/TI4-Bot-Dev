@@ -6958,6 +6958,41 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Letani Warrior II rolls like Infantry II: each destroyed unit of the Arborec rolls a die from the same stream and a
+    /// six puts it on the card (`arborec:lw2:{seat}` counts them).
+    #[test]
+    fn letani_warrior_ii_rolls_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        let mut on_card = 0_u32;
+        let mut rolled = 0;
+        with_mask(mask, || {
+            for seed in 1..=8_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "arborec")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                crate::technology::grant(&mut state, &PlayerId::new("b"), &ti4_model::id::TechnologyId::new("lw2"));
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 8);
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "arborec_infantry2", &PlayerId::new("b"), 6);
+                run_invasion_first_option(&mut state, seed, &system);
+                on_card += state.faction_marks.get("arborec:lw2:b").and_then(|n| n.parse::<u32>().ok()).unwrap_or(0);
+                rolled += 1;
+            }
+        });
+        let r = report();
+        let w = r.windows.get("invasion::ground_round_hits").copied().unwrap_or_default();
+        assert!(rolled > 0 && on_card > 0, "a six went on the card in one of the seeds");
+        assert!(w.compared >= 1, "{:?}", r.windows);
+        assert!(r.windows.keys().all(|k| !k.contains("unported ability unit:*:arborec_infantry2")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
     use ti4_model::content_types::DEFAULT as ALL_SOURCES;
     use ti4_model::content_types::POK;
 
