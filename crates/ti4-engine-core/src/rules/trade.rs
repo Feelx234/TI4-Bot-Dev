@@ -271,3 +271,22 @@ pub fn trade_agreement(core: &mut CoreState, owner: Seat) -> Option<Option<(Seat
     give_back(core, NoteKey { note: PromissoryNote::TradeAgreement, faction })?;
     Some(Some((holder, given)))
 }
+
+/// `GameState::clear_transactions`: a new turn restores everyone's one transaction per neighbour.
+pub fn clear_turn_transactions(core: &mut CoreState) {
+    core.trade_mut().transactions_this_turn.clear();
+}
+
+/// `negotiations_this_action.clear()`: a new action for the negotiation limit.
+pub fn clear_action_negotiations(core: &mut CoreState) {
+    core.trade_mut().negotiations_this_action.clear();
+}
+
+/// The round reset of `phase::advance_phase`: this round's transactions (Lie in Wait counts them) and both
+/// negotiation tallies.
+pub fn reset_round(core: &mut CoreState) {
+    let t = core.trade_mut();
+    t.this_round.edit().clear();
+    t.negotiations_this_round.clear();
+    t.negotiations_this_action.clear();
+}

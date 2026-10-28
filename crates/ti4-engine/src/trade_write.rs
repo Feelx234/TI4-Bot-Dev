@@ -90,6 +90,26 @@ mod real {
         lend(gs, |core| rules::consume_initiation(core, a, t))
     }
 
+    /// `GameState::clear_transactions`.
+    pub fn clear_turn_transactions(gs: &mut GameState) -> Option<()> {
+        trade(gs, |core| ti4_engine_core::rules::trade::clear_turn_transactions(core))
+    }
+
+    /// `negotiations_this_action.clear()`.
+    pub fn clear_action_negotiations(gs: &mut GameState) -> Option<()> {
+        trade(gs, |core| ti4_engine_core::rules::trade::clear_action_negotiations(core))
+    }
+
+    /// The round reset of the trade tallies.
+    pub fn reset_round(gs: &mut GameState) -> Option<()> {
+        trade(gs, |core| ti4_engine_core::rules::trade::reset_round(core))
+    }
+
+    fn trade<T>(gs: &mut GameState, f: impl FnOnce(&mut CoreState) -> T) -> Option<T> {
+        let mut cx = Ctx::of(gs).ok()?;
+        with_core(gs, &mut cx, Sources::default(), Footprint::new(&[Slice::Trade], &[Slice::Trade]), |core, _| f(core)).ok()
+    }
+
     /// `DiplomacyState::clear_turn_initiations`.
     pub fn clear_turn_initiations(gs: &mut GameState) -> Option<()> {
         lend(gs, |core| rules::clear_turn_initiations(core))
@@ -186,6 +206,15 @@ mod stub {
         None
     }
     pub fn clear_turn_initiations(_: &mut GameState) -> Option<()> {
+        None
+    }
+    pub fn clear_turn_transactions(_: &mut GameState) -> Option<()> {
+        None
+    }
+    pub fn clear_action_negotiations(_: &mut GameState) -> Option<()> {
+        None
+    }
+    pub fn reset_round(_: &mut GameState) -> Option<()> {
         None
     }
     pub fn take_note(_: &mut GameState, _: &PlayerId, _: &str) -> Option<()> {
@@ -421,5 +450,100 @@ mod tests {
         });
         let r = report();
         assert!(r.differences.is_empty(), "{:?}", r.differences);
+    }
+
+    /// The per-turn, per-action and per-round records clear the same on the core: the tallies are filled
+    /// first (a transaction, two negotiations, a resolved deal) so a clear that forgets one shows.
+    #[test]
+    fn the_trade_records_clear_in_lockstep_with_the_core() {
+        use crate::transactions as tx;
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::TradeDiplomacy, Backend::Dual);
+        with_mask(mask, || {
+            let (a, b) = (p("a"), p("b"));
+            let filled = || {
+                let mut s = table(false);
+                tx::record_transaction(&mut s, &a, &b);
+                tx::note_negotiation(&mut s, &a);
+                tx::note_negotiation(&mut s, &b);
+                s.transactions_this_round.push((a.clone(), b.clone()));
+                s
+            };
+            for (name, string, core) in [
+                ("turn", tx::clear_turn_transactions as fn(&mut GameState), super::clear_turn_transactions as fn(&mut GameState) -> Option<()>),
+                ("action", tx::clear_action_negotiations, super::clear_action_negotiations),
+                ("round", tx::reset_round, super::reset_round),
+            ] {
+                let (mut s, mut c) = (filled(), filled());
+                assert!(core(&mut c).is_some(), "{name}: the core half runs");
+                string(&mut s);
+                assert_eq!(c, s, "{name}");
+                assert!(s.transactions_this_round.is_empty() == (name == "round"), "{name}");
+                assert!((name == "turn") == s.transactions_this_turn.is_empty() || name == "round", "{name}");
+                assert!(name == "turn" || s.negotiations_this_action.is_empty(), "{name}");
+            }
+        });
+        assert!(report().differences.is_empty());
+    }
+
+    /// Every string-only case answers `None` and leaves the state exactly as it was, so the string write
+    /// that follows starts from an untouched position: a note id the tables do not know, a faction played
+    /// by two seats (the owner of a note, of a Support, of a Trade Agreement), a planet card in a deal and
+    /// an owner without a seat (the neutral units).
+    #[test]
+    fn every_bail_leaves_the_state_to_the_string_engine() {
+        use crate::promissory as pn;
+        use crate::transactions::{Offer, PlanetTerm, Terms};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::TradeDiplomacy, Backend::Dual);
+        with_mask(mask, || {
+            let (a, b, c) = (p("a"), p("b"), p("c"));
+            let mut unique = table(true);
+            pn::deal(&mut unique, ti4_content::ContentStore::embedded(), POK);
+            let before = unique.clone();
+            // An id the tables do not know.
+            assert_eq!(super::take_note(&mut unique, &a, "nosuchnote:sol"), None);
+            assert_eq!(super::take_note(&mut unique, &a, "cf:nosuchfaction"), None);
+            assert_eq!(super::take_note(&mut unique, &a, "nocolon"), None);
+            assert_eq!(super::receive_support(&mut unique, &a, "support:nosuchfaction"), None);
+            assert_eq!(super::receive_support(&mut unique, &a, "cf:sol"), None);
+            assert_eq!(super::return_all_foreign(&mut unique, "nosuchnote"), None);
+            assert_eq!(unique, before);
+
+            // Two seats of one faction: no unique owner.
+            let mut twins = crate::fixtures::seated_game(&[("a", "sol"), ("b", "sol"), ("c", "hacan")], POK);
+            pn::deal(&mut twins, ti4_content::ContentStore::embedded(), POK);
+            twins.promissory_notes.insert(pn::note_id("ta", "sol"), c.clone());
+            twins.player_mut(&a).unwrap().commodities = 2;
+            let before = twins.clone();
+            assert_eq!(super::give_back(&mut twins, &pn::note_id("ta", "sol")), None);
+            assert_eq!(super::receive_support(&mut twins, &c, &pn::support("sol")), None);
+            assert_eq!(super::trade_agreement(&mut twins, &a), None);
+            assert_eq!(twins, before, "a bail writes nothing");
+
+            // A planet card in a deal stays on the string engine.
+            #[cfg(feature = "typed-core")]
+            {
+                let planet = Terms {
+                    planet: Some(PlanetTerm { planet: ti4_model::id::PlanetId::new("jord"), moves_to: ti4_model::id::PlanetId::new("jord") }),
+                    ..Terms::default()
+                };
+                let offer = Offer { proposer: a.clone(), partner: b.clone(), given: planet, received: Terms::default() };
+                let mut s = table(false);
+                let before = s.clone();
+                assert_eq!(crate::trade_core::exchange(&mut s, ti4_content::ContentStore::embedded(), &offer), None);
+                assert_eq!(s, before);
+            }
+
+            // An owner without a seat is the string engine's (the row check needs the matrix).
+            let mut s = table(true);
+            let before = s.clone();
+            let neutral = E::FairTransaction { a: a.clone(), b: p("neutral") };
+            assert!(super::relationship_event(&mut s, &neutral).is_none());
+            assert_eq!(s, before);
+        });
+        assert!(report().differences.is_empty());
     }
 }

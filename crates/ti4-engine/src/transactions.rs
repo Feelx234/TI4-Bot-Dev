@@ -920,6 +920,44 @@ pub fn record_transaction(state: &mut GameState, a: &PlayerId, b: &PlayerId) {
     crate::dual!(crate::dual::Area::TradeDiplomacy, "transactions::record_transaction", state, string, core);
 }
 
+/// `GameState::clear_transactions` behind the dual: a new turn restores everyone's one transaction per
+/// neighbour.
+pub fn clear_turn_transactions(state: &mut GameState) {
+    crate::dual::write(
+        crate::dual::Area::TradeDiplomacy,
+        state,
+        "transactions::clear_turn_transactions",
+        GameState::clear_transactions,
+        crate::trade_write::clear_turn_transactions,
+    );
+}
+
+/// `negotiations_this_action.clear()` behind the dual: a new action for the negotiation limit.
+pub fn clear_action_negotiations(state: &mut GameState) {
+    crate::dual::write(
+        crate::dual::Area::TradeDiplomacy,
+        state,
+        "transactions::clear_action_negotiations",
+        |s| s.negotiations_this_action.clear(),
+        crate::trade_write::clear_action_negotiations,
+    );
+}
+
+/// The round reset of the trade records (`phase::advance_phase`) behind the dual.
+pub fn reset_round(state: &mut GameState) {
+    crate::dual::write(
+        crate::dual::Area::TradeDiplomacy,
+        state,
+        "transactions::reset_round",
+        |s| {
+            s.transactions_this_round.clear();
+            s.negotiations_this_round.clear();
+            s.negotiations_this_action.clear();
+        },
+        crate::trade_write::reset_round,
+    );
+}
+
 /// `GameState::note_negotiation`: one negotiation `player` initiated, this action and this round.
 pub fn note_negotiation(state: &mut GameState, player: &PlayerId) {
     let string = |s: &mut GameState| {

@@ -1821,9 +1821,9 @@ impl<'a> Game<'a> {
         self.state.units_produced_this_use = 0;
         self.state.production_discount_remaining = 0;
         self.state.production_value_swapped_planet = None;
-        self.state.clear_transactions();
+        crate::transactions::clear_turn_transactions(&mut self.state);
         crate::diplomacy::relations::clear_turn_initiations(&mut self.state);
-        self.state.negotiations_this_action.clear();
+        crate::transactions::clear_action_negotiations(&mut self.state);
 
         self.state.activation_seq += 1;
         self.state.combat_round_seq += 1;
@@ -2711,7 +2711,7 @@ impl<'a> Game<'a> {
                     // closed again when it finishes.
                     if !self.is_free_option(&answer) {
                         self.turn_closing = None;
-                        self.state.negotiations_this_action.clear();
+                        crate::transactions::clear_action_negotiations(&mut self.state);
                     }
                 }
                 if answer.id == "pass" {
@@ -5843,7 +5843,7 @@ impl<'a> Game<'a> {
                     }
                     if self.state.diplomacy.enabled && self.galaxy.is_some() {
                         // 94: each agenda is a fresh negotiation, open to every pair again.
-                        self.state.clear_transactions();
+                        crate::transactions::clear_turn_transactions(&mut self.state);
                         crate::diplomacy::relations::clear_turn_initiations(&mut self.state);
                         // Voting order: clockwise from the speaker's left, the speaker last.
                         let mut seats = self.state.clockwise_from(&self.state.speaker);
@@ -5851,7 +5851,7 @@ impl<'a> Game<'a> {
                             seats.rotate_left(1);
                         }
                         // Each agenda's talks count as one action for the negotiation limit.
-                        self.state.negotiations_this_action.clear();
+                        crate::transactions::clear_action_negotiations(&mut self.state);
                         self.agenda_talks = Some(AgendaTalks {
                             alias,
                             choices,
@@ -7194,7 +7194,7 @@ impl<'a> Game<'a> {
         let ended = self.state.active.clone();
         self.actions_this_turn = 0;
         // A new turn is a new action for the negotiation limit.
-        self.state.negotiations_this_action.clear();
+        crate::transactions::clear_action_negotiations(&mut self.state);
         // A Black Market marker outlives no turn: the negotiation it unlocked is closed by
         // the time the turn ends, and the marker is cleared here too so a flag no window
         // consumed can never leak into another player's table.
