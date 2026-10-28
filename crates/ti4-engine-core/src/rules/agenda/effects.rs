@@ -6,13 +6,20 @@
 //! * Classified Document Leaks: the elected scored secret objective becomes a public one
 //!   (`agenda_effects::effect_classified`).
 //!
+//! * Standing and availability-only arms (the Ministers, the Research Teams, ..., Representative Government,
+//!   Revolution on For): the card does nothing when it passes.
+//! * Anti-Intellectual Revolution and Representative Government (Against), Miscount Disclosed (a law
+//!   repealed): `Done::Deferred`, as the string effect defers what needs a question.
+//! * Judicial Abolishment (the elected law leaves play), New Constitution (every law, on For), Mutiny (a point
+//!   for or against each For voter), Holy Planet of Ixth (the controller of the elected planet gains a point).
 //! * A law leaving play (`laws::repeal`): the law is removed; Political Censure's holder loses its point.
 //!
 //! Not ported, so the adapter runs the string effect alone (documented bails of the dual): every other agenda
 //! effect; here an outcome that is not what the effect elects (a card with `For`/`Against` on the table).
 
 use crate::choice::{Choice, Pick};
-use crate::generated::{Agenda, SecretObjective};
+use crate::containers::SmallList;
+use crate::generated::{Agenda, Planet, SecretObjective};
 use crate::ids::Seat;
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
@@ -23,7 +30,7 @@ use crate::state::{CoreState, ObjectiveRef, VpRec};
 pub const VICTORY_TARGET: i32 = 10;
 
 /// What the effect does.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Kind {
     /// The elected player gains a point (`agenda` is the ledger reason).
     Point(Agenda, Seat),
@@ -31,12 +38,22 @@ pub enum Kind {
     Reveal(SecretObjective),
     /// The law leaves play.
     Repeal(Agenda),
+    /// New Constitution: every law leaves play.
+    RepealAll,
+    /// Mutiny: each voter (in the string ballot's order) gains `delta` points.
+    Voters(Agenda, i32, SmallList<Seat, 8>),
+    /// Holy Planet of Ixth: whoever controls the planet gains a point.
+    Controller(Agenda, Planet),
+    /// The card does nothing when it passes.
+    Nothing,
 }
 
 /// How the effect ended (`agenda_effects::Effect`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Done {
     Resolved,
+    /// The effect needs a question this path cannot ask (`Effect::Deferred`).
+    Deferred,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,30 +69,87 @@ pub struct Resolve {
     stage: Stage,
     /// A repeal found the law in play.
     repealed: bool,
+    done: Done,
 }
 
 impl Resolve {
     /// The effect of `agenda` electing `outcome`; `None` when the core has no such effect.
     #[must_use]
-    pub const fn of(agenda: Agenda, outcome: Outcome) -> Option<Self> {
+    pub fn of(agenda: Agenda, outcome: Outcome, for_voters: &[Seat]) -> Option<Self> {
+        use Agenda as A;
+        let mut done = Done::Resolved;
         let kind = match (agenda, outcome) {
-            (Agenda::PoliticalCensure | Agenda::ShardOfTheThrone | Agenda::TheCrownOfEmphidia, Outcome::Seat(who)) => Kind::Point(agenda, who),
-            (Agenda::ClassifiedDocumentLeaks, Outcome::Secret(s)) => Kind::Reveal(s),
+            (A::PoliticalCensure | A::ShardOfTheThrone | A::TheCrownOfEmphidia, Outcome::Seat(who)) => Kind::Point(agenda, who),
+            (A::ClassifiedDocumentLeaks, Outcome::Secret(s)) => Kind::Reveal(s),
+            (A::JudicialAbolishment, Outcome::Law(law)) => Kind::Repeal(law),
+            (A::MiscountDisclosed, Outcome::Law(law)) => {
+                done = Done::Deferred;
+                Kind::Repeal(law)
+            }
+            (A::NewConstitution, Outcome::For) => Kind::RepealAll,
+            (A::NewConstitution, _) => Kind::Nothing,
+            (A::Mutiny, Outcome::For | Outcome::Against) => {
+                Kind::Voters(agenda, if outcome == Outcome::For { 1 } else { -1 }, SmallList::from_slice(for_voters))
+            }
+            (A::HolyPlanetOfIxth, Outcome::Planet(p)) => Kind::Controller(agenda, p),
+            (A::AntiIntellectualRevolution | A::RepresentativeGovernmentBaseGame, Outcome::For) => Kind::Nothing,
+            (A::AntiIntellectualRevolution | A::RepresentativeGovernmentBaseGame, Outcome::Against) => {
+                done = Done::Deferred;
+                Kind::Nothing
+            }
+            (
+                A::RepresentativeGovernment
+                | A::ResearchTeamBiotic
+                | A::ResearchTeamCybernetic
+                | A::ResearchTeamPropulsion
+                | A::ResearchTeamWarfare
+                | A::SenateSanctuary
+                | A::TerraformingInitiative
+                | A::MinisterOfExploration
+                | A::MinisterOfPolicy
+                | A::CommitteeFormation
+                | A::ImperialArbiter
+                | A::MinisterOfCommerce
+                | A::MinisterOfIndustry
+                | A::MinisterOfPeace
+                | A::MinisterOfSciences
+                | A::MinisterOfWar
+                | A::ProphecyOfIxth
+                | A::TheCrownOfThalnos
+                | A::ChecksAndBalances
+                | A::CovertLegislation,
+                _,
+            ) => Kind::Nothing,
             _ => return None,
         };
-        Some(Self { kind, stage: Stage::Apply, repealed: false })
+        Some(Self { kind, stage: Stage::Apply, repealed: false, done })
     }
 
     /// `laws::repeal` of `law`.
     #[must_use]
     pub const fn repeal(law: Agenda) -> Self {
-        Self { kind: Kind::Repeal(law), stage: Stage::Apply, repealed: false }
+        Self { kind: Kind::Repeal(law), stage: Stage::Apply, repealed: false, done: Done::Resolved }
     }
 
     /// Whether the repealed law was in play.
     #[must_use]
     pub const fn repealed(&self) -> bool {
         self.repealed
+    }
+
+    /// How the effect ended.
+    #[must_use]
+    pub const fn done(&self) -> Done {
+        self.done
+    }
+
+    /// `laws::repeal`: the law leaves play; Political Censure's holder loses its point.
+    fn leave(core: &mut CoreState, law: Agenda) -> bool {
+        let owner = core.agenda_mut().laws.remove(&law);
+        if let (Agenda::PoliticalCensure, Some(Outcome::Seat(holder))) = (law, owner) {
+            Self::point(core, law, holder, -1);
+        }
+        owner.is_some()
     }
 
     /// `agenda_effects::adjust_victory_points` with +1: capped at the target, the ledger row records the
@@ -98,17 +172,34 @@ impl Window for Resolve {
 
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
         if self.stage == Stage::Apply {
-            match self.kind {
-                Kind::Point(agenda, who) => Self::point(sx.state, agenda, who, 1),
+            match &self.kind {
+                Kind::Point(agenda, who) => Self::point(sx.state, *agenda, *who, 1),
                 Kind::Repeal(law) => {
-                    let owner = sx.state.agenda_mut().laws.remove(&law);
-                    self.repealed = owner.is_some();
-                    if let (Agenda::PoliticalCensure, Some(Outcome::Seat(holder))) = (law, owner) {
-                        Self::point(sx.state, law, holder, -1);
+                    self.repealed = Self::leave(sx.state, *law);
+                    // Miscount Disclosed with the law not in play: nothing was deferred.
+                    if !self.repealed {
+                        self.done = Done::Resolved;
                     }
                 }
+                Kind::RepealAll => {
+                    let laws: Vec<Agenda> = sx.state.agenda().laws.iter().map(|(a, _)| *a).collect();
+                    for law in laws {
+                        Self::leave(sx.state, law);
+                    }
+                }
+                Kind::Voters(agenda, delta, who) => {
+                    for seat in who.as_slice() {
+                        Self::point(sx.state, *agenda, *seat, *delta);
+                    }
+                }
+                Kind::Controller(agenda, planet) => {
+                    if let Some(owner) = crate::query::board::control(sx.state, *planet) {
+                        Self::point(sx.state, *agenda, owner, 1);
+                    }
+                }
+                Kind::Nothing => {}
                 Kind::Reveal(secret) => {
-                    let card = ObjectiveRef::Secret(secret);
+                    let card = ObjectiveRef::Secret(*secret);
                     let revealed = &mut sx.state.objectives_mut().revealed;
                     if !revealed.as_slice().contains(&card) {
                         revealed.push(card);
@@ -135,10 +226,11 @@ mod tests {
 
     #[test]
     fn only_the_ported_effects_open_a_window() {
-        assert!(Resolve::of(Agenda::PoliticalCensure, Outcome::Seat(Seat(0))).is_some());
-        assert!(Resolve::of(Agenda::PoliticalCensure, Outcome::For).is_none());
-        assert!(Resolve::of(Agenda::ClassifiedDocumentLeaks, Outcome::Secret(SecretObjective::ALL[0])).is_some());
-        assert!(Resolve::of(Agenda::ClassifiedDocumentLeaks, Outcome::For).is_none());
+        assert!(Resolve::of(Agenda::PoliticalCensure, Outcome::Seat(Seat(0)), &[]).is_some());
+        assert!(Resolve::of(Agenda::PoliticalCensure, Outcome::For, &[]).is_none());
+        assert!(Resolve::of(Agenda::ClassifiedDocumentLeaks, Outcome::Secret(SecretObjective::ALL[0]), &[]).is_some());
+        assert!(Resolve::of(Agenda::ClassifiedDocumentLeaks, Outcome::For, &[]).is_none());
+        assert!(Resolve::of(Agenda::Mutiny, Outcome::Empty, &[]).is_none());
         assert!(!Resolve::repeal(Agenda::PoliticalCensure).repealed());
     }
 }

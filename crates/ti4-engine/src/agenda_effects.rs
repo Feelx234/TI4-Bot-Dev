@@ -458,8 +458,10 @@ fn windowed(
     state: &mut GameState,
     agenda: &str,
     outcome: &str,
+    ballot: &Ballot,
     string: impl FnOnce(&mut GameState) -> Effect,
 ) -> Effect {
+    let for_voters = ballot.voted_for(FOR);
     let mut string = Some(string);
     let mut result = None;
     crate::dual_window!(
@@ -472,7 +474,7 @@ fn windowed(
             result = Some(effect);
             crate::dual::Run::new(resolved)
         },
-        |s: &mut GameState, script: &crate::dual_window::Recording| crate::dual_window::agenda_effect(s, agenda, outcome, script)
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::dual_window::agenda_effect(s, agenda, outcome, &for_voters, script)
     );
     result.unwrap_or(Effect::Unresolved { agenda: agenda.to_owned() })
 }
@@ -499,10 +501,10 @@ pub fn resolve_with(
     // both from `ctx`.
     match agenda {
         "secret" => effect_secret(state, ctx, galaxy, agenda, outcome, ballot),
-        "censure" | "shard_of_the_throne" | "crown_of_emphidia" => windowed(state, agenda, outcome, |s| {
+        "censure" | "shard_of_the_throne" | "crown_of_emphidia" => windowed(state, agenda, outcome, ballot, |s| {
             effect_censure(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "classified" => windowed(state, agenda, outcome, |s| {
+        "classified" => windowed(state, agenda, outcome, ballot, |s| {
             effect_classified(s, ctx, galaxy, agenda, outcome, ballot)
         }),
         "execution" => effect_execution(state, ctx, galaxy, agenda, outcome, ballot),
@@ -516,7 +518,9 @@ pub fn resolve_with(
         "travel_ban" => effect_travel_ban(state, ctx, galaxy, agenda, outcome, ballot),
         "defense_act" => effect_defense_act(state, ctx, galaxy, agenda, outcome, ballot),
         "shared_research" => effect_shared_research(state, ctx, galaxy, agenda, outcome, ballot),
-        "miscount" => effect_miscount(state, ctx, galaxy, agenda, outcome, ballot),
+        "miscount" => windowed(state, agenda, outcome, ballot, |s| {
+            effect_miscount(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
         "disarmament" => effect_disarmament(state, ctx, galaxy, agenda, outcome, ballot),
         "plowshares" => effect_plowshares(state, ctx, galaxy, agenda, outcome, ballot),
         "arms_reduction" => effect_arms_reduction(state, ctx, galaxy, agenda, outcome, ballot),
@@ -532,15 +536,15 @@ pub fn resolve_with(
         | "rt_propulsion"
         | "rt_warfare"
         | "senate_sanctuary"
-        | "terraforming_initiative" => Effect::Resolved {
+        | "terraforming_initiative" => windowed(state, agenda, outcome, ballot, |_| Effect::Resolved {
             agenda: agenda.to_owned(),
-        },
+        }),
         // Ministries: the card does nothing when it passes and everything afterwards, so the arm
         // exists only to make the agenda available. Articles of War is the same shape -- its For
         // half is a standing rule, and its Against half pays the players who voted For.
-        "minister_exploration" | "minister_policy" => Effect::Resolved {
+        "minister_exploration" | "minister_policy" => windowed(state, agenda, outcome, ballot, |_| Effect::Resolved {
             agenda: agenda.to_owned(),
-        },
+        }),
         // Availability-only arms. Each of these laws is a standing rule owned by the subsystem
         // that runs it, so closing the vote records the outcome and nothing else:
         // - Committee, the seven Ministers, Prophecy of Kings and the Crown of Thalnos are
@@ -561,9 +565,9 @@ pub fn resolve_with(
         }
         "committee" | "arbiter" | "minister_commerce" | "minister_industry" | "minister_peace"
         | "minister_sciences" | "minister_war" | "prophecy" | "crown_of_thalnos" | "checks"
-        | "covert" | "crisis" => Effect::Resolved {
+        | "covert" | "crisis" => windowed(state, agenda, outcome, ballot, |_| Effect::Resolved {
             agenda: agenda.to_owned(),
-        },
+        }),
         "articles_war" => effect_articles_war(state, ctx, galaxy, agenda, outcome, ballot),
         "nexus" => effect_nexus(state, ctx, galaxy, agenda, outcome, ballot),
         "warrant" => effect_warrant(state, ctx, galaxy, agenda, outcome, ballot),
@@ -580,20 +584,26 @@ pub fn resolve_with(
         "demilitarized_zone" => {
             effect_demilitarized_zone(state, ctx, galaxy, agenda, outcome, ballot)
         }
-        "holy_planet_of_ixth" => {
-            effect_holy_planet_of_ixth(state, ctx, galaxy, agenda, outcome, ballot)
-        }
+        "holy_planet_of_ixth" => windowed(state, agenda, outcome, ballot, |s| {
+            effect_holy_planet_of_ixth(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
         "wormhole_recon" => effect_wormhole_recon(state, ctx, galaxy, agenda, outcome, ballot),
-        "revolution" | "representative_government" => {
-            effect_revolution(state, ctx, galaxy, agenda, outcome, ballot)
-        }
+        "revolution" | "representative_government" => windowed(state, agenda, outcome, ballot, |s| {
+            effect_revolution(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
         "economic_equality" => {
             effect_economic_equality(state, ctx, galaxy, agenda, outcome, ballot)
         }
-        "mutiny" => effect_mutiny(state, ctx, galaxy, agenda, outcome, ballot),
+        "mutiny" => windowed(state, agenda, outcome, ballot, |s| {
+            effect_mutiny(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
         "seed_empire" => effect_seed_empire(state, ctx, galaxy, agenda, outcome, ballot),
-        "abolishment" => effect_abolishment(state, ctx, galaxy, agenda, outcome, ballot),
-        "constitution" => effect_constitution(state, ctx, galaxy, agenda, outcome, ballot),
+        "abolishment" => windowed(state, agenda, outcome, ballot, |s| {
+            effect_abolishment(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
+        "constitution" => windowed(state, agenda, outcome, ballot, |s| {
+            effect_constitution(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
         "unconventional" => effect_unconventional(state, ctx, galaxy, agenda, outcome, ballot),
         "incentive" => effect_incentive(state, ctx, galaxy, agenda, outcome, ballot),
         _ => Effect::Unresolved {
@@ -2049,6 +2059,66 @@ mod tests {
             let (compared, bailed) = crate::dual::local_windows(label);
             assert!(compared > 0 && bailed == 0, "{label}: {compared} compared, {bailed} bailed");
         }
+    }
+
+    /// The slice-7 effects (standing arms, repeals, Mutiny, Holy Planet of Ixth, the deferred Against halves) run
+    /// as core windows: no difference, none bailed, and the state they leave is the expected one.
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn the_second_batch_of_effects_runs_as_core_windows_in_lockstep() {
+        use crate::dual::{AreaMask, Backend, take_report, with_mask};
+        let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();
+        let _ = take_report();
+        let mut seen = Vec::new();
+        with_mask(mask, || {
+            let players = [PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c")];
+            let mut state = crate::setup::start_game(ti4_content::ContentStore::embedded(), &players, POK, Some(players[0].clone())).unwrap();
+            for (p, faction) in players.iter().zip(["sol", "letnev", "hacan"]) {
+                state.player_mut(p).unwrap().faction = ti4_model::id::FactionId::new(faction);
+            }
+            state.player_mut(&players[1]).unwrap().victory_points = 3;
+            let both = ballot_for(&[players[0].clone(), players[1].clone()]);
+            seen.push(run(&mut state, "mutiny", FOR, &both));
+            assert_eq!(state.player(&players[1]).unwrap().victory_points, 4);
+            seen.push(run(&mut state, "mutiny", AGAINST, &both));
+            assert_eq!(state.player(&players[1]).unwrap().victory_points, 3);
+            seen.push(run(&mut state, "mutiny", AGAINST, &both));
+            seen.push(run(&mut state, "mutiny", AGAINST, &both));
+            assert_eq!(state.player(&players[0]).unwrap().victory_points, 0);
+            let content = ti4_content::ContentStore::embedded();
+            let planet = ti4_content::galaxy::planet(content, "arretze", POK).expect("hacan home planet");
+            let system = ti4_model::id::SystemId::new(planet.system_id().expect("system"));
+            state.system_mut(&system).planet_control.insert(ti4_model::id::PlanetId::new("arretze"), players[2].clone());
+            seen.push(run(&mut state, "holy_planet_of_ixth", "arretze", &no_votes()));
+            assert_eq!(state.player(&players[2]).unwrap().victory_points, 1);
+            seen.push(run(&mut state, "holy_planet_of_ixth", "arretze", &no_votes()));
+            for alias in ["rt_biotic", "committee", "minister_war", "senate_sanctuary", "checks", "covert"] {
+                seen.push(run(&mut state, alias, FOR, &no_votes()));
+            }
+            seen.push(run(&mut state, "revolution", FOR, &no_votes()));
+            seen.push(run(&mut state, "revolution", AGAINST, &no_votes()));
+            seen.push(run(&mut state, "representative_government", AGAINST, &no_votes()));
+            state.laws.insert("censure".to_owned(), "b".to_owned());
+            state.player_mut(&players[1]).unwrap().victory_points = 5;
+            state.laws.insert("regulations".to_owned(), String::new());
+            seen.push(run(&mut state, "abolishment", "regulations", &no_votes()));
+            assert!(!state.laws.contains_key("regulations"));
+            seen.push(run(&mut state, "miscount", "regulations", &no_votes()));
+            seen.push(run(&mut state, "miscount", "censure", &no_votes()));
+            assert_eq!(state.player(&players[1]).unwrap().victory_points, 4);
+            state.laws.insert("censure".to_owned(), "b".to_owned());
+            state.laws.insert("regulations".to_owned(), String::new());
+            seen.push(run(&mut state, "constitution", AGAINST, &no_votes()));
+            assert_eq!(state.laws.len(), 2);
+            seen.push(run(&mut state, "constitution", FOR, &no_votes()));
+            assert!(state.laws.is_empty());
+            assert_eq!(state.player(&players[1]).unwrap().victory_points, 3);
+        });
+        let report = take_report();
+        assert_eq!(report.total_differences(), 0, "{report:?}");
+        let (compared, bailed) = crate::dual::local_windows("agenda_effects::resolve_with");
+        assert!(compared >= 20 && bailed == 0, "{compared} compared, {bailed} bailed");
+        assert!(seen.iter().any(|e| matches!(e, Effect::Deferred { .. })));
     }
 
     /// Nexus Sovereignty, Against: a gamma wormhole into Mecatol Rex.

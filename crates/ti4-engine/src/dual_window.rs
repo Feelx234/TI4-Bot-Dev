@@ -304,7 +304,7 @@ pub fn sustain_commander(
 }
 
 const AGENDA_EFFECT: Footprint = Footprint::new(
-    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Objectives, Slice::Ledger, Slice::Agenda, Slice::Pending],
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Objectives, Slice::Ledger, Slice::Agenda, Slice::Pending],
     &[Slice::Players, Slice::Objectives, Slice::Ledger, Slice::Agenda],
 );
 
@@ -312,7 +312,7 @@ const AGENDA_EFFECT: Footprint = Footprint::new(
 /// (`rules::agenda::effects`). `None` for any other agenda, an outcome that does not parse, or a position the
 /// codecs refuse.
 #[must_use]
-pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, script: &Recording) -> Option<CoreWindow<bool>> {
+pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, for_voters: &[PlayerId], script: &Recording) -> Option<CoreWindow<bool>> {
     use ti4_engine_core::generated::Agenda;
     use ti4_engine_core::rules::agenda::effects::Resolve;
     if script.nested {
@@ -320,13 +320,16 @@ pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, script: &R
     }
     let agenda = Agenda::from_id(agenda)?;
     let (mut cx, r) = tables(gs)?;
-    let outcome = cx.keys.parse_outcome(outcome, Some(agenda.data().elects))?;
-    let window = Resolve::of(agenda, outcome)?;
+    // An outcome that does not parse is still fine for the arms that do nothing; every other arm needs it.
+    let outcome = cx.keys.parse_outcome(outcome, Some(agenda.data().elects)).unwrap_or(ti4_engine_core::keys::Outcome::Empty);
+    let voters = for_voters.iter().map(|p| r.seat(p.as_str())).collect::<Option<Vec<_>>>()?;
+    let window = Resolve::of(agenda, outcome, &voters)?;
     let before = gs.clone();
     let kernel = Kernel::plain();
     let mut driver = Driver::new(window, Resolver::new(&[], None), AbilityTable::default(), 1);
     let driven = with_core(gs, &mut cx, Sources::default(), AGENDA_EFFECT, |core, _| drive(&mut driver, core, &kernel, &r, &before, script)).ok()?.ok()?;
-    Some(CoreWindow { run: Run::new(driven.finished), questions: driven.rendered })
+    let resolved = driver.window.done() == ti4_engine_core::rules::agenda::effects::Done::Resolved;
+    Some(CoreWindow { run: Run::new(resolved), questions: driven.rendered })
 }
 
 /// The core half of `laws::repeal`. `None` for a law the core does not know or a position the codecs refuse.
