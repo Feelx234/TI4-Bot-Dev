@@ -156,10 +156,31 @@ Core windows of `Area::Invasion` (each a `dual_window!` with documented bails; c
   the string modules; the core window receives the pool and lands from it (`PoolIn`), so the landing, its events and
   the question are checked, the candidate rules are not.
 
-Open (not started): `finish_committing` (Research Team, space cannon defense, forced combats), `commit_deploy`,
-the Keleres toll through B3's `PayStep`, the ground round answer (`begin_ground_round`, the roll step with
-rerolls, `assign_ground_round_hits`, Harrow, Dunlain Reaper, end-of-round events), `Advancing`, `FinalizingControl`,
-the setup/end hooks and the scoring pauses.
+Stage 3 and 4 slices (counts are the 20 golden games, `dual_run profile-20.json 20 invasion=dual,driver=dual`, 0 differences;
+each window was mutated once in its core half and the dual failed):
+
+| window (string site) | core | compared / bailed |
+|---|---|---|
+| `SpaceCannonDefense` (`announce_and_defend`: `GROUND_COMMITMENT_FINISHED`, then per committed planet the guns' dice, the hits step, `InvasionStep` `space_cannon_defense`) | `rules/invasion/defense.rs` (`defense_plan`, dice from `Sx::die`, `ledger.dice` `SpaceCannon`) | 1074 / 6 |
+| `GroundRoll` (`roll_ground_pair`: both sides' pools from `ground_pools`, dice, `reroll_staging` kind `ground`, `last_reroll_player`) | `rules/invasion/roll.rs` | 367 / 0 |
+| `GroundRoundHits` (`ground_round_hits`: both hits windows, both removals, the `ground_round` `InvasionStep`, the removals' events) | `rules/invasion/round.rs` | 279 / 83 |
+
+* Bails of the new windows, each counted by reason: defense: entropic scar, L4 Disruptors, attachment cannon (Geoform),
+  irreproducible dice (test faces, stream restore), neutral invader, nested (a reaction to the announcement); roll:
+  irreproducible dice, neutral side, X-89 Bacterial Weapon (doubled hits), a pool the window cannot name; round hits:
+  neutral side, L1Z1X (Harrow), Alarum (Ral Nel mech), hits a faction adds to a roll, nested (a card played in a hits window).
+  Golden coverage: nested (6 / 82) and L1Z1X (1) occur in the 20 games; the others have unit-level cover only
+  (the bail is a pure pre-check of the string side).
+* `List::Planets` is a new payload list (`GROUND_COMMITMENT_FINISHED.planets`); `event_of` renders it.
+* The ground `may_sustain` oracle (`core_invasion::register_ground_slots`) answers from the string position the window
+  started from. A window with several batches (the round: one side's casualties first) now reads the planet's
+  units from the core state when they moved on (`patched_planet`); found by the dual (Mentak's Moll Terminus).
+* Study: `finish_committing` keeps Research Team / Viper offers, forced combats and `advance_fighting` in the string
+  (they ask questions or change `stage`); only the announcement and the defense run in the core window.
+
+Open: `commit_deploy` and the Keleres toll through B3's `PayStep`, `begin_ground_round` (round counter, copied round
+agent, Dunlain Reaper), the roll step's reroll windows and `GROUND_COMBAT_ROLL_STEP_ENDED`, Harrow, `Advancing`,
+`FinalizingControl`, the setup/end hooks and the scoring pauses.
 
 ## 6. B1 windows after the first slice: the roll step and the stage transitions
 

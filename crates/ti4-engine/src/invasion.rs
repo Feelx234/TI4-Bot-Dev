@@ -4457,6 +4457,72 @@ impl InvasionWindow {
         true
     }
 
+    /// The hits of a round and its step report (`assign_ground_round_hits`, `end_ground_round`), which on
+    /// `invasion=dual` also run as the core `GroundRoundHits` window (`rules::invasion::round`). `false` when a
+    /// handler refused (the string result).
+    #[allow(clippy::too_many_arguments, reason = "the round's facts")]
+    fn ground_round_hits_windowed(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        planet: &PlanetId,
+        defender: &PlayerId,
+        rolled: (usize, usize),
+        before: Vec<Unit>,
+        dice: Vec<InvasionDie>,
+    ) -> bool {
+        #[cfg(feature = "typed-core")]
+        {
+            if crate::dual::backend(crate::dual::Area::Invasion) == crate::dual::Backend::Dual {
+                let (content, sources) = (ctx.content, ctx.sources);
+                let announce = ctx.timing.is_some();
+                let invader = self.invader.clone();
+                let system = self.system.clone();
+                let args = crate::dual_window::RoundHitsArgs { invader: &invader, defender, system: &system, planet, rolled, announce, before: &before, dice: &dice };
+                if let Some(why) = crate::dual_window::round_hits_unported(state, content, sources, &args) {
+                    crate::dual::note_bail("invasion::ground_round_hits", why);
+                    return self.ground_round_hits(state, ctx, planet, defender, rolled, before, dice).0;
+                }
+                let cell = std::cell::RefCell::new(&mut *self);
+                let ctx = std::cell::RefCell::new(ctx);
+                let (before_s, dice_s) = (before.clone(), dice.clone());
+                return crate::dual_window!(
+                    crate::dual::Area::Invasion,
+                    "invasion::ground_round_hits",
+                    state,
+                    |s: &mut GameState| {
+                        let (ok, hits) = cell.borrow_mut().ground_round_hits(s, &mut **ctx.borrow_mut(), planet, defender, rolled, before_s, dice_s);
+                        crate::dual::Run::new((ok, hits))
+                    },
+                    |s: &mut GameState, script: &crate::dual_window::Recording| {
+                        crate::dual_window::round_hits(s, sources, &args, script)
+                    }
+                )
+                .0;
+            }
+        }
+        self.ground_round_hits(state, ctx, planet, defender, rolled, before, dice).0
+    }
+
+    /// The string body: assign the hits, then report the round. The flag is `end_ground_round`'s; the pair
+    /// the hits that landed on the defender and on the invader.
+    #[allow(clippy::too_many_arguments, reason = "the round's facts")]
+    fn ground_round_hits(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        planet: &PlanetId,
+        defender: &PlayerId,
+        rolled: (usize, usize),
+        before: Vec<Unit>,
+        dice: Vec<InvasionDie>,
+    ) -> (bool, (usize, usize)) {
+        let mut log = Vec::new();
+        let (attacker_hits, defender_hits, harrow) = self.assign_ground_round_hits(state, ctx, planet, defender, rolled, &mut log);
+        let round = GroundRound { before, dice, attacker_hits, defender_hits, harrow, log };
+        (self.end_ground_round(state, ctx, planet, defender, round), (attacker_hits, defender_hits))
+    }
+
     fn resolve_ground_round(
         &mut self,
         state: &mut GameState,
@@ -4478,24 +4544,7 @@ impl InvasionWindow {
         else {
             return;
         };
-        let mut log = Vec::new();
-        let (attacker_hits, defender_hits, harrow) = self.assign_ground_round_hits(
-            state,
-            ctx,
-            &planet,
-            &defender,
-            (rolled_attacker, rolled_defender),
-            &mut log,
-        );
-        let round = GroundRound {
-            before,
-            dice,
-            attacker_hits,
-            defender_hits,
-            harrow,
-            log,
-        };
-        if !self.end_ground_round(state, ctx, &planet, &defender, round) {
+        if !self.ground_round_hits_windowed(state, ctx, &planet, &defender, (rolled_attacker, rolled_defender), before, dice) {
             return;
         }
         self.finish_ground_round(state, ctx, planets, index, defender, &planet);

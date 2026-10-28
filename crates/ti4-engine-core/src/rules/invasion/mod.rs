@@ -17,6 +17,7 @@ pub mod commit;
 pub mod defense;
 pub mod hits;
 pub mod roll;
+pub mod round;
 pub mod stages;
 
 use crate::containers::SeatSet;

@@ -1067,7 +1067,7 @@ pub fn roll_step(
     let env = crate::core_combat::window_env(&before, &cx, sources)?;
     let mut names = Vec::new();
     {
-        let mut view = crate::core_combat::CombatView::of(&before, content, sources)?;
+        let view = crate::core_combat::CombatView::of(&before, content, sources)?;
         for (seat, id) in [(attacker, a.attacker), (defender, a.defender)] {
             for (value, tag, _, types) in view.fleet_groups(id, a.system)? {
                 let mut kinds: Vec<&str> = types.iter().map(|(u, _)| u.as_str()).collect();
@@ -1972,4 +1972,98 @@ pub fn ground_roll(gs: &mut GameState, a: &GroundRollArgs<'_>, rng_before: &crat
     let (ah, dh) = driver.window.hits;
     let out = GroundRollOut { hits: (ah as usize, dh as usize), drawn: driver.window.drawn.clone(), rng: positions };
     Some(CoreWindow { run: Run::new(out).with_events_vec(events), questions: driven.rendered })
+}
+
+// --- the hits of a ground round (B2) -------------------------------------------------------------------
+
+/// What the string `ground_round_hits` was called with.
+#[derive(Debug, Clone, Copy)]
+pub struct RoundHitsArgs<'a> {
+    pub invader: &'a PlayerId,
+    pub defender: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    pub planet: &'a ti4_model::id::PlanetId,
+    /// The final rolled hits of the invader and the defender.
+    pub rolled: (usize, usize),
+    pub announce: bool,
+    /// The units on the planet at the start of the round and the dice as the board shows them.
+    pub before: &'a [ti4_model::units::Unit],
+    pub dice: &'a [ti4_model::state::InvasionDie],
+}
+
+const ROUND_HITS: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
+    &[Slice::Board, Slice::Players, Slice::Transient, Slice::Pending],
+);
+
+/// Why the position holds something the core window does not carry: a faction's added hits, L1Z1X's Harrow, Alarum
+/// (a Ral Nel mech on the planet), a neutral side.
+#[must_use]
+pub fn round_hits_unported(gs: &GameState, content: &ti4_content::ContentStore, sources: ti4_model::content_types::SourceSet, a: &RoundHitsArgs<'_>) -> Option<&'static str> {
+    if crate::neutral_units::is_neutral(a.invader) || crate::neutral_units::is_neutral(a.defender) {
+        return Some("neutral side");
+    }
+    if gs.player(a.invader).is_some_and(|p| p.faction.as_str().starts_with("l1z1x")) {
+        return Some("L1Z1X Harrow");
+    }
+    if crate::factions::ralnel::alarum_on(gs, a.system, a.planet) {
+        return Some("Alarum");
+    }
+    let extra = |who: &PlayerId, hits: usize, other: usize| crate::factions::hooks_ground::ground_rolls_extra_hits(gs, content, sources, who, a.system, a.planet, hits, other);
+    if extra(a.invader, a.rolled.0, a.rolled.1) != 0 || extra(a.defender, a.rolled.1, a.rolled.0) != 0 {
+        return Some("hits added to a roll");
+    }
+    None
+}
+
+/// The core half of `InvasionWindow::ground_round_hits`. `None` for the positions of [`round_hits_unported`], nested
+/// activity (a card played in a hits window) and a position the codecs refuse.
+#[must_use]
+pub fn round_hits(gs: &mut GameState, sources: ti4_model::content_types::SourceSet, a: &RoundHitsArgs<'_>, script: &Recording) -> Option<CoreWindow<(bool, (usize, usize))>> {
+    use ti4_engine_core::rules::invasion::round::{Facts, GroundRoundHits};
+    if script.nested {
+        crate::dual::note_bail("invasion::ground_round_hits", "nested (a card played in a hits window)");
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let invader = r.seat(a.invader.as_str())?;
+    let defender = r.seat(a.defender.as_str())?;
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let planet = <ti4_engine_core::generated::Planet as IdStr>::from_id(a.planet.as_str())?;
+    let template = ti4_model::state::InvasionStep {
+        planet: a.planet.clone(),
+        kind: "ground_round".to_owned(),
+        round: 0,
+        before: a.before.to_vec(),
+        after: Vec::new(),
+        dice: a.dice.to_vec(),
+        hits: std::collections::BTreeMap::new(),
+        harrow_hits: 0,
+    };
+    let template = crate::core_sync::codec::transient::invasion_step(&mut cx, &template).ok()?;
+    let before = gs.clone();
+    let env = crate::core_invasion::ground_env(&before, &cx, sources)?;
+    let facts = Facts {
+        invader,
+        defender,
+        system,
+        planet,
+        hits: (u32::try_from(a.rolled.0).ok()?, u32::try_from(a.rolled.1).ok()?),
+        announce: a.announce,
+        cause: r.code("ground_combat"),
+        template,
+    };
+    let mut driver = Driver::new(GroundRoundHits::new(facts), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let driven = with_core(gs, &mut cx, Sources::default(), ROUND_HITS, |core, _| {
+        let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .ok()?
+    .ok()?;
+    apply_staged(gs, &r, &staged)?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    let (a_hits, d_hits) = driver.window.assigned;
+    Some(CoreWindow { run: Run::new((true, (a_hits as usize, d_hits as usize))).with_events_vec(events), questions: driven.rendered })
 }
