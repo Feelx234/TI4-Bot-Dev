@@ -98,6 +98,24 @@ Branch `core-b7-leaders`. Ported: status writes, the decision-free effects (extr
 | B7-design-5 | `GameState: PartialEq` ignores the board; code that must see a board change (e.g. the `jolnar_hero` guard) uses `GameState::identical` |
 | B7-design-6 | the lockstep tests assert the core half ran (probes call the `leaders_core` function and require `Some`), since a bail is silent |
 
+## B1g combat composition: bails, copied behaviour and design lines
+
+Branch `core-b1-combat`. Ported: the composed space-combat `Machine` (`rules/combat/machine.rs`), compared as one window at `CombatWindow::settle` (`combat::settle`), and the core versions of the pending questions with their answers (`Machine::awaiting`, compared at `CombatWindow::resolve` as `combat::answer`), all behind `driver=dual`.
+
+| id | note |
+|----|------|
+| B1g-1 | bail: the composed settle stays string for Naaz / Letnev / diplomacy round openings, start-of-combat hit modules (Assault Cannon, Mentak Ambush, Dimensional Splicer, Impulse Core), Thundarian / Keleres roll gates, retreats of flipping units, Voltron, Floating Factory, Last Bastion, Dark Energy Tap (`combat.rs` `settle_args`; port the faction hooks and the ability table) |
+| B1g-2 | bail: the Machine bails on cancelled hits, Duranium Armor with damaged ships, Devotion round-end hits, staged destructions, a roll that ends the fight, a Ralnel flagship arriving, announce-end flips / blockaded docks / mark changes (`machine.rs` `Bail`); a single casualty candidate is no longer one (`Machine::lone_casualty`) |
+| B1g-3 | bail: a barrage with reactions and every reaction window in a settle is string-only (core ability table empty; `Recording.nested`) |
+| B1g-4 | copied string bug: the `heart_ixth` option-id split (`hfix|e:d:sign` is split on `|` and wants four parts, so no pick applies and the card is never exhausted); fixing it needs a RULES_VERSION decision |
+| B1g-5 | design: the pending questions (announce a retreat, retreat to which system, sustain, assign) were string-only and are now the core machine awaiting its answer (`combat::answer`); the settle gates of `settle_args` are unchanged by it |
+| B1g-6 | design: under the outer `combat::settle` comparison the inner windows run bare, so per-window counts show only for gated positions and for unit tests with the composition off (`dual_window::with_composed`, default off under `cfg(test)`) |
+| B1g-7 | design: roll group texts are pre-interned as all subsets of the unit types present (at most 10 types, more bail) because the core cannot intern; replace by a core text table at D2 |
+| B1g-8 | bail: the answer to a pending question stays string for a hit the producer assigns (Devotion), a retreat the core does not move (`retreat_unported`), a sustain below `RULES_FACTION_BUGFIXES`, a commander held another way than as an unlocked leader, neutral sides, reaction activity (`dual_window::answer_machine`, `Machine::pending_choice`) |
+| B1g-9 | design: `Ask::CancelHit.window` marks the sustain question of the combat window itself (space sustainers named `sustain|3`, `ShipsInSystem` previews) against the absorb path's (`sustain|space:3`, no previews): two string spellings of one core question; unify when the string absorb path is ported |
+| B1g-10 | design: option previews are `serde(skip)`, so `compare_choice` never sees them; the answering mode of `settle_run` compares them itself (`combat::answer.previews`). Other windows' previews are still uncompared (the core renders none for them) |
+| B1g-11 | design: the assign question's option ids index the owner's whole ship list (`casualty_candidates`), not the filtered list the `AssignHits` window of `assign_remaining` uses; the two differ when a hit is bound to non-fighters |
+
 ## E. Process / ops notes
 
 - E1: nightly cron disabled (`#SKIPPED-2026-10-27`); restore with `crontab /root/crontab.backup-2026-10-27`.
