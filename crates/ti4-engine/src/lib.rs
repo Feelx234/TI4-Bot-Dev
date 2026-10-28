@@ -121,6 +121,15 @@ pub(crate) mod agenda_typed;
 #[cfg(feature = "typed-core")]
 #[doc(hidden)]
 pub mod agenda_check;
+/// Area::ActionCards (package B6): the typed action-card reads behind a string interface.
+#[cfg(feature = "typed-core")]
+pub mod action_cards_view;
+/// The `typed-core`-independent entry points of `action_cards_view` (a `None` without the feature).
+pub(crate) mod action_cards_typed;
+/// The offline dual of Area::ActionCards.
+#[cfg(feature = "typed-core")]
+#[doc(hidden)]
+pub mod action_cards_check;
 /// Area::Strategy (package B8): the typed strategy reads behind a string interface.
 #[cfg(feature = "typed-core")]
 pub mod strategy_view;

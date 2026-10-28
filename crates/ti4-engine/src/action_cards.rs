@@ -140,6 +140,17 @@ pub fn draw_announced(
 /// 2.4: how many action cards `player` may hold now. `usize::MAX` when there is no limit.
 #[must_use]
 pub fn hand_limit(state: &GameState, content: &ContentStore, player: &PlayerId) -> usize {
+    crate::dual_typed!(
+        crate::dual::Area::ActionCards,
+        "action_cards::hand_limit",
+        crate::action_cards_typed::hand_limit(state, content, player),
+        hand_limit_text(state, content, player)
+    )
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn hand_limit_text(state: &GameState, content: &ContentStore, player: &PlayerId) -> usize {
     crate::factions::hooks_economy::action_card_limit(
         state,
         content,
@@ -457,6 +468,17 @@ const SALVAGE_PREFIX: &str = "action_card|salvaged|";
 /// Whether a card's printed window makes it a component action (22.1).
 #[must_use]
 pub fn is_component_action(content: &ContentStore, alias: &ActionCardId) -> bool {
+    crate::dual_typed!(
+        crate::dual::Area::ActionCards,
+        "action_cards::is_component_action",
+        crate::action_cards_typed::is_component_action(alias),
+        is_component_action_text(content, alias)
+    )
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn is_component_action_text(content: &ContentStore, alias: &ActionCardId) -> bool {
     content
         .get(ContentType::ActionCards, alias.as_str())
         .and_then(ti4_content::Record::action_card_window)
@@ -477,8 +499,13 @@ pub fn is_playable(
     player: &PlayerId,
     alias: &ActionCardId,
 ) -> bool {
-    if crate::laws::action_cards_forbidden(state, player)
-        || crate::laws::political_secret_bars(state, player)
+    if crate::dual_typed!(
+        crate::dual::Area::ActionCards,
+        "action_cards::may_play",
+        crate::action_cards_typed::may_play(state, player),
+        !(crate::laws::action_cards_forbidden(state, player)
+            || crate::laws::political_secret_bars(state, player))
+    ) == false
     {
         return false;
     }
@@ -613,6 +640,22 @@ fn mercenary_planets(
 /// cards whose effect starts by picking a target are listed, and each mirrors the candidate list
 /// its effect builds; every other card has no requirement here and stays offered. Rules version 10.
 fn has_legal_target(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    alias: &ActionCardId,
+) -> bool {
+    crate::dual_typed!(
+        crate::dual::Area::ActionCards,
+        "action_cards::has_legal_target",
+        crate::action_cards_typed::has_legal_target(state, player, alias),
+        has_legal_target_text(state, content, sources, player, alias)
+    )
+}
+
+#[doc(hidden)]
+pub fn has_legal_target_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,

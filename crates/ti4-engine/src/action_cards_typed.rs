@@ -1,0 +1,60 @@
+//! The typed answers of `Area::ActionCards` as plain `Option`s, whether or not `typed-core` is compiled in:
+//! without it every function answers `None` and the string side stands (docs/ENGINE_CORE_STATE.md 6.2).
+//! Each is called only from a `dual_typed!` typed branch, so a string-only run builds no view.
+#![allow(clippy::unnecessary_wraps)]
+
+use ti4_content::ContentStore;
+use ti4_model::id::{ActionCardId, PlayerId};
+use ti4_model::state::GameState;
+
+/// `action_cards::is_component_action`.
+pub(crate) fn is_component_action(alias: &ActionCardId) -> Option<bool> {
+    #[cfg(feature = "typed-core")]
+    {
+        crate::action_cards_view::is_component_action(alias)
+    }
+    #[cfg(not(feature = "typed-core"))]
+    {
+        let _ = alias;
+        None
+    }
+}
+
+/// `action_cards::hand_limit`.
+pub(crate) fn hand_limit(state: &GameState, content: &ContentStore, player: &PlayerId) -> Option<usize> {
+    #[cfg(feature = "typed-core")]
+    {
+        crate::action_cards_view::ActionView::of(state)?.hand_limit(player, content)
+    }
+    #[cfg(not(feature = "typed-core"))]
+    {
+        let _ = (state, content, player);
+        None
+    }
+}
+
+/// Whether `player` may play action cards at all (the head of `is_playable`).
+pub(crate) fn may_play(state: &GameState, player: &PlayerId) -> Option<bool> {
+    #[cfg(feature = "typed-core")]
+    {
+        crate::action_cards_view::ActionView::of(state)?.may_play(player)
+    }
+    #[cfg(not(feature = "typed-core"))]
+    {
+        let _ = (state, player);
+        None
+    }
+}
+
+/// `action_cards::has_legal_target` (`None` for the cards the core does not answer).
+pub(crate) fn has_legal_target(state: &GameState, player: &PlayerId, alias: &ActionCardId) -> Option<bool> {
+    #[cfg(feature = "typed-core")]
+    {
+        crate::action_cards_view::ActionView::of(state)?.has_legal_target(player, alias)
+    }
+    #[cfg(not(feature = "typed-core"))]
+    {
+        let _ = (state, player, alias);
+        None
+    }
+}

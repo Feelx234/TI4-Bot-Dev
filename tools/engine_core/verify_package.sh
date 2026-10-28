@@ -102,6 +102,13 @@ if [[ -n "$dual" ]]; then
     check dual-positions "$target/gate/board_equivalence" cards golden tools/engine_profile/profile-20.json 20 10 6
     note "     $(grep '^exploration queries' "$out/dual-positions.log" | tail -1)"
   fi
+  if [[ "$area" == action_cards ]]; then
+    # B6: the action-card reads next to the string functions (the same bin prints all summaries).
+    check dual-templates "$target/gate/board_equivalence" templates
+    note "     $(grep '^action card reads' "$out/dual-templates.log" | tail -1)"
+    check dual-positions "$target/gate/board_equivalence" golden tools/engine_profile/profile-20.json 20 10
+    note "     $(grep '^action card reads' "$out/dual-positions.log" | tail -1)"
+  fi
   if [[ "$area" == movement ]]; then
     check dual-templates "$target/gate/core_equivalence" templates --routes
     note "     $(tail -1 "$out/dual-templates.log")"

@@ -13,6 +13,7 @@
 //! wholesale once the factions answer through the kernel. Do not add a sixth.
 
 pub mod abilities;
+pub mod action_cards;
 pub mod agenda;
 pub mod combat;
 pub mod invasion;
