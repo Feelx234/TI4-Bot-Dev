@@ -106,8 +106,8 @@ impl ProductionWindow {
         PlaceAsk { who: self.who, system: self.system, unit, made, fleet_limit: self.fleet_limit }
     }
 
-    fn ctx(&self, rule: Rule, subtype: PSub, outstanding: SmallList<Owed, 4>) -> Ctx {
-        Ctx {
+    fn ctx(&self, s: &CoreState, rule: Rule, subtype: PSub, outstanding: SmallList<Owed, 4>) -> Ctx {
+        let mut ctx = Ctx {
             origin: Origin::Rule(rule),
             subtype: Subtype::Production(subtype),
             optional: false,
@@ -115,7 +115,9 @@ impl ProductionWindow {
             outstanding,
             space_battle: false,
             invasion_seq: None,
-        }
+        };
+        rules::enrich_ctx(s, &mut ctx);
+        ctx
     }
 
     /// Berekar Berekon (Winnu agent) may be offered inside the production question.
@@ -154,7 +156,7 @@ impl ProductionWindow {
                 opts.push(Opt::Production(POpt::Stop));
                 let mut owed = SmallList::new();
                 owed.push(Owed { kind: OwedKind::ProductionCapacity, amount: i64::from(self.limit), paid: i64::from((self.limit - self.remaining).max(0)) });
-                Some(Choice { actor: self.who, ask: Ask::Production(PAsk::Choose(ask)), ctx: self.ctx(Rule::R68, PSub::Choose, owed), opts })
+                Some(Choice { actor: self.who, ask: Ask::Production(PAsk::Choose(ask)), ctx: self.ctx(s, Rule::R68, PSub::Choose, owed), opts })
             }
             Stage::Paying { owed, cost, paid, .. } => {
                 let (ask, opts) = rules::pay_opts(&cx, self.who, Spend::Resources, 0, i64::from(owed), &Extras::default());
@@ -166,7 +168,7 @@ impl ProductionWindow {
                 Some(Choice {
                     actor: self.who,
                     ask: Ask::Production(PAsk::Pay(ask)),
-                    ctx: self.ctx(Rule::R34_3_75_2_75_3, PSub::Pay(Currency::Resources), out),
+                    ctx: self.ctx(s, Rule::R34_3_75_2_75_3, PSub::Pay(Currency::Resources), out),
                     opts: opts.as_slice().iter().map(|o| Opt::Production(*o)).collect(),
                 })
             }
@@ -183,7 +185,7 @@ impl ProductionWindow {
                 Some(Choice {
                     actor: self.who,
                     ask: Ask::Production(PAsk::Place(ask)),
-                    ctx: self.ctx(Rule::R68, PSub::Place, out),
+                    ctx: self.ctx(s, Rule::R68, PSub::Place, out),
                     opts: opts.as_slice().iter().map(|o| Opt::Production(*o)).collect(),
                 })
             }

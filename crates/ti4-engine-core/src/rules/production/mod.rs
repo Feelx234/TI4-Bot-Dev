@@ -234,6 +234,27 @@ pub fn structure_allowed(cx: &Cx<'_>, who: Seat, planet: Planet, base: UnitBaseT
 }
 
 pub mod pay;
+
+/// What the table adds to a context when it asks (`DecisionContext::about_battle` then `about_invasion`): the
+/// space battle in progress, else the invasion of the system the question is about.
+pub fn enrich_ctx(s: &CoreState, ctx: &mut crate::choice::Ctx) {
+    use crate::choice::Target;
+    if let Some((system, _, _)) = s.transient().combat.active_space_combat {
+        ctx.space_battle = true;
+        ctx.target = Some(Target::System(system));
+    }
+    if !ctx.space_battle {
+        if let Some(active) = s.transient().invasion.active.as_ref() {
+            let in_system = match ctx.target {
+                Some(Target::System(x) | Target::Planet { system: x, .. } | Target::Unit { system: x, .. }) => x == active.system,
+                _ => true,
+            };
+            if in_system {
+                ctx.invasion_seq = Some(active.seq);
+            }
+        }
+    }
+}
 pub mod window;
 
 pub use crate::choice::production::Spot;
