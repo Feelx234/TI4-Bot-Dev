@@ -95,7 +95,7 @@ pub fn parse(id: &str, numbers: bool) -> Option<Opt> {
 
 // ---- context -------------------------------------------------------------------------------------
 
-const RULES: [(Rule, &str); 29] = [
+const RULES: [(Rule, &str); 31] = [
     (Rule::R2_4, "2.4"),
     (Rule::R8, "8"),
     (Rule::R8_10, "8.10"),
@@ -124,6 +124,8 @@ const RULES: [(Rule, &str); 29] = [
     (Rule::R89_1, "89.1"),
     (Rule::R89_2, "89.2"),
     (Rule::R95, "95"),
+    (Rule::Coexistence, "Coexistence"),
+    (Rule::Coexistence7_2, "Coexistence 7.2"),
     (Rule::EndOfTurn, "end of turn"),
 ];
 
