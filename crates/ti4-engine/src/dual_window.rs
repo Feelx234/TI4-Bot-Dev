@@ -164,6 +164,19 @@ pub fn event_of(r: &Render, rec: &EventRec) -> Option<Event> {
         };
         payload.insert(key_text(r, *key), v);
     }
+    for (key, list) in &rec.payload.lists {
+        let seat = |s: &ti4_engine_core::ids::Seat| Some(Value::from(r.seats.get(usize::from(s.0))?.clone()));
+        let v: Value = match list {
+            ti4_engine_core::state::List::Seats(seats) => Value::Array(seats.iter().map(seat).collect::<Option<_>>()?),
+            ti4_engine_core::state::List::Units(units) => Value::Array(
+                units
+                    .iter()
+                    .map(|(s, u)| Some(serde_json::json!({"player": seat(s)?, "unit": u.as_str()})))
+                    .collect::<Option<_>>()?,
+            ),
+        };
+        payload.insert(key_text(r, *key), v);
+    }
     let mut e = Event::new(0, crate::kernel_sync::event_text(r, rec.kind), payload);
     e.cancelled = rec.cancelled;
     Some(e)
