@@ -1346,9 +1346,16 @@ pub fn explore_frontier(
     take_frontier_token(state, system);
     let logged = state.exploration_log.len();
     let outcome = explore_in(state, ctx, player, FRONTIER, None, Some(system));
-    if let Some(record) = state.exploration_log.get_mut(logged) {
-        record.system = Some(system.to_string());
-    }
+    dual_write(
+        state,
+        "exploration::record_system",
+        |s| {
+            if let Some(record) = s.exploration_log.get_mut(logged) {
+                record.system = Some(system.to_string());
+            }
+        },
+        |s| crate::explore_write::set_record_system(s, logged, system),
+    );
     outcome
 }
 
@@ -1450,12 +1457,20 @@ fn explore_in(
     {
         placed.push(format!("attachment:{id}:{planet}"));
     }
-    if let Some(record) = state.exploration_log.get_mut(logged) {
-        record.outcome = text;
-        record.result = result;
-        record.gains = gains;
-        record.placed = placed;
-    }
+    // The row is closed with the texts above: one core write (`rules::explore::close_record`).
+    dual_write(
+        state,
+        "exploration::close_record",
+        |s| {
+            if let Some(record) = s.exploration_log.get_mut(logged) {
+                record.outcome = text.clone();
+                record.result = result.clone();
+                record.gains = gains.clone();
+                record.placed = placed.clone();
+            }
+        },
+        |s| crate::explore_write::close_record(s, logged, &text, &result, &gains, &placed),
+    );
     if let Some(explored) = planet {
         // Pre-Fab Arcologies et al. run first (they change the state), then the typed event.
         crate::factions::hooks_economy::explored(state, ctx.content, ctx.sources, player, explored);
@@ -1479,7 +1494,8 @@ fn explore_in(
 
 /// What a seat holds that an exploration card can change; compared before and after a card to say
 /// what it did. Display only.
-struct Holdings {
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Holdings {
     trade_goods: i32,
     commodities: i32,
     command_tokens: i32,
@@ -1494,7 +1510,36 @@ struct Holdings {
 }
 
 impl Holdings {
+    /// The reading of a position, answered by the typed core under `Dual`/`Core` (`query::explore::holdings`).
     fn of(state: &GameState, player: &PlayerId, planet: Option<&PlanetId>) -> Self {
+        crate::dual_typed!(
+            crate::dual::Area::ExplorationRelics,
+            "exploration::holdings",
+            crate::cards_typed!(state, v => v.holdings(player, planet)),
+            Self::of_text(state, player, planet)
+        )
+    }
+
+    /// The typed core's reading as the string struct.
+    #[cfg(feature = "typed-core")]
+    pub(crate) fn from_core(h: ti4_engine_core::query::explore::Holdings) -> Self {
+        Self {
+            trade_goods: h.trade_goods,
+            commodities: h.commodities,
+            command_tokens: h.command_tokens,
+            action_cards: h.action_cards,
+            secrets: h.secrets,
+            relics: h.relics,
+            technologies: h.technologies,
+            play_area: h.play_area,
+            own_infantry: h.own_infantry,
+            own_mechs: h.own_mechs,
+            exhausted: h.exhausted,
+        }
+    }
+
+    /// [`Self::of`] on the string state: the oracle of the dual run.
+    fn of_text(state: &GameState, player: &PlayerId, planet: Option<&PlanetId>) -> Self {
         let seat = state.player(player);
         let (mut own_infantry, mut own_mechs) = (0, 0);
         if let Some(planet) = planet
@@ -1680,20 +1725,26 @@ fn explore_drawn(
     {
         card = distant_suns(state, ctx, player, deck, card);
     }
-    state
-        .exploration_log
-        .push(ti4_model::state::ExplorationRecord {
-            round: state.round,
-            player: player.clone(),
-            deck: deck.to_owned(),
-            card: card.clone(),
-            planet: planet.cloned(),
-            outcome: String::new(),
-            system: system.map(ToString::to_string),
-            result: String::new(),
-            gains: Default::default(),
-            placed: Vec::new(),
-        });
+    // The row of the log opened before the card resolves: one core write (`rules::explore::open_record`).
+    dual_write(
+        state,
+        "exploration::open_record",
+        |s| {
+            s.exploration_log.push(ti4_model::state::ExplorationRecord {
+                round: s.round,
+                player: player.clone(),
+                deck: deck.to_owned(),
+                card: card.clone(),
+                planet: planet.cloned(),
+                outcome: String::new(),
+                system: system.map(ToString::to_string),
+                result: String::new(),
+                gains: Default::default(),
+                placed: Vec::new(),
+            });
+        },
+        |s| crate::explore_write::open_record(s, player, deck, &card, planet, system),
+    );
     let kind = resolution(content, &card).unwrap_or_default();
 
     let outcome = match kind.as_str() {
@@ -4155,6 +4206,47 @@ mod window_tests {
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let c = counts("exploration::pay_with_mech_or_infantry");
         assert!(c.0 >= 4 && c.1 == 0, "{r:?}");
+        let _ = take_report();
+    }
+
+    /// The log row of an exploration (opened at the draw, closed with the outcome, the result text, the gains and
+    /// the placed tokens, given its system for a frontier token) and the holdings it is read from run on the core
+    /// and agree with the string record.
+    #[test]
+    fn the_exploration_log_row_runs_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        dual(|| {
+            // A fragment, an attachment, a card that cannot resolve, an ion storm, a trade-good card, a mech card.
+            for (card, answers) in [
+                ("crf1", vec![]),
+                ("toe", vec![]),
+                ("ent", vec![]),
+                ("minent", vec![]),
+                ("ion", vec!["ALPHA"]),
+                ("aw1", vec!["gain"]),
+                ("ed1", vec![]),
+                ("mirage", vec![]),
+            ] {
+                let (mut state, planet) = table(0, 1);
+                state.exploration_decks.insert("CULTURAL".to_owned(), vec![card.to_owned()]);
+                with_ctx(&answers, |ctx| explore_with(&mut state, ctx, &me(), "CULTURAL", Some(&planet)));
+                assert_eq!(state.exploration_log.len(), 1, "{card}");
+                assert_eq!(state.exploration_log[0].card, card);
+            }
+            // A frontier token: the row carries the system.
+            let (mut state, _) = table(0, 0);
+            let (system, _) = crate::fixtures::a_placed_planet();
+            state.frontier_tokens.insert(system.clone());
+            crate::fixtures::put(&mut state, &system, "destroyer", &me(), 1);
+            state.exploration_decks.insert("FRONTIER".to_owned(), vec!["gamma".to_owned()]);
+            let outcome = with_ctx(&[], |ctx| explore_frontier(&mut state, ctx, &me(), &system));
+            assert!(outcome.is_some());
+            assert_eq!(state.exploration_log[0].system.as_deref(), Some(system.as_str()));
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.total_calls() >= 60, "{r:?}");
         let _ = take_report();
     }
 

@@ -126,6 +126,80 @@ mod real {
         lend(gs, Some(player), |core, who| rules::crown_point(core, seat_of(who)))
     }
 
+    /// [`lend`] for a write that carries texts: they are interned before the lend, so the core holds their codes.
+    fn lend_texts<T>(
+        gs: &mut GameState,
+        player: Option<&PlayerId>,
+        texts: &[&str],
+        f: impl FnOnce(&mut CoreState, Option<Seat>, &[ti4_engine_core::state::Code]) -> T,
+    ) -> Option<T> {
+        if gs.deck_reserve.is_some() {
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let who = match player {
+            Some(p) => Some(r.seat(p.as_str())?),
+            None => None,
+        };
+        let codes: Vec<_> = texts.iter().map(|t| cx.texts.intern(Slice::Explore, t)).collect::<Result<_, _>>().ok()?;
+        crate::core_sync::with_core(gs, &mut cx, Sources::default(), WRITES, |core, _| f(core, who, &codes)).ok()
+    }
+
+    /// The log row `explore_drawn` opens when a card is drawn.
+    pub fn open_record(
+        gs: &mut GameState,
+        player: &PlayerId,
+        deck: &str,
+        card: &str,
+        planet: Option<&PlanetId>,
+        system: Option<&SystemId>,
+    ) -> Option<()> {
+        let kind = explore_type(Slice::Decks, deck).ok()?;
+        let card = typed::<Explore>(card)?;
+        let planet = match planet {
+            Some(p) => Some(typed::<Planet>(p.as_str())?),
+            None => None,
+        };
+        let system = match system {
+            Some(s) => Some(typed::<System>(s.as_str())?),
+            None => None,
+        };
+        lend_texts(gs, Some(player), &[""], |core, who, codes| {
+            rules::open_record(core, seat_of(who), kind, card, planet, system, codes[0]);
+        })
+    }
+
+    /// The texts `explore_in` writes into the row it opened.
+    pub fn close_record(
+        gs: &mut GameState,
+        index: usize,
+        outcome: &str,
+        result: &str,
+        gains: &std::collections::BTreeMap<String, i32>,
+        placed: &[String],
+    ) -> Option<()> {
+        let mut texts: Vec<&str> = vec![outcome, result];
+        texts.extend(gains.keys().map(String::as_str));
+        texts.extend(placed.iter().map(String::as_str));
+        let values: Vec<i32> = gains.values().copied().collect();
+        let (n_gains, n_placed) = (gains.len(), placed.len());
+        lend_texts(gs, None, &texts, |core, _, codes| {
+            let closing = rules::Closing {
+                outcome: codes[0],
+                result: (!result.is_empty()).then_some(codes[1]),
+                gains: codes[2..2 + n_gains].iter().copied().zip(values.iter().copied()).collect(),
+                placed: codes[2 + n_gains..2 + n_gains + n_placed].to_vec(),
+            };
+            rules::close_record(core, index, &closing);
+        })
+    }
+
+    /// `record.system = Some(system)`.
+    pub fn set_record_system(gs: &mut GameState, index: usize, system: &SystemId) -> Option<()> {
+        let s = typed::<System>(system.as_str())?;
+        lend(gs, None, |core, _| rules::set_record_system(core, index, s))
+    }
+
     /// Status phase 81.6, the relic and legendary half (`status::resolve_after_token_gain`).
     pub fn ready_relics_and_legendary(gs: &mut GameState) -> Option<()> {
         lend(gs, None, |core, _| rules::ready_relics_and_legendary(core))
@@ -471,6 +545,22 @@ mod stub {
         None
     }
     pub fn ready_relics_and_legendary(_: &mut GameState) -> Option<()> {
+        None
+    }
+    pub fn open_record(_: &mut GameState, _: &PlayerId, _: &str, _: &str, _: Option<&PlanetId>, _: Option<&SystemId>) -> Option<()> {
+        None
+    }
+    pub fn close_record(
+        _: &mut GameState,
+        _: usize,
+        _: &str,
+        _: &str,
+        _: &std::collections::BTreeMap<String, i32>,
+        _: &[String],
+    ) -> Option<()> {
+        None
+    }
+    pub fn set_record_system(_: &mut GameState, _: usize, _: &SystemId) -> Option<()> {
         None
     }
     pub fn exhaust_legendary(_: &mut GameState, _: &PlayerId, _: &PlanetId) -> Option<()> {

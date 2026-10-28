@@ -299,3 +299,58 @@ pub fn remove_unit_at(core: &mut CoreState, planet: Planet, index: usize) {
         units.remove(index);
     }
 }
+
+/// `exploration::explore_drawn`'s record: the log row opened when the card is drawn, before it resolves. The
+/// outcome, result, gains and placed texts come with [`close_record`]; `empty` is the interned empty text.
+pub fn open_record(
+    core: &mut CoreState,
+    who: Seat,
+    deck: ExploreType,
+    card: Explore,
+    planet: Option<Planet>,
+    system: Option<System>,
+    empty: crate::state::Code,
+) {
+    let round = core.meta().round;
+    core.explore_mut().log.push(crate::state::ExploreRec {
+        round,
+        player: who,
+        deck,
+        card,
+        planet,
+        outcome: empty,
+        system,
+        result: None,
+        gains: Default::default(),
+        placed: Default::default(),
+    });
+}
+
+/// The texts `explore_in` writes into the record it opened once the card is resolved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Closing {
+    pub outcome: crate::state::Code,
+    /// `None`: the empty text, which is not written.
+    pub result: Option<crate::state::Code>,
+    pub gains: Vec<(crate::state::Code, i32)>,
+    pub placed: Vec<crate::state::Code>,
+}
+
+/// Fill the record at `index` (nothing for an index past the log).
+pub fn close_record(core: &mut CoreState, index: usize, closing: &Closing) {
+    let log = &mut core.explore_mut().log;
+    if let Some(rec) = log.get_mut(index) {
+        rec.outcome = closing.outcome;
+        rec.result = closing.result;
+        rec.gains = closing.gains.iter().copied().collect();
+        rec.placed = closing.placed.iter().copied().collect();
+    }
+}
+
+/// `record.system = Some(system)` on the record at `index` (a frontier token explored: the system is known
+/// only to the caller).
+pub fn set_record_system(core: &mut CoreState, index: usize, system: System) {
+    if let Some(rec) = core.explore_mut().log.get_mut(index) {
+        rec.system = Some(system);
+    }
+}
