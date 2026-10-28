@@ -246,6 +246,17 @@ pub fn grant_technology(s: &mut CoreState, who: Seat, tech: crate::generated::Te
     s.players_mut().by_seat_mut(who).is_some_and(|p| p.tech.owned.insert(tech))
 }
 
+/// Spend one command token from the strategy pool (`Player::spend_token(Strategic)`): whether the pool had one.
+pub fn spend_strategic_token(s: &mut CoreState, who: Seat) -> bool {
+    let Some(p) = s.players_mut().by_seat_mut(who) else { return false };
+    if p.econ.strategic_tokens > 0 {
+        p.econ.strategic_tokens -= 1;
+        true
+    } else {
+        false
+    }
+}
+
 /// Command tokens a faction has (`ti4_model::state::TOKENS_PER_FACTION`, LRR 20.4).
 pub const TOKENS_PER_FACTION: i32 = 16;
 

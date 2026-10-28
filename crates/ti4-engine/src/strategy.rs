@@ -3,7 +3,7 @@
 use ti4_content::{ContentStore, StrategyCardKind};
 use ti4_model::content_types::SourceSet;
 use ti4_model::id::{PlayerId, StrategyCardId};
-use ti4_model::state::{GameState, TokenPool};
+use ti4_model::state::GameState;
 
 use crate::choice::{Choice, ChoiceOption, IllegalChoice, validate};
 use crate::draft::strategy_card_label;
@@ -621,10 +621,10 @@ impl StrategySecondaryWindow {
             let costs_token = secondary_costs_token(content, &self.card)
                 && !secondary_is_free(state, content, &choice.player, &self.card);
             if costs_token {
-                let player = state.player_mut(&choice.player).ok_or_else(|| {
-                    StrategySecondaryError::FollowerMissing(choice.player.clone())
-                })?;
-                if !player.spend_token(TokenPool::Strategic) {
+                if state.player(&choice.player).is_none() {
+                    return Err(StrategySecondaryError::FollowerMissing(choice.player.clone()));
+                }
+                if !crate::strategy_write::spend_strategic_token(state, &choice.player) {
                     return Err(StrategySecondaryError::NoStrategyToken(choice.player));
                 }
                 crate::supply::note_strategy_token_spent(

@@ -136,6 +136,18 @@ pub fn replenish(state: &mut GameState, player: &PlayerId, limit: i32) -> i32 {
     )
 }
 
+/// The strategy token a follower spends on a secondary (`StrategySecondaryWindow::take_choice`): whether the pool
+/// had one. The announcement (`note_strategy_token_spent`) stays with the caller.
+pub fn spend_strategic_token(state: &mut GameState, player: &PlayerId) -> bool {
+    write(
+        Area::Strategy,
+        state,
+        "strategy.spend_strategic_token",
+        |s| s.player_mut(player).is_some_and(|seat| seat.spend_token(ti4_model::state::TokenPool::Strategic)),
+        |s| real::spend_strategic_token(s, player),
+    )
+}
+
 /// `strategy::exchange_strategy_cards` once its checks passed on the string side.
 pub fn exchange(
     state: &mut GameState,
@@ -224,6 +236,10 @@ mod real {
         r
     }
 
+    pub fn spend_strategic_token(gs: &mut GameState, p: &PlayerId) -> Option<bool> {
+        lend(gs, &[], &[p], |core, w, _| ti4_engine_core::kernel::fx::spend_strategic_token(core, w[0]))
+    }
+
     pub fn exchange(
         gs: &mut GameState,
         a: &PlayerId,
@@ -263,6 +279,9 @@ mod real {
         None
     }
     pub fn replenish(_: &mut GameState, _: &PlayerId, _: i32) -> Option<i32> {
+        None
+    }
+    pub fn spend_strategic_token(_: &mut GameState, _: &PlayerId) -> Option<bool> {
         None
     }
     pub fn exchange(
@@ -324,6 +343,26 @@ mod tests {
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         assert!(r.areas[&Area::Strategy].calls >= 8, "{r:?}");
+        let _ = take_report();
+    }
+
+    /// The strategy token a follower spends: the pool loses one in the core, and a seat with none refuses.
+    #[test]
+    fn spending_a_strategy_token_runs_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        with_mask(AreaMask::STRING.with(Area::Strategy, Backend::Dual), || {
+            let mut state = game();
+            let a = PlayerId::new("a");
+            state.player_mut(&a).unwrap().strategic_tokens = 1;
+            assert!(spend_strategic_token(&mut state, &a));
+            assert_eq!(state.player(&a).unwrap().strategic_tokens, 0);
+            assert!(!spend_strategic_token(&mut state, &a), "an empty pool refuses");
+            assert!(!spend_strategic_token(&mut state, &PlayerId::new("nobody")));
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.areas[&Area::Strategy].calls >= 2, "{r:?}");
         let _ = take_report();
     }
 }
