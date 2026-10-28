@@ -36,7 +36,7 @@ pub struct ProdView<'a> {
 
 /// The factions whose string modules still answer production questions with hooks the typed seams do not
 /// carry yet (package CB): the typed reads decline and the caller keeps the string answer.
-fn unported_economy(state: &GameState) -> bool {
+pub(crate) fn unported_economy(state: &GameState) -> bool {
     use crate::factions::{bastion, crimson};
     let held = [
         bastion::MODULE.alias,

@@ -171,6 +171,8 @@ pub mod status;
 pub mod strategy;
 pub mod strategy_cards;
 pub mod supply;
+#[cfg(feature = "typed-core")]
+pub(crate) mod supply_core;
 pub mod synergy;
 pub mod tactical;
 pub mod technology;

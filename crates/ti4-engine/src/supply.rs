@@ -613,6 +613,23 @@ pub(crate) fn close_goods_window(state: &mut GameState, payer: &PlayerId, opened
 /// Spend `amount` trade goods, commodities an open agent window allows first. All of it or none:
 /// `false`, state untouched, when [`spendable_goods`] falls short.
 pub(crate) fn spend_goods(state: &mut GameState, payer: &PlayerId, amount: i32) -> bool {
+    crate::dual!(
+        crate::dual::Area::Production,
+        "supply::spend_goods",
+        state,
+        |s: &mut GameState| crate::dual::Run::new(spend_goods_text(s, payer, amount)),
+        |s: &mut GameState| {
+            #[cfg(feature = "typed-core")]
+            if let Some(paid) = crate::supply_core::spend_goods(s, payer, amount) {
+                return crate::dual::Run::new(paid);
+            }
+            crate::dual::Run::new(spend_goods_text(s, payer, amount))
+        }
+    )
+}
+
+#[doc(hidden)]
+pub(crate) fn spend_goods_text(state: &mut GameState, payer: &PlayerId, amount: i32) -> bool {
     if amount <= 0 {
         return true;
     }
@@ -794,6 +811,29 @@ pub fn capture_from_board(
     planet: Option<&ti4_model::id::PlanetId>,
     unit: &ti4_model::units::Unit,
 ) -> bool {
+    crate::dual!(
+        crate::dual::Area::Production,
+        "supply::capture_from_board",
+        state,
+        |s: &mut GameState| crate::dual::Run::new(capture_from_board_text(s, captor, system, planet, unit)),
+        |s: &mut GameState| {
+            #[cfg(feature = "typed-core")]
+            if let Some(done) = crate::supply_core::capture_from_board(s, captor, system, planet, unit) {
+                return crate::dual::Run::new(done);
+            }
+            crate::dual::Run::new(capture_from_board_text(s, captor, system, planet, unit))
+        }
+    )
+}
+
+#[doc(hidden)]
+pub fn capture_from_board_text(
+    state: &mut GameState,
+    captor: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    planet: Option<&ti4_model::id::PlanetId>,
+    unit: &ti4_model::units::Unit,
+) -> bool {
     if captor == &unit.owner
         || state.player(captor).is_none()
         || state.player(&unit.owner).is_none()
@@ -832,6 +872,30 @@ pub fn capture_from_reinforcements(
     owner: &PlayerId,
     unit: &UnitTypeId,
 ) -> bool {
+    crate::dual!(
+        crate::dual::Area::Production,
+        "supply::capture_from_reinforcements",
+        state,
+        |s: &mut GameState| crate::dual::Run::new(capture_from_reinforcements_text(s, content, sources, captor, owner, unit)),
+        |s: &mut GameState| {
+            #[cfg(feature = "typed-core")]
+            if let Some(done) = crate::supply_core::capture_from_reinforcements(s, sources, captor, owner, unit) {
+                return crate::dual::Run::new(done);
+            }
+            crate::dual::Run::new(capture_from_reinforcements_text(s, content, sources, captor, owner, unit))
+        }
+    )
+}
+
+#[doc(hidden)]
+pub fn capture_from_reinforcements_text(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    captor: &PlayerId,
+    owner: &PlayerId,
+    unit: &UnitTypeId,
+) -> bool {
     if captor == owner
         || state.player(captor).is_none()
         || state.player(owner).is_none()
@@ -859,6 +923,30 @@ pub fn return_captured(
     owner: &PlayerId,
     base_type: &str,
 ) -> Option<UnitTypeId> {
+    crate::dual!(
+        crate::dual::Area::Production,
+        "supply::return_captured",
+        state,
+        |s: &mut GameState| crate::dual::Run::new(return_captured_text(s, content, sources, captor, owner, base_type)),
+        |s: &mut GameState| {
+            #[cfg(feature = "typed-core")]
+            if let Some(back) = crate::supply_core::return_captured(s, captor, owner, base_type) {
+                return crate::dual::Run::new(back);
+            }
+            crate::dual::Run::new(return_captured_text(s, content, sources, captor, owner, base_type))
+        }
+    )
+}
+
+#[doc(hidden)]
+pub fn return_captured_text(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    captor: &PlayerId,
+    owner: &PlayerId,
+    base_type: &str,
+) -> Option<UnitTypeId> {
     let seat = state.player_mut(captor)?;
     let index = seat.captured_units.iter().position(|(who, unit)| {
         who == owner && base_type_of(content, sources, unit) == base_type
@@ -873,6 +961,23 @@ pub fn return_captured(
 /// Returns how many models went back. The caller decides when this applies; the rule is recorded
 /// as a question in the evidence file.
 pub fn release_all_captured(state: &mut GameState, captor: &PlayerId) -> usize {
+    crate::dual!(
+        crate::dual::Area::Production,
+        "supply::release_all_captured",
+        state,
+        |s: &mut GameState| crate::dual::Run::new(release_all_captured_text(s, captor)),
+        |s: &mut GameState| {
+            #[cfg(feature = "typed-core")]
+            if let Some(n) = crate::supply_core::release_all_captured(s, captor) {
+                return crate::dual::Run::new(n);
+            }
+            crate::dual::Run::new(release_all_captured_text(s, captor))
+        }
+    )
+}
+
+#[doc(hidden)]
+pub fn release_all_captured_text(state: &mut GameState, captor: &PlayerId) -> usize {
     state
         .player_mut(captor)
         .map_or(0, |seat| std::mem::take(&mut seat.captured_units).len())
@@ -1562,6 +1667,59 @@ mod capture_tests {
             None
         );
     }
+    /// The supply writes on `production=dual`: every call is compared with the core twin on a copy (value and
+    /// resulting state), and the core half answers (it does not bail) for these positions.
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn the_supply_writes_run_in_lockstep_on_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let content = ContentStore::embedded();
+        let fail_fast = crate::dual::fail_fast();
+        crate::dual::set_fail_fast(true);
+        let mask = crate::dual::AreaMask::parse("production=dual", crate::dual::AreaMask::STRING).unwrap();
+        let mut state = game(&["a", "b"]);
+        state.player_mut(&pid("a")).unwrap().faction = ti4_model::id::FactionId::new("sol");
+        state.player_mut(&pid("b")).unwrap().faction = ti4_model::id::FactionId::new("sardakk");
+        let (system, planet) = a_placed_planet();
+        put(&mut state, &system, "carrier", &pid("b"), 4);
+        put_on_planet(&mut state, &system, &planet, "infantry", &pid("b"), 2);
+        state.player_mut(&pid("a")).unwrap().trade_goods = 3;
+        // The core halves answer for the position.
+        for probe in [
+            crate::supply_core::spend_goods(&mut state.clone(), &pid("a"), 2).is_some(),
+            crate::supply_core::capture_from_board(&mut state.clone(), &pid("a"), &system, None, &carrier("b")).is_some(),
+            crate::supply_core::capture_from_reinforcements(&mut state.clone(), POK, &pid("a"), &pid("b"), &UnitTypeId::new("cruiser")).is_some(),
+            crate::supply_core::return_captured(&mut state.clone(), &pid("a"), &pid("b"), "carrier").is_some(),
+            crate::supply_core::release_all_captured(&mut state.clone(), &pid("a")).is_some(),
+        ]
+        .iter()
+        .enumerate()
+        {
+            assert!(*probe.1, "the core half {} bails on a plain position", probe.0);
+        }
+        crate::dual::with_mask(mask, || {
+            // Goods: too many, a free spend, the exact purse.
+            assert!(!spend_goods(&mut state, &pid("a"), 4));
+            assert!(spend_goods(&mut state, &pid("a"), 0));
+            assert!(spend_goods(&mut state, &pid("a"), 3));
+            assert!(!spend_goods(&mut state, &pid("absent"), 1));
+            // Captures: refused ones first, then real ones from the board and the box.
+            assert!(!capture_from_board(&mut state, &pid("b"), &system, None, &carrier("b")));
+            assert!(!capture_from_board(&mut state, &pid("a"), &system, None, &carrier("a")));
+            assert!(capture_from_board(&mut state, &pid("a"), &system, None, &carrier("b")));
+            assert!(capture_from_board(&mut state, &pid("a"), &system, Some(&planet), &ti4_model::units::Unit::new(UnitTypeId::new("infantry"), pid("b"))));
+            assert!(!capture_from_board(&mut state, &pid("a"), &system, Some(&planet), &ti4_model::units::Unit::new(UnitTypeId::new("mech"), pid("b"))));
+            assert!(!capture_from_reinforcements(&mut state, content, POK, &pid("a"), &pid("b"), &UnitTypeId::new("carrier")));
+            assert!(capture_from_reinforcements(&mut state, content, POK, &pid("a"), &pid("b"), &UnitTypeId::new("cruiser")));
+            // Returns and the release.
+            assert_eq!(return_captured(&mut state, content, POK, &pid("a"), &pid("b"), "carrier"), Some(UnitTypeId::new("carrier")));
+            assert_eq!(return_captured(&mut state, content, POK, &pid("a"), &pid("b"), "carrier"), None);
+            assert_eq!(release_all_captured(&mut state, &pid("a")), 2);
+            assert_eq!(release_all_captured(&mut state, &pid("a")), 0);
+        });
+        crate::dual::set_fail_fast(fail_fast);
+    }
+
 }
 
 #[cfg(test)]
@@ -2081,4 +2239,5 @@ mod bf_f3_tests {
             "capture consumes box plastic without placing or producing a mech"
         );
     }
+
 }
