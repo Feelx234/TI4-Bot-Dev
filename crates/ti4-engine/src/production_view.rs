@@ -52,15 +52,14 @@ fn unported_economy(state: &GameState) -> bool {
 /// The factions that can change a use of PRODUCTION in ways the typed window does not carry yet (offers,
 /// exchanges, agents, spendable commodities, ocean cards) on top of [`unported_economy`].
 pub(crate) fn unported_window(state: &GameState) -> bool {
-    use crate::factions::{argent, cabal, deepwrought, keleres, winnu, yssaril};
+    use crate::factions::{argent, deepwrought, keleres, nomad, yssaril};
     let held = [
         argent::MODULE.alias,
-        cabal::MODULE.alias,
         deepwrought::MODULE.alias,
+        nomad::MODULE.alias,
         keleres::MODULE_M.alias,
         keleres::MODULE_X.alias,
         keleres::MODULE_A.alias,
-        winnu::MODULE.alias,
         yssaril::MODULE.alias,
     ];
     unported_economy(state) || state.players.iter().any(|p| held.contains(&p.faction.as_str()))

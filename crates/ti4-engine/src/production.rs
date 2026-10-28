@@ -3830,7 +3830,7 @@ impl ProductionWindow {
         use ti4_engine_core::generated::{System, Unit};
         use ti4_engine_core::rules::production::window as cw;
         let unit = |id: &str| <Unit as crate::generated::IdStr>::from_id(id);
-        if self.ability || self.settled || self.fixed_limit.is_some() || self.agent_spent {
+        if self.ability || self.settled || self.fixed_limit.is_some() {
             return None;
         }
         let narrow = |n: i64| i32::try_from(n).ok();
@@ -3887,6 +3887,8 @@ impl ProductionWindow {
             },
             buildable,
             produced,
+            agent_rules: state.rules_version >= ti4_model::state::RULES_WINNU_AGENT_PRODUCTION,
+            agent_spent: self.agent_spent,
             purchased: self.purchased,
             placement_timing_done: self.placement_timing_done,
             emit_timing,
@@ -6871,6 +6873,59 @@ mod tests {
                 resolve(&mut state, ContentStore::embedded(), POK, None, &mut table, &player(), &system).unwrap()
             });
             let _ = report;
+        }
+        crate::dual::set_fail_fast(fail_fast);
+    }
+
+    #[test]
+    fn the_winnu_agent_and_the_cabal_exchange_run_in_lockstep_on_the_core_window() {
+        let content = ContentStore::embedded();
+        let fail_fast = crate::dual::fail_fast();
+        crate::dual::set_fail_fast(true);
+        let mask = crate::dual::AreaMask::parse("production=dual", crate::dual::AreaMask::STRING).unwrap();
+        for faction in ["winnu", "cabal"] {
+            let (mut state, system, planet) = seated();
+            state.player_mut(&player()).unwrap().faction = ti4_model::id::FactionId::new(faction);
+            state.player_mut(&PlayerId::new("b")).unwrap().faction = ti4_model::id::FactionId::new("sardakk");
+            state.promissory_notes.clear();
+            state.system_mut(&system).set_control(planet.clone(), player());
+            put_on_planet(&mut state, &system, &planet, "spacedock", &player(), 1);
+            if faction == "winnu" {
+                state
+                    .player_mut(&player())
+                    .unwrap()
+                    .leaders
+                    .insert(ti4_model::id::LeaderId::new("winnuagent"), ti4_model::state::LeaderStatus::Readied);
+            } else {
+                state
+                    .player_mut(&PlayerId::new("b"))
+                    .unwrap()
+                    .captured_units
+                    .push((player(), ti4_model::id::UnitTypeId::new("carrier")));
+            }
+            state.player_mut(&player()).unwrap().trade_goods = 10;
+            let mut dice = crate::dice::Dice::new();
+            let mut rng = crate::rng::GameRng::new(0);
+            let mut table = Table::new();
+            let mut ctx = Resolving { content, sources: POK, dice: &mut dice, rng: &mut rng, table: &mut table, timing: None };
+            crate::dual::with_mask(mask, || {
+                let mut window = ProductionWindow::new(&state, content, POK, &player(), &system);
+                let mut steps = 0;
+                while let Some(choice) = window.pending_choice(&state, content, POK) {
+                    steps += 1;
+                    assert!(steps < 40, "the window ends");
+                    // The special option first (the agent, the exchange), then the first thing offered.
+                    let pick = choice
+                        .options
+                        .iter()
+                        .find(|o| o.kind == AGENT_OPTION_KIND || o.id.starts_with("exchange|"))
+                        .or_else(|| choice.options.iter().find(|o| o.id.starts_with("place|")))
+                        .or_else(|| choice.options.first())
+                        .cloned()
+                        .unwrap();
+                    window.resolve(&mut state, &mut ctx, pick).unwrap();
+                }
+            });
         }
         crate::dual::set_fail_fast(fail_fast);
     }
