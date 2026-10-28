@@ -207,6 +207,20 @@ fn a_secret_drawn_over_the_hand_limit_is_returned_in_lockstep_with_the_core() {
     let _ = take_report();
 }
 
+/// The core window of one scoring question, answered with `answer` as the string side did: `None` when the
+/// core bailed (silent in the lockstep), else what the window scored.
+fn probe_score(state: &GameState, offers: &[&str], answer: &str) -> Option<(bool, Option<ObjectiveId>)> {
+    let mut options: Vec<crate::choice::ChoiceOption> =
+        offers.iter().map(|id| crate::choice::ChoiceOption::labelled(*id, "score", *id)).collect();
+    options.push(crate::choice::ChoiceOption::decline());
+    let ask = Question::new(a(), "score an objective", options);
+    let mut script = crate::dual_window::Recording::default();
+    script.questions.push(crate::dual_window::Asked { choice: ask.clone(), answer: Some(answer.to_owned()) });
+    let args = crate::objectives_write::ScoreArgs { status: true, occurrence: None };
+    let window = crate::objectives_write::score_one(&mut state.clone(), ContentStore::embedded(), POK, &ask, args, &script)?;
+    Some(window.run.value)
+}
+
 /// A game in the status phase, for `player`'s score.
 fn status_game(state: GameState, answers: &[&str]) -> Game<'static> {
     let mut state = state;
@@ -280,6 +294,23 @@ fn the_status_scoring_window_runs_in_lockstep_with_the_core() {
     });
     let r = report();
     assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+    // Probed (a bail is silent in the lockstep): the core window follows each path to its answer.
+    let mut public = clean(&[("a", "letnev"), ("b", "sol")]);
+    public.revealed_objectives = vec![ObjectiveId::new("expand_borders")];
+    for planet in non_home_planets(6) {
+        give(&mut public, &planet, "a");
+    }
+    assert_eq!(probe_score(&public, &["expand_borders"], "expand_borders"), Some((true, Some(ObjectiveId::new("expand_borders")))));
+    assert_eq!(probe_score(&public, &["expand_borders"], "decline"), Some((true, None)));
+    let mut held = clean(&[("a", "letnev"), ("b", "sol")]);
+    held.player_mut(&a()).unwrap().secret_objectives = vec![SecretObjectiveId::new("eap")];
+    assert_eq!(probe_score(&held, &["eap"], "eap"), Some((true, Some(ObjectiveId::new("eap")))));
+    let mut leaked = clean(&[("a", "letnev"), ("b", "sol")]);
+    leaked.revealed_objectives = vec![ObjectiveId::new("eap")];
+    assert_eq!(probe_score(&leaked, &["eap"], "eap"), Some((true, Some(ObjectiveId::new("eap")))));
+    // A secret that is neither in the hand nor public is not scored by the core (stale window): the step bails.
+    let empty = clean(&[("a", "letnev"), ("b", "sol")]);
+    assert_eq!(probe_score(&empty, &["eap"], "eap"), None);
     // Probed: the core window of a scoring question answers (a question put, nothing answered yet).
     let mut probe = clean(&[("a", "letnev"), ("b", "sol")]);
     let ask = Question::new(
