@@ -4062,7 +4062,7 @@ impl InvasionWindow {
                     && (crate::factions::borrowed_round_agents::has_round_copy(state, ctx.content, "solagent")
                         || crate::factions::borrowed_round_agents::has_owner_round_agent(state));
                 let (invader, system) = (self.invader.clone(), self.system.clone());
-                let args = crate::dual_window::BeginGroundArgs { invader: &invader, defender, system: &system, planet, copied_round };
+                let args = crate::dual_window::BeginGroundArgs { invader: &invader, defender, system: &system, planet, copied_round, sources: ctx.sources };
                 if let Some(why) = crate::dual_window::begin_ground_unported(state, &args) {
                     crate::dual::note_bail("invasion::begin_ground_round", why);
                     return self.begin_ground_round_string(state, ctx, planet, defender);
@@ -6794,6 +6794,65 @@ mod tests {
         assert!(captured > 0, "the Cabal captured something");
         assert!(w.compared >= 1, "{:?}", r.windows);
         assert!(r.windows.keys().all(|k| !k.contains("unported ability ability:*:devour") && !k.contains("unported ability unit:*:cabal")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    /// Run the invasion of `system` by "a" to its end with the first option everywhere (the reaction slots
+    /// declined), the resolver armed for "a" and "b". For the lockstep tests of the ability table.
+    fn run_invasion_first_option(state: &mut GameState, seed: u64, system: &SystemId) {
+        let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+        let mut dice = Dice::new();
+        let mut rng = GameRng::new(seed);
+        let content = ContentStore::embedded();
+        let mut resolver = armed_resolver(state, vec![PlayerId::new("a"), PlayerId::new("b")]);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut window = InvasionWindow::new(state, content, POK, &mut dice, &mut rng, &PlayerId::new("a"), system);
+        let mut ctx = Resolving {
+            content,
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+        };
+        while !window.is_done() {
+            window.drive(state, &mut ctx).unwrap();
+            while window.take_scoring_occurrence().is_some() {}
+            window.settle(state, &mut ctx);
+        }
+    }
+
+    /// Evelyn De Louis (the Sol agent) is an ability of the core table: at the start of each ground combat round the
+    /// readied agent offers the units of the system, the chosen one is marked for the round and the card is
+    /// exhausted. The core resolver asks the same question (options, captions) and writes the same mark.
+    #[test]
+    fn the_sol_agent_chooses_a_unit_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        let mut marked = 0;
+        with_mask(mask, || {
+            for seed in 1..=4_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "hacan"), ("b", "sol")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                state.player_mut(&PlayerId::new("b")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("solagent"), ti4_model::state::LeaderStatus::Readied);
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 6);
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 4);
+                run_invasion_first_option(&mut state, seed, &system);
+                marked += state.faction_marks.keys().filter(|k| k.starts_with("yssaril:ssruu-round-agent:b:solagent:")).count();
+            }
+        });
+        let r = report();
+        let w = r.windows.get("invasion::begin_ground_round").copied().unwrap_or_default();
+        assert!(marked > 0, "the agent marked a unit");
+        assert!(w.compared >= 1, "the round start with the agent is compared: {:?}", r.windows);
+        assert!(r.windows.keys().all(|k| !k.contains("unported ability leader:*:solagent")), "{:?}", r.windows);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }
@@ -12055,7 +12114,7 @@ mod core_ground_round_prechecks {
     }
 
     fn begin<'a>(a: &'a PlayerId, b: &'a PlayerId, s: &'a SystemId, p: &'a PlanetId, copied: bool) -> BeginGroundArgs<'a> {
-        BeginGroundArgs { invader: a, defender: b, system: s, planet: p, copied_round: copied }
+        BeginGroundArgs { invader: a, defender: b, system: s, planet: p, copied_round: copied, sources: POK }
     }
 
     #[test]

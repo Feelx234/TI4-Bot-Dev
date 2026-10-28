@@ -2730,6 +2730,8 @@ pub struct BeginGroundArgs<'a> {
     pub planet: &'a ti4_model::id::PlanetId,
     /// A copied round agent makes the round its own event.
     pub copied_round: bool,
+    /// The sources of the game (the kernel's content scope: a round agent reads which units are ground forces).
+    pub sources: ti4_model::content_types::SourceSet,
 }
 
 /// Why the start of the round holds something the core window does not carry: a Naaz side
@@ -2773,7 +2775,7 @@ pub fn begin_ground(gs: &mut GameState, a: &BeginGroundArgs<'_>, script: &Record
     let planet = <ti4_engine_core::generated::Planet as IdStr>::from_id(a.planet.as_str())?;
     let before = gs.clone();
     let numbered = gs.rules_version >= ti4_model::state::RULES_FACTION_EFFECTS;
-    let env = crate::core_invasion::ground_env(&before, &cx, ti4_model::content_types::SourceSet::default())?;
+    let env = crate::core_invasion::ground_env(&before, &cx, a.sources)?;
     let mut driver = Driver::new(BeginGroundRound::new(Facts { system, planet, invader, defender, copied: a.copied_round, numbered }), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(BEGIN_GROUND, script), |core, _| {
