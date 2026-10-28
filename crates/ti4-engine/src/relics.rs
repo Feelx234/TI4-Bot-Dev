@@ -403,12 +403,24 @@ fn the_silver_flame(
         .first()
         .copied()
         .unwrap_or(0);
-    purge(state, player, relic);
-    if roll == 10 {
+    // Everything after the roll is one core write (`rules::explore::silver_flame`).
+    crate::exploration::dual_write(
+        state,
+        "relics::silver_flame",
+        |s| silver_flame_text(s, content, player, relic, roll == 10),
+        |s| crate::explore_write::silver_flame(s, player, roll == 10),
+    );
+    Used::Purged {
+        relic: relic.clone(),
+    }
+}
+
+/// The Silver Flame after the roll, on the string state: the oracle of the dual run.
+fn silver_flame_text(state: &mut GameState, content: &ContentStore, player: &PlayerId, relic: &RelicId, ten: bool) {
+    purge_text(state, player, relic);
+    if ten {
         crate::objectives::adjust_victory_points(state, player, 1, relic.as_str());
-        return Used::Purged {
-            relic: relic.clone(),
-        };
+        return;
     }
     let home = state.player(player).and_then(|seat| {
         seat.home_system.clone().or_else(|| {
@@ -423,9 +435,6 @@ fn the_silver_flame(
     if let Some(home) = home {
         state.board.remove(&home);
         state.purged_systems.insert(home);
-    }
-    Used::Purged {
-        relic: relic.clone(),
     }
 }
 
@@ -1363,14 +1372,18 @@ pub fn use_relic(
             //
             // Exhausting is the cost and is paid whatever is chosen, so it happens before the
             // question. Prerequisites are waived: the card says *gain*, not research.
-            let planets: Vec<ti4_model::id::PlanetId> = state
-                .controlled_planets(player)
-                .into_iter()
-                .map(|(_, planet)| planet.clone())
-                .collect();
-            for planet in planets {
-                state.exhaust_planet(planet);
-            }
+            crate::exploration::dual_write(
+                state,
+                "relics::maw_of_worlds",
+                |s| {
+                    let planets: Vec<ti4_model::id::PlanetId> =
+                        s.controlled_planets(player).into_iter().map(|(_, planet)| planet.clone()).collect();
+                    for planet in planets {
+                        s.exhaust_planet(planet);
+                    }
+                },
+                |s| crate::explore_write::exhaust_controlled_planets(s, player),
+            );
             grant_chosen_technology(
                 state,
                 content,
@@ -1409,11 +1422,20 @@ pub fn use_relic(
         }
         "bookoflatvinia" => {
             // All four specialties gains a victory point; otherwise the speaker token.
-            if controls_all_four_specialties(state, content, sources, player) {
-                crate::objectives::adjust_victory_points(state, player, 1, "bookoflatvinia");
-            } else {
-                state.speaker = player.clone();
-            }
+            crate::exploration::dual_write(
+                state,
+                "relics::book_of_latvinia",
+                |s| {
+                    let scored = controls_all_four_specialties(s, content, sources, player);
+                    if scored {
+                        crate::objectives::adjust_victory_points(s, player, 1, "bookoflatvinia");
+                    } else {
+                        s.speaker = player.clone();
+                    }
+                    scored
+                },
+                |s| crate::explore_write::book_of_latvinia(s, player, sources),
+            );
         }
         "thesilverflame" => {
             return the_silver_flame(state, content, dice, rng, player, relic);
@@ -2900,6 +2922,56 @@ mod relic_window_tests {
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         assert!(counts("relics::ask_technology").0 >= 2 && counts("relics::ask_technology").1 >= 1, "{r:?}");
+        let _ = take_report();
+    }
+
+    /// The effects of the Maw of Worlds (every planet exhausted), the Book of Latvinia (a point or the speaker)
+    /// and the Silver Flame (a ten scores; any other roll consumes the home system), and the status phase.
+    #[test]
+    fn the_relic_effect_writes_run_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let content = ti4_content::ContentStore::embedded();
+        dual(|| {
+            let held = |relic: &str| {
+                let mut state = seated();
+                state.player_mut(&me()).unwrap().relics = vec![RelicId::new(relic)];
+                state
+            };
+            let mut state = held("mawofworlds");
+            let mut tbl = crate::choice::Table::with_default(Box::new(crate::choice::FirstOption));
+            let used = use_relic(&mut state, content, POK, &mut crate::dice::Dice::new(), &mut rng(), &mut tbl, None, &me(), &RelicId::new("mawofworlds"));
+            assert!(matches!(used, Used::Purged { .. }));
+            // The Book of Latvinia: no specialties on the home planets of Sol, so the speaker token moves.
+            let mut state = held("bookoflatvinia");
+            state.speaker = PlayerId::new("b");
+            let _ = use_relic(&mut state, content, POK, &mut crate::dice::Dice::new(), &mut rng(), &mut table(&[]), None, &me(), &RelicId::new("bookoflatvinia"));
+            assert_eq!(state.speaker, me());
+            // The Silver Flame: every roll of a few seeds, a ten and a miss alike.
+            let (mut tens, mut misses) = (0, 0);
+            for seed in 0..60 {
+                let mut state = held("thesilverflame");
+                let before = state.player(&me()).unwrap().victory_points;
+                let _ = use_relic(&mut state, content, POK, &mut crate::dice::Dice::new(), &mut crate::rng::GameRng::new(seed), &mut table(&[]), None, &me(), &RelicId::new("thesilverflame"));
+                if state.player(&me()).unwrap().victory_points > before {
+                    tens += 1;
+                } else {
+                    misses += 1;
+                    assert!(state.player(&me()).unwrap().public_objectives_forbidden);
+                }
+            }
+            assert!(tens > 0 && misses > 0, "both branches ran: {tens} {misses}");
+            // Status phase: the relics and legendary cards ready.
+            let mut state = seated();
+            state.player_mut(&me()).unwrap().exhausted_relics.insert(RelicId::new("dominusorb"));
+            state.player_mut(&me()).unwrap().exhausted_legendary.insert(PlanetId::new("tempesta"));
+            crate::status::resolve_after_token_gain(&mut state, &mut crate::status::StatusPhaseReport::default());
+            assert!(state.player(&me()).unwrap().exhausted_relics.is_empty());
+            assert!(state.player(&me()).unwrap().exhausted_legendary.is_empty());
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.total_calls() >= 60, "{r:?}");
         let _ = take_report();
     }
 }

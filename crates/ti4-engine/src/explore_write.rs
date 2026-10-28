@@ -126,6 +126,55 @@ mod real {
         lend(gs, Some(player), |core, who| rules::crown_point(core, seat_of(who)))
     }
 
+    /// Status phase 81.6, the relic and legendary half (`status::resolve_after_token_gain`).
+    pub fn ready_relics_and_legendary(gs: &mut GameState) -> Option<()> {
+        lend(gs, None, |core, _| rules::ready_relics_and_legendary(core))
+    }
+
+    /// `legendary::exhaust`.
+    pub fn exhaust_legendary(gs: &mut GameState, player: &PlayerId, planet: &PlanetId) -> Option<()> {
+        let p = typed::<Planet>(planet.as_str())?;
+        lend(gs, Some(player), |core, who| rules::exhaust_legendary(core, seat_of(who), p))
+    }
+
+    /// An exploration card kept faceup in the play area (Enigmatic Device).
+    pub fn play_area_card(gs: &mut GameState, player: &PlayerId, card: &str) -> Option<()> {
+        let c = typed::<Explore>(card)?;
+        lend(gs, Some(player), |core, who| rules::play_area_card(core, seat_of(who), c))
+    }
+
+    /// Maw of Worlds: every planet the seat controls is exhausted.
+    pub fn exhaust_controlled_planets(gs: &mut GameState, player: &PlayerId) -> Option<()> {
+        lend(gs, Some(player), |core, who| rules::exhaust_controlled_planets(core, seat_of(who)))
+    }
+
+    /// `state.exhausted_planets.remove(planet)`: whether it was exhausted.
+    pub fn ready_planet(gs: &mut GameState, planet: &PlanetId) -> Option<bool> {
+        let p = typed::<Planet>(planet.as_str())?;
+        lend(gs, None, |core, _| ti4_engine_core::kernel::fx::ready_planet(core, p))
+    }
+
+    /// `exploration::gain_commodities`: the amount gained.
+    pub fn gain_commodities(gs: &mut GameState, player: &PlayerId, count: i32) -> Option<i32> {
+        lend(gs, Some(player), |core, who| rules::gain_commodities(core, seat_of(who), count))
+    }
+
+    /// `exploration::convert_commodities`, the commodities half: how many left the seat.
+    pub fn spend_commodities(gs: &mut GameState, player: &PlayerId, most: Option<i32>) -> Option<i32> {
+        lend(gs, Some(player), |core, who| rules::spend_commodities(core, seat_of(who), most))
+    }
+
+    /// The Book of Latvinia: whether it scored (otherwise the seat became the speaker).
+    pub fn book_of_latvinia(gs: &mut GameState, player: &PlayerId, sources: SourceSet) -> Option<bool> {
+        let scope = crate::core_adapter::scope(sources);
+        lend(gs, Some(player), |core, who| rules::book_of_latvinia(core, seat_of(who), scope))
+    }
+
+    /// The Silver Flame after the roll.
+    pub fn silver_flame(gs: &mut GameState, player: &PlayerId, rolled_ten: bool) -> Option<()> {
+        lend(gs, Some(player), |core, who| rules::silver_flame(core, seat_of(who), rolled_ten))
+    }
+
     // -- the windows -----------------------------------------------------------------------------------
 
     const WINDOW: Footprint = Footprint::new(
@@ -388,6 +437,33 @@ mod stub {
         None
     }
     pub fn ion_storm(_: &mut GameState, _: &PlayerId, _: &SystemId, _: &Recording) -> Option<CoreWindow<String>> {
+        None
+    }
+    pub fn ready_relics_and_legendary(_: &mut GameState) -> Option<()> {
+        None
+    }
+    pub fn exhaust_legendary(_: &mut GameState, _: &PlayerId, _: &PlanetId) -> Option<()> {
+        None
+    }
+    pub fn play_area_card(_: &mut GameState, _: &PlayerId, _: &str) -> Option<()> {
+        None
+    }
+    pub fn exhaust_controlled_planets(_: &mut GameState, _: &PlayerId) -> Option<()> {
+        None
+    }
+    pub fn ready_planet(_: &mut GameState, _: &PlanetId) -> Option<bool> {
+        None
+    }
+    pub fn gain_commodities(_: &mut GameState, _: &PlayerId, _: i32) -> Option<i32> {
+        None
+    }
+    pub fn spend_commodities(_: &mut GameState, _: &PlayerId, _: Option<i32>) -> Option<i32> {
+        None
+    }
+    pub fn book_of_latvinia(_: &mut GameState, _: &PlayerId, _: ti4_model::content_types::SourceSet) -> Option<bool> {
+        None
+    }
+    pub fn silver_flame(_: &mut GameState, _: &PlayerId, _: bool) -> Option<()> {
         None
     }
     pub fn neuraloop(_: &mut GameState, _: &PlayerId, _: &str, _: &Recording) -> Option<CoreWindow<Option<String>>> {

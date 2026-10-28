@@ -214,12 +214,20 @@ fn commodity_limit(state: &GameState, content: &ContentStore, player: &PlayerId)
 /// Gain up to `count` commodities, never past the faction's value (21.2).
 fn gain_commodities(state: &mut GameState, content: &ContentStore, player: &PlayerId, count: i32) {
     let limit = commodity_limit(state, content, player);
-    let mut gained = 0;
-    if let Some(seat) = state.player_mut(player) {
-        let after = (seat.commodities + count).min(limit);
-        gained = (after - seat.commodities).max(0);
-        seat.commodities = after;
-    }
+    let gained = dual_write(
+        state,
+        "exploration::gain_commodities",
+        |s| {
+            let mut gained = 0;
+            if let Some(seat) = s.player_mut(player) {
+                let after = (seat.commodities + count).min(limit);
+                gained = (after - seat.commodities).max(0);
+                seat.commodities = after;
+            }
+            gained
+        },
+        |s| crate::explore_write::gain_commodities(s, player, count),
+    );
     crate::supply::note_commodities_gained(state, player, gained);
 }
 
@@ -233,11 +241,18 @@ fn convert_commodities(
     player: &PlayerId,
     most: Option<i32>,
 ) {
-    let moved = state.player_mut(player).map_or(0, |seat| {
-        let moved = most.map_or(seat.commodities, |cap| seat.commodities.min(cap));
-        seat.commodities -= moved;
-        moved
-    });
+    let moved = dual_write(
+        state,
+        "exploration::convert_commodities",
+        |s| {
+            s.player_mut(player).map_or(0, |seat| {
+                let moved = most.map_or(seat.commodities, |cap| seat.commodities.min(cap));
+                seat.commodities -= moved;
+                moved
+            })
+        },
+        |s| crate::explore_write::spend_commodities(s, player, most),
+    );
     crate::supply::gain_trade_goods_announced(state, ctx, player, moved, "exploration");
 }
 
@@ -887,9 +902,16 @@ fn resolve_instant(
             // `available_actions`. Same text as the Enigmatic Device relic, and the same helper
             // resolves both -- but it is not a relic, so it lives in its own place rather than
             // borrowing the relic list and picking up every relic effect on the way.
-            if let Some(seat) = state.player_mut(player) {
-                seat.exploration_cards.push(card.to_owned());
-            }
+            dual_write(
+                state,
+                "exploration::play_area_card",
+                |s| {
+                    if let Some(seat) = s.player_mut(player) {
+                        seat.exploration_cards.push(card.to_owned());
+                    }
+                },
+                |s| crate::explore_write::play_area_card(s, player, card),
+            );
             return true;
         }
         "mirage" => {
@@ -1116,7 +1138,12 @@ fn resolve_instant(
                 card,
                 "ready this planet",
             ) {
-                state.exhausted_planets.remove(planet);
+                dual_write(
+                    state,
+                    "exploration::ready_planet",
+                    |s| s.exhausted_planets.remove(planet),
+                    |s| crate::explore_write::ready_planet(s, planet),
+                );
             }
             return true;
         }
@@ -4027,6 +4054,44 @@ mod window_tests {
         for card in ["abandoned_warehouses", "merchant_station", "functioning_base", "local_fabricators", "mercenary_outfit"] {
             assert!(counts(&format!("exploration::ask:{card}")).0 >= 1, "{card}: {r:?}");
         }
+        let _ = take_report();
+    }
+
+    /// The writes behind the instant cards (commodities gained and converted, a card kept in the play area,
+    /// a planet readied) run on the core and agree with the string write.
+    #[test]
+    fn the_instant_effect_writes_run_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        dual(|| {
+            // Gain 2 commodities (capped at the faction's value), then convert (one, and up to two).
+            for (commodities, answer) in [(0, "gain"), (1, "gain"), (2, "convert"), (1, "convert")] {
+                let (mut state, planet) = table(0, commodities);
+                explore_card(&mut state, &planet, "aw1", &[answer]);
+            }
+            let (mut state, planet) = table(0, 1);
+            explore_card(&mut state, &planet, "ms1", &["convert"]);
+            assert_eq!(state.player(&me()).unwrap().commodities, 0);
+            let (mut state, planet) = table(0, 0);
+            explore_card(&mut state, &planet, "ms1", &[]);
+            // Enigmatic Device: kept faceup.
+            let (mut state, planet) = table(0, 0);
+            explore_card(&mut state, &planet, "ed1", &[]);
+            assert_eq!(state.player(&me()).unwrap().exploration_cards, ["ed1"]);
+            // Expedition: an infantry is removed and the planet is readied.
+            let (mut state, planet) = table(0, 0);
+            let (system, _) = crate::fixtures::a_placed_planet();
+            state.system_mut(&system).planet_units.entry(planet.clone()).or_default().push(ti4_model::units::Unit::new(
+                ti4_model::id::UnitTypeId::new("infantry"),
+                me(),
+            ));
+            state.exhausted_planets.insert(planet.clone());
+            explore_card(&mut state, &planet, "exp1", &["remove_infantry"]);
+            assert!(!state.exhausted_planets.contains(&planet));
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.total_calls() >= 12, "{r:?}");
         let _ = take_report();
     }
 
