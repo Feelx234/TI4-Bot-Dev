@@ -20,7 +20,7 @@ mod real {
     use ti4_engine_core::ids::Seat;
     use ti4_engine_core::kernel::stage::{AbilityTable, Window};
     use ti4_engine_core::kernel::{fx, Kernel, Resolver};
-    use ti4_engine_core::rules::strategy_primaries::{DMode, Diplomacy, Leadership, Politics, WarfarePrimary};
+    use ti4_engine_core::rules::strategy_primaries::{Construction, DMode, Diplomacy, Leadership, Politics, Placement, StructureFacts, WarfarePrimary};
     use ti4_engine_core::state::{CoreState, Slice};
     use ti4_model::content_types::SourceSet;
     use ti4_model::id::{PlayerId, SystemId};
@@ -239,6 +239,27 @@ mod real {
         }
     }
 
+    /// [`drive_window`] for the windows that read the production rules: the production kernel, the questions
+    /// rendered in their position, the slices the payment and placement rules read.
+    fn run_production<W: Window>(
+        gs: &mut GameState,
+        cx: &mut Ctx,
+        r: &Render,
+        window: W,
+        seat: Seat,
+        script: &Recording,
+        complete: Complete<'_>,
+    ) -> Option<(W, Driven)> {
+        let before = gs.clone();
+        let kernel = crate::production_view::kernel();
+        let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let fp = Footprint { reads: crate::production_view::READS, writes: ti4_engine_core::state::SliceSet::of(&[Slice::Board, Slice::Players]) };
+        let driven = with_core(gs, cx, Sources::default(), fp, |core, _| drive_at(&mut driver, core, kernel, r, &before, script, complete))
+            .ok()?
+            .ok()?;
+        Some((driver.window, driven))
+    }
+
     /// The string state as a question sees it mid-window: the planets exhausted and the trade goods held now.
     fn string_now(before: &GameState, core: &CoreState, seat: Seat, player: &PlayerId) -> GameState {
         let mut now = before.clone();
@@ -278,37 +299,89 @@ mod real {
         let seat = r.seat(player.as_str())?;
         let letnev = gs.player(player)?.faction.as_str() == "letnev";
         let before = gs.clone();
-        let kernel = crate::production_view::kernel();
-        let mut driver = Driver::new(Leadership::new(seat, primary), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let gained = std::cell::Cell::new(0_usize);
         let purchase_of = |core: &CoreState| crate::strategy_cards::purchase_details(&string_now(&before, core, seat, player), content, sources, player);
-        let fp = Footprint { reads: crate::production_view::READS, writes: ti4_engine_core::state::SliceSet::of(&[Slice::Board, Slice::Players]) };
-        let driven = with_core(gs, &mut cx, Sources::default(), fp, |core, _| {
-            drive_at(&mut driver, core, kernel, &r, &before, script, &|c, core, rendered| {
-                complete_tokens(c, core, rendered, letnev);
-                match c.ask {
-                    Ask::Strategy(SAsk::GainPool { .. }) => {
-                        // Only the three free tokens of the primary announce the purchase that follows.
-                        if primary && gained.get() < 3 {
-                            if let Some(purchase) = purchase_of(core) {
-                                rendered.details.insert("purchase".to_owned(), purchase);
-                            }
-                        }
-                        gained.set(gained.get() + 1);
-                    }
-                    Ask::Strategy(SAsk::LeadershipBuy { more: false, .. }) => {
+        let (window, driven) = run_production(gs, &mut cx, &r, Leadership::new(seat, primary), seat, script, &|c, core, rendered| {
+            complete_tokens(c, core, rendered, letnev);
+            match c.ask {
+                Ask::Strategy(SAsk::GainPool { .. }) => {
+                    // Only the three free tokens of the primary announce the purchase that follows.
+                    if primary && gained.get() < 3 {
                         if let Some(purchase) = purchase_of(core) {
-                            rendered.details.extend(pool_details(core, c.actor, letnev, "buy", Some(0)));
                             rendered.details.insert("purchase".to_owned(), purchase);
                         }
                     }
-                    _ => {}
+                    gained.set(gained.get() + 1);
                 }
-            })
-        })
-        .ok()?
-        .ok()?;
-        Some(finish(&driven, &driver.window))
+                Ask::Strategy(SAsk::LeadershipBuy { more: false, .. }) => {
+                    if let Some(purchase) = purchase_of(core) {
+                        rendered.details.extend(pool_details(core, c.actor, letnev, "buy", Some(0)));
+                        rendered.details.insert("purchase".to_owned(), purchase);
+                    }
+                }
+                _ => {}
+            }
+        })?;
+        Some(finish(&driven, &window))
+    }
+
+    // -- Construction ---------------------------------------------------------------------------------------
+
+    /// The core half of the Construction abilities (`primary`: two structures, else the secondary's one).
+    /// `None` as for Leadership, and where a faction effect changes the placement: the Titans' alternative to a
+    /// PDS, Minister of Industry's production after a space dock, a unit the tables do not name.
+    pub fn construction(
+        gs: &mut GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        player: &PlayerId,
+        primary: bool,
+        script: &Recording,
+    ) -> Option<CoreWindow<bool>> {
+        if outside(gs, script) || crate::production_view::unported_window(gs, player) || crate::laws::industry_produces_on_placement(gs, player) {
+            return None;
+        }
+        let alternatives = gs.controlled_planets(player).into_iter().any(|(system, planet)| {
+            !crate::factions::hooks_economy::pds_placement_alternatives(gs, content, sources, player, system, planet).is_empty()
+        });
+        if alternatives {
+            return None;
+        }
+        let placement = |kind: &str| -> Option<Placement> {
+            let (unit, in_space) = crate::strategy_cards::construction_placement(gs, content, sources, player, kind);
+            if crate::factions::hooks_economy::effect_placement_forbidden(gs, content, sources, player, &unit) {
+                return Some(None);
+            }
+            Some(Some((crate::core_adapter::typed::<ti4_engine_core::generated::Unit>(unit.as_str())?, in_space)))
+        };
+        let (pds, dock) = (placement("pds")?, placement("spacedock")?);
+        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let seat = r.seat(player.as_str())?;
+        let facts = StructureFacts { pds, dock, source: r.code("place_structure") };
+        let (window, driven) = run_production(gs, &mut cx, &r, Construction::new(seat, primary, facts), seat, script, &|_, _, _| {})?;
+        Some(finish(&driven, &window))
+    }
+
+    // -- Imperial ------------------------------------------------------------------------------------------
+
+    const SECRET: Footprint =
+        Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Decks, Slice::Pending], &[Slice::Players, Slice::Decks]);
+
+    /// The core half of Imperial's secret objective draw (`secrets::draw` called by the secondary and by the
+    /// primary of a seat that does not hold Mecatol Rex). `None` where the draw is not plain: the hand would go
+    /// over its limit (a question to return one), a reserve is replaying draws, a nested emission.
+    pub fn draw_secret(gs: &mut GameState, content: &ContentStore, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
+        if outside(gs, script) || gs.deck_reserve.is_some() {
+            return None;
+        }
+        let limit = crate::secrets::HAND_LIMIT + crate::relics::secret_objective_bonus(gs, player);
+        if crate::secrets::held_count(gs, content, player) + 1 > limit {
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let seat = r.seat(player.as_str())?;
+        with_core(gs, &mut cx, Sources::default(), SECRET, |core, _| fx::draw_secret(core, seat)).ok()?;
+        Some(CoreWindow { run: Run::new(true).with_events_vec(Vec::new()), questions: Vec::new() })
     }
 
     // -- Politics ------------------------------------------------------------------------------------------
@@ -325,7 +398,7 @@ mod real {
     /// The core half of the two Politics abilities. `None` as for Warfare, with two seats of one faction (the
     /// speaker options are named by faction) and where the draw is not plain.
     pub fn politics(gs: &mut GameState, content: &ContentStore, player: &PlayerId, primary: bool, script: &Recording) -> Option<CoreWindow<bool>> {
-        if outside(gs, script) || !plain_draw(gs, content, player, 2) {
+        if outside(gs, script) || gs.deck_reserve.is_some() || !plain_draw(gs, content, player, 2) {
             return None;
         }
         let (mut cx, r) = named_tables(gs)?;
@@ -376,6 +449,21 @@ mod stub {
     }
 
     pub fn politics(_: &mut GameState, _: &ContentStore, _: &PlayerId, _: bool, _: &Recording) -> Option<CoreWindow<bool>> {
+        None
+    }
+
+    pub fn draw_secret(_: &mut GameState, _: &ContentStore, _: &PlayerId, _: &Recording) -> Option<CoreWindow<bool>> {
+        None
+    }
+
+    pub fn construction(
+        _: &mut GameState,
+        _: &ContentStore,
+        _: SourceSet,
+        _: &PlayerId,
+        _: bool,
+        _: &Recording,
+    ) -> Option<CoreWindow<bool>> {
         None
     }
 
@@ -578,5 +666,49 @@ mod tests {
         let argent = [("a", "sol"), ("b", "argent")];
         let free = ["tactic_tokens", "tactic_tokens", "fleet_tokens", "no"];
         assert_eq!(run(label, &argent, goods(4), &free, primary("pok1leadership")), (0, 1));
+    }
+
+    #[test]
+    fn imperial_draws_a_secret_objective_in_lockstep() {
+        let label = "strategy_cards::imperial_secret";
+        assert_eq!(run(label, &F3, |_| {}, &[], secondary("pok8imperial")).0, 1);
+        // The primary of a seat without Mecatol Rex draws one too (nothing is scoreable at the start).
+        assert_eq!(run(label, &F3, |_| {}, &[], primary("pok8imperial")).0, 1);
+        // A full hand: the draw would end in a question to hand one back.
+        let full = |s: &mut GameState| {
+            let cards: Vec<_> = s.secret_deck.drain(..3).collect();
+            s.player_mut(&a()).unwrap().secret_objectives = cards;
+        };
+        assert_eq!(run(label, &F3, full, &[], secondary("pok8imperial")), (0, 1));
+    }
+
+    fn lodor(s: &mut GameState) {
+        s.system_mut(&SystemId::new("26")).set_control(PlanetId::new("lodor"), a());
+    }
+
+    #[test]
+    fn construction_places_structures_in_lockstep() {
+        let label = "strategy_cards::construction_primary";
+        // Two structures: a PDS, then another PDS (the second may only be a PDS).
+        assert_eq!(run(label, &F3, lodor, &["pds|01|jord", "pds|26|lodor"], primary("pok4construction")).0, 1);
+        assert_eq!(run(label, &F3, lodor, &["spacedock|26|lodor", "pds|26|lodor"], primary("pok4construction")).0, 1);
+        // The holder passes on the first and takes the second.
+        assert_eq!(run(label, &F3, lodor, &["decline", "pds|01|jord"], primary("pok4construction")).0, 1);
+        let label = "strategy_cards::construction_secondary";
+        assert_eq!(run(label, &F3, lodor, &["spacedock|26|lodor"], secondary("pok4construction")).0, 1);
+        assert_eq!(run(label, &F3, lodor, &["decline"], secondary("pok4construction")).0, 1);
+        // No planet controlled but the home planet, whose dock is there: only a PDS can go.
+        assert_eq!(run(label, &F3, |_| {}, &["pds|01|jord"], secondary("pok4construction")).0, 1);
+    }
+
+    #[test]
+    fn construction_declines_where_a_faction_effect_changes_the_placement() {
+        let label = "strategy_cards::construction_secondary";
+        // Minister of Industry: a space dock opens production.
+        let minister = |s: &mut GameState| {
+            lodor(s);
+            s.enact_law("minister_industry", "a");
+        };
+        assert_eq!(run(label, &F3, minister, &["spacedock|26|lodor"], secondary("pok4construction")), (0, 1));
     }
 }

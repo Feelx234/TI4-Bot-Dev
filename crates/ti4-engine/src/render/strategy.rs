@@ -53,6 +53,7 @@ impl Family for Fam {
             Ask::LeadershipBuy { owed, more } => {
                 format!("spend {owed}{} influence for a command token", if *more { " more" } else { "" })
             }
+            Ask::PlaceStructure { .. } => "place a structure".to_owned(),
         }
     }
 
@@ -67,6 +68,7 @@ impl Family for Fam {
             Subtype::PoliticsChooseSpeaker => "politics_choose_speaker",
             Subtype::PoliticsPlaceAgenda => "politics_place_agenda",
             Subtype::BuyTokenWithInfluence => "buy_token_with_influence",
+            Subtype::PlaceStructure => "place_structure",
         }
         .to_owned()
     }
@@ -105,6 +107,12 @@ impl Family for Fam {
             ),
             Opt::Top => ChoiceOption::labelled("top", "agenda", "on top of the deck"),
             Opt::Bottom => ChoiceOption::labelled("bottom", "agenda", "on the bottom"),
+            Opt::Structure { pds, system, planet } => {
+                let (kind, planet, system) = (if *pds { "pds" } else { "spacedock" }, planet.as_str(), system.as_str());
+                ChoiceOption::labelled(format!("{kind}|{system}|{planet}"), "build", format!("place {kind} on {planet}"))
+                    .with_planet(planet, Some(system))
+                    .with("unit", kind)
+            }
             Opt::Buy(false) => ChoiceOption::labelled("no", crate::strategy::STRATEGY_KIND, "spend nothing further"),
             Opt::Buy(true) => {
                 let (owed, more) = match a {
@@ -134,12 +142,37 @@ impl Family for Fam {
                 "bottom" => Some(Opt::Bottom),
                 _ => None,
             },
+            Ask::PlaceStructure { only_pds, .. } => {
+                let mut parts = id.split('|');
+                let (kind, system, planet, rest) = (parts.next()?, parts.next()?, parts.next()?, parts.next());
+                let pds = match kind {
+                    "pds" => true,
+                    "spacedock" if !only_pds => false,
+                    _ => return None,
+                };
+                rest.is_none().then_some(())?;
+                Some(Opt::Structure { pds, system: System::from_id(system)?, planet: Planet::from_id(planet)? })
+            }
             Ask::LeadershipBuy { .. } => match id {
                 "no" => Some(Opt::Buy(false)),
                 "yes" => Some(Opt::Buy(true)),
                 _ => None,
             },
         }
+    }
+
+    fn details(_: &Render, a: &Ask) -> serde_json::Map<String, serde_json::Value> {
+        let mut d = serde_json::Map::new();
+        if let Ask::PlaceStructure { step, only_pds } = a {
+            if *step > 0 {
+                d.insert("step".to_owned(), (*step).into());
+                d.insert("of".to_owned(), 2.into());
+            }
+            if *only_pds {
+                d.insert("only_pds".to_owned(), true.into());
+            }
+        }
+        d
     }
 
     fn wording(_: &Render, a: &Ask, o: &AnyOpt) -> Wording {

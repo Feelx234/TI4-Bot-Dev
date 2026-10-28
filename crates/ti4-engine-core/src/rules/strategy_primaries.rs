@@ -10,9 +10,10 @@
 use crate::choice::agenda::Shown;
 use crate::choice::generic::Rule;
 use crate::choice::strategy::{Ask as SAsk, Opt as SOpt, Pool, Subtype as SSub};
-use crate::choice::{Ask, Choice, Opt, Opts, Pick};
+use crate::choice::generic::Content;
+use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use crate::containers::SmallList;
-use crate::generated::{Agenda, Faction, Planet, StrategyCard, System};
+use crate::generated::{Agenda, Faction, Planet, StrategyCard, System, Unit, UnitBaseType};
 use crate::ids::Seat;
 use crate::kernel::fx;
 use crate::kernel::stage::{Illegal, Sx, Window};
@@ -24,7 +25,7 @@ use crate::rules::production::pay::{PayStep, Stage as PayStage};
 use crate::rules::production::{Cx as ProdCx, Extras};
 use crate::tables::Scope;
 use crate::rules::strategy_windows::{ctx, rule_ctx};
-use crate::state::CoreState;
+use crate::state::{Code, CoreState};
 
 fn ask(a: SAsk) -> Ask {
     Ask::Strategy(a)
@@ -659,6 +660,167 @@ impl Window for Leadership {
             (LStage::Offer, SOpt::Buy(false)) => self.stage = LStage::Done,
             _ => return Err(Illegal),
         }
+        Ok(())
+    }
+}
+
+// -- Construction ----------------------------------------------------------------------------------------
+
+/// The unit a seat places for one structure kind and whether it goes in the space area
+/// (`strategy_cards::construction_placement`), as the caller resolved it from the unit tables; `None`: the
+/// kind may not be placed at all (a faction effect forbids it).
+pub type Placement = Option<(Unit, bool)>;
+
+/// What a [`Construction`] window needs of the position that the core does not hold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StructureFacts {
+    /// The PDS the seat places.
+    pub pds: Placement,
+    /// The space dock the seat places.
+    pub dock: Placement,
+    /// The code of the source `place_structure` (the adapter's text table).
+    pub source: Code,
+}
+
+/// The suspension points of [`Construction`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CStage {
+    Start,
+    /// The first (or only) structure.
+    First,
+    /// The primary's second structure (a PDS).
+    Second,
+    Done,
+}
+
+/// Construction: the primary (a PDS or a space dock on a planet the seat controls, then a PDS) and the
+/// secondary (one PDS or space dock). The Titans' alternative to a PDS, the production Minister of Industry
+/// grants after a space dock and a unit form the unit tables do not name stay with the string caller (the
+/// adapter bails).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Construction {
+    pub who: Seat,
+    primary: bool,
+    facts: StructureFacts,
+    stage: CStage,
+}
+
+impl Construction {
+    #[must_use]
+    pub const fn new(who: Seat, primary: bool, facts: StructureFacts) -> Self {
+        Self { who, primary, facts, stage: CStage::Start }
+    }
+
+    fn only_pds(&self) -> bool {
+        self.stage == CStage::Second
+    }
+
+    fn step_no(&self) -> u8 {
+        match (self.primary, self.stage) {
+            (false, _) => 0,
+            (true, CStage::Second) => 2,
+            (true, _) => 1,
+        }
+    }
+
+    fn placement(&self, pds: bool) -> Placement {
+        if pds { self.facts.pds } else { self.facts.dock }
+    }
+
+    fn cx<'a>(s: &'a CoreState, k: &'a Kernel) -> ProdCx<'a> {
+        ProdCx::new(s, k, Scope(u32::from(k.sources.0)), reach::blanked(s))
+    }
+
+    /// `strategy_cards::structure_options`.
+    fn options(&self, s: &CoreState, k: &Kernel) -> SmallList<SOpt, 16> {
+        let cx = Self::cx(s, k);
+        let mut out = SmallList::new();
+        for (system, planet) in board::controlled_planets(s, self.who).as_slice() {
+            if crate::query::objectives::is_space_station(*planet) {
+                continue;
+            }
+            for pds in [true, false] {
+                if self.only_pds() && !pds {
+                    continue;
+                }
+                let Some((unit, in_space)) = self.placement(pds) else { continue };
+                let base = if pds { UnitBaseType::Pds } else { UnitBaseType::Spacedock };
+                if (in_space || prod::structure_allowed(&cx, self.who, *planet, base))
+                    && crate::query::fleet::remaining(s, cx.scope, self.who, unit, 0) >= 1
+                {
+                    out.push(SOpt::Structure { pds, system: *system, planet: *planet });
+                }
+            }
+        }
+        out
+    }
+
+    fn ask_now(&self) -> Option<SAsk> {
+        matches!(self.stage, CStage::First | CStage::Second).then_some(SAsk::PlaceStructure { step: self.step_no(), only_pds: self.only_pds() })
+    }
+
+    /// The step after the one just done.
+    fn advance(&mut self) {
+        self.stage = if self.primary && self.stage == CStage::First { CStage::Second } else { CStage::Done };
+    }
+}
+
+impl Window for Construction {
+    type Stage = CStage;
+
+    fn stage(&self) -> CStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == CStage::Start {
+            self.stage = CStage::First;
+        }
+        // A step with no structure to place asks nothing and passes on.
+        while matches!(self.stage, CStage::First | CStage::Second) && self.options(sx.state, sx.kernel).is_empty() {
+            self.advance();
+        }
+        match self.ask_now() {
+            Some(a) => Next::Continue(ask(a)),
+            None => Next::Done,
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        let a = self.ask_now()?;
+        let mut options = opts(self.options(s, k).as_slice().iter().copied());
+        options.push(Opt::Decline);
+        Some(Choice {
+            actor: self.who,
+            ask: ask(a),
+            ctx: Ctx {
+                origin: Origin::Content(Content::Other(self.facts.source)),
+                subtype: Subtype::Strategy(SSub::PlaceStructure),
+                optional: false,
+                target: None,
+                outstanding: SmallList::new(),
+                space_battle: false,
+                invasion_seq: None,
+            },
+            opts: options,
+        })
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        let offered = self.ask_of(sx.state, sx.kernel).ok_or(Illegal)?;
+        let Pick::Opt(chosen) = pick else { return Err(Illegal) };
+        if !offered.opts.as_slice().contains(&chosen) {
+            return Err(Illegal);
+        }
+        match chosen {
+            Opt::Decline => {}
+            Opt::Strategy(SOpt::Structure { pds, system, planet }) => {
+                let (unit, in_space) = self.placement(pds).ok_or(Illegal)?;
+                fx::place_unit(sx.state, self.who, system, (!in_space).then_some(planet), unit);
+            }
+            _ => return Err(Illegal),
+        }
+        self.advance();
         Ok(())
     }
 }

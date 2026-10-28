@@ -2086,6 +2086,39 @@ pub(crate) fn construction_placement(
     )
 }
 
+/// The Construction abilities beside their core window (`strategy_cards_core::construction`): the primary's
+/// two structures or the secondary's one.
+fn construction_ability(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    primary: bool,
+) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        if primary { "strategy_cards::construction_primary" } else { "strategy_cards::construction_secondary" },
+        state,
+        |state: &mut GameState| {
+            result = if primary {
+                place_structure_step(state, content, sources, galaxy, table, player, false, Some((1, 2)))
+                    .and_then(|_| place_structure_step(state, content, sources, galaxy, table, player, true, Some((2, 2))))
+                    .map(|_| ())
+            } else {
+                place_structure(state, content, sources, galaxy, table, player, false).map(|_| ())
+            };
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_cards_core::construction(
+            state, content, sources, player, primary, script
+        )
+    );
+    result
+}
+
 pub(crate) fn place_structure(
     state: &mut GameState,
     content: &ContentStore,
@@ -2641,6 +2674,22 @@ pub(crate) fn redistribute_tokens(
     Ok(Ability::Resolved)
 }
 
+/// Imperial's draw of a secret objective beside its core half (`strategy_cards_core::draw_secret`).
+fn imperial_secret(state: &mut GameState, content: &ContentStore, table: &mut Table, player: &PlayerId) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        "strategy_cards::imperial_secret",
+        state,
+        |state: &mut GameState| {
+            result = crate::secrets::draw(state, content, table, player).map(|_| ());
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_cards_core::draw_secret(state, content, player, script)
+    );
+    result
+}
+
 fn imperial_primary(
     state: &mut GameState,
     content: &ContentStore,
@@ -2709,7 +2758,7 @@ fn imperial_primary(
             state, content, sources, galaxy, table, player,
         )?;
     } else {
-        crate::secrets::draw(state, content, table, player)?;
+        imperial_secret(state, content, table, player)?;
     }
     state.finished = crate::objectives::winner(state).is_some();
     Ok(())
@@ -2870,26 +2919,7 @@ pub fn primary(
             politics_primary(state, content, sources, galaxy, table, player)?
         }
         StrategyCardKind::Construction => {
-            place_structure_step(
-                state,
-                content,
-                sources,
-                galaxy,
-                table,
-                player,
-                false,
-                Some((1, 2)),
-            )?;
-            place_structure_step(
-                state,
-                content,
-                sources,
-                galaxy,
-                table,
-                player,
-                true,
-                Some((2, 2)),
-            )?;
+            construction_ability(state, content, sources, galaxy, table, player, true)?;
         }
         StrategyCardKind::Trade => trade_primary(state, content, sources, galaxy, table, player)?,
         StrategyCardKind::Warfare => {
@@ -2973,7 +3003,7 @@ pub fn secondary(
         }
         StrategyCardKind::Politics => politics_secondary(state, content, table, player)?,
         StrategyCardKind::Construction => {
-            place_structure(state, content, sources, galaxy, table, player, false)?;
+            construction_ability(state, content, sources, galaxy, table, player, false)?;
         }
         StrategyCardKind::Trade => replenish(state, content, player),
         StrategyCardKind::Warfare => {
@@ -2988,9 +3018,7 @@ pub fn secondary(
             player,
             TECHNOLOGY_SECONDARY_COST,
         )?,
-        StrategyCardKind::Imperial => {
-            crate::secrets::draw(state, content, table, player)?;
-        }
+        StrategyCardKind::Imperial => imperial_secret(state, content, table, player)?,
     }
     Ok(Ability::Resolved)
 }

@@ -40,6 +40,9 @@ pub enum Ask {
     /// 52.3: "spend {owed} influence for a command token" (`more`: a carried credit pays part of it, so the
     /// text says "more").
     LeadershipBuy { owed: u8, more: bool },
+    /// Construction: "place a structure" (`step` of 2 for the primary's two placements, 0 for the secondary's
+    /// one; `only_pds`: the placement may only be a PDS).
+    PlaceStructure { step: u8, only_pds: bool },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -63,6 +66,8 @@ pub enum Opt {
     Bottom,
     /// Leadership: spend the influence (`true`) or nothing further (`false`).
     Buy(bool),
+    /// Construction: this structure on this planet of this system.
+    Structure { pds: bool, system: System, planet: Planet },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -77,4 +82,5 @@ pub enum Subtype {
     PoliticsChooseSpeaker,
     PoliticsPlaceAgenda,
     BuyTokenWithInfluence,
+    PlaceStructure,
 }
