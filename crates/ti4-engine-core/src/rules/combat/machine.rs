@@ -171,7 +171,9 @@ impl Machine {
     #[must_use]
     pub fn retreats(&self, s: &CoreState, k: &Kernel, seat: Seat) -> Vec<System> {
         let side = self.side(seat);
-        if !self.env.may_retreat[side] {
+        // Intercept bars a retreat for one round: read as the rounds go by.
+        let barred = s.players().by_seat(seat).is_some_and(|p| p.combat_timers.retreat_barred_round.is(s.meta().combat_round_seq));
+        if !self.env.may_retreat[side] || barred {
             return Vec::new();
         }
         let rd = Self::rd(s, k);

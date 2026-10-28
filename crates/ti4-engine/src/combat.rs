@@ -6847,7 +6847,6 @@ impl CombatWindow {
         });
         let may_retreat = sides.map(|side| {
             !(crate::neutral_units::is_neutral(side) && !crate::neutral_units::may_retreat())
-                && !retreat_barred(state, side)
                 && !crate::factions::mahact_units::ship_movement_barred(state)
         });
         let begin_occurrence = occurrence.is_none()
