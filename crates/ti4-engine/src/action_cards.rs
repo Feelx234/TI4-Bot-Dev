@@ -1112,19 +1112,29 @@ fn confusing(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) 
 /// Then the holder exhausts every planet they control — the card names "your planets",
 /// which are the ones on this player's board, not the planets the agenda would have touched.
 fn deadly_plot(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    context
-        .state
-        .transient_flags
-        .set(TransientFlags::AGENDA_DISCARDED);
-    let planets: Vec<ti4_model::id::PlanetId> = context
-        .state
+    // The core `rules::agenda::deadly_plot::DeadlyPlot` window runs beside the string body on `agenda=dual`.
+    crate::dual_window!(
+        crate::dual::Area::AgendaLaws,
+        "action_cards::deadly_plot",
+        &mut *context.state,
+        |s: &mut GameState| {
+            deadly_plot_state(s, player);
+            crate::dual::Run::new(())
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::dual_window::deadly_plot(s, player, script)
+    );
+}
+
+fn deadly_plot_state(state: &mut GameState, player: &PlayerId) {
+    state.transient_flags.set(TransientFlags::AGENDA_DISCARDED);
+    let planets: Vec<ti4_model::id::PlanetId> = state
         .board
         .values()
         .flat_map(|system| system.planet_control.iter())
         .filter_map(|(planet, owner)| (owner == player).then_some(planet.clone()))
         .collect();
     for planet in planets {
-        context.state.exhaust_planet(planet);
+        state.exhaust_planet(planet);
     }
 }
 

@@ -228,7 +228,7 @@ impl AgendaView<'_> {
         let (agenda, voter) = (typed::<Agenda>(alias)?, self.seat(voter)?);
         let (choices, counts) = (self.outcomes_of(alias, choices)?, self.counts_of(alias, counts)?);
         let outcome = self.parse(alias, outcome)?;
-        let q = rules::planets_question(&self.rules_cx(), agenda, voter, outcome, votes, spender, &choices, &counts, must_cast);
+        let q = rules::planets_question(&self.rules_cx(), agenda, voter, outcome, votes, spender, spender, &choices, &counts, must_cast);
         Some(q.map(|q| self.render_choice(q)))
     }
 

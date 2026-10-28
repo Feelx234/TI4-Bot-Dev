@@ -845,8 +845,10 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Colonial Redistribution's choice between the seats furthest behind (a `resolve_with` arm before the
+        // per-effect split).
         module: "agenda_effects.rs",
-        function: "resolve_with",
+        function: "effect_redistribution",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1695,9 +1697,10 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("action_cards.rs", "skilled_retreat", 1),
     ("agenda_effects.rs", "ask_the_speaker", 1),
     ("agenda_effects.rs", "choose_structure", 1),
-    // Two asks: Galactic Crisis Pact's per-seat "follow the elected card" offer joined the
-    // existing one (card audit I02, rules version 31).
-    ("agenda_effects.rs", "resolve_with", 2),
+    // Galactic Crisis Pact's per-seat "follow the elected card" offer (card audit I02, rules version 31) and
+    // Colonial Redistribution's ask: the two asks of `resolve_with` before it was split per effect.
+    ("agenda_effects.rs", "effect_crisis", 1),
+    ("agenda_effects.rs", "effect_redistribution", 1),
     ("choice.rs", "ask_seeing", 1),
     ("choice.rs", "drive", 1),
     ("combat.rs", "choose_casualty_owing", 1),

@@ -522,6 +522,42 @@ impl fmt::Display for DualReport {
 static REPORT: Mutex<Option<DualReport>> = Mutex::new(None);
 static FAIL_FAST: AtomicBool = AtomicBool::new(false);
 
+/// Count one run of a window the dual cannot follow as a call (`compared`) or a bail, for the windows that are
+/// recorded outside [`run_dual_window`] (the vote).
+pub(crate) fn note_window(label: &str, compared: bool) {
+    #[cfg(test)]
+    LOCAL_WINDOWS.with(|m| {
+        let mut m = m.borrow_mut();
+        let w = m.entry(label.to_owned()).or_insert((0, 0));
+        if compared {
+            w.0 += 1;
+        } else {
+            w.1 += 1;
+        }
+    });
+    with_report(|r| {
+        let w = r.windows.entry(label.to_owned()).or_default();
+        if compared {
+            w.compared += 1;
+        } else {
+            w.bailed += 1;
+        }
+    });
+}
+
+#[cfg(test)]
+thread_local! {
+    /// (compared, bailed) windows per label run on this thread: the process-wide report is shared by the
+    /// parallel tests, which take it from each other.
+    static LOCAL_WINDOWS: std::cell::RefCell<BTreeMap<String, (u64, u64)>> = const { std::cell::RefCell::new(BTreeMap::new()) };
+}
+
+/// The windows of `label` this thread compared and bailed.
+#[cfg(test)]
+pub(crate) fn local_windows(label: &str) -> (u64, u64) {
+    LOCAL_WINDOWS.with(|m| m.borrow().get(label).copied().unwrap_or((0, 0)))
+}
+
 fn with_report<T>(body: impl FnOnce(&mut DualReport) -> T) -> T {
     let mut guard = REPORT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     body(guard.get_or_insert_with(DualReport::default))
@@ -1119,10 +1155,10 @@ pub fn run_dual_window<R: PartialEq + Debug>(
     let mut string_run = string(state);
     let recording = crate::dual_window::finish();
     let Some(core_run) = core(&mut core_state, &recording) else {
-        with_report(|r| r.windows.entry(label.to_owned()).or_default().bailed += 1);
+        note_window(label, false);
         return string_run.value;
     };
-    with_report(|r| r.windows.entry(label.to_owned()).or_default().compared += 1);
+    note_window(label, true);
     string_run.events = Some(crate::dual_window::normalized(&recording.emits));
     let ok = compare_value(area, &format!("{label}.questions"), &recording.questions.len(), &core_run.questions.len());
     if ok {
@@ -1139,10 +1175,10 @@ pub fn run_dual_window<R: PartialEq + Debug>(
 /// something the core cannot express (counted as a bail-out under `label`, nothing compared).
 pub fn run_dual_ask(area: Area, label: &str, string: Option<&Choice>, core: impl FnOnce() -> Option<Choice>) {
     let Some(core) = core() else {
-        with_report(|r| r.windows.entry(label.to_owned()).or_default().bailed += 1);
+        note_window(label, false);
         return;
     };
-    with_report(|r| r.windows.entry(label.to_owned()).or_default().compared += 1);
+    note_window(label, true);
     note_call(area);
     compare_choice(area, label, string, Some(&core));
 }
