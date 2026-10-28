@@ -4250,6 +4250,41 @@ mod window_tests {
         let _ = take_report();
     }
 
+    /// The effects that stay string (docs/ENGINE_KNOWN_ISSUES.md, B5-bail-04): command tokens, the Mirage and
+    /// the Dead World, Freelancers' production, the secret and action cards drawn, the Gamma wormhole, the
+    /// Demilitarized Zone and a unit placed by Mercenary Outfit. Under `Dual` each runs alone: the card
+    /// resolves, the log row (a core write) agrees, and nothing differs.
+    #[test]
+    fn the_effects_that_stay_string_run_alone_under_dual() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        dual(|| {
+            for (card, answers) in [
+                ("minent", vec!["tactic_tokens"]),
+                ("kel1", vec!["tactic_tokens", "fleet_tokens"]),
+                ("dw", vec![]),
+                ("frln1", vec![]),
+                ("dv1", vec![]),
+                ("lc1", vec![]),
+                ("mirage", vec![]),
+                ("gw", vec![]),
+                ("dmz", vec![]),
+                ("mo1", vec!["place"]),
+            ] {
+                let (mut state, planet) = table(0, 0);
+                state.relic_deck = vec![ti4_model::id::RelicId::new("thetriad")];
+                state.exploration_decks.insert("CULTURAL".to_owned(), vec![card.to_owned()]);
+                state.active_system = Some(crate::fixtures::a_placed_planet().0);
+                let outcome = with_ctx(&answers, |ctx| explore_with(&mut state, ctx, &me(), "CULTURAL", Some(&planet)));
+                assert!(outcome.is_some(), "{card}");
+                assert_eq!(state.exploration_log.len(), 1, "{card}");
+            }
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
     /// Exploring after an invasion capture: the question carries the invasion's sequence number, which the
     /// core windows now put into their context, so the golden games compare them.
     #[test]
