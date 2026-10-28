@@ -15650,8 +15650,8 @@ mod tests {
         });
         let report = take_report();
         assert_eq!(report.total_differences(), 0, "{report:?}");
-        let w = report.windows.get("action_cards::deadly_plot").cloned().unwrap_or_default();
-        assert!(w.compared > 0, "{w:?} {report:?}");
+        let (compared, bailed) = crate::dual::local_windows("action_cards::deadly_plot");
+        assert!(compared > 0 && bailed == 0, "{compared} compared, {bailed} bailed");
     }
 
     #[test]

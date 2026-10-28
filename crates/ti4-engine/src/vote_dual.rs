@@ -216,6 +216,11 @@ fn supported(state: &GameState, choices: &[String], order: &[PlayerId], spender:
 fn replay(inner: &Inner, now: &GameState, winner: Option<&str>, counts: &std::collections::BTreeMap<String, i64>) {
     let compared = replay_inner(inner, now, winner, counts).is_some();
     crate::dual::note_window("vote::VoteWindow", compared);
+    #[cfg(test)]
+    REPLAYS.with(|r| {
+        let (yes, no) = r.get();
+        r.set(if compared { (yes + 1, no) } else { (yes, no + 1) });
+    });
 }
 
 /// `None` when the core could not follow the position (nothing was compared).
@@ -296,4 +301,16 @@ fn replay_inner(inner: &Inner, now: &GameState, winner: Option<&str>, counts: &s
     compare_value(area, &format!("{LABEL}.finished"), &true, &(driven.finished && driver.window.is_done()));
     let _ = <Vote as Window>::stage;
     Some(())
+}
+
+#[cfg(all(test, feature = "typed-core"))]
+thread_local! {
+    /// (replayed, bailed) votes of this thread, for the tests (the dual report is shared between threads).
+    static REPLAYS: std::cell::Cell<(u32, u32)> = const { std::cell::Cell::new((0, 0)) };
+}
+
+/// The votes this thread replayed and the votes whose position the core could not follow.
+#[cfg(all(test, feature = "typed-core"))]
+pub(crate) fn replays() -> (u32, u32) {
+    REPLAYS.with(std::cell::Cell::get)
 }

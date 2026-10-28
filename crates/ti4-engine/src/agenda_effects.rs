@@ -2046,8 +2046,8 @@ mod tests {
         let report = take_report();
         assert_eq!(report.total_differences(), 0, "{report:?}");
         for label in ["agenda_effects::resolve_with", "laws::repeal"] {
-            let w = report.windows.get(label).cloned().unwrap_or_default();
-            assert!(w.compared > 0, "{label}: {w:?}");
+            let (compared, bailed) = crate::dual::local_windows(label);
+            assert!(compared > 0 && bailed == 0, "{label}: {compared} compared, {bailed} bailed");
         }
     }
 

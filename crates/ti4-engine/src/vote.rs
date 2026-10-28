@@ -2660,8 +2660,7 @@ mod typed_render_tests {
         }
         let report = take_report();
         assert_eq!(report.total_differences(), 0, "{report:?}");
-        let w = report.windows.get("vote::VoteWindow").cloned().unwrap_or_default();
-        assert_eq!((w.compared, w.bailed), (4, 0), "every variant is replayed: {report:?}");
+        assert_eq!(crate::vote_dual::replays(), (4, 0), "every variant is replayed on the core window");
         for stage in ["recombination_outcome", "recombination_tribute", "vote_spend_trade_goods", "vote_predictive_intelligence", "vote_tiebreak"] {
             assert!(seen.contains(stage) || stage == "vote_tiebreak", "stage {stage} not reached: {seen:?}");
         }
