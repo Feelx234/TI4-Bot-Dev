@@ -10,6 +10,9 @@
 # Env: CARGO_TARGET_DIR (required, private), BASE_REF (git ref the immutable surfaces are compared
 # with; default engine-core-state-base), GAMES (dual games, default 20), DUAL_BENCH=1 (also run the
 # bench with the area on Dual, ~2-3x slower), WASM_OPT (binary of wasm-opt), SKIP_AB=1.
+# Builds use the `gate` profile (docs/ENGINE_BUILD_SPEED.md): binaries are in $CARGO_TARGET_DIR/gate/.
+# The CPU A/B (6/7) and the wasm size gate (8) are OFF by default (they need release/wasm-release
+# builds): RUN_AB=1 / RUN_WASM=1 turn them on. The hash checks of the benches stay.
 #
 # Checks (numbers = gate table 5): 1 tests + gen-cards --check + wasm tests; 2 immutable surfaces;
 # 3 dual run (engine suite with the area on Dual and fail-fast, 20 golden games, templates);
@@ -55,9 +58,9 @@ if [[ $rc1 == 0 && $rc2 == 0 ]]; then note "ok   immutable surfaces (vs $base_re
   note "FAIL immutable surfaces (git diff $base_ref -- web/ docs/RULES_VERSION.md crates/ti4-model/src/state.rs fixtures)"; fail=1; fi
 
 # builds
-t0=$SECONDS; check build-selfplay cargo build --release -p ti4-selfplay; note "     build-selfplay $((SECONDS - t0)) s"
-cp "$target/release/selfplay" "$out/selfplay-new"
-check build-bridge cargo build --release -p ti4-engine-core-bridge --bins
+t0=$SECONDS; check build-selfplay cargo build --profile gate -p ti4-selfplay; note "     build-selfplay $((SECONDS - t0)) s"
+cp "$target/gate/selfplay" "$out/selfplay-new"
+check build-bridge cargo build --profile gate -p ti4-engine-core-bridge --bins
 
 # 1 tests
 check tests cargo test -p ti4-model -p ti4-content -p ti4-engine -p ti4-host -p ti4-rule-bot \
@@ -71,38 +74,38 @@ check tests-wasm cargo test -p ti4-wasm --features ts
 if [[ -n "$dual" ]]; then
   check dual-suite env "$dual" TI4_DUAL_FAIL_FAST=1 cargo test -p ti4-engine
   note "     $(grep -c '^test result: ok' "$out/dual-suite.log") suites ok with $area on Dual (fail fast)"
-  check dual-golden env TI4_DUAL_FAIL_FAST=1 "$target/release/dual_run" tools/engine_profile/profile-20.json "$games" "$area=dual"
+  check dual-golden env TI4_DUAL_FAIL_FAST=1 "$target/gate/dual_run" tools/engine_profile/profile-20.json "$games" "$area=dual"
   sed 's/^/     /' "$out/dual-golden.log" | head -12 | tee -a "$out/summary.txt"
   if [[ "$area" == board ]]; then
-    check dual-templates "$target/release/board_equivalence" templates
+    check dual-templates "$target/gate/board_equivalence" templates
     note "     $(grep '^board queries' "$out/dual-templates.log" | tail -1)"
-    check dual-positions "$target/release/board_equivalence" golden tools/engine_profile/profile-20.json 20 10
+    check dual-positions "$target/gate/board_equivalence" golden tools/engine_profile/profile-20.json 20 10
     note "     $(grep '^board queries' "$out/dual-positions.log" | tail -1)"
   fi
   if [[ "$area" == agenda ]]; then
     # B9: the agenda reads next to the string functions (the same bin prints all summaries).
-    check dual-templates "$target/release/board_equivalence" templates
+    check dual-templates "$target/gate/board_equivalence" templates
     note "     $(grep '^agenda reads' "$out/dual-templates.log" | tail -1)"
-    check dual-positions "$target/release/board_equivalence" golden tools/engine_profile/profile-20.json 20 10
+    check dual-positions "$target/gate/board_equivalence" golden tools/engine_profile/profile-20.json 20 10
     note "     $(grep '^agenda reads' "$out/dual-positions.log" | tail -1)"
   fi
   if [[ "$area" == strategy ]]; then
     # B8: the strategy reads next to the string functions (the same bin prints both summaries).
-    check dual-templates "$target/release/board_equivalence" templates
+    check dual-templates "$target/gate/board_equivalence" templates
     note "     $(grep '^strategy reads' "$out/dual-templates.log" | tail -1)"
-    check dual-positions "$target/release/board_equivalence" golden tools/engine_profile/profile-20.json 20 10
+    check dual-positions "$target/gate/board_equivalence" golden tools/engine_profile/profile-20.json 20 10
     note "     $(grep '^strategy reads' "$out/dual-positions.log" | tail -1)"
   fi
   if [[ "$area" == exploration ]]; then
-    check dual-templates "$target/release/board_equivalence" cards templates
+    check dual-templates "$target/gate/board_equivalence" cards templates
     note "     $(grep '^exploration queries' "$out/dual-templates.log" | tail -1)"
-    check dual-positions "$target/release/board_equivalence" cards golden tools/engine_profile/profile-20.json 20 10 6
+    check dual-positions "$target/gate/board_equivalence" cards golden tools/engine_profile/profile-20.json 20 10 6
     note "     $(grep '^exploration queries' "$out/dual-positions.log" | tail -1)"
   fi
   if [[ "$area" == movement ]]; then
-    check dual-templates "$target/release/core_equivalence" templates --routes
+    check dual-templates "$target/gate/core_equivalence" templates --routes
     note "     $(tail -1 "$out/dual-templates.log")"
-    check dual-positions "$target/release/core_equivalence" golden tools/engine_profile/profile-20.json 20 10
+    check dual-positions "$target/gate/core_equivalence" golden tools/engine_profile/profile-20.json 20 10
     note "     $(tail -1 "$out/dual-positions.log")"
   fi
 fi
@@ -130,7 +133,7 @@ if [[ -n "$dual" && "${DUAL_BENCH:-0}" == 1 ]]; then
 fi
 
 # 6/7 hashes + CPU A/B
-if [[ "${SKIP_AB:-0}" != 1 ]]; then
+if [[ "${RUN_AB:-0}" == 1 && "${SKIP_AB:-0}" != 1 ]]; then
   env ${on:+"$on"} AB_OUT="$out/ab" tools/engine_profile/ab_time.sh "$base" "$out/selfplay-new" tools/engine_profile/profile-20.json 3 4 > "$out/ab.txt" 2>&1
   tail -2 "$out/ab.txt" | sed 's/^/     ab  /' | tee -a "$out/summary.txt"
   grep -q 'same decision hash: 20/20' "$out/ab.txt" || { note "FAIL ab hashes (profile-20 vs base)"; fail=1; }
@@ -138,8 +141,9 @@ if [[ "${SKIP_AB:-0}" != 1 ]]; then
   [[ -n "$ratio" ]] && python3 -I -c "import sys; sys.exit(0 if float('$ratio') <= 1.015 else 1)" || { note "FAIL cpu A/B ratio ${ratio:-?} > 1.015"; fail=1; }
 fi
 
-# 8 wasm size (SKIP_WASM=1 leaves it out)
-[[ "${SKIP_WASM:-0}" == 1 ]] || check wasm cargo build -p ti4-wasm --target wasm32-unknown-unknown --profile wasm-release
+# 8 wasm size
+if [[ "${RUN_WASM:-0}" == 1 ]]; then
+check wasm cargo build -p ti4-wasm --target wasm32-unknown-unknown --profile wasm-release
 wasm="$target/wasm32-unknown-unknown/wasm-release/ti4_wasm.wasm"
 note "     wasm raw (cargo) $(stat -c %s "$wasm" 2>/dev/null) B"
 if [[ -n "${WASM_OPT:-}" && -f "$wasm" ]]; then
@@ -151,6 +155,7 @@ if [[ -n "${WASM_OPT:-}" && -f "$wasm" ]]; then
   node scripts/wasm-size-gate.mjs "$out/ti4_wasm.opt.wasm" > "$out/wasm-gate.log" 2>&1
   node -e 'const fs=require("fs"),z=require("zlib");const b=fs.readFileSync(process.argv[1]);console.log("     wasm-opt raw "+b.length+" gzip "+z.gzipSync(b,{level:9}).length+" brotli "+z.brotliCompressSync(b,{params:{[z.constants.BROTLI_PARAM_QUALITY]:11}}).length)' "$out/ti4_wasm.opt.wasm" | tee -a "$out/summary.txt"
   sed 's/^/     gate /' "$out/wasm-gate.log" | tee -a "$out/summary.txt"
+fi
 fi
 
 # 10 state size
