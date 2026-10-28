@@ -15,6 +15,8 @@
 //! * destructions staged by the played card (Direct Hit): the announcement of the removals is not ported
 //!   (`Unknown::PendingDestructions`);
 //! * a Data Skimmer that could take the discard (`Unknown::DataSkimmer`);
+//! * Reflective Shielding played inside a window (`Unknown::ReflectiveShielding`: the sustain step that opened the
+//!   window drains the hits it stages; found by the wide golden dual, 12 differences in `combat::answer`);
 //! * a card whose effect the core does not play (`Announce::of` is `None`), or a play inside a window whose
 //!   adapter facts are missing (`Unknown::PlayFacts`).
 
@@ -220,6 +222,11 @@ fn env_of(rt: &impl Runner, who: Seat) -> Option<Env> {
 /// # Errors
 /// What the resolver refuses with.
 pub fn play_inline<R: Runner>(rt: &mut R, who: Seat, card: ActionCard) -> Result<bool, TimingError> {
+    // Its hits are staged for the sustain step that opened the window, which drains them after the emission.
+    if card == ActionCard::ReflectiveShielding {
+        rt.unknown(Unknown::ReflectiveShielding);
+        return Ok(false);
+    }
     let Some(env) = env_of(rt, who) else {
         rt.unknown(Unknown::PlayFacts);
         return Ok(false);
@@ -372,6 +379,41 @@ mod tests {
         assert_eq!(d.unknown(), Some(Unknown::DataSkimmer));
     }
 
+    struct Emit;
+    impl Window for Emit {
+        type Stage = ();
+        fn stage(&self) {}
+        fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+            let _ = sx.emit(fx::event(EventKind::ActionCardDiscarded, Payload::new()));
+            Next::Done
+        }
+        fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {
+            None
+        }
+        fn answer(&mut self, _: &mut Sx<'_>, _: Pick) -> Result<(), Illegal> {
+            Err(Illegal)
+        }
+    }
+    impl Clone for Emit {
+        fn clone(&self) -> Self {
+            Self
+        }
+    }
+
+    /// Bail: Reflective Shielding played inside a window stages hits that the string sustain step drains after the
+    /// window closes; the core windows do not, so the run is unknown (regression of the wide golden dual).
+    #[test]
+    fn bail_reflective_shielding_played_inside_a_window_is_unknown() {
+        let mut s = two_seats();
+        s.transient_mut().misc.declared_card_plays.push((Seat(0), ActionCard::ReflectiveShielding));
+        let mut table = plays_table();
+        register(&mut table);
+        let k = Kernel::plain();
+        let mut d = Driver::new(Emit, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), table, 1);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert_eq!(d.unknown(), Some(Unknown::ReflectiveShielding));
+    }
+
     /// Bail: a play from inside a window needs the adapter's facts; without them the run is unknown.
     #[test]
     fn bail_a_play_inside_a_window_without_the_adapter_facts_is_unknown() {
@@ -381,26 +423,6 @@ mod tests {
         let mut table = AbilityTable::default();
         register(&mut table);
         let k = Kernel::plain();
-        struct Emit;
-        impl Window for Emit {
-            type Stage = ();
-            fn stage(&self) {}
-            fn step(&mut self, sx: &mut Sx<'_>) -> Next {
-                let _ = sx.emit(fx::event(EventKind::ActionCardDiscarded, Payload::new()));
-                Next::Done
-            }
-            fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {
-                None
-            }
-            fn answer(&mut self, _: &mut Sx<'_>, _: Pick) -> Result<(), Illegal> {
-                Err(Illegal)
-            }
-        }
-        impl Clone for Emit {
-            fn clone(&self) -> Self {
-                Self
-            }
-        }
         let mut d = Driver::new(Emit, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), table, 1);
         assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
         assert_eq!(d.unknown(), Some(Unknown::PlayFacts));

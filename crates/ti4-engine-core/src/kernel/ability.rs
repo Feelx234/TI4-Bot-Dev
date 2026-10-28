@@ -77,6 +77,9 @@ pub enum Unknown {
     DataSkimmer,
     /// The play of a card needs what the adapter did not compute (`AdapterFacts::plays`).
     PlayFacts,
+    /// Reflective Shielding played inside a window: it stages hits that the string sustain step drains after the
+    /// window closes (the combat area's absorption), which the core windows do not.
+    ReflectiveShielding,
 }
 
 /// What a condition reads: the state, the kernel, the ability and the event it is asked about.
