@@ -1112,6 +1112,12 @@ pub fn run_dual_window<R: PartialEq + Debug>(
     string_run.value
 }
 
+/// Count a bail-out of a window adapter under `label` and its `why` (shown in the report next to the window's
+/// own `compared` and `bailed` counts, which stay on the plain label).
+pub fn note_bail(label: &str, why: &str) {
+    with_report(|r| r.windows.entry(format!("{label} [bail: {why}]")).or_default().bailed += 1);
+}
+
 /// The question half of a stage window (`Window::ask_of`): the string window's pending question, compared
 /// with the one the core window puts at the same position. `core` returns `None` when the position holds
 /// something the core cannot express (counted as a bail-out under `label`, nothing compared).

@@ -127,6 +127,102 @@ The example lives under `driver/` only because `rules/` is created by B1 and B3;
 > Pure refactor: no CPU A/B, no wasm, `RULES_VERSION`, serde, fixtures unchanged. Stateful `ctx.emit` sites that
 > are reached from several windows (e.g. `emit_sustain_used`) are shared `fx`-style helpers taking `&mut Sx`.
 
+## 7. B2 invasion windows (state after the hits-step slice)
+
+Core windows of `Area::Invasion` (each a `dual_window!` with documented bails; counts are the 20 golden games,
+`dual_run profile-20.json 20 invasion=dual,driver=dual`, 0 differences):
+
+| window (string site) | core | compared / bailed |
+|---|---|---|
+| `GroundHits` (`ground_hits_window`, `remove_ground`, `take_bombard_hits`) | `rules/invasion/hits.rs` + `kernel/hits.rs` | 413 / 8, 2487 / 0, nested in `bombard_step` |
+| `Bombardment` (`bombard_settle`, `answer_bombardment_target`, `complete_bombard_plan`) | `rules/invasion/bombard.rs` | step 1371 / 6, answer 0 / 0 (no coexisting bombardment in the golden games; the unit test covers it) |
+| `LandOne` over the string commit pool (`commit_one`) | `rules/invasion/commit.rs` | 2007 / 23 |
+| `Custodians`, `FightRound`/`NextCombat`/`BombardTarget` questions | `rules/invasion/stages.rs` | unchanged |
+
+* `kernel::hits` is the shared "before a hit would be assigned" step: `open_window` (the event, the cancellations a
+  card played in it granted: `combat_timers.cancel_hits_round`), `spend`, `grant`, `flush_staged`. B1's
+  `HITS_TO_ASSIGN` can use it as is.
+* `GroundHits { batch, hits, do_open, do_apply }`: `open` (the `GROUND_HITS_TO_ASSIGN` window) and `apply`
+  (sustain first, Non-Euclidean Shielding, cheapest ground force; stages `GROUND_FORCE_SUSTAINED/DESTROYED`
+  in `pending.staged`; the caller announces them where the string flushes its `log`). Both are plain functions of
+  `Sx` (`hits::open`, `hits::apply`) for the bigger windows.
+* `Bombardment` carries the plan as data (the string window's `bombard_plan` entries, with the `InvasionStep`
+  template built by the `invasion_step` codec): the window mirrors `last_step`, the feat and the scoring occurrence
+  it pushes; the string reads them back as `BombardOut`.
+* Bails, all counted per reason: nested (a card played in the hits window, a reaction to `UNITS_COMMITTED`), a
+  neutral victim, Keleres seat (toll), diplomacy promises, Crimson deploy offered, a ship-form unit flipping on
+  landing (not temporary), seats not in id order (the bombard target answer).
+* The candidates of the commit pool (Sardakk commander origins, Naalu Matriarch fighters) are still computed by
+  the string modules; the core window receives the pool and lands from it (`PoolIn`), so the landing, its events and
+  the question are checked, the candidate rules are not.
+
+Stage 3 and 4 slices (counts are the 20 golden games, `dual_run profile-20.json 20 invasion=dual,driver=dual`, 0 differences;
+each window was mutated once in its core half and the dual failed):
+
+| window (string site) | core | compared / bailed |
+|---|---|---|
+| `SpaceCannonDefense` (`announce_and_defend`: `GROUND_COMMITMENT_FINISHED`, then per committed planet the guns' dice, the hits step, `InvasionStep` `space_cannon_defense`) | `rules/invasion/defense.rs` (`defense_plan`, dice from `Sx::die`, `ledger.dice` `SpaceCannon`) | 1074 / 6 |
+| `GroundRoll` (`roll_ground_pair`: both sides' pools from `ground_pools`, dice, `reroll_staging` kind `ground`, `last_reroll_player`) | `rules/invasion/roll.rs` | 367 / 0 |
+| `GroundRoundHits` (`ground_round_hits`: both hits windows, both removals, the `ground_round` `InvasionStep`, the removals' events) | `rules/invasion/round.rs` | 279 / 83 |
+
+* Bails of the new windows, each counted by reason: defense: entropic scar, L4 Disruptors, attachment cannon (Geoform),
+  irreproducible dice (test faces, stream restore), neutral invader, nested (a reaction to the announcement); roll:
+  irreproducible dice, neutral side, X-89 Bacterial Weapon (doubled hits), a pool the window cannot name; round hits:
+  neutral side, L1Z1X (Harrow), Alarum (Ral Nel mech), hits a faction adds to a roll, nested (a card played in a hits window).
+  Golden coverage: nested (6 / 82) and L1Z1X (1) occur in the 20 games; the others have unit-level cover only
+  (the bail is a pure pre-check of the string side).
+* `List::Planets` is a new payload list (`GROUND_COMMITMENT_FINISHED.planets`); `event_of` renders it.
+* The ground `may_sustain` oracle (`core_invasion::register_ground_slots`) answers from the string position the window
+  started from. A window with several batches (the round: one side's casualties first) now reads the planet's
+  units from the core state when they moved on (`patched_planet`); found by the dual (Mentak's Moll Terminus).
+* Study: `finish_committing` keeps Research Team / Viper offers, forced combats and `advance_fighting` in the string
+  (they ask questions or change `stage`); only the announcement and the defense run in the core window.
+
+Stage 5 slice (counts as above, 0 differences; the begin and tail windows were mutated once in their core half and the dual failed):
+
+| window (string site) | core | compared / bailed |
+|---|---|---|
+| `BeginGroundRound` (`begin_ground_round`: `active_invasion.ground_round`, `combat_round_seq` of a numbered round, `GROUND_COMBAT_ROUND_STARTED` of a copied round agent) | `rules/invasion/begin.rs` | 248 / 69 |
+| `GroundRollTail` (`roll_ground_tail`: round number, `GROUND_ROLLS_MADE` for both sides, hits read back from the staged dice, the dice as the board shows them, staging cleared) | `rules/invasion/tail.rs` | 307 / 13 (+ 47 pre-check bails) |
+| `Advance` (`next_fight`, the selection of `advance_fighting`: planet index, defender, coexisters; starting the combat stays string) | `rules/invasion/advance.rs` | 1253 / 0 |
+
+* Bails: begin: neutral side, Naaz seat (Supercharge, 35 in the golden games), Proxima Targeting VI, a Letnev side with
+  infantry on the planet (Dunlain Reaper, 10), nested (69: the copied-round event always reaches the Sol agent's
+  offer). Tail: neutral side, X-89, a readied The Thundarian (`GROUND_COMBAT_ROLL_STEP_ENDED` and the replays, 47),
+  a roll-replay mark, nested (13). Advance: seats not in id order, nested. X-89, the neutral side, the replay mark
+  and the unit-level begin bails have unit cover only (`core_ground_round_prechecks`).
+* `GROUND_COMBAT_ROLL_STEP_ENDED` and the replay loop stay in the string (a readied Thundarian is the only listener).
+* Nested census of `ground_round_hits` (the 82 bails; `TI4_NESTED_LOG=1 dual_run ...` prints `Recording.nested_kinds`
+  of each): 24 with no event at all (an ability effect ran), 29 asks of reaction windows `after GROUND_FORCE_DESTROYED`
+  (alone or twice), 14 `TRADE_GOODS_GAINED` (a reaction's effect), 8 `when GROUND_HITS_TO_ASSIGN` asks,
+  4 Crimson Legionnaire asks, 2 technology/assimilate asks, 1 `GROUND_FORCE_SUSTAINED` ask. All of them are reaction
+  windows or ability effects: handling them natively is the reaction/ability port (the driver's `AbilityTable`),
+  not a B2 window, so the bail stays.
+* Sensible next step for the hits window: nothing cheaper than the reaction port; the `may_sustain` oracle and
+  `temporary_ground_force` are only consulted with the position of the window start, which the single-batch windows keep.
+
+Stage 6 slice (golden: 0 differences; `commit_one` 2007 / 23, `ground_round_hits` 280 / 82 now with the one L1Z1X game compared):
+
+* Crimson deploy: `IOpt::Deploy { planet }` (`deploy_commit|<planet>`) is an option of the commit question after the
+  troops' landings; `LandOne::with_deploy` lands a Revenant from reinforcements. `commit_deploy` runs through the same
+  `dual_window::land_one` as `commit_one` (the `Crimson deploy offered` bail is gone); `note_deployed` is applied by the adapter.
+* Keleres toll: no blanket Keleres bail any more. When the answered planet owes the toll, the adapter runs B3's `PayStep`
+  (influence, `TOLL_COST`) between the answer and the landing and sets the toll mark (`mark_toll_paid`). Bails: a landing the
+  toll bars (the string question leaves it out), a toll at a table `production_view::unported_window` declines (a Crimson
+  invader, Keleres as invader...). Unit tests with several payable planets (the mutation of the spend kind is caught).
+* Harrow (`rules/invasion/harrow.rs`): its own window run by `GroundRoundHits` after both removals: `bombardable`, the
+  invader's space-area bombarders in order, Plasma Scoring on the first roller, dice from `Sx::die` (ledger `Bombardment`),
+  hits window and removal with cause `harrow`, then the report holds `harrow_hits`. Compared: dice (hit number, faces) and the
+  stream positions. Bails: irreproducible dice, Proxima Targeting VI. Unit cover: a warsun fight; mutation of the dice count caught
+  (a mutation of `harrow_hits` in the report is not caught by that game, no harrow hit lands in it).
+* Advance: unit tests for the nested bail and a lockstep fight (mutation of the planet filter caught; the
+  controller choice needs three seats and is golden-only). "Seats not in id order" is unreachable (the owner table is a sorted set).
+
+Not done, and why: `FinalizingControl` / `finish_control_gain` (a chain of faction, technology, legendary, fracture and
+exploration hooks plus the `PLANET_CONTROL_GAINED` reactions: belongs to B5/technology and the ability port), the rest of
+`finish_committing` (Research Team / Viper asks, forced combats), the setup/end hooks and the scoring pauses (the driver
+pause for occurrences), and `ground_combat_round_ended` modules (no module implements the hook; only Harrow does).
+
 ## 6. B1 windows after the first slice: the roll step and the stage transitions
 
 * `rules/combat/roll.rs` (`RollStep`): the "Roll Dice" step of a round (string `CombatWindow::roll_round`, now a

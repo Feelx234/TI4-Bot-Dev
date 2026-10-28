@@ -60,10 +60,7 @@ impl PayStep {
         };
         let mut outstanding = SmallList::new();
         outstanding.push(Owed { kind: owed_kind, amount: self.cost, paid: self.used_credit + self.paid });
-        Some(Choice {
-            actor: self.who,
-            ask: Ask::Production(PAsk::Pay(ask)),
-            ctx: Ctx {
+        let mut ctx = Ctx {
                 origin: Origin::Rule(Rule::R34_3_75_2_75_3),
                 subtype: Subtype::Production(PSub::Pay(currency)),
                 optional: false,
@@ -71,7 +68,12 @@ impl PayStep {
                 outstanding,
                 space_battle: false,
                 invasion_seq: None,
-            },
+            };
+        rules::enrich_ctx(s, &mut ctx);
+        Some(Choice {
+            actor: self.who,
+            ask: Ask::Production(PAsk::Pay(ask)),
+            ctx,
             opts: opts.as_slice().iter().map(|o| Opt::Production(*o)).collect(),
         })
     }

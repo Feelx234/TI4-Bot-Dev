@@ -253,13 +253,29 @@ impl InvasionView<'_> {
 
 /// The ground hook slots of the faction packages (`ti4_engine_core_factions`), taken from a table of their own
 /// so the seam providers the combat kernel carries are not registered twice. Only the Naalu Matriarch's
-/// `temporary_ground_force` is still answered by the string module (through the oracle of the combat bridge);
+/// `temporary_ground_force` and the generic `may_sustain` prohibitions are still answered by the string modules (through the oracle of the combat bridge);
 /// it dies with its shard.
 fn register_ground_slots(h: &mut ti4_engine_core::kernel::hooks::HookTable) {
     use crate::core_combat::with_oracle;
     let mut native = ti4_engine_core::kernel::hooks::HookTable::new();
     ti4_engine_core_factions::register_all(&mut native);
     h.ground = native.ground;
+    // The generic prohibitions of `factions::hooks_combat` (a law or card that takes SUSTAIN DAMAGE away) have no
+    // native provider yet: the string answer, through the oracle of the combat bridge.
+    h.ground.may_sustain.push(|core, _, unit| {
+        with_oracle(|o| {
+            // The oracle holds the position the window started from; a window that removes units before it asks
+            // (a ground round: one side's casualties, then the other's) is read from the units standing now.
+            let patched = unit.planet.and_then(|planet| patched_planet(o, core, unit.system?, planet));
+            let gs = patched.as_ref().unwrap_or(&o.gs);
+            o.with_unit(unit, |cu| {
+                let cu = crate::factions::CombatUnit { context: if unit.ctx == ti4_engine_core::kernel::hooks::CombatCtx::Space { "space" } else { "ground" }, ..*cu };
+                crate::factions::hooks_ground::may_sustain(gs, ContentStore::embedded(), o.sources, &cu)
+            })
+        })
+        .flatten()
+        .unwrap_or(true)
+    });
     h.ground.temporary_ground_force.push(|_, _, who, system, planet, piece| {
         with_oracle(|o| {
             let (player, unit) = (o.player(who)?, StrUnit {
@@ -281,6 +297,32 @@ fn register_ground_slots(h: &mut ti4_engine_core::kernel::hooks::HookTable) {
         .flatten()
         .unwrap_or(false)
     });
+}
+
+/// The oracle's position with `planet`'s units replaced by the ones standing in `core` now, or `None` when they
+/// are the same (the common case: nothing is copied).
+fn patched_planet(o: &crate::core_combat::Oracle, core: &ti4_engine_core::state::CoreState, system: System, planet: Planet) -> Option<GameState> {
+    let now: Vec<StrUnit> = core
+        .board()
+        .planet(planet)
+        .units
+        .iter()
+        .map(|p| {
+            Some(StrUnit {
+                type_id: ti4_model::id::UnitTypeId::new(p.kind().as_str()),
+                owner: o.player(p.owner())?,
+                sustained_damage: p.sustained(),
+                galvanized: p.galvanized(),
+            })
+        })
+        .collect::<Option<_>>()?;
+    let (sys, pl) = (SystemId::new(system.as_str()), PlanetId::new(planet.as_str()));
+    if o.gs.system_state(&sys).on_planet(&pl) == now.as_slice() {
+        return None;
+    }
+    let mut gs = o.gs.clone();
+    gs.system_mut(&sys).planet_units.insert(pl, now);
+    Some(gs)
 }
 
 /// [`window_env`] with the ground hook slots of the string faction modules (for the invasion windows).

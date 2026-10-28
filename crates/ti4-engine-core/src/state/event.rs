@@ -219,6 +219,8 @@ pub enum List {
     Seats(SmallList<Seat, 4>),
     /// An array of `{player, unit}` objects.
     Units(SmallList<(Seat, Unit), 8>),
+    /// An array of planet ids (`GROUND_COMMITMENT_FINISHED`'s `planets`).
+    Planets(SmallList<Planet, 8>),
 }
 
 macro_rules! typed_get {
