@@ -1759,12 +1759,17 @@ fn dispatch_leader(
             }
         }
         // Jace X: every command token off the board, back to reinforcements.
-        "solhero" => {
-            for board in context.state.board.values_mut() {
-                board.command_tokens.remove(player);
-            }
-            true
-        }
+        "solhero" => dual_write(
+            context.state,
+            "leaders::sol_hero",
+            |s| {
+                for board in s.board.values_mut() {
+                    board.command_tokens.remove(player);
+                }
+                true
+            },
+            |s| crate::leaders_core::sol_hero(s, player),
+        ),
         // Ready any planet — which one is the player's choice, not the engine's. The optional
         // infantry removal is decided before anything mutates, so a refused follow-up leaves the
         // position exactly as it was.
@@ -2081,37 +2086,45 @@ fn dispatch_leader(
                 return false;
             }
             let types = ti4_content::units::catalogue(context.content, context.sources);
-            let board = context.state.system_mut(&system);
-            let mut swapped = false;
-            for units in board.planet_units.values_mut() {
-                if let Some(index) = units.iter().position(|unit| {
-                    unit.owner == target
-                        && types
-                            .get(unit.type_id.as_str())
-                            .is_some_and(|kind| kind.base_type() == "infantry")
-                }) {
-                    units[index] = ti4_model::units::Unit::new(mech.clone(), target.clone());
-                    swapped = true;
-                    break;
-                }
-            }
-            if swapped {
-                crate::supply::stage_naaz_mech_placed(context.state, &target, &system, &mech);
-            }
-            // Agents are traded favours: a structured promise to use this one for the active
-            // seat is kept when the swap happens.
-            if swapped && &target != player {
-                crate::diplomacy::evaluate_event(
-                    context.state,
-                    &crate::diplomacy::DiplomacyEventContext::LeaderUsedFor {
-                        user: player.clone(),
-                        leader: "l1z1xagent".to_owned(),
-                        beneficiary: target,
-                    },
-                )
-                .expect("validated diplomacy promises settle deterministically");
-            }
-            swapped
+            let sources = context.sources;
+            dual_write(
+                context.state,
+                "leaders::l1z1x_agent",
+                |s| {
+                    let board = s.system_mut(&system);
+                    let mut swapped = false;
+                    for units in board.planet_units.values_mut() {
+                        if let Some(index) = units.iter().position(|unit| {
+                            unit.owner == target
+                                && types
+                                    .get(unit.type_id.as_str())
+                                    .is_some_and(|kind| kind.base_type() == "infantry")
+                        }) {
+                            units[index] = ti4_model::units::Unit::new(mech.clone(), target.clone());
+                            swapped = true;
+                            break;
+                        }
+                    }
+                    if swapped {
+                        crate::supply::stage_naaz_mech_placed(s, &target, &system, &mech);
+                    }
+                    // Agents are traded favours: a structured promise to use this one for the active
+                    // seat is kept when the swap happens.
+                    if swapped && &target != player {
+                        crate::diplomacy::evaluate_event(
+                            s,
+                            &crate::diplomacy::DiplomacyEventContext::LeaderUsedFor {
+                                user: player.clone(),
+                                leader: "l1z1xagent".to_owned(),
+                                beneficiary: target.clone(),
+                            },
+                        )
+                        .expect("validated diplomacy promises settle deterministically");
+                    }
+                    swapped
+                },
+                |s| crate::leaders_core::l1z1x_agent(s, sources, player, &target, &system, mech.as_str()),
+            )
         }
         // Rin, the Masters' Legacy: "for each non-unit upgrade technology you own, you may
         // replace that technology with any technology of the same colour from the deck. Then,
@@ -2702,6 +2715,46 @@ mod tests {
         let _ = take_report();
     }
 
+    #[test]
+    fn jace_and_i48s_run_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual);
+        with_mask(mask, || {
+            let mut state = seated_clean(&[("a", "sol"), ("b", "hacan")]);
+            let hero = holding(&mut state, "solhero", LeaderStatus::Unlocked);
+            for system in ["26", "28"] {
+                state.system_mut(&ti4_model::id::SystemId::new(system)).command_tokens.insert(player());
+            }
+            state.system_mut(&ti4_model::id::SystemId::new("28")).command_tokens.insert(PlayerId::new("b"));
+            assert!(crate::leaders_core::sol_hero(&mut state.clone(), &player()).is_some(), "the core takes the position");
+            assert!(use_it(&mut state, &hero));
+            assert!(!state.system_state(&ti4_model::id::SystemId::new("26")).command_tokens.contains(&player()));
+            assert!(state.system_state(&ti4_model::id::SystemId::new("28")).command_tokens.contains(&PlayerId::new("b")));
+
+            // I48S for the active seat: its infantry on Lodor becomes a mech.
+            let mut state = seated_clean(&[("a", "l1z1x"), ("b", "sol")]);
+            holding(&mut state, "l1z1xagent", LeaderStatus::Readied);
+            let (lodor, system) = (ti4_model::id::PlanetId::new("lodor"), ti4_model::id::SystemId::new("26"));
+            crate::fixtures::put_on_planet(&mut state, &system, &lodor, "infantry", &PlayerId::new("b"), 2);
+            state.active = Some(PlayerId::new("b"));
+            state.active_system = Some(system.clone());
+            let mech = ti4_content::units::faction_unit(ContentStore::embedded(), "sol", "mech", POK).expect("a Sol mech").id().to_owned();
+            assert!(
+                crate::leaders_core::l1z1x_agent(&mut state.clone(), POK, &player(), &PlayerId::new("b"), &system, &mech).is_some(),
+                "the core takes the position"
+            );
+            assert!(use_it(&mut state, &LeaderId::new("l1z1xagent")));
+            let units = state.system_state(&system).planet_units.get(&lodor).cloned().unwrap_or_default();
+            assert_eq!(units.len(), 2);
+            assert!(units.iter().any(|u| u.type_id.as_str().ends_with("mech")), "{units:?}");
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
     /// The documented bails of the questioning agents: a question inside a battle, diplomacy promises, a Cabal
     /// at the table. The string arm answers alone; nothing is compared and nothing differs.
     #[test]
@@ -2728,6 +2781,16 @@ mod tests {
             exhausted(&mut state);
             state.diplomacy.enabled = true;
             assert!(use_scripted(&mut state, "xxchaagent", None, vec!["lodor".to_owned()]));
+            // I48S: the Naaz mech announces its placement, and a favour keeps a diplomacy promise: both string.
+            let mut state = seated_clean(&[("a", "l1z1x"), ("b", "sol")]);
+            let system = ti4_model::id::SystemId::new("26");
+            let take = |state: &mut GameState, mech: &str| {
+                crate::leaders_core::l1z1x_agent(state, POK, &player(), &PlayerId::new("b"), &system, mech)
+            };
+            assert!(take(&mut state.clone(), "sol_mech").is_some());
+            assert_eq!(take(&mut state.clone(), "naaz_mech"), None, "the Naaz mech placement is announced by the string side");
+            state.diplomacy.enabled = true;
+            assert_eq!(take(&mut state, "sol_mech"), None, "a favour for another seat keeps a promise");
             // A Cabal at the table: the replenish event is the string side's.
             let mut state = seated_clean(&[("a", "hacan"), ("b", "cabal")]);
             holding(&mut state, "hacanagent", LeaderStatus::Readied);

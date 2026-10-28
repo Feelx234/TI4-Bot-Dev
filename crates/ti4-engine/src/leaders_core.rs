@@ -102,6 +102,35 @@ mod real {
         Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Pending], &[Slice::Board]);
     const HACAN: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Pending], &[Slice::Players]);
 
+    const BOARD: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board], &[Slice::Board]);
+
+    /// Jace X. 4th Air Legion.
+    pub fn sol_hero(gs: &mut GameState, player: &PlayerId) -> Option<bool> {
+        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let who = r.seat(player.as_str())?;
+        crate::core_sync::with_core(gs, &mut cx, Sources::default(), BOARD, |core, _| rules::sol_hero(core, who)).ok()
+    }
+
+    /// I48S: the swap of one infantry of `target` for `mech` (a unit form without a core `Unit`, the Naaz mech
+    /// whose placement is announced, and a favour that keeps a diplomacy promise stay with the string arm).
+    pub fn l1z1x_agent(
+        gs: &mut GameState,
+        sources: SourceSet,
+        player: &PlayerId,
+        target: &PlayerId,
+        system: &ti4_model::id::SystemId,
+        mech: &str,
+    ) -> Option<bool> {
+        if mech == "naaz_mech" || (gs.diplomacy.enabled && target != player) {
+            return None;
+        }
+        let (mech, system) = (typed::<ti4_engine_core::generated::Unit>(mech)?, typed::<ti4_engine_core::generated::System>(system.as_str())?);
+        let scope = ti4_engine_core::tables::Scope(u32::try_from(crate::core_adapter::scope(sources).0).ok()?);
+        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let seat = r.seat(target.as_str())?;
+        crate::core_sync::with_core(gs, &mut cx, Sources::default(), BOARD, |core, _| rules::l1z1x_agent(core, scope, seat, system, mech)).ok()
+    }
+
     /// What a window of this file cannot follow: a question asked inside a battle or an invasion (its context
     /// carries the battle), diplomacy promises a favour keeps, a nested emission.
     fn outside(gs: &GameState, script: &Recording) -> bool {
@@ -207,6 +236,19 @@ mod stub {
         None
     }
     pub fn end_of_round(_: &mut GameState) -> Option<Vec<PlayerId>> {
+        None
+    }
+    pub fn sol_hero(_: &mut GameState, _: &PlayerId) -> Option<bool> {
+        None
+    }
+    pub fn l1z1x_agent(
+        _: &mut GameState,
+        _: ti4_model::content_types::SourceSet,
+        _: &PlayerId,
+        _: &PlayerId,
+        _: &ti4_model::id::SystemId,
+        _: &str,
+    ) -> Option<bool> {
         None
     }
     pub fn xxcha_agent(

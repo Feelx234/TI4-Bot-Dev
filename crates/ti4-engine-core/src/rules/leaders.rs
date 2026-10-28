@@ -12,7 +12,8 @@
 //! into [`unlockable`] (here, a pure read) and the status writes (adapter).
 
 use crate::containers::SmallList;
-use crate::generated::{Leader, LeaderType, LeaderWindow, Planet, PromissoryNote, Unit, UnitBaseType};
+use crate::generated::{Leader, LeaderType, LeaderWindow, Planet, PromissoryNote, System, Unit, UnitBaseType};
+use crate::state::Piece;
 use crate::ids::Seat;
 use crate::keys::MarkKey;
 use crate::query::board;
@@ -348,6 +349,36 @@ pub fn activate_hacan_hero(core: &mut CoreState, who: Seat) -> bool {
     true
 }
 
+/// Jace X. 4th Air Legion (`solhero`): every command token of the seat is returned to its reinforcements.
+pub fn sol_hero(core: &mut CoreState, who: Seat) -> bool {
+    for system in System::ALL {
+        if core.board().sys(system).cmd.contains(who) {
+            core.board_mut().sys_mut(system).cmd.remove(who);
+        }
+    }
+    true
+}
+
+/// I48S (`l1z1xagent`): one infantry of `target` on a planet of `system` becomes `mech`. The first planet (in
+/// planet order, the string map's key order) holding such an infantry is the one; the new unit is fresh (no
+/// damage). Whether a swap happened. As in the string arm the system's entry exists afterwards either way.
+pub fn l1z1x_agent(core: &mut CoreState, scope: Scope, target: Seat, system: System, mech: Unit) -> bool {
+    core.board_mut().sys_mut(system).flags.set(crate::state::SysFlags::TOUCHED, true);
+    let mut planets: SmallList<Planet, 8> = board::planets_of(core, system)
+        .filter(|p| core.board().planet(*p).flags.has(crate::state::PlanetFlags::UNITS_ENTRY))
+        .collect();
+    planets.as_mut_slice().sort_unstable();
+    let infantry = |u: &Piece| u.owner() == target && scope.unit(u.kind()).is_some_and(|d| d.base_type == UnitBaseType::Infantry);
+    for planet in planets.as_slice() {
+        let list = &mut core.board_mut().planet_mut(*planet).units;
+        if let Some(at) = list.as_slice().iter().position(infantry) {
+            list.as_mut_slice()[at] = Piece::new(mech, target);
+            return true;
+        }
+    }
+    false
+}
+
 /// `leaders::end_of_round`: Darktalon Treilla's effect ends with the round she was used in; she is purged.
 /// Returns the seats whose hero was purged.
 pub fn end_of_round(core: &mut CoreState) -> SmallList<Seat, 8> {
@@ -496,4 +527,33 @@ mod tests {
         unlock(&mut core, me, &[Leader::LetaniMiasmiala]);
         assert_eq!(status(&core, me, Leader::LetaniMiasmiala), Some(LeaderStatus::Unlocked));
     }
+    #[test]
+    fn jace_returns_every_command_token_of_the_seat_and_only_theirs() {
+        let mut core = core_with(&[]);
+        let (a, b) = (System::ALL[3], System::ALL[40]);
+        core.board_mut().sys_mut(a).cmd.insert(Seat(0));
+        core.board_mut().sys_mut(a).cmd.insert(Seat(1));
+        core.board_mut().sys_mut(b).cmd.insert(Seat(0));
+        assert!(sol_hero(&mut core, Seat(0)));
+        assert!(!core.board().sys(a).cmd.contains(Seat(0)) && !core.board().sys(b).cmd.contains(Seat(0)));
+        assert!(core.board().sys(a).cmd.contains(Seat(1)), "another seat's token stays");
+    }
+
+    #[test]
+    fn i48s_swaps_the_first_infantry_in_planet_order_for_a_fresh_mech_and_touches_the_system() {
+        let mut core = core_with(&[]);
+        let scope = Scope(u32::MAX);
+        let system = System::ALL.iter().copied().find(|s| s.data().planets.len() >= 2).expect("a two-planet system");
+        let (first, second) = (system.data().planets[0], system.data().planets[1]);
+        let (inf, mech) = (Unit::InfantryI, Unit::FactionlessMech);
+        crate::kernel::fx::place_unit(&mut core, Seat(0), system, Some(second), inf);
+        assert!(l1z1x_agent(&mut core, scope, Seat(0), system, mech));
+        assert_eq!(core.board().planet(second).units.as_slice()[0].kind(), mech);
+        assert!(!l1z1x_agent(&mut core, scope, Seat(0), system, mech), "no infantry left to swap");
+        assert!(core.board().planet(first).units.is_empty());
+        let empty = System::ALL.iter().copied().find(|s| *s != system).unwrap();
+        assert!(!l1z1x_agent(&mut core, scope, Seat(0), empty, mech));
+        assert!(core.board().sys(empty).flags.has(crate::state::SysFlags::TOUCHED));
+    }
+
 }
