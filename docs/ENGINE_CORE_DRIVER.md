@@ -126,3 +126,25 @@ The example lives under `driver/` only because `rules/` is created by B1 and B3;
 > games (`dual_run tools/engine_profile/profile-20.json 20 driver=dual`); mutate the core half once to see the dual fail.
 > Pure refactor: no CPU A/B, no wasm, `RULES_VERSION`, serde, fixtures unchanged. Stateful `ctx.emit` sites that
 > are reached from several windows (e.g. `emit_sustain_used`) are shared `fx`-style helpers taking `&mut Sx`.
+
+## 6. B1 windows after the first slice: the roll step and the stage transitions
+
+* `rules/combat/roll.rs` (`RollStep`): the "Roll Dice" step of a round (string `CombatWindow::roll_round`, now a
+  `dual_window!` around `roll_round_string`): presentation, both sides' dice from `Sx::die` recorded in
+  `ledger.dice` (Munitions Reserves' pre-roll reroll included), free/forced hits (tag 2 = the hulls 0.0.1 binds,
+  tag 1 = Hylarim's two extra hits on 9-10), `combat_round_hits`, `combat_round_dice` and the queue.
+  Compared: queue, damaged-before-round, dice (hit number, faces), stream positions, resulting state.
+  Bails (`CombatWindow::roll_unported`, the string result stands, windows inside run bare): Crown of Thalnos
+  (relic or law), Heart of Ixth, Munitions Reserves after the roll (rules >= 8), War Funding note, Hacan flagship
+  (Wrath of Kenara), a readied The Thundarian / Yssaril agent, neutral sides, test faces or `rng.seed() !=
+  state.rng_seed`, a roll that ends the fight, a hit a module produces after the roll.
+* `rules/combat/flow.rs` (`Flow`): one transition of `settle_stages` (`announcing_step`, `retreating_step`,
+  `hit_queue_head`, wrapped by `CombatWindow::flow_dual`). The string answers the rule facts (over, can retreat,
+  destinations, ships left, sustain candidates); the core owns the control flow, the events
+  (RETREAT_STEP_STARTED, SPACE_COMBAT_ROUND_ENDED, HITS_TO_ASSIGN) and the window fields it changes
+  (hit phase, resume flag, retreats announced, once-per-round announcement). Bails: cancellations granted, a
+  single casualty candidate, neutral sides, Duranium Armor repairs, a lone retreat destination (the move is
+  `retreat_to`, string), Devotion, staged destructions, reaction windows in an announcement.
+* Left string: the Roll step's reroll questions, `retreat_to` (observers, move, command token), begin_round's Naaz /
+  Letnev / diplomacy cases, and the composition of all stages into one core Stage machine (each stage is its own
+  dual window today; they run inside the string loop `settle_stages`).
