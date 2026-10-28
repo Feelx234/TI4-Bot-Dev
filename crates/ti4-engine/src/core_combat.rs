@@ -54,9 +54,9 @@ fn typed<T: IdStr>(id: &str) -> Option<T> {
 // to `ti4-engine-core-factions`.
 
 /// What the string bridge answers from: a copy of the position and the owner table.
-struct Oracle {
-    gs: GameState,
-    sources: SourceSet,
+pub(crate) struct Oracle {
+    pub(crate) gs: GameState,
+    pub(crate) sources: SourceSet,
     owners: Vec<Option<String>>,
 }
 
@@ -79,17 +79,17 @@ impl Drop for Installed {
     }
 }
 
-fn with_oracle<R>(f: impl FnOnce(&Oracle) -> R) -> Option<R> {
+pub(crate) fn with_oracle<R>(f: impl FnOnce(&Oracle) -> R) -> Option<R> {
     let o = ORACLE.with(|c| c.borrow().clone())?;
     Some(f(&o))
 }
 
 impl Oracle {
-    fn player(&self, seat: Seat) -> Option<PlayerId> {
+    pub(crate) fn player(&self, seat: Seat) -> Option<PlayerId> {
         self.owners.get(usize::from(seat.0))?.as_deref().map(PlayerId::new)
     }
 
-    fn with_unit<R>(&self, unit: CombatUnit, f: impl FnOnce(&crate::factions::CombatUnit<'_>) -> R) -> Option<R> {
+    pub(crate) fn with_unit<R>(&self, unit: CombatUnit, f: impl FnOnce(&crate::factions::CombatUnit<'_>) -> R) -> Option<R> {
         let player = self.player(unit.owner)?;
         let system = unit.system.map(|s| SystemId::new(s.as_str()));
         let planet = unit.planet.map(|p| PlanetId::new(p.as_str()));
@@ -140,6 +140,27 @@ fn register_string_bridge(seams: &mut Seams) {
             .flatten()
             .unwrap_or(0));
         }
+        if site.kind == RollKind::Ground {
+            // B2: a ground force's whole shift is the string's `ground_roll_shift` (the faction abilities, Shield
+            // Paling's exemption, the unit modifiers, the Nekro mech, Assail against the planet's other
+            // owners): no data row applies to a ground roll.
+            return add(with_oracle(|o| {
+                let player = o.player(site.unit.owner)?;
+                let system = SystemId::new(site.unit.system?.as_str());
+                let planet = PlanetId::new(site.unit.planet?.as_str());
+                Some(crate::combat_effects::ground_roll_shift(
+                    &o.gs,
+                    ContentStore::embedded(),
+                    o.sources,
+                    &player,
+                    &system,
+                    &planet,
+                    site.unit.unit.as_str(),
+                ))
+            })
+            .flatten()
+            .unwrap_or(0));
+        }
         if site.kind != RollKind::Combat {
             return Delta::None;
         }
@@ -175,7 +196,7 @@ fn register_string_bridge(seams: &mut Seams) {
         .unwrap_or(0))
     });
     seams.dice.push_set(STRINGS, Layer::Faction, |_, site: &RollSite, acc| {
-        if site.kind != RollKind::Combat {
+        if !matches!(site.kind, RollKind::Combat | RollKind::Ground) {
             return Delta::None;
         }
         let to = with_oracle(|o| {
@@ -188,6 +209,26 @@ fn register_string_bridge(seams: &mut Seams) {
         if to == acc { Delta::None } else { Delta::Set { to, why: SetWhy::LegacyFold } }
     });
     seams.dice.push_add(STRINGS, Layer::Faction, |_, site: &RollSite, _| {
+        if site.kind == RollKind::Ground {
+            // B2: the round agents' extra die of a ground force (the galvanized die and the Sol agent's die are
+            // the invasion rule's own).
+            return add(with_oracle(|o| {
+                let player = o.player(site.unit.owner)?;
+                Some(crate::factions::borrowed_round_agents::extra_die_for(
+                    &o.gs,
+                    ContentStore::embedded(),
+                    o.sources,
+                    &SystemId::new(site.unit.system?.as_str()),
+                    site.unit.planet.map(|p| PlanetId::new(p.as_str())).as_ref(),
+                    &player,
+                    site.unit.unit.as_str(),
+                    usize::from(site.unit_index),
+                    o.gs.combat_round_seq,
+                ))
+            })
+            .flatten()
+            .unwrap_or(0));
+        }
         if !matches!(site.kind, RollKind::Combat | RollKind::Barrage) {
             return Delta::None;
         }
