@@ -9118,6 +9118,7 @@ mod tests {
             let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
             state.promissory_notes.clear();
             state.promissory_faceup.clear();
+            state.rng_seed = seed;
             let system = SystemId::new("18");
             put(&mut state, &system, "cruiser", &attacker(), 3);
             put(&mut state, &system, "destroyer", &defender(), 2);
