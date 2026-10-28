@@ -621,6 +621,13 @@ impl<'g> CombatView<'g> {
         ))
     }
 
+    /// `space_cannon_guns`' local guns (this system's space area, then its planets) as unit type ids.
+    #[must_use]
+    pub fn local_cannon_guns(&self, system: &SystemId, active: &PlayerId) -> Option<Vec<String>> {
+        let (seat, sys) = (self.seat(active)?, typed::<System>(system.as_str())?);
+        Some(self.with(|rd| cc::cannon_guns::local_guns(rd, sys, seat)).iter().map(|p| p.kind().as_str().to_owned()).collect())
+    }
+
     /// The barrage plan of a side: (ship type or none for the relic, hit number, dice).
     #[must_use]
     pub fn barrage_plan(&self, player: &PlayerId, system: &SystemId) -> Option<Vec<(Option<String>, i64, usize)>> {
