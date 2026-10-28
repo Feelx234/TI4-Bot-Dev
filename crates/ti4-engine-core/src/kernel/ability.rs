@@ -109,6 +109,8 @@ pub struct Codes {
     pub harrow: crate::state::Code,
     /// The `source` of the trade good Self-Assembly Routines gains.
     pub self_assembly: crate::state::Code,
+    /// The `source` `mentak` of the trade good Salvage Operations gains.
+    pub mentak: crate::state::Code,
     /// The `reason` of the strategy token Instinct Training spends.
     pub instinct_training: crate::state::Code,
 }

@@ -9746,6 +9746,48 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Salvage Operations (Mentak), the trade good: after a space combat it took part in and did not draw, the holder
+    /// gains 1 trade good (staged, announced by the end window's adapter).
+    #[test]
+    fn salvage_operations_pays_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut paid = 0;
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+            for seed in 1..=4_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "mentak"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                crate::technology::grant(&mut state, &attacker(), &ti4_model::id::TechnologyId::new("so"));
+                let system = SystemId::new("18");
+                put(&mut state, &system, "cruiser", &attacker(), 4);
+                put(&mut state, &system, "cruiser", &defender(), 1);
+                let before = state.player(&attacker()).unwrap().trade_goods;
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+                paid += state.player(&attacker()).unwrap().trade_goods - before;
+            }
+        });
+        let r = report();
+        assert!(paid > 0, "the holder was paid");
+        assert!(r.windows.keys().all(|k| !k.contains("unported ability technology:*:so")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
     #[test]
     fn the_end_report_of_a_fight_is_checked_against_the_core() {
         // `combat=dual`: the reason, losers, retreats and lost ships of `SPACE_COMBAT_ENDED` are computed by
