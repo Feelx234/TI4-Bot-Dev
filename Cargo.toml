@@ -139,6 +139,18 @@ lto = "thin"
 codegen-units = 1
 strip = true
 
+# The gate profile (docs/ENGINE_BUILD_SPEED.md): the same optimized code generation as release for
+# speed of the binaries, without the whole-program work that makes release builds slow (no LTO,
+# parallel codegen, no debug info, incremental). Decision hashes and bench results do not depend on
+# the profile. `cargo build --profile gate ...`; binaries land in `$CARGO_TARGET_DIR/gate/`.
+[profile.gate]
+inherits = "release"
+lto = "off"
+codegen-units = 16
+debug = 0
+incremental = true
+opt-level = 3
+
 # The browser build: size first. `cargo build -p ti4-wasm --target wasm32-unknown-unknown
 # --profile wasm-release`.
 [profile.wasm-release]
