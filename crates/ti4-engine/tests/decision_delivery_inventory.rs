@@ -1360,8 +1360,9 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedVia("game.rs::step"),
     },
     Producer {
+        // Split for package B8: the string half beside its core window.
         module: "strategy_cards.rs",
-        function: "diplomacy_primary",
+        function: "diplomacy_primary_string",
         count: 1,
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
@@ -1391,8 +1392,9 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
     Producer {
+        // Split for package B8: the string half beside its core window.
         module: "strategy_cards.rs",
-        function: "imperial_primary",
+        function: "imperial_primary_string",
         count: 1,
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
@@ -1421,8 +1423,9 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
     Producer {
+        // Split for package B8: the string half beside its core window.
         module: "strategy_cards.rs",
-        function: "politics_primary",
+        function: "politics_primary_string",
         count: 2,
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
@@ -1467,8 +1470,9 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
     Producer {
+        // Split for package B8: the string half beside its core window.
         module: "strategy_cards.rs",
-        function: "warfare_primary",
+        function: "warfare_primary_string",
         count: 1,
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
