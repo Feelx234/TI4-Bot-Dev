@@ -18,6 +18,8 @@ pub enum Ask {
     HacanBranch,
     /// The Helmsman (L1Z1X hero): which system to gather the flagship and dreadnoughts in.
     L1z1xDestination,
+    /// Rin, the Masters' Legacy (Jol-Nar hero): replace this technology with another of its colour, or keep it.
+    JolnarSwap { held: crate::generated::Technology },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -38,6 +40,8 @@ pub enum Opt {
     Replenish(crate::ids::Seat),
     /// A system (the Helmsman's destination).
     System(crate::generated::System),
+    /// Jol-Nar hero: trade for this technology.
+    Trade(crate::generated::Technology),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -48,4 +52,5 @@ pub enum Subtype {
     XxchaRemoveInfantry,
     HacanBranch,
     L1z1xDestination,
+    JolnarSwap,
 }

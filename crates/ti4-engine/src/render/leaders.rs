@@ -8,7 +8,7 @@
 use ti4_engine_core::choice::leaders::{Ask, Opt, Subtype};
 
 use ti4_engine_core::choice::agenda::Shown;
-use ti4_engine_core::generated::{Planet, System};
+use ti4_engine_core::generated::{Planet, System, Technology};
 
 use super::{Family, Render};
 use crate::choice::ChoiceOption;
@@ -18,6 +18,7 @@ pub const GAIN_ID: &str = "gain";
 pub const KIND: &str = "letnev_commander_trade_good";
 const INFANTRY_KIND: &str = "leader_xxchaagent_infantry";
 const HACAN_KIND: &str = "leader_hacanagent_branch";
+const JOLNAR_KIND: &str = "leader_jolnarhero_swap";
 
 /// The renderer of the leader questions.
 pub struct Fam;
@@ -34,6 +35,7 @@ impl Family for Fam {
             Ask::XxchaInfantry => "Leader: remove 1 infantry from that planet?".to_owned(),
             Ask::HacanBranch => "Leader: gain 2 commodities or replenish another player".to_owned(),
             Ask::L1z1xDestination => "Leader: which system to gather your ships in".to_owned(),
+            Ask::JolnarSwap { .. } => "Leader: replace which technology with what".to_owned(),
         }
     }
 
@@ -44,10 +46,11 @@ impl Family for Fam {
             Subtype::XxchaRemoveInfantry => "leader_xxchaagent_remove_infantry".to_owned(),
             Subtype::HacanBranch => HACAN_KIND.to_owned(),
             Subtype::L1z1xDestination => "leader_l1z1xhero_destination".to_owned(),
+            Subtype::JolnarSwap => JOLNAR_KIND.to_owned(),
         }
     }
 
-    fn option(r: &Render, _: &Ask, o: &Opt) -> ChoiceOption {
+    fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
         match o {
             Opt::GainTradeGood => ChoiceOption::labelled(GAIN_ID, KIND, "Gain 1 trade good"),
             Opt::Planet(p, system) => {
@@ -56,7 +59,13 @@ impl Family for Fam {
             }
             Opt::System(system) => ChoiceOption::labelled(system.as_str(), "system", system.as_str()),
             Opt::Remove => ChoiceOption::labelled("remove", INFANTRY_KIND, "remove 1 infantry"),
-            Opt::Keep => ChoiceOption::labelled("keep", INFANTRY_KIND, "keep it"),
+            Opt::Keep => match a {
+                Ask::JolnarSwap { held } => {
+                    ChoiceOption::labelled(format!("keep|{}", held.as_str()), JOLNAR_KIND, format!("keep {}", held.as_str()))
+                }
+                _ => ChoiceOption::labelled("keep", INFANTRY_KIND, "keep it"),
+            },
+            Opt::Trade(t) => ChoiceOption::labelled(t.as_str(), JOLNAR_KIND, format!("trade for {}", t.as_str())),
             Opt::GainCommodities => ChoiceOption::labelled("self", HACAN_KIND, "gain 2 commodities"),
             Opt::Replenish(seat) => {
                 let id = r.seat_text(*seat);
@@ -75,6 +84,10 @@ impl Family for Fam {
                 _ => None,
             },
             Ask::L1z1xDestination => System::from_id(id).map(Opt::System),
+            Ask::JolnarSwap { held } => match id.strip_prefix("keep|") {
+                Some(kept) => (kept == held.as_str()).then_some(Opt::Keep),
+                None => Technology::from_id(id).map(Opt::Trade),
+            },
             Ask::HacanBranch => {
                 if id == "self" {
                     return Some(Opt::GainCommodities);

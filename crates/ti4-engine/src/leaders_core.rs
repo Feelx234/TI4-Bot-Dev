@@ -22,7 +22,7 @@ mod real {
     use ti4_engine_core::driver::Driver;
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::{Kernel, Resolver};
-    use ti4_engine_core::rules::leader_windows::{HacanAgent, Helmsman, XxchaAgent};
+    use ti4_engine_core::rules::leader_windows::{HacanAgent, Helmsman, RinHero, XxchaAgent};
     use ti4_model::content_types::SourceSet;
 
     use crate::core_adapter::typed;
@@ -191,6 +191,41 @@ mod real {
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
     }
 
+    const PLAYERS: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Pending], &[Slice::Players]);
+
+    /// The core half of `leaders::jolnar_hero` (Rin). `None` where `apply_unit_upgrades` would change the
+    /// position (the units are not in the form the owned upgrades demand: the string re-forms them after a swap
+    /// and the core does not), and as [`xxcha_agent`] otherwise.
+    pub fn jolnar_hero(gs: &mut GameState, content: &ti4_content::ContentStore, player: &PlayerId, sources: SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
+        if outside(gs, script) {
+            return None;
+        }
+        let mut formed = gs.clone();
+        crate::technology::apply_unit_upgrades(&mut formed, content, sources, player);
+        if !formed.identical(gs) {
+            return None;
+        }
+        // The corpus file's order of the technologies (the string lists replacements in it).
+        let order: Vec<_> = content
+            .from_sources(ti4_model::content_types::ContentType::Technologies, sources)
+            .filter_map(|r| r.text("alias").and_then(typed::<ti4_engine_core::generated::Technology>))
+            .collect();
+        let mut by_alias: Vec<_> = ti4_engine_core::generated::Technology::ALL.to_vec();
+        by_alias.sort_by_key(|t| t.as_str());
+        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let seat = r.seat(player.as_str())?;
+        let kernel = kernel(sources)?;
+        let before = gs.clone();
+        let mut driver = Driver::new(RinHero::new(seat, order, by_alias), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), PLAYERS, |core, _| {
+            crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script)
+        })
+        .ok()?
+        .ok()?;
+        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
+        Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
+    }
+
     /// The core half of `leaders::hacan_agent`. `None` where a commodity change causes events the core does not
     /// hold: a siphoning Firmament plot, a Cabal at the table, a Trade Agreement in play.
     pub fn hacan_agent(gs: &mut GameState, content: &ti4_content::ContentStore, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
@@ -278,6 +313,15 @@ mod stub {
         _: &mut GameState,
         _: &PlayerId,
         _: Option<&ti4_content::galaxy::Galaxy>,
+        _: ti4_model::content_types::SourceSet,
+        _: &crate::dual_window::Recording,
+    ) -> Option<crate::dual::CoreWindow<bool>> {
+        None
+    }
+    pub fn jolnar_hero(
+        _: &mut GameState,
+        _: &ti4_content::ContentStore,
+        _: &PlayerId,
         _: ti4_model::content_types::SourceSet,
         _: &crate::dual_window::Recording,
     ) -> Option<crate::dual::CoreWindow<bool>> {

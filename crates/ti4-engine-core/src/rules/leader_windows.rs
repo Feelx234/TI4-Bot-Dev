@@ -16,7 +16,8 @@ use crate::choice::agenda::Shown;
 use crate::choice::leaders::{Ask as LAsk, Opt as LOpt, Subtype as LSub};
 use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use crate::containers::SmallList;
-use crate::generated::{Leader, Planet, System, UnitBaseType};
+use crate::generated::{Leader, Planet, System, TechType, Technology, UnitBaseType};
+use crate::query::tech;
 use crate::ids::Seat;
 use crate::kernel::fx;
 use crate::kernel::stage::{Illegal, Sx, Window};
@@ -430,6 +431,148 @@ impl Window for Helmsman {
             }
             _ => Err(Illegal),
         }
+    }
+}
+
+// -- Rin, the Masters' Legacy -----------------------------------------------------------------------
+
+/// The suspension points of [`RinHero`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RStage {
+    Start,
+    /// Waiting on the swap of `held` (the technology at `next - 1` of the eligible list).
+    Swap,
+    Done,
+}
+
+/// "For each non-unit upgrade technology you own, you may replace that technology with any technology of the
+/// same colour from the deck." One question per technology that has a replacement on offer; declining all is a
+/// legal resolution, but a use with nothing on offer at all is not one (`used` stays false).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RinHero {
+    pub who: Seat,
+    /// The technologies in the order of the corpus file (the string lists replacements in record order, which
+    /// is not the generated enum order; the generator emits no such table yet, the adapter supplies it).
+    order: Vec<Technology>,
+    /// The technologies sorted by alias text (the string's `BTreeSet<TechnologyId>` order, which also is not
+    /// the enum order); supplied by the adapter, which owns the alias texts.
+    by_alias: Vec<Technology>,
+    stage: RStage,
+    /// The eligible technologies, in the order of their alias text (the string set's order).
+    eligible: Vec<Technology>,
+    /// The eligible technology the window is at.
+    at: Option<Technology>,
+    opportunity: bool,
+    pub used: bool,
+}
+
+impl RinHero {
+    #[must_use]
+    pub fn new(who: Seat, order: Vec<Technology>, by_alias: Vec<Technology>) -> Self {
+        Self { who, order, by_alias, stage: RStage::Start, eligible: Vec::new(), at: None, opportunity: false, used: false }
+    }
+
+    /// The technologies that can stand in for `held` now: same first type, not a unit upgrade, in the game's
+    /// scope, open to the seat's faction, not owned; in table (record) order.
+    fn replacements(&self, core: &CoreState, k: &Kernel, held: Technology) -> Vec<Technology> {
+        let who = self.who;
+        let (Some(colour), Some(p)) = (held.data().types.first().copied(), core.players().by_seat(who)) else { return Vec::new() };
+        let scope = scope(k);
+        self.order
+            .iter()
+            .copied()
+            .filter(|t| {
+                let d = t.data();
+                crate::tables::source_bit(d.source) & scope.0 != 0
+                    && d.types.first() == Some(&colour)
+                    && !d.types.contains(&TechType::Unitupgrade)
+                    && d.faction.is_none_or(|tag| tech::tag_is(tag, p.faction))
+                    && !p.tech.owned.contains(*t)
+            })
+            .collect()
+    }
+
+    fn eligible_of(&self, core: &CoreState) -> Vec<Technology> {
+        let Some(p) = core.players().by_seat(self.who) else { return Vec::new() };
+        self.by_alias
+            .iter()
+            .copied()
+            .filter(|t| p.tech.owned.contains(*t) && !tech::is_unit_upgrade(*t) && !t.data().types.is_empty())
+            .collect()
+    }
+
+    /// The next eligible technology after `after` (or the first) that has a replacement; sets `at`.
+    fn advance(&mut self, core: &CoreState, k: &Kernel, after: Option<Technology>) -> bool {
+        let from = after.map_or(0, |a| self.eligible.iter().position(|t| *t == a).map_or(self.eligible.len(), |i| i + 1));
+        for t in self.eligible[from..].iter().copied() {
+            if !self.replacements(core, k, t).is_empty() {
+                self.at = Some(t);
+                self.opportunity = true;
+                return true;
+            }
+        }
+        false
+    }
+
+    const ASK: fn(Technology) -> Ask = |held| Ask::Leaders(LAsk::JolnarSwap { held });
+}
+
+impl Window for RinHero {
+    type Stage = RStage;
+
+    fn stage(&self) -> RStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == RStage::Start {
+            self.eligible = self.eligible_of(sx.state);
+            // Nothing swappable: the hero is not spent.
+            self.stage = if self.eligible.is_empty() {
+                RStage::Done
+            } else if self.advance(sx.state, sx.kernel, None) {
+                RStage::Swap
+            } else {
+                RStage::Done
+            };
+        }
+        match (self.stage, self.at) {
+            (RStage::Swap, Some(held)) => Next::Continue(Self::ASK(held)),
+            _ => {
+                self.used = self.opportunity;
+                Next::Done
+            }
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        let held = self.at.filter(|_| self.stage == RStage::Swap)?;
+        Some(Choice {
+            actor: self.who,
+            ask: Self::ASK(held),
+            ctx: ctx(Leader::RinTheMastersLegacy, LSub::JolnarSwap),
+            // The decline comes last: a decider that takes the first option trades.
+            opts: self.replacements(s, k, held)
+                .into_iter()
+                .map(|t| Opt::Leaders(LOpt::Trade(t)))
+                .chain(std::iter::once(Opt::Leaders(LOpt::Keep)))
+                .collect::<Opts>(),
+        })
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        let (RStage::Swap, Some(held)) = (self.stage, self.at) else { return Err(Illegal) };
+        match pick {
+            Pick::Opt(Opt::Leaders(LOpt::Keep)) => {}
+            Pick::Opt(Opt::Leaders(LOpt::Trade(t))) if self.replacements(sx.state, sx.kernel, held).contains(&t) => {
+                let Some(p) = sx.state.players_mut().by_seat_mut(self.who) else { return Err(Illegal) };
+                p.tech.owned.remove(held);
+                p.tech.owned.insert(t);
+            }
+            _ => return Err(Illegal),
+        }
+        self.stage = if self.advance(sx.state, sx.kernel, Some(held)) { RStage::Swap } else { RStage::Done };
+        Ok(())
     }
 }
 

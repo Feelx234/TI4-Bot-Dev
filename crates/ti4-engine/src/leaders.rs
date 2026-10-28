@@ -1810,6 +1810,153 @@ fn l1z1x_hero_string(
     true
 }
 
+/// Rin, the Masters' Legacy (`jolnarhero`): the string arm of `dispatch_leader` beside its core window.
+fn jolnar_hero(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) -> bool {
+    split_context!(context => state, content, sources, galaxy, table);
+    crate::dual_window!(
+        crate::dual::Area::LeadersAbilities,
+        "leaders::jolnarhero",
+        state,
+        |state: &mut GameState| crate::dual::Run::new(jolnar_hero_string(state, content, sources, galaxy, table, player)),
+        |state: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::leaders_core::jolnar_hero(state, content, player, sources, script)
+        }
+    )
+}
+
+fn jolnar_hero_string(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut crate::choice::Table,
+    player: &PlayerId,
+) -> bool {
+    let held: Vec<ti4_model::id::TechnologyId> = state
+        .player(player)
+        .map(|seat| seat.technologies.iter().cloned().collect())
+        .unwrap_or_default();
+    // "For each non-unit upgrade technology you own" (90.7b): an upgrade has no colour,
+    // so there is nothing to replace it with in its own colour. The class is the
+    // UNITUPGRADE type, not `baseUpgrade` — the generic upgrades (Carrier II, War Sun,
+    // ...) carry that key not at all.
+    let eligible: Vec<ti4_model::id::TechnologyId> = held
+        .into_iter()
+        .filter(|alias| {
+            !crate::technology::is_unit_upgrade(content, alias)
+                && content
+                    .get(ContentType::Technologies, alias.as_str())
+                    .and_then(|r| r.strings("types").first().copied())
+                    .is_some()
+        })
+        .collect();
+    if eligible.is_empty() {
+        return false; // nothing swappable, so the hero is not spent
+    }
+    let mut opportunity = false;
+    for alias in &eligible {
+        let colour = content
+            .get(ContentType::Technologies, alias.as_str())
+            .and_then(|r| r.strings("types").first().copied());
+        let Some(colour) = colour else {
+            continue; // unreachable: eligibility required a colour
+        };
+        // Recomputed per swap: what was just traded in is owned now and cannot be
+        // traded for again.
+        let replacements: Vec<ti4_model::id::TechnologyId> = content
+            .from_sources(ContentType::Technologies, sources)
+            .filter(|r| {
+                r.strings("types")
+                    .first()
+                    .is_some_and(|kind| *kind == colour)
+            })
+            // The same UNITUPGRADE class test as above, at record level: an upgrade is
+            // never a valid replacement, whatever its `baseUpgrade` says.
+            .filter(|r| !r.strings("types").contains(&"UNITUPGRADE"))
+            .filter_map(|r| r.text("alias").map(ti4_model::id::TechnologyId::new))
+            // 90.11: a faction technology belongs to its faction alone. "From the deck" is
+            // the player's own technology deck -- the generic technologies and their own
+            // faction's -- so another faction's technology is never a replacement. The
+            // list used to filter only by colour and offered every faction's.
+            .filter(|candidate| {
+                crate::technology::faction_of(content, candidate).is_none_or(
+                    |owner| {
+                        state
+                            .player(player)
+                            .is_some_and(|seat| seat.faction.as_str() == owner)
+                    },
+                )
+            })
+            .filter(|candidate| {
+                state
+                    .player(player)
+                    .is_some_and(|seat| !seat.technologies.contains(candidate))
+            })
+            .collect();
+        if replacements.is_empty() {
+            continue; // nothing to trade this one for
+        }
+        opportunity = true;
+        // The decline comes last: a decider that simply takes the first option trades,
+        // which is what "you may replace" resolves to when nobody says otherwise.
+        let choice = crate::choice::Choice::new(
+            player.clone(),
+            "Leader: replace which technology with what",
+            replacements
+                .iter()
+                .map(|candidate| {
+                    crate::choice::ChoiceOption::labelled(
+                        candidate.to_string(),
+                        "leader_jolnarhero_swap",
+                        format!("trade for {candidate}"),
+                    )
+                })
+                .chain(std::iter::once(crate::choice::ChoiceOption::labelled(
+                    format!("keep|{alias}"),
+                    "leader_jolnarhero_swap",
+                    format!("keep {alias}"),
+                )))
+                .collect(),
+        )
+        .contextualized(crate::decision_context::DecisionContext::new(
+            player.clone(),
+            crate::decision_context::DecisionSource::FactionAbility(
+                "jolnarhero".to_owned(),
+            ),
+            "leader_jolnarhero_swap",
+            state.phase,
+            state.round,
+        ));
+        let Ok(answer) = ask_seeing_parts(state, content, sources, galaxy, table, &choice) else {
+            return false;
+        };
+        if answer.id == format!("keep|{alias}") {
+            continue; // "you may": declining is a legal resolution
+        }
+        match replacements
+            .into_iter()
+            .find(|candidate| candidate.as_str() == answer.id)
+        {
+            Some(replacement) => {
+                if let Some(seat) = state.player_mut(player) {
+                    seat.technologies.remove(alias);
+                    seat.technologies.insert(replacement);
+                }
+                crate::technology::apply_unit_upgrades(
+                    state,
+                    content,
+                    sources,
+                    player,
+                );
+            }
+            None => return false,
+        }
+    }
+    // Declining every swap is a legal resolution, but a use with no swap on offer at all
+    // must not burn the card — that case was never offered in the first place.
+    opportunity
+}
+
 /// The per-leader effect dispatch shared by [`use_leader`] and [`use_leader_text`]: runs the leader's
 /// printed effect for `player` and reports whether it resolved. No status gate, no exhaust or purge:
 /// the callers own both.
@@ -2153,137 +2300,7 @@ fn dispatch_leader(
         // purge this card." One use settles every swap — each is its own "you may", so the
         // player decides per technology whether to trade it and, if so, for what — and the hero
         // purges in the tail that follows.
-        "jolnarhero" => {
-            let held: Vec<ti4_model::id::TechnologyId> = context
-                .state
-                .player(player)
-                .map(|seat| seat.technologies.iter().cloned().collect())
-                .unwrap_or_default();
-            // "For each non-unit upgrade technology you own" (90.7b): an upgrade has no colour,
-            // so there is nothing to replace it with in its own colour. The class is the
-            // UNITUPGRADE type, not `baseUpgrade` — the generic upgrades (Carrier II, War Sun,
-            // ...) carry that key not at all.
-            let eligible: Vec<ti4_model::id::TechnologyId> = held
-                .into_iter()
-                .filter(|alias| {
-                    !crate::technology::is_unit_upgrade(context.content, alias)
-                        && context
-                            .content
-                            .get(ContentType::Technologies, alias.as_str())
-                            .and_then(|r| r.strings("types").first().copied())
-                            .is_some()
-                })
-                .collect();
-            if eligible.is_empty() {
-                return false; // nothing swappable, so the hero is not spent
-            }
-            let mut opportunity = false;
-            for alias in &eligible {
-                let colour = context
-                    .content
-                    .get(ContentType::Technologies, alias.as_str())
-                    .and_then(|r| r.strings("types").first().copied());
-                let Some(colour) = colour else {
-                    continue; // unreachable: eligibility required a colour
-                };
-                // Recomputed per swap: what was just traded in is owned now and cannot be
-                // traded for again.
-                let replacements: Vec<ti4_model::id::TechnologyId> = context
-                    .content
-                    .from_sources(ContentType::Technologies, context.sources)
-                    .filter(|r| {
-                        r.strings("types")
-                            .first()
-                            .is_some_and(|kind| *kind == colour)
-                    })
-                    // The same UNITUPGRADE class test as above, at record level: an upgrade is
-                    // never a valid replacement, whatever its `baseUpgrade` says.
-                    .filter(|r| !r.strings("types").contains(&"UNITUPGRADE"))
-                    .filter_map(|r| r.text("alias").map(ti4_model::id::TechnologyId::new))
-                    // 90.11: a faction technology belongs to its faction alone. "From the deck" is
-                    // the player's own technology deck -- the generic technologies and their own
-                    // faction's -- so another faction's technology is never a replacement. The
-                    // list used to filter only by colour and offered every faction's.
-                    .filter(|candidate| {
-                        crate::technology::faction_of(context.content, candidate).is_none_or(
-                            |owner| {
-                                context
-                                    .state
-                                    .player(player)
-                                    .is_some_and(|seat| seat.faction.as_str() == owner)
-                            },
-                        )
-                    })
-                    .filter(|candidate| {
-                        context
-                            .state
-                            .player(player)
-                            .is_some_and(|seat| !seat.technologies.contains(candidate))
-                    })
-                    .collect();
-                if replacements.is_empty() {
-                    continue; // nothing to trade this one for
-                }
-                opportunity = true;
-                // The decline comes last: a decider that simply takes the first option trades,
-                // which is what "you may replace" resolves to when nobody says otherwise.
-                let choice = crate::choice::Choice::new(
-                    player.clone(),
-                    "Leader: replace which technology with what",
-                    replacements
-                        .iter()
-                        .map(|candidate| {
-                            crate::choice::ChoiceOption::labelled(
-                                candidate.to_string(),
-                                "leader_jolnarhero_swap",
-                                format!("trade for {candidate}"),
-                            )
-                        })
-                        .chain(std::iter::once(crate::choice::ChoiceOption::labelled(
-                            format!("keep|{alias}"),
-                            "leader_jolnarhero_swap",
-                            format!("keep {alias}"),
-                        )))
-                        .collect(),
-                )
-                .contextualized(crate::decision_context::DecisionContext::new(
-                    player.clone(),
-                    crate::decision_context::DecisionSource::FactionAbility(
-                        "jolnarhero".to_owned(),
-                    ),
-                    "leader_jolnarhero_swap",
-                    context.state.phase,
-                    context.state.round,
-                ));
-                let Ok(answer) = context.ask_seeing(&choice) else {
-                    return false;
-                };
-                if answer.id == format!("keep|{alias}") {
-                    continue; // "you may": declining is a legal resolution
-                }
-                match replacements
-                    .into_iter()
-                    .find(|candidate| candidate.as_str() == answer.id)
-                {
-                    Some(replacement) => {
-                        if let Some(seat) = context.state.player_mut(player) {
-                            seat.technologies.remove(alias);
-                            seat.technologies.insert(replacement);
-                        }
-                        crate::technology::apply_unit_upgrades(
-                            context.state,
-                            context.content,
-                            context.sources,
-                            player,
-                        );
-                    }
-                    None => return false,
-                }
-            }
-            // Declining every swap is a legal resolution, but a use with no swap on offer at all
-            // must not burn the card — that case was never offered in the first place.
-            opportunity
-        }
+        "jolnarhero" => jolnar_hero(context, player),
 
         // Darktalon Treilla: fleet supply is limited by neither laws nor the pool this round.
         "letnevhero" => {
@@ -2821,6 +2838,58 @@ mod tests {
         use_scripted(state, leader.as_str(), galaxy, answers)
     }
 
+    #[test]
+    fn rin_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual);
+        with_mask(mask, || {
+            let content = ContentStore::embedded();
+            let mut state = seated_clean(&[("a", "jolnar"), ("b", "sol")]);
+            let hero = holding(&mut state, "jolnarhero", LeaderStatus::Unlocked);
+            // Four generic coloured technologies to trade, of at least two colours.
+            let generic: Vec<String> = content
+                .from_sources(ContentType::Technologies, POK)
+                .filter(|r| r.text("faction").is_none_or(str::is_empty) && !r.strings("types").contains(&"UNITUPGRADE") && !r.strings("types").is_empty())
+                .filter_map(|r| r.text("alias").map(str::to_owned))
+                .step_by(5)
+                .take(4)
+                .collect();
+            assert_eq!(generic.len(), 4);
+            for alias in &generic {
+                state.player_mut(&player()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(alias.as_str()));
+            }
+            assert!(
+                crate::leaders_core::jolnar_hero(&mut state.clone(), content, &player(), POK, &crate::dual_window::Recording::default()).is_some(),
+                "the core takes the position"
+            );
+            // Every swap taken (the first option), then every swap declined.
+            let mut traded = state.clone();
+            let before = traded.player(&player()).unwrap().technologies.clone();
+            assert!(use_scripted(&mut traded, "jolnarhero", None, vec![]));
+            assert_ne!(traded.player(&player()).unwrap().technologies, before);
+            let mut kept = state.clone();
+            let eligible: Vec<String> = before
+                .iter()
+                .filter(|a| !crate::technology::is_unit_upgrade(content, a) && content.get(ContentType::Technologies, a.as_str()).and_then(|r| r.strings("types").first().copied()).is_some())
+                .map(|a| format!("keep|{a}"))
+                .collect();
+            assert!(!eligible.is_empty());
+            assert!(use_scripted(&mut kept, "jolnarhero", None, eligible));
+            assert_eq!(kept.player(&player()).unwrap().technologies, before, "declining every swap keeps the hand");
+            // Nothing swappable: not used, so the hero is not spent.
+            let mut bare = state.clone();
+            bare.player_mut(&player()).unwrap().technologies.clear();
+            assert!(!use_scripted(&mut bare, "jolnarhero", None, vec![]));
+            assert_eq!(status(&bare, &player(), &hero), Some(LeaderStatus::Unlocked));
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(window_counts("leaders::jolnarhero").0 >= 2, "{r:?}");
+        let _ = take_report();
+    }
+
     /// The documented bails of the questioning agents: a question inside a battle, diplomacy promises, a Cabal
     /// at the table. The string arm answers alone; nothing is compared and nothing differs.
     #[test]
@@ -2852,6 +2921,15 @@ mod tests {
             state.active_space_combat = Some((ti4_model::id::SystemId::new("26"), player(), PlayerId::new("b")));
             let none = crate::dual_window::Recording::default();
             assert!(crate::leaders_core::l1z1x_hero(&mut state, &player(), None, POK, &none).is_none());
+            // Rin with units not in the form the owned upgrades demand: the string re-forms them after a swap.
+            let mut state = seated_clean(&[("a", "sol"), ("b", "hacan")]);
+            let content = ContentStore::embedded();
+            crate::fixtures::put(&mut state, &ti4_model::id::SystemId::new("26"), "mech", &player(), 1);
+            let none = crate::dual_window::Recording::default();
+            let mut formed = state.clone();
+            crate::technology::apply_unit_upgrades(&mut formed, content, POK, &player());
+            assert!(!formed.identical(&state), "the owned upgrade changes the units' form");
+            assert!(crate::leaders_core::jolnar_hero(&mut state, content, &player(), POK, &none).is_none());
             // I48S: the Naaz mech announces its placement, and a favour keeps a diplomacy promise: both string.
             let mut state = seated_clean(&[("a", "l1z1x"), ("b", "sol")]);
             let system = ti4_model::id::SystemId::new("26");
