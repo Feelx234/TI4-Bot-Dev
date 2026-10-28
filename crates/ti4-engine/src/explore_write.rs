@@ -465,7 +465,8 @@ mod tests {
             let mut state = seated();
             assert!(super::draw(&mut state.clone(), "WEIRD").is_none());
             assert!(super::gain_fragment(&mut state.clone(), &me(), "WEIRD").is_none());
-            assert!(super::attach(&mut state.clone(), &PlanetId::new("lazulrex"), "notanattachment").is_none());
+            let unknown = "x".repeat(3);
+            assert!(super::attach(&mut state.clone(), &PlanetId::new("lazulrex"), &unknown).is_none());
             assert!(super::relic_exhaust(&mut state.clone(), &me(), "notarelic").is_none());
             // The string write still runs.
             state.exploration_decks.insert("WEIRD".to_owned(), vec!["minent".into()]);
