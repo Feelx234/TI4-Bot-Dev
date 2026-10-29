@@ -7057,6 +7057,77 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Technological Singularity in a ground combat: the Nekro invades a planet; after a ground force of the defender is
+    /// destroyed by the combat the ability asks which technology to take. The marks are keyed by system and planet.
+    #[test]
+    fn the_nekro_singularity_runs_in_a_ground_combat_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        struct Rotate(usize);
+        impl crate::choice::Decider for Rotate {
+            fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, crate::choice::IllegalChoice> {
+                if choice.prompt == "gain a technology, or assimilate instead" {
+                    return Ok(choice.options[self.0 % choice.options.len()].clone());
+                }
+                crate::choice::FirstOption.choose(choice)
+            }
+        }
+        let (mut gained, mut tokens) = (0, 0);
+        with_mask(mask, || {
+            for seed in 1..=10_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "nekro"), ("b", "hacan")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                for tech in ["vax", "vay"] {
+                    state.player_mut(&PlayerId::new("a")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(tech));
+                }
+                state.player_mut(&PlayerId::new("b")).unwrap().technologies.clear();
+                for tech in ["gd", "ie", "qdn"] {
+                    state.player_mut(&PlayerId::new("b")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(tech));
+                }
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 6);
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 4);
+                let mut table = Table::with_default(Box::new(Rotate(seed as usize)));
+                let mut dice = Dice::new();
+                let mut rng = GameRng::new(seed);
+                let content = ContentStore::embedded();
+                let order: Vec<PlayerId> = state.players.iter().map(|p| p.id.clone()).collect();
+                let mut resolver = armed_resolver(&state, order);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut window = InvasionWindow::new(&mut state, content, POK, &mut dice, &mut rng, &PlayerId::new("a"), &system);
+                let mut ctx = Resolving {
+                    content,
+                    sources: POK,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                while !window.is_done() {
+                    window.drive(&mut state, &mut ctx).unwrap();
+                    while window.take_scoring_occurrence().is_some() {}
+                    window.settle(&mut state, &mut ctx);
+                }
+                let nekro = state.player(&PlayerId::new("a")).unwrap();
+                gained += usize::from(nekro.technologies.contains(ti4_model::id::text(&"gd")) || nekro.technologies.contains(ti4_model::id::text(&"ie")));
+                tokens += nekro.assimilated_technologies.len();
+                assert!(state.faction_marks.keys().all(|k| !k.starts_with("nekro:ts:")), "the marks are closed with the combat");
+            }
+        });
+        let r = report();
+        assert!(gained > 0, "a technology was gained");
+        assert!(tokens > 0, "a token was placed");
+        assert!(r.windows.keys().all(|k| !k.contains("technological_singularity")), "{:?}", r.windows);
+        assert!(r.windows.get("invasion::ground_round_hits").is_some_and(|w| w.compared >= 1), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
     /// A Firmament seat's Siphon watches the commodities a Legionnaire gains: the core does not stage that event, so the
     /// window bails (named, counted) and nothing differs.
     #[test]

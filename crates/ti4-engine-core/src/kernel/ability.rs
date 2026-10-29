@@ -139,6 +139,8 @@ pub struct Codes {
     pub mahact_infantry2: crate::state::Code,
     /// The alias `cavalry`, the source of the question of The Cavalry.
     pub cavalry: crate::state::Code,
+    /// The name `technological_singularity`, the source of the question of the Nekro's ability.
+    pub technological_singularity: crate::state::Code,
     pub retreat_capacity: crate::state::Code,
     pub reinforcements: crate::state::Code,
 }

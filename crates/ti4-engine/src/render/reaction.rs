@@ -12,7 +12,7 @@
 
 use serde_json::Value;
 use ti4_content::ContentStore;
-use ti4_engine_core::choice::reaction::{Ask, Opt, Relation, Subtype};
+use ti4_engine_core::choice::reaction::{Ask, Opt, Relation, Subtype, Take};
 use ti4_engine_core::generated::ActionCard;
 
 use super::{Family, Render};
@@ -35,6 +35,7 @@ impl Family for Fam {
             Ask::InstinctTraining { card } => format!("Instinct Training: exhaust and spend a strategy token to cancel {}", card.as_str()),
             Ask::Legionnaire { .. } => "Crimson Legionnaire: gain 1 commodity or convert 1 to a trade good".to_owned(),
             Ask::Cavalry => "The Cavalry: which non-fighter ship takes the Nomad flagship's abilities".to_owned(),
+            Ask::Assimilate => "gain a technology, or assimilate instead".to_owned(),
             Ask::AgentSwap { target } => format!(
                 "I48S: exhaust to let {} replace 1 infantry in the active system with a mech",
                 target.map_or_else(|| "the active player".to_owned(), |t| r.seat_text(t).to_owned())
@@ -50,6 +51,7 @@ impl Family for Fam {
             Subtype::AgentSwap => "l1z1x_agent_swap".to_owned(),
             Subtype::Legionnaire => "legionnaire_payment".to_owned(),
             Subtype::Cavalry => "cavalry_ship".to_owned(),
+            Subtype::Assimilate => "assimilate".to_owned(),
         }
     }
 
@@ -74,6 +76,16 @@ impl Family for Fam {
             }
             (Ask::Legionnaire { .. }, Opt::Gain) => ChoiceOption::labelled("gain", "economy", "gain 1 commodity"),
             (Ask::Legionnaire { .. }, Opt::Convert) => ChoiceOption::labelled("convert", "economy", "convert 1 commodity to a trade good"),
+            (Ask::Assimilate, Opt::Take { how, tech, source }) => {
+                let (tech_id, source) = (tech.as_str(), r.seat_text(*source));
+                let name = crate::technology::name(ContentStore::embedded(), &ti4_model::id::TechnologyId::new(tech_id));
+                let (kind, label) = match how {
+                    Take::Gain => ("gain", format!("gain {name} from {source}")),
+                    Take::TokenX => ("x", format!("place the X token on {name} of {source}")),
+                    Take::TokenY => ("y", format!("place the Y token on {name} of {source}")),
+                };
+                ChoiceOption::labelled(format!("{kind}|{source}|{tech_id}"), "nekro_assimilate", label)
+            }
             _ => panic!("option {o:?} in the question {a:?}"),
         }
     }
@@ -84,6 +96,21 @@ impl Family for Fam {
         }
         if let Ask::Cavalry = a {
             return <ti4_engine_core::generated::Unit as IdStr>::from_id(id).map(Opt::Ship);
+        }
+        if let Ask::Assimilate = a {
+            let mut parts = id.splitn(3, '|');
+            let (kind, source, tech) = (parts.next()?, parts.next()?, parts.next()?);
+            let how = match kind {
+                "gain" => Take::Gain,
+                "x" => Take::TokenX,
+                "y" => Take::TokenY,
+                _ => return None,
+            };
+            return Some(Opt::Take {
+                how,
+                tech: <ti4_engine_core::generated::Technology as IdStr>::from_id(tech)?,
+                source: r.seat(source)?,
+            });
         }
         if let Ask::Legionnaire { .. } = a {
             return match id {

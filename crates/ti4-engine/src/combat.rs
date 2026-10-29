@@ -9952,6 +9952,153 @@ mod tests {
         let _ = take_report();
     }
 
+    /// One space fight of a Nekro (`a`) against a Hacan (`b`) who owns `theirs`; the Nekro owns the Valefar Assimilators.
+    /// The question of Technological Singularity is answered with the option `seed` picks (the other questions: the first).
+    /// `(the state after, the keys of the report's windows, the differences)`.
+    fn nekro_fight(seed: u64, theirs: &[&str], prepare: impl Fn(&mut GameState)) -> (GameState, Vec<String>, u64) {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        struct Rotate(usize);
+        impl crate::choice::Decider for Rotate {
+            fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+                if choice.prompt == "gain a technology, or assimilate instead" {
+                    let pick = choice.options[self.0 % choice.options.len()].clone();
+                    return Ok(pick);
+                }
+                crate::choice::FirstOption.choose(choice)
+            }
+        }
+        let mut out = None;
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || crate::dual_window::with_composed(true, || {
+            let mut state = crate::fixtures::seated_game(&[("a", "nekro"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = seed;
+            for tech in ["vax", "vay"] {
+                state.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(tech));
+            }
+            state.player_mut(&defender()).unwrap().technologies.clear();
+            for tech in theirs {
+                state.player_mut(&defender()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(*tech));
+            }
+            prepare(&mut state);
+            let system = SystemId::new("18");
+            put(&mut state, &system, "cruiser", &attacker(), 3);
+            put(&mut state, &system, "destroyer", &defender(), 3);
+            put(&mut state, &system, "cruiser", &defender(), 1);
+            state.active_system = Some(system.clone());
+            state.active = Some(attacker());
+            let mut table = Table::with_default(Box::new(Rotate(seed as usize)));
+            let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+            let mut resolver = crate::fixtures::armed_resolver(&state);
+            let mut sequence = crate::event::EventSequence::new();
+            let mut ctx = Resolving {
+                content: ContentStore::embedded(),
+                sources: ti4_model::content_types::DEFAULT,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+            };
+            resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+            out = Some(state);
+        }));
+        let r = report();
+        let bails = r.windows.keys().cloned().collect();
+        let differences = r.total_differences();
+        if differences > 0 {
+            eprintln!("{:?}", r.differences.first());
+        }
+        let _ = take_report();
+        (out.unwrap(), bails, differences)
+    }
+
+    /// Technological Singularity (the Nekro): the marks open and close with the combat, the ability is offered after a
+    /// destroyed opponent ship and asks which technology to gain or which token to place; the core follows all of it.
+    #[test]
+    fn the_nekro_singularity_runs_in_the_core_window_in_lockstep() {
+        let (mut gained, mut tokens) = (0, 0);
+        for seed in 0..12_u64 {
+            let (state, bails, differences) = nekro_fight(seed, &["gd", "ie", "qdn", "pm"], |_| {});
+            assert_eq!(differences, 0, "seed {seed}");
+            assert!(bails.iter().all(|k| !k.contains("technological_singularity")), "seed {seed}: {bails:?}");
+            let nekro = state.player(&attacker()).unwrap();
+            gained += usize::from(nekro.technologies.contains(ti4_model::id::text(&"gd")) || nekro.technologies.contains(ti4_model::id::text(&"ie")));
+            tokens += nekro.assimilated_technologies.len();
+            assert!(state.faction_marks.keys().all(|k| !k.starts_with("nekro:ts:")), "the marks are closed with the combat");
+        }
+        assert!(gained > 0, "a technology was gained");
+        assert!(tokens > 0, "a token was placed");
+    }
+
+    /// Technological Singularity is barred by a faceup Antivirus in the opponent's area, and the X and Y tokens are not offered
+    /// on the technologies of a Last Bastion player whose commander (Nip and Tuck) is unlocked: the options the core derives
+    /// equal the string's (a difference in either would differ in the options of the question).
+    #[test]
+    fn the_singularity_respects_antivirus_and_nip_and_tuck_in_lockstep() {
+        let mut barred_runs = 0;
+        for seed in 0..8_u64 {
+            let (state, bails, differences) = nekro_fight(seed, &["gd", "qdn"], |s| {
+                let note = crate::promissory::note_id("antivirus", &crate::promissory::faction_name(s, &attacker()));
+                s.promissory_notes.insert(note.clone(), defender());
+                s.promissory_faceup.insert(note);
+            });
+            assert_eq!(differences, 0, "antivirus, seed {seed}");
+            assert!(bails.iter().all(|k| !k.contains("technological_singularity")), "{bails:?}");
+            let nekro = state.player(&attacker()).unwrap();
+            barred_runs += usize::from(!nekro.technologies.contains(ti4_model::id::text(&"gd")) && nekro.assimilated_technologies.is_empty());
+            let (state, _, differences) = nekro_fight(seed, &["gd", "qdn"], |s| {
+                s.player_mut(&defender()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("bastioncommander"), ti4_model::state::LeaderStatus::Unlocked);
+            });
+            assert_eq!(differences, 0, "nip and tuck, seed {seed}");
+            assert!(state.player(&attacker()).unwrap().assimilated_technologies.is_empty(), "no token goes on the technologies of that player");
+        }
+        assert_eq!(barred_runs, 8, "the faceup Antivirus bars the ability");
+    }
+
+    /// The tokens are placed once on a technology (one token per technology, one per card), and a token lends only a faction
+    /// technology that is not a unit upgrade nor Executive Order: all of it equal to the string's options.
+    #[test]
+    fn the_singularity_options_equal_the_strings_for_every_token_state() {
+        for seed in 0..10_u64 {
+            for theirs in [&["qdn", "pm", "gd"][..], &["executiveorder", "qdn"][..], &["hcf2", "gd", "ie"][..]] {
+                let (_, _, differences) = nekro_fight(seed, theirs, |s| {
+                    if seed % 3 == 0 {
+                        s.player_mut(&attacker()).unwrap().assimilated_technologies.insert("vax".to_owned(), ti4_model::id::TechnologyId::new("qdn"));
+                    }
+                    if seed % 5 == 0 {
+                        s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("gd"));
+                    }
+                });
+                assert_eq!(differences, 0, "seed {seed} {theirs:?}");
+            }
+        }
+    }
+
+    /// Documented bails of Technological Singularity: gaining a unit upgrade (the string swaps the units on the board) and a
+    /// Nekro who holds the Z token breakthrough (a flagship's text) stay in the string, counted under the window.
+    #[test]
+    fn bail_the_singularity_for_a_unit_upgrade_and_the_z_token() {
+        let (mut gained, mut bailed) = (0, 0);
+        for seed in 0..6_u64 {
+            let (state, bails, differences) = nekro_fight(seed, &["cv2"], |_| {});
+            assert_eq!(differences, 0, "seed {seed}");
+            gained += usize::from(state.player(&attacker()).unwrap().technologies.contains(ti4_model::id::text(&"cv2")));
+            bailed += usize::from(bails.iter().any(|k| k.contains("a fact the adapter did not compute")));
+        }
+        assert!(gained > 0 && bailed > 0, "the string gained a unit upgrade ({gained}) and the window named the bail ({bailed})");
+        let mut bailed = 0;
+        for seed in 0..6_u64 {
+            let (_, bails, differences) = nekro_fight(seed, &["gd", "qdn"], |s| {
+                s.player_mut(&attacker()).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new("nekrobt"));
+            });
+            assert_eq!(differences, 0, "seed {seed}");
+            bailed += usize::from(bails.iter().any(|k| k.contains("a fact the adapter did not compute")));
+        }
+        assert!(bailed > 0, "the Z token is the string's");
+    }
+
     /// Direct Hit: the attacker's hit is sustained by a dreadnought, the attacker destroys that ship from the slot of
     /// `SUSTAIN_DAMAGE_USED`; the core removes it and announces `SHIP_DESTROYED` after the discard. With a faction module
     /// seated (staging) the exact sustained ship goes; without, the first of the type.
