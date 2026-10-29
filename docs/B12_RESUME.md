@@ -5,8 +5,13 @@ Branch `core-b12` (from `core-integration-3` @ 1e55ab28; `core-dual-shards` and 
 ## Status
 
 The area is closed in the sense of the definition of done: every combat/invasion window and nested reason of the pre-B12 census
-(`docs/ENGINE_REACTIONS.md` 10.4) is ported or a documented, tested bail (10.1, 10.1b, 10.1c, 10.2). The one gate run on the final
-commit is in the final report of the session (`/root/deploytmp/core-b12-gate`, `summary.txt`); if it is missing, the gate has not run.
+(`docs/ENGINE_REACTIONS.md` 10.4) is ported or a documented, tested bail (10.1, 10.1b, 10.1c, 10.2).
+
+Gates: the first run (commit eecd1f37, `/root/deploytmp/core-b12-gate`) passed the combat and invasion areas and failed the driver
+area's golden dual (and the wide mask) on one cause; with the four soak findings of the user's corpus that is five fixes, all with a
+regression test checked to fail without the fix (`docs/ENGINE_REACTIONS.md` 10.5). The second run on the final commit is in
+`/root/deploytmp/core-b12-gate2` (`status`, `commit`, `<area>/summary.txt`, `wide/dual-all.log`); if it is missing or has no `done`
+line, it has not finished.
 
 ## Decisions
 
@@ -24,7 +29,7 @@ Technological Singularity with the Z token, Ambuscade, the Winnu commander unloc
 
 ## Mutation survivors (documented)
 
-Glue with no observable effect in the tested windows: Dynamo's flagship-owner filter (two Empyrean seats), `pay_in`'s up-front guard,
+The core halves of the second round (`Spec::leads` order, the neutral guard of the capture) were mutation-checked: all killed. Glue with no observable effect in the tested windows: Dynamo's flagship-owner filter (two Empyrean seats), `pay_in`'s up-front guard,
 Salvage's restore after a failed payment, the `lent`/`borrowable` glue of the Ssruu copies (the pure `borrowable` is tested), the
 type filter of `extra_die_for`, Fire Team's `rerolled` bit and the delta removal (only the Crown of Thalnos reads them), its ground-kind
 guard, the Sardakk mech's `unit_ability` flag, the Icon's `system != producing` guard and ship filter.

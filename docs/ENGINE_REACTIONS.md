@@ -617,3 +617,30 @@ adjusts the spots of the produced ships (`bastion::adjust_ship_spots`, `ship_pla
 the prerequisites document: 4-6 h, own run; start with the Crimson card read (a typed `CrimsonCard` mark list exists:
 `MarkKey::CrimsonCard(owner)` = `Sh::List(UNIT)`), then the hooks, then a lockstep test of the production window with the
 two seats (copy `the_tier_w_factions_run_in_lockstep_on_the_core_production_window`).
+
+### 10.5 After the first gate: the soak and golden findings
+
+The first gate run (eecd1f37) passed the combat and invasion areas and failed the driver area's golden dual (and the wide mask) on one
+cause, and the user's soak corpus (core-integration-3 + dual-shards) found four more. All five are fixed with a regression test that
+fails on the code before the fix (checked by running the tests with the source change reverted):
+
+* **A payment an ability asks has no battle in its position** (`dual_window::nested_position`). The string puts a question of
+  `pay_seeing` (Dynamo, Salvage Operations; `Table::ask_seeing`) in the position of an invasion only; the other nested questions
+  (`TimingContext::ask_seeing`) name the battle too. The core rendered the battle on the payment as well (`context.target`,
+  `space_battle`, hence the canonical text and the V2 hash). The lockstep fixtures never set `active_space_combat`, which `Game` sets
+  for a fight, so they could not show it: `hub_fight` and the Raid Formation test set it now (all the `hub_fight` tests run in the
+  position of a real fight).
+* **Raid Formation's question is asked in its battle** (soak 1): the standalone window renders the context with `about_battle`.
+* **The Terror Between, Devour and Reanimator never capture a neutral's unit** (soak 2, `cabal::timing::destroyed_model`: the victim
+  must be a seated player), test `the_cabal_does_not_capture_the_neutral_in_lockstep`.
+* **A Waylay played in the barrage** (soak 3) sends the hits of that roll to every ship, which the core barrage step does not carry:
+  the Waylay is played inside the window the step opens before each roll, so the position cannot tell. `dual_window::waylay_check`
+  bails (counted, `[bail: Waylay played in the barrage ...]`) in `barrage_step` and in the composed settle that holds the barrage;
+  test `a_waylay_in_the_barrage_is_a_counted_bail_not_a_difference`. Known issue row B12-bail-07.
+* **Only the casualty question carries the hit detail** (soak 4, `dual_window::is_combat_ask`): the reaction window the loss of a ship
+  opens inside the assignment (Crash Landing, "when your last ship is destroyed") is a pick of the reaction area, not a hit's question;
+  the `assign_hits` and `assault_cannon` windows put the detail on it. Test `a_reaction_inside_the_hit_assignment_carries_no_hit_detail`.
+* **The order of the Ssruu copies** (found beside them): the string registers the borrowed round agents (Sol's and Letnev's agents
+  borrowed by the Yssaril) before it walks the seats, so a window offers the copy before the seat's standing card slot even when the
+  borrower is the earlier seat. `Spec::leads` / `Spec::leading()`, `AbilityTable::registry` registers those pair rules first; the
+  registry-parity test has the case (`yssaril` seat before `letnev`).
