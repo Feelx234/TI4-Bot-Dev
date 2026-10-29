@@ -257,44 +257,44 @@ notes (Cavalry, Antivirus).
 ## 5. Census: the nested bails before and after
 
 `TI4_NESTED_LOG=1 dual_run tools/engine_profile/profile-20.json 20 driver=dual,invasion=dual,production=dual,leaders=dual,exploration=dual,agenda=dual`
-(the 20 golden games, gate profile). Both runs: 0 differences, hashes equal. The run prints `nested activity: N signatures,
-M runs`: 736 runs in which a string window had nested activity (a reaction window, an ability), 203 signatures before and
-204 after (the new one is the counted "no stream" bail).
+(the 20 golden games, gate profile). All runs: 0 differences, hashes equal. The run prints `nested activity: N signatures,
+M runs`: 736 runs in which a string window had nested activity (a reaction window, an ability); 203 signatures before,
+231 after the card plays (the signatures now name the cards played).
 
-Stage 1 (04578c39 + the previous package, 238b6b55) -> stage 2 (this branch), nested bails (window calls that bailed with a
-`nested (...)` reason): **394 -> 264**.
+Stage 1 (238b6b55) -> stage 2 (abilities, section 4) -> stage 2b (card plays), nested bails (window calls that bailed
+with a `nested (...)` reason): **394 -> 264 -> 213**.
 
-| window | compared before -> after | bailed before -> after |
+| window | compared before -> after 2 -> after 2b | bailed before -> after 2 -> after 2b |
 |---|---|---|
-| invasion::begin_ground_round | 248 -> 308 | 69 -> 9 (Sol agent 64 -> 0; the rest are Ssruu copies and Naaz/Dunlain gates) |
-| invasion::ground_round_hits | 301 -> 341 | 61 -> 21 (Saar 16, Yin 16, Titans 8, Arborec 1 -> 0) |
-| combat::flow_step | 1838 -> 1847 | 41 -> 20 (Transparasteel 14, Tellurian 7 -> 0) |
-| combat::begin_round | 182 -> 197 | 187 -> 169 (Transparasteel 10, Letnev agent -> followed; 24 -> 25 reaction-card plays) |
-| combat::settle | 360 -> 381 | 91 -> 76 |
-| combat::answer | 814 -> 823 | 80 -> 71 (Yin 8, Transparasteel 2) |
-| combat::announce_end | 195 -> 222 | 67 -> 37 (the notes gate lifted; Salvage Operations followed) |
-| combat::barrage_step | 185 -> 187 | 9 -> 4 |
-| invasion::commit_one | 2014 -> 2017 | 16 -> 13 |
-| ProductionWindow::step | 1040 -> 1374 | 2371 -> 2037 (an Argent seat no longer keeps the window string) |
-| production::pay_step | 703 -> 999 | 1478 -> 1182 (the same) |
+| invasion::begin_ground_round | 248 -> 308 -> 308 | 69 -> 9 -> 9 (Sol agent 64 -> 0; the rest are Ssruu copies and Naaz/Dunlain gates) |
+| invasion::ground_round_hits | 301 -> 341 -> 341 | 61 -> 21 -> 21 |
+| combat::flow_step | 1838 -> 1847 -> 1865 | 41 -> 20 -> 2 |
+| combat::begin_round | 182 -> 197 -> 206 | 187 -> 169 -> 160 |
+| combat::settle | 360 -> 381 -> 401 | 91 -> 76 -> 56 |
+| combat::barrage_step | 185 -> 187 -> 190 | 9 -> 4 -> 1 |
+| combat::answer | 814 -> 823 -> 823 | 80 -> 71 -> 71 |
+| combat::announce_end | 195 -> 222 -> 222 | 67 -> 37 -> 37 |
+| ProductionWindow::step | 1040 -> 1374 -> 1374 | 2371 -> 2037 -> 2037 (an Argent seat no longer keeps the window string) |
+| production::pay_step | 703 -> 999 -> 999 | 1478 -> 1182 -> 1182 |
 
-Reasons by runs, after (nested bails that remain, 264 in all):
+Reasons by runs, after stage 2b (213 nested bails):
 
 | runs | reason |
 |--:|---|
-| 43 + 30 + 14 + 13 + 7 + 7 + 5 + 4 + 3 + 2 + 1 | `reaction:*:...` a card was played (COMBAT_ROUND_STARTED, HITS_TO_ASSIGN, SUSTAIN_DAMAGE_USED, UNITS_COMMITTED, RETREAT_DECLARED, GROUND_ROLLS_MADE, ...): the play is B6's effect set and the announcement choreography |
+| 61 | a reaction card the core does not play: Parley 9, Direct Hit 13 (a staged destruction), Skilled Retreat 15, Intercept 5, Fire Team 5, Reveal Prototype 3, Sabotage 6 (played at once), Courageous 2, Reflective Shielding 2, Scramble 1 |
 | 15 + 11 + 2 | Nekro Technological Singularity (open, close, ground) |
 | 14 + 1 | Empyrean flagship (Dynamo) |
-| 9 + 8 + 5 + 4 + 6 + 2 | Ssruu copies (Yin ground and ships, Solagent, Letnevagent) |
+| 10 + 9 + 5 + 4 + 7 | Ssruu copies (Yin ships and ground, Solagent, Letnevagent) |
 | 9 + 6 + 1 | Mentak hero |
 | 8 | Salvage Operations' produce half (an offer; the trade good is ported) |
+| 7 | the Empyrean mech's answer to a card play (`unit:*:empyrean_mech:ACTION_CARD_PLAYED:when`, a play at once) |
 | 6 + 4 + 3 | promissory notes: Cavalry, Antivirus |
 | 5 + 4 | Mahact infantry II and Crimson Legionnaire |
 | 4 + 2 | Sardakk hero and mech |
-| 3 + 1 | `Unknown`: a card cost the core does not judge; the "no stream" bail of the bombardment window (Infantry II) |
+| 6 + 4 + 1 | `Unknown`: a card cost the core does not judge; a technology carried by a Nekro Valefar Assimilator; the "no stream" bail of the bombardment window (Infantry II) |
 
-(The new reasons of the table are windows that used to bail before they reached the nested check, on the faction notes
-of the end announcement or the Argent seat; they are counted and named now.)
+(The reasons of stage 2 that were new in its table are windows that used to bail before they reached the nested check, on
+the faction notes of the end announcement or the Argent seat; they are counted and named now.)
 
 ## 6. Gate (on this branch)
 
@@ -302,13 +302,13 @@ Stage 1 (238b6b55): layers, lint_core, clippy, the immutable surfaces, 41 test s
 `driver=dual` and the wide mask 0 differences, benches 200/200; its mutation checks and bail tests are in the history of
 this file (Infantry II threshold, Devour's captor, `reactions_core::tests` and the lockstep tests of `invasion.rs`).
 
-Stage 2 (final commit, `tools/engine_core/verify_package.sh driver OUT none 6`, `CARGO_BUILD_JOBS=3`, `--profile gate`,
+Stage 2 and 2b (final commit `585d92d1` of the code, `tools/engine_core/verify_package.sh driver OUT none 6`, `CARGO_BUILD_JOBS=3`, `--profile gate`,
 `SKIP_AB=1 SKIP_WASM=1`, a private target dir): `PACKAGE OK (driver)`.
 
 * layers 0 violations (333 files), lint_core 0 hits (335 files), clippy 0 in core/bridge/dual/core_sync/render,
   immutable surfaces unchanged (web/, RULES_VERSION.md, model state.rs, wasm fixtures, against the cut point 04578c39),
   41 test suites ok, `gen-cards --check`, xtask and wasm tests ok, dual suite (6 suites, `driver=dual`, fail fast) ok;
-* golden dual `driver=dual` (20 games): 4459 calls, 25539 comparisons, **0 differences**, hashes equal; the wide mask
+* golden dual `driver=dual` (20 games): 4509 calls, 25992 comparisons, **0 differences**, hashes equal; the wide mask
   (`driver,invasion,production,leaders,exploration,agenda=dual`, run on the final binary): 11.65 M comparisons, **0 differences**, hashes equal, the nested census as in section 5;
 * benches `bench` + `bench-v1..v5` with `driver=core`: **200 identical / 0 different** each; `bench` with the driver on
   String 200/0;
@@ -324,7 +324,10 @@ Failures found on the way (each fixed with a test that fails on the code before 
 3. `decision_delivery_inventory::every_producer_and_delivery_site_matches_the_reviewed_registry`: the renderer built a
    `Choice` to reuse `Choice::offered`; the details now come from `choice::offer_details` (no new decision site). The
    inventory test is the regression test.
-4. Found while developing (not by the gate), each with its lockstep test: the sources of the kernel scope were not lent to
+4. The first gate run of the card plays failed clippy (a complex type: `ability::Closed` is its alias; the gate step is the test)
+   and the golden dual with 12 differences (Reflective Shielding stages hits the string's sustain window takes up afterwards;
+   the card left the ported set, test `reflective_shielding_stays_in_the_string_in_lockstep`, which fails with it back in).
+5. Found while developing (not by the gate), each with its lockstep test: the sources of the kernel scope were not lent to
    `BeginGroundRound` (the round agent saw no ground forces: `the_sol_agent_chooses_a_unit_in_the_core_window_in_lockstep`);
    the production dual dropped Argent's grant (`the_argent_agent_redirects_in_the_core_production_window_in_lockstep`);
    the end announcement bailed on any note an ability left (`salvage_operations_pays_in_the_core_window_in_lockstep`); the
@@ -335,7 +338,8 @@ and Letnev tests), the `round_seq` payload dropped (Letnev); Argent: the exhaust
 window's clearing of the grant dropped; Self-Assembly Routines: the amount 1 -> 2, the nested `TRADE_GOODS_GAINED` emission
 dropped (found by the new `nested.events` comparison); Tellurian: the grant dropped, the flow's spend dropped; Instinct
 Training: the cancel, the token and the exhaustion dropped; I48S: the exhaustion dropped, the wrong unit form placed;
-Letani Warrior II: threshold 6 -> 5, the count not raised; Brother Milor: count 2 -> 1, the exhaustion dropped; Salvage
+Card plays: the stamp not played, the pile push, `last_action_discarded`, the declaration, the play log and the option
+order of the choice dropped or changed; Letani Warrior II: threshold 6 -> 5, the count not raised; Brother Milor: count 2 -> 1, the exhaustion dropped; Salvage
 Operations: the amount 1 -> 2, the gain not staged. (One equivalent mutant is not caught: the unit roster built without the `upgrades_from` filter, as the first match is
 the base unit.)
 
@@ -343,7 +347,7 @@ Tests per documented bail: `reactions_core::tests` (`bail_*`), registry equivale
 (`the_native_registry_equals_the_string_one_for_the_ported_abilities`), the bail tests of section 3.1, and the lockstep
 tests (`infantry_ii_...`, `a_reaction_slot_that_is_declined_...`, `a_yssaril_seat_with_a_reaction_card_...`, `the_cabal_captures_...`,
 `the_sol_agent_...`, `the_letnev_agent_...`, `the_argent_agent_...`, `tellurian_...` (space combat and barrage),
-`self_assembly_routines_...`, `letani_warrior_ii_...`, `brother_milor_...` (ground and ships), `salvage_operations_...`).
+`self_assembly_routines_...`, `letani_warrior_ii_...`, `brother_milor_...` (ground and ships), `salvage_operations_...`, `declared_reaction_cards_are_played_...`).
 
 ## 7. What the next package needs to know
 
