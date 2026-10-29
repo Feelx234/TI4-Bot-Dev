@@ -449,14 +449,23 @@ mod real {
 
     // -- Technology ----------------------------------------------------------------------------------------
 
+    /// The seats whose own effects on a research are questions or forms the window does not carry: an own Deepwrought
+    /// (Doctor Carrina's window opens around every research), Keleres (the agent's offer in the payment) or Mentak (the
+    /// Corsair's unit form), and the economy the production kernel does not follow (`unported_economy`: Last Bastion,
+    /// Crimson). The payment hooks of Naaz, Nomad and Yssaril are the production window's own (tier W).
+    fn research_seat_unported(gs: &GameState, player: &PlayerId) -> bool {
+        use crate::factions::{deepwrought, keleres, mentak};
+        let own = [deepwrought::MODULE.alias, keleres::MODULE_M.alias, keleres::MODULE_X.alias, keleres::MODULE_A.alias, mentak::MODULE.alias];
+        crate::production_view::unported_economy(gs) || gs.player(player).is_some_and(|p| own.contains(&p.faction.as_str()))
+    }
+
     /// Whether the position holds an effect on a research the core `Research` window does not carry: what
-    /// `production_view::unported_window` declines (Deepwrought, Keleres, Naaz, Mentak seats; Nomad, Yssaril at the
-    /// table), a technology purged by Ta Zern, a hook the core table answers differently from the string modules (a
+    /// [`research_seat_unported`] declines, a technology purged by Ta Zern, a hook the core table answers differently from the string modules (a
     /// faction effect nobody ported), and the questions of the paid research (`strategy_cards::research_asks_more`:
     /// Specialist Compounds, Doctor Sucaban, the Deepwrought commander).
     fn research_unported(gs: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId) -> bool {
         use ti4_engine_core::generated::Technology;
-        if crate::production_view::unported_window(gs, player) || crate::strategy_cards::research_asks_more(gs, content, sources, player) {
+        if research_seat_unported(gs, player) || crate::strategy_cards::research_asks_more(gs, content, sources, player) {
             return true;
         }
         let hooks = crate::technology_core::StringHooks { state: gs, content, sources, player };

@@ -586,15 +586,29 @@ fn bail_specialist_compounds_stays_string() {
 }
 
 #[test]
-fn bail_the_seats_the_production_window_does_not_follow() {
+fn bail_the_seats_whose_own_effects_on_a_research_are_questions() {
     let tech = researchable(&crate::fixtures::seated_game(&F3, POK))[0].clone();
-    // An own Keleres seat (the agent offer) and a Yssaril at the table (borrowed agents).
-    let keleres = [("a", "keleresm"), ("b", "hacan"), ("c", "arborec")];
-    let (counts, _) = play(&keleres, rich, &[tech.as_str(), "decline"], true);
-    assert_eq!(counts, (0, 1), "keleres");
-    let yssaril = [("a", "sol"), ("b", "yssaril"), ("c", "arborec")];
-    let (counts, _) = play(&yssaril, rich, &[tech.as_str(), "decline"], true);
-    assert_eq!(counts, (0, 1), "yssaril");
+    // Keleres (the agent's offer), Deepwrought (Doctor Carrina's window) and Mentak (the Corsair's form) as the researcher.
+    for faction in ["keleresm", "deepwrought", "mentak"] {
+        let table = [("a", faction), ("b", "hacan"), ("c", "arborec")];
+        let (counts, _) = play(&table, rich, &[tech.as_str(), "decline"], true);
+        assert_eq!(counts, (0, 1), "{faction}");
+    }
+}
+
+#[test]
+fn the_tier_w_seats_research_in_lockstep() {
+    // Their payment hooks are the production window's own: a Yssaril, Nomad or Naaz at the table, or as the researcher.
+    let tech = researchable(&crate::fixtures::seated_game(&F3, POK))[0].clone();
+    for (researcher, other) in [("sol", "yssaril"), ("sol", "nomad"), ("sol", "naaz"), ("yssaril", "hacan"), ("naaz", "hacan"), ("nomad", "hacan")] {
+        let table = [("a", researcher), ("b", other), ("c", "arborec")];
+        let mut probe = crate::fixtures::seated_game(&table, POK);
+        rich(&mut probe);
+        let open = researchable(&probe);
+        let pick = open.first().unwrap_or(&tech);
+        let (counts, _) = play(&table, rich, &[pick.as_str(), "decline"], true);
+        assert_eq!(counts, (1, 0), "{researcher} with {other}");
+    }
 }
 
 #[test]
