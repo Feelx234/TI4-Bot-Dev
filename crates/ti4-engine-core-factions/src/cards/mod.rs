@@ -337,10 +337,10 @@ mod tests {
     #[test]
     fn the_registered_cards_are_the_ones_named() {
         let t = registered();
-        for card in [ActionCard::Sabotage1, ActionCard::Sabotage4, ActionCard::Intercept, ActionCard::Parley, ActionCard::DirectHit1, ActionCard::DirectHit4, ActionCard::SkilledRetreat1, ActionCard::SkilledRetreat4] {
+        for card in [ActionCard::FireTeam, ActionCard::Sabotage1, ActionCard::Sabotage4, ActionCard::Intercept, ActionCard::Parley, ActionCard::DirectHit1, ActionCard::DirectHit4, ActionCard::SkilledRetreat1, ActionCard::SkilledRetreat4] {
             assert!(t.card_play(card).is_some(), "{card:?}");
         }
-        for card in [ActionCard::FireTeam, ActionCard::MoraleBoost1] {
+        for card in [ActionCard::ScrambleFrequency, ActionCard::MoraleBoost1] {
             assert!(t.card_play(card).is_none(), "{card:?}");
         }
     }
