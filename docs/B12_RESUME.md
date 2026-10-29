@@ -31,7 +31,7 @@ the core state. Ids, slots, tests: `docs/ENGINE_REACTIONS.md` 10.1 and 10.1b; ba
    Assimilate), `PLANET_CONTROL_GAINED` through the resolver (Infiltrate/Reparations bail: `Unknown::HarnessOrInfiltrate`), the
    structure destruction order by `RULES_INFILTRATE_FIX`, Integrated Economy (`EconomyWindow`), Jupiter Brain, Fracture relic, exploration
    (B5 windows). Minimal DoD: a capture with none of those compared as one window; the rest bails.
-4. **5c Bastion/Crimson typed reads**: `ENGINE_REACTIONS.md` 10.3 (hooks declared in `kernel/hooks/direct.rs:78-127`, implemented nowhere;
+4. **5c Bastion/Crimson typed reads: DROPPED BY DECISION (user): Last Bastion, Crimson Rebellion, structured diplomacy and the turn-redo deck reserve are being disabled at the product edges and the core will panic if they are reached. What was committed before the decision stays (the Icon and the card as spots of the core production window, `Spot::Card`, `Icon`, `fleet::remaining_all`, `unported_economy` lifted, tests); nothing more is ported for them, and no piece whose only purpose is one of these three features is to be done (a separate task converts the bail sites). Original note:** `ENGINE_REACTIONS.md` 10.3 (hooks declared in `kernel/hooks/direct.rs:78-127`, implemented nowhere;
    `Spot` has no card variant; `fleet::remaining(.., on_card)` is always 0 in the core).
 5. Cards: Fire Team, Scramble Frequency (a `RerollSource::Card`), Courageous to the End, Reflective Shielding (`Child<W>`), Reveal Prototype
    (the research as a callable piece; `cost_is_payable` is `None` for it), Sardakk mech (a child hit assignment), Technological

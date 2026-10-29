@@ -200,6 +200,27 @@ pub struct AdapterFacts {
     pub pay_kernel: Option<fn() -> &'static Kernel>,
     adjacent: Vec<(crate::generated::System, crate::generated::System, bool)>,
     buildable: Vec<(Seat, Vec<crate::generated::Unit>)>,
+    /// The texts of the staged rerolls (Fire Team, Scramble Frequency), set by the adapter of a window that stages dice.
+    pub reroll: Option<RerollFacts>,
+}
+
+/// What the cards that reroll staged dice need of the adapter: the state texts of the kinds of a staged set, and for each
+/// unit-group text of a staged entry (a state text) the code the question shows it by (a render code).
+#[derive(Debug, Clone, Default)]
+pub struct RerollFacts {
+    pub ground: crate::state::Code,
+    pub bombardment: crate::state::Code,
+    pub space_cannon: crate::state::Code,
+    pub barrage: crate::state::Code,
+    pub shown: Vec<(crate::state::Code, crate::state::Code)>,
+}
+
+impl RerollFacts {
+    /// The code a question shows the unit group `state` by.
+    #[must_use]
+    pub fn shown_of(&self, state: crate::state::Code) -> Option<crate::state::Code> {
+        self.shown.iter().find(|(s, _)| *s == state).map(|(_, shown)| *shown)
+    }
 }
 
 impl AdapterFacts {

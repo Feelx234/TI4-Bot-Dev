@@ -71,6 +71,8 @@ pub enum RerollSource {
     Law,
     /// Munitions Reserves ("choose which dice to reroll").
     Munitions,
+    /// Fire Team ("reroll any number of your dice" after your ground forces roll).
+    FireTeam,
 }
 
 /// One answer the area offers (not stored in the state).
