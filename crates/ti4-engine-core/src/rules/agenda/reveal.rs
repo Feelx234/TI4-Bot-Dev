@@ -44,6 +44,8 @@ pub struct Facts {
     /// The reasons `quash` and `political_favor` of the staged `STRATEGY_TOKEN_SPENT` events.
     pub quash: Code,
     pub favor: Code,
+    /// The renderer's text `ps`: the source of Political Secret's question (the generic note has no id of its own).
+    pub secret: Code,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -333,7 +335,7 @@ impl Window for Reveal {
         let content = match source {
             UseSource::Quash => Content::Ability(Ability::Quash),
             UseSource::Favor => Content::Promissory(PromissoryNote::PoliticalFavor),
-            UseSource::Secret => Content::Promissory(PromissoryNote::PoliticalSecret),
+            UseSource::Secret => Content::Other(self.facts.secret),
         };
         let mut opts = Opts::default();
         opts.push(Opt::Agenda(AOpt::UseCard));

@@ -57,6 +57,7 @@ pub fn reveal(
         replaced: cx.texts.intern(Slice::Agenda, "replaced").ok()?,
         quash: r.code("quash"),
         favor: r.code("political_favor"),
+        secret: r.code("ps"),
     };
     let before = gs.clone();
     let kernel = crate::production_view::kernel();

@@ -250,3 +250,6 @@ pub use timing::{
 pub use tokens::{POOL_KIND, STATUS_TOKENS, TokenGain, TokenGainError, TokenPlacement};
 pub use transit::{Cargo, CargoSource, CargoWindow, MoveOutcome, apply_move};
 pub use vote::{AGAINST, Ballot, FOR, VoteError, VoteWindow, outcomes, votable_planets};
+
+#[cfg(all(test, feature = "typed-core"))]
+mod agenda_reveal_tests;
