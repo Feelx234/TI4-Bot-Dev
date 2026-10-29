@@ -17,6 +17,7 @@
 pub mod covert;
 pub mod deadly_plot;
 pub mod offer_discard;
+pub mod reveal;
 pub mod table_effects;
 pub mod effects;
 pub mod window;

@@ -3343,15 +3343,7 @@ impl<'a> Game<'a> {
     /// reading the first saw a batch in which no action card was ever played — while five
     /// hundred of them were. One observable stream, or observability is a lie.
     fn mirror_timing_log(&mut self, from: usize) {
-        let emitted: Vec<String> = self
-            .timing
-            .log()
-            .iter()
-            .skip(from)
-            .filter_map(|line| line.strip_prefix("emit "))
-            .map(|line| line.split('#').next().unwrap_or(line).to_owned())
-            .collect();
-        self.events.extend(emitted);
+        crate::agenda_reveal::mirror_timing_log(&self.timing, &mut self.events, from);
     }
 
     /// Emit a typed event through the resolver, opening its WHEN and AFTER windows.
@@ -3367,36 +3359,8 @@ impl<'a> Game<'a> {
         event_type: &str,
         payload: BTreeMap<String, serde_json::Value>,
     ) -> Result<bool, GameError> {
-        let event = self.event_sequence.next(event_type, payload)?;
-        let (content, sources) = (self.content, self.sources);
-        let galaxy = self.galaxy.clone();
-        let logged = self.timing.log().len();
-        let emitted = {
-            let (state, table, timing, dice, rng, event_sequence) = (
-                &mut self.state,
-                &mut self.table,
-                &mut self.timing,
-                &mut self.dice,
-                &mut self.rng,
-                &mut self.event_sequence,
-            );
-            let mut context = TimingContext {
-                state,
-                content,
-                sources,
-                table,
-                dice,
-                rng,
-                event_sequence,
-                galaxy: galaxy.as_ref(),
-            };
-            timing.emit_with_context(&mut context, event, |_, _| {})?
-        };
-        self.mirror_timing_log(logged);
-        // A faction effect resolved in that window may have staged card moves (a Scheming discard,
-        // a card taken); announce them now rather than at the next component action.
-        self.announce_staged_cards()?;
-        Ok(!emitted.cancelled)
+        let (state, mut live) = self.split();
+        live.emit_typed(state, event_type, payload)
     }
 
     /// Announce ship destructions an effect staged without a resolver (a leader or component
@@ -3589,27 +3553,8 @@ impl<'a> Game<'a> {
     /// # Errors
     /// [`GameError`] when a window cannot be resolved.
     fn announce_staged_cards(&mut self) -> Result<(), GameError> {
-        if !crate::factions::hooks_cards::has_staged(&self.state) {
-            return Ok(());
-        }
-        let (content, sources) = (self.content, self.sources);
-        let galaxy = self.galaxy.clone();
-        let logged = self.timing.log().len();
-        {
-            let mut context = TimingContext {
-                state: &mut self.state,
-                content,
-                sources,
-                table: &mut self.table,
-                dice: &mut self.dice,
-                rng: &mut self.rng,
-                event_sequence: &mut self.event_sequence,
-                galaxy: galaxy.as_ref(),
-            };
-            crate::reactions::announce_staged_card_events(&mut context, &mut self.timing)?;
-        }
-        self.mirror_timing_log(logged);
-        Ok(())
+        let (state, mut live) = self.split();
+        live.announce_staged_cards(state)
     }
 
     /// Play an action card as a component action, through the game's own timing context.
@@ -6014,326 +5959,64 @@ impl<'a> Game<'a> {
 
     /// Reveal an agenda and follow the Veto replacement chain it triggers. Returns the agenda
     /// to vote on and its choices, or `None` when the reveal (and every replacement) elected
-    /// nothing.
-    ///
-    /// The initial agenda is the one drawn from this phase's queue; each Veto played into a
-    /// reveal window draws its replacement from the top of the agenda deck and discards the
-    /// agenda it interrupted, and the chain continues from there. A Veto on a Veto is legal —
-    /// an agenda revealed by a Veto is still "an agenda revealed" — so the chain is a loop,
-    /// bounded by the finite deck.
+    /// nothing. The chain itself is [`crate::agenda_reveal::Live::reveal_agenda`]; the core
+    /// `rules::agenda::reveal::Reveal` window runs beside it on `agenda=dual`.
     fn reveal_agenda(
         &mut self,
         initial_alias: &str,
     ) -> Result<Option<(String, Vec<String>)>, GameError> {
-        let mut alias = initial_alias.to_owned();
-        loop {
-            // Cards scoped to "this agenda" hang off this counter, so it moves before the reveal
-            // window opens and any of them can be played.
-            self.state.agenda_seq = self.state.agenda_seq.saturating_add(1);
-            self.emit(&format!("AGENDA_REVEALED:{alias}"));
-            let choices = self.reveal_choices(&alias);
-            if choices.is_empty() {
-                self.emit(&format!("AGENDA_DISCARDED:{alias}"));
-                if self.state.rules_version < ti4_model::state::RULES_AGENDA_GRANT_REVEAL {
-                    return Ok(None);
-                }
-                // "If there are no scored secret objectives / laws in play, discard this card and
-                // reveal another agenda from the top of the deck": the replacement takes the slot.
-                self.note_discarded_agenda(&alias, false);
-                let Some(next) = ti4_model::deck_reserve::take_top(
-                    &mut self.state.deck_reserve,
-                    "agenda",
-                    &mut self.state.agenda_deck,
-                    None,
-                ) else {
-                    return Ok(None);
-                };
-                alias = next;
-                continue;
-            }
-
-            // The outcomes have to be on the state before the window opens, because a card
-            // played into it predicts one of them. Nineteen action cards read "when" or "after
-            // an agenda is revealed", and this is the event they hang off.
-            self.state.agenda_choices.clone_from(&choices);
-            self.state.agenda_in_play = Some(alias.clone());
-            let mut payload = BTreeMap::new();
-            payload.insert(
-                "agenda".to_owned(),
-                serde_json::Value::String(alias.clone()),
-            );
-            self.emit_typed("AGENDA_REVEALED", payload)?;
-            self.offer_replacements(&alias)?;
-
-            // Veto, played into the window, discards this agenda and reveals the one it drew
-            // from the top of the deck: continue the chain from the replacement.
-            let Some(replacement) = self.state.agenda_veto_replacement.take() else {
-                // This is the agenda players will vote on: Political Secret bars its owner here.
-                self.offer_political_secrets(&alias)?;
-                return Ok(Some((alias, choices)));
-            };
-            self.emit(&format!("AGENDA_DISCARDED:{alias}"));
-            if self.state.rules_version >= ti4_model::state::RULES_AGENDA_GRANT_REVEAL {
-                self.note_discarded_agenda(&alias, true);
-            }
-            // Covert Legislation replaced: the agenda the speaker drew for it goes with it.
-            self.state.covert_agenda = None;
-            alias = replacement;
-        }
-    }
-
-    /// The outcomes an agenda is voted on: Covert Legislation draws its face-down agenda's, any other
-    /// agenda reads its own.
-    fn reveal_choices(&mut self, alias: &str) -> Vec<String> {
-        if alias == crate::vote::COVERT
-            && self.state.rules_version >= ti4_model::state::RULES_COVERT_LEGISLATION
-        {
-            self.draw_covert_agenda()
-        } else {
-            outcomes(&self.state, self.content, self.sources, alias)
-        }
-    }
-
-    /// Quash and Political Favor replace the agenda the same way Veto does, so each is offered only
-    /// when nothing has replaced it already.
-    fn offer_replacements(&mut self, alias: &str) -> Result<(), GameError> {
-        if self.state.agenda_veto_replacement.is_none() && self.offer_quash(alias)? {
-            self.emit("QUASH_USED");
-        }
-        if self.state.agenda_veto_replacement.is_none() && self.offer_political_favor(alias)? {
-            self.emit("POLITICAL_FAVOR_USED");
-        }
-        Ok(())
-    }
-
-    /// Covert Legislation (rules version 33): "When this agenda is revealed, the speaker draws the
-    /// next card in the agenda deck but does not reveal it to the other players. Instead, the
-    /// speaker reads the eligible outcomes aloud ... The other players vote for these outcomes as
-    /// if they were outcomes of this agenda, without knowing their effects."
-    ///
-    /// Draws the face-down agenda into [`GameState::covert_agenda`] and returns its outcomes, which
-    /// become Covert Legislation's. A drawn card with no eligible outcome (Classified Document
-    /// Leaks with no scored secret, Repeal Law with no law in play) is discarded and the next one
-    /// drawn. An empty deck leaves nothing to vote on: Covert Legislation is then discarded and
-    /// replaced like any agenda with nothing to elect.
-    fn draw_covert_agenda(&mut self) -> Vec<String> {
-        // The core `rules::agenda::covert::CovertDraw` window runs beside the string body on `agenda=dual`.
         let (content, sources) = (self.content, self.sources);
-        let mut choices = Vec::new();
-        crate::dual_window!(
+        let mut failure: Option<GameError> = None;
+        let (state, mut live) = self.split();
+        let value = crate::dual_window!(
             crate::dual::Area::AgendaLaws,
-            "game::draw_covert_agenda",
-            &mut self.state,
-            |s: &mut GameState| {
-                choices = Self::draw_covert_text(s, content, sources);
-                crate::dual::Run::new(choices.clone())
-            },
-            |s: &mut GameState, script: &crate::dual_window::Recording| crate::dual_window::covert_draw(s, sources, script)
-        );
-        choices
-    }
-
-    fn draw_covert_text(state: &mut GameState, content: &ContentStore, sources: ti4_model::content_types::SourceSet) -> Vec<String> {
-        state.covert_agenda = None;
-        while let Some(hidden) = ti4_model::deck_reserve::take_top(
-            &mut state.deck_reserve,
-            "agenda",
-            &mut state.agenda_deck,
-            None,
-        ) {
-            let choices = outcomes(&*state, content, sources, &hidden);
-            if !choices.is_empty() {
-                state.covert_agenda = Some(hidden);
-                return choices;
-            }
-        }
-        Vec::new()
-    }
-
-    /// List an agenda that was revealed and discarded without a vote in `agenda_log`, so the
-    /// table is told (rules version 14). It is not a resolved agenda: it has no outcome.
-    fn note_discarded_agenda(&mut self, alias: &str, replaced: bool) {
-        let reason = if replaced { "replaced" } else { "no_choice" };
-        self.push_agenda_record(alias, None, BTreeMap::new(), false, true);
-        if let Some(record) = self.state.agenda_log.last_mut() {
-            record.discard_reason = Some(reason.to_owned());
-        }
-    }
-
-    /// Notes of `alias` held by someone other than their owner: `(note, holder, owner)`.
-    fn lent_notes(&self, alias: &str) -> Vec<(String, PlayerId, PlayerId)> {
-        self.state
-            .promissory_notes
-            .iter()
-            .filter(|(note, _)| crate::promissory::alias_of(note) == alias)
-            .filter_map(|(note, holder)| {
-                let name = crate::promissory::owner_of(note)?;
-                // By faction, as in `promissory::holder_of`: seats sharing a faction share the
-                // note id, and a seat comparison would read a player's own card as lent out.
-                if crate::promissory::faction_name(&self.state, holder) == name {
-                    return None;
+            "game::reveal_agenda",
+            state,
+            |s: &mut GameState| match live.reveal_agenda(s, initial_alias) {
+                Ok(found) => crate::dual::Run::new(Some(found)),
+                Err(error) => {
+                    failure = Some(error);
+                    crate::dual::Run::new(None)
                 }
-                let owner = crate::promissory::seat_of(&self.state, &name)?;
-                Some((note.clone(), holder.clone(), owner))
-            })
-            .collect()
-    }
-
-    /// Ask a note's holder (or an ability's owner) whether to use it now, on the agenda just
-    /// revealed. The agenda rides along as display-only `details.agenda` (name, type, target,
-    /// printed text), as on every vote decision: the question is about that card, so a client
-    /// has to be able to show it before the answer.
-    fn ask_to_use_note(
-        &mut self,
-        holder: &PlayerId,
-        alias: &str,
-        prompt: String,
-        agenda: &str,
-    ) -> Result<bool, GameError> {
-        let choice = crate::choice::Choice::new(
-            holder.clone(),
-            prompt,
-            vec![
-                crate::choice::ChoiceOption::labelled(
-                    "use",
-                    "promissory_note",
-                    format!("use {alias}"),
-                ),
-                crate::choice::ChoiceOption::decline(),
-            ],
-        )
-        .contextualized(crate::decision_context::DecisionContext::new(
-            holder.clone(),
-            crate::decision_context::DecisionSource::Content(alias.to_owned()),
-            alias,
-            self.state.phase,
-            self.state.round,
-        ))
-        .detailed(
-            "agenda",
-            crate::strategy_cards::agenda_details(self.content, agenda),
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                crate::agenda_reveal_dual::reveal(s, content, sources, initial_alias, script)
+            }
         );
-        let answer = self
-            .table
-            .ask_seeing(
-                &choice,
-                &crate::choice::Observed::new(
-                    &self.state,
-                    self.content,
-                    self.sources,
-                    self.galaxy.as_ref(),
-                ),
-            )
-            .map_err(GameError::IllegalChoice)?;
-        Ok(!answer.is_decline())
+        match failure {
+            Some(error) => Err(error),
+            None => Ok(value.flatten()),
+        }
     }
 
-    /// Political Favor (Xxcha): "When an agenda is revealed: Remove 1 token from the Xxcha player's
-    /// strategy pool and return it to their reinforcements. Then, discard the revealed agenda and
-    /// reveal 1 agenda from the top of the deck. Players vote on this agenda instead. Then, return
-    /// this card to the Xxcha player."
-    ///
-    /// Offered to each holder in turn until one uses it. The replacement is handed over exactly as
-    /// Veto hands its own, so the reveal loop discards this agenda and continues. Priced for
-    /// trading since the port, the card was never offered and could not be used.
-    fn offer_political_favor(&mut self, agenda: &str) -> Result<bool, GameError> {
-        for (note, holder, owner) in self.lent_notes("favor") {
-            let payable = self
-                .state
-                .player(&owner)
-                .is_some_and(|seat| seat.tokens(ti4_model::state::TokenPool::Strategic) > 0);
-            if !payable || self.state.agenda_deck.is_empty() {
-                continue;
-            }
-            let prompt = "Political Favor: discard this agenda and reveal the next".to_owned();
-            if !self.ask_to_use_note(&holder, "favor", prompt, agenda)? {
-                continue;
-            }
-            if let Some(seat) = self.state.player_mut(&owner) {
-                seat.gain_token_uncapped(ti4_model::state::TokenPool::Strategic, -1);
-            }
-            crate::supply::note_strategy_token_spent(&mut self.state, &owner, "political_favor");
-            let Some(replacement) = ti4_model::deck_reserve::take_top(
-                &mut self.state.deck_reserve,
-                "agenda",
-                &mut self.state.agenda_deck,
-                None,
-            ) else {
-                return Ok(false);
-            };
-            self.state.agenda_veto_replacement = Some(replacement);
-            crate::promissory::give_back(&mut self.state, &note);
-            return Ok(true);
-        }
-        Ok(false)
+    /// The fields the agenda reveal chain touches besides the state, borrowed field by field.
+    fn split(&mut self) -> (&mut GameState, crate::agenda_reveal::Live<'_>) {
+        (
+            &mut self.state,
+            crate::agenda_reveal::Live {
+                content: self.content,
+                sources: self.sources,
+                galaxy: self.galaxy.as_ref(),
+                table: &mut self.table,
+                timing: &mut self.timing,
+                dice: &mut self.dice,
+                rng: &mut self.rng,
+                event_sequence: &mut self.event_sequence,
+                events: &mut self.events,
+            },
+        )
     }
 
-    /// Quash (Xxcha): "When an agenda is revealed: You may spend 1 token from your strategy pool to
-    /// discard that agenda and reveal 1 agenda from the top of the deck. Players vote on this
-    /// agenda instead."
-    ///
-    /// Offered to each seat with the ability and a strategy token, in seat order, until one uses
-    /// it. The replacement is handed over exactly as Veto and Political Favor hand theirs, so the
-    /// reveal loop discards this agenda and continues (and offers Quash again on the new one).
-    fn offer_quash(&mut self, agenda: &str) -> Result<bool, GameError> {
-        if self.state.agenda_deck.is_empty() {
-            return Ok(false);
-        }
-        let owners: Vec<PlayerId> = self
-            .state
-            .players
-            .iter()
-            .filter(|seat| seat.tokens(ti4_model::state::TokenPool::Strategic) > 0)
-            .map(|seat| seat.id.clone())
-            .filter(|id| crate::faction_abilities::has(&self.state, self.content, id, "quash"))
-            .collect();
-        for owner in owners {
-            let prompt = "Quash: spend 1 strategy token to discard this agenda and reveal the next"
-                .to_owned();
-            if !self.ask_to_use_note(&owner, "quash", prompt, agenda)? {
-                continue;
-            }
-            if let Some(seat) = self.state.player_mut(&owner) {
-                seat.gain_token_uncapped(ti4_model::state::TokenPool::Strategic, -1);
-            }
-            crate::supply::note_strategy_token_spent(&mut self.state, &owner, "quash");
-            let Some(replacement) = ti4_model::deck_reserve::take_top(
-                &mut self.state.deck_reserve,
-                "agenda",
-                &mut self.state.agenda_deck,
-                None,
-            ) else {
-                return Ok(false);
-            };
-            self.state.agenda_veto_replacement = Some(replacement);
-            return Ok(true);
-        }
-        Ok(false)
-    }
-
-    /// Political Secret: "When an agenda is revealed: The <color> player cannot vote, play action
-    /// cards, or use faction abilities until after that agenda has been resolved. Then, return this
-    /// card to the <color> player."
-    ///
-    /// Offered for the agenda players will vote on. The vote bar is the marker Assassinate
-    /// Representative sets; barring action cards and faction abilities is not modelled. Priced for
-    /// trading since the port, the card was never offered and could not be used.
+    #[cfg(test)]
     fn offer_political_secrets(&mut self, agenda: &str) -> Result<(), GameError> {
-        for (note, holder, owner) in self.lent_notes("ps") {
-            if self.state.agenda_predictions.contains_key(&owner) {
-                continue; // already cannot vote on this agenda
-            }
-            let prompt = format!("Political Secret: {owner} cannot vote on this agenda");
-            if !self.ask_to_use_note(&holder, "ps", prompt, agenda)? {
-                continue;
-            }
-            self.state
-                .agenda_predictions
-                .insert(owner.clone(), "none|political_secret".to_owned());
-            crate::promissory::give_back(&mut self.state, &note);
-            self.emit(&format!("POLITICAL_SECRET_USED:{owner}"));
-        }
-        Ok(())
+        let (state, mut live) = self.split();
+        live.offer_political_secrets(state, agenda)
+    }
+
+    #[cfg(test)]
+    fn offer_political_favor(&mut self, agenda: &str) -> Result<bool, GameError> {
+        let (state, mut live) = self.split();
+        live.offer_political_favor(state, agenda)
     }
 
     /// Resolve one vote decision, applying the outcome when the vote closes.
@@ -6865,34 +6548,15 @@ impl<'a> Game<'a> {
         speaker_decided: bool,
         discarded: bool,
     ) {
-        let law = is_law(self.content, alias);
-        let record = ti4_model::state::AgendaRecord {
-            round: self.state.round,
-            agenda: alias.to_owned(),
-            name: self
-                .content
-                .get(ti4_model::content_types::ContentType::Agendas, alias)
-                .and_then(|record| record.text("name"))
-                .unwrap_or_default()
-                .to_owned(),
-            outcome: outcome.map(str::to_owned),
+        crate::agenda_reveal::push_agenda_record(
+            &mut self.state,
+            self.content,
+            alias,
+            outcome,
             votes,
             speaker_decided,
-            law,
-            enacted: law && !discarded && outcome.is_some_and(|o| o != AGAINST),
             discarded,
-            redirected_to: if discarded {
-                None
-            } else {
-                self.state
-                    .agenda_elected_override
-                    .as_ref()
-                    .map(ToString::to_string)
-                    .filter(|to| Some(to.as_str()) != outcome)
-            },
-            discard_reason: None,
-        };
-        self.state.agenda_log.push(record);
+        );
     }
 
     /// The vote has a winner: announce it, record it, resolve the agenda (or drop it when a Deadly Plot
@@ -7489,6 +7153,53 @@ impl<'a> Game<'a> {
             resolved_choice,
         }
     }
+}
+
+/// Covert Legislation (rules version 33): "When this agenda is revealed, the speaker draws the
+/// next card in the agenda deck but does not reveal it to the other players. Instead, the
+/// speaker reads the eligible outcomes aloud ... The other players vote for these outcomes as
+/// if they were outcomes of this agenda, without knowing their effects."
+///
+/// Draws the face-down agenda into [`GameState::covert_agenda`] and returns its outcomes, which
+/// become Covert Legislation's. A drawn card with no eligible outcome (Classified Document
+/// Leaks with no scored secret, Repeal Law with no law in play) is discarded and the next one
+/// drawn. An empty deck leaves nothing to vote on: Covert Legislation is then discarded and
+/// replaced like any agenda with nothing to elect.
+pub(crate) fn draw_covert_agenda(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+) -> Vec<String> {
+    // The core `rules::agenda::covert::CovertDraw` window runs beside the string body on `agenda=dual`.
+    let mut choices = Vec::new();
+    crate::dual_window!(
+        crate::dual::Area::AgendaLaws,
+        "game::draw_covert_agenda",
+        state,
+        |s: &mut GameState| {
+            choices = draw_covert_text(s, content, sources);
+            crate::dual::Run::new(choices.clone())
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::dual_window::covert_draw(s, sources, script)
+    );
+    choices
+}
+
+fn draw_covert_text(state: &mut GameState, content: &ContentStore, sources: SourceSet) -> Vec<String> {
+    state.covert_agenda = None;
+    while let Some(hidden) = ti4_model::deck_reserve::take_top(
+        &mut state.deck_reserve,
+        "agenda",
+        &mut state.agenda_deck,
+        None,
+    ) {
+        let choices = outcomes(&*state, content, sources, &hidden);
+        if !choices.is_empty() {
+            state.covert_agenda = Some(hidden);
+            return choices;
+        }
+    }
+    Vec::new()
 }
 
 /// Count route hops actually supplied by wormhole adjacency. `extra_links` can also describe

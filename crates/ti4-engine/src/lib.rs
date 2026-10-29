@@ -19,6 +19,8 @@
 
 pub mod action_cards;
 pub mod agenda;
+pub mod agenda_reveal;
+pub mod agenda_reveal_dual;
 pub mod agenda_effects;
 pub mod breakthroughs;
 pub mod choice;

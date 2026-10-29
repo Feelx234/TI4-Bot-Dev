@@ -122,6 +122,21 @@ pub enum Ask {
     Structure,
     /// `laws::offer_discard`: the owner of `law` may discard it (the caller's `prompt`, interned, is the text).
     DiscardLaw { law: Agenda, prompt: Code },
+    /// `Game::ask_to_use_note`: the holder of a card or ability (`source`) may use it on the agenda just revealed
+    /// (`agenda`, shown under the question). `owner` is the seat the card belongs to (Political Secret's text
+    /// names it).
+    UseOnAgenda { source: UseSource, agenda: Agenda, owner: Seat },
+}
+
+/// What a [`Ask::UseOnAgenda`] question offers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum UseSource {
+    /// The Xxcha ability Quash.
+    Quash,
+    /// The promissory note Political Favor.
+    Favor,
+    /// The promissory note Political Secret.
+    Secret,
 }
 
 impl Ask {
@@ -136,7 +151,7 @@ impl Ask {
             | Self::Recombine { frame, .. }
             | Self::Tribute { frame, .. }
             | Self::Tiebreak { frame } => Some(frame),
-            Self::NameTied | Self::Structure | Self::DiscardLaw { .. } => None,
+            Self::NameTied | Self::Structure | Self::DiscardLaw { .. } | Self::UseOnAgenda { .. } => None,
         }
     }
 }
@@ -171,6 +186,8 @@ pub enum Opt {
     Structure { index: u8, planet: Planet, system: System },
     /// `DiscardLaw`: discard the law.
     DiscardLaw,
+    /// `UseOnAgenda`: use the card or ability.
+    UseCard,
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -186,6 +203,9 @@ pub enum Subtype {
     ElectTiebreak,
     DefenseStructure,
     OfferDiscardLaw,
+    UseQuash,
+    UseFavor,
+    UseSecret,
 }
 
 impl Ask {
@@ -203,6 +223,9 @@ impl Ask {
             Self::NameTied => Subtype::ElectTiebreak,
             Self::Structure => Subtype::DefenseStructure,
             Self::DiscardLaw { .. } => Subtype::OfferDiscardLaw,
+            Self::UseOnAgenda { source: UseSource::Quash, .. } => Subtype::UseQuash,
+            Self::UseOnAgenda { source: UseSource::Favor, .. } => Subtype::UseFavor,
+            Self::UseOnAgenda { source: UseSource::Secret, .. } => Subtype::UseSecret,
         }
     }
 }

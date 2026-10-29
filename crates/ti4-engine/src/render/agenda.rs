@@ -7,7 +7,7 @@
 
 use serde_json::{Map, Value, json};
 use ti4_content::ContentStore;
-use ti4_engine_core::choice::agenda::{Ask, Face, Frame, Opt, Shown, Subtype};
+use ti4_engine_core::choice::agenda::{Ask, Face, Frame, Opt, Shown, Subtype, UseSource};
 use ti4_engine_core::generated::{Agenda, AgendaElects, Planet, SecretObjective, StrategyCard};
 use ti4_engine_core::keys::Outcome;
 use ti4_model::content_types::ContentType;
@@ -90,6 +90,13 @@ impl Family for Fam {
             Ask::NameTied => "which tied player does the agenda name".to_owned(),
             Ask::Structure => "destroy one of your structures".to_owned(),
             Ask::DiscardLaw { prompt, .. } => r.code_text(*prompt),
+            Ask::UseOnAgenda { source: UseSource::Quash, .. } => {
+                "Quash: spend 1 strategy token to discard this agenda and reveal the next".to_owned()
+            }
+            Ask::UseOnAgenda { source: UseSource::Favor, .. } => "Political Favor: discard this agenda and reveal the next".to_owned(),
+            Ask::UseOnAgenda { source: UseSource::Secret, owner, .. } => {
+                format!("Political Secret: {} cannot vote on this agenda", r.seat_text(*owner))
+            }
         }
     }
 
@@ -105,6 +112,9 @@ impl Family for Fam {
             Subtype::ElectTiebreak => "agenda_elect_tiebreak",
             Subtype::DefenseStructure => "defense_act_choose_pds",
             Subtype::OfferDiscardLaw => "offer_discard_law",
+            Subtype::UseQuash => "quash",
+            Subtype::UseFavor => "favor",
+            Subtype::UseSecret => "ps",
         }
         .to_owned()
     }
@@ -117,6 +127,14 @@ impl Family for Fam {
                     .with_planet(planet.as_str(), Some(system.as_str()))
             }
             (Ask::DiscardLaw { law, .. }, Opt::DiscardLaw) => ChoiceOption::labelled("discard", "law", format!("discard {}", law.as_str())),
+            (Ask::UseOnAgenda { source, .. }, Opt::UseCard) => {
+                let alias = match source {
+                    UseSource::Quash => "quash",
+                    UseSource::Favor => "favor",
+                    UseSource::Secret => "ps",
+                };
+                ChoiceOption::labelled("use", "promissory_note", format!("use {alias}"))
+            }
             _ => Self::vote_option(r, a, o),
         }
     }
@@ -127,11 +145,18 @@ impl Family for Fam {
             // The planet and the system are the position's: the pick is matched against the offered options.
             Ask::Structure => None,
             Ask::DiscardLaw { .. } => (id == "discard").then_some(Opt::DiscardLaw),
+            Ask::UseOnAgenda { .. } => (id == "use").then_some(Opt::UseCard),
             _ => Self::parse_vote(r, a, id),
         }
     }
 
     fn details(r: &Render, a: &Ask) -> Map<String, Value> {
+        if let Ask::UseOnAgenda { agenda, .. } = a {
+            // The card the question is about rides along as on every vote decision.
+            let mut out = Map::new();
+            out.insert("agenda".to_owned(), crate::strategy_cards::agenda_details(ContentStore::embedded(), agenda.as_str()));
+            return out;
+        }
         if a.frame().is_none() {
             return Map::new();
         }
@@ -243,7 +268,7 @@ impl Fam {
                 "tribute|token" => Some(Opt::TributeToken),
                 _ => None,
             },
-            Ask::NameTied | Ask::Structure | Ask::DiscardLaw { .. } => None,
+            Ask::NameTied | Ask::Structure | Ask::DiscardLaw { .. } | Ask::UseOnAgenda { .. } => None,
         }
     }
 

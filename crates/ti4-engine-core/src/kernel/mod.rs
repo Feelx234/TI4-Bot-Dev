@@ -19,6 +19,7 @@
 
 pub mod ability;
 pub mod fx;
+pub mod fx_agenda;
 pub mod hooks;
 pub mod hits;
 pub mod next;
