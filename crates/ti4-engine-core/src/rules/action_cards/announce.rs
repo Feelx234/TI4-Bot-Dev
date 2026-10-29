@@ -400,6 +400,28 @@ mod tests {
         assert_eq!(kinds, [EventKind::ActionCardPlayed, EventKind::ActionCardDiscarded]);
     }
 
+    /// Bail: a galvanized ground force that falls cannot be staged (the string row has a `|g` tail the typed row cannot
+    /// hold), so the run is unknown and the adapter keeps the string's.
+    #[test]
+    fn bail_a_galvanized_ground_force_that_falls_makes_the_run_unknown() {
+        use crate::generated::{Planet, PlanetTrait};
+        let mut s = two_seats();
+        let planet = *Planet::ALL.iter().find(|p| p.data().system.is_some() && p.data().traits.contains(&PlanetTrait::Hazardous)).unwrap();
+        let system = planet.data().system.unwrap();
+        fx::place_unit(&mut s, Seat(1), system, Some(planet), Unit::InfantryI);
+        s.board_mut().planet_mut(planet).units.as_mut_slice()[0] = crate::state::Piece::new(Unit::InfantryI, Seat(1)).with_galvanized(true);
+        let a = Announce::of(&s, ActionCard::UnstablePlanet, Seat(0), env(), true, false).unwrap();
+        let d = run(a, &mut s, plays_table());
+        assert_eq!(d.unknown(), Some(Unknown::MissingFact));
+        // Without the galvanized token the same fall is staged as a ground-force row.
+        let mut s = two_seats();
+        fx::place_unit(&mut s, Seat(1), system, Some(planet), Unit::InfantryI);
+        let a = Announce::of(&s, ActionCard::UnstablePlanet, Seat(0), env(), true, false).unwrap();
+        let d = run(a, &mut s, plays_table());
+        assert_eq!(d.unknown(), None);
+        assert!(s.marks().tail.iter().any(|(k, _)| matches!(k, crate::keys::MarkKey::PrivateStagedGround(_))));
+    }
+
     /// Bail: a card with an effect the core does not play has no announcement (the string runs).
     #[test]
     fn bail_a_card_with_an_unported_effect_has_no_announcement() {
