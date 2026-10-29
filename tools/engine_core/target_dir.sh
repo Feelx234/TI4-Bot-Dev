@@ -8,9 +8,9 @@
 #
 # SEED defaults to $TI4_WARM_TARGET or /root/deploytmp/warm-target. Cargo cannot share artifacts between
 # checkouts through its cache alone (no sccache here) and the disk has no reflinks, so a seed is made by
-# HARD-LINKING the finished artifacts (deps/, build/, .fingerprint/ of every profile; not incremental/) of
-# the warm dir: a seeded dir costs seconds and almost no disk. Cargo replaces (never edits) an artifact it
-# rebuilds, so the warm dir is not changed by the build in DEST.
+# HARD-LINKING the big finished artifacts (deps/, build/ of every profile; not incremental/) of the warm dir and
+# copying the small metadata (.fingerprint/, .d files): a seeded dir costs seconds and little disk. Cargo
+# replaces (never edits) the big artifacts it rebuilds, but rewrites the small files in place, hence the copies.
 #
 # Why the mtimes are touched: cargo calls a workspace crate fresh only when its sources are not newer than
 # the previous build. A new worktree has all-new mtimes. `seed` therefore sets the mtime of every tracked
@@ -41,13 +41,34 @@ case "$cmd" in
     [[ -e "$dest" ]] && [[ -n "$(ls -A "$dest" 2>/dev/null)" ]] && { echo "$dest is not empty"; exit 1; }
     mkdir -p "$dest"
     t0=$SECONDS
-    for prof in "$seed"/*/; do
-      p="$(basename "$prof")"; [[ "$p" == incremental ]] && continue
-      for sub in deps build .fingerprint; do
-        [[ -d "$prof/$sub" ]] || continue
-        mkdir -p "$dest/$p"; cp -al "$prof/$sub" "$dest/$p/$sub"
-      done
-    done
+    # Big artifacts (rlib, rmeta, so, executables, objects; >= 64 KB) are hard-linked; everything small
+    # (.fingerprint, .d files, build-script outputs) is COPIED, because cargo rewrites those in place when it
+    # rebuilds a crate and that must not reach the warm dir.
+    python3 -I - "$seed" "$dest" <<'PY'
+import os, shutil, sys
+seed, dest = sys.argv[1:3]
+links = copies = 0
+for prof in sorted(os.listdir(seed)):
+    pdir = os.path.join(seed, prof)
+    if not os.path.isdir(pdir) or prof == "incremental":
+        continue
+    for sub in ("deps", "build", ".fingerprint"):
+        top = os.path.join(pdir, sub)
+        if not os.path.isdir(top):
+            continue
+        for root, dirs, files in os.walk(top):
+            rel = os.path.relpath(root, seed)
+            os.makedirs(os.path.join(dest, rel), exist_ok=True)
+            for f in files:
+                a, b = os.path.join(root, f), os.path.join(dest, rel, f)
+                if os.path.islink(a):
+                    os.symlink(os.readlink(a), b)
+                elif os.path.getsize(a) >= 65536 and not a.endswith((".json", ".d")):
+                    os.link(a, b); links += 1
+                else:
+                    shutil.copy2(a, b); copies += 1
+print(f"{links} files hard-linked, {copies} small files copied")
+PY
     # Cargo's own marker files.
     cp -a "$seed"/.rustc_info.json "$seed"/CACHEDIR.TAG "$dest"/ 2>/dev/null || true
     wc="$(cat "$seed/.warm-commit")"; wt="$(cat "$seed/.warm-time")"
