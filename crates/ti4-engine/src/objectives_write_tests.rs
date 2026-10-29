@@ -793,6 +793,12 @@ mod book {
         serde_json::to_value(state).expect("a state serialises")
     }
 
+    /// What the plot writes touch.
+    const PLOTS: crate::core_sync::Footprint = crate::core_sync::Footprint::new(
+        &[ti4_engine_core::state::Slice::Meta, ti4_engine_core::state::Slice::Seats, ti4_engine_core::state::Slice::Players, ti4_engine_core::state::Slice::Objectives],
+        &[ti4_engine_core::state::Slice::Players],
+    );
+
     /// What a walk saw: the steps taken and who was asked at each.
     #[derive(Debug, Default)]
     pub(super) struct Trace {
@@ -971,6 +977,63 @@ mod book {
         assert_eq!(crate::supply::staged_event_types(&end), ["PUBLIC_OBJECTIVE_SCORED"], "only the public score is announced");
     }
 
+
+    /// The secret cap of the status window: a second scoreable secret is not offered after the first (61.6).
+    #[test]
+    fn the_status_window_offers_a_second_secret_to_nobody() {
+        let mut state = clean(&[("a", "letnev"), ("b", "sol")]);
+        // `eap` (four pds) and `fwm` (three space docks): both are met, only one may be scored.
+        crate::fixtures::put(&mut state, &SystemId::new("18"), "spacedock", &a(), 3);
+        four_pds(&mut state);
+        state.player_mut(&a()).unwrap().secret_objectives = ["eap", "fwm"].map(SecretObjectiveId::new).to_vec();
+        let window = ScoringWindow::new(&state.initiative_order());
+        let first = window.pending_choice(&state, ContentStore::embedded(), POK).expect("asked");
+        assert!(first.ids().contains(&"eap") && first.ids().contains(&"fwm"), "{:?}", first.ids());
+        let (end, window, trace) = walk(state, window, &["eap"]);
+        assert_eq!(trace.asked.len(), 1);
+        assert!(finished(&end, &window), "the secret cap is spent: fwm is not offered again");
+    }
+
+    /// The one-per-event cap: a player who already used the occurrence is skipped, the next player is asked.
+    #[test]
+    fn a_player_who_used_the_occurrence_is_skipped() {
+        let mut state = clean(&[("a", "letnev"), ("b", "sol")]);
+        for who in [a(), PlayerId::new("b")] {
+            state.player_mut(&who).unwrap().secret_objectives = vec![SecretObjectiveId::new("btv")];
+        }
+        let occurrence = state.begin_feat_occurrence();
+        for who in [a(), PlayerId::new("b")] {
+            state.record_event_feat(&who, Feat::WonInAnAnomaly, occurrence);
+            state.record_event_feat(&who, Feat::DestroyedACapitalShip, occurrence);
+        }
+        let first = state.initiative_order()[0].clone();
+        let other = state.initiative_order()[1].clone();
+        state.record_occurrence_score(&first, occurrence);
+        let window = ScoringWindow::for_occurrence(&state.initiative_order(), Timing::Action, occurrence, EventScoreLimit::OnePerPlayer);
+        let (_, _, trace) = walk(state, window, &["btv"]);
+        assert_eq!(trace.asked[0].0, other.as_str(), "the player who used the occurrence is not asked");
+    }
+
+    /// `next_askable` skips the players with nothing to score: the one asked is not the first pending, and the
+    /// pending list is cut at the right place afterwards.
+    #[test]
+    fn players_with_nothing_to_score_are_skipped_and_the_list_is_cut_after_the_one_asked() {
+        for scorer in 0..2 {
+            let mut state = clean(&[("a", "letnev"), ("b", "sol")]);
+            let order = state.initiative_order();
+            let who = order[scorer].clone();
+            let mut seen = false;
+            // Only `who` holds a met secret: pds for `who` on a system of its own.
+            crate::fixtures::put(&mut state, &SystemId::new(if scorer == 0 { "18" } else { "37" }), "pds", &who, 4);
+            state.player_mut(&who).unwrap().secret_objectives = vec![SecretObjectiveId::new("eap")];
+            let window = ScoringWindow::new(&order);
+            let (_, window, trace) = walk(state, window, &["eap"]);
+            assert_eq!(trace.asked[0].0, who.as_str());
+            seen |= window.book().pending.len() <= 1;
+            assert!(seen || scorer == 0);
+        }
+    }
+
     // -- Plots Within Plots ----------------------------------------------------------------------------
 
     /// `a` (Firmament) has three space docks; `b` has scored `fwm` ("Have 3 space docks").
@@ -1070,6 +1133,64 @@ mod book {
         let (end, _, _) = walk(state, window, &["plot|dhw|b", "enervate"]);
         let held: i32 = end.player(&a()).unwrap().relic_fragments.values().sum();
         assert_eq!(held, 1, "two of the three fragments were paid");
+    }
+
+    /// The core's plot writes against the string's, position by position: the cards in play (an unknown identity
+    /// still holds a place), who may score what, the placement and its face.
+    #[test]
+    fn the_core_plot_writes_equal_the_string_ones() {
+        use crate::generated::IdStr;
+        use ti4_engine_core::generated::SecretObjective;
+        use ti4_engine_core::kernel::fx_plots;
+        let content = ContentStore::embedded();
+        let b = || PlayerId::new("b");
+        let c = || PlayerId::new("c");
+        let put_cards = |state: &mut GameState, cards: &[&str]| {
+            for (i, card) in cards.iter().enumerate() {
+                state.player_mut(&c()).unwrap().plots.push(if card.is_empty() { format!("d:?:{}", if i % 2 == 0 { "b" } else { "c" }) } else { ti4_model::plots::Plot::facedown(card, &b()).encode() });
+            }
+        };
+        let hands: [&[&str]; 6] = [&[], &["enervate"], &["enervate", "siphon", "seethe", "assail"], &["enervate", "siphon", "seethe", "assail", "extract"], &["enervate", "siphon", "seethe", "assail", ""], &["", "", "", "", ""]];
+        let mut compared = 0;
+        for cards in hands {
+            for (who, token, scored_by_token, scored_by_me, plotted) in [
+                ("a", "b", true, false, false),
+                ("a", "a", true, false, false), // a's own token
+                ("a", "b", false, false, false), // the token holder has not scored it
+                ("a", "b", true, true, false), // already scored by the Firmament
+                ("a", "b", true, false, true), // already scored as a plot
+                ("b", "a", true, false, false), // not the Firmament
+            ] {
+                let mut state = clean(&[("a", crate::factions::firmament::FACTION), ("b", "sol"), ("c", "letnev")]);
+                put_cards(&mut state, cards);
+                if scored_by_token {
+                    state.record_score(&PlayerId::new(token), ObjectiveId::new("fwm"));
+                }
+                if scored_by_me {
+                    state.record_score(&PlayerId::new(who), ObjectiveId::new("fwm"));
+                }
+                if plotted {
+                    state.player_mut(&PlayerId::new(who)).unwrap().plot_objectives.insert(SecretObjectiveId::new("fwm"));
+                }
+                let mut typed = state.clone();
+                let want = crate::factions::firmament::score_as_plot(&mut state, content, &PlayerId::new(who), &SecretObjectiveId::new("fwm"), &PlayerId::new(token));
+                let got = crate::dual_window::lend(&mut typed, PLOTS, Some(&PlayerId::new(who)), |core, seat| {
+                    let token_seat = ti4_engine_core::Seat(match token { "a" => 0, "b" => 1, _ => 2 });
+                    fx_plots::score_as_plot(core, seat.unwrap(), SecretObjective::from_id("fwm").unwrap(), token_seat)
+                });
+                let label = format!("{cards:?} {who}/{token} {scored_by_token} {scored_by_me} {plotted}");
+                assert_eq!(got, Some(want), "{label}");
+                assert_eq!(json(&typed), json(&state), "{label}");
+                // The placement of the next card, wherever the cards stand.
+                let remaining = crate::factions::firmament::remaining_cards(&state);
+                let core_remaining = crate::dual_window::lend(&mut typed, PLOTS, None, |core, _| {
+                    fx_plots::remaining_cards(core).iter().map(|c| fx_plots::card_text(*c)).collect::<Vec<_>>()
+                });
+                assert_eq!(core_remaining, Some(remaining.clone()), "{label}: remaining");
+                compared += 1;
+            }
+        }
+        assert_eq!(compared, 36);
     }
 }
 
