@@ -251,6 +251,29 @@ pub(crate) fn fighter_on_card(state: &GameState, player: &PlayerId, sources: &ti
     crate::factions::crimson_cards::held_on_card(state, ti4_content::ContentStore::embedded(), sources.clone(), player, "fighter")
 }
 
+/// Whether the card's effect rolls the game's dice (`Fx::rolls`).
+#[must_use]
+pub fn rolls(alias: &ActionCardId) -> bool {
+    ActionCard::from_id(alias.as_str()).and_then(rules::effects::Fx::of).is_some_and(rules::effects::Fx::rolls)
+}
+
+/// The window lent the streams when the card rolls: the footprint, the sources and the seeds of the dice stream. `None`
+/// when the card rolls and the dice are not ones the core can reproduce (the adapter bails).
+fn lend_rolls(
+    alias: &ActionCardId,
+    before: Option<&crate::rng::RngPositions>,
+    label: &str,
+) -> Option<Option<crate::dual_window::Lent>> {
+    if !rolls(alias) {
+        return Some(None);
+    }
+    let Some(before) = before else {
+        crate::dual::note_bail(label, "irreproducible dice (test faces or a stream restore)");
+        return None;
+    };
+    Some(Some(crate::dual_window::Lent { before: before.clone() }))
+}
+
 /// Whether the core has a window for the card (`rules::action_cards::effects::Fx`).
 #[must_use]
 pub fn plays(alias: &ActionCardId) -> bool {
@@ -271,7 +294,8 @@ pub fn play_window(
     alias: &ActionCardId,
     sources: &ti4_model::content_types::SourceSet,
     script: &crate::dual_window::Recording,
-) -> Option<crate::dual::CoreWindow<()>> {
+    before_rolls: Option<&crate::rng::RngPositions>,
+) -> Option<crate::dual::CoreWindow<crate::action_cards_typed::Rolled>> {
     use ti4_engine_core::driver::Driver;
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::Kernel;
@@ -281,23 +305,61 @@ pub fn play_window(
     let mut env = env_of(gs, player, sources, &r);
     env.infantry = placed(gs, player, sources, "infantry")?;
     env.cruiser = placed(gs, player, sources, "cruiser")?;
+    let lent = lend_rolls(alias, before_rolls, "action_cards::play")?;
     let before = gs.clone();
     let kernel = Kernel::plain();
     let mut staged = Vec::new();
     let mut emitted = Vec::new();
-    let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), PLAY, |core, _| {
+    let mut faces = Vec::new();
+    let mut unsupported = false;
+    let mut rng_after = None;
+    let fp = if lent.is_some() { PLAY.union(crate::core_sync::Footprint::new(&[Slice::Rng], &[Slice::Rng])) } else { PLAY };
+    let src = Sources { galaxy: None, rng: lent.as_ref().map(|l| &l.before) };
+    let mut driver_seeds = None;
+    if lent.is_some() {
+        driver_seeds = Some(std::rc::Rc::new(crate::dual_window::DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?)));
+    }
+    let details = |c: &ti4_engine_core::choice::Choice, _: &ti4_engine_core::state::CoreState, rendered: &mut crate::choice::Choice| {
+        recorded_details(c, script, rendered);
+    };
+    let driven = crate::core_sync::with_core(gs, &mut cx, src, fp, |core, _| {
         let play = rules::effects::Play::of(core, card, seat, env)?;
         let mut driver = Driver::new(play, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
-        let driven = crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script);
+        if let Some(seeds) = driver_seeds {
+            driver = driver.with_seeds(seeds);
+        }
+        let driven = crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &details);
         staged = std::mem::take(&mut core.pending_mut().staged);
         emitted = std::mem::take(&mut driver.emitted);
+        faces = driver.window.faces().to_vec();
+        unsupported = driver.window.unsupported();
+        if lent.is_some() {
+            rng_after = Some(core.rng().clone());
+        }
         Some(driven)
     })
     .ok()??
     .ok()?;
+    if unsupported {
+        return None;
+    }
     crate::dual_window::apply_staged(gs, &r, &staged)?;
     let events: Vec<crate::event::Event> = emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
-    Some(crate::dual::CoreWindow { run: crate::dual::Run::new(()).with_events_vec(events), questions: driven.rendered })
+    let positions = match rng_after {
+        Some(after) => Some(crate::core_sync::codec::rng::positions(&cx, &after).ok()?),
+        None => None,
+    };
+    Some(crate::dual::CoreWindow { run: crate::dual::Run::new((faces, positions)).with_events_vec(events), questions: driven.rendered })
+}
+
+/// The display facts only the card's text knows (`Choice.details` of Repeal Law's `laws`): taken from the recorded question
+/// with the same prompt.
+fn recorded_details(c: &ti4_engine_core::choice::Choice, script: &crate::dual_window::Recording, rendered: &mut crate::choice::Choice) {
+    if matches!(c.ask, ti4_engine_core::choice::Ask::Cards(ti4_engine_core::choice::cards::Ask::Pick { what: ti4_engine_core::choice::cards::What::Law, .. }))
+        && let Some(asked) = script.questions.iter().find(|q| q.choice.prompt == rendered.prompt)
+    {
+        rendered.details.clone_from(&asked.choice.details);
+    }
 }
 
 /// `action_cards::discard` on the core: remove the card at `index` from `player`'s hand. `Some(card)` is the
@@ -342,7 +404,8 @@ pub fn announce_window(
     alias: &ActionCardId,
     sources: &ti4_model::content_types::SourceSet,
     script: &crate::dual_window::Recording,
-) -> Option<crate::dual::CoreWindow<Option<bool>>> {
+    before_rolls: Option<&crate::rng::RngPositions>,
+) -> Option<crate::dual::CoreWindow<(Option<bool>, crate::action_cards_typed::Rolled)>> {
     use ti4_engine_core::driver::Driver;
     use ti4_engine_core::kernel::stage::AbilityTable;
     let card = ActionCard::from_id(alias.as_str())?;
@@ -359,24 +422,44 @@ pub fn announce_window(
         return None;
     }
     let has_effect = crate::action_cards::effect_for(alias).is_some();
+    let lent = lend_rolls(alias, before_rolls, "action_cards::announce")?;
     let before = gs.clone();
     let window = crate::core_combat::window_env(gs, &cx, sources.clone())?;
     let kernel = &window.kernel;
     let mut staged = Vec::new();
     let mut emitted = Vec::new();
     let mut played = None;
-    let fp = crate::dual_window::nested_fp(PLAY, script);
-    let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), fp, |core, _| {
+    let mut faces = Vec::new();
+    let mut rng_after = None;
+    let mut fp = crate::dual_window::nested_fp(PLAY, script);
+    if lent.is_some() {
+        fp = fp.union(crate::core_sync::Footprint::new(&[Slice::Rng], &[Slice::Rng]));
+    }
+    let src = Sources { galaxy: None, rng: lent.as_ref().map(|l| &l.before) };
+    let seeds = match lent {
+        Some(_) => Some(std::rc::Rc::new(crate::dual_window::DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?))),
+        None => None,
+    };
+    let rolled = seeds.is_some();
+    let driven = crate::core_sync::with_core(gs, &mut cx, src, fp, |core, _| {
         let announce = rules::announce::Announce::of(core, card, seat, env, has_effect, false)?;
         let mut driver = Driver::new(announce, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
-        let battle = |_: &ti4_engine_core::choice::Choice, _: &ti4_engine_core::state::CoreState, rendered: &mut crate::choice::Choice| {
+        if let Some(seeds) = seeds {
+            driver = driver.with_seeds(seeds);
+        }
+        let battle = |_c: &ti4_engine_core::choice::Choice, _: &ti4_engine_core::state::CoreState, rendered: &mut crate::choice::Choice| {
             // The effect's questions are asked through `ask_seeing`: the battle or invasion the position is in.
             if let Some(ctx) = rendered.context.take() {
                 rendered.context = Some(ctx.about_battle(&before).about_invasion(&before));
             }
+            recorded_details(_c, script, rendered);
         };
         let driven = crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &battle);
         played = Some(driver.window.played());
+        faces = driver.window.faces();
+        if rolled {
+            rng_after = Some(core.rng().clone());
+        }
         staged = std::mem::take(&mut core.pending_mut().staged);
         emitted = std::mem::take(&mut driver.emitted);
         Some(driven)
@@ -385,5 +468,9 @@ pub fn announce_window(
     .ok()?;
     crate::dual_window::apply_staged(gs, &r, &staged)?;
     let events: Vec<crate::event::Event> = emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
-    Some(crate::dual::CoreWindow { run: crate::dual::Run::new(played).with_events_vec(events), questions: driven.rendered })
+    let positions = match rng_after {
+        Some(after) => Some(crate::core_sync::codec::rng::positions(&cx, &after).ok()?),
+        None => None,
+    };
+    Some(crate::dual::CoreWindow { run: crate::dual::Run::new((played, (faces, positions))).with_events_vec(events), questions: driven.rendered })
 }

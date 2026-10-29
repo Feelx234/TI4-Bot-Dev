@@ -25,7 +25,9 @@ use crate::generated::{ActionCard, Agenda, Planet, PlanetTrait, StrategyCard, Sy
 use crate::ids::Seat;
 use crate::keys::{Prediction, PredictionTag, VoteBar};
 use crate::kernel::stage::{Illegal, Sx, Window};
-use crate::kernel::{Kernel, Next, fx};
+use crate::kernel::{Kernel, Next, fx, fx_ground};
+use crate::keys::{ActionCardCause, DestroyReason};
+use crate::state::{RngDomain, SeedSource};
 use crate::query::{board, economy, seats};
 use crate::state::{CoreState, Piece, TransientFlags};
 
@@ -90,9 +92,23 @@ pub enum Fx {
     Conscription,
     /// Manipulate Investments: five trade goods on strategy cards, on at least three different ones.
     Invest,
+    /// Repeal Law: a law in play leaves play.
+    Repeal,
+    /// Spy: a seat with a hand hands the holder one random card (a die).
+    Spy,
+    /// Plague: one die per infantry on a rival planet; a six or better destroys one of them.
+    Plague,
+    /// Unstable Planet: a hazardous planet exhausts and loses up to three infantry.
+    Unstable,
 }
 
 impl Fx {
+    /// Whether the effect rolls the game's dice (the window needs the random streams of the state).
+    #[must_use]
+    pub const fn rolls(self) -> bool {
+        matches!(self, Self::Spy | Self::Plague)
+    }
+
     /// The effect of a card, `None` for a card the window does not play (the bail).
     #[must_use]
     pub const fn of(card: ActionCard) -> Option<Self> {
@@ -134,6 +150,10 @@ impl Fx {
             C::Rescue => Self::Rescue,
             C::FighterConscription => Self::Conscription,
             C::ManipulateInvestments => Self::Invest,
+            C::RepealLaw => Self::Repeal,
+            C::Spy => Self::Spy,
+            C::Plague => Self::Plague,
+            C::UnstablePlanet => Self::Unstable,
             _ => return None,
         })
     }
@@ -166,7 +186,16 @@ pub struct Play {
     /// Manipulate Investments: the trade goods placed so far and the cards they went on.
     placed: u8,
     used: SmallList<StrategyCard, 8>,
+    /// The dice rolled so far, in order (Spy, Plague).
+    faces: SmallList<u32, 16>,
+    /// The position held something the window does not express (a galvanized ground force fell): not compared.
+    unsupported: bool,
 }
+
+/// The sides of the die the string `Dice` rolls.
+const DIE_SIDES: u32 = 10;
+/// Plague destroys an infantry on a six or better.
+const PLAGUE_KILLS_ON: u32 = 6;
 
 fn sorted(mut spots: SmallList<(System, Planet), 16>) -> SmallList<(System, Planet), 16> {
     spots.as_mut_slice().sort_unstable();
@@ -219,19 +248,20 @@ impl Play {
             }
             _ => None,
         };
-        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new() })
+        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false })
     }
 
     fn what(&self) -> Option<What> {
         Some(match self.fx {
-            Fx::Insubordination | Fx::Assassinate | Fx::BurialSites | Fx::SupplyBase => What::Player,
+            Fx::Insubordination | Fx::Assassinate | Fx::BurialSites | Fx::SupplyBase | Fx::Spy => What::Player,
+            Fx::Repeal => What::Law,
             Fx::Confusing => What::Elect,
             Fx::Recall => What::Recall,
             Fx::Silence => What::Silence,
             Fx::Bombard => What::Bombard,
             Fx::Pressure if self.victim.is_some() => What::Note,
             Fx::Pressure => What::Player,
-            Fx::Mining | Fx::Uprising | Fx::Cripple | Fx::Meltdown | Fx::Frontline => What::Planet,
+            Fx::Mining | Fx::Uprising | Fx::Cripple | Fx::Meltdown | Fx::Frontline | Fx::Plague | Fx::Unstable => What::Planet,
             Fx::WarEffort => What::Deploy,
             Fx::Rescue => What::Rescue,
             Fx::Invest => What::Invest { step: self.placed + 1, owed: Self::INVEST_DISTINCT.saturating_sub(self.used.len() as u8) },
@@ -336,6 +366,23 @@ impl Play {
                 held.as_mut_slice().sort_unstable();
                 held.as_slice().iter().map(|s| Opt::System(*s)).collect()
             }
+            Fx::Repeal => crate::query::laws::in_play(core, self.env.blanked).as_slice().iter().map(|l| Opt::Law(*l)).collect(),
+            Fx::Spy => Self::seat_opts(core.players().iter().filter(|p| p.seat != who && !p.cards.hand.is_empty()).map(|p| p.seat)),
+            Fx::Plague => planets_where(core, |_, _, cell| cell.control.is_some_and(|owner| owner != who))
+                .as_slice()
+                .iter()
+                .map(|(s, p)| Opt::Spot(*s, *p))
+                .collect(),
+            Fx::Unstable => planets_where(core, |_, planet, cell| {
+                let data = planet.data();
+                cell.flags.has(crate::state::PlanetFlags::UNITS_ENTRY)
+                    && self.env.scope.0 & crate::tables::source_bit(data.source) != 0
+                    && data.traits.contains(&PlanetTrait::Hazardous)
+            })
+            .as_slice()
+            .iter()
+            .map(|(s, p)| Opt::Spot(*s, *p))
+            .collect(),
             Fx::Mining | Fx::Frontline => board::controlled_planets(core, who).as_slice().iter().map(|(s, p)| Opt::Spot(*s, *p)).collect(),
             Fx::Uprising => planets_where(core, |system, _, cell| {
                 cell.control.is_some_and(|owner| owner != who) && !is_home_system(self.env.scope, system)
@@ -486,7 +533,7 @@ impl Play {
 
     /// Apply the chosen option.
     /// Apply the chosen option; `true` when another question of the same card follows.
-    fn apply(&mut self, core: &mut CoreState, opt: Opt) -> bool {
+    fn apply(&mut self, core: &mut CoreState, seeds: &dyn SeedSource, opt: Opt) -> bool {
         let who = self.who;
         match (self.fx, opt) {
             (Fx::Insubordination, Opt::Seat(target)) => {
@@ -576,6 +623,55 @@ impl Play {
                     core.cards_mut().promissory_faceup.edit().insert(key, ());
                 }
             }
+            (Fx::Repeal, Opt::Law(law)) => {
+                fx::repeal_law(core, law);
+            }
+            (Fx::Spy, Opt::Seat(victim)) => {
+                let held = core.players().by_seat(victim).map_or(0, |p| p.cards.hand.len());
+                if held == 0 {
+                    return false;
+                }
+                // "Random" comes from the seeded dice too.
+                let face = core.rng_mut().die(RngDomain::Dice, seeds, DIE_SIDES);
+                self.faces.push(face);
+                let index = (face as usize - 1) % held;
+                if let Some(taken) = super::discard_from_hand(core, victim, index)
+                    && let Some(p) = core.players_mut().by_seat_mut(who)
+                {
+                    p.cards.hand.push(taken);
+                }
+            }
+            (Fx::Plague, Opt::Spot(system, planet)) => {
+                let scope = self.env.scope;
+                let infantry = core
+                    .board()
+                    .planet(planet)
+                    .units
+                    .as_slice()
+                    .iter()
+                    .filter(|p| scope.unit(p.kind()).map(|d| d.base_type) == Some(UnitBaseType::Infantry))
+                    .count();
+                if infantry == 0 {
+                    return false;
+                }
+                let mut kills = 0;
+                for _ in 0..infantry {
+                    let face = core.rng_mut().die(RngDomain::Dice, seeds, DIE_SIDES);
+                    self.faces.push(face);
+                    kills += usize::from(face >= PLAGUE_KILLS_ON);
+                }
+                let reason = DestroyReason::ActionCard(ActionCardCause::Plague);
+                if fx_ground::destroy_on_planet(core, scope, system, planet, UnitBaseType::Infantry, Some(kills), reason).is_err() {
+                    self.unsupported = true;
+                }
+            }
+            (Fx::Unstable, Opt::Spot(system, planet)) => {
+                fx::exhaust_planet(core, planet);
+                let reason = DestroyReason::ActionCard(ActionCardCause::UnstablePlanet);
+                if fx_ground::destroy_on_planet(core, self.env.scope, system, planet, UnitBaseType::Infantry, Some(3), reason).is_err() {
+                    self.unsupported = true;
+                }
+            }
             (Fx::Cripple | Fx::Meltdown, Opt::Spot(_, planet)) => {
                 let (base, limit) = if self.fx == Fx::Cripple { (UnitBaseType::Pds, usize::MAX) } else { (UnitBaseType::Spacedock, 1) };
                 let scope = self.env.scope;
@@ -594,7 +690,7 @@ impl Play {
     }
 
     /// Compute the options of the next question and apply the options that need no asking.
-    fn advance(&mut self, core: &mut CoreState) {
+    fn advance(&mut self, core: &mut CoreState, seeds: &dyn SeedSource) {
         loop {
             self.opts = self.options(core);
             match self.opts.as_slice() {
@@ -604,7 +700,7 @@ impl Play {
                 }
                 [only] => {
                     let only = *only;
-                    if !self.apply(core, only) {
+                    if !self.apply(core, seeds, only) {
                         self.stage = Stage::Done;
                         return;
                     }
@@ -633,7 +729,7 @@ impl Play {
 impl Play {
     /// The part of the play before its first question (the effect that needs no pick, then the options of the
     /// first question); `asking` says whether it waits on a pick afterwards.
-    pub fn begin(&mut self, core: &mut CoreState) {
+    pub fn begin(&mut self, core: &mut CoreState, seeds: &dyn SeedSource) {
         if self.stage != Stage::Start {
             return;
         }
@@ -642,7 +738,19 @@ impl Play {
             self.stage = Stage::Done;
             return;
         }
-        self.advance(core);
+        self.advance(core, seeds);
+    }
+
+    /// The dice rolled, in order.
+    #[must_use]
+    pub fn faces(&self) -> &[u32] {
+        self.faces.as_slice()
+    }
+
+    /// Whether the position held something the window does not express (its result is not to be compared).
+    #[must_use]
+    pub const fn unsupported(&self) -> bool {
+        self.unsupported
     }
 
     /// Whether the play waits on the holder's pick.
@@ -655,7 +763,7 @@ impl Play {
     ///
     /// # Errors
     /// The pick is not an option of the pending question.
-    pub fn choose(&mut self, core: &mut CoreState, pick: Pick) -> Result<(), Illegal> {
+    pub fn choose(&mut self, core: &mut CoreState, seeds: &dyn SeedSource, pick: Pick) -> Result<(), Illegal> {
         if self.stage != Stage::Asking {
             return Err(Illegal);
         }
@@ -663,8 +771,8 @@ impl Play {
         if !self.opts.as_slice().contains(&opt) {
             return Err(Illegal);
         }
-        if self.apply(core, opt) {
-            self.advance(core);
+        if self.apply(core, seeds, opt) {
+            self.advance(core, seeds);
         } else {
             self.stage = Stage::Done;
         }
@@ -680,7 +788,7 @@ impl Window for Play {
     }
 
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
-        self.begin(sx.state);
+        self.begin(sx.state, sx.seeds);
         match self.stage {
             Stage::Asking => Next::Continue(crate::choice::Ask::Cards(self.ask_value())),
             Stage::Start | Stage::Done => Next::Done,
@@ -708,7 +816,7 @@ impl Window for Play {
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
-        self.choose(sx.state, pick)
+        self.choose(sx.state, sx.seeds, pick)
     }
 }
 
@@ -722,10 +830,6 @@ mod tests {
     fn every_bail_has_no_window_and_the_ported_cards_have_one() {
         use ActionCard as C;
         for (card, why) in [
-            (C::Spy, "the seeded roller"),
-            (C::Plague, "the seeded roller, staged ground-force deaths"),
-            (C::UnstablePlanet, "staged ground-force deaths"),
-            (C::RepealLaw, "a law leaving play is B9's"),
             (C::DirectHit1, "the exact sustain mark and the ship-lost observers"),
             (C::DirectHit4, "the exact sustain mark and the ship-lost observers"),
             (C::PirateContract1, "the neutral destroyer has no seat"),
@@ -755,6 +859,10 @@ mod tests {
             C::Rescue,
             C::FighterConscription,
             C::ManipulateInvestments,
+            C::RepealLaw,
+            C::Spy,
+            C::Plague,
+            C::UnstablePlanet,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }

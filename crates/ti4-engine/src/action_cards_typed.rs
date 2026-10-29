@@ -138,21 +138,40 @@ pub(crate) fn plays(alias: &ActionCardId) -> bool {
     }
 }
 
-/// The core half of a played card effect (`None`: bail).
+/// What a play leaves besides the state: the faces it rolled and where the random streams stand (`None`: the card
+/// rolls nothing).
+pub(crate) type Rolled = (Vec<u32>, Option<crate::rng::RngPositions>);
+
+/// Whether the card's effect rolls the game's dice (the core window needs the streams lent).
+pub(crate) fn rolls(alias: &ActionCardId) -> bool {
+    #[cfg(feature = "typed-core")]
+    {
+        crate::action_cards_view::rolls(alias)
+    }
+    #[cfg(not(feature = "typed-core"))]
+    {
+        let _ = alias;
+        false
+    }
+}
+
+/// The core half of a played card effect (`None`: bail). `before` is where the streams stood when the dice are ones the
+/// core can reproduce.
 pub(crate) fn play_window(
     state: &mut GameState,
     player: &PlayerId,
     alias: &ActionCardId,
     sources: &ti4_model::content_types::SourceSet,
     script: &crate::dual_window::Recording,
-) -> Option<crate::dual::CoreWindow<()>> {
+    before: Option<&crate::rng::RngPositions>,
+) -> Option<crate::dual::CoreWindow<Rolled>> {
     #[cfg(feature = "typed-core")]
     {
-        crate::action_cards_view::play_window(state, player, alias, sources, script)
+        crate::action_cards_view::play_window(state, player, alias, sources, script, before)
     }
     #[cfg(not(feature = "typed-core"))]
     {
-        let _ = (state, player, alias, sources, script);
+        let _ = (state, player, alias, sources, script, before);
         None
     }
 }
@@ -190,14 +209,15 @@ pub(crate) fn announce_window(
     alias: &ActionCardId,
     sources: &ti4_model::content_types::SourceSet,
     script: &crate::dual_window::Recording,
-) -> Option<crate::dual::CoreWindow<Option<bool>>> {
+    before: Option<&crate::rng::RngPositions>,
+) -> Option<crate::dual::CoreWindow<(Option<bool>, Rolled)>> {
     #[cfg(feature = "typed-core")]
     {
-        crate::action_cards_view::announce_window(state, player, alias, sources, script)
+        crate::action_cards_view::announce_window(state, player, alias, sources, script, before)
     }
     #[cfg(not(feature = "typed-core"))]
     {
-        let _ = (state, player, alias, sources, script);
+        let _ = (state, player, alias, sources, script, before);
         None
     }
 }

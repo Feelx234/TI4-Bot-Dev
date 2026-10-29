@@ -507,3 +507,14 @@ mod tests {
         assert_eq!(s.ledger().vp.len(), 2);
     }
 }
+
+/// `laws::repeal`: the law leaves play; Political Censure's holder loses its point. Whether the law was in play. The body
+/// of `Resolve::repeal` (agenda area) and of the Repeal Law card (action-card area), which may not import each other.
+pub fn repeal_law(s: &mut CoreState, law: crate::generated::Agenda) -> bool {
+    use crate::keys::Outcome;
+    let owner = s.agenda_mut().laws.remove(&law);
+    if let (crate::generated::Agenda::PoliticalCensure, Some(Outcome::Seat(holder))) = (law, owner) {
+        adjust_victory_points(s, holder, -1, LedgerReason::Agenda(law));
+    }
+    owner.is_some()
+}

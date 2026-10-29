@@ -103,6 +103,15 @@ impl Announce {
         self.played
     }
 
+    /// The dice the effect rolled, in order.
+    #[must_use]
+    pub fn faces(&self) -> Vec<u32> {
+        match &self.effect {
+            Effect::Play(play) => play.faces().to_vec(),
+            _ => Vec::new(),
+        }
+    }
+
     /// Go on until the effect asks (the question) or the flow is finished (`None`).
     ///
     /// # Errors
@@ -120,7 +129,7 @@ impl Announce {
             }
             match &mut self.effect {
                 Effect::Simple(simple) => super::play_simple(rt.state(), self.who, *simple, self.env),
-                Effect::Play(play) => play.begin(rt.state()),
+                Effect::Play(play) => rt.with_seeds(|state, seeds| play.begin(state, seeds)),
                 Effect::Registered => rt.run_registered_play(self.who, self.card)?,
                 Effect::Unresolved => {
                     rt.emit(card_event(EventKind::ActionCardUnresolved, None, self.card))?;
@@ -133,6 +142,11 @@ impl Announce {
             {
                 let (s, k) = rt.read();
                 return Ok(play.ask_of(s, k));
+            }
+            if let Effect::Play(play) = &self.effect
+                && play.unsupported()
+            {
+                rt.unknown(Unknown::MissingFact);
             }
             self.discard(rt)?;
             // An effect may have staged a destruction (Direct Hit, Courageous to the End): a rules package that registered
@@ -169,7 +183,7 @@ impl Announce {
         while let Some(choice) = self.advance(rt)? {
             let pick = rt.ask(&choice);
             let Effect::Play(play) = &mut self.effect else { break };
-            if play.choose(rt.state(), pick).is_err() {
+            if rt.with_seeds(|state, seeds| play.choose(state, seeds, pick)).is_err() {
                 break;
             }
         }
@@ -204,7 +218,7 @@ impl Window for Announce {
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
         match &mut self.effect {
-            Effect::Play(play) => play.choose(sx.state, pick),
+            Effect::Play(play) => play.choose(sx.state, sx.seeds, pick),
             _ => Err(Illegal),
         }
     }
@@ -369,7 +383,7 @@ mod tests {
     #[test]
     fn bail_a_card_with_an_unported_effect_has_no_announcement() {
         let s = two_seats();
-        assert!(Announce::of(&s, ActionCard::Spy, Seat(0), env(), true, false).is_none());
+        assert!(Announce::of(&s, ActionCard::Bribery, Seat(0), env(), true, false).is_none());
         assert!(Announce::of(&s, ActionCard::DirectHit1, Seat(0), env(), true, false).is_none());
     }
 

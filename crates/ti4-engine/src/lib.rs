@@ -144,6 +144,8 @@ pub mod action_cards_view;
 pub(crate) mod action_cards_typed;
 #[cfg(test)]
 mod action_cards_announce_tests;
+#[cfg(test)]
+mod action_cards_closing_tests;
 #[cfg(all(test, feature = "typed-core"))]
 mod strategy_secondary_dual_tests;
 #[cfg(test)]

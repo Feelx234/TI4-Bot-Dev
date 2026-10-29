@@ -770,6 +770,8 @@ pub trait Runner {
     fn ask(&mut self, choice: &Choice) -> Pick;
     /// The run cannot be trusted (a documented bail of the rule being run): the adapter falls back to the string.
     fn unknown(&mut self, why: Unknown);
+    /// Change the state with the seeds of the random streams at hand (a rule that rolls while it writes).
+    fn with_seeds<T>(&mut self, f: impl FnOnce(&mut CoreState, &dyn SeedSource) -> T) -> T;
     /// Whether a rules package registered the effect of `card` (`AbilityTable::add_card_play`): the effects that read the
     /// combat or invasion area and run on the host and the resolver of the window.
     fn has_registered_play(&self, _card: crate::generated::ActionCard) -> bool {
@@ -832,6 +834,10 @@ impl Runner for Inline<'_, '_> {
         if self.host.tape.unknown.get().is_none() {
             self.host.tape.unknown.set(Some(why));
         }
+    }
+
+    fn with_seeds<T>(&mut self, f: impl FnOnce(&mut CoreState, &dyn SeedSource) -> T) -> T {
+        f(&mut *self.host.state, self.host.seeds)
     }
 
     fn has_registered_play(&self, card: crate::generated::ActionCard) -> bool {

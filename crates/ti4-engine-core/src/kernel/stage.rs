@@ -161,4 +161,24 @@ impl super::ability::Runner for Sx<'_> {
             self.tape.unknown.set(Some(why));
         }
     }
+
+    fn with_seeds<T>(&mut self, f: impl FnOnce(&mut CoreState, &dyn SeedSource) -> T) -> T {
+        f(&mut *self.state, self.seeds)
+    }
+
+    fn has_registered_play(&self, card: crate::generated::ActionCard) -> bool {
+        self.table.card_play(card).is_some()
+    }
+
+    fn run_registered_play(&mut self, who: crate::ids::Seat, card: crate::generated::ActionCard) -> Result<(), TimingError> {
+        let Some(play) = self.table.card_play(card).copied() else { return Ok(()) };
+        let mut host = RulesHost { state: &mut *self.state, kernel: self.kernel, table: self.table, tape: &mut *self.tape, next_id: &mut *self.next_id, seeds: self.seeds };
+        (play.effect)(&mut host, &mut *self.resolver, who, card)
+    }
+
+    fn after_play(&mut self) -> Result<(), TimingError> {
+        let Some(after) = self.table.after_play else { return Ok(()) };
+        let mut host = RulesHost { state: &mut *self.state, kernel: self.kernel, table: self.table, tape: &mut *self.tape, next_id: &mut *self.next_id, seeds: self.seeds };
+        after(&mut host, &mut *self.resolver)
+    }
 }

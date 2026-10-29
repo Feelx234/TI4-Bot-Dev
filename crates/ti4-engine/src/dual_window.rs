@@ -1761,7 +1761,12 @@ pub struct BarrageArgs<'a> {
 pub type BarrageOut = (Vec<PlayerId>, Vec<(u32, Vec<u32>)>, crate::rng::RngPositions);
 
 /// The seeds of the Dice stream (the only one a window draws from here): `SHA-256(seed || "dice")`.
-struct DiceSeeds(String);
+pub(crate) struct DiceSeeds(pub(crate) String);
+
+/// The streams lent to a window that rolls: where they stood before the string effect.
+pub(crate) struct Lent {
+    pub(crate) before: crate::rng::RngPositions,
+}
 
 impl ti4_engine_core::state::SeedSource for DiceSeeds {
     fn seed_for(&self, seed: u64, domain: ti4_engine_core::state::RngDomain) -> [u8; 32] {

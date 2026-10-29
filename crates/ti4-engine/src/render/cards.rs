@@ -80,6 +80,7 @@ impl Family for Fam {
                     _ => ChoiceOption::labelled(id, "recall", format!("recall your token from {id}")),
                 }
             }
+            Opt::Law(law) => ChoiceOption::labelled(law.as_str(), "repeal", law.as_str()),
             Opt::Spot(system, planet) => ChoiceOption::labelled(format!("{}|{}", system.as_str(), planet.as_str()), "planet", planet.as_str())
                 .with_planet(planet.as_str(), Some(system.as_str())),
             Opt::Strat(card) => {
@@ -130,6 +131,7 @@ impl Family for Fam {
             }
             Ask::Pick { what: What::Note, .. } => parse_note(id).map(Opt::Note),
             Ask::Pick { what: What::Invest { .. }, .. } => ti4_engine_core::generated::StrategyCard::from_id(id).map(Opt::Strat),
+            Ask::Pick { what: What::Law, .. } => ti4_engine_core::generated::Agenda::from_id(id).map(Opt::Law),
             Ask::Predict { frame, .. } => super::agenda::parse_outcome(r, frame, id).map(Opt::Outcome),
         }
     }
@@ -147,6 +149,7 @@ const fn pick_kind(what: What) -> &'static str {
         What::Planet => "planet",
         What::Rescue => "rescue_from",
         What::Invest { .. } => "strategy_card",
+        What::Law => "repeal",
     }
 }
 
@@ -184,6 +187,10 @@ const fn pick_prompt(card: ActionCard, what: What) -> &'static str {
         (C::Uprising, _) => "Uprising: which planet",
         (C::CrippleDefenses, _) => "Cripple Defenses: which planet",
         (C::ReactorMeltdown, _) => "Reactor Meltdown: which space dock",
+        (C::RepealLaw, _) => "repeal which law",
+        (C::Spy, _) => "Spy: rob which player",
+        (C::Plague, _) => "Plague: which planet",
+        (C::UnstablePlanet, _) => "Unstable Planet: which hazardous planet",
         _ => "",
     }
 }
@@ -197,6 +204,7 @@ const fn seat_label(card: ActionCard, what: What) -> &'static str {
         (C::AssassinateRepresentative, _) => "assassinate ",
         (C::AncientBurialSites, _) => "target ",
         (C::ForwardSupplyBase, _) => "pay ",
+        (C::Spy, _) => "take a card from ",
         (C::DiplomaticPressure1 | C::DiplomaticPressure2 | C::DiplomaticPressure3 | C::DiplomaticPressure4, _) => "pressure ",
         _ => "",
     }

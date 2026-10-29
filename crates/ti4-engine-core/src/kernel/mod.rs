@@ -23,6 +23,7 @@ pub mod fx_pay;
 pub mod fx_plots;
 pub mod fx_strategy;
 pub mod fx_agenda;
+pub mod fx_ground;
 pub mod fx_relic;
 pub mod hooks;
 pub mod hits;

@@ -1074,11 +1074,19 @@ pub(crate) fn play_effect(
         }
         let crate::timing::TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
         let (content, galaxy, sources) = (*content, *galaxy, sources.clone());
+        // The dice of a card that rolls: only streams the core can reproduce (no test faces, no pending restore).
+        let rolls = crate::action_cards_typed::rolls(alias);
+        let reproducible = !dice.is_preloaded() && !rng.sync_pending() && rng.seed() == state.rng_seed;
+        let rng_before = rng.positions();
+        let history_start = dice.history().len();
+        let (dice, rng) = (std::cell::RefCell::new(&mut **dice), std::cell::RefCell::new(&mut **rng));
         crate::dual_window!(
             crate::dual::Area::ActionCards,
             "action_cards::play",
             &mut **state,
             |s: &mut GameState| {
+                let mut dice = dice.borrow_mut();
+                let mut rng = rng.borrow_mut();
                 let mut inner = crate::timing::TimingContext {
                     state: s,
                     content,
@@ -1090,10 +1098,11 @@ pub(crate) fn play_effect(
                     galaxy,
                 };
                 effect(&mut inner, player);
-                crate::dual::Run::new(())
+                let faces: Vec<u32> = dice.history().iter().skip(history_start).flat_map(|roll| roll.faces.clone()).collect();
+                crate::dual::Run::new((if rolls { faces } else { Vec::new() }, rolls.then(|| rng.positions())))
             },
             |s: &mut GameState, script: &crate::dual_window::Recording| {
-                let window = crate::action_cards_typed::play_window(s, player, alias, &sources, script);
+                let window = crate::action_cards_typed::play_window(s, player, alias, &sources, script, reproducible.then_some(&rng_before));
                 CORE_PLAYS.with(|c| {
                     let (ran, bailed) = c.get();
                     c.set(if window.is_some() { (ran + 1, bailed) } else { (ran, bailed + 1) });
@@ -8310,6 +8319,78 @@ pub(crate) mod tests {
         }
         let report = crate::dual::take_report();
         let shown: String = format!("{:?}", report.differences).chars().take(1200).collect();
+        assert!(report.differences.is_empty(), "{} differences: {shown}", report.differences.len());
+        assert_eq!(core_plays(), (cases.len() as u32, 0), "every case ran on the core");
+    }
+
+    /// The position of the B6c effects: laws in play, rivals with hands, infantry on rival and hazardous planets.
+    #[cfg(feature = "typed-core")]
+    pub(crate) fn closing_position() -> GameState {
+        use crate::generated::IdStr;
+        use ti4_engine_core::generated::{Planet, PlanetTrait, Source};
+        let (a, b, c) = (PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c"));
+        let mut state = question_position();
+        state.laws.insert("regulations".to_owned(), "for".to_owned());
+        state.laws.insert("censure".to_owned(), "b".to_owned());
+        state.player_mut(&b).unwrap().victory_points = 3;
+        let hand = |aliases: &[&str]| aliases.iter().map(|x| ActionCardId::new(*x)).collect::<Vec<_>>();
+        state.player_mut(&b).unwrap().action_cards = hand(&["sabo1", "insub", "uprising", "spy"]);
+        state.player_mut(&c).unwrap().action_cards = hand(&["rout", "waylay"]);
+        let unit = |kind: &str, owner: &PlayerId| ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new(kind), owner.clone());
+        // Infantry on every planet the table already holds units on (rival planets for Plague).
+        let held: Vec<(ti4_model::id::SystemId, ti4_model::id::PlanetId)> = state
+            .board
+            .iter()
+            .flat_map(|(system, board)| board.planet_units.keys().map(move |planet| (system.clone(), planet.clone())))
+            .collect();
+        for (i, (system, planet)) in held.iter().enumerate() {
+            let units = state.system_mut(system).planet_units.entry(planet.clone()).or_default();
+            for n in 0..(2 + i % 3) {
+                units.push(unit("infantry", if n % 2 == 0 { &b } else { &c }));
+            }
+        }
+        // Two hazardous planets with infantry on them.
+        let hazardous: Vec<Planet> = Planet::ALL
+            .iter()
+            .copied()
+            .filter(|p| {
+                let d = p.data();
+                d.system.is_some() && d.homeworld_of.is_none() && d.source == Source::Base && d.traits.contains(&PlanetTrait::Hazardous)
+            })
+            .take(2)
+            .collect();
+        for planet in hazardous {
+            let sys = ti4_model::id::SystemId::new(planet.data().system.unwrap().as_str());
+            let pid = ti4_model::id::PlanetId::new(planet.as_str());
+            let units = state.system_mut(&sys).planet_units.entry(pid).or_default();
+            for _ in 0..4 {
+                units.push(unit("infantry", &a));
+                units.push(unit("infantry", &c));
+            }
+        }
+        state
+    }
+
+    /// Repeal Law, Spy, Plague and Unstable Planet: the core window (law pick, random hand card, a die per infantry,
+    /// the ground forces that fell staged) leaves the string position, and the streams where they stood.
+    #[test]
+    #[cfg(feature = "typed-core")]
+    fn repeal_law_spy_plague_and_unstable_planet_agree_with_the_core_window_in_lockstep() {
+        let _serial = crate::dual::tests::serial();
+        use crate::dual::{AreaMask, Backend, with_mask};
+        let mask = AreaMask::all(Backend::String).with(crate::dual::Area::ActionCards, Backend::Dual);
+        let a = PlayerId::new("a");
+        let _ = crate::dual::take_report();
+        reset_core_plays();
+        let cases = ["repeal", "spy", "plague", "unstable"];
+        for alias in cases {
+            let mut state = closing_position();
+            let before = state.clone();
+            with_mask(mask, || dual_card(&mut state, alias, &a));
+            assert!(serde_json::to_string(&state).unwrap() != serde_json::to_string(&before).unwrap(), "{alias} changed nothing");
+        }
+        let report = crate::dual::take_report();
+        let shown: String = format!("{:?}", report.differences).chars().take(1500).collect();
         assert!(report.differences.is_empty(), "{} differences: {shown}", report.differences.len());
         assert_eq!(core_plays(), (cases.len() as u32, 0), "every case ran on the core");
     }

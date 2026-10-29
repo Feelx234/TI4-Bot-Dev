@@ -37,6 +37,8 @@ pub enum What {
     Rescue,
     /// kind `strategy_card`: a card for the trade good of Manipulate Investments; `step` of five, `owed` more distinct cards.
     Invest { step: u8, owed: u8 },
+    /// kind `repeal`: a law in play (Repeal Law).
+    Law,
 }
 
 /// Why a seat is asked to pick a card from its own hand; it decides the prompt and the subtype.
@@ -86,6 +88,8 @@ pub enum Opt {
     Note(NoteKey),
     /// A strategy card (`What::Invest`).
     Strat(crate::generated::StrategyCard),
+    /// A law in play (`What::Law`).
+    Law(crate::generated::Agenda),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).

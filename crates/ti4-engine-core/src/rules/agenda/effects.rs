@@ -256,11 +256,7 @@ impl Resolve {
 
     /// `laws::repeal`: the law leaves play; Political Censure's holder loses its point.
     fn leave(core: &mut CoreState, law: Agenda) -> bool {
-        let owner = core.agenda_mut().laws.remove(&law);
-        if let (Agenda::PoliticalCensure, Some(Outcome::Seat(holder))) = (law, owner) {
-            Self::point(core, law, holder, -1);
-        }
-        owner.is_some()
+        fx::repeal_law(core, law)
     }
 
     /// `agenda_effects::adjust_victory_points` with +1: capped at the target, the ledger row records the
