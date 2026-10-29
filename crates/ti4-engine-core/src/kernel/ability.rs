@@ -74,6 +74,9 @@ pub enum Unknown {
     UnportedCard,
     /// A fact the adapter should have computed for the window is missing (`Facts`).
     MissingFact,
+    /// Reflective Shielding played inside a window: its hits are staged for the string sustain step that opened the
+    /// window, which drains them after the emission; the core windows do not.
+    ReflectiveShielding,
 }
 
 /// What a condition reads: the state, the kernel, the ability and the event it is asked about.

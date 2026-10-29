@@ -494,6 +494,7 @@ pub fn drive_positioned<W: Window>(
                 ti4_engine_core::kernel::ability::Unknown::UnportedCard => "an action card the core does not play",
                 ti4_engine_core::kernel::ability::Unknown::NekroCarriedCard => "a technology carried by a Nekro Valefar Assimilator",
                 ti4_engine_core::kernel::ability::Unknown::MissingFact => "a fact the adapter did not compute for the window",
+                ti4_engine_core::kernel::ability::Unknown::ReflectiveShielding => "Reflective Shielding played inside a window",
             };
             crate::dual::note_bail(LABEL.with(Cell::get), &format!("nested ({why})"));
             return Err(DriverError::NotAsking);

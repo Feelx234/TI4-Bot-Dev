@@ -223,6 +223,12 @@ fn announce_discard(host: &mut RulesHost<'_>, resolver: &mut Resolver, who: Seat
 /// `reactions::announce` of a declared card: the play is logged and announced; a cancelled card is only discarded;
 /// otherwise its effect runs, then the discard.
 fn announce(host: &mut RulesHost<'_>, resolver: &mut Resolver, who: Seat, card: ActionCard) -> Result<(), TimingError> {
+    // Its hits are staged for the sustain step that opened the window, which drains them after the emission: the
+    // core windows do not, so the run is unknown (found by the wide golden dual: 12 differences in `combat::answer`).
+    if card == ActionCard::ReflectiveShielding {
+        host.tape.unknown.set(Some(Unknown::ReflectiveShielding));
+        return Ok(());
+    }
     host.state.transient_mut().misc.action_card_plays.push((who, card));
     let rec = event(host, EventKind::ActionCardPlayed, who, card);
     let announced = emit(host, resolver, rec)?;
@@ -310,5 +316,45 @@ mod tests {
         assert_eq!(playable(&s, &k, false, Seat(1), &e1, Relation::When).unwrap().as_slice(), &[ActionCard::ShieldsHolding1]);
         assert!(playable(&s, &k, true, Seat(1), &e1, Relation::When).unwrap().is_empty(), "Political Secret bars the play");
         assert!(playable(&s, &k, false, Seat(1), &e1, Relation::After).unwrap().is_empty(), "the other relation is another window");
+    }
+
+    /// A window that emits one event (so its close hook runs).
+    #[derive(Clone)]
+    struct Emit;
+    impl crate::kernel::stage::Window for Emit {
+        type Stage = ();
+        fn stage(&self) {}
+        fn step(&mut self, sx: &mut crate::kernel::stage::Sx<'_>) -> crate::kernel::Next {
+            let _ = sx.emit(crate::kernel::fx::event(EventKind::ActionCardDiscarded, Payload::new()));
+            crate::kernel::Next::Done
+        }
+        fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {
+            None
+        }
+        fn answer(&mut self, _: &mut crate::kernel::stage::Sx<'_>, _: Pick) -> Result<(), crate::kernel::stage::Illegal> {
+            Err(crate::kernel::stage::Illegal)
+        }
+    }
+
+    fn closed_with(card: ActionCard) -> Option<Unknown> {
+        use crate::driver::{Driver, Status};
+        use crate::state::{Player, Players};
+        let mut s = CoreState::all_loaded();
+        s.players = Players::from_vec(vec![Player::new(Seat(0), Faction::TheYssarilTribes), Player::new(Seat(1), Faction::TheVuilraithCabal)]);
+        s.transient_mut().misc.declared_card_plays.push((Seat(0), card));
+        let mut table = AbilityTable::default();
+        register(&mut table);
+        let mut d = Driver::new(Emit, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), table, 1);
+        assert_eq!(d.run(&mut s, &Kernel::plain()).unwrap(), Status::Done);
+        d.unknown()
+    }
+
+    /// Bail: Reflective Shielding declared in a window stages hits that the string sustain step drains after the
+    /// window closes; the core windows do not, so the run is unknown (regression of the wide golden dual, which found
+    /// 12 differences in `combat::answer`).
+    #[test]
+    fn bail_reflective_shielding_declared_in_a_window_is_unknown() {
+        assert_eq!(closed_with(ActionCard::ReflectiveShielding), Some(Unknown::ReflectiveShielding));
+        assert_ne!(closed_with(ActionCard::ShieldsHolding1), Some(Unknown::ReflectiveShielding), "only that card");
     }
 }
