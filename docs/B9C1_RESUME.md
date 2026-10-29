@@ -15,11 +15,11 @@ doc assumes that base: B8 token spends, reactions, B6 cards). Work is on top of 
 ## Next
 1. Finish mutants M19..M28 (CARGO_BUILD_JOBS=2, CARGO_TARGET_DIR=/root/deploytmp/core-b9c1; ~4 min each).
 2. Add a core-only unit test or two for `Reveal` if wanted (lockstep tests already cover every branch).
-3. Heavy runs, ONLY now that the lockstep DoD is complete and after step 1: `cargo clippy` clean; `SKIP_AB=1 SKIP_WASM=1 tools/engine_core/verify_package.sh agenda <out> /bin/true 3` (--profile gate), golden dual with `agenda=dual` (0 differences, driver=dual), board_equivalence 0 mismatches, bench + bench-v1..v5 200/200 on the final commit. Behaviour-neutrality of the string split is NOT yet verified by the wide suite (only the targeted game::tests political/quash/veto/covert and the delivery inventory ran green earlier).
+3. (DEFERRED until the agenda area is complete, incl. B9c-2) Heavy runs, only when the lockstep DoD is complete and after step 1: `cargo clippy` clean; `SKIP_AB=1 SKIP_WASM=1 tools/engine_core/verify_package.sh agenda <out> /bin/true 3` (--profile gate), golden dual with `agenda=dual` (0 differences, driver=dual), board_equivalence 0 mismatches, bench + bench-v1..v5 200/200 on the final commit. Behaviour-neutrality of the string split is NOT yet verified by the wide suite (only the targeted game::tests political/quash/veto/covert and the delivery inventory ran green earlier).
 4. Failure regressions: none found so far by a gate (no gate has run). The one test fixed along the way: the removed covert-dual test (superseded by `covert_legislation_draws_its_face_down_agenda_and_loses_it_when_replaced`).
 5. Delete /root/deploytmp/core-b9c1 when done.
 
 ## Update (resumed)
 * Mutants M19-M28 run: M19-M22, M24, M25, M27, M28 killed; M26 (no-choice redraw guard dropped) kills by aborting the test process (the mutated loop never ends); M23 (Favor offer continues after use) survives and is an equivalent mutant: only one Political Favor note exists (one Xxcha), so the list has at most one entry and the position after it is the same.
 * Wide suite `cargo test -p ti4-engine --lib --no-fail-fast`: 4212 passed, 0 failed (string split is neutral for it).
-* Gate started: see the report; out dir /root/deploytmp/core-b9c1-out.
+* GATE DEFERRED until the agenda area is complete (user policy: heavy gates only for a whole finished area). Not run: verify_package.sh agenda, golden dual (agenda=dual, driver=dual), board_equivalence, bench + v1..v5, workspace clippy. A gate invocation was queued on the heavy lock by mistake and killed before it started (no output dir was created).
