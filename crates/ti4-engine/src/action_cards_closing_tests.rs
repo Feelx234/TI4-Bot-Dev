@@ -217,5 +217,14 @@ fn exchange_program_is_announced_and_resolved_in_the_core_window() {
             units.retain(|u| u.type_id.as_str() != "infantry");
         }
     }
-    announce_all(&[("exchangeprogram", closing_position()), ("exchangeprogram", bare)]);
+    // Only mechs stand on the planets: they are ground forces too.
+    let mut mechs = closing_position();
+    for board in mechs.board.values_mut() {
+        for units in board.planet_units.values_mut() {
+            for u in units.iter_mut().filter(|u| u.type_id.as_str() == "infantry") {
+                u.type_id = ti4_model::id::UnitTypeId::new("mech");
+            }
+        }
+    }
+    announce_all(&[("exchangeprogram", closing_position()), ("exchangeprogram", bare), ("exchangeprogram", mechs)]);
 }
