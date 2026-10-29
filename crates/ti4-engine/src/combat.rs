@@ -10250,6 +10250,35 @@ mod tests {
         assert!(asked > 0, "several mechs were in reach: the Empyrean was asked which");
     }
 
+    /// Salvage Operations, the produce half (Mentak): after a won fight the owner may pay the cost of a ship type destroyed in
+    /// it and place one; the payment is the pay loop inside the ability. A cruiser or a flagship is the string's (Corsair form).
+    #[test]
+    fn salvage_operations_produces_a_ship_in_the_core_window_in_lockstep() {
+        let (mut offered, mut paid_questions, mut built) = (0, 0, 0);
+        for seed in 0..12_u64 {
+            let (state, windows, differences, nested) = hub_fight(
+                seed,
+                ["mentak", "hacan"],
+                |s, system| {
+                    s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("so"));
+                    put(s, system, "dreadnought", &attacker(), 3);
+                    put(s, system, "carrier", &attacker(), 1);
+                    put(s, system, "destroyer", &defender(), 2);
+                    put(s, system, "fighter", &defender(), 2);
+                    s.player_mut(&attacker()).unwrap().trade_goods = 5;
+                },
+                |seed, nth, c| if c.prompt.starts_with("Salvage") { 0 } else if c.prompt.starts_with("pay ") { (seed as usize + nth) % 3 } else { 0 },
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            offered += nested.iter().filter(|k| k.contains("technology:*:so:SPACE_COMBAT_ENDED:produce")).count();
+            paid_questions += nested.iter().filter(|k| k.contains("ask:pay ")).count();
+            built += usize::from(state.system_state(&SystemId::new(crate::fixtures::plain_hub().centre)).units.iter().filter(|u| u.owner == attacker()).count() > 4);
+        }
+        assert!(offered > 0, "Salvage Operations was offered and followed");
+        assert!(built > 0, "a ship was produced");
+        assert!(paid_questions > 0, "a payment question was put inside the ability");
+    }
+
     /// Direct Hit: the attacker's hit is sustained by a dreadnought, the attacker destroys that ship from the slot of
     /// `SUSTAIN_DAMAGE_USED`; the core removes it and announces `SHIP_DESTROYED` after the discard. With a faction module
     /// seated (staging) the exact sustained ship goes; without, the first of the type.

@@ -10,17 +10,20 @@
 //! Not ported: the produce half, Pillage, Mentak's agent and commander, Table's Grace.
 
 use ti4_engine_core::choice::reaction::{AbilityKind, Relation};
-use ti4_engine_core::generated::{Leader, Technology};
+use ti4_engine_core::generated::{Leader, Technology, Unit};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
-use ti4_engine_core::kernel::ability::{AbilityTable, CondCx, Eff, Slot, Spec};
+use ti4_engine_core::kernel::ability::{AbilityTable, AdapterFacts, CondCx, Eff, Slot, Spec};
+use ti4_engine_core::kernel::fx_pay;
 use ti4_engine_core::kernel::fx;
 use ti4_engine_core::kernel::resolver::TimingError;
 use ti4_engine_core::query::tech;
-use ti4_engine_core::state::{EventKind, Key};
+use ti4_engine_core::state::{CoreState, EventKind, Key, Payload};
 
 /// Salvage Operations (`technology:*:so:SPACE_COMBAT_ENDED:after`).
 pub const SALVAGE_TRADE_GOOD: Slot = Slot(8001);
+/// Salvage Operations, the produce half (`technology:*:so:SPACE_COMBAT_ENDED:produce`; the registered relation is `after`).
+pub const SALVAGE_SHIP: Slot = Slot(8005);
 /// Ipswitch, the purge (`leader:*:mentakhero:SPACE_COMBAT_STARTED:after`).
 pub const HERO_START: Slot = Slot(8002);
 /// Ipswitch, the ships (`leader:*:mentakhero:SHIP_DESTROYED:after`).
@@ -40,6 +43,95 @@ fn gain(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let me = eff.owner();
     let source = eff.codes().mentak;
     fx::gain_trade_goods_staged(eff.state(), me, 1, source);
+    Ok(())
+}
+
+// -- Salvage Operations, the produce half --------------------------------------------------------------
+
+/// The ships Salvage Operations could produce now, in the string's order (`buildable_for`): the ship types destroyed in the
+/// combat, that `owner` may still place and can pay for. `Err`: a fact is missing (the buildable list, a payment kernel) or the
+/// seat holds ocean cards.
+fn salvage_options(s: &CoreState, f: &AdapterFacts, owner: Seat, p: &Payload) -> Result<Vec<(Unit, i64)>, ()> {
+    use ti4_engine_core::generated::UnitBaseType;
+    use ti4_engine_core::query::{economy::Spend, objectives as q};
+    if !tech::owns(s, owner, Technology::SalvageOperations) || p.seat(Key::Winner) != Some(owner) || (p.seat(Key::Attacker) != Some(owner) && p.seat(Key::Defender) != Some(owner)) {
+        return Ok(Vec::new());
+    }
+    let destroyed: Vec<UnitBaseType> = match p.list(Key::Destroyed) {
+        Some(ti4_engine_core::state::List::Units(units)) => units.iter().filter(|(_, u)| u.data().ship).map(|(_, u)| u.data().base_type).collect(),
+        _ => Vec::new(),
+    };
+    let buildable = f.buildable(owner).ok_or(())?;
+    let k = f.pay_kernel.ok_or(())?();
+    let scope = ti4_engine_core::tables::Scope(u32::from(k.sources.0));
+    let env = fx_pay::PayEnv { scope, blanked: ti4_engine_core::query::reach::blanked(s) };
+    let facts = fx_pay::pay_facts(s, k, env, owner);
+    if facts.terms.oceans {
+        return Err(());
+    }
+    let mut out = Vec::new();
+    for unit in buildable.iter().copied() {
+        let data = unit.data();
+        if !(data.ship && destroyed.contains(&data.base_type)) || ti4_engine_core::query::fleet::remaining(s, scope, owner, unit, 0) <= 0 {
+            continue;
+        }
+        let cost = (i64::from(data.cost_halves.unwrap_or(0)) + 1) / 2;
+        if q::first_plan(s, &facts, Spend::Resources, cost).is_some() {
+            out.push((unit, cost));
+        }
+    }
+    Ok(out)
+}
+
+fn salvage_when(c: &CondCx<'_>) -> bool {
+    match salvage_options(c.state, c.facts, c.def.owner, &c.event.payload) {
+        Ok(found) => !found.is_empty(),
+        Err(()) => c.unknown(ti4_engine_core::kernel::ability::Unknown::MissingFact),
+    }
+}
+
+fn salvage(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    use ti4_engine_core::choice::reaction::{Ask as RAsk, Opt as ROpt, Subtype as RSub};
+    use ti4_engine_core::choice::{Ask, Choice, Ctx, Opt, Opts, Pick, Subtype};
+    let me = eff.owner();
+    let (Ok(found), Some(system)) = (salvage_options(eff.read().0, eff.adapter_facts(), me, &eff.event.payload), eff.event.payload.system(Key::System)) else { return Ok(()) };
+    if found.is_empty() {
+        return Ok(());
+    }
+    let mut opts: Opts = found.iter().map(|(unit, cost)| Opt::Reaction(ROpt::Produce { unit: *unit, cost: i16::try_from(*cost).unwrap_or(i16::MAX) })).collect();
+    opts.push(Opt::Decline);
+    let choice = Choice {
+        actor: me,
+        ask: Ask::Reaction(RAsk::Salvage),
+        ctx: Ctx {
+            origin: ti4_engine_core::choice::Origin::FactionAbility(ti4_engine_core::choice::generic::Content::Other(eff.codes().salvage)),
+            subtype: Subtype::Reaction(RSub::Salvage),
+            optional: false,
+            target: None,
+            outstanding: ti4_engine_core::containers::SmallList::new(),
+            space_battle: false,
+            invasion_seq: None,
+        },
+        opts,
+    };
+    let Pick::Opt(Opt::Reaction(ROpt::Produce { unit, cost })) = eff.ask(&choice) else { return Ok(()) };
+    let base = unit.data().base_type;
+    // The form a seat places for a cruiser (Mentak's Corsair) or a flagship is the string's `placed_unit_id`: the window bails.
+    if matches!(base, ti4_engine_core::generated::UnitBaseType::Cruiser | ti4_engine_core::generated::UnitBaseType::Flagship) {
+        eff.unknown(ti4_engine_core::kernel::ability::Unknown::MissingFact);
+        return Ok(());
+    }
+    let before = eff.state().clone();
+    let paid = ti4_engine_core::rules::production::pay::pay_in(eff, me, i64::from(cost), ti4_engine_core::query::economy::Spend::Resources)?;
+    let scope = ti4_engine_core::tables::Scope(u32::from(eff.kernel().sources.0));
+    let placed = paid
+        && crate::cd_registry::yin::timing::placed_form(eff.state(), scope, me, base)
+            .filter(|form| ti4_engine_core::query::fleet::remaining(eff.state(), scope, me, *form, 0) > 0)
+            .map(|form| fx::place_unit(eff.state(), me, system, None, form))
+            .is_some();
+    if !placed {
+        *eff.state() = before;
+    }
     Ok(())
 }
 
@@ -116,6 +208,7 @@ fn close(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
 
 pub fn register_abilities(t: &mut AbilityTable) {
     t.add(Spec::new(SALVAGE_TRADE_GOOD, AbilityKind::Technology, EventKind::SpaceCombatEnded, Relation::After, gain).when(condition));
+    t.add(Spec::new(SALVAGE_SHIP, AbilityKind::Technology, EventKind::SpaceCombatEnded, Relation::After, salvage).when(salvage_when).optional());
     t.add(Spec::new(HERO_START, AbilityKind::Leader, EventKind::SpaceCombatStarted, Relation::After, purge).when(start_when).optional());
     t.add(Spec::new(HERO_SHIPS, AbilityKind::Leader, EventKind::ShipDestroyed, Relation::After, place_ship).when(ships_when));
     t.add(Spec::new(HERO_END, AbilityKind::Leader, EventKind::SpaceCombatEnded, Relation::After, close).when(end_when));

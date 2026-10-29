@@ -141,6 +141,8 @@ pub struct Codes {
     pub technological_singularity: crate::state::Code,
     /// The unit alias `empyrean_mech`, the source of the Watcher's question.
     pub empyrean_mech: crate::state::Code,
+    /// The technology alias `so`, the source of Salvage Operations' question.
+    pub salvage: crate::state::Code,
     pub retreat_capacity: crate::state::Code,
     pub reinforcements: crate::state::Code,
 }
@@ -197,6 +199,7 @@ pub struct AdapterFacts {
     /// the faction hooks of a payment). Set by the adapter.
     pub pay_kernel: Option<fn() -> &'static Kernel>,
     adjacent: Vec<(crate::generated::System, crate::generated::System, bool)>,
+    buildable: Vec<(Seat, Vec<crate::generated::Unit>)>,
 }
 
 impl AdapterFacts {
@@ -223,6 +226,18 @@ impl AdapterFacts {
         if !self.adjacent.iter().any(|(x, y, _)| *x == a && *y == b) {
             self.adjacent.push((a, b, adjacent));
         }
+    }
+
+    /// The units `who` may build now (`production::buildable_for`, in the string's order): an input of Salvage Operations.
+    pub fn set_buildable(&mut self, who: Seat, units: Vec<crate::generated::Unit>) {
+        self.buildable.retain(|(w, _)| *w != who);
+        self.buildable.push((who, units));
+    }
+
+    /// The units `who` may build, if the adapter computed them.
+    #[must_use]
+    pub fn buildable(&self, who: Seat) -> Option<&[crate::generated::Unit]> {
+        self.buildable.iter().find(|(w, _)| *w == who).map(|(_, u)| u.as_slice())
     }
 
     /// Whether the map has `a` next to `b`, if the string's ability asked it.

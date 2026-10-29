@@ -78,6 +78,8 @@ pub enum Ask {
     Assimilate,
     /// The Watcher (Empyrean mech): which of the mechs in reach cancels the action card `actor` played.
     Watcher { actor: Seat },
+    /// Salvage Operations (Mentak): produce one ship of a type destroyed in the combat.
+    Salvage,
 }
 
 /// What a Nekro takes of an opponent's technology through an ability.
@@ -110,6 +112,8 @@ pub enum Opt {
     Take { how: Take, tech: crate::generated::Technology, source: Seat },
     /// The place of a mech (the Watcher): a system and a planet, `None` for its space area.
     Site { system: crate::generated::System, planet: Option<crate::generated::Planet> },
+    /// A ship to produce for `cost` resources (Salvage Operations); the option id is the unit's base type.
+    Produce { unit: crate::generated::Unit, cost: i16 },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`): `reaction_{relation}_{EVENT}`.
@@ -127,4 +131,6 @@ pub enum Subtype {
     Assimilate,
     /// `watcher_remove`.
     Watcher,
+    /// `salvage_produce`.
+    Salvage,
 }

@@ -36,6 +36,7 @@ impl Family for Fam {
             Ask::Legionnaire { .. } => "Crimson Legionnaire: gain 1 commodity or convert 1 to a trade good".to_owned(),
             Ask::Cavalry => "The Cavalry: which non-fighter ship takes the Nomad flagship's abilities".to_owned(),
             Ask::Assimilate => "gain a technology, or assimilate instead".to_owned(),
+            Ask::Salvage => "Salvage Operations: produce 1 ship of a type destroyed in the combat".to_owned(),
             Ask::Watcher { actor } => format!("Watcher: which mech cancels {}'s action card", r.seat_text(*actor)),
             Ask::AgentSwap { target } => format!(
                 "I48S: exhaust to let {} replace 1 infantry in the active system with a mech",
@@ -54,6 +55,7 @@ impl Family for Fam {
             Subtype::Cavalry => "cavalry_ship".to_owned(),
             Subtype::Assimilate => "assimilate".to_owned(),
             Subtype::Watcher => "watcher_remove".to_owned(),
+            Subtype::Salvage => "salvage_produce".to_owned(),
         }
     }
 
@@ -88,6 +90,10 @@ impl Family for Fam {
                 };
                 ChoiceOption::labelled(format!("{kind}|{source}|{tech_id}"), "nekro_assimilate", label)
             }
+            (Ask::Salvage, Opt::Produce { unit, cost }) => {
+                let base = <ti4_engine_core::generated::UnitBaseType as IdStr>::as_str(unit.data().base_type);
+                ChoiceOption::labelled(base, "salvage", format!("produce 1 {} for {cost} resources", unit.as_str())).with("cost", i64::from(*cost))
+            }
             (Ask::Watcher { .. }, Opt::Site { system, planet }) => {
                 let system = system.as_str();
                 let place = planet.map_or_else(|| "space".to_owned(), |p| p.as_str().to_owned());
@@ -103,6 +109,10 @@ impl Family for Fam {
         }
         if let Ask::Cavalry = a {
             return <ti4_engine_core::generated::Unit as IdStr>::from_id(id).map(Opt::Ship);
+        }
+        if let Ask::Salvage = a {
+            // The id is the base type: the option is matched against the rendered ones of its question.
+            return None;
         }
         if let Ask::Watcher { .. } = a {
             let mut parts = id.splitn(3, '|');

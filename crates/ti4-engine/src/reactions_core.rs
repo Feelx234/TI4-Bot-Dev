@@ -58,6 +58,7 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::LEGIONNAIRE, kind: "unit", card: "mahact_infantry" },
     Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::LEGIONNAIRE_II, kind: "unit", card: "mahact_infantry2" },
     Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::SALVAGE_TRADE_GOOD, kind: "technology", card: "so" },
+    Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::SALVAGE_SHIP, kind: "technology", card: "so" },
     Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::HERO_START, kind: "leader", card: "mentakhero" },
     Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::HERO_SHIPS, kind: "leader", card: "mentakhero" },
     Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::HERO_END, kind: "leader", card: "mentakhero" },
@@ -75,6 +76,12 @@ const NAMED: &[Named] = &[
     Named { slot: cabal::MARK_GROUND, kind: "ability", card: "devour_mark" },
     Named { slot: cabal::CLEAR_GROUND, kind: "ability", card: "devour_clear" },
 ];
+
+/// The last segment of a registered id: the relation, except for Salvage Operations' produce half, which the string
+/// registers as `...:SPACE_COMBAT_ENDED:produce` although it is an `after` ability.
+fn rel_segment(spec: &Spec) -> &'static str {
+    if spec.slot == ti4_engine_core_factions::cc_ground::mentak::timing::SALVAGE_SHIP { "produce" } else { relation_text(spec.relation) }
+}
 
 fn is_reaction_slot(slot: Slot) -> bool {
     let base = ti4_engine_core::rules::action_cards::reaction_slot::SLOT_BASE;
@@ -112,7 +119,7 @@ pub fn with_reach<T>(entries: Vec<(String, String, Vec<String>)>, body: impl FnO
 
 /// The registered id of `spec` for an owner called `owner`.
 fn id_text(r: &Render, spec: &Spec, owner: &str) -> String {
-    let (event, rel) = (event_text(r, spec.event), relation_text(spec.relation));
+    let (event, rel) = (event_text(r, spec.event), rel_segment(spec));
     if is_reaction_slot(spec.slot) {
         return format!("reaction:{owner}:{event}:{rel}");
     }
@@ -188,7 +195,7 @@ pub fn slot_of(id: &str) -> Option<Slot> {
     let all = specs();
     NAMED.iter().filter(|n| n.kind == kind && n.card == card).find_map(|n| {
         let spec = all.iter().find(|s| s.slot == n.slot)?;
-        (event_text(&r, spec.event) == event && relation_text(spec.relation) == rel).then_some(n.slot)
+        (event_text(&r, spec.event) == event && rel_segment(spec) == rel).then_some(n.slot)
     })
 }
 
@@ -281,6 +288,18 @@ pub fn follow(r: &Render, gs: &GameState, script: &Recording) -> Result<Option<F
         return Err("nested activity without a resolver".to_owned());
     };
     table.facts.plays = play_facts(r, gs, &cfg.sources);
+    // Salvage Operations reads the units its owner may build (`production::buildable_for`, in the string's order).
+    for i in 0..r.seats.len() {
+        let Some(who) = u8::try_from(i).ok().map(Seat) else { continue };
+        let player = ti4_model::id::PlayerId::new(r.seat_text(who));
+        if gs.player(&player).is_some_and(|p| p.technologies.contains(ti4_model::id::text(&"so"))) {
+            let ids = crate::production::buildable_for(gs, ti4_content::ContentStore::embedded(), cfg.sources.clone(), &player);
+            let units: Option<Vec<_>> = ids.iter().map(|id| <ti4_engine_core::generated::Unit as crate::generated::IdStr>::from_id(id)).collect();
+            if let Some(units) = units {
+                table.facts.set_buildable(who, units);
+            }
+        }
+    }
     let resolver = resolver_of(r, cfg).ok_or_else(|| "a resolver seat the tables do not know".to_owned())?;
     Ok(Some(Follow { table, resolver }))
 }
@@ -384,6 +403,7 @@ impl Follow {
         self.table.codes.cavalry = r.code("cavalry");
         self.table.codes.technological_singularity = r.code("technological_singularity");
         self.table.codes.empyrean_mech = r.code("empyrean_mech");
+        self.table.codes.salvage = r.code("so");
         self.table.facts.pay_kernel = Some(crate::production_view::kernel);
         self.table.codes.mahact_infantry = r.code("mahact_infantry");
         self.table.codes.mahact_infantry2 = r.code("mahact_infantry2");
@@ -450,7 +470,6 @@ mod tests {
     fn bail_every_family_that_stays_in_the_string_is_named() {
         let t = table();
         for id in [
-            "technology:mentak:so:SPACE_COMBAT_ENDED:produce",
             "unit:sardakk:sardakk_mech:GROUND_FORCE_SUSTAINED:after",
             "leader:sardakk:sardakkhero_turn:TURN_BEGAN:after",
             "leader:yssaril:a:yssarilagent:yinagent:SHIP_DESTROYED:after",
@@ -585,7 +604,7 @@ mod tests {
         use ti4_engine_core::state::Slice;
         let content = ti4_content::ContentStore::embedded();
         let _ = content;
-        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")]] {
+        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")]] {
             let mut gs = crate::fixtures::seated_game(&factions, ti4_model::content_types::POK);
             gs.promissory_notes.clear();
             gs.promissory_faceup.clear();
