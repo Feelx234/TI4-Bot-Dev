@@ -10385,6 +10385,86 @@ mod tests {
         assert!(marked > 0, "the agent marked a ship");
     }
 
+    /// The owner has nothing to spend: no planet ready, no trade goods or commodities.
+    fn starve(s: &mut GameState, who: &PlayerId) {
+        let planets: Vec<_> = s.controlled_planets(who).into_iter().map(|(_, p)| p.clone()).collect();
+        s.exhausted_planets.extend(planets);
+        let seat = s.player_mut(who).unwrap();
+        seat.trade_goods = 0;
+        seat.commodities = 0;
+    }
+
+    /// The conditions that keep Dynamo, the Watcher and Salvage Operations out of a window are the string's: a flagship owner who
+    /// cannot pay 2 influence, a card the Empyrean played itself, a mech out of reach, a Mentak who lost, a type with no
+    /// plastic left and a bill the Mentak cannot meet. The core derives each from the state, never from a snapshot.
+    #[test]
+    fn the_conditions_of_dynamo_the_watcher_and_salvage_equal_the_strings() {
+        for seed in 0..6_u64 {
+            // Dynamo without influence: not offered.
+            let (_, windows, differences, nested) = hub_fight(
+                seed,
+                &["empyrean", "hacan"],
+                |s, system| {
+                    put(s, system, "empyrean_flagship", &attacker(), 1);
+                    put(s, system, "cruiser", &attacker(), 2);
+                    put(s, system, "dreadnought", &defender(), 3);
+                    starve(s, &attacker());
+                },
+                |_, _, _| 0,
+            );
+            assert_eq!(differences, 0, "dynamo, seed {seed}: {windows:?}");
+            assert!(nested.iter().all(|k| !k.contains("empyrean_flagship")), "an empyrean who cannot pay is offered nothing: {nested:?}");
+            // The Empyrean plays the card itself and has a far mech: no Watcher for its own card, none out of reach.
+            let (_, windows, differences, nested) = hub_fight(
+                seed,
+                &["empyrean", "hacan"],
+                |s, system| {
+                    put(s, system, "cruiser", &attacker(), 2);
+                    put(s, system, "dreadnought", &defender(), 2);
+                    s.player_mut(&attacker()).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("mb1")];
+                    let hub = crate::fixtures::plain_hub();
+                    let far = crate::fixtures::plain_systems(9).into_iter().find(|id| id != &hub.centre && !hub.outer.contains(id)).unwrap();
+                    put(s, &SystemId::new(far), "empyrean_mech", &attacker(), 1);
+                },
+                |_, _, c| c.options.iter().position(|o| o.id.starts_with("reaction:")).unwrap_or(0),
+            );
+            assert_eq!(differences, 0, "watcher, seed {seed}: {windows:?}");
+            assert!(nested.iter().all(|k| !k.contains("empyrean_mech")), "no Watcher for its own card, none out of reach: {nested:?}");
+            // A Mentak who loses is owed its trade good and no ship; one with no resources is offered none; a type with no
+            // plastic left is not offered.
+            for (case, outcome) in [("loses", 0), ("starved", 1), ("no dreadnoughts left", 2)] {
+                let (_, windows, differences, nested) = hub_fight(
+                    seed,
+                    &["mentak", "hacan"],
+                    |s, system| {
+                        s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("so"));
+                        put(s, system, "carrier", &attacker(), 1);
+                        match outcome {
+                            0 => {
+                                put(s, system, "cruiser", &attacker(), 1);
+                                put(s, system, "dreadnought", &defender(), 4);
+                            }
+                            1 => {
+                                // The trade good the mandatory half pays first buys nothing of 4 resources.
+                                put(s, system, "dreadnought", &attacker(), 3);
+                                put(s, system, "dreadnought", &defender(), 1);
+                                starve(s, &attacker());
+                            }
+                            _ => {
+                                put(s, system, "dreadnought", &attacker(), 5);
+                                put(s, system, "dreadnought", &defender(), 1);
+                                s.player_mut(&attacker()).unwrap().trade_goods = 5;
+                            }
+                        }
+                    },
+                    |_, _, _| 0,
+                );
+                assert_eq!(differences, 0, "salvage {case}, seed {seed}: {windows:?}");
+                assert!(nested.iter().all(|k| !k.contains("so:SPACE_COMBAT_ENDED:produce")) || outcome == 2, "{case}: {nested:?}");
+            }
+        }
+    }
+
     /// Direct Hit: the attacker's hit is sustained by a dreadnought, the attacker destroys that ship from the slot of
     /// `SUSTAIN_DAMAGE_USED`; the core removes it and announces `SHIP_DESTROYED` after the discard. With a faction module
     /// seated (staging) the exact sustained ship goes; without, the first of the type.
