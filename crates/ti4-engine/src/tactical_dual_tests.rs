@@ -241,3 +241,88 @@ fn diplomacy_on_keeps_the_whole_tactical_action_on_the_string() {
     let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()], |_| {});
     assert_eq!(done.counts("tactical::activate"), (0, 1));
 }
+
+// -- gravity rifts: one die per rift exited, 1-3 destroys the ship and its hold -----------------------------------
+
+/// `origin -- rift -- active` on a line: a ship of move 2 exits the rift on its way.
+fn rift_line() -> (Galaxy, SystemId, SystemId) {
+    let rift = crate::fixtures::a_system_where("gravity rift");
+    let plain = crate::fixtures::plain_systems(2);
+    let galaxy = Galaxy::placed(
+        ContentStore::embedded(),
+        &[
+            (plain[0].as_str(), ti4_model::hex::Hex::new(0, 0)),
+            (rift.as_str(), ti4_model::hex::Hex::new(1, 0)),
+            (plain[1].as_str(), ti4_model::hex::Hex::new(2, 0)),
+        ],
+        POK,
+    )
+    .expect("a line of three systems");
+    (galaxy, SystemId::new(&plain[0]), SystemId::new(&plain[1]))
+}
+
+#[test]
+fn a_carrier_exiting_a_rift_rolls_a_die_and_a_lost_ship_takes_its_hold_with_it() {
+    let (galaxy, origin, target) = rift_line();
+    let (mut lost, mut arrived) = (0, 0);
+    for seed in 0..24_u64 {
+        let mut state = sol_hacan();
+        state.rng_seed = seed;
+        crate::fixtures::put(&mut state, &origin, "carrier2", &a(), 1);
+        crate::fixtures::put(&mut state, &origin, "infantry", &a(), 2);
+        let mv = id(&origin, 0);
+        let done = play(state, &galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv, "load|0", "load|1"], |_| {});
+        assert_eq!(done.counts("tactical::move"), (1, 0), "seed {seed}: {:?}", done.reasons);
+        assert_eq!(done.counts("tactical::load"), (2, 0), "seed {seed}: {:?}", done.reasons);
+        assert_eq!(done.rolls, 1, "seed {seed}: one rift exited, one die");
+        let there = done.state.system_state(&target).units.iter().filter(|u| u.owner == a()).count();
+        let left = done.state.system_state(&origin).units.iter().filter(|u| u.owner == a()).count();
+        if done.game_events.iter().any(|e| e == "SHIP_LOST_TO_GRAVITY_RIFT") {
+            lost += 1;
+            assert_eq!((there, left), (0, 0), "seed {seed}: the carrier and the passengers are gone");
+        } else {
+            arrived += 1;
+            assert_eq!((there, left), (3, 0), "seed {seed}");
+        }
+    }
+    assert!(lost > 0 && arrived > 0, "both outcomes are covered: {lost} lost, {arrived} arrived");
+}
+
+#[test]
+fn nav_suite_and_the_circlet_never_roll() {
+    let (galaxy, origin, target) = rift_line();
+    let mut state = sol_hacan();
+    crate::fixtures::put(&mut state, &origin, "carrier2", &a(), 1);
+    state.player_mut(&a()).unwrap().relics.insert(ti4_model::id::RelicId::new("circletofthevoid"));
+    let mv = id(&origin, 0);
+    let done = play(state, &galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv], |_| {});
+    assert_eq!(done.counts("tactical::move"), (1, 0), "{:?}", done.reasons);
+    assert_eq!(done.rolls, 0, "the Circlet spares the roll");
+}
+
+// -- notes that return on an activation --------------------------------------------------------------------------
+
+#[test]
+fn a_support_for_the_throne_lent_to_the_activator_goes_home_when_its_owner_is_in_the_system() {
+    let (hub, origin, target) = hub();
+    let mut state = sol_hacan();
+    crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+    crate::fixtures::put(&mut state, &target, "cruiser", &b(), 1);
+    state.support_holders.insert(b(), a());
+    state.player_mut(&a()).unwrap().victory_points = 1;
+    let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()], |_| {});
+    assert_eq!(done.counts("tactical::activate"), (1, 0), "{:?}", done.reasons);
+    assert!(done.game_events.iter().any(|e| e == "SUPPORT_FOR_THE_THRONE_RETURNED:b"), "{:?}", done.game_events);
+    assert!(done.state.support_holders.is_empty());
+    assert_eq!(done.state.player(&a()).unwrap().victory_points, 0, "the point went home with the card");
+}
+
+#[test]
+fn a_ceasefire_held_by_the_defender_keeps_the_activation_on_the_string() {
+    let (hub, origin, target) = hub();
+    let mut state = sol_hacan();
+    crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+    crate::fixtures::put(&mut state, &target, "cruiser", &b(), 1);
+    state.promissory_notes.insert("cf:sol".to_owned(), b());
+    bails(state, &hub, &target, "tactical::activate", "Ceasefire");
+}
