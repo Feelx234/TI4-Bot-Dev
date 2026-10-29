@@ -391,7 +391,7 @@ pub struct Facts {
 
 impl Default for Facts {
     fn default() -> Self {
-        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE, dreadnought: Placed::NONE, mech: Placed::NONE, pds: Placed::NONE, holder_deepwrought: false, spacedock: Placed::NONE, replenish_events: false, rules_version: u32::MAX, tech_order: |a, b| a.cmp(&b), roster: None, reveal: crate::state::TechSet::default(), traders: [None; 2], fracture_in_play: false, own_breakthrough: [None; 16], unit_order: |a, b| a.cmp(&b), carried: perform::Carried { plain_draw: false, research: false } }
+        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE, dreadnought: Placed::NONE, mech: Placed::NONE, pds: Placed::NONE, holder_deepwrought: false, spacedock: Placed::NONE, replenish_events: false, rules_version: u32::MAX, tech_order: |a, b| a.cmp(&b), roster: None, reveal: crate::state::TechSet::default(), traders: [None; 2], fracture_in_play: false, own_breakthrough: [None; 16], unit_order: |a, b| a.cmp(&b), carried: perform::Carried { plain_draw: false, research: false, payments: false, structures: None, trade_source: crate::state::Code(0) } }
     }
 }
 

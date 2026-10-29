@@ -282,6 +282,11 @@ fn tables_of(gs: &GameState, card: ActionCard) -> Option<(Ctx, crate::render::Re
         }
         return Some((cx, r.with_factions(factions)));
     }
+    if matches!(rules::effects::Fx::of(card), Some(rules::effects::Fx::Perform { primary: true })) {
+        // The primaries name their options by faction (the Trade primary's seats, the speaker of Politics): two seats of one faction
+        // would clash, and the string cannot tell them apart either.
+        return crate::strategy_core::named_tables(gs);
+    }
     if rules::effects::Fx::of(card).is_some_and(rules::effects::Fx::needs_neutral) {
         crate::dual_window::tables_with(gs, &[crate::neutral_units::NEUTRAL])
     } else {
@@ -398,10 +403,13 @@ pub fn play_window(
         driver_seeds = Some(std::rc::Rc::new(crate::dual_window::DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?)));
     }
     let letnev = gs.player(player)?.faction.as_str() == "letnev";
+    let performing = performing_of(&before, sources, player, seat, card, &r);
     let details = |c: &ti4_engine_core::choice::Choice, core: &ti4_engine_core::state::CoreState, rendered: &mut crate::choice::Choice| {
         recorded_details(c, script, rendered);
         crate::strategy_cards_core::complete_tokens(c, core, rendered, letnev);
-        complete_performed(c, rendered, &r);
+        if performs {
+            performing.complete(c, core, rendered);
+        }
     };
     let driven = crate::core_sync::with_core(gs, &mut cx, src, fp, |core, _| {
         if wants_map && core.galaxy().is_none() {
@@ -412,14 +420,15 @@ pub fn play_window(
         }
         let mut env = env;
         if performs {
-            env.facts.carried = carried_of(core, &before, sources, player, seat);
+            env.facts.carried = carried_of(core, &before, sources, player, seat, &r);
         }
         let play = rules::effects::Play::of(core, card, seat, env)?;
         let mut driver = Driver::new(play, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         if let Some(seeds) = driver_seeds {
             driver = driver.with_seeds(seeds);
         }
-        let driven = crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &details);
+        let position = performs.then(crate::production_view::kernel);
+        let driven = crate::dual_window::drive_positioned(&mut driver, core, kernel, position, &r, &before, script, &details);
         staged = std::mem::take(&mut core.pending_mut().staged);
         emitted = std::mem::take(&mut driver.emitted);
         faces = driver.window.faces().to_vec();
@@ -565,6 +574,7 @@ pub fn announce_window(
         None => None,
     };
     let rolled = seeds.is_some();
+    let performing = performing_of(&before, sources, player, seat, card, &r);
     let driven = crate::core_sync::with_core(gs, &mut cx, src, fp, |core, _| {
         if wants_map && core.galaxy().is_none() {
             return None;
@@ -574,7 +584,7 @@ pub fn announce_window(
         }
         let mut env = env;
         if performs {
-            env.facts.carried = carried_of(core, &before, sources, player, seat);
+            env.facts.carried = carried_of(core, &before, sources, player, seat, &r);
         }
         let announce = rules::announce::Announce::of(core, card, seat, env, has_effect, false)?;
         let mut driver = Driver::new(announce, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
@@ -588,9 +598,12 @@ pub fn announce_window(
             }
             recorded_details(_c, script, rendered);
             crate::strategy_cards_core::complete_tokens(_c, _core, rendered, letnev);
-            complete_performed(_c, rendered, &r);
+            if performs {
+                performing.complete(_c, _core, rendered);
+            }
         };
-        let driven = crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &battle);
+        let position = performs.then(crate::production_view::kernel);
+        let driven = crate::dual_window::drive_positioned(&mut driver, core, kernel, position, &r, &before, script, &battle);
         played = Some(driver.window.played());
         faces = driver.window.faces();
         if rolled {
@@ -611,6 +624,27 @@ pub fn announce_window(
     Some(crate::dual::CoreWindow { run: crate::dual::Run::new((played, (faces, positions))).with_events_vec(events), questions: driven.rendered })
 }
 
+/// The completer of the display facts of the questions a performed ability asks (Strategize and Overrule).
+fn performing_of<'a>(
+    before: &'a GameState,
+    sources: &ti4_model::content_types::SourceSet,
+    player: &'a PlayerId,
+    seat: ti4_engine_core::Seat,
+    card: ActionCard,
+    r: &'a crate::render::Render,
+) -> crate::strategy_cards_core::Performing<'a> {
+    crate::strategy_cards_core::Performing {
+        before,
+        content: ti4_content::ContentStore::embedded(),
+        sources: sources.clone(),
+        player,
+        seat,
+        primary: matches!(rules::effects::Fx::of(card), Some(rules::effects::Fx::Perform { primary: true })),
+        r,
+        free: std::cell::Cell::new(0),
+    }
+}
+
 /// What the adapter vouches for when Strategize or Overrule performs a strategy card's ability in the core: the guards of the
 /// string windows that read the string position (`strategy_cards_core`).
 fn carried_of(
@@ -619,6 +653,7 @@ fn carried_of(
     sources: &ti4_model::content_types::SourceSet,
     player: &PlayerId,
     seat: ti4_engine_core::Seat,
+    r: &crate::render::Render,
 ) -> rules::perform::Carried {
     let content = ti4_content::ContentStore::embedded();
     rules::perform::Carried {
@@ -626,34 +661,9 @@ fn carried_of(
         research: gs.rules_version >= ti4_model::state::RULES_TECH_PAYMENT_CHOICE
             && !technology_unported(gs, sources, player)
             && crate::strategy_cards_core::research_hooks_agree(core, gs, content, sources.clone(), player, seat),
-    }
-}
-
-/// The display facts of the questions of a performed ability, which only the state knows: which seat holds each strategy card on
-/// offer (`details.holders`, `null` for a card on the mat), and the technology names of a research (`strategy_cards_core::research`).
-fn complete_performed(c: &ti4_engine_core::choice::Choice, rendered: &mut crate::choice::Choice, r: &crate::render::Render) {
-    use ti4_engine_core::choice::cards::{Ask as CAsk, Opt as COpt, What};
-    use ti4_engine_core::choice::strategy::{Ask as SAsk, Opt as SOpt};
-    use ti4_engine_core::choice::{Ask, Opt};
-    match c.ask {
-        Ask::Cards(CAsk::Pick { what: What::Perform, .. }) => {
-            let mut holders = serde_json::Map::new();
-            for opt in c.opts.iter() {
-                if let Opt::Cards(COpt::Perform { card, holder }) = opt {
-                    holders.insert(card.as_str().to_owned(), holder.map_or(serde_json::Value::Null, |seat| serde_json::Value::from(r.seat_text(seat))));
-                }
-            }
-            rendered.details.insert("holders".to_owned(), serde_json::Value::Object(holders));
-        }
-        Ask::Strategy(SAsk::ResearchTechnology { .. }) => {
-            let content = ti4_content::ContentStore::embedded();
-            for (option, opt) in rendered.options.iter_mut().zip(c.opts.iter()) {
-                if let Opt::Strategy(SOpt::Research(t)) = opt {
-                    option.label = crate::technology::name(content, &ti4_model::id::TechnologyId::new(crate::generated::IdStr::as_str(*t)));
-                }
-            }
-        }
-        _ => {}
+        payments: !crate::production_view::unported_window(gs, player),
+        structures: crate::strategy_cards_core::structure_facts(gs, content, sources.clone(), player, r),
+        trade_source: r.code("trade_primary"),
     }
 }
 

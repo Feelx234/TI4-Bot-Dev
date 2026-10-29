@@ -331,7 +331,7 @@ mod real {
     /// What a Construction window needs of the position, or `None` where a faction effect changes the placement: the
     /// Titans' alternative to a PDS, Minister of Industry's production after a space dock, a unit the tables do not
     /// name, what `production_view::unported_window` declines.
-    fn structure_facts(gs: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, r: &Render) -> Option<StructureFacts> {
+    pub(crate) fn structure_facts(gs: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, r: &Render) -> Option<StructureFacts> {
         if crate::production_view::unported_window(gs, player) || crate::laws::industry_produces_on_placement(gs, player) {
             return None;
         }
@@ -662,15 +662,9 @@ mod real {
             && gs.player(player).is_some_and(|p| p.action_cards.len() + count <= crate::action_cards::hand_limit(gs, content, player))
     }
 
-    /// The core half of the two Politics abilities. `None` as for Warfare, with two seats of one faction (the
-    /// speaker options are named by faction) and where the draw is not plain.
-    pub fn politics(gs: &mut GameState, content: &ContentStore, player: &PlayerId, primary: bool, script: &Recording) -> Option<CoreWindow<bool>> {
-        if outside(gs, script) || gs.deck_reserve.is_some() || !plain_draw(gs, content, player, 2) {
-            return None;
-        }
-        let (mut cx, r) = named_tables(gs)?;
-        let seat = r.seat(player.as_str())?;
-        let (window, driven) = drive_window(gs, &mut cx, &r, POLITICS, Politics::new(seat, primary, gs.rules_version >= ti4_model::state::RULES_OFFICIAL_ACTION_DECK), seat, script, &|c, _, rendered| match c.ask {
+    /// The display facts of the Politics questions: the seat of each speaker option and the printed agenda.
+    fn complete_politics(r: &Render, content: &ContentStore, c: &CoreChoice, rendered: &mut Choice) {
+        match c.ask {
             Ask::Strategy(SAsk::PoliticsSpeaker) => {
                 let mut seats = serde_json::Map::new();
                 for opt in &rendered.options {
@@ -684,8 +678,92 @@ mod real {
                 rendered.details.insert("agenda".to_owned(), crate::strategy_cards::agenda_details(content, agenda.as_str()));
             }
             _ => {}
+        }
+    }
+
+    /// The core half of the two Politics abilities. `None` as for Warfare, with two seats of one faction (the
+    /// speaker options are named by faction) and where the draw is not plain.
+    pub fn politics(gs: &mut GameState, content: &ContentStore, player: &PlayerId, primary: bool, script: &Recording) -> Option<CoreWindow<bool>> {
+        if outside(gs, script) || gs.deck_reserve.is_some() || !plain_draw(gs, content, player, 2) {
+            return None;
+        }
+        let (mut cx, r) = named_tables(gs)?;
+        let seat = r.seat(player.as_str())?;
+        let (window, driven) = drive_window(gs, &mut cx, &r, POLITICS, Politics::new(seat, primary, gs.rules_version >= ti4_model::state::RULES_OFFICIAL_ACTION_DECK), seat, script, &|c, _, rendered| {
+            complete_politics(&r, content, c, rendered);
         })?;
         Some(finish(&driven, &window))
+    }
+
+    // -- Performed by an action card (Strategize, Overrule) ------------------------------------------------
+
+    /// The display facts of the questions a strategy card's ability asks when an action card performs it, which only the string
+    /// position knows (the closures of the windows above, for the card the holder picked): the seat that holds each card on offer,
+    /// the purchase the free tokens of the Leadership primary announce, the readying hints of Diplomacy, the seats and agendas of
+    /// Politics, the commodities of Trade and the names of the technologies. The pool details and previews of the token questions are
+    /// [`complete_tokens`], applied by the caller.
+    pub(crate) struct Performing<'a> {
+        pub(crate) before: &'a GameState,
+        pub(crate) content: &'a ContentStore,
+        pub(crate) sources: SourceSet,
+        pub(crate) player: &'a PlayerId,
+        pub(crate) seat: Seat,
+        pub(crate) primary: bool,
+        pub(crate) r: &'a Render,
+        /// The free tokens of the Leadership primary that still announce the purchase that follows them (the only ability that starts
+        /// a token gain at three; the Warfare primary gains one).
+        pub(crate) free: std::cell::Cell<u8>,
+    }
+
+    impl Performing<'_> {
+        pub(crate) fn complete(&self, c: &CoreChoice, core: &CoreState, rendered: &mut Choice) {
+            use ti4_engine_core::choice::cards::{Ask as CAsk, Opt as COpt, What};
+            let letnev = self.before.player(self.player).is_some_and(|p| p.faction.as_str() == "letnev");
+            let purchase_of = || {
+                crate::strategy_cards::purchase_details(&string_now(self.before, core, self.seat, self.player), self.content, self.sources.clone(), self.player)
+            };
+            match c.ask {
+                Ask::Cards(CAsk::Pick { what: What::Perform, .. }) => {
+                    let mut holders = serde_json::Map::new();
+                    for opt in c.opts.iter() {
+                        if let ti4_engine_core::choice::Opt::Cards(COpt::Perform { card, holder }) = opt {
+                            holders.insert(card.as_str().to_owned(), holder.map_or(Value::Null, |seat| Value::from(self.r.seat_text(seat))));
+                        }
+                    }
+                    rendered.details.insert("holders".to_owned(), Value::Object(holders));
+                }
+                Ask::Strategy(SAsk::GainPool { left }) => {
+                    if self.primary && u32::from(left) == crate::strategy_cards::LEADERSHIP_TOKENS {
+                        self.free.set(u8::try_from(crate::strategy_cards::LEADERSHIP_TOKENS).unwrap_or(3));
+                    }
+                    if self.free.get() > 0 {
+                        self.free.set(self.free.get() - 1);
+                        if let Some(purchase) = purchase_of() {
+                            rendered.details.insert("purchase".to_owned(), purchase);
+                        }
+                    }
+                }
+                Ask::Strategy(SAsk::LeadershipBuy { more: false, .. }) => {
+                    if let Some(purchase) = purchase_of() {
+                        rendered.details.extend(pool_details(core, c.actor, letnev, "buy", Some(0)));
+                        rendered.details.insert("purchase".to_owned(), purchase);
+                    }
+                }
+                Ask::Strategy(SAsk::ReadyPlanet) => {
+                    rendered.details.insert("ready_hints".to_owned(), ready_hints_now(self.before, core, self.content, self.sources.clone(), self.player));
+                }
+                Ask::Strategy(SAsk::PoliticsSpeaker | SAsk::PoliticsAgenda { .. }) => complete_politics(self.r, self.content, c, rendered),
+                Ask::Strategy(SAsk::TradeReplenish) => crate::strategy_core::complete_trade(self.r, core, rendered),
+                Ask::Strategy(SAsk::ResearchTechnology { .. }) => {
+                    for (option, opt) in rendered.options.iter_mut().zip(c.opts.iter()) {
+                        if let ti4_engine_core::choice::Opt::Strategy(ti4_engine_core::choice::strategy::Opt::Research(t)) = opt {
+                            option.label = crate::technology::name(self.content, &ti4_model::id::TechnologyId::new(t.as_str()));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 }
 

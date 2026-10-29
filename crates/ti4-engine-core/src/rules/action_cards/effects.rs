@@ -1969,6 +1969,7 @@ impl Play {
                 Some(Ran::Done(window)) => {
                     // An answer that left the carried path (a research only a faction waiver opens): the string performs it.
                     self.unsupported |= window.failed();
+                    window.finish(sx.state, self.env);
                     self.stage = Stage::Done;
                     return;
                 }
