@@ -262,7 +262,8 @@ adapter `action_cards_b6d_tests` (lockstep through the announce window under thr
 `courageous_to_the_end_is_announced_on_the_plain_table_of_the_play_window` (no nested activity: the table is `play_table()`, whose
 `after_play` is the only announcement), `experimental_battlestation_follows_non_euclidean_shielding_in_the_core_window` (the combat
 kernel the play window lends), `action_cards_view::hit_facts_tests`, and the bail tests above). Mutation checks (Haiku runner, scratch
-worktree, 53 mutations of the core halves, the adapter and the render): all killed except one equivalent mutant,
+worktree, 48 mutations of the core halves, the adapter and the render; the first batch left six survivors, five of which got
+the tests above and were killed on the re-run): all killed except one equivalent mutant,
 `.filter(|v| *v > 0)` of Courageous's combat value (no unit of the tables prints a combat value of 0; the guard is parity with
 `combat::hits_on`).
 
