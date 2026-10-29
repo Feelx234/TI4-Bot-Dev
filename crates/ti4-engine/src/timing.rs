@@ -1262,6 +1262,7 @@ impl Resolver {
         let result = result.and_then(|()| {
             crate::kernel_sync::trace::closed_begin();
             let declared = std::mem::take(&mut context.state.declared_card_plays);
+            let _closed = crate::dual_window::ClosedGuard::enter();
             let announced = (|| {
                 for (player, alias) in declared {
                     crate::reactions::announce(context, self, &player, &alias)?;

@@ -68,6 +68,10 @@ pub enum Unknown {
     NomadAgentExhaustion,
     /// Instinct Training may be carried by a Nekro Valefar Assimilator.
     NekroCarriedCard,
+    /// An action card played into a window at once (the Sabotage window, or a rules version before 3): the string path.
+    ImmediateCardPlay,
+    /// A played card whose effect is not one of the stamps the core plays, or one that comes from the salvage yard.
+    UnportedCard,
     /// A fact the adapter should have computed for the window is missing (`Facts`).
     MissingFact,
 }
@@ -109,6 +113,9 @@ pub struct Codes {
     pub harrow: crate::state::Code,
     /// The `source` of the trade good Self-Assembly Routines gains.
     pub self_assembly: crate::state::Code,
+    /// The `source` `action_card` and `forward_supply_base` of the trade goods a card gains (`Env`).
+    pub action_card: crate::state::Code,
+    pub supply_base: crate::state::Code,
     /// The `source` `mentak` of the trade good Salvage Operations gains.
     pub mentak: crate::state::Code,
     /// The `reason` of the strategy token Instinct Training spends.
@@ -250,6 +257,11 @@ pub struct AbilityTable {
     pub bars: Option<fn(&CoreState, Seat) -> bool>,
     pub codes: Codes,
     pub facts: AdapterFacts,
+    /// A key that is equal for the copies of one printed card (the core has no card names); set by the adapter.
+    pub card_name: Option<fn(crate::generated::ActionCard) -> u32>,
+    /// What a window does when its loop ends cleanly: announce the cards declared in it (rules version 3). Set by the
+    /// rules package that owns the action cards (the kernel cannot import it).
+    pub closed: Option<fn(&mut RulesHost<'_>, &mut Resolver) -> Result<(), TimingError>>,
 }
 
 impl AbilityTable {
@@ -333,6 +345,9 @@ pub struct Tape {
     used: usize,
     needed: Option<Choice>,
     facts: Option<NestedFacts>,
+    /// The state at the moment the question was put (the driver rolls the state back; the display facts of the question
+    /// are read from this one).
+    state_at: Option<Box<CoreState>>,
     /// A condition the core could not answer (`CondCx::unknown`); survives the rewind of a re-run.
     pub unknown: std::cell::Cell<Option<Unknown>>,
 }
@@ -353,6 +368,7 @@ impl Tape {
         self.used = 0;
         self.needed = None;
         self.facts = None;
+        self.state_at = None;
     }
 
     pub fn push(&mut self, pick: Pick) {
@@ -365,6 +381,12 @@ impl Tape {
         self.needed.as_ref()
     }
 
+    /// The state the nested question was put in.
+    #[must_use]
+    pub fn needed_state(&self) -> Option<&CoreState> {
+        self.state_at.as_deref()
+    }
+
     /// What that question was asked about (`None` for a question that has no event).
     #[must_use]
     pub fn needed_facts(&self) -> Option<&NestedFacts> {
@@ -372,7 +394,7 @@ impl Tape {
     }
 
     /// [`Asker::pick`] with the facts of the window the question belongs to.
-    pub fn pick_with(&mut self, choice: &Choice, facts: Option<NestedFacts>) -> Pick {
+    pub fn pick_with(&mut self, state: &CoreState, choice: &Choice, facts: Option<NestedFacts>) -> Pick {
         if let Some(p) = self.answers.get(self.used) {
             self.used += 1;
             return *p;
@@ -380,6 +402,7 @@ impl Tape {
         if self.needed.is_none() {
             self.needed = Some(choice.clone());
             self.facts = facts;
+            self.state_at = Some(Box::new(state.clone()));
         }
         // The run is rolled back; an option that ends the question lets it finish: the decline when there is one
         // (a repeatable, unlimited ability that is picked again and again would never end the window).
@@ -388,8 +411,8 @@ impl Tape {
 }
 
 impl Asker for Tape {
-    fn pick(&mut self, _: &CoreState, choice: &Choice) -> Pick {
-        self.pick_with(choice, None)
+    fn pick(&mut self, state: &CoreState, choice: &Choice) -> Pick {
+        self.pick_with(state, choice, None)
     }
 }
 
@@ -435,13 +458,21 @@ impl Host for RulesHost<'_> {
         effect(&mut eff)
     }
 
+    fn window_closed(&mut self, resolver: &mut Resolver) -> Result<(), TimingError> {
+        match self.table.closed {
+            Some(f) => f(self, resolver),
+            None => Ok(()),
+        }
+    }
+
     fn decide(&mut self, choice: &Choice, event: &EventRec, chain: &[u64]) -> Pick {
         let relation = match choice.ask {
             crate::choice::Ask::Reaction(crate::choice::reaction::Ask::Window { relation, .. }) => Some(relation),
             _ => None,
         };
         let facts = relation.map(|relation| NestedFacts { event: event.clone(), relation, chain: chain.to_vec() });
-        self.tape.pick_with(choice, facts)
+        let state: &CoreState = self.state;
+        self.tape.pick_with(state, choice, facts)
     }
 }
 
@@ -463,6 +494,25 @@ impl Eff<'_, '_> {
     #[must_use]
     pub fn kernel(&self) -> &Kernel {
         self.host.kernel
+    }
+
+    /// The window cannot be followed (the same reason a condition gives with `CondCx::unknown`).
+    pub fn unknown(&self, why: Unknown) {
+        if self.host.tape.unknown.get().is_none() {
+            self.host.tape.unknown.set(Some(why));
+        }
+    }
+
+    /// Political Secret bars this seat's faction abilities and action cards.
+    #[must_use]
+    pub fn barred(&self, who: Seat) -> bool {
+        self.host.table.bars.is_some_and(|f| f(self.host.state, who))
+    }
+
+    /// Whether two cards are copies of one printed card.
+    #[must_use]
+    pub fn card_key(&self, card: crate::generated::ActionCard) -> u32 {
+        self.host.table.card_name.map_or(card as u32, |f| f(card))
     }
 
     /// The texts the adapter interned for the abilities.
@@ -503,7 +553,8 @@ impl Eff<'_, '_> {
     /// Put a question and take the answer.
     pub fn ask(&mut self, choice: &Choice) -> Pick {
         let facts = self.facts();
-        self.host.tape.pick_with(choice, Some(facts))
+        let state: &CoreState = &*self.host.state;
+        self.host.tape.pick_with(state, choice, Some(facts))
     }
 
     /// Draw a die from the stream of `domain` (`Sx::die`).

@@ -9794,6 +9794,76 @@ mod tests {
         let _ = take_report();
     }
 
+    /// A reaction card is played from the standing slot: the slot asks which card when they differ, the card is spent
+    /// into the declared plays, and at the close of the window the core announces `ACTION_CARD_PLAYED`, plays the stamp
+    /// of its effect and discards it (`ACTION_CARD_DISCARDED`), as the string `reactions::announce` does.
+    #[test]
+    fn declared_reaction_cards_are_played_in_the_core_window_in_lockstep() {
+        let mut played = 0;
+        let mut asked = 0;
+        for (seed, hand) in (1..=6_u64).zip([&["mb1"][..], &["mb1", "emergency"], &["sh1", "mb2"], &["mb1", "mb2"], &["emergency", "mb3", "sh3"], &["sh1", "sh2"]]) {
+            let (p, a) = declared_cards_fight(seed, hand);
+            played += p;
+            asked += a;
+        }
+        assert!(played > 0 && asked > 0, "cards were played ({played}) and a choice of card was asked ({asked})");
+    }
+
+    /// One space fight in which the defender holds `hand`, every question answered with its first option; the windows
+    /// are compared. `(cards played, choices of a card asked)`.
+    fn declared_cards_fight(seed: u64, hand: &[&str]) -> (usize, usize) {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let (mut played, mut asked) = (0, 0);
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = seed;
+            state.player_mut(&defender()).unwrap().action_cards = hand.iter().map(|c| ti4_model::id::ActionCardId::new(*c)).collect();
+            let system = SystemId::new("18");
+            put(&mut state, &system, "cruiser", &attacker(), 3);
+            put(&mut state, &system, "cruiser", &defender(), 3);
+            put(&mut state, &system, "dreadnought", &defender(), 1);
+            state.active_system = Some(system.clone());
+            state.active = Some(attacker());
+            for unit in state.system_mut(&system).units.iter_mut().filter(|u| u.owner == defender() && u.type_id.as_str() == "dreadnought") {
+                unit.sustained_damage = true;
+            }
+            let seen = std::rc::Rc::new(std::cell::RefCell::new(0));
+            struct Count(std::rc::Rc<std::cell::RefCell<usize>>);
+            impl crate::choice::Decider for Count {
+                fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+                    if choice.prompt.starts_with("play an action card") {
+                        *self.0.borrow_mut() += 1;
+                    }
+                    crate::choice::FirstOption.choose(choice)
+                }
+            }
+            let mut table = Table::with_default(Box::new(Count(seen.clone())));
+            let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+            let mut resolver = crate::fixtures::armed_resolver(&state);
+            let mut sequence = crate::event::EventSequence::new();
+            let mut ctx = Resolving {
+                content: ContentStore::embedded(),
+                sources: ti4_model::content_types::DEFAULT,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+            };
+            resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+            played = state.action_card_plays.len();
+            asked = *seen.borrow();
+        });
+        let r = report();
+        assert!(r.windows.keys().all(|k| !k.contains("(card ") && !k.contains("(a card played at once)")), "{hand:?}: {:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{hand:?}: {:?}", r.differences);
+        let _ = take_report();
+        (played, asked)
+    }
+
     #[test]
     fn the_end_report_of_a_fight_is_checked_against_the_core() {
         // `combat=dual`: the reason, losers, retreats and lost ships of `SPACE_COMBAT_ENDED` are computed by

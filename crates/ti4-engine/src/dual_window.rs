@@ -70,6 +70,8 @@ pub struct Recording {
     pub nested: bool,
     /// The event types and the questions that happened inside the emissions of the window (for the bail census).
     pub nested_kinds: Vec<String>,
+    /// The action cards announced as played inside the window's emissions (`ACTION_CARD_PLAYED`'s `card`), in order.
+    pub played: Vec<String>,
     /// The ids of the abilities whose effect ran inside the window (at any emission depth), in order.
     pub effects: Vec<String>,
     /// The ids of the abilities that were eligible in some window of an emission (picked, offered or taken
@@ -108,7 +110,10 @@ impl Recording {
         let mut abilities: Vec<String> = self.eligible.iter().map(anon).collect();
         abilities.sort();
         abilities.dedup();
-        format!("{} | {}", kinds.join(","), abilities.join(","))
+        let mut played = self.played.clone();
+        played.sort();
+        let played = if played.is_empty() { String::new() } else { format!(" | cards {}", played.join(",")) };
+        format!("{} | {}{played}", kinds.join(","), abilities.join(","))
     }
 }
 
@@ -206,6 +211,32 @@ impl Drop for EffectGuard {
     }
 }
 
+/// The announcement of the cards declared in a window (its close, rules version 3) runs while this guard lives: what it
+/// emits is explained by the cards the abilities of the window declared, not foreign to every ability.
+pub struct ClosedGuard;
+
+impl ClosedGuard {
+    #[must_use]
+    pub fn enter() -> Self {
+        REC.with(|r| {
+            if let Some(rec) = r.borrow_mut().as_mut() {
+                rec.effect_depth += 1;
+            }
+        });
+        Self
+    }
+}
+
+impl Drop for ClosedGuard {
+    fn drop(&mut self) {
+        REC.with(|r| {
+            if let Some(rec) = r.borrow_mut().as_mut() {
+                rec.effect_depth = rec.effect_depth.saturating_sub(1);
+            }
+        });
+    }
+}
+
 /// A window's pick question is being asked while this guard lives.
 pub struct PickGuard;
 
@@ -290,6 +321,9 @@ pub fn leave_emit(began: u32, done: Option<&Event>) {
                 }
                 if let Some(event) = done {
                     rec.nested_kinds.push(event.event_type.clone());
+                    if event.event_type == "ACTION_CARD_PLAYED" {
+                        rec.played.push(event.text("card").unwrap_or_default().to_owned());
+                    }
                 }
             } else if rec.base == began
                 && let Some(event) = done
@@ -456,6 +490,8 @@ pub fn drive_positioned<W: Window>(
                 ti4_engine_core::kernel::ability::Unknown::CardCost => "a card cost the core does not judge",
                 ti4_engine_core::kernel::ability::Unknown::HarnessOrInfiltrate => "Harness Energy / Infiltrate",
                 ti4_engine_core::kernel::ability::Unknown::NomadAgentExhaustion => "Nomad Temporal Command Suite (agent exhaustion)",
+                ti4_engine_core::kernel::ability::Unknown::ImmediateCardPlay => "an action card played at once",
+                ti4_engine_core::kernel::ability::Unknown::UnportedCard => "an action card the core does not play",
                 ti4_engine_core::kernel::ability::Unknown::NekroCarriedCard => "a technology carried by a Nekro Valefar Assimilator",
                 ti4_engine_core::kernel::ability::Unknown::MissingFact => "a fact the adapter did not compute for the window",
             };
@@ -478,7 +514,9 @@ pub fn drive_positioned<W: Window>(
                 let mut rendered = typed.rendered;
                 complete(&choice, core, &mut rendered);
                 if let Some(facts) = driver.nested_facts() {
-                    complete_nested(r, &choice, facts, gs, core, kernel, &mut rendered);
+                    // The question was put in a state the driver has since rolled back: its display facts read that one.
+                    let at = driver.nested_state().unwrap_or(core);
+                    complete_nested(r, &choice, facts, gs, at, kernel, &mut rendered);
                     // The previews of a reaction window ("what each single-card slot would do now") are display facts
                     // the string builds from its position (`reaction_preview`); the core renders none, so they are the
                     // recorded question's own (the same convention as the option previews, B1g-10).

@@ -62,6 +62,21 @@ fn is_reaction_slot(slot: Slot) -> bool {
     (base..base + 100).contains(&slot.0)
 }
 
+/// Equal for the copies of one printed action card (`action_cards::name_of`).
+fn card_name_key(card: ti4_engine_core::generated::ActionCard) -> u32 {
+    use crate::generated::IdStr;
+    static KEYS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    let names = KEYS.get_or_init(|| {
+        let content = ti4_content::ContentStore::embedded();
+        ti4_engine_core::generated::ActionCard::ALL
+            .iter()
+            .map(|c| crate::action_cards::name_of(content, &ti4_model::id::ActionCardId::new(c.as_str())))
+            .collect()
+    });
+    let mine = &names[card as usize];
+    u32::try_from(names.iter().position(|n| n == mine).unwrap_or(0)).unwrap_or(0)
+}
+
 thread_local! {
     /// `(player, system, neighbours)`: the systems adjacent to `system` as `player` sees them, for the window being
     /// run (`PlayerAdjacency::neighbours`; the core is lent no galaxy).
@@ -94,6 +109,7 @@ pub fn table() -> AbilityTable {
         .get_or_init(|| {
             let mut t = AbilityTable::default();
             t.bars = Some(ti4_engine_core::rules::agenda::political_secret_bars);
+            t.card_name = Some(card_name_key);
             // The string order of `reactions::arm`, per owner: the reaction slots, then Instinct Training, I48S,
             // Infantry II, Magen Defense, the factions.
             ti4_engine_core_factions::cc_ground::register_first(&mut t);
@@ -173,8 +189,17 @@ impl Recording {
             }
             return Some(format!("unported ability {}", anonymous(id)));
         }
-        // After the abilities, so that a card played from a window (announced when the window closes, outside the
-        // effect that declared it) is reported as the slot that played it.
+        // A card played from a window (declared by the slot, announced when the window closes): the core plays the stamps
+        // of B6 declared in an ordinary window; any other card, or a play at once, is the string's.
+        if let Some(slot) = self.effects.iter().find(|e| e.starts_with("reaction:")) {
+            if slot.contains(":ACTION_CARD_PLAYED:") {
+                return Some(format!("unported ability {} (a card played at once)", anonymous(slot)));
+            }
+            let ported = |card: &String| <ti4_engine_core::generated::ActionCard as crate::generated::IdStr>::from_id(card).is_some_and(ti4_engine_core::rules::action_cards::reaction_slot::effect_ported);
+            if let Some(card) = self.played.iter().find(|c| !ported(c)) {
+                return Some(format!("unported ability {} (card {card})", anonymous(slot)));
+            }
+        }
         self.foreign.then(|| "nested outside an ability".to_owned())
     }
 }
@@ -205,6 +230,16 @@ pub fn follow(r: &Render, gs: &GameState, script: &Recording) -> Result<Option<F
             table.facts.set_reach(who, system, neighbours);
         }
     });
+    // A played card: Data Skimmer takes another player's discard onto the breakthrough (a Ral Nel seat), and a rules
+    // version before 3 plays at once.
+    if let Some(slot) = script.effects.iter().find(|e| e.starts_with("reaction:")) {
+        if gs.players.iter().any(|p| p.faction.as_str() == "ralnel") {
+            return Err(format!("unported ability {} (Data Skimmer)", anonymous(slot)));
+        }
+        if gs.rules_version < ti4_model::state::RULES_SABOTAGE_TIMING {
+            return Err(format!("unported ability {} (a card played at once)", anonymous(slot)));
+        }
+    }
     // The use of a round agent is an event of the diplomacy promises (`LeaderUsedFor`); the core does not evaluate them.
     if gs.diplomacy.enabled {
         if let Some(id) = script.effects.iter().find(|e| e.starts_with("leader:") && (e.contains(":solagent:") || e.contains(":letnevagent:"))) {
@@ -256,6 +291,8 @@ impl Follow {
         self.table.codes.ground_combat = r.code("ground_combat");
         self.table.codes.harrow = r.code("harrow");
         self.table.codes.self_assembly = r.code("self_assembly_routines");
+        self.table.codes.action_card = r.code("action_card");
+        self.table.codes.supply_base = r.code("forward_supply_base");
         self.table.codes.mentak = r.code("mentak");
         self.table.codes.instinct_training = r.code("instinct_training");
         let defs = self.table.registry(core, &order, &mut name);
@@ -305,12 +342,50 @@ mod tests {
     }
 
     #[test]
-    fn bail_a_declined_reaction_slot_is_followed_and_a_played_one_is_not() {
+    fn bail_a_declined_reaction_slot_is_followed_and_a_played_unported_card_is_not() {
         let t = table();
         let id = "reaction:hacan:HITS_TO_ASSIGN:when";
         assert!(slot_of(id).is_some());
         assert_eq!(rec(&[id], &[]).unported(&t), None, "offered and declined");
-        assert_eq!(rec(&[id], &[id]).unported(&t).as_deref(), Some("unported ability reaction:*:HITS_TO_ASSIGN:when"), "a card was played");
+        let mut played = rec(&[id], &[id]);
+        played.played = vec!["sh1".to_owned()];
+        assert_eq!(played.unported(&t), None, "a Shields Holding is played by the core");
+        played.played = vec!["fire_team".to_owned()];
+        assert_eq!(played.unported(&t).as_deref(), Some("unported ability reaction:*:HITS_TO_ASSIGN:when (card fire_team)"), "a card the core does not play");
+    }
+
+    #[test]
+    fn bail_a_played_card_the_core_does_not_play_is_named() {
+        let t = table();
+        let slot = "reaction:hacan:COMBAT_ROUND_STARTED:after";
+        let mut r = rec(&[slot], &[slot]);
+        r.played = vec!["mb1".to_owned()];
+        assert_eq!(r.unported(&t), None, "a Morale Boost is a stamp the core plays");
+        r.played = vec!["mb1".to_owned(), "s_retreat1".to_owned()];
+        assert_eq!(r.unported(&t).as_deref(), Some("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card s_retreat1)"));
+    }
+
+    #[test]
+    fn bail_a_card_played_at_once_is_named() {
+        let slot = "reaction:hacan:ACTION_CARD_PLAYED:when";
+        let mut r = rec(&[slot], &[slot]);
+        r.played = vec!["sabo1".to_owned()];
+        assert_eq!(r.unported(&table()).as_deref(), Some("unported ability reaction:*:ACTION_CARD_PLAYED:when (a card played at once)"));
+    }
+
+    #[test]
+    fn bail_a_play_with_data_skimmer_or_below_rules_version_3_is_named() {
+        let slot = "reaction:hacan:COMBAT_ROUND_STARTED:after";
+        let mut script = rec(&[slot], &[slot]);
+        script.played = vec!["mb1".to_owned()];
+        let render = Render::new(vec!["a".to_owned(), "b".to_owned()]);
+        let mut gs = crate::fixtures::seated_game(&[("a", "hacan"), ("b", "sol")], ti4_model::content_types::POK);
+        assert!(follow(&render, &gs, &script).is_err() || script.cfg.is_none(), "no resolver recorded: the only reason");
+        gs.rules_version = 2;
+        assert_eq!(follow(&render, &gs, &script).err().as_deref(), Some("unported ability reaction:*:COMBAT_ROUND_STARTED:after (a card played at once)"));
+        let mut gs = crate::fixtures::seated_game(&[("a", "hacan"), ("b", "ralnel")], ti4_model::content_types::POK);
+        gs.rules_version = ti4_model::state::RULES_SABOTAGE_TIMING;
+        assert_eq!(follow(&render, &gs, &script).err().as_deref(), Some("unported ability reaction:*:COMBAT_ROUND_STARTED:after (Data Skimmer)"));
     }
 
     #[test]
