@@ -3,6 +3,8 @@
 //! is silent, so every test counts the windows the core followed (`compared`) and the ones it left to the string
 //! (`bailed`).
 
+#[cfg(test)]
+mod tests {
 use ti4_content::ContentStore;
 use ti4_model::content_types::POK;
 use ti4_model::id::{ActionCardId, PlayerId, SecretObjectiveId, SystemId};
@@ -568,4 +570,5 @@ fn dark_pact_gains_follow_an_accepted_gift_of_a_full_commodity_value() {
     assert_eq!((done.compared, done.bailed), (2, 0));
     assert_eq!(goods(&done.state, "a"), before.0 + 1, "the giver gains one");
     assert_eq!(goods(&done.state, "b"), before.1 + value + 1, "the receiver gains the gift and one");
+}
 }
