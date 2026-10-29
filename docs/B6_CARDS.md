@@ -76,3 +76,25 @@ Harness Energy). Bails with an adapter-level behaviour keep their tests from ear
 Conditions inside the ported cards that stay string (each a `None` of `Play::of` or an `unsupported` window, one test each):
 Summit with a Mahact token held; Archaeological Expedition and Veto with a deck reserve; Plague / Unstable Planet when a
 galvanized ground force falls (the staged row has no `|g` tail); Intercept at a table with a Naaz or Nekro seat (earlier).
+
+## Dropped by decision (2026-10-29, user)
+
+Last Bastion / Crimson Rebellion, the structured-diplomacy option and the turn-redo deck reserve are disabled at the product
+edges (the core will panic if they are reached). No effort went into action-card pieces whose only purpose is one of these:
+the deck-reserve bails of Veto and Archaeological Expedition (`Play::of` is `None` while `cards().reserve` is set; tests
+`veto_declines_while_a_replay_reserve_is_installed`, `bail_archaeological_expedition_declines_while_a_replay_reserve_is_installed`),
+the Last Bastion bar of Skilled Retreat, and the Crimson card counts carried in `Placed.on_card` stay as the existing documented
+bails: dropped by decision.
+
+## Gate (code commit 7483c5b9; this file is the only later change)
+
+`tools/engine_core/verify_package.sh action_cards` (`--profile gate`, `SKIP_AB=1 SKIP_WASM=1`, `SHARDS=4`, private target dir,
+`CARGO_BUILD_JOBS=3`, under the heavy lock): PACKAGE OK. layers 0 violations (371 files), lint_core 0 hits (373 files), clippy 0
+in core/bridge/dual/core_sync/render and 0 errors, immutable surfaces unchanged (against `engine-core-state-base`), 41 test
+suites ok, `gen-cards --check`, xtask and wasm tests ok, dual suite (6 suites, `action_cards=dual`, fail fast) ok, golden dual
+`action_cards=dual` (20 games): 59462 calls, 63366 comparisons, 0 differences, hashes equal (`action_cards::announce` 395 compared,
+152 bailed); `board_equivalence templates` (100 positions, 344338 answers) and `golden profile-20 20 10` (2999 positions,
+24783332 answers): 0 mismatches; `bench` + `bench-v1..v5` with the area on Core 200 identical / 0 different each, `bench` on String
+200/0. Also on the same binary: golden dual `driver=dual` 4564 calls, 26593 comparisons, 0 differences; the wide mask
+(`driver,invasion,production,leaders,exploration,agenda,action_cards` = dual): 11754515 calls, 11884141 comparisons, 0 differences,
+hashes equal. Not run: the CPU A/B, the wasm size gate, release builds, `state_size`.
