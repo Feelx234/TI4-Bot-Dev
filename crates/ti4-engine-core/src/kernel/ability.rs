@@ -123,6 +123,10 @@ pub struct Codes {
     /// The causes `action_card:direct_hit` and `action_card:courageous` of a destroyed ship.
     pub direct_hit: crate::state::Code,
     /// The cause `retreat_capacity` of a ship a retreat strands, and the pool `reinforcements` of its command token.
+    /// The unit aliases `mahact_infantry` and `mahact_infantry2`: the source of a Crimson Legionnaire's trade good and the
+    /// name of its question's source.
+    pub mahact_infantry: crate::state::Code,
+    pub mahact_infantry2: crate::state::Code,
     pub retreat_capacity: crate::state::Code,
     pub reinforcements: crate::state::Code,
 }

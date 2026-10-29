@@ -6993,6 +6993,47 @@ mod tests {
         let _ = take_report();
     }
 
+    /// The Crimson Legionnaire and its upgrade: after the unit is destroyed its owner gains a commodity or converts one into
+    /// a trade good (a question when both are possible, with the commodities in the details); the II waits on the card.
+    #[test]
+    fn the_crimson_legionnaire_pays_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        let (mut gained, mut on_card) = (0, 0);
+        with_mask(mask, || {
+            for (seed, commodities) in (1..=10_u64).zip([0, 1, 2, 0, 1, 2, 5, 0, 1, 2]) {
+                let second = seed > 5;
+                let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "mahact")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                if second {
+                    crate::technology::grant(&mut state, &PlayerId::new("b"), &ti4_model::id::TechnologyId::new("cl2"));
+                }
+                state.player_mut(&PlayerId::new("b")).unwrap().commodities = commodities;
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 8);
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, if second { "mahact_infantry2" } else { "mahact_infantry" }, &PlayerId::new("b"), 4);
+                let before = state.player(&PlayerId::new("b")).unwrap().trade_goods + state.player(&PlayerId::new("b")).unwrap().commodities;
+                run_invasion_first_option(&mut state, seed, &system);
+                let now = state.player(&PlayerId::new("b")).unwrap().trade_goods + state.player(&PlayerId::new("b")).unwrap().commodities;
+                gained += i64::from(now - before).max(0);
+                on_card += state.faction_marks.get("mahact:cl2:b").and_then(|n| n.parse::<u32>().ok()).unwrap_or(0);
+            }
+        });
+        let r = report();
+        let w = r.windows.get("invasion::ground_round_hits").copied().unwrap_or_default();
+        assert!(gained > 0, "a commodity or a trade good was gained");
+        assert!(on_card > 0, "a Legionnaire II waits on the card");
+        assert!(w.compared >= 1, "{:?}", r.windows);
+        assert!(r.windows.keys().all(|k| !k.contains("unported ability unit:*:mahact_infantry")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
     /// Brother Milor (the Yin agent), ground branch: after a ground force is destroyed in a ground combat the readied
     /// agent lets its owner place 2 infantry on the planet; the core resolver places the same units (form, count)
     /// and exhausts the card.

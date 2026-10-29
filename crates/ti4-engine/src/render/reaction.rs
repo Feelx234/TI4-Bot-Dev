@@ -33,6 +33,7 @@ impl Family for Fam {
             Ask::Window { event, relation } => format!("{} {}", relation_text(*relation), event_text(r, *event)),
             Ask::PlayCard { event, relation } => format!("play an action card ({} {})", relation_text(*relation), event_text(r, *event)),
             Ask::InstinctTraining { card } => format!("Instinct Training: exhaust and spend a strategy token to cancel {}", card.as_str()),
+            Ask::Legionnaire { .. } => "Crimson Legionnaire: gain 1 commodity or convert 1 to a trade good".to_owned(),
             Ask::AgentSwap { target } => format!(
                 "I48S: exhaust to let {} replace 1 infantry in the active system with a mech",
                 target.map_or_else(|| "the active player".to_owned(), |t| r.seat_text(t).to_owned())
@@ -46,6 +47,7 @@ impl Family for Fam {
             Subtype::PlayCard { event, relation } => format!("play_reaction_{}_{}", relation_text(*relation), event_text(r, *event)),
             Subtype::InstinctTraining => "instinct_training_cancel".to_owned(),
             Subtype::AgentSwap => "l1z1x_agent_swap".to_owned(),
+            Subtype::Legionnaire => "legionnaire_payment".to_owned(),
         }
     }
 
@@ -64,6 +66,8 @@ impl Family for Fam {
             }
             (Ask::InstinctTraining { .. }, Opt::Use) => ChoiceOption::labelled("use", "technology", "cancel it"),
             (Ask::AgentSwap { .. }, Opt::Use) => ChoiceOption::labelled("use", "leader", "exhaust the agent"),
+            (Ask::Legionnaire { .. }, Opt::Gain) => ChoiceOption::labelled("gain", "economy", "gain 1 commodity"),
+            (Ask::Legionnaire { .. }, Opt::Convert) => ChoiceOption::labelled("convert", "economy", "convert 1 commodity to a trade good"),
             _ => panic!("option {o:?} in the question {a:?}"),
         }
     }
@@ -71,6 +75,13 @@ impl Family for Fam {
     fn parse(r: &Render, a: &Ask, id: &str) -> Option<Opt> {
         if let Ask::PlayCard { .. } = a {
             return ActionCard::from_id(id).map(Opt::Card);
+        }
+        if let Ask::Legionnaire { .. } = a {
+            return match id {
+                "gain" => Some(Opt::Gain),
+                "convert" => Some(Opt::Convert),
+                _ => None,
+            };
         }
         if !matches!(a, Ask::Window { .. }) {
             return (id == "use").then_some(Opt::Use);

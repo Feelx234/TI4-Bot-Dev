@@ -661,6 +661,15 @@ fn complete_nested(
         rendered.context = Some(ctx.about_battle(gs).about_invasion(gs));
     }
     crate::render::leaders::complete_round_agent(r, choice, rendered);
+    if matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(ti4_engine_core::choice::reaction::Ask::Legionnaire { .. })) {
+        // `strategy_cards::commodity_standing`: display only, the asked seat's commodities, their printed limit and trade goods.
+        if let Some(p) = core.players().by_seat(choice.actor) {
+            rendered.details.insert(
+                "commodities".to_owned(),
+                serde_json::json!({"have": p.econ.commodities, "max": ti4_engine_core::rules::strategy::commodity_limit(p.faction), "trade_goods": p.econ.trade_goods}),
+            );
+        }
+    }
     if is_window_pick(choice) {
         slot_options(r, choice, facts, core, kernel, rendered);
     }
@@ -674,7 +683,7 @@ fn complete_nested(
 /// Whether a nested question carries the trigger of its window in its context: the window's own pick, and the
 /// questions whose string ability builds one (`DecisionTrigger::from_event`).
 fn with_trigger_of(choice: &CoreChoice) -> bool {
-    matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(_))
+    matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(a) if !matches!(a, ti4_engine_core::choice::reaction::Ask::Legionnaire { .. }))
 }
 
 /// Whether a nested question is the window's own pick (the one that carries the `active` detail of the action phase).

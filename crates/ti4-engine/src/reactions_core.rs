@@ -41,6 +41,8 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::ce_movement::arborec::timing::WARRIOR_ROLLS, kind: "unit", card: "arborec_infantry2" },
     Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::MILOR_SHIPS, kind: "leader", card: "yinagent" },
     Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::MILOR_GROUND, kind: "leader", card: "yinagent" },
+    Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::LEGIONNAIRE, kind: "unit", card: "mahact_infantry" },
+    Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::LEGIONNAIRE_II, kind: "unit", card: "mahact_infantry2" },
     Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::SALVAGE_TRADE_GOOD, kind: "technology", card: "so" },
     Named { slot: ti4_engine_core::rules::reactions::saar::SAAR_TRADE_GOOD, kind: "tech", card: "sar" },
     Named { slot: ti4_engine_core_factions::cc_ground::borrowed::timing::SOL_AGENT, kind: "leader", card: "solagent" },
@@ -117,8 +119,10 @@ pub fn table() -> AbilityTable {
             ti4_engine_core::rules::reactions::register(&mut t);
             ti4_engine_core_factions::cb_economy::register_abilities(&mut t);
             ti4_engine_core_factions::ce_movement::register_abilities(&mut t);
-            ti4_engine_core_factions::cd_registry::register_abilities(&mut t);
+            // The string order of the faction modules (Mahact and Mentak before Yin): only abilities of one window share a
+            // bucket, and Mahact's Legionnaire and Yin's agent do.
             ti4_engine_core_factions::cc_ground::register_abilities(&mut t);
+            ti4_engine_core_factions::cd_registry::register_abilities(&mut t);
             ti4_engine_core::rules::reactions::register_after_factions(&mut t);
             ti4_engine_core_factions::cards::register(&mut t);
             t
@@ -302,6 +306,8 @@ impl Follow {
         self.table.codes.mentak = r.code("mentak");
         self.table.codes.instinct_training = r.code("instinct_training");
         self.table.codes.direct_hit = r.code("action_card:direct_hit");
+        self.table.codes.mahact_infantry = r.code("mahact_infantry");
+        self.table.codes.mahact_infantry2 = r.code("mahact_infantry2");
         self.table.codes.retreat_capacity = r.code("retreat_capacity");
         self.table.codes.reinforcements = r.code("reinforcements");
         self.table.facts.staging = crate::supply::staging_enabled(gs);
@@ -371,8 +377,10 @@ mod tests {
         let mut r = rec(&[slot], &[slot]);
         r.played = vec!["mb1".to_owned()];
         assert_eq!(r.unported(&t), None, "a Morale Boost is a stamp the core plays");
-        r.played = vec!["mb1".to_owned(), "s_retreat1".to_owned()];
-        assert_eq!(r.unported(&t).as_deref(), Some("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card s_retreat1)"));
+        r.played = vec!["mb1".to_owned(), "reveal_prototype".to_owned()];
+        assert_eq!(r.unported(&t).as_deref(), Some("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card reveal_prototype)"));
+        r.played = vec!["s_retreat1".to_owned(), "intercept".to_owned(), "dh2".to_owned(), "parley".to_owned()];
+        assert_eq!(r.unported(&t), None, "the cards of the card module are played by the core");
     }
 
     #[test]

@@ -70,6 +70,8 @@ pub enum Ask {
     /// Which action card to play into the window of `relation` around `event` (the reaction slot of a seat holding
     /// two different cards for it).
     PlayCard { event: EventKind, relation: Relation },
+    /// Crimson Legionnaire (Mahact; `second`: the II): "gain 1 commodity or convert 1 to a trade good".
+    Legionnaire { second: bool },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -81,6 +83,10 @@ pub enum Opt {
     Use,
     /// Play this card (the alias of the first copy in the hand).
     Card(ActionCard),
+    /// Gain 1 commodity (Crimson Legionnaire).
+    Gain,
+    /// Convert 1 commodity to a trade good (Crimson Legionnaire).
+    Convert,
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`): `reaction_{relation}_{EVENT}`.
@@ -90,4 +96,6 @@ pub enum Subtype {
     InstinctTraining,
     AgentSwap,
     PlayCard { event: EventKind, relation: Relation },
+    /// `legionnaire_payment`.
+    Legionnaire,
 }
