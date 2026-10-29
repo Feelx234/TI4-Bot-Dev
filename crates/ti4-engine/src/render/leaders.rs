@@ -3,10 +3,11 @@
 //!
 //! Owner: package B7 (docs/ENGINE_CORE_STATE.md 4.4). Ported: the Rear Admiral Farran offer (prompt
 //! "Rear Admiral Farran: gain 1 trade good for the sustained damage", subtype `letnev_commander_trade_good`,
-//! option `gain` of kind `letnev_commander_trade_good`, then the generic decline).
+//! option `gain` of kind `letnev_commander_trade_good`, then the generic decline). Xxekir Grom (Thunder's Edge Xxcha
+//! hero): `leader_xxchahero_te_place` / `_stop` / `_planet`.
 
-use ti4_engine_core::choice::leaders::{Ask, Opt, RoundTarget, Subtype};
 use ti4_engine_core::choice::agenda::Shown;
+use ti4_engine_core::choice::leaders::{Ask, HeroUnit, Opt, RoundTarget, Subtype};
 use ti4_engine_core::generated::{Planet, System, Technology, Unit};
 
 use super::{Family, Render};
@@ -84,6 +85,9 @@ pub const KIND: &str = "letnev_commander_trade_good";
 const INFANTRY_KIND: &str = "leader_xxchaagent_infantry";
 const HACAN_KIND: &str = "leader_hacanagent_branch";
 const JOLNAR_KIND: &str = "leader_jolnarhero_swap";
+const HERO_PLACE_KIND: &str = "leader_xxchahero_te_place";
+const HERO_STOP_KIND: &str = "leader_xxchahero_te_stop";
+const HERO_PLANET_KIND: &str = "leader_xxchahero_te_planet";
 
 /// The renderer of the leader questions.
 pub struct Fam;
@@ -102,6 +106,8 @@ impl Family for Fam {
             Ask::L1z1xDestination => "Leader: which system to gather your ships in".to_owned(),
             Ask::JolnarSwap { .. } => "Leader: replace which technology with what".to_owned(),
             Ask::RoundAgentUnit { agent } => format!("{}: choose one unit for +1 combat die", agent.as_str()),
+            Ask::XxchaHeroPlace => "Leader: place up to 4 PDS or mechs (how many more?)".to_owned(),
+            Ask::XxchaHeroPlanet => "Leader: which planet gets the unit?".to_owned(),
         }
     }
 
@@ -114,6 +120,8 @@ impl Family for Fam {
             Subtype::L1z1xDestination => "leader_l1z1xhero_destination".to_owned(),
             Subtype::JolnarSwap => JOLNAR_KIND.to_owned(),
             Subtype::RoundAgentUnit => ROUND_KIND.to_owned(),
+            Subtype::XxchaHeroPlace => HERO_PLACE_KIND.to_owned(),
+            Subtype::XxchaHeroPlanet => HERO_PLANET_KIND.to_owned(),
         }
     }
 
@@ -137,6 +145,18 @@ impl Family for Fam {
             Opt::Replenish(seat) => {
                 let id = r.seat_text(*seat);
                 ChoiceOption::labelled(id, HACAN_KIND, format!("replenish {id}"))
+            }
+            Opt::HeroPlace(HeroUnit::Pds) => ChoiceOption::labelled("place|pds", HERO_PLACE_KIND, "place 1 PDS on a planet you control"),
+            Opt::HeroPlace(HeroUnit::Mech) => ChoiceOption::labelled("place|mech", HERO_PLACE_KIND, "place 1 mech on a planet you control"),
+            Opt::HeroStop => ChoiceOption::labelled("stop", HERO_STOP_KIND, "stop placing"),
+            Opt::HeroPlanet(p, shown) => {
+                let system = shown.system.map(|s| s.as_str());
+                ChoiceOption::labelled(
+                    format!("planet|{}", p.as_str()),
+                    HERO_PLANET_KIND,
+                    format!("{} in {}", p.as_str(), system.unwrap_or_default()),
+                )
+                .with_planet(p.as_str(), system)
             }
             Opt::RoundAgentUnit(t) => ChoiceOption::labelled(
                 round_target_id(r, t),
@@ -173,6 +193,13 @@ impl Family for Fam {
                 r.seat(id).map(Opt::Replenish)
             }
             Ask::RoundAgentUnit { .. } => round_target_of(r, id).map(Opt::RoundAgentUnit),
+            Ask::XxchaHeroPlace => match id {
+                "place|pds" => Some(Opt::HeroPlace(HeroUnit::Pds)),
+                "place|mech" => Some(Opt::HeroPlace(HeroUnit::Mech)),
+                "stop" => Some(Opt::HeroStop),
+                _ => None,
+            },
+            Ask::XxchaHeroPlanet => Planet::from_id(id.strip_prefix("planet|")?).map(|p| Opt::HeroPlanet(p, Shown::default())),
         }
     }
 }

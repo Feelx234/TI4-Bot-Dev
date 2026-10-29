@@ -84,3 +84,78 @@ pub fn secret_objective_bonus(core: &CoreState, seat: Seat) -> usize {
 pub fn ignores_gravity_rifts(core: &CoreState, seat: Seat) -> bool {
     holds(core, seat, Relic::CircletOfTheVoid)
 }
+
+/// The arm of `relics::use_relic` a relic takes: the dispatch of the component action of a relic (the effect behind
+/// an arm is the area's windows and writes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum UseArm {
+    /// The seat does not hold the relic (`Used::NotHeld`).
+    NotHeld,
+    EnigmaticDevice,
+    MawOfWorlds,
+    Codex,
+    StellarConverter,
+    TitanPrototype,
+    DynamisCore,
+    BookOfLatvinia,
+    SilverFlame,
+    /// Held, but the engine has no handler (`Used::Unresolved`).
+    Unresolved,
+}
+
+/// The relics with a printed ACTION the engine resolves, in the order of `relics::action_aliases` (alphabetical by
+/// alias, not used for ordering anywhere: [`action_relics`] keeps the order of the hand).
+#[must_use]
+pub const fn has_action(relic: Relic) -> bool {
+    matches!(
+        relic,
+        Relic::BookOfLatvinia
+            | Relic::TheCodex
+            | Relic::DynamisCore
+            | Relic::EnigmaticDevice
+            | Relic::MawOfWorlds
+            | Relic::StellarConverter
+            | Relic::JRXS455O
+            | Relic::TheSilverFlame
+    )
+}
+
+/// `relics::use_relic`'s `match`: which arm `relic` takes for `seat`.
+#[must_use]
+pub fn use_arm(core: &CoreState, seat: Seat, relic: Relic) -> UseArm {
+    if !holds(core, seat, relic) {
+        return UseArm::NotHeld;
+    }
+    match relic {
+        Relic::EnigmaticDevice => UseArm::EnigmaticDevice,
+        Relic::MawOfWorlds => UseArm::MawOfWorlds,
+        Relic::TheCodex => UseArm::Codex,
+        Relic::StellarConverter => UseArm::StellarConverter,
+        Relic::JRXS455O => UseArm::TitanPrototype,
+        Relic::DynamisCore => UseArm::DynamisCore,
+        Relic::BookOfLatvinia => UseArm::BookOfLatvinia,
+        Relic::TheSilverFlame => UseArm::SilverFlame,
+        _ => UseArm::Unresolved,
+    }
+}
+
+/// The relics `relics::available_actions` offers a use of, in hand order: held, with a printed ACTION the engine
+/// resolves, and able to resolve (22.3). `enigmatic_resolvable` and `stellar_resolvable` are the two facts of other
+/// areas (the research prerequisites and six resources; a target in range of the Converter), asked only for a seat
+/// that holds the relic.
+#[must_use]
+pub fn action_relics(core: &CoreState, seat: Seat, enigmatic_resolvable: bool, stellar_resolvable: bool) -> crate::containers::SmallList<Relic, 8> {
+    let mut out = crate::containers::SmallList::new();
+    let Some(c) = cards(core, seat) else { return out };
+    for relic in c.relics.as_slice() {
+        let resolvable = match relic {
+            Relic::EnigmaticDevice => enigmatic_resolvable,
+            Relic::StellarConverter => stellar_resolvable,
+            _ => true,
+        };
+        if has_action(*relic) && resolvable {
+            out.push(*relic);
+        }
+    }
+    out
+}

@@ -1,5 +1,5 @@
 //! The leader abilities that ask (package B7; string `leaders::dispatch_leader`), as [`Window`]s: Ggrocuto Rinn
-//! (`xxchaagent`) and Carth of Golden Sands (`hacanagent`).
+//! (`xxchaagent`), Carth of Golden Sands (`hacanagent`), The Helmsman, Rin and Xxekir Grom (Thunder's Edge hero).
 //!
 //! Each is the effect of one arm of `dispatch_leader` split at its questions: `step` runs to the next question,
 //! `answer` is the only place an answer changes the position, and the effect itself (readying, the commodity
@@ -13,10 +13,10 @@
 
 use crate::choice::generic::Content;
 use crate::choice::agenda::Shown;
-use crate::choice::leaders::{Ask as LAsk, Opt as LOpt, Subtype as LSub};
+use crate::choice::leaders::{Ask as LAsk, HeroUnit, Opt as LOpt, Subtype as LSub};
 use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use crate::containers::SmallList;
-use crate::generated::{Leader, Planet, System, TechType, Technology, UnitBaseType};
+use crate::generated::{Leader, Planet, System, TechType, Technology, Unit, UnitBaseType};
 use crate::query::tech;
 use crate::ids::Seat;
 use crate::kernel::fx;
@@ -576,11 +576,179 @@ impl Window for RinHero {
     }
 }
 
+// -- Xxekir Grom, Thunder's Edge ------------------------------------------------------------------------
+
+/// The suspension points of [`XxchaHeroTe`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TStage {
+    Start,
+    /// Between two placements: another one, or the end.
+    Loop,
+    /// Waiting on "place another PDS / mech, or stop".
+    Place,
+    /// Waiting on "which planet gets the unit".
+    Planet,
+    Done,
+}
+
+/// "Place any combination of up to 4 PDS or mechs onto planets you control; ready each planet that you place a
+/// unit on. Then, purge this card." Every placement is decided before anything is placed (a refused answer leaves
+/// the position as it was); stopping early is legal. The planets in the string's order, the unit forms and the
+/// supply left (`supply::allowed`) are the adapter's; the purge is the caller's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct XxchaHeroTe {
+    pub who: Seat,
+    planets: Vec<(System, Planet)>,
+    pds: Option<Unit>,
+    mech: Option<Unit>,
+    pds_left: usize,
+    mech_left: usize,
+    placed: u8,
+    kind: Option<Unit>,
+    plan: Vec<(Unit, System, Planet)>,
+    stage: TStage,
+    /// The ability resolved (the string arm returned `true`).
+    pub used: bool,
+}
+
+impl XxchaHeroTe {
+    /// The most placements one use makes.
+    pub const MOST: u8 = 4;
+
+    #[must_use]
+    pub fn new(who: Seat, planets: &[(System, Planet)], pds: Option<(Unit, usize)>, mech: Option<(Unit, usize)>) -> Self {
+        Self {
+            who,
+            planets: planets.to_vec(),
+            pds: pds.map(|p| p.0),
+            mech: mech.map(|m| m.0),
+            pds_left: pds.map_or(0, |p| p.1),
+            mech_left: mech.map_or(0, |m| m.1),
+            placed: 0,
+            kind: None,
+            plan: Vec::new(),
+            stage: TStage::Start,
+            used: false,
+        }
+    }
+
+    const PLACE: Ask = Ask::Leaders(LAsk::XxchaHeroPlace);
+    const PLANET: Ask = Ask::Leaders(LAsk::XxchaHeroPlanet);
+
+    /// The units go down and their planets are readied.
+    fn finish(&mut self, sx: &mut Sx<'_>) {
+        for (unit, system, planet) in &self.plan {
+            fx::place_unit(sx.state, self.who, *system, Some(*planet), *unit);
+            fx::ready_planet(sx.state, *planet);
+        }
+        self.used = true;
+        self.stage = TStage::Done;
+    }
+
+    fn plan_unit(&mut self, unit: Unit, system: System, planet: Planet) {
+        self.plan.push((unit, system, planet));
+        self.placed += 1;
+        self.kind = None;
+        self.stage = TStage::Loop;
+    }
+}
+
+impl Window for XxchaHeroTe {
+    type Stage = TStage;
+
+    fn stage(&self) -> TStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        loop {
+            match self.stage {
+                // Nothing to place on: the ability was never offered.
+                TStage::Start => self.stage = if self.planets.is_empty() { TStage::Done } else { TStage::Loop },
+                TStage::Loop => {
+                    if self.placed >= Self::MOST || (self.pds_left == 0 && self.mech_left == 0) {
+                        self.finish(sx);
+                    } else {
+                        self.stage = TStage::Place;
+                    }
+                }
+                TStage::Place => return Next::Continue(Self::PLACE),
+                TStage::Planet => return Next::Continue(Self::PLANET),
+                TStage::Done => return Next::Done,
+            }
+        }
+    }
+
+    fn ask_of(&self, _: &CoreState, k: &Kernel) -> Option<Choice> {
+        let leader = Leader::XxekirGromTe;
+        match self.stage {
+            TStage::Place => {
+                let mut opts = Opts::default();
+                if self.pds_left > 0 {
+                    opts.push(Opt::Leaders(LOpt::HeroPlace(HeroUnit::Pds)));
+                }
+                if self.mech_left > 0 {
+                    opts.push(Opt::Leaders(LOpt::HeroPlace(HeroUnit::Mech)));
+                }
+                opts.push(Opt::Leaders(LOpt::HeroStop));
+                Some(Choice { actor: self.who, ask: Self::PLACE, ctx: ctx(leader, LSub::XxchaHeroPlace), opts })
+            }
+            TStage::Planet => {
+                let _ = k;
+                Some(Choice {
+                    actor: self.who,
+                    ask: Self::PLANET,
+                    ctx: ctx(leader, LSub::XxchaHeroPlanet),
+                    opts: self
+                        .planets
+                        .iter()
+                        .map(|(system, planet)| Opt::Leaders(LOpt::HeroPlanet(*planet, Shown { votes: 0, system: Some(*system) })))
+                        .collect::<Opts>(),
+                })
+            }
+            _ => None,
+        }
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        match (self.stage, pick) {
+            (TStage::Place, Pick::Opt(Opt::Leaders(LOpt::HeroStop))) => {
+                self.finish(sx);
+                Ok(())
+            }
+            (TStage::Place, Pick::Opt(Opt::Leaders(LOpt::HeroPlace(which)))) => {
+                let (unit, left) = match which {
+                    HeroUnit::Pds => (self.pds, &mut self.pds_left),
+                    HeroUnit::Mech => (self.mech, &mut self.mech_left),
+                };
+                let Some(unit) = unit.filter(|_| *left > 0) else { return Err(Illegal) };
+                *left -= 1;
+                if let [(system, planet)] = self.planets.as_slice() {
+                    let (system, planet) = (*system, *planet);
+                    self.plan_unit(unit, system, planet);
+                } else {
+                    self.kind = Some(unit);
+                    self.stage = TStage::Planet;
+                }
+                Ok(())
+            }
+            (TStage::Planet, Pick::Opt(Opt::Leaders(LOpt::HeroPlanet(planet, _)))) => {
+                let Some(&(system, _)) = self.planets.iter().find(|(_, p)| *p == planet) else { return Err(Illegal) };
+                let Some(unit) = self.kind else { return Err(Illegal) };
+                self.plan_unit(unit, system, planet);
+                Ok(())
+            }
+            _ => Err(Illegal),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::driver::{Driver, DriverError, Status};
     use crate::generated::Faction;
+    use crate::choice::leaders::HeroUnit;
     use crate::kernel::stage::AbilityTable;
     use crate::kernel::Resolver;
     use crate::state::{Player, Players};
@@ -669,5 +837,110 @@ mod tests {
         let mut d = driver(HacanAgent::new(Seat(0)));
         assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
         assert!(!d.window.used);
+    }
+
+    // -- Xxekir Grom -------------------------------------------------------------------------------
+
+    fn grom_planets() -> Vec<(System, Planet)> {
+        vec![
+            (System::from_index(3).unwrap(), Planet::from_index(3).unwrap()),
+            (System::from_index(4).unwrap(), Planet::from_index(9).unwrap()),
+            (System::from_index(5).unwrap(), Planet::from_index(12).unwrap()),
+        ]
+    }
+
+    fn pieces(s: &CoreState, planet: Planet, unit: Unit) -> usize {
+        s.board().planet(planet).units.as_slice().iter().filter(|u| u.owner() == Seat(0) && u.kind() == unit).count()
+    }
+
+    fn grom_units() -> (Unit, Unit) {
+        let find = |base| Unit::ALL.iter().copied().find(|u| u.data().base_type == base && u.data().faction.is_none()).expect("a unit of that base type");
+        (find(UnitBaseType::Pds), find(UnitBaseType::Mech))
+    }
+
+    #[test]
+    fn grom_places_four_units_without_a_stop_and_readies_the_planets_it_placed_on() {
+        let (k, mut s) = (kernel(), table(2));
+        let (pds, mech) = grom_units();
+        let planets = grom_planets();
+        for (_, p) in &planets {
+            fx::exhaust_planet(&mut s, *p);
+        }
+        let mut d = driver(XxchaHeroTe::new(Seat(0), &planets, Some((pds, 6)), Some((mech, 6))));
+        let mut status = d.run(&mut s, &k).unwrap();
+        for i in 0..4 {
+            let Status::Asking(c) = status else { panic!("question {i}") };
+            assert_eq!(c.ask, Ask::Leaders(LAsk::XxchaHeroPlace));
+            assert_eq!(c.opts.len(), 3);
+            let Status::Asking(c) = d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::HeroPlace(if i % 2 == 0 { HeroUnit::Pds } else { HeroUnit::Mech })))).unwrap() else {
+                panic!("which planet")
+            };
+            assert_eq!(c.ask, Ask::Leaders(LAsk::XxchaHeroPlanet));
+            assert_eq!(c.opts.len(), 3);
+            assert_eq!(pieces(&s, planets[0].1, pds) + pieces(&s, planets[0].1, mech), 0, "nothing is placed before the end");
+            status = d.resume(&mut s, &k, Pick::Opt(c.opts.as_slice()[0])).unwrap();
+        }
+        assert_eq!(status, Status::Done, "the fifth question is never put");
+        assert!(d.window.used);
+        assert_eq!((pieces(&s, planets[0].1, pds), pieces(&s, planets[0].1, mech)), (2, 2));
+        assert!(!exhausted_planets(&s).contains(&planets[0].1), "the planet placed on is readied");
+        assert_eq!(exhausted_planets(&s).len(), 2, "the others stay exhausted");
+    }
+
+    #[test]
+    fn grom_asks_no_planet_for_a_single_planet_and_may_stop_at_once() {
+        let (k, mut s) = (kernel(), table(2));
+        let (pds, mech) = grom_units();
+        let one = &grom_planets()[..1];
+        let mut d = driver(XxchaHeroTe::new(Seat(0), one, Some((pds, 1)), Some((mech, 1))));
+        assert!(matches!(d.run(&mut s, &k).unwrap(), Status::Asking(_)));
+        let Status::Asking(c) = d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::HeroPlace(HeroUnit::Mech)))).unwrap() else { panic!("asks again") };
+        assert_eq!(c.ask, Ask::Leaders(LAsk::XxchaHeroPlace));
+        assert_eq!(c.opts.as_slice(), &[Opt::Leaders(LOpt::HeroPlace(HeroUnit::Pds)), Opt::Leaders(LOpt::HeroStop)], "the mech is used up");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::HeroStop))).unwrap(), Status::Done);
+        assert_eq!((pieces(&s, one[0].1, pds), pieces(&s, one[0].1, mech)), (0, 1));
+        assert!(d.window.used);
+
+        let mut s = table(2);
+        let mut d = driver(XxchaHeroTe::new(Seat(0), one, Some((pds, 1)), Some((mech, 1))));
+        d.run(&mut s, &k).unwrap();
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::HeroStop))).unwrap(), Status::Done);
+        assert!(d.window.used, "stopping early still resolves the use");
+        assert_eq!(pieces(&s, one[0].1, pds) + pieces(&s, one[0].1, mech), 0);
+    }
+
+    #[test]
+    fn grom_refuses_what_is_not_offered_and_changes_nothing_before_the_end() {
+        let (k, mut s) = (kernel(), table(2));
+        let (pds, mech) = grom_units();
+        let planets = grom_planets();
+        // Only a PDS is left to place.
+        let mut d = driver(XxchaHeroTe::new(Seat(0), &planets, Some((pds, 1)), Some((mech, 0))));
+        d.run(&mut s, &k).unwrap();
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::HeroPlace(HeroUnit::Mech)))), Err(DriverError::Illegal));
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::HeroPlanet(planets[0].1, Shown::default())))), Err(DriverError::Illegal), "a planet before a unit");
+        d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::HeroPlace(HeroUnit::Pds)))).unwrap();
+        let other = Planet::from_index(20).unwrap();
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::HeroPlanet(other, Shown::default())))), Err(DriverError::Illegal), "not a controlled planet");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::HeroStop))), Err(DriverError::Illegal), "stop is for the other question");
+        assert_eq!(pieces(&s, planets[1].1, pds), 0, "nothing placed yet");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::HeroPlanet(planets[1].1, Shown::default())))).unwrap(), Status::Done, "the PDS was the last unit");
+        assert_eq!(pieces(&s, planets[1].1, pds), 1);
+        let touched = |system: System| s.board().sys(system).flags.has(crate::state::SysFlags::TOUCHED);
+        assert!(touched(planets[1].0), "the system of the planet chosen is where the unit went");
+        assert!(!touched(planets[0].0), "not the system of the first planet");
+    }
+
+    #[test]
+    fn grom_without_a_planet_or_without_supply_asks_nothing() {
+        let (k, mut s) = (kernel(), table(2));
+        let (pds, mech) = grom_units();
+        let mut d = driver(XxchaHeroTe::new(Seat(0), &[], Some((pds, 1)), Some((mech, 1))));
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(!d.window.used, "never offered");
+        // Nothing left to place: the string loop breaks at once and the use still resolves.
+        let mut d = driver(XxchaHeroTe::new(Seat(0), &grom_planets(), Some((pds, 0)), None));
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(d.window.used);
     }
 }

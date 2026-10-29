@@ -116,6 +116,27 @@ mod real {
         lend(gs, None, |core, _| rules::place_wormhole_token(core, Wormhole::Gamma, s))
     }
 
+    /// `planets::place` for the Mirage planet token: whether the planet was put on the board.
+    pub fn place_planet(gs: &mut GameState, player: &PlayerId, system: &SystemId, planet: &PlanetId) -> Option<bool> {
+        let (s, p) = (typed::<System>(system.as_str())?, typed::<Planet>(planet.as_str())?);
+        lend(gs, Some(player), |core, who| rules::place_planet(core, seat_of(who), s, p))
+    }
+
+    /// The unit `exploration::place_on_planet` puts on a planet (the form and the supply were settled by the caller;
+    /// the Naaz mech's staged event is the caller's too).
+    pub fn place_unit(gs: &mut GameState, player: &PlayerId, system: &SystemId, planet: &PlanetId, unit: &ti4_model::id::UnitTypeId) -> Option<()> {
+        let (s, p) = (typed::<System>(system.as_str())?, typed::<Planet>(planet.as_str())?);
+        let u = typed::<ti4_engine_core::generated::Unit>(unit.as_str())?;
+        lend(gs, Some(player), |core, who| ti4_engine_core::kernel::fx::place_unit(core, seat_of(who), s, Some(p), u))
+    }
+
+    /// `exploration::demilitarize`.
+    pub fn demilitarize(gs: &mut GameState, sources: SourceSet, planet: &PlanetId) -> Option<()> {
+        let p = typed::<Planet>(planet.as_str())?;
+        let scope = crate::core_adapter::scope(sources);
+        lend(gs, None, |core, _| rules::demilitarize(core, scope, p))
+    }
+
     /// `relics::crown_of_emphidia_point`.
     pub fn crown_point(gs: &mut GameState, player: &PlayerId) -> Option<bool> {
         lend(gs, Some(player), |core, who| rules::crown_point(core, seat_of(who)))
@@ -574,6 +595,15 @@ mod stub {
         None
     }
     pub fn spend_commodities(_: &mut GameState, _: &PlayerId, _: Option<i32>) -> Option<i32> {
+        None
+    }
+    pub fn place_planet(_: &mut GameState, _: &PlayerId, _: &SystemId, _: &PlanetId) -> Option<bool> {
+        None
+    }
+    pub fn place_unit(_: &mut GameState, _: &PlayerId, _: &SystemId, _: &PlanetId, _: &ti4_model::id::UnitTypeId) -> Option<()> {
+        None
+    }
+    pub fn demilitarize(_: &mut GameState, _: ti4_model::content_types::SourceSet, _: &PlanetId) -> Option<()> {
         None
     }
     pub fn book_of_latvinia(_: &mut GameState, _: &PlayerId, _: ti4_model::content_types::SourceSet) -> Option<bool> {

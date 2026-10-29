@@ -38,6 +38,17 @@ pub enum Ask {
     JolnarSwap { held: crate::generated::Technology },
     /// A round agent: "choose 1 unit in the active system: it rolls 1 additional die during this combat round".
     RoundAgentUnit { agent: Leader },
+    /// Xxekir Grom (Thunder's Edge Xxcha hero): place another PDS or mech, or stop ("how many more?").
+    XxchaHeroPlace,
+    /// Xxekir Grom: which planet gets the unit.
+    XxchaHeroPlanet,
+}
+
+/// The kind of unit Xxekir Grom places.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum HeroUnit {
+    Pds,
+    Mech,
 }
 
 /// One answer the area offers (not stored in the state).
@@ -62,6 +73,12 @@ pub enum Opt {
     Trade(crate::generated::Technology),
     /// This unit rolls the additional die.
     RoundAgentUnit(RoundTarget),
+    /// Xxekir Grom: place 1 PDS / 1 mech.
+    HeroPlace(HeroUnit),
+    /// Xxekir Grom: stop placing.
+    HeroStop,
+    /// Xxekir Grom: this planet gets the unit, with the system the map shows it in (`Shown`, B9: equal always).
+    HeroPlanet(crate::generated::Planet, super::agenda::Shown),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -74,4 +91,6 @@ pub enum Subtype {
     L1z1xDestination,
     JolnarSwap,
     RoundAgentUnit,
+    XxchaHeroPlace,
+    XxchaHeroPlanet,
 }

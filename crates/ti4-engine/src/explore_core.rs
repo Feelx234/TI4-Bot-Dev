@@ -282,6 +282,30 @@ use crate::generated::IdStr;
             Some(relic::ignores_gravity_rifts(&self.view, self.seat(player)?))
         }
 
+        /// `relics::use_arm`.
+        #[must_use]
+        pub fn use_arm(&self, player: &PlayerId, r: &RelicId) -> Option<crate::relics::Arm> {
+            use crate::relics::Arm;
+            Some(match relic::use_arm(&self.view, self.seat(player)?, typed::<Relic>(r.as_str())?) {
+                relic::UseArm::NotHeld => Arm::NotHeld,
+                relic::UseArm::EnigmaticDevice => Arm::EnigmaticDevice,
+                relic::UseArm::MawOfWorlds => Arm::MawOfWorlds,
+                relic::UseArm::Codex => Arm::Codex,
+                relic::UseArm::StellarConverter => Arm::StellarConverter,
+                relic::UseArm::TitanPrototype => Arm::TitanPrototype,
+                relic::UseArm::DynamisCore => Arm::DynamisCore,
+                relic::UseArm::BookOfLatvinia => Arm::BookOfLatvinia,
+                relic::UseArm::SilverFlame => Arm::SilverFlame,
+                relic::UseArm::Unresolved => Arm::Unresolved,
+            })
+        }
+
+        /// The relic ids `relics::available_actions` offers a use of.
+        #[must_use]
+        pub fn action_relics(&self, player: &PlayerId, enigmatic: bool, stellar: bool) -> Option<Vec<String>> {
+            Some(relic::action_relics(&self.view, self.seat(player)?, enigmatic, stellar).as_slice().iter().map(|r| r.as_str().to_owned()).collect())
+        }
+
         // -- exploration and legendary planets ---------------------------------------------------
 
         /// `exploration::purgeable`.
