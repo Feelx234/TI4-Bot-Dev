@@ -29,6 +29,7 @@ pub(super) fn close(m: &mut Machine, sx: &mut Sx<'_>) -> Closed {
         .with(Key::System, Val::System(system))
         .with(Key::ShipsMoved, Val::Int(i64::from(ships_moved)));
     let _ = sx.emit(fx::event(EventKind::MovementFinished, payload));
+    m.plain.push(super::Plain::Typed(EventKind::MovementFinished));
     fx_move::clear_arrivals(sx.state);
     Closed { player, system, skip_to_commit: false, ships_moved }
 }

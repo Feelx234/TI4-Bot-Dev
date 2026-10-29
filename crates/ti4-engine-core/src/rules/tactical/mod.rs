@@ -57,6 +57,8 @@ pub enum Plain {
     FreeActivated,
     /// `FREE_TACTICAL_ACTION`.
     FreeTactical,
+    /// The line the string log gets for a typed event the machine emitted (`Game::mirror_timing_log`: the event's name).
+    Typed(crate::state::EventKind),
     /// `SHIP_MOVED`.
     ShipMoved,
     /// `SHIP_LOST_TO_GRAVITY_RIFT`.

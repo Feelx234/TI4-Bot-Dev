@@ -28,12 +28,13 @@ pub(super) fn run(m: &mut Machine, sx: &mut Sx<'_>, system: System) -> Result<()
     fx_move::activate(sx.state, seat, system, false).map_err(|_| Illegal)?;
     let placed = Payload::new().with(Key::Player, Val::Seat(seat)).with(Key::System, Val::System(system)).with(Key::Pool, Val::Code(m.facts.pool));
     let _ = sx.emit(fx::event(EventKind::CommandTokenPlaced, placed));
+    m.plain.push(Plain::Typed(EventKind::CommandTokenPlaced));
     for owner in spend_support(sx.state, seat, system) {
         m.plain.push(Plain::SupportReturned(owner));
     }
     sx.state.transient_mut().movement.gravleash_move_values = Default::default();
     m.plain.push(Plain::SystemActivated(system));
-    activated(sx, seat, system);
+    activated(m, sx, seat, system);
     Ok(())
 }
 
@@ -45,13 +46,14 @@ pub(super) fn free(m: &mut Machine, sx: &mut Sx<'_>, system: System) {
     }
     fx_move::begin_move(sx.state, system);
     m.plain.push(Plain::FreeActivated);
-    activated(sx, seat, system);
+    activated(m, sx, seat, system);
     m.plain.push(Plain::FreeTactical);
 }
 
-fn activated(sx: &mut Sx<'_>, seat: Seat, system: System) {
+fn activated(m: &mut Machine, sx: &mut Sx<'_>, seat: Seat, system: System) {
     let payload = Payload::new().with(Key::Player, Val::Seat(seat)).with(Key::System, Val::System(system));
     let _ = sx.emit(fx::event(EventKind::SystemActivated, payload));
+    m.plain.push(Plain::Typed(EventKind::SystemActivated));
 }
 
 /// Who has a unit in the system, in the space area or on a planet.

@@ -166,6 +166,13 @@ pub fn start() -> bool {
     })
 }
 
+/// Whether the running recording has seen nested activity (a question or an event inside an emission) so far: the
+/// string side of a window that compares plain log lines leaves them out then, as the core side does.
+#[must_use]
+pub fn nested_so_far() -> bool {
+    REC.with(|r| r.borrow().as_ref().is_some_and(|rec| rec.nested))
+}
+
 /// End the recording and take it.
 pub fn finish() -> Recording {
     REC.with(|r| r.borrow_mut().take()).unwrap_or_default()

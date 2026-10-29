@@ -212,6 +212,7 @@ mod real {
             Plain::SystemActivated(system) => format!("SYSTEM_ACTIVATED:{}", system.as_str()),
             Plain::FreeActivated => "SYSTEM_ACTIVATED".to_owned(),
             Plain::FreeTactical => "FREE_TACTICAL_ACTION".to_owned(),
+            Plain::Typed(kind) => crate::kernel_sync::event_text(r, kind),
             Plain::ShipMoved => "SHIP_MOVED".to_owned(),
             Plain::ShipLost => "SHIP_LOST_TO_GRAVITY_RIFT".to_owned(),
         }
@@ -336,7 +337,7 @@ mod real {
         apply_staged(gs, &r, &staged)?;
         let rng = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
         let events = emitted.iter().map(|e| event_of(&r, e)).collect::<Option<Vec<_>>>()?;
-        let stepped = Stepped { stage: tag_of(stage), plain: plain.into_iter().map(|p| plain_text(&r, p)).collect(), failed: false, rift_faces, rng };
+        let stepped = Stepped { stage: tag_of(stage), plain: if script.nested { Vec::new() } else { plain.into_iter().map(|p| plain_text(&r, p)).collect() }, failed: false, rift_faces, rng };
         Some(CoreWindow { run: Run::new(stepped).with_events_vec(events), questions: driven.rendered })
     }
 
@@ -386,7 +387,7 @@ mod real {
         apply_staged(gs, &r, &staged)?;
         let rng = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
         let events = emitted.iter().map(|e| event_of(&r, e)).collect::<Option<Vec<_>>>()?;
-        let stepped = Stepped { stage: tag_of(stage), plain: plain.into_iter().map(|p| plain_text(&r, p)).collect(), failed: false, rift_faces: Vec::new(), rng };
+        let stepped = Stepped { stage: tag_of(stage), plain: if script.nested { Vec::new() } else { plain.into_iter().map(|p| plain_text(&r, p)).collect() }, failed: false, rift_faces: Vec::new(), rng };
         Some(CoreWindow { run: Run::new(stepped).with_events_vec(events), questions: driven.rendered })
     }
 
@@ -443,18 +444,18 @@ mod real {
             let mut driver = Driver::new(Machine::closing(seat, facts), resolver, AbilityTable::default(), 1);
             let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
             staged = std::mem::take(&mut core.pending_mut().staged);
-            out = Some((driver.window.closed, driver.emitted.clone()));
+            out = Some((driver.window.closed, driver.emitted.clone(), driver.window.plain.clone()));
             driven
         });
         let driven = match driven {
             Ok(Ok(d)) => d,
             _ => return bail(LABEL, "a position the codecs refuse"),
         };
-        let (closed, emitted) = out?;
+        let (closed, emitted, plain) = out?;
         let closed = closed?;
         apply_staged(gs, &r, &staged)?;
         let events = emitted.iter().map(|e| event_of(&r, e)).collect::<Option<Vec<_>>>()?;
-        let value = super::Closed { system: closed.system.as_str().to_owned(), skip_to_commit: closed.skip_to_commit, plain: Vec::new(), failed: false };
+        let value = super::Closed { system: closed.system.as_str().to_owned(), skip_to_commit: closed.skip_to_commit, plain: if script.nested { Vec::new() } else { plain.into_iter().map(|p| plain_text(&r, p)).collect() }, failed: false };
         Some(CoreWindow { run: Run::new(value).with_events_vec(events), questions: driven.rendered })
     }
 }

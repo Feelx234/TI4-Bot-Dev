@@ -3406,7 +3406,7 @@ impl<'a> Game<'a> {
                 };
                 crate::dual::Run::new(crate::tactical_dual::Stepped {
                     stage,
-                    plain: self.events.get(events_before..).unwrap_or_default().to_vec(),
+                    plain: if crate::dual_window::nested_so_far() { Vec::new() } else { self.events.get(events_before..).unwrap_or_default().to_vec() },
                     failed: failed.get(),
                     rift_faces: self.dice.history()[dice_before..]
                         .iter()
@@ -3778,7 +3778,7 @@ impl<'a> Game<'a> {
                     } else {
                         crate::tactical_dual::Tag::Closed
                     },
-                    plain: self.events.get(events_before..).unwrap_or_default().to_vec(),
+                    plain: if crate::dual_window::nested_so_far() { Vec::new() } else { self.events.get(events_before..).unwrap_or_default().to_vec() },
                     failed: failed.get(),
                     rift_faces: Vec::new(),
                     rng: self.rng.positions(),
@@ -4878,7 +4878,7 @@ impl<'a> Game<'a> {
                 crate::dual::Run::new(crate::tactical_dual::Closed {
                     system: value.0,
                     skip_to_commit: value.1,
-                    plain: self.events.get(events_before..).unwrap_or_default().to_vec(),
+                    plain: if crate::dual_window::nested_so_far() { Vec::new() } else { self.events.get(events_before..).unwrap_or_default().to_vec() },
                     failed: failed.get(),
                 })
             },

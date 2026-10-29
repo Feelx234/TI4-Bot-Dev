@@ -131,4 +131,5 @@ fn arrived(m: &mut Machine, sx: &mut Sx<'_>, l: &Loading, cargo: &[transit::Cand
         payload.set(Key::Wormholes, Val::Int(i64::from(hops)));
     }
     let _ = sx.emit(fx::event(EventKind::ShipMoved, payload));
+    m.plain.push(Plain::Typed(EventKind::ShipMoved));
 }
