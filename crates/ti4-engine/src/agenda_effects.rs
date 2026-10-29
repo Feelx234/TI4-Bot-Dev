@@ -724,8 +724,8 @@ fn effect_classified(
             outcome,
         )
         .is_some();
-    if is_secret && !state.revealed_objectives.contains(&alias) {
-        state.revealed_objectives.push(alias);
+    if is_secret {
+        crate::laws::make_public(state, &alias);
     }
     Effect::Resolved {
         agenda: agenda.to_owned(),

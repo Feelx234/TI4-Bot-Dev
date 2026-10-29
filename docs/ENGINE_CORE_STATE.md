@@ -681,6 +681,17 @@ dual run is reported and fixed separately on the string side first, through the 
 | 10 | Allocation check (packages that touch hot state) | `state_size` bench: `CoreState::clone` and the package's hot function report ns and allocations; no regression vs the previous merge |
 | 11 | Compile time | release `ti4-engine` and `ti4-engine-core` build times reported (one run each, shared machine); regression > 10% needs a note |
 
+**Sharded dual run** (check 3, the 20 golden games): `verify_package.sh` runs them as `SHARDS` (env, default 4; `1` = the
+old single process) parallel processes, `dual_run CONFIG GAMES AREAS --shard i/N --out FILE` (game `g` goes to shard
+`g % N`), all inside the one heavy-lane lock the gate holds; `dual_run --merge FILE...` then prints exactly the text
+of the single run (`games N | areas on dual ... | hashes equal`, `dual: N calls, M comparisons, K differences`, area,
+windows and difference lines). Each shard file keeps one report per game plus the dual and string decision hash of
+the game, so the hash verdict stays per game and the differences keep game order (the first 200 and the dropped count
+are those of the single process). The merge refuses (exit 2) shards of different runs, a missing or repeated shard,
+a missing, repeated or foreign game; a failing shard is named in the step output (`SHARD i/N FAILED`) with its log
+in `OUT/dual-golden-shards/`. `tools/engine_core/test_shards.sh DUAL_RUN` checks sharded == unsharded on a small
+slice and that these mutations are refused. Wrapper: `tools/engine_core/dual_sharded.sh`.
+
 **Deletion commit** (separate, after one clean nightly with the area on `Core`): removes the area's string
 implementation and its `AreaMask` bit; gate: 1-3, 5, 6, 8 again. Revertable as one commit.
 
