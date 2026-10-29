@@ -369,9 +369,10 @@ tests (`infantry_ii_...`, `a_reaction_slot_that_is_declined_...`, `a_yssaril_sea
 * The production windows follow nested activity (`production_window_dual::step`); `pay_step` still builds an empty
   resolver, and a table with a Nomad or a Yssaril seat, a Keleres, Deepwrought, Naaz or Mentak producer or a Bastion or
   Crimson seat still keeps the whole window in the string (`unported_window`): those are the tier-W offers.
-* The reaction-card play is built for the stamps (section 4); the next cards are the ones that ask (Skilled Retreat, Fire
-  Team: an `Ask` and a renderer each, the effect run inside `announce`), the immediate path (Sabotage) and Reflective
-  Shielding (its staged hits belong to the sustain window).
+* The reaction-card play: stamps in `reaction_slot`, effects that read another area as `CardPlay`s in `ti4-engine-core-factions/src/cards/` (section 9). Next: Fire Team, Scramble
+  (per-die reroll questions, the dice inside the announcement), Courageous (the producer in the casualty question) and Reflective Shielding (child windows, design 9.2).
+* The next ports by census: Technological Singularity (the opponent's technology: needs the technology area), the Ssruu copies (a parametric slot family per lender/borrower pair), the Empyrean flagship and Watcher (adjacency
+  from the map: a fact noted like `AdapterFacts::withdraw`), Sardakk's hero and mech, Salvage Operations' produce half.
 * Event trace ids: the core numbers its events from the first id the string run used (`Recording.first_event_id`);
   an ability whose nested events skip ids in the string would show up as a trigger `event_id` difference.
 
@@ -483,3 +484,49 @@ string's caller closes it after the use). Tests: `the_keleres_agent_is_offered_i
 The registry of the table now follows the string order of the faction modules for abilities that share a bucket: Mahact and Mentak before Nekro,
 Nomad and Yin (`reactions_core::table`; `the_native_registry_equals_the_string_one_for_the_ported_abilities` names the first difference).
 `with_trigger_of` no longer gives the Legionnaire's and the Cavalry's question a trigger (the string builds none).
+
+### 9.6 Census and gate (stage 3)
+
+`TI4_NESTED_LOG=1 dual_run tools/engine_profile/profile-20.json 20 driver=dual,invasion=dual,production=dual,leaders=dual,exploration=dual,agenda=dual` (20 golden
+games, gate profile): 11 655 304 calls, 11 742 671 comparisons, **0 differences**, hashes equal; `nested activity: 231 signatures, 736 runs`.
+
+Nested bails (window calls that bailed with a `nested (...)` reason): **213 -> 144** (stage 2b -> stage 3). By window, before -> after:
+announce_end 29 -> 20, answer 40 -> 22, begin_round 53 -> 32, settle 27 -> 19, commit_one 13 -> 3, ground_round_hits 21 -> 14, offer_sustain 3 -> 2,
+bombard_step 2 -> 1, space_cannon_defense 5 -> 4, barrage_step 1, destroy_fighters 1, flow_step 2, begin_ground_round 9, roll_ground_tail 7 (the Fire Team: 6, a Sabotage that
+no longer shows), ProductionWindow::step 0 -> 7 (the Ssruu copy of Argent's agent, now reached).
+
+The production windows, compared -> bailed (all reasons): `ProductionWindow::step` 1374 -> 2924 compared, 2037 -> 487 bailed; `production::pay_step` 999 -> 1900 compared, 1182 -> 281 bailed;
+new windows `production::agent_offer` 574 compared and `production::hero_offer` 273 compared, none bailed.
+
+Reasons after (runs): Technological Singularity open / close / ground 17 + 12 + 2; Empyrean flagship (Dynamo) 14 + 1 and the mech's Watcher 7; the Ssruu copies (Yin ships and ground 10 + 9,
+Letnevagent 9 + 2, Solagent 5 + 4, Argent's agent 6 + 1); Salvage Operations' produce half 8; a Nekro-carried technology 6; a card cost the core does not judge 6 (Bribery / Reveal Prototype);
+Fire Team 6, Reveal Prototype 4, Courageous 2, Reflective Shielding 2, Scramble 1; Sardakk hero 4 and mech 2; the Winnu commander's unlock 1, Ambuscade 1, one fact the adapter did not compute, one window lent no dice
+stream. Gone since stage 2b: Parley (9), Direct Hit (13), Skilled Retreat (15), Intercept (5), Sabotage (6), Mentak hero (16), Mahact units (9), the Cavalry (10), Antivirus (3).
+
+Gate (`tools/engine_core/verify_package.sh driver OUT none 6`, `CARGO_BUILD_JOBS=3`, `--profile gate`, `SKIP_AB=1 SKIP_WASM=1`, private target dir, code commit `c9188214` plus the rename in the decision
+inventory below): layers 0 violations (338 files), lint_core 0 hits (340 files), clippy 0 in core/bridge/dual/core_sync/render, immutable surfaces unchanged (against `04578c39`), `gen-cards --check`, xtask and wasm tests ok,
+dual suite (6 suites, `driver=dual`, fail fast) ok, golden dual `driver=dual`: 4566 calls, 26 622 comparisons, 0 differences, hashes equal; the wide mask above (run on the same binary); `bench` + `bench-v1..v5` with `driver=core`
+200 identical / 0 different each, `bench` with the driver on String 200/0; `board_equivalence templates` and `golden profile-20 20 10`: 0 mismatches. Not run (as agreed): the CPU A/B, the wasm size gate, release builds, `state_size`.
+
+Failures found, each with a test that fails on the code before the fix:
+1. `decision_delivery_inventory` (the gate's first `tests` run): `offer_agent` and `offer_production_hero` became the wrappers of the new windows and their decision sites moved to `offer_agent_text` /
+   `offer_production_hero_text`; the reviewed registry names them (`every_producer_and_delivery_site_matches_the_reviewed_registry`, `every_indirect_producer_reaches_its_classified_delivery_api`). The test suite was re-run in full
+   (`--no-fail-fast`): 41 suites ok.
+2. Found by lockstep tests while developing (each fails without its fix): the combat machine did not look at the fight after the round opening and began the feat occurrence before it
+   (`skilled_retreat_withdraws_the_fleet_in_the_core_window_in_lockstep`); the core production window paid with `Extras::default()` (no Keleres commodities, no ocean cards), did not apply the
+   `Commodity` option and closed the agent window at every placement (`the_keleres_agent_is_offered_in_the_core_window_in_lockstep`, `a_payment_with_the_keleres_agent_runs_in_the_core_window_in_lockstep`); the core stage of the Naaz
+   mech placement (`the_tier_w_factions_run_in_lockstep_on_the_core_production_window`); the core did not write the sustain target (`direct_hit_destroys_the_sustained_ship_in_the_core_window_in_lockstep`,
+   `the_sustain_target_mark_is_typed_and_round_trips`); the registry order of the faction modules (`the_native_registry_equals_the_string_one_for_the_ported_abilities`); a trigger on the questions of the Legionnaire
+   and the Cavalry (`the_crimson_legionnaire_pays_in_the_core_window_in_lockstep`, `the_antivirus_and_the_cavalry_are_played_in_the_core_window_in_lockstep`); the placed form of a Mentak cruiser
+   (`the_core_placed_form_equals_the_string_placed_unit_id` now covers the ship base types).
+
+Mutation checks (each fails the named test, run one by one; two first runs were invalid because a cargo filter held a space and were redone): Sabotage: the cancel dropped; the
+after-play announcement dropped (Direct Hit); the sustain-target mark dropped; Direct Hit: the producer check inverted, the removal, the staged destruction, its `during_space_combat`; Intercept: the opponent filter, the round; Parley: the
+move; Skilled Retreat: the draw round, the staging, the single-destination rule, the previews, the unported check, the Last Bastion check, the order of the destinations; the machine's check after the opening and the lazy occurrence;
+Crimson Legionnaire: both-possible rule, the convert, the gain, the trade good, the card count; the Cavalry: the faceup placement, the return, the mark; Antivirus: the faceup placement; the offers: the free-use stamp, the purge, the
+agent's mark, the exhaustion, the declined mark, the Nomad bail; the payment extras and the `Commodity` apply (pay step and window); Ipswitch: the purge, the record, the placement, the end, the other-player filter. Core halves in
+`ti4-engine-core-factions/src/cards/mod.rs` (14 unit tests) are mutation-checked in the crate (7 mutations killed).
+
+Tests per documented bail: `reactions_core::tests` (`bail_*`: the table-level bails, a card the core does not play, a card played at once, Data Skimmer, outside an ability), `cards::tests::{bail_direct_hit_on_ships_that_differ_by_their_galvanize_token,
+bail_skilled_retreat_with_a_dual_form_unit_or_the_last_bastion, bail_parley_of_a_naaz_mech_whose_form_flips}`, `invasion::tests::bail_the_crimson_legionnaire_with_a_siphoning_firmament_seat_is_counted`,
+`production::tests::bail_the_keleres_agent_with_a_listening_nomad_is_counted`, the cruiser bail in `the_mentak_hero_places_ships_in_the_core_window_in_lockstep`.
