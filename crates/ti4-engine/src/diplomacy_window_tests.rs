@@ -241,4 +241,117 @@ mod tests {
         assert_eq!((done.compared, done.bailed), (0, 1));
         assert!(done.reasons.iter().any(|(k, _)| k.contains("a faction played by two seats")), "{:?}", done.reasons);
     }
+
+    /// The first screen of the contact in a position, asked of both windows (one step: "done offering").
+    fn first_screen(mut state: GameState, hub: &crate::fixtures::Hub, scope: ContactScope, edit: impl Fn(&mut GameState)) -> (Done, Vec<String>) {
+        edit(&mut state);
+        let content = ContentStore::embedded();
+        let probe = {
+            let mut copy = state.clone();
+            let w = DiplomacyWindow::open(&mut copy, p("a"), p("b"), scope.clone(), vec![]).unwrap();
+            w.pending_choice(&copy, content, POK).unwrap().ids().into_iter().map(str::to_owned).collect::<Vec<_>>()
+        };
+        (run(state, hub, scope, vec![], &["diplomacy|done"], |_, _| {}), probe)
+    }
+
+    #[test]
+    fn the_catalogue_follows_the_position() {
+        // A Trade card not yet played offers the replenish promise; played, it does not.
+        let trade = |played: bool| {
+            move |s: &mut GameState| {
+                s.deal_strategy_card(&p("a"), ti4_model::id::StrategyCardId::new("pok5trade"));
+                if played {
+                    s.player_mut(&p("a")).unwrap().exhausted_strategy_cards.insert(ti4_model::id::StrategyCardId::new("pok5trade"));
+                }
+            }
+        };
+        for played in [false, true] {
+            let (state, hub) = sol_hacan_xxcha();
+            let (done, ids) = first_screen(state, &hub, scope(), trade(played));
+            followed(&done, 1);
+            assert_eq!(ids.iter().any(|i| i.contains("replenish_for")), !played, "{ids:?}");
+        }
+        // A readied agent of the four is offered as a favour; an exhausted one is not.
+        for status in [ti4_model::state::LeaderStatus::Readied, ti4_model::state::LeaderStatus::Exhausted] {
+            let (state, hub) = sol_hacan_xxcha();
+            let (done, ids) = first_screen(state, &hub, scope(), |s| {
+                s.player_mut(&p("a")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("hacanagent"), status);
+            });
+            followed(&done, 1);
+            assert_eq!(ids.iter().any(|i| i.contains("use_leader_for")), status == ti4_model::state::LeaderStatus::Readied, "{ids:?}");
+        }
+        // A seat that predicted the outcome has no vote to promise.
+        for predicted in [false, true] {
+            let (state, hub) = sol_hacan_xxcha();
+            let (done, ids) = first_screen(state, &hub, scope(), |s| {
+                if predicted {
+                    s.agenda_predictions.insert(p("a"), "for".to_owned());
+                }
+            });
+            followed(&done, 1);
+            assert_eq!(ids.iter().any(|i| i.contains("\"vote\"")), !predicted, "{ids:?}");
+        }
+        // Nothing is held, nothing physical is offered; fragments are offered when held (an unknown one is a frontier one).
+        let (state, hub) = sol_hacan_xxcha();
+        let (done, ids) = first_screen(state, &hub, scope(), |s| {
+            let seat = s.player_mut(&p("a")).unwrap();
+            seat.trade_goods = 0;
+            seat.commodities = 0;
+            seat.relic_fragments.insert("CULTURAL".to_owned(), 1);
+            seat.relic_fragments.insert("FRONTIER".to_owned(), 2);
+        });
+        followed(&done, 1);
+        assert!(ids.contains(&"diplomacy|now|cultural".to_owned()) && ids.contains(&"diplomacy|now|unknown".to_owned()), "{ids:?}");
+        assert!(!ids.contains(&"diplomacy|now|tg".to_owned()) && !ids.contains(&"diplomacy|now|hazardous".to_owned()), "{ids:?}");
+    }
+
+    #[test]
+    fn amounts_are_bounded_by_what_is_held_ten_and_five_for_a_promise() {
+        let (state, hub) = sol_hacan_xxcha();
+        let rich = |s: &mut GameState| s.player_mut(&p("a")).unwrap().trade_goods = 12;
+        let mut state = state;
+        rich(&mut state);
+        let done = run(state.clone(), &hub, scope(), vec![], &["diplomacy|now|tg", "diplomacy|amount|10"], |_, _| {});
+        followed(&done, 2);
+        let done = run(state, &hub, scope(), vec![], &["diplomacy|later|tg", "diplomacy|amount|5"], |_, _| {});
+        followed(&done, 2);
+        for kind in ["now", "later"] {
+            let (mut state, hub) = sol_hacan_xxcha();
+            rich(&mut state);
+            let content = ContentStore::embedded();
+            let mut w = DiplomacyWindow::open(&mut state, p("a"), p("b"), scope(), vec![]).unwrap();
+            let mut table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new([format!("diplomacy|{kind}|tg")])));
+            let c = w.pending_choice(&state, content, POK).unwrap();
+            let ask = |c: &crate::choice::Choice, s: &mut GameState| table.ask_seeing(c, &crate::choice::Observed::new(s, content, POK, Some(&hub.galaxy)));
+            w.answer_with(&mut state, content, POK, Some(&hub.galaxy), &c, ask).unwrap().unwrap();
+            let amounts = w.pending_choice(&state, content, POK).unwrap().ids().len();
+            assert_eq!(amounts, if kind == "now" { 10 } else { 5 });
+        }
+    }
+
+    #[test]
+    fn a_side_holds_twelve_terms_and_the_last_step_of_the_budget_is_still_an_edit() {
+        // Seven add operations leave the eighth step; the eighth closes the catalogue.
+        let (mut state, hub) = sol_hacan_xxcha();
+        state.player_mut(&p("a")).unwrap().trade_goods = 9;
+        let script = [
+            "diplomacy|now|tg", "diplomacy|amount|1", "diplomacy|later|tg", "diplomacy|amount|1", "~diplomacy|promise|", "~diplomacy|promise|", "~diplomacy|promise|", "~diplomacy|promise|", "~diplomacy|promise|",
+        ];
+        let done = plain(state, &hub, &script);
+        followed(&done, 9);
+        let ids = done.window.pending_choice(&done.state, ContentStore::embedded(), POK).unwrap().ids().into_iter().map(str::to_owned).collect::<Vec<_>>();
+        // 7 steps taken (the two amounts are not steps): one left, so the catalogue is still open.
+        assert!(ids.iter().any(|i| i.starts_with("diplomacy|promise|")), "{ids:?}");
+    }
+
+    #[test]
+    fn the_hubris_and_the_one_note_per_side_rules_shape_the_catalogue() {
+        // A Mahact cannot be given an Alliance: with a Mahact partner no `an:` note is offered to it.
+        let (state, hub) = table(&[("a", "sol"), ("b", "mahact"), ("c", "xxcha")]);
+        let (done, ids) = first_screen(state, &hub, scope(), |s| {
+            s.promissory_notes.insert("an:sol".to_owned(), p("a"));
+        });
+        followed(&done, 1);
+        assert!(!ids.iter().any(|i| i.starts_with("diplomacy|note|an:")), "{ids:?}");
+    }
 }
