@@ -668,6 +668,7 @@ fn prune(args: &[String]) -> i32 {
     let all = args.iter().any(|a| a == "--all");
     let mut disabled: BTreeSet<u32> = fs::read_to_string(&dpath).map(|t| t.split_whitespace().filter_map(|x| x.parse().ok()).collect()).unwrap_or_default();
     let before = disabled.len();
+    let prior = disabled.clone();
     let points = pts["points"].as_array().unwrap();
     let mut srcs: HashMap<String, Src> = HashMap::new();
     let input = std::io::read_to_string(std::io::stdin()).unwrap();
@@ -694,7 +695,7 @@ fn prune(args: &[String]) -> i32 {
             let cs = sp["column_start"].as_u64().unwrap_or(1) as usize;
             let off = src.off(LineColumn { line: ls, column: cs - 1 });
             let in_r = |v: &Value, k: &str| v[k].as_array().into_iter().flatten().any(|r| r[0].as_u64().unwrap() as usize <= off && off < r[1].as_u64().unwrap() as usize);
-            let here: Vec<&Value> = points.iter().filter(|p| p["file"] == rel.as_str() && p["disabled"] == false && !disabled.contains(&(p["id"].as_u64().unwrap() as u32))).collect();
+            let here: Vec<&Value> = points.iter().filter(|p| p["file"] == rel.as_str() && p["disabled"] == false && !prior.contains(&(p["id"].as_u64().unwrap() as u32))).collect();
             let glue: Vec<&&Value> = here.iter().filter(|p| in_r(p, "glue")).collect();
             if let Some(p) = glue.first() {
                 disabled.insert(p["id"].as_u64().unwrap() as u32);

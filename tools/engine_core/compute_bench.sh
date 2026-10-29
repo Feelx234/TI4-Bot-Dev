@@ -26,7 +26,7 @@ timed() { # LABEL LOGFILE CMD... : runs under the heavy lock, prints RESULT labe
 }
 poke() { printf '\n// compute_bench touch %s\n' "$RANDOM" >> "$1"; }
 unpoke() { git checkout -q -- "$1"; }
-leaf="crates/ti4-engine/src/lib.rs"
+leaf="crates/${PKG:-ti4-engine}/src/lib.rs"
 if [[ "$mode" == profiles ]]; then
   for p in $profiles; do
     td="$work/t-$p"; export CARGO_TARGET_DIR="$td"; rm -rf "$td"

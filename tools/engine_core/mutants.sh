@@ -91,7 +91,8 @@ fi
 # 4. build once; points whose rewrite does not compile (type inference, moves, const contexts) are disabled
 #    from the compile errors and the tree is regenerated, a few rounds at most.
 read -ra targs <<< "${TEST_ARGS:---lib}"
-build() { ( cd "$tree" && CARGO_TARGET_DIR="$tgt" cargo test --offline --locked "${targs[@]}" -p "$tcrate" --no-run --message-format=json 2> "$mut/build.err" > "$mut/build.json" ); }
+# No debug info in the scratch build (the dev profile has line tables + packed dwp: about 3.5 GB for the bridge tests).
+build() { ( cd "$tree" && CARGO_TARGET_DIR="$tgt" CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_DEV_SPLIT_DEBUGINFO=off cargo test --offline --locked "${targs[@]}" -p "$tcrate" --no-run --message-format=json 2> "$mut/build.err" > "$mut/build.json" ); }
 round=0
 until build; do
   round=$((round + 1))
