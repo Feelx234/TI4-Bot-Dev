@@ -17,6 +17,7 @@ pub mod action_cards;
 pub mod agenda;
 pub mod combat;
 pub mod diplomacy;
+pub mod diplomacy_book;
 pub mod explore;
 pub mod explore_windows;
 pub mod invasion;

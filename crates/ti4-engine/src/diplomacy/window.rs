@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 use ti4_model::{
-    DealId, DealRevision, DealStatus, DealTerm, DiplomacyEvent, DiplomacyJournalEntry, GameState,
+    DealId, DealRevision, DealTerm, GameState,
     PlayerId, SignalStatement,
 };
 
@@ -19,7 +19,6 @@ use super::builder::{
     amount_options, apply_item, describe, item_options,
 };
 use super::candidates::{CandidateBundle, built_bundle};
-use super::relations::{RelationshipEvent, apply_relationship_event};
 use super::signals::{SignalDraft, emit_signal_in_open_contact};
 
 pub const RESPONSE_KIND: &str = "diplomacy_response";
@@ -376,31 +375,17 @@ impl Window for DiplomacyWindow {
                         let revision = self.revision(state, &draft)?;
                         let candidate = built_bundle(revision.clone());
                         if let Some(id) = self.deal_id {
-                            state
-                                .diplomacy
-                                .active_deals
-                                .get_mut(&id)
-                                .ok_or_else(|| failed(&choice.player, "deal disappeared"))?
-                                .add_counter(revision.clone())
+                            super::book::counter(state, id, &revision)
                                 .map_err(|error| failed(&choice.player, &error.to_string()))?;
-                            state.diplomacy.journal.push(DiplomacyJournalEntry {
-                                round: state.round,
-                                event: DiplomacyEvent::Countered {
-                                    deal_id: id,
-                                    revision,
-                                },
-                            });
                             self.responses += 1;
                         } else {
-                            let id = state
-                                .diplomacy
-                                .create_deal(
-                                    self.proposer.clone(),
-                                    self.recipient.clone(),
-                                    state.round,
-                                    revision,
-                                )
-                                .map_err(|error| failed(&self.proposer, &error.to_string()))?;
+                            let id = super::book::create_deal(
+                                state,
+                                &self.proposer,
+                                &self.recipient,
+                                &revision,
+                            )
+                            .map_err(|error| failed(&self.proposer, &error.to_string()))?;
                             self.deal_id = Some(id);
                         }
                         self.current = Some(candidate);
@@ -428,23 +413,7 @@ impl Window for DiplomacyWindow {
                 if accepted {
                     self.stage = DiplomacyStage::Done;
                 } else if offered.id == DECLINE_ID || offered.id == ACCEPT_ID {
-                    let deal = state
-                        .diplomacy
-                        .active_deals
-                        .get_mut(&id)
-                        .ok_or_else(|| failed(&choice.player, "deal disappeared"))?;
-                    deal.status = DealStatus::Declined;
-                    state.diplomacy.journal.push(DiplomacyJournalEntry {
-                        round: state.round,
-                        event: DiplomacyEvent::Declined {
-                            deal_id: id,
-                            actor: choice.player.clone(),
-                            revision: deal.latest().number,
-                        },
-                    });
-                    state
-                        .diplomacy
-                        .archive_deal(id, state.round)
+                    super::book::decline(state, id, &choice.player)
                         .map_err(|error| failed(&choice.player, &error.to_string()))?;
                     self.stage = DiplomacyStage::Done;
                 } else {
@@ -585,95 +554,8 @@ fn apply_acceptance(
         )
         .map_err(|error| failed(&deal.proposer, &error.to_string()))?;
     }
-    let active = state
-        .diplomacy
-        .active_deals
-        .get_mut(&id)
-        .expect("checked deal");
-    active.status = DealStatus::Accepted;
-    state.diplomacy.journal.push(DiplomacyJournalEntry {
-        round: state.round,
-        event: DiplomacyEvent::Accepted {
-            deal_id: id,
-            actor: actor.clone(),
-            revision: revision.number,
-        },
-    });
-    for (index, term) in revision
-        .proposer_terms
-        .iter()
-        .chain(&revision.recipient_terms)
-        .enumerate()
-    {
-        if term.is_immediate() {
-            state.diplomacy.journal.push(DiplomacyJournalEntry {
-                round: state.round,
-                event: DiplomacyEvent::ImmediateApplied {
-                    deal_id: id,
-                    term_index: u8::try_from(index).unwrap_or(u8::MAX),
-                },
-            });
-        }
-    }
-    let future = revision
-        .proposer_terms
-        .iter()
-        .chain(&revision.recipient_terms)
-        .any(|term| !term.is_immediate());
-    active.status = if future {
-        DealStatus::Active
-    } else {
-        DealStatus::Fulfilled
-    };
-    // Immediate transfers only is a transaction and is judged as one: a fair trade builds trust and
-    // an unfair one builds nothing. A bundle with any promise in it is a deal.
-    let relationship = if future {
-        Some(RelationshipEvent::DealAccepted {
-            a: deal.proposer.clone(),
-            b: deal.recipient.clone(),
-        })
-    } else if fair {
-        Some(RelationshipEvent::FairTransaction {
-            a: deal.proposer.clone(),
-            b: deal.recipient.clone(),
-        })
-    } else {
-        None
-    };
-    if let Some(event) = relationship {
-        apply_relationship_event(state, &event)
-            .map_err(|error| failed(&PlayerId::new(""), &error.to_string()))?;
-    }
-    for term in &revision.recipient_terms {
-        if let DealTerm::Attack { player: target, .. } = term
-            && target != &deal.proposer
-            && target != &deal.recipient
-        {
-            apply_relationship_event(
-                state,
-                &RelationshipEvent::AntiThirdPartyDeal {
-                    payer: deal.proposer.clone(),
-                    attacker: deal.recipient.clone(),
-                    target: target.clone(),
-                },
-            )
-            .map_err(|error| failed(&PlayerId::new(""), &error.to_string()))?;
-        }
-    }
-    if !future {
-        state.diplomacy.journal.push(DiplomacyJournalEntry {
-            round: state.round,
-            event: DiplomacyEvent::DealSettled {
-                deal_id: id,
-                status: DealStatus::Fulfilled,
-            },
-        });
-        state
-            .diplomacy
-            .archive_deal(id, state.round)
-            .map_err(|error| failed(&PlayerId::new(""), &error.to_string()))?;
-    }
-    Ok(())
+    super::book::accept(state, id, actor, fair)
+        .map_err(|error| failed(&PlayerId::new(""), &error.to_string()))
 }
 
 fn failed(player: &PlayerId, reason: &str) -> IllegalChoice {

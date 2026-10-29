@@ -192,6 +192,10 @@ mod technology_effects_tests;
 pub mod thunders_edge;
 pub mod timing;
 pub mod tokens;
+#[cfg(feature = "typed-core")]
+pub mod diplomacy_write;
+#[cfg(all(test, feature = "typed-core"))]
+mod diplomacy_book_tests;
 pub mod trade_core;
 pub mod trade_window_dual;
 #[cfg(all(test, feature = "typed-core"))]

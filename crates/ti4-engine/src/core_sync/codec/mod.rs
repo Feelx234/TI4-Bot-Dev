@@ -25,7 +25,7 @@ mod players;
 pub mod rng;
 mod seats;
 mod strategy;
-mod trade;
+pub(crate) mod trade;
 pub(crate) mod transient;
 
 /// What a load reads besides the `GameState`: the string galaxy (the map slice) and the stream

@@ -35,7 +35,7 @@ pub enum DiplomacyEventContext {
     },
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub enum PromiseError {
     #[error("deal {0:?} does not exist")]
     UnknownDeal(DealId),
@@ -61,11 +61,38 @@ pub fn fulfill_payment(
     promiser: &PlayerId,
     term_index: usize,
 ) -> Result<(), PromiseError> {
+    let due = super::book::payment_due(state, deal_id, promiser, term_index)?;
+    let given = super::transfers::one_asset(&due.asset).map_err(|_| PromiseError::UnknownTerm)?;
+    crate::transactions::resolve(
+        state,
+        content,
+        galaxy,
+        &Offer {
+            proposer: promiser.clone(),
+            partner: due.beneficiary.clone(),
+            given,
+            received: Terms::default(),
+        },
+    )?;
+    // Neither the transaction record nor the initiation budget moves here. This is the fulfilment
+    // of a promise both sides already made, not a new contact: recording it used to mean that
+    // paying one due forbade paying the next one to the same player, and forbade trading with them
+    // at all. Whatever the pair agreed at signing is not re-priced by the act of honouring it.
+    super::book::payment_made(state, deal_id, promiser, term_index)
+}
+
+/// What `fulfill_payment` checks before the goods move: which promise `term_index` is and whether `promiser` may
+/// pay it now.
+pub(super) fn payment_due_string(
+    state: &GameState,
+    deal_id: DealId,
+    promiser: &PlayerId,
+    term_index: usize,
+) -> Result<super::book::Due, PromiseError> {
     let deal = state
         .diplomacy
         .active_deals
         .get(&deal_id)
-        .cloned()
         .ok_or(PromiseError::UnknownDeal(deal_id))?;
     if deal.status != DealStatus::Active {
         return Err(PromiseError::AlreadySettled);
@@ -104,31 +131,31 @@ pub fn fulfill_payment(
     let DealTerm::FuturePayment { asset, .. } = term.ok_or(PromiseError::UnknownTerm)? else {
         return Err(PromiseError::UnknownTerm);
     };
-    let given = super::transfers::one_asset(asset).map_err(|_| PromiseError::UnknownTerm)?;
-    crate::transactions::resolve(
-        state,
-        content,
-        galaxy,
-        &Offer {
-            proposer: promiser.clone(),
-            partner: beneficiary.clone(),
-            given,
-            received: Terms::default(),
-        },
-    )?;
-    // Neither the transaction record nor the initiation budget moves here. This is the fulfilment
-    // of a promise both sides already made, not a new contact: recording it used to mean that
-    // paying one due forbade paying the next one to the same player, and forbade trading with them
-    // at all. Whatever the pair agreed at signing is not re-priced by the act of honouring it.
+    Ok(super::book::Due {
+        proposer_side,
+        local,
+        beneficiary,
+        asset: asset.clone(),
+    })
+}
+
+/// What `fulfill_payment` does once the goods moved: the term is fulfilled and the deal may end.
+pub(super) fn payment_made_string(
+    state: &mut GameState,
+    deal_id: DealId,
+    promiser: &PlayerId,
+    term_index: usize,
+) -> Result<(), PromiseError> {
+    let due = payment_due_string(state, deal_id, promiser, term_index)?;
     settle_term(
         state,
         deal_id,
-        proposer_side,
-        local,
+        due.proposer_side,
+        due.local,
         term_index,
         PromiseStatus::Fulfilled,
         promiser,
-        &beneficiary,
+        &due.beneficiary,
     )?;
     update_deal_terminal(state, deal_id)
 }
@@ -138,6 +165,13 @@ pub fn fulfill_payment(
 /// # Errors
 /// Returns [`PromiseError`] if a resulting relationship or deal transition is invalid.
 pub fn evaluate_event(
+    state: &mut GameState,
+    event: &DiplomacyEventContext,
+) -> Result<(), PromiseError> {
+    super::book::evaluate_event(state, event)
+}
+
+pub(super) fn evaluate_event_string(
     state: &mut GameState,
     event: &DiplomacyEventContext,
 ) -> Result<(), PromiseError> {
@@ -362,6 +396,13 @@ fn settle_term(
 /// # Errors
 /// Returns [`PromiseError`] if a resulting deal transition is invalid.
 pub fn settle_deadlines(state: &mut GameState, completed_round: u32) -> Result<(), PromiseError> {
+    super::book::settle_deadlines(state, completed_round)
+}
+
+pub(super) fn settle_deadlines_string(
+    state: &mut GameState,
+    completed_round: u32,
+) -> Result<(), PromiseError> {
     settle_due(state, Some(completed_round))?;
     if state.diplomacy.enabled {
         super::signals::settle_deadlines(state, completed_round)?;
@@ -374,6 +415,10 @@ pub fn settle_deadlines(state: &mut GameState, completed_round: u32) -> Result<(
 /// # Errors
 /// Returns [`PromiseError`] if a resulting deal transition is invalid.
 pub fn settle_game_end(state: &mut GameState) -> Result<(), PromiseError> {
+    super::book::settle_game_end(state)
+}
+
+pub(super) fn settle_game_end_string(state: &mut GameState) -> Result<(), PromiseError> {
     settle_due(state, None)
 }
 
