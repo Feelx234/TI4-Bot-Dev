@@ -6,6 +6,7 @@
 
 pub mod announce;
 pub mod effects;
+pub mod perform;
 pub mod reaction_slot;
 
 use crate::generated::{ActionCard, System, Unit, UnitBaseType};
@@ -384,11 +385,13 @@ pub struct Facts {
     pub own_breakthrough: [Option<crate::generated::Breakthrough>; 16],
     /// The order of unit types by their id text (the string orders a set of type ids; the core has no id text).
     pub unit_order: fn(Unit, Unit) -> core::cmp::Ordering,
+    /// Strategize and Overrule: what the adapter vouches for when the performed ability reads the string position.
+    pub carried: perform::Carried,
 }
 
 impl Default for Facts {
     fn default() -> Self {
-        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE, dreadnought: Placed::NONE, mech: Placed::NONE, pds: Placed::NONE, holder_deepwrought: false, spacedock: Placed::NONE, replenish_events: false, rules_version: u32::MAX, tech_order: |a, b| a.cmp(&b), roster: None, reveal: crate::state::TechSet::default(), traders: [None; 2], fracture_in_play: false, own_breakthrough: [None; 16], unit_order: |a, b| a.cmp(&b) }
+        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE, dreadnought: Placed::NONE, mech: Placed::NONE, pds: Placed::NONE, holder_deepwrought: false, spacedock: Placed::NONE, replenish_events: false, rules_version: u32::MAX, tech_order: |a, b| a.cmp(&b), roster: None, reveal: crate::state::TechSet::default(), traders: [None; 2], fracture_in_play: false, own_breakthrough: [None; 16], unit_order: |a, b| a.cmp(&b), carried: perform::Carried { plain_draw: false, research: false } }
     }
 }
 

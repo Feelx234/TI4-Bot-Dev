@@ -430,7 +430,7 @@ mod tests {
     #[test]
     fn the_b6d_cards_are_not_played_from_inside_another_window() {
         let t = AbilityTable::default();
-        for card in [ActionCard::Upgrade, ActionCard::DecoyOperation, ActionCard::RevealPrototype, ActionCard::LieInWait, ActionCard::Bribery, ActionCard::HarnessEnergy, ActionCard::Infiltrate, ActionCard::CrashLanding, ActionCard::GhostSquad] {
+        for card in [ActionCard::Upgrade, ActionCard::DecoyOperation, ActionCard::RevealPrototype, ActionCard::LieInWait, ActionCard::Bribery, ActionCard::HarnessEnergy, ActionCard::Infiltrate, ActionCard::CrashLanding, ActionCard::GhostSquad, ActionCard::Strategize2, ActionCard::Overrule] {
             assert!(plays(card), "{card:?} has a window of its own");
             assert!(!plays_in(&t, card), "{card:?}");
         }
@@ -441,7 +441,7 @@ mod tests {
     #[test]
     fn bail_a_card_with_an_unported_effect_has_no_announcement() {
         let s = two_seats();
-        assert!(Announce::of(&s, ActionCard::Strategize1, Seat(0), env(), true, false).is_none());
+        assert!(Announce::of(&s, ActionCard::ScrambleFrequency, Seat(0), env(), true, false).is_none());
         assert!(Announce::of(&s, ActionCard::DirectHit1, Seat(0), env(), true, false).is_none());
     }
 

@@ -766,3 +766,59 @@ fn crash_landing_lands_a_ground_force_on_a_planet_of_the_system_in_the_core_wind
     assert_eq!(after.board[&sys].units.len(), 2);
     let _ = crate::dual::take_report();
 }
+
+// -- Strategize and Overrule ---------------------------------------------------------------------------------------------------
+
+/// The table of [`closing_position`] with the strategy cards laid out as the test wants: `b` and `c` hold `b_held` and `c_held`
+/// (each card readied, `exhausted` names the ones that are not) and `mat` is the cards nobody has picked.
+fn strategy_position(b_held: &[&str], c_held: &[&str], exhausted: &[&str], mat: &[&str]) -> GameState {
+    strategy_on(closing_position(), b_held, c_held, exhausted, mat)
+}
+
+fn strategy_on(mut state: GameState, b_held: &[&str], c_held: &[&str], exhausted: &[&str], mat: &[&str]) -> GameState {
+    let card = |id: &&str| ti4_model::StrategyCardId::new(*id);
+    for (seat, held) in [("b", b_held), ("c", c_held)] {
+        let seat = state.player_mut(&PlayerId::new(seat)).unwrap();
+        seat.strategy_cards = held.iter().map(card).collect();
+        seat.exhausted_strategy_cards = held.iter().filter(|id| exhausted.contains(id)).map(card).collect();
+    }
+    state.player_mut(&PlayerId::new("a")).unwrap().strategy_cards.clear();
+    state.unclaimed_strategy_cards = mat.iter().map(card).collect();
+    state
+}
+
+/// Strategize asks which card's secondary ability to perform: the other seats' readied cards in seating order, then the cards on
+/// the mat (`holder's name` and `name`, the holders as a display fact); an exhausted card is not on offer. The Trade secondary
+/// replenishes the holder's commodities and the Imperial secondary draws a secret objective (a hand over the limit hands one back).
+#[test]
+fn strategize_asks_which_card_to_perform_and_performs_the_trade_and_imperial_secondaries_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let a = PlayerId::new("a");
+    let mut base = closing_position();
+    base.player_mut(&a).unwrap().commodities = 0;
+    // The pick among held and unclaimed cards: the three deciders take a different one of the four.
+    let pick = strategy_on(base.clone(), &["pok5trade"], &["pok8imperial", "pok6warfare"], &["pok6warfare"], &[]);
+    // Only the mat: the names carry no holder.
+    let mat = strategy_on(base.clone(), &[], &[], &[], &["pok5trade", "pok8imperial"]);
+    // A held card and a card on the mat (the label of the second has no holder).
+    let both = strategy_on(base.clone(), &["pok5trade"], &[], &[], &["pok8imperial"]);
+    // One card on offer is taken without a question.
+    let lone_trade = strategy_on(base.clone(), &["pok5trade"], &[], &[], &[]);
+    let lone_imperial = strategy_on(base.clone(), &[], &[], &[], &["pok8imperial"]);
+    // The hand is over the limit after the draw: one secret goes back.
+    let mut full = lone_imperial.clone();
+    let held: Vec<_> = full.secret_deck.drain(..3).collect();
+    full.player_mut(&a).unwrap().secret_objectives = held;
+    for case in [&pick, &mat, &both, &lone_trade, &lone_imperial, &full] {
+        announce_all(&[("strategize1", case.clone())]);
+    }
+    announce_all(&[("strategize3", pick.clone())]);
+    let _ = crate::dual::take_report();
+    let after = played("strategize2", &lone_trade);
+    assert_eq!(after.player(&a).unwrap().commodities, 3, "the Trade secondary replenishes (Arborec: 3)");
+    let after = played("strategize4", &lone_imperial);
+    assert_eq!(after.player(&a).unwrap().secret_objectives.len(), lone_imperial.player(&a).unwrap().secret_objectives.len() + 1, "the Imperial secondary draws a secret");
+    let after = played("strategize1", &full);
+    assert_eq!(after.player(&a).unwrap().secret_objectives.len(), 3, "over the limit: drawn, then handed back");
+    let _ = crate::dual::take_report();
+}

@@ -96,6 +96,9 @@ pub enum What {
     Landing,
     /// kind `system`: the system a neutral destroyer enters (Pirate Contract).
     Pirate,
+    /// kind `strategy card` (with the space), label `<holder>'s <name>` (a held card) or `<name>` (an unclaimed one): the strategy card
+    /// whose secondary (Strategize) or primary (Overrule) ability the holder performs.
+    Perform,
     /// kind `strategy_card`: the picker chooses again; `first` was taken away, `by` played the card (Public Disgrace).
     Redraft { first: crate::generated::StrategyCard, by: Seat },
 }
@@ -167,6 +170,8 @@ pub enum Opt {
     /// A number (`What::Spend`).
     Count(u8),
     Steal { from: Seat, tech: crate::generated::Technology },
+    /// A strategy card another seat holds (`holder`) or nobody does (`None`, on the mat) (`What::Perform`).
+    Perform { card: crate::generated::StrategyCard, holder: Option<Seat> },
     Move { from: Planet, to: Planet, kind: crate::generated::Unit, count: u8 },
 }
 

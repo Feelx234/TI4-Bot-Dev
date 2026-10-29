@@ -261,6 +261,7 @@ fn env_of(state: &GameState, player: &PlayerId, sources: &ti4_model::content_typ
             fracture_in_play: state.fracture_in_play,
             own_breakthrough: own_breakthroughs(state, r),
             unit_order: |a, b| crate::generated::IdStr::as_str(a).cmp(crate::generated::IdStr::as_str(b)),
+            carried: rules::perform::Carried::default(),
         },
     }
 }
@@ -325,6 +326,10 @@ pub fn plays(alias: &ActionCardId) -> bool {
 /// The map slice, lent for the cards that read it.
 const MAP: crate::core_sync::Footprint = crate::core_sync::Footprint::new(&[Slice::Map], &[]);
 
+/// Strategize and Overrule: what the performed abilities of the strategy areas read beyond a card's play (the research reads the
+/// trade and exploration slices) and write (the speaker of Politics).
+const PERFORM: crate::core_sync::Footprint = crate::core_sync::Footprint::new(&[Slice::Trade, Slice::Explore], &[Slice::Meta]);
+
 const PLAY: crate::core_sync::Footprint = crate::core_sync::Footprint::new(
     &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending, Slice::Strategy, Slice::Ledger, Slice::Objectives],
     &[Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending, Slice::Strategy, Slice::Ledger],
@@ -371,14 +376,16 @@ pub fn play_window(
         crate::dual::note_bail("action_cards::play", "a technology gained at a table the research window does not carry");
         return None;
     }
+    let performs = matches!(rules::effects::Fx::of(card), Some(rules::effects::Fx::Perform { .. }));
     let plain = Kernel::plain();
-    let kernel = if technology { crate::production_view::kernel() } else { &plain };
+    let kernel = if technology || performs { crate::production_view::kernel() } else { &plain };
     let mut staged = Vec::new();
     let mut emitted = Vec::new();
     let mut faces = Vec::new();
     let mut unsupported = false;
     let mut rng_after = None;
     let fp = if lent.is_some() { PLAY.union(crate::core_sync::Footprint::new(&[Slice::Rng], &[Slice::Rng])) } else { PLAY };
+    let fp = if performs { fp.union(PERFORM) } else { fp };
     let wants_map = rules::effects::Fx::of(card).is_some_and(rules::effects::Fx::needs_map);
     if wants_map && galaxy.is_none() {
         crate::dual::note_bail("action_cards::play", "a card that reads the map, played without one");
@@ -394,6 +401,7 @@ pub fn play_window(
     let details = |c: &ti4_engine_core::choice::Choice, core: &ti4_engine_core::state::CoreState, rendered: &mut crate::choice::Choice| {
         recorded_details(c, script, rendered);
         crate::strategy_cards_core::complete_tokens(c, core, rendered, letnev);
+        complete_performed(c, rendered, &r);
     };
     let driven = crate::core_sync::with_core(gs, &mut cx, src, fp, |core, _| {
         if wants_map && core.galaxy().is_none() {
@@ -401,6 +409,10 @@ pub fn play_window(
         }
         if technology && !crate::strategy_cards_core::research_hooks_agree(core, &before, ti4_content::ContentStore::embedded(), sources.clone(), player, seat) {
             return None;
+        }
+        let mut env = env;
+        if performs {
+            env.facts.carried = carried_of(core, &before, sources, player, seat);
         }
         let play = rules::effects::Play::of(core, card, seat, env)?;
         let mut driver = Driver::new(play, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
@@ -525,7 +537,8 @@ pub fn announce_window(
         crate::dual::note_bail("action_cards::announce", "a technology gained at a table the research window does not carry");
         return None;
     }
-    let kernel = if technology { crate::production_view::kernel() } else { &window.kernel };
+    let performs = matches!(rules::effects::Fx::of(card), Some(rules::effects::Fx::Perform { .. }));
+    let kernel = if technology || performs { crate::production_view::kernel() } else { &window.kernel };
     let mut staged = Vec::new();
     let mut emitted = Vec::new();
     let mut played = None;
@@ -534,6 +547,9 @@ pub fn announce_window(
     let mut fp = crate::dual_window::nested_fp(PLAY, script);
     if lent.is_some() {
         fp = fp.union(crate::core_sync::Footprint::new(&[Slice::Rng], &[Slice::Rng]));
+    }
+    if performs {
+        fp = fp.union(PERFORM);
     }
     let wants_map = rules::effects::Fx::of(card).is_some_and(rules::effects::Fx::needs_map);
     if wants_map && galaxy.is_none() {
@@ -556,6 +572,10 @@ pub fn announce_window(
         if technology && !crate::strategy_cards_core::research_hooks_agree(core, &before, ti4_content::ContentStore::embedded(), sources.clone(), player, seat) {
             return None;
         }
+        let mut env = env;
+        if performs {
+            env.facts.carried = carried_of(core, &before, sources, player, seat);
+        }
         let announce = rules::announce::Announce::of(core, card, seat, env, has_effect, false)?;
         let mut driver = Driver::new(announce, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         if let Some(seeds) = seeds {
@@ -568,6 +588,7 @@ pub fn announce_window(
             }
             recorded_details(_c, script, rendered);
             crate::strategy_cards_core::complete_tokens(_c, _core, rendered, letnev);
+            complete_performed(_c, rendered, &r);
         };
         let driven = crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &battle);
         played = Some(driver.window.played());
@@ -588,6 +609,52 @@ pub fn announce_window(
         None => None,
     };
     Some(crate::dual::CoreWindow { run: crate::dual::Run::new((played, (faces, positions))).with_events_vec(events), questions: driven.rendered })
+}
+
+/// What the adapter vouches for when Strategize or Overrule performs a strategy card's ability in the core: the guards of the
+/// string windows that read the string position (`strategy_cards_core`).
+fn carried_of(
+    core: &ti4_engine_core::state::CoreState,
+    gs: &GameState,
+    sources: &ti4_model::content_types::SourceSet,
+    player: &PlayerId,
+    seat: ti4_engine_core::Seat,
+) -> rules::perform::Carried {
+    let content = ti4_content::ContentStore::embedded();
+    rules::perform::Carried {
+        plain_draw: crate::strategy_cards_core::plain_draw(gs, content, player, 2),
+        research: gs.rules_version >= ti4_model::state::RULES_TECH_PAYMENT_CHOICE
+            && !technology_unported(gs, sources, player)
+            && crate::strategy_cards_core::research_hooks_agree(core, gs, content, sources.clone(), player, seat),
+    }
+}
+
+/// The display facts of the questions of a performed ability, which only the state knows: which seat holds each strategy card on
+/// offer (`details.holders`, `null` for a card on the mat), and the technology names of a research (`strategy_cards_core::research`).
+fn complete_performed(c: &ti4_engine_core::choice::Choice, rendered: &mut crate::choice::Choice, r: &crate::render::Render) {
+    use ti4_engine_core::choice::cards::{Ask as CAsk, Opt as COpt, What};
+    use ti4_engine_core::choice::strategy::{Ask as SAsk, Opt as SOpt};
+    use ti4_engine_core::choice::{Ask, Opt};
+    match c.ask {
+        Ask::Cards(CAsk::Pick { what: What::Perform, .. }) => {
+            let mut holders = serde_json::Map::new();
+            for opt in c.opts.iter() {
+                if let Opt::Cards(COpt::Perform { card, holder }) = opt {
+                    holders.insert(card.as_str().to_owned(), holder.map_or(serde_json::Value::Null, |seat| serde_json::Value::from(r.seat_text(seat))));
+                }
+            }
+            rendered.details.insert("holders".to_owned(), serde_json::Value::Object(holders));
+        }
+        Ask::Strategy(SAsk::ResearchTechnology { .. }) => {
+            let content = ti4_content::ContentStore::embedded();
+            for (option, opt) in rendered.options.iter_mut().zip(c.opts.iter()) {
+                if let Opt::Strategy(SOpt::Research(t)) = opt {
+                    option.label = crate::technology::name(content, &ti4_model::id::TechnologyId::new(crate::generated::IdStr::as_str(*t)));
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 /// The breakthrough of each seat's faction, by seat (`breakthroughs::for_faction`).

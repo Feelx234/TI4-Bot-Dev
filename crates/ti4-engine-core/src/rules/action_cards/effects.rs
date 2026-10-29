@@ -33,6 +33,7 @@ use crate::state::{RngDomain, SeedSource};
 use crate::query::{board, economy, seats};
 use crate::state::{CoreState, Piece, TransientFlags};
 
+use super::perform::{self, Began, Performed};
 use super::{Env, is_home_system};
 
 /// What a card does.
@@ -160,6 +161,9 @@ pub enum Fx {
     /// Crash Landing: a ground force of the holder in the space area of the system its last ship was destroyed in lands on a
     /// planet there other than Mecatol Rex.
     Crash,
+    /// Strategize (`primary: false`) and Overrule (`primary: true`): the holder performs the secondary or primary ability of a
+    /// strategy card another seat holds or nobody does.
+    Perform { primary: bool },
 }
 
 impl Fx {
@@ -197,6 +201,7 @@ impl Fx {
                 | Self::Bribery
                 | Self::Infiltrate
                 | Self::Crash
+                | Self::Perform { .. }
         )
     }
 
@@ -303,6 +308,8 @@ impl Fx {
             C::Bribery => Self::Bribery,
             C::Infiltrate => Self::Infiltrate,
             C::CrashLanding => Self::Crash,
+            C::Strategize1 | C::Strategize2 | C::Strategize3 | C::Strategize4 => Self::Perform { primary: false },
+            C::Overrule => Self::Perform { primary: true },
             _ => return None,
         })
     }
@@ -321,6 +328,10 @@ pub enum Stage {
     Billing,
     /// Returning a secret objective over the hand limit (the child window [`HandLimit`]).
     Limiting,
+    /// The strategy card to perform is chosen; its ability begins.
+    Chosen,
+    /// Performing the ability of the chosen strategy card (the child window [`Performed`]).
+    Performing,
     Done,
 }
 
@@ -372,6 +383,10 @@ pub struct Play {
     received: SmallList<Planet, 8>,
     /// The question the bill's child waits on.
     pay_ask: Option<crate::choice::Ask>,
+    /// Strategize and Overrule: the strategy card chosen.
+    picked: Option<StrategyCard>,
+    /// Strategize and Overrule: the ability of the card, while it runs (a child window).
+    perform: Child<Performed>,
 }
 
 /// `RULES_PLAGIARIZE_OWNED` and `RULES_ACTION_CARD_COSTS` (`ti4_model::state`).
@@ -433,7 +448,7 @@ impl Play {
         if fx == Fx::Summit && env.mahact_held > 0 {
             return None;
         }
-        if matches!(fx, Fx::Veto | Fx::Dig | Fx::Impersonation) && core.cards().reserve.is_some() {
+        if matches!(fx, Fx::Veto | Fx::Dig | Fx::Impersonation | Fx::Perform { .. }) && core.cards().reserve.is_some() {
             return None;
         }
         // A readied Keleres agent could be offered before a payment (a window of its own, the goods window).
@@ -471,7 +486,7 @@ impl Play {
             }
             _ => None,
         };
-        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: Child::idle(), hand: Child::idle(), chosen: None, landing: None, jam: None, troop: None, pulled: SmallList::new(), received: SmallList::new(), pay_ask: None })
+        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: Child::idle(), hand: Child::idle(), chosen: None, landing: None, jam: None, troop: None, pulled: SmallList::new(), received: SmallList::new(), pay_ask: None, picked: None, perform: Child::idle() })
     }
 
     fn what(&self) -> Option<What> {
@@ -491,6 +506,7 @@ impl Play {
             Fx::Focused => What::Focus,
             Fx::Crash => What::Crash { system: self.jam?, second: self.step == 1 },
             Fx::Bribery => What::Spend,
+            Fx::Perform { .. } => What::Perform,
             Fx::Lie => What::Lie { from: self.victim? },
             Fx::Divert if self.step == 0 => What::Return,
             Fx::Divert => What::Funding,
@@ -752,6 +768,22 @@ impl Play {
                 }
                 reach.as_mut_slice().sort_unstable();
                 reach.as_slice().iter().copied().filter(|s| !is_home_system(scope, *s)).map(Opt::System).collect()
+            }
+            Fx::Perform { .. } => {
+                // The cards of the other seats that are not exhausted (seating order), then the unclaimed ones.
+                let mut out = SmallList::new();
+                for seat in seats::seating_order(core).as_slice().iter().copied().filter(|s| *s != who) {
+                    let Some(p) = core.players().by_seat(seat) else { continue };
+                    for card in p.strat.as_slice() {
+                        if !p.strat_exhausted.contains(*card) {
+                            out.push(Opt::Perform { card: *card, holder: Some(seat) });
+                        }
+                    }
+                }
+                for card in core.strategy().unclaimed.as_slice() {
+                    out.push(Opt::Perform { card: *card, holder: None });
+                }
+                out
             }
             Fx::Bribery => {
                 // "Any number" includes zero, but with no trade good there is nothing to ask.
@@ -1630,6 +1662,7 @@ impl Play {
                     }
                 }
             }
+            (Fx::Perform { .. }, Opt::Perform { card, .. }) => self.picked = Some(card),
             (Fx::Crash, Opt::Kind(kind)) => {
                 self.landing = Some(kind);
                 self.step = 1;
@@ -1829,7 +1862,13 @@ impl Play {
                 [only] if self.fx != Fx::Squad => {
                     let only = *only;
                     if !self.apply(core, k, seeds, only) {
-                        self.stage = if self.fx == Fx::Reveal && self.chosen.is_some() { Stage::Billing } else { Stage::Done };
+                        self.stage = if self.fx == Fx::Reveal && self.chosen.is_some() {
+                            Stage::Billing
+                        } else if self.picked.is_some() {
+                            Stage::Chosen
+                        } else {
+                            Stage::Done
+                        };
                         return;
                     }
                 }
@@ -1856,7 +1895,7 @@ impl Play {
 
     /// The question as the driver names it (Summit asks the strategy area's pool question).
     pub(super) fn any_ask(&self) -> crate::choice::Ask {
-        if let (Stage::Paying | Stage::Limiting, Some(ask)) = (self.stage, self.pay_ask) {
+        if let (Stage::Paying | Stage::Limiting | Stage::Performing, Some(ask)) = (self.stage, self.pay_ask) {
             return ask;
         }
         if self.fx == Fx::Summit {
@@ -1897,8 +1936,55 @@ impl Play {
         self.maybe_bill(sx);
     }
 
+    /// Strategize and Overrule: the strategy card is chosen, its ability begins (a window of its own when it asks).
+    fn begin_perform(&mut self, sx: &mut Sx<'_>) {
+        let (Some(card), Fx::Perform { primary }) = (self.picked.take(), self.fx) else {
+            self.stage = Stage::Done;
+            return;
+        };
+        match perform::begin(sx, self.who, card, primary, self.env) {
+            Began::Done => self.stage = Stage::Done,
+            Began::Unsupported => {
+                self.unsupported = true;
+                self.stage = Stage::Done;
+            }
+            Began::Run(window) => {
+                self.perform.start(window);
+                self.stage = Stage::Performing;
+                self.drive_perform(sx);
+            }
+        }
+    }
+
+    /// Step the performed ability until it asks or ends.
+    fn drive_perform(&mut self, sx: &mut Sx<'_>) {
+        self.pay_ask = None;
+        loop {
+            match self.perform.step(sx) {
+                Some(Ran::Asks(ask)) => {
+                    self.pay_ask = Some(ask);
+                    return;
+                }
+                Some(Ran::Pass(_)) => {}
+                Some(Ran::Done(window)) => {
+                    // An answer that left the carried path (a research only a faction waiver opens): the string performs it.
+                    self.unsupported |= window.failed();
+                    self.stage = Stage::Done;
+                    return;
+                }
+                None => {
+                    self.stage = Stage::Done;
+                    return;
+                }
+            }
+        }
+    }
+
     /// Reveal Prototype: the technology is chosen, the four resources are paid by a child window.
     fn maybe_bill(&mut self, sx: &mut Sx<'_>) {
+        if self.stage == Stage::Chosen {
+            self.begin_perform(sx);
+        }
         if self.stage == Stage::Billing {
             self.pay.start(PayBill::new(self.who, economy::Spend::Resources, 4));
             self.stage = Stage::Paying;
@@ -2001,7 +2087,7 @@ impl Play {
     /// Whether the play waits on the holder's pick (or on a payment).
     #[must_use]
     pub fn asking(&self) -> bool {
-        self.stage == Stage::Asking || (matches!(self.stage, Stage::Paying | Stage::Limiting) && self.pay_ask.is_some())
+        self.stage == Stage::Asking || (matches!(self.stage, Stage::Paying | Stage::Limiting | Stage::Performing) && self.pay_ask.is_some())
     }
 
     /// Apply a pick to the pending question (`Window::answer` without the services).
@@ -2017,6 +2103,11 @@ impl Play {
         if self.stage == Stage::Limiting {
             self.hand.answer(sx, pick)?;
             self.drive_hand(sx);
+            return Ok(());
+        }
+        if self.stage == Stage::Performing {
+            self.perform.answer(sx, pick)?;
+            self.drive_perform(sx);
             return Ok(());
         }
         if self.stage != Stage::Asking {
@@ -2045,6 +2136,8 @@ impl Play {
             self.advance(core, k, seeds);
         } else if self.fx == Fx::Reveal && self.chosen.is_some() {
             self.stage = Stage::Billing;
+        } else if self.picked.is_some() {
+            self.stage = Stage::Chosen;
         } else {
             self.stage = Stage::Done;
         }
@@ -2064,8 +2157,8 @@ impl Window for Play {
         self.begin(sx);
         match self.stage {
             Stage::Asking => Next::Continue(self.any_ask()),
-            Stage::Paying | Stage::Limiting => self.pay_ask.map_or(Next::Done, Next::Continue),
-            Stage::Start | Stage::Billing | Stage::Done => Next::Done,
+            Stage::Paying | Stage::Limiting | Stage::Performing => self.pay_ask.map_or(Next::Done, Next::Continue),
+            Stage::Start | Stage::Billing | Stage::Chosen | Stage::Done => Next::Done,
         }
     }
 
@@ -2075,6 +2168,9 @@ impl Window for Play {
         }
         if self.stage == Stage::Limiting {
             return self.hand.ask_of(s, k);
+        }
+        if self.stage == Stage::Performing {
+            return self.perform.ask_of(s, k);
         }
         if self.fx == Fx::Summit {
             return (self.stage == Stage::Asking).then(|| crate::choice::strategy::gain_pool_choice(self.who, Self::SUMMIT_TOKENS - self.step));
@@ -2128,7 +2224,7 @@ mod tests {
             (C::DirectHit4, "the exact sustain mark and the ship-lost observers"),
             (C::SkilledRetreat1, "destinations and previews"),
             (C::CourageousToTheEnd, "dice and a casualty choice"),
-            (C::Strategize1, "performs another area's ability"),
+            (C::ScrambleFrequency, "the combat area's dice plumbing"),
         ] {
             assert_eq!(Fx::of(card), None, "{card:?}: {why}");
         }
@@ -2180,6 +2276,9 @@ mod tests {
             C::Bribery,
             C::Infiltrate,
             C::CrashLanding,
+            C::Strategize1,
+            C::Strategize4,
+            C::Overrule,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }
@@ -2311,13 +2410,8 @@ mod tests {
             (C::CourageousToTheEnd, "dice, then the opponent's casualty choice with the card's holder as producer: the combat area's hit flow (core-b12 keeps the child casualty flows, ENGINE_REACTIONS 9.2)"),
             (C::ExperimentalBattlestation, "a space cannon roll whose hits go through the combat area's sustain and casualty questions (a child hit flow, core-b12's area) from a dock in or adjacent to the active system"),
             (C::FireTeam, "the staged ground roll's per-die rerolls are the combat area's (ported on core-b12 as a registered play; not merged here)"),
-            (C::Overrule, "performs the primary ability of another strategy card: eight card kinds with their own windows and guards, to be run as child windows"),
             (C::ExplorationProbe, "the exploration resolution (`explore_with`) is not one core window: its reward and attachment cards are string"),
             (C::ScrambleFrequency, "per-die reroll of a barrage, space cannon or bombardment roll of another seat: the combat area's dice plumbing (core-b12 documents it as a bail)"),
-            (C::Strategize1, "performs the secondary ability of another strategy card: eight card kinds with their own windows and guards, to be run as child windows"),
-            (C::Strategize2, "performs the secondary ability of another strategy card: eight card kinds with their own windows and guards, to be run as child windows"),
-            (C::Strategize3, "performs the secondary ability of another strategy card: eight card kinds with their own windows and guards, to be run as child windows"),
-            (C::Strategize4, "performs the secondary ability of another strategy card: eight card kinds with their own windows and guards, to be run as child windows"),
         ]
     };
 
