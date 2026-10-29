@@ -7,6 +7,7 @@
 //! dual_run CONFIG GAMES [AREAS] --shard i/N --out FILE   play only the games with index % N == i, write FILE
 //! dual_run --merge FILE...                                merge the N shard files of one run
 //! dual_run CONFIG GAMES [AREAS] --game I                  play only game I (a repro of one game; unsharded text)
+//! dual_run CONFIG GAMES [AREAS] --seed S                  the same, naming the game by its seed (must be unique in the run)
 //! dual_run --specs CONFIG GAMES                           one JSON line per game: index, seed, map, factions, ... and the
 //!                                                         `selfplay replay` flags (the soak maps a difference to its game)
 //! ```
@@ -50,9 +51,13 @@ fn main() {
     };
     let shard = take_flag("--shard").map(|t| Shard::parse(&t).unwrap_or_else(|e| fail(&e)));
     let out = take_flag("--out");
-    let only = take_flag("--game").map(|g| g.parse::<usize>().unwrap_or_else(|_| fail("--game wants a game index")));
-    if only.is_some() && shard.is_some() {
-        fail("--game and --shard do not go together");
+    let mut only = take_flag("--game").map(|g| g.parse::<usize>().unwrap_or_else(|_| fail("--game wants a game index")));
+    let seed = take_flag("--seed").map(|g| g.parse::<u64>().unwrap_or_else(|_| fail("--seed wants a seed number")));
+    if only.is_some() && seed.is_some() {
+        fail("--game and --seed do not go together");
+    }
+    if only.is_some() && shard.is_some() || seed.is_some() && shard.is_some() {
+        fail("--game / --seed and --shard do not go together");
     }
     if shard.is_some() != out.is_some() {
         fail("--shard and --out go together");
@@ -60,6 +65,16 @@ fn main() {
     let (Some(config), Some(games)) = (args.first(), args.get(1).and_then(|g| g.parse::<usize>().ok())) else {
         usage()
     };
+    if let Some(seed) = seed {
+        let games = args.get(1).and_then(|g| g.parse::<usize>().ok()).unwrap_or(0);
+        let (_, all) = config_specs(&args[0]).unwrap_or_else(|e| fail(&e));
+        let hits: Vec<usize> = all.iter().take(games).enumerate().filter(|(_, g)| g.seed == seed).map(|(i, _)| i).collect();
+        match hits.as_slice() {
+            [one] => only = Some(*one),
+            [] => fail(&format!("--seed {seed}: no game of the first {games} has that seed")),
+            many => fail(&format!("--seed {seed}: games {many:?} share it; use --game I")),
+        }
+    }
     let spec = args.get(2).map_or("movement=dual", String::as_str);
     let dual_mask = AreaMask::parse(spec, AreaMask::STRING).unwrap_or_else(|e| {
         eprintln!("{e}");

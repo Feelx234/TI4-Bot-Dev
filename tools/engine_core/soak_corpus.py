@@ -14,6 +14,7 @@ faction draw (LOBBY_FACTIONS: Last Bastion and Crimson are not seated), rules ve
 """
 import json
 import os
+import random
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -47,19 +48,22 @@ def setup(name, players, games, first_seed, **kw):
     return s
 
 
-def split(total, weights):
-    """total split by integer weights; largest remainder, deterministic."""
+def split(total, weights, seed=0):
+    """total split by integer weights; largest remainder, ties broken by a shuffle of `seed` (so a small slice does not
+    always pick the same keys and the seed ranges of consecutive slices cover all of them)."""
     s = sum(weights.values())
     raw = {k: total * w / s for k, w in weights.items()}
     out = {k: int(v) for k, v in raw.items()}
     rest = total - sum(out.values())
-    for k in sorted(raw, key=lambda k: (-(raw[k] - out[k]), str(k)))[:rest]:
+    order = list(weights)
+    random.Random(seed).shuffle(order)
+    for k in sorted(order, key=lambda k: -(raw[k] - out[k]))[:rest]:
         out[k] += 1
     return out
 
 
 def players_lane(games, first, **kw):
-    counts = split(games, PLAYERS)
+    counts = split(games, PLAYERS, first)
     setups, seed = [], first
     for p, n in counts.items():
         if n:
@@ -78,7 +82,7 @@ def lane_te(games, first):
 
 def lane_old(games, first):
     versions = OLD_VERSIONS
-    per = split(games, {v: 1 for v in versions})
+    per = split(games, {v: 1 for v in versions}, first)
     setups, seed = [], first
     for i, v in enumerate(versions):
         n = per[v]
@@ -92,7 +96,7 @@ def lane_old(games, first):
 
 def lane_factions(games, first):
     """Every lobby faction on seat a (the others drawn by the lobby), 4-6 players, half with Thunder's Edge."""
-    per = split(games, {f: 1 for f in LOBBY})
+    per = split(games, {f: 1 for f in LOBBY}, first)
     setups, seed = [], first
     for i, f in enumerate(LOBBY):
         n = per[f]

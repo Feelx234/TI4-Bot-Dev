@@ -155,7 +155,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "25..30",
+      "seeds": "25..29",
       "factions": [
         "arborec"
       ],
@@ -178,7 +178,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "30..34",
+      "seeds": "29..33",
       "factions": [
         "mentak"
       ],
@@ -210,7 +210,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "34..38",
+      "seeds": "33..37",
       "factions": [
         "muaat"
       ],
@@ -233,7 +233,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "38..42",
+      "seeds": "37..41",
       "factions": [
         "naalu"
       ],
@@ -251,7 +251,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "42..46",
+      "seeds": "41..45",
       "factions": [
         "nekro"
       ],
@@ -268,7 +268,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "46..50",
+      "seeds": "45..50",
       "factions": [
         "saar"
       ],
@@ -423,7 +423,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "75..80",
+      "seeds": "75..79",
       "factions": [
         "cabal"
       ],
@@ -446,7 +446,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "80..85",
+      "seeds": "79..83",
       "factions": [
         "empyrean"
       ],
@@ -478,7 +478,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "85..89",
+      "seeds": "83..88",
       "factions": [
         "mahact"
       ],
@@ -501,7 +501,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "89..93",
+      "seeds": "88..92",
       "factions": [
         "naaz"
       ],
@@ -519,7 +519,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "93..97",
+      "seeds": "92..96",
       "factions": [
         "nomad"
       ],
@@ -536,7 +536,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "97..101",
+      "seeds": "96..101",
       "factions": [
         "titans"
       ],

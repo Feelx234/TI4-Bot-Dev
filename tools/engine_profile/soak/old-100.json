@@ -42,7 +42,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "7..13",
+      "seeds": "7..12",
       "rules_version": 1,
       "thunders_edge": true
     },
@@ -63,7 +63,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "13..18",
+      "seeds": "12..17",
       "rules_version": 3,
       "thunders_edge": false
     },
@@ -93,7 +93,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "18..23",
+      "seeds": "17..23",
       "rules_version": 5,
       "thunders_edge": true
     },
@@ -182,7 +182,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "40..46",
+      "seeds": "40..45",
       "rules_version": 19,
       "thunders_edge": true
     },
@@ -203,7 +203,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "46..52",
+      "seeds": "45..50",
       "rules_version": 21,
       "thunders_edge": false
     },
@@ -233,7 +233,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "52..58",
+      "seeds": "50..56",
       "rules_version": 22,
       "thunders_edge": true
     },
@@ -252,7 +252,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "58..64",
+      "seeds": "56..62",
       "rules_version": 23,
       "thunders_edge": false
     },
@@ -282,7 +282,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "64..70",
+      "seeds": "62..67",
       "rules_version": 26,
       "thunders_edge": true
     },
@@ -303,7 +303,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "70..76",
+      "seeds": "67..72",
       "rules_version": 29,
       "thunders_edge": false
     },
@@ -322,7 +322,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "76..81",
+      "seeds": "72..77",
       "rules_version": 30,
       "thunders_edge": true
     },
@@ -343,7 +343,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "81..86",
+      "seeds": "77..83",
       "rules_version": 31,
       "thunders_edge": false
     },
@@ -373,7 +373,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "86..91",
+      "seeds": "83..89",
       "rules_version": 32,
       "thunders_edge": true
     },
@@ -392,7 +392,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "91..96",
+      "seeds": "89..95",
       "rules_version": 33,
       "thunders_edge": false
     },
@@ -422,7 +422,7 @@
       ],
       "map_policy": "random",
       "starting_tech": true,
-      "seeds": "96..101",
+      "seeds": "95..101",
       "rules_version": 34,
       "thunders_edge": true
     }
