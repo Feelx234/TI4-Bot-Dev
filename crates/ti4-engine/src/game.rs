@@ -4725,21 +4725,10 @@ impl<'a> Game<'a> {
         result
     }
 
-    #[allow(
-        clippy::too_many_lines,
-        reason = "one movement-close and aftermath-opening boundary"
-    )]
-    fn finish_tactical_inner(&mut self) -> StepResult {
-        let tactical = self
-            .tactical
-            .as_ref()
-            .map(|window| (window.player.clone(), window.notes_at_start.clone()));
-        self.tactical = None;
-        let system = self.state.active_system.clone();
-
-        let (Some((player, notes_at_start)), Some(system)) = (tactical, system) else {
-            return self.close_tactical();
-        };
+    /// The head of [`Self::finish_tactical_inner`]: `MOVEMENT_FINISHED`, the map edits Nova Seed made, the Sardakk hero's
+    /// skip to the commit step, the end of the arrival count and the Floating Factories a blockade destroys. Returns the
+    /// system the rest of the step belongs to and whether it skips to the commit step.
+    fn finish_head(&mut self, player: &PlayerId, system: SystemId) -> Result<(SystemId, bool), GameError> {
         // The movement step is over (LRR 89.2 → 89.3): one typed window for effects that read "after
         // you move ships" as a whole rather than per ship (Naalu Foresight, Muaat Nova Seed).
         let mut moved = BTreeMap::new();
@@ -4757,7 +4746,7 @@ impl<'a> Game<'a> {
             serde_json::Value::from(ships_moved),
         );
         if let Err(error) = self.emit_typed("MOVEMENT_FINISHED", moved) {
-            return self.result(false, Some(error));
+            return Err(error);
         }
         // Nova Seed replaced the active system's tile during that window: the rest of the step
         // belongs to the supernova, on a map that already shows it.
@@ -4802,6 +4791,66 @@ impl<'a> Game<'a> {
             self.sources,
             &system,
         );
+        Ok((system, skip_to_commit))
+    }
+
+    /// [`Self::finish_head`] as a lockstep window of `Area::Movement` (`tactical_dual::finish`).
+    fn finish_head_windowed(&mut self, player: &PlayerId, system: SystemId) -> Result<(SystemId, bool), GameError> {
+        use crate::dual::{Area, Backend};
+        let (Backend::Dual, true) = (crate::dual::backend(Area::Movement), self.galaxy.is_some()) else {
+            return self.finish_head(player, system);
+        };
+        let (content, sources) = (self.content, self.sources);
+        let galaxy = self.galaxy.clone().expect("checked above");
+        let events_before = self.events.len();
+        let failed = std::cell::Cell::new(false);
+        let mut done = None;
+        let mut taken = std::mem::take(&mut self.state);
+        let _ = crate::dual_window!(
+            Area::Movement,
+            "tactical::finish",
+            &mut taken,
+            |state: &mut GameState| {
+                std::mem::swap(&mut self.state, state);
+                let result = self.finish_head(player, system.clone());
+                std::mem::swap(&mut self.state, state);
+                failed.set(result.is_err());
+                let value = result.as_ref().map_or_else(|_| (String::new(), false), |(system, skip)| (system.to_string(), *skip));
+                done = Some(result);
+                crate::dual::Run::new(crate::tactical_dual::Closed {
+                    system: value.0,
+                    skip_to_commit: value.1,
+                    plain: self.events.get(events_before..).unwrap_or_default().to_vec(),
+                    failed: failed.get(),
+                })
+            },
+            |state: &mut GameState, script: &crate::dual_window::Recording| {
+                crate::tactical_dual::finish(state, content, sources, &galaxy, player, failed.get(), script)
+            }
+        );
+        self.state = taken;
+        done.expect("the string side of the window ran")
+    }
+
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one movement-close and aftermath-opening boundary"
+    )]
+    fn finish_tactical_inner(&mut self) -> StepResult {
+        let tactical = self
+            .tactical
+            .as_ref()
+            .map(|window| (window.player.clone(), window.notes_at_start.clone()));
+        self.tactical = None;
+        let system = self.state.active_system.clone();
+
+        let (Some((player, notes_at_start)), Some(system)) = (tactical, system) else {
+            return self.close_tactical();
+        };
+        let (system, skip_to_commit) = match self.finish_head_windowed(&player, system) {
+            Ok(done) => done,
+            Err(error) => return self.result(false, Some(error)),
+        };
 
         // A single answer can enter automatic aftermath before another question
         // exists. The observer only reports that boundary; rules still run normally.

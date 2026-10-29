@@ -116,6 +116,10 @@ pub struct Machine {
     single: bool,
     /// The free tactical action's system, until the machine has activated it.
     free: Option<System>,
+    /// The close of the movement step runs on the first step instead of asking ([`Machine::closing`]).
+    closing: bool,
+    /// What the close handed to the aftermath.
+    pub closed: Option<Closed>,
     /// The last answer's effect.
     pub step: Option<Step>,
     /// The plain events written so far, in order.
@@ -128,7 +132,7 @@ pub struct Machine {
 
 impl Machine {
     fn new(seat: Seat, stage: Stage, facts: Facts) -> Self {
-        Self { seat, stage, facts, load: None, route: None, single: false, free: None, step: None, plain: Vec::new(), dice: Vec::new(), bailed: None }
+        Self { seat, stage, facts, load: None, route: None, single: false, free: None, closing: false, closed: None, step: None, plain: Vec::new(), dice: Vec::new(), bailed: None }
     }
 
     /// The seat is to choose a system to activate.
@@ -152,6 +156,14 @@ impl Machine {
         hold.closed = closed;
         let mut m = Self::new(seat, Stage::Loading, facts);
         m.load = Some(Loading { origin, ship, path, hold });
+        m
+    }
+
+    /// The movement step is over: the machine announces it on its first step (`MOVEMENT_FINISHED`) and is done.
+    #[must_use]
+    pub fn closing(seat: Seat, facts: Facts) -> Self {
+        let mut m = Self::new(seat, Stage::Moving, facts);
+        m.closing = true;
         m
     }
 
@@ -209,6 +221,12 @@ impl Window for Machine {
         if let Some(system) = self.free.take() {
             activate::free(self, sx, system);
             self.stage = Stage::Moving;
+            return Next::Done;
+        }
+        if self.closing {
+            self.closing = false;
+            self.closed = Some(finish::close(self, sx));
+            self.stage = Stage::Done;
             return Next::Done;
         }
         if self.finished() {
@@ -276,12 +294,5 @@ impl Window for Machine {
 impl Machine {
     pub(crate) fn set_stage(&mut self, stage: Stage) {
         self.stage = stage;
-    }
-
-    /// The close of the movement step ([`finish::close`]); the machine is done afterwards.
-    pub fn close(&mut self, sx: &mut Sx<'_>) -> Closed {
-        let out = finish::close(self, sx);
-        self.stage = Stage::Done;
-        out
     }
 }

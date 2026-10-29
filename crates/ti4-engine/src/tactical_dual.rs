@@ -44,6 +44,16 @@ pub struct Stepped {
     pub rng: crate::rng::RngPositions,
 }
 
+/// What the head of the close of the movement step leaves besides the state: the system the rest belongs to, whether it
+/// skips to the commit step, the plain events, whether the string refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Closed {
+    pub system: String,
+    pub skip_to_commit: bool,
+    pub plain: Vec<String>,
+    pub failed: bool,
+}
+
 /// What a call site knows besides the state.
 #[derive(Debug, Clone, Copy)]
 pub struct Args<'a> {
@@ -76,6 +86,10 @@ mod stub {
     use crate::dual_window::Recording;
 
     pub fn step(_: &mut GameState, _: &ContentStore, _: SourceSet, _: &Galaxy, _: &At, _: Args<'_>, _: &Recording) -> Option<CoreWindow<Stepped>> {
+        None
+    }
+
+    pub fn finish(_: &mut GameState, _: &ContentStore, _: SourceSet, _: &Galaxy, _: &ti4_model::id::PlayerId, _: bool, _: &Recording) -> Option<CoreWindow<super::Closed>> {
         None
     }
 }
@@ -319,5 +333,73 @@ mod real {
         let events = emitted.iter().map(|e| event_of(&r, e)).collect::<Option<Vec<_>>>()?;
         let stepped = Stepped { stage: tag_of(stage), plain: plain.into_iter().map(|p| plain_text(&r, p)).collect(), failed: false, rift_faces, rng };
         Some(CoreWindow { run: Run::new(stepped).with_events_vec(events), questions: driven.rendered })
+    }
+
+    /// What the head of the close of the movement step holds that the machine does not follow: Nova Seed's map edits, the
+    /// Sardakk hero (it asks), a Floating Factory in the active system (a blockade destroys it).
+    #[must_use]
+    pub fn finish_unported(gs: &GameState, content: &ContentStore, sources: SourceSet, system: &SystemId) -> Option<&'static str> {
+        if gs.faction_marks.keys().any(|k| k.starts_with(crate::movement::MAP_EDIT_PREFIX)) {
+            return Some("map edits (Nova Seed)");
+        }
+        if gs.players.iter().any(|p| p.leaders.get("sardakkhero") == Some(&ti4_model::state::LeaderStatus::Unlocked)) {
+            return Some("the Sardakk hero is unlocked");
+        }
+        let types = ti4_content::units::catalogue(content, sources);
+        if gs
+            .system_state(system)
+            .units
+            .iter()
+            .any(|u| types.get(u.type_id.as_str()).is_some_and(|k| k.is_space_only_structure() && k.has_production()))
+        {
+            return Some("a Floating Factory in the active system");
+        }
+        None
+    }
+
+    /// The core half of the head of `finish_tactical_inner`.
+    #[must_use]
+    pub fn finish(gs: &mut GameState, content: &ContentStore, sources: SourceSet, galaxy: &Galaxy, player: &ti4_model::id::PlayerId, failed: bool, script: &Recording) -> Option<CoreWindow<super::Closed>> {
+        const LABEL: &str = "tactical::finish";
+        if failed || !content.is_embedded() || gs.diplomacy.enabled || gs.active_space_combat.is_some() || gs.active_invasion.is_some() {
+            return None;
+        }
+        if dropped_faction_at_the_table(gs) {
+            return bail(LABEL, "a faction dropped by decision at the table");
+        }
+        let system = gs.active_system.clone()?;
+        if let Some(why) = finish_unported(gs, content, sources, &system) {
+            return bail(LABEL, why);
+        }
+        nested_check(script)?;
+        if script.questions.iter().any(|q| !q.nested) {
+            return bail(LABEL, "a hook of the close asked a question");
+        }
+        let (mut cx, r) = tables(gs)?;
+        let seat = r.seat(player.as_str())?;
+        let facts = Facts { pool: r.code("tactic") };
+        let before = gs.clone();
+        let env = crate::core_combat::window_env(&before, &cx, sources)?;
+        let resolver = Resolver::new(&[seat], Some(seat));
+        let src = Sources { galaxy: Some(galaxy), rng: None };
+        let mut staged = Vec::new();
+        let mut out = None;
+        let driven = with_core(gs, &mut cx, src, nested_fp(WINDOW, script), |core, _| {
+            let mut driver = Driver::new(Machine::closing(seat, facts), resolver, AbilityTable::default(), 1);
+            let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            out = Some((driver.window.closed, driver.emitted.clone()));
+            driven
+        });
+        let driven = match driven {
+            Ok(Ok(d)) => d,
+            _ => return bail(LABEL, "a position the codecs refuse"),
+        };
+        let (closed, emitted) = out?;
+        let closed = closed?;
+        apply_staged(gs, &r, &staged)?;
+        let events = emitted.iter().map(|e| event_of(&r, e)).collect::<Option<Vec<_>>>()?;
+        let value = super::Closed { system: closed.system.as_str().to_owned(), skip_to_commit: closed.skip_to_commit, plain: Vec::new(), failed: false };
+        Some(CoreWindow { run: Run::new(value).with_events_vec(events), questions: driven.rendered })
     }
 }
