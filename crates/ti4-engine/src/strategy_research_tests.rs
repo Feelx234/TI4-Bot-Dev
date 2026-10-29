@@ -518,23 +518,26 @@ fn a_planet_chosen_for_one_colour_is_not_chosen_again_for_the_next() {
                 continue;
             };
             let (xs, ys) = (specialty_planets(x), specialty_planets(y));
-            let (Some((p, p_system)), Some((q, q_system))) = (xs.first().cloned(), ys.iter().find(|(q, _)| xs.first().is_none_or(|(p, _)| p != q)).cloned()) else {
-                continue;
-            };
-            for tech in techs_needing(&[(x, 1), (y, 1)], true) {
-                let attachment = facility.as_str().to_owned();
-                let (pc, qc, ps, qs) = (p.clone(), q.clone(), p_system.clone(), q_system.clone());
-                let control = move |s: &mut GameState| {
-                    s.system_mut(&ps).set_control(pc.clone(), a());
-                    s.system_mut(&qs).set_control(qc.clone(), a());
-                    s.planet_attachments.entry(pc.clone()).or_default().push(attachment.clone());
-                };
-                let (counts, after) = play(&F3, control, &[tech.as_str(), "decline"], true);
-                if counts != (1, 0) || !owns(&after, "a", tech.as_str()) {
-                    continue;
+            // The second planet comes later in the seat's controlled order than the first: the first, which carries both
+            // specialties, would be met again for the second colour if it were not set aside.
+            let after = |(q, qs): &(PlanetId, SystemId), (p, ps): &(PlanetId, SystemId)| (qs.as_str(), q.as_str()) > (ps.as_str(), p.as_str());
+            for (p, p_system) in &xs {
+                let Some((q, q_system)) = ys.iter().find(|candidate| after(candidate, &(p.clone(), p_system.clone()))) else { continue };
+                for tech in techs_needing(&[(x, 1), (y, 1)], true) {
+                    let attachment = facility.as_str().to_owned();
+                    let (pc, qc, ps, qs) = (p.clone(), q.clone(), p_system.clone(), q_system.clone());
+                    let control = move |s: &mut GameState| {
+                        s.system_mut(&ps).set_control(pc.clone(), a());
+                        s.system_mut(&qs).set_control(qc.clone(), a());
+                        s.planet_attachments.entry(pc.clone()).or_default().push(attachment.clone());
+                    };
+                    let (counts, after) = play(&F3, control, &[tech.as_str(), "decline"], true);
+                    if counts != (1, 0) || !owns(&after, "a", tech.as_str()) {
+                        continue;
+                    }
+                    assert!(after.exhausted_planets.contains(p) && after.exhausted_planets.contains(q), "{x}+{y} {tech}: both planets pay, the first is not counted twice");
+                    return;
                 }
-                assert!(after.exhausted_planets.contains(&p) && after.exhausted_planets.contains(&q), "{x}+{y} {tech}: both planets pay, the first is not counted twice");
-                return;
             }
         }
     }
