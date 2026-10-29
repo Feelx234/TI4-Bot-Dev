@@ -10,9 +10,10 @@
 use crate::choice::objectives::{Ask as OAsk, Opt as OOpt, return_secret_choice, score_choice};
 use crate::choice::{Ask, Choice, Opt, Pick};
 use crate::containers::SmallList;
-use crate::generated::SecretObjective;
+use crate::generated::{PublicObjective, SecretObjective};
 use crate::ids::Seat;
 use crate::kernel::fx;
+use crate::kernel::fx_pay::{self, PayEnv};
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
 use crate::query::objectives as q;
@@ -42,6 +43,9 @@ pub struct ScoreOne {
     offers: SmallList<ObjectiveRef, 24>,
     /// The feat occurrence the player's one score is recorded under (an event window with the one-per-player cap).
     occurrence: Option<u64>,
+    /// What the price reads besides the state and the kernel. Without it a priced offer cannot be taken (a
+    /// bought objective is never free).
+    price: Option<PayEnv>,
     stage: SStage,
     /// What was scored; `None` for a decline.
     pub scored: Option<ObjectiveRef>,
@@ -50,7 +54,33 @@ pub struct ScoreOne {
 impl ScoreOne {
     #[must_use]
     pub fn new(who: Seat, status: bool, offers: &[ObjectiveRef], occurrence: Option<u64>) -> Self {
-        Self { who, status, offers: offers.iter().copied().collect(), occurrence, stage: SStage::Start, scored: None }
+        Self { who, status, offers: offers.iter().copied().collect(), occurrence, price: None, stage: SStage::Start, scored: None }
+    }
+
+    /// The same window able to charge the price of a bought objective (`objectives::pay_for`) and of Destroy
+    /// Heretical Works / Form a Spy Network (`secrets::pay_for`).
+    #[must_use]
+    pub const fn with_price(mut self, env: PayEnv) -> Self {
+        self.price = Some(env);
+        self
+    }
+
+    /// `objectives::award`: a bought objective is paid on taking. `false` when it cannot be paid.
+    fn pay_public(&self, sx: &mut Sx<'_>, obj: PublicObjective) -> bool {
+        match q::cost_of(obj) {
+            None => true,
+            Some(cost) => self.price.is_some_and(|env| fx_pay::pay_cost(sx.state, sx.kernel, env, self.who, cost)),
+        }
+    }
+}
+
+impl ScoreOne {
+    /// `secrets::pay_for`: the two priced secrets need the environment of a price, every other secret is free.
+    fn priced_ok(&self, sx: &mut Sx<'_>, secret: SecretObjective) -> bool {
+        if !matches!(secret, SecretObjective::DestroyHereticalWorks | SecretObjective::FormASpyNetwork) {
+            return true;
+        }
+        self.price.is_some() && fx_pay::pay_secret(sx.state, self.who, secret)
     }
 }
 
@@ -88,12 +118,21 @@ impl Window for ScoreOne {
                 let public_now = sx.state.objectives().revealed.as_slice().contains(&obj);
                 match obj {
                     ObjectiveRef::Secret(s) if !public_now => {
-                        // `secrets::award`: a window that offers a secret not in the hand is stale.
+                        // `secrets::award`: a window that offers a secret not in the hand is stale; the price is
+                        // paid before the score, and a secret whose price cannot be met is not scored.
+                        if !hand_holds(sx.state, self.who, s) || !(self.priced_ok(sx, s)) {
+                            return Err(Illegal);
+                        }
                         if !fx::score_secret(sx.state, self.who, s) {
                             return Err(Illegal);
                         }
                     }
                     _ => {
+                        if let ObjectiveRef::Public(p) = obj
+                            && !self.pay_public(sx, p)
+                        {
+                            return Err(Illegal);
+                        }
                         fx::score_public(sx.state, self.who, obj);
                     }
                 }

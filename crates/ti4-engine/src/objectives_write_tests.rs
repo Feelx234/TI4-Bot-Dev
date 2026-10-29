@@ -373,13 +373,379 @@ fn the_documented_bails_stay_with_the_string_side() {
     let mut state = clean(&[("a", "letnev"), ("b", "sol")]);
     assert!(score_one(&mut state, content, POK, &ask(&["eap"]), args, &script).is_some(), "the plain question is followed");
     assert!(score_one(&mut state, content, POK, &ask(&["eap", "eap|plot|b"]), args, &script).is_none());
-    assert!(score_one(&mut state, content, POK, &ask(&["amass_wealth"]), args, &script).is_none());
-    // The two secrets with a price (two relic fragments, five action cards).
-    assert!(score_one(&mut state, content, POK, &ask(&["dhw"]), args, &script).is_none());
-    assert!(score_one(&mut state, content, POK, &ask(&["fsn"]), args, &script).is_none());
+    // A bought objective and the two secrets with a price (two relic fragments, five action cards) are followed
+    // (the core window pays them, `the_price_*` tests below); the price stays with the string at a table with a
+    // Last Bastion or a Crimson seat, and for a payer holding ocean cards.
+    assert!(score_one(&mut state, content, POK, &ask(&["amass_wealth"]), args, &script).is_some());
+    assert!(score_one(&mut state, content, POK, &ask(&["dhw"]), args, &script).is_some());
+    assert!(score_one(&mut state, content, POK, &ask(&["fsn"]), args, &script).is_some());
+    for faction in [crate::factions::bastion::FACTION, crate::factions::crimson::FACTION] {
+        let mut table = clean(&[("a", "letnev"), ("b", faction)]);
+        assert!(score_one(&mut table, content, POK, &ask(&["amass_wealth"]), args, &script).is_none(), "{faction} at the table");
+        assert!(score_one(&mut table, content, POK, &ask(&["dhw"]), args, &script).is_none(), "{faction} at the table");
+        assert!(score_one(&mut table, content, POK, &ask(&["eap"]), args, &script).is_some(), "an unpriced offer is not affected");
+    }
+    let mut oceans = clean(&[("a", crate::factions::deepwrought::FACTION), ("b", "sol")]);
+    let (system, planet) = crate::fixtures::a_placed_planet();
+    oceans.system_mut(&system).set_control(planet.clone(), PlayerId::new("b"));
+    crate::fixtures::put_on_planet(&mut oceans, &system, &planet, "infantry", &PlayerId::new("b"), 1);
+    crate::fixtures::put_on_planet(&mut oceans, &system, &planet, "infantry", &a(), 1);
+    assert!(crate::factions::deepwrought::begin_coexisting(&mut oceans, &a(), &system, &planet, None).expect("begins"));
+    assert!(!crate::factions::deepwrought::spendable_oceans(&oceans, &a()).is_empty(), "the fixture holds an ocean card");
+    assert!(score_one(&mut oceans, content, POK, &ask(&["amass_wealth"]), args, &script).is_none());
+    assert!(score_one(&mut oceans, content, POK, &ask(&["eap"]), args, &script).is_some());
     let mut nested = Recording::default();
     nested.nested = true;
     assert!(score_one(&mut state, content, POK, &ask(&["eap"]), args, &nested).is_none());
     state.diplomacy.enabled = true;
     assert!(score_one(&mut state, content, POK, &ask(&["eap"]), args, &script).is_none());
+}
+
+// -- the price of a bought objective and of the priced secrets (package A4b-1) ------------------------------
+
+mod price {
+    use super::*;
+    use crate::core_sync::Footprint;
+    use crate::dual_window::lend;
+    use crate::objectives::Cost;
+    use crate::production::Spend;
+    use ti4_engine_core::kernel::fx_pay::{self, PayEnv};
+    use ti4_engine_core::query::economy::Spend as CoreSpend;
+    use ti4_engine_core::query::objectives as q;
+    use ti4_engine_core::state::Slice;
+
+    /// What a price touches: the hand and the pools (Players), the planets (Board), the hooks' marks.
+    const PRICE: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Marks, Slice::Agenda],
+        &[Slice::Players, Slice::Board],
+    );
+
+    /// The scoring window's slices too.
+    const PRICE_AND_SCORE: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Marks, Slice::Agenda, Slice::Objectives, Slice::Ledger, Slice::Pending],
+        &[Slice::Players, Slice::Board, Slice::Objectives, Slice::Ledger],
+    );
+
+    fn core_cost(cost: Cost) -> q::Cost {
+        match cost {
+            Cost::Spend { amount, kind } => q::Cost::Spend {
+                amount,
+                kind: match kind {
+                    Spend::Resources => CoreSpend::Resources,
+                    Spend::Influence => CoreSpend::Influence,
+                },
+            },
+            Cost::TradeGoods(n) => q::Cost::TradeGoods(n),
+            Cost::Tokens(n) => q::Cost::Tokens(n),
+            Cost::AllThree(n) => q::Cost::AllThree(i64::from(n)),
+        }
+    }
+
+    /// Every bought objective's price, from the string table.
+    fn costs() -> Vec<(String, Cost)> {
+        use ti4_engine_core::generated::PublicObjective;
+        PublicObjective::ALL
+            .iter()
+            .filter_map(|o| {
+                let id = crate::generated::IdStr::as_str(*o);
+                crate::objectives::cost_of(&ObjectiveId::new(id)).map(|c| (id.to_owned(), c))
+            })
+            .collect()
+    }
+
+    /// The core payment of `cost` on `gs` (the position written back), `None` where the core bailed.
+    fn core_pay(gs: &mut GameState, cost: Cost) -> Option<bool> {
+        let env = PayEnv { scope: crate::core_adapter::scope(POK), blanked: crate::laws::blanked(gs) };
+        let cost = core_cost(cost);
+        lend(gs, PRICE, Some(&a()), |core, who| {
+            fx_pay::pay_cost(core, crate::production_view::kernel(), env, who.expect("seated"), cost)
+        })
+    }
+
+    struct Scene {
+        faction: &'static str,
+        planets: usize,
+        goods: i32,
+        tokens: (i32, i32, i32),
+    }
+
+    fn scene(s: &Scene) -> GameState {
+        let mut state = clean(&[("a", s.faction), ("b", "sol")]);
+        for planet in non_home_planets(s.planets) {
+            give(&mut state, &planet, "a");
+        }
+        let seat = state.player_mut(&a()).unwrap();
+        seat.trade_goods = s.goods;
+        (seat.strategic_tokens, seat.tactic_tokens, seat.fleet_tokens) = s.tokens;
+        if s.faction == "mentak" {
+            seat.technologies.insert(ti4_model::id::TechnologyId::new("mc"));
+        }
+        if s.faction.starts_with("keleres") {
+            // The agent was used for this payment: the commodities pay as trade goods, first.
+            seat.commodities = 3;
+            state.faction_marks.insert("keleres|agent_goods|a".to_owned(), "b".to_owned());
+        }
+        state
+    }
+
+    fn json(state: &GameState) -> serde_json::Value {
+        serde_json::to_value(state).expect("a state serialises")
+    }
+
+    /// `fx_pay` against `objectives::pay_for` (`payment::plans` + `payment::apply`) on every price, for plain,
+    /// Jol-Nar, Mentak (a trade good pays two) and Keleres (commodities pay first) seats.
+    #[test]
+    fn the_core_payment_equals_the_string_pay_for_on_every_price() {
+        let content = ContentStore::embedded();
+        let mut compared = 0;
+        let mut paid = 0;
+        for faction in ["letnev", "jolnar", "mentak", "keleresm"] {
+            for planets in [0, 2, 5, 8] {
+                for goods in [0, 2, 5, 11] {
+                    for tokens in [(0, 0, 0), (2, 1, 3), (5, 5, 0), (1, 0, 9)] {
+                        let base = scene(&Scene { faction, planets, goods, tokens });
+                        for (id, cost) in costs() {
+                            let mut string = base.clone();
+                            let mut typed = base.clone();
+                            let want = crate::objectives::pay_for(&mut string, content, POK, &a(), cost);
+                            let got = core_pay(&mut typed, cost).unwrap_or_else(|| panic!("the core bailed on {id}"));
+                            let label = format!("{id} for {faction} with {planets} planets, {goods} goods, tokens {tokens:?}");
+                            assert_eq!(got, want, "paid or not: {label}");
+                            assert_eq!(json(&typed), json(&string), "the position after: {label}");
+                            compared += 1;
+                            paid += usize::from(want);
+                        }
+                    }
+                }
+            }
+        }
+        assert!(compared > 2000, "{compared} prices compared");
+        assert!(paid > 200 && paid < compared - 200, "both outcomes are covered: {paid} of {compared} paid");
+    }
+
+    /// The core window of one scoring question answered with `answer`, and the position it leaves.
+    fn probe_after(state: &GameState, id: &str, answer: &str) -> Option<(GameState, (bool, Option<ObjectiveId>))> {
+        let mut options = vec![crate::choice::ChoiceOption::labelled(id, "score", id)];
+        options.push(crate::choice::ChoiceOption::decline());
+        let ask = Question::new(a(), "score an objective", options);
+        let mut script = crate::dual_window::Recording::default();
+        script.questions.push(crate::dual_window::Asked { choice: ask.clone(), answer: Some(answer.to_owned()) });
+        let args = crate::objectives_write::ScoreArgs { status: true, occurrence: None };
+        let mut after = state.clone();
+        let window = crate::objectives_write::score_one(&mut after, ContentStore::embedded(), POK, &ask, args, &script)?;
+        Some((after, window.run.value))
+    }
+
+    /// The first plan is the cheapest in goods and exhausts planets: a price that spends planets is covered.
+    #[test]
+    fn a_resource_price_exhausts_planets_and_spends_commodities_before_goods() {
+        let mut state = scene(&Scene { faction: "keleresm", planets: 1, goods: 4, tokens: (0, 0, 0) });
+        state.revealed_objectives = vec![ObjectiveId::new("monument")];
+        assert_eq!(crate::objectives::cost_of(&ObjectiveId::new("monument")), Some(Cost::Spend { amount: 8, kind: Spend::Resources }));
+        let (after, value) = probe_after(&state, "monument", "monument").expect("the core pays the price");
+        assert_eq!(value, (true, Some(ObjectiveId::new("monument"))));
+        let seat = after.player(&a()).unwrap();
+        assert!(after.exhausted_planets.len() > state.exhausted_planets.len(), "a planet was exhausted");
+        assert_eq!(seat.commodities, 0, "the commodities pay first");
+        assert!(seat.trade_goods > 0 && seat.trade_goods <= 4, "the trade goods pay the rest: {} left", seat.trade_goods);
+        assert_eq!(seat.victory_points, 1);
+    }
+
+    /// `secrets::pay_for` against `fx_pay::pay_secret`: fragments in map-key order, the five first cards.
+    #[test]
+    fn the_core_secret_payment_equals_the_string_pay_for() {
+        use ti4_engine_core::generated::{ActionCard, SecretObjective};
+        let hands = [0usize, 3, 4, 5, 6, 10];
+        let fragments: [&[(&str, i32)]; 8] = [
+            &[],
+            &[("CULTURAL", 1)],
+            &[("CULTURAL", 1), ("HAZARDOUS", 1)],
+            &[("CULTURAL", 0), ("FRONTIER", 2), ("INDUSTRIAL", 0)],
+            &[("CULTURAL", 3), ("FRONTIER", 1), ("HAZARDOUS", 1), ("INDUSTRIAL", 2)],
+            &[("HAZARDOUS", 2)],
+            &[("FRONTIER", 1), ("INDUSTRIAL", 1)],
+            &[("CULTURAL", 0), ("HAZARDOUS", 0)],
+        ];
+        let cards: Vec<&str> = ActionCard::ALL.iter().take(10).map(|c| crate::generated::IdStr::as_str(*c)).collect();
+        for (secret, alias) in [(SecretObjective::DestroyHereticalWorks, "dhw"), (SecretObjective::FormASpyNetwork, "fsn"), (SecretObjective::EstablishAPerimeter, "eap")] {
+            for hand in hands {
+                for frags in fragments {
+                    let mut base = clean(&[("a", "letnev"), ("b", "sol")]);
+                    let seat = base.player_mut(&a()).unwrap();
+                    seat.action_cards = cards.iter().take(hand).map(|c| ti4_model::id::ActionCardId::new(*c)).collect();
+                    seat.relic_fragments = frags.iter().map(|(k, v)| ((*k).to_owned(), *v)).collect();
+                    let mut string = base.clone();
+                    let mut typed = base;
+                    let want = crate::secrets::pay_for(&mut string, &a(), &SecretObjectiveId::new(alias));
+                    let got = lend(&mut typed, PRICE, Some(&a()), |core, who| fx_pay::pay_secret(core, who.unwrap(), secret)).expect("the core answers");
+                    let label = format!("{alias}: {hand} cards, fragments {frags:?}");
+                    assert_eq!(got, want, "paid or not: {label}");
+                    assert_eq!(json(&typed), json(&string), "the position after: {label}");
+                }
+            }
+        }
+    }
+
+    /// A game in the status phase with `objective` revealed or held, `a` asked once, answering `answer`.
+    fn scored(state: GameState, answer: &str) -> Game<'static> {
+        let mut game = status_game(state, &[answer]);
+        run_status(&mut game);
+        game
+    }
+
+    fn rich(faction: &'static str) -> GameState {
+        scene(&Scene { faction, planets: 6, goods: 12, tokens: (3, 3, 3) })
+    }
+
+    #[test]
+    fn a_bought_objective_is_paid_on_the_answer_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let priced = costs();
+        assert_eq!(priced.len(), 10);
+        for faction in ["letnev", "jolnar", "mentak", "keleresm"] {
+            for (id, cost) in &priced {
+                let mut state = rich(faction);
+                state.revealed_objectives = vec![ObjectiveId::new(id.as_str())];
+                let mut game = None;
+                with_mask(mask(), || game = Some(scored(state.clone(), id)));
+                let game = game.unwrap();
+                assert!(game.state.scored_by(&a()).contains(&ObjectiveId::new(id.as_str())), "{id} scored for {faction}");
+                // The core half itself (a bail is silent in the lockstep): it follows the answer and pays.
+                let (after, value) = probe_after(&state, id, id).unwrap_or_else(|| panic!("the core bailed on {id} for {faction}"));
+                assert_eq!(value, (true, Some(ObjectiveId::new(id.as_str()))), "{id} for {faction}");
+                let (was, now) = (state.player(&a()).unwrap(), after.player(&a()).unwrap());
+                assert!(now.victory_points > was.victory_points, "{id} scored for {faction}");
+                match cost {
+                    Cost::TradeGoods(n) => assert_eq!(now.trade_goods, was.trade_goods - n, "{id}"),
+                    Cost::Tokens(n) => assert_eq!(now.strategic_tokens + now.tactic_tokens, was.strategic_tokens + was.tactic_tokens - n, "{id}"),
+                    Cost::Spend { .. } | Cost::AllThree(_) => assert!(!after.exhausted_planets.is_empty() || now.trade_goods < was.trade_goods, "{id} spent something"),
+                }
+                assert_eq!(now.fleet_tokens, was.fleet_tokens, "the fleet pool is never spent");
+            }
+        }
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    #[test]
+    fn the_priced_secrets_are_paid_on_the_answer_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let cards: Vec<ti4_model::id::ActionCardId> =
+            ["abs", "arch_expedition", "assassin", "blackmarketdealing", "blitz", "bribery", "brilliance"].map(ti4_model::id::ActionCardId::new).to_vec();
+        // Destroy Heretical Works: two fragments leave, in key order, and the empty keys leave the map.
+        let mut dhw = clean(&[("a", "letnev"), ("b", "sol")]);
+        let seat = dhw.player_mut(&a()).unwrap();
+        seat.secret_objectives = vec![SecretObjectiveId::new("dhw")];
+        seat.relic_fragments = [("CULTURAL", 1), ("HAZARDOUS", 2), ("INDUSTRIAL", 0)].map(|(k, v)| (k.to_owned(), v)).into_iter().collect();
+        let mut game = None;
+        with_mask(mask(), || game = Some(scored(dhw.clone(), "dhw")));
+        assert!(game.unwrap().state.scored_by(&a()).contains(&ObjectiveId::new("dhw")));
+        let (after, value) = probe_after(&dhw, "dhw", "dhw").expect("the core pays Destroy Heretical Works");
+        assert_eq!(value, (true, Some(ObjectiveId::new("dhw"))));
+        let seat = after.player(&a()).unwrap();
+        assert_eq!(seat.victory_points, 1);
+        assert!(seat.secret_objectives.is_empty());
+        assert_eq!(seat.relic_fragments, [("HAZARDOUS".to_owned(), 1)].into_iter().collect());
+        // Form a Spy Network: the first five cards leave the hand (and no discard pile gets them).
+        let mut fsn = clean(&[("a", "letnev"), ("b", "sol")]);
+        let seat = fsn.player_mut(&a()).unwrap();
+        seat.secret_objectives = vec![SecretObjectiveId::new("fsn")];
+        seat.action_cards = cards.clone();
+        let discard = fsn.discarded_action_cards.len();
+        let mut game = None;
+        with_mask(mask(), || game = Some(scored(fsn.clone(), "fsn")));
+        assert!(game.unwrap().state.scored_by(&a()).contains(&ObjectiveId::new("fsn")));
+        let (after, value) = probe_after(&fsn, "fsn", "fsn").expect("the core pays Form a Spy Network");
+        assert_eq!(value, (true, Some(ObjectiveId::new("fsn"))));
+        assert_eq!(after.player(&a()).unwrap().action_cards, cards[5..].to_vec());
+        assert_eq!(after.discarded_action_cards.len(), discard, "the five cards are dropped, not discarded (copied)");
+        assert_eq!(after.player(&a()).unwrap().victory_points, 1);
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    /// Paid on taking, never on offering (61.10): a declined offer costs nothing, and a bought objective is not
+    /// free when the window has no price environment.
+    #[test]
+    fn a_declined_priced_offer_costs_nothing_and_an_unpriced_window_refuses_the_objective() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut state = rich("letnev");
+        state.revealed_objectives = vec![ObjectiveId::new("amass_wealth")];
+        let mut game = None;
+        with_mask(mask(), || game = Some(scored(state.clone(), "decline")));
+        assert!(game.unwrap().state.scored_by(&a()).is_empty());
+        let (after, value) = probe_after(&state, "amass_wealth", "decline").expect("the core follows the decline");
+        assert_eq!(value, (true, None));
+        assert_eq!(json(&after), json(&state), "nothing was paid for a decline");
+        // The window itself: no price environment, no bought objective.
+        use ti4_engine_core::generated::PublicObjective;
+        use ti4_engine_core::kernel::stage::AbilityTable;
+        use ti4_engine_core::kernel::Resolver;
+        use ti4_engine_core::state::ObjectiveRef;
+        let (mut cx, r) = crate::dual_window::tables(&state).unwrap();
+        let seat = r.seat("a").unwrap();
+        let obj = ObjectiveRef::Public(PublicObjective::AmassWealth);
+        let mut driver = ti4_engine_core::driver::Driver::new(
+            ti4_engine_core::rules::objective_windows::ScoreOne::new(seat, true, &[obj], None),
+            Resolver::new(&[seat], Some(seat)),
+            AbilityTable::default(),
+            1,
+        );
+        let mut probe = state.clone();
+        let outcome = crate::core_sync::with_core(&mut probe, &mut cx, crate::core_sync::Sources::default(), PRICE_AND_SCORE, |core, _| {
+            driver.run(core, crate::production_view::kernel()).expect("asks");
+            driver.resume(core, crate::production_view::kernel(), ti4_engine_core::choice::Pick::Opt(ti4_engine_core::choice::Opt::Objectives(ti4_engine_core::choice::objectives::Opt::Score(obj))))
+        })
+        .expect("loads");
+        assert!(outcome.is_err(), "refused: a bought objective is never free");
+        // The same window with its price environment pays and scores.
+        let env = PayEnv { scope: crate::core_adapter::scope(POK), blanked: false };
+        let mut driver = ti4_engine_core::driver::Driver::new(
+            ti4_engine_core::rules::objective_windows::ScoreOne::new(seat, true, &[obj], None).with_price(env),
+            Resolver::new(&[seat], Some(seat)),
+            AbilityTable::default(),
+            1,
+        );
+        let mut probe = state.clone();
+        let outcome = crate::core_sync::with_core(&mut probe, &mut cx, crate::core_sync::Sources::default(), PRICE_AND_SCORE, |core, _| {
+            driver.run(core, crate::production_view::kernel()).expect("asks");
+            driver.resume(core, crate::production_view::kernel(), ti4_engine_core::choice::Pick::Opt(ti4_engine_core::choice::Opt::Objectives(ti4_engine_core::choice::objectives::Opt::Score(obj))))
+        })
+        .expect("loads");
+        assert!(outcome.is_ok(), "paid and scored");
+        // A priced secret without the environment is refused as well (and with it, taken).
+        let mut held = state.clone();
+        let seat_state = held.player_mut(&a()).unwrap();
+        seat_state.secret_objectives = vec![SecretObjectiveId::new("dhw")];
+        seat_state.relic_fragments = [("CULTURAL".to_owned(), 2)].into_iter().collect();
+        let secret = ObjectiveRef::Secret(ti4_engine_core::generated::SecretObjective::DestroyHereticalWorks);
+        for (env, paid) in [(None, false), (Some(env), true)] {
+            let mut window = ti4_engine_core::rules::objective_windows::ScoreOne::new(seat, true, &[secret], None);
+            if let Some(env) = env {
+                window = window.with_price(env);
+            }
+            let mut driver = ti4_engine_core::driver::Driver::new(window, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+            let mut probe = held.clone();
+            let outcome = crate::core_sync::with_core(&mut probe, &mut cx, crate::core_sync::Sources::default(), PRICE_AND_SCORE, |core, _| {
+                driver.run(core, crate::production_view::kernel()).expect("asks");
+                driver.resume(core, crate::production_view::kernel(), ti4_engine_core::choice::Pick::Opt(ti4_engine_core::choice::Opt::Objectives(ti4_engine_core::choice::objectives::Opt::Score(secret))))
+            })
+            .expect("loads");
+            assert_eq!(outcome.is_ok(), paid, "a priced secret is taken only with its price environment");
+        }
+        let _ = take_report();
+    }
+
+    /// The string took a price the core refuses (the facts differ): the lockstep reports it instead of bailing.
+    #[test]
+    fn an_answer_the_core_cannot_pay_is_reported_not_bailed() {
+        let poor = clean(&[("a", "letnev"), ("b", "sol")]);
+        let value = probe_score(&poor, &["amass_wealth"], "amass_wealth");
+        assert_eq!(value, Some((false, None)), "a window that never finished: a difference against the string's score");
+    }
 }
