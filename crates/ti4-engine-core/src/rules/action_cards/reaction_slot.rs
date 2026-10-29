@@ -102,7 +102,8 @@ fn condition(c: &CondCx<'_>) -> bool {
 }
 
 /// The stamps and flags the core plays from a reaction window (a [`Simple`] effect that reads nothing the adapter
-/// would have to lend: no unit placed, no note order, no tokens held by Mahact).
+/// would have to lend: no unit placed, no note order, no tokens held by Mahact). Not Reflective Shielding: it stages
+/// hits that the sustain window of the string takes up afterwards (a state the core windows do not carry).
 #[must_use]
 pub const fn effect_ported(card: ActionCard) -> bool {
     matches!(
@@ -121,7 +122,6 @@ pub const fn effect_ported(card: ActionCard) -> bool {
                 | Simple::NavSuite
                 | Simple::ManeuveringJets
                 | Simple::ShieldsHolding
-                | Simple::Reflective
                 | Simple::Disable
                 | Simple::Salvage
                 | Simple::EmergencyRepairs

@@ -9802,21 +9802,35 @@ mod tests {
         let mut played = 0;
         let mut asked = 0;
         for (seed, hand) in (1..=6_u64).zip([&["mb1"][..], &["mb1", "emergency"], &["sh1", "mb2"], &["mb1", "mb2"], &["emergency", "mb3", "sh3"], &["sh1", "sh2"]]) {
-            let (p, a) = declared_cards_fight(seed, hand);
+            let (p, a, bails) = declared_cards_fight(seed, hand, true);
+            assert!(bails.iter().all(|k| !k.contains("(card ") && !k.contains("(a card played at once)")), "{hand:?}: {bails:?}");
             played += p;
             asked += a;
         }
         assert!(played > 0 && asked > 0, "cards were played ({played}) and a choice of card was asked ({asked})");
     }
 
+    /// The first golden run of the card plays found 12 differences: Reflective Shielding stages hits that the sustain
+    /// window of the string takes up afterwards, a state the core windows do not carry. The card stays the string's: the
+    /// window bails naming it, nothing differs.
+    #[test]
+    fn reflective_shielding_stays_in_the_string_in_lockstep() {
+        let mut bailed = 0;
+        for seed in 1..=8_u64 {
+            let (_, _, bails) = declared_cards_fight(seed, &["reflective"], false);
+            bailed += bails.iter().filter(|k| k.contains("(card reflective)")).count();
+        }
+        assert!(bailed > 0, "a Reflective Shielding was played and named");
+    }
+
     /// One space fight in which the defender holds `hand`, every question answered with its first option; the windows
-    /// are compared. `(cards played, choices of a card asked)`.
-    fn declared_cards_fight(seed: u64, hand: &[&str]) -> (usize, usize) {
+    /// are compared. `(cards played, choices of a card asked, the window keys of the report)`.
+    fn declared_cards_fight(seed: u64, hand: &[&str], damaged: bool) -> (usize, usize, Vec<String>) {
         use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
         let (mut played, mut asked) = (0, 0);
-        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || crate::dual_window::with_composed(true, || {
             let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
             state.promissory_notes.clear();
             state.promissory_faceup.clear();
@@ -9824,12 +9838,14 @@ mod tests {
             state.player_mut(&defender()).unwrap().action_cards = hand.iter().map(|c| ti4_model::id::ActionCardId::new(*c)).collect();
             let system = SystemId::new("18");
             put(&mut state, &system, "cruiser", &attacker(), 3);
-            put(&mut state, &system, "cruiser", &defender(), 3);
-            put(&mut state, &system, "dreadnought", &defender(), 1);
+            if damaged {
+                put(&mut state, &system, "cruiser", &defender(), 3);
+            }
+            put(&mut state, &system, "dreadnought", &defender(), 2);
             state.active_system = Some(system.clone());
             state.active = Some(attacker());
             for unit in state.system_mut(&system).units.iter_mut().filter(|u| u.owner == defender() && u.type_id.as_str() == "dreadnought") {
-                unit.sustained_damage = true;
+                unit.sustained_damage = damaged;
             }
             let seen = std::rc::Rc::new(std::cell::RefCell::new(0));
             struct Count(std::rc::Rc<std::cell::RefCell<usize>>);
@@ -9856,12 +9872,12 @@ mod tests {
             resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
             played = state.action_card_plays.len();
             asked = *seen.borrow();
-        });
+        }));
         let r = report();
-        assert!(r.windows.keys().all(|k| !k.contains("(card ") && !k.contains("(a card played at once)")), "{hand:?}: {:?}", r.windows);
         assert_eq!(r.total_differences(), 0, "{hand:?}: {:?}", r.differences);
+        let bails = r.windows.keys().cloned().collect();
         let _ = take_report();
-        (played, asked)
+        (played, asked, bails)
     }
 
     #[test]
