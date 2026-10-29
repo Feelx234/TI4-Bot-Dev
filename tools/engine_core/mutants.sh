@@ -123,5 +123,7 @@ python3 -I "$repo/tools/mutants/run_mutants.py" --points "$mut/points.json" --di
   "${exe_args[@]}" --jobs "${JOBS:-4}" --timeout "${TIMEOUT:-0}" --out "$mut/report.json" "${q[@]}" -- "${filter[@]}"
 rc=$?
 [[ $rc -ne 0 ]] && exit $rc
-[[ "${STRICT:-0}" == 1 ]] && grep -q '^Survivors' <(python3 -I -c 'import json,sys;print("Survivors" if any(m["status"]=="ok" for m in json.load(open(sys.argv[1]))["mutants"]) else "")' "$mut/report.json") && exit 1
+if [[ "${STRICT:-0}" == 1 ]]; then
+  python3 -I -c 'import json,sys; sys.exit(1 if any(m["status"] == "ok" for m in json.load(open(sys.argv[1]))["mutants"]) else 0)' "$mut/report.json" || exit 1
+fi
 exit 0
