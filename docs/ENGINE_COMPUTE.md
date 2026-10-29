@@ -72,6 +72,13 @@ mutation points and disabled, the tree is regenerated and built again (usually 1
 incremental build of the mutated crate). The count of such points is printed (`N points not compilable ...
 skipped`); on the `tech.rs` pilot it was 0 of 192, on a stress file of generics / let chains / closures / `?`, 3 of 95.
 
+Adapter files work the same (`mutants.sh crates/ti4-engine/src/technology_core.rs <filter>`, the crate is taken from
+the path; `TEST_ARGS` defaults to `--lib`). Checked with `CHECK_ONLY=1` (rewrite + `cargo check --tests`, no test
+run) on `technology_core.rs` (484 lines): 86 mutation points, 4 compile errors in the first build, 2 points dropped
+after one prune round, 84 live. That check took 5 min 27 s at 2 jobs under `nice` (it is a first, cold dev check of
+the 335k-line `ti4-engine` on a loaded machine); the test run of such a mutation needs a dev-profile test build of
+`ti4-engine` once (minutes), then seconds per mutant. Pick the filter words so the run is the tests of that module.
+
 ### Pilot: `crates/ti4-engine-core/src/query/tech.rs` (696 lines, 192 mutation points)
 
 | | build | run of the mutants | killed / survived | wall |
@@ -150,7 +157,16 @@ Measured (`tools/engine_core/compute_bench.sh seed WORK`, `gate` profile, 4 jobs
 | seeded, same commit, other worktree | **0.2 s** | none |
 | seeded, 1 changed file in `ti4-engine-core` | **11.5 s** | `ti4-engine-core` only |
 
-TODO_CACHE_ENGINE
+**Engine-scale numbers: PENDING.** The `ti4-engine` measurements (cold gate build vs seeded, and gate vs lockstep vs
+lockstep0: build, run, incremental) need more than 5 minutes each, so they must hold `/root/.ti4-heavy.lock`, which
+other agents' gates held for hours during this work, and they need about 3 GB of a disk that was at 98-100 %. They are
+queued as one lock hold (`/root/deploytmp/core-compute/engine_meas.sh`, output `/root/deploytmp/core-compute/engine.out`,
+`RESULT` lines in the format above; it aborts with a `WATCHDOG` line when less than 600 MB are free). To rerun by
+hand from a scratch worktree: `flock /root/.ti4-heavy.lock env LOCK=0 JOBS=4 tools/engine_core/compute_bench.sh
+profiles WORK` and `... seed WORK`. Until they exist, the small-crate table is the evidence for the mechanism; the
+expected effect at engine scale is: a seeded build compiles only the changed crates (the `ti4-engine` rebuild
+remains, it is the crate that changed), so the saving is the registry dependencies plus every unchanged workspace
+crate, not the engine itself.
 
 The seed itself takes under a second here and adds 136 MB (the copied metadata) next to the 309 MB warm dir.
 
@@ -177,7 +193,9 @@ touching one file):
 At this size the build is dominated by the dependencies and the crate is too small to show a difference: the
 interesting numbers are those of the 335k-line `ti4-engine`.
 
-TODO_PROFILE_ENGINE
+**Engine-scale numbers: PENDING** (same queued job as in section 2: `tools/engine_core/compute_bench.sh profiles WORK`
+with `PKG=ti4-engine`; results in `/root/deploytmp/core-compute/engine.out`). Choose by those numbers; until then
+use `lockstep` only for loops where a failure would be a test failure, never for a gate or a timing claim.
 
 ## 4. Concurrent benches and tests
 
@@ -197,7 +215,9 @@ Identical-output check (small configs: seeds 1..3, 4 games per bench, same binar
 | wall for the six benches | 43.8 s | 27.1 s | 26.2 s |
 | the six result lines up to `\|` | `4 identical, 0 different, 0 not in the baseline` x6, md5 393ec45f... | same md5 | same md5 |
 
-TODO_BENCH_FULL
+Full-size (200 games per bench) JOBS=1 against JOBS=3 with the real configs: **PENDING**, queued behind the heavy lock
+(`/root/deploytmp/core-compute/bench_full.sh`, output `benchfull.out`; sequential is about 3.5 min per bench at
+6 workers). The output lines are produced by the same code as in the small check, so only the wall time is open.
 
 **Test suites.** `cargo-nextest` is not installed and not in the registry cache, so there is no nextest partitioning.
 `tools/engine_core/test_parallel.sh [cargo test args]` is the replacement: one `cargo test --no-run` build, then all
