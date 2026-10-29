@@ -1169,7 +1169,7 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         // Harrugh Gefhara, the Hacan hero: offered when a production is about to be paid for.
         module: "leaders.rs",
-        function: "offer_production_hero",
+        function: "offer_production_hero_text",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1212,7 +1212,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "production.rs",
-        function: "integrated_economy",
+        function: "integrated_economy_loop",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1242,7 +1242,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "production.rs",
-        function: "sling_relay",
+        function: "sling_relay_text",
         count: 2,
         delivery: Delivery::ObservedHere,
     },
@@ -1713,13 +1713,13 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("invasion.rs", "absorb_ground_text", 1),
     ("invasion.rs", "commit_ground_forces_text", 1),
     ("invasion.rs", "drive", 1),
-    ("production.rs", "integrated_economy", 1),
+    ("production.rs", "integrated_economy_loop", 1),
     ("production.rs", "pay_with_observation_credit", 1),
     ("production.rs", "produce_one_from", 2),
     // BF-00b: ability-driven production delivers `ProductionWindow::pending_choice` itself.
     ("production.rs", "produce_by_ability_capped", 1),
     ("production.rs", "resolve_timed", 1),
-    ("production.rs", "sling_relay", 2),
+    ("production.rs", "sling_relay_text", 2),
     ("reactions.rs", "instinct_training", 1),
     ("reactions.rs", "l1z1x_agent", 1),
     ("reactions.rs", "slot", 1),
@@ -1738,7 +1738,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("invasion.rs", "dunlain_reaper", 1),
     ("laws.rs", "offer_discard", 1),
     ("leaders.rs", "dispatch_leader", 7),
-    ("leaders.rs", "offer_production_hero", 1),
+    ("leaders.rs", "offer_production_hero_text", 1),
     ("borrowed_round_agents.rs", "resolve_copy", 1),
     ("leaders.rs", "ssruu_l1z1x_activation_abilities", 1),
     ("legendary.rs", "end_turn", 1),
