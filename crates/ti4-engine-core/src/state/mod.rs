@@ -32,7 +32,7 @@ pub use agenda::{AgendaCastRec, AgendaRec, AgendaState, Outcome, Prediction};
 pub use board::{Board, PlanetCell, PlanetFlags, SysCell, SysFlags, UnitList};
 pub use cards::{CardRef, CardZones, DeckReserve, DeckSegment, NoteKey, NoteMap, RESERVE_IDLE, RESERVE_LIVE, RESERVE_OPEN, ReserveDeck, ReservedDraw};
 pub use decks::Decks;
-pub use event::{Key, Payload, Tally, Val};
+pub use event::{Key, List, Payload, Tally, Val};
 pub use explore::{Expedition, ExploreRec, ExploreState};
 pub use ledger::{EventKind, EventRec, Ledger, LedgerReason, RelicRec, RollPurpose, RollRec, VpRec};
 pub use map::MapSlice;

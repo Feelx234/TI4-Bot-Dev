@@ -123,6 +123,18 @@ impl TimingContext<'_> {
     }
 }
 
+/// The recorder of the window dual sees which abilities were eligible (`dual_window::Recording::eligible`).
+trait TapEligible {
+    fn tap_eligible(self) -> Self;
+}
+
+impl TapEligible for Vec<Ability> {
+    fn tap_eligible(self) -> Self {
+        crate::dual_window::note_eligible(self.iter().map(|a| a.id.as_str()));
+        self
+    }
+}
+
 /// An ability registered against one deterministic timing window.
 #[derive(Clone)]
 pub struct Ability {
@@ -870,6 +882,21 @@ impl Resolver {
         }
     }
 
+    /// What a core resolver needs to continue this one (the window dual: the registry is rebuilt natively).
+    pub(crate) fn core_cfg(&self) -> crate::dual_window::ResolverCfg {
+        crate::dual_window::ResolverCfg {
+            initiative: self.initiative_order.iter().map(ToString::to_string).collect(),
+            seating: self.seating_order.iter().map(ToString::to_string).collect(),
+            active: self.active_player.as_ref().map(ToString::to_string),
+            speaker: self.speaker.as_ref().map(ToString::to_string),
+            phase: self.phase,
+            round: self.round_number,
+            turn: self.turn_number,
+            max_depth: self.maximum_depth,
+            used: self.used.order.iter().map(|(id, scope)| (id.clone(), format!("{scope:?}"))).collect(),
+        }
+    }
+
     /// The trace lines, journal entries and used keys after a start mark (package A5).
     pub(crate) fn kernel_after(&self, log_len: usize, applied_len: usize) -> crate::kernel_sync::shim::After {
         crate::kernel_sync::shim::After {
@@ -1014,6 +1041,7 @@ impl Resolver {
         event: Event,
         resolve: impl FnOnce(&mut Event, &mut TimingContext<'_>),
     ) -> Result<Event, TimingError> {
+        crate::dual_window::note_resolver(event.id, || self.core_cfg());
         let guard = crate::dual_window::enter_emit();
         let result = self.emit_with_context_inner_raw(context, event, resolve);
         crate::dual_window::leave_emit(guard, result.as_ref().ok());
@@ -1136,7 +1164,7 @@ impl Resolver {
                         ability.id
                     ));
                     crate::kernel_sync::trace::effect_begin(&ability.id);
-                    crate::dual_window::note_effect();
+                    let _effect = crate::dual_window::EffectGuard::enter(&ability.id);
                     let effect_result = (ability.effect)(event, self);
                     crate::kernel_sync::trace::effect_end(event.cancelled);
                     effect_result?;
@@ -1209,7 +1237,7 @@ impl Resolver {
                         ability.id
                     ));
                     crate::kernel_sync::trace::effect_begin(&ability.id);
-                    crate::dual_window::note_effect();
+                    let _effect = crate::dual_window::EffectGuard::enter(&ability.id);
                     let effect_result = if let Some(effect) = ability.stateful_effect {
                         effect(event, self, context)
                     } else {
@@ -1234,6 +1262,7 @@ impl Resolver {
         let result = result.and_then(|()| {
             crate::kernel_sync::trace::closed_begin();
             let declared = std::mem::take(&mut context.state.declared_card_plays);
+            let _closed = crate::dual_window::ClosedGuard::enter();
             let announced = (|| {
                 for (player, alias) in declared {
                     crate::reactions::announce(context, self, &player, &alias)?;
@@ -1276,7 +1305,8 @@ impl Resolver {
                         ))
             })
             .cloned()
-            .collect()
+            .collect::<Vec<Ability>>()
+            .tap_eligible()
     }
 
     fn eligible_with_context(
@@ -1319,7 +1349,8 @@ impl Resolver {
                         ))
             })
             .cloned()
-            .collect()
+            .collect::<Vec<Ability>>()
+            .tap_eligible()
     }
 
     fn pick(
@@ -1356,10 +1387,11 @@ impl Resolver {
             format!("{} {}", relation_name(relation), event.event_type),
             options,
         );
-        let chosen = self
-            .table
-            .ask(&choice)
-            .map_err(TimingError::IllegalChoice)?;
+        let chosen = {
+            let _pick = crate::dual_window::PickGuard::enter();
+            self.table.ask(&choice)
+        }
+        .map_err(TimingError::IllegalChoice)?;
         crate::kernel_sync::trace::ask(
             player.as_str(),
             eligible.iter().map(|a| a.id.clone()).collect(),
@@ -1493,9 +1525,11 @@ impl Resolver {
                 &self.emission_chain(event),
             )),
         );
-        let chosen = context
-            .ask_seeing(&choice)
-            .map_err(TimingError::IllegalChoice)?;
+        let chosen = {
+            let _pick = crate::dual_window::PickGuard::enter();
+            context.ask_seeing(&choice)
+        }
+        .map_err(TimingError::IllegalChoice)?;
         crate::kernel_sync::trace::ask(
             player.as_str(),
             eligible.iter().map(|a| a.id.clone()).collect(),

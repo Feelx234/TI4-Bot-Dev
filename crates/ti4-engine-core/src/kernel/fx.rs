@@ -86,6 +86,38 @@ pub fn gain_trade_goods(s: &mut CoreState, who: Seat, amount: i32) -> i32 {
     after - before
 }
 
+/// Spend `amount` trade goods (`supply::spend_goods` without a Keleres commodity window): all of it or none,
+/// `false` and the state untouched when `who` has fewer.
+pub fn spend_trade_goods(s: &mut CoreState, who: Seat, amount: i32) -> bool {
+    if amount <= 0 {
+        return true;
+    }
+    let Some(p) = s.players_mut().by_seat_mut(who) else { return false };
+    if i32::from(p.econ.trade_goods) < amount {
+        return false;
+    }
+    p.econ.trade_goods -= i16::try_from(amount).unwrap_or(i16::MAX);
+    true
+}
+
+/// `promissory::give_back`: the note goes home to the first seat (in seating order) that plays its faction;
+/// nothing when it is already there or nobody plays the faction.
+pub fn give_back_note(s: &mut CoreState, note: crate::state::NoteKey) {
+    let owner = s
+        .seats()
+        .seating_order()
+        .iter()
+        .copied()
+        .find(|seat| s.players().by_seat(*seat).is_some_and(|p| p.faction == note.faction));
+    let Some(owner) = owner else { return };
+    if s.cards().promissory.get(&note) == Some(&owner) {
+        return;
+    }
+    let cards = s.cards_mut();
+    cards.promissory.edit().insert(note, owner);
+    cards.promissory_faceup.edit().remove(&note);
+}
+
 /// The `TRADE_GOODS_GAINED` event of a gain (`player`, `amount`, `source`).
 #[must_use]
 pub fn trade_goods_gained(who: Seat, gained: i32, source: Code) -> EventRec {

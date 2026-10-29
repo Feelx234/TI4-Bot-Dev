@@ -208,6 +208,19 @@ pub struct Payload {
     pub items: SmallList<(Key, Val), 6>,
     /// The `units` array of events that list units (`UNITS_COMMITTED`, `SHIP_DESTROYED`, ...).
     pub units: SmallList<Tally, 4>,
+    /// List-valued entries (`SPACE_COMBAT_ENDED`'s `losers`, `retreated`, `destroyed`), in insertion order.
+    pub lists: Vec<(Key, List)>,
+}
+
+/// A list-valued payload entry.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum List {
+    /// An array of players (the seat texts).
+    Seats(SmallList<Seat, 4>),
+    /// An array of `{player, unit}` objects.
+    Units(SmallList<(Seat, Unit), 8>),
+    /// An array of planet ids (`GROUND_COMMITMENT_FINISHED`'s `planets`).
+    Planets(SmallList<Planet, 8>),
 }
 
 macro_rules! typed_get {
@@ -241,6 +254,26 @@ impl Payload {
     pub fn with(mut self, key: Key, val: Val) -> Self {
         self.set(key, val);
         self
+    }
+
+    /// Add a list entry (a second insert of a key replaces the first).
+    pub fn set_list(&mut self, key: Key, list: List) {
+        if let Some(slot) = self.lists.iter_mut().find(|(k, _)| *k == key) {
+            slot.1 = list;
+        } else {
+            self.lists.push((key, list));
+        }
+    }
+
+    #[must_use]
+    pub fn with_list(mut self, key: Key, list: List) -> Self {
+        self.set_list(key, list);
+        self
+    }
+
+    #[must_use]
+    pub fn list(&self, key: Key) -> Option<&List> {
+        self.lists.iter().find(|(k, _)| *k == key).map(|(_, l)| l)
     }
 
     #[must_use]

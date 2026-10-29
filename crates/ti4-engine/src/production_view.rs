@@ -37,34 +37,32 @@ pub struct ProdView<'a> {
 /// The factions whose string modules still answer production questions with hooks the typed seams do not
 /// carry yet (package CB): the typed reads decline and the caller keeps the string answer.
 fn unported_economy(state: &GameState) -> bool {
-    use crate::factions::{arborec, bastion, crimson, muaat, naalu, naaz, saar};
+    use crate::factions::{bastion, crimson};
     let held = [
-        arborec::MODULE.alias,
         bastion::MODULE.alias,
         crimson::MODULE.alias,
-        muaat::MODULE.alias,
-        naalu::MODULE.alias,
-        naaz::MODULE.alias,
-        saar::MODULE.alias,
     ];
     state.players.iter().any(|p| held.contains(&p.faction.as_str()))
 }
 
-/// The factions that can change a use of PRODUCTION in ways the typed window does not carry yet (offers,
-/// exchanges, agents, spendable commodities, ocean cards) on top of [`unported_economy`].
-pub(crate) fn unported_window(state: &GameState) -> bool {
-    use crate::factions::{argent, cabal, deepwrought, keleres, winnu, yssaril};
-    let held = [
-        argent::MODULE.alias,
-        cabal::MODULE.alias,
+/// Whether the producing seat or a seat that can act on it holds a faction whose production hooks the typed
+/// window does not carry yet: the seat's own (Deepwrought oceans, Keleres commodities, Naaz mechs, Mentak's
+/// Corsair form) and the cross-seat ones (Yssaril's borrowed agents, Nomad's agent
+/// watch; Argent's agent is an ability of the core table), on top of [`unported_economy`].
+pub(crate) fn unported_window(state: &GameState, player: &PlayerId) -> bool {
+    use crate::factions::{deepwrought, keleres, mentak, naaz, nomad, yssaril};
+    let own = [
         deepwrought::MODULE.alias,
         keleres::MODULE_M.alias,
         keleres::MODULE_X.alias,
         keleres::MODULE_A.alias,
-        winnu::MODULE.alias,
-        yssaril::MODULE.alias,
+        naaz::MODULE.alias,
+        mentak::MODULE.alias,
     ];
-    unported_economy(state) || state.players.iter().any(|p| held.contains(&p.faction.as_str()))
+    let cross = [nomad::MODULE.alias, yssaril::MODULE.alias];
+    unported_economy(state)
+        || state.player(player).is_some_and(|p| own.contains(&p.faction.as_str()))
+        || state.players.iter().any(|p| cross.contains(&p.faction.as_str()))
 }
 
 /// The kernel of the production reads: the seams of the laws and relics, and the bridge to the legacy
@@ -273,7 +271,7 @@ const fn engine_spend(s: ti4_engine_core::query::economy::Spend) -> crate::produ
 pub fn buildable_for(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId) -> Option<Vec<String>> {
     use ti4_engine_core::query::tech as q;
     // Mentak's Corsair form override (`unit_form_override`) is not a core hook yet.
-    if unported_economy(state) || state.players.iter().any(|p| p.faction.as_str() == crate::factions::mentak::MODULE.alias) {
+    if unported_economy(state) || state.player(player).is_some_and(|p| p.faction.as_str() == crate::factions::mentak::MODULE.alias) {
         return None;
     }
     let seat = state.player(player)?;

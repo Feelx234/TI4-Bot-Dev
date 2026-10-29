@@ -146,7 +146,7 @@ fn register_string_bridge(seams: &mut Seams) {
                 let player = o.player(site.unit.owner)?;
                 let system = SystemId::new(site.unit.system?.as_str());
                 let planet = PlanetId::new(site.unit.planet?.as_str());
-                Some(crate::combat_effects::ground_roll_shift(
+                let whole = crate::combat_effects::ground_roll_shift(
                     &o.gs,
                     ContentStore::embedded(),
                     o.sources,
@@ -154,7 +154,19 @@ fn register_string_bridge(seams: &mut Seams) {
                     &system,
                     &planet,
                     site.unit.unit.as_str(),
-                ))
+                );
+                // The Nekro mech's term is native (`ca_combat::nekro`'s Mordred row, registered in the combat
+                // kernel): counted once, not again through the string total.
+                let mordred = crate::factions::nekro_units::mech_roll_bonus(
+                    &o.gs,
+                    ContentStore::embedded(),
+                    o.sources,
+                    &player,
+                    site.unit.unit.as_str(),
+                    Some(&system),
+                    Some(&planet),
+                );
+                Some(whole - mordred)
             })
             .flatten()
             .unwrap_or(0));
@@ -178,18 +190,9 @@ fn register_string_bridge(seams: &mut Seams) {
                 &player,
                 u.unit.as_str(),
             );
-            let nekro = crate::factions::nekro_units::mech_roll_bonus(
-                &o.gs,
-                ContentStore::embedded(),
-                o.sources,
-                &player,
-                u.unit.as_str(),
-                system.as_ref(),
-                None,
-            );
             let assail =
                 crate::factions::firmament_plots::assail_space(&o.gs, ContentStore::embedded(), o.sources, &player, system.as_ref());
-            module + unit_mod + mahact + nekro + assail
+            module + unit_mod + mahact + assail
         })
         .unwrap_or(0))
     });
@@ -262,6 +265,23 @@ fn register_string_bridge(seams: &mut Seams) {
         .flatten()
         .unwrap_or(false);
         if lost { Verdict::Allow } else { Verdict::Abstain }
+    });
+    // Faction bars on SPACE CANNON (Argent flagship): `Allow` bars the shooter (`Combine::AllowWins`).
+    seams.cannon_barred.push(STRINGS, |_, site: &ti4_engine_core::kernel::seam::CannonSite| {
+        let barred = with_oracle(|o| {
+            let (shooter, target) = (o.player(site.shooter)?, o.player(site.target)?);
+            Some(crate::factions::hooks_combat::space_cannon_barred(
+                &o.gs,
+                ContentStore::embedded(),
+                o.sources,
+                &shooter,
+                &target,
+                &SystemId::new(site.system.as_str()),
+            ))
+        })
+        .flatten()
+        .unwrap_or(false);
+        if barred { Verdict::Allow } else { Verdict::Abstain }
     });
     seams.may_sustain.push(STRINGS, |_, unit: &CombatUnit| {
         let allowed = with_oracle(|o| {
@@ -618,6 +638,78 @@ impl<'g> CombatView<'g> {
         Some(rows)
     }
 
+    /// `CombatWindow::end_payload`'s reason, losers, retreats and lost ships, as text:
+    /// `(reason, losers, retreated, destroyed (player, unit))`.
+    #[must_use]
+    #[allow(clippy::type_complexity, reason = "the dual compares this tuple as it is")]
+    pub fn end_report(
+        &self,
+        system: &SystemId,
+        sides: [&PlayerId; 2],
+        winner: Option<&PlayerId>,
+        declared_draw: bool,
+        fled: &[(PlayerId, Vec<String>)],
+        at_start: &[(PlayerId, Vec<String>)],
+    ) -> Option<(String, Vec<String>, Vec<String>, Vec<(String, String)>)> {
+        use ti4_engine_core::rules::combat::end::{end_report, EndReason};
+        let sys = typed::<System>(system.as_str())?;
+        let seats = [self.seat(sides[0])?, self.seat(sides[1])?];
+        let winner = match winner {
+            Some(w) => Some(self.seat(w)?),
+            None => None,
+        };
+        let fleets = |list: &[(PlayerId, Vec<String>)]| -> Option<Vec<(Seat, Vec<Unit>)>> {
+            list.iter()
+                .map(|(who, kinds)| Some((self.seat(who)?, kinds.iter().map(|k| typed::<Unit>(k)).collect::<Option<Vec<_>>>()?)))
+                .collect()
+        };
+        let (fled, at_start) = (fleets(fled)?, fleets(at_start)?);
+        let report = self.with(|rd| end_report(rd, sys, seats, winner, declared_draw, &fled, &at_start));
+        let reason = match report.reason {
+            EndReason::Retreat => "retreat",
+            EndReason::Draw => "draw",
+            EndReason::Destruction => "destruction",
+            EndReason::RoundLimit => "round_limit",
+        };
+        let name = |s: Seat| self.player(s).map(|p| p.to_string());
+        Some((
+            reason.to_owned(),
+            report.losers.iter().map(|s| name(*s)).collect::<Option<_>>()?,
+            report.retreated.iter().map(|s| name(*s)).collect::<Option<_>>()?,
+            report.destroyed.iter().map(|(s, u)| Some((name(*s)?, u.as_str().to_owned()))).collect::<Option<_>>()?,
+        ))
+    }
+
+    /// `space_cannon_guns`' unit guns (local, reaching in from adjacent systems, Linkship) as unit type ids.
+    /// `None` when a unit in `reaching` or the galaxy has no typed form.
+    #[must_use]
+    pub fn unit_cannon_guns(
+        &self,
+        system: &SystemId,
+        active: &PlayerId,
+        galaxy: Option<&ti4_content::galaxy::Galaxy>,
+        reaching: &[String],
+    ) -> Option<Vec<String>> {
+        let (seat, sys) = (self.seat(active)?, typed::<System>(system.as_str())?);
+        let reaching = reaching.iter().map(|id| typed::<Unit>(id)).collect::<Option<Vec<_>>>()?;
+        let adjacency = match galaxy {
+            Some(g) => Some(crate::core_adapter::adjacency_for(g)?),
+            None => None,
+        };
+        let guns = self.with(|rd| cc::cannon_guns::unit_guns(rd, sys, seat, adjacency.as_deref(), &reaching));
+        Some(guns.iter().map(|p| p.kind().as_str().to_owned()).collect())
+    }
+
+    /// `space_cannon_guns`' attachment cannons as `(owner, planet, hit number, dice)`.
+    #[must_use]
+    pub fn attachment_cannon_guns(&self, system: &SystemId, active: &PlayerId) -> Option<Vec<(String, String, u32, usize)>> {
+        let (seat, sys) = (self.seat(active)?, typed::<System>(system.as_str())?);
+        self.with(|rd| cc::cannon_guns::attachment_guns(rd, sys, seat))
+            .into_iter()
+            .map(|(who, planet, value, count)| Some((self.player(who)?.to_string(), planet.as_str().to_owned(), value, count)))
+            .collect()
+    }
+
     /// The barrage plan of a side: (ship type or none for the relic, hit number, dice).
     #[must_use]
     pub fn barrage_plan(&self, player: &PlayerId, system: &SystemId) -> Option<Vec<(Option<String>, i64, usize)>> {
@@ -761,6 +853,32 @@ pub fn eligible_retreats(
     Some(found.into_iter().map(|s| SystemId::new(s.as_str())).collect())
 }
 
+/// The neighbours of `system` a fleet of `player` may retreat towards as far as the movement rules go
+/// (hyperlanes left out), each with whether the rules let it enter: the map half of `eligible_retreats`
+/// the composed combat machine filters by the board as it changes.
+#[must_use]
+pub fn retreat_neighbors(
+    state: &GameState,
+    sources: SourceSet,
+    galaxy: &ti4_content::galaxy::Galaxy,
+    player: &PlayerId,
+    system: &SystemId,
+) -> Option<Vec<(SystemId, bool)>> {
+    let pos = crate::core_adapter::Position::new(state, sources, galaxy)?;
+    let reach = crate::core_adapter::SeatReach::new(&pos, player, false)?;
+    let sys = typed::<System>(system.as_str())?;
+    let rules = reach.rules_for(sys);
+    let mut found = Vec::new();
+    for n in rules.adjacency.of(sys).iter().map(ti4_engine_core::ids::system_at) {
+        if rules.adjacency.is_hyperlane(n) {
+            continue;
+        }
+        let may = cc::retreat_may_enter(pos.core(), n, &|dest| (*reach.rules_for(dest)).clone());
+        found.push((SystemId::new(n.as_str()), may));
+    }
+    Some(found)
+}
+
 /// Skilled Retreat's and Dark Energy Tap's destinations over the typed movement rules.
 #[must_use]
 pub fn open_retreat_destinations(
@@ -789,6 +907,10 @@ pub fn combat_kernel(sources: SourceSet) -> Option<Kernel> {
     providers::register_core(&mut kernel.hooks);
     adapters::bridge_legacy(&mut kernel.hooks.seam);
     cc::register_naaz_nomad(&mut kernel.hooks);
+    // Transparasteel Plating: a passed player cannot play action cards on the holder's turn.
+    kernel.hooks.economy.action_cards_forbidden.push(ti4_engine_core_factions::cd_registry::yssaril::query::action_cards_forbidden);
+    // The agents' exhaustion is announced to a Nomad that listens (the round agents read it).
+    kernel.hooks.direct.nomad_watches_agent_exhaustion.push(ti4_engine_core_factions::ce_movement::nomad::query::watches_agent_exhaustion);
     // Bastion's ship-lost bookkeeping and the Nekro Alastor queries and bookkeeping are native.
     ti4_engine_core_factions::ca_combat::bastion::register_observers(&mut kernel.hooks);
     ti4_engine_core_factions::ca_combat::nekro::register(&mut kernel.hooks);

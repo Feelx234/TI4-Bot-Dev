@@ -2567,6 +2567,7 @@ mod typed_render_tests {
     /// every question, the winner and the planets exhausted.
     #[test]
     fn a_whole_vote_runs_in_lockstep_on_the_core_window() {
+        let _serial = crate::dual::tests::serial();
         use crate::dual::{Area, AreaMask, Backend, take_report, with_mask};
         let content = ContentStore::embedded();
         let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();

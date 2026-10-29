@@ -102,6 +102,13 @@ if [[ -n "$dual" ]]; then
     check dual-positions "$target/gate/board_equivalence" cards golden tools/engine_profile/profile-20.json 20 10 6
     note "     $(grep '^exploration queries' "$out/dual-positions.log" | tail -1)"
   fi
+  if [[ "$area" == action_cards ]]; then
+    # B6: the action-card reads next to the string functions (the same bin prints all summaries).
+    check dual-templates "$target/gate/board_equivalence" templates
+    note "     $(grep '^action card reads' "$out/dual-templates.log" | tail -1)"
+    check dual-positions "$target/gate/board_equivalence" golden tools/engine_profile/profile-20.json 20 10
+    note "     $(grep '^action card reads' "$out/dual-positions.log" | tail -1)"
+  fi
   if [[ "$area" == movement ]]; then
     check dual-templates "$target/gate/core_equivalence" templates --routes
     note "     $(tail -1 "$out/dual-templates.log")"
@@ -159,8 +166,12 @@ fi
 fi
 
 # 10 state size
-check state-size tools/engine_core/state_size.sh
-sed 's/^/     /' "$out/state-size.log" | head -8 | tee -a "$out/summary.txt"
+if [[ -x "$target/release/state_size" ]]; then
+  check state-size tools/engine_core/state_size.sh
+  sed 's/^/     /' "$out/state-size.log" | head -8 | tee -a "$out/summary.txt"
+else
+  note "skip state-size (no release state_size binary in $target; build it with cargo build --release -p ti4-engine-core-bridge --bins)"
+fi
 
 [[ $fail == 0 ]] && note "PACKAGE OK ($area)" || note "PACKAGE FAILED ($area)"
 exit $fail

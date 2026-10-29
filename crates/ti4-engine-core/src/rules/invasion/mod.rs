@@ -12,8 +12,17 @@
 //! Nothing here asks a question or emits an event: those go through the host the later sections take.
 
 pub mod absorb;
+pub mod advance;
+pub mod begin;
+pub mod bombard;
 pub mod commit;
+pub mod defense;
+pub mod harrow;
+pub mod hits;
+pub mod roll;
+pub mod round;
 pub mod stages;
+pub mod tail;
 
 use crate::containers::SeatSet;
 use crate::generated::{Leader, Planet, System, Unit, UnitBaseType};
@@ -179,7 +188,7 @@ pub fn roll_bombard(plan: &[PlanetBombard], rng: &mut crate::state::Rng, seeds: 
 }
 
 /// Whether `seat` has Plasma Scoring (the data row of the technology).
-fn has_plasma_scoring(rd: Rd<'_>, owner: Seat) -> bool {
+pub(crate) fn has_plasma_scoring(rd: Rd<'_>, owner: Seat) -> bool {
     seam_data::COMBAT_ROWS
         .iter()
         .filter(|r| matches!(r.kind, RowKind::ExtraDice(_)) && r.source == Source::Technology(crate::generated::Technology::PlasmaScoring))
@@ -289,26 +298,67 @@ pub fn landable_planets(rd: Rd<'_>, system: System) -> Vec<Planet> {
         .collect()
 }
 
-/// `invasion::commit_options`' landings: one option per distinguishable landing (unit type, damage, planet) over
-/// the caller's `troops` and `planets` (already without the planets whose toll the invader cannot pay), troops
-/// first, then the end of the sequence. Only for troops standing in space (no origin).
+/// One ground force that may be committed: the unit, where it stands when that is not the space area of the
+/// active system (a faction's commit candidate), and whether it is a ship committed as a ground force for the
+/// moment (a temporary space commit).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Troop {
+    pub piece: Piece,
+    pub origin: Option<(System, Planet)>,
+    pub temporary: bool,
+}
+
+impl Troop {
+    /// A ground force standing in the space area.
+    #[must_use]
+    pub const fn space(piece: Piece) -> Self {
+        Self { piece, origin: None, temporary: false }
+    }
+}
+
+/// `invasion::commit_options`' landings: one option per distinguishable landing (unit type, damage, origin, planet)
+/// over the caller's `troops` and `planets` (already without the planets whose toll the invader cannot pay), troops
+/// first, then the end of the sequence. Moving a unit onto the planet it already stands on is no landing.
 #[must_use]
-pub fn commit_opts(troops: &[Piece], planets: &[Planet]) -> crate::choice::Opts {
+pub fn commit_opts_from(system: System, troops: &[Troop], planets: &[Planet]) -> crate::choice::Opts {
+    commit_opts_with(system, troops, planets, &[])
+}
+
+/// [`commit_opts_from`] with the Crimson deploy landings (`deploy`: the planets a Revenant may be committed to)
+/// between the troops' landings and the end of the sequence.
+#[must_use]
+pub fn commit_opts_with(system: System, troops: &[Troop], planets: &[Planet], deploy: &[Planet]) -> crate::choice::Opts {
     use crate::choice::invasion::Opt as IOpt;
     let mut opts = crate::choice::Opts::default();
-    let mut seen: Vec<(Unit, bool, Planet)> = Vec::new();
-    for (index, unit) in troops.iter().enumerate() {
+    type Landing = (Unit, bool, Planet, Option<(System, Planet)>);
+    let mut seen: Vec<Landing> = Vec::new();
+    for (index, troop) in troops.iter().enumerate() {
+        let unit = troop.piece;
         for planet in planets {
-            let key = (unit.kind(), unit.sustained(), *planet);
+            if troop.origin == Some((system, *planet)) {
+                continue;
+            }
+            let key = (unit.kind(), unit.sustained(), *planet, troop.origin);
             if seen.contains(&key) {
                 continue;
             }
             seen.push(key);
-            opts.push(crate::choice::Opt::Invasion(IOpt::Commit { index: index as u16, planet: *planet, unit: unit.kind(), damaged: unit.sustained() }));
+            opts.push(crate::choice::Opt::Invasion(IOpt::Commit { index: index as u16, planet: *planet, unit: unit.kind(), damaged: unit.sustained(), from: troop.origin }));
         }
+    }
+    for planet in deploy {
+        opts.push(crate::choice::Opt::Invasion(IOpt::Deploy { planet: *planet }));
     }
     opts.push(crate::choice::Opt::Invasion(IOpt::DoneCommitting));
     opts
+}
+
+/// [`commit_opts_from`] for troops standing in the space area (no origin).
+#[must_use]
+pub fn commit_opts(troops: &[Piece], planets: &[Planet]) -> crate::choice::Opts {
+    // The system only matters to origins, which a space troop has none of.
+    let troops: Vec<Troop> = troops.iter().map(|p| Troop::space(*p)).collect();
+    commit_opts_from(System::MecatolRex18, &troops, planets)
 }
 
 // -- hits on ground forces (LRR 15.2, 87) ------------------------------------------------------------

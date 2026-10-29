@@ -13,8 +13,10 @@
 use serde_json::Value;
 use ti4_content::ContentStore;
 use ti4_engine_core::choice::reaction::{Ask, Opt, Relation, Subtype};
+use ti4_engine_core::generated::ActionCard;
 
 use super::{Family, Render};
+use crate::generated::IdStr;
 use crate::choice::ChoiceOption;
 use crate::kernel_sync::text::{ability_id, ability_text, event_text, relation_text};
 
@@ -27,23 +29,52 @@ impl Family for Fam {
     type Subtype = Subtype;
 
     fn prompt(r: &Render, a: &Ask) -> String {
-        let Ask::Window { event, relation } = a;
-        format!("{} {}", relation_text(*relation), event_text(r, *event))
+        match a {
+            Ask::Window { event, relation } => format!("{} {}", relation_text(*relation), event_text(r, *event)),
+            Ask::PlayCard { event, relation } => format!("play an action card ({} {})", relation_text(*relation), event_text(r, *event)),
+            Ask::InstinctTraining { card } => format!("Instinct Training: exhaust and spend a strategy token to cancel {}", card.as_str()),
+            Ask::AgentSwap { target } => format!(
+                "I48S: exhaust to let {} replace 1 infantry in the active system with a mech",
+                target.map_or_else(|| "the active player".to_owned(), |t| r.seat_text(t).to_owned())
+            ),
+        }
     }
 
     fn subtype(r: &Render, s: &Subtype) -> String {
-        let Subtype::Window { event, relation } = s;
-        format!("reaction_{}_{}", relation_text(*relation), event_text(r, *event))
+        match s {
+            Subtype::Window { event, relation } => format!("reaction_{}_{}", relation_text(*relation), event_text(r, *event)),
+            Subtype::PlayCard { event, relation } => format!("play_reaction_{}_{}", relation_text(*relation), event_text(r, *event)),
+            Subtype::InstinctTraining => "instinct_training_cancel".to_owned(),
+            Subtype::AgentSwap => "l1z1x_agent_swap".to_owned(),
+        }
     }
 
     fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
-        let (Ask::Window { event, .. }, Opt::Ability(id)) = (a, o);
-        let text = ability_text(r, *id);
-        let label = crate::timing::ability_label(Some(ContentStore::embedded()), &text);
-        ChoiceOption::labelled(&text, "ability", label).with("event", event_text(r, *event))
+        match (a, o) {
+            (Ask::Window { event, .. }, Opt::Ability(id)) => {
+                let text = ability_text(r, *id);
+                let label = crate::timing::ability_label(Some(ContentStore::embedded()), &text);
+                ChoiceOption::labelled(&text, "ability", label).with("event", event_text(r, *event))
+            }
+            (Ask::PlayCard { .. }, Opt::Card(card)) => {
+                let content = ContentStore::embedded();
+                let id = card.as_str();
+                let name = crate::action_cards::name_of(content, &ti4_model::id::ActionCardId::new(id));
+                ChoiceOption::labelled(id, crate::reactions::ACTION_CARD_KIND, format!("play {name}")).with("card", id).with("card_name", name)
+            }
+            (Ask::InstinctTraining { .. }, Opt::Use) => ChoiceOption::labelled("use", "technology", "cancel it"),
+            (Ask::AgentSwap { .. }, Opt::Use) => ChoiceOption::labelled("use", "leader", "exhaust the agent"),
+            _ => panic!("option {o:?} in the question {a:?}"),
+        }
     }
 
-    fn parse(r: &Render, _: &Ask, id: &str) -> Option<Opt> {
+    fn parse(r: &Render, a: &Ask, id: &str) -> Option<Opt> {
+        if let Ask::PlayCard { .. } = a {
+            return ActionCard::from_id(id).map(Opt::Card);
+        }
+        if !matches!(a, Ask::Window { .. }) {
+            return (id == "use").then_some(Opt::Use);
+        }
         // An ability id: `kind:...:EVENT:when|after|produce`, known to the interner (registered).
         let parts: Vec<&str> = id.split(':').collect();
         if parts.len() < 4 {
