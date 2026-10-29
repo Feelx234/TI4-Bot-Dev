@@ -352,7 +352,7 @@ be a layout problem or a gesture the harness does not do (it clicks, never swipe
 | `NIGHTLY_POK_PROBABILITY` | `25` | percent of runs that play the PoK strategy cards instead of the TE default |
 | `NIGHTLY_UI_TOUR_PROBABILITY` | `17` | percent of runs with `TI4_SMOKE_UI_TOUR=1`: open the Faction card and one unit card, check them |
 | `NIGHTLY_RECAP_PROBABILITY` | `20` | percent of runs with `TI4_SMOKE_RECAP=1`: one random non-host seat turns the Recap toggle on; recap toasts are counted |
-| `NIGHTLY_REDO_PROBABILITY` | `5` | percent of runs with `TI4_SMOKE_REDO=1`: one guarded turn redo round trip (see below) |
+| `NIGHTLY_REDO_PROBABILITY` | `0` | percent of runs with `TI4_SMOKE_REDO=1`: one guarded turn redo round trip (see below). Off by default: the server's turn redo is switched off (`docs/DISABLE_XF123.md`) and the redo bar is not shown |
 | `NIGHTLY_PREP_PROBABILITY` | `0.5` | fraction (0..1) of secondary opportunities a waiting follower plans (`TI4_SMOKE_PREP_PROBABILITY`); `0` switches the exercise off (`TI4_SMOKE_PREP=0`) |
 | `NIGHTLY_PREP_AUTO_PROBABILITY` | `0.9` | fraction of plans that use the Auto mode, the rest Review (`TI4_SMOKE_PREP_AUTO_PROBABILITY`) |
 | `NIGHTLY_SHOT_CAP` | `20` | cap on screenshots per run (`TI4_SMOKE_SHOT_CAP`; a number or `all` = 20); exercise shots count inside it |

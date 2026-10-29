@@ -530,6 +530,7 @@ fn the_original_is_dropped_on_keep_and_once_a_live_decision_passes_the_handoff()
 }
 
 #[test]
+#[ignore = "turn redo is switched off (docs/DISABLE_XF123.md): the route answers 403 and a redone history is not recovered"]
 fn the_redo_and_its_saved_original_survive_a_restart_with_their_forced_dice() {
     let dir = std::env::temp_dir().join(format!("ti4_turn_redo_{:016x}", rand::random::<u64>()));
     let store = Arc::new(FileGameStore::new(&dir).unwrap());
@@ -619,6 +620,7 @@ async fn post(base: &str, game: &str, token: Option<&str>, body: Value) -> (Stat
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "turn redo is switched off (docs/DISABLE_XF123.md): the route answers 403 and a redone history is not recovered"]
 async fn http_permissions_and_shapes() {
     let t = table("redo_http", SeatController::BotFirstOption, None);
     let registry = t.registry.clone();
@@ -765,6 +767,7 @@ fn the_host_can_redo_a_bot_seats_turn_and_the_bot_replays_it_live() {
 }
 
 #[test]
+#[ignore = "turn redo is switched off (docs/DISABLE_XF123.md): the route answers 403 and a redone history is not recovered"]
 fn a_redo_in_its_new_turn_recovers_from_disk_with_its_open_card_reservations() {
     let dir = std::env::temp_dir().join(format!("ti4_turn_redo_{:016x}", rand::random::<u64>()));
     let store = Arc::new(FileGameStore::new(&dir).unwrap());

@@ -15,6 +15,7 @@ mod crash_recovery;
 mod dev_scenario_recovery;
 mod dev_scenarios;
 mod diplomacy_ready_batch;
+mod disabled_features;
 mod draft_last_card;
 mod draft_scripts;
 mod fixtures_verification;

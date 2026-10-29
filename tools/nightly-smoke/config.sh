@@ -104,7 +104,8 @@ TE_EXPEDITION_PRESET_PERCENT="${NIGHTLY_TE_EXPEDITION_PRESET_PERCENT:-30}"
 # replays the round). Set a probability to 0 to switch an exercise off.
 UI_TOUR_PROBABILITY="${NIGHTLY_UI_TOUR_PROBABILITY:-17}"
 RECAP_PROBABILITY="${NIGHTLY_RECAP_PROBABILITY:-20}"
-REDO_PROBABILITY="${NIGHTLY_REDO_PROBABILITY:-5}"
+# Default 0: the server's turn redo is switched off (docs/DISABLE_XF123.md), so the exercise cannot run.
+REDO_PROBABILITY="${NIGHTLY_REDO_PROBABILITY:-0}"
 # Secondary pre-planning (web/e2e/smokePrep.ts), a fraction 0..1: the chance a waiting follower plans
 # its strategy-card secondary per opportunity, and the chance a plan uses the Auto mode (else Review).
 # NIGHTLY_PREP_PROBABILITY=0 switches the exercise off (it passes TI4_SMOKE_PREP=0).
