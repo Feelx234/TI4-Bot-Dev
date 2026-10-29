@@ -12,6 +12,7 @@
 #      depends on the mutated one, e.g. ti4-engine-core-bridge with TEST_ARGS="--test tech"), JOBS (mutants run in parallel, default 4),
 #      CARGO_BUILD_JOBS (default 2), KINDS (default body,arith,cmp,logic,cond,lit,assign), FN (only functions
 #      whose name contains one of a,b,c), LINES (S-E), TEST_ARGS (default --lib; e.g. "--lib --test adapter"),
+#      CHECK_ONLY=1 (only check that the rewrite compiles, with `cargo check --tests`; no test run),
 #      TIMEOUT (seconds per mutant), LIST=1 (only list the mutation points), QUIET=1 (survivors only),
 #      MUT_DIR (scratch, default /root/deploytmp/mutants-<checkout>), STRICT=1 (exit 1 when mutants survive).
 #
@@ -91,8 +92,9 @@ fi
 # 4. build once; points whose rewrite does not compile (type inference, moves, const contexts) are disabled
 #    from the compile errors and the tree is regenerated, a few rounds at most.
 read -ra targs <<< "${TEST_ARGS:---lib}"
+build_cmd=(test --no-run); [[ "${CHECK_ONLY:-0}" == 1 ]] && build_cmd=(check --tests)
 # No debug info in the scratch build (the dev profile has line tables + packed dwp: about 3.5 GB for the bridge tests).
-build() { ( cd "$tree" && CARGO_TARGET_DIR="$tgt" CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_DEV_SPLIT_DEBUGINFO=off cargo test --offline --locked "${targs[@]}" -p "$tcrate" --no-run --message-format=json 2> "$mut/build.err" > "$mut/build.json" ); }
+build() { ( cd "$tree" && CARGO_TARGET_DIR="$tgt" CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_DEV_SPLIT_DEBUGINFO=off cargo "${build_cmd[@]}" --offline --locked "${targs[@]}" -p "$tcrate" --message-format=json 2> "$mut/build.err" > "$mut/build.json" ); }
 round=0
 until build; do
   round=$((round + 1))
@@ -103,6 +105,7 @@ until build; do
   if [[ $rc -ne 0 ]]; then echo "build fails and no mutation point is to blame (see $mut/build.err):"; grep -E '^error' -A4 "$mut/build.err" | head -30; exit 2; fi
   "$tool" "${gen_args[@]}" "${files[@]}" > /dev/null || exit 2
 done
+if [[ "${CHECK_ONLY:-0}" == 1 ]]; then echo "CHECK_ONLY: the rewrite compiles ($round prune round(s), $(python3 -I -c 'import json,sys;print(sum(1 for p in json.load(open(sys.argv[1]))["points"] if p["disabled"] or p["id"] in {int(x) for x in open(sys.argv[2]).read().split()}))' "$mut/points.json" "$disable") of $(python3 -I -c 'import json,sys;print(len(json.load(open(sys.argv[1]))["points"]))' "$mut/points.json") points dropped)"; exit 0; fi
 mapfile -t exes < <(python3 -I -c '
 import json,sys
 for l in open(sys.argv[1]):

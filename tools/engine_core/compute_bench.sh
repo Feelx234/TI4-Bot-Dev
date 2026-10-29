@@ -6,7 +6,7 @@
 #
 # Run from a scratch worktree (the script edits one source file for the incremental steps and restores it
 # with git). Every step that can take minutes holds the heavy lock (/root/.ti4-heavy.lock) on its own.
-# Env: JOBS (default 4, CARGO_BUILD_JOBS of all steps), PROFILES (default "gate lockstep lockstep0"),
+# Env: LOCK=0 (do not take the heavy lock: for a small PKG whose steps are under 5 minutes), JOBS (default 4, CARGO_BUILD_JOBS of all steps), PROFILES (default "gate lockstep lockstep0"),
 #      PKG (default ti4-engine). All target dirs live in WORK_DIR and are removed again unless KEEP=1.
 # Output: one `RESULT ...` line per step on stdout; cargo logs in WORK_DIR/*.log.
 set -uo pipefail
@@ -21,7 +21,7 @@ timed() { # LABEL LOGFILE CMD... : runs under the heavy lock, prints RESULT labe
   local label="$1" log="$2"; shift 2
   local t0 rc
   t0=$(date +%s.%N)
-  flock /root/.ti4-heavy.lock "$@" > "$log" 2>&1; rc=$?
+  if [[ "${LOCK:-1}" == 0 ]]; then "$@" > "$log" 2>&1; rc=$?; else flock /root/.ti4-heavy.lock "$@" > "$log" 2>&1; rc=$?; fi
   printf 'RESULT %-34s %8.1f s rc=%s (free disk %s GB)\n' "$label" "$(echo "$(date +%s.%N) - $t0" | bc)" "$rc" "$(free_gb)"
 }
 poke() { printf '\n// compute_bench touch %s\n' "$RANDOM" >> "$1"; }
