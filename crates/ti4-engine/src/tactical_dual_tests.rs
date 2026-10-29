@@ -63,9 +63,10 @@ fn play(state: GameState, galaxy: &Galaxy, script: &[&str], edit: impl FnOnce(&m
     let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(galaxy.clone());
     edit(&mut game);
     with_mask(AreaMask::STRING.with(Area::Movement, Backend::Dual), || {
-        for _ in 0..40 {
+        // One step per scripted answer: the table falls back to the first option when the script is spent.
+        for _ in 0..script.len() {
             if game.step().error.is_some() {
-                break; // the script ran out: we assert on what was reached
+                break;
             }
         }
     });
@@ -75,6 +76,16 @@ fn play(state: GameState, galaxy: &Galaxy, script: &[&str], edit: impl FnOnce(&m
     let reasons = r.windows.iter().filter(|(k, _)| k.starts_with("tactical::") && k.contains("[bail")).map(|(k, w)| format!("{k} x{}", w.bailed)).collect();
     let rolls = game.rift_rolls();
     Done { game_events: game.events.clone(), state: game.state.clone(), rolls, counts, reasons }
+}
+
+/// The seat's units in a system, in the space area and on its planets.
+fn total(state: &GameState, system: &SystemId, owner: &PlayerId, kind: Option<&str>) -> usize {
+    let cell = state.system_state(system);
+    cell.units
+        .iter()
+        .chain(cell.planet_units.values().flatten())
+        .filter(|u| &u.owner == owner && kind.is_none_or(|k| u.type_id.as_str() == k))
+        .count()
 }
 
 fn hub() -> (crate::fixtures::Hub, SystemId, SystemId) {
@@ -88,10 +99,11 @@ fn a_system_is_activated_in_lockstep() {
     let (hub, origin, target) = hub();
     let mut state = sol_hacan();
     crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+    let tokens = state.player(&a()).unwrap().tactic_tokens;
     let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()], |_| {});
     assert_eq!(done.counts("tactical::activate"), (1, 0), "the core followed the activation: {:?}", done.reasons);
     assert!(done.game_events.iter().any(|e| e == &format!("SYSTEM_ACTIVATED:{target}")));
-    assert_eq!(done.state.player(&a()).unwrap().tactic_tokens, 2, "one tactic token was spent");
+    assert_eq!(done.state.player(&a()).unwrap().tactic_tokens, tokens - 1, "one tactic token was spent");
     assert!(done.state.system_state(&target).command_tokens.contains(&a()));
 }
 
@@ -119,8 +131,8 @@ fn a_carrier_loads_two_infantry_and_sails_and_the_step_closes() {
     assert_eq!(done.counts("tactical::move"), (1, 0), "{:?}", done.reasons);
     assert_eq!(done.counts("tactical::load"), (2, 0), "{:?}", done.reasons);
     assert_eq!(done.counts("tactical::finish"), (1, 0), "{:?}", done.reasons);
-    let here = done.state.system_state(&target).units.iter().filter(|u| u.owner == a()).map(|u| u.type_id.to_string()).collect::<Vec<_>>();
-    assert_eq!(here.len(), 3, "the carrier and both passengers arrived: {here:?}");
+    assert_eq!(total(&done.state, &target, &a(), None), 3, "the carrier and both passengers arrived");
+    assert_eq!(total(&done.state, &origin, &a(), None), 0);
     assert!(done.game_events.iter().any(|e| e == "SHIP_MOVED"));
 }
 
@@ -130,8 +142,8 @@ fn done_loading_closes_the_hold_early() {
     let mv = id(&origin, 0);
     let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv, "load|0", "done_loading"], |_| {});
     assert_eq!(done.counts("tactical::load"), (2, 0), "{:?}", done.reasons);
-    let aboard = done.state.system_state(&target).units.iter().filter(|u| u.owner == a() && u.type_id.as_str() == "infantry").count();
-    assert_eq!(aboard, 1, "one passenger, one left behind");
+    assert_eq!(total(&done.state, &target, &a(), Some("infantry")), 1, "one passenger arrived");
+    assert_eq!(total(&done.state, &origin, &a(), Some("infantry")), 1, "one was left behind");
 }
 
 #[test]
@@ -142,7 +154,7 @@ fn a_ship_without_capacity_sails_at_once() {
     let mv = id(&origin, 0);
     let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv], |_| {});
     assert_eq!(done.counts("tactical::move"), (1, 0), "{:?}", done.reasons);
-    assert_eq!(done.state.system_state(&target).units.iter().filter(|u| u.owner == a()).count(), 1);
+    assert_eq!(total(&done.state, &target, &a(), None), 1);
 }
 
 #[test]
@@ -164,7 +176,7 @@ fn a_damaged_and_a_fresh_dreadnought_are_two_options_and_the_second_hull_moves()
 fn the_second_of_three_identical_fighters_moves_by_index() {
     let (hub, origin, target) = hub();
     let mut state = sol_hacan();
-    crate::fixtures::put(&mut state, &origin, "fighter", &a(), 3);
+    crate::fixtures::put(&mut state, &origin, "fighter2", &a(), 3);
     let mv = id(&origin, 2);
     let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv], |_| {});
     assert_eq!(done.counts("tactical::move"), (1, 0), "{:?}", done.reasons);
@@ -173,12 +185,12 @@ fn the_second_of_three_identical_fighters_moves_by_index() {
 
 #[test]
 fn gravity_drive_reaches_a_system_two_away() {
-    let (hub, _, target) = hub();
+    let (hub, origin, _) = hub();
     let far = SystemId::new(hub.across(&hub.outer[0]));
     let mut state = sol_hacan();
-    crate::fixtures::put(&mut state, &far, "carrier", &a(), 1);
+    crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
     state.player_mut(&a()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("gd"));
-    let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &format!("move_gd|{far}|0"), "done_loading"], |_| {});
+    let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, far.as_str(), &format!("move_gd|{origin}|0")], |_| {});
     assert_eq!(done.counts("tactical::move"), (1, 0), "{:?}", done.reasons);
     assert!(done.state.player(&a()).unwrap().gravity_drive_used_activation.is_some(), "the drive was spent");
 }
@@ -276,8 +288,8 @@ fn a_carrier_exiting_a_rift_rolls_a_die_and_a_lost_ship_takes_its_hold_with_it()
         assert_eq!(done.counts("tactical::move"), (1, 0), "seed {seed}: {:?}", done.reasons);
         assert_eq!(done.counts("tactical::load"), (2, 0), "seed {seed}: {:?}", done.reasons);
         assert_eq!(done.rolls, 1, "seed {seed}: one rift exited, one die");
-        let there = done.state.system_state(&target).units.iter().filter(|u| u.owner == a()).count();
-        let left = done.state.system_state(&origin).units.iter().filter(|u| u.owner == a()).count();
+        let there = total(&done.state, &target, &a(), None);
+        let left = total(&done.state, &origin, &a(), None);
         if done.game_events.iter().any(|e| e == "SHIP_LOST_TO_GRAVITY_RIFT") {
             lost += 1;
             assert_eq!((there, left), (0, 0), "seed {seed}: the carrier and the passengers are gone");
@@ -332,17 +344,17 @@ fn a_ceasefire_held_by_the_defender_keeps_the_activation_on_the_string() {
 
 #[test]
 fn gravleash_maneuvers_lets_a_slower_hull_inherit_the_anchor_of_the_first_mover() {
-    let (hub, _, centre) = hub();
+    let (hub, origin, _) = hub();
     let far = SystemId::new(hub.across(&hub.outer[0]));
     let mut state = sol_hacan();
-    crate::fixtures::put(&mut state, &far, "cruiser", &a(), 1);
-    crate::fixtures::put(&mut state, &far, "dreadnought", &a(), 1);
+    crate::fixtures::put(&mut state, &origin, "cruiser", &a(), 1);
+    crate::fixtures::put(&mut state, &origin, "dreadnought", &a(), 1);
     state.player_mut(&a()).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new("letnevbt"));
-    // The cruiser (move 2) reaches the centre, the dreadnought (move 1) does not: until the cruiser has moved from here.
-    let script = [TACTICAL_ACTION_ID, centre.as_str(), &id(&far, 0), &id(&far, 0)];
+    // The cruiser (move 2) reaches the far side, the dreadnought (move 1) does not: until the cruiser has moved from here.
+    let script = [TACTICAL_ACTION_ID, far.as_str(), &id(&origin, 0), &id(&origin, 0)];
     let done = play(state, &hub.galaxy, &script, |_| {});
     assert_eq!(done.counts("tactical::move"), (2, 0), "{:?}", done.reasons);
-    assert_eq!(done.state.system_state(&centre).units.iter().filter(|u| u.owner == a()).count(), 2, "both hulls arrived");
+    assert_eq!(total(&done.state, &far, &a(), None), 2, "both hulls arrived");
 }
 
 #[test]
