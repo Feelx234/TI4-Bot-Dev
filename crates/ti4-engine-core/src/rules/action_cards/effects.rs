@@ -106,6 +106,10 @@ pub enum Fx {
     Reparations,
     /// Public Disgrace: the picker of a strategy card chooses a different one.
     Disgrace,
+    /// Lucky Shot: a dreadnought, cruiser or destroyer of another seat, in a system the holder holds a planet in, is destroyed.
+    Lucky,
+    /// Scuttle: one or two of the holder's non-fighter ships return to the supply; their cost in trade goods.
+    Scuttle,
     /// Archaeological Expedition: the top three cards of the deck of a planet's trait; fragments are kept.
     Dig,
 }
@@ -163,6 +167,8 @@ impl Fx {
             C::Plague => Self::Plague,
             C::UnstablePlanet => Self::Unstable,
             C::SeizeArtifact => Self::Seize,
+            C::LuckyShot => Self::Lucky,
+            C::Scuttle => Self::Scuttle,
             C::Reparations => Self::Reparations,
             C::PublicDisgrace => Self::Disgrace,
             C::ArchaeologicalExpedition => Self::Dig,
@@ -207,6 +213,8 @@ pub struct Play {
     step: u8,
     /// Seize Artifact: the neighbour chosen. Public Disgrace: the picker and the card taken from them.
     taken: Option<(Seat, Option<StrategyCard>)>,
+    /// Scuttle: the ship chosen first.
+    first_ship: Option<(System, u8)>,
 }
 
 /// The sides of the die the string `Dice` rolls.
@@ -272,7 +280,7 @@ impl Play {
             }
             _ => None,
         };
-        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None })
+        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None })
     }
 
     fn what(&self) -> Option<What> {
@@ -284,6 +292,8 @@ impl Play {
             Fx::Reparations if self.step == 0 => What::Exhaust,
             Fx::Reparations => What::Ready,
             Fx::Dig => What::Dig,
+            Fx::Lucky => What::Hull,
+            Fx::Scuttle => What::Scuttle { second: self.first_ship.is_some() },
             Fx::Disgrace => {
                 let (_, first) = self.taken?;
                 What::Redraft { first: first?, by: self.who }
@@ -398,6 +408,51 @@ impl Play {
                     System::ALL.iter().copied().filter(|s| *s != destination && !board::has_token(core, *s, who) && ship(*s)).collect();
                 held.as_mut_slice().sort_unstable();
                 held.as_slice().iter().map(|s| Opt::System(*s)).collect()
+            }
+            Fx::Lucky => {
+                let mut seen: SmallList<(System, Seat, crate::generated::Unit, bool), 16> = SmallList::new();
+                let mut out = SmallList::new();
+                for system in System::ALL {
+                    if !board::controls_a_planet_in(core, system, who) {
+                        continue;
+                    }
+                    for (index, p) in board::space_units(core, system).iter().enumerate() {
+                        if p.owner() == who {
+                            continue;
+                        }
+                        let Some(d) = self.env.scope.unit(p.kind()) else { continue };
+                        if !matches!(d.base_type, UnitBaseType::Dreadnought | UnitBaseType::Cruiser | UnitBaseType::Destroyer) {
+                            continue;
+                        }
+                        // One option per distinguishable kill: two identical hulls in one system are the same shot.
+                        let shape = (system, p.owner(), p.kind(), p.sustained());
+                        if seen.as_slice().contains(&shape) {
+                            continue;
+                        }
+                        seen.push(shape);
+                        out.push(Opt::Ship { system, index: u8::try_from(index).unwrap_or(u8::MAX), owner: p.owner(), kind: p.kind() });
+                    }
+                }
+                out
+            }
+            Fx::Scuttle => {
+                let mut out = SmallList::new();
+                for system in System::ALL {
+                    for (index, p) in board::space_units(core, system).iter().enumerate() {
+                        if p.owner() != who || self.env.scope.unit(p.kind()).is_some_and(|d| !d.ship || d.base_type == UnitBaseType::Fighter) {
+                            continue;
+                        }
+                        let at = u8::try_from(index).unwrap_or(u8::MAX);
+                        if self.first_ship == Some((system, at)) {
+                            continue;
+                        }
+                        out.push(Opt::Ship { system, index: at, owner: who, kind: p.kind() });
+                    }
+                }
+                if self.first_ship.is_some() {
+                    out.push(Opt::Stop);
+                }
+                out
             }
             Fx::Seize if self.step == 0 => {
                 let mut near: SmallList<Seat, 2> = SmallList::new();
@@ -520,6 +575,23 @@ impl Play {
     fn goods(&self, core: &mut CoreState, who: Seat, amount: i64) {
         let amount = i32::try_from(amount).unwrap_or(0);
         fx::gain_trade_goods_staged(core, who, amount, self.env.action_card);
+    }
+
+    /// The ships leave their systems (highest place first within a system) and the holder gains their cost.
+    fn scuttle(&self, core: &mut CoreState, picked: &[(System, u8)]) {
+        let mut goods = 0i32;
+        let mut order: SmallList<(System, u8), 2> = SmallList::from_slice(picked);
+        // Per system, from the highest place down (the string groups by system; systems in text order).
+        order.as_mut_slice().sort_unstable_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)));
+        for (system, index) in order.as_slice() {
+            let units = &mut core.board_mut().sys_mut(*system).units;
+            if usize::from(*index) < units.len() {
+                let gone = units.remove(usize::from(*index));
+                // The cost in halves, rounded half up.
+                goods += self.env.scope.unit(gone.kind()).and_then(|d| d.cost_halves).map_or(0, |h| (i32::from(h) + 1) / 2);
+            }
+        }
+        fx::gain_trade_goods_staged(core, self.who, goods, self.env.action_card);
     }
 
     /// Put the first choice back with its picker and off the mat.
@@ -757,6 +829,29 @@ impl Play {
                     && key.note != crate::generated::PromissoryNote::Antivirus;
                 if faceup {
                     core.cards_mut().promissory_faceup.edit().insert(key, ());
+                }
+            }
+            (Fx::Lucky, Opt::Ship { system, index, .. }) => {
+                let units = &mut core.board_mut().sys_mut(system).units;
+                if usize::from(index) < units.len() {
+                    units.remove(usize::from(index));
+                }
+            }
+            (Fx::Scuttle, Opt::Ship { system, index, .. }) => {
+                if self.first_ship.is_none() && self.opts.len() > 1 {
+                    self.first_ship = Some((system, index));
+                    return true;
+                }
+                let mut picked: SmallList<(System, u8), 2> = SmallList::new();
+                if let Some(first) = self.first_ship {
+                    picked.push(first);
+                }
+                picked.push((system, index));
+                self.scuttle(core, picked.as_slice());
+            }
+            (Fx::Scuttle, Opt::Stop) => {
+                if let Some(first) = self.first_ship {
+                    self.scuttle(core, &[first]);
                 }
             }
             (Fx::Seize, Opt::Seat(victim)) => {

@@ -281,8 +281,8 @@ pub fn plays(alias: &ActionCardId) -> bool {
 }
 
 const PLAY: crate::core_sync::Footprint = crate::core_sync::Footprint::new(
-    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending, Slice::Strategy],
-    &[Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending, Slice::Strategy],
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending, Slice::Strategy, Slice::Ledger],
+    &[Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending, Slice::Strategy, Slice::Ledger],
 );
 
 /// The core half of a played card effect (`action_cards::effect_for`), as a lockstep window. `None` when the
@@ -355,7 +355,8 @@ pub fn play_window(
 /// The display facts only the card's text knows (`Choice.details` of Repeal Law's `laws`): taken from the recorded question
 /// with the same prompt.
 fn recorded_details(c: &ti4_engine_core::choice::Choice, script: &crate::dual_window::Recording, rendered: &mut crate::choice::Choice) {
-    if matches!(c.ask, ti4_engine_core::choice::Ask::Cards(ti4_engine_core::choice::cards::Ask::Pick { what: ti4_engine_core::choice::cards::What::Law, .. }))
+    use ti4_engine_core::choice::cards::What;
+    if matches!(c.ask, ti4_engine_core::choice::Ask::Cards(ti4_engine_core::choice::cards::Ask::Pick { what: What::Law | What::Hull | What::Scuttle { .. }, .. }))
         && let Some(asked) = script.questions.iter().find(|q| q.choice.prompt == rendered.prompt)
     {
         rendered.details.clone_from(&asked.choice.details);

@@ -47,6 +47,10 @@ pub enum What {
     Ready,
     /// kind `planet`, the id the planet alone: the deck of a planet the holder controls (Archaeological Expedition).
     Dig,
+    /// kind `ship`: the ship Lucky Shot destroys.
+    Hull,
+    /// kind `ship`: a ship Scuttle returns; the second question (`second`) also offers to stop after one.
+    Scuttle { second: bool },
     /// kind `strategy_card`: the picker chooses again; `first` was taken away, `by` played the card (Public Disgrace).
     Redraft { first: crate::generated::StrategyCard, by: Seat },
 }
@@ -100,6 +104,11 @@ pub enum Opt {
     Strat(crate::generated::StrategyCard),
     /// A law in play (`What::Law`).
     Law(crate::generated::Agenda),
+    /// A ship in a system's space area (`What::Hull`, `What::Scuttle`): the system, its place in the unit list, the owner
+    /// and the unit form (the label names them).
+    Ship { system: System, index: u8, owner: Seat, kind: crate::generated::Unit },
+    /// "stop after one" (`What::Scuttle { second: true }`).
+    Stop,
     /// A fragment trait (`What::Fragment`).
     Fragment(crate::generated::ExploreType),
 }

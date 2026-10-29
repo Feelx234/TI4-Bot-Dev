@@ -24,9 +24,37 @@ fn windows(label: &str) -> (u64, u64) {
 /// difference).
 struct FirstOption;
 
+/// The decline of a reaction window (a slot among the options): the rivals' cards stay in their hands, so the play
+/// under test is never cancelled by a Sabotage.
+fn decline_slots(choice: &Choice) -> Option<ChoiceOption> {
+    choice.options.iter().any(|o| o.id.starts_with("reaction:")).then(|| choice.options.iter().find(|o| o.is_decline()).cloned()).flatten()
+}
+
 impl Decider for FirstOption {
     fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+        if let Some(decline) = decline_slots(choice) {
+            return Ok(decline);
+        }
         choice.options.first().cloned().ok_or_else(|| IllegalChoice::NoOptions { player: choice.player.clone(), prompt: choice.prompt.clone() })
+    }
+}
+
+/// Takes the last option that does not stop the effect (the picks of a two-pick card come out in descending order).
+struct LastGo;
+
+impl Decider for LastGo {
+    fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+        if let Some(decline) = decline_slots(choice) {
+            return Ok(decline);
+        }
+        choice
+            .options
+            .iter()
+            .rev()
+            .find(|o| o.id != "stop" && !o.is_decline())
+            .or(choice.options.last())
+            .cloned()
+            .ok_or_else(|| IllegalChoice::NoOptions { player: choice.player.clone(), prompt: choice.prompt.clone() })
     }
 }
 
@@ -35,13 +63,18 @@ impl Decider for FirstOption {
 fn announce_all(cases: &[(&str, GameState)]) {
     let a = PlayerId::new("a");
     let _ = crate::dual::take_report();
-    for first in [false, true] {
+    for pass in 0..3 {
+        let first = pass == 1;
         for (alias, start) in cases {
             let mut state = start.clone();
             state.player_mut(&a).unwrap().action_cards = vec![ActionCardId::new(*alias)];
             let before = state.clone();
             crate::action_cards::discard(&mut state, &a, 0);
-            let decider: Box<dyn Decider> = if first { Box::new(FirstOption) } else { Box::new(DeclineSlots) };
+            let decider: Box<dyn Decider> = match pass {
+                0 => Box::new(DeclineSlots),
+                1 => Box::new(FirstOption),
+                _ => Box::new(LastGo),
+            };
             with_mask(dual(), || announce(&mut state, alias, &a, decider));
             assert_eq!(state.discarded_action_cards.last(), Some(&ActionCardId::new(*alias)), "{alias} is on the pile");
             assert!(serde_json::to_string(&state).unwrap() != serde_json::to_string(&before).unwrap(), "{alias} changed nothing ({first})");
@@ -50,7 +83,7 @@ fn announce_all(cases: &[(&str, GameState)]) {
     let report = crate::dual::report();
     let shown: String = format!("{:?}", report.differences).chars().take(1500).collect();
     assert!(report.differences.is_empty(), "{} differences: {shown}", report.differences.len());
-    assert_eq!(windows("action_cards::announce"), (2 * cases.len() as u64, 0), "{:?}", report.windows);
+    assert_eq!(windows("action_cards::announce"), (3 * cases.len() as u64, 0), "{:?}", report.windows);
     let _ = crate::dual::take_report();
 }
 
@@ -101,4 +134,58 @@ fn seize_artifact_with_one_neighbour_and_archaeological_expedition_with_an_empty
         deck.truncate(1);
     }
     announce_all(&[("seize", two), ("arch_expedition", dry)]);
+}
+
+/// Lucky Shot and Scuttle through the announcement (the per-ship options, the stop of the second Scuttle question).
+#[test]
+fn lucky_shot_and_scuttle_are_announced_and_resolved_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let cases: Vec<(&str, GameState)> = ["lucky", "scuttle"].iter().map(|alias| (*alias, closing_position())).collect();
+    announce_all(&cases);
+}
+
+/// Scuttle with one ship of its own (taken without a question) and Lucky Shot where only one hull can be shot.
+#[test]
+fn scuttle_with_one_ship_and_lucky_shot_with_one_target() {
+    let _serial = crate::dual::tests::serial();
+    let a = PlayerId::new("a");
+    let mut one = closing_position();
+    let mut kept = false;
+    for board in one.board.values_mut() {
+        board.units.retain(|u| {
+            if u.owner != a {
+                return true;
+            }
+            let keep = !kept && u.type_id.as_str() == "cruiser";
+            kept |= keep;
+            keep
+        });
+    }
+    assert!(kept);
+    let mut single = closing_position();
+    let mut shot = false;
+    for board in single.board.values_mut() {
+        board.units.retain(|u| {
+            if u.owner == a || !matches!(u.type_id.as_str(), "cruiser" | "destroyer" | "dreadnought") {
+                return true;
+            }
+            let keep = !shot;
+            shot = true;
+            keep
+        });
+    }
+    // Two ships of one system: they leave from the highest place down.
+    let mut pair = closing_position();
+    let mut system = None;
+    for (id, board) in pair.board.iter_mut() {
+        let mine = board.units.iter().filter(|u| u.owner == a && u.type_id.as_str() != "fighter").count();
+        if system.is_none() && mine >= 2 {
+            system = Some(id.clone());
+            board.units.retain(|u| u.owner == a && matches!(u.type_id.as_str(), "carrier" | "cruiser"));
+        } else {
+            board.units.retain(|u| u.owner != a);
+        }
+    }
+    assert!(system.is_some());
+    announce_all(&[("scuttle", one), ("lucky", single), ("scuttle", pair)]);
 }

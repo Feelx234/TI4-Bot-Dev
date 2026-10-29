@@ -84,6 +84,15 @@ impl Family for Fam {
                 }
             }
             Opt::Law(law) => ChoiceOption::labelled(law.as_str(), "repeal", law.as_str()),
+            Opt::Ship { system, index, owner, kind } => {
+                let id = format!("{}|{index}", system.as_str());
+                let label = match pick_of(a).1 {
+                    What::Hull => format!("destroy {}'s {} in {}", r.seat_text(*owner), kind.as_str(), system.as_str()),
+                    _ => format!("{} in {}", kind.as_str(), system.as_str()),
+                };
+                ChoiceOption::labelled(id, "ship", label).with("system", system.as_str())
+            }
+            Opt::Stop => ChoiceOption::labelled("stop", "ship", "stop after one"),
             Opt::Fragment(kind) => {
                 let id = kind.as_str().to_ascii_uppercase();
                 ChoiceOption::labelled(id.clone(), "fragment", id)
@@ -150,6 +159,12 @@ impl Family for Fam {
             }
             Ask::Pick { what: What::Note, .. } => parse_note(id).map(Opt::Note),
             Ask::Pick { what: What::Invest { .. }, .. } => ti4_engine_core::generated::StrategyCard::from_id(id).map(Opt::Strat),
+            Ask::Pick { what: What::Hull | What::Scuttle { .. }, .. } => {
+                let (system, index) = id.split_once('|')?;
+                // Only the id is read back; the owner and unit form are the question's.
+                let _ = (System::from_id(system)?, index.parse::<u8>().ok()?);
+                None
+            }
             Ask::Pick { what: What::Law, .. } => ti4_engine_core::generated::Agenda::from_id(id).map(Opt::Law),
             Ask::Pick { what: What::Fragment, .. } => {
                 ti4_engine_core::generated::ExploreType::ALL.iter().copied().find(|k| k.as_str().eq_ignore_ascii_case(id)).map(Opt::Fragment)
@@ -177,6 +192,7 @@ const fn pick_kind(what: What) -> &'static str {
         What::Rescue => "rescue_from",
         What::Invest { .. } => "strategy_card",
         What::Law => "repeal",
+        What::Hull | What::Scuttle { .. } => "ship",
         What::Fragment => "fragment",
         What::Exhaust => "reparations_exhaust",
         What::Ready => "reparations_ready",
@@ -220,6 +236,9 @@ const fn pick_prompt(card: ActionCard, what: What) -> &'static str {
         (C::CrippleDefenses, _) => "Cripple Defenses: which planet",
         (C::ReactorMeltdown, _) => "Reactor Meltdown: which space dock",
         (C::RepealLaw, _) => "repeal which law",
+        (C::LuckyShot, _) => "Lucky Shot: destroy which ship",
+        (C::Scuttle, What::Scuttle { second: true }) => "Scuttle: another ship or stop",
+        (C::Scuttle, _) => "Scuttle: which ship to scuttle",
         (C::SeizeArtifact, What::Fragment) => "Seize Artifact: which fragment to take",
         (C::SeizeArtifact, _) => "Seize Artifact: which neighbor to take from",
         (C::Reparations, What::Ready) => "ready a planet (Reparations)",

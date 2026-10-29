@@ -8370,6 +8370,26 @@ pub(crate) mod tests {
         state.unclaimed_strategy_cards = mat;
         state.player_mut(&b).unwrap().strategy_cards = vec![picked.clone()];
         state.last_strategy_choice = Some((b.clone(), picked));
+        // Ships: rivals' hulls where `a` holds a planet (two alike, to dedupe), `a`'s own hulls and a fighter.
+        let a_systems: Vec<ti4_model::id::SystemId> = state
+            .board
+            .iter()
+            .filter(|(_, board)| board.planet_control.values().any(|owner| *owner == a))
+            .map(|(system, _)| system.clone())
+            .collect();
+        assert!(a_systems.len() >= 2, "a holds planets in two systems: {a_systems:?}");
+        for (i, system) in a_systems.iter().enumerate() {
+            let board = state.system_mut(system);
+            board.units.push(unit("cruiser", &b));
+            board.units.push(unit("cruiser", &b));
+            let mut hurt = unit("destroyer", &c);
+            hurt.sustained_damage = i % 2 == 0;
+            board.units.push(hurt);
+            board.units.push(unit("dreadnought", &b));
+            board.units.push(unit("carrier", &a));
+            board.units.push(unit("fighter", &a));
+            board.units.push(unit("cruiser", &a));
+        }
         // Two hazardous planets with infantry on them.
         let hazardous: Vec<Planet> = Planet::ALL
             .iter()
