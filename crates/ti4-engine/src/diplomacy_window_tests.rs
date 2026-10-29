@@ -380,6 +380,11 @@ mod tests {
         followed(&done, 2);
         let ids = done.window.pending_choice(&done.state, ContentStore::embedded(), POK).unwrap().ids().into_iter().map(str::to_owned).collect::<Vec<_>>();
         assert_eq!(ids, ["diplomacy|edit", "diplomacy|cancel"]);
+        // ... and the review itself is asked of both windows (the third step).
+        let (state, hub) = sol_hacan_xxcha();
+        let done = plain(state, &hub, &["diplomacy|done", "diplomacy|done", "diplomacy|cancel"]);
+        followed(&done, 3);
+        assert!(done.state.diplomacy.active_deals.is_empty());
         let (mut state, hub) = sol_hacan_xxcha();
         state.player_mut(&p("a")).unwrap().relic_fragments.insert("FRONTIER".to_owned(), 1);
         let done = plain(state, &hub, &["diplomacy|now|unknown", "diplomacy|amount|1", "diplomacy|done", "diplomacy|done", "diplomacy|propose", "diplomacy|accept"]);
