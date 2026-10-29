@@ -294,7 +294,7 @@ fn nav_suite_and_the_circlet_never_roll() {
     let (galaxy, origin, target) = rift_line();
     let mut state = sol_hacan();
     crate::fixtures::put(&mut state, &origin, "carrier2", &a(), 1);
-    state.player_mut(&a()).unwrap().relics.insert(ti4_model::id::RelicId::new("circletofthevoid"));
+    state.player_mut(&a()).unwrap().relics.push(ti4_model::id::RelicId::new("circletofthevoid"));
     let mv = id(&origin, 0);
     let done = play(state, &galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv], |_| {});
     assert_eq!(done.counts("tactical::move"), (1, 0), "{:?}", done.reasons);
