@@ -202,7 +202,7 @@ impl Window for Announce {
         // A refused announcement (the nesting limit) ends the flow, as the string run unwinds.
         match self.advance(sx) {
             Ok(Some(_)) => match &self.effect {
-                Effect::Play(play) => Next::Continue(Ask::Cards(play.ask_value())),
+                Effect::Play(play) => Next::Continue(play.any_ask()),
                 _ => Next::Done,
             },
             Ok(None) | Err(_) => Next::Done,

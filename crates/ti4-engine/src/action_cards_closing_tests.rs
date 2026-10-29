@@ -189,3 +189,19 @@ fn scuttle_with_one_ship_and_lucky_shot_with_one_target() {
     assert!(system.is_some());
     announce_all(&[("scuttle", one), ("lucky", single), ("scuttle", pair)]);
 }
+
+/// Summit through the announcement: two pool questions (previews and details of the token area), at a plain table, at a
+/// Letnev seat (the fleet supply bonus) and with the reinforcements nearly used up (a gain the supply cannot cover).
+#[test]
+fn summit_is_announced_and_resolved_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let a = PlayerId::new("a");
+    let mut letnev = closing_position();
+    letnev.player_mut(&a).unwrap().faction = ti4_model::id::FactionId::new("letnev");
+    let mut thin = closing_position();
+    let seat = thin.player_mut(&a).unwrap();
+    seat.tactic_tokens = 8;
+    seat.fleet_tokens = 0;
+    seat.strategic_tokens = 0;
+    announce_all(&[("summit", closing_position()), ("summit", letnev), ("summit", thin)]);
+}

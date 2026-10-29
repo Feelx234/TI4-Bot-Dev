@@ -319,8 +319,10 @@ pub fn play_window(
     if lent.is_some() {
         driver_seeds = Some(std::rc::Rc::new(crate::dual_window::DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?)));
     }
-    let details = |c: &ti4_engine_core::choice::Choice, _: &ti4_engine_core::state::CoreState, rendered: &mut crate::choice::Choice| {
+    let letnev = gs.player(player)?.faction.as_str() == "letnev";
+    let details = |c: &ti4_engine_core::choice::Choice, core: &ti4_engine_core::state::CoreState, rendered: &mut crate::choice::Choice| {
         recorded_details(c, script, rendered);
+        crate::strategy_cards_core::complete_tokens(c, core, rendered, letnev);
     };
     let driven = crate::core_sync::with_core(gs, &mut cx, src, fp, |core, _| {
         let play = rules::effects::Play::of(core, card, seat, env)?;
@@ -424,6 +426,7 @@ pub fn announce_window(
     }
     let has_effect = crate::action_cards::effect_for(alias).is_some();
     let lent = lend_rolls(alias, before_rolls, "action_cards::announce")?;
+    let letnev = gs.player(player)?.faction.as_str() == "letnev";
     let before = gs.clone();
     let window = crate::core_combat::window_env(gs, &cx, sources.clone())?;
     let kernel = &window.kernel;
@@ -448,12 +451,13 @@ pub fn announce_window(
         if let Some(seeds) = seeds {
             driver = driver.with_seeds(seeds);
         }
-        let battle = |_c: &ti4_engine_core::choice::Choice, _: &ti4_engine_core::state::CoreState, rendered: &mut crate::choice::Choice| {
+        let battle = |_c: &ti4_engine_core::choice::Choice, _core: &ti4_engine_core::state::CoreState, rendered: &mut crate::choice::Choice| {
             // The effect's questions are asked through `ask_seeing`: the battle or invasion the position is in.
             if let Some(ctx) = rendered.context.take() {
                 rendered.context = Some(ctx.about_battle(&before).about_invasion(&before));
             }
             recorded_details(_c, script, rendered);
+            crate::strategy_cards_core::complete_tokens(_c, _core, rendered, letnev);
         };
         let driven = crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &battle);
         played = Some(driver.window.played());

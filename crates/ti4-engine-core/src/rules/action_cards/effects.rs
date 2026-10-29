@@ -106,6 +106,8 @@ pub enum Fx {
     Reparations,
     /// Public Disgrace: the picker of a strategy card chooses a different one.
     Disgrace,
+    /// Summit: gain two command tokens, each into a pool of the holder's choice (the strategy area's pool question).
+    Summit,
     /// Lucky Shot: a dreadnought, cruiser or destroyer of another seat, in a system the holder holds a planet in, is destroyed.
     Lucky,
     /// Scuttle: one or two of the holder's non-fighter ships return to the supply; their cost in trade goods.
@@ -168,6 +170,7 @@ impl Fx {
             C::UnstablePlanet => Self::Unstable,
             C::SeizeArtifact => Self::Seize,
             C::LuckyShot => Self::Lucky,
+            C::Summit => Self::Summit,
             C::Scuttle => Self::Scuttle,
             C::Reparations => Self::Reparations,
             C::PublicDisgrace => Self::Disgrace,
@@ -266,6 +269,10 @@ impl Play {
             return None;
         }
         // The deck reserve (a replay's forced draws) is the host's: the string draws through it.
+        // A command token held in a Mahact fleet pool changes the reinforcements the pool question previews.
+        if fx == Fx::Summit && env.mahact_held > 0 {
+            return None;
+        }
         if matches!(fx, Fx::Veto | Fx::Dig) && core.cards().reserve.is_some() {
             return None;
         }
@@ -1012,6 +1019,17 @@ impl Play {
         }
     }
 
+    /// Command tokens Summit gains.
+    const SUMMIT_TOKENS: u8 = 2;
+
+    /// The question as the driver names it (Summit asks the strategy area's pool question).
+    pub(super) fn any_ask(&self) -> crate::choice::Ask {
+        if self.fx == Fx::Summit {
+            return crate::choice::Ask::Strategy(crate::choice::strategy::Ask::GainPool { left: Self::SUMMIT_TOKENS - self.step });
+        }
+        crate::choice::Ask::Cards(self.ask_value())
+    }
+
     pub(super) fn ask_value(&self) -> Ask {
         match (self.what(), self.frame) {
             (Some(what), _) => Ask::Pick { card: self.card, what },
@@ -1029,6 +1047,10 @@ impl Play {
             return;
         }
         self.before(core);
+        if self.fx == Fx::Summit {
+            self.stage = Stage::Asking;
+            return;
+        }
         if self.what().is_none() && !matches!(self.fx, Fx::Rider(_)) {
             self.stage = Stage::Done;
             return;
@@ -1062,6 +1084,15 @@ impl Play {
         if self.stage != Stage::Asking {
             return Err(Illegal);
         }
+        if self.fx == Fx::Summit {
+            let Pick::Opt(crate::choice::Opt::Strategy(crate::choice::strategy::Opt::Pool(pool))) = pick else { return Err(Illegal) };
+            fx::gain_token(core, self.who, pool, 1);
+            self.step += 1;
+            if self.step >= Self::SUMMIT_TOKENS {
+                self.stage = Stage::Done;
+            }
+            return Ok(());
+        }
         let Pick::Opt(crate::choice::Opt::Cards(opt)) = pick else { return Err(Illegal) };
         if !self.opts.as_slice().contains(&opt) {
             return Err(Illegal);
@@ -1085,12 +1116,15 @@ impl Window for Play {
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
         self.begin(sx.state, sx.seeds);
         match self.stage {
-            Stage::Asking => Next::Continue(crate::choice::Ask::Cards(self.ask_value())),
+            Stage::Asking => Next::Continue(self.any_ask()),
             Stage::Start | Stage::Done => Next::Done,
         }
     }
 
     fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {
+        if self.fx == Fx::Summit {
+            return (self.stage == Stage::Asking).then(|| crate::choice::strategy::gain_pool_choice(self.who, Self::SUMMIT_TOKENS - self.step));
+        }
         (self.stage == Stage::Asking).then(|| Choice {
             actor: self.actor(),
             ask: crate::choice::Ask::Cards(self.ask_value()),
