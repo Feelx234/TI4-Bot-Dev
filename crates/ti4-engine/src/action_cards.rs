@@ -8339,6 +8339,8 @@ pub(crate) mod tests {
             ("strategize2", strategy_position(&["pok3politics"], &[], &[], &["pok5trade"])),
             ("overrule", strategy_position(&["pok3politics"], &["pok5trade"], &[], &[])),
             ("overrule", strategy_on(research_position(), &[], &[], &[], &["pok7technology"])),
+            // The Diplomacy primary: the tokens the other seats place are announced after the window.
+            ("overrule", strategy_position(&["pok2diplomacy"], &[], &[], &[])),
             ("strategize4", {
                 let mut rich = closing_position();
                 rich.exhausted_planets.clear();
