@@ -258,5 +258,11 @@ adapter `action_cards_b6d_tests` (lockstep through the announce window under thr
 `courageous_to_the_end_makes_the_opponent_destroy_ships_in_the_core_window`,
 `experimental_battlestation_rolls_and_the_active_seat_absorbs_the_hits_in_the_core_window`,
 `experimental_battlestation_offers_the_letnev_commander_after_a_sustain_in_the_core_window`, the play-window test
-`courageous_to_the_end_and_experimental_battlestation_agree_with_the_core_play_window_in_lockstep`, and the bail tests above).
+`courageous_to_the_end_and_experimental_battlestation_agree_with_the_core_play_window_in_lockstep`,
+`courageous_to_the_end_is_announced_on_the_plain_table_of_the_play_window` (no nested activity: the table is `play_table()`, whose
+`after_play` is the only announcement), `experimental_battlestation_follows_non_euclidean_shielding_in_the_core_window` (the combat
+kernel the play window lends), `action_cards_view::hit_facts_tests`, and the bail tests above). Mutation checks (Haiku runner, scratch
+worktree, 53 mutations of the core halves, the adapter and the render): all killed except one equivalent mutant,
+`.filter(|v| *v > 0)` of Courageous's combat value (no unit of the tables prints a combat value of 0; the guard is parity with
+`combat::hits_on`).
 

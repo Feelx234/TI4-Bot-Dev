@@ -1957,8 +1957,10 @@ fn courageous_to_the_end_and_experimental_battlestation_agree_with_the_core_play
     let _serial = crate::dual::tests::serial();
     let galaxy = ring();
     let (active, _, _) = battlestation_sites(&galaxy);
-    let mut dock = battlestation_position(active, &["dreadnought", "cruiser", "cruiser", "fighter"]);
+    let mut dock = battlestation_position(active, &["dreadnought", "dreadnought", "cruiser", "cruiser", "fighter"]);
     assert!(dock_in(&mut dock, active, "a"));
+    // Non-Euclidean Shielding is a row of the combat kernel the window lends: one sustain cancels two hits.
+    dock.player_mut(&PlayerId::new("b")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("nes"));
     let (fight, _) = courageous_position("dreadnought");
     let a = PlayerId::new("a");
     let mut ran = 0;
