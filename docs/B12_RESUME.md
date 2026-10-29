@@ -15,9 +15,13 @@ the core state. Ids, slots, tests: `docs/ENGINE_REACTIONS.md` 10.1 and 10.1b; ba
 ## Next, in this order (each = Spec + Named line + lockstep test with real factions, notes cleared (trap: fixture faction `generic`)
 ## + mutation check + registry parity test with the seats seated)
 
-1. **Mutation survivors to close** (`/root/deploytmp/core-b12-agent/batch2.out`): see the end of the final report of the session; the
-   helper is `/root/deploytmp/core-b12-agent/mutate.py` (`MUT_ROOT`/`MUT_TARGET` run it in a second worktree, `core-b12-mut`, so
-   development and mutation do not share files; filters are `a|b` substrings).
+1. **Mutation survivors (documented, not closed)**: glue with no observable effect in the tested windows: Dynamo's flagship owner
+   filter (two Empyrean seats), `pay_in`'s up-front `available < cost` guard (the conditions guard it), the restore of the state after
+   a failed payment/placement of Salvage Operations (needs a bill that fails after the question), `when_by`'s `lent` flag of the Argent
+   copy and the `borrowable` call in `round_when`/`milor_copy` (the pure `borrowable` is tested; the glue is covered by the positive
+   lockstep tests only), `extra_die_for`'s type filter (equivalent to the mark's own type field). The helper is
+   `/root/deploytmp/core-b12-agent/mutate.py` (`MUT_ROOT`/`MUT_TARGET` run it in a second worktree so development and mutation do not
+   share files; filters are `a|b` substrings, one `cargo test` per mutation).
 2. **5b `finish_committing` remainder**: `offer_research_team` (+ `_defense`) and `add_forced_combats` are string functions between the
    windows already ported (`announce_and_defend_windowed`, `advance_fighting`). The queries exist in the core
    (`deepwrought_research_team_open`, `_defender_open`, hook `forced_combat_planets`); the coexistence write (`begin_coexisting`) is
@@ -45,5 +49,5 @@ worktree: /root/TI4-Bot-Dev/.claude/worktrees/core-b12 (branch core-b12); mutati
 export CARGO_TARGET_DIR=/root/deploytmp/core-b12 CARGO_BUILD_JOBS=3
 cargo test -p ti4-engine --lib -- ssruu salvage dynamo watcher singularity
 ```
-Housekeeping: `/root/deploytmp/core-b12` (3-5 GB debug + 1.5 GB gate) and `/root/deploytmp/core-b12-mut` are private targets; delete them
-when the branch is done. Remove the worktree `core-b12-mut` (`git worktree remove --force`) before merging.
+Housekeeping: the private targets were deleted at the end of the session (rebuild: about 4 minutes with `CARGO_BUILD_JOBS=3`); the
+scratch directory `/root/deploytmp/core-b12-agent` keeps the scripts and the census.
