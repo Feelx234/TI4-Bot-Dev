@@ -733,7 +733,7 @@ fn rival_note_issuers_count(position: &Position<'_>) -> usize {
 /// discarded as part of scoring. Charged in [`award`] and never in the requirement, so being
 /// offered the objective costs nothing — a requirement that spent as a side effect would charge
 /// a player for merely being asked.
-fn pay_for(state: &mut GameState, player: &PlayerId, alias: &SecretObjectiveId) -> bool {
+pub(crate) fn pay_for(state: &mut GameState, player: &PlayerId, alias: &SecretObjectiveId) -> bool {
     match alias.as_str() {
         "dhw" => {
             if fragment_count(state, player) < 2 {

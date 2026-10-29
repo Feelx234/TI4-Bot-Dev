@@ -18,6 +18,7 @@
 //! arguments.
 
 pub mod fx;
+pub mod fx_pay;
 pub mod hooks;
 pub mod next;
 pub mod read;
