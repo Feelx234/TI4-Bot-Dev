@@ -1,0 +1,546 @@
+{
+  "limits": {
+    "max_rounds": 50,
+    "max_steps": 400000,
+    "max_seconds": 300,
+    "loop_steps": 5000
+  },
+  "setups": [
+    {
+      "name": "f-sol",
+      "players": 4,
+      "maps": [
+        "4pHyperlanesNucleus",
+        "4pHyperlanes",
+        "4pLearnToPlayPoK",
+        "4pOuterRim",
+        "4pExpanse",
+        "4pPyrrhicVictory",
+        "4pBgaBalancedD",
+        "random"
+      ],
+      "map_policy": "random",
+      "starting_tech": true,
+      "seeds": "1..42",
+      "factions": [
+        "sol"
+      ],
+      "thunders_edge": true
+    },
+    {
+      "name": "f-hacan",
+      "players": 5,
+      "maps": [
+        "5pAlternateLayout",
+        "5pHyperlanesNucleus",
+        "5pHyperlanes",
+        "5pLearnToPlayPoK",
+        "5pRaceForMecatol",
+        "5pScptKnockout2020",
+        "5pOuterRim",
+        "5pSmallAndRich",
+        "5pBgaBalancedD",
+        "random"
+      ],
+      "map_policy": "random",
+      "starting_tech": true,
+      "seeds": "42..84",
+      "factions": [
+        "hacan"
+      ],
+      "thunders_edge": false
+    },
+    {
+      "name": "f-letnev",
+      "players": 6,
+      "maps": [
+        "6pBeMyNeighbor",
+        "6pStandardNucleus",
+        "6pStandard",
+        "6pWekkerdraft",
+        "6pLearnToPlayPoK",
+        "6pWontYouBeMyNeighbor",
+        "6pScpt2019Final",
+        "6pScpt2020Final",
+        "6pScpt2021Prelim",
+        "6pScpt2021Semifinal",
+        "6pScpt2021Final",
+        "6pClearSkies",
+        "6pBalancedSpiral",
+        "6pEquidistantDiplomacy",
+        "6pGravity",
+        "6pOuterRim",
+        "6pSmallAndRich",
+        "6pBgaBalancedD",
+        "random"
+      ],
+      "map_policy": "random",
+      "starting_tech": true,
+      "seeds": "84..126",
+      "factions": [
+        "letnev"
+      ],
+      "thunders_edge": true
+    },
+    {
+      "name": "f-xxcha",
+      "players": 3,
+      "maps": [
+        "3pInPersonHyperlanes",
+        "3pHyperlanesNucleus",
+        "3pHyperlanes",
+        "3pLearnToPlayPoK",
+        "3pThreesCompany",
+        "3pRichSnowflake",
+        "3pTheLink",
+        "3pHurtsDonut",
+        "3pBgaBalancedD",
+        "random"
+      ],
+      "map_policy": "random",
+      "starting_tech": true,
+      "seeds": "126..167",
+      "factions": [
+        "xxcha"
+      ],
+      "thunders_edge": false
+    },
+    {
+      "name": "f-jolnar",
+      "players": 8,
+      "maps": [
+        "8pBeMyNeighborHyperlanes",
+        "8pHyperlanesNucleus",
+        "8pHyperlanes",
+        "8pSpoonMap",
+        "random"
+      ],
+      "map_policy": "random",
+      "starting_tech": true,
+      "seeds": "167..209",
+      "factions": [
+        "jolnar"
+      ],
+      "thunders_edge": true
+    },
+    {
+      "name": "f-l1z1x",
+      "players": 7,
+      "maps": [
+        "7pAnaphase",
+        "7pHyperlanesNucleus",
+        "7pHyperlanes",
+        "random"
+      ],
+      "map_policy": "random",
+      "starting_tech": true,
+      "seeds": "209..251",
+      "factions": [
+        "l1z1x"
+      ],
+      "thunders_edge": false
+    },
+    {
+      "name": "f-arborec",
+      "players": 4,
+      "maps": [
+        "4pHyperlanesNucleus",
+        "4pHyperlanes",
+        "4pLearnToPlayPoK",
+        "4pOuterRim",
+        "4pExpanse",
+        "4pPyrrhicVictory",
+        "4pBgaBalancedD",
+        "random"
+      ],
+      "map_policy": "random",
+      "starting_tech": true,
+      "seeds": "251..293",
+      "factions": [
+        "arborec"
+      ],
+      "thunders_edge": true
+    },
+    {
+      "name": "f-mentak",
+      "players": 5,
+      "maps": [
+        "5pAlternateLayout",
+        "5pHyperlanesNucleus",
+        "5pHyperlanes",
+        "5pLearnToPlayPoK",
+        "5pRaceForMecatol",
+        "5pScptKnockout2020",
+        "5pOuterRim",
+        "5pSmallAndRich",
+        "5pBgaBalancedD",
+        "random"
+      ],
+      "map_policy": "random",
+      "starting_tech": true,
+      "seeds": "293..335",
+      "factions": [
+        "mentak"
+      ],
+      "thunders_edge": false
+    },
+    {
+      "name": "f-muaat",
+      "players": 6,
+      "maps": [
+        "6pBeMyNeighbor",
+        "6pStandardNucleus",
+        "6pStandard",
+        "6pWekkerdraft",
+        "6pLearnToPlayPoK",
+        "6pWontYouBeMyNeighbor",
+        "6pScpt2019Final",
+        "6pScpt2020Final",
+        "6pScpt2021Prelim",
+        "6pScpt2021Semifinal",
+        "6pScpt2021Final",
+        "6pClearSkies",
+        "6pBalancedSpiral",
+        "6pEquidistantDiplomacy",
+        "6pGravity",
+        "6pOuterRim",
+        "6pSmallAndRich",
+        "6pBgaBalancedD",
+        "random"
+      ],
+      "map_policy": "random",
+      "starting_tech": true,
+      "seeds": "335..377",
+      "factions": [
+        "muaat"
+      ],
+      "thunders_edge": true
+    },
+    {
+      "name": "f-naalu",
+      "players": 3,
+      "maps": [
+        "3pInPersonHyperlanes",
+        "3pHyperlanesNucleus",
+        "3pHyperlanes",
+        "3pLearnToPlayPoK",
+        "3pThreesCompany",
+        "3pRichSnowflake",
+        "3pTheLink",
+        "3pHurtsDonut",
+        "3pBgaBalancedD",
+        "random"
+      ],
+      "map_policy": "random",
+      "starting_tech": true,
+      "seeds": "377..419",
+      "factions": [
+        "naalu"
+      ],
+      "thunders_edge": false
+    },
+    {
+      "name": "f-nekro",
+      "players": 8,
+      "maps": [
+        "8pBeMyNeighborHyperlanes",
+        "8pHyperlanesNucleus",
+        "8pHyperlanes",
+        "8pSpoonMap",
+        "random"
+      ],
+      "map_policy": "random",
+      "starting_tech": true,
+      "seeds": "419..461",
+      "factions": [
+        "nekro"
+      ],
+      "thunders_edge": true
+    },
+    {
+      "name": "f-saar",
+      "players": 7,
+      "maps": [
+        "7pAnaphase",
+        "7pHyperlanesNucleus",
+        "7pHyperlanes",
+        "random"
+      ],
+      "map_policy": "random",
+      "starting_tech": true,
+      "seeds": "461..502",
+      "factions": [
+        "saar"
+      ],
+      "thunders_edge": false
+    },
+    {
+      "name": "f-sardakk",
+      "players": 4,
+      "maps": [
+        "4pHyperlanesNucleus",
+        "4pHyperlanes",
+        "4pLearnToPlayPoK",
+        "4pOuterRim",
+        "4pExpanse",
+        "4pPyrrhicVictory",
+        "4pBgaBalancedD",
+        "random"
+      ],
+      "map_policy": "random",
+      "starting_tech": true,
+      "seeds": "502..543",
+      "factions": [
+        "sardakk"
+      ],
+      "thunders_edge": true
+    },
+    {
+      "name": "f-winnu",
+      "players": 5,
+      "maps": [
+        "5pAlternateLayout",
+        "5pHyperlanesNucleus",
+        "5pHyperlanes",
+        "5pLearnToPlayPoK",
+        "5pRaceForMecatol",
+        "5pScptKnockout2020",
+        "5pOuterRim",
+        "5pSmallAndRich",
+        "5pBgaBalancedD",
+        "random"
+      ],
+      "map_policy": "random",
+      "starting_tech": true,
+      "seeds": "543..584",
+      "factions": [
+        "winnu"
+      ],
+      "thunders_edge": false
+    },
+    {
+      "name": "f-yin",
+      "players": 6,
+      "maps": [
+        "6pBeMyNeighbor",
+        "6pStandardNucleus",
+        "6pStandard",
+        "6pWekkerdraft",
+        "6pLearnToPlayPoK",
+        "6pWontYouBeMyNeighbor",
+        "6pScpt2019Final",
+        "6pScpt2020Final",
+        "6pScpt2021Prelim",
+        "6pScpt2021Semifinal",
+        "6pScpt2021Final",
+        "6pClearSkies",
+        "6pBalancedSpiral",
+        "6pEquidistantDiplomacy",
+        "6pGravity",
+        "6pOuterRim",
+        "6pSmallAndRich",
+        "6pBgaBalancedD",
+        "random"
+      ],
+      "map_policy": "random",
+      "starting_tech": true,
+      "seeds": "584..625",
+      "factions": [
+        "yin"
+      ],
+      "thunders_edge": true
+    },
+    {
+      "name": "f-yssaril",
+      "players": 3,
+      "maps": [
+        "3pInPersonHyperlanes",
+        "3pHyperlanesNucleus",
+        "3pHyperlanes",
+        "3pLearnToPlayPoK",
+        "3pThreesCompany",
+        "3pRichSnowflake",
+        "3pTheLink",
+        "3pHurtsDonut",
+        "3pBgaBalancedD",
+        "random"
+      ],
+      "map_policy": "random",
+      "starting_tech": true,
+      "seeds": "625..666",
+      "factions": [
+        "yssaril"
+      ],
+      "thunders_edge": false
+    },
+    {
+      "name": "f-ghost",
+      "players": 8,
+      "maps": [
+        "8pBeMyNeighborHyperlanes",
+        "8pHyperlanesNucleus",
+        "8pHyperlanes",
+        "8pSpoonMap",
+        "random"
+      ],
+      "map_policy": "random",
+      "starting_tech": true,
+      "seeds": "666..708",
+      "factions": [
+        "ghost"
+      ],
+      "thunders_edge": true
+    },
+    {
+      "name": "f-argent",
+      "players": 7,
+      "maps": [
+        "7pAnaphase",
+        "7pHyperlanesNucleus",
+        "7pHyperlanes",
+        "random"
+      ],
+      "map_policy": "random",
+      "starting_tech": true,
+      "seeds": "708..750",
+      "factions": [
+        "argent"
+      ],
+      "thunders_edge": false
+    },
+    {
+      "name": "f-cabal",
+      "players": 4,
+      "maps": [
+        "4pHyperlanesNucleus",
+        "4pHyperlanes",
+        "4pLearnToPlayPoK",
+        "4pOuterRim",
+        "4pExpanse",
+        "4pPyrrhicVictory",
+        "4pBgaBalancedD",
+        "random"
+      ],
+      "map_policy": "random",
+      "starting_tech": true,
+      "seeds": "750..792",
+      "factions": [
+        "cabal"
+      ],
+      "thunders_edge": true
+    },
+    {
+      "name": "f-empyrean",
+      "players": 5,
+      "maps": [
+        "5pAlternateLayout",
+        "5pHyperlanesNucleus",
+        "5pHyperlanes",
+        "5pLearnToPlayPoK",
+        "5pRaceForMecatol",
+        "5pScptKnockout2020",
+        "5pOuterRim",
+        "5pSmallAndRich",
+        "5pBgaBalancedD",
+        "random"
+      ],
+      "map_policy": "random",
+      "starting_tech": true,
+      "seeds": "792..834",
+      "factions": [
+        "empyrean"
+      ],
+      "thunders_edge": false
+    },
+    {
+      "name": "f-mahact",
+      "players": 6,
+      "maps": [
+        "6pBeMyNeighbor",
+        "6pStandardNucleus",
+        "6pStandard",
+        "6pWekkerdraft",
+        "6pLearnToPlayPoK",
+        "6pWontYouBeMyNeighbor",
+        "6pScpt2019Final",
+        "6pScpt2020Final",
+        "6pScpt2021Prelim",
+        "6pScpt2021Semifinal",
+        "6pScpt2021Final",
+        "6pClearSkies",
+        "6pBalancedSpiral",
+        "6pEquidistantDiplomacy",
+        "6pGravity",
+        "6pOuterRim",
+        "6pSmallAndRich",
+        "6pBgaBalancedD",
+        "random"
+      ],
+      "map_policy": "random",
+      "starting_tech": true,
+      "seeds": "834..876",
+      "factions": [
+        "mahact"
+      ],
+      "thunders_edge": true
+    },
+    {
+      "name": "f-naaz",
+      "players": 3,
+      "maps": [
+        "3pInPersonHyperlanes",
+        "3pHyperlanesNucleus",
+        "3pHyperlanes",
+        "3pLearnToPlayPoK",
+        "3pThreesCompany",
+        "3pRichSnowflake",
+        "3pTheLink",
+        "3pHurtsDonut",
+        "3pBgaBalancedD",
+        "random"
+      ],
+      "map_policy": "random",
+      "starting_tech": true,
+      "seeds": "876..918",
+      "factions": [
+        "naaz"
+      ],
+      "thunders_edge": false
+    },
+    {
+      "name": "f-nomad",
+      "players": 8,
+      "maps": [
+        "8pBeMyNeighborHyperlanes",
+        "8pHyperlanesNucleus",
+        "8pHyperlanes",
+        "8pSpoonMap",
+        "random"
+      ],
+      "map_policy": "random",
+      "starting_tech": true,
+      "seeds": "918..960",
+      "factions": [
+        "nomad"
+      ],
+      "thunders_edge": true
+    },
+    {
+      "name": "f-titans",
+      "players": 7,
+      "maps": [
+        "7pAnaphase",
+        "7pHyperlanesNucleus",
+        "7pHyperlanes",
+        "random"
+      ],
+      "map_policy": "random",
+      "starting_tech": true,
+      "seeds": "960..1001",
+      "factions": [
+        "titans"
+      ],
+      "thunders_edge": false
+    }
+  ]
+}
