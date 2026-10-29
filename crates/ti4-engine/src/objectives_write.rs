@@ -329,7 +329,7 @@ mod real {
         if outside_scoring(gs, script) {
             return bail(if script.nested { "nested emission" } else { "diplomacy" });
         }
-        let Some((mut cx, r)) = crate::dual_window::tables(gs) else { return bail("more than 16 owners") };
+        let Some((mut cx, r)) = crate::dual_window::tables(gs) else { return bail("a position the codecs refuse (more than 16 owners, a faction without a typed variant)") };
         let Some(mut book) = to_core(&args.book, &r) else { return bail("a player without a seat in the book") };
         let before = gs.clone();
         let mut pre = StringOffers { gs: &before, content, sources, galaxy, book: &args.book, r: &r, unmapped: false };

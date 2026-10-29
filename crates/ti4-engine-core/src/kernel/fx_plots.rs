@@ -13,18 +13,6 @@ use crate::state::{CoreState, Plot, PlotCard};
 /// The printed order of the plot cards (`ti4_model::plots::CARDS`: the order a placement lists them in).
 pub const PRINTED: [PlotCard; 5] = [PlotCard::Enervate, PlotCard::Siphon, PlotCard::Seethe, PlotCard::Assail, PlotCard::Extract];
 
-/// The id text of a plot card (`ti4_model::plots::CARDS`).
-#[must_use]
-pub const fn card_text(c: PlotCard) -> &'static str {
-    match c {
-        PlotCard::Enervate => "enervate",
-        PlotCard::Siphon => "siphon",
-        PlotCard::Seethe => "seethe",
-        PlotCard::Assail => "assail",
-        PlotCard::Extract => "extract",
-    }
-}
-
 /// `firmament::is_firmament`: the seat plays the Firmament (not yet the Obsidian).
 #[must_use]
 pub fn is_firmament(core: &CoreState, seat: Seat) -> bool {

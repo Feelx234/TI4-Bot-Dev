@@ -357,6 +357,11 @@ fn the_documented_bails_stay_with_the_string_side() {
     let mut generic = crate::fixtures::game(&["a", "b"]);
     assert!(adjust(&mut generic, &a(), 1, "objective").is_none());
     assert!(score_public(&mut generic, &a(), &ObjectiveId::new("expand_borders"), 1).is_none());
+    // ... and the scoring step of such a table: the book and the question stay with the string.
+    let window = crate::objectives::ScoringWindow::new(&generic.initiative_order());
+    let ask = Question::new(a(), "score an objective", vec![crate::choice::ChoiceOption::decline()]);
+    let step = crate::objectives_write::score_one(&mut generic.clone(), content, POK, None, &ask, &window.core_args(), &crate::dual_window::Recording::default());
+    assert!(step.is_none(), "the fixture faction is refused");
 
     // An id the tables do not know, and points the content and the tables disagree on.
     assert!(score_public(&mut state, &a(), &ObjectiveId::new(["not", "an", "objective"].join("_")), 1).is_none());
@@ -1184,7 +1189,7 @@ mod book {
                 // The placement of the next card, wherever the cards stand.
                 let remaining = crate::factions::firmament::remaining_cards(&state);
                 let core_remaining = crate::dual_window::lend(&mut typed, PLOTS, None, |core, _| {
-                    fx_plots::remaining_cards(core).iter().map(|c| fx_plots::card_text(*c)).collect::<Vec<_>>()
+                    fx_plots::remaining_cards(core).iter().map(|c| crate::render::objectives::card_text(*c)).collect::<Vec<_>>()
                 });
                 assert_eq!(core_remaining, Some(remaining.clone()), "{label}: remaining");
                 compared += 1;

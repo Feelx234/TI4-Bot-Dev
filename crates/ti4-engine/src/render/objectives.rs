@@ -10,7 +10,8 @@
 
 use ti4_engine_core::choice::objectives::{Ask, Opt, Subtype};
 use ti4_engine_core::generated::{PublicObjective, SecretObjective};
-use ti4_engine_core::kernel::fx_plots::{PRINTED, card_text};
+use ti4_engine_core::kernel::fx_plots::PRINTED;
+use ti4_engine_core::state::PlotCard;
 use ti4_engine_core::state::ObjectiveRef;
 
 use super::{Family, Render};
@@ -22,6 +23,18 @@ use crate::preview::{Delta, Preview, Quantity};
 pub const SCORE_KIND: &str = "score";
 /// `secrets::RETURN_KIND`.
 pub const RETURN_KIND: &str = "return";
+/// The id text of a plot card (`ti4_model::plots::CARDS`).
+#[must_use]
+pub const fn card_text(c: PlotCard) -> &'static str {
+    match c {
+        PlotCard::Enervate => "enervate",
+        PlotCard::Siphon => "siphon",
+        PlotCard::Seethe => "seethe",
+        PlotCard::Assail => "assail",
+        PlotCard::Extract => "extract",
+    }
+}
+
 /// `firmament::PLOT_OPTION`: the id prefix of a scoring option that scores a secret as a plot.
 pub const PLOT_OPTION: &str = "plot|";
 /// The option kind of a plot card placement.
