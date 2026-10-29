@@ -299,7 +299,7 @@ pub fn plays(card: ActionCard) -> bool {
 /// census names the card; [`play_inline`] answers `Unknown::ReflectiveShielding` if it gets there anyway).
 #[must_use]
 pub fn plays_in(t: &AbilityTable, card: ActionCard) -> bool {
-    card != ActionCard::ReflectiveShielding && (plays(card) || t.card_play(card).is_some())
+    card != ActionCard::ReflectiveShielding && (Simple::of(card).is_some() || Fx::of(card).is_some_and(Fx::nested) || t.card_play(card).is_some())
 }
 
 #[cfg(test)]
@@ -424,11 +424,24 @@ mod tests {
         assert!(s.marks().tail.iter().any(|(k, _)| matches!(k, crate::keys::MarkKey::PrivateStagedGround(_))));
     }
 
+    /// The cards of package B6d read facts only the adapter's play window supplies (forms, roster, map, traders): from inside
+    /// another window they are the string's, and the census says so (found by the first run of the slot test of Reveal
+    /// Prototype, which played with default facts).
+    #[test]
+    fn the_b6d_cards_are_not_played_from_inside_another_window() {
+        let t = AbilityTable::default();
+        for card in [ActionCard::Upgrade, ActionCard::DecoyOperation, ActionCard::RevealPrototype, ActionCard::LieInWait, ActionCard::Bribery, ActionCard::HarnessEnergy, ActionCard::Infiltrate, ActionCard::CrashLanding, ActionCard::GhostSquad] {
+            assert!(plays(card), "{card:?} has a window of its own");
+            assert!(!plays_in(&t, card), "{card:?}");
+        }
+        assert!(plays_in(&t, ActionCard::Rally) && plays_in(&t, ActionCard::Intercept));
+    }
+
     /// Bail: a card with an effect the core does not play has no announcement (the string runs).
     #[test]
     fn bail_a_card_with_an_unported_effect_has_no_announcement() {
         let s = two_seats();
-        assert!(Announce::of(&s, ActionCard::Bribery, Seat(0), env(), true, false).is_none());
+        assert!(Announce::of(&s, ActionCard::Strategize1, Seat(0), env(), true, false).is_none());
         assert!(Announce::of(&s, ActionCard::DirectHit1, Seat(0), env(), true, false).is_none());
     }
 

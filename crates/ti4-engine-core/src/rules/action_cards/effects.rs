@@ -169,6 +169,37 @@ impl Fx {
         matches!(self, Self::Spy | Self::Plague | Self::Brilliance)
     }
 
+    /// Whether the effect can be played from inside another area's window (a reaction slot, a card declared there): its facts
+    /// (the forms the seat places, the research roster, the map, the traders) come from the adapter's play window, not from the
+    /// facts the reactions table carries, so the cards of package B6d that read them are played by the string there (the census
+    /// names them, as before).
+    #[must_use]
+    pub const fn nested(self) -> bool {
+        !matches!(
+            self,
+            Self::PirateContract
+                | Self::PirateFleet
+                | Self::Mercenary
+                | Self::Ghost
+                | Self::Jam
+                | Self::Upgrade
+                | Self::Refit
+                | Self::Decoy
+                | Self::Squad
+                | Self::Harness
+                | Self::Brilliance
+                | Self::Impersonation
+                | Self::Plagiarize
+                | Self::Focused
+                | Self::Divert
+                | Self::Reveal
+                | Self::Lie
+                | Self::Bribery
+                | Self::Infiltrate
+                | Self::Crash
+        )
+    }
+
     /// Whether the effect places units of the neutral owner (the owner table must hold it).
     #[must_use]
     pub const fn needs_neutral(self) -> bool {
@@ -2277,16 +2308,16 @@ mod tests {
     const BAILS: &[(ActionCard, &str)] = &{
         use ActionCard as C;
         [
-            (C::CourageousToTheEnd, "dice with the producer in the casualty question"),
-            (C::ExperimentalBattlestation, "the space cannon of a structure joined to the movement window"),
-            (C::FireTeam, "per-die reroll questions of a staged ground roll"),
-            (C::Overrule, "performs the primary ability of another strategy card (the strategy area's windows)"),
-            (C::ExplorationProbe, "the frontier tokens adjacent to the holder's ships (the map)"),
-            (C::ScrambleFrequency, "per-die reroll questions of a staged roll of another seat"),
-            (C::Strategize1, "performs the secondary ability of another strategy card (the strategy area's windows)"),
-            (C::Strategize2, "performs the secondary ability of another strategy card (the strategy area's windows)"),
-            (C::Strategize3, "performs the secondary ability of another strategy card (the strategy area's windows)"),
-            (C::Strategize4, "performs the secondary ability of another strategy card (the strategy area's windows)"),
+            (C::CourageousToTheEnd, "dice, then the opponent's casualty choice with the card's holder as producer: the combat area's hit flow (core-b12 keeps the child casualty flows, ENGINE_REACTIONS 9.2)"),
+            (C::ExperimentalBattlestation, "a space cannon roll whose hits go through the combat area's sustain and casualty questions (a child hit flow, core-b12's area) from a dock in or adjacent to the active system"),
+            (C::FireTeam, "the staged ground roll's per-die rerolls are the combat area's (ported on core-b12 as a registered play; not merged here)"),
+            (C::Overrule, "performs the primary ability of another strategy card: eight card kinds with their own windows and guards, to be run as child windows"),
+            (C::ExplorationProbe, "the exploration resolution (`explore_with`) is not one core window: its reward and attachment cards are string"),
+            (C::ScrambleFrequency, "per-die reroll of a barrage, space cannon or bombardment roll of another seat: the combat area's dice plumbing (core-b12 documents it as a bail)"),
+            (C::Strategize1, "performs the secondary ability of another strategy card: eight card kinds with their own windows and guards, to be run as child windows"),
+            (C::Strategize2, "performs the secondary ability of another strategy card: eight card kinds with their own windows and guards, to be run as child windows"),
+            (C::Strategize3, "performs the secondary ability of another strategy card: eight card kinds with their own windows and guards, to be run as child windows"),
+            (C::Strategize4, "performs the secondary ability of another strategy card: eight card kinds with their own windows and guards, to be run as child windows"),
         ]
     };
 
