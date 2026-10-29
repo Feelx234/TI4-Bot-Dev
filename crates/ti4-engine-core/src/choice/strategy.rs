@@ -49,6 +49,13 @@ pub enum Ask {
     PlaceStructure { step: u8, only_pds: bool },
     /// Imperial primary: "score a public objective with Imperial".
     ImperialScore,
+    /// Thunder's Edge Construction: "a structure or a production" (the first of its two abilities).
+    ConstructionAbility,
+    /// Thunder's Edge Warfare: the final split of the `total` command tokens before the free tactical action, at least
+    /// `floor` in the fleet pool.
+    TeWarfareRedistribute { total: u8, floor: u8 },
+    /// Thunder's Edge Warfare: the system of the tactical action without a command token.
+    TeWarfareTactical,
     /// "research a technology": the bill in resources (the payload `cost`), the technologies the seat owns
     /// (the preview), and whether the holder may decline.
     ResearchTechnology { cost: u8, owned: u8, decline: bool },
@@ -82,6 +89,10 @@ pub enum Opt {
     Structure { pds: bool, system: System, planet: Planet },
     /// Imperial: score this public objective.
     Objective(PublicObjective),
+    /// Thunder's Edge Construction: place a structure (the answer `structure`).
+    Build,
+    /// Thunder's Edge Construction: use PRODUCTION in this system (the answer `produce|<system>`).
+    Produce(System),
     /// Research this technology.
     Research(Technology),
     /// A follower does not use the secondary (`no`).
@@ -112,6 +123,8 @@ pub enum Subtype {
     ResearchTechnology,
     /// A follower's question (Leadership's is `BuyTokenWithInfluence`).
     FollowSecondary,
+    ConstructionChooseAbility,
+    WarfareFreeTactical,
 }
 
 /// The context of a strategy card question.

@@ -8,7 +8,7 @@ use crate::choice::generic::{Content, Rule};
 use crate::choice::strategy::{gain_pool_choice, rule_ctx, Ask as SAsk, Opt as SOpt, Subtype as SSub};
 use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use crate::containers::SmallList;
-use crate::generated::{Unit, UnitBaseType};
+use crate::generated::{System, Unit, UnitBaseType};
 use crate::ids::Seat;
 use crate::kernel::fx;
 use crate::kernel::stage::{Illegal, Sx, Window};
@@ -242,6 +242,8 @@ pub struct StructureFacts {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CStage {
     Start,
+    /// The Thunder's Edge printing: a structure or a production?
+    Ability,
     /// The first (or only) structure.
     First,
     /// The primary's second structure (a PDS).
@@ -259,16 +261,28 @@ pub struct Construction {
     primary: bool,
     facts: StructureFacts,
     stage: CStage,
+    /// The Thunder's Edge primary: the interned `te4construction` and the systems that can produce.
+    te: Option<(Code, Vec<System>)>,
+    /// The holder chose the production of the Thunder's Edge primary (a whole production window, the string's).
+    pub produces: bool,
 }
 
 impl Construction {
     #[must_use]
     pub const fn new(who: Seat, primary: bool, facts: StructureFacts) -> Self {
-        Self { who, primary, facts, stage: CStage::Start }
+        Self { who, primary, facts, stage: CStage::Start, te: None, produces: false }
+    }
+
+    /// The primary of the Thunder's Edge Construction: one of a structure or a use of PRODUCTION (`systems` can produce,
+    /// `source` is the interned `te4construction`), then another structure; neither structure is limited to a PDS. The
+    /// production is not carried: choosing it sets [`Construction::produces`] and ends the window.
+    #[must_use]
+    pub fn new_te(who: Seat, facts: StructureFacts, source: Code, systems: &[System]) -> Self {
+        Self { who, primary: true, facts, stage: CStage::Start, te: Some((source, systems.to_vec())), produces: false }
     }
 
     fn only_pds(&self) -> bool {
-        self.stage == CStage::Second
+        self.stage == CStage::Second && self.te.is_none()
     }
 
     fn step_no(&self) -> u8 {
@@ -312,7 +326,11 @@ impl Construction {
     }
 
     fn ask_now(&self) -> Option<SAsk> {
-        matches!(self.stage, CStage::First | CStage::Second).then_some(SAsk::PlaceStructure { step: self.step_no(), only_pds: self.only_pds() })
+        match self.stage {
+            CStage::Ability => Some(SAsk::ConstructionAbility),
+            CStage::First | CStage::Second => Some(SAsk::PlaceStructure { step: self.step_no(), only_pds: self.only_pds() }),
+            CStage::Start | CStage::Done => None,
+        }
     }
 
     /// The step after the one just done.
@@ -330,7 +348,7 @@ impl Window for Construction {
 
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
         if self.stage == CStage::Start {
-            self.stage = CStage::First;
+            self.stage = if self.te.is_some() { CStage::Ability } else { CStage::First };
         }
         // A step with no structure to place asks nothing and passes on.
         while matches!(self.stage, CStage::First | CStage::Second) && self.options(sx.state, sx.kernel).is_empty() {
@@ -344,6 +362,23 @@ impl Window for Construction {
 
     fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
         let a = self.ask_now()?;
+        if let (CStage::Ability, Some((source, systems))) = (self.stage, &self.te) {
+            let options = opts(std::iter::once(SOpt::Build).chain(systems.iter().map(|system| SOpt::Produce(*system))));
+            return Some(Choice {
+                actor: self.who,
+                ask: ask(a),
+                ctx: Ctx {
+                    origin: Origin::Content(Content::Other(*source)),
+                    subtype: Subtype::Strategy(SSub::ConstructionChooseAbility),
+                    optional: false,
+                    target: None,
+                    outstanding: SmallList::new(),
+                    space_battle: false,
+                    invasion_seq: None,
+                },
+                opts: options,
+            });
+        }
         let mut options = opts(self.options(s, k).as_slice().iter().copied());
         options.push(Opt::Decline);
         Some(Choice {
@@ -369,8 +404,17 @@ impl Window for Construction {
             return Err(Illegal);
         }
         match chosen {
-            Opt::Decline => {}
-            Opt::Strategy(SOpt::Structure { pds, system, planet }) => {
+            Opt::Strategy(SOpt::Build) if self.stage == CStage::Ability => {
+                self.stage = CStage::First;
+                return Ok(());
+            }
+            Opt::Strategy(SOpt::Produce(_)) if self.stage == CStage::Ability => {
+                self.produces = true;
+                self.stage = CStage::Done;
+                return Ok(());
+            }
+            Opt::Decline if self.stage != CStage::Ability => {}
+            Opt::Strategy(SOpt::Structure { pds, system, planet }) if self.stage != CStage::Ability => {
                 let (unit, in_space) = self.placement(pds).ok_or(Illegal)?;
                 fx::place_unit(sx.state, self.who, system, (!in_space).then_some(planet), unit);
             }

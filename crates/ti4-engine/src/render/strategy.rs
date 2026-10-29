@@ -81,6 +81,9 @@ impl Family for Fam {
             }
             Ask::PlaceStructure { .. } => "place a structure".to_owned(),
             Ask::ImperialScore => "score a public objective with Imperial".to_owned(),
+            Ask::ConstructionAbility => "Construction: a structure or a production".to_owned(),
+            Ask::TeWarfareRedistribute { .. } => "Warfare: redistribute your command tokens before the tactical action".to_owned(),
+            Ask::TeWarfareTactical => "Warfare: a tactical action without a command token".to_owned(),
             Ask::ResearchTechnology { .. } => "research a technology".to_owned(),
             Ask::Follow { card, .. } => follow_words(*card).0.to_owned(),
         }
@@ -101,6 +104,8 @@ impl Family for Fam {
             Subtype::ImperialScoreObjective => "imperial_score_objective",
             Subtype::ResearchTechnology => "research_technology",
             Subtype::FollowSecondary => "strategy_secondary",
+            Subtype::ConstructionChooseAbility => "construction_choose_ability",
+            Subtype::WarfareFreeTactical => "warfare_free_tactical",
         }
         .to_owned()
     }
@@ -122,7 +127,10 @@ impl Family for Fam {
             ),
             Opt::System(system) => {
                 let id = system.as_str();
-                ChoiceOption::labelled(id, if matches!(a, Ask::WarfareRecall) { "recall" } else { "system" }, id)
+                match a {
+                    Ask::TeWarfareTactical => ChoiceOption::labelled(id, "activate", format!("free tactical action in {id}")),
+                    _ => ChoiceOption::labelled(id, if matches!(a, Ask::WarfareRecall) { "recall" } else { "system" }, id),
+                }
             }
             Opt::Ready(planet, shown) => {
                 let id = planet.as_str();
@@ -159,6 +167,8 @@ impl Family for Fam {
                 option
             }
             Opt::Objective(o) => ChoiceOption::labelled(o.as_str(), "objective", o.as_str()),
+            Opt::Build => ChoiceOption::labelled("structure", "build", "place a structure"),
+            Opt::Produce(system) => ChoiceOption::labelled(format!("produce|{}", system.as_str()), "build", format!("use PRODUCTION in {}", system.as_str())),
             Opt::Skip => ChoiceOption::labelled("no", crate::strategy::STRATEGY_KIND, follow_words(follow_card(a)).1),
             Opt::Follow => ChoiceOption::labelled("yes", crate::strategy::STRATEGY_KIND, follow_words(follow_card(a)).2),
             Opt::Waive(shape) => r.shape_option(*shape),
@@ -182,10 +192,14 @@ impl Family for Fam {
         match a {
             Ask::TradeReplenish => seat_named(r, id).map(Opt::Replenish),
             Ask::GainPool { .. } => [Pool::Tactic, Pool::Fleet, Pool::Strategic].into_iter().find(|p| pool_id(*p) == id).map(Opt::Pool),
-            Ask::WarfareRecall | Ask::DiplomacySystem => System::from_id(id).map(Opt::System),
+            Ask::WarfareRecall | Ask::DiplomacySystem | Ask::TeWarfareTactical => System::from_id(id).map(Opt::System),
+            Ask::ConstructionAbility => match id.strip_prefix("produce|") {
+                Some(system) => System::from_id(system).map(Opt::Produce),
+                None => (id == "structure").then_some(Opt::Build),
+            },
             Ask::ReadyPlanet => Planet::from_id(id).map(|p| Opt::Ready(p, Shown::default())),
             Ask::PoliticsSpeaker => seat_named(r, id).map(Opt::Speaker),
-            Ask::WarfareRedistribute { .. } => {
+            Ask::WarfareRedistribute { .. } | Ask::TeWarfareRedistribute { .. } => {
                 let mut parts = id.split('|');
                 let mut next = || parts.next()?.parse::<u8>().ok();
                 let (tactic, fleet, strategic) = (next()?, next()?, next()?);

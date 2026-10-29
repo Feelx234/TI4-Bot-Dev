@@ -1433,9 +1433,16 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
     Producer {
+        // Split for package B8c-3: the string halves of the Thunder's Edge primaries beside their core windows.
         module: "strategy_cards.rs",
-        function: "primary",
-        count: 2,
+        function: "te6_warfare_string",
+        count: 1,
+        delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
+    },
+    Producer {
+        module: "strategy_cards.rs",
+        function: "te4_construction_string",
+        count: 1,
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
     Producer {

@@ -21,7 +21,7 @@ mod real {
     use ti4_engine_core::kernel::stage::{AbilityTable, Window};
     use ti4_engine_core::kernel::{fx, Kernel, Resolver};
     use ti4_engine_core::rules::production::strategy_cards::{Construction, Leadership, Placement, Research, StructureFacts};
-    use ti4_engine_core::rules::strategy_primaries::{DMode, Diplomacy, ImperialPrimary, Politics, WarfarePrimary};
+    use ti4_engine_core::rules::strategy_primaries::{DMode, Diplomacy, ImperialPrimary, Politics, TeWarfare, WarfarePrimary};
     use ti4_engine_core::state::{CoreState, Slice};
     use ti4_model::content_types::SourceSet;
     use ti4_model::id::{PlayerId, SystemId};
@@ -119,7 +119,7 @@ mod real {
                 pool_previews(core, c.actor, rendered);
                 rendered.details.extend(pool_details(core, c.actor, letnev, "gain", Some(usize::from(left))));
             }
-            Ask::Strategy(SAsk::WarfareRedistribute { .. }) => {
+            Ask::Strategy(SAsk::WarfareRedistribute { .. } | SAsk::TeWarfareRedistribute { .. }) => {
                 rendered.details.extend(pool_details(core, c.actor, letnev, "redistribute", None));
             }
             _ => {}
@@ -328,18 +328,11 @@ mod real {
 
     // -- Construction ---------------------------------------------------------------------------------------
 
-    /// The core half of the Construction abilities (`primary`: two structures, else the secondary's one).
-    /// `None` as for Leadership, and where a faction effect changes the placement: the Titans' alternative to a
-    /// PDS, Minister of Industry's production after a space dock, a unit the tables do not name.
-    pub fn construction(
-        gs: &mut GameState,
-        content: &ContentStore,
-        sources: SourceSet,
-        player: &PlayerId,
-        primary: bool,
-        script: &Recording,
-    ) -> Option<CoreWindow<bool>> {
-        if outside(gs, script) || crate::production_view::unported_window(gs, player) || crate::laws::industry_produces_on_placement(gs, player) {
+    /// What a Construction window needs of the position, or `None` where a faction effect changes the placement: the
+    /// Titans' alternative to a PDS, Minister of Industry's production after a space dock, a unit the tables do not
+    /// name, what `production_view::unported_window` declines.
+    fn structure_facts(gs: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, r: &Render) -> Option<StructureFacts> {
+        if crate::production_view::unported_window(gs, player) || crate::laws::industry_produces_on_placement(gs, player) {
             return None;
         }
         let alternatives = gs.controlled_planets(player).into_iter().any(|(system, planet)| {
@@ -356,11 +349,77 @@ mod real {
             Some(Some((crate::core_adapter::typed::<ti4_engine_core::generated::Unit>(unit.as_str())?, in_space)))
         };
         let (pds, dock) = (placement("pds")?, placement("spacedock")?);
+        Some(StructureFacts { pds, dock, source: r.code("place_structure") })
+    }
+
+    /// The core half of the Construction abilities (`primary`: two structures, else the secondary's one).
+    /// `None` as for Leadership, and where a faction effect changes the placement ([`structure_facts`]).
+    pub fn construction(
+        gs: &mut GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        player: &PlayerId,
+        primary: bool,
+        script: &Recording,
+    ) -> Option<CoreWindow<bool>> {
+        if outside(gs, script) {
+            return None;
+        }
         let (mut cx, r) = crate::dual_window::tables(gs)?;
         let seat = r.seat(player.as_str())?;
-        let facts = StructureFacts { pds, dock, source: r.code("place_structure") };
+        let facts = structure_facts(gs, content, sources, player, &r)?;
         let (window, driven) = run_production(gs, &mut cx, &r, Construction::new(seat, primary, facts), seat, script, &|_, _, _| {})?;
         Some(finish(&driven, &window))
+    }
+
+    /// The core half of the primary of the Thunder's Edge Construction (`te4construction`): the choice of a structure
+    /// or a production, then the structures. `systems` are the ones that can produce (the string's
+    /// `production::capacity`). `None` as for [`construction`], and where the holder chooses the production: a whole
+    /// production window nested in the card (the string's).
+    pub fn construction_te(
+        gs: &mut GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        player: &PlayerId,
+        systems: &[ti4_model::id::SystemId],
+        script: &Recording,
+    ) -> Option<CoreWindow<bool>> {
+        if outside(gs, script) {
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let seat = r.seat(player.as_str())?;
+        let facts = structure_facts(gs, content, sources, player, &r)?;
+        let producing: Vec<ti4_engine_core::generated::System> =
+            systems.iter().map(|s| crate::core_adapter::typed::<ti4_engine_core::generated::System>(s.as_str())).collect::<Option<_>>()?;
+        let window = Construction::new_te(seat, facts, r.code("te4construction"), &producing);
+        let (window, driven) = run_production(gs, &mut cx, &r, window, seat, script, &|_, _, _| {})?;
+        if window.produces {
+            crate::dual::note_bail("strategy_cards::te4_construction", "the production of the Thunder's Edge Construction (a production window nested in the card)");
+            return None;
+        }
+        Some(finish(&driven, &window))
+    }
+
+    // -- Thunder's Edge Warfare -----------------------------------------------------------------------------
+
+    /// The core half of the primary of the Thunder's Edge Warfare (`te6warfare`): the redistribution before the action
+    /// and the system of the free tactical action. `systems` are the string's (the map and the systems in play).
+    /// The value is the chosen system. `None` as for Warfare's redistribution, inside a battle or an invasion.
+    pub fn warfare_te(gs: &mut GameState, player: &PlayerId, systems: &[String], script: &Recording) -> Option<CoreWindow<Option<String>>> {
+        if outside(gs, script) {
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let seat = r.seat(player.as_str())?;
+        let letnev = gs.player(player)?.faction.as_str() == "letnev";
+        let typed: Vec<ti4_engine_core::generated::System> =
+            systems.iter().map(|s| crate::core_adapter::typed::<ti4_engine_core::generated::System>(s)).collect::<Option<_>>()?;
+        let window = TeWarfare::new(seat, &typed, gs.rules_version >= ti4_model::state::RULES_LETNEV_FLEET_POOL, r.code("te6warfare"));
+        let (window, driven) =
+            drive_window(gs, &mut cx, &r, WARFARE, window, seat, script, &|c, core, rendered| complete_tokens(c, core, rendered, letnev))?;
+        let chosen = window.chosen.map(|system| system.as_str().to_owned());
+        Some(CoreWindow { run: Run::new(chosen).with_events_vec(Vec::new()), questions: driven.rendered })
     }
 
     // -- Trade secondary ------------------------------------------------------------------------------------
@@ -489,9 +548,12 @@ mod real {
     }
 
     /// The core half of Imperial's primary (`strategy_cards::imperial_primary`). The scoreable objectives are
-    /// the string's (`objectives::scoreable_on`); scoring one, which the core cannot do, declines the run, as
-    /// do a Keleres seat (Custodian's Favour), a point that would pass the target, an objective that is no
-    /// public objective of the tables, and a secret draw that is not plain.
+    /// the string's (`objectives::scoreable_on`); the window scores the one chosen (paying a bought objective's price
+    /// by the first plan), and the leaders it unlocks and Yin's breakthrough are the string's tail
+    /// (`objectives::award_tail`), run here after the window. `None` for a Keleres seat (Custodian's Favour asks), a
+    /// point that would pass the target, an objective that is no public objective of the tables or whose points the
+    /// tables read otherwise, a bought objective at a table whose payment the production kernel does not follow
+    /// (Bastion, Crimson, ocean cards), a secret draw that is not plain, and a deck reserve.
     pub fn imperial_primary(
         gs: &mut GameState,
         content: &ContentStore,
@@ -500,20 +562,37 @@ mod real {
         player: &PlayerId,
         script: &Recording,
     ) -> Option<CoreWindow<bool>> {
+        use ti4_engine_core::generated::PublicObjective;
         if outside(gs, script) || gs.deck_reserve.is_some() || gs.players.iter().any(|p| p.faction.as_str().starts_with("keleres")) {
             return None;
         }
         let scoreable = crate::objectives::scoreable_on(gs, content, sources, player, galaxy);
-        let typed: Vec<_> = scoreable
+        let typed: Vec<PublicObjective> = scoreable
             .iter()
-            .map(|o| crate::core_adapter::typed::<ti4_engine_core::generated::PublicObjective>(o.as_str()))
+            .map(|o| crate::core_adapter::typed::<PublicObjective>(o.as_str()))
             .collect::<Option<_>>()?;
+        let mut most = 0;
+        let mut priced = false;
+        for (alias, objective) in scoreable.iter().zip(&typed) {
+            let points = i32::from(ti4_engine_core::query::objectives::points_of(*objective));
+            if crate::objectives::points_for(content, alias) != Some(points) {
+                return None;
+            }
+            most = most.max(points);
+            priced |= ti4_engine_core::query::objectives::cost_of(*objective).is_some();
+        }
+        if priced && price_is_string(gs, player) {
+            return None;
+        }
         let controls = gs.controlled_planets(player).into_iter().any(|(system, _)| crate::seating::is_mecatol(system.as_str()));
         if controls {
-            if gs.player(player)?.victory_points + 1 > crate::objectives::VICTORY_TARGET {
+            if gs.player(player)?.victory_points + most + 1 > crate::objectives::VICTORY_TARGET {
                 return None;
             }
         } else {
+            if gs.player(player)?.victory_points + most > crate::objectives::VICTORY_TARGET {
+                return None;
+            }
             let limit = crate::secrets::HAND_LIMIT + crate::relics::secret_objective_bonus(gs, player);
             if crate::secrets::held_count(gs, content, player) + 1 > limit {
                 return None;
@@ -524,15 +603,20 @@ mod real {
         let before = gs.clone();
         let held = crate::secrets::held_count(gs, content, player);
         let max = crate::secrets::HAND_LIMIT + crate::relics::secret_objective_bonus(gs, player);
-        let window = ImperialPrimary::new(seat, typed.into_iter().collect());
+        // The production kernel answers what a trade good pays and which commodities a payment may spend.
+        let env = ti4_engine_core::kernel::fx_pay::PayEnv { scope: crate::core_adapter::scope(sources), blanked: crate::laws::blanked(gs) };
+        let window = ImperialPrimary::new(seat, typed.into_iter().collect()).with_price(env);
         let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
-        let kernel = Kernel::plain();
+        let kernel = crate::production_view::kernel();
         let fp = Footprint::new(
-            &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Decks, Slice::Ledger, Slice::Pending],
-            &[Slice::Players, Slice::Decks, Slice::Ledger],
+            &[
+                Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Decks, Slice::Ledger, Slice::Pending, Slice::Objectives,
+                Slice::Agenda, Slice::Marks, Slice::Strategy, Slice::Cards, Slice::Trade, Slice::Transient, Slice::Explore,
+            ],
+            &[Slice::Players, Slice::Board, Slice::Decks, Slice::Ledger, Slice::Objectives],
         );
         let driven = with_core(gs, &mut cx, Sources::default(), fp, |core, _| {
-            drive_with(&mut driver, core, &kernel, &r, &before, script, &|c, _, rendered| {
+            drive_with(&mut driver, core, kernel, &r, &before, script, &|c, _, rendered| {
                 if matches!(c.ask, Ask::Strategy(SAsk::ImperialScore)) {
                     rendered.details.insert("kind".to_owned(), "imperial".into());
                     rendered.details.insert("controls_mecatol".to_owned(), controls.into());
@@ -543,11 +627,19 @@ mod real {
         })
         .ok()?
         .ok()?;
-        if driver.window.scored.is_some() {
-            return None;
+        if let Some(objective) = driver.window.scored {
+            crate::objectives::award_tail(gs, content, sources, player.clone(), &ti4_model::id::ObjectiveId::new(objective.as_str()));
         }
         gs.finished = crate::objectives::winner(gs).is_some();
         Some(finish(&driven, &driver.window))
+    }
+
+    /// Where the price of a bought objective stays with the string: a table with a Last Bastion or a Crimson seat
+    /// (their economy hooks are not in the production kernel's reads), and a payer holding Deepwrought ocean cards.
+    fn price_is_string(gs: &GameState, payer: &PlayerId) -> bool {
+        use crate::factions::{bastion, crimson};
+        gs.players.iter().any(|p| [bastion::MODULE.alias, crimson::MODULE.alias].contains(&p.faction.as_str()))
+            || !crate::factions::deepwrought::spendable_oceans(gs, payer).is_empty()
     }
 
     // -- Politics ------------------------------------------------------------------------------------------
@@ -657,6 +749,21 @@ mod stub {
         _: bool,
         _: &Recording,
     ) -> Option<CoreWindow<bool>> {
+        None
+    }
+
+    pub fn construction_te(
+        _: &mut GameState,
+        _: &ContentStore,
+        _: SourceSet,
+        _: &PlayerId,
+        _: &[ti4_model::id::SystemId],
+        _: &Recording,
+    ) -> Option<CoreWindow<bool>> {
+        None
+    }
+
+    pub fn warfare_te(_: &mut GameState, _: &PlayerId, _: &[String], _: &Recording) -> Option<CoreWindow<Option<String>>> {
         None
     }
 
@@ -1059,7 +1166,7 @@ mod tests {
     }
 
     #[test]
-    fn imperial_primary_scores_nothing_gains_a_point_for_mecatol_and_declines_a_scoring() {
+    fn imperial_primary_scores_nothing_gains_a_point_for_mecatol_and_scores_in_lockstep() {
         let label = "strategy_cards::imperial_primary";
         let mecatol = |s: &mut GameState| {
             s.system_mut(&SystemId::new("18")).set_control(PlanetId::new("mr"), a());
@@ -1074,8 +1181,8 @@ mod tests {
         // An objective the holder can score (three tokens): the question is asked, a decline goes on.
         let scoreable = |s: &mut GameState| s.revealed_objectives.push(ti4_model::id::ObjectiveId::new("lead"));
         assert_eq!(run(label, &F3, scoreable, &["decline"], primary("pok8imperial")).0, 1);
-        // Scoring it is the string's.
-        assert_eq!(run(label, &F3, scoreable, &["lead"], primary("pok8imperial")), (0, 1));
+        // Scoring it is the core's since B8c-3 (`strategy_te_tests` reads the position after).
+        assert_eq!(run(label, &F3, scoreable, &["lead"], primary("pok8imperial")), (1, 0));
         // Past the target, a Keleres seat, a full secret hand and a reserve are the string's too.
         let tenth = |s: &mut GameState| {
             mecatol(s);
