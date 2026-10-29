@@ -134,10 +134,38 @@ pub fn golden_positions(
     games: usize,
     stride: usize,
 ) -> Result<(Vec<Position>, Vec<String>), String> {
+    golden_games(config, games, stride, &|_| true, &mut |_, _| {})
+}
+
+/// How many games `golden_positions(config, games, ..)` plays: `games`, or fewer when the config has fewer.
+///
+/// # Errors
+/// An unreadable config.
+pub fn golden_game_count(config: &str, games: usize) -> Result<usize, String> {
+    Ok(specs(config)?.1.len().min(games))
+}
+
+/// [`golden_positions`] restricted to the games (indices into the first `games` of the config) `include` accepts
+/// (the shards of `dual_run`), calling `each(index, decision_hash)` after every game played. Every game is built
+/// from its own spec and seed, so a game's play does not depend on which others ran in the process. The returned
+/// hashes are those of the included games, in index order.
+///
+/// # Errors
+/// A config or a game that fails.
+pub fn golden_games(
+    config: &str,
+    games: usize,
+    stride: usize,
+    include: &dyn Fn(usize) -> bool,
+    each: &mut dyn FnMut(usize, &str),
+) -> Result<(Vec<Position>, Vec<String>), String> {
     let (matrix, specs) = specs(config)?;
     let mut positions = Vec::new();
     let mut hashes = Vec::new();
-    for spec in specs.iter().take(games) {
+    for (index, spec) in specs.iter().take(games).enumerate() {
+        if !include(index) {
+            continue;
+        }
         let mut game = spec.build()?;
         game.table
             .set_default(Box::new(Shared(Rc::new(RefCell::new(Bot {
@@ -166,7 +194,9 @@ pub fn golden_positions(
                 return Err(format!("seed {}: {error}", spec.seed));
             }
         }
-        hashes.push(ti4_wasm::host_session::decisions_hash(&game.table.log.records));
+        let hash = ti4_wasm::host_session::decisions_hash(&game.table.log.records);
+        each(index, &hash);
+        hashes.push(hash);
     }
     Ok((positions, hashes))
 }
