@@ -73,7 +73,7 @@ fn play(state: GameState, galaxy: &Galaxy, script: &[&str], edit: impl FnOnce(&m
     assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
     let counts = LABELS.iter().map(|l| (*l, crate::dual::thread_window_counts(l))).collect();
     let reasons = r.windows.iter().filter(|(k, _)| k.starts_with("tactical::") && k.contains("[bail")).map(|(k, w)| format!("{k} x{}", w.bailed)).collect();
-    let rolls = game.dice.history().iter().filter(|roll| roll.reason == "gravity rift").count();
+    let rolls = game.rift_rolls();
     Done { game_events: game.events.clone(), state: game.state.clone(), rolls, counts, reasons }
 }
 

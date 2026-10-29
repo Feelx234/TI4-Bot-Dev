@@ -189,6 +189,37 @@ impl Machine {
         self
     }
 
+    /// The open action as the typed payload of the pending window (`notes_at_start` is the caller's).
+    #[must_use]
+    pub fn payload(&self, notes_at_start: SmallList<(crate::state::NoteKey, Seat), 12>) -> crate::state::Tactical {
+        use crate::state::TStage;
+        let stage = match (&self.stage, &self.load) {
+            (Stage::Loading, Some(l)) => TStage::Loading {
+                origin: l.origin,
+                ship: l.ship,
+                path: l.path.iter().copied().collect(),
+                loaded: l.hold.loaded.iter().copied().collect(),
+                closed: l.hold.closed,
+            },
+            (Stage::Activating, _) => TStage::Activating,
+            _ => TStage::Moving,
+        };
+        crate::state::Tactical { player: self.seat, stage, notes_at_start }
+    }
+
+    /// The machine of an open action read back from its payload (the hold is rebuilt from the position).
+    #[must_use]
+    pub fn from_payload(core: &CoreState, k: &Kernel, facts: Facts, open: &crate::state::Tactical) -> Self {
+        use crate::state::TStage;
+        match &open.stage {
+            TStage::Activating => Self::activating(open.player, facts),
+            TStage::Moving => Self::moving(open.player, facts),
+            TStage::Loading { origin, ship, path, loaded, closed } => {
+                Self::loading(core, k, open.player, facts, *origin, *ship, path.to_vec(), loaded, *closed)
+            }
+        }
+    }
+
     /// The seat that acts.
     #[must_use]
     pub const fn seat(&self) -> Seat {

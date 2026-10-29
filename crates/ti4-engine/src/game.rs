@@ -3336,6 +3336,12 @@ impl<'a> Game<'a> {
         }
     }
 
+    /// The gravity-rift rolls of the game so far (the lockstep tests count them).
+    #[cfg(test)]
+    pub(crate) fn rift_rolls(&self) -> usize {
+        self.dice.history().iter().filter(|roll| roll.reason == "gravity rift").count()
+    }
+
     /// [`Self::apply_tactical`] for one answer, as a lockstep window of `Area::Movement` (`tactical_dual`) when the
     /// answer is one the core machine follows: a system to activate, a ship to move, a pickup. The finish of the
     /// movement step and a diplomacy contact run unwrapped (the close has its own window, `finish_head`).
