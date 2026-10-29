@@ -66,7 +66,8 @@ def analyse_slice(slice_dir, state_path, report_root):
     mp = os.path.join(slice_dir, "merged.txt")
     if os.path.exists(mp):
         merged = open(mp).read()
-    failed_shards = re.findall(r"^SHARD (\d+/\d+) FAILED", merged, re.M)
+    # exit 1 of a shard is "a difference or hash change" (its file is written); anything else is a crash or kill.
+    failed_shards = [m[0] for m in re.findall(r"^SHARD (\d+/\d+) FAILED \(exit (\d+)", merged, re.M) if m[1] != "1"]
     refused = "MERGE REFUSED" in merged
     expected = meta["games"]
 
@@ -97,12 +98,13 @@ def analyse_slice(slice_dir, state_path, report_root):
         res["dropped"] += rep.get("dropped", 0)
         for d in rep["differences"]:
             res["differences"].append({"game": idx, "seed": spec.get("seed"), "map": spec.get("map"), "players": spec.get("players"),
-                                       "factions": spec.get("factions"), "rules_version": spec.get("rules_version"),
+                                       "factions": spec.get("factions"), "rules_version": spec.get("rules_version", "newest"),
                                        "thunders_edge": spec.get("thunders_edge", False), "area": d["area"], "category": d["category"],
                                        "label": d["label"], "path": d["path"], "string": trunc(d["string_side"]),
                                        "core": trunc(d["core_side"]), "repro": repro_line(meta, idx, spec)})
     # Silent bails: a window that ran and never compared; an area on dual that made no call at all in a real slice.
-    res["silent_windows"] = sorted(l for l, (c, b) in res["windows"].items() if c == 0 and b > 0)
+    # ("label [bail: reason]" rows are the bail reasons of a label, compared 0 by construction: not silent.)
+    res["silent_windows"] = sorted(l for l, (c, b) in res["windows"].items() if c == 0 and b > 0 and " [bail:" not in l)
     if len(games) >= 8:
         res["silent_areas"] = sorted(a for a in mask_areas if a != "all" and res["areas"].get(a, {}).get("calls", 0) == 0)
     # Fold into the state.
@@ -196,18 +198,28 @@ def write_report(state_path, out):
     L.append(f"Verdict: **{verdict}**" + ("" if verdict.startswith("CLEAN") else f' ({len(st["differences"])} distinct difference signatures, {len(st["failures"])} failures)'))
     L.append("")
     if st["differences"]:
-        L.append("## Differences (distinct signature, count, first example)")
+        L.append("## Differences (grouped by area and call site; first example each)")
         L.append("")
-        for sig, e in sorted(st["differences"].items(), key=lambda kv: -kv[1]["count"]):
+        groups = {}
+        for sig, e in st["differences"].items():
             f = e["first"]
-            L.append(f'- `{sig}` x{e["count"]} (slices: {", ".join(e["slices"][:4])})')
-            if "area" in f:
-                L.append(f'  - game seed {f.get("seed")}, map {f.get("map")}, {f.get("players")}p, rules v{f.get("rules_version")}, '
-                         f'TE {f.get("thunders_edge")}, factions {",".join(f.get("factions") or [])}')
-                L.append(f'  - string = {f["string"]}')
-                L.append(f'  - core   = {f["core"]}')
-            L.append(f'  - repro: `tools/engine_core/soak_repro.sh --line \'{f.get("repro")}\'`')
-        L.append("")
+            key = f"{f['area']} {f['label']}" if "area" in f else sig
+            groups.setdefault(key, []).append((sig, e))
+        for key, items in sorted(groups.items(), key=lambda kv: -sum(e["count"] for _, e in kv[1])):
+            total = sum(e["count"] for _, e in items)
+            f0 = items[0][1]["first"]
+            L.append(f"### {key}: {total} differences, {len(items)} distinct leaf paths")
+            if "area" in f0:
+                L.append(f'First example: game seed {f0.get("seed")}, map {f0.get("map")}, {f0.get("players")}p, rules {f0.get("rules_version")}, '
+                         f'TE {f0.get("thunders_edge")}, factions {",".join(f0.get("factions") or [])}; slices {", ".join(items[0][1]["slices"][:3])}')
+                L.append(f'Repro: `tools/engine_core/soak_repro.sh --line \'{f0.get("repro")}\'`')
+            else:
+                L.append(f'Repro: `tools/engine_core/soak_repro.sh --line \'{f0.get("repro")}\' --hash`')
+            for sig, e in sorted(items, key=lambda it: -it[1]["count"])[:6]:
+                f = e["first"]
+                if "area" in f:
+                    L.append(f'- `{f["category"]} @ {f["path"] or "(whole value)"}` x{e["count"]}: string = {trunc(f["string"], 160)} | core = {trunc(f["core"], 160)}')
+            L.append("")
     if st["failures"]:
         L.append("## Incomplete slices")
         L.append("")
@@ -231,7 +243,7 @@ def write_report(state_path, out):
     L.append("")
     L.append("## Bails per window label (compared / bailed over the whole soak; bail share, worst first, labels that bailed at least once)")
     L.append("")
-    rows = [(l, c, b) for l, (c, b) in st["windows"].items() if b > 0]
+    rows = [(l, c, b) for l, (c, b) in st["windows"].items() if b > 0 and " [bail:" not in l]
     rows.sort(key=lambda r: -(r[2] / max(1, r[1] + r[2])))
     L.append("| label | compared | bailed | bail share |")
     L.append("|---|---|---|---|")
@@ -239,6 +251,14 @@ def write_report(state_path, out):
         L.append(f"| {l} | {c:,} | {b:,} | {100 * b / max(1, c + b):.0f}% |")
     if len(rows) > 40:
         L.append(f"| ... {len(rows) - 40} more labels | | | |")
+    L.append("")
+    reasons = sorted(((l, b) for l, (c, b) in st["windows"].items() if " [bail:" in l), key=lambda r: -r[1])
+    if reasons:
+        L.append("")
+        L.append("## Bail reasons (top 30 by count, whole soak)")
+        L.append("")
+        for l, b in reasons[:30]:
+            L.append(f"- {b:,} x {l}")
     L.append("")
     L.append("## Next seeds per lane")
     L.append("")
@@ -266,9 +286,12 @@ def plan(state_path, lanes, slice_games, seed_base, masks):
     weights = {l: soak_corpus.LANES[l][1] for l in lanes}
     total = sum(weights.values())
     for i, lane in enumerate(lanes):
-        games = max(2, round(slice_games * weights[lane] / total))
+        mname = masks[(st["round"] + i) % len(masks)]
+        # `all=dual` runs every area's comparison at every call (1.3 M calls per game instead of ~300): fewer games per slice.
+        scale = float(dict(kv.split("=") for kv in os.environ.get("SOAK_MASK_SCALE", "all=0.3").split(",") if kv).get(mname, 1))
+        games = max(2, round(slice_games * weights[lane] / total * scale))
         first = st["next_seed"].get(lane, seed_base)
-        print(lane, max(first, seed_base), games, masks[(st["round"] + i) % len(masks)])
+        print(lane, max(first, seed_base), games, mname)
 
 
 def bump(state_path, key, value=None):
