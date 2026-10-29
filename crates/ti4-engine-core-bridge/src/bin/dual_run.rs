@@ -6,6 +6,9 @@
 //! dual_run CONFIG GAMES [AREAS]                           AREAS as TI4_AREAS (default: movement=dual)
 //! dual_run CONFIG GAMES [AREAS] --shard i/N --out FILE   play only the games with index % N == i, write FILE
 //! dual_run --merge FILE...                                merge the N shard files of one run
+//! dual_run CONFIG GAMES [AREAS] --game I                  play only game I (a repro of one game; unsharded text)
+//! dual_run --specs CONFIG GAMES                           one JSON line per game: index, seed, map, factions, ... and the
+//!                                                         `selfplay replay` flags (the soak maps a difference to its game)
 //! ```
 //! Prints the [`DualReport`](ti4_engine::dual::DualReport); exit 1 on any difference or hash change.
 //! The merge prints exactly what the unsharded run prints (after checking that the shards cover every game
@@ -13,13 +16,13 @@
 
 use ti4_engine::dual::{self, Area, AreaMask, Backend, DualReport};
 use ti4_engine_core_bridge::dual_shard::{self, GameRecord, Shard, ShardFile};
-use ti4_engine_core_bridge::workload::{golden_game_count, golden_games, golden_positions};
+use ti4_engine_core_bridge::workload::{golden_game_count, golden_games, specs as config_specs};
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 fn usage() -> ! {
-    eprintln!("usage: dual_run CONFIG GAMES [AREAS] [--shard i/N --out FILE] | dual_run --merge FILE...");
+    eprintln!("usage: dual_run CONFIG GAMES [AREAS] [--shard i/N --out FILE | --game I] | dual_run --merge FILE... | dual_run --specs CONFIG GAMES");
     std::process::exit(2);
 }
 
@@ -33,6 +36,9 @@ fn main() {
     if args.first().is_some_and(|a| a == "--merge") {
         merge(&args[1..]);
     }
+    if args.first().is_some_and(|a| a == "--specs") {
+        specs(&args[1..]);
+    }
     let mut take_flag = |name: &str| -> Option<String> {
         let at = args.iter().position(|a| a == name)?;
         if at + 1 >= args.len() {
@@ -44,6 +50,10 @@ fn main() {
     };
     let shard = take_flag("--shard").map(|t| Shard::parse(&t).unwrap_or_else(|e| fail(&e)));
     let out = take_flag("--out");
+    let only = take_flag("--game").map(|g| g.parse::<usize>().unwrap_or_else(|_| fail("--game wants a game index")));
+    if only.is_some() && shard.is_some() {
+        fail("--game and --shard do not go together");
+    }
     if shard.is_some() != out.is_some() {
         fail("--shard and --out go together");
     }
@@ -62,11 +72,18 @@ fn main() {
     let _ = dual::take_report();
     dual::set_default_mask(dual_mask);
     // Stride beyond any game length: only the games are played, positions are not kept.
-    let (_, dual_hashes) = golden_positions(config, games, usize::MAX).expect("dual games");
+    let include = |g: usize| only.is_none_or(|o| o == g);
+    if let Some(o) = only {
+        let total = golden_game_count(config, games).unwrap_or_else(|e| fail(&e));
+        if o >= total {
+            fail(&format!("--game {o}: the run has {total} games (0..{total})"));
+        }
+    }
+    let (_, dual_hashes) = golden_games(config, games, usize::MAX, &include, &mut |_, _| {}).expect("dual games");
     let report = dual::take_report();
 
     dual::set_default_mask(AreaMask::all(Backend::String));
-    let (_, string_hashes) = golden_positions(config, games, usize::MAX).expect("string games");
+    let (_, string_hashes) = golden_games(config, games, usize::MAX, &include, &mut |_, _| {}).expect("string games");
     let mut bad = report.total_differences() > 0;
     for (i, (d, s)) in dual_hashes.iter().zip(&string_hashes).enumerate() {
         if d != s {
@@ -77,6 +94,23 @@ fn main() {
     println!("games {} | areas on dual: {on_dual:?} | hashes equal: {}", dual_hashes.len(), dual_hashes == string_hashes);
     print!("{report}");
     std::process::exit(i32::from(bad));
+}
+
+/// `--specs CONFIG GAMES`: the games of the run, one JSON object per line.
+fn specs(args: &[String]) -> ! {
+    let (Some(config), Some(games)) = (args.first(), args.get(1).and_then(|g| g.parse::<usize>().ok())) else {
+        usage()
+    };
+    let (matrix, all) = config_specs(config).unwrap_or_else(|e| fail(&e));
+    for (index, spec) in all.iter().take(games).enumerate() {
+        let mut line = serde_json::to_value(spec).expect("a game spec is JSON");
+        let object = line.as_object_mut().expect("a game spec is an object");
+        object.insert("index".to_owned(), index.into());
+        object.insert("selfplay_flags".to_owned(), spec.command_line().into());
+        object.insert("bot".to_owned(), serde_json::to_value(&matrix.bot).expect("a map is JSON"));
+        println!("{line}");
+    }
+    std::process::exit(0);
 }
 
 /// Play the games of one shard and write its file.
