@@ -1776,6 +1776,13 @@ pub fn barrage_step(
     }
     let (mut cx, r) = tables(gs)?;
     nested_check(script)?;
+    // A Waylay is played in the window the step opens before each roll (`ANTI_FIGHTER_BARRAGE_STARTED`), so the position
+    // cannot tell: the hits of that roll go to every ship (the target's owner assigns them, sustain first), which the core
+    // step does not carry.
+    if script.played.iter().any(|card| card == "waylay") {
+        crate::dual::note_bail(LABEL.with(Cell::get), "Waylay played in the barrage (the hits go to every ship)");
+        return None;
+    }
     let attacker = r.seat(a.attacker.as_str())?;
     let defender = r.seat(a.defender.as_str())?;
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;

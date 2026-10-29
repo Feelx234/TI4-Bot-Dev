@@ -10670,6 +10670,29 @@ mod tests {
         let _ = take_report();
     }
 
+    /// A Waylay played before a side's barrage roll sends its hits to every ship: the core barrage step does not carry it, so the
+    /// window bails (counted) instead of finishing with the fighters' removal; found by the soak (a sustained dreadnought).
+    #[test]
+    fn a_waylay_in_the_barrage_is_a_counted_bail_not_a_difference() {
+        let mut bailed = 0;
+        for seed in 0..10_u64 {
+            let (_state, windows, differences, _nested) = hub_fight(
+                seed,
+                &["sol", "hacan"],
+                |s, system| {
+                    put(s, system, &a_barrage_unit(), &attacker(), 3);
+                    put(s, system, "fighter", &defender(), 1);
+                    put(s, system, "dreadnought", &defender(), 2);
+                    s.player_mut(&attacker()).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("waylay")];
+                },
+                |_, _, c| c.options.iter().position(|o| o.id.starts_with("reaction:")).unwrap_or(0),
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            bailed += windows.iter().filter(|(k, v)| k.contains("combat::barrage_step [bail: Waylay") && v.bailed > 0).count();
+        }
+        assert!(bailed > 0, "a Waylay was played in the barrage and the window bailed");
+    }
+
     /// Tellurian in the anti-fighter barrage window: the agent's cancellation is spent on the barrage's hits before the
     /// fighters are taken, by the core barrage window as by the string `apply_barrage`.
     #[test]
