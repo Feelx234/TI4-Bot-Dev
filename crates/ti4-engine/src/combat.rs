@@ -9810,6 +9810,35 @@ mod tests {
         assert!(played > 0 && asked > 0, "cards were played ({played}) and a choice of card was asked ({asked})");
     }
 
+    /// Sabotage is played at once, in the window of `ACTION_CARD_PLAYED`: the core announces the Sabotage inside the
+    /// slot's effect and cancels the event that opened the window (the declared Morale Boost is spent, its effect is not).
+    #[test]
+    fn sabotage_cancels_a_declared_play_in_the_core_window_in_lockstep() {
+        let mut sabotaged = 0;
+        for seed in 1..=6_u64 {
+            let (_, _, bails, plays) = cards_fight(seed, ["sol", "hacan"], &["sabo1"], &["mb1"], true);
+            assert!(bails.iter().all(|k| !k.contains("(card ") && !k.contains("(a card played at once)")), "{bails:?}");
+            sabotaged += usize::from(plays.iter().any(|c| c == "sabo1"));
+        }
+        assert!(sabotaged > 0, "a Sabotage was played in the window of a declared card");
+    }
+
+    /// Direct Hit: the attacker's hit is sustained by a dreadnought, the attacker destroys that ship from the slot of
+    /// `SUSTAIN_DAMAGE_USED`; the core removes it and announces `SHIP_DESTROYED` after the discard. With a faction module
+    /// seated (staging) the exact sustained ship goes; without, the first of the type.
+    #[test]
+    fn direct_hit_destroys_the_sustained_ship_in_the_core_window_in_lockstep() {
+        for factions in [["sol", "hacan"], ["mentak", "hacan"]] {
+            let mut hit = 0;
+            for seed in 1..=8_u64 {
+                let (_, _, bails, plays) = cards_fight(seed, factions, &["dh1"], &[], false);
+                assert!(bails.iter().all(|k| !k.contains("(card dh")), "{factions:?}: {bails:?}");
+                hit += usize::from(plays.iter().any(|c| c == "dh1"));
+            }
+            assert!(hit > 0, "{factions:?}: a Direct Hit was played");
+        }
+    }
+
     /// The first golden run of the card plays found 12 differences: Reflective Shielding stages hits that the sustain
     /// window of the string takes up afterwards, a state the core windows do not carry. The card stays the string's: the
     /// window bails naming it, nothing differs.
@@ -9826,16 +9855,24 @@ mod tests {
     /// One space fight in which the defender holds `hand`, every question answered with its first option; the windows
     /// are compared. `(cards played, choices of a card asked, the window keys of the report)`.
     fn declared_cards_fight(seed: u64, hand: &[&str], damaged: bool) -> (usize, usize, Vec<String>) {
+        let (played, asked, bails, _) = cards_fight(seed, ["sol", "hacan"], &[], hand, damaged);
+        (played, asked, bails)
+    }
+
+    /// [`declared_cards_fight`] with the attacker's hand too; the last element is the card plays of the state, in order.
+    fn cards_fight(seed: u64, factions: [&str; 2], attacker_hand: &[&str], hand: &[&str], damaged: bool) -> (usize, usize, Vec<String>, Vec<String>) {
         use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
         let (mut played, mut asked) = (0, 0);
+        let mut plays = Vec::new();
         with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || crate::dual_window::with_composed(true, || {
-            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+            let mut state = crate::fixtures::seated_game(&[("a", factions[0]), ("b", factions[1])], ti4_model::content_types::DEFAULT);
             state.promissory_notes.clear();
             state.promissory_faceup.clear();
             state.rng_seed = seed;
             state.player_mut(&defender()).unwrap().action_cards = hand.iter().map(|c| ti4_model::id::ActionCardId::new(*c)).collect();
+            state.player_mut(&attacker()).unwrap().action_cards = attacker_hand.iter().map(|c| ti4_model::id::ActionCardId::new(*c)).collect();
             let system = SystemId::new("18");
             put(&mut state, &system, "cruiser", &attacker(), 3);
             if damaged {
@@ -9871,13 +9908,14 @@ mod tests {
             };
             resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
             played = state.action_card_plays.len();
+            plays = state.action_card_plays.iter().map(|(_, card)| card.to_string()).collect();
             asked = *seen.borrow();
         }));
         let r = report();
-        assert_eq!(r.total_differences(), 0, "{hand:?}: {:?}", r.differences);
+        assert_eq!(r.total_differences(), 0, "{attacker_hand:?} {hand:?}: {:?}", r.differences);
         let bails = r.windows.keys().cloned().collect();
         let _ = take_report();
-        (played, asked, bails)
+        (played, asked, bails, plays)
     }
 
     #[test]

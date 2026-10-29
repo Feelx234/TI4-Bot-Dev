@@ -120,6 +120,7 @@ pub fn table() -> AbilityTable {
             ti4_engine_core_factions::cd_registry::register_abilities(&mut t);
             ti4_engine_core_factions::cc_ground::register_abilities(&mut t);
             ti4_engine_core::rules::reactions::register_after_factions(&mut t);
+            ti4_engine_core_factions::cards::register(&mut t);
             t
         })
         .clone()
@@ -192,11 +193,11 @@ impl Recording {
         // A card played from a window (declared by the slot, announced when the window closes): the core plays the stamps
         // of B6 declared in an ordinary window; any other card, or a play at once, is the string's.
         if let Some(slot) = self.effects.iter().find(|e| e.starts_with("reaction:")) {
-            if slot.contains(":ACTION_CARD_PLAYED:") {
-                return Some(format!("unported ability {} (a card played at once)", anonymous(slot)));
-            }
-            let ported = |card: &String| <ti4_engine_core::generated::ActionCard as crate::generated::IdStr>::from_id(card).is_some_and(ti4_engine_core::rules::action_cards::reaction_slot::effect_ported);
+            let ported = |card: &String| <ti4_engine_core::generated::ActionCard as crate::generated::IdStr>::from_id(card).is_some_and(|c| ti4_engine_core::rules::action_cards::reaction_slot::plays(table, c));
             if let Some(card) = self.played.iter().find(|c| !ported(c)) {
+                if slot.contains(":ACTION_CARD_PLAYED:") {
+                    return Some(format!("unported ability {} (a card played at once)", anonymous(slot)));
+                }
                 return Some(format!("unported ability {} (card {card})", anonymous(slot)));
             }
         }
@@ -295,6 +296,8 @@ impl Follow {
         self.table.codes.supply_base = r.code("forward_supply_base");
         self.table.codes.mentak = r.code("mentak");
         self.table.codes.instinct_training = r.code("instinct_training");
+        self.table.codes.direct_hit = r.code("action_card:direct_hit");
+        self.table.facts.staging = crate::supply::staging_enabled(gs);
         let defs = self.table.registry(core, &order, &mut name);
         self.resolver.register(defs);
     }
@@ -370,6 +373,8 @@ mod tests {
         let slot = "reaction:hacan:ACTION_CARD_PLAYED:when";
         let mut r = rec(&[slot], &[slot]);
         r.played = vec!["sabo1".to_owned()];
+        assert_eq!(r.unported(&table()), None, "a Sabotage is played at once by the core");
+        r.played = vec!["reveal_prototype".to_owned()];
         assert_eq!(r.unported(&table()).as_deref(), Some("unported ability reaction:*:ACTION_CARD_PLAYED:when (a card played at once)"));
     }
 

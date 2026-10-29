@@ -763,7 +763,7 @@ pub fn sustain_commander(
 
 const SUSTAIN_OFFER: Footprint = Footprint::new(
     &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
-    &[Slice::Board, Slice::Players, Slice::Transient, Slice::Pending],
+    &[Slice::Board, Slice::Players, Slice::Transient, Slice::Marks, Slice::Pending],
 );
 
 /// What the string `offer_sustain` was called with.
@@ -836,25 +836,7 @@ pub fn sustain_offer(
     .ok()?
     .ok()?;
     apply_staged(gs, &r, &staged)?;
-    // `remember_sustain_target`: the string writes the handoff of the last unit that sustained.
-    if offer.staging
-        && let Some((site, piece)) = driver.window.last
-    {
-        let unit = ti4_model::units::Unit {
-            type_id: ti4_model::id::UnitTypeId::new(piece.kind().as_str()),
-            owner: PlayerId::new(r.seat_text(piece.owner())),
-            sustained_damage: piece.sustained(),
-            galvanized: piece.galvanized(),
-        };
-        let planet = match site {
-            ti4_engine_core::choice::combat::SustainSite::Planet { planet, .. } => Some(planet.as_str()),
-            ti4_engine_core::choice::combat::SustainSite::Space(_) => None,
-        };
-        gs.faction_marks.insert(
-            "combat:sustain_target".to_owned(),
-            serde_json::json!({"system": a.system, "planet": planet, "unit": unit}).to_string(),
-        );
-    }
+    // `remember_sustain_target` is the core window's own (`sustain_offer::remember_target`, a typed mark).
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     Some(CoreWindow { run: Run::new(usize::from(driver.window.hits)).with_events_vec(events), questions: driven.rendered })
 }
@@ -3280,25 +3262,7 @@ fn settle_run(
         }
     }
     apply_staged(gs, &r, &staged)?;
-    // `remember_sustain_target`: the string writes the handoff of the unit that sustained.
-    if a.staging
-        && let Some((site, piece)) = w.last_sustain
-    {
-        let unit = ti4_model::units::Unit {
-            type_id: ti4_model::id::UnitTypeId::new(piece.kind().as_str()),
-            owner: PlayerId::new(r.seat_text(piece.owner())),
-            sustained_damage: piece.sustained(),
-            galvanized: piece.galvanized(),
-        };
-        let planet = match site {
-            ti4_engine_core::choice::combat::SustainSite::Planet { planet, .. } => Some(planet.as_str()),
-            ti4_engine_core::choice::combat::SustainSite::Space(_) => None,
-        };
-        gs.faction_marks.insert(
-            "combat:sustain_target".to_owned(),
-            serde_json::json!({"system": a.system, "planet": planet, "unit": unit}).to_string(),
-        );
-    }
+    // `remember_sustain_target` is the core window's own (`sustain_offer::remember_target`, a typed mark).
     let positions = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     let player = |s: ti4_engine_core::ids::Seat| Some(PlayerId::new(r.seats.get(usize::from(s.0))?.clone()));

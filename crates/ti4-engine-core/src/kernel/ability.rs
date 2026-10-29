@@ -120,6 +120,8 @@ pub struct Codes {
     pub mentak: crate::state::Code,
     /// The `reason` of the strategy token Instinct Training spends.
     pub instinct_training: crate::state::Code,
+    /// The causes `action_card:direct_hit` and `action_card:courageous` of a destroyed ship.
+    pub direct_hit: crate::state::Code,
 }
 
 /// Facts the adapter computes for the window and the core cannot (no galaxy is lent to the windows that follow
@@ -127,6 +129,9 @@ pub struct Codes {
 #[derive(Debug, Clone, Default)]
 pub struct AdapterFacts {
     reach: Vec<(Seat, crate::generated::System, Vec<crate::generated::System>)>,
+    /// `supply::staging_enabled` of the position (a registered faction module is seated): losses are announced and a Direct
+    /// Hit removes the exact sustained ship.
+    pub staging: bool,
 }
 
 impl AdapterFacts {
@@ -151,6 +156,19 @@ pub type Effect = fn(&mut Eff<'_, '_>) -> Result<(), TimingError>;
 pub type Closed = fn(&mut RulesHost<'_>, &mut Resolver) -> Result<(), TimingError>;
 /// The predicate of a registered "cannot" (`Host::forbids`).
 pub type Forbids = fn(&CoreState, &CannotDef, &EventRec) -> bool;
+
+/// The effect of a reaction card played from a window, run when the play is announced (after `ACTION_CARD_PLAYED`
+/// was not cancelled, before the card reaches the discard pile): the host, the resolver of the window, the holder and
+/// the card. Registered by the rules package that owns the effect (an effect that reads the combat or invasion area
+/// cannot live in the action-card area: the areas do not import each other).
+pub type CardEffect = fn(&mut RulesHost<'_>, &mut Resolver, Seat, crate::generated::ActionCard) -> Result<(), TimingError>;
+
+/// A registered card effect: which cards it plays, and how.
+#[derive(Clone, Copy)]
+pub struct CardPlay {
+    pub covers: fn(crate::generated::ActionCard) -> bool,
+    pub effect: CardEffect,
+}
 
 /// One ability rule: its registry row and its behaviour.
 #[derive(Clone, Copy)]
@@ -264,9 +282,23 @@ pub struct AbilityTable {
     /// What a window does when its loop ends cleanly: announce the cards declared in it (rules version 3). Set by the
     /// rules package that owns the action cards (the kernel cannot import it).
     pub closed: Option<Closed>,
+    /// What follows the discard of a played reaction card: announce what its effect staged (a destroyed ship).
+    pub after_play: Option<Closed>,
+    card_plays: Vec<CardPlay>,
 }
 
 impl AbilityTable {
+    /// Register the effect of some reaction cards.
+    pub fn add_card_play(&mut self, play: CardPlay) {
+        self.card_plays.push(play);
+    }
+
+    /// The registered effect that plays `card`, if any.
+    #[must_use]
+    pub fn card_play(&self, card: crate::generated::ActionCard) -> Option<&CardPlay> {
+        self.card_plays.iter().find(|p| (p.covers)(card))
+    }
+
     pub fn add(&mut self, spec: Spec) {
         debug_assert!(self.of_slot(spec.slot).is_none(), "slot {:?} registered twice", spec.slot);
         self.specs.push(spec);
@@ -550,6 +582,12 @@ impl Eff<'_, '_> {
     #[must_use]
     pub fn facts(&self) -> NestedFacts {
         NestedFacts { event: self.event.clone(), relation: self.def.relation, chain: self.chain() }
+    }
+
+    /// Run `f` with the host and the resolver of this effect: a nested announcement that is not an event of the window
+    /// (a card played at once).
+    pub fn with_host<R>(&mut self, f: impl FnOnce(&mut RulesHost<'_>, &mut Resolver) -> R) -> R {
+        f(&mut *self.host, &mut *self.resolver)
     }
 
     /// Put a question and take the answer.

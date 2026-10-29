@@ -927,6 +927,7 @@ impl Machine {
                             }
                             Some((after, piece)) => {
                                 *sx.state = after;
+                                super::sustain_offer::remember_target(sx.state, env_system, self.env.staging, site, piece);
                                 self.last_sustain = Some((site, piece));
                                 let offer = Offer {
                                     player: front.player,

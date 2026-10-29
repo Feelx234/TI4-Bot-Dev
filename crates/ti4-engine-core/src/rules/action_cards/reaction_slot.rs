@@ -101,6 +101,12 @@ fn condition(c: &CondCx<'_>) -> bool {
     }
 }
 
+/// Whether the core plays `card` from a reaction window: a stamp or flag, or an effect a rules package registered.
+#[must_use]
+pub fn plays(t: &AbilityTable, card: ActionCard) -> bool {
+    effect_ported(card) || t.card_play(card).is_some()
+}
+
 /// The stamps and flags the core plays from a reaction window (a [`Simple`] effect that reads nothing the adapter
 /// would have to lend: no unit placed, no note order, no tokens held by Mahact). Not Reflective Shielding: it stages
 /// hits that the sustain window of the string takes up afterwards (a state the core windows do not carry).
@@ -138,7 +144,7 @@ fn play(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let me = eff.owner();
     let event = eff.event.clone();
     let relation = eff.def.relation;
-    if event.kind == EventKind::ActionCardPlayed || !eff.state().meta().rules_at_least(RULES_SABOTAGE_TIMING) {
+    if !eff.state().meta().rules_at_least(RULES_SABOTAGE_TIMING) {
         eff.unknown(Unknown::ImmediateCardPlay);
         return Ok(());
     }
@@ -194,6 +200,22 @@ fn play(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
         eff.unknown(Unknown::UnportedCard);
         return Ok(());
     };
+    if event.kind == EventKind::ActionCardPlayed {
+        // The window of `ACTION_CARD_PLAYED` is the answer to a play (Sabotage): played at once. The card is spent and
+        // announced inside the effect; a Sabotage cancels the event that opened the window.
+        if !eff.with_host(|host, _| plays(host.table, chosen)) {
+            eff.unknown(Unknown::UnportedCard);
+            return Ok(());
+        }
+        if super::discard_from_hand(eff.state(), me, at).is_none() {
+            return Ok(());
+        }
+        let played = eff.with_host(|host, resolver| announce(host, resolver, me, chosen))?;
+        if played && matches!(chosen, ActionCard::Sabotage1 | ActionCard::Sabotage2 | ActionCard::Sabotage3 | ActionCard::Sabotage4) {
+            eff.cancel();
+        }
+        return Ok(());
+    }
     if super::discard_from_hand(eff.state(), me, at).is_some() {
         eff.state().transient_mut().misc.declared_card_plays.push((me, chosen));
     }
@@ -222,12 +244,15 @@ fn announce_discard(host: &mut RulesHost<'_>, resolver: &mut Resolver, who: Seat
 
 /// `reactions::announce` of a declared card: the play is logged and announced; a cancelled card is only discarded;
 /// otherwise its effect runs, then the discard.
-fn announce(host: &mut RulesHost<'_>, resolver: &mut Resolver, who: Seat, card: ActionCard) -> Result<(), TimingError> {
+///
+/// `true` when the card was played (its announcement was not cancelled).
+fn announce(host: &mut RulesHost<'_>, resolver: &mut Resolver, who: Seat, card: ActionCard) -> Result<bool, TimingError> {
     host.state.transient_mut().misc.action_card_plays.push((who, card));
     let rec = event(host, EventKind::ActionCardPlayed, who, card);
     let announced = emit(host, resolver, rec)?;
     if announced.cancelled {
-        return announce_discard(host, resolver, who, card);
+        announce_discard(host, resolver, who, card)?;
+        return Ok(false);
     }
     match Simple::of(card).filter(|_| effect_ported(card)) {
         Some(effect) => {
@@ -243,9 +268,18 @@ fn announce(host: &mut RulesHost<'_>, resolver: &mut Resolver, who: Seat, card: 
             };
             play_simple(host.state, who, effect, env);
         }
-        None => host.tape.unknown.set(Some(Unknown::UnportedCard)),
+        None => match host.table.card_play(card).copied() {
+            Some(play) => (play.effect)(host, resolver, who, card)?,
+            None => host.tape.unknown.set(Some(Unknown::UnportedCard)),
+        },
     }
-    announce_discard(host, resolver, who, card)
+    announce_discard(host, resolver, who, card)?;
+    // An effect may have staged a destruction (Direct Hit, Courageous to the End): announced here, where the resolver
+    // is in hand, so the event's own windows open around it.
+    if let Some(after) = host.table.after_play {
+        after(host, resolver)?;
+    }
+    Ok(true)
 }
 
 /// The close of a window (rules version 3): the cards declared in it are announced, in declaration order.
