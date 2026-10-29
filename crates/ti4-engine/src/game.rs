@@ -15803,6 +15803,7 @@ mod tests {
     #[cfg(feature = "typed-core")]
     #[test]
     fn deadly_plot_effect_runs_as_a_core_window_in_lockstep() {
+        let _serial = crate::dual::tests::serial();
         use crate::dual::{AreaMask, Backend, take_report, with_mask};
         let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();
         let _ = take_report();

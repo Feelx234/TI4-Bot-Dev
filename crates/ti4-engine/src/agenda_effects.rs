@@ -2085,6 +2085,7 @@ mod tests {
     #[cfg(feature = "typed-core")]
     #[test]
     fn the_ported_effects_run_as_core_windows_in_lockstep() {
+        let _serial = crate::dual::tests::serial();
         use crate::dual::{AreaMask, Backend, take_report, with_mask};
         let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();
         let _ = take_report();
@@ -2115,6 +2116,7 @@ mod tests {
     #[cfg(feature = "typed-core")]
     #[test]
     fn the_second_batch_of_effects_runs_as_core_windows_in_lockstep() {
+        let _serial = crate::dual::tests::serial();
         use crate::dual::{AreaMask, Backend, take_report, with_mask};
         let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();
         let _ = take_report();

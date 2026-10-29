@@ -2615,6 +2615,7 @@ mod typed_render_tests {
     /// free. The window dual replays each and compares every question, the winner and the position.
     #[test]
     fn whole_votes_through_every_stage_run_in_lockstep_on_the_core_window() {
+        let _serial = crate::dual::tests::serial();
         use crate::dual::{AreaMask, Backend, take_report, with_mask};
         use ti4_model::id::{LeaderId, TechnologyId};
         use ti4_model::state::LeaderStatus;

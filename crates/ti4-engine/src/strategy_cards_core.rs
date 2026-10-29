@@ -861,9 +861,14 @@ mod tests {
     #[test]
     fn leadership_declines_where_payment_is_not_followed() {
         let label = "strategy_cards::leadership_primary";
-        let argent = [("a", "sol"), ("b", "argent")];
         let free = ["tactic_tokens", "tactic_tokens", "fleet_tokens", "no"];
-        assert_eq!(run(label, &argent, goods(4), &free, primary("pok1leadership")), (0, 1));
+        // Argent's agent is an ability of the core production window since the reactions package: the
+        // table with an Argent seat is followed, not declined.
+        let argent = [("a", "sol"), ("b", "argent")];
+        assert_eq!(run(label, &argent, goods(4), &free, primary("pok1leadership")), (1, 0));
+        // Yssaril's borrowed agents are still the string's: that table is declined.
+        let yssaril = [("a", "sol"), ("b", "yssaril")];
+        assert_eq!(run(label, &yssaril, goods(4), &free, primary("pok1leadership")), (0, 1));
     }
 
     #[test]
@@ -1205,8 +1210,10 @@ mod tests {
         })
         .join()
         .unwrap();
+        // The serial lock holder is the report's focus (`dual::FOCUS`): a window another thread runs reaches
+        // neither the shared report nor this thread's counts.
         let shared = report().windows.get(label).map_or(0, |w| w.compared + w.bailed);
-        assert!(shared >= 1, "the shared report holds the other thread's window");
+        assert_eq!(shared, 0, "the shared report is focused on this thread: the other thread's window is not in it");
         assert_eq!(counts(label), (0, 0), "this thread ran none");
         let _ = take_report();
     }
