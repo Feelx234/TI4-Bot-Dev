@@ -79,6 +79,7 @@ mod stub {
     use ti4_content::ContentStore;
     use ti4_content::galaxy::Galaxy;
     use ti4_model::content_types::SourceSet;
+    use ti4_model::id::SystemId;
     use ti4_model::state::GameState;
 
     use super::{Args, At, Stepped};
@@ -86,6 +87,10 @@ mod stub {
     use crate::dual_window::Recording;
 
     pub fn step(_: &mut GameState, _: &ContentStore, _: SourceSet, _: &Galaxy, _: &At, _: Args<'_>, _: &Recording) -> Option<CoreWindow<Stepped>> {
+        None
+    }
+
+    pub fn free(_: &mut GameState, _: &ContentStore, _: SourceSet, _: &Galaxy, _: &SystemId, _: super::Args<'_>, _: &Recording) -> Option<CoreWindow<Stepped>> {
         None
     }
 
@@ -102,7 +107,7 @@ mod real {
     use ti4_content::galaxy::Galaxy;
     use ti4_engine_core::driver::Driver;
     use ti4_engine_core::generated::{System, Unit as CUnit};
-    use ti4_engine_core::kernel::stage::AbilityTable;
+    use ti4_engine_core::kernel::stage::{AbilityTable, Window};
     use ti4_engine_core::kernel::Resolver;
     use ti4_engine_core::rules::tactical::{Facts, Machine, Plain, RoutePick, Stage};
     use ti4_engine_core::state::{Piece, Slice};
@@ -332,6 +337,56 @@ mod real {
         let rng = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
         let events = emitted.iter().map(|e| event_of(&r, e)).collect::<Option<Vec<_>>>()?;
         let stepped = Stepped { stage: tag_of(stage), plain: plain.into_iter().map(|p| plain_text(&r, p)).collect(), failed: false, rift_faces, rng };
+        Some(CoreWindow { run: Run::new(stepped).with_events_vec(events), questions: driven.rendered })
+    }
+
+    /// The core half of `begin_free_tactical` (TE Warfare, Z'eu): no token, no question.
+    #[must_use]
+    pub fn free(gs: &mut GameState, content: &ContentStore, sources: SourceSet, galaxy: &Galaxy, system: &SystemId, args: Args<'_>, script: &Recording) -> Option<CoreWindow<Stepped>> {
+        const LABEL: &str = "tactical::free";
+        if args.failed || !content.is_embedded() || gs.diplomacy.enabled || gs.active_space_combat.is_some() || gs.active_invasion.is_some() {
+            return None;
+        }
+        if dropped_faction_at_the_table(gs) {
+            return bail(LABEL, "a faction dropped by decision at the table");
+        }
+        let mut factions: Vec<&str> = gs.players.iter().map(|p| p.faction.as_str()).collect();
+        factions.sort_unstable();
+        if factions.windows(2).any(|w| w[0] == w[1]) {
+            return bail(LABEL, "a faction played by two seats");
+        }
+        nested_check(script)?;
+        if script.questions.iter().any(|q| !q.nested) {
+            return bail(LABEL, "a free activation asked a question");
+        }
+        let (mut cx, r) = tables(gs)?;
+        let seat = r.seat(args.player.as_str())?;
+        let target = <System as IdStr>::from_id(system.as_str())?;
+        let facts = Facts { pool: r.code("tactic") };
+        let before = gs.clone();
+        let env = crate::core_combat::window_env(&before, &cx, sources)?;
+        let resolver = Resolver::new(&[seat], Some(seat));
+        let src = Sources { galaxy: Some(galaxy), rng: Some(args.rng_before) };
+        let mut staged = Vec::new();
+        let mut rng_after = None;
+        let mut out = None;
+        let driven = with_core(gs, &mut cx, src, nested_fp(WINDOW, script), |core, _| {
+            let mut driver = Driver::new(Machine::free(seat, facts, target), resolver, AbilityTable::default(), 1);
+            let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            rng_after = Some(core.rng().clone());
+            out = Some((driver.window.stage(), driver.window.plain.clone(), driver.emitted.clone()));
+            driven
+        });
+        let driven = match driven {
+            Ok(Ok(d)) => d,
+            _ => return bail(LABEL, "a position the codecs refuse"),
+        };
+        let (stage, plain, emitted) = out?;
+        apply_staged(gs, &r, &staged)?;
+        let rng = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
+        let events = emitted.iter().map(|e| event_of(&r, e)).collect::<Option<Vec<_>>>()?;
+        let stepped = Stepped { stage: tag_of(stage), plain: plain.into_iter().map(|p| plain_text(&r, p)).collect(), failed: false, rift_faces: Vec::new(), rng };
         Some(CoreWindow { run: Run::new(stepped).with_events_vec(events), questions: driven.rendered })
     }
 

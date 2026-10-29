@@ -3378,7 +3378,7 @@ impl<'a> Game<'a> {
         let (dice_before, events_before) = (self.dice.count(), self.events.len());
         let failed = std::cell::Cell::new(false);
         let mut applied = None;
-        let mut taken = std::mem::take(&mut self.state);
+        let mut taken = self.state.clone();
         let _ = crate::dual_window!(
             Area::Movement,
             crate::tactical_dual::label(&at),
@@ -3742,6 +3742,58 @@ impl<'a> Game<'a> {
     /// Perform a faction component action through the game's own timing context.
     /// Resolve a leader offered as an action-phase component (LEADER-FIX-001).
     fn begin_free_tactical(&mut self, active: PlayerId, system: SystemId) -> Result<(), GameError> {
+        use crate::dual::{Area, Backend};
+        let galaxy = self.galaxy.clone();
+        let (Backend::Dual, Some(galaxy)) = (crate::dual::backend(Area::Movement), galaxy) else {
+            return self.begin_free_tactical_text(active, system);
+        };
+        let (content, sources) = (self.content, self.sources);
+        let rng_before = self.rng.positions();
+        let reproducible =
+            !self.dice.is_preloaded() && !self.rng.sync_pending() && self.rng.seed() == self.state.rng_seed;
+        let events_before = self.events.len();
+        let failed = std::cell::Cell::new(false);
+        let mut done = None;
+        let (player, target) = (active.clone(), system.clone());
+        let mut taken = self.state.clone();
+        let _ = crate::dual_window!(
+            Area::Movement,
+            "tactical::free",
+            &mut taken,
+            |state: &mut GameState| {
+                std::mem::swap(&mut self.state, state);
+                let result = self.begin_free_tactical_text(active, system);
+                std::mem::swap(&mut self.state, state);
+                failed.set(result.is_err());
+                done = Some(result);
+                crate::dual::Run::new(crate::tactical_dual::Stepped {
+                    stage: if self.tactical.is_some() {
+                        crate::tactical_dual::Tag::Moving
+                    } else {
+                        crate::tactical_dual::Tag::Closed
+                    },
+                    plain: self.events.get(events_before..).unwrap_or_default().to_vec(),
+                    failed: failed.get(),
+                    rift_faces: Vec::new(),
+                    rng: self.rng.positions(),
+                })
+            },
+            |state: &mut GameState, script: &crate::dual_window::Recording| {
+                let args = crate::tactical_dual::Args {
+                    player: &player,
+                    reproducible,
+                    rng_before: &rng_before,
+                    failed: failed.get(),
+                };
+                crate::tactical_dual::free(state, content, sources, &galaxy, &target, args, script)
+            }
+        );
+        self.state = taken;
+        done.expect("the string side of the window ran")
+    }
+
+    /// The free tactical action as the string engine runs it (see [`Self::begin_free_tactical`]).
+    fn begin_free_tactical_text(&mut self, active: PlayerId, system: SystemId) -> Result<(), GameError> {
         // TE Warfare explicitly waives the token and permits an already-tokened
         // system, but the rest is the ordinary movement/aftermath pipeline.
         //
@@ -4805,7 +4857,7 @@ impl<'a> Game<'a> {
         let events_before = self.events.len();
         let failed = std::cell::Cell::new(false);
         let mut done = None;
-        let mut taken = std::mem::take(&mut self.state);
+        let mut taken = self.state.clone();
         let _ = crate::dual_window!(
             Area::Movement,
             "tactical::finish",
