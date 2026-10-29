@@ -46,7 +46,7 @@ struct Done {
     compared: u64,
     bailed: u64,
     /// The bail reasons the report counted under the window's label.
-    reasons: Vec<String>,
+    reasons: Vec<(String, u64)>,
 }
 
 /// Open the window of `a` with `b` and answer each question with the next entry of `script`: an option id, or `~`
@@ -87,7 +87,7 @@ fn negotiate(mut state: GameState, hub: &crate::fixtures::Hub, script: &[&str], 
     let r = report();
     assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
     let (compared, bailed) = crate::dual::thread_window_counts(LABEL);
-    let reasons = r.windows.keys().filter(|k| k.starts_with(LABEL) && k.contains("[bail")).cloned().collect();
+    let reasons = r.windows.iter().filter(|(k, _)| k.starts_with(LABEL) && k.contains("[bail")).map(|(k, w)| (k.clone(), w.bailed)).collect();
     Done { traded, state, compared, bailed, reasons }
 }
 
@@ -299,7 +299,7 @@ fn a_free_form_deal_is_left_to_the_string_engine() {
     let done = plain(state, &hub, &[&id, "accept"]);
     assert_eq!(done.traded.len(), 2);
     assert_eq!((done.compared, done.bailed), (0, 2), "the core cannot read a free-form id, at either step");
-    assert!(done.reasons.iter().any(|k| k.contains("a free-form deal")), "{:?}", done.reasons);
+    assert!(done.reasons.iter().any(|(k, n)| k.contains("a free-form deal") && *n == 2), "both steps are the free-form bail: {:?}", done.reasons);
 }
 
 #[test]
@@ -307,7 +307,7 @@ fn a_table_where_two_seats_play_one_faction_is_left_to_the_string_engine() {
     let (state, hub) = table(&[("a", "sol"), ("b", "sol")]);
     let done = plain(state, &hub, &["cc3", "accept"]);
     assert_eq!(done.compared, 0);
-    assert!(done.reasons.iter().any(|k| k.contains("a faction played by two seats")), "{:?}", done.reasons);
+    assert!(done.reasons.iter().any(|(k, _)| k.contains("a faction played by two seats")), "{:?}", done.reasons);
 }
 
 #[test]
@@ -453,7 +453,7 @@ fn a_pride_of_kenara_planet_card_keeps_the_window_on_the_string_engine() {
     assert!(!crate::transactions::pride_of_kenara_planets(&state, &b()).is_empty(), "the fixture gives Hacan a Pride of Kenara");
     let done = plain(state, &hub, &["cc3", "accept"]);
     assert_eq!(done.compared, 0);
-    assert!(done.reasons.iter().any(|k| k.contains("a Pride of Kenara planet card")), "{:?}", done.reasons);
+    assert!(done.reasons.iter().any(|(k, _)| k.contains("a Pride of Kenara planet card")), "{:?}", done.reasons);
 }
 
 #[test]
