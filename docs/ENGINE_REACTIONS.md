@@ -554,24 +554,47 @@ Registry parity: the string registers Technological Singularity, its marks and (
 seats it registers them for (every seat for the first, a Nekro seat for the last). `the_native_registry_equals_the_string_one_for_the_ported_abilities`
 now also seats a Nekro and a Sardakk.
 
+### 10.1b Second round (same branch): payment inside an ability, the map as an input, pair rules
+
+| what | string id | core |
+|---|---|---|
+| a payment loop inside an effect | (`production::pay_seeing`) | `rules/production/pay.rs::pay_in`: `PayStep` repeated through `Eff::ask`, a lone option taken, the kernel for payments lent by the adapter (`AdapterFacts::pay_kernel` = `production_view::kernel`; the combat kernel holds none of the economy hooks) |
+| the map as an input | `galaxy.adjacent` of `empyrean_units::near` | `Recording::adjacent` (each pair the string asked, `dual_window::note_adjacent`) -> `AdapterFacts::adjacent`; a pair the string did not ask makes the window unknown (`MissingFact`) |
+| Dynamo (Empyrean flagship), ships and ground forces | `unit:*:empyrean_flagship:{SUSTAIN_DAMAGE_USED,GROUND_FORCE_SUSTAINED}:after` | `ce_movement/empyrean/timing.rs`, slots 13001-13002; the 2 influence are paid by `pay_in` (planets and trade goods are real questions inside the ability) |
+| the Watcher (Empyrean mech) | `unit:*:empyrean_mech:ACTION_CARD_PLAYED:when` | slot 13003; `reaction::Ask::Watcher { actor }` (prompt, `watcher_remove`, options `Opt::Site { system, planet }`) when several mechs are in reach |
+| Salvage Operations, the produce half | `technology:*:so:SPACE_COMBAT_ENDED:produce` (registered as an `after` ability whose id ends `produce`: `reactions_core::rel_segment`) | `cc_ground/mentak/timing.rs`, slot 8005; `reaction::Ask::Salvage` / `Opt::Produce { unit, cost }` (option id = the base type, `.with("cost")`); the buildable list is an input (`Recording` -> `AdapterFacts::buildable`, from `production::buildable_for`); a cruiser or flagship is the string's form (`MissingFact`) |
+| pair rules (`Spec::pair`, `AbilityDef::pair_source`) | Ssruu copies | the registry walks the lender's seat and registers the copy for each borrower (`AbilityTable::registry`, `name(spec, owner, lender)`); `reactions_core::PAIRS` spells the two id shapes (`leader:{lender faction}:{lender}:yssarilagent:{agent}:EVENT:rel` and `leader:ssruu-copy:{borrower}:{agent}:{lender}:EVENT:after`) and `slot_of` parses them |
+| Ssruu copying Brother Milor (ships, ground), Evelyn De Louis, Viscount Unlenn, Trilossa Aun Mirik | see above | `cd_registry/yssaril/ssruu.rs`, slots 14001-14005; the originals are parameterized by the card exhausted (`yin::timing::place_by`, `borrowed::timing::copy_effect`, `argent::timing::copy_agent`) |
+| the round agents' extra die | `borrowed_round_agents::extra_die_for` | `borrowed::query::extra_die_for` reads the typed mark from the core state; the string-oracle snapshot of the window start could not see a mark written in the same window (the composed `combat::settle` rolled 3 dice where the string rolled 5: found by the Ssruu copy of Viscount Unlenn; test `the_letnev_agent_extra_die_is_read_in_the_window_that_writes_the_mark`) |
+
 ### 10.2 Stays string (documented bail, one test per family)
 
-Test for all of them: `reactions_core::tests::bail_every_family_that_stays_in_the_string_is_named` (the window bails with
-`nested (unported ability <id>)`); the specific bails have their own tests.
+Test for the families that need no special reason: `reactions_core::tests::bail_every_family_that_stays_in_the_string_is_named`
+(the window bails with `nested (unported ability <id>)`); the specific bails have their own tests.
 
-| family | runs in the stage-3 census | why it stays | what a port needs |
+| family | runs (pre-B12 census, section 10.4) | why it stays | what a port needs |
 |---|---|---|---|
-| Technological Singularity: a gained unit upgrade / a technology a unit requires | (inside the 31) | `technology::apply_unit_upgrades` swaps the forms of units on the board; bails `MissingFact`; test `bail_the_singularity_for_a_unit_upgrade_and_the_z_token` | a core `unit_swaps` write (the read exists: `technology_core::unit_swaps`) |
-| Technological Singularity with the Z token (`nekrobt`) held | (inside the 31) | the Z option lends a flagship's text; bails `MissingFact` (same test) | the Z tables (`LENDABLE_FLAGSHIPS`, `flagship_of`) as core data |
-| Empyrean flagship Dynamo (influence payment inside an ability, plus the raw adjacency of the map) | 14 + 1 | `production::pay_seeing` runs the whole pay loop (agent offer, credit) inside the effect: a child window; the reach is `galaxy.adjacent`, not the player adjacency facts the table carries | a payment helper that runs `PayStep` through `Eff::ask` (the same helper serves Salvage Operations), and a `reach` fact for raw adjacency |
-| Empyrean mech Watcher | 7 | removal of the mech plus cancelling the card played (a play at once); adjacency of the map | as above |
-| Salvage Operations, the produce half (`technology:*:so:SPACE_COMBAT_ENDED:produce`, a third relation) | 8 | optional production of a ship in the system: question, payment (child window), placement, unit-form swap | the payment helper; `produce` as a core relation |
-| Ssruu copies (Yin ships and ground 10 + 9, Letnev 9 + 2, Sol 5 + 4, Argent 6 + 1; `leader:{owner}:{source}:yssarilagent:{agent}:EVENT:after`) | 46 | one registration per (borrower, source) pair, the id carries the source's name; `AbilityTable::registry` iterates seats only | a pair registry (`Applies::Borrowed`) and `slot_of` over `{source}:yssarilagent:{agent}`; the effects are the originals' with the borrower as actor |
-| Sardakk mech (assign 1 hit inside the ability) | 2 | `assign_ground_unit_ability_hits_in_timing`: hit assignment with its sustain offers is a child window | child window (`Child<W>`, design in 9.2) |
-| Sardakk: the stale-mark clean-up at `TURN_BEGAN` | 0 | no followed window announces `TURN_BEGAN`; nothing could run or test it | a TURN_BEGAN window |
-| Reflective Shielding, Courageous to the End, Fire Team, Scramble Frequency, Reveal Prototype (section 9.2) | 2 + 2 + 6 + 1 + 4 | unchanged: child window, producer in the context, per-die reroll questions, printed card cost | 9.2 |
-| a card cost the core does not judge (Bribery / Reveal Prototype) | 6 | unchanged | 9.2 |
+| Technological Singularity: a gained unit upgrade / a technology a unit requires; the Z token | (inside the 31) | `technology::apply_unit_upgrades` swaps the forms of units on the board; the Z option lends a flagship's text; `MissingFact`; test `bail_the_singularity_for_a_unit_upgrade_and_the_z_token` | a core `unit_swaps` write; the Z tables as core data (`common::flagship_has_text` already reads `NekroToken`) |
+| Dynamo / Salvage with an ocean-card seat (Deepwrought) | few | `payment::plans` pays with ocean cards too (`MissingFact`) | the ocean cards as planets of the plan |
+| Salvage producing a cruiser or a flagship | few | Mentak's Corsair form (`placed_unit_id` override); `bail_salvage_operations_of_a_cruiser_is_counted` | the form override as a core hook |
+| Sardakk mech (assign 1 hit inside the ability) | 2 | `assign_ground_unit_ability_hits_in_timing`: a hit assignment with its sustain offers is a child window | `Child<W>` (design in 9.2) |
+| Sardakk: the stale-mark clean-up at `TURN_BEGAN` | 0 | no followed window announces `TURN_BEGAN` | a TURN_BEGAN window |
+| Reflective Shielding, Courageous to the End | 2 + 2 | child flows (the producer's two hits; the opponent's casualty question with the holder as producer) | 9.2 |
+| Fire Team, Scramble Frequency | 6 + 1 | per-die reroll questions of a card (`RerollSource` has Relic, Law, Munitions only) inside the roll windows' staged `reroll_staging`, and the dice stream inside the card's announcement | a `RerollSource::Card`, the roll windows opening their reroll sets to a `CardPlay` |
+| Reveal Prototype and the cost it makes the core not judge | 4 + 6 | a research choice by unit line and a 4-resource payment (`cost_is_payable` is `None` for it) | `pay_in` is there now; the research (`Research` window of B8c) as a callable piece |
 | Winnu commander unlock 1, Ambuscade 1, an adapter fact 1, a window lent no dice stream 1 | 4 | unchanged | one by one |
+
+### 10.4 The nested-bail census before B12 (the 20 golden games, `TI4_NESTED_LOG=1`, wide mask, SHARDS=4, pre-B12 binary)
+
+`/root/deploytmp/core-b12-agent/census.out`: 11 679 525 calls, 11 803 425 comparisons, 0 differences, hashes equal; `nested activity: 231
+signatures, 736 runs`. Bails by their first reason (runs): Technological Singularity open / close 13 + 12 + 4 + 2; Dynamo 13 + 1 + 1;
+the Ssruu copies of Brother Milor 9 + 5 + 4 + 1, of Viscount Unlenn 9 + 1 + 1 + 1, of Evelyn De Louis 5 + 4, of Trilossa 6 + 1; Salvage's
+produce half 8; Fire Team 6; Sardakk hero 4 and mech 2; a card cost the core does not judge 3 + 3; Reveal Prototype 3 + 1; the Watcher
+2 + 2 + 1 + 1 + 1; a Nekro-carried technology 2 + 1 + 1 + 1 + 1; Ambuscade, Courageous 1 + 1, Reflective 1 + 1, Scramble 1, the Winnu
+commander 1, an action card the core does not play 2, a window lent no dice stream 1, an adapter fact 1. B12 ported the Singularity, Dynamo, the
+Watcher, Salvage's produce half, the Ssruu copies of Brother Milor, Viscount Unlenn, Evelyn De Louis and Trilossa, Sh'val's finish and the
+Nekro-carried Instinct Training (10.1, 10.1b); the other Ssruu copies (Naaz, Winnu, Saar, Sardakk ... agents) are windows outside combat and
+invasion.
 
 ### 10.3 Item 5c (Bastion and Crimson typed reads): not started
 

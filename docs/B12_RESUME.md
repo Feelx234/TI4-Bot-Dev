@@ -1,52 +1,49 @@
-# B12 resume note (combat and invasion area, item 4 + 5c of `ENGINE_PACKAGE_PREREQS.md`)
+# B12 resume note (combat and invasion area, item 4 + 5 of `ENGINE_PACKAGE_PREREQS.md`)
 
-Branch `core-b12` (from `core-integration-3` @ 1e55ab28, `core-dual-shards` merged). **The area is not complete and the
-heavy gate has NOT been run** (no verify_package, no golden dual, no benches, no board_equivalence, no wide dual run).
-The one allowed up-front census was started (`/root/deploytmp/core-b12-agent/census.out`, queued behind other agents on
-`/root/.ti4-heavy.lock`, on the binary of the merge base before any B12 change); it may have finished by now: read it.
+Branch `core-b12` (from `core-integration-3` @ 1e55ab28; `core-dual-shards` and `core-b8c` @ 8fa4ddb2 merged). **The area is not
+complete and the heavy gate has NOT been run** (no verify_package, no golden dual after the changes, no benches, no board_equivalence,
+no clippy). The single up-front census ran (pre-B12 binary): `docs/ENGINE_REACTIONS.md` 10.4.
 
-## Why it stopped
+## Done (all tests green: `cargo test -p ti4-engine-core -p ti4-engine-core-factions -p ti4-engine`)
 
-The definition of done ("every combat/invasion window and nested reason ported or a documented, tested bail") needs, by the
-prerequisites document's own estimates, 12-20 h for item 4 and 4-6 h for 5c, plus the child-window machinery that three of
-the biggest remaining families share (Dynamo, Salvage Operations, the Sardakk mech, Reflective Shielding). That did not fit
-one run. What fits was done and is committed; everything else is listed with its plan in `docs/ENGINE_REACTIONS.md` 10.
+Round 1: Technological Singularity (6 abilities, the `Assimilate` question), the `combat::settle` silent bail on `nekro:ts:` marks,
+The Terror Between registered for Nekro seats, Instinct Training carried by an assimilator, Sh'val's finish.
+Round 2 (this note's session): `pay_in` (a payment loop inside an ability), the map pairs as an input, Dynamo, the Watcher, Salvage
+Operations' produce half, pair rules and the four Ssruu copies (Milor, Evelyn, Viscount, Trilossa), the round agents' extra die read from
+the core state. Ids, slots, tests: `docs/ENGINE_REACTIONS.md` 10.1 and 10.1b; bails: 10.2.
 
-## Done (all tests green: `cargo test -p ti4-engine-core -p ti4-engine-core-factions -p ti4-engine`, 4228 + 142 + 93)
+## Next, in this order (each = Spec + Named line + lockstep test with real factions, notes cleared (trap: fixture faction `generic`)
+## + mutation check + registry parity test with the seats seated)
 
-* Technological Singularity (6 abilities + the `Assimilate` question and its renderer), the `combat::settle` silent bail on
-  `nekro:ts:` marks, The Terror Between registered for Nekro seats, Instinct Training carried by an assimilator, Sh'val's
-  finish. Details, ids and tests: `docs/ENGINE_REACTIONS.md` 10.1.
-* Bail tests: `reactions_core::tests::bail_every_family_that_stays_in_the_string_is_named` and the specific ones in 10.2.
-* Mutation checks: see the final report of the run (listed per core half; one equivalent mutant: `is_unit_upgrade(t)` in
-  `changes_unit_forms` is covered by the `Unit::ALL` clause, kept as a guard).
-
-## Next (in this order; every item = Spec + Named line + lockstep test with real factions and `promissory` notes cleared
-(trap: fixture faction `generic`) + mutation check + registry parity test)
-
-1. **Payment helper inside an ability** (`Eff` runs `PayStep` through `Eff::ask`; mirror `production::pay_offering_agent`).
-   Unlocks Empyrean Dynamo (15) and Salvage Operations' produce half (8, needs a `produce` relation) and probably Bribery.
-   Dynamo also needs the raw map adjacency as an `AdapterFacts` entry (the string uses `galaxy.adjacent`, not
-   `PlayerAdjacency`).
-2. **Ssruu pair registry** (46 runs): `Applies::Borrowed(agent)` registered per (borrower, source) pair, `slot_of` on
-   `{source}:yssarilagent:{agent}`; effects are the originals'. Port the family whole (a window bails if any eligible
-   ability of its signature is outside the table).
-3. Empyrean Watcher (7), Sardakk mech (child hit assignment), Reflective Shielding (design in `ENGINE_REACTIONS.md` 9.2),
-   Courageous, Fire Team, Scramble Frequency, Reveal Prototype.
-4. 5c Bastion/Crimson typed reads: see `ENGINE_REACTIONS.md` 10.3 (hooks declared, not implemented; `Spot` has no card
-   variant; `fleet::remaining(.., on_card)` always 0 in the core).
-5. 5a `FinalizingControl` and 5b `finish_committing`: unblocked now (B5/B7 are in `core-integration-3`), not started.
-6. Then the gate, once, on the final commit, under `flock /root/.ti4-heavy.lock`: `tools/engine_core/verify_package.sh`
-   for the combat and invasion areas (`SKIP_AB=1 SKIP_WASM=1`, `--profile gate`, `SHARDS=4`), the golden dual with
-   `driver=dual` (and the wide mask `driver=dual,invasion=dual,production=dual,leaders=dual,exploration=dual,agenda=dual`
-   with `TI4_NESTED_LOG=1` for the census), `board_equivalence`, `bench` + `bench-v1..v5` 200/200, clippy.
+1. **Mutation survivors to close** (`/root/deploytmp/core-b12-agent/batch2.out`): see the end of the final report of the session; the
+   helper is `/root/deploytmp/core-b12-agent/mutate.py` (`MUT_ROOT`/`MUT_TARGET` run it in a second worktree, `core-b12-mut`, so
+   development and mutation do not share files; filters are `a|b` substrings).
+2. **5b `finish_committing` remainder**: `offer_research_team` (+ `_defense`) and `add_forced_combats` are string functions between the
+   windows already ported (`announce_and_defend_windowed`, `advance_fighting`). The queries exist in the core
+   (`deepwrought_research_team_open`, `_defender_open`, hook `forced_combat_planets`); the coexistence write (`begin_coexisting`) is
+   `state/board.rs` + the Deepwrought module. Minimal DoD: two dual windows that compare the "nothing offered" case and bail
+   (named) on a Deepwrought, Firmament or Titans seat.
+3. **5a `FinalizingControl`** (`invasion.rs:5014 finish_control_gain`): `fx::gain_control` (+ the `control_gained` hook, L1Z1X
+   Assimilate), `PLANET_CONTROL_GAINED` through the resolver (Infiltrate/Reparations bail: `Unknown::HarnessOrInfiltrate`), the
+   structure destruction order by `RULES_INFILTRATE_FIX`, Integrated Economy (`EconomyWindow`), Jupiter Brain, Fracture relic, exploration
+   (B5 windows). Minimal DoD: a capture with none of those compared as one window; the rest bails.
+4. **5c Bastion/Crimson typed reads**: `ENGINE_REACTIONS.md` 10.3 (hooks declared in `kernel/hooks/direct.rs:78-127`, implemented nowhere;
+   `Spot` has no card variant; `fleet::remaining(.., on_card)` is always 0 in the core).
+5. Cards: Fire Team, Scramble Frequency (a `RerollSource::Card`), Courageous to the End, Reflective Shielding (`Child<W>`), Reveal Prototype
+   (the research as a callable piece; `cost_is_payable` is `None` for it), Sardakk mech (a child hit assignment), Technological
+   Singularity's unit-upgrade gain (a core `unit_swaps`), Winnu commander unlock, Ambuscade.
+6. Then the gate, once, on the final commit, under `flock /root/.ti4-heavy.lock`: `tools/engine_core/verify_package.sh` for the combat and
+   invasion areas (`SKIP_AB=1 SKIP_WASM=1`, `--profile gate`, `SHARDS=4`), the golden dual with `driver=dual` (and the wide mask
+   `driver=dual,invasion=dual,production=dual,leaders=dual,exploration=dual,agenda=dual`), `board_equivalence`, `bench` + `bench-v1..v5`
+   200/200, clippy. Expect new golden findings: nothing of round 2 has seen the 20 golden games yet; the typical finds so far were a
+   fixture-only blind spot (the oracle snapshot), a `context.optional` flag and an id shape.
 
 ## Commands
 
 ```
-git worktree: /root/TI4-Bot-Dev/.claude/worktrees/core-b12 (branch core-b12)
-export CARGO_TARGET_DIR=/root/deploytmp/core-b12 CARGO_BUILD_JOBS=2
-cargo test -p ti4-engine --lib singularity          # the Nekro tests
-/root/deploytmp/core-b12-agent/mutate.py FILE FILTER 'old=>new' ...   # one mutation at a time, expects a failure
+worktree: /root/TI4-Bot-Dev/.claude/worktrees/core-b12 (branch core-b12); mutation worktree core-b12-mut (detached)
+export CARGO_TARGET_DIR=/root/deploytmp/core-b12 CARGO_BUILD_JOBS=3
+cargo test -p ti4-engine --lib -- ssruu salvage dynamo watcher singularity
 ```
-Open decision: none for the user. Remove `/root/deploytmp/core-b12` (debug 3-5 GB, gate 1.5 GB) when done.
+Housekeeping: `/root/deploytmp/core-b12` (3-5 GB debug + 1.5 GB gate) and `/root/deploytmp/core-b12-mut` are private targets; delete them
+when the branch is done. Remove the worktree `core-b12-mut` (`git worktree remove --force`) before merging.

@@ -214,3 +214,40 @@ pub fn register_abilities(t: &mut AbilityTable) {
     t.add(Spec::new(DYNAMO_GROUND, AbilityKind::Unit, EventKind::GroundForceSustained, Relation::After, dynamo).when(dynamo_when).optional());
     t.add(Spec::new(WATCHER, AbilityKind::Unit, EventKind::ActionCardPlayed, Relation::When, watcher).when(watcher_when).optional());
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::testkit::table;
+    use ti4_engine_core::generated::Faction;
+    use ti4_engine_core::state::{Piece, Val};
+
+    fn event(system: System, owner: Seat, kind: Unit) -> Payload {
+        Payload::new().with(Key::System, Val::System(system)).with(Key::Player, Val::Seat(owner)).with(Key::Unit, Val::Unit(kind))
+    }
+
+    #[test]
+    fn the_target_is_a_damaged_unit_of_the_named_owner_and_type() {
+        let (mut s, _) = table(&[Faction::TheEmiratesOfHacan, Faction::TheEmpyrean]);
+        let system = System::ALL[0];
+        s.board_mut().sys_mut(system).units.push(Piece::new(Unit::DreadnoughtI, Seat(0)));
+        assert_eq!(target(&s, &event(system, Seat(0), Unit::DreadnoughtI)), None, "an undamaged unit has nothing to repair");
+        s.board_mut().sys_mut(system).units.as_mut_slice()[0] = Piece::new(Unit::DreadnoughtI, Seat(0)).with_sustained(true);
+        assert_eq!(target(&s, &event(system, Seat(0), Unit::DreadnoughtI)), Some((system, None, Seat(0), Unit::DreadnoughtI)));
+        assert_eq!(target(&s, &event(system, Seat(1), Unit::DreadnoughtI)), None, "another player's unit");
+        assert_eq!(target(&s, &event(system, Seat(0), Unit::CruiserI)), None, "another type");
+    }
+
+    #[test]
+    fn the_map_is_an_input_and_a_pair_the_string_did_not_ask_makes_the_answer_unknown() {
+        let mut f = AdapterFacts::default();
+        let (a, b, c) = (System::ALL[0], System::ALL[1], System::ALL[2]);
+        assert_eq!(any_near(&f, [a].into_iter(), a, true), Ok(true), "the same system needs no map");
+        assert_eq!(any_near(&f, [b].into_iter(), a, true), Err(()), "never asked");
+        f.set_adjacent(b, a, false);
+        assert_eq!(any_near(&f, [b].into_iter(), a, true), Ok(false));
+        f.set_adjacent(c, a, true);
+        assert_eq!(any_near(&f, [b, c].into_iter(), a, true), Ok(true));
+        assert_eq!(any_near(&f, [c].into_iter(), b, false), Err(()), "the pair is asked in the string's order (system, candidate)");
+    }
+}
