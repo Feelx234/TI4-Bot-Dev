@@ -1755,6 +1755,17 @@ pub fn barrage_unported(gs: &GameState, a: &BarrageArgs<'_>) -> bool {
         })
 }
 
+/// A Waylay is played in the window a barrage opens before each roll (`ANTI_FIGHTER_BARRAGE_STARTED`), so the position
+/// cannot tell: the hits of that roll go to every ship (the target's owner assigns them, sustain first), which the core
+/// barrage step does not carry. A documented bail, counted.
+fn waylay_check(script: &Recording) -> Option<()> {
+    if script.played.iter().any(|card| card == "waylay") {
+        crate::dual::note_bail(LABEL.with(Cell::get), "Waylay played in the barrage (the hits go to every ship)");
+        return None;
+    }
+    Some(())
+}
+
 /// The core half of `CombatWindow::barrage_step`. `rng_before` is where the streams stood before the string
 /// step. `None` for the positions of [`barrage_unported`], neutral sides, irreproducible dice, reaction
 /// activity in the announcements, or a position the codecs refuse.
@@ -1776,13 +1787,7 @@ pub fn barrage_step(
     }
     let (mut cx, r) = tables(gs)?;
     nested_check(script)?;
-    // A Waylay is played in the window the step opens before each roll (`ANTI_FIGHTER_BARRAGE_STARTED`), so the position
-    // cannot tell: the hits of that roll go to every ship (the target's owner assigns them, sustain first), which the core
-    // step does not carry.
-    if script.played.iter().any(|card| card == "waylay") {
-        crate::dual::note_bail(LABEL.with(Cell::get), "Waylay played in the barrage (the hits go to every ship)");
-        return None;
-    }
+    waylay_check(script)?;
     let attacker = r.seat(a.attacker.as_str())?;
     let defender = r.seat(a.defender.as_str())?;
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
@@ -3454,6 +3459,7 @@ fn settle_run(
     let begin_occurrence = a.begin_occurrence && a.occurrence.is_none();
     let (mut cx, r) = tables(gs)?;
     nested_check(script)?;
+    waylay_check(script)?;
     let seat = |p: &PlayerId| r.seat(p.as_str());
     let seats = |l: &[PlayerId]| l.iter().map(seat).collect::<Option<Vec<_>>>();
     let (attacker, defender) = (seat(&a.attacker)?, seat(&a.defender)?);

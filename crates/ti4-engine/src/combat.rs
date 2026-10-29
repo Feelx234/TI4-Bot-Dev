@@ -10688,7 +10688,7 @@ mod tests {
                 |_, _, c| c.options.iter().position(|o| o.id.starts_with("reaction:")).unwrap_or(0),
             );
             assert_eq!(differences, 0, "seed {seed}: {windows:?}");
-            bailed += windows.iter().filter(|(k, v)| k.contains("combat::barrage_step [bail: Waylay") && v.bailed > 0).count();
+            bailed += windows.iter().filter(|(k, v)| k.contains("[bail: Waylay") && v.bailed > 0).count();
         }
         assert!(bailed > 0, "a Waylay was played in the barrage and the window bailed");
     }
