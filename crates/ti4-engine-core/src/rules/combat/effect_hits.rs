@@ -383,6 +383,21 @@ mod tests {
         assert_ne!(s, before, "the cancellations were spent");
     }
 
+    /// The hits of an effect are not a combat's: nothing is announced, the loss is not "during a space combat" and carries the cause of
+    /// an effect's hit; the facts of the two windows it composes are the texts and the flag it was given. (The cause and the flag are
+    /// read only by the announcement of a loss, which the window never makes, so no run can show them.)
+    #[test]
+    fn absorb_builds_the_offer_and_the_assignment_of_an_effects_hits_not_a_combats() {
+        let texts = HitTexts { staging: true, commander: Code(1), casualty: Code(2), effect_hit: Code(3) };
+        let window = Absorb::new(Seat(1), Seat(0), System::ALL[0], 2, texts);
+        let (o, a) = (window.offer, window.assign);
+        assert_eq!((o.player, o.producer, o.source, o.staging), (Seat(1), Seat(0), Code(1), true));
+        assert!(!o.ability && !o.in_combat && !o.non_fighters_first && !o.announce, "an effect's hit: not an ability's, not in a combat, nothing announced");
+        assert_eq!((a.player, a.subtype, a.cause, a.staging), (Seat(1), Code(2), Code(3), true));
+        assert!(!a.ability && !a.non_fighters_first && !a.during_space_combat && !a.announce, "and the loss is recorded, not announced, outside a combat");
+        assert_eq!(window.hits, 2);
+    }
+
     /// A lone ship takes the hit without a question; without staging the loss is not recorded as a handoff.
     #[test]
     fn absorb_takes_a_lone_ship_without_a_question() {

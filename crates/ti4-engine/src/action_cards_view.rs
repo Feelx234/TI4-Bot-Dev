@@ -338,13 +338,11 @@ fn hits_card(card: ActionCard) -> bool {
 /// the play is announced (the staged destructions are given their events by the announcement, with the render codes of the events;
 /// otherwise they stay in the state, with the texts of the state). `None` when the string position holds something the combat
 /// windows do not carry: the string plays the card (a counted bail).
-#[allow(clippy::too_many_arguments)]
 fn hit_facts(
     gs: &GameState,
     r: &crate::render::Render,
     cx: &mut Ctx,
     card: ActionCard,
-    player: &PlayerId,
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
     announce: bool,
     facts: &mut rules::Facts,
@@ -382,7 +380,6 @@ fn hit_facts(
         }
         _ => {}
     }
-    let _ = player;
     Some(())
 }
 
@@ -541,7 +538,7 @@ pub fn play_window(
     if probe {
         probe_facts(gs, &mut cx, player, galaxy, &mut env.facts)?;
     }
-    hit_facts(gs, &r, &mut cx, card, player, galaxy, false, &mut env.facts)?;
+    hit_facts(gs, &r, &mut cx, card, galaxy, false, &mut env.facts)?;
     let lent = lend_rolls(alias, before_rolls, "action_cards::play")?;
     let before = gs.clone();
     let hitting = hits_card(card);
@@ -725,7 +722,7 @@ pub fn announce_window(
     if probe {
         probe_facts(gs, &mut cx, player, galaxy, &mut env.facts)?;
     }
-    hit_facts(gs, &r, &mut cx, card, player, galaxy, true, &mut env.facts)?;
+    hit_facts(gs, &r, &mut cx, card, galaxy, true, &mut env.facts)?;
     let hitting = hits_card(card);
     if crate::factions::ralnel_cards::skimmer_holder(gs).is_some() {
         crate::dual::note_bail("action_cards::announce", SKIMMER_BAIL);

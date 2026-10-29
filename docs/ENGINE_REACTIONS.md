@@ -431,7 +431,11 @@ Cards in the table now: Sabotage (nothing; see below), Intercept, Parley, Direct
   as a child through a `Child<W>` helper of `kernel::stage`. Until then the card bails (`unported ability reaction:*:...
   (card reflective)`, test `reflective_shielding_stays_in_the_string_in_lockstep`; the first golden run with it found 12 differences).
 * **Courageous to the End** (dice, then the opponent's casualty choice with a `HitDetail` whose producer is the card's holder:
-  the `Ctx` carries no producer), **Fire Team** and **Scramble Frequency** (per-die reroll questions with a new `RerollSource`,
+  the `Ctx` carries no producer; **ported in branch `b6d-hits` for the play window only**: `Fx::Courageous` runs the opponent's
+  casualty as a child window of the combat area through the kernel links (`combat::effect_hits::Destroy`, `docs/B6_CARDS.md` last
+  section), the `HitDetail` is the adapter's display fact, the destructions are staged and announced by `after_play`; played from a
+  reaction slot it is still the string's, the census name `(card courageous)` stays), **Experimental Battlestation** (the same,
+  `Absorb` = the sustain offer and the assignment as one child window), **Fire Team** and **Scramble Frequency** (per-die reroll questions with a new `RerollSource`,
   the ledger reason of the reroll, and the dice stream inside the announcement: `Recording.dice` only notes dice rolled inside
   an ability's effect, the announcement of a declared card is not one), **Reveal Prototype** (a printed cost the core does not judge
   and a research choice), a card from the salvage yard, Data Skimmer (Ral Nel).
