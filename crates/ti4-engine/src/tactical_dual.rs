@@ -210,6 +210,15 @@ mod real {
         None
     }
 
+    /// What a run of the machine leaves besides the state.
+    struct Ran {
+        stage: Stage,
+        plain: Vec<Plain>,
+        dice: Vec<u32>,
+        emitted: Vec<ti4_engine_core::state::EventRec>,
+        bailed: Option<ti4_engine_core::rules::tactical::Bail>,
+    }
+
     fn tag_of(stage: Stage) -> Tag {
         match stage {
             Stage::Activating => Tag::Activating,
@@ -299,7 +308,7 @@ mod real {
         let recorded = script.questions.clone();
         let mut staged = Vec::new();
         let mut rng_after = None;
-        let mut out: Option<(Stage, Vec<Plain>, Vec<u32>, Vec<ti4_engine_core::state::EventRec>, Option<ti4_engine_core::rules::tactical::Bail>)> = None;
+        let mut out: Option<Ran> = None;
         let driven = with_core(gs, &mut cx, src, nested_fp(WINDOW, &script), |core, _| {
             let mut machine = match at {
                 At::Activating => Machine::activating(seat, facts),
@@ -334,7 +343,7 @@ mod real {
             let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, &script, &complete);
             staged = std::mem::take(&mut core.pending_mut().staged);
             rng_after = Some(core.rng().clone());
-            out = Some((driver.window.stage(), driver.window.plain.clone(), driver.window.dice.clone(), driver.emitted.clone(), driver.window.bailed));
+            out = Some(Ran { stage: driver.window.stage(), plain: driver.window.plain.clone(), dice: driver.window.dice.clone(), emitted: driver.emitted.clone(), bailed: driver.window.bailed });
             Some(driven)
         });
         let driven = match driven {
@@ -343,7 +352,7 @@ mod real {
             Ok(None) => return bail(label, "a position the codecs refuse"),
             Err(_) => return bail(label, "a position the codecs refuse"),
         };
-        let (stage, plain, rift_faces, emitted, bailed) = out?;
+        let Ran { stage, plain, dice: rift_faces, emitted, bailed } = out?;
         if let Some(why) = bailed {
             return bail(label, &format!("the machine stopped following ({why:?})"));
         }
