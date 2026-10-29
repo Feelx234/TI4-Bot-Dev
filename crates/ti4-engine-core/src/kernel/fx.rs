@@ -358,19 +358,6 @@ pub fn draw_action_cards(s: &mut CoreState, who: Seat, count: usize, drop_unoffi
     drawn
 }
 
-/// The plain secret objective draw (`secrets::draw` with a hand that stays within the limit): the top card of
-/// the deck joins the hand. `false`: the deck is empty or the seat is not there.
-pub fn draw_secret(s: &mut CoreState, who: Seat) -> bool {
-    if s.players().by_seat(who).is_none() {
-        return false;
-    }
-    let Some(card) = s.decks_mut().secret.draw() else { return false };
-    if let Some(p) = s.players_mut().by_seat_mut(who) {
-        p.cards.secrets.push(card);
-    }
-    true
-}
-
 /// The plain gain of a researched technology (`technology::grant`: the card joins the seat's technologies;
 /// the unit upgrades, the laws and the notes that follow a research are the caller's). Whether it was new.
 pub fn grant_technology(s: &mut CoreState, who: Seat, tech: crate::generated::Technology) -> bool {

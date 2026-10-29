@@ -21,7 +21,8 @@ mod real {
     use crate::core_sync::{Footprint, Sources};
     use crate::dual::{CoreWindow, Run};
     use crate::dual_window::Recording;
-    use crate::leaders_core::{outside, replenish_causes_events};
+    use crate::dual_window::outside;
+    use crate::leaders_core::replenish_causes_events;
 
     /// The tables of a window whose options name seats by faction. `None`: more than 16 owners, or two seats
     /// of one faction (the option ids would clash).
