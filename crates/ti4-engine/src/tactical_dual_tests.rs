@@ -154,7 +154,8 @@ fn a_damaged_and_a_fresh_dreadnought_are_two_options_and_the_second_hull_moves()
     let mv = id(&origin, 1);
     let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv], |_| {});
     assert_eq!(done.counts("tactical::move"), (1, 0), "{:?}", done.reasons);
-    let moved = done.state.system_state(&target).units.iter().filter(|u| u.owner == a()).collect::<Vec<_>>();
+    let arrived = done.state.system_state(&target);
+    let moved = arrived.units.iter().filter(|u| u.owner == a()).collect::<Vec<_>>();
     assert_eq!(moved.len(), 1);
     assert!(moved[0].sustained_damage, "the damaged hull is the one that moved");
 }
