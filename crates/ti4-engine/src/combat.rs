@@ -10279,6 +10279,29 @@ mod tests {
         assert!(paid_questions > 0, "a payment question was put inside the ability");
     }
 
+    /// Salvage Operations producing a cruiser is the string's (Mentak's Corsair form of the cruiser): the window bails, counted.
+    #[test]
+    fn bail_salvage_operations_of_a_cruiser_is_counted() {
+        let mut bailed = 0;
+        for seed in 0..6_u64 {
+            let (_state, windows, differences, _) = hub_fight(
+                seed,
+                ["mentak", "hacan"],
+                |s, system| {
+                    s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("so"));
+                    put(s, system, "dreadnought", &attacker(), 3);
+                    put(s, system, "carrier", &attacker(), 1);
+                    put(s, system, "cruiser", &defender(), 2);
+                    s.player_mut(&attacker()).unwrap().trade_goods = 5;
+                },
+                |_, _, _| 0,
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            bailed += usize::from(windows.keys().any(|k| k.contains("a fact the adapter did not compute")));
+        }
+        assert!(bailed > 0, "the cruiser is the string's");
+    }
+
     /// Direct Hit: the attacker's hit is sustained by a dreadnought, the attacker destroys that ship from the slot of
     /// `SUSTAIN_DAMAGE_USED`; the core removes it and announces `SHIP_DESTROYED` after the discard. With a faction module
     /// seated (staging) the exact sustained ship goes; without, the first of the type.
