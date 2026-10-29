@@ -530,3 +530,58 @@ agent's mark, the exhaustion, the declined mark, the Nomad bail; the payment ext
 Tests per documented bail: `reactions_core::tests` (`bail_*`: the table-level bails, a card the core does not play, a card played at once, Data Skimmer, outside an ability), `cards::tests::{bail_direct_hit_on_ships_that_differ_by_their_galvanize_token,
 bail_skilled_retreat_with_a_dual_form_unit_or_the_last_bastion, bail_parley_of_a_naaz_mech_whose_form_flips}`, `invasion::tests::bail_the_crimson_legionnaire_with_a_siphoning_firmament_seat_is_counted`,
 `production::tests::bail_the_keleres_agent_with_a_listening_nomad_is_counted`, the cruiser bail in `the_mentak_hero_places_ships_in_the_core_window_in_lockstep`.
+
+## 10. Package B12 (branch `core-b12`, from `core-integration-3`): combat and invasion, nested bails after stage 3
+
+Status: **partial, not gated.** The area is not complete (see `docs/B12_RESUME.md`); the heavy gate has not run. What was
+ported, with its lockstep tests and mutation checks, and what stays string with its documented, tested bail:
+
+### 10.1 Ported
+
+| what | string id | core |
+|---|---|---|
+| Technological Singularity, the combat marks (open at the start, close at the end of a space and a ground combat) | `ability:*:technological_singularity_{open,close}:{SPACE,GROUND}_COMBAT_{STARTED,ENDED}:after` | `ca_combat/nekro/singularity.rs`, slots 2003-2006, `MarkKey::NekroTs(system, planet?)` = `{opponent}\|open` / `used` |
+| Technological Singularity (optional, once per combat) | `ability:*:technological_singularity:{SHIP,GROUND_FORCE}_DESTROYED:after` | slots 2007-2008; question `reaction::Ask::Assimilate` (prompt, subtype `assimilate`, options `Opt::Take { how: Gain/TokenX/TokenY, tech, source }`, ids `gain\|{source}\|{tech}` / `x\|..` / `y\|..`, kind `nekro_assimilate`); the options are the string's (`nekro::assimilation_options`) minus the Z token; effect: grant the technology or `tech.assimilated[card] = tech` |
+| The Terror Between registered for a Nekro seat (the string registers it there) | `unit:nekro:cabal_flagship:{SHIP,GROUND_FORCE}_DESTROYED:after` | `cabal/timing.rs`: `Applies::Held(terror_holder)`; the condition bails (`MissingFact`) when a Nekro flagship stands in the system and the Nekro holds the Z breakthrough |
+| Instinct Training carried by a Nekro Valefar Assimilator (was `Unknown::NekroCarriedCard`, now removed) | `technology:*:it:ACTION_CARD_PLAYED:when` | `rules/reactions/instinct_training.rs`: `carrier()` is the technology itself or the Valefar Assimilator (X before Y) whose token stands on it while another player owns it; that card is the one tested ready and exhausted |
+| Sh'val, Harbinger (Sardakk hero), the finish of the skip: remove the mark, purge, return the owner's ships of the space area | `leader:*:sardakkhero:GROUND_COMMITMENT_FINISHED:after` | `cd_registry/sardakk/timing.rs`, slot 12001; lives in `invasion::space_cannon_defense` (the window that announces the commitment) |
+
+Also: the end announcement of a space combat (`combat::settle`) bailed silently whenever the notes changed
+(`marks_changed`); the `nekro:ts:` marks are the table's, so they no longer count (the `combat::settle` of every Nekro fight
+is compared now; `combat::settle` bailed 1 of 6 runs of a Nekro combat before).
+
+Registry parity: the string registers Technological Singularity, its marks and (for a Nekro seat) The Terror Between for the
+seats it registers them for (every seat for the first, a Nekro seat for the last). `the_native_registry_equals_the_string_one_for_the_ported_abilities`
+now also seats a Nekro and a Sardakk.
+
+### 10.2 Stays string (documented bail, one test per family)
+
+Test for all of them: `reactions_core::tests::bail_every_family_that_stays_in_the_string_is_named` (the window bails with
+`nested (unported ability <id>)`); the specific bails have their own tests.
+
+| family | runs in the stage-3 census | why it stays | what a port needs |
+|---|---|---|---|
+| Technological Singularity: a gained unit upgrade / a technology a unit requires | (inside the 31) | `technology::apply_unit_upgrades` swaps the forms of units on the board; bails `MissingFact`; test `bail_the_singularity_for_a_unit_upgrade_and_the_z_token` | a core `unit_swaps` write (the read exists: `technology_core::unit_swaps`) |
+| Technological Singularity with the Z token (`nekrobt`) held | (inside the 31) | the Z option lends a flagship's text; bails `MissingFact` (same test) | the Z tables (`LENDABLE_FLAGSHIPS`, `flagship_of`) as core data |
+| Empyrean flagship Dynamo (influence payment inside an ability, plus the raw adjacency of the map) | 14 + 1 | `production::pay_seeing` runs the whole pay loop (agent offer, credit) inside the effect: a child window; the reach is `galaxy.adjacent`, not the player adjacency facts the table carries | a payment helper that runs `PayStep` through `Eff::ask` (the same helper serves Salvage Operations), and a `reach` fact for raw adjacency |
+| Empyrean mech Watcher | 7 | removal of the mech plus cancelling the card played (a play at once); adjacency of the map | as above |
+| Salvage Operations, the produce half (`technology:*:so:SPACE_COMBAT_ENDED:produce`, a third relation) | 8 | optional production of a ship in the system: question, payment (child window), placement, unit-form swap | the payment helper; `produce` as a core relation |
+| Ssruu copies (Yin ships and ground 10 + 9, Letnev 9 + 2, Sol 5 + 4, Argent 6 + 1; `leader:{owner}:{source}:yssarilagent:{agent}:EVENT:after`) | 46 | one registration per (borrower, source) pair, the id carries the source's name; `AbilityTable::registry` iterates seats only | a pair registry (`Applies::Borrowed`) and `slot_of` over `{source}:yssarilagent:{agent}`; the effects are the originals' with the borrower as actor |
+| Sardakk mech (assign 1 hit inside the ability) | 2 | `assign_ground_unit_ability_hits_in_timing`: hit assignment with its sustain offers is a child window | child window (`Child<W>`, design in 9.2) |
+| Sardakk: the stale-mark clean-up at `TURN_BEGAN` | 0 | no followed window announces `TURN_BEGAN`; nothing could run or test it | a TURN_BEGAN window |
+| Reflective Shielding, Courageous to the End, Fire Team, Scramble Frequency, Reveal Prototype (section 9.2) | 2 + 2 + 6 + 1 + 4 | unchanged: child window, producer in the context, per-die reroll questions, printed card cost | 9.2 |
+| a card cost the core does not judge (Bribery / Reveal Prototype) | 6 | unchanged | 9.2 |
+| Winnu commander unlock 1, Ambuscade 1, an adapter fact 1, a window lent no dice stream 1 | 4 | unchanged | one by one |
+
+### 10.3 Item 5c (Bastion and Crimson typed reads): not started
+
+Finding (read-only): `production_view::unported_economy` cannot be lifted by deleting the guard. The Crimson hero card is a
+production *spot* (`REMOTE_SEPARATOR` text `@`, `crimson_cards::offer_card_spot`/`put_on_card`) and the Last Bastion's Icon
+adjusts the spots of the produced ships (`bastion::adjust_ship_spots`, `ship_placed`). The core declares the four hooks
+(`kernel/hooks/direct.rs:78-127`: `bastion_adjust_ship_spots`, `bastion_ship_placed`, `crimson_cards_offer_card_spot`,
+`crimson_cards_put_on_card`) but nobody implements or calls them (`bastion/offer.rs` and `crimson/offer.rs` are empty), and
+`choice::production::Spot` has no card variant. Also `fleet::remaining(.., on_card)` is always called with `0` in the core
+(`rules/production/mod.rs:493`, `supply.rs:66`, `strategy_cards.rs:305`) while the string adds `held_on_card`. Estimate as in
+the prerequisites document: 4-6 h, own run; start with the Crimson card read (a typed `CrimsonCard` mark list exists:
+`MarkKey::CrimsonCard(owner)` = `Sh::List(UNIT)`), then the hooks, then a lockstep test of the production window with the
+two seats (copy `the_tier_w_factions_run_in_lockstep_on_the_core_production_window`).

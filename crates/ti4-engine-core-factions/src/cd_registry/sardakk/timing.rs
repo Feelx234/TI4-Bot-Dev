@@ -18,7 +18,7 @@ use ti4_engine_core::ids::Seat;
 use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
 use ti4_engine_core::kernel::ability::{AbilityTable, CondCx, Eff, Slot, Spec};
 use ti4_engine_core::kernel::resolver::TimingError;
-use ti4_engine_core::state::{CoreState, EventKind, Key};
+use ti4_engine_core::state::{CoreState, EventKind, Key, Payload, Piece};
 
 /// Sh'val, the finish (`leader:*:sardakkhero:GROUND_COMMITMENT_FINISHED:after`).
 pub const HERO_FINISH: Slot = Slot(12001);
@@ -36,9 +36,18 @@ fn skip(s: &CoreState) -> Option<(Seat, ti4_engine_core::generated::System)> {
     }
 }
 
+/// The commitment the payload names is the one of the skip: the player and the system of the mark.
+fn finishing(s: &CoreState, owner: Seat, p: &Payload) -> bool {
+    skip(s).is_some_and(|(who, system)| who == owner && p.system(Key::System) == Some(system)) && p.seat(Key::Player) == Some(owner)
+}
+
 fn finish_when(c: &CondCx<'_>) -> bool {
-    let p = &c.event.payload;
-    skip(c.state).is_some_and(|(who, system)| who == c.def.owner && p.system(Key::System) == Some(system)) && p.seat(Key::Player) == Some(c.def.owner)
+    finishing(c.state, c.def.owner, &c.event.payload)
+}
+
+/// What stays in the space area when `me`'s ships go back to the reinforcements.
+fn without_ships_of(units: &[Piece], me: Seat) -> Vec<Piece> {
+    units.iter().copied().filter(|p| !(p.owner() == me && p.kind().data().ship)).collect()
 }
 
 fn finish(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
@@ -47,7 +56,7 @@ fn finish(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     eff.state().marks_mut().tail.edit().remove(&MarkKey::SardakkHeroSkip());
     ti4_engine_core::rules::leaders::purge(eff.state(), me, HERO);
     // The ships of the space area go back to the reinforcements (the board is the supply's count).
-    let kept: Vec<_> = eff.state().board().sys(system).units.as_slice().iter().copied().filter(|p| !(p.owner() == me && p.kind().data().ship)).collect();
+    let kept = without_ships_of(eff.state().board().sys(system).units.as_slice(), me);
     eff.state().board_mut().sys_mut(system).units.clear();
     for piece in kept {
         eff.state().board_mut().sys_mut(system).units.push(piece);
@@ -57,4 +66,33 @@ fn finish(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
 
 pub fn register_abilities(t: &mut AbilityTable) {
     t.add(Spec::new(HERO_FINISH, AbilityKind::Leader, EventKind::GroundCommitmentFinished, Relation::After, finish).when(finish_when));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::testkit::table;
+    use ti4_engine_core::generated::{Faction, System, Unit};
+    use ti4_engine_core::state::Val;
+
+    #[test]
+    fn only_the_owners_ships_of_the_space_area_go_back() {
+        let units = [Piece::new(Unit::CruiserI, Seat(0)), Piece::new(Unit::CruiserI, Seat(1)), Piece::new(Unit::InfantryI, Seat(0)), Piece::new(Unit::FighterI, Seat(0))];
+        assert_eq!(without_ships_of(&units, Seat(0)), vec![units[1], units[2]], "another player's ship and the owner's ground force stay");
+    }
+
+    #[test]
+    fn the_finish_is_the_one_of_the_skip() {
+        let (mut s, _) = table(&[Faction::SardakkNorr, Faction::TheEmiratesOfHacan]);
+        let system = System::ALL[0];
+        let other = System::ALL[1];
+        s.marks_mut().tail.edit().insert(MarkKey::SardakkHeroSkip(), MarkVal::Rec(vec![MarkVal::Atom(Atom::Seat(Seat(0))), MarkVal::Atom(Atom::System(system))]));
+        let p = |who: Seat, at: System| Payload::new().with(Key::Player, Val::Seat(who)).with(Key::System, Val::System(at));
+        assert!(finishing(&s, Seat(0), &p(Seat(0), system)));
+        assert!(!finishing(&s, Seat(0), &p(Seat(0), other)), "another system");
+        assert!(!finishing(&s, Seat(0), &p(Seat(1), system)), "another player commits");
+        assert!(!finishing(&s, Seat(1), &p(Seat(1), system)), "the mark is the other seat's");
+        s.marks_mut().tail.edit().remove(&MarkKey::SardakkHeroSkip());
+        assert!(!finishing(&s, Seat(0), &p(Seat(0), system)), "no skip under way");
+    }
 }
