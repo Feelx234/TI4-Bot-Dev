@@ -145,6 +145,12 @@ pub enum Fx {
     Impersonation,
     /// Plagiarize: five influence, then a non-faction technology of a neighbour is taken from it.
     Plagiarize,
+    /// Focused Research: four trade goods, one technology is researched.
+    Focused,
+    /// Divert Funding: a non-unit-upgrade, non-faction technology is returned, then another is researched.
+    Divert,
+    /// Reveal Prototype: a unit upgrade of the line of a unit in the combat is researched for four resources.
+    Reveal,
 }
 
 impl Fx {
@@ -164,7 +170,7 @@ impl Fx {
     /// hooks) decide what an upgrade does to the board.
     #[must_use]
     pub const fn technology(self) -> bool {
-        matches!(self, Self::Plagiarize)
+        matches!(self, Self::Plagiarize | Self::Focused | Self::Divert | Self::Reveal)
     }
 
     /// Whether the effect reads the game's map (the adapter lends the galaxy; without one it bails).
@@ -250,6 +256,9 @@ impl Fx {
             C::Brilliance => Self::Brilliance,
             C::Impersonation => Self::Impersonation,
             C::Plagiarize => Self::Plagiarize,
+            C::FocusedResearch => Self::Focused,
+            C::DivertFunding => Self::Divert,
+            C::RevealPrototype => Self::Reveal,
             _ => return None,
         })
     }
@@ -264,6 +273,8 @@ pub enum Stage {
     Asking,
     /// Paying the bill of the card (the child window [`PayBill`]).
     Paying,
+    /// The card chose its technology and owes the bill before the research lands (Reveal Prototype).
+    Billing,
     /// Returning a secret objective over the hand limit (the child window [`HandLimit`]).
     Limiting,
     Done,
@@ -301,6 +312,8 @@ pub struct Play {
     offer: Option<(System, Planet)>,
     /// The bill of the card while it is paid (a child window).
     pay: Child<PayBill>,
+    /// Reveal Prototype: the technology chosen, researched once the bill is paid.
+    chosen: Option<crate::generated::Technology>,
     /// Impersonation: the hand limit after the draw (a child window).
     hand: Child<HandLimit>,
     /// Signal Jamming: the system chosen.
@@ -402,7 +415,7 @@ impl Play {
             }
             _ => None,
         };
-        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: Child::idle(), hand: Child::idle(), jam: None, troop: None, pulled: SmallList::new(), received: SmallList::new(), pay_ask: None })
+        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: Child::idle(), hand: Child::idle(), chosen: None, jam: None, troop: None, pulled: SmallList::new(), received: SmallList::new(), pay_ask: None })
     }
 
     fn what(&self) -> Option<What> {
@@ -419,6 +432,10 @@ impl Play {
             Fx::Ghost => What::Ghost,
             Fx::Upgrade => What::Cruiser,
             Fx::Plagiarize => What::Steal,
+            Fx::Focused => What::Focus,
+            Fx::Divert if self.step == 0 => What::Return,
+            Fx::Divert => What::Funding,
+            Fx::Reveal => What::Prototype,
             Fx::Brilliance => What::Gain,
             Fx::Squad => What::Squad { system: self.jam? },
             Fx::Refit => What::Troops { second: self.troop.is_some() },
@@ -677,6 +694,25 @@ impl Play {
                 reach.as_mut_slice().sort_unstable();
                 reach.as_slice().iter().copied().filter(|s| !is_home_system(scope, *s)).map(Opt::System).collect()
             }
+            Fx::Focused | Fx::Reveal | Fx::Divert if self.step == 9 => SmallList::new(),
+            Fx::Focused => crate::rules::production::strategy_cards::Research::researchable_for(core, k, self.env.scope, who).as_slice().iter().map(|t| Opt::Tech(*t)).collect(),
+            Fx::Reveal => crate::rules::production::strategy_cards::Research::researchable_for(core, k, self.env.scope, who)
+                .as_slice()
+                .iter()
+                .filter(|t| self.env.facts.reveal.contains(**t))
+                .map(|t| Opt::Tech(*t))
+                .collect(),
+            Fx::Divert if self.step == 0 => {
+                let Some(p) = core.players().by_seat(who) else { return SmallList::new() };
+                let mut mine: SmallList<crate::generated::Technology, 40> = p.tech.owned.iter().collect();
+                mine.as_mut_slice().sort_by(|a, b| (self.env.facts.tech_order)(*a, *b));
+                mine.as_slice()
+                    .iter()
+                    .filter(|t| !crate::query::tech::is_unit_upgrade(**t) && crate::query::tech::faction_of(**t).is_none())
+                    .map(|t| Opt::Tech(*t))
+                    .collect()
+            }
+            Fx::Divert => crate::rules::production::strategy_cards::Research::researchable_for(core, k, self.env.scope, who).as_slice().iter().map(|t| Opt::Tech(*t)).collect(),
             Fx::Plagiarize => {
                 let mut near: SmallList<Seat, 2> = SmallList::new();
                 let order = seats::seating_order(core);
@@ -963,6 +999,13 @@ impl Play {
             .collect()
     }
 
+    /// `technology::research` of the chosen technology (the string ignores its answer).
+    fn research(&self, core: &mut CoreState, k: &Kernel, t: crate::generated::Technology) {
+        if let Some(roster) = self.env.facts.roster {
+            crate::rules::production::strategy_cards::Research::research_chosen(core, k, self.env.scope, *roster, self.who, t);
+        }
+    }
+
     /// The holder's ground forces on the board, system by system, planet by planet, in the order of the planets' lists.
     fn ground_forces(&self, core: &CoreState) -> SmallList<(System, Planet, u8, crate::generated::Unit), 24> {
         let mut out = SmallList::new();
@@ -1039,6 +1082,22 @@ impl Play {
         match self.fx {
             Fx::SupplyBase => {
                 fx::gain_trade_goods_staged(core, self.who, 3, self.env.supply_base);
+            }
+            Fx::Focused => {
+                // Four trade goods are held, else the card cannot resolve.
+                if core.players().by_seat(self.who).is_none_or(|p| p.econ.trade_goods < 4) {
+                    self.step = 9;
+                }
+            }
+            Fx::Reveal => {
+                // A unit of the holder in the combat's system.
+                let Some(system) = core.meta().active_system else {
+                    self.step = 9;
+                    return;
+                };
+                if !board::has_space_units_of(core, system, self.who) {
+                    self.step = 9;
+                }
             }
             Fx::Squad => self.jam = core.meta().active_system,
             Fx::Harness => {
@@ -1428,6 +1487,22 @@ impl Play {
                     fx::place_unit(core, neutral, system, None, crate::generated::Unit::NeutralDestroyer);
                 }
             }
+            (Fx::Focused, Opt::Tech(t)) => {
+                fx_pay::pay_trade_goods(core, who, 4);
+                self.research(core, k, t);
+            }
+            (Fx::Divert, Opt::Tech(t)) if self.step == 0 => {
+                if let Some(p) = core.players_mut().by_seat_mut(who) {
+                    p.tech.owned.remove(t);
+                }
+                self.step = 1;
+                return true;
+            }
+            (Fx::Divert, Opt::Tech(t)) => self.research(core, k, t),
+            (Fx::Reveal, Opt::Tech(t)) => {
+                // The four resources are paid first (a child window), then the research lands.
+                self.chosen = Some(t);
+            }
             (Fx::Plagiarize, Opt::Steal { from, tech }) => {
                 fx::grant_technology(core, who, tech);
                 if let Some(roster) = self.env.facts.roster {
@@ -1568,7 +1643,7 @@ impl Play {
                 [only] if self.fx != Fx::Squad => {
                     let only = *only;
                     if !self.apply(core, k, seeds, only) {
-                        self.stage = Stage::Done;
+                        self.stage = if self.fx == Fx::Reveal && self.chosen.is_some() { Stage::Billing } else { Stage::Done };
                         return;
                     }
                 }
@@ -1633,10 +1708,27 @@ impl Play {
             return;
         }
         self.start_questions(sx.state, sx.kernel, sx.seeds);
+        self.maybe_bill(sx);
+    }
+
+    /// Reveal Prototype: the technology is chosen, the four resources are paid by a child window.
+    fn maybe_bill(&mut self, sx: &mut Sx<'_>) {
+        if self.stage == Stage::Billing {
+            self.pay.start(PayBill::new(self.who, economy::Spend::Resources, 4));
+            self.stage = Stage::Paying;
+            self.drive_bill(sx);
+        }
     }
 
     /// What follows a paid bill: the questions of the card, or Impersonation's draw and the hand limit.
     fn after_bill(&mut self, sx: &mut Sx<'_>) {
+        if self.fx == Fx::Reveal {
+            if let Some(t) = self.chosen.take() {
+                self.research(sx.state, sx.kernel, t);
+            }
+            self.stage = Stage::Done;
+            return;
+        }
         if self.fx != Fx::Impersonation {
             self.start_questions(sx.state, sx.kernel, sx.seeds);
             return;
@@ -1765,9 +1857,12 @@ impl Play {
         }
         if self.apply(core, k, seeds, opt) {
             self.advance(core, k, seeds);
+        } else if self.fx == Fx::Reveal && self.chosen.is_some() {
+            self.stage = Stage::Billing;
         } else {
             self.stage = Stage::Done;
         }
+        self.maybe_bill(sx);
         Ok(())
     }
 }
@@ -1784,7 +1879,7 @@ impl Window for Play {
         match self.stage {
             Stage::Asking => Next::Continue(self.any_ask()),
             Stage::Paying | Stage::Limiting => self.pay_ask.map_or(Next::Done, Next::Continue),
-            Stage::Start | Stage::Done => Next::Done,
+            Stage::Start | Stage::Billing | Stage::Done => Next::Done,
         }
     }
 
@@ -1893,6 +1988,9 @@ mod tests {
             C::Brilliance,
             C::Impersonation,
             C::Plagiarize,
+            C::FocusedResearch,
+            C::DivertFunding,
+            C::RevealPrototype,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }
@@ -2024,15 +2122,12 @@ mod tests {
             (C::Bribery, "the trade goods may include the Keleres agent's commodities (the goods window asks first); the slot judges the bill with them"),
             (C::CourageousToTheEnd, "dice with the producer in the casualty question"),
             (C::CrashLanding, "placement of a ground force through the faction hooks onto a contested planet"),
-            (C::DivertFunding, "a technology returned, then a research (Deepwrought's window around it)"),
             (C::ExperimentalBattlestation, "the space cannon of a structure joined to the movement window"),
-            (C::FocusedResearch, "four trade goods (the Keleres goods window) then a research"),
             (C::FireTeam, "per-die reroll questions of a staged ground roll"),
             (C::Infiltrate, "the structure swap of the capture (rules version dependent unit forms)"),
             (C::LieInWait, "the neighbours of the map who traded this round (the transactions)"),
             (C::Overrule, "performs the primary ability of another strategy card (the strategy area's windows)"),
             (C::ExplorationProbe, "the frontier tokens adjacent to the holder's ships (the map)"),
-            (C::RevealPrototype, "four resources by the question-driven payment, then a unit upgrade research"),
             (C::ScrambleFrequency, "per-die reroll questions of a staged roll of another seat"),
             (C::Strategize1, "performs the secondary ability of another strategy card (the strategy area's windows)"),
             (C::Strategize2, "performs the secondary ability of another strategy card (the strategy area's windows)"),

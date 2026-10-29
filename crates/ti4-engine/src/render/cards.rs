@@ -113,6 +113,14 @@ impl Family for Fam {
             Opt::Stop if matches!(pick_of(a).1, What::Pull { .. }) => ChoiceOption::labelled("stop", "unit", "stop after one"),
             Opt::Stop if matches!(pick_of(a).1, What::Troops { .. }) => ChoiceOption::labelled("stop", "infantry", "stop after one"),
             Opt::Stop => ChoiceOption::labelled("stop", "ship", "stop after one"),
+            Opt::Tech(tech) => {
+                let id = tech.as_str();
+                let label = match pick_of(a).1 {
+                    What::Focus => format!("research {id}"),
+                    _ => crate::technology::name(ContentStore::embedded(), &ti4_model::id::TechnologyId::new(id)),
+                };
+                ChoiceOption::labelled(id, "technology", label)
+            }
             Opt::Steal { from, tech } => {
                 let owner = r.seat_text(*from);
                 let name = crate::technology::name(ContentStore::embedded(), &ti4_model::id::TechnologyId::new(tech.as_str()));
@@ -217,6 +225,7 @@ impl Family for Fam {
                 _ => None,
             },
             Ask::Pick { what: What::Cruiser | What::Troops { .. } | What::Pull { .. } | What::Squad { .. } | What::Steal, .. } => None,
+            Ask::Pick { what: What::Focus | What::Return | What::Funding | What::Prototype, .. } => ti4_engine_core::generated::Technology::from_id(id).map(Opt::Tech),
             Ask::Pick { what: What::Hull | What::Scuttle { .. }, .. } => {
                 let (system, index) = id.split_once('|')?;
                 // Only the id is read back; the owner and unit form are the question's.
@@ -257,7 +266,7 @@ const fn pick_kind(what: What) -> &'static str {
         What::Land => "planet",
         What::Squad { .. } => "move",
         What::Gain => "player",
-        What::Steal => "technology",
+        What::Steal | What::Focus | What::Return | What::Funding | What::Prototype => "technology",
         What::Offer | What::Landing => "planet",
         What::JamWho { .. } => "player",
         What::Accept => "answer",
@@ -325,6 +334,10 @@ const fn pick_prompt(card: ActionCard, what: What) -> &'static str {
         (C::RefitTroops, What::Troops { second: true }) => "Refit Troops: another infantry or stop",
         (C::RefitTroops, _) => "Refit Troops: which infantry to replace",
         (C::Brilliance, _) => "Brilliance: which player gains their own breakthrough",
+        (C::FocusedResearch, _) => "Focused Research: research a technology",
+        (C::DivertFunding, What::Return) => "Divert Funding: which technology to return",
+        (C::DivertFunding, _) => "Divert Funding: what to research with the funding",
+        (C::RevealPrototype, _) => "Reveal Prototype: which prototype to reveal",
         (C::Plagiarize, _) => "Plagiarize: which technology to steal",
         (C::Upgrade, _) => "Upgrade: which cruiser becomes a dreadnought",
         (C::SignalJamming, _) => "Signal Jamming: jam which system",

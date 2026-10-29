@@ -720,6 +720,22 @@ impl Research {
     }
 }
 
+impl Research {
+    /// `technology::researchable` for a card that researches outside a strategy card: the technologies the seat can research
+    /// under the faction hooks of the kernel, in the order of the technology set.
+    #[must_use]
+    pub fn researchable_for(s: &CoreState, k: &Kernel, scope: Scope, who: Seat) -> SmallList<Technology, 40> {
+        tech::researchable(s, scope, reach::blanked(s), who, &KernelHooks::new(s, k, who)).iter().collect()
+    }
+
+    /// `technology::research` of a technology a card chose, the bill (if any) already paid: the prerequisites are met or
+    /// Inheritance Systems pays them, then the research completes. `false`, changing nothing, where the string `research`
+    /// answers `false` (a technology only a faction waiver opens, Inheritance Systems that cannot pay).
+    pub fn research_chosen(s: &mut CoreState, k: &Kernel, scope: Scope, roster: UnitRoster, who: Seat, t: Technology) -> bool {
+        Self::new(who, false, 0, scope).with_roster(roster).settle(s, k, t)
+    }
+}
+
 impl Window for Research {
     type Stage = RStage;
 

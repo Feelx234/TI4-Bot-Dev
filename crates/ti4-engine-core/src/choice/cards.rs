@@ -55,6 +55,14 @@ pub enum What {
     Hull,
     /// kind `ship`: a ship Scuttle returns; the second question (`second`) also offers to stop after one.
     Scuttle { second: bool },
+    /// kind `technology`, label `research <id>`: the technology Focused Research researches.
+    Focus,
+    /// kind `technology`, label the name: the technology Divert Funding returns.
+    Return,
+    /// kind `technology`, label the name: the technology Divert Funding researches.
+    Funding,
+    /// kind `technology`, label the name: the prototype Reveal Prototype researches.
+    Prototype,
     /// kind `technology`, id `<neighbour>|<tech>`, label `<neighbour>'s <name>`: the technology Plagiarize takes.
     Steal,
     /// kind `player`, label `<seat> gains their own breakthrough`: whose breakthrough Brilliance gives.
@@ -146,6 +154,7 @@ pub enum Opt {
     /// A unit on a planet: the system, the planet and its place in the planet's unit list (`What::Troops`).
     Troop { system: System, planet: Planet, index: u8, kind: crate::generated::Unit },
     /// Every ground force of one type moves from a planet to another (`What::Squad`).
+    Tech(crate::generated::Technology),
     Steal { from: Seat, tech: crate::generated::Technology },
     Move { from: Planet, to: Planet, kind: crate::generated::Unit, count: u8 },
 }

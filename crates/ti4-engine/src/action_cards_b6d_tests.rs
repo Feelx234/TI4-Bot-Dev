@@ -379,6 +379,9 @@ fn squad_position() -> GameState {
     units.push(unit("infantry", "a"));
     units.push(unit("mech", "a"));
     units.push(unit("infantry", "a"));
+    // Structures are not ground forces.
+    units.push(unit("spacedock", "a"));
+    units.push(unit("pds", "a"));
     state.active_system = Some(sys);
     state
 }
@@ -542,5 +545,75 @@ fn plagiarize_pays_five_influence_and_takes_a_neighbours_technology_in_the_core_
     assert_eq!(after.player(&a).unwrap().trade_goods, 1, "five influence paid");
     let after = played("plagiarize", &bare);
     assert_eq!(after.player(&a).unwrap().trade_goods, 6, "nothing to take: nothing spent");
+    let _ = crate::dual::take_report();
+}
+
+/// A position where seat `a` owns the base technologies of every colour (so a good many are researchable) and is ready to pay.
+fn research_position() -> GameState {
+    let a = PlayerId::new("a");
+    let mut state = closing_position();
+    state.exhausted_planets.clear();
+    state.rules_version = ti4_model::state::RULES_VERSION;
+    let seat = state.player_mut(&a).unwrap();
+    seat.trade_goods = 6;
+    seat.technologies = ["amd", "gd", "fl", "lwd", "nm", "dxa", "hm", "x89_base", "ps", "md_base", "da", "asc", "st", "gls", "td", "ie", "ws"]
+        .iter()
+        .map(|t| ti4_model::TechnologyId::new(*t))
+        .collect();
+    state
+}
+
+/// Focused Research: four trade goods, one technology researched (a lone technology is taken without a question).
+#[test]
+fn focused_research_spends_four_trade_goods_and_researches_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let a = PlayerId::new("a");
+    let state = research_position();
+    let mut poor = state.clone();
+    poor.player_mut(&a).unwrap().trade_goods = 3;
+    announce_all(&[("f_researched", state.clone())]);
+    announce_all(&[("f_researched", poor.clone())]);
+    let _ = crate::dual::take_report();
+    let after = played("f_researched", &state);
+    assert_eq!(after.player(&a).unwrap().trade_goods, 2);
+    assert_eq!(after.player(&a).unwrap().technologies.len(), state.player(&a).unwrap().technologies.len() + 1);
+    let after = played("f_researched", &poor);
+    assert_eq!(after.player(&a).unwrap().trade_goods, 3, "three trade goods buy nothing");
+    let _ = crate::dual::take_report();
+}
+
+/// Divert Funding: a non-upgrade, non-faction technology goes back, then one is researched.
+#[test]
+fn divert_funding_returns_a_technology_and_researches_another_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let a = PlayerId::new("a");
+    let state = research_position();
+    let mut none = state.clone();
+    none.player_mut(&a).unwrap().technologies.clear();
+    announce_all(&[("divert_funding", state.clone())]);
+    announce_all(&[("divert_funding", none)]);
+    let _ = crate::dual::take_report();
+    let after = played("divert_funding", &state);
+    assert_eq!(after.player(&a).unwrap().technologies.len(), state.player(&a).unwrap().technologies.len(), "one back, one researched");
+    let _ = crate::dual::take_report();
+}
+
+/// Reveal Prototype: a unit upgrade of the line of a unit in the combat's system is researched for four resources.
+#[test]
+fn reveal_prototype_researches_a_unit_upgrade_of_a_unit_in_the_combat_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let a = PlayerId::new("a");
+    let mut state = research_position();
+    state.player_mut(&a).unwrap().trade_goods = 0;
+    let active = state.active_system.clone().expect("an active system");
+    state.system_mut(&active).units.push(unit("cruiser", "a"));
+    state.system_mut(&active).units.push(unit("carrier", "a"));
+    let mut bare = state.clone();
+    bare.system_mut(&active).units.retain(|u| u.owner.as_str() != "a");
+    announce_all(&[("reveal_prototype", state.clone())]);
+    announce_all(&[("reveal_prototype", bare)]);
+    let _ = crate::dual::take_report();
+    let after = played("reveal_prototype", &state);
+    assert!(after.player(&a).unwrap().technologies.len() > state.player(&a).unwrap().technologies.len(), "a prototype was researched");
     let _ = crate::dual::take_report();
 }

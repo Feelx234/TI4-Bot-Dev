@@ -253,6 +253,7 @@ fn env_of(state: &GameState, player: &PlayerId, sources: &ti4_model::content_typ
             rules_version: state.rules_version,
             tech_order: |a, b| crate::generated::IdStr::as_str(a).cmp(crate::generated::IdStr::as_str(b)),
             roster: crate::technology_core::roster_for(ti4_content::ContentStore::embedded(), sources.clone()),
+            reveal: reveal_set(state, player, sources),
             fracture_in_play: state.fracture_in_play,
             own_breakthrough: own_breakthroughs(state, r),
             unit_order: |a, b| crate::generated::IdStr::as_str(a).cmp(crate::generated::IdStr::as_str(b)),
@@ -359,6 +360,10 @@ pub fn play_window(
     let lent = lend_rolls(alias, before_rolls, "action_cards::play")?;
     let before = gs.clone();
     let technology = rules::effects::Fx::of(card).is_some_and(rules::effects::Fx::technology);
+    if technology && technology_unported(gs, sources, player) {
+        crate::dual::note_bail("action_cards::play", "a technology gained at a table the research window does not carry");
+        return None;
+    }
     let plain = Kernel::plain();
     let kernel = if technology { crate::production_view::kernel() } else { &plain };
     let mut staged = Vec::new();
@@ -385,6 +390,9 @@ pub fn play_window(
     };
     let driven = crate::core_sync::with_core(gs, &mut cx, src, fp, |core, _| {
         if wants_map && core.galaxy().is_none() {
+            return None;
+        }
+        if technology && !crate::strategy_cards_core::research_hooks_agree(core, &before, ti4_content::ContentStore::embedded(), sources.clone(), player, seat) {
             return None;
         }
         let play = rules::effects::Play::of(core, card, seat, env)?;
@@ -503,6 +511,10 @@ pub fn announce_window(
     let before = gs.clone();
     let window = crate::core_combat::window_env(gs, &cx, sources.clone())?;
     let technology = rules::effects::Fx::of(card).is_some_and(rules::effects::Fx::technology);
+    if technology && technology_unported(gs, sources, player) {
+        crate::dual::note_bail("action_cards::announce", "a technology gained at a table the research window does not carry");
+        return None;
+    }
     let kernel = if technology { crate::production_view::kernel() } else { &window.kernel };
     let mut staged = Vec::new();
     let mut emitted = Vec::new();
@@ -529,6 +541,9 @@ pub fn announce_window(
     let rolled = seeds.is_some();
     let driven = crate::core_sync::with_core(gs, &mut cx, src, fp, |core, _| {
         if wants_map && core.galaxy().is_none() {
+            return None;
+        }
+        if technology && !crate::strategy_cards_core::research_hooks_agree(core, &before, ti4_content::ContentStore::embedded(), sources.clone(), player, seat) {
             return None;
         }
         let announce = rules::announce::Announce::of(core, card, seat, env, has_effect, false)?;
@@ -575,4 +590,49 @@ fn own_breakthroughs(state: &GameState, r: &crate::render::Render) -> [Option<ti
         out[usize::from(seat.0)] = own.and_then(|b| <ti4_engine_core::generated::Breakthrough as crate::generated::IdStr>::from_id(b.as_str()));
     }
     out
+}
+
+/// Reveal Prototype's candidates: the unit upgrades "of the same type as 1 of your units that is participating in this combat"
+/// (the string's line matching of `baseUpgrade` and the unnamed second-generation line by name).
+fn reveal_set(state: &GameState, player: &PlayerId, sources: &ti4_model::content_types::SourceSet) -> ti4_engine_core::state::TechSet {
+    use ti4_model::content_types::ContentType;
+    let content = ti4_content::ContentStore::embedded();
+    let mut out = ti4_engine_core::state::TechSet::default();
+    let Some(system) = state.active_system.clone() else { return out };
+    let types = ti4_content::units::catalogue(content, sources.clone());
+    let units = state.system_state(&system).units.clone();
+    let lines: Vec<&str> = units
+        .iter()
+        .filter(|u| &u.owner == player)
+        .filter_map(|u| types.get(u.type_id.as_str()).map(ti4_content::units::UnitType::base_type))
+        .collect();
+    for tech in ti4_engine_core::generated::Technology::ALL {
+        let alias = ti4_model::id::TechnologyId::new(crate::generated::IdStr::as_str(tech));
+        if !crate::technology::is_unit_upgrade(content, &alias) {
+            continue;
+        }
+        let Some(record) = content.get(ContentType::Technologies, alias.as_str()) else { continue };
+        let base = record.text("baseUpgrade").unwrap_or_default().to_owned();
+        let matches = if base.is_empty() {
+            let name = record.text("name").unwrap_or_default().to_lowercase().replace(" ii", "").replace(' ', "_");
+            lines.iter().any(|line| name == *line || name.ends_with(&format!("_{line}")))
+        } else {
+            let subject_line = types.get(base.as_str()).map(ti4_content::units::UnitType::base_type);
+            lines.iter().any(|line| Some(*line) == subject_line) || subject_line.is_none() && lines.iter().any(|line| **line == base)
+        };
+        if matches {
+            out.insert(tech);
+        }
+    }
+    out
+}
+
+/// Whether a card that gains or researches a technology meets something the core windows do not carry: what the Technology
+/// strategy card declines (`research_unported`) and a Deepwrought, Keleres or Mentak seat anywhere at the table (Doctor
+/// Carrina's window opens around a research of any seat; Keleres and Deepwrought are dropped from the product, Mentak's
+/// Corsair form is the string's).
+fn technology_unported(gs: &GameState, sources: &ti4_model::content_types::SourceSet, player: &PlayerId) -> bool {
+    let content = ti4_content::ContentStore::embedded();
+    gs.players.iter().any(|p| matches!(p.faction.as_str(), "deepwrought" | "mentak") || p.faction.as_str().starts_with("keleres"))
+        || crate::strategy_cards_core::research_unported(gs, content, sources.clone(), player)
 }

@@ -463,7 +463,7 @@ mod real {
     /// [`research_seat_unported`] declines, a technology purged by Ta Zern, a hook the core table answers differently from the string modules (a
     /// faction effect nobody ported), and the questions of the paid research (`strategy_cards::research_asks_more`:
     /// Specialist Compounds, Doctor Sucaban, the Deepwrought commander).
-    fn research_unported(gs: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId) -> bool {
+    pub(crate) fn research_unported(gs: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId) -> bool {
         use ti4_engine_core::generated::Technology;
         if research_seat_unported(gs, player) || crate::strategy_cards::research_asks_more(gs, content, sources, player) {
             return true;
@@ -475,7 +475,7 @@ mod real {
 
     /// The hooks of the core window against the string modules' answers, over every technology: a mismatch means a
     /// faction effect on a research (a waived prerequisite, a colour, a waiver) the core table does not carry.
-    fn research_hooks_agree(core: &CoreState, gs: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, seat: Seat) -> bool {
+    pub(crate) fn research_hooks_agree(core: &CoreState, gs: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, seat: Seat) -> bool {
         use ti4_engine_core::generated::Technology;
         use ti4_engine_core::query::tech::ResearchHooks as _;
         let kernel = crate::production_view::kernel();
