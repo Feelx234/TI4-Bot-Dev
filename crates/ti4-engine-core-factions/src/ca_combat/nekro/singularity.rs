@@ -257,3 +257,94 @@ pub fn register_abilities(t: &mut ti4_engine_core::kernel::ability::AbilityTable
         t.add(Spec::new(slot, AbilityKind::Ability, event, Relation::After, effect).applies(nekro).when(opens));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::testkit::table;
+    use ti4_engine_core::generated::System;
+    use ti4_engine_core::kernel::ability::Codes;
+    use ti4_engine_core::state::Code;
+
+    const GROUND_COMBAT: Code = Code(7);
+    const OTHER_CAUSE: Code = Code(9);
+
+    fn codes() -> Codes {
+        Codes { ground_combat: GROUND_COMBAT, ..Codes::default() }
+    }
+
+    /// A Nekro (seat 0) against a Hacan (seat 1) who owns Gravity Drive and a faction technology; the mark of the combat in
+    /// `system` is open for seat 1.
+    fn game(word: Word) -> (CoreState, Kernel, System) {
+        let (mut s, k) = table(&[Faction::TheNekroVirus, Faction::TheEmiratesOfHacan]);
+        let system = System::ALL[0];
+        let them = s.players_mut().by_seat_mut(Seat(1)).unwrap();
+        them.tech.owned.insert(Technology::GravityDrive);
+        them.tech.owned.insert(Technology::QuantumDatahubNode);
+        s.marks_mut().tail.edit().insert(MarkKey::NekroTs(system, None), mark(Seat(1), word));
+        (s, k, system)
+    }
+
+    fn ship_destroyed(system: System, victim: Seat, in_combat: bool) -> Payload {
+        use ti4_engine_core::state::Val;
+        Payload::new().with(Key::System, Val::System(system)).with(Key::Player, Val::Seat(victim)).with(Key::DuringSpaceCombat, Val::Flag(in_combat))
+    }
+
+    #[test]
+    fn bail_a_destruction_outside_the_combat_opens_nothing() {
+        let (s, k, system) = game(Word::Open);
+        assert!(ready(&s, &k, &ship_destroyed(system, Seat(1), true), &codes(), Seat(0), false).is_some());
+        assert!(ready(&s, &k, &ship_destroyed(system, Seat(1), false), &codes(), Seat(0), false).is_none(), "a ship destroyed by a card is not in the combat");
+    }
+
+    #[test]
+    fn only_the_opponents_unit_opens_it_and_only_while_the_mark_is_open() {
+        let (s, k, system) = game(Word::Open);
+        assert!(ready(&s, &k, &ship_destroyed(system, Seat(0), true), &codes(), Seat(0), false).is_none(), "the Nekro's own ship");
+        let (s, k, system) = game(Word::Used);
+        assert!(ready(&s, &k, &ship_destroyed(system, Seat(1), true), &codes(), Seat(0), false).is_none(), "once per combat");
+    }
+
+    #[test]
+    fn a_ground_force_opens_it_only_when_the_combat_destroyed_it() {
+        use ti4_engine_core::state::Val;
+        let (mut s, k, system) = game(Word::Open);
+        let planet = ti4_engine_core::generated::Planet::ALL[0];
+        s.marks_mut().tail.edit().insert(MarkKey::NekroTs(system, Some(planet)), mark(Seat(1), Word::Open));
+        let p = |cause| Payload::new().with(Key::System, Val::System(system)).with(Key::Planet, Val::Planet(planet)).with(Key::Player, Val::Seat(Seat(1))).with(Key::Cause, Val::Code(cause));
+        assert!(ready(&s, &k, &p(GROUND_COMBAT), &codes(), Seat(0), true).is_some());
+        assert!(ready(&s, &k, &p(OTHER_CAUSE), &codes(), Seat(0), true).is_none(), "a space cannon or a card is not the combat");
+        let no_planet = Payload::new().with(Key::System, Val::System(system)).with(Key::Player, Val::Seat(Seat(1))).with(Key::Cause, Val::Code(GROUND_COMBAT));
+        assert!(ready(&s, &k, &no_planet, &codes(), Seat(0), true).is_none(), "a ground combat is keyed by its planet");
+    }
+
+    #[test]
+    fn a_faceup_antivirus_of_the_nekro_in_the_opponents_area_bars_it() {
+        let (mut s, k, system) = game(Word::Open);
+        let note = NoteKey { note: PromissoryNote::Antivirus, faction: Faction::TheNekroVirus };
+        s.cards_mut().promissory.edit().insert(note, Seat(1));
+        assert!(ready(&s, &k, &ship_destroyed(system, Seat(1), true), &codes(), Seat(0), false).is_some(), "in the opponent's hand: not placed");
+        s.cards_mut().promissory_faceup.edit().insert(note, ());
+        assert!(antivirus_bars(&s, Seat(0), Seat(1)));
+        assert!(ready(&s, &k, &ship_destroyed(system, Seat(1), true), &codes(), Seat(0), false).is_none());
+    }
+
+    #[test]
+    fn the_options_follow_the_strings_rules() {
+        let (mut s, k, _) = game(Word::Open);
+        // Gravity Drive is generic: gain only (a generic card carries no token). The faction technology (Hacan's) is not the
+        // Nekro's to gain, and a token needs a Valefar Assimilator the Nekro owns.
+        assert_eq!(options(&s, &k, Seat(0), Seat(1)), vec![(Take::Gain, Technology::GravityDrive)]);
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.insert(Technology::ValefarAssimilatorX);
+        assert_eq!(options(&s, &k, Seat(0), Seat(1)), vec![(Take::Gain, Technology::GravityDrive), (Take::TokenX, Technology::QuantumDatahubNode)]);
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().tech.assimilated.insert(Technology::ValefarAssimilatorX, Technology::QuantumDatahubNode);
+        assert_eq!(options(&s, &k, Seat(0), Seat(1)), vec![(Take::Gain, Technology::GravityDrive)], "the technology carries a token already");
+        assert!(options(&s, &k, Seat(0), Seat(0)).is_empty(), "nothing of one's own");
+    }
+
+    #[test]
+    fn the_technologies_that_change_unit_forms_are_the_documented_bail() {
+        assert!(changes_unit_forms(Technology::CarrierII), "a unit upgrade");
+        assert!(!changes_unit_forms(Technology::GravityDrive));
+    }
+}

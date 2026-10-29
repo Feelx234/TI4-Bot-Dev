@@ -5737,7 +5737,9 @@ impl CombatWindow {
         bail.set(bail.get() || !crate::production::destroy_blockaded_mobile_docks(state, ctx.content, ctx.sources, &self.system).is_empty());
         // The notes the announcement leaves (Cabal's marks, a staged event) are the core's when the string run had
         // nested activity: the abilities of the table write them, and the state comparison tells.
-        marks_changed.set(state.faction_marks != marks);
+        // (Technological Singularity's combat mark, `nekro:ts:`, is one of those: the ability that closes it is in the table.)
+        let own = |marks: &std::collections::BTreeMap<String, String>| marks.iter().filter(|(k, _)| !k.starts_with("nekro:ts:")).map(|(k, v)| (k.clone(), v.clone())).collect::<Vec<_>>();
+        marks_changed.set(own(&state.faction_marks) != own(&marks));
         self.machine_bail |= bail.get() || marks_changed.get();
         announce_staged_destructions(state, ctx);
                 crate::dual::Run::new(true)
@@ -10007,6 +10009,8 @@ mod tests {
         let r = report();
         let bails = r.windows.keys().cloned().collect();
         let differences = r.total_differences();
+        // The end announcement of a fight whose combat mark the table closes is no reason to keep the settle in the string.
+        assert_eq!(r.windows.get("combat::settle").map_or(0, |w| w.bailed), 0, "{:?}", r.windows);
         if differences > 0 {
             eprintln!("{:?}", r.differences.first());
         }

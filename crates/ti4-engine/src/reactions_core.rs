@@ -417,6 +417,14 @@ mod tests {
         assert_eq!(slot_of("technology:hacan:inf2:SHIP_DESTROYED:after"), None, "the event is part of the identity");
     }
 
+    /// Technological Singularity offers an opponent's technologies in the order of the string's `BTreeSet<TechnologyId>`
+    /// (the ids' text order); the core walks a bit set in enum order.
+    #[test]
+    fn the_enum_order_of_the_technologies_is_the_text_order_of_their_ids() {
+        let ids = &crate::generated::technologies::TECHNOLOGY_IDS;
+        assert!(ids.windows(2).all(|w| w[0] < w[1]), "the core's technology order is the string's");
+    }
+
     #[test]
     fn bail_an_eligible_ability_the_table_lacks_is_named() {
         let t = table();
