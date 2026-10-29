@@ -91,6 +91,12 @@ impl DiplomacyWindow {
         self
     }
 
+    /// Whether an answer has been applied to this window.
+    #[must_use]
+    pub const fn stepped(&self) -> bool {
+        self.stepped
+    }
+
     fn actor(&self) -> Seat {
         if self.responses.is_multiple_of(2) { self.recipient } else { self.proposer }
     }

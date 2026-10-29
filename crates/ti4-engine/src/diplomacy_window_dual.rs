@@ -119,7 +119,7 @@ mod real {
 
     /// The core half of one step of the negotiation window (see the module docs).
     pub fn step(gs: &mut GameState, content: &ContentStore, galaxy: Option<&Galaxy>, at: &DiplomacyWindow, script: &Recording) -> Option<CoreWindow<Snap>> {
-        if script.nested || gs.active_space_combat.is_some() || gs.active_invasion.is_some() || !content.is_embedded() {
+        if crate::dual_window::outside_battle(gs, script) || !content.is_embedded() {
             return None;
         }
         let Some(galaxy) = galaxy else { return bail("a position with no map") };
@@ -217,6 +217,10 @@ mod real {
         };
         if !driven.finished && driven.rendered.is_empty() {
             return bail("a question nobody answered");
+        }
+        if !window.stepped() {
+            // The string's answer is not one of the core question's options (it refuses it as an illegal choice).
+            return bail("an answer the core's question does not offer");
         }
         if traded {
             // What the core does not do of `transactions::resolve`: the staged gains of both sides and Dark Pact.

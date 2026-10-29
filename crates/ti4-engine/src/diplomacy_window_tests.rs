@@ -434,4 +434,43 @@ mod tests {
             assert_eq!(ids.iter().any(|i| i == "diplomacy|note|an:xxcha"), offered, "{partner}: {ids:?}");
         }
     }
+
+    /// A bail is silent: each of the window's bails is counted under its reason and leaves the string step alone.
+    fn bailed(done: &Done, reason: &str) {
+        assert_eq!((done.compared, done.bailed), (0, 1), "{:?}", done.reasons);
+        assert!(done.reasons.iter().any(|(k, _)| k.contains(reason)), "{reason}: {:?}", done.reasons);
+    }
+
+    #[test]
+    fn what_the_core_cannot_follow_stays_on_the_string_and_is_counted() {
+        // A scope naming a system the core has no variant for.
+        let (state, hub) = sol_hacan_xxcha();
+        let odd = ContactScope { systems: vec![SystemId::new("not-a-system")], ..scope() };
+        bailed(&run(state, &hub, odd, vec![], &["diplomacy|done"], |_, _| {}), "a scope the core has no ids for");
+        // A signal naming one.
+        let (state, hub) = sol_hacan_xxcha();
+        let warning = SignalStatement::AttackIfYouActivate { system: SystemId::new("not-a-system") };
+        bailed(&run(state, &hub, scope(), vec![warning], &["diplomacy|done"], |_, _| {}), "a signal the core has no ids for");
+        let content = ContentStore::embedded();
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        // No map to read the reach from.
+        let (mut state, hub) = sol_hacan_xxcha();
+        let mut window = DiplomacyWindow::open(&mut state, p("a"), p("b"), scope(), vec![]).unwrap();
+        let choice = window.pending_choice(&state, content, POK).unwrap();
+        crate::dual::reset_thread_windows();
+        let mut table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(["diplomacy|done".to_owned()])));
+        with_mask(AreaMask::STRING.with(Area::TradeDiplomacy, Backend::Dual), || {
+            let ask = |c: &crate::choice::Choice, s: &mut GameState| table.ask_seeing(c, &crate::choice::Observed::new(s, content, POK, Some(&hub.galaxy)));
+            window.answer_with(&mut state, content, POK, None, &choice, ask).unwrap().unwrap();
+        });
+        assert_eq!(crate::dual::thread_window_counts(LABEL_ANSWER), (0, 1));
+        assert!(report().windows.keys().any(|k| k.contains("a position with no map")));
+        // A step inside a battle or an invasion is left alone (the guard is `dual_window::outside_battle`).
+        let (state, _) = sol_hacan_xxcha();
+        let mut nested = crate::dual_window::Recording::default();
+        nested.nested = true;
+        assert!(crate::dual_window::outside_battle(&state, &nested));
+        assert!(!crate::dual_window::outside_battle(&state, &crate::dual_window::Recording::default()));
+    }
 }
