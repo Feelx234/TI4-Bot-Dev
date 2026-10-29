@@ -2937,14 +2937,14 @@ mod relic_window_tests {
             }
             // The list: hand order, only relics with an action, the two with a precondition only when it holds.
             let mut state = seated();
-            let hand = ["thetriad", "stellarconverter", "dynamiscore", "enigmaticdevice", "heartofixth", "codex", "shard", "titanprototype"];
+            let hand = ["thetriad", "stellarconverter", "dynamiscore", "enigmaticdevice", "heartofixth", "codex", "shard", "titanprototype", "thesilverflame", "mawofworlds", "bookoflatvinia", "thalnos"];
             state.player_mut(&me()).unwrap().relics = hand.iter().map(|a| RelicId::new(*a)).collect();
             {
                 let listed = |enigmatic, stellar| action_relics(&state, &me(), enigmatic, stellar);
-                assert_eq!(listed(true, true), ["stellarconverter", "dynamiscore", "enigmaticdevice", "codex", "titanprototype"]);
-                assert_eq!(listed(false, true), ["stellarconverter", "dynamiscore", "codex", "titanprototype"]);
-                assert_eq!(listed(true, false), ["dynamiscore", "enigmaticdevice", "codex", "titanprototype"]);
-                assert_eq!(listed(false, false), ["dynamiscore", "codex", "titanprototype"]);
+                assert_eq!(listed(true, true), ["stellarconverter", "dynamiscore", "enigmaticdevice", "codex", "titanprototype", "thesilverflame", "mawofworlds", "bookoflatvinia"]);
+                assert_eq!(listed(false, true), ["stellarconverter", "dynamiscore", "codex", "titanprototype", "thesilverflame", "mawofworlds", "bookoflatvinia"]);
+                assert_eq!(listed(true, false), ["dynamiscore", "enigmaticdevice", "codex", "titanprototype", "thesilverflame", "mawofworlds", "bookoflatvinia"]);
+                assert_eq!(listed(false, false), ["dynamiscore", "codex", "titanprototype", "thesilverflame", "mawofworlds", "bookoflatvinia"]);
             }
             state.player_mut(&me()).unwrap().relics.clear();
             assert!(action_relics(&state, &me(), true, true).is_empty());

@@ -4073,6 +4073,17 @@ mod window_tests {
             assert_eq!(kinds, [("carrier", "a"), ("infantry", "a"), ("infantry", "a"), ("infantry", "b"), ("mech", "a")]);
             assert!(board.on_planet(&planet).is_empty(), "structures and ground forces both left the planet");
 
+            // A planet the board holds no unit entry for is left alone by both (no system appears out of nowhere).
+            let (mut state, _) = table(0, 0);
+            let off_board = ti4_content::galaxy::all_systems(ContentStore::embedded(), ti4_model::content_types::POK)
+                .into_iter()
+                .find(|(id, system)| !state.board.contains_key(&SystemId::new(*id)) && !system.planets().is_empty())
+                .map(|(_, system)| PlanetId::new(system.planets()[0]))
+                .expect("a system off the board");
+            let before = state.clone();
+            demilitarize(&mut state, ContentStore::embedded(), ti4_model::content_types::FULL, &off_board);
+            assert!(state.identical(&before));
+
             // Mirage: placed into the explored system; the second placement is refused by both.
             let (mut state, planet) = table(0, 0);
             let (system, _) = a_placed_planet();
