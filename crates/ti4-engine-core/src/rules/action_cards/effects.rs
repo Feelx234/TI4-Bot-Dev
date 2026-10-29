@@ -134,6 +134,8 @@ pub enum Fx {
     /// Decoy Operation: up to two of the holder's ground forces anywhere leave the board for a planet of the holder in the
     /// active system.
     Decoy,
+    /// Ghost Squad: ground forces of the holder move between its planets in the active system, one move per question.
+    Squad,
 }
 
 impl Fx {
@@ -225,6 +227,7 @@ impl Fx {
             C::Upgrade => Self::Upgrade,
             C::RefitTroops => Self::Refit,
             C::DecoyOperation => Self::Decoy,
+            C::GhostSquad => Self::Squad,
             _ => return None,
         })
     }
@@ -280,6 +283,8 @@ pub struct Play {
     troop: Option<(System, Planet, u8)>,
     /// Decoy Operation: the ground forces pulled so far, in the order they were picked.
     pulled: SmallList<(System, Planet, u8), 2>,
+    /// Ghost Squad: the planets that have received forces (they do not ship out again).
+    received: SmallList<Planet, 8>,
     /// The question the bill's child waits on.
     pay_ask: Option<crate::choice::Ask>,
 }
@@ -363,7 +368,7 @@ impl Play {
             }
             _ => None,
         };
-        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: Child::idle(), jam: None, troop: None, pulled: SmallList::new(), pay_ask: None })
+        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: Child::idle(), jam: None, troop: None, pulled: SmallList::new(), received: SmallList::new(), pay_ask: None })
     }
 
     fn what(&self) -> Option<What> {
@@ -379,6 +384,7 @@ impl Play {
             Fx::Mercenary => What::Landing,
             Fx::Ghost => What::Ghost,
             Fx::Upgrade => What::Cruiser,
+            Fx::Squad => What::Squad { system: self.jam? },
             Fx::Refit => What::Troops { second: self.troop.is_some() },
             Fx::Decoy if self.step == 0 => What::Pull { second: false },
             Fx::Decoy if self.step == 1 => What::Pull { second: true },
@@ -634,6 +640,40 @@ impl Play {
                 }
                 reach.as_mut_slice().sort_unstable();
                 reach.as_slice().iter().copied().filter(|s| !is_home_system(scope, *s)).map(Opt::System).collect()
+            }
+            Fx::Squad => {
+                let Some(system) = self.jam else { return SmallList::new() };
+                let scope = self.env.scope;
+                let mut own: SmallList<Planet, 8> = board::planets_of(core, system).filter(|p| board::control(core, *p) == Some(who)).collect();
+                own.as_mut_slice().sort_unstable();
+                let mut out = SmallList::new();
+                for from in own.as_slice() {
+                    if self.received.as_slice().contains(from) {
+                        continue;
+                    }
+                    let ground: SmallList<crate::generated::Unit, 12> = board::planet_units(core, *from)
+                        .iter()
+                        .filter(|p| p.owner() == who && scope.unit(p.kind()).is_some_and(|d| d.ground_force))
+                        .map(|p| p.kind())
+                        .collect();
+                    let mut kinds: SmallList<crate::generated::Unit, 12> = SmallList::new();
+                    for k in ground.as_slice() {
+                        if !kinds.as_slice().contains(k) {
+                            kinds.push(*k);
+                        }
+                    }
+                    kinds.as_mut_slice().sort_by(|a, b| (self.env.facts.unit_order)(*a, *b));
+                    for to in own.as_slice() {
+                        if to == from {
+                            continue;
+                        }
+                        for kind in kinds.as_slice() {
+                            let count = u8::try_from(ground.as_slice().iter().filter(|k| *k == kind).count()).unwrap_or(u8::MAX);
+                            out.push(Opt::Move { from: *from, to: *to, kind: *kind, count });
+                        }
+                    }
+                }
+                out
             }
             Fx::Decoy if self.step == 2 => self.decoy_destinations(core),
             Fx::Decoy if self.step == 3 => SmallList::new(),
@@ -924,6 +964,7 @@ impl Play {
             Fx::SupplyBase => {
                 fx::gain_trade_goods_staged(core, self.who, 3, self.env.supply_base);
             }
+            Fx::Squad => self.jam = core.meta().active_system,
             Fx::Decoy => {
                 // The destination first, so a card with nowhere to land removes nothing; up to two forces are taken unasked.
                 let found = self.ground_forces(core);
@@ -1308,6 +1349,21 @@ impl Play {
                     fx::place_unit(core, neutral, system, None, crate::generated::Unit::NeutralDestroyer);
                 }
             }
+            (Fx::Squad, Opt::Move { from, to, kind, .. }) => {
+                let moved: SmallList<Piece, 12> = board::planet_units(core, from).iter().filter(|p| p.owner() == who && p.kind() == kind).copied().collect();
+                if moved.is_empty() {
+                    return false;
+                }
+                let ground = self.env.scope.unit(kind).is_some_and(|d| d.ground_force);
+                core.board_mut().planet_mut(from).units.retain(|p| !(ground && p.owner() == who && p.kind() == kind));
+                let cell = core.board_mut().planet_mut(to);
+                for piece in moved.as_slice() {
+                    cell.units.push(*piece);
+                }
+                cell.flags.set(crate::state::PlanetFlags::UNITS_ENTRY, true);
+                self.received.push(to);
+                return true;
+            }
             (Fx::Decoy, Opt::Troop { system, planet, index, .. }) => {
                 self.pulled.push((system, planet, index));
                 self.step = if self.step == 0 { 1 } else { 2 };
@@ -1404,7 +1460,7 @@ impl Play {
                     self.stage = Stage::Done;
                     return;
                 }
-                [only] => {
+                [only] if self.fx != Fx::Squad => {
                     let only = *only;
                     if !self.apply(core, seeds, only) {
                         self.stage = Stage::Done;
@@ -1550,6 +1606,10 @@ impl Play {
             }
             return Ok(());
         }
+        if self.fx == Fx::Squad && matches!(pick, Pick::Opt(crate::choice::Opt::Decline)) {
+            self.stage = Stage::Done;
+            return Ok(());
+        }
         let Pick::Opt(crate::choice::Opt::Cards(opt)) = pick else { return Err(Illegal) };
         if !self.opts.as_slice().contains(&opt) {
             return Err(Illegal);
@@ -1597,12 +1657,22 @@ impl Window for Play {
                 }),
                 optional: false,
                 // Exchange Program's answer is about the seat that asks.
-                target: (self.fx == Fx::Exchange && self.step == 2).then_some(crate::choice::Target::Seat(self.who)),
+                target: if self.fx == Fx::Squad {
+                    self.jam.map(crate::choice::Target::System)
+                } else {
+                    (self.fx == Fx::Exchange && self.step == 2).then_some(crate::choice::Target::Seat(self.who))
+                },
                 outstanding: SmallList::new(),
                 space_battle: false,
                 invasion_seq: None,
             },
-            opts: self.opts.as_slice().iter().map(|o| crate::choice::Opt::Cards(*o)).collect::<Opts>(),
+            opts: {
+                let mut opts = self.opts.as_slice().iter().map(|o| crate::choice::Opt::Cards(*o)).collect::<Opts>();
+                if self.fx == Fx::Squad {
+                    opts.push(crate::choice::Opt::Decline);
+                }
+                opts
+            },
         })
     }
 
@@ -1666,6 +1736,7 @@ mod tests {
             C::Upgrade,
             C::RefitTroops,
             C::DecoyOperation,
+            C::GhostSquad,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }
@@ -1749,7 +1820,6 @@ mod tests {
             (C::ExperimentalBattlestation, "the space cannon of a structure joined to the movement window"),
             (C::FocusedResearch, "four trade goods (the Keleres goods window) then a research"),
             (C::FireTeam, "per-die reroll questions of a staged ground roll"),
-            (C::GhostSquad, "ground forces moved through the faction hooks"),
             (C::HarnessEnergy, "the commodity limit of the faction hooks, the Siphon event and the Trade Agreement hook"),
             (C::Impersonation, "three influence by the question-driven payment, then a secret objective draw with the hand limit"),
             (C::Infiltrate, "the structure swap of the capture (rules version dependent unit forms)"),

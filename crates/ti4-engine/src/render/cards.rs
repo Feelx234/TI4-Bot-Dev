@@ -33,6 +33,7 @@ impl Family for Fam {
                 Reason::C4rDiscard => "???_ERROR_ERROR_???: discard 1 action card".to_owned(),
                 Reason::Show { viewer } => format!("show {} 1 action card from your hand", r.seat_text(*viewer)),
             },
+            Ask::Pick { what: What::Squad { system }, .. } => format!("Ghost Squad: move ground forces in {}", system.as_str()),
             Ask::Pick { what: What::JamWho { system }, .. } => format!("Signal Jamming: whose token goes into {}", system.as_str()),
             Ask::Pick { card, what } => pick_prompt(*card, *what).to_owned(),
             Ask::Predict { card, .. } => format!("{}: predict the agenda outcome", rider_name(*card)),
@@ -56,6 +57,7 @@ impl Family for Fam {
             Subtype::Pick { card, what } => {
                 return match what {
                     What::Elect => "confusing_legal_text_elect".to_owned(),
+                    What::Squad { .. } => "ghost_squad_move".to_owned(),
                     What::Silence => "silence_choose_system".to_owned(),
                     What::Accept => "exchange_program_answer".to_owned(),
                     What::Exhaust => "reparations_exhaust".to_owned(),
@@ -107,6 +109,17 @@ impl Family for Fam {
             Opt::Stop if matches!(pick_of(a).1, What::Pull { .. }) => ChoiceOption::labelled("stop", "unit", "stop after one"),
             Opt::Stop if matches!(pick_of(a).1, What::Troops { .. }) => ChoiceOption::labelled("stop", "infantry", "stop after one"),
             Opt::Stop => ChoiceOption::labelled("stop", "ship", "stop after one"),
+            Opt::Move { from, to, kind, count } => {
+                ChoiceOption::labelled(
+                    format!("move|{}|{}|{}", from.as_str(), to.as_str(), kind.as_str()),
+                    "move",
+                    format!("move {count} {} from {} to {}", kind.as_str(), from.as_str(), to.as_str()),
+                )
+                .with("from", from.as_str())
+                .with("to", to.as_str())
+                .with("unit", kind.as_str())
+                .with("count", usize::from(*count))
+            }
             Opt::Troop { system, planet, index, kind } => {
                 let id = format!("{}|{}|{index}", system.as_str(), planet.as_str());
                 if matches!(pick_of(a).1, What::Pull { .. }) {
@@ -194,7 +207,7 @@ impl Family for Fam {
                 "no" => Some(Opt::Answer(false)),
                 _ => None,
             },
-            Ask::Pick { what: What::Cruiser | What::Troops { .. } | What::Pull { .. }, .. } => None,
+            Ask::Pick { what: What::Cruiser | What::Troops { .. } | What::Pull { .. } | What::Squad { .. }, .. } => None,
             Ask::Pick { what: What::Hull | What::Scuttle { .. }, .. } => {
                 let (system, index) = id.split_once('|')?;
                 // Only the id is read back; the owner and unit form are the question's.
@@ -233,6 +246,7 @@ const fn pick_kind(what: What) -> &'static str {
         What::Troops { .. } => "infantry",
         What::Pull { .. } => "unit",
         What::Land => "planet",
+        What::Squad { .. } => "move",
         What::Offer | What::Landing => "planet",
         What::JamWho { .. } => "player",
         What::Accept => "answer",

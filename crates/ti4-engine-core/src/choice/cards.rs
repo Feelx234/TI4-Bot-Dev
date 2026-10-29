@@ -55,6 +55,8 @@ pub enum What {
     Hull,
     /// kind `ship`: a ship Scuttle returns; the second question (`second`) also offers to stop after one.
     Scuttle { second: bool },
+    /// kind `move`, subtype `ghost_squad_move`, with a decline: a move of ground forces between the planets of `system`.
+    Squad { system: System },
     /// kind `unit`, id `system|planet|index`, label `<unit> in <system>`: a ground force Decoy Operation pulls; the second
     /// question (`second`) also offers to stop after one.
     Pull { second: bool },
@@ -139,6 +141,8 @@ pub enum Opt {
     Fragment(crate::generated::ExploreType),
     /// A unit on a planet: the system, the planet and its place in the planet's unit list (`What::Troops`).
     Troop { system: System, planet: Planet, index: u8, kind: crate::generated::Unit },
+    /// Every ground force of one type moves from a planet to another (`What::Squad`).
+    Move { from: Planet, to: Planet, kind: crate::generated::Unit, count: u8 },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).

@@ -249,6 +249,7 @@ fn env_of(state: &GameState, player: &PlayerId, sources: &ti4_model::content_typ
             destroyer: rules::Placed::NONE,
             dreadnought: rules::Placed::NONE,
             mech: rules::Placed::NONE,
+            unit_order: |a, b| crate::generated::IdStr::as_str(a).cmp(crate::generated::IdStr::as_str(b)),
         },
     }
 }

@@ -127,9 +127,10 @@ fn mercenary_contract_lands_neutral_infantry_on_a_bare_planet_in_the_core_window
     let _ = crate::dual::take_report();
 }
 
-/// A map of one ring: Mecatol Rex and six systems, four of which carry a wormhole (alpha, alpha, beta, alpha).
+/// A map of one ring: Mecatol Rex and six systems, four of which carry a wormhole (alpha, alpha, beta, alpha) and one is a
+/// homeworld that carries one too (the Creuss home, "51").
 fn ring() -> ti4_content::galaxy::Galaxy {
-    ti4_content::galaxy::Galaxy::build(ti4_content::ContentStore::embedded(), &["18", "25", "26", "39", "40", "67", "68"], ti4_model::content_types::POK, 1)
+    ti4_content::galaxy::Galaxy::build(ti4_content::ContentStore::embedded(), &["18", "25", "26", "39", "40", "67", "51"], ti4_model::content_types::POK, 1)
         .expect("one ring holds the tiles")
 }
 
@@ -182,6 +183,8 @@ fn signal_jamming_closes_a_system_near_the_holders_ships_in_the_core_window() {
     let mut state = closing_position();
     state.system_mut(&ti4_model::id::SystemId::new("25")).units.push(unit("cruiser", "a"));
     state.system_mut(&ti4_model::id::SystemId::new("40")).units.push(unit("carrier", "a"));
+    // A ship at home counts for the adjacency, the home system itself is never offered.
+    state.system_mut(&ti4_model::id::SystemId::new("51")).units.push(unit("cruiser", "a"));
     // Off the map and the holder's: never offered.
     let mut two = state.clone();
     two.seating_order.retain(|p| p.as_str() != "c");
@@ -320,5 +323,70 @@ fn decoy_operation_pulls_ground_forces_to_a_planet_of_the_active_system_in_the_c
     );
     let untouched = played("decoy", &nowhere);
     assert_eq!(serde_json::to_string(&untouched.board).unwrap(), serde_json::to_string(&nowhere.board).unwrap(), "nowhere to land: nothing is removed");
+    let _ = crate::dual::take_report();
+}
+
+/// A position where seat `a` holds two planets of the active system and ground forces on one of them (infantry and mechs).
+fn squad_position() -> GameState {
+    use ti4_engine_core::generated::Planet;
+    let a = PlayerId::new("a");
+    let mut state = closing_position();
+    let (system, planets): (ti4_engine_core::generated::System, Vec<Planet>) = Planet::ALL
+        .iter()
+        .filter_map(|p| p.data().system.map(|s| (s, *p)))
+        .fold(std::collections::BTreeMap::<_, Vec<Planet>>::new(), |mut m, (s, p)| {
+            m.entry(s).or_default().push(p);
+            m
+        })
+        .into_iter()
+        .find(|(s, ps)| ps.len() >= 2 && !ps.iter().any(|p| p.data().homeworld_of.is_some()) && state.board.get(&ti4_model::id::SystemId::new(crate::generated::IdStr::as_str(*s))).is_none())
+        .expect("a system with two planets");
+    let sys = ti4_model::id::SystemId::new(crate::generated::IdStr::as_str(system));
+    for p in &planets {
+        let pid = ti4_model::id::PlanetId::new(crate::generated::IdStr::as_str(*p));
+        state.system_mut(&sys).planet_control.insert(pid.clone(), a.clone());
+        state.system_mut(&sys).planet_units.insert(pid, vec![]);
+    }
+    let first = ti4_model::id::PlanetId::new(crate::generated::IdStr::as_str(planets[0]));
+    let units = state.system_mut(&sys).planet_units.entry(first).or_default();
+    units.push(unit("infantry", "a"));
+    units.push(unit("mech", "a"));
+    units.push(unit("infantry", "a"));
+    state.active_system = Some(sys);
+    state
+}
+
+/// Ghost Squad: a move per question (every ground force of one type from one planet to another), a decline in each, a planet that
+/// received forces does not ship out again.
+#[test]
+fn ghost_squad_moves_ground_forces_between_planets_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let state = squad_position();
+    // Nothing to move: the card does nothing (no question).
+    let mut bare = state.clone();
+    for board in bare.board.values_mut() {
+        for units in board.planet_units.values_mut() {
+            units.retain(|u| u.owner.as_str() != "a");
+        }
+    }
+    announce_all(&[("ghost_squad", state.clone()), ("ghost_squad", bare.clone())]);
+    let _ = crate::dual::take_report();
+    let before = serde_json::to_string(&state.board).unwrap();
+    let declined = played("ghost_squad", &state);
+    assert!(before == serde_json::to_string(&declined.board).unwrap(), "the last option is the decline: nothing moved");
+    let after = played_by("ghost_squad", &state, Box::new(crate::action_cards_closing_tests::LastGo));
+    assert!(before != serde_json::to_string(&after.board).unwrap(), "a move was made");
+    assert_eq!(
+        units_on_planets(&after, "infantry", "a") + units_on_planets(&after, "mech", "a"),
+        units_on_planets(&state, "infantry", "a") + units_on_planets(&state, "mech", "a"),
+        "ground forces only change planets"
+    );
+    // Two moves on first options: infantry, then the mech (the first planet shipped out, nothing is left to move back).
+    let after = played_by("ghost_squad", &state, Box::new(crate::action_cards_closing_tests::FirstOption));
+    assert_eq!(
+        units_on_planets(&after, "infantry", "a") + units_on_planets(&after, "mech", "a"),
+        units_on_planets(&state, "infantry", "a") + units_on_planets(&state, "mech", "a")
+    );
+    assert!(serde_json::to_string(&after.board).unwrap() != before);
     let _ = crate::dual::take_report();
 }

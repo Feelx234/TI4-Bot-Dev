@@ -40,7 +40,7 @@ impl Decider for FirstOption {
 }
 
 /// Takes the last option that does not stop the effect (the picks of a two-pick card come out in descending order).
-struct LastGo;
+pub(crate) struct LastGo;
 
 impl Decider for LastGo {
     fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
