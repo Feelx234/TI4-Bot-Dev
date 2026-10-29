@@ -53,9 +53,10 @@ fn mark_held(s: &CoreState, key: &MarkKey, who: Seat) -> bool {
 
 /// The model a capture effect may take: a non-structure unit of a seated, non-neutral victim; `own` lets the
 /// captor's own models count.
-fn destroyed_model(event: &EventRec, captor: Seat, own: bool) -> Option<(Seat, Unit)> {
+fn destroyed_model(s: &CoreState, event: &EventRec, captor: Seat, own: bool) -> Option<(Seat, Unit)> {
     let victim = event.payload.seat(Key::Player)?;
-    if !own && victim == captor {
+    // A neutral's unit (Thunder's Edge) is never captured: its owner is no seated player.
+    if !ti4_engine_core::query::seats::is_player(s, victim) || (!own && victim == captor) {
         return None;
     }
     let unit = event.payload.unit(Key::Unit)?;
@@ -116,7 +117,8 @@ fn devour_ground_when(c: &CondCx<'_>) -> bool {
 
 fn devour(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let me = eff.owner();
-    if let Some((victim, unit)) = destroyed_model(eff.event, me, false) {
+    let event = eff.event.clone();
+    if let Some((victim, unit)) = destroyed_model(eff.state(), &event, me, false) {
         capture(eff, victim, unit);
     }
     Ok(())
@@ -145,7 +147,8 @@ fn terror_when(c: &CondCx<'_>) -> bool {
 
 fn terror(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let me = eff.owner();
-    if let Some((victim, unit)) = destroyed_model(eff.event, me, true) {
+    let event = eff.event.clone();
+    if let Some((victim, unit)) = destroyed_model(eff.state(), &event, me, true) {
         capture(eff, victim, unit);
     }
     Ok(())

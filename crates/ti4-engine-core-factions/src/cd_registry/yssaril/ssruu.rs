@@ -82,8 +82,8 @@ pub fn register_abilities(t: &mut AbilityTable) {
     use EventKind as E;
     t.add(Spec::new(YIN_SHIPS, AbilityKind::Leader, E::ShipDestroyed, Relation::After, |e| milor_copy(e, UnitBaseType::Fighter, false)).applies(Applies::Faction(Faction::TheYinBrotherhood)).pair(yin_lends).optional().when(milor_ship_when));
     t.add(Spec::new(YIN_GROUND, AbilityKind::Leader, E::GroundForceDestroyed, Relation::After, |e| milor_copy(e, UnitBaseType::Infantry, true)).applies(Applies::Faction(Faction::TheYinBrotherhood)).pair(yin_lends).optional().when(milor_ground_when));
-    t.add(Spec::new(SOL, AbilityKind::Leader, E::GroundCombatRoundStarted, Relation::After, |e| crate::cc_ground::borrowed::timing::copy_effect(e, true)).applies(Applies::Faction(Faction::TheFederationOfSol)).pair(yssaril_borrows).optional().when(|c| round_when(c, true)));
-    t.add(Spec::new(LETNEV, AbilityKind::Leader, E::CombatRoundStarted, Relation::After, |e| crate::cc_ground::borrowed::timing::copy_effect(e, false)).applies(Applies::Faction(Faction::TheBaronyOfLetnev)).pair(yssaril_borrows).optional().when(|c| round_when(c, false)));
+    t.add(Spec::new(SOL, AbilityKind::Leader, E::GroundCombatRoundStarted, Relation::After, |e| crate::cc_ground::borrowed::timing::copy_effect(e, true)).applies(Applies::Faction(Faction::TheFederationOfSol)).pair(yssaril_borrows).leading().optional().when(|c| round_when(c, true)));
+    t.add(Spec::new(LETNEV, AbilityKind::Leader, E::CombatRoundStarted, Relation::After, |e| crate::cc_ground::borrowed::timing::copy_effect(e, false)).applies(Applies::Faction(Faction::TheBaronyOfLetnev)).pair(yssaril_borrows).leading().optional().when(|c| round_when(c, false)));
     t.add(Spec::new(ARGENT, AbilityKind::Leader, E::GroundForcesBeingProduced, Relation::When, crate::cb_economy::argent::timing::copy_agent).applies(Applies::Faction(Faction::TheArgentFlight)).pair(argent_lends).optional().when(crate::cb_economy::argent::timing::copy_when));
 }
 

@@ -6835,6 +6835,61 @@ mod tests {
         let _ = take_report();
     }
 
+    /// The Terror Between captures the units destroyed in its system but never a neutral's (Thunder's Edge): a bombardment
+    /// of neutral infantry under the Cabal flagship leaves the Cabal's sheet as it was, in the string and in the core window.
+    #[test]
+    fn the_cabal_does_not_capture_the_neutral_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        let neutral = PlayerId::new(crate::neutral_units::NEUTRAL);
+        let mut destroyed = 0;
+        with_mask(mask, || {
+            for seed in 1..=8_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "cabal"), ("b", "sol")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "cabal_flagship", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "dreadnought", &PlayerId::new("a"), 3);
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 3);
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &neutral, 6);
+                let before = state.system_state(&system).planet_units.values().flatten().filter(|u| u.owner == neutral).count();
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let mut dice = Dice::new();
+                let mut rng = GameRng::new(seed);
+                let content = ContentStore::embedded();
+                let mut resolver = armed_resolver(&state, vec![PlayerId::new("a"), PlayerId::new("b")]);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut window = InvasionWindow::new(&mut state, content, POK, &mut dice, &mut rng, &PlayerId::new("a"), &system);
+                let mut ctx = Resolving {
+                    content,
+                    sources: POK,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                while !window.is_done() {
+                    window.drive(&mut state, &mut ctx).unwrap();
+                    while window.take_scoring_occurrence().is_some() {}
+                    window.settle(&mut state, &mut ctx);
+                }
+                drop(ctx);
+                let after = state.system_state(&system).planet_units.values().flatten().filter(|u| u.owner == neutral).count();
+                destroyed += before.saturating_sub(after);
+                assert!(state.player(&PlayerId::new("a")).unwrap().captured_units.iter().all(|(owner, _)| *owner != neutral), "seed {seed}");
+            }
+        });
+        let r = report();
+        assert!(destroyed > 0, "neutral infantry was destroyed");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
     /// Run the invasion of `system` by "a" to its end with the first option everywhere (the reaction slots
     /// declined), the resolver armed for "a" and "b". For the lockstep tests of the ability table.
     fn run_invasion_first_option(state: &mut GameState, seed: u64, system: &SystemId) {

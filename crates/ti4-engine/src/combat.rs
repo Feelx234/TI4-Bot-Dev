@@ -10165,6 +10165,8 @@ mod tests {
             prepare(&mut state, &system);
             state.active_system = Some(system.clone());
             state.active = Some(attacker());
+            // As `Game` runs a fight: the position names the battle, so the questions asked inside it carry it (`about_battle`).
+            state.active_space_combat = Some((system.clone(), attacker(), defender()));
             let mut table = Table::with_default(Box::new(Rotate(seed, 0, pick)));
             let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
             let mut resolver = crate::fixtures::armed_resolver(&state);
@@ -11251,6 +11253,8 @@ mod tests {
             put(&mut state, &system, &a_barrage_unit(), &attacker(), 6);
             put(&mut state, &system, "fighter", &defender(), 1);
             put(&mut state, &system, "dreadnought", &defender(), 1);
+            // As `Game` runs a fight: the question of the ability is asked in the battle (`about_battle`).
+            state.active_space_combat = Some((system.clone(), attacker(), defender()));
             if seed % 2 == 0 {
                 put(&mut state, &system, "warsun", &defender(), 1);
             }

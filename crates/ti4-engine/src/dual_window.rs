@@ -693,7 +693,7 @@ fn complete_nested(
         } else {
             ctx
         };
-        rendered.context = Some(ctx.about_battle(gs).about_invasion(gs));
+        rendered.context = Some(nested_position(choice, ctx, gs));
     }
     crate::render::leaders::complete_round_agent(r, choice, rendered);
     if matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(ti4_engine_core::choice::reaction::Ask::Legionnaire { .. })) {
@@ -723,6 +723,17 @@ fn with_trigger_of(choice: &CoreChoice) -> bool {
         ti4_engine_core::choice::Ask::Reaction(a) => !matches!(a, RAsk::Legionnaire { .. } | RAsk::Cavalry | RAsk::Assimilate | RAsk::Watcher { .. } | RAsk::Salvage),
         ti4_engine_core::choice::Ask::Cards(ti4_engine_core::choice::cards::Ask::PlayCard { .. }) => true,
         _ => false,
+    }
+}
+
+/// The battle and invasion a nested question is asked in. The string puts a payment an ability asks (`pay_seeing`, the
+/// table's own `ask_seeing`) in the position of an invasion only, never of a battle; the other nested questions
+/// (`TimingContext::ask_seeing`) name both.
+fn nested_position(choice: &CoreChoice, ctx: crate::decision_context::DecisionContext, gs: &GameState) -> crate::decision_context::DecisionContext {
+    if matches!(choice.ask, ti4_engine_core::choice::Ask::Production(ti4_engine_core::choice::production::Ask::Pay(_))) {
+        ctx.about_invasion(gs)
+    } else {
+        ctx.about_battle(gs).about_invasion(gs)
     }
 }
 
@@ -2260,7 +2271,12 @@ pub fn raid_formation(
     let mut driver = Driver::new(RaidFormation::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(ASSIGN_HITS, script), |core, _| {
-        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+        // The string asks it in the battle it is fought in (`TimingContext::ask_seeing`): the position names it.
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, rendered| {
+            if let Some(context) = rendered.context.take() {
+                rendered.context = Some(context.about_battle(&before));
+            }
+        });
         staged = std::mem::take(&mut core.pending_mut().staged);
         driven
     })

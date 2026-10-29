@@ -315,6 +315,9 @@ pub struct Spec {
     /// A pair rule: registered for `(borrower, lender)` where this holds, owned by the borrower (`AbilityDef::pair_source` is
     /// the lender). `applies` then tests the lender.
     pub pair: Option<Pair>,
+    /// A pair rule the string registers before it walks the seats (`reactions::arm`: the borrowed round agents), so its
+    /// offers come before every seat's standing slots in a window.
+    pub leads: bool,
     /// The effect is the core's. `false`: only the eligibility is (the offer is rendered and a decline is
     /// followed); a run in which the string took the ability is not followed.
     pub effect_ported: bool,
@@ -342,6 +345,7 @@ impl Spec {
             condition: None,
             effect,
             pair: None,
+            leads: false,
             effect_ported: true,
         }
     }
@@ -370,6 +374,13 @@ impl Spec {
     #[must_use]
     pub const fn pair(mut self, lends: Pair) -> Self {
         self.pair = Some(lends);
+        self
+    }
+
+    /// Registered before the seats' walk (see [`Spec::leads`]).
+    #[must_use]
+    pub const fn leading(mut self) -> Self {
+        self.leads = true;
         self
     }
 
@@ -493,10 +504,22 @@ impl AbilityTable {
         name: &mut dyn FnMut(&Spec, Seat, Option<Seat>) -> AbilityId,
     ) -> Vec<AbilityDef> {
         let mut out = Vec::new();
+        // The pair rules the string registers first (`leads`), borrower by borrower, then each lender in seat order.
+        for &borrower in order {
+            for &lender in order {
+                for spec in self.specs.iter().filter(|spec| spec.leads) {
+                    if let Some(lends) = spec.pair {
+                        if borrower != lender && spec.applies.holds(s, lender) && lends(s, borrower, lender) {
+                            out.push(spec.def(name(spec, borrower, Some(lender)), borrower).with_pair_source(lender));
+                        }
+                    }
+                }
+            }
+        }
         // The string registers while it walks the seats, each module's abilities for the seat it walks: a pair rule (a
         // copy of this seat's agent by another seat) is registered for the borrower at the point of the lender's walk.
         for &lender in order {
-            for spec in &self.specs {
+            for spec in self.specs.iter().filter(|spec| !spec.leads) {
                 if !spec.applies.holds(s, lender) {
                     continue;
                 }

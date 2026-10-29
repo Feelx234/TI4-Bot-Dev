@@ -655,7 +655,7 @@ mod tests {
         use ti4_engine_core::state::Slice;
         let content = ti4_content::ContentStore::embedded();
         let _ = content;
-        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")]] {
+        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")], [("a", "yssaril"), ("b", "letnev")]] {
             let mut gs = crate::fixtures::seated_game(&factions, ti4_model::content_types::POK);
             gs.promissory_notes.clear();
             gs.promissory_faceup.clear();
@@ -670,6 +670,12 @@ mod tests {
             // The copies of Ssruu are in the comparison (a pair rule: owned by the borrower, the lender in the id).
             if factions == [("a", "yin"), ("b", "yssaril")] {
                 assert!(want.iter().any(|x| x.0 == "leader:yin:a:yssarilagent:yinagent:SHIP_DESTROYED:after" && x.1 == "b"), "{want:?}");
+            }
+            if factions == [("a", "yssaril"), ("b", "letnev")] {
+                // The string registers the borrowed round agents before any seat's slots, so the copy is offered first even when its borrower is
+                // the earlier seat (the order of a window pick).
+                let at = |id: &str| want.iter().position(|x| x.0 == id).unwrap_or_else(|| panic!("{id} in {want:?}"));
+                assert!(at("leader:ssruu-copy:a:letnevagent:b:COMBAT_ROUND_STARTED:after") < at("reaction:yssaril:COMBAT_ROUND_STARTED:after"), "{want:?}");
             }
             if factions == [("a", "yssaril"), ("b", "sol")] {
                 assert!(want.iter().any(|x| x.0 == "leader:ssruu-copy:a:solagent:b:GROUND_COMBAT_ROUND_STARTED:after" && x.1 == "a"), "{want:?}");
