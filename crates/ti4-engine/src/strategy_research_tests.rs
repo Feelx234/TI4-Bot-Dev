@@ -190,21 +190,28 @@ fn inheritance_systems_pays_two_resources_and_exhausts_the_card_in_lockstep() {
 
 #[test]
 fn inheritance_systems_after_the_bill_keeps_the_string_when_the_two_resources_are_gone() {
-    // Exactly four to spend and the secondary costs four: nothing is left for Inheritance Systems, which the string
-    // restores the position for. The core window does not carry that rollback.
+    // Six to spend on a secondary of four: the technology is offered because Inheritance Systems can pay two, the bill
+    // takes four, and two are left only when the planets pay. With exactly four to spend nothing is left for the card,
+    // which the string restores the position for. The core window does not carry that rollback.
     let owned = |s: &mut GameState| {
         give(s, "a", &["is"]);
-        s.player_mut(&a()).unwrap().trade_goods = 2;
+        s.player_mut(&a()).unwrap().trade_goods = 0;
+        s.exhausted_planets.insert(PlanetId::new("jord"));
+        s.system_mut(&SystemId::new("01")).set_control(PlanetId::new("jord"), a());
     };
     let mut probe = crate::fixtures::seated_game(&F3, POK);
     owned(&mut probe);
-    let unmet: Vec<_> = researchable(&probe).into_iter().filter(|t| !crate::technology::prerequisites(content(), t).is_empty()).collect();
-    if unmet.is_empty() {
-        return;
-    }
-    let (counts, after) = play(&F3, owned, &[unmet[0].as_str(), "exhaust|jord"], false);
-    assert_eq!(counts.0 + counts.1, 1, "{counts:?}");
-    let _ = after;
+    // `jord` pays 4 resources alone once readied; with only it controlled the bill leaves nothing for the card.
+    probe.exhausted_planets.remove(&PlanetId::new("jord"));
+    probe.player_mut(&a()).unwrap().trade_goods = 4;
+    let unmet = first_unmet(&probe);
+    let spend_all = |s: &mut GameState| {
+        give(s, "a", &["is"]);
+        s.player_mut(&a()).unwrap().trade_goods = 4;
+        s.exhausted_planets.insert(PlanetId::new("jord"));
+    };
+    let (counts, _) = play(&F3, spend_all, &[unmet.as_str()], false);
+    assert_eq!(counts, (0, 1), "the card cannot pay after the bill: the string's rollback");
 }
 
 /// A unit upgrade `a` can research with the green technologies given.
@@ -561,4 +568,46 @@ fn a_waived_war_sun_does_not_exhaust_a_specialty_planet() {
     assert_eq!(counts, (1, 0));
     assert!(owns(&after, "a", "ws"));
     assert!(!after.exhausted_planets.contains(&planet), "no prerequisite to pay");
+}
+
+#[test]
+fn bail_specialist_compounds_stays_string() {
+    // The breakthrough and a readied specialty planet: Jol-Nar is offered to exhaust the planet instead of paying.
+    let jolnar = [("a", "jolnar"), ("b", "hacan"), ("c", "arborec")];
+    let (planet, system, _, tech) = specialty_case();
+    let setup = |s: &mut GameState| {
+        rich(s);
+        s.player_mut(&a()).unwrap().leaders.insert(LeaderId::new("jolnaragent"), LeaderStatus::Exhausted);
+        s.player_mut(&a()).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new("jolnarbt"));
+        s.system_mut(&system).set_control(planet.clone(), a());
+    };
+    let (counts, _) = play(&jolnar, setup, &[tech.as_str(), "decline", "decline"], true);
+    assert_eq!(counts, (0, 1), "Specialist Compounds asks before the paid research");
+}
+
+#[test]
+fn bail_the_seats_the_production_window_does_not_follow() {
+    let tech = researchable(&crate::fixtures::seated_game(&F3, POK))[0].clone();
+    // An own Keleres seat (the agent offer) and a Yssaril at the table (borrowed agents).
+    let keleres = [("a", "keleresm"), ("b", "hacan"), ("c", "arborec")];
+    let (counts, _) = play(&keleres, rich, &[tech.as_str(), "decline"], true);
+    assert_eq!(counts, (0, 1), "keleres");
+    let yssaril = [("a", "sol"), ("b", "yssaril"), ("c", "arborec")];
+    let (counts, _) = play(&yssaril, rich, &[tech.as_str(), "decline"], true);
+    assert_eq!(counts, (0, 1), "yssaril");
+}
+
+#[test]
+fn bail_a_technology_purged_by_ta_zern() {
+    let mut probe = crate::fixtures::seated_game(&F3, POK);
+    rich(&mut probe);
+    let open = researchable(&probe);
+    let (first, last) = (open[0].clone(), open[open.len() - 1].clone());
+    // Another technology is purged from every deck: the mark has no core home, so the run is the string's.
+    let purged = move |s: &mut GameState| {
+        rich(s);
+        crate::factions::deepwrought::mark_technology_purged(s, &last);
+    };
+    let (counts, _) = play(&F3, purged, &[first.as_str(), "decline"], true);
+    assert_eq!(counts, (0, 1));
 }

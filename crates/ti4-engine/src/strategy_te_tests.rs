@@ -212,6 +212,31 @@ fn a_letnev_may_empty_the_fleet_pool_before_the_te_warfare() {
     let _ = take_report();
 }
 
+/// Regression (mutation `te warfare floor ignores the rules version`): below the rules version that lets a Letnev empty
+/// the fleet pool the floor is two for everyone, and the splits offered say so.
+#[test]
+fn a_letnev_keeps_two_in_the_fleet_pool_below_the_rules_version_that_lets_it_empty_it() {
+    let galaxy = galaxy();
+    let letnev = [("a", "letnev"), ("b", "hacan")];
+    let mut state = crate::fixtures::seated_game(&letnev, DEFAULT);
+    state.phase = Phase::Action;
+    state.rules_version = ti4_model::state::RULES_LETNEV_FLEET_POOL - 1;
+    let p = state.player(&a()).unwrap();
+    let kept = format!("{}|2|{}", p.tactic_tokens + p.fleet_tokens - 2, p.strategic_tokens);
+    let system = galaxy.system_ids_holding_things().into_iter().next().unwrap().to_owned();
+    let _guard = crate::dual::tests::serial();
+    let _ = take_report();
+    crate::dual::reset_thread_windows();
+    with_mask(AreaMask::STRING.with(Area::Strategy, Backend::Dual), || {
+        crate::promissory::deal(&mut state, content(), DEFAULT);
+        let mut table = Table::with_default(Box::new(Scripted::new([kept.clone(), system.clone()])));
+        crate::strategy_cards::primary(&mut state, content(), DEFAULT, Some(&galaxy), &mut table, &a(), "te6warfare").unwrap();
+    });
+    assert_eq!(crate::dual::thread_window_counts(WARFARE), (1, 0));
+    assert_eq!(report().total_differences(), 0);
+    let _ = take_report();
+}
+
 // -- Thunder's Edge Construction --------------------------------------------------------------------------
 
 const CONSTRUCTION: &str = "strategy_cards::te4_construction";

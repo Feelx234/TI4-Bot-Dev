@@ -803,3 +803,48 @@ impl Window for Research {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::driver::{Driver, Status};
+    use crate::kernel::hooks::{ResearchWaiver, Waiver};
+    use crate::kernel::stage::AbilityTable;
+    use crate::kernel::Resolver;
+    use crate::state::{Player, Players};
+
+    fn game() -> CoreState {
+        let mut s = CoreState::all_loaded();
+        s.players = Players::from_vec(vec![Player::new(Seat(0), Faction::ALL[0])]);
+        s
+    }
+
+    fn offers_a_waiver(_: &CoreState, _: &Kernel, _: Seat, _: Technology) -> Option<ResearchWaiver> {
+        Some(ResearchWaiver { waiver: Waiver { module: Faction::ALL[0], code: 1 }, payments: SmallList::new() })
+    }
+
+    /// Bail: a technology only a faction waiver opens is a question about the waiver and its payment; the window ends
+    /// `failed` and changes nothing (the adapter declines the run).
+    #[test]
+    fn bail_a_technology_only_a_waiver_opens_ends_the_window_failed() {
+        let mut s = game();
+        let mut k = Kernel::plain();
+        k.hooks.strategy.research_waiver_offer.push(offers_a_waiver);
+        let scope = Scope(u32::from(k.sources.0));
+        let window = Research::new(Seat(0), true, 6, scope);
+        let open = window.open(&s, &k);
+        let walled = open
+            .as_slice()
+            .iter()
+            .position(|t| !tech::prerequisites_met(&s, scope, false, Seat(0), *t, &KernelHooks::new(&s, &k, Seat(0))))
+            .expect("the waiver opens a technology the colours do not cover");
+        let mut d = Driver::new(window, Resolver::new(&[Seat(0)], Some(Seat(0))), AbilityTable::default(), 1);
+        let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
+        let before = s.players().by_seat(Seat(0)).unwrap().tech.owned;
+        let status = d.resume(&mut s, &k, c.pick(walled).unwrap()).unwrap();
+        assert!(matches!(status, Status::Done), "the window ends");
+        assert!(d.window.failed, "the waiver is a question: the string plays it");
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().tech.owned, before, "nothing was gained");
+        assert!(d.window.researched.is_empty());
+    }
+}
