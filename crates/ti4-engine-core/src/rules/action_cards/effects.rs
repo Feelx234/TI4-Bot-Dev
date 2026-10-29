@@ -893,6 +893,12 @@ impl Play {
         fx::gain_trade_goods_staged(core, self.who, goods, self.env.action_card);
     }
 
+    /// `galaxy::is_space_station`: a station of a source in play (a planet outside the sources is not looked up at all).
+    fn is_station(&self, planet: Planet) -> bool {
+        let data = planet.data();
+        self.env.scope.0 & crate::tables::source_bit(data.source) != 0 && data.traits.contains(&PlanetTrait::Spacestation)
+    }
+
     /// Decoy Operation: the planets the forces can land on. A space station takes no ground forces; the planets are the
     /// holder's in the active system.
     fn decoy_destinations(&self, core: &CoreState) -> SmallList<Opt, 16> {
@@ -900,7 +906,7 @@ impl Play {
         board::controlled_planets(core, self.who)
             .as_slice()
             .iter()
-            .filter(|(system, planet)| *system == active && !planet.data().traits.contains(&PlanetTrait::Spacestation))
+            .filter(|(system, planet)| *system == active && !self.is_station(*planet))
             .map(|(system, planet)| Opt::Spot(*system, *planet))
             .collect()
     }

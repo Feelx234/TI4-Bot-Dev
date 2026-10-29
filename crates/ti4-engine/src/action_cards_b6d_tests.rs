@@ -309,9 +309,36 @@ fn decoy_operation_pulls_ground_forces_to_a_planet_of_the_active_system_in_the_c
         .expect("a planet elsewhere");
     let sys = ti4_model::id::SystemId::new(crate::generated::IdStr::as_str(elsewhere.data().system.unwrap()));
     two.system_mut(&sys).planet_units.entry(ti4_model::id::PlanetId::new(crate::generated::IdStr::as_str(*elsewhere))).or_default().push(unit("infantry", "a"));
-    for case in [&state, &two, &nowhere] {
+    // A list with units behind the pulled one (the freed place is taken by the last unit), and a space station as the only
+    // planet of the active system (it takes no ground forces).
+    let mut crowded = state.clone();
+    for board in crowded.board.values_mut() {
+        for units in board.planet_units.values_mut() {
+            units.retain(|u| u.owner != a);
+        }
+    }
+    let sys = ti4_model::id::SystemId::new(crate::generated::IdStr::as_str(elsewhere.data().system.unwrap()));
+    let list = crowded.system_mut(&sys).planet_units.entry(ti4_model::id::PlanetId::new(crate::generated::IdStr::as_str(*elsewhere))).or_default();
+    list.extend([unit("infantry", "a"), unit("infantry", "b"), unit("infantry", "c"), unit("infantry", "b"), unit("infantry", "a")]);
+    crowded.system_mut(&active).planet_units.entry(planets[0].clone()).or_default().push(unit("infantry", "a"));
+    let station = ti4_engine_core::generated::Planet::ALL
+        .iter()
+        .find(|p| {
+            p.data().traits.contains(&ti4_engine_core::generated::PlanetTrait::Spacestation)
+                && p.data().system.is_some()
+        })
+        .expect("a space station");
+    let station_sys = ti4_model::id::SystemId::new(crate::generated::IdStr::as_str(station.data().system.unwrap()));
+    let mut at_station = state.clone();
+    at_station.system_mut(&station_sys).planet_control.insert(ti4_model::id::PlanetId::new(crate::generated::IdStr::as_str(*station)), a.clone());
+    at_station.active_system = Some(station_sys);
+    for case in [&state, &two, &nowhere, &crowded] {
         announce_all(&[("decoy", case.clone())]);
     }
+    // The stations are Thunder's Edge's: only with that source in play is the station one (a planet outside the sources is not
+    // looked up at all).
+    crate::action_cards_announce_tests::with_sources(ti4_model::content_types::FULL, || announce_all(&[("decoy", at_station.clone())]));
+    announce_all(&[("decoy", at_station.clone())]);
     let _ = crate::dual::take_report();
     let before = units_on_planets(&state, "infantry", "a") + units_on_planets(&state, "mech", "a");
     let after = played("decoy", &state);

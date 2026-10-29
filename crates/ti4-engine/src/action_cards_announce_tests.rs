@@ -52,6 +52,18 @@ pub(crate) fn announce(state: &mut GameState, alias: &str, player: &PlayerId, de
     announce_on(state, alias, player, decider, None)
 }
 
+thread_local! {
+    static SOURCES: std::cell::Cell<ti4_model::content_types::SourceSet> = const { std::cell::Cell::new(ti4_model::content_types::POK) };
+}
+
+/// Run `f` with the announcements of this thread played under `sources` (the default is the base game and Prophecy of Kings).
+pub(crate) fn with_sources<T>(sources: ti4_model::content_types::SourceSet, f: impl FnOnce() -> T) -> T {
+    let before = SOURCES.with(|c| c.replace(sources));
+    let out = f();
+    SOURCES.with(|c| c.set(before));
+    out
+}
+
 /// [`announce`] on a map.
 pub(crate) fn announce_on(
     state: &mut GameState,
@@ -68,7 +80,7 @@ pub(crate) fn announce_on(
     let mut context = crate::timing::TimingContext {
         state,
         content: ContentStore::embedded(),
-        sources: ti4_model::content_types::POK,
+        sources: SOURCES.with(std::cell::Cell::get),
         table: &mut table,
         dice: &mut dice,
         rng: &mut rng,
