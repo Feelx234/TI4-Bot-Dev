@@ -548,3 +548,32 @@ fn several_cards_played_into_one_resolution_are_followed() {
         assert_eq!((compared, bailed), (1, 0), "{set:?}");
     }
 }
+
+// -- the plain events of the close (package P1.1) ---------------------------------------------------------------
+
+#[test]
+fn the_plain_events_of_a_covert_close_with_a_prediction_are_counted_and_compared() {
+    let _guard = crate::dual::tests::serial();
+    let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();
+    let _ = take_report();
+    let before = local_windows(LABEL);
+    let g = with_mask(mask, || {
+        let mut s = position();
+        s.covert_agenda = Some("checks".to_owned());
+        predict(&mut s, "a", "for");
+        close(game(s, &[]), law_vote("covert", Some("for")))
+    });
+    let report = take_report();
+    let now = local_windows(LABEL);
+    assert_eq!((now.0 - before.0, now.1 - before.1), (1, 0), "{report}");
+    assert_eq!(report.total_differences(), 0, "{report}");
+    // The effect of the agenda (`AGENDA_EFFECT_RESOLVED`) is a window of its own and runs after the close.
+    let plain: Vec<&str> = g.events.iter().map(String::as_str).filter(|e| e.contains(':') && !e.starts_with("AGENDA_EFFECT")).collect();
+    assert_eq!(
+        plain,
+        ["AGENDA_RESOLVED:covert:for", "COVERT_AGENDA_RESOLVED:checks:for", "AGENDA_PREDICTION_CORRECT:a", "LAW_ENACTED:checks:for"]
+    );
+    for name in ["AGENDA_RESOLVED", "COVERT_AGENDA_RESOLVED", "AGENDA_PREDICTION_CORRECT", "LAW_ENACTED"] {
+        assert_eq!(report.plain.get(&format!("{LABEL} | {name}")), Some(&1), "{name}: {:?}", report.plain);
+    }
+}

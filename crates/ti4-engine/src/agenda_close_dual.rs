@@ -139,7 +139,30 @@ pub fn close(
         Settled::default()
     };
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
-    Some(CoreWindow { run: Run::new(settled).with_events_vec(events), questions: driven.rendered })
+    let plain = plain_texts(driver.window.plain(), &r, &cx)?;
+    Some(CoreWindow { run: Run::new(settled).with_events_vec(events).with_plain(plain), questions: driven.rendered })
+}
+
+/// The plain events of the string's `Game::emit` that the core window made, as `Game::events` holds them (package P1.1).
+fn plain_texts(
+    plain: &[ti4_engine_core::rules::agenda::close::PlainEv],
+    r: &crate::render::Render,
+    cx: &crate::core_sync::Ctx,
+) -> Option<Vec<String>> {
+    use ti4_engine_core::rules::agenda::close::PlainEv;
+    plain
+        .iter()
+        .map(|p| {
+            Some(match p {
+                PlainEv::Resolved(a, o) => format!("AGENDA_RESOLVED:{}:{}", a.as_str(), cx.keys.render_outcome(*o)?),
+                PlainEv::CovertResolved(a, o) => format!("COVERT_AGENDA_RESOLVED:{}:{}", a.as_str(), cx.keys.render_outcome(*o)?),
+                PlainEv::Discarded(a) => format!("AGENDA_DISCARDED:{}", a.as_str()),
+                PlainEv::Redirected(o, seat) => format!("AGENDA_OUTCOME_REDIRECTED:{}:{}", cx.keys.render_outcome(*o)?, r.seat_text(*seat)),
+                PlainEv::PredictionCorrect(seat) => format!("AGENDA_PREDICTION_CORRECT:{}", r.seat_text(*seat)),
+                PlainEv::LawEnacted(a, o) => format!("LAW_ENACTED:{}:{}", a.as_str(), cx.keys.render_outcome(*o)?),
+            })
+        })
+        .collect()
 }
 
 const COMMITTEE: Footprint = Footprint::new(
@@ -162,5 +185,6 @@ pub fn committee(gs: &mut GameState, alias: &str, owner: &PlayerId, script: &Rec
     let mut driver = Driver::new(Committee::new(agenda, owner, r.code("committee")), Resolver::new(&[], None), AbilityTable::default(), 1);
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(COMMITTEE, script), |core, _| drive_with(&mut driver, core, kernel, &r, &before, script, &|_, _, _| {})).ok()?.ok()?;
     let chosen = driver.window.chosen().map(|seat| r.seat_text(seat).to_owned());
-    Some(CoreWindow { run: Run::new(chosen), questions: driven.rendered })
+    let plain = plain_texts(driver.window.plain(), &r, &cx)?;
+    Some(CoreWindow { run: Run::new(chosen).with_plain(plain), questions: driven.rendered })
 }

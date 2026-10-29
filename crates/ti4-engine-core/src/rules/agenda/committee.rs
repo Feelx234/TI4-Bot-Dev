@@ -5,13 +5,16 @@
 //! card to choose a player to be elected. Players do not vote on that agenda." The discard is the
 //! [`OfferDiscard`](super::offer_discard::OfferDiscard) window; this one asks the owner which player is elected, then
 //! lists the agenda with that outcome (no votes, never speaker-decided) and, for a law, enacts it. Copied from the
-//! string: nothing resolves the agenda's effect, no `AGENDA_RESOLVED` is emitted through the resolver, and a table
+//! string: nothing resolves the agenda's effect, no typed `AGENDA_RESOLVED` is emitted through the resolver (the plain
+//! `AGENDA_RESOLVED:{agenda}:{player}` and `LAW_ENACTED` of `Game::emit` are kept as [`PlainEv`]s), and a table
 //! with no players asks nothing and records nothing.
 
+use super::close::PlainEv;
 use super::is_law;
 use crate::choice::agenda::{Ask as AAsk, Opt as AOpt};
 use crate::choice::generic::Content;
 use crate::choice::{Choice, Opt, Opts, Origin, Pick};
+use crate::containers::SmallList;
 use crate::generated::Agenda;
 use crate::ids::Seat;
 use crate::kernel::stage::{Illegal, Sx, Window};
@@ -35,12 +38,20 @@ pub struct Committee {
     source: Code,
     stage: Stage,
     chosen: Option<Seat>,
+    /// The plain events the window made (`AGENDA_RESOLVED`, `LAW_ENACTED`; package P1.1).
+    plain: SmallList<PlainEv, 2>,
 }
 
 impl Committee {
     #[must_use]
     pub const fn new(agenda: Agenda, owner: Seat, source: Code) -> Self {
-        Self { agenda, owner, source, stage: Stage::Start, chosen: None }
+        Self { agenda, owner, source, stage: Stage::Start, chosen: None, plain: SmallList::new() }
+    }
+
+    /// The plain events the window made so far, in order.
+    #[must_use]
+    pub fn plain(&self) -> &[PlainEv] {
+        self.plain.as_slice()
     }
 
     /// The player the owner chose; `None` when nobody was asked.
@@ -81,10 +92,12 @@ impl Window for Committee {
             return Err(Illegal);
         }
         self.chosen = Some(seat);
+        self.plain.push(PlainEv::Resolved(self.agenda, Outcome::Seat(seat)));
         let law = is_law(self.agenda);
         fx_agenda::log_voted(sx.state, self.agenda, law, Some(Outcome::Seat(seat)), &[], false, false);
         if law {
             fx_agenda::enact(sx.state, self.agenda, Outcome::Seat(seat));
+            self.plain.push(PlainEv::LawEnacted(self.agenda, Outcome::Seat(seat)));
         }
         self.stage = Stage::Done;
         Ok(())

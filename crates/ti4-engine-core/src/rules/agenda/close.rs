@@ -50,6 +50,24 @@ pub struct Facts {
     pub hooked: u16,
 }
 
+/// A plain event of the string's `Game::emit` that the window makes (no typed home in the core yet, package P1.2; the dual
+/// compares them with the string's, package P1.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlainEv {
+    /// `AGENDA_RESOLVED:{agenda}:{outcome}`: the vote's agenda (Covert Legislation itself under Covert Legislation).
+    Resolved(Agenda, Outcome),
+    /// `COVERT_AGENDA_RESOLVED:{hidden}:{outcome}`.
+    CovertResolved(Agenda, Outcome),
+    /// `AGENDA_DISCARDED:{agenda}`: Deadly Plot.
+    Discarded(Agenda),
+    /// `AGENDA_OUTCOME_REDIRECTED:{outcome}:{player}`: the vote's outcome and the seat a redirect named.
+    Redirected(Outcome, Seat),
+    /// `AGENDA_PREDICTION_CORRECT:{player}`.
+    PredictionCorrect(Seat),
+    /// `LAW_ENACTED:{agenda}:{outcome}`.
+    LawEnacted(Agenda, Outcome),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage {
     Start,
@@ -84,6 +102,8 @@ pub struct Close {
     discarded: bool,
     failed: bool,
     unsupported: bool,
+    /// The plain events the window made, in order.
+    plain: SmallList<PlainEv, 12>,
 }
 
 impl Close {
@@ -117,7 +137,14 @@ impl Close {
             discarded: false,
             failed: false,
             unsupported: false,
+            plain: SmallList::new(),
         }
+    }
+
+    /// The plain events the window made so far, in order.
+    #[must_use]
+    pub fn plain(&self) -> &[PlainEv] {
+        self.plain.as_slice()
     }
 
     /// The seat the outcome elected (the redirect applied): a seat, or the controller of an elected planet. `None`
@@ -170,6 +197,7 @@ impl Close {
             self.finish();
             return;
         };
+        self.plain.push(PlainEv::Resolved(self.vote, winner));
         // The ballot is on the state while the window is open: a Deadly Plot guard reads it.
         sx.state.agenda_mut().votes = self.ballot.as_slice().iter().copied().collect();
         // `player` is the outcome's text in the string: a seat when a player was elected ("when you are elected" reads it as the
@@ -198,8 +226,10 @@ impl Close {
         if let Some(hidden) = self.covert {
             // The face-down agenda is turned up and listed with the outcome it was given.
             fx_agenda::log_voted(sx.state, hidden, is_law(hidden), Some(winner), self.counts.as_slice(), speaker_decided, self.discarded);
+            self.plain.push(PlainEv::CovertResolved(hidden, winner));
         }
         if self.discarded {
+            self.plain.push(PlainEv::Discarded(self.vote));
             // "Resolved with no effect": a redirect played into the same window is spent on an election that has none.
             let agenda = sx.state.agenda_mut();
             agenda.elected_override = None;
@@ -208,7 +238,11 @@ impl Close {
             return;
         }
         // `redirect_elected`, then `elected_seat_or_planet` of the effective outcome.
-        let effective = sx.state.agenda_mut().elected_override.take().map_or(winner, Outcome::Seat);
+        let redirect = sx.state.agenda_mut().elected_override.take();
+        if let Some(seat) = redirect {
+            self.plain.push(PlainEv::Redirected(winner, seat));
+        }
+        let effective = redirect.map_or(winner, Outcome::Seat);
         self.effective = Some(effective);
         self.elected = Self::elected_by(sx.state, effective);
         let agenda = sx.state.agenda_mut();
@@ -292,6 +326,7 @@ impl Close {
             return;
         }
         fx_agenda::enact(sx.state, resolved, winner);
+        self.plain.push(PlainEv::LawEnacted(resolved, winner));
         if let (Agenda::ClassifiedDocumentLeaks, Outcome::Secret(secret)) = (resolved, winner)
             && !self.facts.blanked
         {
@@ -328,6 +363,9 @@ impl Window for Close {
                         Prediction::Tagged(outcome, tag) => (Some(outcome) == self.winner, Some(tag)),
                         Prediction::Barred(_) => (false, None),
                     };
+                    if hit {
+                        self.plain.push(PlainEv::PredictionCorrect(seat));
+                    }
                     if hit && self.pay(sx, seat, tag) {
                         return Next::Continue(Ask::Strategy(SAsk::GainPool { left: self.left }));
                     }
