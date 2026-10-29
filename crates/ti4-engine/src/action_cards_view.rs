@@ -411,7 +411,7 @@ pub fn play_window(
 /// with the same prompt.
 fn recorded_details(c: &ti4_engine_core::choice::Choice, script: &crate::dual_window::Recording, rendered: &mut crate::choice::Choice) {
     use ti4_engine_core::choice::cards::What;
-    if matches!(c.ask, ti4_engine_core::choice::Ask::Cards(ti4_engine_core::choice::cards::Ask::Pick { what: What::Law | What::Hull | What::Scuttle { .. } | What::Cruiser | What::Troops { .. }, .. }))
+    if matches!(c.ask, ti4_engine_core::choice::Ask::Cards(ti4_engine_core::choice::cards::Ask::Pick { what: What::Law | What::Hull | What::Scuttle { .. } | What::Cruiser | What::Troops { .. } | What::Pull { .. }, .. }))
         && let Some(asked) = script.questions.iter().find(|q| q.choice.prompt == rendered.prompt)
     {
         rendered.details.clone_from(&asked.choice.details);

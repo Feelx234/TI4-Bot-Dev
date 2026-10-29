@@ -55,6 +55,11 @@ pub enum What {
     Hull,
     /// kind `ship`: a ship Scuttle returns; the second question (`second`) also offers to stop after one.
     Scuttle { second: bool },
+    /// kind `unit`, id `system|planet|index`, label `<unit> in <system>`: a ground force Decoy Operation pulls; the second
+    /// question (`second`) also offers to stop after one.
+    Pull { second: bool },
+    /// kind `planet`, the id the planet alone: where Decoy Operation's ground forces land.
+    Land,
     /// kind `infantry`, id `system|planet|index`, label `infantry in <system>`: an infantry Refit Troops replaces; the second
     /// question (`second`) also offers to stop after one.
     Troops { second: bool },
@@ -133,7 +138,7 @@ pub enum Opt {
     /// A fragment trait (`What::Fragment`).
     Fragment(crate::generated::ExploreType),
     /// A unit on a planet: the system, the planet and its place in the planet's unit list (`What::Troops`).
-    Troop { system: System, planet: Planet, index: u8 },
+    Troop { system: System, planet: Planet, index: u8, kind: crate::generated::Unit },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).

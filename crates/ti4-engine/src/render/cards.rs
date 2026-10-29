@@ -104,11 +104,16 @@ impl Family for Fam {
                 };
                 ChoiceOption::labelled(id, "ship", label).with("system", system.as_str())
             }
+            Opt::Stop if matches!(pick_of(a).1, What::Pull { .. }) => ChoiceOption::labelled("stop", "unit", "stop after one"),
             Opt::Stop if matches!(pick_of(a).1, What::Troops { .. }) => ChoiceOption::labelled("stop", "infantry", "stop after one"),
             Opt::Stop => ChoiceOption::labelled("stop", "ship", "stop after one"),
-            Opt::Troop { system, planet, index } => {
-                ChoiceOption::labelled(format!("{}|{}|{index}", system.as_str(), planet.as_str()), "infantry", format!("infantry in {}", system.as_str()))
-                    .with("system", system.as_str())
+            Opt::Troop { system, planet, index, kind } => {
+                let id = format!("{}|{}|{index}", system.as_str(), planet.as_str());
+                if matches!(pick_of(a).1, What::Pull { .. }) {
+                    ChoiceOption::labelled(id, "unit", format!("{} in {}", kind.as_str(), system.as_str()))
+                } else {
+                    ChoiceOption::labelled(id, "infantry", format!("infantry in {}", system.as_str())).with("system", system.as_str())
+                }
             }
             Opt::Answer(yes) => ChoiceOption::labelled(if *yes { "yes" } else { "no" }, "answer", if *yes { "accept" } else { "refuse" }),
             Opt::Fragment(kind) => {
@@ -121,7 +126,7 @@ impl Family for Fam {
                 format!("{} in {}", planet.as_str(), system.as_str()),
             )
             .with_planet(planet.as_str(), Some(system.as_str())),
-            Opt::Spot(system, planet) if matches!(pick_of(a).1, What::Exhaust | What::Ready | What::Dig) => {
+            Opt::Spot(system, planet) if matches!(pick_of(a).1, What::Exhaust | What::Ready | What::Dig | What::Land) => {
                 ChoiceOption::labelled(planet.as_str(), pick_kind(pick_of(a).1), planet.as_str()).with_planet(planet.as_str(), Some(system.as_str()))
             }
             Opt::Spot(system, planet) => ChoiceOption::labelled(format!("{}|{}", system.as_str(), planet.as_str()), "planet", planet.as_str())
@@ -189,7 +194,7 @@ impl Family for Fam {
                 "no" => Some(Opt::Answer(false)),
                 _ => None,
             },
-            Ask::Pick { what: What::Cruiser | What::Troops { .. }, .. } => None,
+            Ask::Pick { what: What::Cruiser | What::Troops { .. } | What::Pull { .. }, .. } => None,
             Ask::Pick { what: What::Hull | What::Scuttle { .. }, .. } => {
                 let (system, index) = id.split_once('|')?;
                 // Only the id is read back; the owner and unit form are the question's.
@@ -200,7 +205,7 @@ impl Family for Fam {
             Ask::Pick { what: What::Fragment, .. } => {
                 ti4_engine_core::generated::ExploreType::ALL.iter().copied().find(|k| k.as_str().eq_ignore_ascii_case(id)).map(Opt::Fragment)
             }
-            Ask::Pick { what: What::Exhaust | What::Ready | What::Dig | What::Offer, .. } => {
+            Ask::Pick { what: What::Exhaust | What::Ready | What::Dig | What::Offer | What::Land, .. } => {
                 let planet = Planet::from_id(id)?;
                 Some(Opt::Spot(planet.data().system?, planet))
             }
@@ -226,6 +231,8 @@ const fn pick_kind(what: What) -> &'static str {
         What::Hull | What::Scuttle { .. } => "ship",
         What::Cruiser => "cruiser",
         What::Troops { .. } => "infantry",
+        What::Pull { .. } => "unit",
+        What::Land => "planet",
         What::Offer | What::Landing => "planet",
         What::JamWho { .. } => "player",
         What::Accept => "answer",
@@ -287,6 +294,9 @@ const fn pick_prompt(card: ActionCard, what: What) -> &'static str {
         (C::Spy, _) => "Spy: rob which player",
         (C::Plague, _) => "Plague: which planet",
         (C::UnstablePlanet, _) => "Unstable Planet: which hazardous planet",
+        (C::DecoyOperation, What::Pull { second: false }) => "Decoy Operation: which unit to pull",
+        (C::DecoyOperation, What::Pull { second: true }) => "Decoy Operation: another unit or stop",
+        (C::DecoyOperation, _) => "Decoy Operation: which planet they land on",
         (C::RefitTroops, What::Troops { second: true }) => "Refit Troops: another infantry or stop",
         (C::RefitTroops, _) => "Refit Troops: which infantry to replace",
         (C::Upgrade, _) => "Upgrade: which cruiser becomes a dreadnought",

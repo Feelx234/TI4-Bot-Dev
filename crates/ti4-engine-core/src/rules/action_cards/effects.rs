@@ -131,6 +131,9 @@ pub enum Fx {
     Upgrade,
     /// Refit Troops: one or two of the holder's infantry are replaced by mechs.
     Refit,
+    /// Decoy Operation: up to two of the holder's ground forces anywhere leave the board for a planet of the holder in the
+    /// active system.
+    Decoy,
 }
 
 impl Fx {
@@ -221,6 +224,7 @@ impl Fx {
             C::SignalJamming => Self::Jam,
             C::Upgrade => Self::Upgrade,
             C::RefitTroops => Self::Refit,
+            C::DecoyOperation => Self::Decoy,
             _ => return None,
         })
     }
@@ -274,6 +278,8 @@ pub struct Play {
     jam: Option<System>,
     /// Refit Troops: the first infantry chosen.
     troop: Option<(System, Planet, u8)>,
+    /// Decoy Operation: the ground forces pulled so far, in the order they were picked.
+    pulled: SmallList<(System, Planet, u8), 2>,
     /// The question the bill's child waits on.
     pay_ask: Option<crate::choice::Ask>,
 }
@@ -357,7 +363,7 @@ impl Play {
             }
             _ => None,
         };
-        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: Child::idle(), jam: None, troop: None, pay_ask: None })
+        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: Child::idle(), jam: None, troop: None, pulled: SmallList::new(), pay_ask: None })
     }
 
     fn what(&self) -> Option<What> {
@@ -374,6 +380,9 @@ impl Play {
             Fx::Ghost => What::Ghost,
             Fx::Upgrade => What::Cruiser,
             Fx::Refit => What::Troops { second: self.troop.is_some() },
+            Fx::Decoy if self.step == 0 => What::Pull { second: false },
+            Fx::Decoy if self.step == 1 => What::Pull { second: true },
+            Fx::Decoy => What::Land,
             Fx::Jam if self.step == 0 => What::Jam,
             Fx::Jam => What::JamWho { system: self.jam? },
             Fx::Exchange if self.step == 0 => What::Player,
@@ -626,6 +635,16 @@ impl Play {
                 reach.as_mut_slice().sort_unstable();
                 reach.as_slice().iter().copied().filter(|s| !is_home_system(scope, *s)).map(Opt::System).collect()
             }
+            Fx::Decoy if self.step == 2 => self.decoy_destinations(core),
+            Fx::Decoy if self.step == 3 => SmallList::new(),
+            Fx::Decoy => {
+                let mut out: SmallList<Opt, 16> = self.ground_forces(core).as_slice().iter().copied().map(|(system, planet, index, kind)| Opt::Troop { system, planet, index, kind }).collect();
+                if let Some(first) = self.pulled.as_slice().first() {
+                    out.retain(|o| !matches!(o, Opt::Troop { system, planet, index, .. } if (*system, *planet, *index) == *first));
+                    out.push(Opt::Stop);
+                }
+                out
+            }
             Fx::Refit => {
                 let facts = self.env.facts.mech;
                 let left = facts.unit.map_or(0, |u| crate::query::fleet::remaining(core, self.env.scope, who, u, facts.on_card));
@@ -638,7 +657,7 @@ impl Play {
                         if p.owner() == who && self.env.scope.unit(p.kind()).is_some_and(|d| d.base_type == UnitBaseType::Infantry) {
                             let index = u8::try_from(i).unwrap_or(u8::MAX);
                             if self.troop != Some((*system, *planet, index)) {
-                                out.push(Opt::Troop { system: *system, planet: *planet, index });
+                                out.push(Opt::Troop { system: *system, planet: *planet, index, kind: p.kind() });
                             }
                         }
                     }
@@ -816,6 +835,55 @@ impl Play {
         fx::gain_trade_goods_staged(core, self.who, goods, self.env.action_card);
     }
 
+    /// Decoy Operation: the planets the forces can land on. A space station takes no ground forces; the planets are the
+    /// holder's in the active system.
+    fn decoy_destinations(&self, core: &CoreState) -> SmallList<Opt, 16> {
+        let Some(active) = core.meta().active_system else { return SmallList::new() };
+        board::controlled_planets(core, self.who)
+            .as_slice()
+            .iter()
+            .filter(|(system, planet)| *system == active && !planet.data().traits.contains(&PlanetTrait::Spacestation))
+            .map(|(system, planet)| Opt::Spot(*system, *planet))
+            .collect()
+    }
+
+    /// The holder's ground forces on the board, system by system, planet by planet, in the order of the planets' lists.
+    fn ground_forces(&self, core: &CoreState) -> SmallList<(System, Planet, u8, crate::generated::Unit), 24> {
+        let mut out = SmallList::new();
+        for (system, planet) in planets_where(core, |_, _, cell| !cell.units.as_slice().is_empty()).as_slice() {
+            for (i, p) in core.board().planet(*planet).units.as_slice().iter().enumerate() {
+                if p.owner() == self.who && self.env.scope.unit(p.kind()).is_some_and(|d| d.ground_force) {
+                    out.push((*system, *planet, u8::try_from(i).unwrap_or(u8::MAX), p.kind()));
+                }
+            }
+        }
+        out
+    }
+
+    /// Decoy Operation: the pulled forces leave their planets (the last place takes the freed one: `swap_remove`, highest place
+    /// first within a system) and stand on the planet, in the order they were picked.
+    fn land(&self, core: &mut CoreState, system: System, planet: Planet) {
+        let moved: SmallList<Piece, 2> =
+            self.pulled.as_slice().iter().filter_map(|(_, p, i)| core.board().planet(*p).units.as_slice().get(usize::from(*i)).copied()).collect();
+        let mut order: SmallList<(System, Planet, u8), 2> = self.pulled.clone();
+        order.as_mut_slice().sort_by(|a, b| a.0.cmp(&b.0).then(b.2.cmp(&a.2)));
+        for (_, from, index) in order.as_slice() {
+            let units = &mut core.board_mut().planet_mut(*from).units;
+            let at = usize::from(*index);
+            if at < units.len() {
+                let last = units.len() - 1;
+                units.as_mut_slice().swap(at, last);
+                units.pop();
+            }
+        }
+        let cell = core.board_mut().planet_mut(planet);
+        for piece in moved.as_slice() {
+            cell.units.push(*piece);
+        }
+        cell.flags.set(crate::state::PlanetFlags::UNITS_ENTRY, true);
+        core.board_mut().sys_mut(system).flags.set(crate::state::SysFlags::TOUCHED, true);
+    }
+
     /// Refit Troops: the picked infantry become mechs, system by system (the string groups by system id), the highest place of
     /// a list first so the removals do not shift each other.
     fn refit(&self, core: &mut CoreState, picked: &[(System, Planet, u8)]) {
@@ -855,6 +923,16 @@ impl Play {
         match self.fx {
             Fx::SupplyBase => {
                 fx::gain_trade_goods_staged(core, self.who, 3, self.env.supply_base);
+            }
+            Fx::Decoy => {
+                // The destination first, so a card with nowhere to land removes nothing; up to two forces are taken unasked.
+                let found = self.ground_forces(core);
+                if self.decoy_destinations(core).is_empty() || found.is_empty() {
+                    self.step = 3;
+                } else if found.len() <= 2 {
+                    self.pulled = found.as_slice().iter().map(|(s, p, i, _)| (*s, *p, *i)).collect();
+                    self.step = 2;
+                }
             }
             Fx::Puppets => {
                 if core.players().by_seat(self.who).is_some_and(|p| p.econ.passed) {
@@ -1230,7 +1308,17 @@ impl Play {
                     fx::place_unit(core, neutral, system, None, crate::generated::Unit::NeutralDestroyer);
                 }
             }
-            (Fx::Refit, Opt::Troop { system, planet, index }) => {
+            (Fx::Decoy, Opt::Troop { system, planet, index, .. }) => {
+                self.pulled.push((system, planet, index));
+                self.step = if self.step == 0 { 1 } else { 2 };
+                return true;
+            }
+            (Fx::Decoy, Opt::Stop) => {
+                self.step = 2;
+                return true;
+            }
+            (Fx::Decoy, Opt::Spot(system, planet)) => self.land(core, system, planet),
+            (Fx::Refit, Opt::Troop { system, planet, index, .. }) => {
                 let Some(first) = self.troop else {
                     self.troop = Some((system, planet, index));
                     return true;
@@ -1577,6 +1665,7 @@ mod tests {
             C::SignalJamming,
             C::Upgrade,
             C::RefitTroops,
+            C::DecoyOperation,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }
@@ -1656,7 +1745,6 @@ mod tests {
             (C::Brilliance, "a planet with a technology specialty readies or another seat's breakthrough is gained (the breakthrough hooks and the Fracture)"),
             (C::CourageousToTheEnd, "dice with the producer in the casualty question"),
             (C::CrashLanding, "placement of a ground force through the faction hooks onto a contested planet"),
-            (C::DecoyOperation, "structures of the holder, ground forces pulled by the faction hooks"),
             (C::DivertFunding, "a technology returned, then a research (Deepwrought's window around it)"),
             (C::ExperimentalBattlestation, "the space cannon of a structure joined to the movement window"),
             (C::FocusedResearch, "four trade goods (the Keleres goods window) then a research"),

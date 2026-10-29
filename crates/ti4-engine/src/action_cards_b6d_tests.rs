@@ -274,3 +274,51 @@ fn refit_troops_replaces_infantry_with_mechs_in_the_core_window() {
 fn units_on_planets(state: &GameState, kind: &str, owner: &str) -> usize {
     state.board.values().flat_map(|b| b.planet_units.values()).flatten().filter(|u| u.type_id.as_str() == kind && u.owner.as_str() == owner).count()
 }
+
+/// Decoy Operation: up to two ground forces from anywhere leave the board for a planet of the holder in the active system
+/// (two questions for the forces, then the planet; nothing is asked of two forces or fewer, and nothing is removed without a
+/// planet to land on).
+#[test]
+fn decoy_operation_pulls_ground_forces_to_a_planet_of_the_active_system_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let a = PlayerId::new("a");
+    let mut state = closing_position();
+    let active = state.active_system.clone().expect("an active system");
+    // The holder controls every planet of the active system; its first planet also holds some of the holder's forces.
+    let planets: Vec<_> = state.system_mut(&active).planet_control.keys().cloned().collect();
+    assert!(!planets.is_empty());
+    for p in &planets {
+        state.system_mut(&active).planet_control.insert(p.clone(), a.clone());
+    }
+    state.system_mut(&active).planet_units.entry(planets[0].clone()).or_default().push(unit("infantry", "a"));
+    state.system_mut(&active).planet_units.entry(planets[0].clone()).or_default().push(unit("mech", "a"));
+    let nowhere = closing_position();
+    let mut two = state.clone();
+    for board in two.board.values_mut() {
+        for units in board.planet_units.values_mut() {
+            units.retain(|u| u.owner != a);
+        }
+    }
+    two.system_mut(&active).planet_units.entry(planets[0].clone()).or_default().push(unit("infantry", "a"));
+    let elsewhere = ti4_engine_core::generated::Planet::ALL
+        .iter()
+        .find(|p| p.data().system.is_some_and(|s| crate::generated::IdStr::as_str(s) != active.as_str()) && p.data().homeworld_of.is_none())
+        .expect("a planet elsewhere");
+    let sys = ti4_model::id::SystemId::new(crate::generated::IdStr::as_str(elsewhere.data().system.unwrap()));
+    two.system_mut(&sys).planet_units.entry(ti4_model::id::PlanetId::new(crate::generated::IdStr::as_str(*elsewhere))).or_default().push(unit("infantry", "a"));
+    for case in [&state, &two, &nowhere] {
+        announce_all(&[("decoy", case.clone())]);
+    }
+    let _ = crate::dual::take_report();
+    let before = units_on_planets(&state, "infantry", "a") + units_on_planets(&state, "mech", "a");
+    let after = played("decoy", &state);
+    assert_eq!(units_on_planets(&after, "infantry", "a") + units_on_planets(&after, "mech", "a"), before, "the forces moved, none was lost");
+    assert_ne!(
+        serde_json::to_string(&after.board).unwrap(),
+        serde_json::to_string(&state.board).unwrap(),
+        "the forces moved"
+    );
+    let untouched = played("decoy", &nowhere);
+    assert_eq!(serde_json::to_string(&untouched.board).unwrap(), serde_json::to_string(&nowhere.board).unwrap(), "nowhere to land: nothing is removed");
+    let _ = crate::dual::take_report();
+}
