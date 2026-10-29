@@ -13,7 +13,7 @@
 //!
 //! Per position, per ordered pair and random deal: `are_neighbours`, `neighbours`,
 //! `neighbours_who_transacted`, `partners`, `may_transact`, `may_open_again`, `available_actions`,
-//! `can_pay`, `why_illegal` (through the typed view), `presence`, and `resolve` / `record_transaction`
+//! `can_pay`, `why_illegal` (through the typed view), `presence`, and `TradeWindow::answer_with` (whole negotiations), `resolve` / `record_transaction`
 //! / `note_negotiation` on copies under `Dual`. Exit status 1 on any difference.
 
 use ti4_content::ContentStore;
@@ -254,15 +254,17 @@ fn run_position(p: &Position, label: &str, rng: &mut Rng, deals: usize, run: &mu
         );
         let _ = transactions::why_illegal(state, content, galaxy, &offer);
         run.check(|| format!("{label} why_illegal {a}/{b} {offer:?}"));
-        // The window's two questions, rendered from their typed form under the dual run.
+        // The whole negotiation, one answer at a time through `answer_with` (the window's lockstep dual: the
+        // core window follows the string window question by question), with random picks, so refusals,
+        // counters and the haggling bound are reached too.
         let mut open = state.clone();
-        if let Some(window) = Some(transactions::TradeWindow::open_with_content(&mut open, content, &a, &b)) {
-            let mut window = window;
-            if let Some(q) = window.pending_choice(&open, content)
-                && let Some(deal) = q.options.iter().find(|o| !o.is_decline()).cloned()
-            {
-                let _ = window.resolve(&mut open, content, galaxy, &deal);
-                let _ = window.pending_choice(&open, content);
+        let mut window = transactions::TradeWindow::open_with_content(&mut open, content, &a, &b);
+        for _ in 0..8 {
+            let Some(q) = window.pending_choice(&open, content) else { break };
+            let pick = q.options[rng.below(q.options.len())].clone();
+            let _ = window.answer_with(&mut open, content, galaxy, &q, |_, _| Ok::<_, ()>(pick.clone()));
+            if window.is_complete() {
+                break;
             }
         }
         run.check(|| format!("{label} window {a}/{b}"));

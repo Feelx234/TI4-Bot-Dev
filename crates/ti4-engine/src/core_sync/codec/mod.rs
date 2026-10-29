@@ -10,7 +10,7 @@ use super::ctx::Ctx;
 use super::error::R;
 use crate::rng::RngPositions;
 
-mod agenda;
+pub(crate) mod agenda;
 pub(crate) mod board;
 mod cards;
 mod decks;

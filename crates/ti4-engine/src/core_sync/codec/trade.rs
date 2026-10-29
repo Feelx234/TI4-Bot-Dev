@@ -28,6 +28,22 @@ fn rel_back(r: c::Relationship) -> md::Relationship {
     md::Relationship { trust: r.trust, threat: r.threat, cooperation: r.cooperation, hostility: r.hostility }
 }
 
+/// A note of a deal: `{alias}:{faction}`, and a Support for the Throne is `support:{faction}` (`promissory::support`).
+fn deal_note(text: &str) -> R<c::NoteKey> {
+    match text.strip_prefix("support:") {
+        Some(faction) => Ok(c::NoteKey { note: ti4_engine_core::generated::PromissoryNote::SupportForTheThrone, faction: id::<ti4_engine_core::generated::Faction>(S, "faction", faction)? }),
+        None => note_key(text),
+    }
+}
+
+fn deal_note_text(k: c::NoteKey) -> String {
+    if k.note == ti4_engine_core::generated::PromissoryNote::SupportForTheThrone {
+        format!("support:{}", txt(k.faction))
+    } else {
+        note_text(k)
+    }
+}
+
 fn asset(cx: &Ctx, a: &md::TransferAsset) -> R<c::TransferAsset> {
     let _ = cx;
     Ok(match a {
@@ -37,7 +53,7 @@ fn asset(cx: &Ctx, a: &md::TransferAsset) -> R<c::TransferAsset> {
         md::TransferAsset::HazardousFragments(n) => c::TransferAsset::HazardousFragments(*n),
         md::TransferAsset::IndustrialFragments(n) => c::TransferAsset::IndustrialFragments(*n),
         md::TransferAsset::UnknownFragments(n) => c::TransferAsset::UnknownFragments(*n),
-        md::TransferAsset::PromissoryNote(t) => c::TransferAsset::PromissoryNote(note_key(t)?),
+        md::TransferAsset::PromissoryNote(t) => c::TransferAsset::PromissoryNote(deal_note(t)?),
         md::TransferAsset::ActionCard(t) => c::TransferAsset::ActionCard(id::<ActionCard>(S, "action card", t.as_str())?),
         md::TransferAsset::SecretObjective(t) => {
             c::TransferAsset::SecretObjective(id::<SecretObjective>(S, "secret objective", t)?)
@@ -53,7 +69,7 @@ fn asset_back(a: &c::TransferAsset) -> md::TransferAsset {
         c::TransferAsset::HazardousFragments(n) => md::TransferAsset::HazardousFragments(*n),
         c::TransferAsset::IndustrialFragments(n) => md::TransferAsset::IndustrialFragments(*n),
         c::TransferAsset::UnknownFragments(n) => md::TransferAsset::UnknownFragments(*n),
-        c::TransferAsset::PromissoryNote(k) => md::TransferAsset::PromissoryNote(note_text(*k)),
+        c::TransferAsset::PromissoryNote(k) => md::TransferAsset::PromissoryNote(deal_note_text(*k)),
         c::TransferAsset::ActionCard(x) => md::TransferAsset::ActionCard(ActionCardId::new(txt(*x))),
         c::TransferAsset::SecretObjective(x) => md::TransferAsset::SecretObjective(txt(*x).to_owned()),
     }
