@@ -143,3 +143,26 @@ pub fn close(
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     Some(CoreWindow { run: Run::new(settled).with_events_vec(events), questions: driven.rendered })
 }
+
+const COMMITTEE: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Agenda, Slice::Pending],
+    &[Slice::Agenda],
+);
+
+/// The core half of `Live::committee_elect` (package B9c-2). `None` for an agenda the core has no id of, a position the
+/// codecs refuse and nested activity.
+#[must_use]
+pub fn committee(gs: &mut GameState, alias: &str, owner: &PlayerId, script: &Recording) -> Option<CoreWindow<Option<String>>> {
+    use ti4_engine_core::generated::Agenda;
+    use ti4_engine_core::rules::agenda::committee::Committee;
+    let agenda = Agenda::from_id(alias)?;
+    let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
+    let owner = r.seat(owner.as_str())?;
+    let before = gs.clone();
+    let kernel = crate::production_view::kernel();
+    let mut driver = Driver::new(Committee::new(agenda, owner, r.code("committee")), Resolver::new(&[], None), AbilityTable::default(), 1);
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(COMMITTEE, script), |core, _| drive_with(&mut driver, core, kernel, &r, &before, script, &|_, _, _| {})).ok()?.ok()?;
+    let chosen = driver.window.chosen().map(|seat| r.seat_text(seat).to_owned());
+    Some(CoreWindow { run: Run::new(chosen), questions: driven.rendered })
+}

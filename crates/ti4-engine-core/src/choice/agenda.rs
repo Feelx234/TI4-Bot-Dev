@@ -126,6 +126,8 @@ pub enum Ask {
     /// (`agenda`, shown under the question). `owner` is the seat the card belongs to (Political Secret's text
     /// names it).
     UseOnAgenda { source: UseSource, agenda: Agenda, owner: Seat },
+    /// Committee Formation, after the owner discarded the card: which player the agenda elects (no vote follows).
+    Committee { agenda: Agenda },
 }
 
 /// What a [`Ask::UseOnAgenda`] question offers.
@@ -151,7 +153,7 @@ impl Ask {
             | Self::Recombine { frame, .. }
             | Self::Tribute { frame, .. }
             | Self::Tiebreak { frame } => Some(frame),
-            Self::NameTied | Self::Structure | Self::DiscardLaw { .. } | Self::UseOnAgenda { .. } => None,
+            Self::NameTied | Self::Structure | Self::DiscardLaw { .. } | Self::UseOnAgenda { .. } | Self::Committee { .. } => None,
         }
     }
 }
@@ -206,6 +208,7 @@ pub enum Subtype {
     UseQuash,
     UseFavor,
     UseSecret,
+    CommitteeElect,
 }
 
 impl Ask {
@@ -226,6 +229,7 @@ impl Ask {
             Self::UseOnAgenda { source: UseSource::Quash, .. } => Subtype::UseQuash,
             Self::UseOnAgenda { source: UseSource::Favor, .. } => Subtype::UseFavor,
             Self::UseOnAgenda { source: UseSource::Secret, .. } => Subtype::UseSecret,
+            Self::Committee { .. } => Subtype::CommitteeElect,
         }
     }
 }

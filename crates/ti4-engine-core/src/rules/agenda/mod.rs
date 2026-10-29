@@ -15,6 +15,7 @@
 //! in the text order of their owner ids).
 
 pub mod close;
+pub mod committee;
 pub mod covert;
 pub mod deadly_plot;
 pub mod offer_discard;

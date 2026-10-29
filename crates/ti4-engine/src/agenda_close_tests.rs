@@ -434,3 +434,74 @@ fn a_deck_reserve_is_the_named_reason_of_the_bail() {
     });
     assert_eq!((compared, bailed), (0, 1));
 }
+
+// -- Committee Formation ------------------------------------------------------------------------------------------
+
+const COMMITTEE: &str = "game::committee_formation";
+
+fn committee_position() -> GameState {
+    let mut s = position();
+    s.laws.insert("committee".to_owned(), "b".to_owned());
+    s.speaker = p("a");
+    s
+}
+
+fn committee_lockstep<T>(body: impl FnOnce() -> T) -> (T, u64, u64, String) {
+    let _guard = crate::dual::tests::serial();
+    let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();
+    let _ = take_report();
+    let before = local_windows(COMMITTEE);
+    let out = with_mask(mask, body);
+    let report = take_report();
+    let now = local_windows(COMMITTEE);
+    let differences = if report.total_differences() == 0 { String::new() } else { format!("{report:?}") };
+    (out, now.0 - before.0, now.1 - before.1, differences)
+}
+
+#[test]
+fn committee_formation_elects_the_player_its_owner_names_and_the_vote_is_skipped() {
+    let (g, compared, bailed, diff) = committee_lockstep(|| {
+        // b discards the card, then names c; no vote follows for the agenda.
+        let mut g = game(committee_position(), &["discard", "c"]);
+        let _ = g.open_next_vote(vec!["censure".to_owned()]);
+        g
+    });
+    ok(compared, bailed, &diff);
+    assert_eq!(g.state.laws.get("censure").map(String::as_str), Some("c"));
+    assert!(!g.state.laws.contains_key("committee"), "the card is discarded");
+    let rec = g.state.agenda_log.last().unwrap();
+    assert_eq!((rec.agenda.as_str(), rec.outcome.as_deref(), rec.enacted, rec.speaker_decided, rec.votes.len()), ("censure", Some("c"), true, false, 0));
+    assert!(g.events.iter().any(|e| e == "AGENDA_RESOLVED:censure:c") && g.events.iter().any(|e| e == "LAW_ENACTED:censure:c"));
+}
+
+#[test]
+fn committee_formation_declined_or_not_applicable_asks_nothing() {
+    // Declined: the discard window runs, the election window does not.
+    let (g, compared, bailed, _) = committee_lockstep(|| {
+        let mut g = game(committee_position(), &["decline", "decline"]);
+        let _ = g.open_next_vote(vec!["censure".to_owned()]);
+        g
+    });
+    assert_eq!((compared, bailed), (0, 0));
+    assert!(g.state.laws.contains_key("committee") && !g.state.laws.contains_key("censure"));
+    // An agenda that elects no player is not offered the card at all.
+    let (g, compared, bailed, _) = committee_lockstep(|| {
+        let mut g = game(committee_position(), &[]);
+        let _ = g.open_next_vote(vec!["checks".to_owned()]);
+        g
+    });
+    assert_eq!((compared, bailed), (0, 0));
+    assert!(g.state.laws.contains_key("committee"));
+}
+
+#[test]
+fn committee_formation_on_generic_fixture_seats_has_no_window() {
+    let (_, compared, bailed, _) = committee_lockstep(|| {
+        let mut s = crate::fixtures::game(&["a", "b"]);
+        s.phase = Phase::Agenda;
+        s.laws.insert("committee".to_owned(), "b".to_owned());
+        let mut g = game(s, &["discard", "a"]);
+        let _ = g.open_next_vote(vec!["censure".to_owned()]);
+    });
+    assert_eq!((compared, bailed), (0, 1));
+}

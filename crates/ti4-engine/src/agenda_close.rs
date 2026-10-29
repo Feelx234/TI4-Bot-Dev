@@ -187,4 +187,31 @@ impl Live<'_> {
             self.emit(&format!("LAW_ENACTED:{alias}:{outcome}"));
         }
     }
+
+    /// Committee Formation's election, after the owner discarded the card: the owner names the player the agenda
+    /// elects, the agenda is listed as resolved with that outcome (no votes) and a law is enacted. `None` when nobody
+    /// could be asked or the question was not answered.
+    pub fn committee_elect(&mut self, state: &mut GameState, alias: &str, owner: &PlayerId) -> Option<String> {
+        let options: Vec<crate::choice::ChoiceOption> = state
+            .players
+            .iter()
+            .map(|seat| crate::choice::ChoiceOption::labelled(seat.id.to_string(), "player", format!("elect {}", seat.id)))
+            .collect();
+        if options.is_empty() {
+            return None;
+        }
+        let choice = crate::choice::Choice::new(owner.clone(), format!("{alias}: elect which player"), options);
+        let chosen = self
+            .table
+            .ask_seeing(&choice, &crate::choice::Observed::new(state, self.content, self.sources, self.galaxy))
+            .ok()
+            .map(|answer| answer.id)?;
+        self.emit(&format!("AGENDA_RESOLVED:{alias}:{chosen}"));
+        push_agenda_record(state, self.content, alias, Some(&chosen), BTreeMap::new(), false, false);
+        if is_law(self.content, alias) {
+            state.enact_law(alias, &chosen);
+            self.emit(&format!("LAW_ENACTED:{alias}:{chosen}"));
+        }
+        Some(chosen)
+    }
 }

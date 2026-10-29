@@ -5768,7 +5768,7 @@ impl<'a> Game<'a> {
     /// into the reveal window, discards the revealed agenda and reveals the one it drew from
     /// the top of the deck; [`Self::reveal_agenda`] follows that chain to the agenda that
     /// actually goes to a vote.
-    fn open_next_vote(&mut self, mut queue: Vec<String>) -> StepResult {
+    pub(crate) fn open_next_vote(&mut self, mut queue: Vec<String>) -> StepResult {
         while let Some(alias) = queue.first().cloned() {
             queue.remove(0);
             match self.reveal_agenda(&alias) {
@@ -5782,19 +5782,7 @@ impl<'a> Game<'a> {
                         .get(ti4_model::content_types::ContentType::Agendas, &alias)
                         .and_then(ti4_content::Record::elect_type)
                         == Some(ti4_content::ElectType::Player);
-                    if elects_a_player && let Some(chosen) = self.committee_formation(&alias) {
-                        self.emit(&format!("AGENDA_RESOLVED:{alias}:{chosen}"));
-                        self.push_agenda_record(
-                            &alias,
-                            Some(&chosen),
-                            BTreeMap::new(),
-                            false,
-                            false,
-                        );
-                        if is_law(self.content, &alias) {
-                            self.state.enact_law(&alias, &chosen);
-                            self.emit(&format!("LAW_ENACTED:{alias}:{chosen}"));
-                        }
+                    if elects_a_player && self.committee_formation(&alias).is_some() {
                         continue;
                     }
                     if self.state.diplomacy.enabled && self.galaxy.is_some() {
@@ -6161,7 +6149,9 @@ impl<'a> Game<'a> {
 
     /// Committee Formation, offered before a vote that would elect a player.
     ///
-    /// Returns the player the card's owner chose, having discarded it.
+    /// Returns the player the card's owner chose, having discarded it and listed the agenda as resolved with that
+    /// outcome (enacting it when it is a law): the election is [`crate::agenda_close::Live::committee_elect`], the core
+    /// `rules::agenda::committee::Committee` window runs beside it on `agenda=dual`.
     fn committee_formation(&mut self, alias: &str) -> Option<String> {
         let owner = crate::laws::offer_discard(
             &mut self.state,
@@ -6176,35 +6166,14 @@ impl<'a> Game<'a> {
                 facts: Vec::new(),
             },
         )?;
-        let options: Vec<crate::choice::ChoiceOption> = self
-            .state
-            .players
-            .iter()
-            .map(|seat| {
-                crate::choice::ChoiceOption::labelled(
-                    seat.id.to_string(),
-                    "player",
-                    format!("elect {}", seat.id),
-                )
-            })
-            .collect();
-        if options.is_empty() {
-            return None;
-        }
-        let choice =
-            crate::choice::Choice::new(owner, format!("{alias}: elect which player"), options);
-        self.table
-            .ask_seeing(
-                &choice,
-                &crate::choice::Observed::new(
-                    &self.state,
-                    self.content,
-                    self.sources,
-                    self.galaxy.as_ref(),
-                ),
-            )
-            .ok()
-            .map(|answer| answer.id)
+        let (state, mut live) = self.split();
+        crate::dual_window!(
+            crate::dual::Area::AgendaLaws,
+            "game::committee_formation",
+            state,
+            |s: &mut GameState| crate::dual::Run::new(live.committee_elect(s, alias, &owner)),
+            |s: &mut GameState, script: &crate::dual_window::Recording| crate::agenda_close_dual::committee(s, alias, &owner, script)
+        )
     }
 
     /// Minister of Peace, offered after an activation that met an enemy.
