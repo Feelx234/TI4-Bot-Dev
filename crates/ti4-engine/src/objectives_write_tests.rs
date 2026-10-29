@@ -529,7 +529,7 @@ mod price {
         options.push(crate::choice::ChoiceOption::decline());
         let ask = Question::new(a(), "score an objective", options);
         let mut script = crate::dual_window::Recording::default();
-        script.questions.push(crate::dual_window::Asked { choice: ask.clone(), answer: Some(answer.to_owned()) });
+        script.questions.push(crate::dual_window::Asked { choice: ask.clone(), answer: Some(answer.to_owned()), nested: false });
         let args = crate::objectives_write::ScoreArgs { status: true, occurrence: None };
         let mut after = state.clone();
         let window = crate::objectives_write::score_one(&mut after, ContentStore::embedded(), POK, &ask, args, &script)?;
