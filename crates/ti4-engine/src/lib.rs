@@ -193,6 +193,9 @@ pub mod thunders_edge;
 pub mod timing;
 pub mod tokens;
 pub mod trade_core;
+pub mod trade_window_dual;
+#[cfg(all(test, feature = "typed-core"))]
+mod trade_window_tests;
 pub mod trade_write;
 pub mod transactions;
 pub mod transit;

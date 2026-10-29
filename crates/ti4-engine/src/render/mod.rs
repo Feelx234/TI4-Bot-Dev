@@ -74,14 +74,12 @@ pub struct Render {
     /// The position of the question being rendered, when the caller set one (`None` for the families
     /// that need none; see [`Position`]).
     position: RefCell<Option<Position>>,
-    /// Option shapes of areas whose options the string engine still builds (trade deals), by index.
-    shapes: RefCell<Vec<ChoiceOption>>,
 }
 
 impl Render {
     #[must_use]
     pub fn new(seats: Vec<String>) -> Self {
-        Self { seats, factions: Vec::new(), codes: RefCell::new(Vec::new()), position: RefCell::new(None), shapes: RefCell::new(Vec::new()) }
+        Self { seats, factions: Vec::new(), codes: RefCell::new(Vec::new()), position: RefCell::new(None) }
     }
 
     /// Set the position the following `prompt`/`option`/`details` calls render in; `None` clears it.
@@ -139,22 +137,6 @@ impl Render {
             codes.len() - 1
         });
         Code(u16::try_from(i).expect("fewer than 65536 distinct codes"))
-    }
-
-    /// The code of an option shape (the same shape always gets the same code in one `Render`).
-    pub fn shape(&self, option: &ChoiceOption) -> Code {
-        let mut shapes = self.shapes.borrow_mut();
-        let i = shapes.iter().position(|c| c == option).unwrap_or_else(|| {
-            shapes.push(option.clone());
-            shapes.len() - 1
-        });
-        Code(u16::try_from(i).expect("fewer than 65536 distinct shapes"))
-    }
-
-    /// The option shape of a code.
-    #[must_use]
-    pub fn shape_option(&self, code: Code) -> ChoiceOption {
-        self.shapes.borrow()[usize::from(code.0)].clone()
     }
 
     /// The code of a text already interned, without interning it.

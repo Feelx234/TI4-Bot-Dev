@@ -33,5 +33,6 @@ pub mod relic;
 pub mod seats;
 pub mod tech;
 pub mod trade;
+pub mod trade_deals;
 
 pub use crate::tables::Scope;

@@ -5329,24 +5329,18 @@ impl<'a> Game<'a> {
             return self.result(false, None);
         };
         // Field borrows, not `self`: the table answers while the position stays readable.
-        let answer = match self.table.ask_seeing(
+        let (content, sources) = (self.content, self.sources);
+        let table = &mut self.table;
+        let outcome = match self.trade.as_mut().expect("window remains open").answer_with(
+            &mut self.state,
+            content,
+            &galaxy,
             &choice,
-            &crate::choice::Observed::new(
-                &self.state,
-                self.content,
-                self.sources,
-                self.galaxy.as_ref(),
-            ),
+            |choice, state| table.ask_seeing(choice, &crate::choice::Observed::new(state, content, sources, Some(&galaxy))),
         ) {
-            Ok(answer) => answer,
+            Ok(outcome) => outcome,
             Err(error) => return self.result(false, Some(error.into())),
         };
-        let outcome = self.trade.as_mut().expect("window remains open").resolve(
-            &mut self.state,
-            self.content,
-            &galaxy,
-            &answer,
-        );
         // A resolved deal opens Lie in Wait's window. Emitted only on Resolved: the card counts
         // transactions that happened, not offers that were made.
         if matches!(outcome, crate::transactions::Traded::Resolved) {

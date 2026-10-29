@@ -32,3 +32,4 @@ pub mod strategy_flow;
 pub mod strategy_primaries;
 pub mod strategy_windows;
 pub mod trade;
+pub mod trade_window;
