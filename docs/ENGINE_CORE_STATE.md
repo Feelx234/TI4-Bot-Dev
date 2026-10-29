@@ -476,6 +476,12 @@ e.g. an action card that "produces 1 unit" returns `Next::Open(Window::Productio
 dispatches the window to `production::apply`. Pure helpers shared by several areas (placing a unit, gaining
 a trade good, exhausting a planet, scoring) are **L3 primitives** (`kernel::fx`) which also fire triggers.
 
+A card effect that runs another area's *window* as a child (an action card that pays a bill, enforces the hand limit,
+researches or performs a strategy card) does not name the window either: it puts a plain-data request (`kernel::children::Spawn`)
+to the `AreaLinks` of the `AbilityTable`, runs the erased window it gets back (`ErasedChild`, the cross-area sibling of
+`stage::Child<W>`) and reads what it did as a `Report`. The links are filled by `driver::children::register` (L5, which may import
+every area); a table without them makes the card decline its run (a counted bail), never panic.
+
 ### 4.2 The cycle analysis (measured)
 
 `tools/engine_profile/module_graph.py` on `ti4-engine/src` (this commit): **77 modules, 631 edges, one SCC of

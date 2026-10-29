@@ -11,7 +11,6 @@
 //! Both are listed in `docs/ENGINE_KNOWN_ISSUES.md`.
 
 use crate::generated::{Attachment, ExploreType, Planet, Relic, System, Wormhole};
-use crate::generated::Explore;
 use crate::ids::Seat;
 use crate::keys::LedgerReason;
 use crate::kernel::fx;
@@ -19,27 +18,11 @@ use crate::query::explore::FRAGMENTS_PER_RELIC;
 use crate::state::{CoreState, PlanetFlags, RelicRec};
 
 pub use crate::kernel::fx::VICTORY_TARGET;
+// The primitives an action card plays in its own window live in the kernel (areas do not import each other).
+pub use crate::kernel::fx_explore::{draw, gain_commodities, gain_fragment, open_record, place_wormhole_token, play_area_card, spend_commodities, take_frontier};
 
 /// `relics::SHARD`.
 pub const SHARD: Relic = Relic::ShardOfTheThrone;
-
-/// `exploration::draw` on a position without a deck reserve: the top card of one deck. `None` when the
-/// string map has no such key or the deck is empty.
-pub fn draw(core: &mut CoreState, deck: ExploreType) -> Option<Explore> {
-    let d = core.decks_mut();
-    if d.explore_present & (1 << deck as u8) == 0 {
-        return None;
-    }
-    d.explore[deck as usize].draw()
-}
-
-/// `exploration::gain_fragment`: one fragment of `kind`. Nothing happens for a seat that is not there.
-pub fn gain_fragment(core: &mut CoreState, who: Seat, kind: ExploreType) {
-    if let Some(p) = core.players_mut().by_seat_mut(who) {
-        let n = p.cards.fragments.get(kind).unwrap_or(0);
-        p.cards.fragments.set(kind, n + 1);
-    }
-}
 
 fn log_relic(core: &mut CoreState, who: Seat, relic: Relic, points: i32) {
     let round = core.meta().round;
@@ -101,20 +84,10 @@ pub fn attach(core: &mut CoreState, planet: Planet, attachment: Attachment) {
     cell.attach.push(attachment);
 }
 
-/// `state.frontier_tokens.remove(system)`: whether a token was there.
-pub fn take_frontier(core: &mut CoreState, system: System) -> bool {
-    core.explore_mut().frontier.remove(system)
-}
-
 /// `exploration::place_frontier_tokens`: the token set becomes exactly `systems`.
 pub fn place_frontier_tokens(core: &mut CoreState, systems: &[System]) {
     let set = &mut core.explore_mut().frontier;
     *set = systems.iter().copied().collect();
-}
-
-/// `state.wormhole_tokens.insert(kind, system)` (Gamma Wormhole, Gamma Relay).
-pub fn place_wormhole_token(core: &mut CoreState, kind: Wormhole, system: System) {
-    core.explore_mut().wormhole_tokens.insert(kind, system);
 }
 
 /// `state.ion_storm = Some((system, face))`.
@@ -193,40 +166,12 @@ pub fn exhaust_legendary(core: &mut CoreState, who: Seat, planet: Planet) {
     }
 }
 
-/// `seat.exploration_cards.push(card)` (Enigmatic Device, the exploration card): kept faceup in the play area.
-pub fn play_area_card(core: &mut CoreState, who: Seat, card: Explore) {
-    if let Some(p) = core.players_mut().by_seat_mut(who) {
-        p.cards.explore.push(card);
-    }
-}
-
 /// Maw of Worlds: every planet the seat controls is exhausted (the cost, paid whatever is chosen).
 pub fn exhaust_controlled_planets(core: &mut CoreState, who: Seat) {
     let planets: Vec<Planet> = crate::query::board::controlled_planets(core, who).as_slice().iter().map(|(_, p)| *p).collect();
     for planet in planets {
         crate::kernel::fx::exhaust_planet(core, planet);
     }
-}
-
-/// `exploration::gain_commodities`: up to `count` commodities, never past the faction's value. Returns the amount
-/// gained (the string side announces it to a Siphon, which the adapter does not follow).
-pub fn gain_commodities(core: &mut CoreState, who: Seat, count: i32) -> i32 {
-    let Some(p) = core.players_mut().by_seat_mut(who) else { return 0 };
-    let limit = i32::from(p.faction.data().commodities);
-    let held = i32::from(p.econ.commodities);
-    let after = (held + count).min(limit);
-    p.econ.commodities = i16::try_from(after).unwrap_or(i16::MAX);
-    (after - held).max(0)
-}
-
-/// `exploration::convert_commodities`, the commodities half: up to `most` commodities (all when `None`) leave the
-/// seat. Returns how many; the trade goods they become are gained by the caller (`supply`).
-pub fn spend_commodities(core: &mut CoreState, who: Seat, most: Option<i32>) -> i32 {
-    let Some(p) = core.players_mut().by_seat_mut(who) else { return 0 };
-    let held = i32::from(p.econ.commodities);
-    let moved = most.map_or(held, |cap| held.min(cap));
-    p.econ.commodities = i16::try_from(held - moved).unwrap_or(0);
-    moved
 }
 
 /// `relics::use_relic`, the Book of Latvinia: a seat controlling planets with all four technology specialties
@@ -286,32 +231,6 @@ pub fn remove_unit_at(core: &mut CoreState, planet: Planet, index: usize) {
     if index < units.len() {
         units.remove(index);
     }
-}
-
-/// `exploration::explore_drawn`'s record: the log row opened when the card is drawn, before it resolves. The
-/// outcome, result, gains and placed texts come with [`close_record`]; `empty` is the interned empty text.
-pub fn open_record(
-    core: &mut CoreState,
-    who: Seat,
-    deck: ExploreType,
-    card: Explore,
-    planet: Option<Planet>,
-    system: Option<System>,
-    empty: crate::state::Code,
-) {
-    let round = core.meta().round;
-    core.explore_mut().log.push(crate::state::ExploreRec {
-        round,
-        player: who,
-        deck,
-        card,
-        planet,
-        outcome: empty,
-        system,
-        result: None,
-        gains: Default::default(),
-        placed: Default::default(),
-    });
 }
 
 /// The texts `explore_in` writes into the record it opened once the card is resolved.

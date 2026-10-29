@@ -16,8 +16,8 @@ incl. `driver=dual` and the wide mask, `board_equivalence`, `bench` + `bench-v1.
   `strategy_core::*` / `strategy_cards_core::*` adapters.
 * Strategize x4 / Overrule: DONE on branch `b6d-strategize` (see `docs/B6_CARDS.md`, "Strategize x4 and Overrule"): the pick and the
   abilities as child windows by kind. Not carried (marked `unsupported`, a test each): the Warfare secondary, the Imperial primary,
-  the Thunder's Edge primaries, and the guards listed there. Open: the layer violations of the child windows
-  (`check_layers.py core`: 10 in `rules/action_cards`).
+  the Thunder's Edge primaries, and the guards listed there. The layer violations of the child windows are fixed on
+  `b6d-layers` (`kernel::children`, `driver::children::register`; see `docs/B6_CARDS.md`, "Layers").
 * Exploration Probe: needs the exploration resolution as a window (`explore_with`, frontier deck, rewards/attachments).
 * Courageous To The End, Experimental Battlestation: child hit flow (`AssignHits`/`SustainOffer` as a `Child`), the combat
   agent's area (`core-b12`, ENGINE_REACTIONS 9.2). Fire Team is ported on `core-b12`; Scramble Frequency is a bail there.

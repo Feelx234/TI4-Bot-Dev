@@ -1,15 +1,17 @@
 //! Strategize and Overrule (package B6d; the string `action_cards::perform_strategy_card`): after the pick of a strategy
 //! card, the holder performs its secondary (Strategize) or primary (Overrule) ability, as a child window by the kind of the
 //! card. The abilities are the windows of the strategy areas (`production::strategy_cards`, `strategy_primaries`,
-//! `strategy_windows`, `objective_windows`); the guards that read the string side (a draw a hook changes, a payment the
-//! production kernel does not follow, the placement of a structure) are the adapter's facts ([`Carried`]).
+//! `strategy_windows`, `objective_windows`); this area does not import them: it names the child by a [`Spawn`] request and the
+//! table's links start it (`driver::children`), and what the window did comes back as a [`Report`]. The guards that read the
+//! string side (a draw a hook changes, a payment the production kernel does not follow, the placement of a structure) are the
+//! adapter's facts ([`Carried`]).
 //!
 //! Carried: the secondaries of Trade (the replenishment), Imperial (the draw of a secret objective and the hand limit),
 //! Politics (the draw of two action cards), Technology (the paid research), Leadership, Construction and Diplomacy, and the
 //! primaries of Trade, Politics, Technology, Leadership, Construction and Warfare.
 //!
 //! The Diplomacy primary is carried too: the tokens it places are announced by the adapter after the window
-//! ([`Performed::tokens`]: the string stages those events on its own state).
+//! ([`Finished::tokens`]: the string stages those events on its own state).
 //!
 //! Not carried (the run is `unsupported`: the adapter declines it and the string performs the ability; one test each in the
 //! adapter's `action_cards_b6d_tests`):
@@ -17,16 +19,12 @@
 //! * the Imperial primary (the scoreable objectives, the award tail and the winner are the string's);
 //! * the Thunder's Edge Construction and Warfare primaries (the choice of a production, the free tactical action).
 
-use crate::choice::{Choice, Pick};
 use crate::containers::SmallList;
 use crate::generated::{StrategyCard, StrategyCardKind, System};
 use crate::ids::Seat;
-use crate::kernel::stage::{Illegal, Sx, Window};
-use crate::kernel::{fx, Kernel, Next};
-use crate::rules::objective_windows::HandLimit;
-use crate::rules::production::strategy_cards::{Construction, Leadership, Research, StructureFacts};
-use crate::rules::strategy_primaries::{DMode, Diplomacy, Politics, WarfarePrimary};
-use crate::rules::strategy_windows::{TradePrimary, TRADE_PRIMARY_GOODS};
+use crate::kernel::children::{Report, Spawn, StructureFacts};
+use crate::kernel::stage::Sx;
+use crate::kernel::fx;
 use crate::state::{Code, CoreState};
 
 use super::Env;
@@ -59,27 +57,12 @@ pub struct Carried {
     pub trade_source: Code,
 }
 
-/// The child window of an ability that asks.
-#[derive(Debug, Clone)]
-pub enum Performed {
-    /// The paid research of the Technology secondary, or the primary's free and paid research.
-    Research(Research),
-    /// A secret objective was drawn and the hand limit is enforced.
-    Limit(HandLimit),
-    Leadership(Leadership),
-    Construction(Construction),
-    Politics(Politics),
-    Warfare(WarfarePrimary),
-    Diplomacy(Diplomacy),
-    Trade(TradePrimary),
-}
-
 /// How an ability began.
 pub(super) enum Began {
     /// Performed, with nothing to ask.
     Done,
-    /// A window of its own runs it.
-    Run(Performed),
+    /// A window of its own runs it: the child the table starts for this request.
+    Run(Spawn),
     /// The kind is not carried (or not at this table): the string performs it.
     Unsupported,
 }
@@ -101,126 +84,73 @@ pub(super) fn begin(sx: &mut Sx<'_>, who: Seat, card: StrategyCard, primary: boo
             if env.facts.replenish_events {
                 return Began::Unsupported;
             }
-            Began::Run(Performed::Trade(TradePrimary::new(who)))
+            Began::Run(Spawn::Trade { who })
         }
         (StrategyCardKind::Imperial, false) => {
             // A deck that has run out draws nothing; the limit is enforced only after a draw.
             if fx::draw_secret(sx.state, who).is_none() {
                 return Began::Done;
             }
-            Began::Run(Performed::Limit(HandLimit::new(who)))
+            Began::Run(Spawn::HandLimit { who })
         }
         (StrategyCardKind::Politics, primary) => {
             if !carried.plain_draw {
                 return Began::Unsupported;
             }
-            Began::Run(Performed::Politics(Politics::new(who, primary, official)))
+            Began::Run(Spawn::Politics { who, primary, official })
         }
         (StrategyCardKind::Technology, primary) => {
             let (true, Some(roster)) = (carried.research, env.facts.roster) else { return Began::Unsupported };
             let cost = if primary { TECHNOLOGY_PRIMARY_SECOND_COST } else { TECHNOLOGY_SECONDARY_COST };
-            Began::Run(Performed::Research(Research::new(who, primary, cost, env.scope).with_roster(*roster)))
+            Began::Run(Spawn::Research { who, primary, cost, scope: env.scope, roster })
         }
         (StrategyCardKind::Leadership, primary) => {
             // A command token held in a Mahact pool changes the reinforcements the pool questions preview.
             if !carried.payments || env.mahact_held > 0 {
                 return Began::Unsupported;
             }
-            Began::Run(Performed::Leadership(Leadership::new(who, primary)))
+            Began::Run(Spawn::Leadership { who, primary })
         }
         (StrategyCardKind::Construction, primary) => {
             // The Thunder's Edge primary asks a structure or a production first (the production is the string's).
             let (Some(facts), false) = (carried.structures, primary && card == StrategyCard::ConstructionThundersEdge) else {
                 return Began::Unsupported;
             };
-            Began::Run(Performed::Construction(Construction::new(who, primary, facts)))
+            Began::Run(Spawn::Construction { who, primary, facts })
         }
         (StrategyCardKind::Warfare, true) => {
             // The Thunder's Edge primary is a free tactical action (the string's).
             if env.mahact_held > 0 || card == StrategyCard::WarfareThundersEdge {
                 return Began::Unsupported;
             }
-            Began::Run(Performed::Warfare(WarfarePrimary::new(who, env.facts.rules_version >= RULES_LETNEV_FLEET_POOL)))
+            Began::Run(Spawn::Warfare { who, letnev_pool: env.facts.rules_version >= RULES_LETNEV_FLEET_POOL })
         }
         (StrategyCardKind::Diplomacy, primary) => {
-            let mode = if primary {
-                DMode::Primary { base_printing: card == StrategyCard::DiplomacyBase && env.facts.rules_version >= RULES_BASE_DIPLOMACY }
-            } else {
-                DMode::Secondary
-            };
-            Began::Run(Performed::Diplomacy(Diplomacy::new(who, card, mode)))
+            let base_printing = primary && card == StrategyCard::DiplomacyBase && env.facts.rules_version >= RULES_BASE_DIPLOMACY;
+            Began::Run(Spawn::Diplomacy { who, card, primary, base_printing })
         }
         (StrategyCardKind::Warfare, false) | (StrategyCardKind::Imperial, true) => Began::Unsupported,
     }
 }
 
-impl Performed {
-    /// Whether the window left the carried path (the run is the string's).
-    pub(super) const fn failed(&self) -> bool {
-        match self {
-            Self::Research(w) => w.failed,
-            _ => false,
-        }
-    }
-
+/// What a finished ability leaves for the play.
+pub(super) struct Finished {
+    /// The window left the carried path (a research only a faction waiver opens): the string performs the ability.
+    pub failed: bool,
     /// The system the Diplomacy primary placed tokens in and the seats that got one (in seating order): the adapter announces them.
-    pub(super) fn tokens(&self) -> Option<(System, SmallList<Seat, 8>)> {
-        match self {
-            Self::Diplomacy(w) => w.chosen().map(|system| (system, w.placed.clone())),
-            _ => None,
-        }
-    }
-
-    /// What the ability announces when it is done: the three trade goods of the Trade primary (staged, as the string stages
-    /// them after its window).
-    pub(super) fn finish(&self, s: &mut CoreState, env: Env) {
-        if let Self::Trade(w) = self {
-            fx::stage(s, fx::trade_goods_gained(w.who, TRADE_PRIMARY_GOODS, env.facts.carried.trade_source));
-        }
-    }
+    pub tokens: Option<(System, SmallList<Seat, 8>)>,
 }
 
-impl Window for Performed {
-    type Stage = ();
-
-    fn stage(&self) {}
-
-    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
-        match self {
-            Self::Research(w) => w.step(sx),
-            Self::Limit(w) => w.step(sx),
-            Self::Leadership(w) => w.step(sx),
-            Self::Construction(w) => w.step(sx),
-            Self::Politics(w) => w.step(sx),
-            Self::Warfare(w) => w.step(sx),
-            Self::Diplomacy(w) => w.step(sx),
-            Self::Trade(w) => w.step(sx),
+/// What the ability announces when it is done, from the [`Report`] of its window: the three trade goods of the Trade primary
+/// (staged, as the string stages them after its window).
+pub(super) fn finish(report: Report, s: &mut CoreState, env: Env) -> Finished {
+    match report {
+        Report::Left => Finished { failed: true, tokens: None },
+        Report::Placed(system, seats) => Finished { failed: false, tokens: Some((system, seats)) },
+        Report::Goods(who, goods) => {
+            fx::stage(s, fx::trade_goods_gained(who, goods, env.facts.carried.trade_source));
+            Finished { failed: false, tokens: None }
         }
-    }
-
-    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
-        match self {
-            Self::Research(w) => w.ask_of(s, k),
-            Self::Limit(w) => w.ask_of(s, k),
-            Self::Leadership(w) => w.ask_of(s, k),
-            Self::Construction(w) => w.ask_of(s, k),
-            Self::Politics(w) => w.ask_of(s, k),
-            Self::Warfare(w) => w.ask_of(s, k),
-            Self::Diplomacy(w) => w.ask_of(s, k),
-            Self::Trade(w) => w.ask_of(s, k),
-        }
-    }
-
-    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
-        match self {
-            Self::Research(w) => w.answer(sx, pick),
-            Self::Limit(w) => w.answer(sx, pick),
-            Self::Leadership(w) => w.answer(sx, pick),
-            Self::Construction(w) => w.answer(sx, pick),
-            Self::Politics(w) => w.answer(sx, pick),
-            Self::Warfare(w) => w.answer(sx, pick),
-            Self::Diplomacy(w) => w.answer(sx, pick),
-            Self::Trade(w) => w.answer(sx, pick),
-        }
+        Report::Nothing | Report::Paid(_) | Report::Chose(_) => Finished { failed: false, tokens: None },
     }
 }
