@@ -136,6 +136,8 @@ pub enum Fx {
     Decoy,
     /// Ghost Squad: ground forces of the holder move between its planets in the active system, one move per question.
     Squad,
+    /// Harness Energy: the holder's commodities are replenished.
+    Harness,
 }
 
 impl Fx {
@@ -228,6 +230,7 @@ impl Fx {
             C::RefitTroops => Self::Refit,
             C::DecoyOperation => Self::Decoy,
             C::GhostSquad => Self::Squad,
+            C::HarnessEnergy => Self::Harness,
             _ => return None,
         })
     }
@@ -347,6 +350,10 @@ impl Play {
         }
         // A readied Keleres agent could be offered before a payment (a window of its own, the goods window).
         if (fx.bill().is_some() || fx == Fx::Mercenary) && env.facts.agent_offered {
+            return None;
+        }
+        // The Siphon event, Cabal's note and the Trade Agreement hook follow a replenishment: the string's.
+        if fx == Fx::Harness && env.facts.replenish_events {
             return None;
         }
         // A mech the seat places with an announcement of its own (Naaz) is the string's.
@@ -965,6 +972,9 @@ impl Play {
                 fx::gain_trade_goods_staged(core, self.who, 3, self.env.supply_base);
             }
             Fx::Squad => self.jam = core.meta().active_system,
+            Fx::Harness => {
+                fx::replenish_commodities(core, self.who);
+            }
             Fx::Decoy => {
                 // The destination first, so a card with nowhere to land removes nothing; up to two forces are taken unasked.
                 let found = self.ground_forces(core);
@@ -1737,6 +1747,7 @@ mod tests {
             C::RefitTroops,
             C::DecoyOperation,
             C::GhostSquad,
+            C::HarnessEnergy,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }
@@ -1789,6 +1800,15 @@ mod tests {
         assert!(Play::of(&core, ActionCard::RefitTroops, Seat(0), bare_env()).is_none());
     }
 
+    /// Bail: Harness Energy while a replenishment causes events the core does not hold.
+    #[test]
+    fn bail_harness_energy_declines_while_a_replenishment_causes_events() {
+        let core = CoreState::all_loaded();
+        let env = Env { facts: super::super::Facts { replenish_events: true, ..super::super::Facts::default() }, ..bare_env() };
+        assert!(Play::of(&core, ActionCard::HarnessEnergy, Seat(0), env).is_none());
+        assert!(Play::of(&core, ActionCard::HarnessEnergy, Seat(0), bare_env()).is_some());
+    }
+
     /// Bail: a card that places neutral units needs the neutral owner in the table.
     #[test]
     fn bail_a_neutral_card_declines_without_a_neutral_seat() {
@@ -1820,7 +1840,6 @@ mod tests {
             (C::ExperimentalBattlestation, "the space cannon of a structure joined to the movement window"),
             (C::FocusedResearch, "four trade goods (the Keleres goods window) then a research"),
             (C::FireTeam, "per-die reroll questions of a staged ground roll"),
-            (C::HarnessEnergy, "the commodity limit of the faction hooks, the Siphon event and the Trade Agreement hook"),
             (C::Impersonation, "three influence by the question-driven payment, then a secret objective draw with the hand limit"),
             (C::Infiltrate, "the structure swap of the capture (rules version dependent unit forms)"),
             (C::LieInWait, "the neighbours of the map who traded this round (the transactions)"),

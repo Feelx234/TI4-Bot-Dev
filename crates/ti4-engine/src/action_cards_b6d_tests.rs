@@ -390,3 +390,25 @@ fn ghost_squad_moves_ground_forces_between_planets_in_the_core_window() {
     assert!(serde_json::to_string(&after.board).unwrap() != before);
     let _ = crate::dual::take_report();
 }
+
+/// Harness Energy: the holder's commodities go to the faction's printed value, nothing else.
+#[test]
+fn harness_energy_replenishes_the_holders_commodities_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let a = PlayerId::new("a");
+    let mut low = closing_position();
+    low.player_mut(&a).unwrap().commodities = 0;
+    let mut full = closing_position();
+    full.player_mut(&a).unwrap().commodities = 9;
+    announce_all(&[("harness", low.clone()), ("harness", full.clone())]);
+    let _ = crate::dual::take_report();
+    assert_eq!(played("harness", &low).player(&a).unwrap().commodities, 3, "the Arborec print 3");
+    assert_eq!(played("harness", &full).player(&a).unwrap().commodities, 3, "a seat above the print is set down to it");
+    // A Cabal seat: the replenish note is the string's; the card is played by the string alone.
+    let mut cabal = low.clone();
+    cabal.player_mut(&PlayerId::new("c")).unwrap().faction = ti4_model::id::FactionId::new("cabal");
+    let _ = crate::dual::take_report();
+    let _ = played("harness", &cabal);
+    assert_eq!(crate::action_cards_closing_tests::windows("action_cards::announce"), (0, 1));
+    let _ = crate::dual::take_report();
+}

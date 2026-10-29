@@ -359,13 +359,16 @@ pub struct Facts {
     pub dreadnought: Placed,
     /// The plain mech Refit Troops places (`None` for a seat whose mech is a faction unit with an announcement of its own).
     pub mech: Placed,
+    /// A replenishment at this table causes events the core does not hold (a Cabal, a siphoning Firmament plot, a Trade Agreement
+    /// in play): Harness Energy is the string's.
+    pub replenish_events: bool,
     /// The order of unit types by their id text (the string orders a set of type ids; the core has no id text).
     pub unit_order: fn(Unit, Unit) -> core::cmp::Ordering,
 }
 
 impl Default for Facts {
     fn default() -> Self {
-        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE, dreadnought: Placed::NONE, mech: Placed::NONE, unit_order: |a, b| a.cmp(&b) }
+        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE, dreadnought: Placed::NONE, mech: Placed::NONE, replenish_events: false, unit_order: |a, b| a.cmp(&b) }
     }
 }
 
