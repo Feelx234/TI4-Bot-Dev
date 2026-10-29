@@ -67,6 +67,8 @@ mod real {
     const REVEAL: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Decks, Slice::Objectives], &[Slice::Decks, Slice::Objectives]);
     /// A secret drawn into a hand.
     const DRAW: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Decks], &[Slice::Players, Slice::Decks]);
+    /// A secret made public: the revealed list.
+    const MAKE_PUBLIC: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Objectives], &[Slice::Objectives]);
     /// A score: the scored sets, the hand, the points and their ledger, the end of the game.
     const SCORE: Footprint = Footprint::new(
         &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Objectives, Slice::Ledger],
@@ -134,6 +136,22 @@ mod real {
         lend(gs, DRAW, Some(player), |core, who| {
             ti4_engine_core::kernel::fx::draw_secret(core, who.expect("a seated call")).map(|s| SecretObjectiveId::new(s.as_str()))
         })
+    }
+
+    /// A secret leaves the hand for the bottom of the deck (`secrets::enforce_hand_limit`'s hand-back, the
+    /// Galactic Council's discard). The outer `None` is a bail.
+    pub fn return_secret(gs: &mut GameState, player: &PlayerId, alias: &SecretObjectiveId) -> Option<()> {
+        if gs.deck_reserve.is_some() {
+            return None;
+        }
+        let secret = SecretObjective::from_id(alias.as_str())?;
+        lend(gs, DRAW, Some(player), |core, who| ti4_engine_core::kernel::fx::return_secret(core, who.expect("a seated call"), secret))
+    }
+
+    /// Classified Document Leaks: the secret becomes a public objective. `Some(false)` when it already was.
+    pub fn make_public(gs: &mut GameState, alias: &ObjectiveId) -> Option<bool> {
+        let secret = SecretObjective::from_id(alias.as_str())?;
+        lend(gs, MAKE_PUBLIC, None, |core, _| ti4_engine_core::kernel::fx::make_public(core, secret))
     }
 
     /// The state half of `objectives::award`. `points` is what the string side read from the content: the core
@@ -487,6 +505,12 @@ mod stub {
         None
     }
     pub fn draw_secret(_: &mut GameState, _: &PlayerId) -> Option<Option<SecretObjectiveId>> {
+        None
+    }
+    pub fn return_secret(_: &mut GameState, _: &PlayerId, _: &SecretObjectiveId) -> Option<()> {
+        None
+    }
+    pub fn make_public(_: &mut GameState, _: &ObjectiveId) -> Option<bool> {
         None
     }
     pub fn score_public(_: &mut GameState, _: &PlayerId, _: &ObjectiveId, _: i32) -> Option<()> {

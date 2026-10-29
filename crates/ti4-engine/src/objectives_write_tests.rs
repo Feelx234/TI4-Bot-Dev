@@ -940,6 +940,37 @@ mod book {
         }
     }
 
+    /// What a public score sets off beyond the points stays with the string side (A4b-2-bail): leaders unlock
+    /// (`leaders::check_unlocks`, which has its own core halves) and Yin's breakthrough hears of it (a staged
+    /// event, which the core has no queue for). The adapter runs both on the lent state after the window, so
+    /// the two positions still agree: the walk compares them after the step.
+    #[test]
+    fn the_tail_of_a_public_score_runs_after_the_core_window_and_agrees() {
+        // The third scored objective unlocks the hero.
+        let mut state = two_scoring_seats();
+        for alias in publics(1, 3).iter().filter(|p| *p != "expand_borders").take(2) {
+            state.record_score(&a(), ObjectiveId::new(alias.as_str()));
+        }
+        let hero = crate::leaders::of_kind(&state, ContentStore::embedded(), &a(), crate::leaders::HERO).first().cloned().expect("a hero");
+        assert_eq!(crate::leaders::status(&state, &a(), &hero), Some(ti4_model::state::LeaderStatus::Locked));
+        let window = ScoringWindow::new(&state.initiative_order());
+        let (end, _, _) = walk(state, window, &["expand_borders"]);
+        assert_eq!(crate::leaders::status(&end, &a(), &hero), Some(ti4_model::state::LeaderStatus::Unlocked), "the tail unlocked the hero");
+
+        // Yin's breakthrough: a public score stages PUBLIC_OBJECTIVE_SCORED; a secret does not.
+        let mut yin = clean(&[("a", "yin"), ("b", "sol")]);
+        yin.player_mut(&a()).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new("yinbt"));
+        yin.revealed_objectives = vec![ObjectiveId::new("expand_borders")];
+        for planet in non_home_planets(6) {
+            give(&mut yin, &planet, "a");
+        }
+        yin.player_mut(&a()).unwrap().secret_objectives = vec![SecretObjectiveId::new("eap")];
+        four_pds(&mut yin);
+        let window = ScoringWindow::new(&yin.initiative_order());
+        let (end, _, _) = walk(yin, window, &["eap", "expand_borders"]);
+        assert_eq!(crate::supply::staged_event_types(&end), ["PUBLIC_OBJECTIVE_SCORED"], "only the public score is announced");
+    }
+
     // -- Plots Within Plots ----------------------------------------------------------------------------
 
     /// `a` (Firmament) has three space docks; `b` has scored `fwm` ("Have 3 space docks").
@@ -1040,4 +1071,81 @@ mod book {
         let held: i32 = end.player(&a()).unwrap().relic_fragments.values().sum();
         assert_eq!(held, 1, "two of the three fragments were paid");
     }
+}
+
+// -- the secret writes of other areas (package A4b-2) ---------------------------------------------------------
+
+/// Classified Document Leaks (`laws::make_public`, shared by the law's reveal and the agenda effect) and a secret
+/// handed back to the deck (the hand limit, the Galactic Council's discard) run on the core under
+/// `objectives=dual`.
+#[test]
+fn a_secret_made_public_and_a_secret_returned_run_in_lockstep_with_the_core() {
+    use crate::objectives_write::{make_public, return_secret};
+    let _guard = crate::dual::tests::serial();
+    let _ = take_report();
+    with_mask(mask(), || {
+        let mut state = clean(&[("a", "letnev"), ("b", "sol")]);
+        assert!(crate::laws::make_public(&mut state, &ObjectiveId::new("eap")));
+        assert!(state.revealed_objectives.contains(&ObjectiveId::new("eap")));
+        assert!(!crate::laws::make_public(&mut state, &ObjectiveId::new("eap")), "once");
+        let mut state = clean(&[("a", "letnev"), ("b", "sol")]);
+        state.player_mut(&a()).unwrap().secret_objectives = vec![SecretObjectiveId::new("eap"), SecretObjectiveId::new("fwm")];
+        state.secret_deck = vec![SecretObjectiveId::new("ctr")];
+        crate::secrets::return_secret(&mut state, &a(), &SecretObjectiveId::new("eap"));
+        assert_eq!(state.player(&a()).unwrap().secret_objectives, vec![SecretObjectiveId::new("fwm")]);
+        assert_eq!(state.secret_deck, vec![SecretObjectiveId::new("ctr"), SecretObjectiveId::new("eap")], "the bottom of the deck");
+    });
+    let r = report();
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+    // Probed (a bail is silent): the core halves answer, and decline what they must.
+    let mut probe = clean(&[("a", "letnev"), ("b", "sol")]);
+    assert_eq!(make_public(&mut probe, &ObjectiveId::new("eap")), Some(true));
+    assert_eq!(make_public(&mut probe, &ObjectiveId::new("eap")), Some(false));
+    assert_eq!(make_public(&mut probe, &ObjectiveId::new(["not", "a", "secret"].join("_"))), None);
+    probe.player_mut(&a()).unwrap().secret_objectives = vec![SecretObjectiveId::new("eap")];
+    assert_eq!(return_secret(&mut probe, &a(), &SecretObjectiveId::new("eap")), Some(()));
+    assert!(probe.player(&a()).unwrap().secret_objectives.is_empty());
+    assert_eq!(probe.secret_deck.last(), Some(&SecretObjectiveId::new("eap")));
+    assert_eq!(return_secret(&mut probe, &PlayerId::new("nobody"), &SecretObjectiveId::new("eap")), None);
+    probe.deck_reserve = Some(ti4_model::deck_reserve::DeckReserve::new(std::sync::Arc::default(), Vec::new()));
+    assert_eq!(return_secret(&mut probe, &a(), &SecretObjectiveId::new("eap")), None, "a deck reserve is the string's");
+    let _ = take_report();
+}
+
+/// The hand limit question asked inside an invasion is followed (A4b-2 lifted the bail): the core names the
+/// invasion in the context the way `ask_seeing` does.
+#[test]
+fn the_hand_limit_question_is_followed_inside_an_invasion_and_a_battle() {
+    let _guard = crate::dual::tests::serial();
+    let _ = take_report();
+    let content = ContentStore::embedded();
+    for invasion in [true, false] {
+        let mut state = clean(&[("a", "letnev"), ("b", "sol")]);
+        state.player_mut(&a()).unwrap().secret_objectives = ["eap", "fwm", "gamf"].map(SecretObjectiveId::new).to_vec();
+        state.secret_deck = vec![SecretObjectiveId::new("ctr")];
+        if invasion {
+            state.active_invasion = Some(ti4_model::state::ActiveInvasion {
+                system: SystemId::new("18"),
+                invader: a(),
+                seq: 3,
+                phase: "commit".to_owned(),
+                planet: None,
+                defender: None,
+                ground_round: 0,
+                last_step: None,
+            });
+        } else {
+            state.active_space_combat = Some((SystemId::new("18"), a(), PlayerId::new("b")));
+        }
+        let before = crate::dual::local_windows("secrets::enforce_hand_limit");
+        with_mask(mask(), || {
+            let mut asked = table(&["fwm"]);
+            crate::secrets::draw(&mut state, content, &mut asked, &a()).unwrap();
+        });
+        let after = crate::dual::local_windows("secrets::enforce_hand_limit");
+        assert_eq!((after.0 - before.0, after.1 - before.1), (1, 0), "invasion {invasion}: the core followed the question");
+    }
+    let r = report();
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+    let _ = take_report();
 }

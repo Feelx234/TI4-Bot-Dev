@@ -211,12 +211,24 @@ fn enforce_hand_limit_text(
                 )
             };
 
-        if let Some(seat) = state.player_mut(player) {
-            seat.secret_objectives.retain(|alias| alias != &chosen);
-        }
-        state.secret_deck.push(chosen);
+        return_secret(state, player, &chosen);
     }
     Ok(())
+}
+
+/// A secret leaves the hand for the bottom of the deck (the hand limit, the Galactic Council's discard).
+pub(crate) fn return_secret(state: &mut GameState, player: &PlayerId, chosen: &SecretObjectiveId) {
+    crate::objectives::dual_write(
+        state,
+        "secrets::return_secret",
+        |s| {
+            if let Some(seat) = s.player_mut(player) {
+                seat.secret_objectives.retain(|alias| alias != chosen);
+            }
+            s.secret_deck.push(chosen.clone());
+        },
+        |s| crate::objectives_write::return_secret(s, player, chosen),
+    );
 }
 
 /// A registered requirement check.
