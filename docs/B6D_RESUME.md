@@ -8,7 +8,7 @@ incl. `driver=dual` and the wide mask, `board_equivalence`, `bench` + `bench-v1.
 
 * Strategize x4 / Overrule: DONE on branch `b6d-strategize` (see `docs/B6_CARDS.md`, "Strategize x4 and Overrule"): the pick and the
   abilities as child windows by kind. Not carried (marked `unsupported`, a test each): the Warfare secondary, the Imperial primary,
-  the Diplomacy primary, the Thunder's Edge primaries, and the guards listed there. Open: the layer violations of the child windows
+  the Thunder's Edge primaries, and the guards listed there. Open: the layer violations of the child windows
   (`check_layers.py core`: 10 in `rules/action_cards`).
 * Exploration Probe: needs the exploration resolution as a window (`explore_with`, frontier deck, rewards/attachments).
 * Courageous To The End, Experimental Battlestation: child hit flow (`AssignHits`/`SustainOffer` as a `Child`), the combat

@@ -137,11 +137,11 @@ the display facts of the child questions are `strategy_cards_core::Performing`.
 * Carried secondaries (Strategize): Trade (the replenishment), Imperial (the secret objective draw and the hand limit), Politics,
   Technology (four resources), Leadership, Construction (both printings and the Thunder's Edge one) and Diplomacy (both printings).
 * Carried primaries (Overrule): Trade (the three trade goods are staged as the string stages them), Politics, Technology (a free research
-  and one for six), Leadership, Construction (the plain printings) and Warfare (the plain printing).
+  and one for six), Leadership, Construction (the plain printings), Warfare (the plain printing) and Diplomacy (both printings; the
+  announcements of the placed tokens are staged on the string state by the adapter, `stage_placed_tokens`).
 * Conditions that stay string (the window marks the run `unsupported` or `Play::of` answers `None`; the adapter declines the whole
   run; a core test in `effects::tests` and an adapter test each): the Warfare secondary (`home_production`: a production window), the
-  Imperial primary, the Diplomacy primary (the announcements of the placed tokens are staged on the string state), the Thunder's Edge
-  Construction and Warfare primaries (a free tactical action, the choice of a production), a replenishment that causes events (Trade,
+  Imperial primary, the Thunder's Edge Construction and Warfare primaries (a free tactical action, the choice of a production), a replenishment that causes events (Trade,
   both abilities), a draw that is not plain (Politics), a table or rules version the research window does not carry or a research only a
   faction waiver opens (Technology), payments the production rules do not follow (Leadership), a faction effect on the placement of a
   structure (Construction), a command token in a Mahact pool (Leadership, Warfare), two seats of one faction (Overrule names the options
