@@ -19,7 +19,9 @@ use ti4_engine_core::Seat;
 
 use crate::core_sync::Ctx;
 use crate::dual_window::Pushed;
-use crate::generated::{Agenda, IdStr, Leader, Planet, PublicObjective, SecretObjective, StrategyCard, System, Technology};
+use ti4_engine_core::generated::{Agenda, Leader, Planet, PublicObjective, SecretObjective, StrategyCard, System, Technology};
+
+use crate::generated::IdStr;
 use crate::kernel_sync::text::{event_text, snake};
 use crate::render::Render;
 

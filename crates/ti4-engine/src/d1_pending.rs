@@ -835,7 +835,7 @@ mod tests {
         let (r, held) = checked(&mut g);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let Some(Window::Voting(v)) = held.window(WindowKind::Voting) else { panic!("{:?} {:?}", held.stack, r.windows) };
-        assert_eq!((v.vote.agenda, v.vote.stage, v.vote.choices.len(), v.queue.as_slice()), (Agenda::ChecksAndBalances, ti4_engine_core::state::VoteStage::Outcome(0), 2, &[Agenda::Committee][..]));
+        assert_eq!((v.vote.agenda, v.vote.stage, v.vote.choices.len(), v.queue.as_slice()), (Agenda::ChecksAndBalances, ti4_engine_core::state::VoteStage::Outcome(0), 2, &[Agenda::CommitteeFormation][..]));
         assert_eq!(v.vote.order.len(), 3, "everyone votes");
         // A finished election of a player, with a ballot, counts and a winner.
         let done = crate::vote::VoteWindow::finished("censure", &["a", "b", "c"], &[("a", "b"), ("c", "a")], &[("b", 2), ("a", 1)], Some("b"));
