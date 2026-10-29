@@ -88,8 +88,10 @@ impl Announce {
             Effect::Simple(simple)
         } else if let Some(play) = Play::of(core, card, who, env) {
             Effect::Play(Box::new(play))
-        } else if registered && Fx::of(card).is_none() {
-            // A card the Fx table owns that refuses the position (a bail of its own) stays the string's.
+        } else if registered && Fx::of(card).is_none_or(|fx| !fx.nested()) {
+            // A card the Fx table owns that refuses the position (a bail of its own) stays the string's. A card whose window is not
+            // played from inside another window (`Fx::nested`: it reads facts only its own window supplies) is played by the
+            // registration there.
             Effect::Registered
         } else {
             return None;
@@ -448,18 +450,32 @@ mod tests {
     #[test]
     fn the_b6d_cards_are_not_played_from_inside_another_window() {
         let t = AbilityTable::default();
-        for card in [ActionCard::Upgrade, ActionCard::DecoyOperation, ActionCard::RevealPrototype, ActionCard::LieInWait, ActionCard::Bribery, ActionCard::HarnessEnergy, ActionCard::Infiltrate, ActionCard::CrashLanding, ActionCard::GhostSquad, ActionCard::ExplorationProbe, ActionCard::Strategize2, ActionCard::Overrule] {
+        for card in [ActionCard::Upgrade, ActionCard::DecoyOperation, ActionCard::RevealPrototype, ActionCard::LieInWait, ActionCard::Bribery, ActionCard::HarnessEnergy, ActionCard::Infiltrate, ActionCard::CrashLanding, ActionCard::GhostSquad, ActionCard::ExplorationProbe, ActionCard::Strategize2, ActionCard::Overrule, ActionCard::FireTeam, ActionCard::ScrambleFrequency] {
             assert!(plays(card), "{card:?} has a window of its own");
             assert!(!plays_in(&t, card), "{card:?}");
         }
         assert!(plays_in(&t, ActionCard::Rally) && plays_in(&t, ActionCard::Intercept));
     }
 
+    /// A card whose window is not played from inside another window (it reads facts only its own window supplies) but that a rules
+    /// package registered is played by the registration there (`core-b12` registers Fire Team for the ground roll's tail); a card
+    /// the window plays nested stays the window's, registered or not.
+    #[test]
+    fn a_registered_effect_wins_over_a_window_that_is_not_played_nested() {
+        let s = two_seats();
+        assert!(Announce::of(&s, ActionCard::FireTeam, Seat(0), env(), true, false).is_none(), "no facts and nothing registered");
+        let fire_team = Announce::of(&s, ActionCard::FireTeam, Seat(0), env(), true, true).expect("a registered play");
+        assert!(matches!(fire_team.effect, Effect::Registered));
+        let spy = Announce::of(&s, ActionCard::Spy, Seat(0), env(), true, true).expect("a play");
+        assert!(matches!(spy.effect, Effect::Play(_)), "a card the window plays nested is the window's");
+    }
+
     /// Bail: a card with an effect the core does not play has no announcement (the string runs).
     #[test]
     fn bail_a_card_with_an_unported_effect_has_no_announcement() {
         let s = two_seats();
-        assert!(Announce::of(&s, ActionCard::ScrambleFrequency, Seat(0), env(), true, false).is_none());
+        assert!(Announce::of(&s, ActionCard::CourageousToTheEnd, Seat(0), env(), true, false).is_none());
+        assert!(Announce::of(&s, ActionCard::ExperimentalBattlestation, Seat(0), env(), true, false).is_none());
         assert!(Announce::of(&s, ActionCard::DirectHit1, Seat(0), env(), true, false).is_none());
     }
 

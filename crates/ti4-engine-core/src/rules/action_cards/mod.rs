@@ -344,6 +344,26 @@ pub struct Env {
     pub facts: Facts,
 }
 
+/// What Fire Team and Scramble Frequency read of the staged dice that the state holds only as interned texts: the kinds of
+/// roll (`reroll_staging`'s `kind`, a text of the state's table) and, for the questions of Fire Team, the rendered name of each
+/// group of dice (a text of the question renderer's table, which is not the state's). Both are the adapter's.
+#[derive(Debug, Clone, Copy)]
+pub struct RerollFacts {
+    /// The state text of the kind `ground`.
+    pub ground: crate::state::Code,
+    /// The state texts of the kinds Scramble Frequency forces: `bombardment`, `space_cannon` and `anti_fighter_barrage`.
+    pub forced: [crate::state::Code; 3],
+    /// The renderer's text of the group of dice each staged entry of the holder stands for, by entry.
+    pub shown: [crate::state::Code; RerollFacts::GROUPS],
+    /// How many entries of the holder's staged set `shown` covers (a set with more entries is the string's).
+    pub entries: u8,
+}
+
+impl RerollFacts {
+    /// The most groups of dice one side rolls (a ground side rolls one group per combat value, `invasion::roll::NAMED`).
+    pub const GROUPS: usize = 12;
+}
+
 /// What the cards of package B6d read from outside the core (inputs of the card, like the adjacency of Argent's agent):
 /// the neutral owner of the table, the forms the seat places, the systems of the game's map that carry a wormhole.
 #[derive(Debug, Clone, Copy)]
@@ -396,11 +416,13 @@ pub struct Facts {
     pub action_draw_plain: bool,
     /// Strategize and Overrule: what the adapter vouches for when the performed ability reads the string position.
     pub carried: perform::Carried,
+    /// Fire Team and Scramble Frequency: the texts of the staged dice (`None`: the adapter computed none, the card is the string's).
+    pub reroll: Option<RerollFacts>,
 }
 
 impl Default for Facts {
     fn default() -> Self {
-        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE, dreadnought: Placed::NONE, mech: Placed::NONE, pds: Placed::NONE, holder_deepwrought: false, spacedock: Placed::NONE, replenish_events: false, rules_version: u32::MAX, tech_order: |a, b| a.cmp(&b), roster: None, reveal: crate::state::TechSet::default(), traders: [None; 2], fracture_in_play: false, own_breakthrough: [None; 16], unit_order: |a, b| a.cmp(&b), map: false, explore_empty: crate::state::Code(0), action_draw_plain: false, carried: perform::Carried { plain_draw: false, research: false, payments: false, structures: None, trade_source: crate::state::Code(0) } }
+        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE, dreadnought: Placed::NONE, mech: Placed::NONE, pds: Placed::NONE, holder_deepwrought: false, spacedock: Placed::NONE, replenish_events: false, rules_version: u32::MAX, tech_order: |a, b| a.cmp(&b), roster: None, reveal: crate::state::TechSet::default(), traders: [None; 2], fracture_in_play: false, own_breakthrough: [None; 16], unit_order: |a, b| a.cmp(&b), map: false, explore_empty: crate::state::Code(0), action_draw_plain: false, carried: perform::Carried { plain_draw: false, research: false, payments: false, structures: None, trade_source: crate::state::Code(0) }, reroll: None }
     }
 }
 

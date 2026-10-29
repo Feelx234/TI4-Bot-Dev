@@ -18,6 +18,7 @@
 
 use crate::choice::agenda::Frame;
 use crate::choice::cards::{Ask, Opt, Subtype, What};
+use crate::choice::combat::{Ask as CAsk, Opt as COpt, RerollSource, Subtype as CSub};
 use crate::choice::generic::Rule;
 use crate::choice::{Choice, Ctx, Opts, Origin, Pick};
 use crate::containers::SmallList;
@@ -34,7 +35,7 @@ use crate::query::{board, economy, seats};
 use crate::state::{CoreState, Piece, TransientFlags};
 
 use super::perform::{self, Began};
-use super::{Env, is_home_system};
+use super::{Env, RerollFacts, is_home_system};
 
 /// What a card does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,19 +168,27 @@ pub enum Fx {
     /// Strategize (`primary: false`) and Overrule (`primary: true`): the holder performs the secondary or primary ability of a
     /// strategy card another seat holds or nobody does.
     Perform { primary: bool },
+    /// Fire Team: after the holder's ground forces roll, any number of the dice staged for the holder are rolled again (one optional
+    /// question per die).
+    Reroll,
+    /// Scramble Frequency: all the dice staged for the seat that just rolled a bombardment, a space cannon or an anti-fighter barrage
+    /// are rolled again (forced: no question).
+    Scramble,
 }
 
 impl Fx {
     /// Whether the effect rolls the game's dice (the window needs the random streams of the state).
     #[must_use]
     pub const fn rolls(self) -> bool {
-        matches!(self, Self::Spy | Self::Plague | Self::Brilliance)
+        matches!(self, Self::Spy | Self::Plague | Self::Brilliance | Self::Reroll | Self::Scramble)
     }
 
     /// Whether the effect can be played from inside another area's window (a reaction slot, a card declared there): its facts
     /// (the forms the seat places, the research roster, the map, the traders) come from the adapter's play window, not from the
     /// facts the reactions table carries, so the cards of package B6d that read them are played by the string there (the census
-    /// names them, as before).
+    /// names them, as before). Fire Team and Scramble Frequency read the staged dice of a roll, which the reactions table does not
+    /// lend to a card either (the texts of the dice and the stream they are drawn from: [`super::RerollFacts`]); the window that
+    /// opens the reaction on the roll plays them there (`core-b12` registers Fire Team for the ground roll's tail).
     #[must_use]
     pub const fn nested(self) -> bool {
         !matches!(
@@ -206,6 +215,8 @@ impl Fx {
                 | Self::Crash
                 | Self::Probe
                 | Self::Perform { .. }
+                | Self::Reroll
+                | Self::Scramble
         )
     }
 
@@ -330,6 +341,8 @@ impl Fx {
             C::ExplorationProbe => Self::Probe,
             C::Strategize1 | C::Strategize2 | C::Strategize3 | C::Strategize4 => Self::Perform { primary: false },
             C::Overrule => Self::Perform { primary: true },
+            C::FireTeam => Self::Reroll,
+            C::ScrambleFrequency => Self::Scramble,
             _ => return None,
         })
     }
@@ -358,6 +371,8 @@ pub enum Stage {
     Chosen,
     /// Performing the ability of the chosen strategy card (the child window [`Performed`]).
     Performing,
+    /// Fire Team: walking the staged dice, one optional question per die.
+    Rerolling,
     Done,
 }
 
@@ -452,6 +467,17 @@ pub struct Play {
     perform: ErasedChild,
     /// The Diplomacy primary: the system it placed tokens in and the seats that got one.
     tokens: Option<(System, SmallList<Seat, 8>)>,
+    /// Fire Team: the walk over the staged dice.
+    walk: Walk,
+}
+
+/// Fire Team's walk over the staged dice: every die in the order the string asks about them (entry by entry, die by die), where the
+/// walk stands, and the dice the holder chose to roll again.
+#[derive(Debug, Clone, Default)]
+struct Walk {
+    dice: SmallList<(u8, u8), 32>,
+    at: usize,
+    picks: SmallList<(u8, u8), 32>,
 }
 
 /// `RULES_PLAGIARIZE_OWNED` and `RULES_ACTION_CARD_COSTS` (`ti4_model::state`).
@@ -544,6 +570,10 @@ impl Play {
         if fx.needs_neutral() && env.facts.neutral.is_none() {
             return None;
         }
+        // The texts of the staged dice are the adapter's (the state holds them as interned texts).
+        if matches!(fx, Fx::Reroll | Fx::Scramble) && env.facts.reroll.is_none() {
+            return None;
+        }
         let frame = match fx {
             Fx::Rider(_) => {
                 let agenda = core.agenda().in_play;
@@ -555,7 +585,7 @@ impl Play {
             }
             _ => None,
         };
-        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: ErasedChild::idle(), hand: ErasedChild::idle(), chosen: None, landing: None, jam: None, troop: None, pulled: SmallList::new(), received: SmallList::new(), pay_ask: None, probe: None, explored: None, owed_goods: 0, pool_left: 0, reward: ErasedChild::idle(), held: None, gamma: None, picked: None, perform: ErasedChild::idle(), tokens: None })
+        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: ErasedChild::idle(), hand: ErasedChild::idle(), chosen: None, landing: None, jam: None, troop: None, pulled: SmallList::new(), received: SmallList::new(), pay_ask: None, probe: None, explored: None, owed_goods: 0, pool_left: 0, reward: ErasedChild::idle(), held: None, gamma: None, picked: None, perform: ErasedChild::idle(), tokens: None, walk: Walk::default() })
     }
 
     fn what(&self) -> Option<What> {
@@ -1993,6 +2023,11 @@ impl Play {
         if self.stage == Stage::Pooling {
             return crate::choice::Ask::Strategy(crate::choice::strategy::Ask::GainPool { left: self.pool_left });
         }
+        if self.stage == Stage::Rerolling
+            && let Some(ask) = self.reroll_ask_value()
+        {
+            return ask;
+        }
         if self.fx == Fx::Summit {
             return crate::choice::Ask::Strategy(crate::choice::strategy::Ask::GainPool { left: Self::SUMMIT_TOKENS - self.step });
         }
@@ -2024,6 +2059,9 @@ impl Play {
         // anything changed (the adapter plays the card on the string side: a counted bail).
         if self.fx.links() && !sx.table.links.complete() {
             return self.decline();
+        }
+        if matches!(self.fx, Fx::Reroll | Fx::Scramble) {
+            return self.begin_reroll(sx);
         }
         self.before(sx.state);
         // Rules version 23: with nothing to take the five influence are never spent (older games paid first).
@@ -2226,6 +2264,142 @@ impl Play {
         }
     }
 
+    /// The set of dice staged for `seat` (`transient.combat.reroll_staging`: the roll the card reacts to).
+    fn staged(core: &CoreState, seat: Seat) -> Option<&crate::state::RerollSet> {
+        core.transient().combat.reroll_staging.iter().find(|(s, _)| *s == seat).map(|(_, set)| set)
+    }
+
+    /// Every die of a staged set as `(entry, die)`, entry by entry: the order of the string's questions and redraws. `None`
+    /// when a position does not fit the question's numbers (a roll of more than 255 dice or groups).
+    fn dice_of(set: &crate::state::RerollSet) -> Option<Vec<(u8, u8)>> {
+        let mut dice = Vec::new();
+        for (e, entry) in set.rolls.iter().enumerate() {
+            let e = u8::try_from(e).ok()?;
+            for d in 0..entry.faces.len() {
+                dice.push((e, u8::try_from(d).ok()?));
+            }
+        }
+        Some(dice)
+    }
+
+    /// Fire Team and Scramble Frequency (the string `fire_team` and `scramble`), at the start of the play: the dice are the ones the
+    /// roll the card reacts to staged. Scramble Frequency redraws them at once; Fire Team walks them with a question each.
+    fn begin_reroll(&mut self, sx: &mut Sx<'_>) {
+        let Some(facts) = self.env.facts.reroll else { return self.decline() };
+        if self.fx == Fx::Scramble {
+            // "That player rerolls all of their dice": the roller is the seat that staged the last roll (the reaction guard keeps
+            // the roller from holding the card at the table; the string effect does not check it either), and only a
+            // bombardment, a space cannon or an anti-fighter barrage is named.
+            let Some(roller) = sx.state.transient().combat.last_reroll_player else {
+                self.stage = Stage::Done;
+                return;
+            };
+            let dice = match Self::staged(sx.state, roller) {
+                Some(set) if facts.forced.contains(&set.kind) => Self::dice_of(set),
+                _ => Some(Vec::new()),
+            };
+            let Some(dice) = dice else { return self.decline() };
+            self.redraw(sx, roller, &dice);
+            self.stage = Stage::Done;
+            return;
+        }
+        // Fire Team: only the holder's own dice, and only a ground roll.
+        let dice = match Self::staged(sx.state, self.who) {
+            Some(set) if set.kind == facts.ground => {
+                if set.rolls.len() > usize::from(facts.entries).min(RerollFacts::GROUPS) {
+                    return self.decline();
+                }
+                Self::dice_of(set)
+            }
+            _ => Some(Vec::new()),
+        };
+        let Some(dice) = dice else { return self.decline() };
+        if dice.is_empty() {
+            self.stage = Stage::Done;
+            return;
+        }
+        self.walk = Walk { dice: dice.into_iter().collect(), at: 0, picks: SmallList::new() };
+        self.stage = Stage::Rerolling;
+    }
+
+    /// `apply_reroll_dice`: draw each of the dice at `picks` again from the dice stream, in order. The face is replaced, the die is
+    /// marked rerolled and the adjustment it carried dies with it; the string's roll records the faces of the whole group after each
+    /// draw, so does `faces`.
+    fn redraw(&mut self, sx: &mut Sx<'_>, seat: Seat, picks: &[(u8, u8)]) {
+        for (e, d) in picks {
+            // A position that is gone is skipped before anything is drawn.
+            let Some(len) = Self::staged(sx.state, seat).and_then(|set| set.rolls.get(usize::from(*e))).map(|entry| entry.faces.len()) else { continue };
+            if usize::from(*d) >= len {
+                continue;
+            }
+            let face = sx.die(RngDomain::Dice, DIE_SIDES);
+            let staging = sx.state.transient_mut().combat.reroll_staging.edit();
+            let Some(entry) = staging.iter_mut().find(|(s, _)| *s == seat).and_then(|(_, set)| set.rolls.get_mut(usize::from(*e))) else { continue };
+            if let Some(slot) = entry.faces.get_mut(usize::from(*d)) {
+                *slot = u8::try_from(face).unwrap_or(u8::MAX);
+            }
+            if *d < 64 {
+                entry.rerolled |= 1 << *d;
+            }
+            entry.deltas.remove(d);
+            self.faces.extend(entry.faces.iter().map(|f| u32::from(*f)));
+        }
+    }
+
+    /// Fire Team's question about the die the walk stands at: whether to roll it again.
+    fn reroll_ask_value(&self) -> Option<crate::choice::Ask> {
+        let facts = self.env.facts.reroll?;
+        let (e, d) = *self.walk.dice.as_slice().get(self.walk.at)?;
+        let unit = *facts.shown.get(usize::from(e))?;
+        Some(crate::choice::Ask::Combat(CAsk::RerollDie { source: RerollSource::FireTeam, unit, die: d }))
+    }
+
+    fn reroll_ask(&self, core: &CoreState) -> Option<Choice> {
+        let ask = self.reroll_ask_value()?;
+        let facts = self.env.facts.reroll?;
+        let (e, d) = *self.walk.dice.as_slice().get(self.walk.at)?;
+        let unit = *facts.shown.get(usize::from(e))?;
+        let set = Self::staged(core, self.who)?;
+        let entry = set.rolls.get(usize::from(e))?;
+        let face = *entry.faces.get(usize::from(d))?;
+        let opt = crate::choice::Opt::Combat(COpt::RerollDie { unit, entry: e, die: d, face, hits_on: entry.hits_on });
+        Some(Choice {
+            actor: self.who,
+            ask,
+            ctx: Ctx {
+                origin: Origin::ActionCard(self.card),
+                subtype: crate::choice::Subtype::Combat(CSub::Reroll(RerollSource::FireTeam)),
+                optional: false,
+                target: Some(crate::choice::Target::System(set.system)),
+                outstanding: SmallList::new(),
+                space_battle: false,
+                invasion_seq: None,
+            },
+            opts: [opt, crate::choice::Opt::Decline].into_iter().collect(),
+        })
+    }
+
+    /// The answer to Fire Team's question about one die; the last answer redraws the dice that were chosen.
+    fn answer_reroll(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        let Some(choice) = self.reroll_ask(sx.state) else { return Err(Illegal) };
+        let Pick::Opt(opt) = pick else { return Err(Illegal) };
+        if !choice.opts.as_slice().contains(&opt) {
+            return Err(Illegal);
+        }
+        if opt != crate::choice::Opt::Decline
+            && let Some(die) = self.walk.dice.as_slice().get(self.walk.at).copied()
+        {
+            self.walk.picks.push(die);
+        }
+        self.walk.at += 1;
+        if self.walk.at >= self.walk.dice.len() {
+            let picks = std::mem::take(&mut self.walk.picks);
+            self.redraw(sx, self.who, picks.as_slice());
+            self.stage = Stage::Done;
+        }
+        Ok(())
+    }
+
     /// The run holds something the window does not carry: the adapter declines it.
     fn decline(&mut self) {
         self.unsupported = true;
@@ -2401,6 +2575,7 @@ impl Play {
     pub fn asking(&self) -> bool {
         self.stage == Stage::Asking
             || self.stage == Stage::Pooling
+            || self.stage == Stage::Rerolling
             || (matches!(self.stage, Stage::Paying | Stage::Limiting | Stage::Rewarding | Stage::Performing) && self.pay_ask.is_some())
     }
 
@@ -2443,6 +2618,9 @@ impl Play {
             self.perform.answer(sx, pick)?;
             self.drive_perform(sx);
             return Ok(());
+        }
+        if self.stage == Stage::Rerolling {
+            return self.answer_reroll(sx, pick);
         }
         if self.stage != Stage::Asking {
             return Err(Illegal);
@@ -2489,7 +2667,7 @@ impl Window for Play {
         self.begin(sx);
         match self.stage {
             Stage::Asking => Next::Continue(self.any_ask()),
-            Stage::Pooling => Next::Continue(self.any_ask()),
+            Stage::Pooling | Stage::Rerolling => Next::Continue(self.any_ask()),
             Stage::Paying | Stage::Limiting | Stage::Rewarding | Stage::Performing => self.pay_ask.map_or(Next::Done, Next::Continue),
             Stage::Start | Stage::Billing | Stage::Exploring | Stage::Chosen | Stage::Done => Next::Done,
         }
@@ -2510,6 +2688,9 @@ impl Window for Play {
         }
         if self.stage == Stage::Performing {
             return self.perform.ask_of(s, k);
+        }
+        if self.stage == Stage::Rerolling {
+            return self.reroll_ask(s);
         }
         if self.fx == Fx::Summit {
             return (self.stage == Stage::Asking).then(|| crate::choice::strategy::gain_pool_choice(self.who, Self::SUMMIT_TOKENS - self.step));
@@ -2563,7 +2744,6 @@ mod tests {
             (C::DirectHit4, "the exact sustain mark and the ship-lost observers"),
             (C::SkilledRetreat1, "destinations and previews"),
             (C::CourageousToTheEnd, "dice and a casualty choice"),
-            (C::ScrambleFrequency, "the combat area's dice plumbing"),
         ] {
             assert_eq!(Fx::of(card), None, "{card:?}: {why}");
         }
@@ -2619,8 +2799,323 @@ mod tests {
             C::Strategize1,
             C::Strategize4,
             C::Overrule,
+            C::FireTeam,
+            C::ScrambleFrequency,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
+        }
+    }
+
+
+    // -- Fire Team and Scramble Frequency (docs/B6_CARDS.md, B6d rerolls) -------------------------------------------------------
+
+    use crate::state::{Code, RerollEntry, RerollSet};
+
+    /// The interned texts of the staged dice as the adapter would put them: `ground` is 1, the three forced kinds 2, 3 and 4, the
+    /// rendered names of the groups 40 and 41.
+    const GROUND: Code = Code(1);
+    const BOMBARD: Code = Code(2);
+    const CANNON: Code = Code(3);
+    const BARRAGE: Code = Code(4);
+    const FLEET: Code = Code(5);
+
+    fn reroll_facts(entries: u8) -> super::super::RerollFacts {
+        let mut shown = [Code(0); super::super::RerollFacts::GROUPS];
+        shown[0] = Code(40);
+        shown[1] = Code(41);
+        super::super::RerollFacts { ground: GROUND, forced: [BOMBARD, CANNON, BARRAGE], shown, entries }
+    }
+
+    fn reroll_env() -> Env {
+        Env { facts: super::super::Facts { reroll: Some(reroll_facts(2)), ..super::super::Facts::default() }, ..bare_env() }
+    }
+
+    fn entry(unit: u16, hits_on: u8, faces: &[u8]) -> RerollEntry {
+        RerollEntry {
+            unit: Code(unit),
+            planet: None,
+            hits_on: Some(hits_on),
+            faces: faces.to_vec(),
+            rerolled: 0,
+            deltas: crate::containers::SortedMap::new(),
+            unit_types: crate::containers::SortedMap::new(),
+        }
+    }
+
+    fn two_seat_state() -> CoreState {
+        let mut s = CoreState::all_loaded();
+        s.players = crate::state::Players::from_vec(vec![
+            crate::state::Player::new(Seat(0), crate::generated::Faction::TheArborec),
+            crate::state::Player::new(Seat(1), crate::generated::Faction::TheEmiratesOfHacan),
+        ]);
+        s.seats = crate::state::Seats::new(&[Seat(0), Seat(1)], &[Seat(0), Seat(1)], 2);
+        s
+    }
+
+    fn stage_roll(s: &mut CoreState, seat: Seat, kind: Code, rolls: Vec<RerollEntry>) {
+        let list = s.transient_mut().combat.reroll_staging.edit();
+        list.push((seat, RerollSet { kind, system: System::ALL[0], rolls }));
+        list.sort_by_key(|(s, _)| *s);
+    }
+
+    /// The set staged for `seat`.
+    fn set_of(s: &CoreState, seat: Seat) -> RerollSet {
+        Play::staged(s, seat).expect("a staged set").clone()
+    }
+
+    /// The next `n` draws of the dice stream of `s`, as `GameRng::die(10)` gives them (a copy: `s` stays where it is).
+    fn next_draws(s: &CoreState, n: usize) -> Vec<u8> {
+        let mut probe = s.clone();
+        (0..n).map(|_| u8::try_from(probe.rng_mut().die(RngDomain::Dice, &ZeroSeeds, DIE_SIDES)).unwrap()).collect()
+    }
+
+    fn dice_positions(s: &CoreState) -> Vec<(RngDomain, u128)> {
+        s.rng().positions().collect()
+    }
+
+    /// `card` played by seat 0 on `s`; `answer` picks from each question. The position after, the questions put, whether the run is
+    /// unsupported and the faces the window recorded.
+    fn rerolled(card: ActionCard, mut s: CoreState, env: Env, mut answer: impl FnMut(&Choice) -> Pick) -> (CoreState, Vec<Choice>, bool, Vec<u32>) {
+        use crate::driver::{Driver, Status};
+        use crate::kernel::Resolver;
+        let play = Play::of(&s, card, Seat(0), env).expect("a play");
+        let k = Kernel::plain();
+        let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), crate::kernel::stage::AbilityTable::default(), 1);
+        d = d.with_seeds(std::rc::Rc::new(ZeroSeeds));
+        let mut asked = Vec::new();
+        let mut status = d.run(&mut s, &k).unwrap();
+        while let Status::Asking(choice) = status {
+            let pick = answer(&choice);
+            asked.push(choice);
+            status = d.resume(&mut s, &k, pick).unwrap();
+        }
+        let (unsupported, faces) = (d.window.unsupported(), d.window.faces().to_vec());
+        (s, asked, unsupported, faces)
+    }
+
+    /// The option of a Fire Team question that rolls the die again.
+    fn roll_it(choice: &Choice) -> Pick {
+        Pick::Opt(*choice.opts.as_slice().iter().find(|o| matches!(o, crate::choice::Opt::Combat(COpt::RerollDie { .. }))).expect("a reroll option"))
+    }
+
+    /// Fire Team: one optional question per staged die of the holder's ground roll, in the order of the staged entries; the dice
+    /// that are chosen are drawn again from the dice stream in that order, the others and the other seat's roll stay.
+    #[test]
+    fn fire_team_asks_about_each_die_and_rolls_the_chosen_ones_again() {
+        let mut s = two_seat_state();
+        let mut first = entry(7, 8, &[2, 9, 5]);
+        first.deltas.insert(2, 1);
+        first.rerolled = 0b010;
+        stage_roll(&mut s, Seat(0), GROUND, vec![first, entry(9, 7, &[4])]);
+        stage_roll(&mut s, Seat(1), GROUND, vec![entry(7, 8, &[3, 3])]);
+        let before = s.clone();
+        let draws = next_draws(&s, 3);
+        let mut at = 0;
+        let (after, asked, unsupported, faces) = rerolled(ActionCard::FireTeam, s, reroll_env(), |c| {
+            at += 1;
+            // dice 0, 2 and 3 are rolled again, die 1 stays
+            if at == 2 { Pick::Opt(crate::choice::Opt::Decline) } else { roll_it(c) }
+        });
+        assert!(!unsupported);
+        assert_eq!(asked.len(), 4, "one question per die");
+        for (i, (c, (e, d))) in asked.iter().zip([(0u8, 0u8), (0, 1), (0, 2), (1, 0)]).enumerate() {
+            let shown = Code(40 + u16::from(e));
+            assert_eq!(c.actor, Seat(0), "{i}");
+            assert_eq!(c.ask, crate::choice::Ask::Combat(CAsk::RerollDie { source: RerollSource::FireTeam, unit: shown, die: d }), "{i}");
+            assert_eq!(c.ctx.origin, Origin::ActionCard(ActionCard::FireTeam), "{i}");
+            assert_eq!(c.ctx.subtype, crate::choice::Subtype::Combat(CSub::Reroll(RerollSource::FireTeam)), "{i}");
+            assert_eq!(c.ctx.target, Some(crate::choice::Target::System(System::ALL[0])), "{i}");
+            let face = before.transient().combat.reroll_staging[0].1.rolls[usize::from(e)].faces[usize::from(d)];
+            let hits_on = Some(if e == 0 { 8 } else { 7 });
+            assert_eq!(
+                c.opts.as_slice(),
+                &[crate::choice::Opt::Combat(COpt::RerollDie { unit: shown, entry: e, die: d, face, hits_on }), crate::choice::Opt::Decline],
+                "{i}"
+            );
+        }
+        let mine = set_of(&after, Seat(0));
+        assert_eq!(mine.rolls[0].faces, [draws[0], 9, draws[1]], "dice 0 and 2 are the first two draws, die 1 stays");
+        assert_eq!(mine.rolls[1].faces, [draws[2]], "the second group's die is the third draw");
+        assert_eq!(mine.rolls[0].rerolled, 0b111, "the rerolled dice are marked (die 1 already was)");
+        assert_eq!(mine.rolls[1].rerolled, 0b1);
+        assert!(mine.rolls[0].deltas.is_empty(), "the +1 on die 2 died with the die");
+        assert_eq!(set_of(&after, Seat(1)).rolls[0].faces, [3, 3], "the other seat's roll is not touched");
+        // The faces recorded are the whole group after each draw, as the string's roll history holds them.
+        let drawn: Vec<u32> = [vec![draws[0], 9, 5], vec![draws[0], 9, draws[1]], vec![draws[2]]].concat().into_iter().map(u32::from).collect();
+        assert_eq!(faces, drawn);
+        // Three draws from the dice stream, no other stream moved.
+        let mut moved = before.clone();
+        assert_eq!(next_draws(&moved, 0), Vec::<u8>::new());
+        for _ in 0..3 {
+            moved.rng_mut().die(RngDomain::Dice, &ZeroSeeds, DIE_SIDES);
+        }
+        assert_eq!(dice_positions(&after), dice_positions(&moved));
+    }
+
+    /// Run `f` with the services of a window over `s`: the pick of an inline run goes to `Play::choose` without the driver's own
+    /// check of the options.
+    fn with_services<T>(s: &mut CoreState, f: impl FnOnce(&mut Sx<'_>) -> T) -> T {
+        let k = Kernel::plain();
+        let mut resolver = crate::kernel::Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0)));
+        let table = crate::kernel::stage::AbilityTable::default();
+        let mut tape = crate::kernel::stage::Tape::default();
+        let (mut next_id, mut emitted) = (1_u64, Vec::new());
+        let mut sx = Sx { state: s, kernel: &k, resolver: &mut resolver, table: &table, tape: &mut tape, next_id: &mut next_id, emitted: &mut emitted, seeds: &ZeroSeeds };
+        f(&mut sx)
+    }
+
+    /// A pick that is not an option of the pending question (the reroll of another die, an option of another area, a number) is
+    /// refused by the window itself and the question stays; the options still work afterwards.
+    #[test]
+    fn fire_team_refuses_a_pick_that_is_not_an_option_of_the_question() {
+        let mut s = two_seat_state();
+        stage_roll(&mut s, Seat(0), GROUND, vec![entry(7, 8, &[2, 9])]);
+        let mut play = Play::of(&s, ActionCard::FireTeam, Seat(0), reroll_env()).expect("a play");
+        with_services(&mut s, |sx| play.begin(sx));
+        assert!(play.asking());
+        let before = s.clone();
+        let other_die = Pick::Opt(crate::choice::Opt::Combat(COpt::RerollDie { unit: Code(40), entry: 0, die: 1, face: 9, hits_on: Some(8) }));
+        let wrong_face = Pick::Opt(crate::choice::Opt::Combat(COpt::RerollDie { unit: Code(40), entry: 0, die: 0, face: 3, hits_on: Some(8) }));
+        let another_area = Pick::Opt(crate::choice::Opt::Cards(Opt::Seat(Seat(1))));
+        for pick in [other_die, wrong_face, another_area, Pick::Number(1)] {
+            assert_eq!(with_services(&mut s, |sx| play.choose(sx, pick)), Err(Illegal), "{pick:?}");
+            assert!(play.asking() && s == before, "{pick:?}: the question stays and nothing moved");
+        }
+        let right = Pick::Opt(crate::choice::Opt::Combat(COpt::RerollDie { unit: Code(40), entry: 0, die: 0, face: 2, hits_on: Some(8) }));
+        assert_eq!(with_services(&mut s, |sx| play.choose(sx, right)), Ok(()));
+        assert!(play.asking(), "the second die is next");
+        assert_eq!(with_services(&mut s, |sx| play.choose(sx, Pick::Opt(crate::choice::Opt::Decline))), Ok(()));
+        assert!(!play.asking() && set_of(&s, Seat(0)).rolls[0].faces[1] == 9);
+    }
+
+    /// Declining every die draws nothing and changes nothing.
+    #[test]
+    fn fire_team_declined_on_every_die_leaves_the_roll_and_the_stream_alone() {
+        let mut s = two_seat_state();
+        stage_roll(&mut s, Seat(0), GROUND, vec![entry(7, 8, &[2, 9])]);
+        let before = s.clone();
+        let (after, asked, unsupported, faces) = rerolled(ActionCard::FireTeam, s, reroll_env(), |_| Pick::Opt(crate::choice::Opt::Decline));
+        assert!(!unsupported && faces.is_empty());
+        assert_eq!(asked.len(), 2);
+        assert!(after == before, "nothing changed");
+    }
+
+    /// Fire Team names the holder's own ground roll: no staged set, another seat's, or a roll that is not a ground roll asks nothing.
+    #[test]
+    fn fire_team_does_nothing_without_a_ground_roll_of_the_holder() {
+        let mut elsewhere = two_seat_state();
+        stage_roll(&mut elsewhere, Seat(1), GROUND, vec![entry(7, 8, &[2, 9])]);
+        let mut fleet = two_seat_state();
+        stage_roll(&mut fleet, Seat(0), FLEET, vec![entry(7, 8, &[2, 9])]);
+        let mut cannon = two_seat_state();
+        stage_roll(&mut cannon, Seat(0), CANNON, vec![entry(7, 8, &[2, 9])]);
+        let mut hollow = two_seat_state();
+        stage_roll(&mut hollow, Seat(0), GROUND, vec![entry(7, 8, &[])]);
+        for (name, s) in [("no roll", two_seat_state()), ("another seat's roll", elsewhere), ("a fleet roll", fleet), ("a space cannon roll", cannon), ("a roll of no dice", hollow)] {
+            let before = s.clone();
+            let (after, asked, unsupported, faces) = rerolled(ActionCard::FireTeam, s, reroll_env(), roll_it);
+            assert!(asked.is_empty() && !unsupported && faces.is_empty() && after == before, "{name}");
+        }
+    }
+
+    /// Bail: a staged set of more groups than the adapter named is the string's (declined before any question, nothing changed).
+    #[test]
+    fn bail_fire_team_declines_a_set_the_facts_do_not_cover() {
+        let mut s = two_seat_state();
+        stage_roll(&mut s, Seat(0), GROUND, vec![entry(7, 8, &[2]), entry(9, 7, &[4]), entry(10, 6, &[1])]);
+        let before = s.clone();
+        let (after, asked, unsupported, _) = rerolled(ActionCard::FireTeam, s, reroll_env(), roll_it);
+        assert!(unsupported && asked.is_empty() && after == before);
+        // The facts cover the two groups of the first set.
+        let mut covered = two_seat_state();
+        stage_roll(&mut covered, Seat(0), GROUND, vec![entry(7, 8, &[2]), entry(9, 7, &[4])]);
+        let (_, asked, unsupported, _) = rerolled(ActionCard::FireTeam, covered, reroll_env(), |c| Pick::Opt(c.opts.as_slice()[1]));
+        assert!(!unsupported && asked.len() == 2);
+    }
+
+    /// Bail: the adapter's texts are required (the reactions table carries none): no play at all, never a panic.
+    #[test]
+    fn bail_fire_team_and_scramble_frequency_have_no_play_without_the_adapters_texts() {
+        let s = two_seat_state();
+        for card in [ActionCard::FireTeam, ActionCard::ScrambleFrequency] {
+            assert!(Play::of(&s, card, Seat(0), bare_env()).is_none(), "{card:?}");
+            assert!(Play::of(&s, card, Seat(0), reroll_env()).is_some(), "{card:?}");
+        }
+    }
+
+    /// Scramble Frequency: every die of the roller's bombardment, space cannon or anti-fighter barrage is drawn again, in the
+    /// order of the staged entries, without a question; the holder's own roll and the other seats' stay.
+    #[test]
+    fn scramble_frequency_rolls_every_staged_die_of_the_roller_again_without_asking() {
+        for kind in [BOMBARD, CANNON, BARRAGE] {
+            let mut s = two_seat_state();
+            stage_roll(&mut s, Seat(0), kind, vec![entry(7, 8, &[1, 1])]);
+            let mut first = entry(7, 5, &[2, 9]);
+            first.deltas.insert(0, 1);
+            stage_roll(&mut s, Seat(1), kind, vec![first, entry(9, 7, &[4])]);
+            s.transient_mut().combat.last_reroll_player = Some(Seat(1));
+            let before = s.clone();
+            let draws = next_draws(&s, 3);
+            let (after, asked, unsupported, faces) = rerolled(ActionCard::ScrambleFrequency, s, reroll_env(), roll_it);
+            assert!(asked.is_empty() && !unsupported, "forced: no question");
+            let theirs = set_of(&after, Seat(1));
+            assert_eq!(theirs.rolls[0].faces, [draws[0], draws[1]]);
+            assert_eq!(theirs.rolls[1].faces, [draws[2]]);
+            assert_eq!((theirs.rolls[0].rerolled, theirs.rolls[1].rerolled), (0b11, 0b1));
+            assert!(theirs.rolls[0].deltas.is_empty(), "the adjustment dies with the die");
+            assert_eq!(set_of(&after, Seat(0)).rolls[0].faces, [1, 1], "the holder's own roll is not the roller's");
+            let drawn: Vec<u32> = [vec![draws[0], 9], vec![draws[0], draws[1]], vec![draws[2]]].concat().into_iter().map(u32::from).collect();
+            assert_eq!(faces, drawn);
+            let mut moved = before;
+            for _ in 0..3 {
+                moved.rng_mut().die(RngDomain::Dice, &ZeroSeeds, DIE_SIDES);
+            }
+            assert_eq!(dice_positions(&after), dice_positions(&moved));
+        }
+    }
+
+    /// Scramble Frequency names three kinds of roll: a ground roll, a fleet roll, no roller or a roller with nothing staged is not
+    /// touched (the string effect returns without drawing).
+    #[test]
+    fn scramble_frequency_leaves_every_other_roll_alone() {
+        let mut ground = two_seat_state();
+        stage_roll(&mut ground, Seat(1), GROUND, vec![entry(7, 8, &[2, 9])]);
+        ground.transient_mut().combat.last_reroll_player = Some(Seat(1));
+        let mut fleet = two_seat_state();
+        stage_roll(&mut fleet, Seat(1), FLEET, vec![entry(7, 8, &[2, 9])]);
+        fleet.transient_mut().combat.last_reroll_player = Some(Seat(1));
+        let mut nobody = two_seat_state();
+        stage_roll(&mut nobody, Seat(1), CANNON, vec![entry(7, 8, &[2, 9])]);
+        let mut nothing = two_seat_state();
+        nothing.transient_mut().combat.last_reroll_player = Some(Seat(1));
+        let mut hollow = two_seat_state();
+        stage_roll(&mut hollow, Seat(1), CANNON, vec![entry(7, 8, &[])]);
+        hollow.transient_mut().combat.last_reroll_player = Some(Seat(1));
+        for (name, s) in [("a ground roll", ground), ("a fleet roll", fleet), ("no roller named", nobody), ("nothing staged", nothing), ("a roll of no dice", hollow)] {
+            let before = s.clone();
+            let (after, asked, unsupported, faces) = rerolled(ActionCard::ScrambleFrequency, s, reroll_env(), roll_it);
+            assert!(asked.is_empty() && !unsupported && faces.is_empty() && after == before, "{name}");
+        }
+    }
+
+    /// The string effect never compares the holder with the roller (the reaction guard keeps the roller from holding the card at the
+    /// table): the window does what the effect does.
+    #[test]
+    fn scramble_frequency_rolls_the_dice_of_the_roller_even_when_the_holder_rolled_them() {
+        let mut s = two_seat_state();
+        stage_roll(&mut s, Seat(0), CANNON, vec![entry(7, 8, &[2, 9])]);
+        s.transient_mut().combat.last_reroll_player = Some(Seat(0));
+        let draws = next_draws(&s, 2);
+        let (after, _, _, _) = rerolled(ActionCard::ScrambleFrequency, s, reroll_env(), roll_it);
+        assert_eq!(set_of(&after, Seat(0)).rolls[0].faces, [draws[0], draws[1]]);
+    }
+
+    /// The two cards roll the game's dice (the adapter lends the streams) and are the string's from inside another window.
+    #[test]
+    fn the_reroll_cards_roll_and_are_not_played_from_inside_another_window() {
+        for card in [ActionCard::FireTeam, ActionCard::ScrambleFrequency] {
+            let fx = Fx::of(card).expect("a window");
+            assert!(fx.rolls() && !fx.nested() && !fx.links(), "{card:?}");
         }
     }
 
@@ -3112,8 +3607,6 @@ mod tests {
         [
             (C::CourageousToTheEnd, "dice, then the opponent's casualty choice with the card's holder as producer: the combat area's hit flow (core-b12 keeps the child casualty flows, ENGINE_REACTIONS 9.2)"),
             (C::ExperimentalBattlestation, "a space cannon roll whose hits go through the combat area's sustain and casualty questions (a child hit flow, core-b12's area) from a dock in or adjacent to the active system"),
-            (C::FireTeam, "the staged ground roll's per-die rerolls are the combat area's (ported on core-b12 as a registered play; not merged here)"),
-            (C::ScrambleFrequency, "per-die reroll of a barrage, space cannon or bombardment roll of another seat: the combat area's dice plumbing (core-b12 documents it as a bail)"),
         ]
     };
 

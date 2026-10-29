@@ -1125,6 +1125,11 @@ fn exploration_probe_draws_two_action_cards_for_a_lost_crew_in_the_core_window()
 /// The effect of `alias` played through `play_effect` itself (the window outside the announcement) under the area on `Dual`: the
 /// position after it and the `(ran on the core, bailed)` count of the thread.
 fn played_directly(alias: &str, start: &GameState, galaxy: Option<&ti4_content::galaxy::Galaxy>) -> (GameState, (u32, u32)) {
+    played_directly_by(alias, start, galaxy, Box::new(crate::action_cards_announce_tests::DeclineSlots))
+}
+
+/// [`played_directly`] with a decider of the test's choosing (it must decline the reaction slots itself).
+fn played_directly_by(alias: &str, start: &GameState, galaxy: Option<&ti4_content::galaxy::Galaxy>, decider: Box<dyn crate::choice::Decider>) -> (GameState, (u32, u32)) {
     let a = PlayerId::new("a");
     let id = ti4_model::id::ActionCardId::new(alias);
     let effect = crate::action_cards::effect_for(&id).expect("a registered effect");
@@ -1132,7 +1137,7 @@ fn played_directly(alias: &str, start: &GameState, galaxy: Option<&ti4_content::
     let _ = crate::dual::take_report();
     crate::action_cards::reset_core_plays();
     crate::dual::with_mask(crate::action_cards_closing_tests::dual(), || {
-        let mut table = crate::choice::Table::with_default(Box::new(crate::action_cards_announce_tests::DeclineSlots));
+        let mut table = crate::choice::Table::with_default(decider);
         let mut dice = crate::dice::Dice::new();
         let mut rng = crate::rng::GameRng::new(0);
         let mut sequence = crate::event::EventSequence::new();
@@ -1675,4 +1680,243 @@ fn the_tables_a_play_window_runs_on_carry_the_links_to_the_other_areas() {
     assert!(crate::action_cards_view::play_table().links.complete());
     assert!(crate::reactions_core::table().links.complete());
     assert!(ti4_engine_core::kernel::stage::AbilityTable::default().links.spawn.is_none(), "the empty table has none");
+}
+
+// -- Fire Team and Scramble Frequency: the dice a roll staged (docs/B6_CARDS.md, B6d rerolls) --------------------------------
+
+/// Stage a roll for `who` in the string state (`GameState::reroll_staging`): `groups` are (group text, hits on, faces).
+fn stage_roll(state: &mut GameState, who: &str, kind: &str, groups: &[(&str, u32, &[u32])]) {
+    let system = state.board.keys().next().expect("a system on the board").clone();
+    let rolls = groups
+        .iter()
+        .map(|(unit, hits_on, faces)| ti4_model::state::RerollEntry {
+            unit: (*unit).to_owned(),
+            planet: None,
+            hits_on: Some(*hits_on),
+            faces: faces.to_vec(),
+            rerolled: std::collections::BTreeSet::new(),
+            deltas: std::collections::BTreeMap::new(),
+            unit_types: std::collections::BTreeMap::new(),
+        })
+        .collect();
+    state.reroll_staging.insert(PlayerId::new(who), ti4_model::state::RerollSet { kind: kind.to_owned(), system, rolls });
+}
+
+/// Rolls every other staged die again (the first question, the third, ...); the reaction slots are declined.
+struct EveryOther(usize);
+
+impl crate::choice::Decider for EveryOther {
+    fn choose(&mut self, choice: &crate::choice::Choice) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
+        let no_options = || crate::choice::IllegalChoice::NoOptions { player: choice.player.clone(), prompt: choice.prompt.clone() };
+        if choice.options.iter().any(|o| o.id.starts_with("reaction:")) {
+            return choice.options.iter().find(|o| o.is_decline()).cloned().ok_or_else(no_options);
+        }
+        self.0 += 1;
+        let pick = if self.0 % 2 == 1 { choice.options.iter().find(|o| o.id.starts_with("reroll|")) } else { choice.options.iter().find(|o| o.is_decline()) };
+        pick.or(choice.options.last()).cloned().ok_or_else(no_options)
+    }
+}
+
+/// A ground roll of seat `a` as the string stages it: two groups of dice, the first with a Thalnos +1 on one die and a die that was
+/// rolled again already; another seat's roll next to it.
+fn ground_roll_position() -> GameState {
+    let mut state = closing_position();
+    stage_roll(&mut state, "a", "ground", &[("combat value 7", 7, &[2, 9, 5]), ("combat value 8", 8, &[4, 10])]);
+    let set = state.reroll_staging.get_mut(&PlayerId::new("a")).unwrap();
+    set.rolls[0].deltas.insert(2, 1);
+    set.rolls[0].rerolled.insert(1);
+    stage_roll(&mut state, "b", "ground", &[("combat value 8", 8, &[3, 3])]);
+    state.last_reroll_player = Some(PlayerId::new("a"));
+    state
+}
+
+fn faces_of(state: &GameState, who: &str) -> Vec<Vec<u32>> {
+    state.reroll_staging.get(&PlayerId::new(who)).map(|set| set.rolls.iter().map(|r| r.faces.clone()).collect()).unwrap_or_default()
+}
+
+/// Fire Team through the announcement: a question per staged die (the dice shown with the question as the string shows them), the
+/// dice that are chosen drawn again from the dice stream, the stream's positions and the faces compared, under all three deciders
+/// and one that rolls every other die.
+#[test]
+fn fire_team_rolls_the_chosen_staged_dice_again_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let start = ground_roll_position();
+    announce_all(&[("fire_team", start.clone())]);
+    let _ = crate::dual::take_report();
+    // The dice 0, 2 and 4 of the five are rolled again, the others stay.
+    let after = played_by("fire_team", &start, Box::new(EveryOther(0)));
+    let report = crate::dual::report();
+    assert!(report.differences.is_empty(), "{:?}", report.differences.first());
+    assert_eq!(crate::action_cards_closing_tests::windows("action_cards::announce"), (1, 0));
+    let (was, now) = (faces_of(&start, "a"), faces_of(&after, "a"));
+    assert_eq!((now[0][1], now[1][0]), (was[0][1], was[1][0]), "the dice that were declined stay");
+    let set = &after.reroll_staging[&PlayerId::new("a")];
+    assert_eq!(set.rolls[0].rerolled.iter().copied().collect::<Vec<_>>(), [0, 1, 2], "the rerolled dice are marked, the one that was stays marked");
+    assert_eq!(set.rolls[1].rerolled.iter().copied().collect::<Vec<_>>(), [1]);
+    assert!(set.rolls[0].deltas.is_empty(), "the +1 on die 2 died with the die");
+    assert_eq!(faces_of(&after, "b"), faces_of(&start, "b"), "another seat's roll is not touched");
+    assert!(now.iter().flatten().all(|f| (1..=10).contains(f)));
+    let _ = crate::dual::take_report();
+    // Rolling every die: all five are marked.
+    let all = played_by("fire_team", &start, Box::new(crate::action_cards_closing_tests::FirstOption));
+    let set = &all.reroll_staging[&PlayerId::new("a")];
+    assert_eq!(set.rolls[0].rerolled.len() + set.rolls[1].rerolled.len(), 5);
+    let _ = crate::dual::take_report();
+}
+
+/// The same card played through `play_effect` itself (the play window, outside the announcement).
+#[test]
+fn fire_team_and_scramble_frequency_agree_with_the_core_play_window_outside_the_announcement() {
+    let _serial = crate::dual::tests::serial();
+    let start = ground_roll_position();
+    let (after, counts) = played_directly_by("fire_team", &start, None, Box::new(EveryOther(0)));
+    assert_eq!(counts, (1, 0), "Fire Team ran on the core");
+    assert_ne!(faces_of(&after, "a"), faces_of(&start, "a"), "a die was rolled again");
+    let mut cannon = closing_position();
+    stage_roll(&mut cannon, "b", "space_cannon", &[("pds", 6, &[1, 2, 3])]);
+    cannon.last_reroll_player = Some(PlayerId::new("b"));
+    let (after, counts) = played_directly_by("scramble", &cannon, None, Box::new(crate::action_cards_announce_tests::DeclineSlots));
+    assert_eq!(counts, (1, 0), "Scramble Frequency ran on the core");
+    assert_eq!(after.reroll_staging[&PlayerId::new("b")].rolls[0].rerolled.len(), 3);
+}
+
+/// Fire Team names the holder's own ground roll; Scramble Frequency a bombardment, a space cannon or an anti-fighter barrage of the
+/// seat that rolled last. Everything else is a card that does nothing (and still goes to the pile), in the core as in the string.
+#[test]
+fn fire_team_and_scramble_frequency_with_no_roll_they_name_do_nothing_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let mut cases: Vec<(&str, GameState)> = vec![("fire_team", closing_position()), ("scramble", closing_position())];
+    // Fire Team: another seat's ground roll, the holder's roll of another kind.
+    let mut theirs = closing_position();
+    stage_roll(&mut theirs, "b", "ground", &[("combat value 8", 8, &[3, 3])]);
+    cases.push(("fire_team", theirs));
+    for kind in ["fleet", "space_cannon", "bombardment", "anti_fighter_barrage"] {
+        let mut mine = closing_position();
+        stage_roll(&mut mine, "a", kind, &[("dreadnought", 5, &[3, 3])]);
+        mine.last_reroll_player = Some(PlayerId::new("a"));
+        cases.push(("fire_team", mine));
+    }
+    // Scramble Frequency: a ground roll, a fleet roll, no roller named, a roller with nothing staged.
+    for kind in ["ground", "fleet"] {
+        let mut roll = closing_position();
+        stage_roll(&mut roll, "b", kind, &[("combat value 8", 8, &[3, 3])]);
+        roll.last_reroll_player = Some(PlayerId::new("b"));
+        cases.push(("scramble", roll));
+    }
+    let mut unnamed = closing_position();
+    stage_roll(&mut unnamed, "b", "space_cannon", &[("pds", 6, &[1, 2])]);
+    cases.push(("scramble", unnamed));
+    let mut hollow = closing_position();
+    hollow.last_reroll_player = Some(PlayerId::new("b"));
+    cases.push(("scramble", hollow));
+    announce_all(&cases);
+    let _ = crate::dual::take_report();
+    // Nothing was drawn: the staged dice are the ones that were staged.
+    for (alias, start) in &cases {
+        let after = played(alias, start);
+        assert_eq!(faces_of(&after, "a"), faces_of(start, "a"), "{alias}");
+        assert_eq!(faces_of(&after, "b"), faces_of(start, "b"), "{alias}");
+    }
+    let _ = crate::dual::take_report();
+}
+
+/// Scramble Frequency through the announcement: every die of the roller's roll is drawn again, with no question, whatever the
+/// holder decides; the roll of the holder and of the others stays.
+#[test]
+fn scramble_frequency_rolls_all_the_dice_of_the_roller_again_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let cases: Vec<(&str, GameState)> = ["bombardment", "space_cannon", "anti_fighter_barrage"]
+        .iter()
+        .map(|kind| {
+            let mut state = closing_position();
+            stage_roll(&mut state, "b", kind, &[("dreadnought", 5, &[3, 7]), ("pds", 6, &[10])]);
+            state.reroll_staging.get_mut(&PlayerId::new("b")).unwrap().rolls[0].deltas.insert(1, 1);
+            stage_roll(&mut state, "c", "space_cannon", &[("pds", 6, &[1])]);
+            stage_roll(&mut state, "a", "space_cannon", &[("pds", 6, &[2, 2])]);
+            state.last_reroll_player = Some(PlayerId::new("b"));
+            ("scramble", state)
+        })
+        .collect();
+    announce_all(&cases);
+    let _ = crate::dual::take_report();
+    for (alias, start) in &cases {
+        let after = played(alias, start);
+        let set = &after.reroll_staging[&PlayerId::new("b")];
+        assert_eq!(set.rolls[0].rerolled.len() + set.rolls[1].rerolled.len(), 3, "all three dice were drawn again");
+        assert!(set.rolls[0].deltas.is_empty());
+        assert!(faces_of(&after, "b").iter().flatten().all(|f| (1..=10).contains(f)));
+        assert_eq!(faces_of(&after, "c"), faces_of(start, "c"));
+        assert_eq!(faces_of(&after, "a"), faces_of(start, "a"), "the holder's own roll is not the roller's");
+    }
+    let _ = crate::dual::take_report();
+}
+
+/// Bail: a ground roll of more groups of dice than the adapter names for the questions is the string's (counted), and the
+/// roll of twelve groups is carried.
+#[test]
+fn bail_fire_team_with_more_groups_of_dice_than_the_adapter_names_is_counted() {
+    let _serial = crate::dual::tests::serial();
+    let groups = |n: usize| -> Vec<(String, u32, Vec<u32>)> { (0..n).map(|i| (format!("combat value {}", i + 1), u32::try_from(i + 1).unwrap(), vec![5])).collect() };
+    let staged = |n: usize| {
+        let mut state = closing_position();
+        let rolls = groups(n);
+        let borrowed: Vec<(&str, u32, &[u32])> = rolls.iter().map(|(t, on, f)| (t.as_str(), *on, f.as_slice())).collect();
+        stage_roll(&mut state, "a", "ground", &borrowed);
+        state
+    };
+    let (_, counts) = announced_once("fire_team", &staged(13), None, Box::new(crate::action_cards_closing_tests::FirstOption));
+    assert_eq!(counts, (0, 1));
+    let (_, counts) = announced_once("fire_team", &staged(12), None, Box::new(crate::action_cards_closing_tests::FirstOption));
+    assert_eq!(counts, (1, 0));
+}
+
+/// [`announced_once`] on dice and a generator of the test's choosing.
+fn announced_on_dice(alias: &str, start: &GameState, dice: crate::dice::Dice, rng: crate::rng::GameRng) -> (GameState, (u64, u64)) {
+    let a = PlayerId::new("a");
+    let _ = crate::dice::Dice::new();
+    let _ = crate::dual::take_report();
+    let mut state = start.clone();
+    state.player_mut(&a).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new(alias)];
+    crate::action_cards::discard(&mut state, &a, 0);
+    crate::dual::with_mask(crate::action_cards_closing_tests::dual(), || {
+        let (mut dice, mut rng) = (dice, rng);
+        let mut table = crate::choice::Table::with_default(Box::new(crate::action_cards_closing_tests::FirstOption));
+        let mut sequence = crate::event::EventSequence::new();
+        let mut resolver = crate::fixtures::armed_resolver(&state);
+        let mut context = crate::timing::TimingContext {
+            state: &mut state,
+            content: ti4_content::ContentStore::embedded(),
+            sources: ti4_model::content_types::POK,
+            table: &mut table,
+            dice: &mut dice,
+            rng: &mut rng,
+            event_sequence: &mut sequence,
+            galaxy: None,
+        };
+        let _ = crate::reactions::announce(&mut context, &mut resolver, &a, &ti4_model::id::ActionCardId::new(alias));
+    });
+    let report = crate::dual::report();
+    assert!(report.differences.is_empty(), "differences: {:?}", format!("{:?}", report.differences).chars().take(600).collect::<String>());
+    let counts = crate::action_cards_closing_tests::windows("action_cards::announce");
+    let _ = crate::dual::take_report();
+    (state, counts)
+}
+
+/// Bail: the dice of a play that cannot be reproduced (test faces, a generator that is not the game's) are the string's, counted.
+/// The same play on the game's own generator is carried.
+#[test]
+fn bail_fire_team_and_scramble_frequency_with_dice_the_core_cannot_reproduce_are_counted() {
+    let _serial = crate::dual::tests::serial();
+    let mut scramble = ground_roll_position();
+    stage_roll(&mut scramble, "b", "space_cannon", &[("pds", 6, &[1, 2])]);
+    scramble.last_reroll_player = Some(PlayerId::new("b"));
+    let seed = scramble.rng_seed;
+    for (alias, start) in [("fire_team", ground_roll_position()), ("scramble", scramble)] {
+        let (_, own) = announced_on_dice(alias, &start, crate::dice::Dice::new(), crate::rng::GameRng::new(seed));
+        assert_eq!(own, (1, 0), "{alias} on the game's generator is carried");
+        let (_, preloaded) = announced_on_dice(alias, &start, crate::dice::Dice::from_faces([3, 3, 3]), crate::rng::GameRng::new(seed));
+        assert_eq!(preloaded, (0, 1), "{alias} with test faces");
+        let (_, foreign) = announced_on_dice(alias, &start, crate::dice::Dice::new(), crate::rng::GameRng::new(seed.wrapping_add(1)));
+        assert_eq!(foreign, (0, 1), "{alias} on a generator that is not the game's");
+    }
 }

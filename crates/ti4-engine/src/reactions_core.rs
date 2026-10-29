@@ -433,6 +433,10 @@ mod tests {
         assert_eq!(played.unported(&t), None, "a Shields Holding is played by the core");
         played.played = vec!["fire_team".to_owned()];
         assert_eq!(played.unported(&t).as_deref(), Some("unported ability reaction:*:HITS_TO_ASSIGN:when (card fire_team)"), "a card the core does not play");
+        // Fire Team and Scramble Frequency have a window of the play (their own facts), not a nested one: from inside another
+        // window they are still the string's.
+        played.played = vec!["scramble".to_owned()];
+        assert_eq!(played.unported(&t).as_deref(), Some("unported ability reaction:*:HITS_TO_ASSIGN:when (card scramble)"), "a card the core does not play nested");
     }
 
     #[test]

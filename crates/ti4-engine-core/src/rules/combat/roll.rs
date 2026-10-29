@@ -410,6 +410,7 @@ impl RollStep {
             RerollSource::Relic => Origin::Content(Content::Relic(Relic::TheCrownOfThalnos)),
             RerollSource::Law => Origin::Agenda(Agenda::TheCrownOfThalnos),
             RerollSource::Munitions => Origin::FactionAbility(Content::Ability(Ability::MunitionsReserves)),
+            RerollSource::FireTeam => Origin::ActionCard(crate::generated::ActionCard::FireTeam),
         }
     }
 
@@ -706,7 +707,8 @@ impl RollStep {
             && match src {
                 RerollSource::Relic => Self::holds_crown_relic(sx.state, side),
                 RerollSource::Law => Self::owns_crown_law(sx.state, side),
-                RerollSource::Munitions => false,
+                // Munitions and Fire Team are not walks of the roll step (Fire Team is a card played after the ground roll).
+                RerollSource::Munitions | RerollSource::FireTeam => false,
             };
         if held {
             self.walk = self.cur().map(|s| Self::all_dice(&s.set)).unwrap_or_default();
@@ -741,6 +743,7 @@ impl RollStep {
                 self.crown = picks;
                 self.stage = Stage::Casualties;
             }
+            RerollSource::FireTeam => self.stage = Stage::Casualties,
         }
     }
 

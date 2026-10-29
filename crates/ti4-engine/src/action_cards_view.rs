@@ -265,6 +265,7 @@ fn env_of(state: &GameState, player: &PlayerId, sources: &ti4_model::content_typ
             explore_empty: ti4_engine_core::state::Code(0),
             action_draw_plain: false,
             carried: rules::perform::Carried::default(),
+            reroll: None,
         },
     }
 }
@@ -295,6 +296,40 @@ fn tables_of(gs: &GameState, card: ActionCard) -> Option<(Ctx, crate::render::Re
     } else {
         crate::dual_window::tables(gs)
     }
+}
+
+/// Fire Team and Scramble Frequency: the interned texts of the staged dice (`rules::RerollFacts`): the kinds of roll, in the state's
+/// table, and the name of each group of the holder's dice, in the question renderer's. `None` when the table is full.
+fn reroll_facts(gs: &GameState, cx: &mut Ctx, r: &crate::render::Render, player: &PlayerId) -> Option<rules::RerollFacts> {
+    let mut kind = |text: &str| cx.texts.intern(Slice::Transient, text).ok();
+    let ground = kind("ground")?;
+    let forced = [kind("bombardment")?, kind("space_cannon")?, kind("anti_fighter_barrage")?];
+    let mut shown = [ti4_engine_core::state::Code(0); rules::RerollFacts::GROUPS];
+    let mut entries = 0_u8;
+    if let Some(set) = gs.reroll_staging.get(player) {
+        // A set of more groups than the facts hold is covered up to the last one: the window declines it.
+        for (slot, entry) in shown.iter_mut().zip(&set.rolls) {
+            *slot = r.code(&entry.unit);
+            entries += 1;
+        }
+    }
+    Some(rules::RerollFacts { ground, forced, shown, entries })
+}
+
+/// Fire Team's question about a die carries the whole staged roll and the place of the die in it (display only; the string builds the
+/// same from the set it asks about, `combat::choose_reroll_dice`).
+fn reroll_details(c: &ti4_engine_core::choice::Choice, before: &GameState, player: &PlayerId, rendered: &mut crate::choice::Choice) {
+    use ti4_engine_core::choice::combat::{Ask as CAsk, Opt as COpt, RerollSource};
+    let ti4_engine_core::choice::Ask::Combat(CAsk::RerollDie { source: RerollSource::FireTeam, .. }) = &c.ask else { return };
+    let Some(set) = before.reroll_staging.get(player) else { return };
+    let at = c.opts.iter().find_map(|o| match o {
+        ti4_engine_core::choice::Opt::Combat(COpt::RerollDie { entry, die, .. }) => Some((usize::from(*entry), usize::from(*die))),
+        _ => None,
+    });
+    // The walk asks every die in order: the asked die's place is the number of dice before it.
+    let current = at.map_or(0, |(entry, die)| set.rolls.iter().take(entry).map(|roll| roll.faces.len()).sum::<usize>() + die);
+    rendered.details.insert("dice".to_owned(), serde_json::Value::Array(crate::combat::staged_dice_view(set)));
+    rendered.details.insert("current".to_owned(), current.into());
 }
 
 /// The fighters on the Crimson hero card (Fighter Conscription places the plain fighter against the supply).
@@ -431,6 +466,9 @@ pub fn play_window(
     env.facts.destroyer = placed(gs, player, sources, "destroyer")?;
     env.facts.pds = placed(gs, player, sources, "pds")?;
     env.facts.spacedock = placed(gs, player, sources, "spacedock")?;
+    if matches!(rules::effects::Fx::of(card), Some(rules::effects::Fx::Reroll | rules::effects::Fx::Scramble)) {
+        env.facts.reroll = Some(reroll_facts(gs, &mut cx, &r, player)?);
+    }
     env.facts.traders = traders_of(gs, galaxy, player, &r);
     env.facts.mech = rules::Placed {
         // The plain mech; a Naaz seat's is a unit whose placement the string announces (a bail: no unit).
@@ -482,6 +520,7 @@ pub fn play_window(
     let details = |c: &ti4_engine_core::choice::Choice, core: &ti4_engine_core::state::CoreState, rendered: &mut crate::choice::Choice| {
         recorded_details(c, script, rendered);
         reward_details(c, &before, player, rendered);
+        reroll_details(c, &before, player, rendered);
         crate::strategy_cards_core::complete_tokens(c, core, rendered, letnev);
         if performs {
             performing.complete(c, core, rendered);
@@ -603,6 +642,9 @@ pub fn announce_window(
     env.facts.destroyer = placed(gs, player, sources, "destroyer")?;
     env.facts.pds = placed(gs, player, sources, "pds")?;
     env.facts.spacedock = placed(gs, player, sources, "spacedock")?;
+    if matches!(rules::effects::Fx::of(card), Some(rules::effects::Fx::Reroll | rules::effects::Fx::Scramble)) {
+        env.facts.reroll = Some(reroll_facts(gs, &mut cx, &r, player)?);
+    }
     env.facts.traders = traders_of(gs, galaxy, player, &r);
     env.facts.mech = rules::Placed {
         // The plain mech; a Naaz seat's is a unit whose placement the string announces (a bail: no unit).
@@ -690,6 +732,7 @@ pub fn announce_window(
             }
             recorded_details(_c, script, rendered);
             reward_details(_c, &before, player, rendered);
+            reroll_details(_c, &before, player, rendered);
             crate::strategy_cards_core::complete_tokens(_c, _core, rendered, letnev);
             if performs {
                 performing.complete(_c, _core, rendered);

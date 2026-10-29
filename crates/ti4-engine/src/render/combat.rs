@@ -89,6 +89,7 @@ impl Family for Fam {
             Subtype::Reroll(RerollSource::Relic) => "crown_of_thalnos_relic_reroll".to_owned(),
             Subtype::Reroll(RerollSource::Law) => "crown_of_thalnos_law_reroll".to_owned(),
             Subtype::Reroll(RerollSource::Munitions) => "munitions_reroll_die".to_owned(),
+            Subtype::Reroll(RerollSource::FireTeam) => "fire_team_reroll".to_owned(),
             Subtype::HeartIxth => "heart_ixth_die_adjust".to_owned(),
             Subtype::WarFunding => "war_funding".to_owned(),
             Subtype::WrathBump => "wrath_of_kenara_bump".to_owned(),
