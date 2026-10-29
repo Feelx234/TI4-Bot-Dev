@@ -509,3 +509,30 @@ fn upgraded_fighters_over_capacity_are_charged_to_the_fleet_pool_in_the_question
     assert_eq!(out.expect("answered"), 1, "{reasons:?}");
     assert_eq!(counts, (1, 0));
 }
+
+#[test]
+fn a_closed_movement_step_hands_the_aftermath_on() {
+    use ti4_engine_core::driver::Driver;
+    use ti4_engine_core::generated::System;
+    use ti4_engine_core::kernel::stage::AbilityTable;
+    use ti4_engine_core::kernel::{Next, Resolver};
+    use ti4_engine_core::rules::tactical::{Facts, Machine};
+    use ti4_engine_core::state::WindowKind;
+    let (hub, _, target) = hub();
+    let mut state = sol_hacan();
+    state.active_system = Some(target.clone());
+    let (mut cx, r) = crate::dual_window::tables_for_tests(&state).expect("a seated table");
+    let seat = r.seat("a").unwrap();
+    let facts = Facts { pool: r.code("tactic") };
+    let env = crate::tactical_dual::env_of(&state.clone(), &cx, POK).expect("a kernel");
+    let src = crate::core_sync::Sources { galaxy: Some(&hub.galaxy), rng: None };
+    let next = crate::core_sync::with_core(&mut state, &mut cx, src, crate::tactical_dual::WINDOW, |core, _| {
+        let mut driver = Driver::new(Machine::closing(seat, facts), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        driver.run(core, &env.kernel).expect("the close runs");
+        driver.window.done_next()
+    })
+    .expect("the lend works");
+    let Next::Open(window) = next else { panic!("the close opens the aftermath: {next:?}") };
+    let at = <System as crate::generated::IdStr>::from_id(target.as_str()).unwrap();
+    assert_eq!((window.kind, window.actor, window.data), (WindowKind::Aftermath, Some(seat), [at.index() as u32, 0, 0]));
+}
