@@ -861,8 +861,12 @@ fn exploration_probe_without_a_map_reaches_only_the_systems_with_a_ship() {
     rivals.system_mut(&ti4_model::id::SystemId::new("25")).units.clear();
     rivals.system_mut(&ti4_model::id::SystemId::new("25")).units.push(unit("cruiser", "b"));
     rivals.system_mut(&ti4_model::id::SystemId::new("25")).units.push(unit("infantry", "a"));
+    // A ship in a system the map does not hold (the string asks the map for its neighbours all the same).
+    let mut off_map = probe_position(&["urf1", "urf2"]);
+    off_map.system_mut(&ti4_model::id::SystemId::new("27")).units.push(unit("carrier", "a"));
+    off_map.frontier_tokens.insert(ti4_model::id::SystemId::new("27"));
     for galaxy in [None, Some(&galaxy)] {
-        crate::action_cards_closing_tests::announce_all_on(&[("probe", two.clone()), ("probe", beside.clone()), ("probe", rivals.clone())], galaxy);
+        crate::action_cards_closing_tests::announce_all_on(&[("probe", two.clone()), ("probe", beside.clone()), ("probe", rivals.clone()), ("probe", off_map.clone())], galaxy);
     }
     let _ = crate::dual::take_report();
     // Which tokens go: the last option is taken. Without a map: the ship systems, `near` after "25" (the order of the ids); with one
@@ -914,11 +918,14 @@ fn exploration_probe_gains_command_tokens_into_pools_and_trade_goods_in_the_core
     let _serial = crate::dual::tests::serial();
     let galaxy = ring();
     let a = PlayerId::new("a");
+    // The pool question begins at version 12.
+    let mut twelve = probe_position(&["majent"]);
+    twelve.rules_version = 12;
     let mut old = probe_position(&["majent"]);
     old.rules_version = 11;
     let mut old_ship = probe_position(&["kel1"]);
     old_ship.rules_version = 11;
-    let cases = [("probe", probe_position(&["majent"])), ("probe", probe_position(&["kel2"])), ("probe", old.clone()), ("probe", old_ship.clone())];
+    let cases = [("probe", probe_position(&["majent"])), ("probe", probe_position(&["kel2"])), ("probe", twelve.clone()), ("probe", old.clone()), ("probe", old_ship.clone())];
     crate::action_cards_closing_tests::announce_all_on(&cases, Some(&galaxy));
     let _ = crate::dual::take_report();
     let held = |s: &GameState| {
@@ -929,6 +936,9 @@ fn exploration_probe_gains_command_tokens_into_pools_and_trade_goods_in_the_core
     let after = played_on("probe", &start, &galaxy);
     assert_eq!(held(&after).2 - held(&start).2, 3, "Major Entropic Field: three trade goods");
     assert_eq!(held(&after).0 - held(&start).0, 1, "and one command token");
+    let (asked, _) = announced_once("probe", &twelve, Some(&galaxy), Box::new(crate::action_cards_closing_tests::FirstOption));
+    assert_eq!(held(&asked).1 - held(&twelve).1, 0, "version 12 asks: the first pool is the tactic pool");
+    assert_eq!(asked.player(&a).unwrap().tactic_tokens - twelve.player(&a).unwrap().tactic_tokens, 1);
     let after = played_on("probe", &old, &galaxy);
     assert_eq!(held(&after).1 - held(&old).1, 1, "before version 12 the token goes into the strategy pool");
     let after = played_on("probe", &old_ship, &galaxy);
@@ -1035,7 +1045,7 @@ fn exploration_probe_replenishes_or_converts_commodities_at_a_merchant_station_i
         state
     };
     let current = ti4_model::state::RULES_VERSION;
-    let cases = [with(1, current), with(0, current), with(0, 18), with(3, current), with(5, current)];
+    let cases = [with(1, current), with(0, current), with(0, 18), with(3, current), with(5, current), with(0, 19)];
     let calls: Vec<(&str, GameState)> = cases.iter().map(|state| ("probe", state.clone())).collect();
     crate::action_cards_closing_tests::announce_all_on(&calls, Some(&galaxy));
     let _ = crate::dual::take_report();
@@ -1053,6 +1063,8 @@ fn exploration_probe_replenishes_or_converts_commodities_at_a_merchant_station_i
     assert_eq!(lone.player(&a).unwrap().commodities, limit);
     let (offered, _) = announced_once("probe", &cases[2], Some(&galaxy), Box::new(crate::action_cards_announce_tests::DeclineSlots));
     assert_eq!((offered.player(&a).unwrap().commodities, goods(&offered)), (0, goods(&cases[2])), "version 18 offered the conversion of nothing");
+    let (lone, _) = announced_once("probe", &cases[5], Some(&galaxy), Box::new(crate::action_cards_announce_tests::DeclineSlots));
+    assert_eq!(lone.player(&a).unwrap().commodities, limit, "version 19 asks nothing of a seat without commodities");
     let _ = crate::dual::take_report();
 }
 
@@ -1066,6 +1078,14 @@ fn exploration_probe_draws_two_action_cards_for_a_lost_crew_in_the_core_window()
     let start = probe_position(&["lc1", "lc2"]);
     crate::action_cards_closing_tests::announce_all_on(&[("probe", start.clone())], Some(&galaxy));
     let _ = crate::dual::take_report();
+    // The unofficial cards leave the deck before the draw from version 30.
+    let (mut thirty, mut before_thirty) = (start.clone(), start.clone());
+    thirty.rules_version = 30;
+    before_thirty.rules_version = 29;
+    crate::action_cards_closing_tests::announce_all_on(&[("probe", thirty.clone()), ("probe", before_thirty.clone())], Some(&galaxy));
+    let _ = crate::dual::take_report();
+    let (after, _) = announced_once("probe", &before_thirty, Some(&galaxy), Box::new(crate::action_cards_announce_tests::DeclineSlots));
+    assert_eq!(after.action_card_deck.len() + 2, before_thirty.action_card_deck.len(), "version 29 keeps the unofficial cards");
     let (after, counts) = announced_once("probe", &start, Some(&galaxy), Box::new(crate::action_cards_announce_tests::DeclineSlots));
     assert_eq!(counts, (1, 0));
     assert_eq!(after.player(&a).unwrap().action_cards.len(), 2);
