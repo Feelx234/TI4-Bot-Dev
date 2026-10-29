@@ -7306,25 +7306,8 @@ mod tests {
                 run_invasion_first_option(&mut state, seed, &system);
             }
         });
-        // A mech that sustains a hit of a BOMBARDMENT hits back at nobody: the cause is not the ground combat.
-        let before = report().nested.keys().filter(|k| k.contains("sardakk_mech")).count();
-        with_mask(mask, || {
-            for seed in 1..=8_u64 {
-                let mut state = crate::fixtures::seated_game(&[("a", "l1z1x"), ("b", "sardakk")], POK);
-                state.promissory_notes.clear();
-                state.promissory_faceup.clear();
-                state.rng_seed = seed;
-                let (system, planet) = crate::fixtures::a_placed_planet();
-                crate::fixtures::put(&mut state, &system, "dreadnought", &PlayerId::new("a"), 3);
-                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 3);
-                state.system_mut(&system).set_control(planet.clone(), PlayerId::new("b"));
-                crate::fixtures::put_on_planet(&mut state, &system, &planet, "sardakk_mech", &PlayerId::new("b"), 3);
-                run_invasion_first_option(&mut state, seed, &system);
-            }
-        });
         let r = report();
         let followed: u64 = r.nested.iter().filter(|(k, _)| k.contains("unit:*:sardakk_mech:GROUND_FORCE_SUSTAINED:after")).map(|(_, n)| *n).sum();
-        let _ = before;
         assert!(followed > 0, "a mech sustained and hit back: {:?}", r.nested.keys().collect::<Vec<_>>());
         assert!(r.windows.keys().all(|k| !k.contains("sardakk_mech")), "{:?}", r.windows);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());

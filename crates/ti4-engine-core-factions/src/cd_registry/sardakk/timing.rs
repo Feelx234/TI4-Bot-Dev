@@ -71,9 +71,13 @@ fn finish(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     Ok(())
 }
 
+/// The sustain of the owner's own mech in a ground combat (`cause`; not a bombardment or a space cannon).
+fn mech_event(p: &Payload, owner: Seat, ground_combat: ti4_engine_core::state::Code) -> bool {
+    p.seat(Key::Player) == Some(owner) && p.unit(Key::Unit) == Some(Unit::ValkyrieExoskeleton) && p.code(Key::Cause) == Some(ground_combat)
+}
+
 fn mech_when(c: &CondCx<'_>) -> bool {
-    let p = &c.event.payload;
-    p.seat(Key::Player) == Some(c.def.owner) && p.unit(Key::Unit) == Some(Unit::ValkyrieExoskeleton) && p.code(Key::Cause) == Some(c.codes.ground_combat)
+    mech_event(&c.event.payload, c.def.owner, c.codes.ground_combat)
 }
 
 fn mech_hit(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
@@ -144,5 +148,16 @@ mod tests {
         assert!(!finishing(&s, Seat(1), &p(Seat(1), system)), "the mark is the other seat's");
         s.marks_mut().tail.edit().remove(&MarkKey::SardakkHeroSkip());
         assert!(!finishing(&s, Seat(0), &p(Seat(0), system)), "no skip under way");
+    }
+
+    #[test]
+    fn the_mech_hits_back_for_its_own_sustain_in_a_ground_combat_only() {
+        use ti4_engine_core::state::{Code, Val};
+        let (ground, other) = (Code(1), Code(2));
+        let p = |who: Seat, unit: Unit, cause: Code| Payload::new().with(Key::Player, Val::Seat(who)).with(Key::Unit, Val::Unit(unit)).with(Key::Cause, Val::Code(cause));
+        assert!(mech_event(&p(Seat(0), Unit::ValkyrieExoskeleton, ground), Seat(0), ground));
+        assert!(!mech_event(&p(Seat(1), Unit::ValkyrieExoskeleton, ground), Seat(0), ground), "another player's mech");
+        assert!(!mech_event(&p(Seat(0), Unit::InfantryI, ground), Seat(0), ground), "another unit");
+        assert!(!mech_event(&p(Seat(0), Unit::ValkyrieExoskeleton, other), Seat(0), ground), "a bombardment is not the ground combat");
     }
 }

@@ -56,7 +56,7 @@ fn any_near(f: &AdapterFacts, candidates: impl Iterator<Item = System>, system: 
 }
 
 /// The sustained unit the event names, if it is still on the board and damaged.
-fn target(s: &CoreState, p: &Payload) -> Option<(System, Option<Planet>, Seat, Unit)> {
+fn target(s: &CoreState, p: &Payload) -> Option<Target> {
     let (system, owner, kind) = (p.system(Key::System)?, p.seat(Key::Player)?, p.unit(Key::Unit)?);
     let planet = p.planet(Key::Planet);
     let pieces = match planet {
@@ -84,7 +84,10 @@ fn affordable(s: &CoreState, f: &AdapterFacts, owner: Seat) -> Result<bool, ()> 
 }
 
 /// The repair Dynamo offers `owner` for the event: the unit is damaged, the flagship reaches it and 2 influence can be paid.
-fn window(s: &CoreState, f: &AdapterFacts, owner: Seat, p: &Payload) -> Result<Option<(System, Option<Planet>, Seat, Unit)>, ()> {
+/// The sustained unit Dynamo may repair: its system, planet, owner and type.
+type Target = (System, Option<Planet>, Seat, Unit);
+
+fn window(s: &CoreState, f: &AdapterFacts, owner: Seat, p: &Payload) -> Result<Option<Target>, ()> {
     let Some(t) = target(s, p) else { return Ok(None) };
     if !any_near(f, flagship_systems(s, owner), t.0, true)? {
         return Ok(None);

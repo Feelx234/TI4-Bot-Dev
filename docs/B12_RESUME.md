@@ -1,53 +1,36 @@
-# B12 resume note (combat and invasion area, item 4 + 5 of `ENGINE_PACKAGE_PREREQS.md`)
+# B12 (combat and invasion area, item 4 + 5 of `ENGINE_PACKAGE_PREREQS.md`): state
 
-Branch `core-b12` (from `core-integration-3` @ 1e55ab28; `core-dual-shards` and `core-b8c` @ 8fa4ddb2 merged). **The area is not
-complete and the heavy gate has NOT been run** (no verify_package, no golden dual after the changes, no benches, no board_equivalence,
-no clippy). The single up-front census ran (pre-B12 binary): `docs/ENGINE_REACTIONS.md` 10.4.
+Branch `core-b12` (from `core-integration-3` @ 1e55ab28; `core-dual-shards` and `core-b8c` @ 8fa4ddb2 merged).
 
-## Done (all tests green: `cargo test -p ti4-engine-core -p ti4-engine-core-factions -p ti4-engine`)
+## Status
 
-Round 1: Technological Singularity (6 abilities, the `Assimilate` question), the `combat::settle` silent bail on `nekro:ts:` marks,
-The Terror Between registered for Nekro seats, Instinct Training carried by an assimilator, Sh'val's finish.
-Round 2 (this note's session): `pay_in` (a payment loop inside an ability), the map pairs as an input, Dynamo, the Watcher, Salvage
-Operations' produce half, pair rules and the four Ssruu copies (Milor, Evelyn, Viscount, Trilossa), the round agents' extra die read from
-the core state. Ids, slots, tests: `docs/ENGINE_REACTIONS.md` 10.1 and 10.1b; bails: 10.2.
+The area is closed in the sense of the definition of done: every combat/invasion window and nested reason of the pre-B12 census
+(`docs/ENGINE_REACTIONS.md` 10.4) is ported or a documented, tested bail (10.1, 10.1b, 10.1c, 10.2). The one gate run on the final
+commit is in the final report of the session (`/root/deploytmp/core-b12-gate`, `summary.txt`); if it is missing, the gate has not run.
 
-## Next, in this order (each = Spec + Named line + lockstep test with real factions, notes cleared (trap: fixture faction `generic`)
-## + mutation check + registry parity test with the seats seated)
+## Decisions
 
-1. **Mutation survivors (documented, not closed)**: glue with no observable effect in the tested windows: Dynamo's flagship owner
-   filter (two Empyrean seats), `pay_in`'s up-front `available < cost` guard (the conditions guard it), the restore of the state after
-   a failed payment/placement of Salvage Operations (needs a bill that fails after the question), `when_by`'s `lent` flag of the Argent
-   copy and the `borrowable` call in `round_when`/`milor_copy` (the pure `borrowable` is tested; the glue is covered by the positive
-   lockstep tests only), `extra_die_for`'s type filter (equivalent to the mark's own type field). The helper is
-   `/root/deploytmp/core-b12-agent/mutate.py` (`MUT_ROOT`/`MUT_TARGET` run it in a second worktree so development and mutation do not
-   share files; filters are `a|b` substrings, one `cargo test` per mutation).
-2. **5b `finish_committing` remainder**: `offer_research_team` (+ `_defense`) and `add_forced_combats` are string functions between the
-   windows already ported (`announce_and_defend_windowed`, `advance_fighting`). The queries exist in the core
-   (`deepwrought_research_team_open`, `_defender_open`, hook `forced_combat_planets`); the coexistence write (`begin_coexisting`) is
-   `state/board.rs` + the Deepwrought module. Minimal DoD: two dual windows that compare the "nothing offered" case and bail
-   (named) on a Deepwrought, Firmament or Titans seat.
-3. **5a `FinalizingControl`** (`invasion.rs:5014 finish_control_gain`): `fx::gain_control` (+ the `control_gained` hook, L1Z1X
-   Assimilate), `PLANET_CONTROL_GAINED` through the resolver (Infiltrate/Reparations bail: `Unknown::HarnessOrInfiltrate`), the
-   structure destruction order by `RULES_INFILTRATE_FIX`, Integrated Economy (`EconomyWindow`), Jupiter Brain, Fracture relic, exploration
-   (B5 windows). Minimal DoD: a capture with none of those compared as one window; the rest bails.
-4. **5c Bastion/Crimson typed reads: DROPPED BY DECISION (user): Last Bastion, Crimson Rebellion, structured diplomacy and the turn-redo deck reserve are being disabled at the product edges and the core will panic if they are reached. What was committed before the decision stays (the Icon and the card as spots of the core production window, `Spot::Card`, `Icon`, `fleet::remaining_all`, `unported_economy` lifted, tests); nothing more is ported for them, and no piece whose only purpose is one of these three features is to be done (a separate task converts the bail sites). Original note:** `ENGINE_REACTIONS.md` 10.3 (hooks declared in `kernel/hooks/direct.rs:78-127`, implemented nowhere;
-   `Spot` has no card variant; `fleet::remaining(.., on_card)` is always 0 in the core).
-5. Cards: Fire Team, Scramble Frequency (a `RerollSource::Card`), Courageous to the End, Reflective Shielding (`Child<W>`), Reveal Prototype
-   (the research as a callable piece; `cost_is_payable` is `None` for it), Sardakk mech (a child hit assignment), Technological
-   Singularity's unit-upgrade gain (a core `unit_swaps`), Winnu commander unlock, Ambuscade.
-6. Then the gate, once, on the final commit, under `flock /root/.ti4-heavy.lock`: `tools/engine_core/verify_package.sh` for the combat and
-   invasion areas (`SKIP_AB=1 SKIP_WASM=1`, `--profile gate`, `SHARDS=4`), the golden dual with `driver=dual` (and the wide mask
-   `driver=dual,invasion=dual,production=dual,leaders=dual,exploration=dual,agenda=dual`), `board_equivalence`, `bench` + `bench-v1..v5`
-   200/200, clippy. Expect new golden findings: nothing of round 2 has seen the 20 golden games yet; the typical finds so far were a
-   fixture-only blind spot (the oracle snapshot), a `context.optional` flag and an id shape.
+* 5c (Bastion/Crimson typed reads) was **dropped by decision** (user): the Last Bastion, the Crimson Rebellion, structured
+  diplomacy and the turn-redo deck reserve are being disabled at the product edges and the core will panic if they are reached.
+  What was committed before stays; nothing more is ported for them; whole-window bails for them stay as they are.
+* 5a `FinalizingControl` and 5b `finish_committing`'s Research Team questions / `add_forced_combats` are documented bails
+  (string windows inside the dual run), tests in 10.1c.
 
-## Commands
+## Still string (documented, tested bails; plan in `ENGINE_REACTIONS.md` 10.2)
 
-```
-worktree: /root/TI4-Bot-Dev/.claude/worktrees/core-b12 (branch core-b12); mutation worktree core-b12-mut (detached)
-export CARGO_TARGET_DIR=/root/deploytmp/core-b12 CARGO_BUILD_JOBS=3
-cargo test -p ti4-engine --lib -- ssruu salvage dynamo watcher singularity
-```
-Housekeeping: the private targets were deleted at the end of the session (rebuild: about 4 minutes with `CARGO_BUILD_JOBS=3`); the
-scratch directory `/root/deploytmp/core-b12-agent` keeps the scripts and the census.
+Scramble Frequency (the barrage/cannon/bombard windows need the dice-stream plumbing of `roll_tail`), Courageous to the End and
+Reflective Shielding (child casualty flows; 9.2), Reveal Prototype and the cost the core does not judge (research as a callable piece),
+Technological Singularity with the Z token, Ambuscade, the Winnu commander unlock, a window lent no dice stream.
+
+## Mutation survivors (documented)
+
+Glue with no observable effect in the tested windows: Dynamo's flagship-owner filter (two Empyrean seats), `pay_in`'s up-front guard,
+Salvage's restore after a failed payment, the `lent`/`borrowable` glue of the Ssruu copies (the pure `borrowable` is tested), the
+type filter of `extra_die_for`, Fire Team's `rerolled` bit and the delta removal (only the Crown of Thalnos reads them), its ground-kind
+guard, the Sardakk mech's `unit_ability` flag, the Icon's `system != producing` guard and ship filter.
+
+## Tools
+
+`/root/deploytmp/core-b12-agent/mutate.py` (one `cargo test` per mutation; `MUT_ROOT`/`MUT_TARGET` run it in a second worktree so
+development and mutation do not share files; filters are `a|b` substrings), `batch*.sh`, `census.out` (pre-B12 census).
+Private targets are deleted at the end (rebuild about 4 minutes at `CARGO_BUILD_JOBS=3`).
