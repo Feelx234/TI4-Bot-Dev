@@ -98,3 +98,36 @@ suites ok, `gen-cards --check`, xtask and wasm tests ok, dual suite (6 suites, `
 200/0. Also on the same binary: golden dual `driver=dual` 4564 calls, 26593 comparisons, 0 differences; the wide mask
 (`driver,invasion,production,leaders,exploration,agenda,action_cards` = dual): 11754515 calls, 11884141 comparisons, 0 differences,
 hashes equal. Not run: the CPU A/B, the wasm size gate, release builds, `state_size`.
+
+## B6d: the remaining 33 cards (2026-10-29, branch core-b6-action-cards after the merge of core-b4-trade)
+
+Infrastructure (all in the core, no panics): `kernel::stage::Child<W>` (a window run inside another window's step: `step` returns
+`Ran::Asks / Pass / Done(window)`, `ask_of`, `answer`; tests `child_tests`), `rules::production::pay::PayBill` (the whole
+question-driven payment loop over `PayStep`, the string `production::pay`; tests `bill_tests`), `Runner::with_sx` (an `Sx` over
+an inline runner, so a play with a child window is stepped the same inside an effect), `Play` takes the kernel
+(`Play::begin(sx)` / `choose(sx, pick)`), `Research::researchable_for` / `research_chosen` (a card researches like
+`technology::research`), the neutral owner in the owner table (`Ctx::with_extra`, kept by `refresh`), the map lent to the play
+window (`Sources.galaxy` + `Slice::Map`, `Fx::needs_map`), `Facts` in the play `Env` (neutral seat, unit forms of a destroyer,
+dreadnought, mech, PDS and space dock, rules version, tech and unit id order, roster, Reveal Prototype's candidate set, the
+traders of Lie in Wait, the Fracture facts, the replenish-events flag).
+
+PORTED (core effect in `rules::action_cards::effects::Play`, lockstep test in `ti4-engine/src/action_cards_b6d_tests.rs` through
+the announce window under three deciders, mutation-checked by Haiku runners in scratch worktrees): Pirate Contract x4, Pirate
+Fleet, Mercenary Contract, Ghost Ship, Signal Jamming, Upgrade, Refit Troops, Decoy Operation, Ghost Squad, Harness Energy,
+Brilliance, Impersonation, Plagiarize, Focused Research, Divert Funding, Reveal Prototype, Lie in Wait, Bribery, Infiltrate,
+Crash Landing (25 of the 33 cards).
+
+Conditions inside ported cards that stay string (each a `None` of `Play::of`, `unsupported`, or a bail of the adapter, a test each):
+a readied Keleres agent that could be offered before a payment (dropped by decision: Keleres); a Deepwrought, Keleres or Mentak
+seat for a card that gains a technology (dropped by decision / the Corsair's form); a Deepwrought holder of Crash Landing (dropped
+by decision); Harness Energy while a replenishment causes events the core does not hold (a Cabal, a siphoning Firmament plot,
+a Trade Agreement in play); Brilliance when the Fracture enters play (the ingress questions; the roll is the Fracture stream's and
+is compared); a Naaz mech for Refit Troops; Infiltrate below rules version 1; Ghost Ship and Signal Jamming played without a map;
+a deck reserve for Impersonation (dropped by decision). From inside another window (a reaction slot) the cards of this package are
+the string's (`Fx::nested`, the census names them).
+
+DOCUMENTED BAILS left (`BAILS` in `rules/action_cards/effects.rs`; the reason of each is the constant):
+Strategize x4 and Overrule (eight card kinds, each with a window and guards of its own to run as child windows), Exploration
+Probe (the exploration resolution is not one core window), Courageous To The End, Experimental Battlestation (the combat area's
+hit flow as a child window), Fire Team (ported on `core-b12` as a registered play, bb26913b; not merged here) and Scramble Frequency
+(a bail of `core-b12` too).
