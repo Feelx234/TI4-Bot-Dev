@@ -683,7 +683,10 @@ fn complete_nested(
 /// Whether a nested question carries the trigger of its window in its context: the window's own pick, and the
 /// questions whose string ability builds one (`DecisionTrigger::from_event`).
 fn with_trigger_of(choice: &CoreChoice) -> bool {
-    matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(a) if !matches!(a, ti4_engine_core::choice::reaction::Ask::Legionnaire { .. }))
+    matches!(
+        choice.ask,
+        ti4_engine_core::choice::Ask::Reaction(a) if !matches!(a, ti4_engine_core::choice::reaction::Ask::Legionnaire { .. } | ti4_engine_core::choice::reaction::Ask::Cavalry)
+    )
 }
 
 /// Whether a nested question is the window's own pick (the one that carries the `active` detail of the action phase).

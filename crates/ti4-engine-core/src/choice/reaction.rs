@@ -72,6 +72,8 @@ pub enum Ask {
     PlayCard { event: EventKind, relation: Relation },
     /// Crimson Legionnaire (Mahact; `second`: the II): "gain 1 commodity or convert 1 to a trade good".
     Legionnaire { second: bool },
+    /// The Cavalry (a promissory note of the Nomad): which non-fighter ship takes the Nomad flagship's abilities.
+    Cavalry,
 }
 
 /// One answer the area offers (not stored in the state).
@@ -87,6 +89,8 @@ pub enum Opt {
     Gain,
     /// Convert 1 commodity to a trade good (Crimson Legionnaire).
     Convert,
+    /// A ship type (The Cavalry).
+    Ship(crate::generated::Unit),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`): `reaction_{relation}_{EVENT}`.
@@ -98,4 +102,6 @@ pub enum Subtype {
     PlayCard { event: EventKind, relation: Relation },
     /// `legionnaire_payment`.
     Legionnaire,
+    /// `cavalry_ship`.
+    Cavalry,
 }

@@ -9840,6 +9840,57 @@ mod tests {
         assert!(withdrew > 0, "a Skilled Retreat was played");
     }
 
+    /// The promissory notes played at the start of a space combat: Antivirus (placed faceup) and The Cavalry (a ship type
+    /// takes the flagship's abilities, the note goes home when the combat ends), both held by the defender.
+    #[test]
+    fn the_antivirus_and_the_cavalry_are_played_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let (mut faceup, mut home) = (0, 0);
+        for (note, third) in [("antivirus:nekro", "nekro"), ("cavalry:nomad", "nomad")] {
+            let _ = take_report();
+            with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || crate::dual_window::with_composed(true, || {
+                for seed in 1..=4_u64 {
+                    let mut state = crate::fixtures::seated_game(&[("a", "hacan"), ("b", "sol"), ("c", third)], ti4_model::content_types::DEFAULT);
+                    state.promissory_notes.clear();
+                    state.promissory_faceup.clear();
+                    state.rng_seed = seed;
+                    crate::promissory::take(&mut state, ContentStore::embedded(), &defender(), note);
+                    let system = SystemId::new("18");
+                    put(&mut state, &system, "cruiser", &attacker(), 3);
+                    put(&mut state, &system, "cruiser", &defender(), 2);
+                    if seed % 2 == 0 {
+                        put(&mut state, &system, "dreadnought", &defender(), 1);
+                    }
+                    state.active_system = Some(system.clone());
+                    state.active = Some(attacker());
+                    let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                    let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                    let mut resolver = crate::fixtures::armed_resolver(&state);
+                    let mut sequence = crate::event::EventSequence::new();
+                    let mut ctx = Resolving {
+                        content: ContentStore::embedded(),
+                        sources: ti4_model::content_types::DEFAULT,
+                        dice: &mut dice,
+                        rng: &mut rng,
+                        table: &mut table,
+                        timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                    };
+                    resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+                    faceup += usize::from(state.promissory_faceup.contains(note));
+                    home += usize::from(state.promissory_notes.get(note) == Some(&PlayerId::new("c")));
+                }
+            }));
+            let r = report();
+            assert!(r.windows.keys().all(|k| !k.contains("unported ability promissory:*:")), "{note}: {:?}", r.windows);
+            assert_eq!(r.total_differences(), 0, "{note}: {:?}", r.differences);
+        }
+        assert!(faceup > 0, "Antivirus was placed faceup");
+        assert!(home > 0, "The Cavalry went home at the end of the combat");
+        let _ = take_report();
+    }
+
     /// Direct Hit: the attacker's hit is sustained by a dreadnought, the attacker destroys that ship from the slot of
     /// `SUSTAIN_DAMAGE_USED`; the core removes it and announces `SHIP_DESTROYED` after the discard. With a faction module
     /// seated (staging) the exact sustained ship goes; without, the first of the type.

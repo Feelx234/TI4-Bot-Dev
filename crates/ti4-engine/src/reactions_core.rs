@@ -41,6 +41,10 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::ce_movement::arborec::timing::WARRIOR_ROLLS, kind: "unit", card: "arborec_infantry2" },
     Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::MILOR_SHIPS, kind: "leader", card: "yinagent" },
     Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::MILOR_GROUND, kind: "leader", card: "yinagent" },
+    Named { slot: ti4_engine_core_factions::ca_combat::nekro::timing::ANTIVIRUS_SPACE, kind: "promissory", card: "antivirus" },
+    Named { slot: ti4_engine_core_factions::ca_combat::nekro::timing::ANTIVIRUS_GROUND, kind: "promissory", card: "antivirus" },
+    Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::CAVALRY_PLAY, kind: "promissory", card: "cavalry" },
+    Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::CAVALRY_RETURN, kind: "promissory", card: "cavalry" },
     Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::LEGIONNAIRE, kind: "unit", card: "mahact_infantry" },
     Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::LEGIONNAIRE_II, kind: "unit", card: "mahact_infantry2" },
     Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::SALVAGE_TRADE_GOOD, kind: "technology", card: "so" },
@@ -119,9 +123,12 @@ pub fn table() -> AbilityTable {
             ti4_engine_core::rules::reactions::register(&mut t);
             ti4_engine_core_factions::cb_economy::register_abilities(&mut t);
             ti4_engine_core_factions::ce_movement::register_abilities(&mut t);
-            // The string order of the faction modules (Mahact and Mentak before Yin): only abilities of one window share a
-            // bucket, and Mahact's Legionnaire and Yin's agent do.
+            // The string order of the faction modules: only abilities of one window share a bucket, and Mahact's
+            // Legionnaire and Yin's agent do (GROUND_FORCE_DESTROYED), Mentak's Salvage Operations and the Nomad's
+            // Cavalry (SPACE_COMBAT_ENDED).
             ti4_engine_core_factions::cc_ground::register_abilities(&mut t);
+            ti4_engine_core_factions::ca_combat::register_abilities(&mut t);
+            ti4_engine_core_factions::ce_movement::register_late_abilities(&mut t);
             ti4_engine_core_factions::cd_registry::register_abilities(&mut t);
             ti4_engine_core::rules::reactions::register_after_factions(&mut t);
             ti4_engine_core_factions::cards::register(&mut t);
@@ -306,6 +313,7 @@ impl Follow {
         self.table.codes.mentak = r.code("mentak");
         self.table.codes.instinct_training = r.code("instinct_training");
         self.table.codes.direct_hit = r.code("action_card:direct_hit");
+        self.table.codes.cavalry = r.code("cavalry");
         self.table.codes.mahact_infantry = r.code("mahact_infantry");
         self.table.codes.mahact_infantry2 = r.code("mahact_infantry2");
         self.table.codes.retreat_capacity = r.code("retreat_capacity");
@@ -520,7 +528,12 @@ mod tests {
                 let mut g: Vec<_> = got.iter().filter(|x| x.1 == owner).cloned().collect();
                 w.sort_by(|a, b| (a.2.as_str(), a.3).cmp(&(b.2.as_str(), b.3)));
                 g.sort_by(|a, b| (a.2.as_str(), a.3).cmp(&(b.2.as_str(), b.3)));
-                assert_eq!(g, w, "{factions:?} owner {owner}");
+                let missing: Vec<_> = w.iter().filter(|x| !g.contains(x)).collect();
+                let extra: Vec<_> = g.iter().filter(|x| !w.contains(x)).collect();
+                assert!(missing.is_empty() && extra.is_empty(), "{factions:?} owner {owner}: the string registers {missing:?} and the core {extra:?}");
+                if let Some(at) = g.iter().zip(&w).position(|(a, b)| a != b) {
+                    panic!("{factions:?} owner {owner}: the order of the registry differs at {at}: the core has {:?}, the string {:?}", &g[at.saturating_sub(1)..=(at + 1).min(g.len() - 1)], &w[at.saturating_sub(1)..=(at + 1).min(w.len() - 1)]);
+                }
             }
         }
     }

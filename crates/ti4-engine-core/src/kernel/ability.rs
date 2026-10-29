@@ -127,6 +127,8 @@ pub struct Codes {
     /// name of its question's source.
     pub mahact_infantry: crate::state::Code,
     pub mahact_infantry2: crate::state::Code,
+    /// The alias `cavalry`, the source of the question of The Cavalry.
+    pub cavalry: crate::state::Code,
     pub retreat_capacity: crate::state::Code,
     pub reinforcements: crate::state::Code,
 }

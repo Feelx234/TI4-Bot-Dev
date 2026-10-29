@@ -26,7 +26,7 @@ use ti4_engine_core::state::{CoreState, LeaderStatus, NoteKey};
 use crate::common::{is_faction, mark, player, rec, scope, system, unit};
 
 const SOURCE: Source = Source::Faction(Faction::TheNomad);
-const CAVALRY: NoteKey = NoteKey { note: PromissoryNote::TheCavalry, faction: Faction::TheNomad };
+pub(crate) const CAVALRY: NoteKey = NoteKey { note: PromissoryNote::TheCavalry, faction: Faction::TheNomad };
 
 /// Fill the slots of this tier.
 pub fn register(t: &mut HookTable) {
@@ -61,7 +61,7 @@ pub fn watches_roll_step(s: &CoreState) -> bool {
 // -- Quantum Manipulator and The Cavalry ----------------------------------------------------------
 
 /// The ship type `who` has chosen for The Cavalry in the combat in `at`, while the note is still in play with them.
-fn cavalry_ship_type(s: &CoreState, who: Seat, at: System) -> Option<Unit> {
+pub(crate) fn cavalry_ship_type(s: &CoreState, who: Seat, at: System) -> Option<Unit> {
     let fields = rec(mark(s, MarkKey::NomadCavalry(who))?)?;
     let [marked, kind] = fields else { return None };
     let held = s.cards().promissory.get(&CAVALRY) == Some(&who) && s.cards().promissory_faceup.contains_key(&CAVALRY);
