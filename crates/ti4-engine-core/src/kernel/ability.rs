@@ -122,6 +122,9 @@ pub struct Codes {
     pub instinct_training: crate::state::Code,
     /// The causes `action_card:direct_hit` and `action_card:courageous` of a destroyed ship.
     pub direct_hit: crate::state::Code,
+    /// The cause `retreat_capacity` of a ship a retreat strands, and the pool `reinforcements` of its command token.
+    pub retreat_capacity: crate::state::Code,
+    pub reinforcements: crate::state::Code,
 }
 
 /// Facts the adapter computes for the window and the core cannot (no galaxy is lent to the windows that follow
@@ -132,6 +135,7 @@ pub struct AdapterFacts {
     /// `supply::staging_enabled` of the position (a registered faction module is seated): losses are announced and a Direct
     /// Hit removes the exact sustained ship.
     pub staging: bool,
+    withdraw: Vec<(Seat, crate::generated::System, Vec<crate::generated::System>)>,
 }
 
 impl AdapterFacts {
@@ -139,6 +143,18 @@ impl AdapterFacts {
     pub fn set_reach(&mut self, who: Seat, system: crate::generated::System, neighbours: Vec<crate::generated::System>) {
         self.reach.retain(|(w, s, _)| !(*w == who && *s == system));
         self.reach.push((who, system, neighbours));
+    }
+
+    /// Record the systems Skilled Retreat may withdraw `who` to from `system` (the map's part: the adapter computed them).
+    pub fn set_withdraw(&mut self, who: Seat, system: crate::generated::System, destinations: Vec<crate::generated::System>) {
+        self.withdraw.retain(|(w, s, _)| !(*w == who && *s == system));
+        self.withdraw.push((who, system, destinations));
+    }
+
+    /// The withdrawal destinations of `who` leaving `system`, if the string's card looked for them.
+    #[must_use]
+    pub fn withdraw(&self, who: Seat, system: crate::generated::System) -> Option<&[crate::generated::System]> {
+        self.withdraw.iter().find(|(w, s, _)| *w == who && *s == system).map(|(_, _, d)| d.as_slice())
     }
 
     /// The neighbours of `system` for `who`, if the adapter computed them.
@@ -460,6 +476,17 @@ pub struct RulesHost<'a> {
     pub next_id: &'a mut u64,
     /// Seeds the random streams (see `Sx::die`).
     pub seeds: &'a dyn SeedSource,
+}
+
+impl RulesHost<'_> {
+    /// Put a question that belongs to no window of the resolver (a played card's, asked while the play is announced): the
+    /// display facts of the question (battle, invasion) are the adapter's, the trigger is not part of it.
+    pub fn ask(&mut self, choice: &Choice) -> Pick {
+        let event = EventRec { id: 0, kind: EventKind::ActionCardPlayed, payload: crate::state::Payload::new(), cancelled: false };
+        let facts = NestedFacts { event, relation: Relation::When, chain: Vec::new() };
+        let state: &CoreState = self.state;
+        self.tape.pick_with(state, choice, Some(facts))
+    }
 }
 
 impl Host for RulesHost<'_> {

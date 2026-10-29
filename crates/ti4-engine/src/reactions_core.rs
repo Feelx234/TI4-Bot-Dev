@@ -231,6 +231,11 @@ pub fn follow(r: &Render, gs: &GameState, script: &Recording) -> Result<Option<F
             table.facts.set_reach(who, system, neighbours);
         }
     });
+    for (who, system, destinations) in &script.withdraw {
+        let (Some(who), Some(system)) = (r.seat(who), <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(system)) else { continue };
+        let destinations = destinations.iter().filter_map(|d| <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(d)).collect();
+        table.facts.set_withdraw(who, system, destinations);
+    }
     // A played card: Data Skimmer takes another player's discard onto the breakthrough (a Ral Nel seat), and a rules
     // version before 3 plays at once.
     if let Some(slot) = script.effects.iter().find(|e| e.starts_with("reaction:")) {
@@ -297,6 +302,8 @@ impl Follow {
         self.table.codes.mentak = r.code("mentak");
         self.table.codes.instinct_training = r.code("instinct_training");
         self.table.codes.direct_hit = r.code("action_card:direct_hit");
+        self.table.codes.retreat_capacity = r.code("retreat_capacity");
+        self.table.codes.reinforcements = r.code("reinforcements");
         self.table.facts.staging = crate::supply::staging_enabled(gs);
         let defs = self.table.registry(core, &order, &mut name);
         self.resolver.register(defs);

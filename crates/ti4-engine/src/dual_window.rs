@@ -86,6 +86,9 @@ pub struct Recording {
     pub cfg: Option<ResolverCfg>,
     /// The trace id of the first event the window emitted (the core numbers its own from there).
     pub first_event_id: Option<u64>,
+    /// The destinations a Skilled Retreat found for `(player, system)`, as the string's map computed them (the core is lent
+    /// no galaxy): an input of the card, noted by its effect.
+    pub withdraw: Vec<(String, String, Vec<String>)>,
     effect_depth: u32,
     in_pick: u32,
     /// The emission depth the window started at: a window may itself run inside an emission (an ability's
@@ -260,6 +263,15 @@ impl Drop for PickGuard {
             }
         });
     }
+}
+
+/// Skilled Retreat found these destinations for `player` leaving `system` (the map is the string's).
+pub fn note_withdraw(player: &str, system: &str, destinations: &[ti4_model::id::SystemId]) {
+    REC.with(|r| {
+        if let Some(rec) = r.borrow_mut().as_mut() {
+            rec.withdraw.push((player.to_owned(), system.to_owned(), destinations.iter().map(ToString::to_string).collect()));
+        }
+    });
 }
 
 /// A roll was made (`Dice::roll`): kept when an ability's effect made it.
@@ -3102,9 +3114,8 @@ fn settle_run(
     if crate::neutral_units::is_neutral(&a.attacker) || crate::neutral_units::is_neutral(&a.defender) {
         return None;
     }
-    if a.begin_occurrence && a.occurrence.is_none() {
-        a.occurrence = Some(gs.begin_feat_occurrence().0);
-    }
+    // The first round begins the occurrence itself, once the opening has not ended the fight.
+    let begin_occurrence = a.begin_occurrence && a.occurrence.is_none();
     let (mut cx, r) = tables(gs)?;
     nested_check(script)?;
     let seat = |p: &PlayerId| r.seat(p.as_str());
@@ -3160,6 +3171,7 @@ fn settle_run(
         announce: a.announce,
         staging: a.staging,
         occurrence: a.occurrence.unwrap_or(0),
+        begin_occurrence,
         phases: phase_codes,
         opening_unported: a.opening_unported,
         round_seq_listens: a.round_seq_listens,

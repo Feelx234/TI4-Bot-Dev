@@ -9823,6 +9823,23 @@ mod tests {
         assert!(sabotaged > 0, "a Sabotage was played in the window of a declared card");
     }
 
+    /// Skilled Retreat: the holder withdraws the whole fleet to a free neighbour at the start of a round; the core asks which
+    /// system when there are several (the destinations are the map's, noted by the string card), moves the fleet through the
+    /// retreat window and ends the combat in a draw.
+    #[test]
+    fn skilled_retreat_withdraws_the_fleet_in_the_core_window_in_lockstep() {
+        let mut withdrew = 0;
+        for factions in [["sol", "hacan"], ["sol", "mentak"]] {
+            for seed in 1..=4_u64 {
+                let (_, asked, bails, plays) = cards_fight_at(seed, factions, &[], &["s_retreat1"], true, true);
+                assert!(bails.iter().all(|k| !k.contains("(card s_retreat")), "{bails:?}");
+                withdrew += usize::from(plays.iter().any(|c| c == "s_retreat1"));
+                let _ = asked;
+            }
+        }
+        assert!(withdrew > 0, "a Skilled Retreat was played");
+    }
+
     /// Direct Hit: the attacker's hit is sustained by a dreadnought, the attacker destroys that ship from the slot of
     /// `SUSTAIN_DAMAGE_USED`; the core removes it and announces `SHIP_DESTROYED` after the discard. With a faction module
     /// seated (staging) the exact sustained ship goes; without, the first of the type.
@@ -9861,7 +9878,14 @@ mod tests {
 
     /// [`declared_cards_fight`] with the attacker's hand too; the last element is the card plays of the state, in order.
     fn cards_fight(seed: u64, factions: [&str; 2], attacker_hand: &[&str], hand: &[&str], damaged: bool) -> (usize, usize, Vec<String>, Vec<String>) {
+        cards_fight_at(seed, factions, attacker_hand, hand, damaged, false)
+    }
+
+    /// [`cards_fight`] on the centre of a plain hub, with its map lent to the combat (`hub`): the cards that look at the map
+    /// (Skilled Retreat) find their destinations.
+    fn cards_fight_at(seed: u64, factions: [&str; 2], attacker_hand: &[&str], hand: &[&str], damaged: bool, hub: bool) -> (usize, usize, Vec<String>, Vec<String>) {
         use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let hub_map = crate::fixtures::plain_hub();
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
         let (mut played, mut asked) = (0, 0);
@@ -9873,7 +9897,7 @@ mod tests {
             state.rng_seed = seed;
             state.player_mut(&defender()).unwrap().action_cards = hand.iter().map(|c| ti4_model::id::ActionCardId::new(*c)).collect();
             state.player_mut(&attacker()).unwrap().action_cards = attacker_hand.iter().map(|c| ti4_model::id::ActionCardId::new(*c)).collect();
-            let system = SystemId::new("18");
+            let system = if hub { SystemId::new(hub_map.centre.clone()) } else { SystemId::new("18") };
             put(&mut state, &system, "cruiser", &attacker(), 3);
             if damaged {
                 put(&mut state, &system, "cruiser", &defender(), 3);
@@ -9904,7 +9928,7 @@ mod tests {
                 dice: &mut dice,
                 rng: &mut rng,
                 table: &mut table,
-                timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: hub.then_some(&hub_map.galaxy) }),
             };
             resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
             played = state.action_card_plays.len();
