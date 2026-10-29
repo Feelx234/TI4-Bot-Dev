@@ -3336,6 +3336,12 @@ impl<'a> Game<'a> {
         }
     }
 
+    /// Replace the dice by test faces (the lockstep tests: the core cannot reproduce them).
+    #[cfg(test)]
+    pub(crate) fn use_test_faces(&mut self, faces: &[u32]) {
+        self.dice = Dice::from_faces(faces.iter().copied());
+    }
+
     /// The gravity-rift rolls of the game so far (the lockstep tests count them).
     #[cfg(test)]
     pub(crate) fn rift_rolls(&self) -> usize {

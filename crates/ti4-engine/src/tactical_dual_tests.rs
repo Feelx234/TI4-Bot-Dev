@@ -536,3 +536,68 @@ fn a_closed_movement_step_hands_the_aftermath_on() {
     let at = <System as crate::generated::IdStr>::from_id(target.as_str()).unwrap();
     assert_eq!((window.kind, window.actor, window.data), (WindowKind::Aftermath, Some(seat), [at.index() as u32, 0, 0]));
 }
+
+// -- the remaining documented bails, one test each --------------------------------------------------------------------
+
+#[test]
+fn minister_of_peace_mahact_and_the_dominus_orb_keep_the_activation_on_the_string() {
+    let (hub, origin, target) = hub();
+    let ready = |edit: &dyn Fn(&mut GameState)| {
+        let mut state = sol_hacan();
+        crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+        edit(&mut state);
+        state
+    };
+    bails(ready(&|s| { s.laws.insert("minister_peace".to_owned(), "a".to_owned()); }), &hub, &target, "tactical::activate", "Minister of Peace");
+    bails(ready(&|s| s.player_mut(&b()).unwrap().faction = ti4_model::id::FactionId::new("mahact")), &hub, &target, "tactical::activate", "Mahact");
+    bails(ready(&|s| s.player_mut(&a()).unwrap().relics.push(ti4_model::id::RelicId::new("dominusorb"))), &hub, &target, "tactical::activate", "Dominus Orb");
+}
+
+#[test]
+fn test_faces_in_the_dice_keep_every_window_on_the_string() {
+    let (hub, origin, target) = hub();
+    let mut state = sol_hacan();
+    crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+    let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()], |game| game.use_test_faces(&[10, 10]));
+    assert_eq!(done.counts("tactical::activate"), (0, 1));
+    assert!(done.reasons.iter().any(|r| r.contains("irreproducible dice")), "{:?}", done.reasons);
+}
+
+/// The head of the close, reached with a carrier that does not move.
+fn closes(state: GameState, hub: &crate::fixtures::Hub, target: &SystemId, reason: &str) {
+    let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), "done_moving"], |_| {});
+    assert_eq!(done.counts("tactical::finish"), (0, 1), "{reason}: {:?}", done.reasons);
+    assert!(done.reasons.iter().any(|r| r.contains(reason)), "{reason}: {:?}", done.reasons);
+}
+
+#[test]
+fn nova_seed_the_sardakk_hero_and_a_floating_factory_keep_the_close_on_the_string() {
+    let (hub, origin, target) = hub();
+    let base = || {
+        let mut state = sol_hacan();
+        crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+        state
+    };
+    let mut edits = base();
+    edits.faction_marks.insert(format!("{}x", crate::movement::MAP_EDIT_PREFIX), "1".to_owned());
+    closes(edits, &hub, &target, "map edits");
+    let mut hero = base();
+    hero.player_mut(&b()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("sardakkhero"), ti4_model::state::LeaderStatus::Unlocked);
+    closes(hero, &hub, &target, "Sardakk hero");
+    let mut factory = base();
+    crate::fixtures::put(&mut factory, &target, "saar_spacedock", &a(), 1);
+    closes(factory, &hub, &target, "Floating Factory");
+}
+
+#[test]
+fn a_route_other_than_the_default_is_followed_from_the_questions_list() {
+    // outer[0] to outer[2]: two steps round the ring or two through the centre, so the question lists routes.
+    let hub = crate::fixtures::plain_hub();
+    let (origin, target) = (SystemId::new(hub.outer[0].clone()), SystemId::new(hub.outer[2].clone()));
+    let mut state = sol_hacan();
+    crate::fixtures::put(&mut state, &origin, "cruiser", &a(), 1);
+    let mv = format!("{}|r1", id(&origin, 0));
+    let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv], |_| {});
+    assert_eq!(done.counts("tactical::move"), (1, 0), "{:?}", done.reasons);
+    assert_eq!(total(&done.state, &target, &a(), Some("cruiser")), 1);
+}
