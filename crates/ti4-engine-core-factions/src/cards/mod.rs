@@ -25,7 +25,6 @@ pub fn register(t: &mut AbilityTable) {
     t.add_card_play(CardPlay { covers: direct_hit_covers, effect: direct_hit });
     t.add_card_play(CardPlay { covers: skilled_retreat_covers, effect: skilled_retreat });
     t.add_card_play(CardPlay { covers: |c| c == ActionCard::FireTeam, effect: fire_team });
-    t.add_card_play(CardPlay { covers: |c| c == ActionCard::ScrambleFrequency, effect: scramble });
     t.after_play = Some(announce_destructions);
 }
 
@@ -94,23 +93,6 @@ fn fire_team(host: &mut RulesHost<'_>, _: &mut Resolver, who: Seat, card: Action
     Ok(())
 }
 
-/// Scramble Frequency: "after another player makes a BOMBARDMENT, SPACE CANNON, or ANTI-FIGHTER BARRAGE roll: that player
-/// rerolls all of their dice." Forced: every die the roller just made is drawn again.
-#[allow(clippy::unnecessary_wraps)]
-fn scramble(host: &mut RulesHost<'_>, _: &mut Resolver, _: Seat, _: ActionCard) -> Result<(), TimingError> {
-    let Some(facts) = host.table.facts.reroll.clone() else {
-        host.tape.unknown.set(Some(Unknown::MissingFact));
-        return Ok(());
-    };
-    let Some(roller) = host.state.transient().combat.last_reroll_player else { return Ok(()) };
-    let Some(set) = host.state.transient().combat.reroll_staging.iter().find(|(s, _)| *s == roller).map(|(_, set)| set.clone()) else { return Ok(()) };
-    if ![facts.bombardment, facts.space_cannon, facts.barrage].contains(&set.kind) {
-        return Ok(());
-    }
-    let picks: Vec<(usize, usize)> = set.rolls.iter().enumerate().flat_map(|(e, entry)| (0..entry.faces.len()).map(move |d| (e, d))).collect();
-    redraw(host, roller, &picks);
-    Ok(())
-}
 
 const fn direct_hit_covers(card: ActionCard) -> bool {
     matches!(card, ActionCard::DirectHit1 | ActionCard::DirectHit2 | ActionCard::DirectHit3 | ActionCard::DirectHit4)

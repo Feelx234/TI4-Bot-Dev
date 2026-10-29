@@ -134,6 +134,19 @@ pub fn with_reach<T>(entries: Vec<(String, String, Vec<String>)>, body: impl FnO
     out
 }
 
+thread_local! {
+    /// The texts of the staged rerolls of the window being run (Fire Team, Scramble Frequency).
+    static REROLL: std::cell::RefCell<Option<ti4_engine_core::kernel::ability::RerollFacts>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Run `body` with the reroll texts of the window installed (read by [`follow`]).
+pub fn with_reroll<T>(facts: ti4_engine_core::kernel::ability::RerollFacts, body: impl FnOnce() -> T) -> T {
+    let before = REROLL.with(|v| v.replace(Some(facts)));
+    let out = body();
+    REROLL.with(|v| *v.borrow_mut() = before);
+    out
+}
+
 /// The registered id of `spec` for an owner called `owner`.
 fn id_text(r: &Render, spec: &Spec, owner: &str, owner_seat: &str, lender: Option<&(String, String)>) -> String {
     let (event, rel) = (event_text(r, spec.event), rel_segment(spec));
@@ -304,6 +317,7 @@ pub fn follow(r: &Render, gs: &GameState, script: &Recording) -> Result<Option<F
         let destinations = destinations.iter().filter_map(|d| <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(d)).collect();
         table.facts.set_withdraw(who, system, destinations);
     }
+    table.facts.reroll = REROLL.with(|v| v.borrow().clone());
     for (a, b, adjacent) in &script.adjacent {
         let (Some(a), Some(b)) = (<ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(a), <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(b)) else { continue };
         table.facts.set_adjacent(a, b, *adjacent);
@@ -526,8 +540,8 @@ mod tests {
         let mut played = rec(&[id], &[id]);
         played.played = vec!["sh1".to_owned()];
         assert_eq!(played.unported(&t), None, "a Shields Holding is played by the core");
-        played.played = vec!["fire_team".to_owned()];
-        assert_eq!(played.unported(&t).as_deref(), Some("unported ability reaction:*:HITS_TO_ASSIGN:when (card fire_team)"), "a card the core does not play");
+        played.played = vec!["scramble".to_owned()];
+        assert_eq!(played.unported(&t).as_deref(), Some("unported ability reaction:*:HITS_TO_ASSIGN:when (card scramble)"), "a card the core does not play");
     }
 
     #[test]
@@ -539,7 +553,7 @@ mod tests {
         assert_eq!(r.unported(&t), None, "a Morale Boost is a stamp the core plays");
         r.played = vec!["mb1".to_owned(), "reveal_prototype".to_owned()];
         assert_eq!(r.unported(&t).as_deref(), Some("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card reveal_prototype)"));
-        for card in ["courageous", "scramble", "reflective", "fire_team"] {
+        for card in ["courageous", "scramble", "reflective"] {
             r.played = vec![card.to_owned()];
             assert_eq!(r.unported(&t).as_deref(), Some(&*format!("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card {card})")), "{card} stays the string's");
         }

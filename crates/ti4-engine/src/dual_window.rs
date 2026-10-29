@@ -3182,14 +3182,20 @@ pub fn roll_tail_unported(gs: &GameState, a: &RollTailArgs<'_>) -> Option<&'stat
 }
 
 const ROLL_TAIL: Footprint = Footprint::new(
-    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
-    &[Slice::Meta, Slice::Transient, Slice::Pending],
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng],
+    &[Slice::Meta, Slice::Transient, Slice::Pending, Slice::Rng],
 );
 
 /// The core half of `InvasionWindow::roll_ground_tail`. `None` for the positions of [`roll_tail_unported`], nested
 /// activity (a card played in a reroll window) and a position the codecs refuse.
 #[must_use]
-pub fn roll_tail(gs: &mut GameState, a: &RollTailArgs<'_>, script: &Recording) -> Option<CoreWindow<(usize, usize, Vec<ti4_model::state::InvasionDie>)>> {
+pub fn roll_tail(
+    gs: &mut GameState,
+    a: &RollTailArgs<'_>,
+    rng_before: &crate::rng::RngPositions,
+    string_after: &std::cell::Cell<Option<crate::rng::RngPositions>>,
+    script: &Recording,
+) -> Option<CoreWindow<(usize, usize, Vec<ti4_model::state::InvasionDie>)>> {
     use ti4_engine_core::rules::invasion::tail::{Facts, GroundRollTail};
     let (mut cx, r) = tables(gs)?;
     nested_check(script)?;
@@ -3200,16 +3206,28 @@ pub fn roll_tail(gs: &mut GameState, a: &RollTailArgs<'_>, script: &Recording) -
     let before = gs.clone();
     let env = crate::core_invasion::ground_env(&before, &cx, ti4_model::content_types::SourceSet::default())?;
     let facts = Facts { invader, defender, system, planet, rolled: (u32::try_from(a.rolled.0).ok()?, u32::try_from(a.rolled.1).ok()?), bump: a.bump, announce: a.announce };
-    let mut driver = Driver::new(GroundRollTail::new(facts), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1);
+    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
+    let mut driver = Driver::new(GroundRollTail::new(facts), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1).with_seeds(seeds);
+    // The cards that reroll the staged dice (Fire Team) read the texts of the staged sets.
+    let (reroll, texts) = reroll_facts(&mut cx, &r, &before)?;
     let mut staged = Vec::new();
-    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(ROLL_TAIL, script), |core, _| {
-        let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
-        staged = std::mem::take(&mut core.pending_mut().staged);
-        driven
+    let mut rng_after = None;
+    let src = Sources { galaxy: None, rng: Some(rng_before) };
+    let driven = crate::reactions_core::with_reroll(reroll, || {
+        with_core(gs, &mut cx, src, nested_fp(ROLL_TAIL, script), |core, _| {
+            let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|c, st, rendered| roll_details(ti4_content::ContentStore::embedded(), &texts, &|_| 0, c, st, rendered));
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            rng_after = Some(core.rng().clone());
+            driven
+        })
     })
     .ok()?
     .ok()?;
     apply_staged(gs, &r, &staged)?;
+    let positions = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
+    if let Some(string_side) = string_after.take() {
+        crate::dual::compare_value(crate::dual::Area::Invasion, "invasion::roll_ground_tail.rng", &string_side, &positions);
+    }
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     let dice = driver
         .window
@@ -3228,6 +3246,26 @@ pub fn roll_tail(gs: &mut GameState, a: &RollTailArgs<'_>, script: &Recording) -
         .collect::<Option<Vec<_>>>()?;
     let (ah, dh) = driver.window.hits;
     Some(CoreWindow { run: Run::new((ah as usize, dh as usize, dice)).with_events_vec(events), questions: driven.rendered })
+}
+
+/// The texts of the staged sets of the position, for the cards that reroll them: the state texts of the kinds and, per unit
+/// group of a staged entry, the code a question shows it by.
+fn reroll_facts(cx: &mut Ctx, r: &Render, before: &GameState) -> Option<(ti4_engine_core::kernel::ability::RerollFacts, Vec<(ti4_engine_core::state::Code, String)>)> {
+    let mut facts = ti4_engine_core::kernel::ability::RerollFacts {
+        ground: cx.texts.intern(Slice::Transient, "ground").ok()?,
+        shown: Vec::new(),
+    };
+    let mut texts = Vec::new();
+    for set in before.reroll_staging.values() {
+        for roll in &set.rolls {
+            let state = cx.texts.intern(Slice::Transient, &roll.unit).ok()?;
+            if !facts.shown.iter().any(|(s, _)| *s == state) {
+                facts.shown.push((state, r.code(&roll.unit)));
+                texts.push((state, roll.unit.clone()));
+            }
+        }
+    }
+    Some((facts, texts))
 }
 
 // --- which planet the invasion fights on next (B2) -----------------------------------------------------

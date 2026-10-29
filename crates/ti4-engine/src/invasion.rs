@@ -4240,6 +4240,8 @@ impl InvasionWindow {
                     crate::dual::note_bail("invasion::roll_ground_tail", why);
                     return self.roll_ground_tail_string(state, ctx, planet, defender, copied_round, hits);
                 }
+                let rng_before = ctx.rng.positions();
+                let string_after = std::cell::Cell::new(None);
                 let ctx = std::cell::RefCell::new(ctx);
                 let this = std::cell::RefCell::new(&mut *self);
                 return crate::dual_window!(
@@ -4248,9 +4250,10 @@ impl InvasionWindow {
                     state,
                     |s: &mut GameState| {
                         let out = this.borrow_mut().roll_ground_tail_string(s, &mut **ctx.borrow_mut(), planet, defender, copied_round, hits);
+                        string_after.set(Some(ctx.borrow().rng.positions()));
                         crate::dual::Run::new(out)
                     },
-                    |s: &mut GameState, script: &crate::dual_window::Recording| crate::dual_window::roll_tail(s, &args, script)
+                    |s: &mut GameState, script: &crate::dual_window::Recording| crate::dual_window::roll_tail(s, &args, &rng_before, &string_after, script)
                 );
             }
         }
@@ -7307,6 +7310,52 @@ mod tests {
         let followed: u64 = r.nested.iter().filter(|(k, _)| k.contains("unit:*:sardakk_mech:GROUND_FORCE_SUSTAINED:after")).map(|(_, n)| *n).sum();
         assert!(followed > 0, "a mech sustained and hit back: {:?}", r.nested.keys().collect::<Vec<_>>());
         assert!(r.windows.keys().all(|k| !k.contains("sardakk_mech")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+        let _ = take_report();
+    }
+
+    /// Fire Team ("reroll any number of your dice" after your ground forces roll): the card is played from the reaction slot of
+    /// `GROUND_ROLLS_MADE`, one optional question per staged die, the chosen dice are drawn again from the dice stream. The core
+    /// window rolls the same faces: the hits and the dice of the report and the position of the stream are compared.
+    #[test]
+    fn fire_team_rerolls_the_staged_dice_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        struct Play(u64, usize);
+        impl crate::choice::Decider for Play {
+            fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, crate::choice::IllegalChoice> {
+                self.1 += 1;
+                if choice.prompt.starts_with("reroll die") {
+                    let want = (self.0 as usize + self.1) % 2 == 0;
+                    let i = choice.options.iter().position(|o| o.id.starts_with("reroll|") == want).unwrap_or(0);
+                    return Ok(choice.options[i].clone());
+                }
+                let i = choice.options.iter().position(|o| o.id.starts_with("reaction:")).unwrap_or(0);
+                Ok(choice.options[i].clone())
+            }
+        }
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        with_mask(mask, || {
+            for seed in 1..=8_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "hacan"), ("b", "sol")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                state.player_mut(&PlayerId::new("a")).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("fire_team")];
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 6);
+                state.system_mut(&system).set_control(planet.clone(), PlayerId::new("b"));
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 4);
+                run_invasion_with(&mut state, seed, &system, Box::new(Play(seed, 0)));
+            }
+        });
+        let r = report();
+        let played: u64 = r.nested.iter().filter(|(k, _)| k.contains("GROUND_ROLLS_MADE")).map(|(_, n)| *n).sum();
+        assert!(played > 0, "Fire Team was offered inside the roll windows: {:?}", r.nested.keys().collect::<Vec<_>>());
+        assert!(r.nested.keys().any(|k| k.contains("ask:reroll die")), "the dice were asked about one by one: {:?}", r.nested.keys().collect::<Vec<_>>());
+        assert!(r.windows.keys().all(|k| !k.contains("[bail:")), "{:?}", r.windows);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
         let _ = take_report();
     }
