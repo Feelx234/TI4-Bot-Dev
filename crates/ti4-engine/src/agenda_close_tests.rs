@@ -387,3 +387,50 @@ fn old_games_diplomacy_reserves_and_unknown_agendas_have_no_window() {
     });
     assert_eq!((compared, bailed), (0, 1));
 }
+
+#[test]
+fn the_unofficial_action_cards_leave_the_deck_before_a_rider_draws_from_rules_version_30() {
+    for (version, kept) in [(35, ["sabo1", "sabo2", "sabo3"]), (29, ["veto3", "sabo1", "sabo2"])] {
+        let (g, compared, bailed, diff) = lockstep(|| {
+            let mut s = position();
+            s.rules_version = version;
+            s.action_card_deck = ["veto3", "sabo1", "sabo2", "sabo3"].iter().map(|c| ActionCardId::new(*c)).collect();
+            predict(&mut s, "b", "for|politic_rider");
+            close(game(s, &[]), law_vote("checks", Some("for")))
+        });
+        ok(compared, bailed, &diff);
+        let drawn: Vec<String> = g.state.player(&p("b")).unwrap().action_cards.iter().map(|c| c.to_string()).collect();
+        assert_eq!(drawn, kept, "rules version {version}");
+    }
+}
+
+#[test]
+fn a_hand_that_would_overflow_or_a_hook_leaves_the_rider_to_the_string() {
+    // Politics Rider with six cards in hand: the draw leaves the hand over its limit and the string asks a discard.
+    let (_, compared, bailed, _) = lockstep(|| {
+        let mut s = position();
+        s.action_card_deck = ["sabo1", "sabo2", "sabo3"].iter().map(|c| ActionCardId::new(*c)).collect();
+        hand(&mut s, "b", &["hack", "hack", "hack", "hack", "hack", "hack"]);
+        predict(&mut s, "b", "for|politic_rider");
+        let mut g = Game::new(s, ContentStore::embedded()).with_sources(DEFAULT);
+        g.put_vote(law_vote("checks", Some("for")));
+        let _ = g.close_vote();
+    });
+    assert_eq!((compared, bailed), (0, 1));
+}
+
+#[test]
+fn a_deck_reserve_is_the_named_reason_of_the_bail() {
+    let (_, compared, bailed, _) = lockstep(|| {
+        let mut s = position();
+        s.deck_reserve = Some(ti4_model::deck_reserve::DeckReserve::new(
+            std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            ti4_model::deck_reserve::DeckPlan::default(),
+        ));
+        let mut g = game(s, &[]);
+        g.put_vote(law_vote("checks", Some("for")));
+        let _ = g.close_vote();
+        assert_eq!(crate::dual::report().windows.get("game::close_vote [bail: deck reserve]").map(|w| w.bailed), Some(1));
+    });
+    assert_eq!((compared, bailed), (0, 1));
+}

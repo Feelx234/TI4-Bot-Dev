@@ -361,10 +361,29 @@ fn the_dice_effects_run_as_core_windows_in_lockstep() {
     assert!(compared >= 24 * 4 && bailed == 0, "{compared} compared, {bailed} bailed");
 }
 
-/// Dice the core cannot reproduce (test faces, a restore, a seed other than the state's) and a Ral Nel Skimmer that
-/// takes a discard run the string body bare (B9-bail-01).
+/// The streams are copied at the position the string's stood at, not at the start.
 #[test]
-fn irreproducible_dice_and_a_skimmer_have_no_window() {
+fn the_dice_effects_continue_the_streams_where_they_stood() {
+    let (compared, bailed) = counted(|| {
+        for seed in 0..8 {
+            let mut state = table();
+            hand(&mut state, "a", &["sabo1", "sabo2", "sabo3"]);
+            state.rng_seed = seed;
+            let content = ti4_content::ContentStore::embedded();
+            let (mut dice, mut rng, mut t) = (crate::dice::Dice::new(), crate::rng::GameRng::new(seed), crate::choice::Table::new());
+            dice.roll(&mut rng, 7, "warm up", None);
+            let mut ctx = crate::choice::Resolving { content, sources: POK, dice: &mut dice, rng: &mut rng, table: &mut t, timing: None };
+            crate::agenda_effects::resolve_with(&mut state, &mut ctx, None, "sanctions", AGAINST, &Ballot::default());
+            assert_eq!(state.player(&pid("a")).unwrap().action_cards.len(), 2);
+        }
+    });
+    assert_eq!((compared, bailed), (8, 0));
+}
+
+/// Dice the core cannot reproduce (test faces, a restore, a seed other than the state's) run the string body bare
+/// (B9-bail-01).
+#[test]
+fn irreproducible_dice_have_no_window() {
     let mut state = table();
     // The probe passes no stream positions: the same as test faces or a pending restore.
     assert!(core_half(&mut state, "sanctions", AGAINST, &Ballot::default()).is_none());
@@ -379,6 +398,8 @@ fn irreproducible_dice_and_a_skimmer_have_no_window() {
         let mut ctx = crate::choice::Resolving { content, sources: POK, dice: &mut dice, rng: &mut rng, table: &mut t, timing: None };
         crate::agenda_effects::resolve_with(&mut state, &mut ctx, None, "sanctions", AGAINST, &Ballot::default());
         assert_eq!(state.player(&pid("a")).unwrap().action_cards.len(), 1);
+        let key = "agenda_effects::resolve_with [bail: irreproducible dice (test faces or a stream restore)]";
+        assert_eq!(crate::dual::report().windows.get(key).map(|w| w.bailed), Some(1));
     });
     assert_eq!((compared, bailed), (0, 1));
     // The For half of Sanctions and the Against half of the Artifact roll nothing and are plain windows.

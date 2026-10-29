@@ -935,12 +935,9 @@ pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, a: &Effect
     if window.draws() && gs.deck_reserve.is_some() {
         return None;
     }
-    // The dice: only streams the core can reproduce; a discard Ral Nel's Skimmer takes is not a rule of the core.
+    // The dice: only streams the core can reproduce. (Ral Nel's Data Skimmer takes a discard only in the action phase,
+    // which the window declines above.)
     let rolls = if window.rolls() {
-        if crate::factions::ralnel_cards::skimmer_holder(gs).is_some() {
-            crate::dual::note_bail("agenda_effects::resolve_with", "Ral Nel Skimmer takes a discard");
-            return None;
-        }
         let Some(before) = a.rolls else {
             crate::dual::note_bail("agenda_effects::resolve_with", "irreproducible dice (test faces or a stream restore)");
             return None;

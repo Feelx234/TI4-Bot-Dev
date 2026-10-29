@@ -447,4 +447,166 @@ mod tests {
         assert!(Resolve::of(Agenda::Mutiny, Outcome::Empty, &[]).is_none());
         assert!(!Resolve::repeal(Agenda::PoliticalCensure).repealed());
     }
+
+    // -- the card, relic and dice effects (package B9c-2) ----------------------------------------------------------
+
+    use crate::driver::Driver;
+    use crate::generated::{ActionCard, Faction, Relic, Unit};
+    use crate::kernel::stage::AbilityTable;
+    use crate::kernel::Resolver;
+    use crate::state::{Code, Player, Players, Seats};
+    use crate::tables::Scope;
+
+    struct Seeds(u8);
+    impl crate::state::SeedSource for Seeds {
+        fn seed_for(&self, _: u64, _: crate::state::RngDomain) -> [u8; 32] {
+            [self.0; 32]
+        }
+    }
+
+    fn facts(for_voters: &[Seat]) -> EffectFacts {
+        EffectFacts {
+            for_voters: SmallList::from_slice(for_voters),
+            against_voters: SmallList::new(),
+            mahact_held: [0; 8],
+            scope: Scope(!0),
+            default_scope: Scope(!0),
+            source: Code(0),
+            pool: Code(0),
+            has_galaxy: false,
+            defense_act: Code(0),
+            hooked: 0,
+            drop_unofficial: false,
+            blanked: false,
+        }
+    }
+
+    fn table(n: u8) -> CoreState {
+        let mut s = CoreState::all_loaded();
+        let players: Vec<Player> = (0..n).map(|i| Player::new(Seat(i), Faction::ALL[usize::from(i)])).collect();
+        let list: Vec<Seat> = (0..n).map(Seat).collect();
+        s.seats = Seats::new(&list, &list, n);
+        s.players = Players::from_vec(players);
+        s
+    }
+
+    fn run(window: Resolve, s: &mut CoreState, seed: u8) -> Driver<Resolve> {
+        let k = Kernel::plain();
+        let mut d = Driver::new(window, Resolver::new(&[], None), AbilityTable::default(), 1).with_seeds(std::rc::Rc::new(Seeds(seed)));
+        assert_eq!(d.run(s, &k).unwrap(), crate::driver::Status::Done);
+        d
+    }
+
+    fn hand(s: &mut CoreState, seat: Seat, n: usize) {
+        s.players_mut().by_seat_mut(seat).unwrap().cards.hand = vec![ActionCard::ALL[3]; n].into_iter().collect();
+    }
+
+    fn held(s: &CoreState, seat: Seat) -> usize {
+        s.players().by_seat(seat).unwrap().cards.hand.len()
+    }
+
+    #[test]
+    fn unconventional_measures_for_draws_two_cards_for_each_for_voter() {
+        let (a, b) = (Seat(0), Seat(1));
+        let mut s = table(3);
+        s.decks_mut().action.set(vec![ActionCard::ALL[0], ActionCard::ALL[1], ActionCard::ALL[2], ActionCard::ALL[4], ActionCard::ALL[5]]);
+        let f = facts(&[a, Seat(2)]);
+        let w = Resolve::of_facts(Agenda::UnconventionalMeasures, Outcome::For, &f).unwrap();
+        assert!(w.draws(), "a turn-redo reserve would draw through the deck");
+        let d = run(w, &mut s, 1);
+        assert_eq!((held(&s, a), held(&s, b), held(&s, Seat(2))), (2, 0, 2));
+        assert_eq!(s.decks().action.cards().len(), 1);
+        assert!(!d.window.unsupported());
+        // A hooked seat, a hand that would overflow the limit (7) or a lowered limit: not expressed.
+        for (hooked, cards, blanked_limit) in [(1_u16, 0, false), (0, 6, false)] {
+            let mut s = table(3);
+            s.decks_mut().action.set(vec![ActionCard::ALL[0]; 4]);
+            hand(&mut s, a, cards);
+            let f = EffectFacts { hooked, blanked: blanked_limit, ..facts(&[a]) };
+            let d = run(Resolve::of_facts(Agenda::UnconventionalMeasures, Outcome::For, &f).unwrap(), &mut s, 1);
+            assert!(d.window.unsupported(), "hooked {hooked}, {cards} cards");
+        }
+        // Five cards and two more reach the limit exactly: plain.
+        let mut s = table(3);
+        s.decks_mut().action.set(vec![ActionCard::ALL[0]; 4]);
+        hand(&mut s, a, 5);
+        assert!(!run(Resolve::of_facts(Agenda::UnconventionalMeasures, Outcome::For, &facts(&[a])).unwrap(), &mut s, 1).window.unsupported());
+        assert_eq!(held(&s, a), 7);
+    }
+
+    #[test]
+    fn minister_of_antiquities_gives_the_elected_seat_the_top_relic() {
+        let mut s = table(2);
+        let other = Relic::ALL.iter().copied().find(|r| *r != Relic::ShardOfTheThrone).unwrap();
+        s.decks_mut().relic.set(vec![other, Relic::ShardOfTheThrone]);
+        let f = facts(&[]);
+        let w = Resolve::of_facts(Agenda::MinisterOfAntiquities, Outcome::Seat(Seat(1)), &f).unwrap();
+        assert!(w.draws());
+        run(w, &mut s, 1);
+        assert_eq!(s.players().by_seat(Seat(1)).unwrap().cards.relics.as_slice(), [other]);
+        assert_eq!(s.decks().relic.cards().len(), 1);
+        run(Resolve::of_facts(Agenda::MinisterOfAntiquities, Outcome::Seat(Seat(1)), &f).unwrap(), &mut s, 1);
+        assert_eq!(s.players().by_seat(Seat(1)).unwrap().econ.victory_points, 1, "the Shard scores");
+    }
+
+    #[test]
+    fn executive_sanctions_against_discards_the_card_a_die_picks_from_each_hand() {
+        let f = facts(&[]);
+        let mut distinct = std::collections::BTreeSet::new();
+        for seed in 0..16 {
+            let mut s = table(3);
+            hand(&mut s, Seat(0), 3);
+            hand(&mut s, Seat(2), 5);
+            let w = Resolve::of_facts(Agenda::ExecutiveSanctions, Outcome::Against, &f).unwrap();
+            assert!(w.rolls());
+            let d = run(w, &mut s, seed);
+            assert_eq!((held(&s, Seat(0)), held(&s, Seat(1)), held(&s, Seat(2))), (2, 0, 4));
+            assert_eq!(d.window.faces().len(), 2, "one die for each hand, none for the empty one");
+            assert!(d.window.faces().iter().all(|f| (1..=10).contains(f)));
+            distinct.insert(d.window.faces().to_vec());
+        }
+        assert!(distinct.len() > 1, "the dice follow the stream");
+        // The card picked is the one at `face % held`.
+        let mut s = table(1);
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand = ActionCard::ALL[..4].iter().copied().collect();
+        let d = run(Resolve::of_facts(Agenda::ExecutiveSanctions, Outcome::Against, &f).unwrap(), &mut s, 3);
+        let gone = usize::try_from(d.window.faces()[0]).unwrap() % 4;
+        let mut left: Vec<ActionCard> = ActionCard::ALL[..4].to_vec();
+        left.remove(gone);
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.hand.as_slice(), left.as_slice());
+        // For rolls nothing.
+        let w = Resolve::of_facts(Agenda::ExecutiveSanctions, Outcome::For, &f).unwrap();
+        assert!(!w.rolls());
+    }
+
+    #[test]
+    fn ixthian_artifact_for_destroys_ships_that_cannot_sustain_unless_a_six_or_more_is_rolled() {
+        let f = facts(&[]);
+        let (mut deferred, mut cratered) = (0, 0);
+        for seed in 0..40 {
+            let mut s = table(2);
+            let (home, far) = (System::ALL[3], System::ALL[4]);
+            for unit in [Unit::CarrierI, Unit::DreadnoughtI, Unit::FighterI] {
+                fx::place_unit(&mut s, Seat(0), home, None, unit);
+            }
+            fx::place_unit(&mut s, Seat(1), far, None, Unit::WarSun);
+            fx::place_unit(&mut s, Seat(1), far, Some(Planet::ALL[3]), Unit::InfantryI);
+            let w = Resolve::of_facts(Agenda::IxthianArtifact, Outcome::For, &f).unwrap();
+            let d = run(w, &mut s, seed);
+            assert_eq!(d.window.faces().len(), 1);
+            let ships = s.board().sys(home).units.len();
+            if d.window.faces()[0] >= 6 {
+                deferred += 1;
+                assert_eq!((d.window.done(), ships), (Done::Deferred, 3));
+            } else {
+                cratered += 1;
+                assert_eq!((d.window.done(), ships), (Done::Resolved, 1), "only the dreadnought sustains");
+                assert_eq!(s.board().sys(home).units.as_slice()[0].kind(), Unit::DreadnoughtI);
+                assert_eq!(s.board().sys(far).units.len(), 1, "the war sun sustains");
+                assert_eq!(s.board().planet(Planet::ALL[3]).units.len(), 1, "ground forces are not ships");
+            }
+        }
+        assert!(deferred > 0 && cratered > 0, "{deferred} deferred, {cratered} cratered");
+        assert!(!Resolve::of_facts(Agenda::IxthianArtifact, Outcome::Against, &f).unwrap().rolls());
+    }
 }
