@@ -851,3 +851,48 @@ fn strategize_performs_the_politics_and_technology_secondaries_in_the_core_windo
     assert_eq!(after.player(&a).unwrap().technologies.len(), poor.player(&a).unwrap().technologies.len(), "four resources are not there");
     let _ = crate::dual::take_report();
 }
+
+/// The Leadership secondary buys command tokens for influence (the purchase loop, the first purchase accepted), Diplomacy readies
+/// up to two exhausted planets and Construction places a structure.
+#[test]
+fn strategize_performs_the_leadership_diplomacy_and_construction_secondaries_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let a = PlayerId::new("a");
+    // The seat is rich (trade goods and ready planets pay), so the purchase asks what to pay with.
+    let mut rich = closing_position();
+    rich.exhausted_planets.clear();
+    rich.player_mut(&a).unwrap().trade_goods = 4;
+    let leadership = strategy_on(rich.clone(), &[], &[], &[], &["pok1leadership"]);
+    // Trade goods alone pay (a lone option is taken without a question), then the offer of one more.
+    let mut goods = closing_position();
+    goods.player_mut(&a).unwrap().trade_goods = 6;
+    let goods = strategy_on(goods, &[], &[], &[], &["pok1leadership"]);
+    // Nothing to pay with: nothing is asked.
+    let mut broke = closing_position();
+    broke.player_mut(&a).unwrap().trade_goods = 0;
+    let broke = strategy_on(broke, &[], &[], &[], &["pok1leadership"]);
+    // Diplomacy: the position exhausts the planets of the seat (two or more to choose from), both printings.
+    let diplomacy = strategy_position(&[], &[], &[], &["pok2diplomacy"]);
+    let base_diplomacy = strategy_position(&[], &[], &[], &["base2"]);
+    let mut ready = closing_position();
+    ready.exhausted_planets.clear();
+    let ready = strategy_on(ready, &[], &[], &[], &["pok2diplomacy"]);
+    let construction = strategy_on(rich.clone(), &[], &[], &[], &["pok4construction"]);
+    let base_construction = strategy_on(rich.clone(), &[], &[], &[], &["base4"]);
+    for case in [&leadership, &goods, &broke, &diplomacy, &base_diplomacy, &ready, &construction, &base_construction] {
+        announce_all(&[("strategize1", case.clone())]);
+    }
+    let _ = crate::dual::take_report();
+    let tokens = |s: &GameState| {
+        let seat = s.player(&a).unwrap();
+        seat.tactic_tokens + seat.fleet_tokens + seat.strategic_tokens
+    };
+    let after = played_by("strategize2", &leadership, Box::new(crate::action_cards_closing_tests::FirstOption));
+    assert!(tokens(&after) > tokens(&leadership), "a command token was bought");
+    let after = played("strategize3", &diplomacy);
+    assert!(after.exhausted_planets.len() < diplomacy.exhausted_planets.len(), "a planet was readied");
+    let after = played_by("strategize4", &construction, Box::new(crate::action_cards_closing_tests::FirstOption));
+    let structures = |s: &GameState| s.board.values().flat_map(|b| b.planet_units.values().flatten()).filter(|u| u.owner == a).count();
+    assert_eq!(structures(&after), structures(&construction) + 1, "a structure was placed");
+    let _ = crate::dual::take_report();
+}
