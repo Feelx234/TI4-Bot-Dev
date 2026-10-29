@@ -1062,8 +1062,9 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedVia("game.rs::step_agenda_talks"),
     },
     Producer {
-        // Political Favor and Political Secret: whether the holder uses the note at its window.
-        module: "game.rs",
+        // Quash, Political Favor and Political Secret: whether the holder uses it at its window
+        // (`agenda_reveal::Live`, the reveal chain split out of `Game`).
+        module: "agenda_reveal.rs",
         function: "ask_to_use_note",
         count: 1,
         delivery: Delivery::ObservedHere,
@@ -1076,8 +1077,9 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
-        module: "game.rs",
-        function: "committee_formation",
+        // Committee Formation: which player the agenda elects (`agenda_close::Live`, split out of `Game`).
+        module: "agenda_close.rs",
+        function: "committee_elect",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1738,9 +1740,9 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("game.rs", "step_diplomacy", 1),
     ("game.rs", "step_agenda_talks", 1),
     ("game.rs", "step_vote", 1),
-    ("game.rs", "ask_to_use_note", 1),
+    ("agenda_reveal.rs", "ask_to_use_note", 1),
     ("game.rs", "perform_zeu", 1),
-    ("game.rs", "committee_formation", 1),
+    ("agenda_close.rs", "committee_elect", 1),
     ("game.rs", "imperial_arbiter", 2),
     ("game.rs", "minister_of_war", 1),
     ("invasion.rs", "absorb_ground_text", 1),

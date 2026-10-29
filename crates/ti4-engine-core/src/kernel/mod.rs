@@ -19,6 +19,8 @@
 
 pub mod ability;
 pub mod fx;
+pub mod fx_agenda;
+pub mod fx_relic;
 pub mod fx_pay;
 pub mod fx_plots;
 pub mod hooks;

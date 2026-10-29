@@ -257,20 +257,154 @@ fn the_planet_effects_run_as_core_windows_in_lockstep() {
     assert!(compared >= 6 && bailed == 0, "{compared} compared, {bailed} bailed");
 }
 
+/// Unconventional Measures For (two action cards for each For voter) and Minister of Antiquities (the top relic).
+#[test]
+fn the_draw_and_relic_effects_run_as_core_windows_in_lockstep() {
+    let (compared, bailed) = counted(|| {
+        let mut state = table();
+        for who in ["a", "b", "c"] {
+            hand(&mut state, who, &[]);
+        }
+        state.action_card_deck = ["sabo1", "sabo2", "sabo3"].iter().map(|c| ti4_model::id::ActionCardId::new(*c)).collect();
+        let votes = ballot(&[("a", FOR), ("b", AGAINST), ("c", FOR)]);
+        run(&mut state, "unconventional", FOR, &votes);
+        assert_eq!(state.player(&pid("a")).unwrap().action_cards.len(), 2);
+        assert_eq!(state.player(&pid("c")).unwrap().action_cards.len(), 1, "the deck ran out");
+        assert!(state.player(&pid("b")).unwrap().action_cards.is_empty());
+        // Minister of Antiquities: the elected seat takes the top relic; the Shard scores at once.
+        state.relic_deck = ["dynamiscore", "shard"].iter().map(|r| ti4_model::id::RelicId::new(*r)).collect();
+        run(&mut state, "minister_antiquities", "b", &Ballot::default());
+        assert_eq!(state.player(&pid("b")).unwrap().relics.len(), 1);
+        run(&mut state, "minister_antiquities", "b", &Ballot::default());
+        assert_eq!(state.player(&pid("b")).unwrap().victory_points, 1);
+        // An empty deck yields nothing (73.2a).
+        run(&mut state, "minister_antiquities", "c", &Ballot::default());
+        assert!(state.player(&pid("c")).unwrap().relics.is_empty());
+    });
+    assert!(compared >= 4 && bailed == 0, "{compared} compared, {bailed} bailed");
+}
+
+/// A draw that a faction hook changes (Yssaril's Scheming) or that leaves the hand over its limit asks questions of its
+/// own: the Unconventional Measures window is dropped (B9c-2).
+#[test]
+fn a_hooked_or_overflowing_unconventional_draw_has_no_window() {
+    let mut state = table();
+    hand(&mut state, "a", &[]);
+    assert!(core_half(&mut state, "unconventional", FOR, &ballot(&[("a", FOR)])).is_some());
+    hand(&mut state, "a", &["sabo1", "sabo1", "sabo1", "sabo1", "sabo1", "sabo1"]);
+    assert!(core_half(&mut state, "unconventional", FOR, &ballot(&[("a", FOR)])).is_none(), "six cards and two more");
+    let mut state = crate::fixtures::seated_game(&[("a", "yssaril"), ("b", "letnev"), ("c", "hacan")], POK);
+    state.phase = Phase::Agenda;
+    assert!(core_half(&mut state, "unconventional", FOR, &ballot(&[("a", FOR)])).is_none(), "Scheming");
+    // Against stays a hand effect and is not affected.
+    assert!(core_half(&mut state, "unconventional", AGAINST, &ballot(&[("a", FOR)])).is_some());
+}
+
 /// The core half of an effect, probed on its own: `None` is a bail (the string effect runs alone).
 fn core_half(state: &mut GameState, agenda: &str, outcome: &str, votes: &Ballot) -> Option<bool> {
     let (for_voters, against_voters) = (votes.voted_for(FOR), votes.voted_for(AGAINST));
-    let args = crate::dual_window::EffectArgs { for_voters: &for_voters, against_voters: &against_voters, sources: POK, galaxy: None };
-    crate::dual_window::agenda_effect(state, agenda, outcome, &args, &crate::dual_window::Recording::default()).map(|w| w.run.value)
+    let args = crate::dual_window::EffectArgs { for_voters: &for_voters, against_voters: &against_voters, sources: POK, galaxy: None, rolls: None };
+    crate::dual_window::agenda_effect(state, agenda, outcome, &args, &crate::dual_window::Recording::default()).map(|w| w.run.value.0)
 }
 
-/// Executive Sanctions (Against) and Ixthian Artifact (For) roll dice from the game's seeded roller, which is not
-/// in the state: no core window (B9-bail-01).
+/// Resolve with the game's roller seeded `seed` (the state's seed follows, so the streams are the ones the core copies).
+fn run_seeded(state: &mut GameState, agenda: &str, outcome: &str, seed: u64) -> Effect {
+    state.rng_seed = seed;
+    let content = ti4_content::ContentStore::embedded();
+    let mut dice = crate::dice::Dice::new();
+    let mut rng = crate::rng::GameRng::new(seed);
+    let mut table = crate::choice::Table::new();
+    let mut ctx = crate::choice::Resolving { content, sources: POK, dice: &mut dice, rng: &mut rng, table: &mut table, timing: None };
+    crate::agenda_effects::resolve_with(state, &mut ctx, None, agenda, outcome, &Ballot::default())
+}
+
+/// Executive Sanctions (Against) discards a random card of each hand and Ixthian Artifact (For) either pays out
+/// (a 6, deferred: it needs a payer) or destroys every ship that cannot sustain damage, from the game's seeded dice:
+/// the core window draws from its copy of the streams and the faces and positions are compared.
 #[test]
-fn the_dice_effects_have_no_window() {
+fn the_dice_effects_run_as_core_windows_in_lockstep() {
+    let (compared, bailed) = counted(|| {
+        let mut deferred = 0;
+        let mut cratered = 0;
+        for seed in 0..24 {
+            let mut state = table();
+            hand(&mut state, "a", &["sabo1", "sabo2", "sabo3"]);
+            hand(&mut state, "b", &[]);
+            hand(&mut state, "c", &["veto", "hack"]);
+            run_seeded(&mut state, "sanctions", AGAINST, seed);
+            assert_eq!(state.player(&pid("a")).unwrap().action_cards.len(), 2, "seed {seed}");
+            assert!(state.player(&pid("b")).unwrap().action_cards.is_empty());
+            assert_eq!(state.player(&pid("c")).unwrap().action_cards.len(), 1);
+            // For: nothing happens, and nothing is rolled.
+            run_seeded(&mut state, "sanctions", FOR, seed);
+            assert_eq!(state.player(&pid("a")).unwrap().action_cards.len(), 2);
+
+            let mut state = table();
+            ships(&mut state, "27", "a", &["carrier", "dreadnought", "fighter", "destroyer"]);
+            ships(&mut state, "28", "b", &["cruiser", "warsun"]);
+            let effect = run_seeded(&mut state, "artifact", FOR, seed);
+            let left = |system: &str| state.system_state(&SystemId::new(system)).units.len();
+            match effect {
+                Effect::Deferred { .. } => {
+                    deferred += 1;
+                    assert_eq!((left("27"), left("28")), (4, 2));
+                }
+                _ => {
+                    cratered += 1;
+                    assert_eq!((left("27"), left("28")), (1, 1), "only the dreadnought and the war sun survive");
+                }
+            }
+            run_seeded(&mut state, "artifact", AGAINST, seed);
+        }
+        assert!(deferred > 0 && cratered > 0, "both branches ran: {deferred} deferred, {cratered} cratered");
+    });
+    assert!(compared >= 24 * 4 && bailed == 0, "{compared} compared, {bailed} bailed");
+}
+
+/// The streams are copied at the position the string's stood at, not at the start.
+#[test]
+fn the_dice_effects_continue_the_streams_where_they_stood() {
+    let (compared, bailed) = counted(|| {
+        for seed in 0..8 {
+            let mut state = table();
+            hand(&mut state, "a", &["sabo1", "sabo2", "sabo3"]);
+            state.rng_seed = seed;
+            let content = ti4_content::ContentStore::embedded();
+            let (mut dice, mut rng, mut t) = (crate::dice::Dice::new(), crate::rng::GameRng::new(seed), crate::choice::Table::new());
+            dice.roll(&mut rng, 7, "warm up", None);
+            let mut ctx = crate::choice::Resolving { content, sources: POK, dice: &mut dice, rng: &mut rng, table: &mut t, timing: None };
+            crate::agenda_effects::resolve_with(&mut state, &mut ctx, None, "sanctions", AGAINST, &Ballot::default());
+            assert_eq!(state.player(&pid("a")).unwrap().action_cards.len(), 2);
+        }
+    });
+    assert_eq!((compared, bailed), (8, 0));
+}
+
+/// Dice the core cannot reproduce (test faces, a restore, a seed other than the state's) run the string body bare
+/// (B9-bail-01).
+#[test]
+fn irreproducible_dice_have_no_window() {
     let mut state = table();
+    // The probe passes no stream positions: the same as test faces or a pending restore.
     assert!(core_half(&mut state, "sanctions", AGAINST, &Ballot::default()).is_none());
     assert!(core_half(&mut state, "artifact", FOR, &Ballot::default()).is_none());
+    // A seed that is not the state's: the streams are not the ones the core copies.
+    let (compared, bailed) = counted(|| {
+        let mut state = table();
+        hand(&mut state, "a", &["sabo1", "sabo2"]);
+        state.rng_seed = 5;
+        let content = ti4_content::ContentStore::embedded();
+        let (mut dice, mut rng, mut t) = (crate::dice::Dice::new(), crate::rng::GameRng::new(9), crate::choice::Table::new());
+        let mut ctx = crate::choice::Resolving { content, sources: POK, dice: &mut dice, rng: &mut rng, table: &mut t, timing: None };
+        crate::agenda_effects::resolve_with(&mut state, &mut ctx, None, "sanctions", AGAINST, &Ballot::default());
+        assert_eq!(state.player(&pid("a")).unwrap().action_cards.len(), 1);
+        let key = "agenda_effects::resolve_with [bail: irreproducible dice (test faces or a stream restore)]";
+        assert_eq!(crate::dual::report().windows.get(key).map(|w| w.bailed), Some(1));
+    });
+    assert_eq!((compared, bailed), (0, 1));
+    // The For half of Sanctions and the Against half of the Artifact roll nothing and are plain windows.
+    assert!(core_half(&mut state, "sanctions", FOR, &Ballot::default()).is_some());
+    assert!(core_half(&mut state, "artifact", AGAINST, &Ballot::default()).is_some());
 }
 
 /// Rearmament For and Swords to Plowshares Against place units through the supply, the unit-form flip and the
@@ -280,7 +414,6 @@ fn the_placing_and_drawing_halves_have_no_window() {
     let mut state = table();
     assert!(core_half(&mut state, "rearmament", FOR, &Ballot::default()).is_none());
     assert!(core_half(&mut state, "plowshares", AGAINST, &Ballot::default()).is_none());
-    assert!(core_half(&mut state, "unconventional", FOR, &ballot(&[("a", FOR)])).is_none());
     // Colonial Redistribution places an infantry through the supply and the faction hooks.
     assert!(core_half(&mut state, "redistribution", "jord", &Ballot::default()).is_none());
     // The halves that are ported answer.
@@ -293,7 +426,6 @@ fn the_placing_and_drawing_halves_have_no_window() {
 #[test]
 fn the_relic_technology_and_crisis_effects_have_no_window() {
     let mut state = table();
-    assert!(core_half(&mut state, "minister_antiquities", "a", &Ballot::default()).is_none());
     assert!(core_half(&mut state, "grant_reallocation", "a", &Ballot::default()).is_none());
     assert!(core_half(&mut state, "crisis", "leadership", &Ballot::default()).is_none());
 }

@@ -19,6 +19,10 @@
 
 pub mod action_cards;
 pub mod agenda;
+pub mod agenda_close;
+pub mod agenda_close_dual;
+pub mod agenda_reveal;
+pub mod agenda_reveal_dual;
 pub mod agenda_effects;
 pub mod breakthroughs;
 pub mod choice;
@@ -248,3 +252,8 @@ pub use timing::{
 pub use tokens::{POOL_KIND, STATUS_TOKENS, TokenGain, TokenGainError, TokenPlacement};
 pub use transit::{Cargo, CargoSource, CargoWindow, MoveOutcome, apply_move};
 pub use vote::{AGAINST, Ballot, FOR, VoteError, VoteWindow, outcomes, votable_planets};
+
+#[cfg(all(test, feature = "typed-core"))]
+mod agenda_close_tests;
+#[cfg(all(test, feature = "typed-core"))]
+mod agenda_reveal_tests;

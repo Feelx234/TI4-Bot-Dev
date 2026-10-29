@@ -39,7 +39,7 @@ const ID_CONTEXTS: [&str; 6] = [
 ///
 /// Each is a name the engine defines for itself, so the corpus cannot be expected to carry it.
 /// Anything not here and not in the corpus is either a typo or a dead branch.
-const ENGINE_VOCABULARY: [&str; 19] = [
+const ENGINE_VOCABULARY: [&str; 23] = [
     // The label of an id in the core_sync codecs' error text (`id::<AgendaId>(S, "agenda", text)`).
     "agenda",
     "decline",
@@ -61,6 +61,12 @@ const ENGINE_VOCABULARY: [&str; 19] = [
     "return",
     "alias",
     "objective", // PUBLIC_OBJECTIVE_SCORED payload field, not a corpus identity.
+    // The outcomes of a For/Against agenda and the option id / kind of a card offered on an agenda (the agenda reveal and
+    // close chains, `agenda_reveal`, `agenda_close` and their tests).
+    "for",
+    "against",
+    "use",
+    "promissory_note",
 ];
 
 /// Record accessors whose argument is a JSON field name, not a content id.
