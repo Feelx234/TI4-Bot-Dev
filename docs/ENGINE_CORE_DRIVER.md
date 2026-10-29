@@ -348,9 +348,10 @@ and `compare_runs` compared only resolver emissions, so a ported window could dr
 
 `state::Window` is now an enum with a payload per kind: `StrategySecondary` / `StrategySecondaryAfterTactical`
 (`Secondary`: primary, card, followers, `next`, how each follower stands, exhausts), `LeaderStrategy`, `ExecutiveOrder`,
-`AgendaQueueAfterEventScoring`, `Scoring` / `EventScoring` (`Scoring`: the book of the window), `AgendaTalks`, and
+`AgendaQueueAfterEventScoring`, `Scoring` / `EventScoring` (`Scoring`: the book of the window), and
 `Untyped { kind, actor, data }` for the kinds nothing types yet (leader followers, tokens, voting, tactical, aftermath, trade,
-diplomacy). `Pending::{window, window_mut, open, close}` keep at most one window per kind.
+diplomacy, and the agenda talks, which exist only with structured diplomacy on: that option is being disabled at the product edge, so
+the kind is counted, never typed). `Pending::{window, window_mut, open, close}` keep at most one window per kind.
 
 The D1 dual (`ti4-engine/src/d1_pending.rs`, a child module of `game`; on with `driver=dual`, a pure observer) runs after every
 `Game::step`:
