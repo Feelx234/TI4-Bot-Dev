@@ -12,7 +12,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use serde_json::Value;
-use ti4_engine_core::choice::diplomacy::{Ask, Counted, Item, Opt, Pledge, Step, Subtype};
+use ti4_engine_core::choice::diplomacy::{Ask, Counted, Item, Opt, Step, Subtype};
 use ti4_engine_core::ids::Seat;
 use ti4_model::diplomacy as md;
 
