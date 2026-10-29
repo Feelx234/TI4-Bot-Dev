@@ -78,3 +78,60 @@ fn ship_placed(s: &mut CoreState, _: &Kernel, who: Seat, producing: System, targ
     }
     s.marks_mut().tail.edit().insert(MarkKey::BastionIconExhausted(who), MarkVal::Atom(Atom::Num(1)));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::testkit::table;
+    use ti4_engine_core::generated::Faction;
+    use ti4_engine_core::state::Piece;
+
+    /// A Last Bastion (seat 0, the Icon held) producing in `home`; `there` holds its command token and an infantry.
+    fn game() -> (CoreState, Kernel, System, System) {
+        let (mut s, k) = table(&[Faction::LastBastion, Faction::TheEmiratesOfHacan]);
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().cards.breakthrough = Some(Breakthrough::TheIcon);
+        let (home, there) = (System::ALL[0], System::ALL[1]);
+        s.board_mut().sys_mut(there).cmd.insert(Seat(0));
+        s.board_mut().sys_mut(there).units.push(Piece::new(Unit::InfantryI, Seat(0)));
+        (s, k, home, there)
+    }
+
+    fn spots(s: &CoreState, k: &Kernel, home: System, icon: Icon) -> Vec<Spot> {
+        let mut out = SpotList::new();
+        out.push(Spot::Space);
+        adjust_ship_spots(s, k, Seat(0), home, icon, &mut out);
+        out.as_slice().to_vec()
+    }
+
+    #[test]
+    fn the_icon_offers_the_systems_that_hold_a_token_a_ground_force_and_no_foreign_ship() {
+        let (mut s, k, home, there) = game();
+        assert_eq!(spots(&s, &k, home, Icon::Fresh), vec![Spot::Space, Spot::Remote(there, None)]);
+        assert_eq!(spots(&s, &k, there, Icon::Fresh), vec![Spot::Space], "never the producing system");
+        s.board_mut().sys_mut(there).units.push(Piece::new(Unit::CruiserI, Seat(1)));
+        assert_eq!(spots(&s, &k, home, Icon::Fresh), vec![Spot::Space], "another player's ship");
+        s.board_mut().sys_mut(there).units.as_mut_slice().iter_mut().for_each(|p| *p = Piece::new(Unit::InfantryI, Seat(0)));
+        s.board_mut().sys_mut(there).cmd.remove(Seat(0));
+        assert_eq!(spots(&s, &k, home, Icon::Fresh), vec![Spot::Space], "no command token");
+        s.board_mut().sys_mut(there).cmd.insert(Seat(0));
+        s.board_mut().sys_mut(there).units.clear();
+        assert_eq!(spots(&s, &k, home, Icon::Fresh), vec![Spot::Space], "no ground force");
+    }
+
+    #[test]
+    fn the_icon_follows_the_use_it_is_exhausted_by_a_remote_ship_and_it_is_the_card_holders() {
+        let (mut s, k, home, there) = game();
+        assert_eq!(spots(&s, &k, home, Icon::Remote(Spot::Remote(there, None))), vec![Spot::Remote(there, None)], "the first remote ship fixes the spot");
+        assert_eq!(spots(&s, &k, home, Icon::Local), vec![Spot::Space], "a ship placed in the producing system closes it");
+        ship_placed(&mut s, &k, Seat(0), home, there, Unit::CruiserI);
+        assert!(exhausted(&s, Seat(0)), "placing a ship in an Icon system exhausts the card");
+        assert_eq!(spots(&s, &k, home, Icon::Fresh), vec![Spot::Space], "exhausted");
+        let (mut s, k, home, there) = game();
+        ship_placed(&mut s, &k, Seat(0), home, home, Unit::CruiserI);
+        ship_placed(&mut s, &k, Seat(0), home, there, Unit::InfantryI);
+        assert!(!exhausted(&s, Seat(0)), "not in the producing system, not a ground force");
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().cards.breakthrough = None;
+        ship_placed(&mut s, &k, Seat(0), home, there, Unit::CruiserI);
+        assert!(!exhausted(&s, Seat(0)) && spots(&s, &k, home, Icon::Fresh) == vec![Spot::Space], "without the Icon");
+    }
+}

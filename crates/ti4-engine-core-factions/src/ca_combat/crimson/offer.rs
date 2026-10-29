@@ -38,3 +38,35 @@ fn put_on_card(s: &mut CoreState, who: Seat, unit: Unit) {
     list.push(MarkVal::Atom(Atom::Unit(unit)));
     tail.insert(key, MarkVal::List(list));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::testkit::table;
+    use ti4_engine_core::generated::{Faction, UnitBaseType};
+    use ti4_engine_core::query::fleet;
+    use ti4_engine_core::tables::Scope;
+
+    #[test]
+    fn the_card_is_offered_while_the_hero_is_unlocked_and_holds_the_ships_put_on_it() {
+        let (mut s, _) = table(&[Faction::TheCrimsonRebellion, Faction::TheEmiratesOfHacan]);
+        let mut spots = SpotList::new();
+        offer_card_spot(&s, Seat(0), &mut spots);
+        assert!(spots.as_slice().is_empty(), "no hero");
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::HomesickPhantom, LeaderStatus::Unlocked);
+        offer_card_spot(&s, Seat(0), &mut spots);
+        offer_card_spot(&s, Seat(0), &mut spots);
+        assert_eq!(spots.as_slice(), &[Spot::Card], "once");
+        let mut other = SpotList::new();
+        offer_card_spot(&s, Seat(1), &mut other);
+        assert!(other.as_slice().is_empty(), "another seat");
+        let scope = Scope(u32::MAX);
+        let before = fleet::remaining_all(&s, scope, Seat(0), Unit::CruiserI);
+        put_on_card(&mut s, Seat(0), Unit::CruiserI);
+        put_on_card(&mut s, Seat(0), Unit::CruiserI);
+        assert_eq!(fleet::on_crimson_card(&s, scope, Seat(0), UnitBaseType::Cruiser), 2);
+        assert_eq!(fleet::on_crimson_card(&s, scope, Seat(0), UnitBaseType::Carrier), 0, "another type");
+        assert_eq!(fleet::on_crimson_card(&s, scope, Seat(1), UnitBaseType::Cruiser), 0, "another seat");
+        assert_eq!(fleet::remaining_all(&s, scope, Seat(0), Unit::CruiserI), before - 2, "off the board, still out of the box");
+    }
+}
