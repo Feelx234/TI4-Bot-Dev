@@ -5,7 +5,8 @@ Branch `core-reactions`, cut from `core-integration` 04578c39, with `core-b1-com
 
 Stage 2 (this document's sections 3.2, 4, 5, 6 and 8) ported the round agents, the Argent agent in the production
 window, Tellurian, Brother Milor, the two S8 slots, Self-Assembly Routines, Letani Warrior II and Salvage Operations,
-and lifted two bails of stage 1 (Transparasteel Plating, the silent "no stream" bail). Stage 1 text follows.
+and lifted two bails of stage 1 (Transparasteel Plating, the silent "no stream" bail). Stage 2b (section 4) added the play of
+reaction cards from the standing slot for the stamps of B6. Stage 1 text follows.
 
 Problem: the core `AbilityTable` is empty, so every core window that emits an event whose WHEN/AFTER window holds a
 registered ability (a reaction slot, a technology, a faction ability, a leader) bails (`Recording.nested`, 24
@@ -159,7 +160,11 @@ A window bails (counted under its own label, reason `nested (...)`) when the str
 
 1. found an ability eligible that the table lacks: `unported ability <kind>:*:<card>:<EVENT>:<rel>` (the id names the next
    port);
-2. ran the effect of an `eligibility_only` ability (a reaction card was played);
+2. played a reaction card the core does not play: `unported ability reaction:*:<EVENT>:<rel> (card <alias>)` for a card
+   outside `reaction_slot::effect_ported` (a card that asks or places, Reflective Shielding), `(a card played at once)` for
+   a play in the window of `ACTION_CARD_PLAYED` (Sabotage, Instinct Training answer it at once) or below rules version 3,
+   `(Data Skimmer)` with a Ral Nel seat (the discard goes to the breakthrough), and `Unknown` for a card from the salvage
+   yard;
 3. did something nested that no ability explains (`nested outside an ability`: a question or an event inside an
    emission outside every effect and every pick);
 4. has no resolver configuration (`nested activity without a resolver`);
@@ -167,14 +172,17 @@ A window bails (counted under its own label, reason `nested (...)`) when the str
    printed card cost the core does not judge, Harness Energy / Infiltrate, a Nomad that listens to the exhaustion of an
    agent (Temporal Command Suite: Sol, Letnev, Argent, Tellurian, Brother Milor, I48S), a technology carried by a Nekro
    Valefar Assimilator (Instinct Training), a fact the adapter did not compute (the adjacency of Argent's agent, a
-   faction mech the tables hold twice, a Naaz target of I48S);
+   faction mech the tables hold twice, a Naaz target of I48S), an action card played at once or one the core does not
+   play (the safety nets behind bail 2);
 6. rolled dice in an ability in a window that was not lent the dice stream (a driver without seeds): the bail
    `nested (dice rolled by an ability in a window lent no stream)`. In stage 1 this was documented as a silent bail; it
    was in fact a `nested.ability_dice` difference (the roll came from a stream at position zero). Now counted and tested;
 7. used a leader while diplomacy promises are on (`LeaderUsedFor` is an event of the promises, the core does not
    evaluate them): `unported ability leader:*:solagent:... (diplomacy promises on a leader's use)`, round agents only.
 
-Bails 1-4 have a unit test in `reactions_core::tests`, 5 in `rules::action_cards::reaction_slot::tests`,
+Bails 1-4 have a unit test in `reactions_core::tests` (the card ones: `bail_a_played_card_the_core_does_not_play_is_named`,
+`bail_a_card_played_at_once_is_named`, `bail_a_play_with_data_skimmer_or_below_rules_version_3_is_named`, and the lockstep
+`reflective_shielding_stays_in_the_string_in_lockstep`), 5 in `rules::action_cards::reaction_slot::tests`,
 `rules::reactions::{instinct_training,l1z1x_agent}::tests` and `invasion::tests::bail_the_sol_agent_with_a_listening_nomad_is_counted`,
 6 in `invasion::core_ground_round_prechecks::bail_dice_rolled_by_an_ability_in_a_window_lent_no_stream_is_silent`, 7 in
 `invasion::tests::bail_the_sol_agent_with_diplomacy_on_is_counted`. An ability whose condition failed never bails a window.
@@ -201,6 +209,13 @@ Bails 1-4 have a unit test in `reactions_core::tests`, 5 in `rules::action_cards
   or a casualty; the production window clears Argent's grant when a placement spends it
   (`ProductionWindowClosed` observers); `announce_end` follows the notes (marks, staged events) the abilities leave when the
   string run had nested activity.
+* Card plays (`reaction_slot::play` / `announce_declared`): the slot chooses the card (a question `reaction::Ask::PlayCard`
+  when the copies differ: one option per printed card, `AbilityTable::card_name` is the adapter's key), spends it into
+  `declared_card_plays`; `AbilityTable::closed` (the kernel's `Host::window_closed`) announces the declared cards at the
+  close of the window: `ACTION_CARD_PLAYED` (with the windows of every seat), the stamp (`play_simple`), the discard pile,
+  `last_action_discarded`, `ACTION_CARD_DISCARDED`. The string wraps its own announcement in `ClosedGuard` so that what it
+  emits there is not foreign. The display facts of a nested question (card names of the window pick) are read from the state
+  the question was put in (`Driver::nested_state`): the driver rolls the state back before it reports the question.
 * Kernels: the combat kernel carries `economy.action_cards_forbidden` (Transparasteel Plating) and
   `direct.nomad_watches_agent_exhaustion`; the reaction slot's `playable` no longer bails for a Yssaril seat.
 * The production dual no longer excludes an Argent seat (`unported_window`): Argent's agent is an ability of the table.
@@ -214,7 +229,7 @@ Bails 1-4 have a unit test in `reactions_core::tests`, 5 in `rules::action_cards
 | 4001 | `leader:argent:argentagent:GROUND_FORCES_BEING_PRODUCED:when` | the production window's grant mark; adjacency is an adapter fact |
 | 5 | `technology:*:it:ACTION_CARD_PLAYED:when` | Instinct Training: question, token, exhaustion, staged `STRATEGY_TOKEN_SPENT`, cancel (core tests only: no followed window emits a card play yet) |
 | 6 | `leader:*:l1z1xagent:SYSTEM_ACTIVATED:after` | I48S: question, the mech swap, exhaustion (core tests only: no window emits the activation) |
-| 100+i | `reaction:*:<EVENT>:<rel>` (one per printed window) | eligibility and offer only |
+| 100+i | `reaction:*:<EVENT>:<rel>` (one per printed window) | the offer, the choice of card and the declared play of the stamps of B6 (Morale Boost, Shields Holding, Emergency Repairs, Rout, Waylay, Maneuvering Jets, ...); the announcement at the window close |
 | 3001 | `unit:*:cabal_mech:GROUND_FORCE_DESTROYED:after` | Reanimator |
 | 3002 / 3003 | `ability:*:devour:SHIP_DESTROYED:after` / `...GROUND_FORCE_DESTROYED:after` | Devour |
 | 3004 / 3005 | `unit:*:cabal_flagship:SHIP_DESTROYED:after` / `...GROUND_FORCE_DESTROYED:after` | The Terror Between (a Cabal seat; the Nekro-carried text stays string) |
@@ -230,10 +245,10 @@ Training, I48S, Infantry II, the faction packages (Argent, Cabal, Arborec, Yin, 
 chains behind the faction hooks (Tellurian, Self-Assembly Routines).
 
 Not ported, with the reason (each is an `unported ability` bail with a test of the naming): the Ssruu copies of every
-agent; the reaction-card play (the declared plays are announced when the window closes: `ACTION_CARD_PLAYED` with its own
-windows, the effect set of B6 beyond the `Simple` stamps, the discard pile with Data Skimmer, `action_card_plays`,
-`last_action_discarded`, `ACTION_CARD_UNRESOLVED`, the staged destructions, and the "play an action card" question with
-its previews); the Empyrean flagship (Dynamo: adjacency and an influence payment); Nekro's Technological Singularity;
+agent; the reaction-card play of every card that is not one of the stamps listed in `reaction_slot::effect_ported` (cards that ask:
+Skilled Retreat, Fire Team, Reveal Prototype, Direct Hit's staged destruction, ...), Reflective Shielding (it stages hits
+the string's sustain window takes up afterwards), a play at once (Sabotage and the window of `ACTION_CARD_PLAYED`, rules
+below 3), Data Skimmer, a card from the salvage yard; the Empyrean flagship (Dynamo: adjacency and an influence payment); Nekro's Technological Singularity;
 Mentak's hero and Salvage Operations' produce half; Mahact's Crimson Legionnaire and its infantry II; Sardakk's mech
 (a hit assigned through the timing, with its own windows); Hacan's hero, the Keleres and Winnu agents and the payment
 window's agent (offers of B3's production window, behind `unported_window`: their faction gates stay); the promissory
@@ -345,7 +360,8 @@ tests (`infantry_ii_...`, `a_reaction_slot_that_is_declined_...`, `a_yssaril_sea
 * The production windows follow nested activity (`production_window_dual::step`); `pay_step` still builds an empty
   resolver, and a table with a Nomad or a Yssaril seat, a Keleres, Deepwrought, Naaz or Mentak producer or a Bastion or
   Crimson seat still keeps the whole window in the string (`unported_window`): those are the tier-W offers.
-* The reaction-card play is the largest open item (see section 4): start with the declared path
-  (`RULES_SABOTAGE_TIMING`: spend, declare, announce in `Host::window_closed`) and the `Simple` effects of B6.
+* The reaction-card play is built for the stamps (section 4); the next cards are the ones that ask (Skilled Retreat, Fire
+  Team: an `Ask` and a renderer each, the effect run inside `announce`), the immediate path (Sabotage) and Reflective
+  Shielding (its staged hits belong to the sustain window).
 * Event trace ids: the core numbers its events from the first id the string run used (`Recording.first_event_id`);
   an ability whose nested events skip ids in the string would show up as a trigger `event_id` difference.
