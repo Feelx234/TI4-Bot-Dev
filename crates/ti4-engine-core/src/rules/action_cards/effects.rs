@@ -1162,9 +1162,7 @@ mod tests {
             (C::DirectHit1, "the exact sustain mark and the ship-lost observers"),
             (C::DirectHit4, "the exact sustain mark and the ship-lost observers"),
             (C::PirateContract1, "the neutral destroyer has no seat"),
-            (C::Summit, "the pool question has previews and details of the tokens area"),
             (C::SkilledRetreat1, "destinations and previews"),
-            (C::LuckyShot, "the per-unit details of the options"),
             (C::GhostShip, "the game's map and the wormhole systems"),
             (C::CourageousToTheEnd, "dice and a casualty choice"),
             (C::Strategize1, "performs another area's ability"),
@@ -1196,9 +1194,46 @@ mod tests {
             C::Reparations,
             C::PublicDisgrace,
             C::ArchaeologicalExpedition,
+            C::Summit,
+            C::LuckyShot,
+            C::Scuttle,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }
+    }
+
+    fn bare_env() -> Env {
+        Env {
+            mahact_held: 0,
+            scope: crate::tables::Scope(u32::MAX),
+            blanked: false,
+            action_card: crate::state::Code(0),
+            supply_base: crate::state::Code(0),
+            note_order: |a, b| a.cmp(&b),
+            infantry: super::super::Placed::NONE,
+            cruiser: super::super::Placed::NONE,
+            fighter: super::super::Placed::NONE,
+        }
+    }
+
+    /// Bail: Summit while the holder has a command token in a Mahact fleet pool (the reinforcements the pool question
+    /// previews differ from the core's count).
+    #[test]
+    fn bail_summit_declines_while_a_command_token_is_held_in_a_mahact_pool() {
+        let core = CoreState::all_loaded();
+        let who = Seat(0);
+        assert!(Play::of(&core, ActionCard::Summit, who, bare_env()).is_some());
+        assert!(Play::of(&core, ActionCard::Summit, who, Env { mahact_held: 1, ..bare_env() }).is_none());
+    }
+
+    /// Bail: Archaeological Expedition while a replay reserve is installed (the string draws through it).
+    #[test]
+    fn bail_archaeological_expedition_declines_while_a_replay_reserve_is_installed() {
+        let mut core = CoreState::all_loaded();
+        let who = Seat(0);
+        assert!(Play::of(&core, ActionCard::ArchaeologicalExpedition, who, bare_env()).is_some());
+        core.cards_mut().reserve = Some(crate::containers::Cow::new(Default::default()));
+        assert!(Play::of(&core, ActionCard::ArchaeologicalExpedition, who, bare_env()).is_none());
     }
 
     #[test]
