@@ -154,9 +154,15 @@ barrage sustain target, space-cannon assign-hits context); none was fixed here (
 12 `std` games did not finish inside the 280 s limit of the timing run (all=dual costs about 1.3 M calls per game: one game
 took 52 s CPU alone, and the machine was loaded).
 
-The 100-game wide run on `core-integration-3` (SHARDS=3, `flock /root/.ti4-heavy.lock`, `SOAK_HOLDS_LOCK=1`, state and
-report in `/root/soak-reports/`) was queued behind two gates on the heavy lock when this document was written; its result is
-`/root/soak-reports/LATEST.md` once `/root/deploytmp/core-soak/scratch/real-run.log` ends with `soak done`.
+**The 100-game wide run** (finished 2026-10-29 22:18 UTC; `core-integration-3` + tooling, commit `79e5dcaa`, SHARDS=3, taken under
+`flock /root/.ti4-heavy.lock`; report `/root/soak-reports/LATEST.md`, slices in `/root/soak-reports/2026-10-29/`): 7 slices (std 38,
+te 14, old 14, factions 18, bot-v1/v3/v5 5/5/6 games), all complete, 80.7 M calls, 81.4 M comparisons, **79 differences, 0 hash
+changes**, 1.1 h of slice time. Differences by call site: `combat::settle` 29 (13 leaf paths; first example seed 100010, 6p
+`6pWekkerdraft`, TE: `combat_presentation.barrage_dice[0]` missing on the core side), `combat::barrage_step` 17,
+`invasion::bombard_step` 10, `combat::raid_formation` 8, `invasion::ground_round_hits` 4, `combat::answer` 4 (+3 question counts),
+and single ones in `ground_round_hits.questions`, `barrage_step.questions`, `assign_hits`, `nested.events`. Silent windows:
+`production::integrated_economy`, `production::sling_relay`, `relics::ask_technology` (compared 0 in their slices). The repro line of
+each group is in LATEST.md.
 
 ## 7. Not done / limits
 
