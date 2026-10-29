@@ -1,0 +1,23 @@
+# B3 resume (stopped at 90 percent usage)
+
+Branch `core-b3-production`, worktree `.claude/worktrees/core-b3-production`. core-integration and core-reactions are merged in.
+Private target dir `/root/deploytmp/core-b3m2`, gate output `/root/deploytmp/core-b3m2-out` (delete both when done).
+
+## Done (all committed)
+- Supply writes as core halves behind `dual!`: `rules/production/supply.rs`, glue `ti4-engine/src/supply_core.rs`, lockstep test `supply::capture_tests::the_supply_writes_run_in_lockstep_on_the_core`, Keleres commodity test in `factions/keleres.rs`.
+- `ProductionCounters` split (core side only): Gravleash scratch -> `transient.movement`.
+- Sling Relay (`SlingRelay`), Integrated Economy (`EconomyWindow`), Hacan hero offer (`HeroOffer`) in `rules/production/triggered.rs`; asks/opts in `choice/production.rs`; renderer `render/production.rs`; glue `production_window_dual.rs`; `dual_window!` at `production.rs` (`sling_relay`, `integrated_economy`) and `leaders.rs` (`offer_production_hero`); harness change: a question the string builds without a DecisionContext is compared without one (`dual_window.rs`).
+- Mutation checks done for all of the above (survivors justified in ENGINE_KNOWN_ISSUES.md, section "B3 production (second pass)", committed in core-integration 9207971c).
+- Documented bails with test: `the_triggered_productions_bail_where_a_tier_w_offer_could_fire` (Keleres seat, Naaz producer, Bastion).
+- NOT done: Keleres agent offer stages (B3-bail-01), `produce_one*`, `produce_by_ability*` (B3-bail-04). Argent redirect left to the reactions package.
+
+## Gate state (tools/engine_core/verify_package.sh production, SKIP_AB=1 SKIP_WASM=1)
+Passed: layers, lint-core, clippy (0 in core/bridge/dual/core_sync/render), immutable surfaces, builds, gen-cards, xtask tests, wasm tests, dual-suite (6 suites, fail fast), dual-golden (20 games, production=dual: 3070468 calls, 0 differences; windows hero_offer 273 compared/0 bailed, integrated_economy 9/0, sling_relay 8 compared/9 bailed), bench with production=String 200/200.
+FAILED:
+1. `tests` step stopped at the first failing suite: `decision_delivery_inventory` (registry still named the renamed producers). FIXED in c8ade998 (registry renamed; that inventory test is the regression test: it failed on the code before). The suites after it in the `cargo test -p ...` list were never run: rerun `cargo test --no-fail-fast -p ti4-model -p ti4-content -p ti4-engine -p ti4-host -p ti4-rule-bot -p ti4-selfplay -p ti4-engine-core -p ti4-engine-core-factions -p ti4-engine-core-bridge`.
+2. `benches-core` (production=core): bench 187/200, v1 190, v2 192, v3 191, v4 193, v5 193 identical (should be 200). All failing seeds seen (bench-v5: 11, 17, 24, 43, ...) have `saar` and/or `nomad` at the table. Not diagnosed. Suspect: the `dual!` supply writes now run their core half for real on `production=core` (supply_core.rs: `ported()` only excludes Bastion/Crimson; a Saar/Nomad table passes through a Players/Board slice round trip that may lose string-only state, or Saar's Floating Factory / goods window differs). First step: bisect by making `supply_core::ported` also decline Saar and Nomad (or revert one of spend_goods / captures), rebuild, run `TI4_AREAS=production=core` on one failing seed: `selfplay replay --seed 11 --players 4 --map 4pHyperlanes --factions saar,ghost,sardakk,nomad --speaker random --starting-tech --rules-version 18` against `tools/rulebot/baseline-v5.json`. Add a regression test named for the cause (a lockstep supply test at a Saar/Nomad table) that fails before the fix.
+   Note: the benches ran before c8ade998; the hero/sling/economy windows run only their string closure on `production=core` (dual_window! Core = string), so only the `dual!` supply writes and the render/choice type changes can differ.
+
+## Remaining gate commands (after the fix, on the final commit)
+Rerun only failed steps: the `tests` command above; then
+`SELFPLAY_RESULTS=off TI4_AREAS=production=core tools/engine_profile/verify_benches.sh /root/deploytmp/core-b3m2-out/selfplay-new 3` (rebuild selfplay first: `cargo build --profile gate -p ti4-selfplay`, copy `$CARGO_TARGET_DIR/gate/selfplay` over selfplay-new); must print 200 identical for bench and v1..v5. Also run golden dual with `production=dual,driver=dual` (`$CARGO_TARGET_DIR/gate/dual_run tools/engine_profile/profile-20.json 20 production=dual,driver=dual`, 0 differences) and `board_equivalence` (0 mismatches): neither was run by the script for this area (the script's dual-golden ran `production=dual` only). Clippy again if code changes. Always CARGO_BUILD_JOBS=3, one cargo at a time, no release builds.
