@@ -1730,6 +1730,26 @@ fn ground_roll_position() -> GameState {
     state
 }
 
+/// [`ground_roll_position`] as the invasion stages it: the planet the dice were rolled against and the unit types behind each group,
+/// and a group of dice with no number to hit on (an attachment's own dice).
+fn staged_with_planets_and_a_group_without_a_threshold() -> GameState {
+    let mut state = ground_roll_position();
+    let planet = state.board.values().find_map(|b| b.planet_units.keys().next().cloned()).expect("a planet with units");
+    let set = state.reroll_staging.get_mut(&PlayerId::new("a")).unwrap();
+    for (entry, infantry) in set.rolls.iter_mut().zip([3, 2]) {
+        entry.planet = Some(planet.clone());
+        entry.unit_types.insert("infantry".to_owned(), infantry);
+    }
+    let mut free = set.rolls[1].clone();
+    free.unit = "extra dice".to_owned();
+    free.hits_on = None;
+    free.faces = vec![6];
+    free.rerolled.clear();
+    free.unit_types.clear();
+    set.rolls.push(free);
+    state
+}
+
 fn faces_of(state: &GameState, who: &str) -> Vec<Vec<u32>> {
     state.reroll_staging.get(&PlayerId::new(who)).map(|set| set.rolls.iter().map(|r| r.faces.clone()).collect()).unwrap_or_default()
 }
@@ -1741,7 +1761,17 @@ fn faces_of(state: &GameState, who: &str) -> Vec<Vec<u32>> {
 fn fire_team_rolls_the_chosen_staged_dice_again_in_the_core_window() {
     let _serial = crate::dual::tests::serial();
     let start = ground_roll_position();
-    announce_all(&[("fire_team", start.clone())]);
+    let realistic = staged_with_planets_and_a_group_without_a_threshold();
+    announce_all(&[("fire_team", start.clone()), ("fire_team", realistic.clone())]);
+    let _ = crate::dual::take_report();
+    let after = played_by("fire_team", &realistic, Box::new(EveryOther(0)));
+    let report = crate::dual::report();
+    assert!(report.differences.is_empty(), "{:?}", report.differences.first());
+    assert_eq!(crate::action_cards_closing_tests::windows("action_cards::announce"), (1, 0));
+    assert_eq!(after.reroll_staging[&PlayerId::new("a")].rolls[1].planet, realistic.reroll_staging[&PlayerId::new("a")].rolls[1].planet);
+    let rolls = &after.reroll_staging[&PlayerId::new("a")].rolls;
+    assert_eq!((rolls[2].faces.clone(), rolls[2].rerolled.len()), (vec![6], 0), "the sixth question (the group with no threshold) was declined");
+    assert_eq!(rolls[1].rerolled.iter().copied().collect::<Vec<_>>(), [1], "the fifth question was answered");
     let _ = crate::dual::take_report();
     // The dice 0, 2 and 4 of the five are rolled again, the others stay.
     let after = played_by("fire_team", &start, Box::new(EveryOther(0)));

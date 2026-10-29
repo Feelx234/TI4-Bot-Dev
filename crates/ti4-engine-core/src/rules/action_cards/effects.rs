@@ -10,7 +10,9 @@
 //!   Warfare) and Sanction;
 //! * pick a system or a planet: Unexpected Action, Mining Initiative, Uprising, Cripple Defenses, Reactor
 //!   Meltdown;
-//! * no question: Sabotage (the cancel is the reaction's), Puppets on a String, Extreme Duress, Counterstroke.
+//! * no question: Sabotage (the cancel is the reaction's), Puppets on a String, Extreme Duress, Counterstroke;
+//! * the dice a roll staged: Fire Team (one optional question per die, the chosen dice are drawn again) and Scramble Frequency (all of
+//!   the roller's dice are drawn again, no question): `transient.combat.reroll_staging`, the dice stream, [`super::RerollFacts`].
 //!
 //! Bails (the string effect runs alone, each with a test in `mod.rs`): every other card; Plague and Unstable
 //! Planet (the destroyed ground forces are staged as a string marker), Repeal (the law leaving play is B9's),
@@ -2986,6 +2988,25 @@ mod tests {
         assert!(play.asking(), "the second die is next");
         assert_eq!(with_services(&mut s, |sx| play.choose(sx, Pick::Opt(crate::choice::Opt::Decline))), Ok(()));
         assert!(!play.asking() && set_of(&s, Seat(0)).rolls[0].faces[1] == 9);
+    }
+
+    /// The `rerolled` bits of a group (a mask of 64): the dice a roll draws again are marked up to the sixty-fourth; a die beyond it is
+    /// drawn again and left unmarked, never a shift overflow.
+    #[test]
+    fn fire_team_marks_the_rerolled_dice_of_a_large_group_up_to_the_sixty_fourth() {
+        let mut s = two_seat_state();
+        let faces = vec![5_u8; 70];
+        stage_roll(&mut s, Seat(0), GROUND, vec![entry(7, 8, &faces)]);
+        let draws = next_draws(&s, 3);
+        let (after, asked, unsupported, _) = rerolled(ActionCard::FireTeam, s, reroll_env(), |c| match c.ask {
+            crate::choice::Ask::Combat(CAsk::RerollDie { die: 4 | 63 | 69, .. }) => roll_it(c),
+            _ => Pick::Opt(crate::choice::Opt::Decline),
+        });
+        assert!(!unsupported && asked.len() == 70);
+        let group = &set_of(&after, Seat(0)).rolls[0];
+        assert_eq!(group.rerolled, (1 << 4) | (1 << 63), "the dice 4 and 63 are marked, die 69 has no bit");
+        assert_eq!((group.faces[4], group.faces[63], group.faces[69]), (draws[0], draws[1], draws[2]));
+        assert_eq!(group.faces.iter().filter(|f| **f == 5).count(), 67, "the other dice stay");
     }
 
     /// Declining every die draws nothing and changes nothing.

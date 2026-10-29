@@ -147,9 +147,8 @@ a Mahact fleet holds the holder's tokens; a Merchant Station's replenish while a
 plot, a Trade Agreement). A replay reserve declines the play (`Play::of`).
 
 DOCUMENTED BAILS left (`BAILS` in `rules/action_cards/effects.rs`; the reason of each is the constant):
-Strategize x4 and Overrule (eight card kinds, each with a window and guards of its own to run as child windows), Courageous To The End, Experimental Battlestation (the combat area's
-hit flow as a child window), Fire Team (ported on `core-b12` as a registered play, bb26913b; not merged here) and Scramble Frequency
-(a bail of `core-b12` too).
+Strategize x4 and Overrule (eight card kinds, each with a window and guards of its own to run as child windows), Courageous To The End, Experimental Battlestation (the combat
+area's hit flow as a child window), Fire Team and Scramble Frequency (ported afterwards, branch b6d-rerolls, see below).
 STRATEGIZE x4 AND OVERRULE (branch b6d-strategize, after the list above; core half `rules/action_cards/perform.rs`, lockstep tests in
 `ti4-engine/src/action_cards_b6d_tests.rs` and `action_cards::tests::strategize_and_overrule_agree_with_the_core_play_window_in_lockstep`).
 `Fx::Perform { primary }`: the pick question byte for byte (`What::Perform`, `Opt::Perform { card, holder }`, kind `strategy card`, the
@@ -172,9 +171,8 @@ the display facts of the child questions are `strategy_cards_core::Performing`.
   of the Trade primary and the Politics speaker by faction: the whole card), and a replay's deck reserve (dropped by decision).
 
 DOCUMENTED BAILS left (`BAILS` in `rules/action_cards/effects.rs`; the reason of each is the constant):
-Exploration Probe (the exploration resolution is not one core window), Courageous To The End, Experimental Battlestation (the combat
-area's hit flow as a child window), Fire Team (ported on `core-b12` as a registered play, bb26913b; not merged here) and Scramble
-Frequency (a bail of `core-b12` too).
+Courageous To The End and Experimental Battlestation (the combat area's hit flow as a child window; Exploration Probe, Fire Team and
+Scramble Frequency are ported, see their sections).
 
 Layers (branch `b6d-layers`): `tools/engine_core/check_layers.py core` reports 0 violations again. The card windows of B6d ran other
 areas' windows as children (`PayBill`, `HandLimit`, `Reward`, the strategy windows) and called their helpers; areas may not import
@@ -194,3 +192,35 @@ each other, so they now talk through the kernel, as ability effects and `Next::O
   table without all of them declines at its first step, before anything changed: `unsupported`, so `play_window` answers `None`
   (a counted bail) and the inline announcement marks the run unknown; never a panic. Those cards are exactly the ones that are not
   `Fx::nested` (a test checks it), so the reactions table never needs them for a nested play.
+
+## B6d rerolls: Fire Team and Scramble Frequency (branch b6d-rerolls)
+
+Both cards act on the dice a roll staged and have a window of the play now (`Fx::Reroll`, `Fx::Scramble`); `BAILS` is down to Courageous
+To The End and Experimental Battlestation. The staged set (kind, per-group faces, `rerolled` bits, per-die `deltas`) is the core's
+`transient.combat.reroll_staging` (the codec maps it both ways) and `last_reroll_player`; the dice are drawn from the dice stream like
+Spy's and Plague's (`Fx::rolls`: the adapter lends the streams, the faces and the stream positions are compared).
+
+* Fire Team (`Fx::Reroll`): "after your ground forces make combat rolls: reroll any number of your dice". Only the holder's own set of
+  kind `ground` counts (another seat's set, a fleet, bombardment, space cannon or barrage set, a set of no dice: nothing happens, the
+  card is still spent). One optional question per staged die, entry by entry and die by die, all asked before any die is drawn: the
+  core's own `Ask::Combat(RerollDie { source: RerollSource::FireTeam, .. })` (a new `RerollSource`, subtype `fire_team_reroll`, the
+  option `reroll|<entry>:<die>`, the decline worded with the group's text), origin the card, target the staged system; the display
+  facts `dice` and `current` are the string's `staged_dice_view` of the staged set (adapter, `reroll_details`). The chosen dice are then
+  drawn again in order: the face is replaced, the die is marked rerolled, the +1 it carried dies with it; the faces the window records
+  are the whole group after each draw, as the string's roll history holds them.
+* Scramble Frequency (`Fx::Scramble`): "that player rerolls all of their dice", forced (no question). The roller is
+  `last_reroll_player`, whoever holds the card (the reaction guard keeps the roller from holding it at the table; the string effect
+  does not compare them and neither does the window, a test pins it). Only a `bombardment`, `space_cannon` or `anti_fighter_barrage`
+  set counts; a ground or fleet set, no roller and a roller with nothing staged do nothing.
+* The texts: the staging kind is an interned text of the state's table and the group names the questions show are texts of the question
+  renderer's table, so the adapter hands the window `Facts.reroll` (`RerollFacts`: `ground`, the three forced kinds, the rendered
+  name of each group of the holder's set, at most twelve = `invasion::roll::NAMED`). Without them `Play::of` is `None`.
+* Conditions that stay string (each a counted bail, a test each): a holder's set of more than twelve groups (`unsupported`, nothing
+  asked; core `bail_fire_team_declines_a_set_the_facts_do_not_cover`, adapter `bail_fire_team_with_more_groups_of_dice_than_the_adapter_names_is_counted`);
+  dice the core cannot reproduce (test faces, a generator that is not the game's: `bail_fire_team_and_scramble_frequency_with_dice_the_core_cannot_reproduce_are_counted`);
+  both cards played from INSIDE another window (a reaction slot of the ground roll, of the barrage, space cannon or bombardment step):
+  they are not `Fx::nested` (the reactions table carries neither the texts nor the dice stream), the census still names them
+  (`unported ability reaction:*:<EVENT>:<rel> (card fire_team)`, the test of `reactions_core`). `core-b12` plays Fire Team there as a
+  registered play inside the ground roll's tail; when the lines are merged `Announce::of` prefers a registration over a window that is
+  not nested (test `a_registered_effect_wins_over_a_window_that_is_not_played_nested`), so the registered play is not shadowed by
+  `Fx::Reroll`; Scramble Frequency inside its windows needs the same dice-stream plumbing (`roll_tail`) and stays a bail there.

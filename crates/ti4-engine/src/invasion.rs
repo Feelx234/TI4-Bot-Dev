@@ -9864,7 +9864,7 @@ mod tests {
         while !window.is_done() {
             window
                 .drive(state, &mut ctx)
-                .expect("the script only picks what is offered");
+                .unwrap_or_else(|e| panic!("the script only picks what is offered: {e:?}; the questions so far: {:?}", seen.borrow()));
             while window.take_scoring_occurrence().is_some() {}
             window.settle(state, &mut ctx);
         }
@@ -9990,6 +9990,53 @@ mod tests {
             1,
             "the die the decider named was the only one re-drawn"
         );
+    }
+
+    /// Fire Team played from the reaction slot of a real ground combat round (the dice come from the game's own generator, the staged
+    /// set is the one the roll step staged), with `Area::ActionCards` on `Dual` and the invasion on the string: the announcement is
+    /// the top-level window, so the core's Fire Team window runs on the position in flight and is compared with the string.
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn fire_team_played_from_the_slot_of_a_real_ground_combat_agrees_with_the_core_window() {
+        let _serial = crate::dual::tests::serial();
+        let (a, b) = (invader(), holder());
+        for answers in [&["reroll|0:0", "reroll|0:1"][..], &["decline", "reroll|0:1"][..], &["reroll|0:0", "decline"][..], &["decline", "decline"][..]] {
+            let (mut state, system, planet) = arena();
+            for (seat, faction) in state.players.iter_mut().zip(["arborec", "hacan"]) {
+                seat.faction = ti4_model::id::FactionId::new(faction);
+            }
+            state.promissory_notes.clear();
+            state.system_mut(&system).set_control(planet.clone(), b.clone());
+            on_planet(&mut state, &system, &planet, "infantry", &a, 2);
+            on_planet(&mut state, &system, &planet, "infantry", &b, 2);
+            state.player_mut(&b).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("fire_team")];
+            state.rng_seed = 4;
+            let mut dice = Dice::new();
+            let mut rng = GameRng::new(4);
+            let slot = format!("reaction:{}:GROUND_ROLLS_MADE:after", crate::promissory::faction_name(&state, &b));
+            let mut script = vec!["fight".to_owned(), slot];
+            script.extend(answers.iter().map(|a| (*a).to_owned()));
+            let _ = crate::dual::take_report();
+            let mask = crate::dual::AreaMask::STRING.with(crate::dual::Area::ActionCards, crate::dual::Backend::Dual);
+            let asks = crate::dual::with_mask(mask, || {
+                drive_invasion(
+                    &mut state,
+                    &system,
+                    Stage::Fighting { planets: vec![planet.clone()], index: 0, defender: b.clone() },
+                    InvasionReport { committed: vec![planet.clone()], ..InvasionReport::default() },
+                    script,
+                    &mut dice,
+                    &mut rng,
+                )
+            });
+            let report = crate::dual::report();
+            let shown: String = format!("{:?}", report.differences).chars().take(1200).collect();
+            assert!(report.differences.is_empty(), "{answers:?}: {shown}");
+            let w = report.windows.get("action_cards::announce").cloned().unwrap_or_default();
+            assert_eq!((w.compared, w.bailed), (1, 0), "{answers:?}: the core window ran on the position in flight: {:?} / {asks:?}", report.windows);
+            assert!(asks.iter().any(|q| q.iter().any(|o| o.starts_with("reroll|"))), "{answers:?}: the die questions were asked");
+            let _ = crate::dual::take_report();
+        }
     }
 
     /// The Nomad's The Thundarian: "After the \"Roll Dice\" step of combat: You may exhaust this
@@ -10454,6 +10501,67 @@ mod tests {
             state.player(&c).unwrap().action_cards.is_empty(),
             "the card was spent even though it saved the day"
         );
+    }
+
+    /// Scramble Frequency played from the reaction slot of a real bombardment (the dice come from the game's own generator), with
+    /// `Area::ActionCards` on `Dual`: the core's window runs on the position in flight and is compared with the string, for the
+    /// holder who plays it and for the one who declines (nothing is drawn then).
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn scramble_frequency_played_from_the_slot_of_a_real_bombardment_agrees_with_the_core_window() {
+        let _serial = crate::dual::tests::serial();
+        let (a, b, c) = (PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c"));
+        for play in [true, false] {
+            let mut state = start_game(ContentStore::embedded(), &[a.clone(), b.clone(), c.clone()], POK, None).unwrap();
+            for (seat, faction) in state.players.iter_mut().zip(["arborec", "hacan", "sol"]) {
+                seat.faction = ti4_model::id::FactionId::new(faction);
+            }
+            state.promissory_notes.clear();
+            let (system, planet) = ti4_content::galaxy::all_planets(ContentStore::embedded(), POK)
+                .iter()
+                .find(|(_, p)| p.system_id().is_some() && !p.is_placed_during_play())
+                .map(|(id, p)| (SystemId::new(p.system_id().unwrap()), PlanetId::new(*id)))
+                .expect("the corpus has a placed planet");
+            state.system_mut(&system).set_control(planet.clone(), b.clone());
+            on_planet(&mut state, &system, &planet, "infantry", &b, 2);
+            in_space(&mut state, &system, "dreadnought", &a, 2);
+            state.player_mut(&c).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("scramble")];
+            state.rng_seed = 1;
+            let content = ContentStore::embedded();
+            let mut dice = Dice::new();
+            let mut rng = GameRng::new(1);
+            let slot = format!("reaction:{}:UNIT_ABILITY_ROLLED:after", crate::promissory::faction_name(&state, &c));
+            let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+            let decider = RecordingScripted { inner: crate::choice::Scripted::new(vec![if play { slot } else { "decline".to_owned() }]), seen: seen.clone() };
+            let mut table = Table::with_default(Box::new(decider));
+            let mut resolver = armed_resolver(&state, vec![a.clone(), b.clone(), c.clone()]);
+            let mut event_sequence = crate::event::EventSequence::new();
+            let _ = crate::dual::take_report();
+            let mask = crate::dual::AreaMask::STRING.with(crate::dual::Area::ActionCards, crate::dual::Backend::Dual);
+            crate::dual::with_mask(mask, || {
+                let mut window = InvasionWindow::new(&mut state, content, POK, &mut dice, &mut rng, &a, &system);
+                let mut ctx = Resolving {
+                    content,
+                    sources: POK,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut event_sequence, galaxy: None }),
+                };
+                while !window.is_done() {
+                    window.drive(&mut state, &mut ctx).unwrap_or_else(|e| panic!("the script only picks what is offered: {e:?}; {:?}", seen.borrow()));
+                    while window.take_scoring_occurrence().is_some() {}
+                    window.settle(&mut state, &mut ctx);
+                }
+            });
+            let report = crate::dual::report();
+            let shown: String = format!("{:?}", report.differences).chars().take(1200).collect();
+            assert!(report.differences.is_empty(), "play {play}: {shown}");
+            let w = report.windows.get("action_cards::announce").cloned().unwrap_or_default();
+            assert_eq!((w.compared, w.bailed), (u64::from(play), 0), "play {play}: {:?}", report.windows);
+            assert_eq!(dice.rolled("scramble frequency").len(), if play { 2 } else { 0 }, "play {play}: both dreadnoughts' dice were drawn again");
+            let _ = crate::dual::take_report();
+        }
     }
 
     #[test]
