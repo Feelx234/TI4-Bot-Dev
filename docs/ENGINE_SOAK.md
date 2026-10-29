@@ -134,3 +134,36 @@ Thunder's Edge on/off, rules versions 31-34 and all 24 lobby factions; a fake `d
 checks the state, LATEST.md, a planted difference with its repro line, silent-bail detection, that a held heavy lock pauses
 and resumes a slice in flight, that a queued waiter makes the soak yield before starting, stop/resume, and that
 `soak_repro.sh` parses a repro line.
+
+## 6. First results (2026-10-29, binary = `core-integration-3` @ `1e55ab28` + shards + this tooling, `gate` profile)
+
+Timing slices of 6-12 games (tier files at `8d430f85`, kept in `/root/soak-reports/early/`; "game" = index in the first N games
+of that file), mask `wide`, SHARDS=3, on a machine at load 9-15. Each difference below reproduces as a single game in 7 s to 3 min
+(`soak_repro.sh --config /root/soak-reports/early/<file> --games N --mask <mask> --game I --bin <dual_run>`):
+
+| # | where | what the dual sees | game |
+|---|---|---|---|
+| 1 | `driver/Decision combat::raid_formation` (mask `driver=dual`) | the core's decision has no `context.space_battle` / `context.target` (string: `true`, system 22), so canonical text and V2 hash differ | `std-100-8d.json`, N=12, game 5 (seed 6, 3p `3pHyperlanes`, yin/xxcha/argent) |
+| 2 | `invasion/State invasion::bombard_step` | `players[1].captured_units[3..4]`: the core adds `["neutral","neutral_infantry"]`, the string side does not | `te-100-8d.json`, N=6, game 0 (seed 1, 3p, Thunder's Edge, sardakk/cabal/nomad, `3pRichSnowflake`) |
+| 3 | `driver/State combat::barrage_step` | `last_sustain`, `faction_marks.combat:sustain_target`, `board.18.units[5].sustained_damage`, the question count (string 2, core 1) and two events (`ANTI_FIGHTER_BARRAGE_HITS`, `SUSTAIN_DAMAGE_USED`): the core picks another sustain target than the string side | `factions-100-8d.json`, N=6, game 3 (seed 4, 4p `4pLearnToPlayPoK`, TE, sol/yssaril/nomad/arborec) |
+| 4 | `driver/Decision combat::assign_hits` at `context.hit` | string side has no `context.hit`; the core adds `{"cause":"space_cannon","destroy":false,"producer":"a","restriction":"any"}` | `factions-100-8d.json`, N=6, game 2 (seed 3, 4p `4pPyrrhicVictory`, TE, sol/letnev/muaat/argent) |
+
+All four are the porting bugs the dual exists for (Argent raid formation context, a neutral-infantry capture in bombardment,
+barrage sustain target, space-cannon assign-hits context); none was fixed here (no engine change). All completed slices had
+`hashes equal: true`. The `old` (rules 0..34) and `bot-v1` 6-game slices were clean. Slices of `all=dual` and of the wide mask on
+12 `std` games did not finish inside the 280 s limit of the timing run (all=dual costs about 1.3 M calls per game: one game
+took 52 s CPU alone, and the machine was loaded).
+
+The 100-game wide run on `core-integration-3` (SHARDS=3, `flock /root/.ti4-heavy.lock`, `SOAK_HOLDS_LOCK=1`, state and
+report in `/root/soak-reports/`) was queued behind two gates on the heavy lock when this document was written; its result is
+`/root/soak-reports/LATEST.md` once `/root/deploytmp/core-soak/scratch/real-run.log` ends with `soak done`.
+
+## 7. Not done / limits
+
+* Diplomacy, deck reserve, turn redo, Last Bastion and Crimson are not in the corpus (by decision / not in `LOBBY_FACTIONS`).
+* Bot variety is the three older bot versions on the standard mix; no per-seat bot mixing (the matrix has one bot for all
+  seats) and no knob sweeps.
+* A bail is only counted, never judged: "silent" means compared 0, not "should have compared".
+* The soak never takes the heavy lock; on a machine with a gate running all day it runs only in the gaps (and is paused
+  inside a slice whenever a gate queues). Slices of a few minutes keep the pause short.
+* A release-profile `dual_run` runs about 2x faster than `gate`; the soak takes either (`DUAL_RUN`).
