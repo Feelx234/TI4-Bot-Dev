@@ -16,7 +16,7 @@
 # Lock awareness: the soak never holds the heavy lock. It runs a slice only while nobody holds the lock and nobody waits for
 # it (/proc/locks), and while a slice runs it polls every SOAK_POLL (10) s: when a gate takes or queues for the lock, the slice's process
 # group is SIGSTOPped (no CPU, memory stays) and continued when the lock is free and unqueued again. Slices run under
-# `nice -n 19` and `ionice -c3`. No cron job; nothing starts it but this command.
+# `nice -n 19` and `ionice -c3`. (SOAK_HOLDS_LOCK=1 turns the checks off for a one-off run the caller took the lock for.) No cron job; nothing starts it but this command.
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 cmd="${1:-}"
@@ -48,6 +48,9 @@ mask_spec() {
 say() { echo "$(date '+%F %T') $*"; }
 
 gate_busy() {
+  # SOAK_HOLDS_LOCK=1: the caller wrapped the soak in `flock $HEAVY_LOCK` itself (a one-off run longer than 5 minutes, taken
+  # as the heavy lane); there is no gate to yield to, the lock is ours.
+  [[ "${SOAK_HOLDS_LOCK:-0}" == 1 ]] && return 1
   # Held: a non-blocking lock attempt fails. Queued: /proc/locks shows a waiter ("->") on the lock file's inode.
   flock -n "$HEAVY_LOCK" true 2>/dev/null || return 0
   local ino; ino="$(stat -c %i "$HEAVY_LOCK" 2>/dev/null)" || return 1
