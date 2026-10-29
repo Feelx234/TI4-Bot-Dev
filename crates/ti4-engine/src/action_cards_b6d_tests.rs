@@ -896,3 +896,40 @@ fn strategize_performs_the_leadership_diplomacy_and_construction_secondaries_in_
     assert_eq!(structures(&after), structures(&construction) + 1, "a structure was placed");
     let _ = crate::dual::take_report();
 }
+
+/// Overrule performs a primary ability: Trade (three trade goods and a replenishment, then the seats below their commodities the
+/// holder lets replenish), Technology (a free research and a paid one), Leadership (three free tokens and the purchase loop),
+/// Construction (two structures) and Warfare (recall a token, gain one, redistribute). The options of the Trade primary name the
+/// seats by faction, so the table is named.
+#[test]
+fn overrule_performs_the_trade_technology_leadership_construction_and_warfare_primaries_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let a = PlayerId::new("a");
+    let mut trade = closing_position();
+    trade.player_mut(&a).unwrap().commodities = 0;
+    trade.player_mut(&PlayerId::new("b")).unwrap().commodities = 0;
+    trade.player_mut(&PlayerId::new("c")).unwrap().commodities = 1;
+    let trade = strategy_on(trade, &[], &[], &[], &["pok5trade"]);
+    // Nobody needs a replenishment: no question.
+    let mut full = closing_position();
+    for seat in ["a", "b", "c"] {
+        full.player_mut(&PlayerId::new(seat)).unwrap().commodities = 9;
+    }
+    let full = strategy_on(full, &[], &[], &[], &["pok5trade"]);
+    let research = strategy_on(research_position(), &[], &[], &[], &["pok7technology"]);
+    let mut rich = closing_position();
+    rich.exhausted_planets.clear();
+    rich.player_mut(&a).unwrap().trade_goods = 4;
+    let leadership = strategy_on(rich.clone(), &[], &[], &[], &["pok1leadership"]);
+    let construction = strategy_on(rich.clone(), &[], &[], &[], &["pok4construction"]);
+    let mut warfare = rich.clone();
+    warfare.system_mut(&ti4_model::id::SystemId::new("33")).command_tokens.insert(a.clone());
+    let warfare = strategy_on(warfare, &[], &[], &[], &["pok6warfare"]);
+    for case in [&trade, &full, &research, &leadership, &construction, &warfare] {
+        announce_all(&[("overrule", case.clone())]);
+    }
+    let _ = crate::dual::take_report();
+    let after = played("overrule", &trade);
+    assert!(after.player(&a).unwrap().trade_goods >= trade.player(&a).unwrap().trade_goods + 3, "the Trade primary pays three trade goods");
+    let _ = crate::dual::take_report();
+}
