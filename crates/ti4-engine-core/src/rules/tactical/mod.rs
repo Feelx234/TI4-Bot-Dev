@@ -78,6 +78,15 @@ pub enum Step {
     Finished,
 }
 
+/// Why the machine stopped following (the adapter keeps the string result and counts the reason).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bail {
+    /// The map slice holds no galaxy.
+    NoGalaxy,
+    /// A route other than the default, and the adapter named none.
+    Route,
+}
+
 /// The route the player named when it is not the default one (`|rN`): the machine cannot list the routes, the adapter
 /// hands over the path of the offered list (with the boosts that route spends).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,7 +123,7 @@ pub struct Machine {
     /// The faces of the rift dice rolled so far.
     pub dice: Vec<u32>,
     /// Set when the position holds something the machine does not follow (the adapter then keeps the string result).
-    pub bailed: Option<&'static str>,
+    pub bailed: Option<Bail>,
 }
 
 impl Machine {

@@ -82,7 +82,7 @@ fn begin_one_move(m: &mut Machine, sx: &mut Sx<'_>, origin: System, index: u16, 
     let active = sx.state.meta().active_system.ok_or(Illegal)?;
     let ship = hull(sx.state, seat, origin, index).ok_or(Illegal)?;
     let reach = SeatReach::new(sx.state, sx.kernel, seat, true).ok_or_else(|| {
-        m.bailed = Some("no galaxy in the map slice");
+        m.bailed = Some(super::Bail::NoGalaxy);
         Illegal
     })?;
     let rules = reach.rules_for(sx.state, sx.kernel, active);
@@ -93,7 +93,7 @@ fn begin_one_move(m: &mut Machine, sx: &mut Sx<'_>, origin: System, index: u16, 
     } else {
         // The routes of the offer are the string's list (display facts); the adapter names the chosen one.
         let Some(pick) = m.route.take() else {
-            m.bailed = Some("a route other than the default");
+            m.bailed = Some(super::Bail::Route);
             return Err(Illegal);
         };
         if pick.path.first() != Some(&origin) || pick.path.last() != Some(&active) {
