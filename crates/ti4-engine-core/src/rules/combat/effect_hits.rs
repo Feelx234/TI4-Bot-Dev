@@ -250,3 +250,169 @@ impl Window for Absorb {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::choice::Pick;
+    use crate::driver::{Driver, DriverError, Status};
+    use crate::generated::{Faction, Unit};
+    use crate::kernel::children::Report;
+    use crate::kernel::stage::AbilityTable;
+    use crate::kernel::Resolver;
+    use crate::state::{Player, Players, Seats};
+
+    const CAUSE: Code = Code(12);
+    const SUBTYPE: Code = Code(11);
+
+    /// Two seats; seat 0 is the producer, seat 1 owns `units` in the first system.
+    fn fleet(units: &[Unit]) -> (CoreState, System) {
+        let mut s = CoreState::all_loaded();
+        s.players = Players::from_vec(vec![Player::new(Seat(0), Faction::TheArborec), Player::new(Seat(1), Faction::TheEmiratesOfHacan)]);
+        s.seats = Seats::new(&[Seat(0), Seat(1)], &[Seat(0), Seat(1)], 2);
+        let system = System::ALL[0];
+        for unit in units {
+            s.board_mut().sys_mut(system).units.push(Piece::new(*unit, Seat(1)));
+        }
+        (s, system)
+    }
+
+    fn destroy(system: System) -> Driver<Destroy> {
+        Driver::new(Destroy::new(Seat(1), system, ActionCard::CourageousToTheEnd, SUBTYPE, CAUSE), Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), 1)
+    }
+
+    /// A single ship is lost without a question; its destruction is staged (not announced, nothing emitted) with the cause of the card,
+    /// and the handoff of the last destruction is left to the announcement.
+    #[test]
+    fn destroy_takes_a_single_ship_without_a_question_and_stages_its_loss() {
+        let (mut s, system) = fleet(&[Unit::CruiserI]);
+        let k = Kernel::plain();
+        let mut d = destroy(system);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(d.window.destroyed);
+        assert!(s.board().sys(system).units.is_empty(), "the ship left the board");
+        let staged = s.transient().combat.pending_destructions.as_slice().to_vec();
+        assert_eq!(staged, vec![PendingDestruction { system, owner: Seat(1), unit: Unit::CruiserI, reason: CAUSE, during_space_combat: true }]);
+        assert!(s.transient().combat.last_ship_destroyed.is_none(), "the announcement of the play sets the handoff");
+        assert!(d.emitted.is_empty(), "nothing is announced by the window itself");
+    }
+
+    /// Several ships: the owner is asked with one option per kind (damage told apart), as the source of the card, no owed hits; the
+    /// pick destroys that ship and not another.
+    #[test]
+    fn destroy_asks_the_owner_which_ship_and_destroys_the_one_picked() {
+        let (mut s, system) = fleet(&[Unit::CruiserI, Unit::CruiserI, Unit::DreadnoughtI]);
+        let k = Kernel::plain();
+        let mut d = destroy(system);
+        let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("a question") };
+        assert_eq!(c.actor, Seat(1));
+        assert_eq!(c.ask, crate::choice::Ask::Combat(CAsk::AssignHit));
+        assert_eq!(c.ctx.origin, Origin::ActionCard(ActionCard::CourageousToTheEnd));
+        assert_eq!(c.ctx.subtype, Subtype::Combat(CSub::Casualty(SUBTYPE)));
+        assert_eq!(c.ctx.target, Some(Target::System(system)));
+        assert!(c.ctx.outstanding.is_empty(), "a destruction is not a hit that is owed");
+        assert_eq!(c.opts.len(), 2, "two cruisers are one choice");
+        assert_eq!(s.board().sys(system).units.len(), 3, "nothing is lost before the answer");
+        assert_eq!(d.resume(&mut s, &k, Pick::Number(0)), Err(DriverError::Illegal));
+        // The second option is the dreadnought.
+        assert_eq!(d.resume(&mut s, &k, c.pick(1).unwrap()).unwrap(), Status::Done);
+        let left: Vec<Unit> = s.board().sys(system).units.iter().map(|p| p.kind()).collect();
+        assert_eq!(left, vec![Unit::CruiserI, Unit::CruiserI]);
+        assert_eq!(s.transient().combat.pending_destructions.as_slice()[0].unit, Unit::DreadnoughtI);
+        assert!(d.window.destroyed);
+    }
+
+    /// A seat with no ship loses nothing and the card is told so (it stops asking).
+    #[test]
+    fn destroy_with_no_ship_to_lose_destroys_nothing() {
+        let (mut s, system) = fleet(&[]);
+        let k = Kernel::plain();
+        let mut d = destroy(system);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(!d.window.destroyed);
+        assert!(s.transient().combat.pending_destructions.is_empty());
+    }
+
+    fn absorb(system: System, hits: u16, staging: bool) -> Driver<Absorb> {
+        let texts = HitTexts { staging, commander: Code(1), casualty: Code(2), effect_hit: Code(3) };
+        Driver::new(Absorb::new(Seat(1), Seat(0), system, hits, texts), Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), 1)
+    }
+
+    /// The hits of an effect: the cancellations a card granted are spent first, then SUSTAIN DAMAGE is offered (the unit that sustains
+    /// is damaged and cancels one hit), the rest is assigned; nothing is announced (the window has no resolver of its own).
+    #[test]
+    fn absorb_spends_cancellations_offers_sustain_damage_and_assigns_the_rest() {
+        let (mut s, system) = fleet(&[Unit::DreadnoughtI, Unit::CruiserI]);
+        hits::grant(&mut s, Seat(1), 1);
+        let k = Kernel::plain();
+        let mut d = absorb(system, 3, true);
+        // Three hits, one cancelled by the card: two remain; the offer to sustain names them.
+        let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("the sustain offer") };
+        let crate::choice::Ask::Combat(CAsk::CancelHit { hits: owed, in_combat, ability, .. }) = c.ask else { panic!("a sustain offer: {:?}", c.ask) };
+        assert_eq!((owed, in_combat, ability), (2, false, false), "the cancellation was spent before the offer; the hits are not part of a combat");
+        assert_eq!(c.actor, Seat(1));
+        assert_eq!(hits::cancellable(&s, Seat(1)), 0);
+        // Sustain (the first option): one more hit is cancelled, the last one is assigned to a ship of the owner's choice.
+        let Status::Asking(c) = d.resume(&mut s, &k, c.pick(0).unwrap()).unwrap() else { panic!("the casualty question") };
+        let crate::choice::Ask::Combat(CAsk::AssignHit) = c.ask else { panic!("a casualty question") };
+        assert_eq!(c.ctx.outstanding.as_slice()[0].amount, 1);
+        assert_eq!(c.ctx.subtype, Subtype::Combat(CSub::Casualty(Code(2))));
+        // Two options: the damaged dreadnought and the cruiser.
+        assert_eq!(c.opts.len(), 2);
+        assert_eq!(d.resume(&mut s, &k, c.pick(1).unwrap()).unwrap(), Status::Done);
+        let left: Vec<(Unit, bool)> = s.board().sys(system).units.iter().map(|p| (p.kind(), p.sustained())).collect();
+        assert_eq!(left, vec![(Unit::DreadnoughtI, true)], "the cruiser was lost, the dreadnought sustained");
+        assert!(d.emitted.is_empty(), "no event is announced");
+        assert_eq!(s.transient().combat.last_ship_destroyed, Some((system, Seat(1), Unit::CruiserI)), "with staging the loss is recorded");
+        assert!(s.transient().combat.pending_destructions.is_empty(), "nothing is staged for an announcement");
+    }
+
+    /// Hits that the cancellations cover, a seat with no ship and no sustainer: nothing is asked.
+    #[test]
+    fn absorb_asks_nothing_when_nothing_can_be_hit_or_everything_is_cancelled() {
+        let k = Kernel::plain();
+        let (mut s, system) = fleet(&[]);
+        assert_eq!(absorb(system, 3, false).run(&mut s, &k).unwrap(), Status::Done);
+        let (mut s, system) = fleet(&[Unit::DreadnoughtI, Unit::CruiserI]);
+        hits::grant(&mut s, Seat(1), 2);
+        let before = s.clone();
+        let mut d = absorb(system, 2, false);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert_eq!(s.board().sys(system).units.len(), 2, "both hits were cancelled");
+        assert_eq!(hits::cancellable(&s, Seat(1)), 0);
+        assert_ne!(s, before, "the cancellations were spent");
+    }
+
+    /// A lone ship takes the hit without a question; without staging the loss is not recorded as a handoff.
+    #[test]
+    fn absorb_takes_a_lone_ship_without_a_question() {
+        let (mut s, system) = fleet(&[Unit::CruiserI]);
+        let k = Kernel::plain();
+        assert_eq!(absorb(system, 1, false).run(&mut s, &k).unwrap(), Status::Done);
+        assert!(s.board().sys(system).units.is_empty());
+        assert!(s.transient().combat.last_ship_destroyed.is_none());
+    }
+
+    /// The reports the registered links read: whether a ship was destroyed.
+    #[test]
+    fn the_destroy_window_reports_whether_a_ship_was_destroyed() {
+        let table = {
+            let mut t = AbilityTable::default();
+            crate::driver::children::register(&mut t);
+            t
+        };
+        for (units, want) in [(vec![Unit::CruiserI], true), (vec![], false)] {
+            let (mut s, system) = fleet(&units);
+            let request = crate::kernel::children::Spawn::Destroy { who: Seat(1), system, card: ActionCard::CourageousToTheEnd, subtype: SUBTYPE, cause: CAUSE };
+            let mut window = table.links.start(&request).expect("a window");
+            let k = Kernel::plain();
+            let mut tape = crate::kernel::ability::Tape::default();
+            let mut resolver = Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0)));
+            let mut next_id = 1_u64;
+            let mut emitted = Vec::new();
+            let mut sx = Sx { state: &mut s, kernel: &k, resolver: &mut resolver, table: &table, tape: &mut tape, next_id: &mut next_id, emitted: &mut emitted, seeds: &crate::driver::NoSeeds };
+            assert!(matches!(window.step(&mut sx), Next::Done));
+            assert_eq!(window.report(), Report::Destroyed(want));
+        }
+    }
+}

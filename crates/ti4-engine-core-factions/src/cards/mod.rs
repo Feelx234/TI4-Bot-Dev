@@ -401,6 +401,51 @@ mod tests {
         assert_eq!(s.transient().combat.last_ship_destroyed, Some((system, Seat(1), Unit::DreadnoughtI)));
     }
 
+    /// The destructions a card staged are announced by the hook after its discard, and the events the hook emits are the events of
+    /// the window that plays the card (found by the lockstep test of Courageous To The End: the component action's window dropped
+    /// them, so the string's `SHIP_DESTROYED` had no counterpart).
+    #[test]
+    fn the_events_of_the_after_play_hook_are_the_events_of_the_window_that_plays_the_card() {
+        use ti4_engine_core::driver::{Driver, Status};
+        use ti4_engine_core::kernel::ability::CardPlay;
+        use ti4_engine_core::rules::action_cards::announce::Announce;
+        use ti4_engine_core::rules::action_cards::{Env, Facts, Placed};
+        use ti4_engine_core::state::{Code, EventKind};
+        fn stage_one(host: &mut RulesHost<'_>, _: &mut Resolver, _: Seat, _: ActionCard) -> Result<(), TimingError> {
+            host.state.transient_mut().combat.pending_destructions.push(ti4_engine_core::state::PendingDestruction {
+                system: System::ALL[0],
+                owner: Seat(1),
+                unit: Unit::CruiserI,
+                reason: Code(0),
+                during_space_combat: true,
+            });
+            Ok(())
+        }
+        let env = Env {
+            mahact_held: 0,
+            scope: ti4_engine_core::tables::Scope(u32::MAX),
+            blanked: false,
+            action_card: Code(0),
+            supply_base: Code(0),
+            note_order: |a, b| a.cmp(&b),
+            infantry: Placed::NONE,
+            cruiser: Placed::NONE,
+            fighter: Placed::NONE,
+            facts: Facts::default(),
+        };
+        let (mut s, _) = table(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]);
+        let mut t = AbilityTable::default();
+        register_after_play(&mut t);
+        t.add_card_play(CardPlay { covers: |c| c == ActionCard::Parley, effect: stage_one });
+        let announce = Announce::of(&s, ActionCard::Parley, Seat(0), env, true, true).expect("a registered play");
+        let k = ti4_engine_core::kernel::Kernel::plain();
+        let mut d = Driver::new(announce, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), t, 1);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        let kinds: Vec<EventKind> = d.emitted.iter().map(|e| e.kind).collect();
+        assert_eq!(kinds, [EventKind::ActionCardPlayed, EventKind::ActionCardDiscarded, EventKind::ShipDestroyed], "the loss is announced after the discard, by the window");
+        assert!(s.transient().combat.pending_destructions.is_empty());
+    }
+
     fn retreat_fight(destinations: &[System]) -> (CoreState, AbilityTable, System) {
         let (mut s, _) = table(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]);
         let system = System::ALL[0];
