@@ -507,6 +507,7 @@ fn a_whole_negotiation_runs_on_the_core_alone() {
         let mut asked = 0;
         let mut status = driver.run(core, &kernel).unwrap();
         while let Status::Asking(choice) = status {
+            assert!(asked < 8, "haggling does not end");
             let pick = if matches!(choice.ask, ti4_engine_core::choice::Ask::Trade(ti4_engine_core::choice::trade::Ask::Answer { .. })) {
                 Pick::Opt(COpt::Trade(Opt::Counter))
             } else {
@@ -521,4 +522,50 @@ fn a_whole_negotiation_runs_on_the_core_alone() {
     let _ = r;
     assert_eq!(outcome, (4, Some(Outcome::NothingOffered)), "propose, counter, propose, counter: two proposals are spent");
     assert_eq!(goods(&state, "a"), 2);
+}
+
+#[test]
+fn a_note_that_left_the_hand_before_the_accept_is_rejected() {
+    // The deal on the table sells a note; before the partner answers, the note is lent to a third seat.
+    let (state, hub) = table(&[("a", "sol"), ("b", "hacan"), ("c", "letnev")]);
+    let done = negotiate(state, &hub, &["~pnps:sol", "accept"], |n, s| {
+        if n == 0 {
+            s.promissory_notes.insert("ps:sol".to_owned(), PlayerId::new("c"));
+        }
+    });
+    assert_eq!(done.traded, [Traded::Offered, Traded::Rejected(OfferError::CannotPay(a()))]);
+    assert_eq!((done.compared, done.bailed), (2, 0));
+    assert_eq!(done.state.promissory_notes.get("ps:sol"), Some(&PlayerId::new("c")), "nothing moved");
+}
+
+#[test]
+fn an_action_card_sale_whose_door_closed_before_the_accept_is_rejected() {
+    // Black Market Dealings opens the door for one negotiation; when it is over the card cannot change hands.
+    let (mut state, hub) = table(&[("a", "sol"), ("b", "letnev")]);
+    state.transient_flags.set(TransientFlags::BLACK_MARKET);
+    state.player_mut(&a()).unwrap().action_cards = vec![ActionCardId::new(crate::generated::IdStr::as_str(ti4_engine_core::generated::ActionCard::ALL[0]))];
+    let done = negotiate(state, &hub, &["~ac", "accept"], |n, s| {
+        if n == 0 {
+            s.transient_flags.clear(TransientFlags::BLACK_MARKET);
+        }
+    });
+    assert_eq!(done.traded, [Traded::Offered, Traded::Rejected(OfferError::ActionCardsNotTradeable)]);
+    assert_eq!((done.compared, done.bailed), (2, 0));
+}
+
+#[test]
+fn dark_pact_gains_follow_an_accepted_gift_of_a_full_commodity_value() {
+    // Empyrean's Dark Pact (faceup with the giver): a gift of exactly the receiver's... the giver's commodity
+    // value pays each side a trade good. The core settles the gift; the string's tail pays the gains.
+    let (mut state, hub) = table(&[("a", "sol"), ("b", "empyrean")]);
+    state.promissory_notes.insert("dark_pact:empyrean".to_owned(), a());
+    state.promissory_faceup.insert("dark_pact:empyrean".to_owned());
+    let value = ti4_content::factions::get(ContentStore::embedded(), "sol").unwrap().commodities();
+    state.player_mut(&a()).unwrap().commodities = value;
+    let before = (goods(&state, "a"), goods(&state, "b"));
+    let done = plain(state, &hub, &[&format!("c{value}:0"), "accept"]);
+    assert_eq!(done.traded, [Traded::Offered, Traded::Resolved]);
+    assert_eq!((done.compared, done.bailed), (2, 0));
+    assert_eq!(goods(&done.state, "a"), before.0 + 1, "the giver gains one");
+    assert_eq!(goods(&done.state, "b"), before.1 + value + 1, "the receiver gains the gift and one");
 }
