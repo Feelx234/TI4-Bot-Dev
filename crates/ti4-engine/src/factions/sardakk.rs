@@ -2706,6 +2706,9 @@ mod tests {
         );
         let hub = crate::fixtures::hub_from(&ids);
         let mut state = game();
+        // The fixture's notes are keyed to the faction `generic`, which the Cards codec refuses (the core half would not run).
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
         state.phase = ti4_model::state::Phase::Action;
         state.active = Some(a());
         state.system_mut(&system).units.clear();
@@ -2764,6 +2767,25 @@ mod tests {
             "ships returned to reinforcements"
         );
         assert!(!state.faction_marks.contains_key(HERO_MARK));
+    }
+
+    /// The finish of Sh'val's skip (the purge, the ships returning, the mark removed) and the stale-mark clean-up are abilities of
+    /// the core table: the commitment windows that announce `GROUND_COMMITMENT_FINISHED` follow them.
+    #[test]
+    fn the_hero_finish_runs_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        let (state, system, _, _) = with_mask(mask, || hero_game(LeaderStatus::Unlocked, "skip", true, true));
+        assert_eq!(leader_status(&state, &a(), "sardakkhero"), Some(LeaderStatus::Purged));
+        assert_eq!(count(&state, &system, &a(), "carrier"), 0, "the ships returned");
+        let r = report();
+        let w = r.windows.get("invasion::space_cannon_defense").copied().unwrap_or_default();
+        assert!(w.compared >= 1 && w.bailed == 0, "the window that announces the end of the commitment follows the hero: {:?}", r.windows);
+        assert!(r.windows.keys().all(|k| !k.contains("sardakkhero")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+        let _ = take_report();
     }
 
     #[test]

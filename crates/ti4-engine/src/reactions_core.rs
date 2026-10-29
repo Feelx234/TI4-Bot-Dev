@@ -49,6 +49,7 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::OPEN_GROUND, kind: "ability", card: "technological_singularity_open" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::CLOSE_SPACE, kind: "ability", card: "technological_singularity_close" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::CLOSE_GROUND, kind: "ability", card: "technological_singularity_close" },
+    Named { slot: ti4_engine_core_factions::cd_registry::sardakk::timing::HERO_FINISH, kind: "leader", card: "sardakkhero" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::CAVALRY_PLAY, kind: "promissory", card: "cavalry" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::CAVALRY_RETURN, kind: "promissory", card: "cavalry" },
     Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::LEGIONNAIRE, kind: "unit", card: "mahact_infantry" },
@@ -444,8 +445,8 @@ mod tests {
             "unit:empyrean:empyrean_flagship:GROUND_FORCE_SUSTAINED:after",
             "unit:empyrean:empyrean_mech:ACTION_CARD_PLAYED:when",
             "technology:mentak:so:SPACE_COMBAT_ENDED:produce",
-            "leader:sardakk:sardakkhero:GROUND_COMMITMENT_FINISHED:after",
             "unit:sardakk:sardakk_mech:GROUND_FORCE_SUSTAINED:after",
+            "leader:sardakk:sardakkhero_turn:TURN_BEGAN:after",
             "leader:yssaril:a:yssarilagent:yinagent:SHIP_DESTROYED:after",
             "leader:yssaril:a:yssarilagent:yinagent:GROUND_FORCE_DESTROYED:after",
             "leader:yssaril:a:yssarilagent:solagent:GROUND_COMBAT_ROUND_STARTED:after",
@@ -578,7 +579,7 @@ mod tests {
         use ti4_engine_core::state::Slice;
         let content = ti4_content::ContentStore::embedded();
         let _ = content;
-        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")]] {
+        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")]] {
             let mut gs = crate::fixtures::seated_game(&factions, ti4_model::content_types::POK);
             gs.promissory_notes.clear();
             gs.promissory_faceup.clear();
