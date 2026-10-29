@@ -15,7 +15,7 @@
 # Why the mtimes are touched: cargo calls a workspace crate fresh only when its sources are not newer than
 # the previous build. A new worktree has all-new mtimes. `seed` therefore sets the mtime of every tracked
 # file that is IDENTICAL to the warm commit (recorded in SEED/.warm-commit by `warm`) to just before the
-# warm build; files that differ keep their time, so cargo rebuilds exactly them and their dependents.
+# START of the warm build (SEED/.warm-time); files that differ keep their time, so cargo rebuilds exactly them and their dependents.
 # This changes only mtimes of files in the checkout the script lives in.
 set -uo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,9 +30,10 @@ case "$cmd" in
     mkdir -p "$seed"
     # One warm build at a time on the dir; cargo takes its own lock too.
     exec 9> "$seed/.warm.lock"; flock 9
+    t_start="$(date +%s)"   # BEFORE the build: cargo compares sources with the START of each compile
     ( cd "$repo" && CARGO_TARGET_DIR="$seed" cargo "${args[@]}" ) || exit 1
     git -C "$repo" rev-parse HEAD > "$seed/.warm-commit"
-    date +%s > "$seed/.warm-time"
+    echo "$t_start" > "$seed/.warm-time"
     echo "warm dir $seed at $(cat "$seed/.warm-commit")" ;;
   seed)
     dest="${1:?DEST}"; seed="${2:-$default_seed}"
