@@ -352,7 +352,8 @@ pub(super) fn check(g: &mut Game<'_>, result: &StepResult) {
         match scoring_of(&book, &r) {
             Ok(typed) if result.error.is_none() => {
                 compared = true;
-                let expected = Some(if event { Window::EventScoring(typed) } else { Window::Scoring(typed) });
+                // A score that ends the game closes the window at once (`step_scoring`, `step_event_scoring`), pending seats and all.
+                let expected = (!g.state.finished).then(|| if event { Window::EventScoring(typed) } else { Window::Scoring(typed) });
                 let actual = observed.iter().find(|w| w.kind() == kind);
                 ok &= compare_value(Area::Driver, "d1::pending.scoring", &actual, &expected.as_ref());
             }
@@ -519,6 +520,49 @@ mod tests {
         assert!(held.iter().any(|(_, used)| *used == 1), "the book recorded the public score: {seen:?}");
         assert!(held.windows(2).any(|w| w[0].0 > w[1].0), "the pending seats shrink as seats answer: {seen:?}");
         assert!(!r.windows.keys().any(|k| k.starts_with("d1::pending [bail")), "{:?}", r.windows);
+    }
+
+    /// Found by the golden dual (gate of D1a): a score that reaches the target ends the game and the string closes the window with
+    /// seats still pending; the held copy kept the book the core half left.
+    #[test]
+    fn a_score_that_ends_the_game_closes_the_held_scoring_window() {
+        use ti4_model::id::{ObjectiveId, PlanetId, SystemId};
+        let _serial = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut state = crate::fixtures::seated_game(&[("a", "letnev"), ("b", "sol")], ti4_model::content_types::POK);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        state.revealed_objectives = vec![ObjectiveId::new("expand_borders")];
+        let catalogue = ti4_content::galaxy::all_planets(ContentStore::embedded(), ti4_model::content_types::POK);
+        let planets: Vec<String> = catalogue
+            .iter()
+            .filter(|(_, planet)| planet.homeworld_of().is_none() && !planet.is_placed_during_play())
+            .map(|(id, _)| (*id).to_owned())
+            .take(6)
+            .collect();
+        for planet in planets {
+            let system = catalogue.get(planet.as_str()).and_then(ti4_content::galaxy::Planet::system_id).unwrap_or("18");
+            state.system_mut(&SystemId::new(system)).set_control(PlanetId::new(planet), pid("a"));
+        }
+        state.player_mut(&pid("a")).unwrap().victory_points = 9;
+        state.phase = ti4_model::state::Phase::Status;
+        let mut finished = false;
+        with_mask(both().with(Area::Objectives, Backend::Dual), || {
+            let (decider, _) = crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new(["expand_borders".to_owned()])));
+            let mut g = Game::with_table(state, ContentStore::embedded(), Table::with_default(Box::new(decider)));
+            for _ in 0..6 {
+                let step = g.step();
+                assert!(step.error.is_none(), "{:?}", step.error);
+                if g.state.finished {
+                    break;
+                }
+            }
+            finished = g.state.finished && g.scoring.is_none() && g.d1.pending.window(WindowKind::Scoring).is_none();
+        });
+        let r = report();
+        let _ = take_report();
+        assert!(finished, "the game ended and no window is held: {:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
     }
 
     fn checked(g: &mut Game<'static>) -> (crate::dual::DualReport, Pending) {

@@ -908,7 +908,7 @@ const PRODUCERS: &[Producer] = &[
         module: "draft.rs",
         function: "strategy_options",
         count: 1,
-        delivery: Delivery::ObservedVia("game.rs::step"),
+        delivery: Delivery::ObservedVia("game.rs::step_flow"),
     },
     Producer {
         // Entropic Scar rule 6: spend a strategy token at the start of the status phase to gain a
@@ -1038,7 +1038,7 @@ const PRODUCERS: &[Producer] = &[
         module: "game.rs",
         function: "turn_options",
         count: 1,
-        delivery: Delivery::ObservedVia("game.rs::step"),
+        delivery: Delivery::ObservedVia("game.rs::step_flow"),
     },
     Producer {
         // OP-08: the aftermath's pause before invasion or production: continue, or a contact.
@@ -1052,7 +1052,7 @@ const PRODUCERS: &[Producer] = &[
         module: "game.rs",
         function: "closing_options",
         count: 1,
-        delivery: Delivery::ObservedVia("game.rs::step"),
+        delivery: Delivery::ObservedVia("game.rs::step_flow"),
     },
     Producer {
         // Structured diplomacy: each voter, in voting order, may open contacts before the vote.
@@ -1350,7 +1350,7 @@ const PRODUCERS: &[Producer] = &[
         module: "starting_tech.rs",
         function: "choice",
         count: 1,
-        delivery: Delivery::ObservedVia("game.rs::step"),
+        delivery: Delivery::ObservedVia("game.rs::step_flow"),
     },
     Producer {
         module: "strategy.rs",
@@ -1362,7 +1362,7 @@ const PRODUCERS: &[Producer] = &[
         module: "strategy.rs",
         function: "strategic_action_options",
         count: 1,
-        delivery: Delivery::ObservedVia("game.rs::step"),
+        delivery: Delivery::ObservedVia("game.rs::step_flow"),
     },
     Producer {
         // Split for package B8: the string half beside its core window.
@@ -1492,7 +1492,7 @@ const PRODUCERS: &[Producer] = &[
         module: "tactical.rs",
         function: "activation_options_with",
         count: 1,
-        delivery: Delivery::ObservedVia("game.rs::step"),
+        delivery: Delivery::ObservedVia("game.rs::step_flow"),
     },
     Producer {
         module: "tactical.rs",
@@ -1737,7 +1737,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("faction_techs.rs", "offer_scanlink", 1),
     ("faction_techs.rs", "offer_spatial_conduit", 1),
     ("fleet.rs", "remove_one", 1),
-    ("game.rs", "step", 1),
+    ("game.rs", "step_flow", 1),
     ("game.rs", "step_aftermath_inner", 1),
     ("game.rs", "score_step", 1),
     ("game.rs", "secondary_step", 1),
