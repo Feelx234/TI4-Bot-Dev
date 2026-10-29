@@ -313,6 +313,13 @@ impl CargoWindow {
         }
     }
 
+    /// The candidates taken aboard so far, in order, and whether the hold was closed by the player (the lockstep dual
+    /// rebuilds the core hold from them).
+    #[must_use]
+    pub fn progress(&self) -> (&[usize], bool) {
+        (&self.loaded, self.closed)
+    }
+
     /// Whether candidate `index` rides without using a slot.
     fn rides_free(&self, index: usize) -> bool {
         self.free_cargo.get(index).copied().unwrap_or(false)

@@ -3300,7 +3300,7 @@ impl<'a> Game<'a> {
         let Some(window) = self.tactical.take() else {
             unreachable!("a tactical action is open");
         };
-        match self.apply_tactical(window, &choice, answer) {
+        match self.apply_tactical_windowed(window, &choice, answer) {
             Ok(result) => result,
             Err(error) => {
                 if let Some((
@@ -3334,6 +3334,94 @@ impl<'a> Game<'a> {
                 self.result(false, Some(error))
             }
         }
+    }
+
+    /// [`Self::apply_tactical`] for one answer, as a lockstep window of `Area::Movement` (`tactical_dual`) when the
+    /// answer is one the core machine follows: a system to activate, a ship to move, a pickup. The finish of the
+    /// movement step and a diplomacy contact run unwrapped (the close has its own window, `finish_head`).
+    fn apply_tactical_windowed(
+        &mut self,
+        window: TacticalWindow,
+        choice: &Choice,
+        answer: ChoiceOption,
+    ) -> Result<StepResult, GameError> {
+        use crate::dual::{Area, Backend};
+        let follows = match &window.stage {
+            TacticalStage::Activating | TacticalStage::Loading { .. } => true,
+            TacticalStage::Moving => {
+                !answer.is_decline() && crate::diplomacy::candidates::contact_seat_index(&answer.id).is_none()
+            }
+        };
+        let galaxy = self.galaxy.clone();
+        let (true, Backend::Dual, Some(galaxy)) = (follows, crate::dual::backend(Area::Movement), galaxy) else {
+            return self.apply_tactical(window, choice, answer);
+        };
+        let at = match &window.stage {
+            TacticalStage::Activating => crate::tactical_dual::At::Activating,
+            TacticalStage::Moving => crate::tactical_dual::At::Moving,
+            TacticalStage::Loading { origin, ship, path, window: hold } => {
+                let (loaded, closed) = hold.progress();
+                crate::tactical_dual::At::Loading {
+                    origin: origin.clone(),
+                    ship: (**ship).clone(),
+                    path: path.clone(),
+                    loaded: loaded.to_vec(),
+                    closed,
+                }
+            }
+        };
+        let player = window.player.clone();
+        let (content, sources) = (self.content, self.sources);
+        let reproducible =
+            !self.dice.is_preloaded() && !self.rng.sync_pending() && self.rng.seed() == self.state.rng_seed;
+        let rng_before = self.rng.positions();
+        let (dice_before, events_before) = (self.dice.count(), self.events.len());
+        let failed = std::cell::Cell::new(false);
+        let mut applied = None;
+        let mut taken = std::mem::take(&mut self.state);
+        let _ = crate::dual_window!(
+            Area::Movement,
+            crate::tactical_dual::label(&at),
+            &mut taken,
+            |state: &mut GameState| {
+                // The table was asked before the window (the checkpoint of an activation needs it so); the recording
+                // is told what was asked and answered.
+                crate::dual_window::note_ask(choice, &Ok(answer.clone()));
+                std::mem::swap(&mut self.state, state);
+                let result = self.apply_tactical(window, choice, answer);
+                std::mem::swap(&mut self.state, state);
+                failed.set(result.is_err());
+                applied = Some(result);
+                let stage = match self.tactical.as_ref().map(|w| &w.stage) {
+                    Some(TacticalStage::Activating) => crate::tactical_dual::Tag::Activating,
+                    Some(TacticalStage::Moving) => crate::tactical_dual::Tag::Moving,
+                    Some(TacticalStage::Loading { .. }) => crate::tactical_dual::Tag::Loading,
+                    None => crate::tactical_dual::Tag::Closed,
+                };
+                crate::dual::Run::new(crate::tactical_dual::Stepped {
+                    stage,
+                    plain: self.events.get(events_before..).unwrap_or_default().to_vec(),
+                    failed: failed.get(),
+                    rift_faces: self.dice.history()[dice_before..]
+                        .iter()
+                        .filter(|roll| roll.reason == "gravity rift")
+                        .filter_map(|roll| roll.faces.first().copied())
+                        .collect(),
+                    rng: self.rng.positions(),
+                })
+            },
+            |state: &mut GameState, script: &crate::dual_window::Recording| {
+                let args = crate::tactical_dual::Args {
+                    player: &player,
+                    reproducible,
+                    rng_before: &rng_before,
+                    failed: failed.get(),
+                };
+                crate::tactical_dual::step(state, content, sources, &galaxy, &at, args, script)
+            }
+        );
+        self.state = taken;
+        applied.expect("the string side of the window ran")
     }
 
     /// Copy anything the resolver emitted since `from` into the game's event log.
