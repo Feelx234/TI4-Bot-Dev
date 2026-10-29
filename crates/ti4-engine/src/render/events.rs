@@ -222,7 +222,7 @@ mod tests {
             (PlainRec::bare(StatusPhaseResolved), "STATUS_PHASE_RESOLVED".to_owned()),
             (PlainRec::bare(StatusScoringBegan), "STATUS_SCORING_BEGAN".to_owned()),
             (PlainRec::bare(StrategicActionBegan), "STRATEGIC_ACTION_BEGAN".to_owned()),
-            (PlainRec::one(StrategicActionCancelled, Card(StrategyCard::Politics)), "STRATEGIC_ACTION_CANCELLED:politics".to_owned()),
+            (PlainRec::one(StrategicActionCancelled, Card(StrategyCard::Politics)), format!("STRATEGIC_ACTION_CANCELLED:{}", StrategyCard::Politics.as_str())),
             (PlainRec::bare(StrategicActionComplete), "STRATEGIC_ACTION_COMPLETE".to_owned()),
             (PlainRec::bare(StrategyCardChosen), "STRATEGY_CARD_CHOSEN".to_owned()),
             (PlainRec::two(StrategyCardsSwapped, a, b), "STRATEGY_CARDS_SWAPPED:a:b".to_owned()),
@@ -318,5 +318,19 @@ mod tests {
         ti4_engine_core::kernel::fx::plain(&mut s, PlainRec::bare(PlainKind::QuashUsed));
         assert_eq!(events_text(&r, &cx, &s).unwrap(), ["AGENDA_REVEALED:checks", "AGENDA_REVEALED", "QUASH_USED"]);
         assert_eq!(pushed_since(&r, &cx, &s, 2).unwrap(), [Pushed::Plain("QUASH_USED".to_owned())]);
+    }
+
+    #[test]
+    fn a_strategy_card_prints_as_its_corpus_id_not_its_short_name() {
+        // The string prints the `StrategyCardId` it holds (`{card}`): the corpus id (`pok3politics`), not "politics".
+        let (cx, r) = tables();
+        let rec = PlainRec::one(PlainKind::StrategicActionCancelled, PlainArg::Card(StrategyCard::Politics));
+        assert_eq!(plain_text(&r, &cx, &rec).as_deref(), Some("STRATEGIC_ACTION_CANCELLED:pok3politics"));
+        let (back, typed) = parse_plain(&r, &cx, "STRATEGIC_ACTION_CANCELLED:pok3politics");
+        assert!(typed && back == rec);
+        // The short name is no corpus id: it stays an untyped text, verbatim.
+        let (short, typed) = parse_plain(&r, &cx, "STRATEGIC_ACTION_CANCELLED:politics");
+        assert!(!typed && short.kind == PlainKind::Untyped);
+        assert_eq!(plain_text(&r, &cx, &short).as_deref(), Some("STRATEGIC_ACTION_CANCELLED:politics"));
     }
 }
