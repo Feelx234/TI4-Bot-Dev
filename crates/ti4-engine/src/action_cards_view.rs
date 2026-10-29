@@ -318,7 +318,7 @@ pub fn plays(alias: &ActionCardId) -> bool {
 const MAP: crate::core_sync::Footprint = crate::core_sync::Footprint::new(&[Slice::Map], &[]);
 
 const PLAY: crate::core_sync::Footprint = crate::core_sync::Footprint::new(
-    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending, Slice::Strategy, Slice::Ledger],
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending, Slice::Strategy, Slice::Ledger, Slice::Objectives],
     &[Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending, Slice::Strategy, Slice::Ledger],
 );
 

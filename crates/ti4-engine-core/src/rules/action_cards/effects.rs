@@ -25,6 +25,7 @@ use crate::generated::{ActionCard, Agenda, Planet, PlanetTrait, StrategyCard, Sy
 use crate::ids::Seat;
 use crate::keys::{Prediction, PredictionTag, VoteBar};
 use crate::kernel::stage::{Child, Illegal, Ran, Sx, Window};
+use crate::rules::objective_windows::HandLimit;
 use crate::rules::production::pay::PayBill;
 use crate::kernel::{Kernel, Next, fx, fx_ground, fx_pay};
 use crate::keys::{ActionCardCause, DestroyReason};
@@ -140,6 +141,8 @@ pub enum Fx {
     Harness,
     /// Brilliance: a seat without a breakthrough gains its own (the Fracture may enter play: the roll is the Fracture stream's).
     Brilliance,
+    /// Impersonation: three influence, then a secret objective is drawn (and the hand limit enforced).
+    Impersonation,
 }
 
 impl Fx {
@@ -166,6 +169,7 @@ impl Fx {
     pub const fn bill(self) -> Option<(economy::Spend, i64)> {
         match self {
             Self::PirateFleet => Some((economy::Spend::Resources, 3)),
+            Self::Impersonation => Some((economy::Spend::Influence, 3)),
             _ => None,
         }
     }
@@ -234,6 +238,7 @@ impl Fx {
             C::GhostSquad => Self::Squad,
             C::HarnessEnergy => Self::Harness,
             C::Brilliance => Self::Brilliance,
+            C::Impersonation => Self::Impersonation,
             _ => return None,
         })
     }
@@ -248,6 +253,8 @@ pub enum Stage {
     Asking,
     /// Paying the bill of the card (the child window [`PayBill`]).
     Paying,
+    /// Returning a secret objective over the hand limit (the child window [`HandLimit`]).
+    Limiting,
     Done,
 }
 
@@ -283,6 +290,8 @@ pub struct Play {
     offer: Option<(System, Planet)>,
     /// The bill of the card while it is paid (a child window).
     pay: Child<PayBill>,
+    /// Impersonation: the hand limit after the draw (a child window).
+    hand: Child<HandLimit>,
     /// Signal Jamming: the system chosen.
     jam: Option<System>,
     /// Refit Troops: the first infantry chosen.
@@ -348,7 +357,7 @@ impl Play {
         if fx == Fx::Summit && env.mahact_held > 0 {
             return None;
         }
-        if matches!(fx, Fx::Veto | Fx::Dig) && core.cards().reserve.is_some() {
+        if matches!(fx, Fx::Veto | Fx::Dig | Fx::Impersonation) && core.cards().reserve.is_some() {
             return None;
         }
         // A readied Keleres agent could be offered before a payment (a window of its own, the goods window).
@@ -378,7 +387,7 @@ impl Play {
             }
             _ => None,
         };
-        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: Child::idle(), jam: None, troop: None, pulled: SmallList::new(), received: SmallList::new(), pay_ask: None })
+        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: Child::idle(), hand: Child::idle(), jam: None, troop: None, pulled: SmallList::new(), received: SmallList::new(), pay_ask: None })
     }
 
     fn what(&self) -> Option<What> {
@@ -1534,7 +1543,7 @@ impl Play {
 
     /// The question as the driver names it (Summit asks the strategy area's pool question).
     pub(super) fn any_ask(&self) -> crate::choice::Ask {
-        if let (Stage::Paying, Some(ask)) = (self.stage, self.pay_ask) {
+        if let (Stage::Paying | Stage::Limiting, Some(ask)) = (self.stage, self.pay_ask) {
             return ask;
         }
         if self.fx == Fx::Summit {
@@ -1569,6 +1578,40 @@ impl Play {
         self.start_questions(sx.state, sx.seeds);
     }
 
+    /// What follows a paid bill: the questions of the card, or Impersonation's draw and the hand limit.
+    fn after_bill(&mut self, sx: &mut Sx<'_>) {
+        if self.fx != Fx::Impersonation {
+            self.start_questions(sx.state, sx.seeds);
+            return;
+        }
+        // A deck that has run out draws nothing; the limit is enforced only after a draw.
+        if fx::draw_secret(sx.state, self.who).is_none() {
+            self.stage = Stage::Done;
+            return;
+        }
+        self.hand.start(HandLimit::new(self.who));
+        self.stage = Stage::Limiting;
+        self.drive_hand(sx);
+    }
+
+    /// Step the hand limit until it asks or ends.
+    fn drive_hand(&mut self, sx: &mut Sx<'_>) {
+        self.pay_ask = None;
+        loop {
+            match self.hand.step(sx) {
+                Some(Ran::Asks(ask)) => {
+                    self.pay_ask = Some(ask);
+                    return;
+                }
+                Some(Ran::Pass(_)) => {}
+                Some(Ran::Done(_)) | None => {
+                    self.stage = Stage::Done;
+                    return;
+                }
+            }
+        }
+    }
+
     /// The first question of the card (after the bill, when it has one).
     fn start_questions(&mut self, core: &mut CoreState, seeds: &dyn SeedSource) {
         if self.fx == Fx::Summit {
@@ -1594,7 +1637,7 @@ impl Play {
                 Some(Ran::Pass(_)) => {}
                 Some(Ran::Done(bill)) => {
                     if bill.outcome == Some(true) {
-                        self.start_questions(sx.state, sx.seeds);
+                        self.after_bill(sx);
                     } else {
                         self.stage = Stage::Done;
                     }
@@ -1623,7 +1666,7 @@ impl Play {
     /// Whether the play waits on the holder's pick (or on a payment).
     #[must_use]
     pub fn asking(&self) -> bool {
-        self.stage == Stage::Asking || (self.stage == Stage::Paying && self.pay_ask.is_some())
+        self.stage == Stage::Asking || (matches!(self.stage, Stage::Paying | Stage::Limiting) && self.pay_ask.is_some())
     }
 
     /// Apply a pick to the pending question (`Window::answer` without the services).
@@ -1634,6 +1677,11 @@ impl Play {
         if self.stage == Stage::Paying {
             self.pay.answer(sx, pick)?;
             self.drive_bill(sx);
+            return Ok(());
+        }
+        if self.stage == Stage::Limiting {
+            self.hand.answer(sx, pick)?;
+            self.drive_hand(sx);
             return Ok(());
         }
         if self.stage != Stage::Asking {
@@ -1678,7 +1726,7 @@ impl Window for Play {
         self.begin(sx);
         match self.stage {
             Stage::Asking => Next::Continue(self.any_ask()),
-            Stage::Paying => self.pay_ask.map_or(Next::Done, Next::Continue),
+            Stage::Paying | Stage::Limiting => self.pay_ask.map_or(Next::Done, Next::Continue),
             Stage::Start | Stage::Done => Next::Done,
         }
     }
@@ -1686,6 +1734,9 @@ impl Window for Play {
     fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
         if self.stage == Stage::Paying {
             return self.pay.ask_of(s, k);
+        }
+        if self.stage == Stage::Limiting {
+            return self.hand.ask_of(s, k);
         }
         if self.fx == Fx::Summit {
             return (self.stage == Stage::Asking).then(|| crate::choice::strategy::gain_pool_choice(self.who, Self::SUMMIT_TOKENS - self.step));
@@ -1783,6 +1834,7 @@ mod tests {
             C::GhostSquad,
             C::HarnessEnergy,
             C::Brilliance,
+            C::Impersonation,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }
@@ -1918,7 +1970,6 @@ mod tests {
             (C::ExperimentalBattlestation, "the space cannon of a structure joined to the movement window"),
             (C::FocusedResearch, "four trade goods (the Keleres goods window) then a research"),
             (C::FireTeam, "per-die reroll questions of a staged ground roll"),
-            (C::Impersonation, "three influence by the question-driven payment, then a secret objective draw with the hand limit"),
             (C::Infiltrate, "the structure swap of the capture (rules version dependent unit forms)"),
             (C::LieInWait, "the neighbours of the map who traded this round (the transactions)"),
             (C::Overrule, "performs the primary ability of another strategy card (the strategy area's windows)"),

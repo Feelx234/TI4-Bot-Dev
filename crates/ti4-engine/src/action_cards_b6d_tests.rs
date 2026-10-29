@@ -461,3 +461,47 @@ fn brilliance_gives_a_seat_its_own_breakthrough_in_the_core_window() {
     announce_all(&[("brilliance", all)]);
     let _ = crate::dual::take_report();
 }
+
+/// Impersonation: three influence by the question-driven payment, a secret objective is drawn and, over the hand limit, one is
+/// handed back (a question of the objectives area).
+#[test]
+fn impersonation_pays_draws_a_secret_and_enforces_the_hand_limit_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let a = PlayerId::new("a");
+    let mut state = closing_position();
+    let mut deck = state.secret_deck.clone();
+    assert!(deck.len() >= 8, "the deck holds secrets");
+    let held: Vec<_> = deck.drain(..3).collect();
+    state.secret_deck = deck;
+    state.player_mut(&a).unwrap().secret_objectives = held.clone();
+    state.player_mut(&a).unwrap().trade_goods = 0;
+    state.exhausted_planets.clear();
+    // The hand is within the limit after the draw.
+    let mut within = state.clone();
+    within.player_mut(&a).unwrap().secret_objectives = held[..1].to_vec();
+    within.player_mut(&a).unwrap().trade_goods = 5;
+    // Plenty of trade goods pay the influence without a question.
+    let mut rich = state.clone();
+    rich.player_mut(&a).unwrap().trade_goods = 5;
+    // The deck is empty: the payment is made, nothing is drawn.
+    let mut dry = state.clone();
+    dry.secret_deck.clear();
+    // Cannot pay.
+    let mut poor = state.clone();
+    poor.player_mut(&a).unwrap().trade_goods = 0;
+    for board in poor.board.values_mut() {
+        board.planet_control.retain(|_, owner| *owner != a);
+    }
+    for case in [&state, &within, &rich, &dry, &poor] {
+        announce_all(&[("impersonation", case.clone())]);
+    }
+    let _ = crate::dual::take_report();
+    let after = played("impersonation", &within);
+    assert_eq!(after.player(&a).unwrap().secret_objectives.len(), 2, "one secret drawn");
+    let after = played("impersonation", &rich);
+    assert_eq!(after.player(&a).unwrap().trade_goods, 2, "three influence paid");
+    assert_eq!(after.player(&a).unwrap().secret_objectives.len(), 3, "over the limit: drawn then handed back");
+    let after = played("impersonation", &poor);
+    assert_eq!(after.player(&a).unwrap().secret_objectives.len(), 3, "not paid: nothing drawn");
+    let _ = crate::dual::take_report();
+}
