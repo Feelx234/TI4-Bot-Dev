@@ -33,6 +33,7 @@ impl Family for Fam {
                 Reason::C4rDiscard => "???_ERROR_ERROR_???: discard 1 action card".to_owned(),
                 Reason::Show { viewer } => format!("show {} 1 action card from your hand", r.seat_text(*viewer)),
             },
+            Ask::Pick { what: What::Crash { system, second }, .. } => format!("Crash Landing: choose a {} in {}", if *second { "planet" } else { "ground force" }, system.as_str()),
             Ask::Pick { what: What::Squad { system }, .. } => format!("Ghost Squad: move ground forces in {}", system.as_str()),
             Ask::Pick { what: What::JamWho { system }, .. } => format!("Signal Jamming: whose token goes into {}", system.as_str()),
             Ask::Pick { card, what } => pick_prompt(*card, *what).to_owned(),
@@ -58,6 +59,8 @@ impl Family for Fam {
                 return match what {
                     What::Elect => "confusing_legal_text_elect".to_owned(),
                     What::Squad { .. } => "ghost_squad_move".to_owned(),
+                    What::Crash { second: false, .. } => "crashlanding_choose_ground".to_owned(),
+                    What::Crash { second: true, .. } => "crashlanding_choose_planet".to_owned(),
                     What::Silence => "silence_choose_system".to_owned(),
                     What::Accept => "exchange_program_answer".to_owned(),
                     What::Exhaust => "reparations_exhaust".to_owned(),
@@ -113,6 +116,21 @@ impl Family for Fam {
             Opt::Stop if matches!(pick_of(a).1, What::Pull { .. }) => ChoiceOption::labelled("stop", "unit", "stop after one"),
             Opt::Stop if matches!(pick_of(a).1, What::Troops { .. }) => ChoiceOption::labelled("stop", "infantry", "stop after one"),
             Opt::Stop => ChoiceOption::labelled("stop", "ship", "stop after one"),
+            Opt::Kind(kind) => {
+                let id = kind.as_str();
+                let name = ContentStore::embedded()
+                    .get(ti4_model::content_types::ContentType::Units, id)
+                    .and_then(|record| record.text("name").map(str::to_owned))
+                    .unwrap_or_else(|| id.to_owned());
+                ChoiceOption::labelled(format!("ground|{id}"), "crashlanding_ground", name)
+            }
+            Opt::Spot(system, planet) if matches!(pick_of(a).1, What::Crash { .. }) => {
+                let name = ti4_content::galaxy::planet(ContentStore::embedded(), planet.as_str(), ti4_model::content_types::FULL)
+                    .and_then(|record| record.name())
+                    .unwrap_or(planet.as_str())
+                    .to_owned();
+                ChoiceOption::labelled(format!("planet|{}", planet.as_str()), "crashlanding_planet", name).with_planet(planet.as_str(), Some(system.as_str()))
+            }
             Opt::Count(n) => ChoiceOption::labelled(n.to_string(), "count", format!("spend {n} trade goods")),
             Opt::Tech(tech) => {
                 let id = tech.as_str();
@@ -235,7 +253,7 @@ impl Family for Fam {
                 "no" => Some(Opt::Answer(false)),
                 _ => None,
             },
-            Ask::Pick { what: What::Cruiser | What::Troops { .. } | What::Pull { .. } | What::Squad { .. } | What::Steal, .. } => None,
+            Ask::Pick { what: What::Cruiser | What::Troops { .. } | What::Pull { .. } | What::Squad { .. } | What::Steal | What::Crash { .. }, .. } => None,
             Ask::Pick { what: What::Lie { .. }, .. } => ActionCard::from_id(id).map(Opt::Card),
             Ask::Pick { what: What::Spend, .. } => id.parse().ok().map(Opt::Count),
             Ask::Pick { what: What::Focus | What::Return | What::Funding | What::Prototype, .. } => ti4_engine_core::generated::Technology::from_id(id).map(Opt::Tech),
@@ -279,6 +297,8 @@ const fn pick_kind(what: What) -> &'static str {
         What::Land => "planet",
         What::Squad { .. } => "move",
         What::Gain => "player",
+        What::Crash { second: false, .. } => "crashlanding_ground",
+        What::Crash { second: true, .. } => "crashlanding_planet",
         What::Spend => "count",
         What::Lie { .. } => "action_card",
         What::Steal | What::Focus | What::Return | What::Funding | What::Prototype => "technology",

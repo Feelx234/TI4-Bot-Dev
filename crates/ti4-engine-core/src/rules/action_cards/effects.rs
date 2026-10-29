@@ -157,6 +157,9 @@ pub enum Fx {
     Bribery,
     /// Infiltrate: each PDS and space dock of another seat on the planet just taken is replaced by the holder's own.
     Infiltrate,
+    /// Crash Landing: a ground force of the holder in the space area of the system its last ship was destroyed in lands on a
+    /// planet there other than Mecatol Rex.
+    Crash,
 }
 
 impl Fx {
@@ -268,6 +271,7 @@ impl Fx {
             C::LieInWait => Self::Lie,
             C::Bribery => Self::Bribery,
             C::Infiltrate => Self::Infiltrate,
+            C::CrashLanding => Self::Crash,
             _ => return None,
         })
     }
@@ -323,6 +327,8 @@ pub struct Play {
     pay: Child<PayBill>,
     /// Reveal Prototype: the technology chosen, researched once the bill is paid.
     chosen: Option<crate::generated::Technology>,
+    /// Crash Landing: the type of ground force chosen.
+    landing: Option<crate::generated::Unit>,
     /// Impersonation: the hand limit after the draw (a child window).
     hand: Child<HandLimit>,
     /// Signal Jamming: the system chosen.
@@ -407,6 +413,10 @@ impl Play {
         if fx == Fx::Harness && env.facts.replenish_events {
             return None;
         }
+        // Oceanbound hears coexistence begin: a Deepwrought holder's note is the string's (dropped by decision).
+        if fx == Fx::Crash && env.facts.holder_deepwrought {
+            return None;
+        }
         // Games below rules version 1 played Infiltrate differently (kept for their logs).
         if fx == Fx::Infiltrate && env.facts.rules_version < RULES_INFILTRATE_FIX {
             return None;
@@ -430,7 +440,7 @@ impl Play {
             }
             _ => None,
         };
-        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: Child::idle(), hand: Child::idle(), chosen: None, jam: None, troop: None, pulled: SmallList::new(), received: SmallList::new(), pay_ask: None })
+        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: Child::idle(), hand: Child::idle(), chosen: None, landing: None, jam: None, troop: None, pulled: SmallList::new(), received: SmallList::new(), pay_ask: None })
     }
 
     fn what(&self) -> Option<What> {
@@ -448,6 +458,7 @@ impl Play {
             Fx::Upgrade => What::Cruiser,
             Fx::Plagiarize => What::Steal,
             Fx::Focused => What::Focus,
+            Fx::Crash => What::Crash { system: self.jam?, second: self.step == 1 },
             Fx::Bribery => What::Spend,
             Fx::Lie => What::Lie { from: self.victim? },
             Fx::Divert if self.step == 0 => What::Return,
@@ -721,6 +732,12 @@ impl Play {
             }
             Fx::Lie => match self.victim.and_then(|v| core.players().by_seat(v)) {
                 Some(p) => p.cards.hand.iter().map(|c| Opt::Card(*c)).collect(),
+                None => SmallList::new(),
+            },
+            Fx::Crash if self.step == 9 => SmallList::new(),
+            Fx::Crash if self.step == 0 => self.crash_kinds(core).as_slice().iter().map(|u| Opt::Kind(*u)).collect(),
+            Fx::Crash => match self.jam {
+                Some(system) => self.crash_planets(core, system).as_slice().iter().map(|p| Opt::Spot(system, *p)).collect(),
                 None => SmallList::new(),
             },
             Fx::Focused | Fx::Reveal | Fx::Divert if self.step == 9 => SmallList::new(),
@@ -1010,6 +1027,29 @@ impl Play {
         fx::gain_trade_goods_staged(core, self.who, goods, self.env.action_card);
     }
 
+    /// Crash Landing: the types of ground force the holder has in the space area of the system, in the order of the id texts.
+    fn crash_kinds(&self, core: &CoreState) -> SmallList<crate::generated::Unit, 8> {
+        let Some(system) = self.jam.or_else(|| core.transient().combat.last_ship_destroyed.map(|(s, _, _)| s)) else { return SmallList::new() };
+        let mut kinds: SmallList<crate::generated::Unit, 8> = SmallList::new();
+        for p in board::space_units(core, system) {
+            if p.owner() == self.who && self.env.scope.unit(p.kind()).is_some_and(|d| d.ground_force) && !kinds.as_slice().contains(&p.kind()) {
+                kinds.push(p.kind());
+            }
+        }
+        kinds.as_mut_slice().sort_by(|a, b| (self.env.facts.unit_order)(*a, *b));
+        kinds
+    }
+
+    /// Crash Landing: the planets of the system, other than Mecatol Rex.
+    fn crash_planets(&self, core: &CoreState, system: System) -> SmallList<Planet, 8> {
+        board::planets_in(core, self.env.scope, system)
+            .as_slice()
+            .iter()
+            .copied()
+            .filter(|p| !matches!(p, Planet::MecatolRex | Planet::MecatolRexTe))
+            .collect()
+    }
+
     /// `galaxy::is_space_station`: a station of a source in play (a planet outside the sources is not looked up at all).
     fn is_station(&self, planet: Planet) -> bool {
         let data = planet.data();
@@ -1118,13 +1158,14 @@ impl Play {
                     self.step = 9;
                 }
             }
-            Fx::Reveal => {
-                // A unit of the holder in the combat's system.
-                let Some(system) = core.meta().active_system else {
+            Fx::Crash => {
+                // The system of the handoff and the holder's own last ship; something to land and somewhere to land.
+                let Some((system, victim, _)) = core.transient().combat.last_ship_destroyed else {
                     self.step = 9;
                     return;
                 };
-                if !board::has_space_units_of(core, system, self.who) {
+                self.jam = Some(system);
+                if victim != self.who || self.crash_kinds(core).is_empty() || self.crash_planets(core, system).is_empty() {
                     self.step = 9;
                 }
             }
@@ -1556,6 +1597,26 @@ impl Play {
                         };
                         p.card_timers.extra_votes_agenda = Some(crate::state::ExtraVotes { agenda, votes: running + i64::from(n) });
                     }
+                }
+            }
+            (Fx::Crash, Opt::Kind(kind)) => {
+                self.landing = Some(kind);
+                self.step = 1;
+                return true;
+            }
+            (Fx::Crash, Opt::Spot(system, planet)) => {
+                let Some(kind) = self.landing else { return false };
+                let who = self.who;
+                let units = &mut core.board_mut().sys_mut(system).units;
+                let Some(at) = units.as_slice().iter().position(|p| p.owner() == who && p.kind() == kind) else { return false };
+                let landed = units.remove(at);
+                let cell = core.board_mut().planet_mut(planet);
+                let others_there = cell.units.as_slice().iter().any(|p| p.owner() != who);
+                cell.units.push(Piece::new(landed.kind(), who));
+                cell.flags.set(crate::state::PlanetFlags::UNITS_ENTRY, true);
+                if others_there && !cell.coexist.contains(who) {
+                    cell.coexist.insert(who);
+                    cell.flags.set(crate::state::PlanetFlags::COEXIST_ENTRY, true);
                 }
             }
             (Fx::Lie, Opt::Card(card)) => {
@@ -1998,7 +2059,7 @@ impl Window for Play {
                 }),
                 optional: false,
                 // Exchange Program's answer is about the seat that asks.
-                target: if self.fx == Fx::Squad {
+                target: if matches!(self.fx, Fx::Squad | Fx::Crash) {
                     self.jam.map(crate::choice::Target::System)
                 } else {
                     (self.fx == Fx::Exchange && self.step == 2).then_some(crate::choice::Target::Seat(self.who))
@@ -2087,6 +2148,7 @@ mod tests {
             C::LieInWait,
             C::Bribery,
             C::Infiltrate,
+            C::CrashLanding,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }
@@ -2216,7 +2278,6 @@ mod tests {
         use ActionCard as C;
         [
             (C::CourageousToTheEnd, "dice with the producer in the casualty question"),
-            (C::CrashLanding, "placement of a ground force through the faction hooks onto a contested planet"),
             (C::ExperimentalBattlestation, "the space cannon of a structure joined to the movement window"),
             (C::FireTeam, "per-die reroll questions of a staged ground roll"),
             (C::Overrule, "performs the primary ability of another strategy card (the strategy area's windows)"),

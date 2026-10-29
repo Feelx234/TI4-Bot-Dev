@@ -724,3 +724,45 @@ fn infiltrate_replaces_the_structures_of_the_planet_just_taken_in_the_core_windo
     // Below rules version 1 the string plays another card: the core declines.
     let _ = crate::dual::take_report();
 }
+
+/// Crash Landing: after the holder's last ship in a system is destroyed, a ground force from the space area lands on a planet
+/// there (not Mecatol Rex); on a planet with other players' units it coexists.
+#[test]
+fn crash_landing_lands_a_ground_force_on_a_planet_of_the_system_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+    let mut state = closing_position();
+    // A system with two planets (b's units on one), the holder's infantry and mech waiting in space.
+    let (system, found) = ti4_engine_core::generated::Planet::ALL
+        .iter()
+        .filter(|p| p.data().source == ti4_engine_core::generated::Source::Base || p.data().source == ti4_engine_core::generated::Source::Pok)
+        .filter_map(|p| p.data().system.map(|s| (s, *p)))
+        .fold(std::collections::BTreeMap::<_, Vec<_>>::new(), |mut m, (s, p)| {
+            m.entry(s).or_default().push(p);
+            m
+        })
+        .into_iter()
+        .find(|(s, ps)| ps.len() >= 2 && !ps.iter().any(|p| p.data().homeworld_of.is_some() || matches!(p, ti4_engine_core::generated::Planet::MecatolRex)) && state.board.get(&ti4_model::id::SystemId::new(crate::generated::IdStr::as_str(*s))).is_none())
+        .expect("a system with two planets");
+    let sys = ti4_model::id::SystemId::new(crate::generated::IdStr::as_str(system));
+    let planets: Vec<String> = found.iter().map(|p| crate::generated::IdStr::as_str(*p).to_owned()).collect();
+    state.system_mut(&sys).planet_units.insert(ti4_model::id::PlanetId::new(planets[0].clone()), vec![unit("infantry", "b")]);
+    state.system_mut(&sys).planet_units.insert(ti4_model::id::PlanetId::new(planets[1].clone()), vec![]);
+    state.system_mut(&sys).units = vec![unit("infantry", "a"), unit("mech", "a"), unit("infantry", "a")];
+    state.last_ship_destroyed = Some((sys.clone(), a.clone(), ti4_model::id::UnitTypeId::new("cruiser")));
+    let mut one_kind = state.clone();
+    one_kind.system_mut(&sys).units = vec![unit("infantry", "a"), unit("infantry", "a")];
+    let mut theirs = state.clone();
+    theirs.last_ship_destroyed = Some((sys.clone(), b.clone(), ti4_model::id::UnitTypeId::new("cruiser")));
+    let mut nothing = state.clone();
+    nothing.system_mut(&sys).units.clear();
+    for case in [&state, &one_kind, &theirs, &nothing] {
+        announce_all(&[("crashlanding", case.clone())]);
+    }
+    let _ = crate::dual::take_report();
+    let after = played("crashlanding", &state);
+    let landed: usize = after.board[&sys].planet_units.values().flatten().filter(|u| u.owner == a).count();
+    assert_eq!(landed, 1, "one ground force landed");
+    assert_eq!(after.board[&sys].units.len(), 2);
+    let _ = crate::dual::take_report();
+}

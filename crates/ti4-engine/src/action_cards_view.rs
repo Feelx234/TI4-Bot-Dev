@@ -250,6 +250,7 @@ fn env_of(state: &GameState, player: &PlayerId, sources: &ti4_model::content_typ
             dreadnought: rules::Placed::NONE,
             mech: rules::Placed::NONE,
             pds: rules::Placed::NONE,
+            holder_deepwrought: state.player(player).is_some_and(|p| p.faction.as_str() == "deepwrought"),
             spacedock: rules::Placed::NONE,
             replenish_events: crate::leaders_core::replenish_causes_events(state),
             rules_version: state.rules_version,
