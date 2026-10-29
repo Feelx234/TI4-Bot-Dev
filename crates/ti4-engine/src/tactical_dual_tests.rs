@@ -327,3 +327,38 @@ fn a_ceasefire_held_by_the_defender_keeps_the_activation_on_the_string() {
     state.promissory_notes.insert("cf:sol".to_owned(), b());
     bails(state, &hub, &target, "tactical::activate", "Ceasefire");
 }
+
+// -- scratch of the step, wormholes, the storm ----------------------------------------------------------------------
+
+#[test]
+fn gravleash_maneuvers_lets_a_slower_hull_inherit_the_anchor_of_the_first_mover() {
+    let (hub, _, centre) = hub();
+    let far = SystemId::new(hub.across(&hub.outer[0]));
+    let mut state = sol_hacan();
+    crate::fixtures::put(&mut state, &far, "cruiser", &a(), 1);
+    crate::fixtures::put(&mut state, &far, "dreadnought", &a(), 1);
+    state.player_mut(&a()).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new("letnevbt"));
+    // The cruiser (move 2) reaches the centre, the dreadnought (move 1) does not: until the cruiser has moved from here.
+    let script = [TACTICAL_ACTION_ID, centre.as_str(), &id(&far, 0), &id(&far, 0)];
+    let done = play(state, &hub.galaxy, &script, |_| {});
+    assert_eq!(done.counts("tactical::move"), (2, 0), "{:?}", done.reasons);
+    assert_eq!(done.state.system_state(&centre).units.iter().filter(|u| u.owner == a()).count(), 2, "both hulls arrived");
+}
+
+#[test]
+fn a_move_that_leaves_the_ion_storm_turns_it_over_and_a_wormhole_hop_is_counted() {
+    let hub = crate::fixtures::plain_hub();
+    let mut galaxy = hub.galaxy.clone();
+    crate::seating::place_wormhole_nexus(&mut galaxy, ContentStore::embedded(), POK).expect("the Nexus sits beside the map");
+    let origin = SystemId::new(hub.outer[0].clone());
+    let nexus = SystemId::new(crate::seating::LOCKED_NEXUS);
+    let mut state = sol_hacan();
+    crate::fixtures::put(&mut state, &origin, "cruiser", &a(), 1);
+    state.wormhole_tokens.insert("GAMMA".to_owned(), origin.clone());
+    state.ion_storm = Some((origin.clone(), "ALPHA".to_owned()));
+    crate::laws::apply_to_galaxy(&state, &mut galaxy);
+    let done = play(state, &galaxy, &[TACTICAL_ACTION_ID, nexus.as_str(), &id(&origin, 0)], |_| {});
+    assert_eq!(done.counts("tactical::activate"), (1, 0), "{:?}", done.reasons);
+    assert_eq!(done.counts("tactical::move"), (1, 0), "{:?}", done.reasons);
+    assert_eq!(done.state.ion_storm, Some((origin, "BETA".to_owned())), "the storm flipped");
+}
