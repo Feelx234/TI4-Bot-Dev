@@ -55,6 +55,9 @@ pub enum What {
     Hull,
     /// kind `ship`: a ship Scuttle returns; the second question (`second`) also offers to stop after one.
     Scuttle { second: bool },
+    /// kind `infantry`, id `system|planet|index`, label `infantry in <system>`: an infantry Refit Troops replaces; the second
+    /// question (`second`) also offers to stop after one.
+    Troops { second: bool },
     /// kind `cruiser`, id the place in the active system, label the unit: the cruiser Upgrade replaces.
     Cruiser,
     /// kind `system`, label `jam <system>`: the system Signal Jamming closes.
@@ -129,6 +132,8 @@ pub enum Opt {
     Stop,
     /// A fragment trait (`What::Fragment`).
     Fragment(crate::generated::ExploreType),
+    /// A unit on a planet: the system, the planet and its place in the planet's unit list (`What::Troops`).
+    Troop { system: System, planet: Planet, index: u8 },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).

@@ -129,6 +129,8 @@ pub enum Fx {
     Jam,
     /// Upgrade: a cruiser of the holder in the active system becomes a dreadnought.
     Upgrade,
+    /// Refit Troops: one or two of the holder's infantry are replaced by mechs.
+    Refit,
 }
 
 impl Fx {
@@ -218,6 +220,7 @@ impl Fx {
             C::GhostShip => Self::Ghost,
             C::SignalJamming => Self::Jam,
             C::Upgrade => Self::Upgrade,
+            C::RefitTroops => Self::Refit,
             _ => return None,
         })
     }
@@ -269,6 +272,8 @@ pub struct Play {
     pay: Child<PayBill>,
     /// Signal Jamming: the system chosen.
     jam: Option<System>,
+    /// Refit Troops: the first infantry chosen.
+    troop: Option<(System, Planet, u8)>,
     /// The question the bill's child waits on.
     pay_ask: Option<crate::choice::Ask>,
 }
@@ -333,6 +338,10 @@ impl Play {
         if (fx.bill().is_some() || fx == Fx::Mercenary) && env.facts.agent_offered {
             return None;
         }
+        // A mech the seat places with an announcement of its own (Naaz) is the string's.
+        if fx == Fx::Refit && env.facts.mech.unit.is_none() {
+            return None;
+        }
         // The neutral owner has a seat only when the adapter put it in the table.
         if fx.needs_neutral() && env.facts.neutral.is_none() {
             return None;
@@ -348,7 +357,7 @@ impl Play {
             }
             _ => None,
         };
-        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: Child::idle(), jam: None, pay_ask: None })
+        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: Child::idle(), jam: None, troop: None, pay_ask: None })
     }
 
     fn what(&self) -> Option<What> {
@@ -364,6 +373,7 @@ impl Play {
             Fx::Mercenary => What::Landing,
             Fx::Ghost => What::Ghost,
             Fx::Upgrade => What::Cruiser,
+            Fx::Refit => What::Troops { second: self.troop.is_some() },
             Fx::Jam if self.step == 0 => What::Jam,
             Fx::Jam => What::JamWho { system: self.jam? },
             Fx::Exchange if self.step == 0 => What::Player,
@@ -616,6 +626,28 @@ impl Play {
                 reach.as_mut_slice().sort_unstable();
                 reach.as_slice().iter().copied().filter(|s| !is_home_system(scope, *s)).map(Opt::System).collect()
             }
+            Fx::Refit => {
+                let facts = self.env.facts.mech;
+                let left = facts.unit.map_or(0, |u| crate::query::fleet::remaining(core, self.env.scope, who, u, facts.on_card));
+                if left <= 0 {
+                    return SmallList::new();
+                }
+                let mut out: SmallList<Opt, 16> = SmallList::new();
+                for (system, planet) in planets_where(core, |_, _, cell| !cell.units.as_slice().is_empty()).as_slice() {
+                    for (i, p) in core.board().planet(*planet).units.as_slice().iter().enumerate() {
+                        if p.owner() == who && self.env.scope.unit(p.kind()).is_some_and(|d| d.base_type == UnitBaseType::Infantry) {
+                            let index = u8::try_from(i).unwrap_or(u8::MAX);
+                            if self.troop != Some((*system, *planet, index)) {
+                                out.push(Opt::Troop { system: *system, planet: *planet, index });
+                            }
+                        }
+                    }
+                }
+                if self.troop.is_some() {
+                    out.push(Opt::Stop);
+                }
+                out
+            }
             Fx::Upgrade => {
                 let Some(system) = core.meta().active_system else { return SmallList::new() };
                 let facts = self.env.facts.dreadnought;
@@ -782,6 +814,21 @@ impl Play {
             }
         }
         fx::gain_trade_goods_staged(core, self.who, goods, self.env.action_card);
+    }
+
+    /// Refit Troops: the picked infantry become mechs, system by system (the string groups by system id), the highest place of
+    /// a list first so the removals do not shift each other.
+    fn refit(&self, core: &mut CoreState, picked: &[(System, Planet, u8)]) {
+        let mut order: SmallList<(System, Planet, u8), 2> = SmallList::from_slice(picked);
+        order.as_mut_slice().sort_by(|a, b| a.0.cmp(&b.0).then(b.2.cmp(&a.2)));
+        let Some(mech) = self.env.facts.mech.unit else { return };
+        for (system, planet, index) in order.as_slice() {
+            let units = &mut core.board_mut().planet_mut(*planet).units;
+            if usize::from(*index) < units.len() {
+                units.remove(usize::from(*index));
+            }
+            fx::place_unit(core, self.who, *system, Some(*planet), mech);
+        }
     }
 
     /// The failed half of Exchange Program: both seats discard one fleet token (an empty pool has nothing to discard).
@@ -1183,6 +1230,18 @@ impl Play {
                     fx::place_unit(core, neutral, system, None, crate::generated::Unit::NeutralDestroyer);
                 }
             }
+            (Fx::Refit, Opt::Troop { system, planet, index }) => {
+                let Some(first) = self.troop else {
+                    self.troop = Some((system, planet, index));
+                    return true;
+                };
+                self.refit(core, &[first, (system, planet, index)]);
+            }
+            (Fx::Refit, Opt::Stop) => {
+                if let Some(first) = self.troop {
+                    self.refit(core, &[first]);
+                }
+            }
             (Fx::Upgrade, Opt::Ship { system, index, .. }) => {
                 let units = &mut core.board_mut().sys_mut(system).units;
                 if usize::from(index) < units.len() {
@@ -1517,6 +1576,7 @@ mod tests {
             C::GhostShip,
             C::SignalJamming,
             C::Upgrade,
+            C::RefitTroops,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }
@@ -1560,6 +1620,15 @@ mod tests {
         assert!(Play::of(&core, ActionCard::PirateContract1, Seat(0), env).is_some());
     }
 
+    /// Bail: Refit Troops for a seat whose mech is a faction unit announced when placed (no plain mech to place).
+    #[test]
+    fn bail_refit_troops_declines_without_a_plain_mech() {
+        let core = CoreState::all_loaded();
+        let with_mech = Env { facts: super::super::Facts { mech: super::super::Placed { unit: Some(crate::generated::Unit::FactionlessMech), on_card: 0 }, ..super::super::Facts::default() }, ..bare_env() };
+        assert!(Play::of(&core, ActionCard::RefitTroops, Seat(0), with_mech).is_some());
+        assert!(Play::of(&core, ActionCard::RefitTroops, Seat(0), bare_env()).is_none());
+    }
+
     /// Bail: a card that places neutral units needs the neutral owner in the table.
     #[test]
     fn bail_a_neutral_card_declines_without_a_neutral_seat() {
@@ -1600,7 +1669,6 @@ mod tests {
             (C::Overrule, "performs the primary ability of another strategy card (the strategy area's windows)"),
             (C::Plagiarize, "five influence by the question-driven payment, then a technology gained from a neighbour"),
             (C::ExplorationProbe, "the frontier tokens adjacent to the holder's ships (the map)"),
-            (C::RefitTroops, "infantry replaced by mechs through the unit-form flip of the faction hooks"),
             (C::RevealPrototype, "four resources by the question-driven payment, then a unit upgrade research"),
             (C::ScrambleFrequency, "per-die reroll questions of a staged roll of another seat"),
             (C::Strategize1, "performs the secondary ability of another strategy card (the strategy area's windows)"),

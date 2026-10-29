@@ -22,7 +22,7 @@ pub(crate) fn windows(label: &str) -> (u64, u64) {
 
 /// Takes the first option of every question (the default runs take the last: a one-sided default would hide an order
 /// difference).
-struct FirstOption;
+pub(crate) struct FirstOption;
 
 /// The decline of a reaction window (a slot among the options): the rivals' cards stay in their hands, so the play
 /// under test is never cancelled by a Sabotage.

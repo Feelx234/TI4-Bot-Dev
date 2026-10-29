@@ -248,6 +248,7 @@ fn env_of(state: &GameState, player: &PlayerId, sources: &ti4_model::content_typ
             agent_offered: state.player(player).is_some_and(|p| p.commodities > 0) && crate::factions::keleres::agent_could_grant(state, player),
             destroyer: rules::Placed::NONE,
             dreadnought: rules::Placed::NONE,
+            mech: rules::Placed::NONE,
         },
     }
 }
@@ -339,6 +340,11 @@ pub fn play_window(
     env.infantry = placed(gs, player, sources, "infantry")?;
     env.cruiser = placed(gs, player, sources, "cruiser")?;
     env.facts.destroyer = placed(gs, player, sources, "destroyer")?;
+    env.facts.mech = rules::Placed {
+        // The plain mech; a Naaz seat's is a unit whose placement the string announces (a bail: no unit).
+        unit: (gs.player(player)?.faction.as_str() != "naaz").then(|| <ti4_engine_core::generated::Unit as crate::generated::IdStr>::from_id("mech")).flatten(),
+        on_card: crate::factions::crimson_cards::held_on_card(gs, ti4_content::ContentStore::embedded(), sources.clone(), player, "mech"),
+    };
     env.facts.dreadnought = rules::Placed {
         unit: Some(ti4_engine_core::generated::Unit::DreadnoughtI),
         on_card: crate::factions::crimson_cards::held_on_card(gs, ti4_content::ContentStore::embedded(), sources.clone(), player, "dreadnought"),
@@ -405,7 +411,7 @@ pub fn play_window(
 /// with the same prompt.
 fn recorded_details(c: &ti4_engine_core::choice::Choice, script: &crate::dual_window::Recording, rendered: &mut crate::choice::Choice) {
     use ti4_engine_core::choice::cards::What;
-    if matches!(c.ask, ti4_engine_core::choice::Ask::Cards(ti4_engine_core::choice::cards::Ask::Pick { what: What::Law | What::Hull | What::Scuttle { .. } | What::Cruiser, .. }))
+    if matches!(c.ask, ti4_engine_core::choice::Ask::Cards(ti4_engine_core::choice::cards::Ask::Pick { what: What::Law | What::Hull | What::Scuttle { .. } | What::Cruiser | What::Troops { .. }, .. }))
         && let Some(asked) = script.questions.iter().find(|q| q.choice.prompt == rendered.prompt)
     {
         rendered.details.clone_from(&asked.choice.details);
@@ -469,6 +475,11 @@ pub fn announce_window(
     env.infantry = placed(gs, player, sources, "infantry")?;
     env.cruiser = placed(gs, player, sources, "cruiser")?;
     env.facts.destroyer = placed(gs, player, sources, "destroyer")?;
+    env.facts.mech = rules::Placed {
+        // The plain mech; a Naaz seat's is a unit whose placement the string announces (a bail: no unit).
+        unit: (gs.player(player)?.faction.as_str() != "naaz").then(|| <ti4_engine_core::generated::Unit as crate::generated::IdStr>::from_id("mech")).flatten(),
+        on_card: crate::factions::crimson_cards::held_on_card(gs, ti4_content::ContentStore::embedded(), sources.clone(), player, "mech"),
+    };
     env.facts.dreadnought = rules::Placed {
         unit: Some(ti4_engine_core::generated::Unit::DreadnoughtI),
         on_card: crate::factions::crimson_cards::held_on_card(gs, ti4_content::ContentStore::embedded(), sources.clone(), player, "dreadnought"),

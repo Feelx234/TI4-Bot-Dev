@@ -10,12 +10,17 @@ use crate::action_cards_closing_tests::announce_all;
 
 /// Play `alias` as seat `a`'s component action under the decline-slots decider with the area on `Dual`; the position after it.
 fn played(alias: &str, start: &GameState) -> GameState {
-    use crate::action_cards_announce_tests::{DeclineSlots, announce};
+    played_by(alias, start, Box::new(crate::action_cards_announce_tests::DeclineSlots))
+}
+
+/// [`played`] with a decider of the test's choosing (it must decline the reaction slots itself).
+fn played_by(alias: &str, start: &GameState, decider: Box<dyn crate::choice::Decider>) -> GameState {
+    use crate::action_cards_announce_tests::announce;
     let a = PlayerId::new("a");
     let mut state = start.clone();
     state.player_mut(&a).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new(alias)];
     crate::action_cards::discard(&mut state, &a, 0);
-    crate::dual::with_mask(crate::action_cards_closing_tests::dual(), || announce(&mut state, alias, &a, Box::new(DeclineSlots)));
+    crate::dual::with_mask(crate::action_cards_closing_tests::dual(), || announce(&mut state, alias, &a, decider));
     state
 }
 
@@ -221,4 +226,51 @@ fn upgrade_replaces_a_cruiser_of_the_active_system_in_the_core_window() {
     let after = played("upgrade", &empty_box);
     assert_eq!(units_of(&after, "dreadnought", "a"), units_of(&empty_box, "dreadnought", "a"), "the box holds no more");
     let _ = crate::dual::take_report();
+}
+
+/// Refit Troops: one or two of the holder's infantry become mechs (the picks come in two questions; the second offers to
+/// stop), the removals of one system from the highest place down.
+#[test]
+fn refit_troops_replaces_infantry_with_mechs_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let a = PlayerId::new("a");
+    let state = closing_position();
+    assert!(units_on_planets(&state, "infantry", "a") >= 3);
+    // Exactly one infantry of the holder's.
+    let mut single = state.clone();
+    let mut kept = false;
+    for board in single.board.values_mut() {
+        for units in board.planet_units.values_mut() {
+            units.retain(|u| {
+                if u.owner != a || u.type_id.as_str() != "infantry" {
+                    return true;
+                }
+                let keep = !kept;
+                kept = true;
+                keep
+            });
+        }
+    }
+    // No mech left in the box.
+    let mut empty_box = state.clone();
+    for _ in 0..4 {
+        empty_box.system_mut(&ti4_model::id::SystemId::new("27")).units.push(unit("mech", "a"));
+    }
+    crate::action_cards_closing_tests::announce_all(&[("refit", state.clone()), ("refit", single.clone()), ("refit", empty_box.clone())]);
+    let _ = crate::dual::take_report();
+    // The last option of the second question is the stop: one infantry; the first options take two.
+    let after = played("refit", &state);
+    assert_eq!(units_on_planets(&after, "mech", "a"), units_on_planets(&state, "mech", "a") + 1);
+    let after = played_by("refit", &state, Box::new(crate::action_cards_closing_tests::FirstOption));
+    assert_eq!(units_on_planets(&after, "mech", "a"), units_on_planets(&state, "mech", "a") + 2);
+    assert_eq!(units_on_planets(&after, "infantry", "a"), units_on_planets(&state, "infantry", "a") - 2);
+    let after = played("refit", &single);
+    assert_eq!(units_on_planets(&after, "mech", "a"), 1);
+    let after = played("refit", &empty_box);
+    assert_eq!(units_on_planets(&after, "mech", "a"), 0, "the box holds no more mechs");
+    let _ = crate::dual::take_report();
+}
+
+fn units_on_planets(state: &GameState, kind: &str, owner: &str) -> usize {
+    state.board.values().flat_map(|b| b.planet_units.values()).flatten().filter(|u| u.type_id.as_str() == kind && u.owner.as_str() == owner).count()
 }

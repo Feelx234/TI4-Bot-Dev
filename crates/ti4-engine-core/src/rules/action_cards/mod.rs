@@ -357,11 +357,13 @@ pub struct Facts {
     /// The plain dreadnought (Upgrade places `dreadnought`, not the form the seat's upgrades would give) and the ones on the
     /// Crimson hero card.
     pub dreadnought: Placed,
+    /// The plain mech Refit Troops places (`None` for a seat whose mech is a faction unit with an announcement of its own).
+    pub mech: Placed,
 }
 
 impl Default for Facts {
     fn default() -> Self {
-        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE, dreadnought: Placed::NONE }
+        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE, dreadnought: Placed::NONE, mech: Placed::NONE }
     }
 }
 
