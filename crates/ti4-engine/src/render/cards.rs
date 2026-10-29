@@ -180,6 +180,12 @@ impl Family for Fam {
             }
             Opt::Spot(system, planet) => ChoiceOption::labelled(format!("{}|{}", system.as_str(), planet.as_str()), "planet", planet.as_str())
                 .with_planet(planet.as_str(), Some(system.as_str())),
+            Opt::Perform { card, holder } => {
+                let id = card.as_str();
+                let name = crate::strategy_cards::card_name(ContentStore::embedded(), id).unwrap_or_else(|| id.to_owned());
+                let label = holder.map_or(name.clone(), |seat| format!("{}'s {name}", r.seat_text(seat)));
+                ChoiceOption::labelled(id, "strategy card", label)
+            }
             Opt::Strat(card) if matches!(pick_of(a).1, What::Redraft { .. }) => {
                 let id = card.as_str();
                 ChoiceOption::labelled(id, "strategy_card", crate::draft::strategy_card_label(ContentStore::embedded(), id))
@@ -272,6 +278,8 @@ impl Family for Fam {
                 Some(Opt::Spot(planet.data().system?, planet))
             }
             Ask::Pick { what: What::Redraft { .. }, .. } => ti4_engine_core::generated::StrategyCard::from_id(id).map(Opt::Strat),
+            // The holder is the question's: the id is matched against the options of the question itself.
+            Ask::Pick { what: What::Perform, .. } => None,
             Ask::Predict { frame, .. } => super::agenda::parse_outcome(r, frame, id).map(Opt::Outcome),
         }
     }
@@ -310,6 +318,7 @@ const fn pick_kind(what: What) -> &'static str {
         What::Ready => "reparations_ready",
         What::Dig => "planet",
         What::Redraft { .. } => "strategy_card",
+        What::Perform => "strategy card",
     }
 }
 
@@ -383,6 +392,8 @@ const fn pick_prompt(card: ActionCard, what: What) -> &'static str {
         (C::PirateFleet, _) => "Pirate Fleet: which system the fleet enters",
         (C::ExplorationProbe, _) => "Exploration Probe: which frontier token to explore",
         (C::PirateContract1 | C::PirateContract2 | C::PirateContract3 | C::PirateContract4, _) => "Pirate Contract: which system the destroyer enters",
+        (C::Strategize1 | C::Strategize2 | C::Strategize3 | C::Strategize4, _) => "Strategize: which card's secondary ability to perform",
+        (C::Overrule, _) => "Overrule: which card's primary ability to perform",
         _ => "",
     }
 }

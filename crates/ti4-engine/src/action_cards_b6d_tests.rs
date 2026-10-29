@@ -549,7 +549,7 @@ fn plagiarize_pays_five_influence_and_takes_a_neighbours_technology_in_the_core_
 }
 
 /// A position where seat `a` owns the base technologies of every colour (so a good many are researchable) and is ready to pay.
-fn research_position() -> GameState {
+pub(crate) fn research_position() -> GameState {
     let a = PlayerId::new("a");
     let mut state = closing_position();
     state.exhausted_planets.clear();
@@ -1249,4 +1249,419 @@ fn exploration_probe_cannot_resolve_the_ion_storm_and_the_mirage_without_a_syste
         assert!(serde_json::to_string(&after.board).unwrap() == serde_json::to_string(&start.board).unwrap(), "{card}: nothing on the board");
         assert_eq!(after.frontier_tokens.len(), start.frontier_tokens.len() - 1, "{card}: the token is spent");
     }
+}
+// -- Strategize and Overrule ---------------------------------------------------------------------------------------------------
+
+/// The table of [`closing_position`] with the strategy cards laid out as the test wants: `b` and `c` hold `b_held` and `c_held`
+/// (each card readied, `exhausted` names the ones that are not) and `mat` is the cards nobody has picked.
+pub(crate) fn strategy_position(b_held: &[&str], c_held: &[&str], exhausted: &[&str], mat: &[&str]) -> GameState {
+    strategy_on(closing_position(), b_held, c_held, exhausted, mat)
+}
+
+pub(crate) fn strategy_on(mut state: GameState, b_held: &[&str], c_held: &[&str], exhausted: &[&str], mat: &[&str]) -> GameState {
+    let card = |id: &&str| ti4_model::StrategyCardId::new(*id);
+    for (seat, held) in [("b", b_held), ("c", c_held)] {
+        let seat = state.player_mut(&PlayerId::new(seat)).unwrap();
+        seat.strategy_cards = held.iter().map(card).collect();
+        seat.exhausted_strategy_cards = held.iter().filter(|id| exhausted.contains(id)).map(card).collect();
+    }
+    state.player_mut(&PlayerId::new("a")).unwrap().strategy_cards.clear();
+    state.unclaimed_strategy_cards = mat.iter().map(card).collect();
+    state
+}
+
+/// Strategize asks which card's secondary ability to perform: the other seats' readied cards in seating order, then the cards on
+/// the mat (`holder's name` and `name`, the holders as a display fact); an exhausted card is not on offer. The Trade secondary
+/// replenishes the holder's commodities and the Imperial secondary draws a secret objective (a hand over the limit hands one back).
+#[test]
+fn strategize_asks_which_card_to_perform_and_performs_the_trade_and_imperial_secondaries_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let a = PlayerId::new("a");
+    let mut base = closing_position();
+    base.player_mut(&a).unwrap().commodities = 0;
+    // The pick among held and unclaimed cards: the three deciders take a different one of the four.
+    let pick = strategy_on(base.clone(), &["pok5trade"], &["pok8imperial", "pok6warfare"], &["pok6warfare"], &[]);
+    // Only the mat: the names carry no holder.
+    let mat = strategy_on(base.clone(), &[], &[], &[], &["pok5trade", "pok8imperial"]);
+    // A held card and a card on the mat (the label of the second has no holder).
+    let both = strategy_on(base.clone(), &["pok5trade"], &[], &[], &["pok8imperial"]);
+    // One card on offer is taken without a question.
+    let lone_trade = strategy_on(base.clone(), &["pok5trade"], &[], &[], &[]);
+    let lone_imperial = strategy_on(base.clone(), &[], &[], &[], &["pok8imperial"]);
+    // The hand is over the limit after the draw: one secret goes back.
+    let mut full = lone_imperial.clone();
+    let held: Vec<_> = full.secret_deck.drain(..3).collect();
+    full.player_mut(&a).unwrap().secret_objectives = held;
+    // The deck has run out: nothing is drawn and the hand, over its limit already, is not asked about.
+    let mut dry = full.clone();
+    dry.secret_deck.clear();
+    for case in [&pick, &mat, &both, &lone_trade, &lone_imperial, &full, &dry] {
+        announce_all(&[("strategize1", case.clone())]);
+    }
+    announce_all(&[("strategize3", pick.clone())]);
+    let _ = crate::dual::take_report();
+    let after = played("strategize2", &lone_trade);
+    assert_eq!(after.player(&a).unwrap().commodities, 3, "the Trade secondary replenishes (Arborec: 3)");
+    let after = played("strategize4", &lone_imperial);
+    assert_eq!(after.player(&a).unwrap().secret_objectives.len(), lone_imperial.player(&a).unwrap().secret_objectives.len() + 1, "the Imperial secondary draws a secret");
+    let after = played("strategize1", &full);
+    assert_eq!(after.player(&a).unwrap().secret_objectives.len(), 3, "over the limit: drawn, then handed back");
+    let _ = crate::dual::take_report();
+}
+
+/// The Politics secondary draws two action cards; the Technology secondary pays four resources (the question-driven payment) and
+/// researches (the research window of the strategy area, as a child of the card).
+#[test]
+fn strategize_performs_the_politics_and_technology_secondaries_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let a = PlayerId::new("a");
+    let draw = strategy_position(&[], &[], &[], &["pok3politics"]);
+    let research = strategy_on(research_position(), &[], &[], &[], &["pok7technology"]);
+    // The pick among the two: the first and the last card are different abilities.
+    let both = strategy_on(research_position(), &["pok3politics"], &[], &[], &["pok7technology"]);
+    // Four resources are not there: the research is not asked.
+    let mut poor = research.clone();
+    poor.player_mut(&a).unwrap().trade_goods = 0;
+    for board in poor.board.values_mut() {
+        board.planet_control.retain(|_, owner| *owner != a);
+    }
+    // The faction effects of a research that the production kernel's hooks carry: Jol-Nar's waiver of a prerequisite (Analytical, the
+    // agent spent), Nekro's Propagation (command tokens instead of a technology), the Anti-Intellectual Revolution (a ship is destroyed).
+    let mut jolnar = research.clone();
+    jolnar.player_mut(&a).unwrap().faction = ti4_model::id::FactionId::new("jolnar");
+    jolnar.player_mut(&a).unwrap().leaders.insert(ti4_model::id::LeaderId::new("jolnaragent"), ti4_model::state::LeaderStatus::Exhausted);
+    let mut nekro = research.clone();
+    nekro.player_mut(&a).unwrap().faction = ti4_model::id::FactionId::new("nekro");
+    let mut revolution = research.clone();
+    revolution.enact_law("revolution", "for");
+    for case in [&draw, &research, &both, &poor, &jolnar, &nekro, &revolution] {
+        announce_all(&[("strategize1", case.clone())]);
+    }
+    let _ = crate::dual::take_report();
+    let after = played("strategize2", &draw);
+    assert_eq!(after.player(&a).unwrap().action_cards.len(), 2, "the played card is gone and two action cards were drawn");
+    let after = played_by("strategize3", &research, Box::new(crate::action_cards_closing_tests::FirstOption));
+    assert_eq!(after.player(&a).unwrap().technologies.len(), research.player(&a).unwrap().technologies.len() + 1, "one technology researched");
+    let after = played("strategize4", &poor);
+    assert_eq!(after.player(&a).unwrap().technologies.len(), poor.player(&a).unwrap().technologies.len(), "four resources are not there");
+    let _ = crate::dual::take_report();
+}
+
+/// The Leadership secondary buys command tokens for influence (the purchase loop, the first purchase accepted), Diplomacy readies
+/// up to two exhausted planets and Construction places a structure.
+#[test]
+fn strategize_performs_the_leadership_diplomacy_and_construction_secondaries_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let a = PlayerId::new("a");
+    // The seat is rich (trade goods and ready planets pay), so the purchase asks what to pay with.
+    let mut rich = closing_position();
+    rich.exhausted_planets.clear();
+    rich.player_mut(&a).unwrap().trade_goods = 4;
+    let leadership = strategy_on(rich.clone(), &[], &[], &[], &["pok1leadership"]);
+    // Trade goods alone pay (a lone option is taken without a question), then the offer of one more.
+    let mut goods = closing_position();
+    goods.player_mut(&a).unwrap().trade_goods = 6;
+    let goods = strategy_on(goods, &[], &[], &[], &["pok1leadership"]);
+    // Nothing to pay with: nothing is asked.
+    let mut broke = closing_position();
+    broke.player_mut(&a).unwrap().trade_goods = 0;
+    let broke = strategy_on(broke, &[], &[], &[], &["pok1leadership"]);
+    // Diplomacy: the position exhausts the planets of the seat (two or more to choose from), both printings.
+    let diplomacy = strategy_position(&[], &[], &[], &["pok2diplomacy"]);
+    let base_diplomacy = strategy_position(&[], &[], &[], &["base2"]);
+    let mut ready = closing_position();
+    ready.exhausted_planets.clear();
+    let ready = strategy_on(ready, &[], &[], &[], &["pok2diplomacy"]);
+    let construction = strategy_on(rich.clone(), &[], &[], &[], &["pok4construction"]);
+    let base_construction = strategy_on(rich.clone(), &[], &[], &[], &["base4"]);
+    for case in [&leadership, &goods, &broke, &diplomacy, &base_diplomacy, &ready, &construction, &base_construction] {
+        announce_all(&[("strategize1", case.clone())]);
+    }
+    let _ = crate::dual::take_report();
+    let tokens = |s: &GameState| {
+        let seat = s.player(&a).unwrap();
+        seat.tactic_tokens + seat.fleet_tokens + seat.strategic_tokens
+    };
+    let after = played_by("strategize2", &leadership, Box::new(crate::action_cards_closing_tests::FirstOption));
+    assert!(tokens(&after) > tokens(&leadership), "a command token was bought");
+    let after = played("strategize3", &diplomacy);
+    assert!(after.exhausted_planets.len() < diplomacy.exhausted_planets.len(), "a planet was readied");
+    let after = played_by("strategize4", &construction, Box::new(crate::action_cards_closing_tests::FirstOption));
+    let structures = |s: &GameState| s.board.values().flat_map(|b| b.planet_units.values().flatten()).filter(|u| u.owner == a).count();
+    assert_eq!(structures(&after), structures(&construction) + 1, "a structure was placed");
+    let _ = crate::dual::take_report();
+}
+
+/// Overrule performs a primary ability: Trade (three trade goods and a replenishment, then the seats below their commodities the
+/// holder lets replenish), Technology (a free research and a paid one), Leadership (three free tokens and the purchase loop),
+/// Construction (two structures) and Warfare (recall a token, gain one, redistribute). The options of the Trade primary name the
+/// seats by faction, so the table is named.
+#[test]
+fn overrule_performs_the_trade_technology_leadership_construction_and_warfare_primaries_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let a = PlayerId::new("a");
+    let mut trade = closing_position();
+    trade.player_mut(&a).unwrap().commodities = 0;
+    trade.player_mut(&PlayerId::new("b")).unwrap().commodities = 0;
+    trade.player_mut(&PlayerId::new("c")).unwrap().commodities = 1;
+    let trade = strategy_on(trade, &[], &[], &[], &["pok5trade"]);
+    // Nobody needs a replenishment: no question.
+    let mut full = closing_position();
+    for seat in ["a", "b", "c"] {
+        full.player_mut(&PlayerId::new(seat)).unwrap().commodities = 9;
+    }
+    let full = strategy_on(full, &[], &[], &[], &["pok5trade"]);
+    let research = strategy_on(research_position(), &[], &[], &[], &["pok7technology"]);
+    let mut rich = closing_position();
+    rich.exhausted_planets.clear();
+    rich.player_mut(&a).unwrap().trade_goods = 4;
+    let leadership = strategy_on(rich.clone(), &[], &[], &[], &["pok1leadership"]);
+    let construction = strategy_on(rich.clone(), &[], &[], &[], &["pok4construction"]);
+    let mut warfare = rich.clone();
+    warfare.system_mut(&ti4_model::id::SystemId::new("33")).command_tokens.insert(a.clone());
+    let warfare = strategy_on(warfare, &[], &[], &[], &["pok6warfare"]);
+    // Diplomacy: a system the holder controls a planet in, the other seats place a token there (announced), then up to two planets are
+    // readied; the base printing readies the whole system from rules version 35.
+    let diplomacy = strategy_position(&["pok2diplomacy"], &[], &[], &[]);
+    let base_diplomacy = strategy_position(&["base2"], &[], &[], &[]);
+    let mut older = base_diplomacy.clone();
+    older.rules_version = ti4_model::state::RULES_BASE_DIPLOMACY - 1;
+    for case in [&trade, &full, &research, &leadership, &construction, &warfare, &diplomacy, &base_diplomacy, &older] {
+        announce_all(&[("overrule", case.clone())]);
+    }
+    let _ = crate::dual::take_report();
+    let after = played("overrule", &trade);
+    assert!(after.player(&a).unwrap().trade_goods >= trade.player(&a).unwrap().trade_goods + 3, "the Trade primary pays three trade goods");
+    let after = played("overrule", &diplomacy);
+    let tokens = |s: &GameState| s.board.values().map(|b| b.command_tokens.len()).sum::<usize>();
+    assert!(tokens(&after) > tokens(&diplomacy), "the other seats placed a command token");
+    let _ = crate::dual::take_report();
+}
+
+/// Overrule on Politics: the holder elects a new speaker (the options are named by faction), draws two action cards and puts the
+/// top two agendas back (an old rules version draws from the deck with the unofficial cards in it).
+#[test]
+fn overrule_performs_the_politics_primary_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let politics = strategy_position(&["pok3politics"], &[], &[], &[]);
+    let mut dry = politics.clone();
+    dry.agenda_deck.clear();
+    let mut old = politics.clone();
+    old.rules_version = ti4_model::state::RULES_OFFICIAL_ACTION_DECK - 1;
+    let mut edge = politics.clone();
+    edge.rules_version = ti4_model::state::RULES_OFFICIAL_ACTION_DECK;
+    for case in [&politics, &dry, &old, &edge] {
+        announce_all(&[("overrule", case.clone())]);
+    }
+    let _ = crate::dual::take_report();
+    let after = played("overrule", &politics);
+    assert_eq!(after.player(&PlayerId::new("a")).unwrap().action_cards.len(), 2, "two action cards drawn");
+    assert_eq!(after.agenda_deck.len(), politics.agenda_deck.len(), "the agendas are back on the deck");
+    let _ = crate::dual::take_report();
+}
+
+/// The positions the abilities' guards and orders turn on: the seating order (the options of the pick are the other seats' cards
+/// in seating order, not in the order of the players), a Letnev holder (the fleet pool may be emptied, the pool questions show
+/// the bonus), a Naalu holder (the Trade primary).
+#[test]
+fn strategize_and_overrule_follow_the_seating_order_the_faction_and_the_rules_version_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let (a, b, c) = (PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c"));
+    // c sits before b: its card is the first on offer.
+    let mut turned = strategy_position(&["pok5trade"], &["pok8imperial"], &[], &[]);
+    turned.seating_order = vec![c.clone(), b.clone(), a.clone()];
+    // The same with a seat that sits between the two.
+    let mut between = strategy_position(&["pok5trade"], &["pok8imperial"], &[], &["pok3politics"]);
+    between.seating_order = vec![b.clone(), a.clone(), c.clone()];
+    let with_faction = |mut state: GameState, faction: &str| {
+        state.player_mut(&a).unwrap().faction = ti4_model::id::FactionId::new(faction);
+        state
+    };
+    let mut warfare = closing_position();
+    warfare.system_mut(&ti4_model::id::SystemId::new("33")).command_tokens.insert(a.clone());
+    warfare.player_mut(&a).unwrap().fleet_tokens = 1;
+    let letnev_warfare = with_faction(strategy_on(warfare, &[], &[], &[], &["pok6warfare"]), "letnev");
+    let mut rich = closing_position();
+    rich.exhausted_planets.clear();
+    rich.player_mut(&a).unwrap().trade_goods = 4;
+    let letnev_leadership = with_faction(strategy_on(rich, &[], &[], &[], &["pok1leadership"]), "letnev");
+    let mut hacan = closing_position();
+    hacan.player_mut(&a).unwrap().commodities = 0;
+    hacan.player_mut(&b).unwrap().commodities = 0;
+    let naalu_trade = with_faction(strategy_on(hacan, &[], &[], &[], &["pok5trade"]), "naalu");
+    // The holder's own card is never on offer (it holds Leadership, which would be the last option otherwise).
+    let mut own = strategy_position(&["pok5trade"], &["pok8imperial"], &[], &[]);
+    own.player_mut(&a).unwrap().strategy_cards = vec![ti4_model::StrategyCardId::new("pok1leadership")];
+    // The Thunder's Edge Construction is Construction for the secondary.
+    let mut open = closing_position();
+    open.exhausted_planets.clear();
+    let te_construction = strategy_on(open, &[], &[], &[], &["te4construction"]);
+    for case in [&turned, &between, &own, &te_construction] {
+        announce_all(&[("strategize1", case.clone())]);
+    }
+    announce_all(&[("overrule", letnev_warfare.clone())]);
+    for version in [ti4_model::state::RULES_LETNEV_FLEET_POOL - 1, ti4_model::state::RULES_LETNEV_FLEET_POOL] {
+        let mut older = letnev_warfare.clone();
+        older.rules_version = version;
+        announce_all(&[("overrule", older)]);
+    }
+    announce_all(&[("overrule", letnev_leadership.clone())]);
+    announce_all(&[("overrule", naalu_trade.clone())]);
+    announce_all(&[("strategize1", naalu_trade)]);
+    let _ = crate::dual::take_report();
+}
+
+// -- Strategize and Overrule: what the core leaves to the string -----------------------------------------------------------------
+
+/// Takes the card `pick` at the pick question of Strategize or Overrule, declines the reaction slots and takes the last option of
+/// every other question.
+struct Performs(&'static str);
+
+impl crate::choice::Decider for Performs {
+    fn choose(&mut self, choice: &crate::choice::Choice) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
+        if choice.options.iter().any(|o| o.id.starts_with("reaction:")) {
+            if let Some(decline) = choice.options.iter().find(|o| o.is_decline()) {
+                return Ok(decline.clone());
+            }
+        }
+        choice
+            .options
+            .iter()
+            .find(|o| o.id == self.0)
+            .or(choice.options.last())
+            .cloned()
+            .ok_or_else(|| crate::choice::IllegalChoice::NoOptions { player: choice.player.clone(), prompt: choice.prompt.clone() })
+    }
+}
+
+/// `alias` played as the component action of seat `a` (with `filler` more action cards in the hand) choosing the card `pick`: the
+/// `(compared, bailed)` counts of the announce window. The string run goes on alone; no difference may be reported.
+fn bails_picking(alias: &str, start: &GameState, pick: &'static str, filler: usize) -> (u64, u64) {
+    let a = PlayerId::new("a");
+    let _ = crate::dual::take_report();
+    let mut state = start.clone();
+    let hand: Vec<_> = std::iter::once(alias).chain(std::iter::repeat_n("spy", filler)).map(ti4_model::id::ActionCardId::new).collect();
+    state.player_mut(&a).unwrap().action_cards = hand;
+    crate::action_cards::discard(&mut state, &a, 0);
+    crate::dual::with_mask(crate::action_cards_closing_tests::dual(), || {
+        crate::action_cards_announce_tests::announce(&mut state, alias, &a, Box::new(Performs(pick)))
+    });
+    assert_eq!(state.discarded_action_cards.last(), Some(&ti4_model::id::ActionCardId::new(alias)), "the card is on the pile");
+    let report = crate::dual::report();
+    assert!(report.differences.is_empty(), "{} differences", report.differences.len());
+    let counts = crate::action_cards_closing_tests::windows("action_cards::announce");
+    let _ = crate::dual::take_report();
+    counts
+}
+
+/// Bail: the Warfare secondary (a production window at the home system), the Imperial primary (the scoreable objectives, the award
+/// tail) and the Thunder's Edge primaries (a free tactical action; the choice of a production) are the string's.
+#[test]
+fn bail_the_strategy_abilities_the_core_window_does_not_carry_are_the_strings() {
+    let _serial = crate::dual::tests::serial();
+    let on_offer = |held: &str| strategy_position(&[held], &["pok5trade"], &[], &[]);
+    for (alias, held) in [
+        ("strategize1", "pok6warfare"),
+        ("strategize2", "te6warfare"),
+        ("overrule", "pok8imperial"),
+        ("overrule", "te6warfare"),
+        ("overrule", "te4construction"),
+    ] {
+        assert_eq!(bails_picking(alias, &on_offer(held), held_static(held), 0), (0, 1), "{alias} performing {held}");
+    }
+}
+
+/// The picked card's id as a `'static` text (the decider holds it).
+fn held_static(id: &str) -> &'static str {
+    ["pok6warfare", "te6warfare", "pok8imperial", "pok2diplomacy", "base2", "te4construction", "pok5trade", "pok3politics", "pok7technology", "pok1leadership", "pok4construction"]
+        .into_iter()
+        .find(|known| *known == id)
+        .expect("a known card")
+}
+
+/// Bail: a replenishment that causes events (a Cabal at the table) is the string's, for both abilities of Trade.
+#[test]
+fn bail_the_trade_abilities_at_a_table_where_a_replenishment_causes_events() {
+    let _serial = crate::dual::tests::serial();
+    let mut cabal = strategy_position(&["pok5trade"], &[], &[], &[]);
+    cabal.player_mut(&PlayerId::new("c")).unwrap().faction = ti4_model::id::FactionId::new("cabal");
+    let plain = strategy_position(&["pok5trade"], &[], &[], &[]);
+    for alias in ["strategize3", "overrule"] {
+        assert_eq!(bails_picking(alias, &cabal, "pok5trade", 0), (0, 1), "{alias}");
+        assert_eq!(bails_picking(alias, &plain, "pok5trade", 0), (1, 0), "{alias} at a plain table is carried");
+    }
+}
+
+/// Bail: a Politics draw that ends in a discard question (a full hand) or that a faction hook changes (Yssaril's Scheming) is the
+/// string's, for both abilities.
+#[test]
+fn bail_politics_when_the_draw_is_not_plain() {
+    let _serial = crate::dual::tests::serial();
+    let politics = strategy_position(&["pok3politics"], &[], &[], &[]);
+    let mut scheming = politics.clone();
+    scheming.player_mut(&PlayerId::new("c")).unwrap().faction = ti4_model::id::FactionId::new("yssaril");
+    for alias in ["strategize4", "overrule"] {
+        assert_eq!(bails_picking(alias, &politics, "pok3politics", 6), (0, 1), "{alias} with a full hand");
+        assert_eq!(bails_picking(alias, &scheming, "pok3politics", 0), (0, 1), "{alias} at a table with Scheming");
+    }
+    // A hand that stays within its limit is carried.
+    assert_eq!(bails_picking("strategize4", &politics, "pok3politics", 0), (1, 0));
+}
+
+/// Bail: a research at a table the research window does not carry (a Mentak seat: the Corsair's form), below the rules version
+/// that asked the payment, is the string's, for both abilities of Technology.
+#[test]
+fn bail_technology_at_a_table_the_research_window_does_not_carry() {
+    let _serial = crate::dual::tests::serial();
+    let research = strategy_on(research_position(), &["pok7technology"], &[], &[], &[]);
+    let mut mentak = research.clone();
+    mentak.player_mut(&PlayerId::new("c")).unwrap().faction = ti4_model::id::FactionId::new("mentak");
+    let mut old = research.clone();
+    old.rules_version = ti4_model::state::RULES_TECH_PAYMENT_CHOICE - 1;
+    // A faction effect the core table does not hold (here a waiver of prerequisites the string offers): the hooks disagree.
+    let waiver = crate::factions::hooks_strategy::StrategyHooks {
+        research_waiver_offer: Some(|_, _, _, _| Some(crate::factions::hooks_strategy::ResearchWaiver { id: "t".to_owned(), label: "t".to_owned(), payments: Vec::new() })),
+        ..crate::factions::hooks_strategy::StrategyHooks::NONE
+    };
+    for alias in ["strategize1", "overrule"] {
+        let declined = crate::factions::hooks_strategy::with_test_hooks(waiver, || bails_picking(alias, &research, "pok7technology", 0));
+        assert_eq!(declined, (0, 1), "{alias} where the string modules and the core table disagree on the hooks of a research");
+        assert_eq!(bails_picking(alias, &mentak, "pok7technology", 0), (0, 1), "{alias} at a table with Mentak");
+        assert_eq!(bails_picking(alias, &old, "pok7technology", 0), (0, 1), "{alias} below the rules version of the payment plan");
+        assert_eq!(bails_picking(alias, &research, "pok7technology", 0), (1, 0), "{alias} is carried at a plain table");
+    }
+}
+
+/// Bail: Leadership and Construction at a table whose payments or placements the production rules do not follow (a Yssaril seat:
+/// borrowed agents), Leadership and Warfare with a command token in a Mahact pool, are the string's.
+#[test]
+fn bail_leadership_construction_and_warfare_where_the_production_rules_do_not_follow() {
+    let _serial = crate::dual::tests::serial();
+    let plain = strategy_position(&["pok1leadership"], &["pok4construction"], &[], &[]);
+    let mut yssaril = plain.clone();
+    yssaril.player_mut(&PlayerId::new("c")).unwrap().faction = ti4_model::id::FactionId::new("yssaril");
+    for (alias, pick) in [("strategize1", "pok1leadership"), ("overrule", "pok1leadership"), ("strategize2", "pok4construction"), ("overrule", "pok4construction")] {
+        assert_eq!(bails_picking(alias, &yssaril, pick, 0), (0, 1), "{alias} performing {pick} at a table with Yssaril");
+        assert_eq!(bails_picking(alias, &plain, pick, 0), (1, 0), "{alias} performing {pick} at a plain table is carried");
+    }
+    let mut warfare = strategy_position(&["pok1leadership"], &["pok6warfare"], &[], &[]);
+    warfare.system_mut(&ti4_model::id::SystemId::new("33")).command_tokens.insert(PlayerId::new("a"));
+    let mut mahact = warfare.clone();
+    mahact.faction_marks.insert("mahact:fleet:b".to_owned(), "a".to_owned());
+    for (alias, pick) in [("strategize3", "pok1leadership"), ("overrule", "pok1leadership"), ("overrule", "pok6warfare")] {
+        assert_eq!(bails_picking(alias, &mahact, pick, 0), (0, 1), "{alias} performing {pick} with a token in a Mahact pool");
+        assert_eq!(bails_picking(alias, &warfare, pick, 0), (1, 0), "{alias} performing {pick} without one is carried");
+    }
+}
+
+/// Bail: Overrule names the seats of the Trade primary and the speaker of Politics by faction: at a table where two seats share a
+/// faction the options would clash, so the whole card is the string's.
+#[test]
+fn bail_overrule_at_a_table_where_two_seats_share_a_faction() {
+    let _serial = crate::dual::tests::serial();
+    let mut twins = strategy_position(&["pok5trade"], &[], &[], &[]);
+    twins.player_mut(&PlayerId::new("c")).unwrap().faction = ti4_model::id::FactionId::new("hacan");
+    assert_eq!(bails_picking("overrule", &twins, "pok5trade", 0), (0, 1));
+    // The secondaries name nobody: the same table is carried.
+    assert_eq!(bails_picking("strategize1", &twins, "pok5trade", 0), (1, 0));
 }

@@ -103,6 +103,15 @@ impl Announce {
         self.played
     }
 
+    /// The system the Diplomacy primary performed by Overrule placed tokens in and the seats that got one (empty for any other play).
+    #[must_use]
+    pub fn placed_tokens(&self) -> Option<(crate::generated::System, Vec<Seat>)> {
+        match &self.effect {
+            Effect::Play(play) => play.placed_tokens().map(|(system, seats)| (system, seats.to_vec())),
+            _ => None,
+        }
+    }
+
     /// The dice the effect rolled, in order.
     #[must_use]
     pub fn faces(&self) -> Vec<u32> {
@@ -439,7 +448,7 @@ mod tests {
     #[test]
     fn the_b6d_cards_are_not_played_from_inside_another_window() {
         let t = AbilityTable::default();
-        for card in [ActionCard::Upgrade, ActionCard::DecoyOperation, ActionCard::RevealPrototype, ActionCard::LieInWait, ActionCard::Bribery, ActionCard::HarnessEnergy, ActionCard::Infiltrate, ActionCard::CrashLanding, ActionCard::GhostSquad, ActionCard::ExplorationProbe] {
+        for card in [ActionCard::Upgrade, ActionCard::DecoyOperation, ActionCard::RevealPrototype, ActionCard::LieInWait, ActionCard::Bribery, ActionCard::HarnessEnergy, ActionCard::Infiltrate, ActionCard::CrashLanding, ActionCard::GhostSquad, ActionCard::ExplorationProbe, ActionCard::Strategize2, ActionCard::Overrule] {
             assert!(plays(card), "{card:?} has a window of its own");
             assert!(!plays_in(&t, card), "{card:?}");
         }
@@ -450,7 +459,7 @@ mod tests {
     #[test]
     fn bail_a_card_with_an_unported_effect_has_no_announcement() {
         let s = two_seats();
-        assert!(Announce::of(&s, ActionCard::Strategize1, Seat(0), env(), true, false).is_none());
+        assert!(Announce::of(&s, ActionCard::ScrambleFrequency, Seat(0), env(), true, false).is_none());
         assert!(Announce::of(&s, ActionCard::DirectHit1, Seat(0), env(), true, false).is_none());
     }
 

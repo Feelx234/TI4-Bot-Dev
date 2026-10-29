@@ -6,6 +6,7 @@
 
 pub mod announce;
 pub mod effects;
+pub mod perform;
 pub mod reaction_slot;
 
 use crate::generated::{ActionCard, System, Unit, UnitBaseType};
@@ -393,11 +394,13 @@ pub struct Facts {
     /// The holder draws two action cards plainly: no draw hook, the hand stays within its limit (a Lost Crew drawn by Exploration
     /// Probe). A draw that is not plain is the string's.
     pub action_draw_plain: bool,
+    /// Strategize and Overrule: what the adapter vouches for when the performed ability reads the string position.
+    pub carried: perform::Carried,
 }
 
 impl Default for Facts {
     fn default() -> Self {
-        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE, dreadnought: Placed::NONE, mech: Placed::NONE, pds: Placed::NONE, holder_deepwrought: false, spacedock: Placed::NONE, replenish_events: false, rules_version: u32::MAX, tech_order: |a, b| a.cmp(&b), roster: None, reveal: crate::state::TechSet::default(), traders: [None; 2], fracture_in_play: false, own_breakthrough: [None; 16], unit_order: |a, b| a.cmp(&b), map: false, explore_empty: crate::state::Code(0), action_draw_plain: false }
+        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE, dreadnought: Placed::NONE, mech: Placed::NONE, pds: Placed::NONE, holder_deepwrought: false, spacedock: Placed::NONE, replenish_events: false, rules_version: u32::MAX, tech_order: |a, b| a.cmp(&b), roster: None, reveal: crate::state::TechSet::default(), traders: [None; 2], fracture_in_play: false, own_breakthrough: [None; 16], unit_order: |a, b| a.cmp(&b), map: false, explore_empty: crate::state::Code(0), action_draw_plain: false, carried: perform::Carried { plain_draw: false, research: false, payments: false, structures: None, trade_source: crate::state::Code(0) } }
     }
 }
 

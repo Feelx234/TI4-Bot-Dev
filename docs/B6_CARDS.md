@@ -150,3 +150,32 @@ DOCUMENTED BAILS left (`BAILS` in `rules/action_cards/effects.rs`; the reason of
 Strategize x4 and Overrule (eight card kinds, each with a window and guards of its own to run as child windows), Courageous To The End, Experimental Battlestation (the combat area's
 hit flow as a child window), Fire Team (ported on `core-b12` as a registered play, bb26913b; not merged here) and Scramble Frequency
 (a bail of `core-b12` too).
+STRATEGIZE x4 AND OVERRULE (branch b6d-strategize, after the list above; core half `rules/action_cards/perform.rs`, lockstep tests in
+`ti4-engine/src/action_cards_b6d_tests.rs` and `action_cards::tests::strategize_and_overrule_agree_with_the_core_play_window_in_lockstep`).
+`Fx::Perform { primary }`: the pick question byte for byte (`What::Perform`, `Opt::Perform { card, holder }`, kind `strategy card`, the
+`holders` detail completed by the adapter from the core's own options), then the chosen card's ability as a child window of the strategy
+areas (`Child<Performed>`, an enum window over `Research`, `Leadership`, `Construction`, `Politics`, `WarfarePrimary`, `Diplomacy`,
+`TradePrimary` and `HandLimit`). The guards that read the string position are the adapter's `perform::Carried` facts (`carried_of`);
+the display facts of the child questions are `strategy_cards_core::Performing`.
+
+* Carried secondaries (Strategize): Trade (the replenishment), Imperial (the secret objective draw and the hand limit), Politics,
+  Technology (four resources), Leadership, Construction (both printings and the Thunder's Edge one) and Diplomacy (both printings).
+* Carried primaries (Overrule): Trade (the three trade goods are staged as the string stages them), Politics, Technology (a free research
+  and one for six), Leadership, Construction (the plain printings), Warfare (the plain printing) and Diplomacy (both printings; the
+  announcements of the placed tokens are staged on the string state by the adapter, `stage_placed_tokens`).
+* Conditions that stay string (the window marks the run `unsupported` or `Play::of` answers `None`; the adapter declines the whole
+  run; a core test in `effects::tests` and an adapter test each): the Warfare secondary (`home_production`: a production window), the
+  Imperial primary, the Thunder's Edge Construction and Warfare primaries (a free tactical action, the choice of a production), a replenishment that causes events (Trade,
+  both abilities), a draw that is not plain (Politics), a table or rules version the research window does not carry or a research only a
+  faction waiver opens (Technology), payments the production rules do not follow (Leadership), a faction effect on the placement of a
+  structure (Construction), a command token in a Mahact pool (Leadership, Warfare), two seats of one faction (Overrule names the options
+  of the Trade primary and the Politics speaker by faction: the whole card), and a replay's deck reserve (dropped by decision).
+
+DOCUMENTED BAILS left (`BAILS` in `rules/action_cards/effects.rs`; the reason of each is the constant):
+Exploration Probe (the exploration resolution is not one core window), Courageous To The End, Experimental Battlestation (the combat
+area's hit flow as a child window), Fire Team (ported on `core-b12` as a registered play, bb26913b; not merged here) and Scramble
+Frequency (a bail of `core-b12` too).
+
+Layers: `tools/engine_core/check_layers.py core` reports 10 violations in `rules/action_cards` (6 from the B6d child windows of
+`effects.rs` before this branch, 4 more in `perform.rs`): the card windows import the areas whose windows they run as children. The
+gate cannot pass until the child windows are reached through a registry in the kernel instead of an import.

@@ -36,6 +36,7 @@ use crate::state::{RngDomain, SeedSource};
 use crate::query::{board, economy, seats};
 use crate::state::{CoreState, Piece, TransientFlags};
 
+use super::perform::{self, Began, Performed};
 use super::{Env, is_home_system};
 
 /// What a card does.
@@ -166,6 +167,9 @@ pub enum Fx {
     /// Exploration Probe: a frontier token in or next to a system with a ship of the holder is explored (the frontier deck's top
     /// card is drawn and resolved without a planet).
     Probe,
+    /// Strategize (`primary: false`) and Overrule (`primary: true`): the holder performs the secondary or primary ability of a
+    /// strategy card another seat holds or nobody does.
+    Perform { primary: bool },
 }
 
 impl Fx {
@@ -204,6 +208,7 @@ impl Fx {
                 | Self::Infiltrate
                 | Self::Crash
                 | Self::Probe
+                | Self::Perform { .. }
         )
     }
 
@@ -318,6 +323,8 @@ impl Fx {
             C::Infiltrate => Self::Infiltrate,
             C::CrashLanding => Self::Crash,
             C::ExplorationProbe => Self::Probe,
+            C::Strategize1 | C::Strategize2 | C::Strategize3 | C::Strategize4 => Self::Perform { primary: false },
+            C::Overrule => Self::Perform { primary: true },
             _ => return None,
         })
     }
@@ -342,6 +349,10 @@ pub enum Stage {
     Pooling,
     /// Exploration Probe: the reward question of a Merchant Station (the child window [`Reward`]).
     Rewarding,
+    /// The strategy card to perform is chosen; its ability begins.
+    Chosen,
+    /// Performing the ability of the chosen strategy card (the child window [`Performed`]).
+    Performing,
     Done,
 }
 
@@ -430,6 +441,12 @@ pub struct Play {
     held: Option<(crate::query::explore::Holdings, Option<crate::query::explore::Holdings>)>,
     /// Exploration Probe: the system a gamma token was placed in (not where it was already).
     gamma: Option<System>,
+    /// Strategize and Overrule: the strategy card chosen.
+    picked: Option<StrategyCard>,
+    /// Strategize and Overrule: the ability of the card, while it runs (a child window).
+    perform: Child<Performed>,
+    /// The Diplomacy primary: the system it placed tokens in and the seats that got one.
+    tokens: Option<(System, SmallList<Seat, 8>)>,
 }
 
 /// `RULES_PLAGIARIZE_OWNED` and `RULES_ACTION_CARD_COSTS` (`ti4_model::state`).
@@ -495,7 +512,7 @@ impl Play {
         if fx == Fx::Summit && env.mahact_held > 0 {
             return None;
         }
-        if matches!(fx, Fx::Veto | Fx::Dig | Fx::Impersonation | Fx::Probe) && core.cards().reserve.is_some() {
+        if matches!(fx, Fx::Veto | Fx::Dig | Fx::Impersonation | Fx::Probe | Fx::Perform { .. }) && core.cards().reserve.is_some() {
             return None;
         }
         // A readied Keleres agent could be offered before a payment (a window of its own, the goods window).
@@ -533,7 +550,7 @@ impl Play {
             }
             _ => None,
         };
-        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: Child::idle(), hand: Child::idle(), chosen: None, landing: None, jam: None, troop: None, pulled: SmallList::new(), received: SmallList::new(), pay_ask: None, probe: None, explored: None, owed_goods: 0, pool_left: 0, reward: Child::idle(), held: None, gamma: None })
+        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: Child::idle(), hand: Child::idle(), chosen: None, landing: None, jam: None, troop: None, pulled: SmallList::new(), received: SmallList::new(), pay_ask: None, probe: None, explored: None, owed_goods: 0, pool_left: 0, reward: Child::idle(), held: None, gamma: None, picked: None, perform: Child::idle(), tokens: None })
     }
 
     fn what(&self) -> Option<What> {
@@ -554,6 +571,7 @@ impl Play {
             Fx::Focused => What::Focus,
             Fx::Crash => What::Crash { system: self.jam?, second: self.step == 1 },
             Fx::Bribery => What::Spend,
+            Fx::Perform { .. } => What::Perform,
             Fx::Lie => What::Lie { from: self.victim? },
             Fx::Divert if self.step == 0 => What::Return,
             Fx::Divert => What::Funding,
@@ -815,6 +833,22 @@ impl Play {
                 }
                 reach.as_mut_slice().sort_unstable();
                 reach.as_slice().iter().copied().filter(|s| !is_home_system(scope, *s)).map(Opt::System).collect()
+            }
+            Fx::Perform { .. } => {
+                // The cards of the other seats that are not exhausted (seating order), then the unclaimed ones.
+                let mut out = SmallList::new();
+                for seat in seats::seating_order(core).as_slice().iter().copied().filter(|s| *s != who) {
+                    let Some(p) = core.players().by_seat(seat) else { continue };
+                    for card in p.strat.as_slice() {
+                        if !p.strat_exhausted.contains(*card) {
+                            out.push(Opt::Perform { card: *card, holder: Some(seat) });
+                        }
+                    }
+                }
+                for card in core.strategy().unclaimed.as_slice() {
+                    out.push(Opt::Perform { card: *card, holder: None });
+                }
+                out
             }
             Fx::Bribery => {
                 // "Any number" includes zero, but with no trade good there is nothing to ask.
@@ -1713,6 +1747,7 @@ impl Play {
                     }
                 }
             }
+            (Fx::Perform { .. }, Opt::Perform { card, .. }) => self.picked = Some(card),
             (Fx::Crash, Opt::Kind(kind)) => {
                 self.landing = Some(kind);
                 self.step = 1;
@@ -1941,7 +1976,7 @@ impl Play {
 
     /// The question as the driver names it (Summit asks the strategy area's pool question).
     pub(super) fn any_ask(&self) -> crate::choice::Ask {
-        if let (Stage::Paying | Stage::Limiting | Stage::Rewarding, Some(ask)) = (self.stage, self.pay_ask) {
+        if let (Stage::Paying | Stage::Limiting | Stage::Rewarding | Stage::Performing, Some(ask)) = (self.stage, self.pay_ask) {
             return ask;
         }
         if self.stage == Stage::Pooling {
@@ -1997,13 +2032,64 @@ impl Play {
             Stage::Billing
         } else if self.fx == Fx::Probe && self.probe.is_some() {
             Stage::Exploring
+        } else if self.picked.is_some() {
+            Stage::Chosen
         } else {
             Stage::Done
         }
     }
 
+    /// Strategize and Overrule: the strategy card is chosen, its ability begins (a window of its own when it asks).
+    fn begin_perform(&mut self, sx: &mut Sx<'_>) {
+        let (Some(card), Fx::Perform { primary }) = (self.picked.take(), self.fx) else {
+            self.stage = Stage::Done;
+            return;
+        };
+        match perform::begin(sx, self.who, card, primary, self.env) {
+            Began::Done => self.stage = Stage::Done,
+            Began::Unsupported => {
+                self.unsupported = true;
+                self.stage = Stage::Done;
+            }
+            Began::Run(window) => {
+                self.perform.start(window);
+                self.stage = Stage::Performing;
+                self.drive_perform(sx);
+            }
+        }
+    }
+
+    /// Step the performed ability until it asks or ends.
+    fn drive_perform(&mut self, sx: &mut Sx<'_>) {
+        self.pay_ask = None;
+        loop {
+            match self.perform.step(sx) {
+                Some(Ran::Asks(ask)) => {
+                    self.pay_ask = Some(ask);
+                    return;
+                }
+                Some(Ran::Pass(_)) => {}
+                Some(Ran::Done(window)) => {
+                    // An answer that left the carried path (a research only a faction waiver opens): the string performs it.
+                    self.unsupported |= window.failed();
+                    window.finish(sx.state, self.env);
+                    self.tokens = window.tokens();
+                    self.stage = Stage::Done;
+                    return;
+                }
+                None => {
+                    self.stage = Stage::Done;
+                    return;
+                }
+            }
+        }
+    }
+
     /// Reveal Prototype: the technology is chosen, the four resources are paid by a child window.
     fn maybe_bill(&mut self, sx: &mut Sx<'_>) {
+        if self.stage == Stage::Chosen {
+            self.begin_perform(sx);
+        }
         if self.stage == Stage::Billing {
             self.pay.start(PayBill::new(self.who, economy::Spend::Resources, 4));
             self.stage = Stage::Paying;
@@ -2250,6 +2336,13 @@ impl Play {
         }
     }
 
+    /// The Diplomacy primary performed by Overrule: the system it placed command tokens in and the seats that got one (the adapter
+    /// announces the placements).
+    #[must_use]
+    pub fn placed_tokens(&self) -> Option<(System, &[Seat])> {
+        self.tokens.as_ref().map(|(system, seats)| (*system, seats.as_slice()))
+    }
+
     /// The dice rolled, in order.
     #[must_use]
     pub fn faces(&self) -> &[u32] {
@@ -2284,7 +2377,7 @@ impl Play {
     pub fn asking(&self) -> bool {
         self.stage == Stage::Asking
             || self.stage == Stage::Pooling
-            || (matches!(self.stage, Stage::Paying | Stage::Limiting | Stage::Rewarding) && self.pay_ask.is_some())
+            || (matches!(self.stage, Stage::Paying | Stage::Limiting | Stage::Rewarding | Stage::Performing) && self.pay_ask.is_some())
     }
 
     /// Apply a pick to the pending question (`Window::answer` without the services).
@@ -2320,6 +2413,11 @@ impl Play {
             if self.pool_left == 0 {
                 self.finish_goods(sx);
             }
+            return Ok(());
+        }
+        if self.stage == Stage::Performing {
+            self.perform.answer(sx, pick)?;
+            self.drive_perform(sx);
             return Ok(());
         }
         if self.stage != Stage::Asking {
@@ -2367,8 +2465,8 @@ impl Window for Play {
         match self.stage {
             Stage::Asking => Next::Continue(self.any_ask()),
             Stage::Pooling => Next::Continue(self.any_ask()),
-            Stage::Paying | Stage::Limiting | Stage::Rewarding => self.pay_ask.map_or(Next::Done, Next::Continue),
-            Stage::Start | Stage::Billing | Stage::Exploring | Stage::Done => Next::Done,
+            Stage::Paying | Stage::Limiting | Stage::Rewarding | Stage::Performing => self.pay_ask.map_or(Next::Done, Next::Continue),
+            Stage::Start | Stage::Billing | Stage::Exploring | Stage::Chosen | Stage::Done => Next::Done,
         }
     }
 
@@ -2384,6 +2482,9 @@ impl Window for Play {
         }
         if self.stage == Stage::Pooling {
             return Some(crate::choice::strategy::gain_pool_choice(self.who, self.pool_left));
+        }
+        if self.stage == Stage::Performing {
+            return self.perform.ask_of(s, k);
         }
         if self.fx == Fx::Summit {
             return (self.stage == Stage::Asking).then(|| crate::choice::strategy::gain_pool_choice(self.who, Self::SUMMIT_TOKENS - self.step));
@@ -2437,7 +2538,7 @@ mod tests {
             (C::DirectHit4, "the exact sustain mark and the ship-lost observers"),
             (C::SkilledRetreat1, "destinations and previews"),
             (C::CourageousToTheEnd, "dice and a casualty choice"),
-            (C::Strategize1, "performs another area's ability"),
+            (C::ScrambleFrequency, "the combat area's dice plumbing"),
         ] {
             assert_eq!(Fx::of(card), None, "{card:?}: {why}");
         }
@@ -2490,6 +2591,9 @@ mod tests {
             C::Infiltrate,
             C::CrashLanding,
             C::ExplorationProbe,
+            C::Strategize1,
+            C::Strategize4,
+            C::Overrule,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }
@@ -2576,6 +2680,211 @@ mod tests {
         let (unsupported, held) = run(cabal_bt);
         assert!(unsupported && held == Some(cabal_bt), "the Cabal's enters the Fracture without a roll");
         let _ = other_bt;
+    }
+
+    // -- Strategize and Overrule: the abilities the window does not carry, and the guards of the adapter's facts -----------------
+
+    /// Seat 0 plays `card`; seat 1 holds `held`, the only card on offer (taken without a question). The adapter's `facts` are the
+    /// test's. `(the run is unsupported, the position after, the question the run stopped at)`.
+    fn performs(card: ActionCard, held: StrategyCard, facts: super::super::Facts, kernel: &Kernel) -> (bool, CoreState, bool) {
+        use crate::driver::{Driver, Status};
+        use crate::kernel::stage::AbilityTable;
+        use crate::kernel::Resolver;
+        use crate::state::{Player, Players};
+        let mut s = CoreState::all_loaded();
+        s.players = Players::from_vec(vec![Player::new(Seat(0), crate::generated::Faction::TheArborec), Player::new(Seat(1), crate::generated::Faction::TheEmiratesOfHacan)]);
+        s.seats = crate::state::Seats::new(&[Seat(0), Seat(1)], &[Seat(0), Seat(1)], 2);
+        fx::deal_strategy_card(&mut s, Seat(1), held);
+        let play = Play::of(&s, card, Seat(0), Env { facts, ..bare_env() }).expect("a play");
+        let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), 1);
+        let asked = matches!(d.run(&mut s, kernel).unwrap(), Status::Asking(_));
+        (d.window.unsupported(), s, asked)
+    }
+
+    fn carried(f: impl FnOnce(&mut perform::Carried)) -> super::super::Facts {
+        let mut facts = super::super::Facts::default();
+        f(&mut facts.carried);
+        facts
+    }
+
+    /// Bail: the Warfare secondary is a production window at the home system (the string's).
+    #[test]
+    fn bail_the_warfare_secondary_is_the_strings() {
+        let (unsupported, _, asked) = performs(ActionCard::Strategize1, StrategyCard::Warfare, super::super::Facts::default(), &Kernel::plain());
+        assert!(unsupported && !asked);
+    }
+
+    /// Bail: the Imperial primary (the scoreable objectives, the award tail and the winner) is the string's.
+    #[test]
+    fn bail_the_imperial_primary_is_the_strings() {
+        let (unsupported, _, asked) = performs(ActionCard::Overrule, StrategyCard::Imperial, super::super::Facts::default(), &Kernel::plain());
+        assert!(unsupported && !asked);
+    }
+
+    /// Bail: the Thunder's Edge primaries are a free tactical action and a choice of a production (the string's), even when
+    /// everything else is carried.
+    #[test]
+    fn bail_the_thunders_edge_primaries_are_the_strings() {
+        let everything = carried(|c| {
+            c.payments = true;
+            c.structures = Some(crate::rules::production::strategy_cards::StructureFacts { pds: None, dock: None, source: crate::state::Code(0) });
+        });
+        for printing in [StrategyCard::WarfareThundersEdge, StrategyCard::ConstructionThundersEdge] {
+            let (unsupported, _, asked) = performs(ActionCard::Overrule, printing, everything, &Kernel::plain());
+            assert!(unsupported && !asked, "{printing:?}");
+        }
+        // The same printing of Construction is Construction for the secondary.
+        let (unsupported, _, _) = performs(ActionCard::Strategize1, StrategyCard::ConstructionThundersEdge, everything, &Kernel::plain());
+        assert!(!unsupported, "the secondary of the Thunder's Edge Construction is carried");
+    }
+
+    /// Bail: a replenishment that causes events (a Cabal, a siphoning plot, a Trade Agreement) is the string's, for both abilities of
+    /// Trade; without it the secondary replenishes and the primary asks.
+    #[test]
+    fn bail_the_trade_abilities_decline_while_a_replenishment_causes_events() {
+        let events = super::super::Facts { replenish_events: true, ..super::super::Facts::default() };
+        for card in [ActionCard::Strategize1, ActionCard::Overrule] {
+            let (unsupported, _, asked) = performs(card, StrategyCard::Trade, events, &Kernel::plain());
+            assert!(unsupported && !asked, "{card:?}");
+        }
+        let (unsupported, s, _) = performs(ActionCard::Strategize1, StrategyCard::Trade, super::super::Facts::default(), &Kernel::plain());
+        assert!(!unsupported && s.players().by_seat(Seat(0)).unwrap().econ.commodities == i16::from(crate::generated::Faction::TheArborec.data().commodities));
+    }
+
+    /// Bail: a draw a faction hook changes or that ends in a discard question (`plain_draw`) is the string's, for both abilities of Politics.
+    #[test]
+    fn bail_politics_declines_without_a_plain_draw() {
+        for card in [ActionCard::Strategize1, ActionCard::Overrule] {
+            let (unsupported, _, asked) = performs(card, StrategyCard::Politics, super::super::Facts::default(), &Kernel::plain());
+            assert!(unsupported && !asked, "{card:?}");
+        }
+        let plain = carried(|c| c.plain_draw = true);
+        let (unsupported, _, _) = performs(ActionCard::Strategize1, StrategyCard::Politics, plain, &Kernel::plain());
+        assert!(!unsupported, "a plain draw is carried");
+    }
+
+    /// Bail: a research at a table the research window does not carry, or without the unit roster, is the string's (both abilities).
+    #[test]
+    fn bail_technology_declines_without_the_research_window() {
+        let roster: &'static crate::query::tech::UnitRoster = Box::leak(Box::default());
+        for card in [ActionCard::Strategize1, ActionCard::Overrule] {
+            let not_carried = super::super::Facts { roster: Some(roster), ..super::super::Facts::default() };
+            let (unsupported, _, asked) = performs(card, StrategyCard::Technology, not_carried, &Kernel::plain());
+            assert!(unsupported && !asked, "{card:?}: the research window is not carried");
+            let no_roster = carried(|c| c.research = true);
+            let (unsupported, _, asked) = performs(card, StrategyCard::Technology, no_roster, &Kernel::plain());
+            assert!(unsupported && !asked, "{card:?}: no unit roster");
+        }
+    }
+
+    /// Bail: a research only a faction waiver opens is a question about the waiver and its payment: the child window ends `failed`
+    /// and the run is unsupported.
+    #[test]
+    fn bail_a_research_only_a_waiver_opens_marks_the_run_unsupported() {
+        use crate::driver::{Driver, Status};
+        use crate::kernel::hooks::{ResearchWaiver, Waiver};
+        use crate::kernel::stage::AbilityTable;
+        use crate::kernel::Resolver;
+        use crate::state::{Player, Players};
+        fn offers_a_waiver(_: &CoreState, _: &Kernel, _: Seat, _: crate::generated::Technology) -> Option<ResearchWaiver> {
+            Some(ResearchWaiver { waiver: Waiver { module: crate::generated::Faction::ALL[0], code: 1 }, payments: SmallList::new() })
+        }
+        let roster: &'static crate::query::tech::UnitRoster = Box::leak(Box::default());
+        let facts = super::super::Facts { roster: Some(roster), carried: perform::Carried { research: true, ..perform::Carried::default() }, ..super::super::Facts::default() };
+        let mut s = CoreState::all_loaded();
+        s.players = Players::from_vec(vec![Player::new(Seat(0), crate::generated::Faction::ALL[0]), Player::new(Seat(1), crate::generated::Faction::ALL[1])]);
+        s.seats = crate::state::Seats::new(&[Seat(0), Seat(1)], &[Seat(0), Seat(1)], 2);
+        fx::deal_strategy_card(&mut s, Seat(1), StrategyCard::Technology);
+        let mut k = Kernel::plain();
+        k.hooks.strategy.research_waiver_offer.push(offers_a_waiver);
+        let scope = crate::tables::Scope(u32::from(k.sources.0));
+        let play = Play::of(&s, ActionCard::Overrule, Seat(0), Env { facts, scope, ..bare_env() }).expect("a play");
+        let open = crate::rules::production::strategy_cards::Research::researchable_for(&s, &k, scope, Seat(0));
+        let walled = open
+            .as_slice()
+            .iter()
+            .position(|t| !crate::query::tech::prerequisites_met(&s, scope, false, Seat(0), *t, &crate::rules::production::strategy_cards::KernelHooks::new(&s, &k, Seat(0))))
+            .expect("the waiver opens a technology the colours do not cover");
+        let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), 1);
+        let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("the free research asks") };
+        let status = d.resume(&mut s, &k, c.pick(walled).unwrap()).unwrap();
+        assert!(matches!(status, Status::Done) && d.window.unsupported(), "the waiver is a question: the string plays it");
+    }
+
+    /// Bail: Leadership with a payment the production rules do not follow, or with a command token in a Mahact pool, is the string's.
+    #[test]
+    fn bail_leadership_declines_without_followed_payments_and_with_a_mahact_token() {
+        for card in [ActionCard::Strategize1, ActionCard::Overrule] {
+            let (unsupported, _, asked) = performs(card, StrategyCard::Leadership, super::super::Facts::default(), &Kernel::plain());
+            assert!(unsupported && !asked, "{card:?}: payments the production rules do not follow");
+            let followed = carried(|c| c.payments = true);
+            let (unsupported, _, _) = performs(card, StrategyCard::Leadership, followed, &Kernel::plain());
+            assert!(!unsupported, "{card:?}: followed payments are carried");
+        }
+    }
+
+    /// Bail: the Warfare primary with a command token in a Mahact pool (the reinforcements it previews differ) is the string's.
+    #[test]
+    fn bail_the_warfare_primary_declines_with_a_mahact_token() {
+        use crate::driver::{Driver, Status};
+        use crate::kernel::stage::AbilityTable;
+        use crate::kernel::Resolver;
+        use crate::state::{Player, Players};
+        for (held, bails) in [(0, false), (1, true)] {
+            let mut s = CoreState::all_loaded();
+            s.players = Players::from_vec(vec![Player::new(Seat(0), crate::generated::Faction::TheArborec), Player::new(Seat(1), crate::generated::Faction::TheEmiratesOfHacan)]);
+            s.seats = crate::state::Seats::new(&[Seat(0), Seat(1)], &[Seat(0), Seat(1)], 2);
+            fx::deal_strategy_card(&mut s, Seat(1), StrategyCard::Warfare);
+            let play = Play::of(&s, ActionCard::Overrule, Seat(0), Env { mahact_held: held, ..bare_env() }).expect("a play");
+            let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), 1);
+            let status = d.run(&mut s, &Kernel::plain()).unwrap();
+            assert!(matches!(status, Status::Done), "no token on the board: nothing is asked");
+            assert_eq!(d.window.unsupported(), bails, "{held} tokens held by Mahact");
+        }
+    }
+
+    /// Bail: Construction where a faction effect changes the placement (no structure facts) is the string's, both abilities.
+    #[test]
+    fn bail_construction_declines_without_structure_facts() {
+        for (card, printed) in [(ActionCard::Strategize1, StrategyCard::Construction), (ActionCard::Overrule, StrategyCard::ConstructionBase)] {
+            let (unsupported, _, asked) = performs(card, printed, super::super::Facts::default(), &Kernel::plain());
+            assert!(unsupported && !asked, "{card:?}");
+        }
+    }
+
+    /// Bail: a replay's deck reserve (the string draws through it) is the string's for the cards of Strategize and Overrule too
+    /// (dropped by decision).
+    #[test]
+    fn bail_strategize_and_overrule_decline_while_a_replay_reserve_is_installed() {
+        let mut core = CoreState::all_loaded();
+        for card in [ActionCard::Strategize3, ActionCard::Overrule] {
+            assert!(Play::of(&core, card, Seat(0), bare_env()).is_some());
+        }
+        core.cards_mut().reserve = Some(crate::containers::Cow::new(Default::default()));
+        for card in [ActionCard::Strategize3, ActionCard::Overrule] {
+            assert!(Play::of(&core, card, Seat(0), bare_env()).is_none(), "{card:?}");
+        }
+    }
+
+    /// Strategize and Overrule ask nothing when no card is on offer (every card is the holder's, exhausted or picked), as the string
+    /// `pick` does nothing for no option; an exhausted card is not on offer.
+    #[test]
+    fn strategize_with_no_card_on_offer_asks_nothing() {
+        use crate::driver::{Driver, Status};
+        use crate::kernel::stage::AbilityTable;
+        use crate::kernel::Resolver;
+        use crate::state::{Player, Players};
+        let mut s = CoreState::all_loaded();
+        s.players = Players::from_vec(vec![Player::new(Seat(0), crate::generated::Faction::TheArborec), Player::new(Seat(1), crate::generated::Faction::TheEmiratesOfHacan)]);
+        s.seats = crate::state::Seats::new(&[Seat(0), Seat(1)], &[Seat(0), Seat(1)], 2);
+        fx::deal_strategy_card(&mut s, Seat(0), StrategyCard::Trade);
+        fx::deal_strategy_card(&mut s, Seat(1), StrategyCard::Warfare);
+        s.players_mut().by_seat_mut(Seat(1)).unwrap().strat_exhausted.insert(StrategyCard::Warfare);
+        let before = s.clone();
+        let play = Play::of(&s, ActionCard::Strategize2, Seat(0), bare_env()).expect("a play");
+        let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), 1);
+        assert!(matches!(d.run(&mut s, &Kernel::plain()).unwrap(), Status::Done));
+        assert!(!d.window.unsupported() && s.players().by_seat(Seat(0)) == before.players().by_seat(Seat(0)), "nothing happened");
     }
 
     struct ZeroSeeds;
@@ -2779,12 +3088,7 @@ mod tests {
             (C::CourageousToTheEnd, "dice, then the opponent's casualty choice with the card's holder as producer: the combat area's hit flow (core-b12 keeps the child casualty flows, ENGINE_REACTIONS 9.2)"),
             (C::ExperimentalBattlestation, "a space cannon roll whose hits go through the combat area's sustain and casualty questions (a child hit flow, core-b12's area) from a dock in or adjacent to the active system"),
             (C::FireTeam, "the staged ground roll's per-die rerolls are the combat area's (ported on core-b12 as a registered play; not merged here)"),
-            (C::Overrule, "performs the primary ability of another strategy card: eight card kinds with their own windows and guards, to be run as child windows"),
             (C::ScrambleFrequency, "per-die reroll of a barrage, space cannon or bombardment roll of another seat: the combat area's dice plumbing (core-b12 documents it as a bail)"),
-            (C::Strategize1, "performs the secondary ability of another strategy card: eight card kinds with their own windows and guards, to be run as child windows"),
-            (C::Strategize2, "performs the secondary ability of another strategy card: eight card kinds with their own windows and guards, to be run as child windows"),
-            (C::Strategize3, "performs the secondary ability of another strategy card: eight card kinds with their own windows and guards, to be run as child windows"),
-            (C::Strategize4, "performs the secondary ability of another strategy card: eight card kinds with their own windows and guards, to be run as child windows"),
         ]
     };
 

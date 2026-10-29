@@ -8325,6 +8325,45 @@ pub(crate) mod tests {
         assert_eq!(core_plays(), (cases.len() as u32, 0), "every case ran on the core");
     }
 
+    /// Strategize and Overrule played directly (`play_effect`, the `action_cards::play` window): the pick question, the holders as a
+    /// display fact and the performed ability, under the decider that takes the last option.
+    #[test]
+    #[cfg(feature = "typed-core")]
+    fn strategize_and_overrule_agree_with_the_core_play_window_in_lockstep() {
+        use crate::action_cards_b6d_tests::{research_position, strategy_on, strategy_position};
+        use crate::dual::{AreaMask, Backend, with_mask};
+        let _serial = crate::dual::tests::serial();
+        let mask = AreaMask::all(Backend::String).with(crate::dual::Area::ActionCards, Backend::Dual);
+        let a = PlayerId::new("a");
+        let cases: Vec<(&str, GameState)> = vec![
+            // The last card on offer: Imperial (the secret objective), the Trade card on the mat, a held Trade card (the primary).
+            ("strategize1", strategy_position(&["pok5trade"], &["pok8imperial"], &[], &[])),
+            ("strategize2", strategy_position(&["pok3politics"], &[], &[], &["pok5trade"])),
+            ("overrule", strategy_position(&["pok3politics"], &["pok5trade"], &[], &[])),
+            ("overrule", strategy_on(research_position(), &[], &[], &[], &["pok7technology"])),
+            // The Diplomacy primary: the tokens the other seats place are announced after the window.
+            ("overrule", strategy_position(&["pok2diplomacy"], &[], &[], &[])),
+            ("strategize4", {
+                let mut rich = closing_position();
+                rich.exhausted_planets.clear();
+                rich.player_mut(&a).unwrap().trade_goods = 4;
+                strategy_on(rich, &["pok4construction"], &[], &[], &["pok1leadership"])
+            }),
+        ];
+        let _ = crate::dual::take_report();
+        reset_core_plays();
+        for (alias, start) in &cases {
+            let mut state = start.clone();
+            let before = state.clone();
+            with_mask(mask, || dual_card(&mut state, alias, &a));
+            assert!(serde_json::to_string(&state).unwrap() != serde_json::to_string(&before).unwrap(), "{alias} changed nothing");
+        }
+        let report = crate::dual::take_report();
+        let shown: String = format!("{:?}", report.differences).chars().take(1200).collect();
+        assert!(report.differences.is_empty(), "{} differences: {shown}", report.differences.len());
+        assert_eq!(core_plays(), (cases.len() as u32, 0), "every case ran on the core");
+    }
+
     /// The position of the B6c effects: laws in play, rivals with hands, infantry on rival and hazardous planets.
     #[cfg(feature = "typed-core")]
     pub(crate) fn closing_position() -> GameState {
