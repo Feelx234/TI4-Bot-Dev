@@ -80,4 +80,12 @@ mod tests {
         assert_eq!(std::mem::size_of::<Piece>(), 2);
         assert_eq!(a.with_owner(Seat(9)).owner(), Seat(9));
     }
+
+    /// An upgrade replaces the card, not the unit: the owner and the damage stay.
+    #[test]
+    fn a_new_form_keeps_the_owner_and_the_damage() {
+        let a = Piece::new(Unit::ALL[3], Seat(5)).with_sustained(true).with_galvanized(true);
+        let b = a.with_kind(Unit::ALL[7]);
+        assert_eq!((b.kind(), b.owner(), b.sustained(), b.galvanized()), (Unit::ALL[7], Seat(5), true, true));
+    }
 }

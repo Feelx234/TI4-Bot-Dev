@@ -145,3 +145,56 @@ pub fn note_propagation(core: &mut CoreState, who: Seat) {
     };
     core.marks_mut().tail.edit().insert(key, MarkVal::Atom(Atom::Num(pending.saturating_add(1))));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::generated::Faction;
+    use crate::state::{Player, Players};
+
+    fn game() -> CoreState {
+        let mut s = CoreState::all_loaded();
+        s.players = Players::from_vec((0..3).map(|i| Player::new(Seat(i), Faction::ALL[usize::from(i)])).collect());
+        s
+    }
+
+    fn scope() -> Scope {
+        Scope(u32::MAX)
+    }
+
+    /// Regression (mutation `revolution taxes fighters`): the fighters come first in the list and cost as little as the
+    /// destroyer, but the tax takes a ship that is no fighter.
+    #[test]
+    fn the_revolution_takes_the_cheapest_ship_that_is_no_fighter() {
+        let mut s = game();
+        s.agenda_mut().laws.insert(Agenda::AntiIntellectualRevolution, crate::keys::Outcome::For);
+        let system = System::ALL[4];
+        for unit in [Unit::FighterI, Unit::FighterI, Unit::DestroyerI, Unit::CruiserI] {
+            s.board_mut().sys_mut(system).units.push(Piece::new(unit, Seat(1)));
+        }
+        assert_eq!(revolution_tax(&mut s, scope(), false, Seat(1)), Some(system));
+        let left: Vec<Unit> = s.board().sys(system).units.as_slice().iter().map(|p| p.kind()).collect();
+        assert_eq!(left, vec![Unit::FighterI, Unit::FighterI, Unit::CruiserI]);
+        // Against, or no law at all, taxes nothing; a seat with only fighters pays nothing.
+        s.agenda_mut().laws.insert(Agenda::AntiIntellectualRevolution, crate::keys::Outcome::Against);
+        assert_eq!(revolution_tax(&mut s, scope(), false, Seat(1)), None);
+    }
+
+    /// Regression (mutation `with_kind drops owner and damage`, seen through the board write).
+    #[test]
+    fn an_upgrade_keeps_the_owner_and_the_damage_of_the_unit_on_the_board() {
+        let mut s = game();
+        let (system, planet) = (System::ALL[4], crate::generated::Planet::ALL[4]);
+        s.players_mut().by_seat_mut(Seat(2)).unwrap().tech.owned.insert(Technology::DestroyerII);
+        let before = Piece::new(Unit::DestroyerI, Seat(2)).with_sustained(true);
+        s.board_mut().sys_mut(system).units.push(before);
+        s.board_mut().sys_mut(system).units.push(Piece::new(Unit::DestroyerI, Seat(1)));
+        let _ = planet;
+        let k = Kernel::plain();
+        apply_unit_upgrades(&mut s, &k, scope(), &UnitRoster::default(), Seat(2));
+        let units = s.board().sys(system).units.as_slice().to_vec();
+        assert_eq!(units[0].kind(), Unit::DestroyerII);
+        assert_eq!((units[0].owner(), units[0].sustained()), (Seat(2), true));
+        assert_eq!(units[1].kind(), Unit::DestroyerI, "another owner's unit is not touched");
+    }
+}

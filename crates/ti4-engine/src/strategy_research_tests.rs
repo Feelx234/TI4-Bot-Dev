@@ -436,3 +436,126 @@ fn publicize_weapon_schematics_makes_the_war_sun_free_of_prerequisites() {
     assert!(owns(&after, "a", "ws"));
     assert!(after.exhausted_planets.is_empty(), "no prerequisite to pay");
 }
+
+/// The planets (not the home planet) that print a specialty of `colour`, with their systems.
+fn specialty_planets(colour: &str) -> Vec<(PlanetId, SystemId)> {
+    let base = crate::fixtures::seated_game(&F3, POK);
+    ti4_content::galaxy::all_planets(content(), POK)
+        .into_iter()
+        .filter(|(id, planet)| *id != "jord" && planet.system_id().is_some() && !planet.is_placed_during_play())
+        .filter(|(id, _)| {
+            crate::planets::tech_specialties_now(&base, content(), POK, &PlanetId::new(*id)).iter().any(|s| s.eq_ignore_ascii_case(colour))
+        })
+        .filter_map(|(id, planet)| Some((PlanetId::new(id), SystemId::new(planet.system_id()?))))
+        .collect()
+}
+
+/// Technologies of no faction whose prerequisites are exactly `needs` (unit upgrades too when `upgrades`).
+fn techs_needing(needs: &[(&'static str, usize)], upgrades: bool) -> Vec<TechnologyId> {
+    let wanted: std::collections::BTreeMap<&'static str, usize> = needs.iter().copied().collect();
+    crate::technology::active_aliases(content(), POK)
+        .into_iter()
+        .filter(|t| {
+            crate::technology::prerequisites(content(), t) == wanted
+                && (upgrades || !crate::technology::is_unit_upgrade(content(), t))
+                && crate::technology::faction_of(content(), t).is_none()
+        })
+        .collect()
+}
+
+/// The colours `a` holds at the start (Sol's starting technologies count).
+fn held(colour: &str) -> usize {
+    let base = crate::fixtures::seated_game(&F3, POK);
+    crate::technology::owned_colours(&base, content(), &a()).get(colour).copied().unwrap_or(0)
+}
+
+/// Regression (mutation `exhausted_for_colour not counted`): two missing prerequisites of one colour exhaust two
+/// specialty planets, not every one the seat controls.
+#[test]
+fn a_shortage_of_two_exhausts_two_of_three_specialty_planets() {
+    for colour in crate::technology::COLOURS {
+        let planets = specialty_planets(colour);
+        if planets.len() < 3 {
+            continue;
+        }
+        for need in 2..=4 {
+            if need < held(colour) + 2 || need > held(colour) + 2 {
+                continue;
+            }
+            for tech in techs_needing(&[(colour, need)], false) {
+                let control = |s: &mut GameState| {
+                    for (planet, system) in planets.iter().take(3) {
+                        s.system_mut(system).set_control(planet.clone(), a());
+                    }
+                };
+                let (counts, after) = play(&F3, control, &[tech.as_str(), "decline"], true);
+                if counts != (1, 0) || !owns(&after, "a", tech.as_str()) {
+                    continue;
+                }
+                let spent = planets.iter().take(3).filter(|(p, _)| after.exhausted_planets.contains(p)).count();
+                assert_eq!(spent, 2, "{colour} {tech}: exactly the shortage is paid by planets");
+                return;
+            }
+        }
+    }
+    panic!("the corpus has a technology two colours short and three planets of that colour");
+}
+
+/// Regression (mutation `already-chosen planet reused`): a planet that carries two specialties (one printed, one by a
+/// research facility) pays one of two colours; the other colour needs a second planet.
+#[test]
+fn a_planet_chosen_for_one_colour_is_not_chosen_again_for_the_next() {
+    use crate::generated::IdStr as _;
+    for (i, x) in crate::technology::COLOURS.iter().enumerate() {
+        for y in &crate::technology::COLOURS[i + 1..] {
+            if held(x) != 0 || held(y) != 0 {
+                continue;
+            }
+            let Some(facility) = ti4_engine_core::generated::Attachment::ALL.into_iter().find(|att| {
+                let want = ti4_engine_core::generated::TechType::from_id(y).expect("a colour");
+                att.data().specialties == [want]
+            }) else {
+                continue;
+            };
+            let (xs, ys) = (specialty_planets(x), specialty_planets(y));
+            let (Some((p, p_system)), Some((q, q_system))) = (xs.first().cloned(), ys.iter().find(|(q, _)| xs.first().is_none_or(|(p, _)| p != q)).cloned()) else {
+                continue;
+            };
+            for tech in techs_needing(&[(x, 1), (y, 1)], true) {
+                let attachment = facility.as_str().to_owned();
+                let (pc, qc, ps, qs) = (p.clone(), q.clone(), p_system.clone(), q_system.clone());
+                let control = move |s: &mut GameState| {
+                    s.system_mut(&ps).set_control(pc.clone(), a());
+                    s.system_mut(&qs).set_control(qc.clone(), a());
+                    s.planet_attachments.entry(pc.clone()).or_default().push(attachment.clone());
+                };
+                let (counts, after) = play(&F3, control, &[tech.as_str(), "decline"], true);
+                if counts != (1, 0) || !owns(&after, "a", tech.as_str()) {
+                    continue;
+                }
+                assert!(after.exhausted_planets.contains(&p) && after.exhausted_planets.contains(&q), "{x}+{y} {tech}: both planets pay, the first is not counted twice");
+                return;
+            }
+        }
+    }
+    panic!("the corpus has a two-colour technology and the planets to pay it");
+}
+
+/// Regression (mutation `war sun waiver ignored`): with the war sun free of prerequisites a controlled specialty planet
+/// of its colour is not exhausted for it.
+#[test]
+fn a_waived_war_sun_does_not_exhaust_a_specialty_planet() {
+    let needs = crate::technology::prerequisites(content(), &TechnologyId::new("ws"));
+    let (colour, _) = needs.iter().next().map(|(c, n)| (*c, *n)).expect("the war sun has prerequisites");
+    let (planet, system) = specialty_planets(colour).into_iter().next().expect("a planet of its colour");
+    let setup = |s: &mut GameState| {
+        rich(s);
+        s.enact_law("schematics", "for");
+        give(s, "b", &["ws"]);
+        s.system_mut(&system).set_control(planet.clone(), a());
+    };
+    let (counts, after) = play(&F3, setup, &["ws", "decline"], true);
+    assert_eq!(counts, (1, 0));
+    assert!(owns(&after, "a", "ws"));
+    assert!(!after.exhausted_planets.contains(&planet), "no prerequisite to pay");
+}
