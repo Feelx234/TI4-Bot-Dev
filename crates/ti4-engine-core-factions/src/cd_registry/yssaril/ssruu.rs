@@ -86,3 +86,48 @@ pub fn register_abilities(t: &mut AbilityTable) {
     t.add(Spec::new(LETNEV, AbilityKind::Leader, E::CombatRoundStarted, Relation::After, |e| crate::cc_ground::borrowed::timing::copy_effect(e, false)).applies(Applies::Faction(Faction::TheBaronyOfLetnev)).pair(yssaril_borrows).optional().when(|c| round_when(c, false)));
     t.add(Spec::new(ARGENT, AbilityKind::Leader, E::GroundForcesBeingProduced, Relation::When, crate::cb_economy::argent::timing::copy_agent).applies(Applies::Faction(Faction::TheArgentFlight)).pair(argent_lends).optional().when(crate::cb_economy::argent::timing::copy_when));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::testkit::table;
+
+    fn set(s: &mut CoreState, who: u8, card: Leader, status: LeaderStatus) {
+        s.players_mut().by_seat_mut(Seat(who)).unwrap().leaders.status.insert(card, status);
+    }
+
+    /// The conditions of a copy are pure: a window without nested activity arms no table, so no lockstep test sees a copy
+    /// that is wrongly offered.
+    #[test]
+    fn a_copy_needs_a_readied_ssruu_and_a_lender_that_holds_the_agent() {
+        let (mut s, _) = table(&[Faction::TheYssarilTribes, Faction::TheYinBrotherhood, Faction::TheEmiratesOfHacan]);
+        set(&mut s, 0, Leader::Ssruu, LeaderStatus::Readied);
+        set(&mut s, 1, Leader::BrotherMilor, LeaderStatus::Readied);
+        let lends = |s: &CoreState, lender: Option<Seat>| borrowable(s, Seat(0), lender, Leader::BrotherMilor);
+        assert!(lends(&s, Some(Seat(1))));
+        set(&mut s, 1, Leader::BrotherMilor, LeaderStatus::Exhausted);
+        assert!(lends(&s, Some(Seat(1))), "an exhausted agent is lent too");
+        for gone in [LeaderStatus::Locked, LeaderStatus::Purged] {
+            set(&mut s, 1, Leader::BrotherMilor, gone);
+            assert!(!lends(&s, Some(Seat(1))), "{gone:?} is not an agent in play");
+        }
+        set(&mut s, 1, Leader::BrotherMilor, LeaderStatus::Readied);
+        assert!(!lends(&s, None), "an ability that names no lender");
+        assert!(!lends(&s, Some(Seat(2))), "a lender that does not hold the agent");
+        assert!(!borrowable(&s, Seat(1), Some(Seat(1)), Leader::BrotherMilor), "no one borrows from itself");
+        set(&mut s, 0, Leader::Ssruu, LeaderStatus::Exhausted);
+        assert!(!lends(&s, Some(Seat(1))), "Ssruu itself must be readied");
+    }
+
+    #[test]
+    fn the_registered_roster_is_the_strings_static_one() {
+        let (mut s, _) = table(&[Faction::TheYssarilTribes, Faction::TheYinBrotherhood, Faction::TheEmiratesOfHacan]);
+        assert!(!yin_lends(&s, Seat(0), Seat(1)), "no cards in the maps");
+        set(&mut s, 0, Leader::Ssruu, LeaderStatus::Exhausted);
+        set(&mut s, 1, Leader::BrotherMilor, LeaderStatus::Locked);
+        assert!(yin_lends(&s, Seat(0), Seat(1)), "registered whatever the status: the live check is the condition's");
+        assert!(!yin_lends(&s, Seat(2), Seat(1)), "a borrower without Ssruu");
+        assert!(!argent_lends(&s, Seat(0), Seat(1)), "a lender without the Argent agent");
+        assert!(yssaril_borrows(&s, Seat(0), Seat(1)) && !yssaril_borrows(&s, Seat(2), Seat(1)));
+    }
+}

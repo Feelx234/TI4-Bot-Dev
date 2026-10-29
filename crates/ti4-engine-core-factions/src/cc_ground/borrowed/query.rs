@@ -203,3 +203,49 @@ pub fn extra_die_for(s: &CoreState, k: &Kernel, system: ti4_engine_core::generat
         .count();
     i64::try_from(count).unwrap_or(0)
 }
+
+#[cfg(test)]
+mod round_bonus_tests {
+    use super::*;
+    use crate::common::testkit::table;
+    use ti4_engine_core::generated::{System, Unit};
+    use ti4_engine_core::keys::{Atom, DecimalTextOrd, MarkKey, MarkVal};
+    use ti4_engine_core::state::Piece;
+
+    /// The mark of a Letnev agent used by seat 0 on the cruiser at ordinal 0 of seat 1's ships in `system`, round 3.
+    fn mark(system: System, owner: u8, sustained: u32) -> MarkVal {
+        MarkVal::Rec(vec![
+            MarkVal::Atom(Atom::Seat(Seat(0))),
+            MarkVal::Atom(Atom::Seat(Seat(0))),
+            MarkVal::Atom(Atom::Leader(Leader::ViscountUnlenn)),
+            MarkVal::Atom(Atom::System(system)),
+            MarkVal::Atom(Atom::Absent),
+            MarkVal::Atom(Atom::Absent),
+            MarkVal::Atom(Atom::Seat(Seat(owner))),
+            MarkVal::Atom(Atom::Unit(Unit::CruiserI)),
+            MarkVal::Atom(Atom::Num(sustained)),
+            MarkVal::Atom(Atom::Num(0)),
+            MarkVal::Atom(Atom::Num(0)),
+            MarkVal::Atom(Atom::Num(3)),
+        ])
+    }
+
+    #[test]
+    fn the_bonus_belongs_to_the_unit_the_mark_was_made_for_in_the_round_it_names() {
+        let (mut s, k) = table(&[Faction::TheYssarilTribes, Faction::TheEmiratesOfHacan]);
+        let system = System::ALL[0];
+        s.board_mut().sys_mut(system).units.push(Piece::new(Unit::CruiserI, Seat(1)));
+        s.meta_mut().combat_round_seq = 3;
+        s.marks_mut().tail.edit().insert(MarkKey::YssarilSsruuRoundAgent(Seat(0), Leader::ViscountUnlenn, DecimalTextOrd(3)), mark(system, 1, 0));
+        let dice = |s: &CoreState, who: u8, unit: Unit, index: usize, round: u32| extra_die_for(s, &k, system, None, Seat(who), unit, index, round);
+        assert_eq!(dice(&s, 1, Unit::CruiserI, 0, 3), 1);
+        assert_eq!(dice(&s, 1, Unit::CruiserI, 0, 2), 0, "another round");
+        assert_eq!(dice(&s, 1, Unit::CruiserI, 1, 3), 0, "another ordinal");
+        assert_eq!(dice(&s, 0, Unit::CruiserI, 0, 3), 0, "another owner");
+        assert_eq!(dice(&s, 1, Unit::DestroyerI, 0, 3), 0, "another type");
+        s.board_mut().sys_mut(system).units.as_mut_slice()[0] = Piece::new(Unit::CruiserI, Seat(1)).with_sustained(true);
+        assert_eq!(dice(&s, 1, Unit::CruiserI, 0, 3), 0, "the unit changed (it sustained since)");
+        s.meta_mut().combat_round_seq = 4;
+        assert_eq!(dice(&s, 1, Unit::CruiserI, 0, 3), 0, "the round is over");
+    }
+}
