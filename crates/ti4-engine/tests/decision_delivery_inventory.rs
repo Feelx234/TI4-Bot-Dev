@@ -1770,7 +1770,6 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("invasion.rs", "apply_bombard_plan", 1),
     ("invasion.rs", "dunlain_reaper", 1),
     ("laws.rs", "offer_discard_text", 1),
-    ("leaders.rs", "dispatch_leader", 2),
     ("leaders.rs", "ask_seeing_parts", 1),
     ("leaders.rs", "offer_production_hero_text", 1),
     ("borrowed_round_agents.rs", "resolve_copy", 1),
