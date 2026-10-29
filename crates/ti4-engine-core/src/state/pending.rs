@@ -1,7 +1,7 @@
 //! `Pending`: the open windows and the question (skeleton; the model is section 2, packages F4 and
 //! D1). Replaces the private window fields of `Game` and `GameState.pending`.
 
-use crate::containers::SmallList;
+use crate::containers::{SeatSet, SmallList};
 use crate::generated::{Agenda, Leader, StrategyCard};
 use crate::ids::Seat;
 
@@ -54,6 +54,31 @@ pub struct Secondary {
     pub exhausts_card: bool,
 }
 
+/// When the secrets of a scoring window may be scored (`secrets::Timing`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScoringTiming {
+    Status,
+    Action,
+    Agenda,
+}
+
+/// The bookkeeping of an open scoring window (`objectives::Book`; the core's `rules::scoring_book::ScoringBook` is built
+/// from it): who is asked next, what each player used, the plot card still to place (package D1a).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Scoring {
+    /// Seats still to be asked in the string's stored order: the next one LAST.
+    pub pending: SmallList<Seat, 8>,
+    pub public_used: SeatSet,
+    pub secret_used: SeatSet,
+    /// Plots Within Plots: the Firmament that still has to place a plot card, and whose token goes on it.
+    pub plot_card: Option<(Seat, Seat)>,
+    pub timing: ScoringTiming,
+    /// The feat occurrence the window settles (`FeatOccurrence`), pinned when it opened.
+    pub occurrence: Option<u64>,
+    /// `EventScoreLimit::OnePerPlayer`.
+    pub one_per_player: bool,
+}
+
 /// An open window: one variant per window kind of `Game` (`game.rs:919-975`). The kinds that have a typed payload carry
 /// it; the others are placeholders (`Untyped`) until their package types them (D1a: finished areas, D1b: the action phase).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,6 +92,10 @@ pub enum Window {
     ExecutiveOrder { owner: Seat, speaker: Seat },
     /// Agendas retained while the just-resolved agenda's scoring occurrence is open.
     AgendaQueueAfterEventScoring(SmallList<Agenda, 8>),
+    /// The open 81.1 scoring window of the status phase.
+    Scoring(Scoring),
+    /// The window of an action- or agenda-timed secret.
+    EventScoring(Scoring),
     /// A kind with no typed payload yet.
     Untyped { kind: WindowKind, actor: Option<Seat>, data: [u32; 3] },
 }
@@ -80,6 +109,8 @@ impl Window {
             Self::LeaderStrategy { .. } => WindowKind::LeaderStrategy,
             Self::ExecutiveOrder { .. } => WindowKind::ExecutiveOrder,
             Self::AgendaQueueAfterEventScoring(_) => WindowKind::AgendaQueueAfterEventScoring,
+            Self::Scoring(_) => WindowKind::Scoring,
+            Self::EventScoring(_) => WindowKind::EventScoring,
             Self::Untyped { kind, .. } => *kind,
         }
     }

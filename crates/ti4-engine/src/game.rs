@@ -41,9 +41,14 @@ use crate::vote::{VoteError, VoteWindow, is_law, outcomes};
 mod d1_pending;
 #[cfg(not(feature = "typed-core"))]
 mod d1_pending {
+    pub(super) const fn active() -> bool {
+        false
+    }
+
     #[derive(Debug, Clone, Default)]
     pub(super) struct Shadow {
         pub(super) outcome: Option<crate::strategy::StepOutcome>,
+        pub(super) scoring: Option<(bool, crate::objectives::Book)>,
     }
 }
 
@@ -2075,6 +2080,7 @@ impl<'a> Game<'a> {
         #[cfg(feature = "typed-core")]
         if d1_pending::active() {
             self.d1.outcome = None;
+            self.d1.scoring = None;
             let result = self.step_flow();
             d1_pending::check(self, &result);
             return result;
@@ -5412,7 +5418,9 @@ impl<'a> Game<'a> {
                         Some(window) if !failed.get() => {
                             let core = crate::strategy_secondary_dual::secondary_step(state, content, sources, window, script);
                             // The held follower window of the D1 dual moves on by the core's outcome.
-                            d1.outcome = core.as_ref().map(|c| c.run.value.clone());
+                            if d1_pending::active() {
+                                d1.outcome = core.as_ref().map(|c| c.run.value.clone());
+                            }
                             core
                         }
                         _ => None,
@@ -5564,6 +5572,7 @@ impl<'a> Game<'a> {
         let (content, sources) = (self.content, self.sources);
         let galaxy = self.galaxy.as_ref();
         let table = &mut self.table;
+        let d1 = &mut self.d1;
         let slot = if event { &mut self.event_scoring } else { &mut self.scoring };
         let mut failed = None;
         let book_before = args.book.clone();
@@ -5596,7 +5605,12 @@ impl<'a> Game<'a> {
                 }
             },
             |state: &mut GameState, script: &crate::dual_window::Recording| {
-                crate::objectives_write::score_one(state, content, sources, galaxy, choice, &args, script)
+                let core = crate::objectives_write::score_one(state, content, sources, galaxy, choice, &args, script);
+                // The held scoring window of the D1 dual takes the book the core half left.
+                if d1_pending::active() {
+                    d1.scoring = core.as_ref().map(|c| (event, c.run.value.2.clone()));
+                }
+                core
             }
         );
         failed.map_or(Ok(scored), Err)

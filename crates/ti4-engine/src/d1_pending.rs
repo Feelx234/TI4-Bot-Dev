@@ -18,16 +18,18 @@
 //! tables do not know and a window the core step does not cover (a card nobody holds) are counted as bails and re-seed the
 //! held copy from the string. Runs only with `driver=dual`; a pure observer (the string result stands).
 
-use ti4_engine_core::containers::SmallList;
+use ti4_engine_core::containers::{SeatSet, SmallList};
 use ti4_engine_core::generated::{Agenda, Leader, StrategyCard};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::rules::strategy_secondary::{self as core_secondary, Outcome, Resolution};
-use ti4_engine_core::state::{Pending, Secondary, SecondaryHow, Window, WindowKind};
+use ti4_engine_core::state::{Pending, Scoring, ScoringTiming, Secondary, SecondaryHow, Window, WindowKind};
 use ti4_model::id::{LeaderId, PlayerId, StrategyCardId};
 
 use super::{Game, StepResult};
 use crate::dual::{Area, Backend, compare_value, note_bail, note_window};
 use crate::generated::IdStr;
+use crate::objectives::Book;
+use crate::secrets::Timing;
 use crate::render::Render;
 use crate::strategy::{SecondaryParts, SecondaryResolution, StepOutcome, StrategySecondaryWindow};
 
@@ -40,6 +42,9 @@ pub(super) struct Shadow {
     pending: Pending,
     /// The outcome the core half of this step's follower window gave (set by `Game::secondary_step`, taken by [`check`]).
     pub(super) outcome: Option<StepOutcome>,
+    /// The book of the scoring window after the core half of this step's scoring answer (`event`: the event window),
+    /// set by `Game::score_step`, taken by [`check`].
+    pub(super) scoring: Option<(bool, Book)>,
 }
 
 /// Whether the D1 dual is on for this thread.
@@ -53,14 +58,14 @@ fn any_open(g: &Game<'_>) -> bool {
         || g.leader_strategy.is_some()
         || g.executive_order.is_some()
         || g.agenda_queue_after_event_scoring.is_some()
+        || g.scoring.is_some()
+        || g.event_scoring.is_some()
 }
 
 /// The string fields that hold a window no typed payload exists for, by name.
 fn untyped_open(g: &Game<'_>) -> Vec<&'static str> {
     [
         ("leader_followers", g.leader_followers.is_some()),
-        ("scoring", g.scoring.is_some()),
-        ("event_scoring", g.event_scoring.is_some()),
         ("tokens", g.tokens.is_some()),
         ("voting", g.voting.is_some()),
         ("tactical", g.tactical.is_some()),
@@ -129,6 +134,69 @@ fn secondary_back(s: &Secondary, r: &Render) -> StrategySecondaryWindow {
     )
 }
 
+fn timing_of(t: Timing) -> ScoringTiming {
+    match t {
+        Timing::Status => ScoringTiming::Status,
+        Timing::Action => ScoringTiming::Action,
+        Timing::Agenda => ScoringTiming::Agenda,
+    }
+}
+
+fn timing_back(t: ScoringTiming) -> Timing {
+    match t {
+        ScoringTiming::Status => Timing::Status,
+        ScoringTiming::Action => Timing::Action,
+        ScoringTiming::Agenda => Timing::Agenda,
+    }
+}
+
+/// The typed copy of a scoring window's book; `Err` for a seat the table does not know.
+fn scoring_of(book: &Book, r: &Render) -> Result<Scoring, &'static str> {
+    let seat = |p: &PlayerId| r.seat(p.as_str()).ok_or("a seat the table does not know");
+    let set = |ps: &[PlayerId]| -> Result<SeatSet, &'static str> {
+        let mut set = SeatSet::EMPTY;
+        for p in ps {
+            set.insert(seat(p)?);
+        }
+        Ok(set)
+    };
+    let mut pending = SmallList::new();
+    for p in &book.pending {
+        pending.push(seat(p)?);
+    }
+    Ok(Scoring {
+        pending,
+        public_used: set(&book.public_used)?,
+        secret_used: set(&book.secret_used)?,
+        plot_card: match &book.plot_card {
+            Some((a, b)) => Some((seat(a)?, seat(b)?)),
+            None => None,
+        },
+        timing: timing_of(book.timing),
+        occurrence: book.occurrence.map(|o| o.0),
+        one_per_player: book.one_per_player,
+    })
+}
+
+/// The string book a typed copy stands for (the inverse of [`scoring_of`]).
+fn scoring_back(s: &Scoring, r: &Render) -> Book {
+    let players = |set: SeatSet| -> Vec<PlayerId> {
+        let mut ids: Vec<PlayerId> = (0..16u8).map(Seat).filter(|seat| set.contains(*seat)).map(|seat| r.player(seat)).collect();
+        // The string keeps these in the order of its `BTreeSet<PlayerId>`.
+        ids.sort();
+        ids
+    };
+    Book {
+        pending: s.pending.as_slice().iter().map(|seat| r.player(*seat)).collect(),
+        public_used: players(s.public_used),
+        secret_used: players(s.secret_used),
+        plot_card: s.plot_card.map(|(a, b)| (r.player(a), r.player(b))),
+        timing: timing_back(s.timing),
+        occurrence: s.occurrence.map(ti4_model::state::FeatOccurrence),
+        one_per_player: s.one_per_player,
+    }
+}
+
 /// The typed windows the string fields hold now, in the order of the `Game` fields.
 fn observe(g: &Game<'_>, r: &Render) -> Result<Vec<Window>, &'static str> {
     let seat = |p: &PlayerId| r.seat(p.as_str()).ok_or("a seat the table does not know");
@@ -148,6 +216,12 @@ fn observe(g: &Game<'_>, r: &Render) -> Result<Vec<Window>, &'static str> {
     }
     if let Some((owner, speaker)) = &g.executive_order {
         out.push(Window::ExecutiveOrder { owner: seat(owner)?, speaker: seat(speaker)? });
+    }
+    if let Some(w) = &g.scoring {
+        out.push(Window::Scoring(scoring_of(&w.book(), r)?));
+    }
+    if let Some(w) = &g.event_scoring {
+        out.push(Window::EventScoring(scoring_of(&w.book(), r)?));
     }
     if let Some(queue) = &g.agenda_queue_after_event_scoring {
         let mut agendas = SmallList::new();
@@ -186,6 +260,12 @@ fn roundtrip(g: &Game<'_>, windows: &[Window], r: &Render) -> bool {
                 &g.agenda_queue_after_event_scoring.clone(),
                 &Some(q.as_slice().iter().map(|a| a.as_str().to_owned()).collect::<Vec<_>>()),
             ),
+            Window::Scoring(sc) => {
+                compare_value(Area::Driver, "d1::pending.roundtrip", &g.scoring.as_ref().map(|w| w.book()), &Some(scoring_back(sc, r)))
+            }
+            Window::EventScoring(sc) => {
+                compare_value(Area::Driver, "d1::pending.roundtrip", &g.event_scoring.as_ref().map(|w| w.book()), &Some(scoring_back(sc, r)))
+            }
             Window::Untyped { .. } => true,
         };
     }
@@ -265,6 +345,19 @@ pub(super) fn check(g: &mut Game<'_>, result: &StepResult) {
         ok &= compare_value(Area::Driver, "d1::pending.secondary", &actual, &expected);
     } else if outcome.is_some() {
         note_bail(LABEL, "the held follower window did not take the step (not open, an error, or an id the table does not know)");
+    }
+    // The scoring window's book after the core half of this step's answer.
+    if let Some((event, book)) = g.d1.scoring.take() {
+        let kind = if event { WindowKind::EventScoring } else { WindowKind::Scoring };
+        match scoring_of(&book, &r) {
+            Ok(typed) if result.error.is_none() => {
+                compared = true;
+                let expected = Some(if event { Window::EventScoring(typed) } else { Window::Scoring(typed) });
+                let actual = observed.iter().find(|w| w.kind() == kind);
+                ok &= compare_value(Area::Driver, "d1::pending.scoring", &actual, &expected.as_ref());
+            }
+            _ => note_bail(LABEL, "the scoring book of the core half could not be compared (an error, or a seat the table does not know)"),
+        }
     }
     // The kinds without a core transition follow the string: what is compared is that the typed copy is total.
     if !observed.is_empty() {
@@ -376,6 +469,58 @@ mod tests {
         assert!(r.differences.iter().any(|d| d.label == "d1::pending.secondary"), "{:?} {:?}", r.differences, r.windows);
     }
 
+    /// The status phase of a real position: the scoring window opens over both seats, seat a scores a public objective, the book
+    /// moves on by the core's outcome of the answer and the window closes.
+    #[test]
+    fn the_scoring_window_is_held_and_its_book_agrees_with_the_core_half_after_every_answer() {
+        use ti4_model::id::{ObjectiveId, PlanetId, SystemId};
+        let _serial = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut state = crate::fixtures::seated_game(&[("a", "letnev"), ("b", "sol")], ti4_model::content_types::POK);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        state.revealed_objectives = vec![ObjectiveId::new("expand_borders")];
+        let catalogue = ti4_content::galaxy::all_planets(ContentStore::embedded(), ti4_model::content_types::POK);
+        let planets: Vec<String> = catalogue
+            .iter()
+            .filter(|(_, planet)| planet.homeworld_of().is_none() && !planet.is_placed_during_play())
+            .map(|(id, _)| (*id).to_owned())
+            .take(6)
+            .collect();
+        for planet in planets {
+            let system = catalogue.get(planet.as_str()).and_then(ti4_content::galaxy::Planet::system_id).unwrap_or("18");
+            state.system_mut(&SystemId::new(system)).set_control(PlanetId::new(planet), pid("a"));
+        }
+        state.phase = ti4_model::state::Phase::Status;
+        let mut seen = Vec::new();
+        let mut finished = None;
+        with_mask(both().with(Area::Objectives, Backend::Dual), || {
+            let (decider, _) = crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new(["expand_borders".to_owned()])));
+            let mut g = Game::with_table(state, ContentStore::embedded(), Table::with_default(Box::new(decider)));
+            for _ in 0..12 {
+                let step = g.step();
+                assert!(step.error.is_none(), "{:?}", step.error);
+                seen.push(match g.d1.pending.window(WindowKind::Scoring) {
+                    Some(Window::Scoring(sc)) => Some((sc.pending.len(), sc.public_used.len())),
+                    _ => None,
+                });
+                if g.state.phase != ti4_model::state::Phase::Status {
+                    break;
+                }
+            }
+            finished = Some(g.state.player(&pid("a")).map(|p| p.victory_points));
+        });
+        let r = report();
+        let _ = take_report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(finished, Some(Some(1)), "a scored the public objective: {seen:?}");
+        let held: Vec<(usize, usize)> = seen.iter().flatten().copied().collect();
+        assert_eq!(held.first(), Some(&(2, 0)), "opened over both seats: {seen:?}");
+        assert!(held.iter().any(|(_, used)| *used == 1), "the book recorded the public score: {seen:?}");
+        assert!(held.windows(2).any(|w| w[0].0 > w[1].0), "the pending seats shrink as seats answer: {seen:?}");
+        assert!(!r.windows.keys().any(|k| k.starts_with("d1::pending [bail")), "{:?}", r.windows);
+    }
+
     fn checked(g: &mut Game<'static>) -> (crate::dual::DualReport, Pending) {
         let _ = take_report();
         let result = g.result(false, None);
@@ -395,12 +540,19 @@ mod tests {
         g.leader_strategy = Some((pid("a"), ti4_model::id::LeaderId::new(crate::factions::mahact::AGENT), card.clone()));
         g.agenda_queue_after_event_scoring = Some(vec!["checks".to_owned(), "committee".to_owned()]);
         g.secondary_after_tactical = Some(StrategySecondaryWindow::foreign(pid("a"), card, vec![pid("b"), pid("c")]));
+        g.scoring = Some(crate::objectives::ScoringWindow::new(&[pid("c"), pid("a"), pid("b")]));
         let (r, held) = checked(&mut g);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let kinds: Vec<WindowKind> = held.stack.iter().map(Window::kind).collect();
         assert_eq!(
             kinds,
-            [WindowKind::StrategySecondaryAfterTactical, WindowKind::LeaderStrategy, WindowKind::ExecutiveOrder, WindowKind::AgendaQueueAfterEventScoring],
+            [
+                WindowKind::StrategySecondaryAfterTactical,
+                WindowKind::LeaderStrategy,
+                WindowKind::ExecutiveOrder,
+                WindowKind::Scoring,
+                WindowKind::AgendaQueueAfterEventScoring
+            ],
             "{:?} {:?}",
             held.stack,
             r.windows
@@ -415,6 +567,7 @@ mod tests {
         g.agenda_queue_after_event_scoring = None;
         g.leader_strategy = None;
         g.secondary_after_tactical = None;
+        g.scoring = None;
         let (r, held) = checked(&mut g);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         assert!(held.stack.is_empty());
