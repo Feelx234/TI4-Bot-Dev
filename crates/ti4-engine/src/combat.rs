@@ -10471,6 +10471,19 @@ mod tests {
         }
     }
 
+    /// Courageous to the End stays the string's: its casualty question for the opponent has the holder as producer, which the
+    /// core question does not carry. The window that meets the card bails, named (Reveal Prototype's bail is the unit test of
+    /// `cost_is_payable`, `None` for it, and `bail_a_played_card_the_core_does_not_play_is_named`).
+    #[test]
+    fn bail_courageous_to_the_end_is_counted() {
+        let mut named = 0;
+        for seed in 1..=10_u64 {
+            let (_, _, bails) = declared_cards_fight(seed, &["courageous"], true);
+            named += bails.iter().filter(|k| k.contains("(card courageous)")).count();
+        }
+        assert!(named > 0, "a Courageous to the End was played and named");
+    }
+
     /// Direct Hit: the attacker's hit is sustained by a dreadnought, the attacker destroys that ship from the slot of
     /// `SUSTAIN_DAMAGE_USED`; the core removes it and announces `SHIP_DESTROYED` after the discard. With a faction module
     /// seated (staging) the exact sustained ship goes; without, the first of the type.

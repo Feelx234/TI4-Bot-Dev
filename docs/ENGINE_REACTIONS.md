@@ -567,6 +567,16 @@ now also seats a Nekro and a Sardakk.
 | Ssruu copying Brother Milor (ships, ground), Evelyn De Louis, Viscount Unlenn, Trilossa Aun Mirik | see above | `cd_registry/yssaril/ssruu.rs`, slots 14001-14005; the originals are parameterized by the card exhausted (`yin::timing::place_by`, `borrowed::timing::copy_effect`, `argent::timing::copy_agent`) |
 | the round agents' extra die | `borrowed_round_agents::extra_die_for` | `borrowed::query::extra_die_for` reads the typed mark from the core state; the string-oracle snapshot of the window start could not see a mark written in the same window (the composed `combat::settle` rolled 3 dice where the string rolled 5: found by the Ssruu copy of Viscount Unlenn; test `the_letnev_agent_extra_die_is_read_in_the_window_that_writes_the_mark`) |
 
+### 10.1c Third round: the Icon and the card (dropped afterwards), unit swaps, the Sardakk mech, Fire Team
+
+| what | string id | core |
+|---|---|---|
+| a gained unit upgrade reaches the board | `technology::apply_unit_upgrades` | `common::apply_unit_upgrades` (the form a seat is entitled to: the upgrade, its faction's unit, the plain one; the roster is cached per scope: `yin::timing::roster`); Singularity uses it (a Mentak seat's Corsair form stays string, `MissingFact`) |
+| Valkyrie Exoskeleton (Sardakk mech) | `unit:*:sardakk_mech:GROUND_FORCE_SUSTAINED:after` | `cd_registry/sardakk/timing.rs`, slot 12003: the invasion's own hits step (`hits::apply`, `Batch`) and the staged events announced through `Eff::emit`; several opponents on the planet bail (`MissingFact`: the string picks the first in player-id order) |
+| Fire Team | `reaction:*:GROUND_ROLLS_MADE:after (card fire_team)` | `cards/mod.rs::fire_team`: one optional question per staged die (`RerollSource::FireTeam`, `fire_team_reroll`), the chosen dice drawn again from the dice stream (`redraw`); the ground roll tail window is lent the stream (`Sources::rng`, seeds) and compares the positions of the stream with the string's (`roll_tail`); the texts of the staged sets are an input (`AdapterFacts::reroll`, `reactions_core::with_reroll`); every other window leaves them unset, so the card bails (`MissingFact`) there |
+| 5c: the Icon and the Crimson card as spots of the core production window | `bastion::adjust_ship_spots`, `ship_placed`, `crimson_cards::offer_card_spot`, `put_on_card` | `Spot::Card`, `Icon`, the four hooks implemented, `fleet::remaining_all`, `unported_economy` removed. **Dropped by decision afterwards** (the Last Bastion, the Crimson Rebellion, structured diplomacy and the turn-redo reserve are disabled at the product edges); kept as committed, nothing more is ported for them |
+| 5a `FinalizingControl`, 5b `finish_committing`'s Research Team questions and `add_forced_combats` | string windows | documented bails, tested inside the dual run: `bail_the_control_gain_chain_is_the_strings_inside_the_dual_run`, `bail_the_research_team_coexistence_is_the_strings_inside_the_dual_run` (the Research Team / Viper eligibility queries are compared hook by hook) |
+
 ### 10.2 Stays string (documented bail, one test per family)
 
 Test for the families that need no special reason: `reactions_core::tests::bail_every_family_that_stays_in_the_string_is_named`
@@ -574,13 +584,12 @@ Test for the families that need no special reason: `reactions_core::tests::bail_
 
 | family | runs (pre-B12 census, section 10.4) | why it stays | what a port needs |
 |---|---|---|---|
-| Technological Singularity: a gained unit upgrade / a technology a unit requires; the Z token | (inside the 31) | `technology::apply_unit_upgrades` swaps the forms of units on the board; the Z option lends a flagship's text; `MissingFact`; test `bail_the_singularity_for_a_unit_upgrade_and_the_z_token` | a core `unit_swaps` write; the Z tables as core data (`common::flagship_has_text` already reads `NekroToken`) |
+| Technological Singularity with the Z token | (inside the 31) | the Z option lends a flagship's text; `MissingFact`; test `bail_the_singularity_with_the_z_token` | the Z tables as core data (`common::flagship_has_text` already reads `NekroToken`) |
 | Dynamo / Salvage with an ocean-card seat (Deepwrought) | few | `payment::plans` pays with ocean cards too (`MissingFact`) | the ocean cards as planets of the plan |
 | Salvage producing a cruiser or a flagship | few | Mentak's Corsair form (`placed_unit_id` override); `bail_salvage_operations_of_a_cruiser_is_counted` | the form override as a core hook |
-| Sardakk mech (assign 1 hit inside the ability) | 2 | `assign_ground_unit_ability_hits_in_timing`: a hit assignment with its sustain offers is a child window | `Child<W>` (design in 9.2) |
 | Sardakk: the stale-mark clean-up at `TURN_BEGAN` | 0 | no followed window announces `TURN_BEGAN` | a TURN_BEGAN window |
 | Reflective Shielding, Courageous to the End | 2 + 2 | child flows (the producer's two hits; the opponent's casualty question with the holder as producer) | 9.2 |
-| Fire Team, Scramble Frequency | 6 + 1 | per-die reroll questions of a card (`RerollSource` has Relic, Law, Munitions only) inside the roll windows' staged `reroll_staging`, and the dice stream inside the card's announcement | a `RerollSource::Card`, the roll windows opening their reroll sets to a `CardPlay` |
+| Scramble Frequency (and Fire Team in a window other than the ground roll tail) | 1 | the roll windows of the barrage, the space cannon and the bombardment are not lent the dice stream and the staged texts | the same plumbing as the ground roll tail (`roll_tail`) in those windows |
 | Reveal Prototype and the cost it makes the core not judge | 4 + 6 | a research choice by unit line and a 4-resource payment (`cost_is_payable` is `None` for it) | `pay_in` is there now; the research (`Research` window of B8c) as a callable piece |
 | Winnu commander unlock 1, Ambuscade 1, an adapter fact 1, a window lent no dice stream 1 | 4 | unchanged | one by one |
 
