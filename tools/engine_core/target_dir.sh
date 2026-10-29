@@ -58,13 +58,22 @@ case "$cmd" in
       # touch all tracked files not in `changed` to just before the warm build.
       git ls-files -z | python3 -I -c '
 import sys, os
-changed = set(open(sys.argv[1], "rb").read().split(b"\0"))
+changed = set(open(sys.argv[1], "rb").read().split(b"\0")) - {b""}
 t = int(sys.argv[2]) - 5
-n = 0
+keep_dirs = {os.path.dirname(c) for c in changed}   # a deleted/added file shows in its directory time
+n = 0; dirs = set()
 for f in sys.stdin.buffer.read().split(b"\0"):
-    if f and f not in changed and os.path.isfile(f) and not os.path.islink(f):
+    if not f: continue
+    d = os.path.dirname(f)
+    while d and d not in dirs:
+        dirs.add(d); d = os.path.dirname(d)
+    if f not in changed and os.path.isfile(f) and not os.path.islink(f):
         os.utime(f, (t, t)); n += 1
-print(f"{n} unchanged files set to before the warm build, {len(changed) - 1} changed/untracked kept")
+nd = 0
+for d in sorted(dirs, key=len, reverse=True):          # children first
+    if d not in keep_dirs and os.path.isdir(d):
+        os.utime(d, (t, t)); nd += 1
+print(f"{n} unchanged files and {nd} directories set to before the warm build, {len(changed)} changed/untracked kept")
 ' "$changed" "$wt"
       rm -f "$changed"
     else
