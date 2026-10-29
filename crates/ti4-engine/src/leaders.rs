@@ -1965,7 +1965,7 @@ fn xxcha_hero_te(context: &mut crate::timing::TimingContext<'_>, player: &Player
 }
 
 /// What Xxekir Grom places and where.
-pub(crate) struct HeroTeFacts {
+pub struct HeroTeFacts {
     /// The planets the seat controls, `(system, planet)` in the order of `controlled_planets`.
     pub planets: Vec<(ti4_model::id::SystemId, ti4_model::id::PlanetId)>,
     /// The unit form of a PDS and of a mech for this seat, with how many the supply allows.

@@ -1513,7 +1513,7 @@ fn explore_in(
 /// What a seat holds that an exploration card can change; compared before and after a card to say
 /// what it did. Display only.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct Holdings {
+pub struct Holdings {
     trade_goods: i32,
     commodities: i32,
     command_tokens: i32,
