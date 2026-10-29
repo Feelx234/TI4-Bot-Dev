@@ -19,6 +19,7 @@
 
 pub mod ability;
 pub mod fx;
+pub mod fx_move;
 pub mod fx_pay;
 pub mod fx_plots;
 pub mod fx_strategy;

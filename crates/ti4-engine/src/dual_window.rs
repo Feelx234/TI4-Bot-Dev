@@ -366,10 +366,20 @@ pub fn normalized(events: &[Event]) -> Vec<Event> {
 /// (a nested tally list or an outcome value).
 #[must_use]
 pub fn event_of(r: &Render, rec: &EventRec) -> Option<Event> {
-    if !rec.payload.units.is_empty() {
+    // A tally list is converted for the events whose `units` this adapter knows (`SHIP_MOVED`: owner, unit_type, count).
+    if !rec.payload.units.is_empty() && rec.kind != ti4_engine_core::state::EventKind::ShipMoved {
         return None;
     }
     let mut payload = BTreeMap::new();
+    if !rec.payload.units.is_empty() {
+        let units: Vec<Value> = rec
+            .payload
+            .units
+            .iter()
+            .map(|t| Some(serde_json::json!({"owner": r.seats.get(usize::from(t.owner.0))?.clone(), "unit_type": t.unit.as_str(), "count": u64::from(t.count)})))
+            .collect::<Option<_>>()?;
+        payload.insert("units".to_owned(), Value::Array(units));
+    }
     for (key, val) in rec.payload.items.iter() {
         let v: Value = match *val {
             Val::Seat(s) => r.seats.get(usize::from(s.0))?.clone().into(),
@@ -393,6 +403,8 @@ pub fn event_of(r: &Render, rec: &EventRec) -> Option<Event> {
         let v: Value = match list {
             ti4_engine_core::state::List::Seats(seats) => Value::Array(seats.iter().map(seat).collect::<Option<_>>()?),
             ti4_engine_core::state::List::Planets(planets) => Value::Array(planets.iter().map(|p| Value::from(p.as_str())).collect()),
+            // The string engine writes a route as one comma-joined text.
+            ti4_engine_core::state::List::Systems(systems) => Value::from(systems.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(",")),
             ti4_engine_core::state::List::Units(units) => Value::Array(
                 units
                     .iter()

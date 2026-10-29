@@ -33,6 +33,7 @@ pub mod relic;
 pub mod seats;
 pub mod tech;
 pub mod trade;
+pub mod transit;
 pub mod trade_deals;
 pub mod diplomacy_items;
 
