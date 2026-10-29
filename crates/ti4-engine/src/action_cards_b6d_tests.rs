@@ -933,3 +933,69 @@ fn overrule_performs_the_trade_technology_leadership_construction_and_warfare_pr
     assert!(after.player(&a).unwrap().trade_goods >= trade.player(&a).unwrap().trade_goods + 3, "the Trade primary pays three trade goods");
     let _ = crate::dual::take_report();
 }
+
+/// Overrule on Politics: the holder elects a new speaker (the options are named by faction), draws two action cards and puts the
+/// top two agendas back (an old rules version draws from the deck with the unofficial cards in it).
+#[test]
+fn overrule_performs_the_politics_primary_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let politics = strategy_position(&["pok3politics"], &[], &[], &[]);
+    let mut dry = politics.clone();
+    dry.agenda_deck.clear();
+    let mut old = politics.clone();
+    old.rules_version = ti4_model::state::RULES_OFFICIAL_ACTION_DECK - 1;
+    for case in [&politics, &dry, &old] {
+        announce_all(&[("overrule", case.clone())]);
+    }
+    let _ = crate::dual::take_report();
+    let after = played("overrule", &politics);
+    assert_eq!(after.player(&PlayerId::new("a")).unwrap().action_cards.len(), 2, "two action cards drawn");
+    assert_eq!(after.agenda_deck.len(), politics.agenda_deck.len(), "the agendas are back on the deck");
+    let _ = crate::dual::take_report();
+}
+
+/// The positions the abilities' guards and orders turn on: the seating order (the options of the pick are the other seats' cards
+/// in seating order, not in the order of the players), a Letnev holder (the fleet pool may be emptied, the pool questions show
+/// the bonus), a Naalu holder (the Trade primary).
+#[test]
+fn strategize_and_overrule_follow_the_seating_order_the_faction_and_the_rules_version_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let (a, b, c) = (PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c"));
+    // c sits before b: its card is the first on offer.
+    let mut turned = strategy_position(&["pok5trade"], &["pok8imperial"], &[], &[]);
+    turned.seating_order = vec![c.clone(), b.clone(), a.clone()];
+    // The same with a seat that sits between the two.
+    let mut between = strategy_position(&["pok5trade"], &["pok8imperial"], &[], &["pok3politics"]);
+    between.seating_order = vec![b.clone(), a.clone(), c.clone()];
+    let with_faction = |mut state: GameState, faction: &str| {
+        state.player_mut(&a).unwrap().faction = ti4_model::id::FactionId::new(faction);
+        state
+    };
+    let mut warfare = closing_position();
+    warfare.system_mut(&ti4_model::id::SystemId::new("33")).command_tokens.insert(a.clone());
+    warfare.player_mut(&a).unwrap().fleet_tokens = 1;
+    let letnev_warfare = with_faction(strategy_on(warfare, &[], &[], &[], &["pok6warfare"]), "letnev");
+    let mut rich = closing_position();
+    rich.exhausted_planets.clear();
+    rich.player_mut(&a).unwrap().trade_goods = 4;
+    let letnev_leadership = with_faction(strategy_on(rich, &[], &[], &[], &["pok1leadership"]), "letnev");
+    let mut hacan = closing_position();
+    hacan.player_mut(&a).unwrap().commodities = 0;
+    hacan.player_mut(&b).unwrap().commodities = 0;
+    let naalu_trade = with_faction(strategy_on(hacan, &[], &[], &[], &["pok5trade"]), "naalu");
+    // The holder's own card is never on offer (it holds Leadership, which would be the last option otherwise).
+    let mut own = strategy_position(&["pok5trade"], &["pok8imperial"], &[], &[]);
+    own.player_mut(&a).unwrap().strategy_cards = vec![ti4_model::StrategyCardId::new("pok1leadership")];
+    // The Thunder's Edge Construction is Construction for the secondary.
+    let mut open = closing_position();
+    open.exhausted_planets.clear();
+    let te_construction = strategy_on(open, &[], &[], &[], &["te4construction"]);
+    for case in [&turned, &between, &own, &te_construction] {
+        announce_all(&[("strategize1", case.clone())]);
+    }
+    announce_all(&[("overrule", letnev_warfare.clone())]);
+    announce_all(&[("overrule", letnev_leadership.clone())]);
+    announce_all(&[("overrule", naalu_trade.clone())]);
+    announce_all(&[("strategize1", naalu_trade)]);
+    let _ = crate::dual::take_report();
+}
