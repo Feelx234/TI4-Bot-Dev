@@ -103,6 +103,39 @@ pub struct ChooseAsk {
     pub buildable: [Option<Unit>; 9],
 }
 
+/// Sling Relay's first question: in which dock system to produce (only asked with two or more).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SlingAsk {
+    pub who: Seat,
+}
+
+/// Sling Relay's second question: which ship to produce in `system` (only asked with two or more).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SlingShipAsk {
+    pub who: Seat,
+    pub system: System,
+}
+
+/// Integrated Economy's question: what to produce on `planet` with `budget` of cost left. The window's own
+/// numbers; the options come from the position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct EconomyAsk {
+    pub who: Seat,
+    pub system: System,
+    pub planet: Planet,
+    pub budget: i32,
+    /// The seat's fleet limit as `fleet::limit` works it out.
+    pub fleet_limit: i32,
+    /// What the seat may produce at all (`buildable_for`), in option order.
+    pub buildable: [Option<Unit>; 9],
+}
+
+/// Harrugh Gefhara's offer at the start of a use of PRODUCTION: make every unit of this use free.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct HeroAsk {
+    pub who: Seat,
+}
+
 /// What the area asks. Parameters only; the option list is derived by `rules::production::pay_opts`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Ask {
@@ -112,6 +145,14 @@ pub enum Ask {
     Choose(ChooseAsk),
     /// Choose where to put what was produced.
     Place(PlaceAsk),
+    /// Sling Relay: choose the dock system.
+    SlingSystem(SlingAsk),
+    /// Sling Relay: choose the ship.
+    SlingShip(SlingShipAsk),
+    /// Integrated Economy: choose what to produce.
+    Economy(EconomyAsk),
+    /// Harrugh Gefhara: free production, or not.
+    Hero(HeroAsk),
 }
 
 /// One answer the area offers (not stored in the state).
@@ -131,6 +172,18 @@ pub enum Opt {
     Place { spot: Spot },
     /// Produce nothing further (`done_producing`).
     Stop,
+    /// Winnu: exhaust Berekar Berekon for -2 on the use's combined cost.
+    Agent,
+    /// Sling Relay: produce in this dock system (the system's id).
+    SlingSystem { system: System },
+    /// Sling Relay: produce one `unit` for `shown.worth` (`build|unit|1`).
+    SlingShip { unit: Unit, shown: Shown },
+    /// Integrated Economy: produce `made` copies of `unit` for `shown.worth` (`build|unit|made`).
+    Economy { unit: Unit, made: u8, shown: Shown },
+    /// Harrugh Gefhara: purge the hero, every unit of this use costs 0 (`use`).
+    HeroUse,
+    /// Decline the offer (`decline`).
+    Decline,
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -139,4 +192,8 @@ pub enum Subtype {
     Pay(Currency),
     Choose,
     Place,
+    SlingSystem,
+    SlingShip,
+    Economy,
+    HeroFree,
 }

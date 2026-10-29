@@ -51,6 +51,7 @@ impl Family for Fam {
             Ask::ChooseDeck => "choose which deck to explore this planet into".to_owned(),
             Ask::DistantSuns { .. } => "Distant Suns: which exploration card to resolve".to_owned(),
             Ask::IonStorm => "Ion Storm: which side faceup".to_owned(),
+            Ask::PayInfantry { .. } => "remove 1 infantry from this planet to resolve the exploration card".to_owned(),
             Ask::Reward(step) => match step {
                 Step::AbandonedWarehouses => "Abandoned Warehouses",
                 Step::MerchantStation => "Merchant Station",
@@ -111,6 +112,8 @@ impl Family for Fam {
             ),
             Opt::Place => ("place".to_owned(), "place 1 infantry".to_owned()),
             Opt::PlaceNothing => ("decline".to_owned(), "place nothing".to_owned()),
+            Opt::RemoveInfantry => ("remove_infantry".to_owned(), "remove 1 infantry and gain the reward".to_owned()),
+            Opt::KeepInfantry => ("decline".to_owned(), "do not remove an infantry".to_owned()),
         };
         ChoiceOption::labelled(id, KIND, label)
     }
@@ -122,6 +125,11 @@ impl Family for Fam {
             Ask::IonStorm => match id {
                 "ALPHA" => Some(Opt::Face(Wormhole::Alpha)),
                 "BETA" => Some(Opt::Face(Wormhole::Beta)),
+                _ => None,
+            },
+            Ask::PayInfantry { .. } => match id {
+                "remove_infantry" => Some(Opt::RemoveInfantry),
+                "decline" => Some(Opt::KeepInfantry),
                 _ => None,
             },
             Ask::Reward(_) => match id {

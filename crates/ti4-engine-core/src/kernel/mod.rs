@@ -17,9 +17,11 @@
 //! content scope) and [`Cx`] (state, kernel, and the question channel) and the areas take them as
 //! arguments.
 
+pub mod ability;
 pub mod fx;
 pub mod fx_pay;
 pub mod hooks;
+pub mod hits;
 pub mod next;
 pub mod read;
 pub mod reaction;
@@ -30,7 +32,8 @@ pub mod trigger;
 
 pub use hooks::HookTable;
 pub use next::Next;
-pub use stage::{AbilityImpl, AbilityTable, Illegal, RulesHost, Sx, Tape, Window};
+pub use ability::{AbilityTable, Eff, NestedFacts, RulesHost, Slot, Spec};
+pub use stage::{Illegal, Sx, Tape, Window};
 pub use resolver::{AbilityDef, Checkpoint, Host, Registry, Resolver, TimingError};
 
 use crate::choice::{Choice, Pick};

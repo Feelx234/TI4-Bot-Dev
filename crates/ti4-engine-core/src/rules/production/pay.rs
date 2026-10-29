@@ -38,11 +38,11 @@ pub struct PayStep {
 }
 
 impl PayStep {
-    fn cx<'a>(s: &'a CoreState, k: &'a Kernel) -> Cx<'a> {
+    pub(crate) fn cx<'a>(s: &'a CoreState, k: &'a Kernel) -> Cx<'a> {
         Cx::new(s, k, Scope(u32::from(k.sources.0)), reach::blanked(s))
     }
 
-    fn question(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+    pub(crate) fn question(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
         if self.stage == Stage::Done {
             return None;
         }
@@ -60,10 +60,7 @@ impl PayStep {
         };
         let mut outstanding = SmallList::new();
         outstanding.push(Owed { kind: owed_kind, amount: self.cost, paid: self.used_credit + self.paid });
-        Some(Choice {
-            actor: self.who,
-            ask: Ask::Production(PAsk::Pay(ask)),
-            ctx: Ctx {
+        let mut ctx = Ctx {
                 origin: Origin::Rule(Rule::R34_3_75_2_75_3),
                 subtype: Subtype::Production(PSub::Pay(currency)),
                 optional: false,
@@ -71,13 +68,18 @@ impl PayStep {
                 outstanding,
                 space_battle: false,
                 invasion_seq: None,
-            },
+            };
+        rules::enrich_ctx(s, &mut ctx);
+        Some(Choice {
+            actor: self.who,
+            ask: Ask::Production(PAsk::Pay(ask)),
+            ctx,
             opts: opts.as_slice().iter().map(|o| Opt::Production(*o)).collect(),
         })
     }
 
     /// Take `picked`; the worth of the face, `None` for one that cannot be paid.
-    fn apply(&self, s: &mut CoreState, k: &Kernel, picked: POpt) -> Option<i64> {
+    pub(crate) fn apply(&self, s: &mut CoreState, k: &Kernel, picked: POpt) -> Option<i64> {
         let (_, offered) = rules::pay_opts(&Self::cx(s, k), self.who, self.kind, self.paid, self.owed, &Extras::default());
         let chosen = *offered.as_slice().iter().find(|o| **o == picked)?;
         match chosen {

@@ -13,8 +13,10 @@
 //! wholesale once the factions answer through the kernel. Do not add a sixth.
 
 pub mod abilities;
+pub mod action_cards;
 pub mod agenda;
 pub mod combat;
+pub mod diplomacy;
 pub mod explore;
 pub mod explore_windows;
 pub mod invasion;
@@ -23,6 +25,10 @@ pub mod leaders;
 pub mod objective_windows;
 pub mod objectives;
 pub mod production;
+pub mod reactions;
 pub mod relic_windows;
 pub mod strategy;
+pub mod strategy_flow;
+pub mod strategy_primaries;
+pub mod strategy_windows;
 pub mod trade;

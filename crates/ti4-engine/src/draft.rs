@@ -92,18 +92,7 @@ pub fn take_strategy_card(
     // every unchosen card at the end of every strategy phase, and Manipulate Investments puts five
     // more -- and nothing has ever collected them. The pile grew for the whole game and the
     // compensation for taking a low-initiative card was never paid.
-    let goods = state.strategy_card_goods.remove(&card).unwrap_or(0);
-    if goods > 0
-        && let Some(seat) = state.player_mut(&player)
-    {
-        seat.trade_goods += goods;
-        crate::supply::note_trade_goods_gained(state, &player, goods, "strategy_card");
-    }
-
-    // `player` was checked above, so the only mutation APIs used here cannot fail.
-    let dealt = state.deal_strategy_card(&player, card);
-    debug_assert!(dealt, "the checked strategy picker must be dealable");
-    state.unclaimed_strategy_cards.remove(card_index);
+    crate::strategy_write::take_card(state, &player, card_index, &card);
     Ok(player)
 }
 

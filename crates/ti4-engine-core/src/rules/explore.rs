@@ -79,8 +79,7 @@ pub fn relic_gain(core: &mut CoreState, who: Seat) -> Option<Relic> {
     core.players_mut().by_seat_mut(who)?.cards.relics.push(top);
     let mut points = 0;
     if top == SHARD {
-        core.players().by_seat(who)?;
-        fx::adjust_victory_points(core, who, 1, LedgerReason::Relic(SHARD));
+        score_point(core, who, SHARD);
         points = 1;
     }
     log_relic(core, who, top, points);
@@ -146,8 +145,14 @@ pub fn crown_point(core: &mut CoreState, who: Seat) -> bool {
         return false;
     }
     purge_relic(core, who, crown);
-    fx::adjust_victory_points(core, who, 1, LedgerReason::Relic(crown));
+    score_point(core, who, crown);
     true
+}
+
+/// `objectives::adjust_victory_points(state, player, 1, relic)`: one point, capped at the target; the ledger row
+/// carries the amount applied (0 at the target). Nothing for a seat that is not there.
+pub fn score_point(core: &mut CoreState, who: Seat, relic: Relic) {
+    fx::adjust_victory_points(core, who, 1, LedgerReason::Relic(relic));
 }
 
 /// `exploration::purge_for_relic`'s sibling in `relics::codex`: the card leaves the discard pile (its first
@@ -208,5 +213,140 @@ pub fn exhaust_controlled_planets(core: &mut CoreState, who: Seat) {
     let planets: Vec<Planet> = crate::query::board::controlled_planets(core, who).as_slice().iter().map(|(_, p)| *p).collect();
     for planet in planets {
         crate::kernel::fx::exhaust_planet(core, planet);
+    }
+}
+
+/// `exploration::gain_commodities`: up to `count` commodities, never past the faction's value. Returns the amount
+/// gained (the string side announces it to a Siphon, which the adapter does not follow).
+pub fn gain_commodities(core: &mut CoreState, who: Seat, count: i32) -> i32 {
+    let Some(p) = core.players_mut().by_seat_mut(who) else { return 0 };
+    let limit = i32::from(p.faction.data().commodities);
+    let held = i32::from(p.econ.commodities);
+    let after = (held + count).min(limit);
+    p.econ.commodities = i16::try_from(after).unwrap_or(i16::MAX);
+    (after - held).max(0)
+}
+
+/// `exploration::convert_commodities`, the commodities half: up to `most` commodities (all when `None`) leave the
+/// seat. Returns how many; the trade goods they become are gained by the caller (`supply`).
+pub fn spend_commodities(core: &mut CoreState, who: Seat, most: Option<i32>) -> i32 {
+    let Some(p) = core.players_mut().by_seat_mut(who) else { return 0 };
+    let held = i32::from(p.econ.commodities);
+    let moved = most.map_or(held, |cap| held.min(cap));
+    p.econ.commodities = i16::try_from(held - moved).unwrap_or(0);
+    moved
+}
+
+/// `relics::use_relic`, the Book of Latvinia: a seat controlling planets with all four technology specialties
+/// scores a point; any other becomes the speaker. Returns whether it scored.
+pub fn book_of_latvinia(core: &mut CoreState, who: Seat, scope: crate::tables::Scope) -> bool {
+    let mut found: Vec<crate::generated::TechType> = Vec::new();
+    for (_, planet) in crate::query::board::controlled_planets(core, who).as_slice() {
+        for s in crate::query::tech::specialties_now(core, scope, *planet).as_slice() {
+            if !found.contains(s) {
+                found.push(*s);
+            }
+        }
+    }
+    if found.len() >= 4 {
+        score_point(core, who, Relic::BookOfLatvinia);
+        true
+    } else {
+        core.meta_mut().speaker = who;
+        false
+    }
+}
+
+/// `relics::the_silver_flame` after the roll: the card is purged either way. A ten scores a point; any other
+/// roll bars the seat from public objectives and consumes its home system (the board entry goes, the system is
+/// marked purged).
+pub fn silver_flame(core: &mut CoreState, who: Seat, rolled_ten: bool) {
+    let flame = Relic::TheSilverFlame;
+    purge_relic(core, who, flame);
+    if rolled_ten {
+        score_point(core, who, flame);
+        return;
+    }
+    let Some(p) = core.players_mut().by_seat_mut(who) else { return };
+    p.econ.public_objectives_forbidden = true;
+    let Some(home) = p.home_system.or(p.faction.data().home_system) else { return };
+    let planets: Vec<Planet> = crate::query::board::planets_of(core, home).collect();
+    for planet in planets {
+        let cell = core.board_mut().planet_mut(planet);
+        cell.units = Default::default();
+        cell.control = None;
+        cell.coexist = Default::default();
+        for flag in [PlanetFlags::UNITS_ENTRY, PlanetFlags::COEXIST_ENTRY, PlanetFlags::PURGED] {
+            cell.flags.set(flag, false);
+        }
+    }
+    let cell = core.board_mut().sys_mut(home);
+    cell.units = Default::default();
+    cell.cmd = Default::default();
+    cell.flags.set(crate::state::SysFlags::TOUCHED, false);
+    cell.flags.set(crate::state::SysFlags::PURGED, true);
+}
+
+/// `planet_units.get_mut(planet).remove(index)`: one unit leaves a planet (the infantry an exploration card
+/// asks for). Nothing for an index past the list.
+pub fn remove_unit_at(core: &mut CoreState, planet: Planet, index: usize) {
+    let units = &mut core.board_mut().planet_mut(planet).units;
+    if index < units.len() {
+        units.remove(index);
+    }
+}
+
+/// `exploration::explore_drawn`'s record: the log row opened when the card is drawn, before it resolves. The
+/// outcome, result, gains and placed texts come with [`close_record`]; `empty` is the interned empty text.
+pub fn open_record(
+    core: &mut CoreState,
+    who: Seat,
+    deck: ExploreType,
+    card: Explore,
+    planet: Option<Planet>,
+    system: Option<System>,
+    empty: crate::state::Code,
+) {
+    let round = core.meta().round;
+    core.explore_mut().log.push(crate::state::ExploreRec {
+        round,
+        player: who,
+        deck,
+        card,
+        planet,
+        outcome: empty,
+        system,
+        result: None,
+        gains: Default::default(),
+        placed: Default::default(),
+    });
+}
+
+/// The texts `explore_in` writes into the record it opened once the card is resolved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Closing {
+    pub outcome: crate::state::Code,
+    /// `None`: the empty text, which is not written.
+    pub result: Option<crate::state::Code>,
+    pub gains: Vec<(crate::state::Code, i32)>,
+    pub placed: Vec<crate::state::Code>,
+}
+
+/// Fill the record at `index` (nothing for an index past the log).
+pub fn close_record(core: &mut CoreState, index: usize, closing: &Closing) {
+    let log = &mut core.explore_mut().log;
+    if let Some(rec) = log.get_mut(index) {
+        rec.outcome = closing.outcome;
+        rec.result = closing.result;
+        rec.gains = closing.gains.iter().copied().collect();
+        rec.placed = closing.placed.iter().copied().collect();
+    }
+}
+
+/// `record.system = Some(system)` on the record at `index` (a frontier token explored: the system is known
+/// only to the caller).
+pub fn set_record_system(core: &mut CoreState, index: usize, system: System) {
+    if let Some(rec) = core.explore_mut().log.get_mut(index) {
+        rec.system = Some(system);
     }
 }

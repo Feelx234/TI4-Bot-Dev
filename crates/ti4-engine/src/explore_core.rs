@@ -210,6 +210,16 @@ use crate::generated::IdStr;
             out
         }
 
+        /// `exploration::Holdings::of`.
+        #[must_use]
+        pub fn holdings(&self, player: &PlayerId, planet: Option<&PlanetId>) -> Option<crate::exploration::Holdings> {
+            let planet = match planet {
+                Some(p) => Some(typed::<Planet>(p.as_str())?),
+                None => None,
+            };
+            Some(crate::exploration::Holdings::from_core(explore::holdings(&self.view, self.seat(player)?, planet)))
+        }
+
         // -- relics ----------------------------------------------------------------------------
 
         /// `relics::holds`.

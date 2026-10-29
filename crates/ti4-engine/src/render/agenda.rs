@@ -48,7 +48,7 @@ pub fn outcome_text(r: &Render, o: Outcome) -> String {
 
 /// `vote::outcome_label`: a strategy card or a secret objective by its printed name, everything else as
 /// the outcome itself.
-fn outcome_label(r: &Render, frame: &Frame, o: Outcome) -> String {
+pub(super) fn outcome_label(r: &Render, frame: &Frame, o: Outcome) -> String {
     let text = outcome_text(r, o);
     let category = match frame.voted().data().elects {
         AgendaElects::StrategyCard => ContentType::StrategyCards,
@@ -87,6 +87,9 @@ impl Family for Fam {
                 format!("Genetic Recombination: vote {} or return a fleet token", outcome_text(r, *outcome))
             }
             Ask::Tiebreak { .. } => "speaker breaks the tie".to_owned(),
+            Ask::NameTied => "which tied player does the agenda name".to_owned(),
+            Ask::Structure => "destroy one of your structures".to_owned(),
+            Ask::DiscardLaw { prompt, .. } => r.code_text(*prompt),
         }
     }
 
@@ -99,12 +102,46 @@ impl Family for Fam {
             Subtype::RecombinationOutcome => "recombination_outcome",
             Subtype::RecombinationTribute => "recombination_tribute",
             Subtype::Tiebreak => "vote_tiebreak",
+            Subtype::ElectTiebreak => "agenda_elect_tiebreak",
+            Subtype::DefenseStructure => "defense_act_choose_pds",
+            Subtype::OfferDiscardLaw => "offer_discard_law",
         }
         .to_owned()
     }
 
     fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
-        let frame = a.frame();
+        match (a, o) {
+            (Ask::NameTied, Opt::Elect(seat)) => ChoiceOption::labelled(r.seat_text(*seat), "elect", r.seat_text(*seat)),
+            (Ask::Structure, Opt::Structure { index, planet, system }) => {
+                ChoiceOption::labelled(index.to_string(), "scuttle", format!("destroy the one on {}", planet.as_str()))
+                    .with_planet(planet.as_str(), Some(system.as_str()))
+            }
+            (Ask::DiscardLaw { law, .. }, Opt::DiscardLaw) => ChoiceOption::labelled("discard", "law", format!("discard {}", law.as_str())),
+            _ => Self::vote_option(r, a, o),
+        }
+    }
+
+    fn parse(r: &Render, a: &Ask, id: &str) -> Option<Opt> {
+        match a {
+            Ask::NameTied => r.seat(id).map(Opt::Elect),
+            // The planet and the system are the position's: the pick is matched against the offered options.
+            Ask::Structure => None,
+            Ask::DiscardLaw { .. } => (id == "discard").then_some(Opt::DiscardLaw),
+            _ => Self::parse_vote(r, a, id),
+        }
+    }
+
+    fn details(r: &Render, a: &Ask) -> Map<String, Value> {
+        if a.frame().is_none() {
+            return Map::new();
+        }
+        Self::vote_details(r, a)
+    }
+}
+
+impl Fam {
+    fn vote_option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
+        let frame = a.frame().expect("a vote question");
         match (a, o) {
             (Ask::Vote { .. } | Ask::Tiebreak { .. }, Opt::Back(outcome, shown)) => {
                 let id = outcome_text(r, *outcome);
@@ -179,8 +216,8 @@ impl Family for Fam {
         }
     }
 
-    fn parse(r: &Render, a: &Ask, id: &str) -> Option<Opt> {
-        let frame = a.frame();
+    fn parse_vote(r: &Render, a: &Ask, id: &str) -> Option<Opt> {
+        let frame = a.frame()?;
         match a {
             Ask::Vote { .. } | Ask::Tiebreak { .. } => {
                 parse_outcome(r, frame, id).map(|o| Opt::Back(o, Shown::default()))
@@ -206,11 +243,12 @@ impl Family for Fam {
                 "tribute|token" => Some(Opt::TributeToken),
                 _ => None,
             },
+            Ask::NameTied | Ask::Structure | Ask::DiscardLaw { .. } => None,
         }
     }
 
-    fn details(r: &Render, a: &Ask) -> Map<String, Value> {
-        let frame = a.frame();
+    fn vote_details(r: &Render, a: &Ask) -> Map<String, Value> {
+        let frame = a.frame().expect("a vote question");
         let mut out = Map::new();
         let content = ContentStore::embedded();
         out.insert("agenda".to_owned(), crate::strategy_cards::agenda_details(content, frame.agenda.as_str()));
@@ -247,7 +285,7 @@ impl Family for Fam {
 }
 
 /// The outcome an id names in a vote on `frame`'s voted agenda.
-fn parse_outcome(r: &Render, frame: &Frame, id: &str) -> Option<Outcome> {
+pub(super) fn parse_outcome(r: &Render, frame: &Frame, id: &str) -> Option<Outcome> {
     match id {
         "for" => return Some(Outcome::For),
         "against" => return Some(Outcome::Against),

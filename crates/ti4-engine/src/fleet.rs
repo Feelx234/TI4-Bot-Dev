@@ -344,6 +344,16 @@ fn standing_with(
     }
 }
 
+/// The fleet limit the enforcement of `over_supply` measures against (a lifted limit under rules version 17).
+#[must_use]
+pub fn limit_for_enforcement(state: &GameState, content: &ContentStore, player: &PlayerId) -> i64 {
+    if state.rules_version >= ti4_model::state::RULES_FACTION_BUGFIXES && is_unlimited(state, player) {
+        UNLIMITED_FLEET_BILL
+    } else {
+        i64::from(limit(state, content, player)).max(0)
+    }
+}
+
 /// Ships beyond the cap in this system, if any.
 #[must_use]
 pub fn over_supply(

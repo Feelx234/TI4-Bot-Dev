@@ -31,11 +31,15 @@ pub mod dice;
 pub mod dual;
 pub mod core_factions;
 pub mod dual_window;
+pub mod reactions_core;
 pub mod diplomacy;
 pub mod draft;
 pub mod entropic_scars;
 pub mod explore_core;
 pub mod explore_write;
+pub mod strategy_cards_core;
+pub mod strategy_core;
+pub mod strategy_write;
 /// The offline dual of Area::ExplorationRelics.
 #[cfg(feature = "typed-core")]
 #[doc(hidden)]
@@ -127,6 +131,17 @@ pub(crate) mod agenda_typed;
 #[cfg(feature = "typed-core")]
 #[doc(hidden)]
 pub mod agenda_check;
+/// Area::ActionCards (package B6): the typed action-card reads behind a string interface.
+#[cfg(feature = "typed-core")]
+pub mod action_cards_view;
+/// The `typed-core`-independent entry points of `action_cards_view` (a `None` without the feature).
+pub(crate) mod action_cards_typed;
+#[cfg(test)]
+mod action_cards_announce_tests;
+/// The offline dual of Area::ActionCards.
+#[cfg(feature = "typed-core")]
+#[doc(hidden)]
+pub mod action_cards_check;
 /// Area::Strategy (package B8): the typed strategy reads behind a string interface.
 #[cfg(feature = "typed-core")]
 pub mod strategy_view;
@@ -167,6 +182,8 @@ pub mod status;
 pub mod strategy;
 pub mod strategy_cards;
 pub mod supply;
+#[cfg(feature = "typed-core")]
+pub(crate) mod supply_core;
 pub mod synergy;
 pub mod tactical;
 pub mod technology;
@@ -176,6 +193,7 @@ pub mod thunders_edge;
 pub mod timing;
 pub mod tokens;
 pub mod trade_core;
+pub mod trade_write;
 pub mod transactions;
 pub mod transit;
 pub mod trigger;

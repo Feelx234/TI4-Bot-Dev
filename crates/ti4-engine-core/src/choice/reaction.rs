@@ -6,6 +6,8 @@
 //! resolver's bucket), then the generic decline. The adapter renders the prompt `"{when|after} {EVENT}"`,
 //! the subtype `reaction_{when|after}_{EVENT}` and the option id (`kind:owner:key:EVENT:relation`).
 
+use crate::generated::ActionCard;
+use crate::ids::Seat;
 use crate::state::{Code, EventKind};
 
 /// The point relative to an event at which an ability may resolve.
@@ -60,6 +62,11 @@ pub struct AbilityId {
 pub enum Ask {
     /// The window of `relation` around an event of `event`.
     Window { event: EventKind, relation: Relation },
+    /// Instinct Training (Xxcha): exhaust it and spend a strategy token to cancel the action card `card`.
+    InstinctTraining { card: ActionCard },
+    /// I48S (the L1Z1X agent): exhaust it to let `target` (the active player, `None`: nobody is active) replace 1
+    /// infantry in the active system with a mech.
+    AgentSwap { target: Option<Seat> },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -67,10 +74,14 @@ pub enum Ask {
 pub enum Opt {
     /// Resolve this ability.
     Ability(AbilityId),
+    /// Use the technology or the agent the question is about.
+    Use,
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`): `reaction_{relation}_{EVENT}`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Subtype {
     Window { event: EventKind, relation: Relation },
+    InstinctTraining,
+    AgentSwap,
 }

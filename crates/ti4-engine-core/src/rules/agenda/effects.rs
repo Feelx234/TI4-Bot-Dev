@@ -31,6 +31,10 @@ use crate::keys::{LedgerReason, Outcome};
 use crate::query::objectives as q;
 use crate::state::{CoreState, ObjectiveRef, SysFlags};
 
+use super::table_effects::{EffectFacts, Table};
+
+mod questions;
+
 pub use crate::kernel::fx::VICTORY_TARGET;
 
 /// What the effect does.
@@ -54,6 +58,12 @@ pub enum Kind {
     Draw(Seat, u8),
     /// The card does nothing when it passes.
     Nothing,
+    /// An effect of [`Table`] (the table writes of `table_effects`).
+    Table(Table),
+    /// Seed of an Empire: the seat with the most (`true`) or fewest points gains one.
+    Seed(Agenda, bool),
+    /// Homeland Defense Act, Against: each seat destroys one of its PDS.
+    Defense,
 }
 
 /// How the effect ended (`agenda_effects::Effect`).
@@ -83,6 +93,14 @@ pub struct Resolve {
     /// Draws made so far, and whether the hand limit of the last one is still to be checked.
     drawn: u8,
     checking: bool,
+    /// What a [`Kind::Table`] reads (the voters, the scopes, two interned texts).
+    facts: Option<EffectFacts>,
+    /// The position held something the table effect does not express: the adapter drops the window.
+    unsupported: bool,
+    /// Seed of an Empire: the tied seats the speaker names one of.
+    tied: SmallList<Seat, 8>,
+    /// Homeland Defense Act: the seat (in seating order) being served.
+    cursor: u8,
 }
 
 impl Resolve {
@@ -139,20 +157,51 @@ impl Resolve {
             ) => Kind::Nothing,
             _ => return None,
         };
-        Some(Self { kind, stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false })
+        Some(Self { kind, stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: None, unsupported: false, tied: SmallList::new(), cursor: 0 })
+    }
+
+    /// [`Resolve::of`], then the table effects: `facts` carries the ballot and everything the table reads.
+    #[must_use]
+    pub fn of_facts(agenda: Agenda, outcome: Outcome, facts: &EffectFacts) -> Option<Self> {
+        if let Some(window) = Self::of(agenda, outcome, facts.for_voters.as_slice()) {
+            return Some(window);
+        }
+        let special = match (agenda, outcome) {
+            (Agenda::SeedOfAnEmpire, Outcome::For) => Some(Kind::Seed(agenda, true)),
+            (Agenda::SeedOfAnEmpire, _) => Some(Kind::Seed(agenda, false)),
+            (Agenda::HomelandDefenseAct, Outcome::Against) => Some(Kind::Defense),
+            _ => None,
+        };
+        if let Some(kind) = special {
+            return Some(Self { kind, stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false, facts: Some(facts.clone()), unsupported: false, tied: SmallList::new(), cursor: 0 });
+        }
+        let (table, deferred) = Table::of(agenda, outcome, facts.has_galaxy)?;
+        let done = if deferred { Done::Deferred } else { Done::Resolved };
+        Some(Self { kind: Kind::Table(table), stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: Some(facts.clone()), unsupported: false, tied: SmallList::new(), cursor: 0 })
+    }
+
+    /// Whether the table effect met a position it does not express (its result is not to be compared).
+    #[must_use]
+    pub const fn unsupported(&self) -> bool {
+        self.unsupported
     }
 
     /// `laws::repeal` of `law`.
     #[must_use]
     pub const fn repeal(law: Agenda) -> Self {
-        Self { kind: Kind::Repeal(law), stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false }
+        Self { kind: Kind::Repeal(law), stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false, facts: None, unsupported: false, tied: SmallList::new(), cursor: 0 }
     }
 
-    /// Whether the effect draws secret objectives (the deck is the string's when a turn redo draws through a
-    /// reserve).
+    /// Whether the table effect reads the map slice.
+    #[must_use]
+    pub const fn needs_map(&self) -> bool {
+        matches!(self.kind, Kind::Table(t) if t.needs_map())
+    }
+
+    /// Whether the effect turns a card of a deck, as a draw does.
     #[must_use]
     pub const fn draws(&self) -> bool {
-        matches!(self.kind, Kind::Draw(..))
+        matches!(self.kind, Kind::Draw(..)) || matches!(self.kind, Kind::Table(t) if t.draws_from_deck())
     }
 
     /// Whether the repealed law was in play.
@@ -223,6 +272,14 @@ impl Window for Resolve {
         if let Kind::Draw(who, count) = self.kind {
             return self.draw(sx, who, count);
         }
+        match self.kind {
+            Kind::Seed(agenda, high) => return self.seed(sx, agenda, high),
+            Kind::Defense => {
+                self.stage = Stage::Apply;
+                return self.defense(sx);
+            }
+            _ => {}
+        }
         if self.stage == Stage::Apply {
             match &self.kind {
                 Kind::Point(agenda, who) => Self::point(sx.state, *agenda, *who, 1),
@@ -255,7 +312,14 @@ impl Window for Resolve {
                     let mecatol = if placed(System::MecatolRex112) { System::MecatolRex112 } else { System::MecatolRex18 };
                     sx.state.explore_mut().wormhole_tokens.insert(Wormhole::Gamma, mecatol);
                 }
-                Kind::Nothing | Kind::Draw(..) => {}
+                Kind::Nothing | Kind::Draw(..) | Kind::Seed(..) | Kind::Defense => {}
+                Kind::Table(table) => {
+                    if let Some(facts) = &self.facts
+                        && !table.apply(sx.state, facts)
+                    {
+                        self.unsupported = true;
+                    }
+                }
                 Kind::Reveal(secret) => {
                     let card = ObjectiveRef::Secret(*secret);
                     let revealed = &mut sx.state.objectives_mut().revealed;
@@ -270,6 +334,11 @@ impl Window for Resolve {
     }
 
     fn ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> {
+        match self.kind {
+            Kind::Seed(..) => return self.seed_question(s),
+            Kind::Defense => return self.defense_question(s),
+            _ => {}
+        }
         let Kind::Draw(who, _) = self.kind else { return None };
         if self.stage != Stage::Asking {
             return None;
@@ -281,6 +350,11 @@ impl Window for Resolve {
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        match self.kind {
+            Kind::Seed(agenda, _) => return self.seed_answer(sx, agenda, pick),
+            Kind::Defense => return self.defense_answer(sx, pick),
+            _ => {}
+        }
         let Kind::Draw(who, _) = self.kind else { return Err(Illegal) };
         match pick {
             Pick::Opt(Opt::Objectives(OOpt::Return(secret)))

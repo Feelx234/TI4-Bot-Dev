@@ -125,7 +125,7 @@ pub(crate) fn reroll_set_back(cx: &Ctx, r: &c::RerollSet) -> R<m::RerollSet> {
     Ok(m::RerollSet { kind: cx.texts.text(S, r.kind)?.to_owned(), system: sid(r.system), rolls })
 }
 
-fn invasion_step(cx: &mut Ctx, s: &m::InvasionStep) -> R<c::InvasionStep> {
+pub(crate) fn invasion_step(cx: &mut Ctx, s: &m::InvasionStep) -> R<c::InvasionStep> {
     Ok(c::InvasionStep {
         planet: planet(&s.planet)?,
         kind: cx.texts.intern(S, &s.kind)?,
@@ -302,7 +302,7 @@ impl SliceCodec for Transient {
         pr.discount_remaining = gs.production_discount_remaining;
         pr.value_swapped_planet = gs.production_value_swapped_planet.as_ref().map(planet).transpose()?;
         for (k, v) in &gs.gravleash_move_values {
-            pr.gravleash_move_values.insert(sys(k)?, *v);
+            t.movement.gravleash_move_values.insert(sys(k)?, *v);
         }
 
         let ms = &mut t.misc;
@@ -439,7 +439,7 @@ impl SliceCodec for Transient {
         gs.units_produced_this_use = pr.units_produced_this_use;
         gs.production_discount_remaining = pr.discount_remaining;
         gs.production_value_swapped_planet = pr.value_swapped_planet.map(pid);
-        gs.gravleash_move_values = pr.gravleash_move_values.iter().map(|(k, v)| (sid(*k), *v)).collect();
+        gs.gravleash_move_values = t.movement.gravleash_move_values.iter().map(|(k, v)| (sid(*k), *v)).collect();
 
         let ms = &t.misc;
         gs.transient_flags = m::TransientFlags::default();

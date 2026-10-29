@@ -139,3 +139,54 @@ pub fn ionian_available(core: &CoreState, seat: Seat) -> bool {
 pub fn salvaged(core: &CoreState, seat: Seat) -> &[ActionCard] {
     if board::controls(core, seat, Planet::Garbozia) { core.cards().salvage_yard.as_slice() } else { &[] }
 }
+
+/// What a seat holds that an exploration card can change (`exploration::Holdings`); compared before and after a
+/// card to say what it did. The counts of the seat's own infantry and mechs are those on `planet`, by base type
+/// (the string engine reads `infantry` / `mech` in the unit-type id; `scratch` showed them equal on the corpus).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Holdings {
+    pub trade_goods: i32,
+    pub commodities: i32,
+    pub command_tokens: i32,
+    pub action_cards: usize,
+    pub secrets: usize,
+    pub relics: usize,
+    pub technologies: usize,
+    pub play_area: usize,
+    pub own_infantry: usize,
+    pub own_mechs: usize,
+    pub exhausted: bool,
+}
+
+/// `exploration::Holdings::of`.
+#[must_use]
+pub fn holdings(core: &CoreState, seat: Seat, planet: Option<Planet>) -> Holdings {
+    let mut h = Holdings::default();
+    if let Some(planet) = planet {
+        let cell = core.board().planet(planet);
+        let has_system = cell.control.is_some() || cell.flags.has(crate::state::PlanetFlags::UNITS_ENTRY);
+        if has_system {
+            for u in cell.units.as_slice().iter().filter(|u| u.owner() == seat) {
+                match u.kind().data().base_type {
+                    crate::generated::UnitBaseType::Infantry => h.own_infantry += 1,
+                    // The one mech whose id has no `mech` in it (`naaz_voltron`) is not counted by the string
+                    // engine, which reads the id; copied (docs/ENGINE_KNOWN_ISSUES.md, B5-copy-05).
+                    crate::generated::UnitBaseType::Mech if u.kind() != crate::generated::Unit::EidolonMaximum => h.own_mechs += 1,
+                    _ => {}
+                }
+            }
+        }
+        h.exhausted = cell.flags.has(crate::state::PlanetFlags::EXHAUSTED);
+    }
+    if let Some(p) = core.players().by_seat(seat) {
+        h.trade_goods = i32::from(p.econ.trade_goods);
+        h.commodities = i32::from(p.econ.commodities);
+        h.command_tokens = i32::from(p.econ.tactic_tokens) + i32::from(p.econ.fleet_tokens) + i32::from(p.econ.strategic_tokens);
+        h.action_cards = p.cards.hand.len();
+        h.secrets = p.cards.secrets.len();
+        h.relics = p.cards.relics.len();
+        h.technologies = super::tech::owned(core, seat).len();
+        h.play_area = p.cards.explore.len();
+    }
+    h
+}

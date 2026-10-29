@@ -128,7 +128,7 @@ impl ModifierRow {
             Needs::Law(a) => yes(crate::query::laws::holds_ministry(s, crate::query::reach::blanked(s), who, a)),
             Needs::Relic(r) => yes(p.cards.relics.contains(&r)),
             Needs::RoundMarks(kind) => p.round_marks.of(kind).filter(|n| *n == s.meta().combat_round_seq).count() as i64,
-            Needs::CombatBonusRound => yes(p.combat_timers.combat_bonus_round.get() == Some(s.meta().combat_round_seq)),
+            Needs::CombatBonusRound => yes(p.card_timers.combat_bonus_round.get() == Some(s.meta().combat_round_seq)),
             Needs::DefenderInNebula => {
                 let sys = system.or(s.meta().active_system);
                 let nebula = sys.is_some_and(|y| crate::query::reach::scope_of(q.k).system(y).is_some_and(|d| d.anomalies.nebula));

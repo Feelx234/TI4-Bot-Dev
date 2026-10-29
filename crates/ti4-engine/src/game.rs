@@ -1821,9 +1821,9 @@ impl<'a> Game<'a> {
         self.state.units_produced_this_use = 0;
         self.state.production_discount_remaining = 0;
         self.state.production_value_swapped_planet = None;
-        self.state.clear_transactions();
-        self.state.diplomacy.clear_turn_initiations();
-        self.state.negotiations_this_action.clear();
+        crate::transactions::clear_turn_transactions(&mut self.state);
+        crate::diplomacy::relations::clear_turn_initiations(&mut self.state);
+        crate::transactions::clear_action_negotiations(&mut self.state);
 
         self.state.activation_seq += 1;
         self.state.combat_round_seq += 1;
@@ -2711,7 +2711,7 @@ impl<'a> Game<'a> {
                     // closed again when it finishes.
                     if !self.is_free_option(&answer) {
                         self.turn_closing = None;
-                        self.state.negotiations_this_action.clear();
+                        crate::transactions::clear_action_negotiations(&mut self.state);
                     }
                 }
                 if answer.id == "pass" {
@@ -5854,15 +5854,15 @@ impl<'a> Game<'a> {
                     }
                     if self.state.diplomacy.enabled && self.galaxy.is_some() {
                         // 94: each agenda is a fresh negotiation, open to every pair again.
-                        self.state.clear_transactions();
-                        self.state.diplomacy.clear_turn_initiations();
+                        crate::transactions::clear_turn_transactions(&mut self.state);
+                        crate::diplomacy::relations::clear_turn_initiations(&mut self.state);
                         // Voting order: clockwise from the speaker's left, the speaker last.
                         let mut seats = self.state.clockwise_from(&self.state.speaker);
                         if !seats.is_empty() {
                             seats.rotate_left(1);
                         }
                         // Each agenda's talks count as one action for the negotiation limit.
-                        self.state.negotiations_this_action.clear();
+                        crate::transactions::clear_action_negotiations(&mut self.state);
                         self.agenda_talks = Some(AgendaTalks {
                             alias,
                             choices,
@@ -6117,16 +6117,33 @@ impl<'a> Game<'a> {
     /// drawn. An empty deck leaves nothing to vote on: Covert Legislation is then discarded and
     /// replaced like any agenda with nothing to elect.
     fn draw_covert_agenda(&mut self) -> Vec<String> {
-        self.state.covert_agenda = None;
+        // The core `rules::agenda::covert::CovertDraw` window runs beside the string body on `agenda=dual`.
+        let (content, sources) = (self.content, self.sources);
+        let mut choices = Vec::new();
+        crate::dual_window!(
+            crate::dual::Area::AgendaLaws,
+            "game::draw_covert_agenda",
+            &mut self.state,
+            |s: &mut GameState| {
+                choices = Self::draw_covert_text(s, content, sources);
+                crate::dual::Run::new(choices.clone())
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| crate::dual_window::covert_draw(s, sources, script)
+        );
+        choices
+    }
+
+    fn draw_covert_text(state: &mut GameState, content: &ContentStore, sources: ti4_model::content_types::SourceSet) -> Vec<String> {
+        state.covert_agenda = None;
         while let Some(hidden) = ti4_model::deck_reserve::take_top(
-            &mut self.state.deck_reserve,
+            &mut state.deck_reserve,
             "agenda",
-            &mut self.state.agenda_deck,
+            &mut state.agenda_deck,
             None,
         ) {
-            let choices = outcomes(&self.state, self.content, self.sources, &hidden);
+            let choices = outcomes(&*state, content, sources, &hidden);
             if !choices.is_empty() {
-                self.state.covert_agenda = Some(hidden);
+                state.covert_agenda = Some(hidden);
                 return choices;
             }
         }
@@ -7249,7 +7266,7 @@ impl<'a> Game<'a> {
         let ended = self.state.active.clone();
         self.actions_this_turn = 0;
         // A new turn is a new action for the negotiation limit.
-        self.state.negotiations_this_action.clear();
+        crate::transactions::clear_action_negotiations(&mut self.state);
         // A Black Market marker outlives no turn: the negotiation it unlocked is closed by
         // the time the turn ends, and the marker is cleared here too so a flag no window
         // consumed can never leak into another player's table.
@@ -15283,6 +15300,53 @@ mod tests {
         assert!(game.state.covert_agenda.is_none());
     }
 
+    /// The face-down draw runs as a core window beside the string one: the card with nothing to elect goes, the
+    /// next is kept, and an empty deck leaves nothing; the deck, the stored agenda and the outcomes agree.
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn the_covert_draw_runs_as_a_core_window_in_lockstep() {
+        use crate::dual::{AreaMask, Backend, local_windows, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();
+        let _ = take_report();
+        with_mask(mask, || {
+            let mut game = quash_game(0, &[]);
+            game.state.agenda_deck = vec!["classified".to_owned(), "committee".to_owned(), "prophecy".to_owned()];
+            let (_, choices) = game.reveal_agenda("covert").expect("revealed").expect("a vote");
+            assert_eq!(choices, ["a", "b"]);
+            assert_eq!(game.state.covert_agenda.as_deref(), Some("committee"));
+            assert_eq!(game.state.agenda_deck, ["prophecy"]);
+            let mut game = quash_game(0, &[]);
+            game.state.agenda_deck.clear();
+            game.state.covert_agenda = Some("committee".to_owned());
+            assert!(game.reveal_agenda("covert").expect("revealed").is_none());
+            assert!(game.state.covert_agenda.is_none(), "an earlier face-down card is cleared");
+            // A deck that holds only cards with nothing to elect is emptied.
+            let mut game = quash_game(0, &[]);
+            game.state.agenda_deck = vec!["classified".to_owned()];
+            assert!(game.reveal_agenda("covert").expect("revealed").is_none());
+            assert!(game.state.agenda_deck.is_empty());
+        });
+        let report = take_report();
+        assert_eq!(report.total_differences(), 0, "{report:?}");
+        let (compared, bailed) = local_windows("game::draw_covert_agenda");
+        assert!(compared == 3 && bailed == 0, "{compared} compared, {bailed} bailed");
+    }
+
+    /// A string state that carries a deck reserve (a turn-redo replay) draws through it: no core window (B9-bail-07).
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn a_deck_reserve_has_no_covert_window() {
+        let mut game = quash_game(0, &[]);
+        game.state.agenda_deck = vec!["committee".to_owned()];
+        assert!(crate::dual_window::covert_draw(&mut game.state, game.sources, &crate::dual_window::Recording::default()).is_some());
+        game.state.deck_reserve = Some(ti4_model::deck_reserve::DeckReserve::new(
+            std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            ti4_model::deck_reserve::DeckPlan::default(),
+        ));
+        assert!(crate::dual_window::covert_draw(&mut game.state, game.sources, &crate::dual_window::Recording::default()).is_none());
+    }
+
     #[test]
     fn covert_legislation_is_a_plain_vote_below_rules_version_33() {
         let (state, events) = covert_run(
@@ -15739,6 +15803,7 @@ mod tests {
     #[cfg(feature = "typed-core")]
     #[test]
     fn deadly_plot_effect_runs_as_a_core_window_in_lockstep() {
+        let _serial = crate::dual::tests::serial();
         use crate::dual::{AreaMask, Backend, take_report, with_mask};
         let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();
         let _ = take_report();

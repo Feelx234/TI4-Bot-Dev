@@ -76,9 +76,9 @@ fn supercharge(q: Q<'_>, site: &RollSite, _: i64) -> Delta {
 
 /// Visz El Vir: a Naaz (or Nekro) mech rolls 1 additional die while its owner's Visz El Vir stands in the system.
 /// The string `unit_dice` fold, as the amount it adds.
-pub fn unit_dice(s: &CoreState, _: &Kernel, unit: CombatUnit, dice: i64) -> i64 {
+pub fn unit_dice(s: &CoreState, k: &Kernel, unit: CombatUnit, dice: i64) -> i64 {
     let Some(system) = unit.system else { return dice };
-    let is_mech = unit.unit.data().base_type == UnitBaseType::Mech && (is_naaz_mech_form(unit.unit) || is_nekro(s, unit.owner));
+    let is_mech = crate::common::scope(k).unit(unit.unit).is_some_and(|d| d.base_type == UnitBaseType::Mech) && (is_naaz_mech_form(unit.unit) || is_nekro(s, unit.owner));
     let flagship = s
         .board()
         .sys(system)
@@ -97,8 +97,9 @@ fn visz_el_vir(q: Q<'_>, site: &RollSite, _: i64) -> Delta {
 }
 
 /// Distant Suns: explore a planet that holds one of the player's mechs: draw 1 additional card.
-pub fn explore_extra_draw(s: &CoreState, _: &Kernel, who: Seat, planet: Planet) -> bool {
-    is_naaz(s, who) && board::planet_units(s, planet).iter().any(|p| p.owner() == who && p.kind().data().base_type == UnitBaseType::Mech)
+pub fn explore_extra_draw(s: &CoreState, k: &Kernel, who: Seat, planet: Planet) -> bool {
+    let scope = crate::common::scope(k);
+    is_naaz(s, who) && board::planet_units(s, planet).iter().any(|p| p.owner() == who && scope.unit(p.kind()).is_some_and(|d| d.base_type == UnitBaseType::Mech))
 }
 
 /// Whether an Eidolon Maximum of `who` stands anywhere (Absolute Synergy is flipped).
@@ -113,8 +114,8 @@ pub fn cannot_produce(s: &CoreState, _: &Kernel, who: Seat, unit: UnitBaseType, 
 }
 
 /// The shared placement helper passes the resolved faction unit, so upgrades and forms cannot evade this gate.
-pub fn effect_placement_forbidden(s: &CoreState, _: &Kernel, who: Seat, unit: Unit) -> bool {
-    is_naaz(s, who) && voltron_on_board(s, who) && unit.data().base_type == UnitBaseType::Mech
+pub fn effect_placement_forbidden(s: &CoreState, k: &Kernel, who: Seat, unit: Unit) -> bool {
+    is_naaz(s, who) && voltron_on_board(s, who) && crate::common::scope(k).unit(unit).is_some_and(|d| d.base_type == UnitBaseType::Mech)
 }
 
 /// A Maximum flips back when it is removed; captured models therefore return as Eidolons.

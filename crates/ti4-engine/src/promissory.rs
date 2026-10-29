@@ -165,8 +165,31 @@ pub fn deal(state: &mut GameState, content: &ContentStore, sources: SourceSet) {
     state.promissory_notes = hands;
 }
 
+/// One write of the promissory notes on both backends (package B4; `Area::TradeDiplomacy`).
+fn write<R: PartialEq + std::fmt::Debug>(
+    state: &mut GameState,
+    label: &str,
+    string: impl Fn(&mut GameState) -> R,
+    core: impl Fn(&mut GameState) -> Option<R>,
+) -> R {
+    crate::dual::write(crate::dual::Area::TradeDiplomacy, state, label, string, core)
+}
+
 /// Give a note to a holder, faceup if that is where the card lives (69.3).
 pub fn take(state: &mut GameState, content: &ContentStore, holder: &PlayerId, note: &str) {
+    if !content.is_embedded() {
+        return take_text(state, content, holder, note);
+    }
+    write(
+        state,
+        "promissory::take",
+        |s| take_text(s, content, holder, note),
+        |s| crate::trade_write::take_note(s, holder, note),
+    );
+}
+
+/// [`take`] on the string state: the oracle of the dual run.
+fn take_text(state: &mut GameState, content: &ContentStore, holder: &PlayerId, note: &str) {
     state
         .promissory_notes
         .insert(note.to_owned(), holder.clone());
@@ -245,6 +268,15 @@ pub fn action_notes_in_hand_text(state: &GameState, player: &PlayerId) -> Vec<St
 /// Returns whether it was placed; nothing changes unless `player` holds `note` in hand and its
 /// text is an ACTION of this kind.
 pub fn play_action_note(state: &mut GameState, player: &PlayerId, note: &str) -> bool {
+    write(
+        state,
+        "promissory::play_action_note",
+        |s| play_action_note_text(s, player, note),
+        |s| crate::trade_write::play_action_note(s, player, note),
+    )
+}
+
+fn play_action_note_text(state: &mut GameState, player: &PlayerId, note: &str) -> bool {
     if !action_notes_in_hand(state, player)
         .iter()
         .any(|held| held == note)
@@ -287,6 +319,15 @@ pub fn convoys_in_hand_text(state: &GameState, player: &PlayerId) -> Option<Stri
 ///
 /// Returns whether a card was placed (nothing changes when the holder has none in hand).
 pub fn play_convoys(state: &mut GameState, player: &PlayerId) -> bool {
+    write(
+        state,
+        "promissory::play_convoys",
+        |s| play_convoys_text(s, player),
+        |s| crate::trade_write::play_convoys(s, player),
+    )
+}
+
+fn play_convoys_text(state: &mut GameState, player: &PlayerId) -> bool {
     let Some(note) = convoys_in_hand(state, player) else {
         return false;
     };
@@ -299,6 +340,10 @@ pub fn play_convoys(state: &mut GameState, player: &PlayerId) -> bool {
 /// Every note in the game says "then, return this card". A note is a loan, not a sale, which is
 /// why parting with one is worth less than receiving one.
 pub fn give_back(state: &mut GameState, note: &str) {
+    write(state, "promissory::give_back", |s| give_back_text(s, note), |s| crate::trade_write::give_back(s, note));
+}
+
+fn give_back_text(state: &mut GameState, note: &str) {
     let Some(name) = owner_of(note) else {
         return;
     };
@@ -430,6 +475,15 @@ pub fn available_support(state: &GameState, player: &PlayerId) -> Option<String>
 /// Returns `false` when the note cannot move: nobody may hold their own Support, and a Support
 /// already lent out cannot be lent again.
 pub fn receive(state: &mut GameState, holder: &PlayerId, note: &str) -> bool {
+    write(
+        state,
+        "promissory::receive",
+        |s| receive_text(s, holder, note),
+        |s| crate::trade_write::receive_support(s, holder, note),
+    )
+}
+
+fn receive_text(state: &mut GameState, holder: &PlayerId, note: &str) -> bool {
     let Some(name) = owner_of(note) else {
         return false;
     };
@@ -451,6 +505,10 @@ pub fn receive(state: &mut GameState, holder: &PlayerId, note: &str) -> bool {
 /// The point follows the card. A holder who kept the victory point after the note went home
 /// would be scoring for something they no longer have.
 pub fn return_support(state: &mut GameState, owner: &PlayerId) -> bool {
+    write(state, "promissory::return_support", |s| return_support_text(s, owner), |s| crate::trade_write::return_support(s, owner))
+}
+
+fn return_support_text(state: &mut GameState, owner: &PlayerId) -> bool {
     let Some(holder) = state.support_holders.remove(owner) else {
         return false;
     };
@@ -843,6 +901,20 @@ pub fn trade_agreement_on_replenish(state: &mut GameState, player: &PlayerId) ->
     // Every replenish site calls this, so it is also where the replenish is announced (staged) for
     // Cabal's The Stillness of Stars, before this card can take the commodities.
     crate::factions::cabal::note_replenished(state, player);
+    let moved = write(
+        state,
+        "promissory::trade_agreement",
+        |s| trade_agreement_text(s, player),
+        |s| crate::trade_write::trade_agreement(s, player),
+    );
+    let (holder, given) = moved?;
+    crate::supply::note_trade_goods_gained(state, &holder, given, "trade_agreement");
+    Some(holder)
+}
+
+/// The state half of [`trade_agreement_on_replenish`]: the commodities become the holder's trade goods
+/// and the note goes home. The holder and the amount, for the staged event.
+fn trade_agreement_text(state: &mut GameState, player: &PlayerId) -> Option<(PlayerId, i32)> {
     let holder = holder_of(state, "ta", player)?;
     let given = state.player(player).map_or(0, |seat| seat.commodities);
     if given <= 0 {
@@ -854,10 +926,9 @@ pub fn trade_agreement_on_replenish(state: &mut GameState, player: &PlayerId) ->
     if let Some(seat) = state.player_mut(&holder) {
         seat.trade_goods += given;
     }
-    crate::supply::note_trade_goods_gained(state, &holder, given, "trade_agreement");
     let name = faction_name(state, player);
     give_back(state, &note_id("ta", &name));
-    Some(holder)
+    Some((holder, given))
 }
 
 /// How many of other factions' `alias` notes this player holds.
@@ -889,6 +960,15 @@ pub fn held_foreign_text(state: &GameState, player: &PlayerId, alias: &str) -> u
 
 /// Return every `alias` note held by a player other than its owner.
 pub fn return_all_foreign(state: &mut GameState, alias: &str) {
+    write(
+        state,
+        "promissory::return_all_foreign",
+        |s| return_all_foreign_text(s, alias),
+        |s| crate::trade_write::return_all_foreign(s, alias),
+    );
+}
+
+fn return_all_foreign_text(state: &mut GameState, alias: &str) {
     let lent: Vec<String> = state
         .promissory_notes
         .iter()

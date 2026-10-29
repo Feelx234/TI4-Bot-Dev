@@ -66,9 +66,16 @@ pub fn available_text(state: &GameState, player: &PlayerId, planet: &PlanetId) -
 
 /// Spend the ability card.
 fn exhaust(state: &mut GameState, player: &PlayerId, planet: &PlanetId) {
-    if let Some(seat) = state.player_mut(player) {
-        seat.exhausted_legendary.insert(planet.clone());
-    }
+    crate::exploration::dual_write(
+        state,
+        "legendary::exhaust",
+        |s| {
+            if let Some(seat) = s.player_mut(player) {
+                seat.exhausted_legendary.insert(planet.clone());
+            }
+        },
+        |s| crate::explore_write::exhaust_legendary(s, player, planet),
+    );
 }
 
 /// Every legendary ability this seat could use at the end of its turn, as options.
@@ -1827,5 +1834,29 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["card"]
         );
+    }
+}
+
+/// The exhaustion of a legendary ability card beside its core write, lockstep on `Dual`.
+#[cfg(test)]
+mod exhaust_tests {
+    use super::*;
+    use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+
+    #[test]
+    fn exhausting_a_legendary_card_runs_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        with_mask(AreaMask::STRING.with(Area::ExplorationRelics, Backend::Dual), || {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::POK);
+            let me = PlayerId::new("a");
+            exhaust(&mut state, &me, &PlanetId::new(IONIAN));
+            exhaust(&mut state, &me, &PlanetId::new(SALVAGE));
+            assert_eq!(state.player(&me).unwrap().exhausted_legendary.len(), 2);
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.total_calls() >= 2, "{r:?}");
+        let _ = take_report();
     }
 }

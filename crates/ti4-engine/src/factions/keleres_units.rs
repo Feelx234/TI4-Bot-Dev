@@ -258,7 +258,7 @@ const TOLL_PREFIX: &str = "keleres:omniopiares:";
 
 /// Whether `invader` owes the Omniopiares toll to commit ground forces to `planet`: another player's
 /// mech stands on it and the toll is not yet paid in this activation.
-fn commit_toll_owed(
+pub(crate) fn commit_toll_owed(
     state: &GameState,
     invader: &PlayerId,
     system: &SystemId,
@@ -330,15 +330,22 @@ pub(crate) fn pay_commit_toll(
     )? {
         return Ok(false);
     }
-    // Marks of earlier activations are history.
+    mark_toll_paid(state, planet);
+    Ok(true)
+}
+
+/// The toll for `planet` is paid in this activation (marks of earlier activations are history).
+pub(crate) fn mark_toll_paid(state: &mut GameState, planet: &PlanetId) {
     let current = format!("{TOLL_PREFIX}{}:", state.activation_seq);
     state
         .faction_marks
         .retain(|key, _| !key.starts_with(TOLL_PREFIX) || key.starts_with(&current));
     let mark = toll_mark(state, planet);
     state.faction_marks.insert(mark, String::new());
-    Ok(true)
 }
+
+/// What the toll costs (influence).
+pub(crate) const TOLL_COST: i64 = OMNIOPIARES_COST;
 
 // -- Kuuasi Aun Jalatai ---------------------------------------------------------------------------
 
@@ -1259,6 +1266,43 @@ mod tests {
             .filter(|exhausted| **exhausted != planet)
             .count();
         assert!(payment > before, "the toll was paid");
+    }
+
+    #[test]
+    fn the_toll_is_paid_through_the_pay_step_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual);
+        with_mask(mask, || {
+            let (mut state, system, planet) = omniopiares_game();
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            // Several planets of different worth, so the payment is a real choice.
+            for id in crate::fixtures::non_home_planets(4) {
+                let owned = ti4_content::galaxy::all_planets(ContentStore::embedded(), ti4_model::content_types::POK)
+                    .iter()
+                    .find(|(p, _)| **p == id.as_str())
+                    .and_then(|(_, p)| p.system_id().map(SystemId::new));
+                if let Some(home) = owned.filter(|home| *home != system) {
+                    state.system_mut(&home).planet_control.insert(PlanetId::new(id.as_str()), b());
+                }
+            }
+            let before = exhausted_count(&state);
+            let mut table = scripted(&[&format!("commit|0|{planet}")]);
+            let mut dice = crate::dice::Dice::new();
+            let mut rng = crate::rng::GameRng::new(5);
+            crate::invasion::resolve(&mut state, ContentStore::embedded(), DEFAULT, &mut table, &mut dice, &mut rng, &system, &b())
+                .expect("the invasion resolves");
+            assert!(exhausted_count(&state) > before, "the toll was paid");
+        });
+        let r = report();
+        let w = r.windows.get("invasion::commit_one").copied().unwrap_or_default();
+        let bails: Vec<_> = r.windows.iter().filter(|(k, _)| k.starts_with("invasion::commit_one [bail")).collect();
+        assert!(w.compared >= 1, "the landing with the toll is compared: {:?}", r.windows);
+        assert!(bails.is_empty(), "{bails:?}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
     }
 
     // -- Kuuasi Aun Jalatai -----------------------------------------------------------------------

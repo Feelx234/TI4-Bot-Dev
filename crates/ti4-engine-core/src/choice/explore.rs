@@ -5,7 +5,7 @@
 //! instant cards (Abandoned Warehouses, Merchant Station, Functioning Base, Local Fabricators, Mercenary
 //! Outfit). The adapter side is `ti4-engine/src/render/explore.rs`.
 
-use crate::generated::{Explore, Wormhole};
+use crate::generated::{Explore, Planet, Wormhole};
 
 /// The "card" of a string exploration question (`DecisionSource::Content(card)`): the steps that are not an
 /// exploration card of their own.
@@ -33,6 +33,17 @@ impl Step {
     ];
 }
 
+/// What the reward of a "mech or infantry" card is (the text of the question's offer).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PayReward {
+    /// Cultural Archaeology ... "gain 1 trade good".
+    TradeGood,
+    /// Expedition: "ready this planet".
+    ReadyPlanet,
+    /// Volatile Fuel Source: "gain 1 command token".
+    CommandToken,
+}
+
 /// What the area asks. Parameters only; the options are the window's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Ask {
@@ -44,6 +55,9 @@ pub enum Ask {
     IonStorm,
     /// The reward of an instant card with a choice (a [`Step`] other than `Exploration` and `IonStorm`).
     Reward(Step),
+    /// "remove 1 infantry from this planet to resolve the exploration card" (Cultural Archaeology, Expedition,
+    /// Volatile Fuel Source): a mech on the planet pays without a question, an infantry only if the seat agrees.
+    PayInfantry { card: Explore, planet: Planet, reward: PayReward },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -69,6 +83,10 @@ pub enum Opt {
     Place,
     /// Mercenary Outfit: "place nothing" (its id is `decline`).
     PlaceNothing,
+    /// Remove 1 infantry and gain the reward.
+    RemoveInfantry,
+    /// Keep the infantry (its id is `decline`).
+    KeepInfantry,
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`): `{card}_choose_reward`.

@@ -22,22 +22,22 @@ const SOL_AGENT: &str = "solagent";
 const MARK_PREFIX: &str = "yssaril:ssruu-round-agent:";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-struct RoundBonus {
-    borrower: PlayerId,
-    source_owner: PlayerId,
-    source_agent: String,
-    system: SystemId,
+pub(crate) struct RoundBonus {
+    pub(crate) borrower: PlayerId,
+    pub(crate) source_owner: PlayerId,
+    pub(crate) source_agent: String,
+    pub(crate) system: SystemId,
     /// Ground-combat planet named by the triggering event (the actual battle).
-    combat_planet: Option<PlanetId>,
+    pub(crate) combat_planet: Option<PlanetId>,
     /// Location of the selected unit. This can differ from `combat_planet` for Sol.
-    unit_planet: Option<PlanetId>,
-    unit_owner: PlayerId,
-    unit_type: UnitTypeId,
-    sustained_damage: bool,
-    galvanized: bool,
+    pub(crate) unit_planet: Option<PlanetId>,
+    pub(crate) unit_owner: PlayerId,
+    pub(crate) unit_type: UnitTypeId,
+    pub(crate) sustained_damage: bool,
+    pub(crate) galvanized: bool,
     /// Ordinal in the owner's complete eligible roll roster at this location.
-    unit_index: usize,
-    round_seq: u32,
+    pub(crate) unit_index: usize,
+    pub(crate) round_seq: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

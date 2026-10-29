@@ -203,14 +203,23 @@ pub fn resolve_after_token_gain(state: &mut GameState, report: &mut StatusPhaseR
     // this step before it may bend another one.
     for player in &mut state.players {
         player.exhausted_technologies.clear();
-        // Relic cards ready here too: the set only exists for relics that exhaust to use
-        // themselves (Heart of Ixth), and a relic that spent its use on a die must wait for
-        // this step before it may bend another one.
-        player.exhausted_relics.clear();
-        // Legendary ability cards ready here for the same reason: they exhaust to use
-        // themselves and would otherwise be once per game rather than once per round.
-        player.exhausted_legendary.clear();
     }
+    // Relic cards ready here too: the set only exists for relics that exhaust to use themselves (Heart of
+    // Ixth), and a relic that spent its use on a die must wait for this step before it may bend another one.
+    // Legendary ability cards ready here for the same reason: they exhaust to use themselves and would
+    // otherwise be once per game rather than once per round. One core write
+    // (`rules::explore::ready_relics_and_legendary`).
+    crate::exploration::dual_write(
+        state,
+        "status::ready_relics_and_legendary",
+        |s| {
+            for player in &mut s.players {
+                player.exhausted_relics.clear();
+                player.exhausted_legendary.clear();
+            }
+        },
+        crate::explore_write::ready_relics_and_legendary,
+    );
     // Leaders ready here too. An exhausted agent that never readies reads, after a round or
     // two, as a player who has simply run out of agents.
     let seats: Vec<PlayerId> = state
@@ -285,7 +294,7 @@ pub fn resolve_after_token_gain(state: &mut GameState, report: &mut StatusPhaseR
         report
             .returned_strategy_cards
             .extend(cards.iter().cloned().map(|card| (player_id.clone(), card)));
-        state.clear_strategy_cards(&player_id);
+        crate::strategy_write::clear(state, &player_id);
         if let Some(player) = state.player_mut(&player_id) {
             player.passed = false;
         }
