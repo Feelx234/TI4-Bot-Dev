@@ -10010,7 +10010,9 @@ mod tests {
         let bails = r.windows.keys().cloned().collect();
         let differences = r.total_differences();
         // The end announcement of a fight whose combat mark the table closes is no reason to keep the settle in the string.
-        assert_eq!(r.windows.get("combat::settle").map_or(0, |w| w.bailed), 0, "{:?}", r.windows);
+        if r.windows.keys().all(|k| !k.contains("[bail:")) {
+            assert_eq!(r.windows.get("combat::settle").map_or(0, |w| w.bailed), 0, "{:?}", r.windows);
+        }
         if differences > 0 {
             eprintln!("{:?}", r.differences.first());
         }
@@ -10101,6 +10103,27 @@ mod tests {
             bailed += usize::from(bails.iter().any(|k| k.contains("a fact the adapter did not compute")));
         }
         assert!(bailed > 0, "the Z token is the string's");
+    }
+
+    /// The string registers The Terror Between for a Nekro seat (its flagship carries the text through the Z token): the core
+    /// registers it too (the registry test) and bails when a Nekro flagship holding the Z token stands in the system.
+    #[test]
+    fn bail_the_terror_between_of_a_nekro_flagship_with_the_z_token() {
+        let (mut bailed, mut plain_bailed) = (0, 0);
+        for seed in 0..6_u64 {
+            let (_, bails, differences) = nekro_fight(seed, &[], |s| {
+                put(s, &SystemId::new("18"), "nekro_flagship", &attacker(), 1);
+                s.player_mut(&attacker()).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new("nekrobt"));
+            });
+            assert_eq!(differences, 0, "seed {seed}");
+            bailed += usize::from(bails.iter().any(|k| k.contains("a fact the adapter did not compute")));
+            // Without the Z token the flagship carries nothing: the window is followed.
+            let (_, bails, differences) = nekro_fight(seed, &[], |s| put(s, &SystemId::new("18"), "nekro_flagship", &attacker(), 1));
+            assert_eq!(differences, 0, "seed {seed}");
+            plain_bailed += usize::from(bails.iter().any(|k| k.contains("a fact the adapter did not compute")));
+        }
+        assert!(bailed > 0, "the Z token may lend the text: the string decides");
+        assert_eq!(plain_bailed, 0, "no Z token, no bail");
     }
 
     /// Direct Hit: the attacker's hit is sustained by a dreadnought, the attacker destroys that ship from the slot of

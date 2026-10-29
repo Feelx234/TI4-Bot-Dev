@@ -434,6 +434,30 @@ mod tests {
         assert_eq!(rec(&["technology:hacan:inf2:GROUND_FORCE_DESTROYED:after"], &["technology:hacan:inf2:GROUND_FORCE_DESTROYED:after"]).unported(&t), None);
     }
 
+    /// Every nested-bail family B12 left in the string is named by the window that meets it (`unported ability ...`), none is
+    /// followed silently; the ids are the string's registrations (`docs/ENGINE_REACTIONS.md` 10 lists why each stays).
+    #[test]
+    fn bail_every_family_that_stays_in_the_string_is_named() {
+        let t = table();
+        for id in [
+            "unit:empyrean:empyrean_flagship:SUSTAIN_DAMAGE_USED:after",
+            "unit:empyrean:empyrean_flagship:GROUND_FORCE_SUSTAINED:after",
+            "unit:empyrean:empyrean_mech:ACTION_CARD_PLAYED:when",
+            "technology:mentak:so:SPACE_COMBAT_ENDED:produce",
+            "leader:sardakk:sardakkhero:GROUND_COMMITMENT_FINISHED:after",
+            "unit:sardakk:sardakk_mech:GROUND_FORCE_SUSTAINED:after",
+            "leader:yssaril:a:yssarilagent:yinagent:SHIP_DESTROYED:after",
+            "leader:yssaril:a:yssarilagent:yinagent:GROUND_FORCE_DESTROYED:after",
+            "leader:yssaril:a:yssarilagent:solagent:GROUND_COMBAT_ROUND_STARTED:after",
+            "leader:yssaril:a:yssarilagent:letnevagent:COMBAT_ROUND_STARTED:after",
+            "leader:yssaril:a:yssarilagent:argentagent:GROUND_FORCES_BEING_PRODUCED:when",
+        ] {
+            assert_eq!(slot_of(id), None, "{id} is not in the table");
+            let why = rec(&[id], &[]).unported(&t).unwrap_or_default();
+            assert!(why.starts_with("unported ability "), "{id}: {why:?}");
+        }
+    }
+
     #[test]
     fn bail_a_declined_reaction_slot_is_followed_and_a_played_unported_card_is_not() {
         let t = table();
@@ -554,7 +578,7 @@ mod tests {
         use ti4_engine_core::state::Slice;
         let content = ti4_content::ContentStore::embedded();
         let _ = content;
-        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")]] {
+        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")]] {
             let mut gs = crate::fixtures::seated_game(&factions, ti4_model::content_types::POK);
             gs.promissory_notes.clear();
             gs.promissory_faceup.clear();

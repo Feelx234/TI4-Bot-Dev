@@ -124,8 +124,23 @@ fn devour(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
 
 // -- The Terror Between -----------------------------------------------------------------------------
 
+/// The string registers The Terror Between for a Nekro seat too (its flagship may carry the text through the Z token of
+/// the Valefar Assimilator breakthrough).
+fn terror_holder(s: &CoreState, who: Seat) -> bool {
+    s.players().by_seat(who).is_some_and(|p| p.faction == CABAL || p.faction == Faction::TheNekroVirus)
+}
+
 fn terror_when(c: &CondCx<'_>) -> bool {
-    c.event.payload.system(Key::System).is_some_and(|system| flagship_present(c.state, c.def.owner, system))
+    let Some(system) = c.event.payload.system(Key::System) else { return false };
+    let Some(p) = c.state.players().by_seat(c.def.owner) else { return false };
+    if p.faction == Faction::TheNekroVirus {
+        // Documented bail: a Nekro flagship in the system with the Z token held may be lent the text, which the core does not judge.
+        let alastor = board::space_units(c.state, system).iter().any(|u| u.owner() == c.def.owner && u.kind() == Unit::TheAlastor);
+        return p.cards.breakthrough == Some(ti4_engine_core::generated::Breakthrough::ValefarAssimilatorZ)
+            && alastor
+            && c.unknown(ti4_engine_core::kernel::ability::Unknown::MissingFact);
+    }
+    flagship_present(c.state, c.def.owner, system)
 }
 
 fn terror(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
@@ -181,8 +196,9 @@ pub fn register_abilities(t: &mut AbilityTable) {
     t.add(Spec::new(REANIMATOR, AbilityKind::Unit, E::GroundForceDestroyed, After, reanimator).applies(on).when(reanimator_when));
     t.add(Spec::new(DEVOUR_SHIPS, AbilityKind::Ability, E::ShipDestroyed, After, devour).applies(on).when(devour_ships_when));
     t.add(Spec::new(DEVOUR_GROUND, AbilityKind::Ability, E::GroundForceDestroyed, After, devour).applies(on).when(devour_ground_when));
-    t.add(Spec::new(TERROR_SHIPS, AbilityKind::Unit, E::ShipDestroyed, After, terror).applies(on).when(terror_when));
-    t.add(Spec::new(TERROR_GROUND, AbilityKind::Unit, E::GroundForceDestroyed, After, terror).applies(on).when(terror_when));
+    let terror_on = Applies::Held(terror_holder);
+    t.add(Spec::new(TERROR_SHIPS, AbilityKind::Unit, E::ShipDestroyed, After, terror).applies(terror_on).when(terror_when));
+    t.add(Spec::new(TERROR_GROUND, AbilityKind::Unit, E::GroundForceDestroyed, After, terror).applies(terror_on).when(terror_when));
     t.add(Spec::new(MARK_SPACE, AbilityKind::Ability, E::SpaceCombatStarted, After, |e| write_mark(e, false)).applies(on).when(space_part_when));
     t.add(Spec::new(CLEAR_SPACE, AbilityKind::Ability, E::SpaceCombatEnded, After, |e| clear_mark(e, false)).applies(on).when(space_part_when));
     t.add(Spec::new(MARK_GROUND, AbilityKind::Ability, E::GroundCombatStarted, After, |e| write_mark(e, true)).applies(on).when(ground_part_when));

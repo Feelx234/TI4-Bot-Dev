@@ -195,6 +195,11 @@ mod tests {
         s.players_mut().by_seat_mut(Seat(0)).unwrap().tech.exhausted.insert(Technology::ValefarAssimilatorY);
         let mut d = driver(table(), &s, &[Seat(1), Seat(0)], played_by(Seat(1)));
         assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        // A token entry of a card the Nekro does not own carries nothing.
+        let mut s = nekro(Some(IT));
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.remove(Technology::ValefarAssimilatorY);
+        let mut d = driver(table(), &s, &[Seat(1), Seat(0)], played_by(Seat(1)));
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
         let mut s = nekro(Some(IT));
         s.players_mut().by_seat_mut(Seat(1)).unwrap().tech.owned.remove(IT);
         let mut d = driver(table(), &s, &[Seat(1), Seat(0)], played_by(Seat(1)));

@@ -3,6 +3,8 @@
 //!
 //! * The marks (`nekro:ts:{system}[|{planet}]`, `MarkKey::NekroTs`) open when a combat of the Nekro starts (the opponent
 //!   and `open`), turn `used` with the ability and are removed when the combat ends: four mandatory abilities.
+//! Registered for every seat, as the string does (each condition names the Nekro).
+//!
 //! * The ability (space: a ship destroyed during the combat; ground: a ground force destroyed by the combat) is optional.
 //!   It is eligible while the mark is open for the owner of the destroyed unit, no faceup Antivirus of the Nekro sits in
 //!   that player's area and the opponent has something to take. Used, it asks `gain a technology, or assimilate instead`
@@ -20,7 +22,7 @@ use ti4_engine_core::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype
 use ti4_engine_core::containers::SmallList;
 use ti4_engine_core::generated::{Breakthrough, Faction, Leader, Requirement, Technology, Unit};
 use ti4_engine_core::ids::Seat;
-use ti4_engine_core::kernel::ability::{Applies, CondCx, Eff, Slot, Spec, Unknown};
+use ti4_engine_core::kernel::ability::{CondCx, Eff, Slot, Spec, Unknown};
 use ti4_engine_core::kernel::resolver::TimingError;
 use ti4_engine_core::kernel::Kernel;
 use ti4_engine_core::keys::{Atom, MarkKey, MarkVal, Word};
@@ -80,7 +82,15 @@ fn read(s: &CoreState, key: MarkKey) -> Option<(Seat, Word)> {
     }
 }
 
+/// The string registers all six abilities for every seat (the condition names the Nekro), so the core does too.
+fn is_nekro(s: &CoreState, who: Seat) -> bool {
+    s.players().by_seat(who).is_some_and(|p| p.faction == Faction::TheNekroVirus)
+}
+
 fn opens(c: &CondCx<'_>) -> bool {
+    if !is_nekro(c.state, c.def.owner) {
+        return false;
+    }
     let slot = Slot(u16::try_from(c.def.arg).unwrap_or(0));
     opponent_in(&c.event.payload, c.def.owner).is_some() && combat_key(&c.event.payload, is_ground(slot)).is_some()
 }
@@ -158,6 +168,9 @@ fn antivirus_bars(s: &CoreState, nekro: Seat, opponent: Seat) -> bool {
 
 /// `nekro::singularity_ready`: the mark key and the opponent when the destruction in the event opens the ability.
 fn ready(s: &CoreState, k: &Kernel, c: &Payload, codes: &ti4_engine_core::kernel::ability::Codes, nekro: Seat, ground: bool) -> Option<(MarkKey, Seat)> {
+    if !is_nekro(s, nekro) {
+        return None;
+    }
     if ground {
         if c.code(Key::Cause) != Some(codes.ground_combat) {
             return None;
@@ -177,6 +190,9 @@ fn singularity_when(c: &CondCx<'_>) -> bool {
     let slot = Slot(u16::try_from(c.def.arg).unwrap_or(0));
     let ground = slot == GROUND;
     let me = c.def.owner;
+    if !is_nekro(c.state, me) {
+        return false;
+    }
     // The ability the Z token changes (a flagship's text lent): the string offers the token as an option.
     let got = ready(c.state, c.kernel, &c.event.payload, &c.codes, me, ground);
     if got.is_some() && holds_z(c.state, me) {
@@ -245,16 +261,15 @@ fn singularity(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
 }
 
 pub fn register_abilities(t: &mut ti4_engine_core::kernel::ability::AbilityTable) {
-    let nekro = Applies::Faction(Faction::TheNekroVirus);
-    t.add(Spec::new(SPACE, AbilityKind::Ability, EventKind::ShipDestroyed, Relation::After, singularity).applies(nekro).when(singularity_when).optional());
-    t.add(Spec::new(GROUND, AbilityKind::Ability, EventKind::GroundForceDestroyed, Relation::After, singularity).applies(nekro).when(singularity_when).optional());
+    t.add(Spec::new(SPACE, AbilityKind::Ability, EventKind::ShipDestroyed, Relation::After, singularity).when(singularity_when).optional());
+    t.add(Spec::new(GROUND, AbilityKind::Ability, EventKind::GroundForceDestroyed, Relation::After, singularity).when(singularity_when).optional());
     for (slot, event, effect) in [
         (OPEN_SPACE, EventKind::SpaceCombatStarted, open as fn(&mut Eff<'_, '_>) -> Result<(), TimingError>),
         (CLOSE_SPACE, EventKind::SpaceCombatEnded, close),
         (OPEN_GROUND, EventKind::GroundCombatStarted, open),
         (CLOSE_GROUND, EventKind::GroundCombatEnded, close),
     ] {
-        t.add(Spec::new(slot, AbilityKind::Ability, event, Relation::After, effect).applies(nekro).when(opens));
+        t.add(Spec::new(slot, AbilityKind::Ability, event, Relation::After, effect).when(opens));
     }
 }
 
@@ -295,6 +310,12 @@ mod tests {
         let (s, k, system) = game(Word::Open);
         assert!(ready(&s, &k, &ship_destroyed(system, Seat(1), true), &codes(), Seat(0), false).is_some());
         assert!(ready(&s, &k, &ship_destroyed(system, Seat(1), false), &codes(), Seat(0), false).is_none(), "a ship destroyed by a card is not in the combat");
+    }
+
+    #[test]
+    fn only_a_nekro_seat_opens_it() {
+        let (s, k, system) = game(Word::Open);
+        assert!(ready(&s, &k, &ship_destroyed(system, Seat(1), true), &codes(), Seat(1), false).is_none(), "the string registers the ability for every seat; the condition names the Nekro");
     }
 
     #[test]
