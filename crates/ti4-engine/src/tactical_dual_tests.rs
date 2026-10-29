@@ -409,7 +409,7 @@ fn an_open_hold_round_trips_through_the_typed_payload_and_asks_the_same_question
     })
     .expect("the lend works");
     let asked = asked.expect("the hold asks for the second infantry");
-    assert_eq!(asked.opts.len(), 2, "one pickup left and the close");
+    assert_eq!(asked.opts.0.len(), 2, "one pickup left and the close");
     assert_eq!(Some(asked), again, "the machine read back from its payload asks the same question");
     let _ = Slice::Meta;
 }
