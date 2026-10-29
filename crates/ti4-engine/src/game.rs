@@ -3741,7 +3741,7 @@ impl<'a> Game<'a> {
 
     /// Perform a faction component action through the game's own timing context.
     /// Resolve a leader offered as an action-phase component (LEADER-FIX-001).
-    fn begin_free_tactical(&mut self, active: PlayerId, system: SystemId) -> Result<(), GameError> {
+    pub(crate) fn begin_free_tactical(&mut self, active: PlayerId, system: SystemId) -> Result<(), GameError> {
         use crate::dual::{Area, Backend};
         let galaxy = self.galaxy.clone();
         let (Backend::Dual, Some(galaxy)) = (crate::dual::backend(Area::Movement), galaxy) else {

@@ -94,3 +94,150 @@ fn a_system_is_activated_in_lockstep() {
     assert_eq!(done.state.player(&a()).unwrap().tactic_tokens, 2, "one tactic token was spent");
     assert!(done.state.system_state(&target).command_tokens.contains(&a()));
 }
+
+/// A hub with `a`'s units placed by `put` in the first ring system and the script answered through the move.
+fn carrier_table(extra: &[(&str, usize)]) -> (GameState, crate::fixtures::Hub, SystemId, SystemId) {
+    let (hub, origin, target) = hub();
+    let mut state = sol_hacan();
+    crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+    for (kind, count) in extra {
+        crate::fixtures::put(&mut state, &origin, kind, &a(), *count);
+    }
+    (state, hub, origin, target)
+}
+
+fn id(origin: &SystemId, index: usize) -> String {
+    format!("move|{origin}|{index}")
+}
+
+#[test]
+fn a_carrier_loads_two_infantry_and_sails_and_the_step_closes() {
+    let (state, hub, origin, target) = carrier_table(&[("infantry", 2)]);
+    let mv = id(&origin, 0);
+    let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv, "load|0", "load|1", "done_moving"], |_| {});
+    assert_eq!(done.counts("tactical::activate"), (1, 0), "{:?}", done.reasons);
+    assert_eq!(done.counts("tactical::move"), (1, 0), "{:?}", done.reasons);
+    assert_eq!(done.counts("tactical::load"), (2, 0), "{:?}", done.reasons);
+    assert_eq!(done.counts("tactical::finish"), (1, 0), "{:?}", done.reasons);
+    let here = done.state.system_state(&target).units.iter().filter(|u| u.owner == a()).map(|u| u.type_id.to_string()).collect::<Vec<_>>();
+    assert_eq!(here.len(), 3, "the carrier and both passengers arrived: {here:?}");
+    assert!(done.game_events.iter().any(|e| e == "SHIP_MOVED"));
+}
+
+#[test]
+fn done_loading_closes_the_hold_early() {
+    let (state, hub, origin, target) = carrier_table(&[("infantry", 2)]);
+    let mv = id(&origin, 0);
+    let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv, "load|0", "done_loading"], |_| {});
+    assert_eq!(done.counts("tactical::load"), (2, 0), "{:?}", done.reasons);
+    let aboard = done.state.system_state(&target).units.iter().filter(|u| u.owner == a() && u.type_id.as_str() == "infantry").count();
+    assert_eq!(aboard, 1, "one passenger, one left behind");
+}
+
+#[test]
+fn a_ship_without_capacity_sails_at_once() {
+    let (hub, origin, target) = hub();
+    let mut state = sol_hacan();
+    crate::fixtures::put(&mut state, &origin, "destroyer", &a(), 1);
+    let mv = id(&origin, 0);
+    let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv], |_| {});
+    assert_eq!(done.counts("tactical::move"), (1, 0), "{:?}", done.reasons);
+    assert_eq!(done.state.system_state(&target).units.iter().filter(|u| u.owner == a()).count(), 1);
+}
+
+#[test]
+fn a_damaged_and_a_fresh_dreadnought_are_two_options_and_the_second_hull_moves() {
+    let (hub, origin, target) = hub();
+    let mut state = sol_hacan();
+    crate::fixtures::put(&mut state, &origin, "dreadnought", &a(), 2);
+    state.system_mut(&origin).units[1].sustained_damage = true;
+    let mv = id(&origin, 1);
+    let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv], |_| {});
+    assert_eq!(done.counts("tactical::move"), (1, 0), "{:?}", done.reasons);
+    let moved = done.state.system_state(&target).units.iter().filter(|u| u.owner == a()).collect::<Vec<_>>();
+    assert_eq!(moved.len(), 1);
+    assert!(moved[0].sustained_damage, "the damaged hull is the one that moved");
+}
+
+#[test]
+fn the_second_of_three_identical_fighters_moves_by_index() {
+    let (hub, origin, target) = hub();
+    let mut state = sol_hacan();
+    crate::fixtures::put(&mut state, &origin, "fighter", &a(), 3);
+    let mv = id(&origin, 2);
+    let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv], |_| {});
+    assert_eq!(done.counts("tactical::move"), (1, 0), "{:?}", done.reasons);
+    assert_eq!(done.state.system_state(&origin).units.iter().filter(|u| u.owner == a()).count(), 2);
+}
+
+#[test]
+fn gravity_drive_reaches_a_system_two_away() {
+    let (hub, _, target) = hub();
+    let far = SystemId::new(hub.across(&hub.outer[0]));
+    let mut state = sol_hacan();
+    crate::fixtures::put(&mut state, &far, "carrier", &a(), 1);
+    state.player_mut(&a()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("gd"));
+    let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &format!("move_gd|{far}|0"), "done_loading"], |_| {});
+    assert_eq!(done.counts("tactical::move"), (1, 0), "{:?}", done.reasons);
+    assert!(done.state.player(&a()).unwrap().gravity_drive_used_activation.is_some(), "the drive was spent");
+}
+
+#[test]
+fn the_free_tactical_action_activates_without_a_token() {
+    let _guard = crate::dual::tests::serial();
+    let _ = take_report();
+    crate::dual::reset_thread_windows();
+    let (hub, _, target) = hub();
+    let state = sol_hacan();
+    let mut game = Game::with_table(state, ContentStore::embedded(), crate::choice::Table::new()).with_galaxy(hub.galaxy.clone());
+    with_mask(AreaMask::STRING.with(Area::Movement, Backend::Dual), || {
+        game.begin_free_tactical(a(), target.clone()).expect("the free action opens");
+    });
+    let r = report();
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+    assert_eq!(crate::dual::thread_window_counts("tactical::free"), (1, 0));
+    assert_eq!(game.state.player(&a()).unwrap().tactic_tokens, 3, "no token was spent");
+    assert_eq!(game.state.active_system, Some(target));
+    assert_eq!(game.events.last().map(String::as_str), Some("FREE_TACTICAL_ACTION"));
+}
+
+// -- the documented bails: the string result stands and the reason is counted ---------------------------------------
+
+fn bails(state: GameState, hub: &crate::fixtures::Hub, target: &SystemId, label: &str, reason: &str) {
+    let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()], |_| {});
+    assert_eq!(done.counts(label), (0, 1), "{:?}", done.reasons);
+    assert!(done.reasons.iter().any(|r| r.contains(reason)), "{reason}: {:?}", done.reasons);
+}
+
+#[test]
+fn a_held_hook_technology_keeps_the_activation_on_the_string() {
+    for (alias, reason) in [("scc", "Spatial Conduit"), ("sdn", "Scanlink"), ("ers", "E-Res"), ("nf", "Nullification")] {
+        let (hub, origin, target) = hub();
+        let mut state = sol_hacan();
+        crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+        state.player_mut(&b()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(alias));
+        bails(state, &hub, &target, "tactical::activate", reason);
+    }
+}
+
+#[test]
+fn a_table_with_a_dropped_faction_or_two_seats_of_one_faction_stays_on_the_string() {
+    let (hub, origin, target) = hub();
+    let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+    crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+    state.player_mut(&b()).unwrap().faction = ti4_model::id::FactionId::new("ralnel");
+    bails(state, &hub, &target, "tactical::activate", "dropped by decision");
+    let mut twin = table(&[("a", "sol"), ("b", "hacan")]);
+    twin.player_mut(&b()).unwrap().faction = ti4_model::id::FactionId::new("sol");
+    bails(twin, &hub, &target, "tactical::activate", "two seats");
+}
+
+#[test]
+fn diplomacy_on_keeps_the_whole_tactical_action_on_the_string() {
+    let (hub, origin, target) = hub();
+    let mut state = sol_hacan();
+    crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+    state.diplomacy.enabled = true;
+    let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()], |_| {});
+    assert_eq!(done.counts("tactical::activate"), (0, 1));
+}
