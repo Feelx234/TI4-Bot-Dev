@@ -1368,6 +1368,18 @@ fn infantry_sites(state: &GameState, player: &PlayerId) -> Vec<(SystemId, Option
     sites
 }
 
+/// Whether the paid research of `player` asks a question the core window does not carry, besides the technology and
+/// the payment (package B8c-2: the core `Research` window lands every technology itself): Jol-Nar's Specialist
+/// Compounds (the breakthrough with a readied specialty planet), Doctor Sucaban (the agent readied at the table and
+/// infantry on the board to trade, also copied by Ssruu), and the Deepwrought commander held by another seat.
+pub(crate) fn research_asks_more(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId) -> bool {
+    !crate::breakthroughs::specialty_research_planets(state, content, sources, player).is_empty()
+        || (!infantry_sites(state, player).is_empty() && !sucaban_sources(state, content, player).is_empty())
+        || state.players.iter().any(|seat| {
+            &seat.id != player && crate::promissory::has_commander_ability(state, &seat.id, "deepwroughtcommander")
+        })
+}
+
 fn paid_research(
     state: &mut GameState,
     content: &ContentStore,
@@ -2836,6 +2848,151 @@ fn imperial_primary_string(
     Ok(())
 }
 
+/// The primary of the Thunder's Edge Warfare: "You may redistribute your command tokens before and after this
+/// action", then a tactical action in any system without a command token (`Ability::FreeTactical`, played by the
+/// game). The redistribution and the system are the core window `strategy_primaries::TeWarfare`.
+fn te6_warfare(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<Ability, IllegalChoice> {
+    if state.phase != ti4_model::state::Phase::Action {
+        return Ok(Ability::Resolved);
+    }
+    let Some(galaxy) = galaxy else {
+        return Ok(Ability::Resolved);
+    };
+    // "Any system": the printed map and every system in play beside it (the Creuss home
+    // system, the Fracture), as an ordinary activation offers them.
+    let mut systems: Vec<String> = galaxy.system_ids_holding_things().into_iter().map(ToOwned::to_owned).collect();
+    for system in state.board.keys() {
+        if !galaxy.is_hyperlane(system.as_str()) && !systems.iter().any(|s| s == system.as_str()) {
+            systems.push(system.to_string());
+        }
+    }
+    if systems.is_empty() {
+        return Ok(Ability::Resolved);
+    }
+    let mut result = Ok(Ability::Resolved);
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        "strategy_cards::te6_warfare",
+        state,
+        |state: &mut GameState| {
+            result = te6_warfare_string(state, content, sources, galaxy, table, player, &systems);
+            crate::dual::Run::new(match &result {
+                Ok(Ability::FreeTactical(system)) => Some(system.to_string()),
+                _ => None,
+            })
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_cards_core::warfare_te(state, player, &systems, script)
+    );
+    result
+}
+
+fn te6_warfare_string(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: &Galaxy,
+    table: &mut Table,
+    player: &PlayerId,
+    systems: &[String],
+) -> Result<Ability, IllegalChoice> {
+    // "You may redistribute your command tokens before and after this action."
+    redistribute_around_te_warfare(state, content, sources, Some(galaxy), table, player, true)?;
+    let choice = Choice::new(
+        player.clone(),
+        "Warfare: a tactical action without a command token",
+        systems
+            .iter()
+            .map(|system| ChoiceOption::labelled(system, "activate", format!("free tactical action in {system}")))
+            .collect(),
+    )
+    .contextualized(DecisionContext::new(
+        player.clone(),
+        DecisionSource::Content("te6warfare".to_owned()),
+        "warfare_free_tactical",
+        state.phase,
+        state.round,
+    ));
+    let answer = ask(state, content, sources, Some(galaxy), table, &choice)?;
+    Ok(Ability::FreeTactical(SystemId::new(answer.id)))
+}
+
+/// The primary of the Thunder's Edge Construction: a structure or a use of PRODUCTION, then another structure. The
+/// choice and the structures are the core window `Construction::new_te`; the production itself (a whole production
+/// window) stays the string's.
+fn te4_construction(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<Ability, IllegalChoice> {
+    // Keep the oracle's two-stage choice shape exactly.  The deployed explicit policy was
+    // trained with one abstract `structure` option competing against each dock's
+    // `produce|system` option.  Flattening the structure branch into every legal PDS/dock
+    // placement changes both the feature names and the softmax denominator before the
+    // policy has chosen which ability to resolve.
+    let production_systems: Vec<SystemId> = state
+        .board
+        .keys()
+        .filter(|system| crate::production::capacity(state, content, sources, player, system) > 0)
+        .cloned()
+        .collect();
+    let mut result = Ok(Ability::Resolved);
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        "strategy_cards::te4_construction",
+        state,
+        |state: &mut GameState| {
+            result = te4_construction_string(state, content, sources, galaxy, table, player, &production_systems);
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_cards_core::construction_te(
+            state, content, sources, player, &production_systems, script
+        )
+    );
+    result
+}
+
+fn te4_construction_string(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    production_systems: &[SystemId],
+) -> Result<Ability, IllegalChoice> {
+    let mut options = vec![ChoiceOption::labelled("structure", "build", "place a structure")];
+    options.extend(production_systems.iter().map(|system| {
+        ChoiceOption::labelled(format!("produce|{system}"), "build", format!("use PRODUCTION in {system}"))
+    }));
+    let choice = Choice::new(player.clone(), "Construction: a structure or a production", options).contextualized(
+        DecisionContext::new(
+            player.clone(),
+            DecisionSource::Content("te4construction".to_owned()),
+            "construction_choose_ability",
+            state.phase,
+            state.round,
+        ),
+    );
+    let answer = ask(state, content, sources, galaxy, table, &choice)?;
+    if let Some(system) = answer.id.strip_prefix("produce|") {
+        crate::production::resolve(state, content, sources, galaxy, table, player, &SystemId::new(system))?;
+    } else {
+        place_structure_step(state, content, sources, galaxy, table, player, false, Some((1, 2)))?;
+    }
+    place_structure_step(state, content, sources, galaxy, table, player, false, Some((2, 2)))?;
+    Ok(Ability::Resolved)
+}
+
 /// Resolve a primary ability.
 ///
 /// # Errors
@@ -2854,127 +3011,10 @@ pub fn primary(
     card: &str,
 ) -> Result<Ability, IllegalChoice> {
     if card == "te6warfare" {
-        if state.phase != ti4_model::state::Phase::Action {
-            return Ok(Ability::Resolved);
-        }
-        let Some(galaxy) = galaxy else {
-            return Ok(Ability::Resolved);
-        };
-        // "Any system": the printed map and every system in play beside it (the Creuss home
-        // system, the Fracture), as an ordinary activation offers them.
-        let mut systems: Vec<String> = galaxy
-            .system_ids_holding_things()
-            .into_iter()
-            .map(ToOwned::to_owned)
-            .collect();
-        for system in state.board.keys() {
-            if !galaxy.is_hyperlane(system.as_str())
-                && !systems.iter().any(|s| s == system.as_str())
-            {
-                systems.push(system.to_string());
-            }
-        }
-        if systems.is_empty() {
-            return Ok(Ability::Resolved);
-        }
-        // "You may redistribute your command tokens before and after this action."
-        redistribute_around_te_warfare(state, content, sources, Some(galaxy), table, player, true)?;
-        let choice = Choice::new(
-            player.clone(),
-            "Warfare: a tactical action without a command token",
-            systems
-                .iter()
-                .map(|system| {
-                    ChoiceOption::labelled(
-                        system,
-                        "activate",
-                        format!("free tactical action in {system}"),
-                    )
-                })
-                .collect(),
-        )
-        .contextualized(DecisionContext::new(
-            player.clone(),
-            DecisionSource::Content("te6warfare".to_owned()),
-            "warfare_free_tactical",
-            state.phase,
-            state.round,
-        ));
-        let answer = ask(state, content, sources, Some(galaxy), table, &choice)?;
-        return Ok(Ability::FreeTactical(SystemId::new(answer.id)));
+        return te6_warfare(state, content, sources, galaxy, table, player);
     }
     if card == "te4construction" {
-        // Keep the oracle's two-stage choice shape exactly.  The deployed explicit policy was
-        // trained with one abstract `structure` option competing against each dock's
-        // `produce|system` option.  Flattening the structure branch into every legal PDS/dock
-        // placement changes both the feature names and the softmax denominator before the
-        // policy has chosen which ability to resolve.
-        let production_systems: Vec<SystemId> = state
-            .board
-            .keys()
-            .filter(|system| {
-                crate::production::capacity(state, content, sources, player, system) > 0
-            })
-            .cloned()
-            .collect();
-        let mut options = vec![ChoiceOption::labelled(
-            "structure",
-            "build",
-            "place a structure",
-        )];
-        options.extend(production_systems.iter().map(|system| {
-            ChoiceOption::labelled(
-                format!("produce|{system}"),
-                "build",
-                format!("use PRODUCTION in {system}"),
-            )
-        }));
-        let choice = Choice::new(
-            player.clone(),
-            "Construction: a structure or a production",
-            options,
-        )
-        .contextualized(DecisionContext::new(
-            player.clone(),
-            DecisionSource::Content("te4construction".to_owned()),
-            "construction_choose_ability",
-            state.phase,
-            state.round,
-        ));
-        let answer = ask(state, content, sources, galaxy, table, &choice)?;
-        if let Some(system) = answer.id.strip_prefix("produce|") {
-            crate::production::resolve(
-                state,
-                content,
-                sources,
-                galaxy,
-                table,
-                player,
-                &SystemId::new(system),
-            )?;
-        } else {
-            place_structure_step(
-                state,
-                content,
-                sources,
-                galaxy,
-                table,
-                player,
-                false,
-                Some((1, 2)),
-            )?;
-        }
-        place_structure_step(
-            state,
-            content,
-            sources,
-            galaxy,
-            table,
-            player,
-            false,
-            Some((2, 2)),
-        )?;
-        return Ok(Ability::Resolved);
+        return te4_construction(state, content, sources, galaxy, table, player);
     }
 
     let Some(kind) = card_kind(content, card) else {

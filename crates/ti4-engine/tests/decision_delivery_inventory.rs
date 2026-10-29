@@ -1356,7 +1356,7 @@ const PRODUCERS: &[Producer] = &[
         module: "strategy.rs",
         function: "secondary_question",
         count: 3,
-        delivery: Delivery::ObservedVia("game.rs::step_secondary"),
+        delivery: Delivery::ObservedVia("game.rs::secondary_step"),
     },
     Producer {
         module: "strategy.rs",
@@ -1435,9 +1435,16 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
     Producer {
+        // Split for package B8c-3: the string halves of the Thunder's Edge primaries beside their core windows.
         module: "strategy_cards.rs",
-        function: "primary",
-        count: 2,
+        function: "te6_warfare_string",
+        count: 1,
+        delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
+    },
+    Producer {
+        module: "strategy_cards.rs",
+        function: "te4_construction_string",
+        count: 1,
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
     Producer {
@@ -1733,7 +1740,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("game.rs", "step", 1),
     ("game.rs", "step_aftermath_inner", 1),
     ("game.rs", "score_step", 1),
-    ("game.rs", "step_secondary", 1),
+    ("game.rs", "secondary_step", 1),
     ("game.rs", "step_tactical", 1),
     ("game.rs", "step_token_gain", 1),
     ("game.rs", "step_trade", 1),

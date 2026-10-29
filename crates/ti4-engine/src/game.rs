@@ -5326,13 +5326,103 @@ impl<'a> Game<'a> {
         self.result(true, None)
     }
 
-    fn step_secondary(&mut self) -> StepResult {
-        let choice = self.secondary.as_mut().expect("checked above").next_choice(
+    /// One step of the follower window: the next follower who may follow is found (the ones before are recorded as
+    /// ineligible, the card is exhausted when none is left), asked, and their answer taken. The string
+    /// `next_choice` / `ask_seeing` / `take_choice` of that step is one lockstep window beside the core's
+    /// `SecondaryStep` (`strategy_secondary_dual`).
+    #[allow(clippy::type_complexity)]
+    fn secondary_step(
+        &mut self,
+        follower_out: &mut Option<(PlayerId, String)>,
+        rollback: &mut Option<(GameState, Option<crate::strategy::StrategySecondaryWindow>, usize)>,
+    ) -> Result<crate::strategy::StepOutcome, GameError> {
+        use crate::strategy::StepOutcome;
+        let (content, sources) = (self.content, self.sources);
+        let galaxy = self.galaxy.as_ref();
+        let table = &mut self.table;
+        let slot = &mut self.secondary;
+        let events_len = self.events.len();
+        let keep_rollback = self.leader_strategy.is_some();
+        let before_window = (crate::dual::backend(crate::dual::Area::Strategy) == crate::dual::Backend::Dual)
+            .then(|| slot.clone())
+            .flatten();
+        let failed = std::cell::Cell::new(false);
+        let mut error = None;
+        let outcome = crate::dual_window!(
+            crate::dual::Area::Strategy,
+            "strategy::secondary",
             &mut self.state,
-            self.content,
-            self.sources,
+            |state: &mut GameState| {
+                let window = slot.as_mut().expect("checked above");
+                let recorded = window.resolutions().len();
+                let choice = window.next_choice(state, content, sources);
+                let skipped_of = |window: &crate::strategy::StrategySecondaryWindow| {
+                    window.resolutions()[recorded..]
+                        .iter()
+                        .filter(|(_, how)| *how == SecondaryResolution::Ineligible)
+                        .map(|(who, _)| who.clone())
+                        .collect::<Vec<_>>()
+                };
+                let Some(choice) = choice else {
+                    let skipped = skipped_of(window);
+                    return crate::dual::Run::new(StepOutcome { skipped, answered: None, complete: true });
+                };
+                let skipped = skipped_of(window);
+                let follower = choice.player.clone();
+                *follower_out = Some((follower.clone(), window.card().to_string()));
+                // Field borrows, not `self`: the table answers while the position stays readable.
+                let answer = match table.ask_seeing(&choice, &crate::choice::Observed::new(state, content, sources, galaxy)) {
+                    Ok(answer) => answer,
+                    Err(e) => {
+                        error = Some(GameError::from(e));
+                        failed.set(true);
+                        return crate::dual::Run::new(StepOutcome { skipped, answered: None, complete: false });
+                    }
+                };
+                if keep_rollback {
+                    *rollback = Some((state.clone(), slot.clone(), events_len));
+                }
+                let window = slot.as_mut().expect("window remains open");
+                match window.take_choice(state, content, sources, answer) {
+                    Ok(resolution) => {
+                        let complete = window.is_complete();
+                        crate::dual::Run::new(StepOutcome { skipped, answered: Some((follower, resolution)), complete })
+                    }
+                    Err(e) => {
+                        error = Some(GameError::from(e));
+                        failed.set(true);
+                        crate::dual::Run::new(StepOutcome { skipped, answered: None, complete: false })
+                    }
+                }
+            },
+            |state: &mut GameState, script: &crate::dual_window::Recording| {
+                #[cfg(feature = "typed-core")]
+                {
+                    match before_window.as_ref() {
+                        Some(window) if !failed.get() => {
+                            crate::strategy_secondary_dual::secondary_step(state, content, sources, window, script)
+                        }
+                        _ => None,
+                    }
+                }
+                #[cfg(not(feature = "typed-core"))]
+                {
+                    let _ = (state, script, &before_window, &failed);
+                    None
+                }
+            }
         );
-        let Some(choice) = choice else {
+        error.map_or(Ok(outcome), Err)
+    }
+
+    fn step_secondary(&mut self) -> StepResult {
+        let mut follower_out = None;
+        let mut rollback = None;
+        let step = match self.secondary_step(&mut follower_out, &mut rollback) {
+            Ok(step) => step,
+            Err(error) => return self.result(false, Some(error)),
+        };
+        let Some((follower, resolution)) = step.answered else {
             if self
                 .secondary
                 .take()
@@ -5348,48 +5438,9 @@ impl<'a> Game<'a> {
             }
             return self.result(false, None);
         };
-        let follower = choice.player.clone();
-        let card = self
-            .secondary
-            .as_ref()
-            .expect("window remains open")
-            .card()
-            .to_string();
-        // Field borrows, not `self`: the table answers while the position stays readable.
-        let answer = match self.table.ask_seeing(
-            &choice,
-            &crate::choice::Observed::new(
-                &self.state,
-                self.content,
-                self.sources,
-                self.galaxy.as_ref(),
-            ),
-        ) {
-            Ok(answer) => answer,
-            Err(error) => return self.result(false, Some(error.into())),
-        };
-        let before = self.leader_strategy.as_ref().map(|_| {
-            (
-                self.state.clone(),
-                self.secondary.clone(),
-                self.events.len(),
-            )
-        });
-        let (resolution, complete) = match self
-            .secondary
-            .as_mut()
-            .expect("window remains open")
-            .take_choice(&mut self.state, self.content, self.sources, answer)
-        {
-            Ok(resolution) => (
-                resolution,
-                self.secondary
-                    .as_ref()
-                    .expect("window remains open")
-                    .is_complete(),
-            ),
-            Err(error) => return self.result(false, Some(error.into())),
-        };
+        let complete = step.complete;
+        let card = follower_out.map(|(_, card)| card).expect("a follower was asked");
+        let before = rollback;
         self.emit(match resolution {
             SecondaryResolution::Declined => "STRATEGY_SECONDARY_DECLINED",
             SecondaryResolution::Followed => "STRATEGY_SECONDARY_FOLLOWED",
