@@ -147,6 +147,8 @@ impl AdapterFacts {
 pub type Condition = fn(&CondCx<'_>) -> bool;
 /// The effect of a selected ability.
 pub type Effect = fn(&mut Eff<'_, '_>) -> Result<(), TimingError>;
+/// What a window does when its loop ends cleanly (`Host::window_closed`).
+pub type Closed = fn(&mut RulesHost<'_>, &mut Resolver) -> Result<(), TimingError>;
 /// The predicate of a registered "cannot" (`Host::forbids`).
 pub type Forbids = fn(&CoreState, &CannotDef, &EventRec) -> bool;
 
@@ -261,7 +263,7 @@ pub struct AbilityTable {
     pub card_name: Option<fn(crate::generated::ActionCard) -> u32>,
     /// What a window does when its loop ends cleanly: announce the cards declared in it (rules version 3). Set by the
     /// rules package that owns the action cards (the kernel cannot import it).
-    pub closed: Option<fn(&mut RulesHost<'_>, &mut Resolver) -> Result<(), TimingError>>,
+    pub closed: Option<Closed>,
 }
 
 impl AbilityTable {
