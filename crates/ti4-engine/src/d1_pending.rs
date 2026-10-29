@@ -33,6 +33,9 @@ use crate::secrets::Timing;
 use crate::render::Render;
 use crate::strategy::{SecondaryResolution, StepOutcome, StrategySecondaryWindow};
 
+#[path = "d1_windows.rs"]
+mod windows;
+
 const LABEL: &str = "d1::pending";
 
 /// What the driver holds of the windows between steps (a field of `Game`; the fork rule copies it).
@@ -60,17 +63,17 @@ fn any_open(g: &Game<'_>) -> bool {
         || g.agenda_queue_after_event_scoring.is_some()
         || g.scoring.is_some()
         || g.event_scoring.is_some()
+        || g.leader_followers.is_some()
+        || g.tokens.is_some()
+        || g.voting.is_some()
+        || g.trade.is_some()
 }
 
 /// The string fields that hold a window no typed payload exists for, by name.
 fn untyped_open(g: &Game<'_>) -> Vec<&'static str> {
     [
-        ("leader_followers", g.leader_followers.is_some()),
-        ("tokens", g.tokens.is_some()),
-        ("voting", g.voting.is_some()),
         ("tactical", g.tactical.is_some()),
         ("aftermath", g.aftermath.is_some()),
-        ("trade", g.trade.is_some()),
         ("diplomacy", g.diplomacy.is_some()),
         ("agenda_talks", g.agenda_talks.is_some()),
     ]
@@ -198,7 +201,7 @@ fn scoring_back(s: &Scoring, r: &Render) -> Book {
 }
 
 /// The typed windows the string fields hold now, in the order of the `Game` fields.
-fn observe(g: &Game<'_>, r: &Render) -> Result<Vec<Window>, &'static str> {
+fn observe(g: &Game<'_>, r: &Render, cx: &crate::core_sync::Ctx) -> Result<Vec<Window>, &'static str> {
     let seat = |p: &PlayerId| r.seat(p.as_str()).ok_or("a seat the table does not know");
     let mut out = Vec::new();
     if let Some(w) = &g.secondary {
@@ -230,11 +233,16 @@ fn observe(g: &Game<'_>, r: &Render) -> Result<Vec<Window>, &'static str> {
         }
         out.push(Window::AgendaQueueAfterEventScoring(agendas));
     }
+    // The kinds D1a's remainder types: they follow the string (no core transition yet).
+    out.extend(windows::leader_followers_of(g, r)?);
+    out.extend(windows::tokens_of(g, r)?);
+    out.extend(windows::voting_of(g, r, cx)?);
+    out.extend(windows::trade_of(g, r)?);
     Ok(out)
 }
 
 /// Whether every typed window turns back into the string field it was made from.
-fn roundtrip(g: &Game<'_>, windows: &[Window], r: &Render) -> bool {
+fn roundtrip(g: &Game<'_>, windows: &[Window], r: &Render, cx: &crate::core_sync::Ctx) -> bool {
     let mut ok = true;
     for w in windows {
         ok &= match w {
@@ -266,6 +274,25 @@ fn roundtrip(g: &Game<'_>, windows: &[Window], r: &Render) -> bool {
             Window::EventScoring(sc) => {
                 compare_value(Area::Driver, "d1::pending.roundtrip", &g.event_scoring.as_ref().map(|w| w.book()), &Some(scoring_back(sc, r)))
             }
+            Window::LeaderFollowers(w) => compare_value(
+                Area::Driver,
+                "d1::pending.roundtrip",
+                &g.leader_followers.clone(),
+                &windows::leader_followers_back(g, r, w),
+            ),
+            Window::Tokens(t) => compare_value(
+                Area::Driver,
+                "d1::pending.roundtrip",
+                &g.tokens.clone(),
+                &Some(windows::tokens_back(t, r)),
+            ),
+            Window::Voting(v) => compare_value(
+                Area::Driver,
+                "d1::pending.roundtrip",
+                &g.voting.clone(),
+                &windows::voting_back(v, r, cx),
+            ),
+            Window::Trade(t) => compare_value(Area::Driver, "d1::pending.roundtrip", &windows::trade_key_of(g), &Some(windows::trade_key(t, r))),
             Window::Untyped { .. } => true,
         };
     }
@@ -325,7 +352,7 @@ pub(super) fn check(g: &mut Game<'_>, result: &StepResult) {
         return;
     };
     let r = Render::new(cx.owners.ids().to_vec());
-    let observed = match observe(g, &r) {
+    let observed = match observe(g, &r, &cx) {
         Ok(w) => w,
         Err(why) => {
             note_bail(LABEL, why);
@@ -363,7 +390,7 @@ pub(super) fn check(g: &mut Game<'_>, result: &StepResult) {
     // The kinds without a core transition follow the string: what is compared is that the typed copy is total.
     if !observed.is_empty() {
         compared = true;
-        ok &= roundtrip(g, &observed, &r);
+        ok &= roundtrip(g, &observed, &r, &cx);
     }
     note_window(LABEL, compared);
     let _ = ok;
@@ -641,5 +668,176 @@ mod tests {
         g.agenda_talks = Some(super::super::AgendaTalks { alias: "checks".to_owned(), choices: vec![], queue: vec![], seats: vec![] });
         let (r, _) = checked(&mut g);
         assert!(r.windows.keys().any(|k| k == "d1::pending.untyped [bail: agenda_talks]"), "{:?}", r.windows);
+    }
+
+    // --- the windows of D1a's remainder: leader followers, tokens, voting, trade ---------------------------------------------
+
+    fn winnu_game() -> Game<'static> {
+        const W: [(&str, &str); 3] = [("a", "winnu"), ("b", "hacan"), ("c", "arborec")];
+        let state = dealt(&W, "Politics");
+        let mut g = Game::with_table(state, ContentStore::embedded(), Table::with_default(Box::new(Followers { follow: "yes" })));
+        let card = g.state.player(&pid("a")).unwrap().strategy_cards[0].clone();
+        g.leader_strategy = Some((pid("a"), ti4_model::id::LeaderId::new("winnuhero"), card));
+        g
+    }
+
+    #[test]
+    fn the_follower_selection_is_typed_by_the_seats_still_to_ask_and_turns_back_into_the_questions() {
+        let _serial = crate::dual::tests::serial();
+        let mut g = winnu_game();
+        let (player, leader, card) = g.leader_strategy.clone().unwrap();
+        let mut choices = crate::factions::leader_strategy_followers(&g.state, &player, &leader, &card);
+        assert_eq!(choices.len(), 2, "b and c are asked, clockwise from a");
+        g.leader_followers = Some((choices.clone(), Vec::new()));
+        let (r, held) = checked(&mut g);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        match held.window(WindowKind::LeaderFollowers) {
+            Some(Window::LeaderFollowers(w)) => assert_eq!((w.asks.as_slice(), w.followers.len()), (&[Seat(1), Seat(2)][..], 0)),
+            other => panic!("{other:?}"),
+        }
+        assert!(r.windows.keys().all(|k| !k.contains("untyped [bail: leader_followers]")), "{:?}", r.windows);
+        // The first question is answered "yes": one seat left to ask, one follower.
+        choices.remove(0);
+        g.leader_followers = Some((choices, vec![pid("b")]));
+        let (r, held) = checked(&mut g);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        match held.window(WindowKind::LeaderFollowers) {
+            Some(Window::LeaderFollowers(w)) => assert_eq!((w.asks.as_slice(), w.followers.as_slice()), (&[Seat(2)][..], &[Seat(1)][..])),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_follower_selection_without_a_hero_is_a_difference_of_the_roundtrip() {
+        let _serial = crate::dual::tests::serial();
+        let mut g = winnu_game();
+        let (player, leader, card) = g.leader_strategy.clone().unwrap();
+        let choices = crate::factions::leader_strategy_followers(&g.state, &player, &leader, &card);
+        g.leader_followers = Some((choices, Vec::new()));
+        g.leader_strategy = None;
+        let (r, _) = checked(&mut g);
+        assert!(r.differences.iter().any(|d| d.label == "d1::pending.roundtrip"), "{:?}", r.differences);
+    }
+
+    fn token_window(g: &Game<'_>) -> (crate::tokens::TokenGain, Box<crate::status::StatusPhaseReport>) {
+        let order = [pid("b"), pid("a"), pid("c")];
+        let gain = crate::tokens::TokenGain::from_parts(
+            vec![pid("a"), pid("a"), pid("c"), pid("c")],
+            vec![crate::tokens::TokenPlacement { player: pid("b"), pool: ti4_model::state::TokenPool::Fleet }],
+        );
+        let report = crate::status::StatusPhaseReport {
+            action_card_draws: vec![pid("c")],
+            revealed_objective: Some(ti4_model::id::ObjectiveId::new(g.state.revealed_objectives.first().map_or("expand_borders", |o| o.as_str()))),
+            action_cards_drawn: vec![(pid("b"), 1), (pid("a"), 1)],
+            returned_command_tokens: vec![(ti4_model::id::SystemId::new("18"), pid("a"))],
+            crown_of_emphidia: Some(pid("c")),
+            readied_planets: vec![],
+            readied_leaders: vec![(pid("a"), 3)],
+            returned_strategy_cards: vec![(pid("a"), g.state.player(&pid("a")).unwrap().strategy_cards[0].clone())],
+            initiative_order: order.to_vec(),
+            repaired_units: 2,
+            game_ended: false,
+        };
+        (gain, Box::new(report))
+    }
+
+    #[test]
+    fn the_token_gain_and_its_report_are_typed_and_turn_back_into_the_string_field() {
+        let _serial = crate::dual::tests::serial();
+        let state = dealt(&F3, "Politics");
+        let mut g = Game::with_table(state, ContentStore::embedded(), Table::with_default(Box::new(Followers { follow: "yes" })));
+        g.tokens = Some(token_window(&g));
+        let (r, held) = checked(&mut g);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let Some(Window::Tokens(t)) = held.window(WindowKind::Tokens) else { panic!("{:?}", held.stack) };
+        assert_eq!(t.pending.as_slice(), [Seat(0), Seat(0), Seat(2), Seat(2)], "the next token first");
+        assert_eq!(t.placed.as_slice(), [(Seat(1), ti4_engine_core::choice::strategy::Pool::Fleet)]);
+        assert_eq!((t.report.repaired_units, t.report.crown_of_emphidia, t.report.initiative_order.as_slice()), (2, Some(Seat(2)), &[Seat(1), Seat(0), Seat(2)][..]));
+        assert!(t.report.revealed_objective.is_some() && t.report.returned_command_tokens.len() == 1);
+        assert!(r.windows.keys().all(|k| !k.contains("untyped [bail: tokens]")), "{:?}", r.windows);
+        // The roundtrip catches a typed window that lost a placed token.
+        let cx = crate::core_sync::Ctx::of(&g.state).unwrap();
+        let rr = Render::new(cx.owners.ids().to_vec());
+        let mut broken = (**t).clone();
+        broken.placed = SmallList::new();
+        let _ = take_report();
+        let ok = with_mask(both(), || roundtrip(&g, &[Window::Tokens(Box::new(broken))], &rr, &cx));
+        let r = report();
+        let _ = take_report();
+        assert!(!ok && r.differences.iter().any(|d| d.label == "d1::pending.roundtrip"), "{:?}", r.differences);
+    }
+
+    #[test]
+    fn a_report_with_an_objective_the_tables_do_not_know_is_a_counted_bail() {
+        let _serial = crate::dual::tests::serial();
+        let state = dealt(&F3, "Politics");
+        let mut g = Game::with_table(state, ContentStore::embedded(), Table::with_default(Box::new(Followers { follow: "yes" })));
+        let (gain, mut report) = token_window(&g);
+        report.revealed_objective = Some(ti4_model::id::ObjectiveId::new("a_homebrew_objective"));
+        g.tokens = Some((gain, report));
+        let (r, held) = checked(&mut g);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.windows.keys().any(|k| k == "d1::pending [bail: an objective the tables do not know]"), "{:?}", r.windows);
+        assert!(held.stack.is_empty());
+    }
+
+    #[test]
+    fn the_vote_in_progress_is_typed_and_turns_back_into_the_string_window() {
+        let _serial = crate::dual::tests::serial();
+        let state = dealt(&F3, "Politics");
+        let mut g = Game::with_table(state, ContentStore::embedded(), Table::with_default(Box::new(Followers { follow: "yes" })));
+        // A law voted For or Against, nobody has voted yet, and a second agenda waits.
+        let open = crate::vote::VoteWindow::new(&g.state, "checks", vec!["for".to_owned(), "against".to_owned()]);
+        g.voting = Some((Box::new(open), vec!["committee".to_owned()]));
+        let (r, held) = checked(&mut g);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let Some(Window::Voting(v)) = held.window(WindowKind::Voting) else { panic!("{:?} {:?}", held.stack, r.windows) };
+        assert_eq!((v.vote.agenda, v.vote.stage, v.vote.choices.len(), v.queue.as_slice()), (Agenda::ChecksAndBalances, ti4_engine_core::state::VoteStage::Outcome(0), 2, &[Agenda::Committee][..]));
+        assert_eq!(v.vote.order.len(), 3, "everyone votes");
+        // A finished election of a player, with a ballot, counts and a winner.
+        let done = crate::vote::VoteWindow::finished("censure", &["a", "b", "c"], &[("a", "b"), ("c", "a")], &[("b", 2), ("a", 1)], Some("b"));
+        g.voting = Some((Box::new(done), Vec::new()));
+        let (r, held) = checked(&mut g);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let Some(Window::Voting(v)) = held.window(WindowKind::Voting) else { panic!("{:?} {:?}", held.stack, r.windows) };
+        assert_eq!(v.vote.stage, ti4_engine_core::state::VoteStage::Done(Some(ti4_engine_core::keys::Outcome::Seat(Seat(1)))));
+        assert_eq!(v.vote.ballot.as_slice(), [(Seat(0), ti4_engine_core::keys::Outcome::Seat(Seat(1))), (Seat(2), ti4_engine_core::keys::Outcome::Seat(Seat(0)))]);
+        assert_eq!(v.vote.counts.len(), 2);
+    }
+
+    #[test]
+    fn a_vote_on_an_agenda_the_tables_do_not_know_is_a_counted_bail() {
+        let _serial = crate::dual::tests::serial();
+        let state = dealt(&F3, "Politics");
+        let mut g = Game::with_table(state, ContentStore::embedded(), Table::with_default(Box::new(Followers { follow: "yes" })));
+        let done = crate::vote::VoteWindow::finished("a_homebrew_agenda", &["for"], &[], &[], None);
+        g.voting = Some((Box::new(done), Vec::new()));
+        let (r, held) = checked(&mut g);
+        assert!(r.windows.keys().any(|k| k == "d1::pending [bail: an agenda the tables do not know]"), "{:?}", r.windows);
+        assert!(held.stack.is_empty());
+    }
+
+    #[test]
+    fn an_open_transaction_is_typed_by_its_chairs_and_turns_back_into_the_string_window() {
+        let _serial = crate::dual::tests::serial();
+        let mut state = dealt(&F3, "Politics");
+        let window = crate::transactions::TradeWindow::open(&mut state, &pid("a"), &pid("b"));
+        let mut g = Game::with_table(state, ContentStore::embedded(), Table::with_default(Box::new(Followers { follow: "yes" })));
+        g.trade = Some(window);
+        let (r, held) = checked(&mut g);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let Some(Window::Trade(t)) = held.window(WindowKind::Trade) else { panic!("{:?} {:?}", held.stack, r.windows) };
+        assert_eq!((t.proposer, t.partner, t.rounds_left, t.deal), (Seat(0), Seat(1), 2, None));
+        assert!(r.windows.keys().all(|k| !k.contains("untyped [bail: trade]")), "{:?}", r.windows);
+        // The roundtrip catches a typed window with the chairs swapped.
+        let cx = crate::core_sync::Ctx::of(&g.state).unwrap();
+        let rr = Render::new(cx.owners.ids().to_vec());
+        let mut swapped = t.clone();
+        std::mem::swap(&mut swapped.proposer, &mut swapped.partner);
+        let _ = take_report();
+        let ok = with_mask(both(), || roundtrip(&g, &[Window::Trade(swapped)], &rr, &cx));
+        let r = report();
+        let _ = take_report();
+        assert!(!ok && r.differences.iter().any(|d| d.label == "d1::pending.roundtrip"), "{:?}", r.differences);
     }
 }

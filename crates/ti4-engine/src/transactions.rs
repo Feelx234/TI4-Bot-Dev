@@ -2130,6 +2130,35 @@ pub struct TradeWindow {
     rounds_left: u8,
 }
 
+/// Where a transaction window stands, as plain data (package D1a).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TradeParts {
+    pub proposer: PlayerId,
+    pub partner: PlayerId,
+    pub rounds_left: u8,
+    /// The deal on the table and the id of the option it came from while the partner answers it.
+    pub answering: Option<(Offer, String)>,
+    /// The negotiation is over.
+    pub done: bool,
+}
+
+impl TradeWindow {
+    /// The window as plain data.
+    #[must_use]
+    pub(crate) fn parts(&self) -> TradeParts {
+        TradeParts {
+            proposer: self.proposer.clone(),
+            partner: self.partner.clone(),
+            rounds_left: self.rounds_left,
+            answering: match &self.stage {
+                Stage::Answering(offer, id) => Some((offer.clone(), id.clone())),
+                _ => None,
+            },
+            done: self.stage == Stage::Done,
+        }
+    }
+}
+
 impl TradeWindow {
     /// Open negotiations, spending this pair's one transaction for the turn.
     ///

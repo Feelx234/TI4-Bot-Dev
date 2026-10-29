@@ -472,7 +472,7 @@ pub fn tiebreak_candidates_text(ballot: &Ballot, choices: &[String]) -> Vec<Stri
 
 /// Where a vote has reached.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Stage {
+pub(crate) enum Stage {
     /// Asking `order[index]` which outcome to back.
     Outcome(usize),
     /// Mahact's Genetic Recombination: asking its holder whether to exhaust it before
@@ -543,6 +543,61 @@ pub struct VoteWindow {
     predictive: Vec<(PlayerId, String)>,
     /// The record of the window dual (`agenda=dual`); not part of the window's identity.
     dual: crate::vote_dual::Log,
+}
+
+/// The fields of a [`VoteWindow`] besides the bookkeeping of the window dual, for the typed copy `Pending` holds (package D1a).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct VoteParts {
+    pub alias: String,
+    pub choices: Vec<String>,
+    pub order: Vec<PlayerId>,
+    pub stage: Stage,
+    pub ballot: Ballot,
+    pub casts: Vec<ti4_model::state::AgendaCast>,
+    pub spender: Option<PlayerId>,
+    pub recombination_offered: std::collections::BTreeSet<usize>,
+    pub obligation: Option<(usize, String)>,
+    pub demanded: Option<(usize, String)>,
+    pub predictive: Vec<(PlayerId, String)>,
+}
+
+impl VoteWindow {
+    /// The window as plain data (the inverse of [`Self::from_parts`]).
+    #[must_use]
+    pub(crate) fn parts(&self) -> VoteParts {
+        VoteParts {
+            alias: self.alias.clone(),
+            choices: self.choices.clone(),
+            order: self.order.clone(),
+            stage: self.stage.clone(),
+            ballot: self.ballot.clone(),
+            casts: self.casts.clone(),
+            spender: self.spender.clone(),
+            recombination_offered: self.recombination_offered.clone(),
+            obligation: self.obligation.clone(),
+            demanded: self.demanded.clone(),
+            predictive: self.predictive.clone(),
+        }
+    }
+
+    /// The window of `parts`, with an idle dual log (equality ignores the log).
+    #[must_use]
+    pub(crate) fn from_parts(p: VoteParts) -> Self {
+        Self {
+            alias: p.alias,
+            choices: p.choices,
+            order: p.order,
+            stage: p.stage,
+            ballot: p.ballot,
+            casts: p.casts,
+            spender: p.spender,
+            recombination_offered: p.recombination_offered,
+            obligation: p.obligation,
+            demanded: p.demanded,
+            predictive: p.predictive,
+            dual: crate::vote_dual::Log::default(),
+        }
+    }
 }
 
 /// One way for a voter to exhaust a planet: the option id, the planet and the votes it casts.
