@@ -999,3 +999,154 @@ fn strategize_and_overrule_follow_the_seating_order_the_faction_and_the_rules_ve
     announce_all(&[("strategize1", naalu_trade)]);
     let _ = crate::dual::take_report();
 }
+
+// -- Strategize and Overrule: what the core leaves to the string -----------------------------------------------------------------
+
+/// Takes the card `pick` at the pick question of Strategize or Overrule, declines the reaction slots and takes the last option of
+/// every other question.
+struct Performs(&'static str);
+
+impl crate::choice::Decider for Performs {
+    fn choose(&mut self, choice: &crate::choice::Choice) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
+        if choice.options.iter().any(|o| o.id.starts_with("reaction:")) {
+            if let Some(decline) = choice.options.iter().find(|o| o.is_decline()) {
+                return Ok(decline.clone());
+            }
+        }
+        choice
+            .options
+            .iter()
+            .find(|o| o.id == self.0)
+            .or(choice.options.last())
+            .cloned()
+            .ok_or_else(|| crate::choice::IllegalChoice::NoOptions { player: choice.player.clone(), prompt: choice.prompt.clone() })
+    }
+}
+
+/// `alias` played as the component action of seat `a` (with `filler` more action cards in the hand) choosing the card `pick`: the
+/// `(compared, bailed)` counts of the announce window. The string run goes on alone; no difference may be reported.
+fn bails_picking(alias: &str, start: &GameState, pick: &'static str, filler: usize) -> (u64, u64) {
+    let a = PlayerId::new("a");
+    let _ = crate::dual::take_report();
+    let mut state = start.clone();
+    let hand: Vec<_> = std::iter::once(alias).chain(std::iter::repeat_n("spy", filler)).map(ti4_model::id::ActionCardId::new).collect();
+    state.player_mut(&a).unwrap().action_cards = hand;
+    crate::action_cards::discard(&mut state, &a, 0);
+    crate::dual::with_mask(crate::action_cards_closing_tests::dual(), || {
+        crate::action_cards_announce_tests::announce(&mut state, alias, &a, Box::new(Performs(pick)))
+    });
+    assert_eq!(state.discarded_action_cards.last(), Some(&ti4_model::id::ActionCardId::new(alias)), "the card is on the pile");
+    let report = crate::dual::report();
+    assert!(report.differences.is_empty(), "{} differences", report.differences.len());
+    let counts = crate::action_cards_closing_tests::windows("action_cards::announce");
+    let _ = crate::dual::take_report();
+    counts
+}
+
+/// Bail: the Warfare secondary (a production window at the home system), the Imperial primary (the scoreable objectives, the award
+/// tail), the Diplomacy primary (both printings) and the Thunder's Edge primaries (a free tactical action; the choice of a
+/// production) are the string's.
+#[test]
+fn bail_the_strategy_abilities_the_core_window_does_not_carry_are_the_strings() {
+    let _serial = crate::dual::tests::serial();
+    let on_offer = |held: &str| strategy_position(&[held], &["pok5trade"], &[], &[]);
+    for (alias, held) in [
+        ("strategize1", "pok6warfare"),
+        ("strategize2", "te6warfare"),
+        ("overrule", "pok8imperial"),
+        ("overrule", "pok2diplomacy"),
+        ("overrule", "base2"),
+        ("overrule", "te6warfare"),
+        ("overrule", "te4construction"),
+    ] {
+        assert_eq!(bails_picking(alias, &on_offer(held), held_static(held), 0), (0, 1), "{alias} performing {held}");
+    }
+}
+
+/// The picked card's id as a `'static` text (the decider holds it).
+fn held_static(id: &str) -> &'static str {
+    ["pok6warfare", "te6warfare", "pok8imperial", "pok2diplomacy", "base2", "te4construction", "pok5trade", "pok3politics", "pok7technology", "pok1leadership", "pok4construction"]
+        .into_iter()
+        .find(|known| *known == id)
+        .expect("a known card")
+}
+
+/// Bail: a replenishment that causes events (a Cabal at the table) is the string's, for both abilities of Trade.
+#[test]
+fn bail_the_trade_abilities_at_a_table_where_a_replenishment_causes_events() {
+    let _serial = crate::dual::tests::serial();
+    let mut cabal = strategy_position(&["pok5trade"], &[], &[], &[]);
+    cabal.player_mut(&PlayerId::new("c")).unwrap().faction = ti4_model::id::FactionId::new("cabal");
+    let plain = strategy_position(&["pok5trade"], &[], &[], &[]);
+    for alias in ["strategize3", "overrule"] {
+        assert_eq!(bails_picking(alias, &cabal, "pok5trade", 0), (0, 1), "{alias}");
+        assert_eq!(bails_picking(alias, &plain, "pok5trade", 0), (1, 0), "{alias} at a plain table is carried");
+    }
+}
+
+/// Bail: a Politics draw that ends in a discard question (a full hand) or that a faction hook changes (Yssaril's Scheming) is the
+/// string's, for both abilities.
+#[test]
+fn bail_politics_when_the_draw_is_not_plain() {
+    let _serial = crate::dual::tests::serial();
+    let politics = strategy_position(&["pok3politics"], &[], &[], &[]);
+    let mut scheming = politics.clone();
+    scheming.player_mut(&PlayerId::new("c")).unwrap().faction = ti4_model::id::FactionId::new("yssaril");
+    for alias in ["strategize4", "overrule"] {
+        assert_eq!(bails_picking(alias, &politics, "pok3politics", 6), (0, 1), "{alias} with a full hand");
+        assert_eq!(bails_picking(alias, &scheming, "pok3politics", 0), (0, 1), "{alias} at a table with Scheming");
+    }
+    // A hand that stays within its limit is carried.
+    assert_eq!(bails_picking("strategize4", &politics, "pok3politics", 0), (1, 0));
+}
+
+/// Bail: a research at a table the research window does not carry (a Mentak seat: the Corsair's form), below the rules version
+/// that asked the payment, is the string's, for both abilities of Technology.
+#[test]
+fn bail_technology_at_a_table_the_research_window_does_not_carry() {
+    let _serial = crate::dual::tests::serial();
+    let research = strategy_on(research_position(), &["pok7technology"], &[], &[], &[]);
+    let mut mentak = research.clone();
+    mentak.player_mut(&PlayerId::new("c")).unwrap().faction = ti4_model::id::FactionId::new("mentak");
+    let mut old = research.clone();
+    old.rules_version = ti4_model::state::RULES_TECH_PAYMENT_CHOICE - 1;
+    for alias in ["strategize1", "overrule"] {
+        assert_eq!(bails_picking(alias, &mentak, "pok7technology", 0), (0, 1), "{alias} at a table with Mentak");
+        assert_eq!(bails_picking(alias, &old, "pok7technology", 0), (0, 1), "{alias} below the rules version of the payment plan");
+        assert_eq!(bails_picking(alias, &research, "pok7technology", 0), (1, 0), "{alias} is carried at a plain table");
+    }
+}
+
+/// Bail: Leadership and Construction at a table whose payments or placements the production rules do not follow (a Yssaril seat:
+/// borrowed agents), Leadership and Warfare with a command token in a Mahact pool, are the string's.
+#[test]
+fn bail_leadership_construction_and_warfare_where_the_production_rules_do_not_follow() {
+    let _serial = crate::dual::tests::serial();
+    let plain = strategy_position(&["pok1leadership"], &["pok4construction"], &[], &[]);
+    let mut yssaril = plain.clone();
+    yssaril.player_mut(&PlayerId::new("c")).unwrap().faction = ti4_model::id::FactionId::new("yssaril");
+    for (alias, pick) in [("strategize1", "pok1leadership"), ("overrule", "pok1leadership"), ("strategize2", "pok4construction"), ("overrule", "pok4construction")] {
+        assert_eq!(bails_picking(alias, &yssaril, pick, 0), (0, 1), "{alias} performing {pick} at a table with Yssaril");
+        assert_eq!(bails_picking(alias, &plain, pick, 0), (1, 0), "{alias} performing {pick} at a plain table is carried");
+    }
+    let mut warfare = strategy_position(&["pok1leadership"], &["pok6warfare"], &[], &[]);
+    warfare.system_mut(&ti4_model::id::SystemId::new("33")).command_tokens.insert(PlayerId::new("a"));
+    let mut mahact = warfare.clone();
+    mahact.faction_marks.insert("mahact:fleet:b".to_owned(), "a".to_owned());
+    for (alias, pick) in [("strategize3", "pok1leadership"), ("overrule", "pok1leadership"), ("overrule", "pok6warfare")] {
+        assert_eq!(bails_picking(alias, &mahact, pick, 0), (0, 1), "{alias} performing {pick} with a token in a Mahact pool");
+        assert_eq!(bails_picking(alias, &warfare, pick, 0), (1, 0), "{alias} performing {pick} without one is carried");
+    }
+}
+
+/// Bail: Overrule names the seats of the Trade primary and the speaker of Politics by faction: at a table where two seats share a
+/// faction the options would clash, so the whole card is the string's.
+#[test]
+fn bail_overrule_at_a_table_where_two_seats_share_a_faction() {
+    let _serial = crate::dual::tests::serial();
+    let mut twins = strategy_position(&["pok5trade"], &[], &[], &[]);
+    twins.player_mut(&PlayerId::new("c")).unwrap().faction = ti4_model::id::FactionId::new("hacan");
+    assert_eq!(bails_picking("overrule", &twins, "pok5trade", 0), (0, 1));
+    // The secondaries name nobody: the same table is carried.
+    assert_eq!(bails_picking("strategize1", &twins, "pok5trade", 0), (1, 0));
+}
