@@ -125,6 +125,8 @@ pub enum Fx {
     Mercenary,
     /// Ghost Ship: a destroyer into a non-home wormhole system without another player's ship.
     Ghost,
+    /// Signal Jamming: a non-home system near the holder's ships, then the rival whose command token goes there.
+    Jam,
 }
 
 impl Fx {
@@ -143,7 +145,7 @@ impl Fx {
     /// Whether the effect reads the game's map (the adapter lends the galaxy; without one it bails).
     #[must_use]
     pub const fn needs_map(self) -> bool {
-        matches!(self, Self::Ghost)
+        matches!(self, Self::Ghost | Self::Jam)
     }
 
     /// The bill the effect pays before anything else (the string `production::pay`): the currency and the amount.
@@ -212,6 +214,7 @@ impl Fx {
             C::PirateFleet => Self::PirateFleet,
             C::MercenaryContract => Self::Mercenary,
             C::GhostShip => Self::Ghost,
+            C::SignalJamming => Self::Jam,
             _ => return None,
         })
     }
@@ -261,6 +264,8 @@ pub struct Play {
     offer: Option<(System, Planet)>,
     /// The bill of the card while it is paid (a child window).
     pay: Child<PayBill>,
+    /// Signal Jamming: the system chosen.
+    jam: Option<System>,
     /// The question the bill's child waits on.
     pay_ask: Option<crate::choice::Ask>,
 }
@@ -340,7 +345,7 @@ impl Play {
             }
             _ => None,
         };
-        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: Child::idle(), pay_ask: None })
+        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: Child::idle(), jam: None, pay_ask: None })
     }
 
     fn what(&self) -> Option<What> {
@@ -355,6 +360,8 @@ impl Play {
             Fx::PirateContract | Fx::PirateFleet => What::Pirate,
             Fx::Mercenary => What::Landing,
             Fx::Ghost => What::Ghost,
+            Fx::Jam if self.step == 0 => What::Jam,
+            Fx::Jam => What::JamWho { system: self.jam? },
             Fx::Exchange if self.step == 0 => What::Player,
             Fx::Exchange if self.step == 1 => What::Offer,
             Fx::Exchange => What::Accept,
@@ -581,6 +588,31 @@ impl Play {
                 spots.as_mut_slice().sort_by_key(|(_, p)| *p);
                 spots.as_slice().iter().map(|(s, p)| Opt::Spot(*s, *p)).collect()
             }
+            Fx::Jam if self.step == 0 => {
+                // Non-home systems of the map that hold one of the holder's ships or touch such a system.
+                let Some(galaxy) = core.galaxy() else { return SmallList::new() };
+                let scope = self.env.scope;
+                let on_map = |s: System| galaxy.coord_of(crate::ids::system_at(System::ALL.iter().position(|x| *x == s).unwrap_or(0))).is_some();
+                let mut reach: SmallList<System, 64> = SmallList::new();
+                let mut add = |s: System| {
+                    if !reach.as_slice().contains(&s) {
+                        reach.push(s);
+                    }
+                };
+                for (i, system) in System::ALL.iter().copied().enumerate() {
+                    if on_map(system) && board::space_units(core, system).iter().any(|p| p.owner() == who && scope.unit(p.kind()).is_some_and(|d| d.ship)) {
+                        add(system);
+                        for j in galaxy.adjacent(crate::ids::system_at(i)).iter() {
+                            if let Some(near) = System::ALL.get(j) {
+                                add(*near);
+                            }
+                        }
+                    }
+                }
+                reach.as_mut_slice().sort_unstable();
+                reach.as_slice().iter().copied().filter(|s| !is_home_system(scope, *s)).map(Opt::System).collect()
+            }
+            Fx::Jam => core.players().iter().filter(|p| p.seat != who).map(|p| Opt::Seat(p.seat)).collect(),
             Fx::Ghost => {
                 // The systems on the map (the hex order of the galaxy), off-map ones left out.
                 let Some(galaxy) = core.galaxy() else { return SmallList::new() };
@@ -1133,6 +1165,16 @@ impl Play {
                     fx::place_unit(core, neutral, system, None, crate::generated::Unit::NeutralDestroyer);
                 }
             }
+            (Fx::Jam, Opt::System(system)) => {
+                self.jam = Some(system);
+                self.step = 1;
+                return true;
+            }
+            (Fx::Jam, Opt::Seat(rival)) => {
+                if let Some(system) = self.jam {
+                    fx::place_command_token(core, rival, system);
+                }
+            }
             (Fx::Ghost, Opt::System(system)) => self.place(core, self.env.facts.destroyer, system, None, 1),
             (Fx::Mercenary, Opt::Spot(system, planet)) => {
                 if let Some(neutral) = self.env.facts.neutral {
@@ -1446,6 +1488,7 @@ mod tests {
             C::PirateFleet,
             C::MercenaryContract,
             C::GhostShip,
+            C::SignalJamming,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }
@@ -1525,7 +1568,6 @@ mod tests {
             (C::HarnessEnergy, "the commodity limit of the faction hooks, the Siphon event and the Trade Agreement hook"),
             (C::Impersonation, "three influence by the question-driven payment, then a secret objective draw with the hand limit"),
             (C::Infiltrate, "the structure swap of the capture (rules version dependent unit forms)"),
-            (C::SignalJamming, "the blockade rules of the map"),
             (C::LieInWait, "the neighbours of the map who traded this round (the transactions)"),
             (C::Overrule, "performs the primary ability of another strategy card (the strategy area's windows)"),
             (C::Plagiarize, "five influence by the question-driven payment, then a technology gained from a neighbour"),

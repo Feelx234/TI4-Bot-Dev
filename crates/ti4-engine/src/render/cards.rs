@@ -33,6 +33,7 @@ impl Family for Fam {
                 Reason::C4rDiscard => "???_ERROR_ERROR_???: discard 1 action card".to_owned(),
                 Reason::Show { viewer } => format!("show {} 1 action card from your hand", r.seat_text(*viewer)),
             },
+            Ask::Pick { what: What::JamWho { system }, .. } => format!("Signal Jamming: whose token goes into {}", system.as_str()),
             Ask::Pick { card, what } => pick_prompt(*card, *what).to_owned(),
             Ask::Predict { card, .. } => format!("{}: predict the agenda outcome", rider_name(*card)),
             Ask::PlayCard { relation, event } => {
@@ -69,6 +70,10 @@ impl Family for Fam {
 
     fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
         match o {
+            Opt::Seat(seat) if matches!(pick_of(a).1, What::JamWho { .. }) => {
+                let faction = r.faction_text(*seat);
+                ChoiceOption::labelled(faction, "player", format!("{faction}'s command token"))
+            }
             Opt::Seat(seat) => {
                 let id = r.seat_text(*seat);
                 let (card, what) = pick_of(a);
@@ -83,6 +88,7 @@ impl Family for Fam {
                     What::Deploy => ChoiceOption::labelled(id, "system", format!("cruiser into {id}")),
                     What::Pirate => ChoiceOption::labelled(id, "system", id),
                     What::Ghost => ChoiceOption::labelled(id, "system", format!("destroyer into {id}")),
+                    What::Jam => ChoiceOption::labelled(id, "system", format!("jam {id}")),
                     _ => ChoiceOption::labelled(id, "recall", format!("recall your token from {id}")),
                 }
             }
@@ -162,7 +168,8 @@ impl Family for Fam {
         match a {
             Ask::OwnHand { .. } | Ask::PlayCard { .. } => ActionCard::from_id(id).map(Opt::Card),
             Ask::Pick { what: What::Player | What::Elect, .. } => r.seat(id).map(Opt::Seat),
-            Ask::Pick { what: What::Recall | What::Silence | What::Bombard | What::Deploy | What::Rescue | What::Pirate | What::Ghost, .. } => System::from_id(id).map(Opt::System),
+            Ask::Pick { what: What::JamWho { .. }, .. } => (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(ti4_engine_core::Seat)).find(|s| r.faction_text(*s) == id).map(Opt::Seat),
+            Ask::Pick { what: What::Recall | What::Silence | What::Bombard | What::Deploy | What::Rescue | What::Pirate | What::Ghost | What::Jam, .. } => System::from_id(id).map(Opt::System),
             Ask::Pick { what: What::Planet | What::Landing, .. } => {
                 let (system, planet) = id.split_once('|')?;
                 Some(Opt::Spot(System::from_id(system)?, Planet::from_id(planet)?))
@@ -200,7 +207,7 @@ const fn pick_kind(what: What) -> &'static str {
         What::Player => "player",
         What::Elect => "elect",
         What::Recall => "recall",
-        What::Bombard | What::Deploy | What::Pirate | What::Ghost => "system",
+        What::Bombard | What::Deploy | What::Pirate | What::Ghost | What::Jam => "system",
         What::Silence => "silence",
         What::Note => "promissory note",
         What::Planet => "planet",
@@ -209,6 +216,7 @@ const fn pick_kind(what: What) -> &'static str {
         What::Law => "repeal",
         What::Hull | What::Scuttle { .. } => "ship",
         What::Offer | What::Landing => "planet",
+        What::JamWho { .. } => "player",
         What::Accept => "answer",
         What::Fragment => "fragment",
         What::Exhaust => "reparations_exhaust",
@@ -268,6 +276,7 @@ const fn pick_prompt(card: ActionCard, what: What) -> &'static str {
         (C::Spy, _) => "Spy: rob which player",
         (C::Plague, _) => "Plague: which planet",
         (C::UnstablePlanet, _) => "Unstable Planet: which hazardous planet",
+        (C::SignalJamming, _) => "Signal Jamming: jam which system",
         (C::GhostShip, _) => "Ghost Ship: into which wormhole system",
         (C::MercenaryContract, _) => "Mercenary Contract: which planet the infantry land on",
         (C::PirateFleet, _) => "Pirate Fleet: which system the fleet enters",

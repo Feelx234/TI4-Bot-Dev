@@ -166,3 +166,30 @@ fn bail_ghost_ship_without_a_map_is_counted() {
     assert_eq!(crate::action_cards_closing_tests::windows("action_cards::announce"), (0, 1));
     let _ = crate::dual::take_report();
 }
+
+/// Signal Jamming: a non-home system on the map that holds one of the holder's ships or touches one, then the rival (named by
+/// faction) whose command token goes there.
+#[test]
+fn signal_jamming_closes_a_system_near_the_holders_ships_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let galaxy = ring();
+    let a = PlayerId::new("a");
+    let mut state = closing_position();
+    state.system_mut(&ti4_model::id::SystemId::new("25")).units.push(unit("cruiser", "a"));
+    state.system_mut(&ti4_model::id::SystemId::new("40")).units.push(unit("carrier", "a"));
+    // Off the map and the holder's: never offered.
+    let mut two = state.clone();
+    two.seating_order.retain(|p| p.as_str() != "c");
+    two.players.retain(|p| p.id.as_str() != "c");
+    crate::action_cards_closing_tests::announce_all_on(&[("jamming", state.clone()), ("jamming", two)], Some(&galaxy));
+    let _ = crate::dual::take_report();
+    let mut game = state.clone();
+    game.player_mut(&a).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("jamming")];
+    crate::action_cards::discard(&mut game, &a, 0);
+    crate::dual::with_mask(crate::action_cards_closing_tests::dual(), || {
+        crate::action_cards_announce_tests::announce_on(&mut game, "jamming", &a, Box::new(crate::action_cards_announce_tests::DeclineSlots), Some(&galaxy))
+    });
+    let tokens = |s: &GameState| s.board.values().map(|b| b.command_tokens.len()).sum::<usize>();
+    assert_eq!(tokens(&game), tokens(&state) + 1, "one rival token went into a system");
+    let _ = crate::dual::take_report();
+}

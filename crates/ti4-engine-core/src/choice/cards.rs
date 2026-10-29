@@ -55,6 +55,10 @@ pub enum What {
     Hull,
     /// kind `ship`: a ship Scuttle returns; the second question (`second`) also offers to stop after one.
     Scuttle { second: bool },
+    /// kind `system`, label `jam <system>`: the system Signal Jamming closes.
+    Jam,
+    /// kind `player`, id the faction, label `<faction>'s command token`: whose token Signal Jamming places in `system`.
+    JamWho { system: System },
     /// kind `system`, label `destroyer into <system>`: the wormhole system Ghost Ship's destroyer enters.
     Ghost,
     /// kind `planet`, label `planet in system`: where Mercenary Contract's neutral infantry land.

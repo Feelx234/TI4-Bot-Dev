@@ -253,6 +253,20 @@ fn env_of(state: &GameState, player: &PlayerId, sources: &ti4_model::content_typ
 
 /// The owner table of a card's window: with the neutral owner when the card places its units (`Fx::needs_neutral`).
 fn tables_of(gs: &GameState, card: ActionCard) -> Option<(Ctx, crate::render::Render)> {
+    if rules::effects::Fx::of(card) == Some(rules::effects::Fx::Jam) {
+        // The rival is named by faction: two seats of one faction would clash, which the string cannot tell apart either.
+        let (cx, r) = crate::dual_window::tables(gs)?;
+        let factions: Vec<String> = r
+            .seats
+            .iter()
+            .map(|id| gs.players.iter().find(|p| p.id.as_str() == id).map_or_else(String::new, |p| p.faction.as_str().to_owned()))
+            .collect();
+        let named: Vec<&String> = factions.iter().filter(|f| !f.is_empty()).collect();
+        if named.iter().enumerate().any(|(i, f)| named[..i].contains(f)) {
+            return None;
+        }
+        return Some((cx, r.with_factions(factions)));
+    }
     if rules::effects::Fx::of(card).is_some_and(rules::effects::Fx::needs_neutral) {
         crate::dual_window::tables_with(gs, &[crate::neutral_units::NEUTRAL])
     } else {
