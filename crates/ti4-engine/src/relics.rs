@@ -1318,6 +1318,55 @@ fn gain_text(state: &mut GameState, player: &PlayerId) -> Option<RelicId> {
     Some(top)
 }
 
+/// The arm of [`use_relic`] a relic takes: the dispatch the core owns (`query::relic::use_arm`); the effect
+/// behind each arm is the windows and writes of this file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Arm {
+    /// The player does not hold the relic.
+    NotHeld,
+    EnigmaticDevice,
+    MawOfWorlds,
+    Codex,
+    StellarConverter,
+    TitanPrototype,
+    DynamisCore,
+    BookOfLatvinia,
+    SilverFlame,
+    /// Held, but this engine has no handler for it.
+    Unresolved,
+}
+
+/// Which arm of [`use_relic`] `relic` takes for `player`.
+#[must_use]
+pub fn use_arm(state: &GameState, player: &PlayerId, relic: &RelicId) -> Arm {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "relics::use_arm",
+        crate::cards_typed!(state, v => v.use_arm(player, relic)),
+        use_arm_text(state, player, relic)
+    )
+}
+
+/// [`use_arm`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn use_arm_text(state: &GameState, player: &PlayerId, relic: &RelicId) -> Arm {
+    if !holds_text(state, player, relic) {
+        return Arm::NotHeld;
+    }
+    match relic.as_str() {
+        "enigmaticdevice" => Arm::EnigmaticDevice,
+        "mawofworlds" => Arm::MawOfWorlds,
+        "codex" => Arm::Codex,
+        "stellarconverter" => Arm::StellarConverter,
+        "titanprototype" => Arm::TitanPrototype,
+        "dynamiscore" => Arm::DynamisCore,
+        "bookoflatvinia" => Arm::BookOfLatvinia,
+        "thesilverflame" => Arm::SilverFlame,
+        _ => Arm::Unresolved,
+    }
+}
+
 /// Use a relic's action, purging it.
 pub fn use_relic(
     state: &mut GameState,
@@ -1330,13 +1379,13 @@ pub fn use_relic(
     player: &PlayerId,
     relic: &RelicId,
 ) -> Used {
-    if !holds(state, player, relic) {
-        return Used::NotHeld {
-            relic: relic.clone(),
-        };
-    }
-    match relic.as_str() {
-        "enigmaticdevice" => {
+    match use_arm(state, player, relic) {
+        Arm::NotHeld => {
+            return Used::NotHeld {
+                relic: relic.clone(),
+            };
+        }
+        Arm::EnigmaticDevice => {
             // "You may spend 6 resources and purge this card to research 1 technology."
             //
             // The research is a choice and the cost is a gate, so the cost is checked before the
@@ -1369,7 +1418,7 @@ pub fn use_relic(
                 "enigmaticdevice",
             );
         }
-        "mawofworlds" => {
+        Arm::MawOfWorlds => {
             // "Purge this card and exhaust all of your planets to gain any 1 technology."
             //
             // Exhausting is the cost and is paid whatever is chosen, so it happens before the
@@ -1397,22 +1446,22 @@ pub fn use_relic(
                 "mawofworlds",
             );
         }
-        "codex" => codex(state, content, sources, table, galaxy, player),
-        "stellarconverter" => {
+        Arm::Codex => codex(state, content, sources, table, galaxy, player),
+        Arm::StellarConverter => {
             if !stellar_converter(state, content, sources, table, galaxy, player) {
                 return Used::Unresolved {
                     relic: relic.clone(),
                 };
             }
         }
-        "titanprototype" => {
+        Arm::TitanPrototype => {
             if !titan_prototype(state, content, sources, table, galaxy, player) {
                 return Used::Unresolved {
                     relic: relic.clone(),
                 };
             }
         }
-        "dynamiscore" => {
+        Arm::DynamisCore => {
             // "Gain trade goods equal to your commodity value, then purge this card." The
             // card's other half — commodity value increased by 2 — is a standing modifier, and
             // is applied here to the gain so the two halves cannot disagree about the number.
@@ -1422,7 +1471,7 @@ pub fn use_relic(
             let value = commodity_value(state, content, player) + 2;
             crate::supply::gain_trade_goods_staged(state, player, value, "relic");
         }
-        "bookoflatvinia" => {
+        Arm::BookOfLatvinia => {
             // All four specialties gains a victory point; otherwise the speaker token.
             crate::exploration::dual_write(
                 state,
@@ -1439,10 +1488,10 @@ pub fn use_relic(
                 |s| crate::explore_write::book_of_latvinia(s, player, sources),
             );
         }
-        "thesilverflame" => {
+        Arm::SilverFlame => {
             return the_silver_flame(state, content, dice, rng, player, relic);
         }
-        _ => {
+        Arm::Unresolved => {
             return Used::Unresolved {
                 relic: relic.clone(),
             };
@@ -1462,6 +1511,40 @@ pub const ACTION_KIND: &str = "component";
 /// The prefix of an option that purges fragments, and of one that uses a held relic.
 const PURGE_PREFIX: &str = "purge|";
 const USE_PREFIX: &str = "relic|";
+
+/// The relics `player` may use right now, in hand order: held, with a printed ACTION this engine
+/// resolves (exactly the arms of [`use_relic`]) and able to resolve it. `enigmatic` and `stellar`
+/// say whether the two relics with a stated precondition meet it.
+fn action_relics(state: &GameState, player: &PlayerId, enigmatic: bool, stellar: bool) -> Vec<String> {
+    crate::dual_typed!(
+        crate::dual::Area::ExplorationRelics,
+        "relics::action_relics",
+        crate::cards_typed!(state, v => v.action_relics(player, enigmatic, stellar)),
+        action_relics_text(state, player, enigmatic, stellar)
+    )
+}
+
+fn action_relics_text(state: &GameState, player: &PlayerId, enigmatic: bool, stellar: bool) -> Vec<String> {
+    let held = state
+        .player(player)
+        .map(|seat| seat.relics.clone())
+        .unwrap_or_default();
+    let known = action_aliases();
+    held.into_iter()
+        // 22.3: an action that cannot fully resolve is never offered, and a relic with no
+        // handler cannot resolve at all.
+        .filter(|relic| {
+            known.contains(&relic.as_str())
+                && match relic.as_str() {
+                    "enigmaticdevice" => enigmatic,
+                    "stellarconverter" => stellar,
+                    _ => true,
+                }
+        })
+        .filter(|relic| relic.as_str() != SHARD) // held for its point; it has no action
+        .map(|relic| relic.to_string())
+        .collect()
+}
 
 /// Component actions this player could take with relics and fragments right now.
 ///
@@ -1491,45 +1574,33 @@ pub fn available_actions(
             })
             .collect();
 
-    let held = state
-        .player(player)
-        .map(|seat| seat.relics.clone())
-        .unwrap_or_default();
-    let known = action_aliases();
     // 22.3 again: two of these actions have a precondition that the card itself states, and an
     // action that cannot fully resolve is never offered. Checked here rather than only inside
-    // `use_relic`, so a decider is never handed a choice that resolves to nothing.
-    let resolvable = |alias: &str| -> bool {
-        match alias {
-            // Six resources, and no way to take the action without them.
-            "enigmaticdevice" => {
-                (state.rules_version < ti4_model::state::RULES_ENIGMATIC_DEVICE
-                    || !crate::technology::researchable_by_prerequisites(
-                        state, content, sources, player,
-                    )
-                    .is_empty())
-                    && crate::production::available(
-                        state,
-                        content,
-                        sources,
-                        player,
-                        crate::production::Spend::Resources,
-                    ) >= 6
-            }
-            // Something in range that the card is allowed to destroy. Without a board there is no
-            // adjacency and therefore no target.
-            "stellarconverter" => galaxy.is_some_and(|galaxy| {
-                !stellar_converter_targets(state, content, sources, galaxy, player).is_empty()
-            }),
-            _ => true,
-        }
-    };
+    // `use_relic`, so a decider is never handed a choice that resolves to nothing. The two facts
+    // are asked only of a seat that holds the card; the list (held, with an action, resolvable) is
+    // the core's (`query::relic::action_relics`).
+    let holds_it = |alias: &str| holds_text(state, player, &RelicId::new(alias));
+    // Six resources, and no way to take the action without them.
+    let enigmatic = holds_it("enigmaticdevice")
+        && (state.rules_version < ti4_model::state::RULES_ENIGMATIC_DEVICE
+            || !crate::technology::researchable_by_prerequisites(state, content, sources, player)
+                .is_empty())
+        && crate::production::available(
+            state,
+            content,
+            sources,
+            player,
+            crate::production::Spend::Resources,
+        ) >= 6;
+    // Something in range that the card is allowed to destroy. Without a board there is no
+    // adjacency and therefore no target.
+    let stellar = holds_it("stellarconverter")
+        && galaxy.is_some_and(|galaxy| {
+            !stellar_converter_targets(state, content, sources, galaxy, player).is_empty()
+        });
     options.extend(
-        held.into_iter()
-            // 22.3: an action that cannot fully resolve is never offered, and a relic with no
-            // handler cannot resolve at all.
-            .filter(|relic| known.contains(&relic.as_str()) && resolvable(relic.as_str()))
-            .filter(|relic| relic.as_str() != SHARD) // held for its point; it has no action
+        action_relics(state, player, enigmatic, stellar)
+            .into_iter()
             .map(|relic| {
                 crate::choice::ChoiceOption::labelled(
                     format!("{USE_PREFIX}{relic}"),
@@ -2825,6 +2896,66 @@ mod relic_window_tests {
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         assert!(counts("relics::neuraloop").0 >= 3, "{r:?}");
+        let _ = take_report();
+    }
+
+    /// The dispatch of `use_relic` (`query::relic::use_arm`) and the list of relics `available_actions` offers
+    /// (`query::relic::action_relics`) are the core's, compared against the string for every relic of the corpus.
+    #[test]
+    fn the_use_dispatch_and_the_action_list_run_in_lockstep_with_the_core() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let content = ti4_content::ContentStore::embedded();
+        let aliases: Vec<String> = content
+            .from_sources(ContentType::Relics, ti4_model::content_types::DEFAULT)
+            .filter_map(|r| r.text("alias").map(str::to_owned))
+            .collect();
+        assert!(aliases.len() >= 18 && aliases.iter().any(|a| a == "thesilverflame"), "{aliases:?}");
+        dual(|| {
+            for alias in &aliases {
+                let relic = RelicId::new(alias.as_str());
+                let mut state = seated();
+                // Not held: whatever the relic is.
+                assert_eq!(use_arm(&state, &me(), &relic), Arm::NotHeld, "{alias}");
+                state.player_mut(&me()).unwrap().relics = vec![relic.clone()];
+                let expected = match alias.as_str() {
+                    "enigmaticdevice" => Arm::EnigmaticDevice,
+                    "mawofworlds" => Arm::MawOfWorlds,
+                    "codex" => Arm::Codex,
+                    "stellarconverter" => Arm::StellarConverter,
+                    "titanprototype" => Arm::TitanPrototype,
+                    "dynamiscore" => Arm::DynamisCore,
+                    "bookoflatvinia" => Arm::BookOfLatvinia,
+                    "thesilverflame" => Arm::SilverFlame,
+                    _ => Arm::Unresolved,
+                };
+                assert_eq!(use_arm(&state, &me(), &relic), expected, "{alias}");
+                // Another seat holds it, not this one.
+                state.player_mut(&PlayerId::new("b")).unwrap().relics = vec![relic.clone()];
+                state.player_mut(&me()).unwrap().relics.clear();
+                assert_eq!(use_arm(&state, &me(), &relic), Arm::NotHeld, "{alias}");
+            }
+            // The list: hand order, only relics with an action, the two with a precondition only when it holds.
+            let mut state = seated();
+            let hand = ["thetriad", "stellarconverter", "dynamiscore", "enigmaticdevice", "heartofixth", "codex", "shard", "titanprototype"];
+            state.player_mut(&me()).unwrap().relics = hand.iter().map(|a| RelicId::new(*a)).collect();
+            {
+                let listed = |enigmatic, stellar| action_relics(&state, &me(), enigmatic, stellar);
+                assert_eq!(listed(true, true), ["stellarconverter", "dynamiscore", "enigmaticdevice", "codex", "titanprototype"]);
+                assert_eq!(listed(false, true), ["stellarconverter", "dynamiscore", "codex", "titanprototype"]);
+                assert_eq!(listed(true, false), ["dynamiscore", "enigmaticdevice", "codex", "titanprototype"]);
+                assert_eq!(listed(false, false), ["dynamiscore", "codex", "titanprototype"]);
+            }
+            state.player_mut(&me()).unwrap().relics.clear();
+            assert!(action_relics(&state, &me(), true, true).is_empty());
+            // The whole list through `available_actions`: purge options first, then the uses.
+            state.player_mut(&me()).unwrap().relics = vec![RelicId::new("dynamiscore"), RelicId::new("codex")];
+            let offered = available_actions(&state, content, POK, None, &me());
+            assert_eq!(offered.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(), ["relic|dynamiscore", "relic|codex"]);
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.total_calls() >= 3 * aliases.len() as u64, "the core half ran: {r:?}");
         let _ = take_report();
     }
 

@@ -354,3 +354,46 @@ pub fn set_record_system(core: &mut CoreState, index: usize, system: System) {
         rec.system = Some(system);
     }
 }
+
+/// `planets::place` as Mirage uses it ("place the Mirage planet token in this system, gain the planet card and
+/// ready it"): the planet is put into `system` under the seat's control, readied. `false` when the planet is
+/// already on the board (a card cannot place it twice); a planet that was destroyed keeps no controller.
+pub fn place_planet(core: &mut CoreState, who: Seat, system: System, planet: Planet) -> bool {
+    let cell = core.board_mut().planet_mut(planet);
+    if cell.placed_in.is_some() {
+        return false;
+    }
+    cell.placed_in = Some(system);
+    if !cell.flags.has(PlanetFlags::PURGED) {
+        cell.control = Some(who);
+    }
+    cell.flags.set(PlanetFlags::EXHAUSTED, false);
+    core.board_mut().sys_mut(system).flags.set(crate::state::SysFlags::TOUCHED, true);
+    true
+}
+
+/// `exploration::demilitarize` (Demilitarized Zone): the structures on the planet go back to their owners'
+/// reinforcements and the ground forces return to the space area of its system, keeping owner and damage. A unit
+/// that is both (the Titans' PDS) is a structure. A planet the board holds no unit entry for is left alone.
+pub fn demilitarize(core: &mut CoreState, scope: crate::tables::Scope, planet: Planet) {
+    use crate::generated::UnitBaseType;
+    let cell = core.board_mut().planet_mut(planet);
+    let Some(system) = cell.placed_in.or(planet.data().system) else { return };
+    if !cell.flags.has(PlanetFlags::UNITS_ENTRY) {
+        return;
+    }
+    let (mut kept, mut moved) = (Vec::new(), Vec::new());
+    for piece in cell.units.as_slice() {
+        match scope.unit(piece.kind()) {
+            Some(d) if d.structure => {}
+            Some(d) if matches!(d.base_type, UnitBaseType::Infantry | UnitBaseType::Mech) => moved.push(*piece),
+            _ => kept.push(*piece),
+        }
+    }
+    cell.units = kept.into_iter().collect();
+    let space = core.board_mut().sys_mut(system);
+    for piece in moved {
+        space.units.push(piece);
+    }
+    space.flags.set(crate::state::SysFlags::TOUCHED, true);
+}

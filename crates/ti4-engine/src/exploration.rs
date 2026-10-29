@@ -961,7 +961,7 @@ fn resolve_instant(
             let Some(system) = system else {
                 return false; // 22.3: no planet or frontier system means nowhere to place it
             };
-            return crate::planets::place(state, &system, &PlanetId::new("mirage"), player);
+            return place_mirage(state, &system, player);
         }
         "frln1" | "frln2" | "frln3" => {
             // Freelancers: "You may produce 1 unit in this system. You may spend influence as if it
@@ -1201,6 +1201,18 @@ fn resolve_instant(
     gain_command_tokens(state, ctx, player, tokens);
     crate::supply::gain_trade_goods_announced(state, ctx, player, goods, "exploration");
     true
+}
+
+/// The Mirage planet token goes into `system` under `player`'s control, readied (`planets::place`); `false` when
+/// it is on the board already.
+fn place_mirage(state: &mut GameState, system: &SystemId, player: &PlayerId) -> bool {
+    let planet = PlanetId::new("mirage");
+    dual_write(
+        state,
+        "exploration::place_mirage",
+        |s| crate::planets::place(s, system, &planet, player),
+        |s| crate::explore_write::place_planet(s, player, system, &planet),
+    )
 }
 
 /// "Gain N command tokens" from an exploration card: 52.4 lets the player place each into any
@@ -1894,6 +1906,21 @@ pub(crate) fn attach(state: &mut GameState, planet: &PlanetId, attachment: &str)
 /// A unit that is both (the Titans' PDS) is a structure and goes to reinforcements. The ground
 /// forces keep their owner and damage; the planet stays controlled by its controller.
 pub(crate) fn demilitarize(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    planet: &PlanetId,
+) {
+    dual_write(
+        state,
+        "exploration::demilitarize",
+        |s| demilitarize_text(s, content, sources, planet),
+        |s| crate::explore_write::demilitarize(s, sources, planet),
+    );
+}
+
+/// [`demilitarize`] on the string state: the oracle of the dual run.
+fn demilitarize_text(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -4015,6 +4042,59 @@ mod window_tests {
 
     fn dual<T>(body: impl FnOnce() -> T) -> T {
         with_mask(AreaMask::STRING.with(Area::ExplorationRelics, Backend::Dual), body)
+    }
+
+    /// Mirage (the planet token is put into the explored system, controlled and readied; a second placement
+    /// changes nothing) and Demilitarized Zone (structures to the reinforcements, ground forces to space) are
+    /// core writes now: the string and the core agree on the whole position.
+    #[test]
+    fn mirage_and_the_demilitarized_zone_run_as_core_writes_in_lockstep() {
+        use crate::fixtures::{a_placed_planet, put, put_on_planet};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let b = PlayerId::new("b");
+        dual(|| {
+            // Demilitarized Zone beside units of both seats, a carrier in space and a unit already in the space area.
+            let (mut state, planet) = table(0, 0);
+            let (system, _) = a_placed_planet();
+            for (kind, count) in [("spacedock", 1), ("pds", 1), ("infantry", 2), ("mech", 1)] {
+                put_on_planet(&mut state, &system, &planet, kind, &me(), count);
+            }
+            put_on_planet(&mut state, &system, &planet, "infantry", &b, 1);
+            put(&mut state, &system, "carrier", &me(), 1);
+            let mut probe = state.clone();
+            assert!(crate::explore_write::demilitarize(&mut probe, ti4_model::content_types::FULL, &planet).is_some(), "the core takes the position");
+            state.exploration_decks.insert("CULTURAL".to_owned(), vec!["dmz".to_owned()]);
+            let outcome = with_ctx(&[], |ctx| explore_with(&mut state, ctx, &me(), "CULTURAL", Some(&planet)));
+            assert!(matches!(outcome, Some(Explored::Attached { .. })), "{outcome:?}");
+            let board = state.system_state(&system);
+            let mut kinds: Vec<_> = board.units.iter().map(|u| (u.type_id.as_str(), u.owner.as_str())).collect();
+            kinds.sort_unstable();
+            assert_eq!(kinds, [("carrier", "a"), ("infantry", "a"), ("infantry", "a"), ("infantry", "b"), ("mech", "a")]);
+            assert!(board.on_planet(&planet).is_empty(), "structures and ground forces both left the planet");
+
+            // Mirage: placed into the explored system; the second placement is refused by both.
+            let (mut state, planet) = table(0, 0);
+            let (system, _) = a_placed_planet();
+            state.exhausted_planets.insert(PlanetId::new("mirage"));
+            let mut probe = state.clone();
+            assert_eq!(crate::explore_write::place_planet(&mut probe, &me(), &system, &PlanetId::new("mirage")), Some(true), "the core takes the position");
+            state.exploration_decks.insert("CULTURAL".to_owned(), vec!["mirage".to_owned()]);
+            let outcome = with_ctx(&[], |ctx| explore_with(&mut state, ctx, &me(), "CULTURAL", Some(&planet)));
+            assert!(matches!(outcome, Some(Explored::Resolved { .. })), "{outcome:?}");
+            assert_eq!(state.placed_planets.get(&PlanetId::new("mirage")), Some(&system));
+            assert!(!state.exhausted_planets.contains(&PlanetId::new("mirage")));
+            assert!(state.controlled_planets(&me()).into_iter().any(|(_, p)| p.as_str() == "mirage"));
+            assert!(!place_mirage(&mut state, &system, &b), "already on the board");
+            // Bail (B5-bail-01): a planet id the tables do not know, or a turn redo's deck reserve, keeps the string write.
+            let odd = PlanetId::new(["no", "such", "planet"].join("_"));
+            assert_eq!(crate::explore_write::place_planet(&mut state.clone(), &me(), &system, &odd), None);
+            assert_eq!(crate::explore_write::demilitarize(&mut state.clone(), ti4_model::content_types::FULL, &odd), None);
+            assert_eq!(state.controlled_planets(&me()).iter().filter(|(_, p)| p.as_str() == "mirage").count(), 1, "still the first seat's");
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
     }
 
     /// Which deck a two-trait planet explores into; one trait asks nothing.
