@@ -113,7 +113,7 @@ mod real {
     }
 
     /// The details and previews of the token questions, given the core question and state.
-    fn complete_tokens(c: &CoreChoice, core: &CoreState, rendered: &mut Choice, letnev: bool) {
+    pub fn complete_tokens(c: &CoreChoice, core: &CoreState, rendered: &mut Choice, letnev: bool) {
         match c.ask {
             Ask::Strategy(SAsk::GainPool { left }) => {
                 pool_previews(core, c.actor, rendered);

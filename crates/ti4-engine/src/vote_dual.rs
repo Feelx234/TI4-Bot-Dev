@@ -314,3 +314,93 @@ thread_local! {
 pub(crate) fn replays() -> (u32, u32) {
     REPLAYS.with(std::cell::Cell::get)
 }
+
+/// The positions the vote window dual does not follow (the module docs), one test each: `supported` declines them and
+/// the vote runs on the string side alone (B9-bail-09).
+#[cfg(all(test, feature = "typed-core"))]
+mod bails {
+    use super::*;
+    use ti4_model::id::{PlanetId, SystemId, UnitTypeId};
+    use ti4_model::units::Unit;
+
+    fn table(factions: &[&str]) -> (GameState, Vec<PlayerId>) {
+        let seats: Vec<(String, &str)> = factions.iter().enumerate().map(|(i, f)| (["a", "b", "c"][i].to_owned(), *f)).collect();
+        let pairs: Vec<(&str, &str)> = seats.iter().map(|(id, f)| (id.as_str(), *f)).collect();
+        let state = crate::fixtures::seated_game(&pairs, ti4_model::content_types::DEFAULT);
+        let order = state.players.iter().map(|p| p.id.clone()).collect();
+        (state, order)
+    }
+
+    fn outcomes(n: usize) -> Vec<String> {
+        (0..n).map(|i| format!("o{i}")).collect()
+    }
+
+    #[test]
+    fn a_plain_table_is_followed() {
+        let (state, order) = table(&["hacan", "xxcha", "arborec"]);
+        assert!(supported(&state, &outcomes(2), &order, None));
+        assert!(supported(&state, &outcomes(8), &order, None));
+    }
+
+    #[test]
+    fn a_vote_on_more_than_eight_outcomes_is_not_followed() {
+        let (state, order) = table(&["hacan", "xxcha", "arborec"]);
+        assert!(!supported(&state, &outcomes(9), &order, None));
+    }
+
+    #[test]
+    fn a_keleres_agent_that_could_pay_for_a_voter_is_not_followed() {
+        let (mut state, order) = table(&["hacan", "keleresm", "arborec"]);
+        state.player_mut(&PlayerId::new("a")).unwrap().commodities = 2;
+        let agent = ti4_model::id::LeaderId::new("keleresagent");
+        state.player_mut(&PlayerId::new("b")).unwrap().leaders.insert(agent.clone(), ti4_model::state::LeaderStatus::Exhausted);
+        assert!(supported(&state, &outcomes(2), &order, None), "an exhausted agent offers nothing");
+        state.player_mut(&PlayerId::new("b")).unwrap().leaders.insert(agent, ti4_model::state::LeaderStatus::Readied);
+        assert!(!supported(&state, &outcomes(2), &order, None));
+    }
+
+    #[test]
+    fn commodities_spendable_as_trade_goods_are_not_followed() {
+        let (mut state, order) = table(&["hacan", "xxcha", "arborec"]);
+        state.player_mut(&PlayerId::new("a")).unwrap().commodities = 2;
+        state.faction_marks.insert("keleres|agent_goods|a".to_owned(), "b".to_owned());
+        assert!(!supported(&state, &outcomes(2), &order, None));
+    }
+
+    #[test]
+    fn deepwrought_oceans_are_not_followed() {
+        let (mut state, order) = table(&["hacan", "deepwrought", "arborec"]);
+        assert!(supported(&state, &outcomes(2), &order, None));
+        let (system, planet) = (SystemId::new("27"), PlanetId::new("arcprime"));
+        let b = PlayerId::new("b");
+        let board = state.system_mut(&system);
+        board.coexisting.entry(planet.clone()).or_default().insert(b.clone());
+        board.planet_units.entry(planet.clone()).or_default().push(Unit::new(UnitTypeId::new("infantry"), b.clone()));
+        state.faction_marks.insert("deepwrought:ocean:arcprime".to_owned(), "b".to_owned());
+        assert!(!crate::factions::deepwrought::oceans(&state, &b).is_empty(), "the fixture holds an ocean");
+        assert!(!supported(&state, &outcomes(2), &order, None));
+    }
+
+    #[test]
+    fn a_valefar_assimilator_carrying_genetic_recombination_is_not_followed() {
+        let (mut state, order) = table(&["hacan", "nekro", "arborec"]);
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        state.player_mut(&a).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(crate::factions::mahact::RECOMBINATION));
+        state.player_mut(&b).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("vax"));
+        assert!(supported(&state, &outcomes(2), &order, None), "no token on it yet");
+        state.player_mut(&b).unwrap().assimilated_technologies.insert("vax".into(), ti4_model::id::TechnologyId::new(crate::factions::mahact::RECOMBINATION));
+        assert!(!supported(&state, &outcomes(2), &order, None));
+    }
+
+    #[test]
+    fn a_last_bastion_resource_bonus_under_the_executive_order_is_not_followed() {
+        let (mut state, order) = table(&["hacan", "bastion", "arborec"]);
+        let (system, planet) = (SystemId::new("27"), PlanetId::new("arcprime"));
+        let a = PlayerId::new("a");
+        state.system_mut(&system).planet_control.insert(planet.clone(), a.clone());
+        assert!(supported(&state, &outcomes(2), &order, Some(&a)));
+        state.system_mut(&system).planet_units.entry(planet).or_default().push(Unit::new(UnitTypeId::new("bastion_spacedock"), PlayerId::new("b")));
+        assert!(supported(&state, &outcomes(2), &order, None), "only the spender's resources matter");
+        assert!(!supported(&state, &outcomes(2), &order, Some(&a)));
+    }
+}

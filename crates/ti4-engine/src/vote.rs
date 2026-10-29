@@ -589,6 +589,34 @@ impl VoteWindow {
         }
     }
 
+    /// A finished vote, for the tests of what follows it: `votes` who backed what, `counts` what each outcome received,
+    /// `winner` the result.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn finished(alias: &str, choices: &[&str], votes: &[(&str, &str)], counts: &[(&str, i64)], winner: Option<&str>) -> Self {
+        let mut ballot = Ballot::default();
+        for (player, outcome) in votes {
+            ballot.votes.insert(PlayerId::new(*player), (*outcome).to_owned());
+        }
+        for (outcome, count) in counts {
+            ballot.counts.insert((*outcome).to_owned(), *count);
+        }
+        Self {
+            alias: alias.to_owned(),
+            choices: choices.iter().map(|c| (*c).to_owned()).collect(),
+            order: Vec::new(),
+            stage: Stage::Done(winner.map(str::to_owned)),
+            ballot,
+            spender: None,
+            recombination_offered: std::collections::BTreeSet::new(),
+            obligation: None,
+            demanded: None,
+            casts: Vec::new(),
+            predictive: Vec::new(),
+            dual: crate::vote_dual::Log::default(),
+        }
+    }
+
     /// The order the votes are asked in (`VoteWindow::new`).
     fn voting_order_text(state: &GameState) -> Vec<PlayerId> {
         let mut order = state.clockwise_from(&state.speaker);
