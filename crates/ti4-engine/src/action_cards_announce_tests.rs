@@ -16,12 +16,25 @@ use crate::action_cards::tests::question_position;
 /// default would hide an order difference).
 pub(crate) struct PlaySlots;
 
+/// A slot when one is offered, else the last option.
+fn slot_or_last(choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+    if let Some(slot) = choice.options.iter().find(|o| o.id.starts_with("reaction:")) {
+        return Ok(slot.clone());
+    }
+    choice.options.last().cloned().ok_or_else(|| IllegalChoice::NoOptions { player: choice.player.clone(), prompt: choice.prompt.clone() })
+}
+
+/// The decline when there is one, else a slot or the last option.
+fn decline_or_last(choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+    if let Some(decline) = choice.options.iter().find(|o| o.is_decline()) {
+        return Ok(decline.clone());
+    }
+    slot_or_last(choice)
+}
+
 impl Decider for PlaySlots {
     fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
-        if let Some(slot) = choice.options.iter().find(|o| o.id.starts_with("reaction:")) {
-            return Ok(slot.clone());
-        }
-        choice.options.last().cloned().ok_or_else(|| IllegalChoice::NoOptions { player: choice.player.clone(), prompt: choice.prompt.clone() })
+        slot_or_last(choice)
     }
 }
 
@@ -30,10 +43,7 @@ pub(crate) struct DeclineSlots;
 
 impl Decider for DeclineSlots {
     fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
-        if let Some(decline) = choice.options.iter().find(|o| o.is_decline()) {
-            return Ok(decline.clone());
-        }
-        PlaySlots.choose(choice)
+        decline_or_last(choice)
     }
 }
 
@@ -155,7 +165,7 @@ impl Decider for FirstCard {
         if choice.prompt.starts_with("play an action card") {
             return Ok(choice.options[0].clone());
         }
-        PlaySlots.choose(choice)
+        slot_or_last(choice)
     }
 }
 
@@ -453,9 +463,9 @@ struct ThenDecline;
 impl Decider for ThenDecline {
     fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
         if choice.player.as_str() == "a" {
-            return DeclineSlots.choose(choice);
+            return decline_or_last(choice);
         }
-        PlaySlots.choose(choice)
+        slot_or_last(choice)
     }
 }
 
