@@ -210,4 +210,18 @@ executables and for the tail of a single slow one.
 
 ## Paragraph for agent briefs
 
-TODO_BRIEF
+Paste into porting-agent briefs:
+
+> Compute tools (docs/ENGINE_COMPUTE.md). (1) After you port or change a core module, run
+> `tools/engine_core/mutants.sh <module e.g. query::tech> <test filter words>` (add `TEST_CRATE=ti4-engine-core-bridge
+> TEST_ARGS="--test <name>"` to run the adapter's equivalence tests against the mutated core; `FN=a,b` limits it to
+> functions). One build, every mutant run against your tests in seconds; it prints `SURVIVED`/`killed` per mutant with
+> file:line and the mutated expression. Add a test for each survivor or mark a truly equivalent one `// mutants:skip`
+> with a reason; put the survivor count in your report. It works on a copy, your checkout is never modified; delete
+> `/root/deploytmp/mutants-*/target` when done (disk is almost full). (2) Do not cold-build: `export
+> CARGO_TARGET_DIR=<private dir>; tools/engine_core/target_dir.sh seed $CARGO_TARGET_DIR` first (the coordinator keeps
+> the warm dir `/root/deploytmp/warm-target` fresh with `target_dir.sh warm`); delete your dir with `target_dir.sh rm`
+> when done. (3) For test loops use `cargo test --profile lockstep ...` instead of the gate profile (same results,
+> faster to build); verify_package.sh stays on `gate`. (4) `tools/engine_profile/verify_benches.sh BIN [WORKERS]` runs the six
+> benches concurrently (`JOBS`, default 3); `tools/engine_core/test_parallel.sh -p a -p b` runs test executables
+> concurrently. Take `/root/.ti4-heavy.lock` for anything longer than 5 minutes and keep `CARGO_BUILD_JOBS=2`.
