@@ -175,7 +175,6 @@ mod real {
             at.responses,
             at.counter_abandoned,
             facts,
-            true,
         )
         .single();
         let before = gs.clone();

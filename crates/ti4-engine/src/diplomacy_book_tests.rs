@@ -350,4 +350,33 @@ mod tests {
         assert_eq!(state.diplomacy.recent_signals[0].status, SignalStatus::Broken);
         assert!(trust(&state, "b", "a") < 2, "a broken assurance costs the trust it earned");
     }
+
+    /// `DealRevision::new` and the core's `new_revision` accept and refuse the same revisions, and write the same
+    /// statuses.
+    #[test]
+    fn a_revision_is_validated_as_the_model_validates_it() {
+        use ti4_engine_core::ids::Seat;
+        use ti4_engine_core::state::{DealTerm as CTerm, TransferAsset as CAsset};
+        let model = |n_a: usize, n_b: usize, deadline: u32, goods: u8| {
+            let term = |i: usize| if i % 2 == 0 { DealTerm::ImmediateTransfer(TransferAsset::TradeGoods(goods)) } else { DealTerm::FuturePayment { asset: TransferAsset::Commodities(1), deadline_round: deadline } };
+            DealRevision::new(0, p("a"), (0..n_a).map(term).collect(), (0..n_b).map(term).collect(), 1)
+        };
+        let core = |n_a: usize, n_b: usize, deadline: u32, goods: u8| {
+            let term = |i: usize| if i % 2 == 0 { CTerm::ImmediateTransfer(CAsset::TradeGoods(goods)) } else { CTerm::FuturePayment { asset: CAsset::Commodities(1), deadline_round: deadline } };
+            ti4_engine_core::rules::diplomacy_book::new_revision(0, Seat(0), &(0..n_a).map(term).collect::<Vec<_>>(), &(0..n_b).map(term).collect::<Vec<_>>(), 1)
+        };
+        for n_a in [0, 1, 12, 13] {
+            for n_b in [0, 1, 12, 13] {
+                for deadline in [0, 1, 2, 3] {
+                    for goods in [0, 1] {
+                        let (m, c) = (model(n_a, n_b, deadline, goods), core(n_a, n_b, deadline, goods));
+                        assert_eq!(m.as_ref().map(|r| (r.proposer_statuses.len(), r.recipient_statuses.len())).map_err(|e| format!("{e:?}")), c.as_ref().map(|r| (r.proposer_statuses.len(), r.recipient_statuses.len())).map_err(|e| format!("{e:?}")), "{n_a} {n_b} {deadline} {goods}");
+                    }
+                }
+            }
+        }
+        // The statuses: an immediate term is fulfilled, a promise pending.
+        let r = core(2, 0, 1, 1).unwrap();
+        assert_eq!(r.proposer_statuses.as_slice(), [ti4_engine_core::state::PromiseStatus::Fulfilled, ti4_engine_core::state::PromiseStatus::Pending]);
+    }
 }

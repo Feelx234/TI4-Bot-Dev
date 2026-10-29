@@ -58,8 +58,6 @@ pub struct DiplomacyWindow {
     /// A counter was started and abandoned: not a counter made, but the choice to counter is spent.
     pub counter_abandoned: bool,
     facts: DipFacts,
-    /// Whether the position has a galaxy (an accepted deal with immediate terms needs one to settle).
-    galaxy: bool,
     /// The window ends after one answer (the adapter asks the string's one step at a time).
     single: bool,
     /// Whether an answer has been applied (with `single`, the window then asks nothing).
@@ -82,9 +80,8 @@ impl DiplomacyWindow {
         responses: u8,
         counter_abandoned: bool,
         facts: DipFacts,
-        galaxy: bool,
     ) -> Self {
-        Self { proposer, recipient, stage, scope, signals, draft, current, deal_id, responses, counter_abandoned, facts, galaxy, single: false, stepped: false }
+        Self { proposer, recipient, stage, scope, signals, draft, current, deal_id, responses, counter_abandoned, facts, single: false, stepped: false }
     }
 
     /// Stop after the next answer.
@@ -275,9 +272,6 @@ impl DiplomacyWindow {
         // Priced before anything moves, exactly as the transaction window prices a deal.
         let fair = (Self::side(revision.proposer_terms.as_slice()).worth() - Self::side(revision.recipient_terms.as_slice()).worth()).abs() <= 0.5;
         if !given.is_empty() || !received.is_empty() {
-            if !self.galaxy {
-                return Err(());
-            }
             let offer = q::Offer { proposer: deal.proposer, partner: deal.recipient, given, received };
             let reach = self.facts.deal.may_from(deal.proposer);
             let arbiters = |x: Seat| self.facts.deal.arbiter(x);

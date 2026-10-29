@@ -354,4 +354,79 @@ mod tests {
         followed(&done, 1);
         assert!(!ids.iter().any(|i| i.starts_with("diplomacy|note|an:")), "{ids:?}");
     }
+
+    fn relationship(state: &GameState, a: &str, b: &str) -> i16 {
+        state.diplomacy.relationship(&p(a), &p(b)).trust
+    }
+
+    #[test]
+    fn a_swap_is_a_transaction_only_when_it_is_fair() {
+        // 2 for 2: fair, +3 trust. 3 trade goods for 1 commodity: unfair, nothing builds.
+        let (state, hub) = sol_hacan_xxcha();
+        let fair = plain(state, &hub, &["diplomacy|now|tg", "diplomacy|amount|2", "diplomacy|done", "diplomacy|now|commodities", "diplomacy|amount|2", "diplomacy|done", "diplomacy|propose", "diplomacy|accept"]);
+        followed(&fair, 8);
+        assert_eq!(relationship(&fair.state, "a", "b"), 3);
+        let (state, hub) = sol_hacan_xxcha();
+        let unfair = plain(state, &hub, &["diplomacy|now|tg", "diplomacy|amount|3", "diplomacy|done", "diplomacy|now|commodities", "diplomacy|amount|1", "diplomacy|done", "diplomacy|propose", "diplomacy|accept"]);
+        followed(&unfair, 8);
+        assert_eq!(relationship(&unfair.state, "a", "b"), 0);
+        assert_eq!(unfair.state.diplomacy.history[0].status, DealStatus::Fulfilled);
+    }
+
+    #[test]
+    fn an_empty_review_cannot_propose_and_unknown_fragments_are_frontier_ones() {
+        let (state, hub) = sol_hacan_xxcha();
+        let done = plain(state, &hub, &["diplomacy|done", "diplomacy|done"]);
+        followed(&done, 2);
+        let ids = done.window.pending_choice(&done.state, ContentStore::embedded(), POK).unwrap().ids().into_iter().map(str::to_owned).collect::<Vec<_>>();
+        assert_eq!(ids, ["diplomacy|edit", "diplomacy|cancel"]);
+        let (mut state, hub) = sol_hacan_xxcha();
+        state.player_mut(&p("a")).unwrap().relic_fragments.insert("FRONTIER".to_owned(), 1);
+        let done = plain(state, &hub, &["diplomacy|now|unknown", "diplomacy|amount|1", "diplomacy|done", "diplomacy|done", "diplomacy|propose", "diplomacy|accept"]);
+        followed(&done, 6);
+        assert_eq!(done.state.player(&p("b")).unwrap().relic_fragments.get("FRONTIER"), Some(&1));
+        assert!(done.state.player(&p("a")).unwrap().relic_fragments.get("FRONTIER").is_none_or(|n| *n == 0));
+    }
+
+    #[test]
+    fn a_side_of_twelve_terms_offers_nothing_more_to_add() {
+        let (mut state, hub) = sol_hacan_xxcha();
+        for (kind, n) in [("CULTURAL", 1), ("HAZARDOUS", 1), ("INDUSTRIAL", 1), ("FRONTIER", 1)] {
+            state.player_mut(&p("a")).unwrap().relic_fragments.insert(kind.to_owned(), n);
+        }
+        let mut script: Vec<&str> = vec![];
+        for kind in ["tg", "commodities", "cultural", "hazardous", "industrial", "unknown"] {
+            script.extend([Box::leak(format!("diplomacy|now|{kind}").into_boxed_str()) as &str, "diplomacy|amount|1"]);
+        }
+        script.extend(["diplomacy|later|tg", "diplomacy|amount|1", "diplomacy|later|commodities", "diplomacy|amount|1", "diplomacy|done", "diplomacy|done", "diplomacy|propose"]);
+        // b counters: asks for four more of a's, which makes twelve on that side.
+        script.extend(["diplomacy|counter", "diplomacy|done", "~diplomacy|note|", "~diplomacy|promise|", "~diplomacy|promise|", "~diplomacy|promise|", "diplomacy|done", "diplomacy|propose"]);
+        // a counters: the side it gives is full, the first screen offers only the removals and done.
+        script.extend(["diplomacy|counter", "diplomacy|done"]);
+        let done = plain(state, &hub, &script);
+        followed(&done, script.len() as u64);
+        let deal = &done.state.diplomacy.active_deals[&ti4_model::DealId(1)];
+        assert_eq!(deal.latest().proposer_terms.len(), 12);
+    }
+
+    #[test]
+    fn a_vote_or_attack_target_that_is_one_of_the_two_is_not_offered_and_an_alliance_follows_hubris() {
+        // The attack targets name a and b too; only c is a third party.
+        let (state, hub) = sol_hacan_xxcha();
+        let wide = ContactScope { attack_targets: vec![p("a"), p("b"), p("c")], ..scope() };
+        let (done, ids) = first_screen(state, &hub, wide, |_| {});
+        followed(&done, 1);
+        assert_eq!(ids.iter().filter(|i| i.contains("\"attack\"")).count(), 2, "{ids:?}");
+        // xxcha's commander is unlocked, so an Alliance of theirs is worth giving; not to a Mahact.
+        for (partner, faction, offered) in [("hacan", "hacan", true), ("mahact", "mahact", false)] {
+            let (mut state, hub) = table(&[("a", "sol"), ("b", partner), ("c", "xxcha")]);
+            let _ = faction;
+            state.promissory_notes.insert("an:xxcha".to_owned(), p("a"));
+            let (done, ids) = first_screen(state, &hub, scope(), |s| {
+                s.player_mut(&p("c")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("xxchacommander"), ti4_model::state::LeaderStatus::Unlocked);
+            });
+            followed(&done, 1);
+            assert_eq!(ids.iter().any(|i| i == "diplomacy|note|an:xxcha"), offered, "{partner}: {ids:?}");
+        }
+    }
 }

@@ -487,6 +487,48 @@ fn a_planet_card_is_given_sold_and_bought_with_its_units_moving_in_lockstep() {
 }
 
 #[test]
+fn a_planet_card_is_priced_at_the_partners_goods_and_follows_the_rules_version_and_the_owner_of_the_mech() {
+    use ti4_engine_core::generated::Planet;
+    let value = |planet: &ti4_model::id::PlanetId| crate::render::trade::planet_values()[crate::core_adapter::typed::<Planet>(planet.as_str()).unwrap().index()];
+    // The partner holds exactly the price: the sale is offered (`>=`), and its label is the sale's.
+    let (mut state, hub) = sol_hacan();
+    let planets = with_kenara(&mut state, &a());
+    let price = value(&planets[0]);
+    state.player_mut(&b()).unwrap().trade_goods = i32::from(price);
+    let pick = format!("kp{}>{}:{price}", planets[0], planets[1]);
+    let done = plain(state, &hub, &[&pick, "accept"]);
+    assert_eq!(done.traded, [Traded::Offered, Traded::Resolved]);
+    assert_eq!((done.compared, done.bailed), (2, 0), "{:?}", done.reasons);
+    assert_eq!(done.state.player(&b()).unwrap().trade_goods, 0, "the partner paid the price");
+    // Version 17 is the first with the trade; 16 offers none.
+    for (version, offered) in [(16, false), (17, true)] {
+        let (mut state, hub) = sol_hacan();
+        let planets = with_kenara(&mut state, &a());
+        state.rules_version = version;
+        let gift = format!("kp{}>{}:0", planets[0], planets[1]);
+        let content = ContentStore::embedded();
+        let ids: Vec<String> = TradeWindow::open_with_content(&mut state.clone(), content, &a(), &b()).pending_choice(&state, content).unwrap().ids().into_iter().map(str::to_owned).collect();
+        assert_eq!(ids.contains(&gift), offered, "rules version {version}");
+        let done = plain(state, &hub, &["cc1"]);
+        assert_eq!((done.compared, done.bailed), (1, 0), "{:?}", done.reasons);
+    }
+    // A mech of the other seat on my planet is not mine: the partner's Pride of Kenara brings the board into the
+    // window, and the core must not offer me a card for it.
+    let (mut state, hub) = sol_hacan();
+    let theirs = with_kenara(&mut state, &b());
+    let mine = with_kenara(&mut state, &a());
+    let (system, planet) = {
+        let owned = state.controlled_planets(&a());
+        let (s, p) = owned.iter().find(|(_, p)| **p != mine[0]).map(|(s, p)| ((*s).clone(), (*p).clone())).expect("a second planet");
+        (s.clone(), p.clone())
+    };
+    crate::fixtures::put_on_planet(&mut state, &system, &planet, "hacan_mech", &b(), 1);
+    let _ = theirs;
+    let done = plain(state, &hub, &["cc1"]);
+    assert_eq!((done.compared, done.bailed), (1, 0), "{:?}", done.reasons);
+}
+
+#[test]
 fn a_planet_card_whose_mech_left_is_rejected_at_the_accept() {
     let (mut state, hub) = sol_hacan();
     let planets = with_kenara(&mut state, &a());
