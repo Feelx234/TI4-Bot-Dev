@@ -4,7 +4,6 @@
 use crate::containers::{SeatSet, SmallList};
 use crate::generated::{Agenda, Leader, StrategyCard};
 use crate::ids::Seat;
-use crate::keys::Outcome;
 
 /// The one legacy tag `GameState.pending` ever holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,8 +96,6 @@ pub enum Window {
     Scoring(Scoring),
     /// The window of an action- or agenda-timed secret.
     EventScoring(Scoring),
-    /// The talks before the next agenda vote, with structured diplomacy on (`Game.agenda_talks`).
-    AgendaTalks { agenda: Agenda, choices: SmallList<Outcome, 16>, queue: SmallList<Agenda, 8>, seats: SmallList<Seat, 8> },
     /// A kind with no typed payload yet.
     Untyped { kind: WindowKind, actor: Option<Seat>, data: [u32; 3] },
 }
@@ -114,7 +111,6 @@ impl Window {
             Self::AgendaQueueAfterEventScoring(_) => WindowKind::AgendaQueueAfterEventScoring,
             Self::Scoring(_) => WindowKind::Scoring,
             Self::EventScoring(_) => WindowKind::EventScoring,
-            Self::AgendaTalks { .. } => WindowKind::AgendaTalks,
             Self::Untyped { kind, .. } => *kind,
         }
     }
