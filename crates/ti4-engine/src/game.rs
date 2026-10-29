@@ -5231,44 +5231,26 @@ impl<'a> Game<'a> {
             self.diplomacy = None;
             return self.result(false, None);
         };
-        let answer = match self.table.ask_seeing(
-            &choice,
-            &crate::choice::Observed::new(
-                &self.state,
-                self.content,
-                self.sources,
-                self.galaxy.as_ref(),
-            ),
-        ) {
-            Ok(answer) => answer,
-            Err(error) => return self.result(false, Some(error.into())),
-        };
         let mut window = self.diplomacy.take().expect("checked diplomacy window");
         let galaxy = self.galaxy.clone();
         let logged = self.timing.log().len();
         let journal_before = self.state.diplomacy.journal.len();
-        let result = {
-            let (state, table, timing, dice, rng, sequence) = (
-                &mut self.state,
-                &mut self.table,
-                &mut self.timing,
-                &mut self.dice,
-                &mut self.rng,
-                &mut self.event_sequence,
-            );
-            let mut resolving = Resolving {
-                content: self.content,
-                sources: self.sources,
-                dice,
-                rng,
-                table,
-                timing: Some(crate::choice::TimingHandle {
-                    resolver: timing,
-                    sequence,
-                    galaxy: galaxy.as_ref(),
-                }),
-            };
-            window.resolve(state, &mut resolving, answer)
+        // Field borrows, not `self`: the table answers while the position stays readable.
+        let (content, sources) = (self.content, self.sources);
+        let table = &mut self.table;
+        let result = match window.answer_with(
+            &mut self.state,
+            content,
+            sources,
+            galaxy.as_ref(),
+            &choice,
+            |choice, state| table.ask_seeing(choice, &crate::choice::Observed::new(state, content, sources, galaxy.as_ref())),
+        ) {
+            Ok(result) => result,
+            Err(error) => {
+                self.diplomacy = Some(window);
+                return self.result(false, Some(error.into()));
+            }
         };
         self.mirror_timing_log(logged);
         // Accepted immediate transfers are a transaction that happened: Lie in Wait's window and
@@ -5329,24 +5311,18 @@ impl<'a> Game<'a> {
             return self.result(false, None);
         };
         // Field borrows, not `self`: the table answers while the position stays readable.
-        let answer = match self.table.ask_seeing(
+        let (content, sources) = (self.content, self.sources);
+        let table = &mut self.table;
+        let outcome = match self.trade.as_mut().expect("window remains open").answer_with(
+            &mut self.state,
+            content,
+            &galaxy,
             &choice,
-            &crate::choice::Observed::new(
-                &self.state,
-                self.content,
-                self.sources,
-                self.galaxy.as_ref(),
-            ),
+            |choice, state| table.ask_seeing(choice, &crate::choice::Observed::new(state, content, sources, Some(&galaxy))),
         ) {
-            Ok(answer) => answer,
+            Ok(outcome) => outcome,
             Err(error) => return self.result(false, Some(error.into())),
         };
-        let outcome = self.trade.as_mut().expect("window remains open").resolve(
-            &mut self.state,
-            self.content,
-            &galaxy,
-            &answer,
-        );
         // A resolved deal opens Lie in Wait's window. Emitted only on Resolved: the card counts
         // transactions that happened, not offers that were made.
         if matches!(outcome, crate::transactions::Traded::Resolved) {

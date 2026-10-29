@@ -785,7 +785,12 @@ pub(crate) fn lend<T>(
 /// What a window of the mutation halves cannot follow: a question asked inside a battle or an invasion (its
 /// context carries the battle), diplomacy promises a favour keeps, a nested emission.
 pub(crate) fn outside(gs: &GameState, script: &Recording) -> bool {
-    script.nested || gs.active_space_combat.is_some() || gs.active_invasion.is_some() || gs.diplomacy.enabled
+    outside_battle(gs, script) || gs.diplomacy.enabled
+}
+
+/// [`outside`] without the diplomacy clause (the structured negotiation window is the diplomacy feature itself).
+pub(crate) fn outside_battle(gs: &GameState, script: &Recording) -> bool {
+    script.nested || gs.active_space_combat.is_some() || gs.active_invasion.is_some()
 }
 
 const SUSTAIN_COMMANDER: Footprint =
