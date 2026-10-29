@@ -783,6 +783,12 @@ pub(crate) fn tables(gs: &GameState) -> Option<(Ctx, Render)> {
     Some((cx, r))
 }
 
+/// [`tables`] for the tests of other modules.
+#[cfg(test)]
+pub(crate) fn tables_for_tests(gs: &GameState) -> Option<(Ctx, Render)> {
+    tables(gs)
+}
+
 /// One ported state write: `f` on the core state of `gs` over the slices of `fp`, with the seat of `player`
 /// when one is named. `None` (nothing changed) when the position is outside what the core holds (more than 16
 /// owners, a player that has no seat, a value the codecs refuse). The mutation halves (B5 `explore_write`, B7

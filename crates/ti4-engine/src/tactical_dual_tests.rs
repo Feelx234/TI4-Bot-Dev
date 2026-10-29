@@ -379,3 +379,37 @@ fn a_move_that_leaves_the_ion_storm_turns_it_over_and_a_wormhole_hop_is_counted(
     assert_eq!(done.counts("tactical::move"), (1, 0), "{:?}", done.reasons);
     assert_eq!(done.state.ion_storm, Some((origin, "BETA".to_owned())), "the storm flipped");
 }
+
+// -- the typed payload of an open action (the pending window of D1b) -------------------------------------------
+
+#[test]
+fn an_open_hold_round_trips_through_the_typed_payload_and_asks_the_same_question() {
+    use ti4_engine_core::generated::{System, Unit as CUnit};
+    use ti4_engine_core::kernel::stage::Window;
+    use ti4_engine_core::rules::tactical::{Facts, Machine};
+    use ti4_engine_core::state::{Piece, Slice};
+    let (hub, origin, target) = hub();
+    let mut state = sol_hacan();
+    crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+    crate::fixtures::put(&mut state, &origin, "infantry", &a(), 2);
+    state.active_system = Some(target.clone());
+    let (mut cx, r) = crate::dual_window::tables_for_tests(&state).expect("a seated table");
+    let seat = r.seat("a").unwrap();
+    let facts = Facts { pool: r.code("tactic") };
+    let env = crate::core_combat::window_env(&state.clone(), &cx, POK).expect("a kernel");
+    let (origin_c, target_c) = (<System as crate::generated::IdStr>::from_id(origin.as_str()).unwrap(), <System as crate::generated::IdStr>::from_id(target.as_str()).unwrap());
+    let ship = Piece::new(<CUnit as crate::generated::IdStr>::from_id("carrier").unwrap(), seat);
+    let fp = crate::tactical_dual::WINDOW;
+    let src = crate::core_sync::Sources { galaxy: Some(&hub.galaxy), rng: None };
+    let (asked, again) = crate::core_sync::with_core(&mut state, &mut cx, src, fp, |core, _| {
+        let machine = Machine::loading(core, &env.kernel, seat, facts, origin_c, ship, vec![origin_c, target_c], &[0], false);
+        let payload = machine.payload(Default::default());
+        let back = Machine::from_payload(core, &env.kernel, facts, &payload);
+        (machine.ask_of(core, &env.kernel), back.ask_of(core, &env.kernel))
+    })
+    .expect("the lend works");
+    let asked = asked.expect("the hold asks for the second infantry");
+    assert_eq!(asked.opts.len(), 2, "one pickup left and the close");
+    assert_eq!(Some(asked), again, "the machine read back from its payload asks the same question");
+    let _ = Slice::Meta;
+}
