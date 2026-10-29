@@ -113,6 +113,11 @@ impl Family for Fam {
             Opt::Stop if matches!(pick_of(a).1, What::Pull { .. }) => ChoiceOption::labelled("stop", "unit", "stop after one"),
             Opt::Stop if matches!(pick_of(a).1, What::Troops { .. }) => ChoiceOption::labelled("stop", "infantry", "stop after one"),
             Opt::Stop => ChoiceOption::labelled("stop", "ship", "stop after one"),
+            Opt::Steal { from, tech } => {
+                let owner = r.seat_text(*from);
+                let name = crate::technology::name(ContentStore::embedded(), &ti4_model::id::TechnologyId::new(tech.as_str()));
+                ChoiceOption::labelled(format!("{owner}|{}", tech.as_str()), "technology", format!("{owner}'s {name}"))
+            }
             Opt::Move { from, to, kind, count } => {
                 ChoiceOption::labelled(
                     format!("move|{}|{}|{}", from.as_str(), to.as_str(), kind.as_str()),
@@ -211,7 +216,7 @@ impl Family for Fam {
                 "no" => Some(Opt::Answer(false)),
                 _ => None,
             },
-            Ask::Pick { what: What::Cruiser | What::Troops { .. } | What::Pull { .. } | What::Squad { .. }, .. } => None,
+            Ask::Pick { what: What::Cruiser | What::Troops { .. } | What::Pull { .. } | What::Squad { .. } | What::Steal, .. } => None,
             Ask::Pick { what: What::Hull | What::Scuttle { .. }, .. } => {
                 let (system, index) = id.split_once('|')?;
                 // Only the id is read back; the owner and unit form are the question's.
@@ -252,6 +257,7 @@ const fn pick_kind(what: What) -> &'static str {
         What::Land => "planet",
         What::Squad { .. } => "move",
         What::Gain => "player",
+        What::Steal => "technology",
         What::Offer | What::Landing => "planet",
         What::JamWho { .. } => "player",
         What::Accept => "answer",
@@ -319,6 +325,7 @@ const fn pick_prompt(card: ActionCard, what: What) -> &'static str {
         (C::RefitTroops, What::Troops { second: true }) => "Refit Troops: another infantry or stop",
         (C::RefitTroops, _) => "Refit Troops: which infantry to replace",
         (C::Brilliance, _) => "Brilliance: which player gains their own breakthrough",
+        (C::Plagiarize, _) => "Plagiarize: which technology to steal",
         (C::Upgrade, _) => "Upgrade: which cruiser becomes a dreadnought",
         (C::SignalJamming, _) => "Signal Jamming: jam which system",
         (C::GhostShip, _) => "Ghost Ship: into which wormhole system",

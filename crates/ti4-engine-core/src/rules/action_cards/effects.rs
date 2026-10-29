@@ -143,6 +143,8 @@ pub enum Fx {
     Brilliance,
     /// Impersonation: three influence, then a secret objective is drawn (and the hand limit enforced).
     Impersonation,
+    /// Plagiarize: five influence, then a non-faction technology of a neighbour is taken from it.
+    Plagiarize,
 }
 
 impl Fx {
@@ -158,6 +160,13 @@ impl Fx {
         matches!(self, Self::PirateContract | Self::PirateFleet | Self::Mercenary)
     }
 
+    /// Whether the effect gains or researches a technology: the unit forms of the faction modules (the production kernel's
+    /// hooks) decide what an upgrade does to the board.
+    #[must_use]
+    pub const fn technology(self) -> bool {
+        matches!(self, Self::Plagiarize)
+    }
+
     /// Whether the effect reads the game's map (the adapter lends the galaxy; without one it bails).
     #[must_use]
     pub const fn needs_map(self) -> bool {
@@ -170,6 +179,7 @@ impl Fx {
         match self {
             Self::PirateFleet => Some((economy::Spend::Resources, 3)),
             Self::Impersonation => Some((economy::Spend::Influence, 3)),
+            Self::Plagiarize => Some((economy::Spend::Influence, 5)),
             _ => None,
         }
     }
@@ -239,6 +249,7 @@ impl Fx {
             C::HarnessEnergy => Self::Harness,
             C::Brilliance => Self::Brilliance,
             C::Impersonation => Self::Impersonation,
+            C::Plagiarize => Self::Plagiarize,
             _ => return None,
         })
     }
@@ -303,6 +314,10 @@ pub struct Play {
     /// The question the bill's child waits on.
     pay_ask: Option<crate::choice::Ask>,
 }
+
+/// `RULES_PLAGIARIZE_OWNED` and `RULES_ACTION_CARD_COSTS` (`ti4_model::state`).
+const RULES_PLAGIARIZE_OWNED: u32 = 28;
+const RULES_ACTION_CARD_COSTS: u32 = 23;
 
 /// The sides of the die the string `Dice` rolls.
 const DIE_SIDES: u32 = 10;
@@ -403,6 +418,7 @@ impl Play {
             Fx::Mercenary => What::Landing,
             Fx::Ghost => What::Ghost,
             Fx::Upgrade => What::Cruiser,
+            Fx::Plagiarize => What::Steal,
             Fx::Brilliance => What::Gain,
             Fx::Squad => What::Squad { system: self.jam? },
             Fx::Refit => What::Troops { second: self.troop.is_some() },
@@ -460,7 +476,7 @@ impl Play {
     }
 
     /// The options of the card's question, in the string order.
-    fn options(&self, core: &CoreState) -> SmallList<Opt, 16> {
+    fn options(&self, core: &CoreState, k: &Kernel) -> SmallList<Opt, 16> {
         let who = self.who;
         let others = || core.players().iter().map(|p| p.seat).filter(move |s| *s != who);
         match self.fx {
@@ -660,6 +676,33 @@ impl Play {
                 }
                 reach.as_mut_slice().sort_unstable();
                 reach.as_slice().iter().copied().filter(|s| !is_home_system(scope, *s)).map(Opt::System).collect()
+            }
+            Fx::Plagiarize => {
+                let mut near: SmallList<Seat, 2> = SmallList::new();
+                let order = seats::seating_order(core);
+                if let Some(at) = order.as_slice().iter().position(|s| *s == who) {
+                    let n = order.len();
+                    let (before, after) = (order.as_slice()[(at + n - 1) % n], order.as_slice()[(at + 1) % n]);
+                    near.push(before);
+                    if before != after {
+                        near.push(after);
+                    }
+                }
+                let mine = core.players().by_seat(who).map(|p| p.tech.owned);
+                let mut out = SmallList::new();
+                for neighbour in near.as_slice() {
+                    let Some(p) = core.players().by_seat(*neighbour) else { continue };
+                    let mut techs: SmallList<crate::generated::Technology, 40> = p.tech.owned.iter().collect();
+                    techs.as_mut_slice().sort_by(|a, b| (self.env.facts.tech_order)(*a, *b));
+                    for tech in techs.as_slice() {
+                        let non_faction = crate::query::tech::faction_of(*tech).is_none();
+                        let already_mine = self.env.facts.rules_version >= RULES_PLAGIARIZE_OWNED && mine.is_some_and(|m| m.contains(*tech));
+                        if non_faction && !already_mine {
+                            out.push(Opt::Steal { from: *neighbour, tech: *tech });
+                        }
+                    }
+                }
+                out
             }
             Fx::Brilliance => seats::seating_order(core)
                 .as_slice()
@@ -1144,7 +1187,7 @@ impl Play {
 
     /// Apply the chosen option.
     /// Apply the chosen option; `true` when another question of the same card follows.
-    fn apply(&mut self, core: &mut CoreState, seeds: &dyn SeedSource, opt: Opt) -> bool {
+    fn apply(&mut self, core: &mut CoreState, k: &Kernel, seeds: &dyn SeedSource, opt: Opt) -> bool {
         let who = self.who;
         match (self.fx, opt) {
             (Fx::Insubordination, Opt::Seat(target)) => {
@@ -1385,6 +1428,15 @@ impl Play {
                     fx::place_unit(core, neutral, system, None, crate::generated::Unit::NeutralDestroyer);
                 }
             }
+            (Fx::Plagiarize, Opt::Steal { from, tech }) => {
+                fx::grant_technology(core, who, tech);
+                if let Some(roster) = self.env.facts.roster {
+                    crate::kernel::fx_strategy::apply_unit_upgrades(core, k, self.env.scope, roster, who);
+                }
+                if let Some(p) = core.players_mut().by_seat_mut(from) {
+                    p.tech.owned.remove(tech);
+                }
+            }
             (Fx::Brilliance, Opt::Seat(target)) => {
                 let Some(own) = self.env.facts.own_breakthrough.get(usize::from(target.0)).copied().flatten() else { return false };
                 if let Some(p) = core.players_mut().by_seat_mut(target) {
@@ -1493,9 +1545,9 @@ impl Play {
     }
 
     /// Compute the options of the next question and apply the options that need no asking.
-    fn advance(&mut self, core: &mut CoreState, seeds: &dyn SeedSource) {
+    fn advance(&mut self, core: &mut CoreState, k: &Kernel, seeds: &dyn SeedSource) {
         loop {
-            self.opts = self.options(core);
+            self.opts = self.options(core, k);
             match self.opts.as_slice() {
                 [] if self.fx == Fx::Exchange && self.step == 1 => {
                     // Nothing to offer is a failed deal: both sides pay the fleet token.
@@ -1515,7 +1567,7 @@ impl Play {
                 }
                 [only] if self.fx != Fx::Squad => {
                     let only = *only;
-                    if !self.apply(core, seeds, only) {
+                    if !self.apply(core, k, seeds, only) {
                         self.stage = Stage::Done;
                         return;
                     }
@@ -1569,19 +1621,24 @@ impl Play {
             return;
         }
         self.before(sx.state);
+        // Rules version 23: with nothing to take the five influence are never spent (older games paid first).
+        if self.fx == Fx::Plagiarize && self.env.facts.rules_version >= RULES_ACTION_CARD_COSTS && self.options(sx.state, sx.kernel).is_empty() {
+            self.stage = Stage::Done;
+            return;
+        }
         if let Some((kind, cost)) = self.fx.bill() {
             self.pay.start(PayBill::new(self.who, kind, cost));
             self.stage = Stage::Paying;
             self.drive_bill(sx);
             return;
         }
-        self.start_questions(sx.state, sx.seeds);
+        self.start_questions(sx.state, sx.kernel, sx.seeds);
     }
 
     /// What follows a paid bill: the questions of the card, or Impersonation's draw and the hand limit.
     fn after_bill(&mut self, sx: &mut Sx<'_>) {
         if self.fx != Fx::Impersonation {
-            self.start_questions(sx.state, sx.seeds);
+            self.start_questions(sx.state, sx.kernel, sx.seeds);
             return;
         }
         // A deck that has run out draws nothing; the limit is enforced only after a draw.
@@ -1613,7 +1670,7 @@ impl Play {
     }
 
     /// The first question of the card (after the bill, when it has one).
-    fn start_questions(&mut self, core: &mut CoreState, seeds: &dyn SeedSource) {
+    fn start_questions(&mut self, core: &mut CoreState, k: &Kernel, seeds: &dyn SeedSource) {
         if self.fx == Fx::Summit {
             self.stage = Stage::Asking;
             return;
@@ -1622,7 +1679,7 @@ impl Play {
             self.stage = Stage::Done;
             return;
         }
-        self.advance(core, seeds);
+        self.advance(core, k, seeds);
     }
 
     /// Step the bill until it asks or ends; a paid bill goes on to the questions, an unpaid one ends the card.
@@ -1687,7 +1744,7 @@ impl Play {
         if self.stage != Stage::Asking {
             return Err(Illegal);
         }
-        let seeds = sx.seeds;
+        let (seeds, k) = (sx.seeds, sx.kernel);
         let core = &mut *sx.state;
         if self.fx == Fx::Summit {
             let Pick::Opt(crate::choice::Opt::Strategy(crate::choice::strategy::Opt::Pool(pool))) = pick else { return Err(Illegal) };
@@ -1706,8 +1763,8 @@ impl Play {
         if !self.opts.as_slice().contains(&opt) {
             return Err(Illegal);
         }
-        if self.apply(core, seeds, opt) {
-            self.advance(core, seeds);
+        if self.apply(core, k, seeds, opt) {
+            self.advance(core, k, seeds);
         } else {
             self.stage = Stage::Done;
         }
@@ -1835,6 +1892,7 @@ mod tests {
             C::HarnessEnergy,
             C::Brilliance,
             C::Impersonation,
+            C::Plagiarize,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }
@@ -1973,7 +2031,6 @@ mod tests {
             (C::Infiltrate, "the structure swap of the capture (rules version dependent unit forms)"),
             (C::LieInWait, "the neighbours of the map who traded this round (the transactions)"),
             (C::Overrule, "performs the primary ability of another strategy card (the strategy area's windows)"),
-            (C::Plagiarize, "five influence by the question-driven payment, then a technology gained from a neighbour"),
             (C::ExplorationProbe, "the frontier tokens adjacent to the holder's ships (the map)"),
             (C::RevealPrototype, "four resources by the question-driven payment, then a unit upgrade research"),
             (C::ScrambleFrequency, "per-die reroll questions of a staged roll of another seat"),

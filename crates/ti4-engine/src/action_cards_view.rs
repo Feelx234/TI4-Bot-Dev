@@ -250,6 +250,9 @@ fn env_of(state: &GameState, player: &PlayerId, sources: &ti4_model::content_typ
             dreadnought: rules::Placed::NONE,
             mech: rules::Placed::NONE,
             replenish_events: crate::leaders_core::replenish_causes_events(state),
+            rules_version: state.rules_version,
+            tech_order: |a, b| crate::generated::IdStr::as_str(a).cmp(crate::generated::IdStr::as_str(b)),
+            roster: crate::technology_core::roster_for(ti4_content::ContentStore::embedded(), sources.clone()),
             fracture_in_play: state.fracture_in_play,
             own_breakthrough: own_breakthroughs(state, r),
             unit_order: |a, b| crate::generated::IdStr::as_str(a).cmp(crate::generated::IdStr::as_str(b)),
@@ -355,7 +358,9 @@ pub fn play_window(
     };
     let lent = lend_rolls(alias, before_rolls, "action_cards::play")?;
     let before = gs.clone();
-    let kernel = Kernel::plain();
+    let technology = rules::effects::Fx::of(card).is_some_and(rules::effects::Fx::technology);
+    let plain = Kernel::plain();
+    let kernel = if technology { crate::production_view::kernel() } else { &plain };
     let mut staged = Vec::new();
     let mut emitted = Vec::new();
     let mut faces = Vec::new();
@@ -497,7 +502,8 @@ pub fn announce_window(
     let letnev = gs.player(player)?.faction.as_str() == "letnev";
     let before = gs.clone();
     let window = crate::core_combat::window_env(gs, &cx, sources.clone())?;
-    let kernel = &window.kernel;
+    let technology = rules::effects::Fx::of(card).is_some_and(rules::effects::Fx::technology);
+    let kernel = if technology { crate::production_view::kernel() } else { &window.kernel };
     let mut staged = Vec::new();
     let mut emitted = Vec::new();
     let mut played = None;

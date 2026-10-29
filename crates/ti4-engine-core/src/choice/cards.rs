@@ -55,6 +55,8 @@ pub enum What {
     Hull,
     /// kind `ship`: a ship Scuttle returns; the second question (`second`) also offers to stop after one.
     Scuttle { second: bool },
+    /// kind `technology`, id `<neighbour>|<tech>`, label `<neighbour>'s <name>`: the technology Plagiarize takes.
+    Steal,
     /// kind `player`, label `<seat> gains their own breakthrough`: whose breakthrough Brilliance gives.
     Gain,
     /// kind `move`, subtype `ghost_squad_move`, with a decline: a move of ground forces between the planets of `system`.
@@ -144,6 +146,7 @@ pub enum Opt {
     /// A unit on a planet: the system, the planet and its place in the planet's unit list (`What::Troops`).
     Troop { system: System, planet: Planet, index: u8, kind: crate::generated::Unit },
     /// Every ground force of one type moves from a planet to another (`What::Squad`).
+    Steal { from: Seat, tech: crate::generated::Technology },
     Move { from: Planet, to: Planet, kind: crate::generated::Unit, count: u8 },
 }
 

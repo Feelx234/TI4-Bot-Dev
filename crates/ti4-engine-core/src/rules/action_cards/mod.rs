@@ -362,6 +362,12 @@ pub struct Facts {
     /// A replenishment at this table causes events the core does not hold (a Cabal, a siphoning Firmament plot, a Trade Agreement
     /// in play): Harness Energy is the string's.
     pub replenish_events: bool,
+    /// `GameState::rules_version` (Plagiarize's rules changed at 23 and 28).
+    pub rules_version: u32,
+    /// The order of technologies by their id text (the string keeps a seat's technologies in a set of ids).
+    pub tech_order: fn(crate::generated::Technology, crate::generated::Technology) -> core::cmp::Ordering,
+    /// The faction units of the scope (a unit upgrade changes the units on the board).
+    pub roster: Option<&'static crate::query::tech::UnitRoster>,
     /// The Fracture is in play already (a breakthrough gained then rolls nothing).
     pub fracture_in_play: bool,
     /// The breakthrough of each seat's faction (`breakthroughs::for_faction`), by seat.
@@ -372,7 +378,7 @@ pub struct Facts {
 
 impl Default for Facts {
     fn default() -> Self {
-        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE, dreadnought: Placed::NONE, mech: Placed::NONE, replenish_events: false, fracture_in_play: false, own_breakthrough: [None; 16], unit_order: |a, b| a.cmp(&b) }
+        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE, dreadnought: Placed::NONE, mech: Placed::NONE, replenish_events: false, rules_version: u32::MAX, tech_order: |a, b| a.cmp(&b), roster: None, fracture_in_play: false, own_breakthrough: [None; 16], unit_order: |a, b| a.cmp(&b) }
     }
 }
 

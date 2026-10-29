@@ -505,3 +505,42 @@ fn impersonation_pays_draws_a_secret_and_enforces_the_hand_limit_in_the_core_win
     assert_eq!(after.player(&a).unwrap().secret_objectives.len(), 3, "not paid: nothing drawn");
     let _ = crate::dual::take_report();
 }
+
+/// Plagiarize: five influence, then a non-faction technology of a neighbour (not one the holder owns, below rules version 28
+/// any) is taken from it; a unit upgrade reaches the board.
+#[test]
+fn plagiarize_pays_five_influence_and_takes_a_neighbours_technology_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let (a, b, c) = (PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c"));
+    let mut state = closing_position();
+    state.exhausted_planets.clear();
+    state.player_mut(&a).unwrap().trade_goods = 6;
+    let tech = |s: &str| ti4_model::TechnologyId::new(s);
+    state.player_mut(&b).unwrap().technologies = ["nm", "gd", "amd", "cr2", "lw2"].iter().map(|t| tech(t)).collect();
+    state.player_mut(&c).unwrap().technologies = ["ps", "dxa", "hm"].iter().map(|t| tech(t)).collect();
+    state.player_mut(&a).unwrap().technologies = ["gd"].iter().map(|t| tech(t)).collect();
+    // The holder's cruisers become cruiser IIs when the upgrade is taken.
+    let mut old = state.clone();
+    old.rules_version = 27;
+    let mut new = state.clone();
+    new.rules_version = ti4_model::state::RULES_VERSION;
+    // Nothing to take: the five influence are not spent (rules version 23 and later).
+    let mut bare = state.clone();
+    bare.player_mut(&b).unwrap().technologies.clear();
+    bare.player_mut(&c).unwrap().technologies.clear();
+    let mut poor = state.clone();
+    poor.player_mut(&a).unwrap().trade_goods = 0;
+    for board in poor.board.values_mut() {
+        board.planet_control.retain(|_, owner| *owner != a);
+    }
+    for case in [&old, &new, &bare, &poor] {
+        announce_all(&[("plagiarize", case.clone())]);
+    }
+    let _ = crate::dual::take_report();
+    let after = played("plagiarize", &new);
+    assert_eq!(after.player(&a).unwrap().technologies.len(), 2, "one technology taken");
+    assert_eq!(after.player(&a).unwrap().trade_goods, 1, "five influence paid");
+    let after = played("plagiarize", &bare);
+    assert_eq!(after.player(&a).unwrap().trade_goods, 6, "nothing to take: nothing spent");
+    let _ = crate::dual::take_report();
+}
