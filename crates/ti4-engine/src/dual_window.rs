@@ -737,6 +737,11 @@ fn nested_position(choice: &CoreChoice, ctx: crate::decision_context::DecisionCo
     }
 }
 
+/// Whether a question is the combat area's own (a casualty to choose), not one a reaction window or an ability asks inside it.
+fn is_combat_ask(choice: &CoreChoice) -> bool {
+    matches!(choice.ask, ti4_engine_core::choice::Ask::Combat(_))
+}
+
 /// Whether a nested question is the window's own pick (the one that carries the `active` detail of the action phase).
 fn is_window_pick(choice: &CoreChoice) -> bool {
     matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(ti4_engine_core::choice::reaction::Ask::Window { .. }))
@@ -1204,7 +1209,11 @@ pub fn assign_hits(
         crate::decision_context::HitRestriction::Any
     };
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(ASSIGN_HITS, script), |core, _| {
-        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, rendered| {
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|choice, _, rendered| {
+            // Only the casualty question describes a hit: a reaction window the loss opens inside it (its pick) does not.
+            if !is_combat_ask(choice) {
+                return;
+            }
             if let Some(context) = rendered.context.take() {
                 rendered.context = Some(context.with_hit(crate::decision_context::HitDetail {
                     cause: a.cause_kind,
@@ -1525,6 +1534,9 @@ pub fn assault_cannon(
     let (att_id, def_id) = (a.attacker.clone(), a.defender.clone());
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(ASSIGN_HITS, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|choice, _, rendered| {
+            if !is_combat_ask(choice) {
+                return;
+            }
             let producer = if choice.actor == attacker { def_id.clone() } else { att_id.clone() };
             if let Some(context) = rendered.context.take() {
                 rendered.context = Some(context.with_hit(crate::decision_context::HitDetail {

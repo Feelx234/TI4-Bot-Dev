@@ -10693,6 +10693,55 @@ mod tests {
         assert!(bailed > 0, "a Waylay was played in the barrage and the window bailed");
     }
 
+    /// A reaction window the loss of a ship opens inside the hit assignment (Crash Landing, when the last ship falls) is not a hit's
+    /// question: its pick carries no hit detail, in the string and in the core window; found by the soak (space cannon hits).
+    #[test]
+    fn a_reaction_inside_the_hit_assignment_carries_no_hit_detail() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        struct Decline;
+        impl crate::choice::Decider for Decline {
+            fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+                let i = choice.options.iter().position(|o| o.id == "decline").unwrap_or(0);
+                choice.options.get(i).cloned().ok_or_else(|| IllegalChoice::NoOptions { player: choice.player.clone(), prompt: choice.prompt.clone() })
+            }
+        }
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        for seed in 0..4_u64 {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "mentak")], ti4_model::content_types::DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = seed;
+            let (system, _planet) = crate::fixtures::a_placed_planet();
+            state.active_system = Some(system.clone());
+            state.active = Some(attacker());
+            put(&mut state, &system, "cruiser", &defender(), 1);
+            put(&mut state, &system, "infantry", &defender(), 1);
+            state.player_mut(&defender()).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("crashlanding")];
+            with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+                let mut table = Table::with_default(Box::new(Decline));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                absorb_hits_seeing_with(&mut state, ContentStore::embedded(), ti4_model::content_types::DEFAULT, None, &mut ctx, &defender(), &system, &attacker(), 1, false, HitOrigin::UnitAbility).unwrap();
+            });
+        }
+        let r = report();
+        let compared = r.windows.get("combat::assign_hits").map_or(0, |w| w.compared);
+        let offered = r.nested.keys().filter(|k| k.contains("reaction:*:SHIP_DESTROYED:when")).count();
+        assert!(offered > 0 && compared > 0, "Crash Landing was offered inside a compared assignment: {offered} {compared} {:?} {:?}", r.windows, r.nested);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+        let _ = take_report();
+    }
+
     /// Tellurian in the anti-fighter barrage window: the agent's cancellation is spent on the barrage's hits before the
     /// fighters are taken, by the core barrage window as by the string `apply_barrage`.
     #[test]
