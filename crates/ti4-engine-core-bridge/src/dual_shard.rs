@@ -111,6 +111,7 @@ pub fn report_to_json(r: &DualReport) -> Value {
     let windows: Map<String, Value> =
         r.windows.iter().map(|(l, w)| (l.clone(), json!({ "compared": w.compared, "bailed": w.bailed }))).collect();
     let nested: Map<String, Value> = r.nested.iter().map(|(k, n)| (k.clone(), json!(n))).collect();
+    let plain: Map<String, Value> = r.plain.iter().map(|(k, n)| (k.clone(), json!(n))).collect();
     let differences: Vec<Value> = r
         .differences
         .iter()
@@ -121,7 +122,7 @@ pub fn report_to_json(r: &DualReport) -> Value {
             })
         })
         .collect();
-    json!({ "areas": areas, "hooks": hooks, "windows": windows, "nested": nested, "differences": differences, "dropped": r.dropped })
+    json!({ "areas": areas, "hooks": hooks, "windows": windows, "nested": nested, "plain": plain, "differences": differences, "dropped": r.dropped })
 }
 
 fn u64_of(v: &Value, what: &str) -> Result<u64, String> {
@@ -184,6 +185,12 @@ pub fn report_from_json(v: &Value) -> Result<DualReport, String> {
     }
     for (sig, n) in object_at(v, "nested")? {
         r.nested.insert(sig.clone(), u64_of(n, sig)?);
+    }
+    // Written since package P1.1; a file without it has no census.
+    if let Some(plain) = v.get("plain").and_then(Value::as_object) {
+        for (key, n) in plain {
+            r.plain.insert(key.clone(), u64_of(n, key)?);
+        }
     }
     for d in v.get("differences").and_then(Value::as_array).ok_or("missing `differences`")? {
         let area_name = str_of(d, "area")?;

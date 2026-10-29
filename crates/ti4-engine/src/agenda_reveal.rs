@@ -45,6 +45,7 @@ pub fn mirror_timing_log(timing: &Resolver, events: &mut Vec<String>, from: usiz
         .filter_map(|line| line.strip_prefix("emit "))
         .map(|line| line.split('#').next().unwrap_or(line).to_owned())
         .collect();
+    crate::dual_window::note_mirrored_events(&emitted);
     events.extend(emitted);
 }
 
@@ -109,6 +110,7 @@ pub fn lent_notes(state: &GameState, alias: &str) -> Vec<(String, PlayerId, Play
 
 impl Live<'_> {
     pub fn emit(&mut self, event: &str) {
+        crate::dual_window::note_plain_event(event);
         self.events.push(event.to_owned());
     }
 

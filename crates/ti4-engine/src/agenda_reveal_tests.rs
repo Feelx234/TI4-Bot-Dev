@@ -385,3 +385,72 @@ fn political_favor_is_not_offered_with_an_empty_deck() {
     });
     ok(compared, bailed, &diff);
 }
+
+// -- the plain events of the reveal (package P1.1) --------------------------------------------------------------
+
+/// The report of one reveal run under `agenda=dual` (the lock held, the windows counted).
+fn dual_report<T>(body: impl FnOnce() -> T) -> (T, crate::dual::DualReport, (u64, u64)) {
+    let _guard = crate::dual::tests::serial();
+    let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();
+    let _ = take_report();
+    let before = local_windows(LABEL);
+    let out = with_mask(mask, body);
+    let report = take_report();
+    let (c, b) = local_windows(LABEL);
+    (out, report, (c - before.0, b - before.1))
+}
+
+#[test]
+fn the_plain_events_of_the_reveal_are_counted_and_compared_with_the_core_windows() {
+    let (found, report, windows) = dual_report(|| {
+        let mut g = game(position(2, &["committee", "conventions"]), &["use", "decline"]);
+        (reveal(&mut g, "secret").map(|f| f.0), g.events.clone())
+    });
+    assert_eq!(windows, (1, 0), "{report}");
+    assert_eq!(report.total_differences(), 0, "{report}");
+    let (agenda, events) = found;
+    assert_eq!(agenda.as_deref(), Some("committee"));
+    // `Game::events` holds the plain texts and the mirrored typed names, in the order they were pushed.
+    let plain: Vec<&str> = events.iter().map(String::as_str).filter(|e| e.contains(':') || e.ends_with("_USED")).collect();
+    assert_eq!(plain, ["AGENDA_REVEALED:secret", "QUASH_USED", "AGENDA_DISCARDED:secret", "AGENDA_REVEALED:committee"]);
+    let census = |name: &str| report.plain.get(&format!("{LABEL} | {name}")).copied().unwrap_or(0);
+    assert_eq!((census("AGENDA_REVEALED"), census("QUASH_USED"), census("AGENDA_DISCARDED")), (2, 1, 1), "{:?}", report.plain);
+}
+
+#[test]
+fn the_core_reveal_that_forgets_a_plain_event_is_a_difference() {
+    // The harness half of the mutation check: the two sides give different plain lists for one window.
+    use crate::dual::{Area, Run, compare_runs};
+    let _guard = crate::dual::tests::serial();
+    let _ = take_report();
+    let state = position(2, &["committee"]);
+    let string = Run::new(1).with_plain(vec!["AGENDA_REVEALED:secret".to_owned(), "QUASH_USED".to_owned()]);
+    let core = Run::new(1).with_plain(vec!["AGENDA_REVEALED:secret".to_owned()]);
+    assert!(!compare_runs(Area::AgendaLaws, LABEL, &state, &string, &state, &core));
+    let report = take_report();
+    assert_eq!(report.total_differences(), 1, "{report}");
+    assert!(report.differences[0].label.ends_with(".plain"), "{}", report.differences[0]);
+    // A side that gives no list compares nothing.
+    let silent = Run::new(1);
+    assert!(compare_runs(Area::AgendaLaws, LABEL, &state, &string, &state, &silent));
+    assert_eq!(take_report().total_differences(), 0);
+}
+
+#[test]
+fn plain_events_pushed_outside_any_window_are_counted_under_the_game() {
+    let _guard = crate::dual::tests::serial();
+    let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();
+    let _ = take_report();
+    with_mask(mask, || {
+        crate::dual_window::note_plain_event("TURN_PASSED");
+        crate::dual_window::note_plain_event("LEADER_UNLOCKED:sol_hero");
+        crate::dual_window::note_plain_event("LEADER_UNLOCKED:l1z1x_hero");
+    });
+    let report = take_report();
+    assert_eq!(report.plain.get("(game) | TURN_PASSED"), Some(&1), "{:?}", report.plain);
+    assert_eq!(report.plain.get("(game) | LEADER_UNLOCKED"), Some(&2), "the argument is not part of the name");
+    // Nothing is counted when no area is on Dual (the production path).
+    let _ = take_report();
+    with_mask(AreaMask::all(Backend::String), || crate::dual_window::note_plain_event("TURN_PASSED"));
+    assert!(take_report().plain.is_empty());
+}

@@ -159,6 +159,12 @@ impl AreaMask {
         }
     }
 
+    /// Whether some area runs on `Dual` (the harness is on: the plain-event census counts).
+    #[must_use]
+    pub const fn any_dual(self) -> bool {
+        self.dual != 0
+    }
+
     /// The build's default: every merged area on `Core` unless its `string-<area>` feature forces
     /// the string path; without `typed-core` nothing is compiled for `Core`.
     #[must_use]
@@ -398,6 +404,10 @@ pub struct DualReport {
     /// The nested activity of the window runs that had any (`Recording::nested`): `"label | events | abilities"`
     /// with the number of runs (the census of docs/ENGINE_REACTIONS.md; printed with `TI4_NESTED_LOG`).
     pub nested: BTreeMap<String, u64>,
+    /// The plain events (`Game::emit`, `Live::emit`: strings with no typed home in the core) the string side pushed to
+    /// `Game::events` while the dual was on: `"label | NAME"` with the number of pushes, `label` being the window that was
+    /// running (`"(game)"` outside any). Package P1.1; printed with `TI4_PLAIN_LOG`.
+    pub plain: BTreeMap<String, u64>,
     /// The first [`MAX_KEPT`] differences.
     pub differences: Vec<Difference>,
     /// Differences beyond [`MAX_KEPT`] (counted only).
@@ -466,6 +476,9 @@ impl DualReport {
         for (sig, n) in &other.nested {
             *self.nested.entry(sig.clone()).or_default() += n;
         }
+        for (key, n) in &other.plain {
+            *self.plain.entry(key.clone()).or_default() += n;
+        }
         for d in &other.differences {
             if self.differences.len() < MAX_KEPT {
                 self.differences.push(d.clone());
@@ -524,6 +537,15 @@ impl fmt::Display for DualReport {
             rows.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
             for (sig, n) in rows {
                 writeln!(f, "    {n:>6}  {sig}")?;
+            }
+        }
+        if !self.plain.is_empty() {
+            let total: u64 = self.plain.values().sum();
+            writeln!(f, "  plain events: {} (label, name) pairs, {total} pushes (no core home yet; TI4_PLAIN_LOG=1 lists them)", self.plain.len())?;
+            if std::env::var_os("TI4_PLAIN_LOG").is_some() {
+                for (key, n) in &self.plain {
+                    writeln!(f, "    {n:>6}  {key}")?;
+                }
             }
         }
         for d in &self.differences {
@@ -1020,12 +1042,21 @@ pub struct Run<R> {
     pub rng: Option<RngPositions>,
     pub dice: Option<Vec<Roll>>,
     pub record: Option<DecisionRecord>,
+    /// The plain events (`NAME` or `NAME:argument`, as `Game::events` holds them) the call pushed, in order (package P1.1).
+    pub plain: Option<Vec<String>>,
 }
 
 impl<R> Run<R> {
     #[must_use]
     pub const fn new(value: R) -> Self {
-        Self { value, choice: None, events: None, rng: None, dice: None, record: None }
+        Self { value, choice: None, events: None, rng: None, dice: None, record: None, plain: None }
+    }
+
+    /// The plain events this call pushed. Only compared when both sides give them.
+    #[must_use]
+    pub fn with_plain(mut self, plain: Vec<String>) -> Self {
+        self.plain = Some(plain);
+        self
     }
 
     /// The decision this call opened (`None`: it opened none).
@@ -1094,6 +1125,9 @@ pub fn compare_runs<R: PartialEq + Debug>(
     }
     if let (Some(a), Some(b)) = (&string_run.dice, &core_run.dice) {
         ok &= compare_dice(area, label, a, b);
+    }
+    if let (Some(a), Some(b)) = (&string_run.plain, &core_run.plain) {
+        ok &= compare_value(area, &format!("{label}.plain"), a, b);
     }
     ok
 }
@@ -1199,6 +1233,7 @@ pub fn run_dual_window<R: PartialEq + Debug>(
     let mut core_state = state.clone();
     let mut string_run = string(state);
     let recording = crate::dual_window::finish();
+    crate::dual_window::census_plain(label, &recording.plain);
     if recording.nested {
         let sig = recording.signature();
         with_report(|r| *r.nested.entry(format!("{label} | {sig}")).or_default() += 1);
@@ -1210,6 +1245,9 @@ pub fn run_dual_window<R: PartialEq + Debug>(
     };
     note_window(label, true);
     string_run.events = Some(crate::dual_window::normalized(&recording.emits));
+    if core_run.run.plain.is_some() {
+        string_run.plain = Some(recording.plain.clone());
+    }
     let ok = compare_value(area, &format!("{label}.questions"), &recording.questions.len(), &core_run.questions.len());
     if ok {
         for (asked, rendered) in recording.questions.iter().zip(&core_run.questions) {
@@ -1218,6 +1256,15 @@ pub fn run_dual_window<R: PartialEq + Debug>(
     }
     compare_runs(area, label, state, &string_run, &core_state, &core_run.run);
     string_run.value
+}
+
+/// Count plain events by `name` under `label` (the census of package P1.1).
+pub(crate) fn note_plain<'a>(label: &str, names: impl IntoIterator<Item = &'a str>) {
+    with_report(|r| {
+        for name in names {
+            *r.plain.entry(format!("{label} | {name}")).or_default() += 1;
+        }
+    });
 }
 
 /// Count a bail-out of a window adapter under `label` and its `why` (shown in the report next to the window's

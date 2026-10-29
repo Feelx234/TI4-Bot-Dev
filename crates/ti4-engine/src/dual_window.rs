@@ -93,6 +93,11 @@ pub struct Recording {
     /// The destinations a Skilled Retreat found for `(player, system)`, as the string's map computed them (the core is lent
     /// no galaxy): an input of the card, noted by its effect.
     pub withdraw: Vec<(String, String, Vec<String>)>,
+    /// The plain events (`Game::emit`, `Live::emit`) the string pushed to `Game::events` while the window ran, as pushed
+    /// (`NAME` or `NAME:argument`), in order (package P1.1).
+    pub plain: Vec<String>,
+    /// The typed events the string mirrored from the timing log into `Game::events` while the window ran (names only).
+    pub mirrored: Vec<String>,
     effect_depth: u32,
     in_pick: u32,
     /// The emission depth the window started at: a window may itself run inside an emission (an ability's
@@ -169,6 +174,55 @@ pub fn start() -> bool {
 /// End the recording and take it.
 pub fn finish() -> Recording {
     REC.with(|r| r.borrow_mut().take()).unwrap_or_default()
+}
+
+/// Whether the plain-event census counts (some area on `Dual`): a push to `Game::events` costs one load otherwise.
+fn plain_census_on() -> bool {
+    cfg!(feature = "typed-core") && crate::dual::mask().any_dual()
+}
+
+/// A plain event was pushed to `Game::events` (`Game::emit`, `Live::emit`, the two `LEADER_UNLOCKED:` pushes): the window
+/// recording keeps it, outside a window the census counts it under `(game)`.
+pub fn note_plain_event(text: &str) {
+    if !plain_census_on() {
+        return;
+    }
+    let kept = REC.with(|r| match r.borrow_mut().as_mut() {
+        Some(rec) => {
+            rec.plain.push(text.to_owned());
+            true
+        }
+        None => false,
+    });
+    if !kept {
+        census_plain("(game)", &[text.to_owned()]);
+    }
+}
+
+/// Typed events were mirrored from the timing log into `Game::events` (`mirror_timing_log`).
+pub fn note_mirrored_events(names: &[String]) {
+    if !plain_census_on() {
+        return;
+    }
+    REC.with(|r| {
+        if let Some(rec) = r.borrow_mut().as_mut() {
+            rec.mirrored.extend(names.iter().cloned());
+        }
+    });
+}
+
+/// The name of a plain event text: `LEADER_UNLOCKED:sol_hero` is `LEADER_UNLOCKED`.
+#[must_use]
+pub fn plain_name(text: &str) -> &str {
+    text.split(':').next().unwrap_or(text)
+}
+
+/// Count `plain` (texts as pushed) under `label` in the report's census.
+pub fn census_plain(label: &str, plain: &[String]) {
+    if plain.is_empty() {
+        return;
+    }
+    crate::dual::note_plain(label, plain.iter().map(|t| plain_name(t)));
 }
 
 /// A question was put (`Table::ask*`).

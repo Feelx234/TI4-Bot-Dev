@@ -83,5 +83,26 @@ pub fn reveal(
         None
     };
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
-    Some(CoreWindow { run: Run::new(found).with_events_vec(events), questions: driven.rendered })
+    let mut run = Run::new(found).with_events_vec(events);
+    if driven.finished && !driver.window.failed() {
+        run = run.with_plain(plain_texts(driver.window.plain(), &r)?);
+    }
+    Some(CoreWindow { run, questions: driven.rendered })
+}
+
+/// The plain events of the string's `Game::emit` that the core window made, as `Game::events` holds them (package P1.1).
+fn plain_texts(plain: &[ti4_engine_core::rules::agenda::reveal::PlainEv], r: &crate::render::Render) -> Option<Vec<String>> {
+    use ti4_engine_core::rules::agenda::reveal::PlainEv;
+    plain
+        .iter()
+        .map(|p| {
+            Some(match p {
+                PlainEv::Revealed(a) => format!("AGENDA_REVEALED:{}", a.as_str()),
+                PlainEv::Discarded(a) => format!("AGENDA_DISCARDED:{}", a.as_str()),
+                PlainEv::QuashUsed => "QUASH_USED".to_owned(),
+                PlainEv::FavorUsed => "POLITICAL_FAVOR_USED".to_owned(),
+                PlainEv::SecretUsed(owner) => format!("POLITICAL_SECRET_USED:{}", r.seats.get(usize::from(owner.0))?),
+            })
+        })
+        .collect()
 }

@@ -8,8 +8,9 @@
 //! into the window), logged as replaced and the chain continues from the replacement. The agenda that stays is
 //! offered to the holders of Political Secret and the window ends with it and its outcomes.
 //!
-//! Not in the core (and not compared): the plain events (`AGENDA_DISCARDED`, `QUASH_USED`, `POLITICAL_FAVOR_USED`,
-//! `POLITICAL_SECRET_USED`) of the string's `Game::emit`.
+//! The plain events of the string's `Game::emit` (`AGENDA_REVEALED:{agenda}`, `AGENDA_DISCARDED:{agenda}`, `QUASH_USED`,
+//! `POLITICAL_FAVOR_USED`, `POLITICAL_SECRET_USED:{owner}`) have no typed home in the core yet (package P1.2); the window
+//! keeps what it would make as [`PlainEv`]s, in order, so the dual can compare them with the string's (package P1.1).
 
 use super::covert::CovertDraw;
 use super::window::KernelEnv;
@@ -48,6 +49,21 @@ pub struct Facts {
     pub secret: Code,
 }
 
+/// A plain event of the string's `Game::emit` that the window makes (see the module docs).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlainEv {
+    /// `AGENDA_REVEALED:{agenda}`: every pass of the loop, before the outcomes are read.
+    Revealed(Agenda),
+    /// `AGENDA_DISCARDED:{agenda}`: nothing to elect, or replaced by Quash, Political Favor or a Veto.
+    Discarded(Agenda),
+    /// `QUASH_USED`.
+    QuashUsed,
+    /// `POLITICAL_FAVOR_USED`.
+    FavorUsed,
+    /// `POLITICAL_SECRET_USED:{owner}`.
+    SecretUsed(Seat),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage {
     /// The top of the loop (not a suspension point).
@@ -84,6 +100,8 @@ pub struct Reveal {
     choices: SmallList<Outcome, 16>,
     /// The emission failed (the string returns the error).
     failed: bool,
+    /// The plain events the window made, in order.
+    plain: SmallList<PlainEv, 16>,
 }
 
 impl Reveal {
@@ -99,7 +117,14 @@ impl Reveal {
             result: None,
             choices: SmallList::new(),
             failed: false,
+            plain: SmallList::new(),
         }
+    }
+
+    /// The plain events the window made so far, in order.
+    #[must_use]
+    pub fn plain(&self) -> &[PlainEv] {
+        self.plain.as_slice()
     }
 
     /// The agenda that goes to the vote and its outcomes; `None` when nothing was left to elect.
@@ -125,8 +150,10 @@ impl Reveal {
         loop {
             let meta = sx.state.meta_mut();
             meta.agenda_seq = meta.agenda_seq.saturating_add(1);
+            self.plain.push(PlainEv::Revealed(self.alias));
             let choices = self.reveal_choices(sx);
             if choices.is_empty() {
+                self.plain.push(PlainEv::Discarded(self.alias));
                 if !sx.state.meta().rules_at_least(RULES_AGENDA_GRANT_REVEAL) {
                     return true;
                 }
@@ -292,6 +319,7 @@ impl Window for Reveal {
                     }
                     // Replaced (Quash, Favor, or a Veto played into the window): log it and reveal the replacement.
                     if let Some(replacement) = sx.state.agenda_mut().veto_replacement.take() {
+                        self.plain.push(PlainEv::Discarded(self.alias));
                         if sx.state.meta().rules_at_least(RULES_AGENDA_GRANT_REVEAL) {
                             fx_agenda::log_discarded(sx.state, self.alias, is_law(self.alias), self.facts.replaced);
                         }
@@ -357,7 +385,9 @@ impl Window for Reveal {
                     }
                     Self::spent(sx, o.holder, self.facts.quash);
                     // The offer ends with the first user, with or without a replacement to hand over.
-                    Self::replace(sx);
+                    if Self::replace(sx) {
+                        self.plain.push(PlainEv::QuashUsed);
+                    }
                     self.at = self.offers.len();
                 }
                 Stage::Favor => {
@@ -365,8 +395,11 @@ impl Window for Reveal {
                         p.econ.strategic_tokens -= 1;
                     }
                     Self::spent(sx, o.owner, self.facts.favor);
-                    if Self::replace(sx) && let Some(note) = o.note {
-                        fx::give_back_note(sx.state, note);
+                    if Self::replace(sx) {
+                        if let Some(note) = o.note {
+                            fx::give_back_note(sx.state, note);
+                        }
+                        self.plain.push(PlainEv::FavorUsed);
                     }
                     self.at = self.offers.len();
                 }
@@ -375,6 +408,7 @@ impl Window for Reveal {
                     if let Some(note) = o.note {
                         fx::give_back_note(sx.state, note);
                     }
+                    self.plain.push(PlainEv::SecretUsed(o.owner));
                     self.at += 1;
                 }
             },

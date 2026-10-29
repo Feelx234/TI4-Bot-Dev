@@ -2043,7 +2043,7 @@ impl<'a> Game<'a> {
             self.galaxy.as_ref(),
             active,
         ) {
-            self.events.push(format!("LEADER_UNLOCKED:{leader}"));
+            self.emit(&format!("LEADER_UNLOCKED:{leader}"));
         }
     }
 
@@ -5634,7 +5634,7 @@ impl<'a> Game<'a> {
                 &player,
             );
             for leader in unlocked {
-                self.events.push(format!("LEADER_UNLOCKED:{leader}"));
+                self.emit(&format!("LEADER_UNLOCKED:{leader}"));
             }
         }
         match resolve_before_token_gain_with(&mut self.state, Some((self.content, &mut self.table)))
@@ -6982,6 +6982,7 @@ impl<'a> Game<'a> {
     }
 
     fn emit(&mut self, event: &str) {
+        crate::dual_window::note_plain_event(event);
         self.events.push(event.to_owned());
     }
 
