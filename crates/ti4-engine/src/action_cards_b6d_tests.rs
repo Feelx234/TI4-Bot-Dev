@@ -822,3 +822,32 @@ fn strategize_asks_which_card_to_perform_and_performs_the_trade_and_imperial_sec
     assert_eq!(after.player(&a).unwrap().secret_objectives.len(), 3, "over the limit: drawn, then handed back");
     let _ = crate::dual::take_report();
 }
+
+/// The Politics secondary draws two action cards; the Technology secondary pays four resources (the question-driven payment) and
+/// researches (the research window of the strategy area, as a child of the card).
+#[test]
+fn strategize_performs_the_politics_and_technology_secondaries_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let a = PlayerId::new("a");
+    let draw = strategy_position(&[], &[], &[], &["pok3politics"]);
+    let research = strategy_on(research_position(), &[], &[], &[], &["pok7technology"]);
+    // The pick among the two: the first and the last card are different abilities.
+    let both = strategy_on(research_position(), &["pok3politics"], &[], &[], &["pok7technology"]);
+    // Four resources are not there: the research is not asked.
+    let mut poor = research.clone();
+    poor.player_mut(&a).unwrap().trade_goods = 0;
+    for board in poor.board.values_mut() {
+        board.planet_control.retain(|_, owner| *owner != a);
+    }
+    for case in [&draw, &research, &both, &poor] {
+        announce_all(&[("strategize1", case.clone())]);
+    }
+    let _ = crate::dual::take_report();
+    let after = played("strategize2", &draw);
+    assert_eq!(after.player(&a).unwrap().action_cards.len(), 2, "the played card is gone and two action cards were drawn");
+    let after = played_by("strategize3", &research, Box::new(crate::action_cards_closing_tests::FirstOption));
+    assert_eq!(after.player(&a).unwrap().technologies.len(), research.player(&a).unwrap().technologies.len() + 1, "one technology researched");
+    let after = played("strategize4", &poor);
+    assert_eq!(after.player(&a).unwrap().technologies.len(), poor.player(&a).unwrap().technologies.len(), "four resources are not there");
+    let _ = crate::dual::take_report();
+}
