@@ -86,20 +86,21 @@ fn begin_one_move(m: &mut Machine, sx: &mut Sx<'_>, origin: System, index: u16, 
         Illegal
     })?;
     let rules = reach.rules_for(sx.state, sx.kernel, active);
-    let (path, gd, ionian) = if route == 0 {
-        let value = reach::effective_move_value_for_ship(sx.state, sx.kernel, seat, origin, ship.kind(), index, boosts).ok_or(Illegal)?;
-        let path = rules.path_from_ship(origin, value, Some(ship.kind())).ok_or(Illegal)?;
-        (path, boosts.0, boosts.1)
-    } else {
-        // The routes of the offer are the string's list (display facts); the adapter names the chosen one.
-        let Some(pick) = m.route.take() else {
-            m.bailed = Some(super::Bail::Route);
-            return Err(Illegal);
-        };
+    // A route named by the answer (`|rN`) arrives as a fact of the machine: the adapter strips the suffix from the
+    // answer id (it is not an option) and hands over the path of that route.
+    let (path, gd, ionian) = if let Some(pick) = m.route.take() {
         if pick.path.first() != Some(&origin) || pick.path.last() != Some(&active) {
             return Err(Illegal);
         }
         (pick.path, pick.gd, pick.ionian)
+    } else if route == 0 {
+        let value = reach::effective_move_value_for_ship(sx.state, sx.kernel, seat, origin, ship.kind(), index, boosts).ok_or(Illegal)?;
+        let path = rules.path_from_ship(origin, value, Some(ship.kind())).ok_or(Illegal)?;
+        (path, boosts.0, boosts.1)
+    } else {
+        // The routes of the offer are the string's list (display facts); without the chosen one the machine stops.
+        m.bailed = Some(super::Bail::Route);
+        return Err(Illegal);
     };
     if gd && !fx_move::use_gravity_drive(sx.state, seat) {
         return Err(Illegal);
