@@ -30,5 +30,6 @@ pub mod relic_windows;
 pub mod strategy;
 pub mod strategy_flow;
 pub mod strategy_primaries;
+pub mod strategy_secondary;
 pub mod strategy_windows;
 pub mod trade;

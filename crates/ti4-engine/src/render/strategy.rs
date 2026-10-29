@@ -12,13 +12,38 @@
 use ti4_engine_core::choice::agenda::Shown;
 use ti4_engine_core::choice::strategy::{Ask, Opt, Pool, Subtype};
 use ti4_engine_core::choice::Opt as AnyOpt;
-use ti4_engine_core::generated::{Planet, PublicObjective, System, Technology};
+use ti4_engine_core::generated::{Planet, PublicObjective, StrategyCard, StrategyCardKind, System, Technology};
 use ti4_engine_core::ids::Seat;
 
 use super::{Family, Render, Wording};
 use crate::choice::{ChoiceOption, DECLINE_KIND};
 use crate::generated::IdStr;
 use crate::preview::{Delta, Preview, Quantity};
+
+/// The card of a follower's question.
+fn follow_card(a: &Ask) -> StrategyCard {
+    match a {
+        Ask::Follow { card, .. } => *card,
+        _ => unreachable!("a follow option is asked by Ask::Follow"),
+    }
+}
+
+/// `strategy::secondary_question`: the prompt, the decline label and the follow label of a card's secondary question.
+fn follow_words(card: StrategyCard) -> (&'static str, &'static str, &'static str) {
+    if card == StrategyCard::ConstructionThundersEdge {
+        return ("spend a strategy token to place a structure", "decline", "place");
+    }
+    match card.data().kind {
+        StrategyCardKind::Leadership => ("spend 3 influence for a command token", "spend nothing further", "spend 3 influence"),
+        StrategyCardKind::Trade => ("spend a strategy token to replenish commodities", "decline", "replenish"),
+        StrategyCardKind::Construction => ("spend a strategy token to build a structure", "decline", "build"),
+        StrategyCardKind::Warfare => ("spend a strategy token to produce at home", "decline", "produce"),
+        StrategyCardKind::Technology => ("spend a strategy token and 4 resources to research", "decline", "spend"),
+        StrategyCardKind::Imperial => ("spend a strategy token to draw a secret objective", "decline", "draw"),
+        StrategyCardKind::Diplomacy => ("spend a strategy token to ready two planets", "decline", "ready"),
+        StrategyCardKind::Politics => ("spend a strategy token to draw two action cards", "decline", "draw"),
+    }
+}
 
 /// The renderer of the strategy card questions.
 pub struct Fam;
@@ -57,6 +82,7 @@ impl Family for Fam {
             Ask::PlaceStructure { .. } => "place a structure".to_owned(),
             Ask::ImperialScore => "score a public objective with Imperial".to_owned(),
             Ask::ResearchTechnology { .. } => "research a technology".to_owned(),
+            Ask::Follow { card, .. } => follow_words(*card).0.to_owned(),
         }
     }
 
@@ -74,6 +100,7 @@ impl Family for Fam {
             Subtype::PlaceStructure => "place_structure",
             Subtype::ImperialScoreObjective => "imperial_score_objective",
             Subtype::ResearchTechnology => "research_technology",
+            Subtype::FollowSecondary => "strategy_secondary",
         }
         .to_owned()
     }
@@ -132,6 +159,14 @@ impl Family for Fam {
                 option
             }
             Opt::Objective(o) => ChoiceOption::labelled(o.as_str(), "objective", o.as_str()),
+            Opt::Skip => ChoiceOption::labelled("no", crate::strategy::STRATEGY_KIND, follow_words(follow_card(a)).1),
+            Opt::Follow => ChoiceOption::labelled("yes", crate::strategy::STRATEGY_KIND, follow_words(follow_card(a)).2),
+            Opt::Waive(shape) => r.shape_option(*shape),
+            Opt::PrimaryInstead => ChoiceOption::labelled(
+                crate::factions::firmament_plots::PRIMARY_INSTEAD_ID,
+                crate::strategy::STRATEGY_KIND,
+                "perform the primary ability instead (Enervate)",
+            ),
             Opt::Buy(false) => ChoiceOption::labelled("no", crate::strategy::STRATEGY_KIND, "spend nothing further"),
             Opt::Buy(true) => {
                 let (owed, more) = match a {
@@ -174,6 +209,19 @@ impl Family for Fam {
             }
             Ask::ImperialScore => PublicObjective::from_id(id).map(Opt::Objective),
             Ask::ResearchTechnology { .. } => Technology::from_id(id).map(Opt::Research),
+            Ask::Follow { .. } => match id {
+                "no" => Some(Opt::Skip),
+                "yes" => Some(Opt::Follow),
+                crate::factions::firmament_plots::PRIMARY_INSTEAD_ID => Some(Opt::PrimaryInstead),
+                _ if id.starts_with(crate::strategy::WAIVED_SECONDARY_PREFIX) => {
+                    let count = r.shape_count();
+                    (0..count).find_map(|i| {
+                        let code = ti4_engine_core::state::Code(u16::try_from(i).ok()?);
+                        (r.shape_option(code).id == id).then_some(Opt::Waive(code))
+                    })
+                }
+                _ => None,
+            },
             Ask::LeadershipBuy { .. } => match id {
                 "no" => Some(Opt::Buy(false)),
                 "yes" => Some(Opt::Buy(true)),
@@ -182,8 +230,16 @@ impl Family for Fam {
         }
     }
 
-    fn details(_: &Render, a: &Ask) -> serde_json::Map<String, serde_json::Value> {
+    fn details(r: &Render, a: &Ask) -> serde_json::Map<String, serde_json::Value> {
         let mut d = serde_json::Map::new();
+        if let Ask::Follow { card, primary, costs_token } = a {
+            // `strategy::secondary_choice`: `tokens_left` is the follower's pool now (the caller completes it) and the
+            // purchase, pool, hint and commodity facts are the string's display texts (copied from the recorded question).
+            d.insert("kind".to_owned(), "strategy_secondary".into());
+            d.insert("card".to_owned(), card.as_str().into());
+            d.insert("played_by".to_owned(), r.seat_text(*primary).into());
+            d.insert("costs_token".to_owned(), (*costs_token).into());
+        }
         if let Ask::PlaceStructure { step, only_pds } = a {
             if *step > 0 {
                 d.insert("step".to_owned(), (*step).into());

@@ -2996,6 +2996,29 @@ mod tests {
         assert!(other.next_choice(&mut state, content(), DEFAULT).is_none());
     }
 
+    /// B8c-1: the follower step is compared with the core's while the Obsidian is offered Leadership's primary instead
+    /// (Enervate) and answers it, then declines the next time (the mark is forgotten): `Opt::PrimaryInstead`, the mark.
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn the_follower_step_offers_enervate_s_primary_instead_in_lockstep_with_the_core() {
+        use crate::strategy_secondary_dual_tests::{dealt_to, pid, play};
+        for answer in ["follow|enervate_primary", "no", "yes"] {
+            let (mut state, galaxy) = plotted(&[("enervate", "b")]);
+            flip(&mut state, &galaxy);
+            let state = dealt_to(state, "Leadership", "b");
+            let (counts, bails, game) = play(state, answer);
+            assert!(counts.0 >= 2, "{answer}: {counts:?} {bails:?}");
+            assert!(bails.is_empty(), "{answer}: {bails:?}");
+            let marked = game.state.faction_marks.get("firmament:enervate").map(String::as_str);
+            let _ = pid("a");
+            if answer == "follow|enervate_primary" {
+                assert!(marked.is_none() || marked == Some("a"), "{marked:?}");
+            } else {
+                assert_eq!(marked, None, "{answer}: every other answer forgets it");
+            }
+        }
+    }
+
     #[test]
     fn enervate_lets_the_obsidian_perform_leadership_s_primary_instead_of_its_secondary() {
         use crate::strategy::StrategySecondaryWindow;

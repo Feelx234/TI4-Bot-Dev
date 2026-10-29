@@ -39,6 +39,8 @@ pub mod explore_core;
 pub mod explore_write;
 pub mod strategy_cards_core;
 pub mod strategy_core;
+#[cfg(feature = "typed-core")]
+pub mod strategy_secondary_dual;
 pub mod strategy_write;
 /// The offline dual of Area::ExplorationRelics.
 #[cfg(feature = "typed-core")]
@@ -138,6 +140,8 @@ pub mod action_cards_view;
 pub(crate) mod action_cards_typed;
 #[cfg(test)]
 mod action_cards_announce_tests;
+#[cfg(all(test, feature = "typed-core"))]
+mod strategy_secondary_dual_tests;
 /// The offline dual of Area::ActionCards.
 #[cfg(feature = "typed-core")]
 #[doc(hidden)]
