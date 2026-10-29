@@ -116,6 +116,11 @@ mod tests {
         s.board_mut().sys_mut(there).cmd.insert(Seat(0));
         s.board_mut().sys_mut(there).units.clear();
         assert_eq!(spots(&s, &k, home, Icon::Fresh), vec![Spot::Space], "no ground force");
+        s.board_mut().sys_mut(there).units.push(Piece::new(Unit::CruiserI, Seat(0)));
+        assert_eq!(spots(&s, &k, home, Icon::Fresh), vec![Spot::Space], "a ship is not a ground force");
+        s.board_mut().sys_mut(there).units.clear();
+        s.board_mut().sys_mut(there).units.push(Piece::new(Unit::InfantryI, Seat(1)));
+        assert_eq!(spots(&s, &k, home, Icon::Fresh), vec![Spot::Space], "another player's ground force");
     }
 
     #[test]
@@ -130,6 +135,9 @@ mod tests {
         ship_placed(&mut s, &k, Seat(0), home, home, Unit::CruiserI);
         ship_placed(&mut s, &k, Seat(0), home, there, Unit::InfantryI);
         assert!(!exhausted(&s, Seat(0)), "not in the producing system, not a ground force");
+        let elsewhere = System::ALL[2];
+        ship_placed(&mut s, &k, Seat(0), home, elsewhere, Unit::CruiserI);
+        assert!(!exhausted(&s, Seat(0)), "a system the Icon does not name");
         s.players_mut().by_seat_mut(Seat(0)).unwrap().cards.breakthrough = None;
         ship_placed(&mut s, &k, Seat(0), home, there, Unit::CruiserI);
         assert!(!exhausted(&s, Seat(0)) && spots(&s, &k, home, Icon::Fresh) == vec![Spot::Space], "without the Icon");

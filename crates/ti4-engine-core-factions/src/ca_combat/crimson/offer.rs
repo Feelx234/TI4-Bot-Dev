@@ -63,9 +63,16 @@ mod tests {
         let scope = Scope(u32::MAX);
         let before = fleet::remaining_all(&s, scope, Seat(0), Unit::CruiserI);
         put_on_card(&mut s, Seat(0), Unit::CruiserI);
+        put_on_card(&mut s, Seat(0), Unit::CarrierI);
         put_on_card(&mut s, Seat(0), Unit::CruiserI);
+        assert_eq!(
+            s.marks().tail.get(&MarkKey::CrimsonCard(Seat(0))),
+            Some(&MarkVal::List(vec![MarkVal::Atom(Atom::Unit(Unit::CruiserI)), MarkVal::Atom(Atom::Unit(Unit::CarrierI)), MarkVal::Atom(Atom::Unit(Unit::CruiserI))])),
+            "the order they were placed"
+        );
         assert_eq!(fleet::on_crimson_card(&s, scope, Seat(0), UnitBaseType::Cruiser), 2);
-        assert_eq!(fleet::on_crimson_card(&s, scope, Seat(0), UnitBaseType::Carrier), 0, "another type");
+        assert_eq!(fleet::on_crimson_card(&s, scope, Seat(0), UnitBaseType::Carrier), 1);
+        assert_eq!(fleet::on_crimson_card(&s, scope, Seat(0), UnitBaseType::Destroyer), 0, "another type");
         assert_eq!(fleet::on_crimson_card(&s, scope, Seat(1), UnitBaseType::Cruiser), 0, "another seat");
         assert_eq!(fleet::remaining_all(&s, scope, Seat(0), Unit::CruiserI), before - 2, "off the board, still out of the box");
     }

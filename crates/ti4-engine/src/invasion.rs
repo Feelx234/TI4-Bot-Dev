@@ -6835,7 +6835,11 @@ mod tests {
     /// Run the invasion of `system` by "a" to its end with the first option everywhere (the reaction slots
     /// declined), the resolver armed for "a" and "b". For the lockstep tests of the ability table.
     fn run_invasion_first_option(state: &mut GameState, seed: u64, system: &SystemId) {
-        let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+        run_invasion_with(state, seed, system, Box::new(crate::choice::FirstOption));
+    }
+
+    fn run_invasion_with(state: &mut GameState, seed: u64, system: &SystemId, decider: Box<dyn crate::choice::Decider>) {
+        let mut table = Table::with_default(decider);
         let mut dice = Dice::new();
         let mut rng = GameRng::new(seed);
         let content = ContentStore::embedded();
@@ -7202,6 +7206,77 @@ mod tests {
         assert!(r.windows.keys().all(|k| !k.contains("technological_singularity")), "{:?}", r.windows);
         assert!(r.windows.get("invasion::ground_round_hits").is_some_and(|w| w.compared >= 1), "{:?}", r.windows);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    /// Research Team (Deepwrought) and Slumberstate Computing (Titans) are string windows of `finish_committing`
+    /// (`offer_research_team`, `add_forced_combats`): the eligibility queries are compared hook by hook, the questions and the
+    /// coexistence writes are not core windows. A Deepwrought invader coexisting with the controller of a planet runs inside the
+    /// dual run without a difference, and the ground combat windows are not entered for the coexisting planet.
+    #[test]
+    fn bail_the_research_team_coexistence_is_the_strings_inside_the_dual_run() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        struct Coexist;
+        impl crate::choice::Decider for Coexist {
+            fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, crate::choice::IllegalChoice> {
+                let i = choice.options.iter().position(|o| o.id == "coexist").unwrap_or(0);
+                Ok(choice.options[i].clone())
+            }
+        }
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        let mut coexisted = 0;
+        with_mask(mask, || {
+            for seed in 1..=3_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "deepwrought"), ("b", "hacan")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 3);
+                state.system_mut(&system).set_control(planet.clone(), PlayerId::new("b"));
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 2);
+                run_invasion_with(&mut state, seed, &system, Box::new(Coexist));
+                coexisted += usize::from(crate::coexistence::is_coexisting(&state, &system, &planet, &PlayerId::new("a")));
+            }
+        });
+        let r = report();
+        assert!(coexisted > 0, "the invader coexisted");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+        let _ = take_report();
+    }
+
+    /// `FinalizingControl` (`finish_control_gain`: Assimilate, `PLANET_CONTROL_GAINED`, the destruction of the rival structures,
+    /// the technology windows, Jupiter Brain, the Fracture relic, the exploration) is the string's inside the dual run: a capture
+    /// of a planet holding a rival structure runs without a difference, the structure is destroyed and the control changes.
+    #[test]
+    fn bail_the_control_gain_chain_is_the_strings_inside_the_dual_run() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        let mut captured = 0;
+        with_mask(mask, || {
+            for (seed, invader) in (1..=6_u64).zip(["hacan", "l1z1x", "hacan", "sol", "l1z1x", "sol"]) {
+                let mut state = crate::fixtures::seated_game(&[("a", invader), ("b", "sardakk")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 8);
+                state.system_mut(&system).set_control(planet.clone(), PlayerId::new("b"));
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 1);
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "pds", &PlayerId::new("b"), 1);
+                run_invasion_first_option(&mut state, seed, &system);
+                captured += usize::from(state.system_state(&system).planet_control.get(&planet) == Some(&PlayerId::new("a")));
+            }
+        });
+        let r = report();
+        assert!(captured > 0, "a planet changed hands");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
         let _ = take_report();
     }
 
