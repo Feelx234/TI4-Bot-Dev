@@ -496,3 +496,16 @@ fn a_position_within_its_limits_asks_nothing() {
     assert_eq!(out.expect("nothing to remove"), 0);
     assert_eq!(counts, (1, 0));
 }
+
+#[test]
+fn upgraded_fighters_over_capacity_are_charged_to_the_fleet_pool_in_the_question() {
+    let (_, origin, _) = hub();
+    let mut state = sol_hacan();
+    state.player_mut(&a()).unwrap().fleet_tokens = 2;
+    crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+    crate::fixtures::put(&mut state, &origin, "fighter2", &a(), 6);
+    // The carrier holds four; the other two fighters are charged to the pool: 1 ship + 2 fighters against a pool of 2.
+    let (out, _, counts, reasons) = enforce(state, &origin, &["remove|0"]);
+    assert_eq!(out.expect("answered"), 1, "{reasons:?}");
+    assert_eq!(counts, (1, 0));
+}
