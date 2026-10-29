@@ -438,7 +438,12 @@ mod price {
     }
 
     fn scene(s: &Scene) -> GameState {
-        let mut state = clean(&[("a", s.faction), ("b", "sol")]);
+        scene_vs(s, "sol")
+    }
+
+    /// [`scene`] with `other` as the second faction at the table.
+    fn scene_vs(s: &Scene, other: &str) -> GameState {
+        let mut state = clean(&[("a", s.faction), ("b", other)]);
         for planet in non_home_planets(s.planets) {
             give(&mut state, &planet, "a");
         }
@@ -552,6 +557,66 @@ mod price {
         let mut game = status_game(state, &[answer]);
         run_status(&mut game);
         game
+    }
+
+    /// The step bails of the scoring window, each probed (a bail is silent in the lockstep): the price at a
+    /// table with a Last Bastion or a Crimson seat and for a payer holding ocean cards, a nested emission,
+    /// diplomacy. The unpriced offers of the same question are still followed.
+    #[test]
+    fn the_scoring_step_bails_stay_with_the_string_side() {
+        let free = |state: &mut GameState| {
+            state.player_mut(&a()).unwrap().secret_objectives = vec![SecretObjectiveId::new("eap")];
+            four_pds(state);
+        };
+        for faction in [crate::factions::bastion::FACTION, crate::factions::crimson::FACTION] {
+            let mut table = scene_vs(&Scene { faction: "letnev", planets: 6, goods: 12, tokens: (3, 3, 3) }, faction);
+            table.revealed_objectives = vec![ObjectiveId::new("amass_wealth")];
+            free(&mut table);
+            assert!(offered(&table, "amass_wealth"), "{faction}: the priced objective is on offer");
+            assert!(probe_score(&table, "amass_wealth").is_none(), "{faction} at the table: the price is the string's");
+            // The step bails when the question holds a priced offer; a question without one is followed.
+            let mut unpriced = table.clone();
+            unpriced.revealed_objectives.clear();
+            assert!(probe_score(&unpriced, "eap").is_some(), "{faction}: an unpriced offer is not affected");
+            let mut dhw = table.clone();
+            dhw.player_mut(&a()).unwrap().secret_objectives = vec![SecretObjectiveId::new("dhw")];
+            dhw.player_mut(&a()).unwrap().relic_fragments = [("CULTURAL".to_owned(), 2)].into_iter().collect();
+            assert!(offered(&dhw, "dhw"), "{faction}: the priced secret is on offer");
+            assert!(probe_score(&dhw, "dhw").is_none(), "{faction}: a priced secret too");
+        }
+        let mut oceans = scene(&Scene { faction: crate::factions::deepwrought::FACTION, planets: 6, goods: 12, tokens: (3, 3, 3) });
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        oceans.system_mut(&system).set_control(planet.clone(), PlayerId::new("b"));
+        crate::fixtures::put_on_planet(&mut oceans, &system, &planet, "infantry", &PlayerId::new("b"), 1);
+        crate::fixtures::put_on_planet(&mut oceans, &system, &planet, "infantry", &a(), 1);
+        oceans.revealed_objectives = vec![ObjectiveId::new("amass_wealth")];
+        oceans.player_mut(&a()).unwrap().trade_goods = 30;
+        free(&mut oceans);
+        assert!(crate::factions::deepwrought::begin_coexisting(&mut oceans, &a(), &system, &planet, None).expect("begins"));
+        assert!(!crate::factions::deepwrought::spendable_oceans(&oceans, &a()).is_empty(), "the fixture holds an ocean card");
+        {
+            assert!(offered(&oceans, "amass_wealth"), "the priced objective is on offer");
+            assert!(probe_score(&oceans, "amass_wealth").is_none(), "ocean cards: the price is the string's");
+            let mut unpriced = oceans.clone();
+            unpriced.revealed_objectives.clear();
+            assert!(probe_score(&unpriced, "eap").is_some());
+        }
+        let mut state = rich("letnev");
+        free(&mut state);
+        let mut nested = crate::dual_window::Recording::default();
+        nested.nested = true;
+        assert!(status_probe_with(&state, "eap", &nested).is_none(), "a nested emission");
+        assert!(status_probe(&state, "eap").is_some());
+        state.diplomacy.enabled = true;
+        assert!(status_probe(&state, "eap").is_none(), "diplomacy");
+    }
+
+    use crate::objectives::ScoringWindow;
+
+    fn offered(state: &GameState, id: &str) -> bool {
+        ScoringWindow::new(&state.initiative_order())
+            .pending_choice(state, ContentStore::embedded(), POK)
+            .is_some_and(|c| c.ids().contains(&id))
     }
 
     fn rich(faction: &'static str) -> GameState {
@@ -741,9 +806,13 @@ mod book {
         let content = ContentStore::embedded();
         let mut trace = Trace::default();
         for (step, answer) in answers.iter().enumerate() {
-            let ask = window
+            let mut ask = window
                 .pending_choice(&state, content, POK)
                 .unwrap_or_else(|| panic!("step {step}: the window asks nothing, wanted {answer}"));
+            // `Table::ask_seeing` names the invasion a question is asked in; the table records that question.
+            if let Some(context) = ask.context.take() {
+                ask.context = Some(context.about_invasion(&state));
+            }
             trace.asked.push((ask.player.to_string(), ask.ids().iter().map(|s| (*s).to_owned()).collect()));
             let mut script = Recording::default();
             script.questions.push(Asked { choice: ask.clone(), answer: Some((*answer).to_owned()), nested: false });
@@ -835,6 +904,39 @@ mod book {
             assert!(finished(&end, &window), "{limit:?}");
             assert_eq!(trace.asked.len(), answers.len(), "{limit:?}");
             assert_eq!(end.player(&a()).unwrap().victory_points, i32::try_from(answers.len()).unwrap(), "{limit:?}");
+        }
+    }
+
+    /// A battle or an invasion in progress no longer bails the step: the core follows, and names the invasion in
+    /// the question's context like `ask_seeing` does. (Before A4b-2 `outside` declined both.)
+    #[test]
+    fn a_battle_or_an_invasion_in_progress_does_not_bail_the_scoring_step() {
+        let invading = |state: &mut GameState| {
+            state.active_invasion = Some(ti4_model::state::ActiveInvasion {
+                system: SystemId::new("18"),
+                invader: a(),
+                seq: 7,
+                phase: "commit".to_owned(),
+                planet: None,
+                defender: None,
+                ground_round: 0,
+                last_step: None,
+            });
+        };
+        let fighting = |state: &mut GameState| {
+            state.active_space_combat = Some((SystemId::new("18"), a(), PlayerId::new("b")));
+        };
+        for (name, set) in [("invasion", &invading as &dyn Fn(&mut GameState)), ("battle", &fighting)] {
+            let mut state = two_scoring_seats();
+            set(&mut state);
+            let window = ScoringWindow::new(&state.initiative_order());
+            let (_, window, trace) = walk(state.clone(), window, &["expand_borders", "eap"]);
+            assert_eq!(trace.asked.len(), 2, "{name}");
+            let _ = window;
+            if name == "invasion" {
+                let ask = ScoringWindow::new(&state.initiative_order()).pending_choice(&state, ContentStore::embedded(), POK).unwrap();
+                assert!(ask.context.unwrap().about_invasion(&state).invasion_seq.is_some());
+            }
         }
     }
 
