@@ -13,7 +13,7 @@
 use crate::choice::explore::{Opt as EOpt, Step as EStep};
 use crate::choice::{Choice, Pick};
 use crate::containers::SmallList;
-use crate::generated::{StrategyCard, System, Technology, Unit};
+use crate::generated::{ActionCard, StrategyCard, System, Technology, Unit};
 use crate::ids::Seat;
 use crate::kernel::stage::{Illegal, Ran, Sx, Window};
 use crate::kernel::{Kernel, Next};
@@ -38,6 +38,20 @@ pub struct StructureFacts {
     pub source: Code,
 }
 
+/// The interned texts and the flag the hit flows of a card read (`Spawn::Absorb`; the adapter's, like `Codes`): a window carries
+/// no text of its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct HitTexts {
+    /// `supply::staging_enabled`: every loss is recorded and a planet-standing sustainer is named by its planet.
+    pub staging: bool,
+    /// The interned source `letnevcommander` of the commander's payment, offered after a sustain.
+    pub commander: Code,
+    /// The interned subtype `assign_casualty` of the casualty question.
+    pub casualty: Code,
+    /// The interned cause `effect_hit` of a loss from the hit of an effect.
+    pub effect_hit: Code,
+}
+
 /// What a finished child window tells its parent, as plain data (the parent cannot read the window's fields: it does not
 /// know its type).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -55,6 +69,8 @@ pub enum Report {
     Goods(Seat, i32),
     /// The Diplomacy primary: the system it placed command tokens in and the seats that got one, in seating order.
     Placed(System, SmallList<Seat, 8>),
+    /// A ship was destroyed (its destruction is staged for the announcement of the play) or none could be.
+    Destroyed(bool),
 }
 
 /// A window of another area, run as a child: the object-safe face of [`Window`] plus what the finished window reports.
@@ -192,6 +208,12 @@ pub enum Spawn {
     Diplomacy { who: Seat, card: StrategyCard, primary: bool, base_printing: bool },
     /// The Trade primary; reports [`Report::Goods`].
     Trade { who: Seat },
+    /// `combat::effect_hits::Destroy`: `who` chooses one of their ships in `system` and it is destroyed (staged); reports
+    /// [`Report::Destroyed`]. `card` is the source of the question, `subtype` its interned subtype and `cause` the interned cause
+    /// of the staged destruction.
+    Destroy { who: Seat, system: System, card: ActionCard, subtype: Code, cause: Code },
+    /// `combat::effect_hits::Absorb`: `hits` hits produced by `producer` land on the ships of `who` in `system`.
+    Absorb { who: Seat, producer: Seat, system: System, hits: u16, texts: HitTexts },
 }
 
 /// Starts the child window a [`Spawn`] names; `None` for a request the table does not know.

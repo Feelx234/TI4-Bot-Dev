@@ -1676,3 +1676,200 @@ fn the_tables_a_play_window_runs_on_carry_the_links_to_the_other_areas() {
     assert!(crate::reactions_core::table().links.complete());
     assert!(ti4_engine_core::kernel::stage::AbilityTable::default().links.spawn.is_none(), "the empty table has none");
 }
+
+// -- Courageous To The End and Experimental Battlestation (branch b6d-hits): the hit flows of the combat area as child windows -------
+
+/// The seeds of the dice the two cards are played under: every outcome of the rolls is met.
+const SEEDS: [u64; 12] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+/// [`played_by`] under the dice of `seed` and on a map, the first decider that declines the slots and takes the last option.
+fn played_seeded(alias: &str, start: &GameState, seed: u64, galaxy: Option<&ti4_content::galaxy::Galaxy>) -> GameState {
+    played_seeded_by(alias, start, seed, galaxy, Box::new(crate::action_cards_announce_tests::DeclineSlots))
+}
+
+/// [`played_seeded`] with a decider of the test's choosing (it must decline the reaction slots itself).
+fn played_seeded_by(alias: &str, start: &GameState, seed: u64, galaxy: Option<&ti4_content::galaxy::Galaxy>, decider: Box<dyn crate::choice::Decider>) -> GameState {
+    let a = PlayerId::new("a");
+    let mut state = start.clone();
+    state.player_mut(&a).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new(alias)];
+    crate::action_cards::discard(&mut state, &a, 0);
+    crate::dual::with_mask(crate::action_cards_closing_tests::dual(), || {
+        crate::action_cards_announce_tests::announce_seeded(&mut state, alias, &a, decider, galaxy, seed)
+    });
+    state
+}
+
+/// The ships (units that are ships) of `owner` in `system`.
+fn ships_in(state: &GameState, system: &ti4_model::id::SystemId, owner: &str) -> usize {
+    state
+        .system_state(system)
+        .units
+        .iter()
+        .filter(|u| u.owner.as_str() == owner && matches!(u.type_id.as_str(), "carrier" | "cruiser" | "destroyer" | "dreadnought" | "fighter" | "flagship" | "warsun"))
+        .count()
+}
+
+/// The system where the holder's ship was just destroyed: one of the systems where `a`, `b` and `c` all have ships (`closing_position`):
+/// `b` has two cruisers and a dreadnought there, `c` a destroyer, `a` a carrier, a fighter and a cruiser.
+fn fight_system(state: &GameState) -> ti4_model::id::SystemId {
+    state
+        .board
+        .iter()
+        .find(|(_, board)| ["a", "b", "c"].iter().all(|p| board.units.iter().any(|u| u.owner.as_str() == *p)))
+        .map(|(system, _)| system.clone())
+        .expect("a system with the ships of all three seats")
+}
+
+/// The position of a Courageous To The End: `a` has lost a `victim` ship in `system`.
+fn courageous_position(victim: &str) -> (GameState, ti4_model::id::SystemId) {
+    let mut state = closing_position();
+    let system = fight_system(&state);
+    state.last_ship_destroyed = Some((system.clone(), PlayerId::new("a"), ti4_model::id::UnitTypeId::new(victim)));
+    (state, system)
+}
+
+/// Courageous To The End: two dice, one casualty for the opponent for every result at or above the combat value of the destroyed
+/// ship. The opponent is the first other seat with ships in the system (seating order); a single ship goes without a question, the
+/// dice are drawn from the Dice stream (faces and stream positions compared), and each loss is staged and announced as a
+/// `SHIP_DESTROYED` after the card's discard (the events are compared with the string's).
+#[test]
+fn courageous_to_the_end_makes_the_opponent_destroy_ships_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let mut cases: Vec<(&str, GameState)> = Vec::new();
+    // The three values (dreadnought 5, cruiser 7, destroyer 9) meet every number of hits under the seeds.
+    for victim in ["dreadnought", "cruiser", "destroyer"] {
+        cases.push(("courageous", courageous_position(victim).0));
+    }
+    // `c` sits before `b`: it is the opponent, and its only ship (a hurt destroyer) goes without a question; a second hit finds none.
+    let (mut lone, system) = courageous_position("dreadnought");
+    lone.seating_order = ["c", "a", "b"].iter().map(|p| PlayerId::new(*p)).collect();
+    cases.push(("courageous", lone));
+    // The holder has no ship left: the opponent is still the first other seat with ships.
+    let (mut bare, system_bare) = courageous_position("cruiser");
+    bare.system_mut(&system_bare).units.retain(|u| u.owner.as_str() != "a");
+    cases.push(("courageous", bare));
+    // `b` loses a damaged and a fresh ship of one type: the options are told apart by the damage.
+    let (mut hurt, system_hurt) = courageous_position("dreadnought");
+    hurt.system_mut(&system_hurt).units.iter_mut().filter(|u| u.owner.as_str() == "b" && u.type_id.as_str() == "cruiser").take(1).for_each(|u| u.sustained_damage = true);
+    cases.push(("courageous", hurt));
+    crate::action_cards_closing_tests::announce_all_seeded(&cases, None, &SEEDS);
+    let _ = crate::dual::take_report();
+    // The outcomes met: how many ships the opponent lost in each case.
+    let mut met = std::collections::BTreeSet::new();
+    for (i, (_, start)) in cases.iter().enumerate() {
+        let system = fight_system(start);
+        let opponent = if i == 3 { "c" } else { "b" };
+        for seed in SEEDS {
+            let after = played_seeded("courageous", start, seed, None);
+            met.insert((i, ships_in(start, &system, opponent) - ships_in(&after, &system, opponent)));
+        }
+    }
+    for i in [0, 1, 2] {
+        assert!(met.contains(&(i, 0)) || i == 0, "case {i}: some seed rolls no hit: {met:?}");
+    }
+    assert!(met.iter().any(|(i, lost)| *i == 0 && *lost == 2), "two dreadnought hits cost two ships: {met:?}");
+    assert!(met.iter().any(|(i, lost)| *i == 0 && *lost == 1), "one hit costs one ship: {met:?}");
+    assert!(met.iter().any(|(i, lost)| *i == 0 && *lost == 0), "no hit costs none: {met:?}");
+    assert!(met.iter().all(|(i, lost)| *i != 3 || *lost <= 1), "the lone destroyer of `c` can be lost once: {met:?}");
+    assert!(met.contains(&(3, 1)) && met.contains(&(3, 0)), "the lone ship is lost or spared by the dice: {met:?}");
+    let _ = system;
+}
+
+/// A planet in the system `id` of the map, if the tile has one.
+fn planet_of(id: &str) -> Option<ti4_model::id::PlanetId> {
+    use crate::generated::IdStr;
+    ti4_engine_core::generated::Planet::ALL
+        .iter()
+        .find(|p| p.data().system.is_some_and(|s| s.as_str() == id))
+        .map(|p| ti4_model::id::PlanetId::new(p.as_str()))
+}
+
+/// `owner`'s space dock on the first planet of the system `id` (the planet is theirs, too); `false` when the tile has no planet.
+fn dock_in(state: &mut GameState, id: &str, owner: &str) -> bool {
+    let Some(planet) = planet_of(id) else { return false };
+    let system = ti4_model::id::SystemId::new(id);
+    state.system_mut(&system).planet_control.insert(planet.clone(), PlayerId::new(owner));
+    state.system_mut(&system).planet_units.entry(planet).or_default().push(unit("spacedock", owner));
+    true
+}
+
+/// The map of one ring, with the sites of Experimental Battlestation: the active system (`25`, where `b` moved a fleet), a system
+/// next to it with a planet, and a system with a planet that is not next to it.
+fn battlestation_sites(galaxy: &ti4_content::galaxy::Galaxy) -> (&'static str, &'static str, &'static str) {
+    let ids = ["18", "25", "26", "39", "40", "67", "51"];
+    let active = "25";
+    let adjacent = galaxy.adjacent(active);
+    let near = ids.iter().copied().find(|id| *id != active && adjacent.contains(*id) && planet_of(id).is_some()).expect("a neighbour with a planet");
+    let far = ids.iter().copied().find(|id| *id != active && !adjacent.contains(*id) && planet_of(id).is_some()).expect("a system with a planet that is not next to it");
+    assert!(planet_of(active).is_some(), "the active system has a planet for a dock");
+    (active, near, far)
+}
+
+/// The position of an Experimental Battlestation: `b` is the active seat and has moved `fleet` into the active system.
+fn battlestation_position(active: &str, fleet: &[&str]) -> GameState {
+    let mut state = closing_position();
+    let system = ti4_model::id::SystemId::new(active);
+    state.active = Some(PlayerId::new("b"));
+    state.active_system = Some(system.clone());
+    state.system_mut(&system).units.retain(|u| !matches!(u.owner.as_str(), "b" | "c"));
+    for kind in fleet {
+        state.system_mut(&system).units.push(unit(kind, "b"));
+    }
+    state
+}
+
+/// Experimental Battlestation: a space dock of the holder in or next to the active system rolls three dice (hits on 5); the hits
+/// are absorbed by the active seat's ships there (SUSTAIN DAMAGE offers, then casualty questions: a child hit flow of the combat
+/// area). The dock is the holder's pick (none to ask when one stands), the dice come from the Dice stream, and a loss announces
+/// nothing (the string applies the hits on a stub resolver).
+#[test]
+fn experimental_battlestation_rolls_and_the_active_seat_absorbs_the_hits_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let galaxy = ring();
+    let (active, near, far) = battlestation_sites(&galaxy);
+    let fleet = ["dreadnought", "cruiser", "cruiser", "fighter", "fighter"];
+    // One dock in the active system: nothing to ask the holder.
+    let mut here = battlestation_position(active, &fleet);
+    assert!(dock_in(&mut here, active, "a"));
+    // A dock in the active system and one next to it: the holder picks (sorted by the system ids); the far one never counts.
+    let mut two = here.clone();
+    assert!(dock_in(&mut two, near, "a") && dock_in(&mut two, far, "a"));
+    // Only a dock next to the active system and a far one: the neighbour fires without a question.
+    let mut next_to = battlestation_position(active, &["dreadnought", "dreadnought", "cruiser"]);
+    assert!(dock_in(&mut next_to, near, "a") && dock_in(&mut next_to, far, "a"));
+    // Docks of the rivals and a far dock only: no dock may fire, no dice are rolled.
+    let mut none = battlestation_position(active, &fleet);
+    assert!(dock_in(&mut none, far, "a") && dock_in(&mut none, near, "c"));
+    // The active seat has no ship in the system: the dice are rolled and the hits have no effect.
+    let mut empty = battlestation_position(active, &[]);
+    assert!(dock_in(&mut empty, active, "a"));
+    // A damaged dreadnought and fresh ones: the sustain options and the casualty options tell them apart.
+    let mut hurt = battlestation_position(active, &["dreadnought", "dreadnought", "cruiser", "carrier"]);
+    assert!(dock_in(&mut hurt, active, "a"));
+    let system = ti4_model::id::SystemId::new(active);
+    hurt.system_mut(&system).units.iter_mut().filter(|u| u.type_id.as_str() == "dreadnought").take(1).for_each(|u| u.sustained_damage = true);
+    let cases = [here.clone(), two.clone(), next_to.clone(), none.clone(), empty.clone(), hurt.clone()];
+    let played: Vec<(&str, GameState)> = cases.iter().map(|c| ("experimental", c.clone())).collect();
+    crate::action_cards_closing_tests::announce_all_seeded(&played, Some(&galaxy), &SEEDS);
+    let _ = crate::dual::take_report();
+    // The outcomes met: the active seat's ships lost (and the number of dreadnoughts left undamaged) over the seeds.
+    let lost = |start: &GameState, seed: u64| {
+        // The first option of every question: SUSTAIN DAMAGE is taken whenever it is offered.
+        let after = played_seeded_by("experimental", start, seed, Some(&galaxy), Box::new(crate::action_cards_closing_tests::FirstOption));
+        (ships_in(start, &system, "b") - ships_in(&after, &system, "b"), after.system_state(&system).units.iter().filter(|u| u.sustained_damage).count())
+    };
+    let outcomes: std::collections::BTreeSet<(usize, usize)> = SEEDS.iter().map(|seed| lost(&here, *seed)).collect();
+    assert!(outcomes.iter().any(|(gone, _)| *gone == 0) && outcomes.iter().any(|(gone, hurt)| *gone >= 1 || *hurt >= 1), "hits are met and missed: {outcomes:?}");
+    assert!(outcomes.iter().any(|(_, hurt)| *hurt == 1), "the dreadnought sustains a hit under some seed: {outcomes:?}");
+    for seed in SEEDS {
+        assert_eq!(lost(&none, seed), (0, 0), "no dock may fire (seed {seed})");
+        assert_eq!(lost(&empty, seed), (0, 0), "no ship to hit (seed {seed})");
+    }
+    // Without the map only a dock in the active system counts, as in the string.
+    crate::action_cards_closing_tests::announce_all_seeded(&[("experimental", here.clone()), ("experimental", next_to.clone()), ("experimental", two.clone())], None, &SEEDS);
+    let _ = crate::dual::take_report();
+    for seed in SEEDS {
+        let after = played_seeded("experimental", &next_to, seed, None);
+        assert_eq!(ships_in(&after, &system, "b"), ships_in(&next_to, &system, "b"), "a dock next to the system cannot fire without a map (seed {seed})");
+    }
+}

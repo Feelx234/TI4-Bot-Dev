@@ -470,6 +470,9 @@ pub struct Tape {
     state_at: Option<Box<CoreState>>,
     /// A condition the core could not answer (`CondCx::unknown`); survives the rewind of a re-run.
     pub unknown: std::cell::Cell<Option<Unknown>>,
+    /// The events a hook of the table emitted at the top level of the window that called it (`AbilityTable::after_play`: the
+    /// `SHIP_DESTROYED` of what a played card staged): the window records them as its own, like the events of its steps.
+    pub emitted: Vec<EventRec>,
 }
 
 impl Tape {

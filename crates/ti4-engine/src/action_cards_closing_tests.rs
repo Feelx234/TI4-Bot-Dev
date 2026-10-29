@@ -66,29 +66,37 @@ pub(crate) fn announce_all(cases: &[(&str, GameState)]) {
 
 /// [`announce_all`] on a map.
 pub(crate) fn announce_all_on(cases: &[(&str, GameState)], galaxy: Option<&ti4_content::galaxy::Galaxy>) {
+    announce_all_seeded(cases, galaxy, &[0]);
+}
+
+/// [`announce_all_on`] under each of `seeds` (the dice of the game): the cards that roll meet every outcome.
+pub(crate) fn announce_all_seeded(cases: &[(&str, GameState)], galaxy: Option<&ti4_content::galaxy::Galaxy>, seeds: &[u64]) {
     let a = PlayerId::new("a");
     let _ = crate::dual::take_report();
-    for pass in 0..3 {
-        let first = pass == 1;
-        for (alias, start) in cases {
-            let mut state = start.clone();
-            state.player_mut(&a).unwrap().action_cards = vec![ActionCardId::new(*alias)];
-            let before = state.clone();
-            crate::action_cards::discard(&mut state, &a, 0);
-            let decider: Box<dyn Decider> = match pass {
-                0 => Box::new(DeclineSlots),
-                1 => Box::new(FirstOption),
-                _ => Box::new(LastGo),
-            };
-            with_mask(dual(), || crate::action_cards_announce_tests::announce_on(&mut state, alias, &a, decider, galaxy));
-            assert_eq!(state.discarded_action_cards.last(), Some(&ActionCardId::new(*alias)), "{alias} is on the pile");
-            assert!(serde_json::to_string(&state).unwrap() != serde_json::to_string(&before).unwrap(), "{alias} changed nothing ({first})");
+    for seed in seeds {
+        for pass in 0..3 {
+            let first = pass == 1;
+            for (alias, start) in cases {
+                let mut state = start.clone();
+                state.player_mut(&a).unwrap().action_cards = vec![ActionCardId::new(*alias)];
+                let before = state.clone();
+                crate::action_cards::discard(&mut state, &a, 0);
+                let decider: Box<dyn Decider> = match pass {
+                    0 => Box::new(DeclineSlots),
+                    1 => Box::new(FirstOption),
+                    _ => Box::new(LastGo),
+                };
+                with_mask(dual(), || crate::action_cards_announce_tests::announce_seeded(&mut state, alias, &a, decider, galaxy, *seed));
+                assert_eq!(state.discarded_action_cards.last(), Some(&ActionCardId::new(*alias)), "{alias} is on the pile");
+                state.rng_seed = before.rng_seed;
+                assert!(serde_json::to_string(&state).unwrap() != serde_json::to_string(&before).unwrap(), "{alias} changed nothing ({first})");
+            }
         }
     }
     let report = crate::dual::report();
     let shown: String = format!("{:?}", report.differences).chars().take(1500).collect();
     assert!(report.differences.is_empty(), "{} differences: {shown}", report.differences.len());
-    assert_eq!(windows("action_cards::announce"), (3 * cases.len() as u64, 0), "{:?}", report.windows);
+    assert_eq!(windows("action_cards::announce"), ((3 * cases.len() * seeds.len()) as u64, 0), "{:?}", report.windows);
     let _ = crate::dual::take_report();
 }
 

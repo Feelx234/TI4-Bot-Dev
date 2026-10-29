@@ -167,13 +167,19 @@ pub enum Fx {
     /// Strategize (`primary: false`) and Overrule (`primary: true`): the holder performs the secondary or primary ability of a
     /// strategy card another seat holds or nobody does.
     Perform { primary: bool },
+    /// Courageous To The End: two dice; for each result equal to or higher than the combat value of the holder's destroyed ship, the
+    /// opponent chooses one of their own ships and it is destroyed (the destructions are staged for the announcement of the play).
+    Courageous,
+    /// Experimental Battlestation: a space dock of the holder in or next to the active system rolls three dice (hits on 5); the hits
+    /// are absorbed by the active seat's ships in the active system (SUSTAIN DAMAGE offers, casualty questions).
+    Battlestation,
 }
 
 impl Fx {
     /// Whether the effect rolls the game's dice (the window needs the random streams of the state).
     #[must_use]
     pub const fn rolls(self) -> bool {
-        matches!(self, Self::Spy | Self::Plague | Self::Brilliance)
+        matches!(self, Self::Spy | Self::Plague | Self::Brilliance | Self::Courageous | Self::Battlestation)
     }
 
     /// Whether the effect can be played from inside another area's window (a reaction slot, a card declared there): its facts
@@ -206,6 +212,8 @@ impl Fx {
                 | Self::Crash
                 | Self::Probe
                 | Self::Perform { .. }
+                | Self::Courageous
+                | Self::Battlestation
         )
     }
 
@@ -227,7 +235,7 @@ impl Fx {
     /// declines its run at the start.
     #[must_use]
     pub const fn links(self) -> bool {
-        self.bill().is_some() || matches!(self, Self::Impersonation | Self::Focused | Self::Divert | Self::Reveal | Self::Probe | Self::Perform { .. })
+        self.bill().is_some() || matches!(self, Self::Impersonation | Self::Focused | Self::Divert | Self::Reveal | Self::Probe | Self::Perform { .. } | Self::Courageous | Self::Battlestation)
     }
 
     /// Whether the effect reads the game's map (the adapter lends the galaxy; without one it bails).
@@ -240,7 +248,7 @@ impl Fx {
     /// [`Facts::map`]; without one the effect does what the string does without a map). Exploration Probe's adjacency.
     #[must_use]
     pub const fn uses_map(self) -> bool {
-        self.needs_map() || matches!(self, Self::Probe)
+        self.needs_map() || matches!(self, Self::Probe | Self::Battlestation)
     }
 
     /// The bill the effect pays before anything else (the string `production::pay`): the currency and the amount.
@@ -330,6 +338,8 @@ impl Fx {
             C::ExplorationProbe => Self::Probe,
             C::Strategize1 | C::Strategize2 | C::Strategize3 | C::Strategize4 => Self::Perform { primary: false },
             C::Overrule => Self::Perform { primary: true },
+            C::CourageousToTheEnd => Self::Courageous,
+            C::ExperimentalBattlestation => Self::Battlestation,
             _ => return None,
         })
     }
@@ -358,6 +368,9 @@ pub enum Stage {
     Chosen,
     /// Performing the ability of the chosen strategy card (the child window [`Performed`]).
     Performing,
+    /// Courageous To The End and Experimental Battlestation: the hit flow of the card (the child windows `Destroy` and
+    /// `Absorb` of the combat area).
+    Hitting,
     Done,
 }
 
@@ -452,6 +465,12 @@ pub struct Play {
     perform: ErasedChild,
     /// The Diplomacy primary: the system it placed tokens in and the seats that got one.
     tokens: Option<(System, SmallList<Seat, 8>)>,
+    /// Courageous To The End and Experimental Battlestation: the hit flow, while it runs (a child window of the combat area).
+    flow: ErasedChild,
+    /// The scene of the hit flow: the system and the seat that takes the loss (Courageous: the opponent; Battlestation: the active seat).
+    scene: Option<(System, Seat)>,
+    /// Courageous: the dice that reached the combat value, one casualty each. Battlestation: the hits that landed.
+    owed: u8,
 }
 
 /// `RULES_PLAGIARIZE_OWNED` and `RULES_ACTION_CARD_COSTS` (`ti4_model::state`).
@@ -468,6 +487,10 @@ const RULES_OFFICIAL_ACTION_DECK: u32 = 30;
 const DIE_SIDES: u32 = 10;
 /// Plague destroys an infantry on a six or better.
 const PLAGUE_KILLS_ON: u32 = 6;
+/// Courageous To The End rolls two dice; Experimental Battlestation's space dock rolls three, hitting on a five or better.
+const COURAGEOUS_DICE: u8 = 2;
+const BATTLESTATION_DICE: u8 = 3;
+const BATTLESTATION_HITS_ON: u32 = 5;
 
 fn sorted(mut spots: SmallList<(System, Planet), 16>) -> SmallList<(System, Planet), 16> {
     spots.as_mut_slice().sort_unstable();
@@ -508,6 +531,13 @@ impl Play {
         // Intercept's combatants include the units that fight from a planet (a Naaz Eidolon Maximum, the ground
         // forces a Nekro Alastor chose): the kernel's combat rules decide them, which this area may not import.
         if fx == Fx::Intercept
+            && core.players().iter().any(|p| matches!(p.faction, crate::generated::Faction::TheNaazRokhaAlliance | crate::generated::Faction::TheNekroVirus))
+        {
+            return None;
+        }
+        // Courageous To The End names "your opponent" as the other seat with ships in the system, and the casualty it chooses is any of
+        // that seat's combatants: the units that fight from a planet are the combat area's, which this area may not import.
+        if fx == Fx::Courageous
             && core.players().iter().any(|p| matches!(p.faction, crate::generated::Faction::TheNaazRokhaAlliance | crate::generated::Faction::TheNekroVirus))
         {
             return None;
@@ -555,7 +585,7 @@ impl Play {
             }
             _ => None,
         };
-        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: ErasedChild::idle(), hand: ErasedChild::idle(), chosen: None, landing: None, jam: None, troop: None, pulled: SmallList::new(), received: SmallList::new(), pay_ask: None, probe: None, explored: None, owed_goods: 0, pool_left: 0, reward: ErasedChild::idle(), held: None, gamma: None, picked: None, perform: ErasedChild::idle(), tokens: None })
+        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: ErasedChild::idle(), hand: ErasedChild::idle(), chosen: None, landing: None, jam: None, troop: None, pulled: SmallList::new(), received: SmallList::new(), pay_ask: None, probe: None, explored: None, owed_goods: 0, pool_left: 0, reward: ErasedChild::idle(), held: None, gamma: None, picked: None, perform: ErasedChild::idle(), tokens: None, flow: ErasedChild::idle(), scene: None, owed: 0 })
     }
 
     fn what(&self) -> Option<What> {
@@ -569,6 +599,7 @@ impl Play {
             Fx::Dig => What::Dig,
             Fx::PirateContract | Fx::PirateFleet => What::Pirate,
             Fx::Probe => What::Probe,
+            Fx::Battlestation => What::Dock,
             Fx::Mercenary => What::Landing,
             Fx::Ghost => What::Ghost,
             Fx::Upgrade => What::Cruiser,
@@ -1087,6 +1118,35 @@ impl Play {
                     }
                 }
                 core.explore().frontier.iter().filter(|system| reach.contains(*system)).map(Opt::System).collect()
+            }
+            Fx::Battlestation => {
+                // "A space dock that is either in or adjacent to the active system": the systems with a space dock of the holder, in
+                // the active system or next to it (the map's adjacency when the adapter lent it; without one only the active system).
+                let Some(active) = core.meta().active_system else { return SmallList::new() };
+                let scope = self.env.scope;
+                let mut near: SmallList<System, 16> = SmallList::new();
+                near.push(active);
+                if let Some(galaxy) = if self.env.facts.map { core.galaxy() } else { None }
+                    && let Some(at) = System::ALL.iter().position(|s| *s == active)
+                {
+                    for j in galaxy.adjacent(crate::ids::system_at(at)).iter() {
+                        if let Some(next) = System::ALL.get(j) {
+                            near.push(*next);
+                        }
+                    }
+                }
+                let mut docks: SmallList<System, 16> = SmallList::new();
+                for (system, _) in planets_where(core, |_, _, cell| {
+                    cell.units.as_slice().iter().any(|p| p.owner() == who && scope.unit(p.kind()).map(|d| d.base_type) == Some(UnitBaseType::Spacedock))
+                })
+                .as_slice()
+                {
+                    if near.as_slice().contains(system) && !docks.as_slice().contains(system) {
+                        docks.push(*system);
+                    }
+                }
+                docks.as_mut_slice().sort_unstable();
+                docks.as_slice().iter().map(|s| Opt::System(*s)).collect()
             }
             Fx::Disgrace => {
                 let Some((_, Some(first))) = self.taken else { return SmallList::new() };
@@ -1759,6 +1819,19 @@ impl Play {
                 }
             }
             (Fx::Perform { .. }, Opt::Perform { card, .. }) => self.picked = Some(card),
+            (Fx::Battlestation, Opt::System(_)) => {
+                // SPACE CANNON 5(x3), whichever dock fires: the dice come first, then the active seat (not the holder) takes the hits.
+                let mut hits = 0u8;
+                for _ in 0..BATTLESTATION_DICE {
+                    let face = core.rng_mut().die(RngDomain::Dice, seeds, DIE_SIDES);
+                    self.faces.push(face);
+                    hits += u8::from(face >= BATTLESTATION_HITS_ON);
+                }
+                if let (true, Some(system), Some(target)) = (hits > 0, core.meta().active_system, core.meta().active) {
+                    self.scene = Some((system, target));
+                    self.owed = hits;
+                }
+            }
             (Fx::Crash, Opt::Kind(kind)) => {
                 self.landing = Some(kind);
                 self.step = 1;
@@ -1987,7 +2060,7 @@ impl Play {
 
     /// The question as the driver names it (Summit asks the strategy area's pool question).
     pub(super) fn any_ask(&self) -> crate::choice::Ask {
-        if let (Stage::Paying | Stage::Limiting | Stage::Rewarding | Stage::Performing, Some(ask)) = (self.stage, self.pay_ask) {
+        if let (Stage::Paying | Stage::Limiting | Stage::Rewarding | Stage::Performing | Stage::Hitting, Some(ask)) = (self.stage, self.pay_ask) {
             return ask;
         }
         if self.stage == Stage::Pooling {
@@ -2035,9 +2108,99 @@ impl Play {
             self.pay_bill(sx, kind, cost);
             return;
         }
-        self.start_questions(sx.state, sx.kernel, &sx.table.links, sx.seeds);
+        if self.fx == Fx::Courageous {
+            self.begin_courageous(sx);
+        } else {
+            self.start_questions(sx.state, sx.kernel, &sx.table.links, sx.seeds);
+        }
         self.maybe_bill(sx);
         self.maybe_explore(sx);
+        self.maybe_hit(sx);
+    }
+
+    /// Courageous To The End: "after 1 of your ships is destroyed during a space combat: roll 2 dice. For each result equal to or
+    /// higher than that ship's combat value, your opponent must choose and destroy 1 of their ships." The ship is the handoff of
+    /// the last destruction (the holder's own); "your opponent" is the first other seat, in seating order, with a ship in its
+    /// system *now* (the holder may have lost the last one). Nobody to choose, or a ship that does not fight: no dice.
+    fn begin_courageous(&mut self, sx: &mut Sx<'_>) {
+        self.stage = Stage::Done;
+        let core = &*sx.state;
+        let Some((system, victim, unit)) = core.transient().combat.last_ship_destroyed else { return };
+        if victim != self.who {
+            return;
+        }
+        let scope = self.env.scope;
+        let ship = |seat: Seat| board::space_units(core, system).iter().any(|p| p.owner() == seat && scope.unit(p.kind()).is_some_and(|d| d.ship));
+        let Some(opponent) = seats::seating_order(core).as_slice().iter().copied().find(|s| *s != self.who && ship(*s)) else {
+            // Only a neutral owner's ship is left to fight (the string names it the opponent, after the seated ones; nobody chooses its
+            // loss): the string's, declined before anything is rolled.
+            if board::space_units(core, system).iter().any(|p| !seats::is_player(core, p.owner()) && scope.unit(p.kind()).is_some_and(|d| d.ship)) {
+                self.unsupported = true;
+            }
+            return;
+        };
+        let Some(value) = scope.unit(unit).and_then(|d| d.combat).map(|roll| u32::from(roll.hits_on)).filter(|v| *v > 0) else { return };
+        for _ in 0..COURAGEOUS_DICE {
+            let face = sx.die(RngDomain::Dice, DIE_SIDES);
+            self.faces.push(face);
+            self.owed += u8::from(face >= value);
+        }
+        if self.owed > 0 {
+            self.scene = Some((system, opponent));
+            self.stage = Stage::Hitting;
+        }
+    }
+
+    /// The hit flow of the card starts once its dice are rolled.
+    fn maybe_hit(&mut self, sx: &mut Sx<'_>) {
+        if self.stage == Stage::Hitting && !self.flow.running() {
+            self.next_hit(sx);
+        }
+    }
+
+    /// Start the next child window of the hit flow (Courageous: one casualty per die that reached the combat value; Battlestation:
+    /// all the hits at once), or finish when nothing is owed. A table without the link declines the run.
+    fn next_hit(&mut self, sx: &mut Sx<'_>) {
+        loop {
+            let Some((system, target)) = self.scene.filter(|_| self.owed > 0) else {
+                self.stage = Stage::Done;
+                return;
+            };
+            let request = if self.fx == Fx::Courageous {
+                self.owed -= 1;
+                Spawn::Destroy { who: target, system, card: self.card, subtype: self.env.facts.courageous_subtype, cause: self.env.facts.courageous_cause }
+            } else {
+                Spawn::Absorb { who: target, producer: self.who, system, hits: u16::from(std::mem::take(&mut self.owed)), texts: self.env.facts.hits }
+            };
+            let Some(window) = sx.table.links.start(&request) else { return self.decline() };
+            self.flow.start(window);
+            self.stage = Stage::Hitting;
+            if self.drive_hit(sx) {
+                return;
+            }
+        }
+    }
+
+    /// Step the hit flow's child until it asks (`true`) or ends. Courageous stops at the first die that finds no ship to destroy
+    /// (the string `break`s: nothing is left to lose).
+    fn drive_hit(&mut self, sx: &mut Sx<'_>) -> bool {
+        self.pay_ask = None;
+        loop {
+            match self.flow.step(sx) {
+                Some(Ran::Asks(ask)) => {
+                    self.pay_ask = Some(ask);
+                    return true;
+                }
+                Some(Ran::Pass(_)) => {}
+                Some(Ran::Done(report)) => {
+                    if report == Report::Destroyed(false) {
+                        self.owed = 0;
+                    }
+                    return false;
+                }
+                None => return false,
+            }
+        }
     }
 
     /// Where a card stands once its last pick is applied: Reveal Prototype owes its bill, Exploration Probe explores, the rest is done.
@@ -2048,6 +2211,8 @@ impl Play {
             Stage::Exploring
         } else if self.picked.is_some() {
             Stage::Chosen
+        } else if self.fx == Fx::Battlestation && self.owed > 0 {
+            Stage::Hitting
         } else {
             Stage::Done
         }
@@ -2401,7 +2566,7 @@ impl Play {
     pub fn asking(&self) -> bool {
         self.stage == Stage::Asking
             || self.stage == Stage::Pooling
-            || (matches!(self.stage, Stage::Paying | Stage::Limiting | Stage::Rewarding | Stage::Performing) && self.pay_ask.is_some())
+            || (matches!(self.stage, Stage::Paying | Stage::Limiting | Stage::Rewarding | Stage::Performing | Stage::Hitting) && self.pay_ask.is_some())
     }
 
     /// Apply a pick to the pending question (`Window::answer` without the services).
@@ -2444,6 +2609,13 @@ impl Play {
             self.drive_perform(sx);
             return Ok(());
         }
+        if self.stage == Stage::Hitting {
+            self.flow.answer(sx, pick)?;
+            if !self.drive_hit(sx) {
+                self.next_hit(sx);
+            }
+            return Ok(());
+        }
         if self.stage != Stage::Asking {
             return Err(Illegal);
         }
@@ -2474,6 +2646,7 @@ impl Play {
         }
         self.maybe_bill(sx);
         self.maybe_explore(sx);
+        self.maybe_hit(sx);
         Ok(())
     }
 }
@@ -2490,7 +2663,7 @@ impl Window for Play {
         match self.stage {
             Stage::Asking => Next::Continue(self.any_ask()),
             Stage::Pooling => Next::Continue(self.any_ask()),
-            Stage::Paying | Stage::Limiting | Stage::Rewarding | Stage::Performing => self.pay_ask.map_or(Next::Done, Next::Continue),
+            Stage::Paying | Stage::Limiting | Stage::Rewarding | Stage::Performing | Stage::Hitting => self.pay_ask.map_or(Next::Done, Next::Continue),
             Stage::Start | Stage::Billing | Stage::Exploring | Stage::Chosen | Stage::Done => Next::Done,
         }
     }
@@ -2510,6 +2683,9 @@ impl Window for Play {
         }
         if self.stage == Stage::Performing {
             return self.perform.ask_of(s, k);
+        }
+        if self.stage == Stage::Hitting {
+            return self.flow.ask_of(s, k);
         }
         if self.fx == Fx::Summit {
             return (self.stage == Stage::Asking).then(|| crate::choice::strategy::gain_pool_choice(self.who, Self::SUMMIT_TOKENS - self.step));
@@ -2562,7 +2738,6 @@ mod tests {
             (C::DirectHit1, "the exact sustain mark and the ship-lost observers"),
             (C::DirectHit4, "the exact sustain mark and the ship-lost observers"),
             (C::SkilledRetreat1, "destinations and previews"),
-            (C::CourageousToTheEnd, "dice and a casualty choice"),
             (C::ScrambleFrequency, "the combat area's dice plumbing"),
         ] {
             assert_eq!(Fx::of(card), None, "{card:?}: {why}");
@@ -2619,6 +2794,8 @@ mod tests {
             C::Strategize1,
             C::Strategize4,
             C::Overrule,
+            C::CourageousToTheEnd,
+            C::ExperimentalBattlestation,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }
@@ -3110,8 +3287,6 @@ mod tests {
     const BAILS: &[(ActionCard, &str)] = &{
         use ActionCard as C;
         [
-            (C::CourageousToTheEnd, "dice, then the opponent's casualty choice with the card's holder as producer: the combat area's hit flow (core-b12 keeps the child casualty flows, ENGINE_REACTIONS 9.2)"),
-            (C::ExperimentalBattlestation, "a space cannon roll whose hits go through the combat area's sustain and casualty questions (a child hit flow, core-b12's area) from a dock in or adjacent to the active system"),
             (C::FireTeam, "the staged ground roll's per-die rerolls are the combat area's (ported on core-b12 as a registered play; not merged here)"),
             (C::ScrambleFrequency, "per-die reroll of a barrage, space cannon or bombardment roll of another seat: the combat area's dice plumbing (core-b12 documents it as a bail)"),
         ]
@@ -3162,7 +3337,7 @@ mod tests {
 
     /// The cards that run a window or a query of another area (a bill, the hand limit, a research, the Merchant Station's reward,
     /// the ability of a strategy card).
-    const LINKED_CARDS: [ActionCard; 9] = [
+    const LINKED_CARDS: [ActionCard; 11] = [
         ActionCard::PirateFleet,
         ActionCard::Impersonation,
         ActionCard::Plagiarize,
@@ -3172,6 +3347,8 @@ mod tests {
         ActionCard::ExplorationProbe,
         ActionCard::Strategize1,
         ActionCard::Overrule,
+        ActionCard::CourageousToTheEnd,
+        ActionCard::ExperimentalBattlestation,
     ];
 
     fn linked_env() -> Env {

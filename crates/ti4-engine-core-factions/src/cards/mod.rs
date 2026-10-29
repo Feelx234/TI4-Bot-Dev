@@ -24,6 +24,12 @@ pub fn register(t: &mut AbilityTable) {
     t.add_card_play(CardPlay { covers: |c| c == ActionCard::Parley, effect: parley });
     t.add_card_play(CardPlay { covers: direct_hit_covers, effect: direct_hit });
     t.add_card_play(CardPlay { covers: skilled_retreat_covers, effect: skilled_retreat });
+    register_after_play(t);
+}
+
+/// Install only the announcement of what a played card staged (`pending_destructions`): the table of the adapter's play window
+/// carries no reaction rule, but a card that destroys ships itself (Courageous To The End) stages them for it.
+pub fn register_after_play(t: &mut AbilityTable) {
     t.after_play = Some(announce_destructions);
 }
 
@@ -123,7 +129,10 @@ fn with_sx<R>(host: &mut RulesHost<'_>, resolver: &mut Resolver, f: impl FnOnce(
         emitted: &mut emitted,
         seeds: host.seeds,
     };
-    f(&mut sx)
+    let done = f(&mut sx);
+    // What the helpers emitted at the top level is the events of the window that called the hook (`Tape::emitted`).
+    host.tape.emitted.append(&mut emitted);
+    done
 }
 
 /// `reactions::announce`'s tail: every destruction an effect staged is announced as a `SHIP_DESTROYED`, in order, so the

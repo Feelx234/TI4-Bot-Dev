@@ -98,6 +98,8 @@ pub enum What {
     Pirate,
     /// kind `system`, label the id: the system whose frontier token Exploration Probe explores.
     Probe,
+    /// kind `space dock`, label `dock in <system>`, detail `system`: the system whose space dock fires (Experimental Battlestation).
+    Dock,
     /// kind `strategy card` (with the space), label `<holder>'s <name>` (a held card) or `<name>` (an unclaimed one): the strategy card
     /// whose secondary (Strategize) or primary (Overrule) ability the holder performs.
     Perform,
