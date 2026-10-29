@@ -1077,8 +1077,9 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
-        module: "game.rs",
-        function: "committee_formation",
+        // Committee Formation: which player the agenda elects (`agenda_close::Live`, split out of `Game`).
+        module: "agenda_close.rs",
+        function: "committee_elect",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1740,7 +1741,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("game.rs", "step_vote", 1),
     ("agenda_reveal.rs", "ask_to_use_note", 1),
     ("game.rs", "perform_zeu", 1),
-    ("game.rs", "committee_formation", 1),
+    ("agenda_close.rs", "committee_elect", 1),
     ("game.rs", "imperial_arbiter", 2),
     ("game.rs", "minister_of_war", 1),
     ("invasion.rs", "absorb_ground_text", 1),

@@ -15277,6 +15277,8 @@ mod tests {
         for (p, faction) in ["a", "b"].iter().zip(["sol", "letnev"]) {
             state.player_mut(&PlayerId::new(*p)).unwrap().faction = ti4_model::id::FactionId::new(faction);
         }
+        // The notes are keyed by the faction: deal them again for the real ones (the generic fixture notes are refused).
+        crate::promissory::deal(&mut state, ContentStore::embedded(), ti4_model::content_types::DEFAULT);
         let table = Table::with_default(Box::new(Scripted::new([
             "a".to_owned(),
             b_planets[0].clone(),
@@ -15296,8 +15298,10 @@ mod tests {
         });
         let report = take_report();
         assert_eq!(report.total_differences(), 0, "{report:?}");
-        let (compared, bailed) = crate::dual::local_windows("action_cards::deadly_plot");
-        assert!(compared > 0 && bailed == 0, "{compared} compared, {bailed} bailed");
+        // The card is played into the `AGENDA_RESOLVED` window of the close, which is one core window (B9c-2) and follows
+        // the play: the card's effect has no window of its own inside it.
+        let (compared, bailed) = crate::dual::local_windows("game::close_vote");
+        assert!(compared > 0 && bailed == 0, "{compared} compared, {bailed} bailed: {:?} {:?}", report.windows, report.nested);
     }
 
     #[test]

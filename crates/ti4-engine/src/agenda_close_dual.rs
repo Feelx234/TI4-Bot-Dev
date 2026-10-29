@@ -34,16 +34,14 @@ const CLOSE: Footprint = Footprint::new(
         Slice::Seats,
         Slice::Players,
         Slice::Board,
-        Slice::Strategy,
         Slice::Objectives,
         Slice::Decks,
         Slice::Agenda,
-        Slice::Cards,
         Slice::Transient,
         Slice::Ledger,
         Slice::Pending,
     ],
-    &[Slice::Meta, Slice::Players, Slice::Board, Slice::Objectives, Slice::Decks, Slice::Agenda, Slice::Cards, Slice::Transient, Slice::Ledger, Slice::Pending],
+    &[Slice::Meta, Slice::Players, Slice::Board, Slice::Objectives, Slice::Decks, Slice::Agenda, Slice::Transient, Slice::Ledger, Slice::Pending],
 );
 
 /// The core half of `Game::close_vote`.

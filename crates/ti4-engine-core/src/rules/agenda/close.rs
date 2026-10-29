@@ -608,6 +608,13 @@ mod tests {
         let hooked = Facts { hooked: 1 << 2, ..facts() };
         let w = Close::new(hooked, law(), None, Some(Outcome::For), &[], &COUNTS, &[]);
         assert!(run(w, &mut s, &[]).window.unsupported());
+        // Hand at 4: three more reaches the limit of seven exactly, which is plain.
+        let mut s = game();
+        s.decks_mut().action.set(deck.clone());
+        s.players_mut().by_seat_mut(C).unwrap().cards.hand = vec![ActionCard::ALL[5]; 4].into_iter().collect();
+        predict(&mut s, C, Prediction::Tagged(Outcome::For, PredictionTag::PoliticRider));
+        assert!(!run(close(law(), Some(Outcome::For)), &mut s, &[]).window.unsupported());
+        assert_eq!(s.players().by_seat(C).unwrap().cards.hand.len(), 7);
         // Hand at 5: three more is over the limit of seven.
         let mut s = game();
         s.decks_mut().action.set(deck);

@@ -77,7 +77,7 @@ mod tests {
 
     #[test]
     fn a_discarded_agenda_is_logged_without_an_outcome() {
-        let mut s = CoreState::default();
+        let mut s = CoreState::all_loaded();
         s.meta_mut().round = 3;
         log_discarded(&mut s, Agenda::ALL[1], true, Code(7));
         let rec = s.agenda().log.last().unwrap();
@@ -91,7 +91,7 @@ mod tests {
 
     #[test]
     fn a_finished_vote_is_logged_with_its_flags() {
-        let mut s = CoreState::default();
+        let mut s = CoreState::all_loaded();
         s.meta_mut().round = 2;
         let seat = crate::ids::Seat(1);
         let counts = [(Outcome::For, 3), (Outcome::Against, 1)];
@@ -117,7 +117,7 @@ mod tests {
 
     #[test]
     fn a_law_is_enacted_and_a_secret_leaks_once() {
-        let mut s = CoreState::default();
+        let mut s = CoreState::all_loaded();
         enact(&mut s, Agenda::ALL[3], Outcome::For);
         enact(&mut s, Agenda::ALL[3], Outcome::Against);
         assert_eq!(s.agenda().laws.get(&Agenda::ALL[3]), Some(&Outcome::Against));
