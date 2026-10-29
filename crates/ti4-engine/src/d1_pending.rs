@@ -22,7 +22,7 @@ use ti4_engine_core::containers::{SeatSet, SmallList};
 use ti4_engine_core::generated::{Agenda, Leader, StrategyCard};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::rules::strategy_secondary::{self as core_secondary, Outcome, Resolution};
-use ti4_engine_core::state::{Pending, Scoring, ScoringTiming, Secondary, SecondaryHow, Window, WindowKind};
+use ti4_engine_core::state::{Pending, PlainArg, PlainKind, PlainRec, Scoring, ScoringTiming, Secondary, SecondaryHow, Window, WindowKind};
 use ti4_model::id::{LeaderId, PlayerId, StrategyCardId};
 
 use super::{Game, StepResult};
@@ -30,6 +30,7 @@ use crate::dual::{Area, Backend, compare_value, note_bail, note_window};
 use crate::generated::IdStr;
 use crate::objectives::Book;
 use crate::secrets::Timing;
+use crate::render::events::plain_text;
 use crate::render::Render;
 use crate::strategy::{SecondaryResolution, StepOutcome, StrategySecondaryWindow};
 
@@ -47,7 +48,7 @@ pub(super) struct Shadow {
     pub(super) outcome: Option<StepOutcome>,
     /// The book of the scoring window after the core half of this step's scoring answer (`event`: the event window),
     /// set by `Game::score_step`, taken by [`check`].
-    pub(super) scoring: Option<(bool, Book)>,
+    pub(super) scoring: Option<(bool, Book, Option<ti4_model::id::ObjectiveId>)>,
 }
 
 /// Whether the D1 dual is on for this thread.
@@ -335,6 +336,18 @@ fn advance_held(pending: &mut Pending, out: &Outcome) -> bool {
     true
 }
 
+/// The plain events among `pushed` whose kind is one of `kinds`, as pushed.
+fn pushed_named(pushed: &[crate::dual_window::Pushed], kinds: &[PlainKind]) -> Vec<String> {
+    use crate::render::events::kind_text;
+    pushed
+        .iter()
+        .filter_map(|p| match p {
+            crate::dual_window::Pushed::Plain(t) if kinds.iter().any(|k| crate::dual_window::plain_name(t) == kind_text(*k)) => Some(t.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 // --- the census of phase flow and reconcile hooks (W3, W4) -------------------------------------------------------------
 
 /// The kinds of the windows a `Pending` holds.
@@ -381,6 +394,7 @@ pub(super) fn probed(g: &Game<'_>, probe: &mut Option<serde_json::Value>, hook: 
 /// Compare the held `Pending` with the string fields after `Game::step`, then re-seed it from them.
 pub(super) fn check(g: &mut Game<'_>, result: &StepResult) {
     let outcome = g.d1.outcome.take();
+    let pushed = crate::dual_window::step_capture_take();
     for field in untyped_open(g) {
         note_bail("d1::pending.untyped", field);
     }
@@ -413,11 +427,17 @@ pub(super) fn check(g: &mut Game<'_>, result: &StepResult) {
         let expected = held.window(WindowKind::StrategySecondary);
         let actual = observed.iter().find(|w| w.kind() == WindowKind::StrategySecondary);
         ok &= compare_value(Area::Driver, "d1::pending.secondary", &actual, &expected);
+        if let Some(core) = outcome.as_ref().and_then(|o| core_outcome(o, &r)) {
+            // The plain events of the step the core outcome decides (package P1-7), against what the string pushed.
+            let expected: Vec<String> = core_secondary::plain_events(&core).as_slice().iter().filter_map(|p| plain_text(&r, &cx, p)).collect();
+            let kinds = [PlainKind::StrategySecondaryDeclined, PlainKind::StrategySecondaryFollowed, PlainKind::StrategicActionComplete];
+            ok &= compare_value(Area::Driver, "d1::pending.plain.secondary", &pushed_named(&pushed, &kinds), &expected);
+        }
     } else if outcome.is_some() {
         note_bail(LABEL, "the held follower window did not take the step (not open, an error, or an id the table does not know)");
     }
     // The scoring window's book after the core half of this step's answer.
-    if let Some((event, book)) = g.d1.scoring.take() {
+    if let Some((event, book, scored)) = g.d1.scoring.take() {
         let kind = if event { WindowKind::EventScoring } else { WindowKind::Scoring };
         match scoring_of(&book, &r) {
             Ok(typed) if result.error.is_none() => {
@@ -426,6 +446,14 @@ pub(super) fn check(g: &mut Game<'_>, result: &StepResult) {
                 let expected = (!g.state.finished).then(|| if event { Window::EventScoring(typed) } else { Window::Scoring(typed) });
                 let actual = observed.iter().find(|w| w.kind() == kind);
                 ok &= compare_value(Area::Driver, "d1::pending.scoring", &actual, &expected.as_ref());
+                // The `OBJECTIVE_SCORED` the string pushes after the answer is the core half's scored objective (package P1-7).
+                let expected: Vec<String> = scored
+                    .as_ref()
+                    .and_then(|id| windows::objective_ref(id))
+                    .and_then(|o| plain_text(&r, &cx, &PlainRec::one(PlainKind::ObjectiveScored, PlainArg::Obj(o))))
+                    .into_iter()
+                    .collect();
+                ok &= compare_value(Area::Driver, "d1::pending.plain.scoring", &pushed_named(&pushed, &[PlainKind::ObjectiveScored]), &expected);
             }
             _ => note_bail(LABEL, "the scoring book of the core half could not be compared (an error, or a seat the table does not know)"),
         }

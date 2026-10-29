@@ -158,6 +158,8 @@ thread_local! {
     static COMPOSED: Cell<bool> = const { Cell::new(!cfg!(test)) };
     static REC: RefCell<Option<Recording>> = const { RefCell::new(None) };
     static DEPTH: Cell<u32> = const { Cell::new(0) };
+    /// Every push to `Game::events` of the running `Game::step`, windows or not (the D1 dual's plain events of the finished areas).
+    static STEP: RefCell<Option<Vec<Pushed>>> = const { RefCell::new(None) };
     static LABEL: Cell<&'static str> = const { Cell::new("nested") };
 }
 
@@ -211,6 +213,11 @@ pub fn note_plain_event(text: &str) {
     if !plain_census_on() {
         return;
     }
+    STEP.with(|s| {
+        if let Some(pushes) = s.borrow_mut().as_mut() {
+            pushes.push(Pushed::Plain(text.to_owned()));
+        }
+    });
     let kept = REC.with(|r| match r.borrow_mut().as_mut() {
         Some(rec) => {
             rec.plain.push(text.to_owned());
@@ -235,6 +242,16 @@ pub fn note_mirrored_events(names: &[String]) {
             rec.order.extend(names.iter().cloned().map(Pushed::Mirrored));
         }
     });
+}
+
+/// Start recording every push of the step that begins (`Game::step` under the D1 dual).
+pub fn step_capture_start() {
+    STEP.with(|s| *s.borrow_mut() = Some(Vec::new()));
+}
+
+/// End the step's recording and take it.
+pub fn step_capture_take() -> Vec<Pushed> {
+    STEP.with(|s| s.borrow_mut().take()).unwrap_or_default()
 }
 
 /// The name of a plain event text: `LEADER_UNLOCKED:sol_hero` is `LEADER_UNLOCKED`.

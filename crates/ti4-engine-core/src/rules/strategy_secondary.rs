@@ -115,6 +115,25 @@ pub fn advance(window: &mut crate::state::Secondary, out: &Outcome) {
     }
 }
 
+/// The plain events the string pushes for one step of the follower window (`Game::step_secondary`), in order, as far as the
+/// outcome of the core half decides them: how the follower answered, then the end of the action when no follower is left
+/// (package P1: the plain events of a finished area). The events of what the follower's card did, of the leader strategy that
+/// completes and of the turn that closes come from other areas and are not in the list.
+#[must_use]
+pub fn plain_events(out: &Outcome) -> SmallList<crate::state::PlainRec, 2> {
+    use crate::state::{PlainKind, PlainRec};
+    let mut events = SmallList::new();
+    match out.answered {
+        Some((_, Resolution::Declined)) => events.push(PlainRec::bare(PlainKind::StrategySecondaryDeclined)),
+        Some((_, Resolution::Followed)) => events.push(PlainRec::bare(PlainKind::StrategySecondaryFollowed)),
+        None => {}
+    }
+    if out.complete {
+        events.push(PlainRec::bare(PlainKind::StrategicActionComplete));
+    }
+    events
+}
+
 /// Whether every follower of the held window is recorded (`StrategySecondaryWindow::is_complete`).
 #[must_use]
 pub fn is_complete(window: &crate::state::Secondary) -> bool {
@@ -551,5 +570,16 @@ mod tests {
         s.board_mut().sys_mut(System::ALL[3]).cmd.insert(Seat(0));
         take_waiver(&mut s, WaiverEffect::Agent { leader: Leader::JaeMirKan, system: System::ALL[3] });
         assert!(s.board().sys(System::ALL[3]).cmd.contains(Seat(0)));
+    }
+
+    #[test]
+    fn the_plain_events_of_a_step_follow_the_answer_and_the_end_of_the_action() {
+        use crate::state::PlainKind::{StrategicActionComplete, StrategySecondaryDeclined, StrategySecondaryFollowed};
+        let kinds = |o: &Outcome| plain_events(o).as_slice().iter().map(|p| p.kind).collect::<Vec<_>>();
+        let out = |answered, complete| Outcome { skipped: SmallList::new(), answered, complete };
+        assert_eq!(kinds(&out(Some((Seat(1), Resolution::Followed)), false)), [StrategySecondaryFollowed]);
+        assert_eq!(kinds(&out(Some((Seat(1), Resolution::Declined)), true)), [StrategySecondaryDeclined, StrategicActionComplete]);
+        assert_eq!(kinds(&out(None, true)), [StrategicActionComplete], "the window ran out of followers");
+        assert!(kinds(&out(None, false)).is_empty());
     }
 }

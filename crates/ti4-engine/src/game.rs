@@ -54,7 +54,7 @@ mod d1_pending {
     #[derive(Debug, Clone, Default)]
     pub(super) struct Shadow {
         pub(super) outcome: Option<crate::strategy::StepOutcome>,
-        pub(super) scoring: Option<(bool, crate::objectives::Book)>,
+        pub(super) scoring: Option<(bool, crate::objectives::Book, Option<ti4_model::id::ObjectiveId>)>,
     }
 }
 
@@ -2087,6 +2087,7 @@ impl<'a> Game<'a> {
         if d1_pending::active() {
             self.d1.outcome = None;
             self.d1.scoring = None;
+            crate::dual_window::step_capture_start();
             let result = self.step_flow();
             d1_pending::check(self, &result);
             return result;
@@ -5625,7 +5626,7 @@ impl<'a> Game<'a> {
                 let core = crate::objectives_write::score_one(state, content, sources, galaxy, choice, &args, script);
                 // The held scoring window of the D1 dual takes the book the core half left.
                 if d1_pending::active() {
-                    d1.scoring = core.as_ref().map(|c| (event, c.run.value.2.clone()));
+                    d1.scoring = core.as_ref().map(|c| (event, c.run.value.2.clone(), c.run.value.1.clone()));
                 }
                 core
             }

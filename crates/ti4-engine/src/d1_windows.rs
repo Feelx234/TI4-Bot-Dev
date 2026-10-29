@@ -63,6 +63,11 @@ fn pool_back(p: Pool) -> TokenPool {
     }
 }
 
+/// The typed objective of an id (for the plain events of a score).
+pub(super) fn objective_ref(id: &ObjectiveId) -> Option<ObjectiveRef> {
+    objective_of(id).ok()
+}
+
 fn objective_of(id: &ObjectiveId) -> Res<ObjectiveRef> {
     PublicObjective::from_id(id.as_str())
         .map(ObjectiveRef::Public)
