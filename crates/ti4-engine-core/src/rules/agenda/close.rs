@@ -465,6 +465,10 @@ mod tests {
         let plain: Vec<PlainRec> = s.ledger.events.iter().filter_map(|e| e.plain().copied()).collect();
         assert_eq!(plain[0], PlainRec::two(AgendaResolved, PlainArg::Agenda(law()), PlainArg::Outcome(Outcome::For)));
         assert_eq!(plain[1], PlainRec::two(LawEnacted, PlainArg::Agenda(law()), PlainArg::Outcome(Outcome::For)));
+        // The mirrored line is the event as the resolver ended it (trace id, payload), not a bare name.
+        let typed = s.ledger.events.iter().find_map(|e| if let crate::state::Emit::Typed(t) = e { Some(t.clone()) } else { None }).expect("mirrored");
+        assert_eq!((typed.kind, typed.payload.get(Key::Agenda)), (EventKind::AgendaResolved, Some(Val::Agenda(law()))));
+        assert_ne!(typed.id, 0, "the trace id the emitter assigned");
         // A vote without a winner pushes nothing.
         let mut s = game();
         run(close(law(), None), &mut s, &[]);
