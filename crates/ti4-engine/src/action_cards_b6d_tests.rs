@@ -549,7 +549,7 @@ fn plagiarize_pays_five_influence_and_takes_a_neighbours_technology_in_the_core_
 }
 
 /// A position where seat `a` owns the base technologies of every colour (so a good many are researchable) and is ready to pay.
-fn research_position() -> GameState {
+pub(crate) fn research_position() -> GameState {
     let a = PlayerId::new("a");
     let mut state = closing_position();
     state.exhausted_planets.clear();
@@ -771,11 +771,11 @@ fn crash_landing_lands_a_ground_force_on_a_planet_of_the_system_in_the_core_wind
 
 /// The table of [`closing_position`] with the strategy cards laid out as the test wants: `b` and `c` hold `b_held` and `c_held`
 /// (each card readied, `exhausted` names the ones that are not) and `mat` is the cards nobody has picked.
-fn strategy_position(b_held: &[&str], c_held: &[&str], exhausted: &[&str], mat: &[&str]) -> GameState {
+pub(crate) fn strategy_position(b_held: &[&str], c_held: &[&str], exhausted: &[&str], mat: &[&str]) -> GameState {
     strategy_on(closing_position(), b_held, c_held, exhausted, mat)
 }
 
-fn strategy_on(mut state: GameState, b_held: &[&str], c_held: &[&str], exhausted: &[&str], mat: &[&str]) -> GameState {
+pub(crate) fn strategy_on(mut state: GameState, b_held: &[&str], c_held: &[&str], exhausted: &[&str], mat: &[&str]) -> GameState {
     let card = |id: &&str| ti4_model::StrategyCardId::new(*id);
     for (seat, held) in [("b", b_held), ("c", c_held)] {
         let seat = state.player_mut(&PlayerId::new(seat)).unwrap();
@@ -842,7 +842,16 @@ fn strategize_performs_the_politics_and_technology_secondaries_in_the_core_windo
     for board in poor.board.values_mut() {
         board.planet_control.retain(|_, owner| *owner != a);
     }
-    for case in [&draw, &research, &both, &poor] {
+    // The faction effects of a research that the production kernel's hooks carry: Jol-Nar's waiver of a prerequisite (Analytical, the
+    // agent spent), Nekro's Propagation (command tokens instead of a technology), the Anti-Intellectual Revolution (a ship is destroyed).
+    let mut jolnar = research.clone();
+    jolnar.player_mut(&a).unwrap().faction = ti4_model::id::FactionId::new("jolnar");
+    jolnar.player_mut(&a).unwrap().leaders.insert(ti4_model::id::LeaderId::new("jolnaragent"), ti4_model::state::LeaderStatus::Exhausted);
+    let mut nekro = research.clone();
+    nekro.player_mut(&a).unwrap().faction = ti4_model::id::FactionId::new("nekro");
+    let mut revolution = research.clone();
+    revolution.enact_law("revolution", "for");
+    for case in [&draw, &research, &both, &poor, &jolnar, &nekro, &revolution] {
         announce_all(&[("strategize1", case.clone())]);
     }
     let _ = crate::dual::take_report();
@@ -928,12 +937,21 @@ fn overrule_performs_the_trade_technology_leadership_construction_and_warfare_pr
     let mut warfare = rich.clone();
     warfare.system_mut(&ti4_model::id::SystemId::new("33")).command_tokens.insert(a.clone());
     let warfare = strategy_on(warfare, &[], &[], &[], &["pok6warfare"]);
-    for case in [&trade, &full, &research, &leadership, &construction, &warfare] {
+    // Diplomacy: a system the holder controls a planet in, the other seats place a token there (announced), then up to two planets are
+    // readied; the base printing readies the whole system from rules version 35.
+    let diplomacy = strategy_position(&["pok2diplomacy"], &[], &[], &[]);
+    let base_diplomacy = strategy_position(&["base2"], &[], &[], &[]);
+    let mut older = base_diplomacy.clone();
+    older.rules_version = ti4_model::state::RULES_BASE_DIPLOMACY - 1;
+    for case in [&trade, &full, &research, &leadership, &construction, &warfare, &diplomacy, &base_diplomacy, &older] {
         announce_all(&[("overrule", case.clone())]);
     }
     let _ = crate::dual::take_report();
     let after = played("overrule", &trade);
     assert!(after.player(&a).unwrap().trade_goods >= trade.player(&a).unwrap().trade_goods + 3, "the Trade primary pays three trade goods");
+    let after = played("overrule", &diplomacy);
+    let tokens = |s: &GameState| s.board.values().map(|b| b.command_tokens.len()).sum::<usize>();
+    assert!(tokens(&after) > tokens(&diplomacy), "the other seats placed a command token");
     let _ = crate::dual::take_report();
 }
 
@@ -1054,8 +1072,7 @@ fn bails_picking(alias: &str, start: &GameState, pick: &'static str, filler: usi
 }
 
 /// Bail: the Warfare secondary (a production window at the home system), the Imperial primary (the scoreable objectives, the award
-/// tail), the Diplomacy primary (both printings) and the Thunder's Edge primaries (a free tactical action; the choice of a
-/// production) are the string's.
+/// tail) and the Thunder's Edge primaries (a free tactical action; the choice of a production) are the string's.
 #[test]
 fn bail_the_strategy_abilities_the_core_window_does_not_carry_are_the_strings() {
     let _serial = crate::dual::tests::serial();
@@ -1064,8 +1081,6 @@ fn bail_the_strategy_abilities_the_core_window_does_not_carry_are_the_strings() 
         ("strategize1", "pok6warfare"),
         ("strategize2", "te6warfare"),
         ("overrule", "pok8imperial"),
-        ("overrule", "pok2diplomacy"),
-        ("overrule", "base2"),
         ("overrule", "te6warfare"),
         ("overrule", "te4construction"),
     ] {
@@ -1120,7 +1135,14 @@ fn bail_technology_at_a_table_the_research_window_does_not_carry() {
     mentak.player_mut(&PlayerId::new("c")).unwrap().faction = ti4_model::id::FactionId::new("mentak");
     let mut old = research.clone();
     old.rules_version = ti4_model::state::RULES_TECH_PAYMENT_CHOICE - 1;
+    // A faction effect the core table does not hold (here a waiver of prerequisites the string offers): the hooks disagree.
+    let waiver = crate::factions::hooks_strategy::StrategyHooks {
+        research_waiver_offer: Some(|_, _, _, _| Some(crate::factions::hooks_strategy::ResearchWaiver { id: "t".to_owned(), label: "t".to_owned(), payments: Vec::new() })),
+        ..crate::factions::hooks_strategy::StrategyHooks::NONE
+    };
     for alias in ["strategize1", "overrule"] {
+        let declined = crate::factions::hooks_strategy::with_test_hooks(waiver, || bails_picking(alias, &research, "pok7technology", 0));
+        assert_eq!(declined, (0, 1), "{alias} where the string modules and the core table disagree on the hooks of a research");
         assert_eq!(bails_picking(alias, &mentak, "pok7technology", 0), (0, 1), "{alias} at a table with Mentak");
         assert_eq!(bails_picking(alias, &old, "pok7technology", 0), (0, 1), "{alias} below the rules version of the payment plan");
         assert_eq!(bails_picking(alias, &research, "pok7technology", 0), (1, 0), "{alias} is carried at a plain table");

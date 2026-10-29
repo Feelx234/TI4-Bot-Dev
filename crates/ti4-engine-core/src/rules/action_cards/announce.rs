@@ -103,6 +103,15 @@ impl Announce {
         self.played
     }
 
+    /// The system the Diplomacy primary performed by Overrule placed tokens in and the seats that got one (empty for any other play).
+    #[must_use]
+    pub fn placed_tokens(&self) -> Option<(crate::generated::System, Vec<Seat>)> {
+        match &self.effect {
+            Effect::Play(play) => play.placed_tokens().map(|(system, seats)| (system, seats.to_vec())),
+            _ => None,
+        }
+    }
+
     /// The dice the effect rolled, in order.
     #[must_use]
     pub fn faces(&self) -> Vec<u32> {

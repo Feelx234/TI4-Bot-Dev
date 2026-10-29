@@ -8,15 +8,18 @@
 //! Politics (the draw of two action cards), Technology (the paid research), Leadership, Construction and Diplomacy, and the
 //! primaries of Trade, Politics, Technology, Leadership, Construction and Warfare.
 //!
+//! The Diplomacy primary is carried too: the tokens it places are announced by the adapter after the window
+//! ([`Performed::tokens`]: the string stages those events on its own state).
+//!
 //! Not carried (the run is `unsupported`: the adapter declines it and the string performs the ability; one test each in the
 //! adapter's `action_cards_b6d_tests`):
 //! * the Warfare secondary (`home_production`: a whole production window at the home system);
 //! * the Imperial primary (the scoreable objectives, the award tail and the winner are the string's);
-//! * the Diplomacy primary (the announcements of the tokens it places are staged on the string state);
 //! * the Thunder's Edge Construction and Warfare primaries (the choice of a production, the free tactical action).
 
 use crate::choice::{Choice, Pick};
-use crate::generated::{StrategyCard, StrategyCardKind};
+use crate::containers::SmallList;
+use crate::generated::{StrategyCard, StrategyCardKind, System};
 use crate::ids::Seat;
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{fx, Kernel, Next};
@@ -35,6 +38,8 @@ const TECHNOLOGY_SECONDARY_COST: i64 = 4;
 const RULES_OFFICIAL_ACTION_DECK: u32 = 30;
 /// `ti4_model::state::RULES_LETNEV_FLEET_POOL`: from this version the Letnev fleet pool may be emptied.
 const RULES_LETNEV_FLEET_POOL: u32 = 4;
+/// `ti4_model::state::RULES_BASE_DIPLOMACY`: from this version the base printing of Diplomacy readies a whole system.
+const RULES_BASE_DIPLOMACY: u32 = 35;
 
 /// What the adapter vouches for when a strategy card's ability runs in the core: the guards of the string windows that read the
 /// string position (`strategy_cards_core`). `Default` carries nothing, so a play without the adapter's facts declines every
@@ -137,8 +142,15 @@ pub(super) fn begin(sx: &mut Sx<'_>, who: Seat, card: StrategyCard, primary: boo
             }
             Began::Run(Performed::Warfare(WarfarePrimary::new(who, env.facts.rules_version >= RULES_LETNEV_FLEET_POOL)))
         }
-        (StrategyCardKind::Diplomacy, false) => Began::Run(Performed::Diplomacy(Diplomacy::new(who, card, DMode::Secondary))),
-        (StrategyCardKind::Warfare, false) | (StrategyCardKind::Imperial, true) | (StrategyCardKind::Diplomacy, true) => Began::Unsupported,
+        (StrategyCardKind::Diplomacy, primary) => {
+            let mode = if primary {
+                DMode::Primary { base_printing: card == StrategyCard::DiplomacyBase && env.facts.rules_version >= RULES_BASE_DIPLOMACY }
+            } else {
+                DMode::Secondary
+            };
+            Began::Run(Performed::Diplomacy(Diplomacy::new(who, card, mode)))
+        }
+        (StrategyCardKind::Warfare, false) | (StrategyCardKind::Imperial, true) => Began::Unsupported,
     }
 }
 
@@ -148,6 +160,14 @@ impl Performed {
         match self {
             Self::Research(w) => w.failed,
             _ => false,
+        }
+    }
+
+    /// The system the Diplomacy primary placed tokens in and the seats that got one (in seating order): the adapter announces them.
+    pub(super) fn tokens(&self) -> Option<(System, SmallList<Seat, 8>)> {
+        match self {
+            Self::Diplomacy(w) => w.chosen().map(|system| (system, w.placed.clone())),
+            _ => None,
         }
     }
 

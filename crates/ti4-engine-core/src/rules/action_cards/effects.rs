@@ -387,6 +387,8 @@ pub struct Play {
     picked: Option<StrategyCard>,
     /// Strategize and Overrule: the ability of the card, while it runs (a child window).
     perform: Child<Performed>,
+    /// The Diplomacy primary: the system it placed tokens in and the seats that got one.
+    tokens: Option<(System, SmallList<Seat, 8>)>,
 }
 
 /// `RULES_PLAGIARIZE_OWNED` and `RULES_ACTION_CARD_COSTS` (`ti4_model::state`).
@@ -486,7 +488,7 @@ impl Play {
             }
             _ => None,
         };
-        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: Child::idle(), hand: Child::idle(), chosen: None, landing: None, jam: None, troop: None, pulled: SmallList::new(), received: SmallList::new(), pay_ask: None, picked: None, perform: Child::idle() })
+        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: Child::idle(), hand: Child::idle(), chosen: None, landing: None, jam: None, troop: None, pulled: SmallList::new(), received: SmallList::new(), pay_ask: None, picked: None, perform: Child::idle(), tokens: None })
     }
 
     fn what(&self) -> Option<What> {
@@ -1970,6 +1972,7 @@ impl Play {
                     // An answer that left the carried path (a research only a faction waiver opens): the string performs it.
                     self.unsupported |= window.failed();
                     window.finish(sx.state, self.env);
+                    self.tokens = window.tokens();
                     self.stage = Stage::Done;
                     return;
                 }
@@ -2071,6 +2074,13 @@ impl Play {
                 }
             }
         }
+    }
+
+    /// The Diplomacy primary performed by Overrule: the system it placed command tokens in and the seats that got one (the adapter
+    /// announces the placements).
+    #[must_use]
+    pub fn placed_tokens(&self) -> Option<(System, &[Seat])> {
+        self.tokens.as_ref().map(|(system, seats)| (*system, seats.as_slice()))
     }
 
     /// The dice rolled, in order.
@@ -2405,15 +2415,6 @@ mod tests {
     fn bail_the_imperial_primary_is_the_strings() {
         let (unsupported, _, asked) = performs(ActionCard::Overrule, StrategyCard::Imperial, super::super::Facts::default(), &Kernel::plain());
         assert!(unsupported && !asked);
-    }
-
-    /// Bail: the Diplomacy primary stages the announcements of the tokens it places on the string state (both printings).
-    #[test]
-    fn bail_the_diplomacy_primary_is_the_strings() {
-        for printing in [StrategyCard::DiplomacyBase, StrategyCard::DiplomacyCodex] {
-            let (unsupported, _, asked) = performs(ActionCard::Overrule, printing, super::super::Facts::default(), &Kernel::plain());
-            assert!(unsupported && !asked, "{printing:?}");
-        }
     }
 
     /// Bail: the Thunder's Edge primaries are a free tactical action and a choice of a production (the string's), even when

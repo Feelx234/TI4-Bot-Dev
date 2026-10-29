@@ -387,6 +387,7 @@ pub fn play_window(
     let mut staged = Vec::new();
     let mut emitted = Vec::new();
     let mut faces = Vec::new();
+    let mut placed_tokens = None;
     let mut unsupported = false;
     let mut rng_after = None;
     let fp = if lent.is_some() { PLAY.union(crate::core_sync::Footprint::new(&[Slice::Rng], &[Slice::Rng])) } else { PLAY };
@@ -427,11 +428,11 @@ pub fn play_window(
         if let Some(seeds) = driver_seeds {
             driver = driver.with_seeds(seeds);
         }
-        let position = performs.then(crate::production_view::kernel);
-        let driven = crate::dual_window::drive_positioned(&mut driver, core, kernel, position, &r, &before, script, &details);
+        let driven = crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &details);
         staged = std::mem::take(&mut core.pending_mut().staged);
         emitted = std::mem::take(&mut driver.emitted);
         faces = driver.window.faces().to_vec();
+        placed_tokens = driver.window.placed_tokens().map(|(system, seats)| (system, seats.to_vec()));
         unsupported = driver.window.unsupported();
         if lent.is_some() {
             rng_after = Some(core.rng().clone());
@@ -444,6 +445,7 @@ pub fn play_window(
         return None;
     }
     crate::dual_window::apply_staged(gs, &r, &staged)?;
+    stage_placed_tokens(gs, &r, placed_tokens);
     let events: Vec<crate::event::Event> = emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
     let positions = match rng_after {
         Some(after) => Some(crate::core_sync::codec::rng::positions(&cx, &after).ok()?),
@@ -551,6 +553,7 @@ pub fn announce_window(
     let mut staged = Vec::new();
     let mut emitted = Vec::new();
     let mut played = None;
+    let mut placed_tokens = None;
     let mut faces = Vec::new();
     let mut rng_after = None;
     let mut fp = crate::dual_window::nested_fp(PLAY, script);
@@ -602,10 +605,10 @@ pub fn announce_window(
                 performing.complete(_c, _core, rendered);
             }
         };
-        let position = performs.then(crate::production_view::kernel);
-        let driven = crate::dual_window::drive_positioned(&mut driver, core, kernel, position, &r, &before, script, &battle);
+        let driven = crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &battle);
         played = Some(driver.window.played());
         faces = driver.window.faces();
+        placed_tokens = driver.window.placed_tokens();
         if rolled {
             rng_after = Some(core.rng().clone());
         }
@@ -616,12 +619,23 @@ pub fn announce_window(
     .ok()??
     .ok()?;
     crate::dual_window::apply_staged(gs, &r, &staged)?;
+    stage_placed_tokens(gs, &r, placed_tokens);
     let events: Vec<crate::event::Event> = emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
     let positions = match rng_after {
         Some(after) => Some(crate::core_sync::codec::rng::positions(&cx, &after).ok()?),
         None => None,
     };
     Some(crate::dual::CoreWindow { run: crate::dual::Run::new((played, (faces, positions))).with_events_vec(events), questions: driven.rendered })
+}
+
+/// The announcements of the command tokens the Diplomacy primary placed (Overrule), staged on the string state as
+/// `strategy_cards::diplomacy` stages them (they are not a codec slice).
+fn stage_placed_tokens(gs: &mut GameState, r: &crate::render::Render, placed: Option<(System, Vec<ti4_engine_core::Seat>)>) {
+    let Some((system, seats)) = placed else { return };
+    for seat in seats {
+        let system = ti4_model::id::SystemId::new(crate::generated::IdStr::as_str(system));
+        crate::tokens::stage_command_token_placed(gs, &r.player(seat), &system, crate::factions::hooks_cards::TokenPool::Reinforcements);
+    }
 }
 
 /// The completer of the display facts of the questions a performed ability asks (Strategize and Overrule).
