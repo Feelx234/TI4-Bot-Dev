@@ -7280,6 +7280,37 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Valkyrie Exoskeleton (the Sardakk mech): when it sustains in a ground combat it produces 1 hit against the opponent's ground
+    /// forces; the core applies the invasion's own hits step and announces the events through the resolver.
+    #[test]
+    fn the_sardakk_mech_hits_back_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        with_mask(mask, || {
+            for seed in 1..=24_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "sardakk"), ("b", "hacan")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "sardakk_mech", &PlayerId::new("a"), 3);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 3);
+                state.system_mut(&system).set_control(planet.clone(), PlayerId::new("b"));
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 6);
+                run_invasion_first_option(&mut state, seed, &system);
+            }
+        });
+        let r = report();
+        let followed: u64 = r.nested.iter().filter(|(k, _)| k.contains("unit:*:sardakk_mech:GROUND_FORCE_SUSTAINED:after")).map(|(_, n)| *n).sum();
+        assert!(followed > 0, "a mech sustained and hit back: {:?}", r.nested.keys().collect::<Vec<_>>());
+        assert!(r.windows.keys().all(|k| !k.contains("sardakk_mech")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+        let _ = take_report();
+    }
+
     /// A Firmament seat's Siphon watches the commodities a Legionnaire gains: the core does not stage that event, so the
     /// window bails (named, counted) and nothing differs.
     #[test]

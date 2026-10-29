@@ -9,11 +9,16 @@
 //! The clean-up of a skip that never reached its commitment (`leader:*:sardakkhero_turn:TURN_BEGAN:after`) is not ported: no
 //! followed window announces `TURN_BEGAN`, so nothing could run or test it.
 //!
-//! Not ported (the window bails, test `bail_every_family_that_stays_in_the_string_is_named`): the mech's hit (an
-//! assignment of hits inside the ability), Exotrireme II, Tekklar Legion, the agent and Supremacy.
+//! And Valkyrie Exoskeleton (the mech): "after this unit uses SUSTAIN DAMAGE during ground combat, it produces 1 hit against your
+//! opponent's ground forces on this planet". Mandatory; the hit is an ordinary ground hit (the opponent sustains first, else loses
+//! the cheapest ground force), applied with the invasion's own hits step and announced through the resolver. With several
+//! opponents on the planet the string picks the first in player-id order, which the core does not know: the window bails.
+//!
+//! Not ported (the window bails, test `bail_every_family_that_stays_in_the_string_is_named`): Exotrireme II, Tekklar Legion, the
+//! agent and Supremacy.
 
 use ti4_engine_core::choice::reaction::{AbilityKind, Relation};
-use ti4_engine_core::generated::Leader;
+use ti4_engine_core::generated::{Leader, Unit};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
 use ti4_engine_core::kernel::ability::{AbilityTable, CondCx, Eff, Slot, Spec};
@@ -22,6 +27,8 @@ use ti4_engine_core::state::{CoreState, EventKind, Key, Payload, Piece};
 
 /// Sh'val, the finish (`leader:*:sardakkhero:GROUND_COMMITMENT_FINISHED:after`).
 pub const HERO_FINISH: Slot = Slot(12001);
+/// Valkyrie Exoskeleton (`unit:*:sardakk_mech:GROUND_FORCE_SUSTAINED:after`).
+pub const MECH_HIT: Slot = Slot(12003);
 
 const HERO: Leader = Leader::ShvalHarbinger;
 
@@ -64,7 +71,50 @@ fn finish(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     Ok(())
 }
 
+fn mech_when(c: &CondCx<'_>) -> bool {
+    let p = &c.event.payload;
+    p.seat(Key::Player) == Some(c.def.owner) && p.unit(Key::Unit) == Some(Unit::ValkyrieExoskeleton) && p.code(Key::Cause) == Some(c.codes.ground_combat)
+}
+
+fn mech_hit(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    use ti4_engine_core::kernel::ability::Unknown;
+    use ti4_engine_core::kernel::read::Rd;
+    use ti4_engine_core::rules::invasion::hits::{apply, Batch};
+    let me = eff.owner();
+    let (Some(system), Some(planet)) = (eff.event.payload.system(Key::System), eff.event.payload.planet(Key::Planet)) else { return Ok(()) };
+    let cause = eff.codes().ground_combat;
+    let others: Vec<Seat> = {
+        let (s, k) = eff.read();
+        let rd = Rd::new(s, k).with_blanked(ti4_engine_core::query::reach::blanked(s));
+        let mut owners: Vec<Seat> = Vec::new();
+        for piece in ti4_engine_core::query::board::planet_units(s, planet) {
+            let who = piece.owner();
+            if who != me && !owners.contains(&who) && ti4_engine_core::rules::invasion::is_ground_force_here(rd, who, system, planet, *piece) {
+                owners.push(who);
+            }
+        }
+        owners
+    };
+    let opponent = match others.as_slice() {
+        [] => return Ok(()),
+        [only] => *only,
+        _ => {
+            eff.unknown(Unknown::MissingFact);
+            return Ok(());
+        }
+    };
+    let batch = Batch { victim: opponent, system, planet, cause, unit_ability: true, announce: true };
+    eff.with_host(|host, _| {
+        apply(host.state, host.kernel, &batch, 1);
+    });
+    for rec in ti4_engine_core::kernel::fx::drain_staged(eff.state()) {
+        eff.emit(rec)?;
+    }
+    Ok(())
+}
+
 pub fn register_abilities(t: &mut AbilityTable) {
+    t.add(Spec::new(MECH_HIT, AbilityKind::Unit, EventKind::GroundForceSustained, Relation::After, mech_hit).when(mech_when));
     t.add(Spec::new(HERO_FINISH, AbilityKind::Leader, EventKind::GroundCommitmentFinished, Relation::After, finish).when(finish_when));
 }
 

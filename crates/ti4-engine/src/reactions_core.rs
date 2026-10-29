@@ -50,6 +50,7 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::CLOSE_SPACE, kind: "ability", card: "technological_singularity_close" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::CLOSE_GROUND, kind: "ability", card: "technological_singularity_close" },
     Named { slot: ti4_engine_core_factions::cd_registry::sardakk::timing::HERO_FINISH, kind: "leader", card: "sardakkhero" },
+    Named { slot: ti4_engine_core_factions::cd_registry::sardakk::timing::MECH_HIT, kind: "unit", card: "sardakk_mech" },
     Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::DYNAMO_SHIP, kind: "unit", card: "empyrean_flagship" },
     Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::DYNAMO_GROUND, kind: "unit", card: "empyrean_flagship" },
     Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::WATCHER, kind: "unit", card: "empyrean_mech" },
@@ -506,7 +507,6 @@ mod tests {
     fn bail_every_family_that_stays_in_the_string_is_named() {
         let t = table();
         for id in [
-            "unit:sardakk:sardakk_mech:GROUND_FORCE_SUSTAINED:after",
             "leader:sardakk:sardakkhero_turn:TURN_BEGAN:after",
             "promissory:letnev:ambuscade:UNIT_ABILITY_ROLLED:when",
             "leader:winnu:winnucommander_unlock:SPACE_COMBAT_STARTED:after",
