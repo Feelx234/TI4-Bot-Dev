@@ -379,4 +379,26 @@ mod tests {
         let r = core(2, 0, 1, 1).unwrap();
         assert_eq!(r.proposer_statuses.as_slice(), [ti4_engine_core::state::PromiseStatus::Fulfilled, ti4_engine_core::state::PromiseStatus::Pending]);
     }
+
+    /// Regression (found while building the window): a deal's Support for the Throne is `support:{faction}` in the
+    /// string, which the Trade codec did not read, so a state holding one made the whole Trade slice unmapped and
+    /// every write and window of the area fell back to the string without a word.
+    #[test]
+    fn a_deal_holding_a_support_note_is_a_position_the_core_reads() {
+        let mut state = table();
+        let support = DealTerm::ImmediateTransfer(TransferAsset::PromissoryNote("support:sol".to_owned()));
+        let id = crate::diplomacy::book::create_deal(&mut state, &p("a"), &p("b"), &DealRevision::new(0, p("a"), vec![support.clone()], vec![gift(1)], 1).unwrap()).unwrap();
+        assert_eq!(id, DealId(1));
+        let _ = lockstep(|| crate::diplomacy::book::decline(&mut state, id, &p("b")).unwrap());
+        // The core answered (it read the position), and the archived deal still names the note as the string does.
+        assert_eq!(counts("diplomacy::decline"), (1, 0));
+        assert_eq!(state.diplomacy.history[0].latest_revision.as_ref().unwrap().proposer_terms, vec![support]);
+    }
+
+    /// The size of the options of the area stays within the budget of `choice::Opt`.
+    #[test]
+    fn the_options_of_the_area_stay_small() {
+        use ti4_engine_core::choice::{diplomacy, trade, Opt};
+        assert!(std::mem::size_of::<Opt>() <= 16);
+    }
 }
