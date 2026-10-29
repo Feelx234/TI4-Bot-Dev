@@ -247,6 +247,7 @@ fn env_of(state: &GameState, player: &PlayerId, sources: &ti4_model::content_typ
             neutral: r.seat(crate::neutral_units::NEUTRAL),
             agent_offered: state.player(player).is_some_and(|p| p.commodities > 0) && crate::factions::keleres::agent_could_grant(state, player),
             destroyer: rules::Placed::NONE,
+            dreadnought: rules::Placed::NONE,
         },
     }
 }
@@ -338,6 +339,10 @@ pub fn play_window(
     env.infantry = placed(gs, player, sources, "infantry")?;
     env.cruiser = placed(gs, player, sources, "cruiser")?;
     env.facts.destroyer = placed(gs, player, sources, "destroyer")?;
+    env.facts.dreadnought = rules::Placed {
+        unit: Some(ti4_engine_core::generated::Unit::DreadnoughtI),
+        on_card: crate::factions::crimson_cards::held_on_card(gs, ti4_content::ContentStore::embedded(), sources.clone(), player, "dreadnought"),
+    };
     let lent = lend_rolls(alias, before_rolls, "action_cards::play")?;
     let before = gs.clone();
     let kernel = Kernel::plain();
@@ -400,7 +405,7 @@ pub fn play_window(
 /// with the same prompt.
 fn recorded_details(c: &ti4_engine_core::choice::Choice, script: &crate::dual_window::Recording, rendered: &mut crate::choice::Choice) {
     use ti4_engine_core::choice::cards::What;
-    if matches!(c.ask, ti4_engine_core::choice::Ask::Cards(ti4_engine_core::choice::cards::Ask::Pick { what: What::Law | What::Hull | What::Scuttle { .. }, .. }))
+    if matches!(c.ask, ti4_engine_core::choice::Ask::Cards(ti4_engine_core::choice::cards::Ask::Pick { what: What::Law | What::Hull | What::Scuttle { .. } | What::Cruiser, .. }))
         && let Some(asked) = script.questions.iter().find(|q| q.choice.prompt == rendered.prompt)
     {
         rendered.details.clone_from(&asked.choice.details);
@@ -464,6 +469,10 @@ pub fn announce_window(
     env.infantry = placed(gs, player, sources, "infantry")?;
     env.cruiser = placed(gs, player, sources, "cruiser")?;
     env.facts.destroyer = placed(gs, player, sources, "destroyer")?;
+    env.facts.dreadnought = rules::Placed {
+        unit: Some(ti4_engine_core::generated::Unit::DreadnoughtI),
+        on_card: crate::factions::crimson_cards::held_on_card(gs, ti4_content::ContentStore::embedded(), sources.clone(), player, "dreadnought"),
+    };
     if crate::factions::ralnel_cards::skimmer_holder(gs).is_some() {
         crate::dual::note_bail("action_cards::announce", SKIMMER_BAIL);
         return None;

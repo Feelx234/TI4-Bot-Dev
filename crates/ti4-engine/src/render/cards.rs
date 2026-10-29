@@ -93,6 +93,9 @@ impl Family for Fam {
                 }
             }
             Opt::Law(law) => ChoiceOption::labelled(law.as_str(), "repeal", law.as_str()),
+            Opt::Ship { system, index, kind, .. } if matches!(pick_of(a).1, What::Cruiser) => {
+                ChoiceOption::labelled(index.to_string(), "cruiser", kind.as_str()).with("system", system.as_str())
+            }
             Opt::Ship { system, index, owner, kind } => {
                 let id = format!("{}|{index}", system.as_str());
                 let label = match pick_of(a).1 {
@@ -181,6 +184,7 @@ impl Family for Fam {
                 "no" => Some(Opt::Answer(false)),
                 _ => None,
             },
+            Ask::Pick { what: What::Cruiser, .. } => None,
             Ask::Pick { what: What::Hull | What::Scuttle { .. }, .. } => {
                 let (system, index) = id.split_once('|')?;
                 // Only the id is read back; the owner and unit form are the question's.
@@ -215,6 +219,7 @@ const fn pick_kind(what: What) -> &'static str {
         What::Invest { .. } => "strategy_card",
         What::Law => "repeal",
         What::Hull | What::Scuttle { .. } => "ship",
+        What::Cruiser => "cruiser",
         What::Offer | What::Landing => "planet",
         What::JamWho { .. } => "player",
         What::Accept => "answer",
@@ -276,6 +281,7 @@ const fn pick_prompt(card: ActionCard, what: What) -> &'static str {
         (C::Spy, _) => "Spy: rob which player",
         (C::Plague, _) => "Plague: which planet",
         (C::UnstablePlanet, _) => "Unstable Planet: which hazardous planet",
+        (C::Upgrade, _) => "Upgrade: which cruiser becomes a dreadnought",
         (C::SignalJamming, _) => "Signal Jamming: jam which system",
         (C::GhostShip, _) => "Ghost Ship: into which wormhole system",
         (C::MercenaryContract, _) => "Mercenary Contract: which planet the infantry land on",

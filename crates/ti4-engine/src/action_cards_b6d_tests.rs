@@ -193,3 +193,32 @@ fn signal_jamming_closes_a_system_near_the_holders_ships_in_the_core_window() {
     assert_eq!(tokens(&game), tokens(&state) + 1, "one rival token went into a system");
     let _ = crate::dual::take_report();
 }
+
+/// Upgrade: one of the holder's cruisers in the active system becomes a dreadnought (a question when there are several; the
+/// dreadnoughts left in the box limit it).
+#[test]
+fn upgrade_replaces_a_cruiser_of_the_active_system_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let a = PlayerId::new("a");
+    let state = closing_position();
+    let active = state.active_system.clone().expect("an active system");
+    let mut two = state.clone();
+    two.system_mut(&active).units.push(unit("cruiser", "a"));
+    two.system_mut(&active).units.push(unit("cruiser", "a"));
+    let mut one = state.clone();
+    one.system_mut(&active).units.retain(|u| u.type_id.as_str() != "cruiser" || u.owner.as_str() != "a");
+    one.system_mut(&active).units.push(unit("cruiser", "a"));
+    // No dreadnought left in the box: nothing happens.
+    let mut empty_box = two.clone();
+    for _ in 0..5 {
+        empty_box.system_mut(&ti4_model::id::SystemId::new("27")).units.push(unit("dreadnought", "a"));
+    }
+    crate::action_cards_closing_tests::announce_all(&[("upgrade", two.clone()), ("upgrade", one.clone()), ("upgrade", empty_box.clone())]);
+    let _ = crate::dual::take_report();
+    let after = played("upgrade", &two);
+    assert_eq!(units_of(&after, "dreadnought", "a"), units_of(&two, "dreadnought", "a") + 1);
+    assert_eq!(units_of(&after, "cruiser", "a"), units_of(&two, "cruiser", "a") - 1);
+    let after = played("upgrade", &empty_box);
+    assert_eq!(units_of(&after, "dreadnought", "a"), units_of(&empty_box, "dreadnought", "a"), "the box holds no more");
+    let _ = crate::dual::take_report();
+}

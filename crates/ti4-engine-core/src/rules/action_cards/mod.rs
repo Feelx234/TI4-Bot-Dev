@@ -354,11 +354,14 @@ pub struct Facts {
     pub agent_offered: bool,
     /// The destroyer the seat places (Ghost Ship).
     pub destroyer: Placed,
+    /// The plain dreadnought (Upgrade places `dreadnought`, not the form the seat's upgrades would give) and the ones on the
+    /// Crimson hero card.
+    pub dreadnought: Placed,
 }
 
 impl Default for Facts {
     fn default() -> Self {
-        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE }
+        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE, dreadnought: Placed::NONE }
     }
 }
 

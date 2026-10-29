@@ -127,6 +127,8 @@ pub enum Fx {
     Ghost,
     /// Signal Jamming: a non-home system near the holder's ships, then the rival whose command token goes there.
     Jam,
+    /// Upgrade: a cruiser of the holder in the active system becomes a dreadnought.
+    Upgrade,
 }
 
 impl Fx {
@@ -215,6 +217,7 @@ impl Fx {
             C::MercenaryContract => Self::Mercenary,
             C::GhostShip => Self::Ghost,
             C::SignalJamming => Self::Jam,
+            C::Upgrade => Self::Upgrade,
             _ => return None,
         })
     }
@@ -360,6 +363,7 @@ impl Play {
             Fx::PirateContract | Fx::PirateFleet => What::Pirate,
             Fx::Mercenary => What::Landing,
             Fx::Ghost => What::Ghost,
+            Fx::Upgrade => What::Cruiser,
             Fx::Jam if self.step == 0 => What::Jam,
             Fx::Jam => What::JamWho { system: self.jam? },
             Fx::Exchange if self.step == 0 => What::Player,
@@ -611,6 +615,20 @@ impl Play {
                 }
                 reach.as_mut_slice().sort_unstable();
                 reach.as_slice().iter().copied().filter(|s| !is_home_system(scope, *s)).map(Opt::System).collect()
+            }
+            Fx::Upgrade => {
+                let Some(system) = core.meta().active_system else { return SmallList::new() };
+                let facts = self.env.facts.dreadnought;
+                let left = facts.unit.map_or(0, |u| crate::query::fleet::remaining(core, self.env.scope, who, u, facts.on_card));
+                if left <= 0 {
+                    return SmallList::new();
+                }
+                board::space_units(core, system)
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, p)| p.owner() == who && self.env.scope.unit(p.kind()).is_some_and(|d| d.base_type == UnitBaseType::Cruiser))
+                    .map(|(i, p)| Opt::Ship { system, index: u8::try_from(i).unwrap_or(u8::MAX), owner: who, kind: p.kind() })
+                    .collect()
             }
             Fx::Jam => core.players().iter().filter(|p| p.seat != who).map(|p| Opt::Seat(p.seat)).collect(),
             Fx::Ghost => {
@@ -1165,6 +1183,15 @@ impl Play {
                     fx::place_unit(core, neutral, system, None, crate::generated::Unit::NeutralDestroyer);
                 }
             }
+            (Fx::Upgrade, Opt::Ship { system, index, .. }) => {
+                let units = &mut core.board_mut().sys_mut(system).units;
+                if usize::from(index) < units.len() {
+                    units.remove(usize::from(index));
+                }
+                if let Some(unit) = self.env.facts.dreadnought.unit {
+                    fx::place_unit(core, who, system, None, unit);
+                }
+            }
             (Fx::Jam, Opt::System(system)) => {
                 self.jam = Some(system);
                 self.step = 1;
@@ -1489,6 +1516,7 @@ mod tests {
             C::MercenaryContract,
             C::GhostShip,
             C::SignalJamming,
+            C::Upgrade,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }
@@ -1579,7 +1607,6 @@ mod tests {
             (C::Strategize2, "performs the secondary ability of another strategy card (the strategy area's windows)"),
             (C::Strategize3, "performs the secondary ability of another strategy card (the strategy area's windows)"),
             (C::Strategize4, "performs the secondary ability of another strategy card (the strategy area's windows)"),
-            (C::Upgrade, "a cruiser replaced by a dreadnought through the unit-form flip of the faction hooks"),
         ]
     };
 

@@ -55,6 +55,8 @@ pub enum What {
     Hull,
     /// kind `ship`: a ship Scuttle returns; the second question (`second`) also offers to stop after one.
     Scuttle { second: bool },
+    /// kind `cruiser`, id the place in the active system, label the unit: the cruiser Upgrade replaces.
+    Cruiser,
     /// kind `system`, label `jam <system>`: the system Signal Jamming closes.
     Jam,
     /// kind `player`, id the faction, label `<faction>'s command token`: whose token Signal Jamming places in `system`.
