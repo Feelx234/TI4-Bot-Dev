@@ -319,3 +319,54 @@ pause for occurrences), and `ground_combat_round_ended` modules (no module imple
   `a_hit_the_producer_assigns_is_answered_in_the_string`; mutation-checked (pending retreats, hits owed, Rout, the used
   event, the defender silencing the attacker, every preview).
   Still string: the settle gates (`settle_args`: round openings, barrage, roll, retreat moves), see ENGINE_KNOWN_ISSUES.md.
+
+## 8. P1.1 plain-event harness and D1a (the held windows of the finished areas)
+
+### 8.1 Plain events (package P1.1)
+
+`Game::emit(&str)` pushes plain events (`QUASH_USED`, `AGENDA_DISCARDED:{agenda}`, `LAW_ENACTED:{agenda}:{outcome}`, ...) into
+`Game::events` beside the typed events mirrored from the timing log. They have no typed home in the core yet (package P1.2),
+and `compare_runs` compared only resolver emissions, so a ported window could drop or reorder them unnoticed.
+
+* **Tap** (`dual_window::note_plain_event`, `note_mirrored_events`): `Game::emit`, `Live::emit` (the agenda chains), the two
+  `LEADER_UNLOCKED:` pushes and `mirror_timing_log` report to a thread-local. Inside a window recording the pushes land in
+  `Recording.plain` (texts as pushed) and `Recording.mirrored` (typed names); outside any window they are counted under
+  `(game)`. Active only while some area is on `Dual` (one `mask()` load otherwise).
+* **Census** (`DualReport.plain`, `"label | NAME"` -> pushes; printed as one summary line, the rows with `TI4_PLAIN_LOG=1`;
+  carried by the dual shard files): which plain events exist in a run and whether a window or the step loop pushes them. A name
+  seen under `(game)` or under a window that gives no list has no core counterpart.
+* **Compare** (`Run::with_plain`): a core window that gives the plain events it makes (`Some(list)`) is compared with the
+  string's `Recording.plain` as `<label>.plain` (category `Value`); a side that gives none compares nothing. The windows that
+  give them today: the agenda reveal (`rules::agenda::reveal::PlainEv`: `AGENDA_REVEALED:`, `AGENDA_DISCARDED:`, `QUASH_USED`,
+  `POLITICAL_FAVOR_USED`, `POLITICAL_SECRET_USED:`), the agenda close (`close::PlainEv`: `AGENDA_RESOLVED:`,
+  `COVERT_AGENDA_RESOLVED:`, `AGENDA_DISCARDED:`, `AGENDA_OUTCOME_REDIRECTED:`, `AGENDA_PREDICTION_CORRECT:`, `LAW_ENACTED:`)
+  and Committee Formation's election. P1.2 replaces these small enums by `Emit::Plain` in the ledger.
+* Not covered: the plain events of `Game` methods outside a `dual_window!` (all of `phase`/`status`/`tactical`: the 40 or so
+  `self.emit(..)` sites of `game.rs`) are only counted.
+
+### 8.2 D1a: `Pending` holds typed windows (`state::Pending.stack: Vec<Window>`)
+
+`state::Window` is now an enum with a payload per kind: `StrategySecondary` / `StrategySecondaryAfterTactical`
+(`Secondary`: primary, card, followers, `next`, how each follower stands, exhausts), `LeaderStrategy`, `ExecutiveOrder`,
+`AgendaQueueAfterEventScoring`, `Scoring` / `EventScoring` (`Scoring`: the book of the window), `AgendaTalks`, and
+`Untyped { kind, actor, data }` for the kinds nothing types yet (leader followers, tokens, voting, tactical, aftermath, trade,
+diplomacy). `Pending::{window, window_mut, open, close}` keep at most one window per kind.
+
+The D1 dual (`ti4-engine/src/d1_pending.rs`, a child module of `game`; on with `driver=dual`, a pure observer) runs after every
+`Game::step`:
+
+1. The typed windows are read off the string fields (`observe`). A window the typed tables cannot express (a preview window of a
+   planning fork, an id with no typed form, more than 16 owners) is a counted bail (`d1::pending [bail: <reason>]`) and the held
+   copy is dropped. An open window of an untyped kind is counted as `d1::pending.untyped [bail: <field>]`.
+2. **The follower window is held in the core**: it moves on by the core's own outcome of the step (`strategy::secondary` dual,
+   `rules::strategy_secondary::advance`: skipped followers recorded as ineligible, the answer recorded, closed when
+   `is_complete`), and the result is compared with the string field (`d1::pending.secondary`).
+3. The scoring window's book after the core half of the answer (`objectives_write::score_one`) is compared with the string's
+   (`d1::pending.scoring`).
+4. Every typed window must turn back into the string field it was read from (`d1::pending.roundtrip`).
+5. The held copy is re-seeded from the string (no cascade after a difference).
+
+The follower and scoring comparisons need `strategy=dual` / `objectives=dual` beside `driver=dual`; without them the step has no
+core outcome and only 1, 4 and 5 run. The windows are opened and closed by the string (phase flow is the next D1a piece); the
+windows of the action phase (tactical, aftermath), trade, diplomacy, voting, tokens and leader followers are D1a's remainder
+and D1b's.

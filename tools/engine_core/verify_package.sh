@@ -7,7 +7,7 @@
 #          for a foundation package (no area switched).
 # OUT_DIR  logs and summary.txt.
 # BASE_SELFPLAY  a selfplay binary built from the previous merge commit (the CPU A/B baseline).
-# Env: CARGO_TARGET_DIR (required, private), BASE_REF (git ref the immutable surfaces are compared
+# Env: EXTRA_DUAL (more areas on Dual beside AREA in checks 3, e.g. `strategy=dual,objectives=dual`), CARGO_TARGET_DIR (required, private), BASE_REF (git ref the immutable surfaces are compared
 # with; default engine-core-state-base), GAMES (dual games, default 20), DUAL_BENCH=1 (also run the
 # bench with the area on Dual, ~2-3x slower), WASM_OPT (binary of wasm-opt), SKIP_AB=1, SHARDS (default 4:
 # the 20-game dual run of check 3 as that many parallel `dual_run --shard i/N` processes whose files are
@@ -36,7 +36,7 @@ check() { local name="$1"; shift; local t0=$SECONDS
   if "$@" > "$out/$name.log" 2>&1; then note "ok   $name ($((SECONDS - t0)) s)"; else note "FAIL $name (see $out/$name.log)"; fail=1; fi; }
 cd "$repo"
 if [[ "$area" == none ]]; then on=""; off=""; dual=""; else
-  on="TI4_AREAS=$area=core"; off="TI4_AREAS=$area=string"; dual="TI4_AREAS=$area=dual"; fi
+  on="TI4_AREAS=$area=core"; off="TI4_AREAS=$area=string"; dual="TI4_AREAS=$area=dual${EXTRA_DUAL:+,$EXTRA_DUAL}"; fi
 
 # 9 hygiene first: cheap.
 check layers python3 -I tools/engine_core/check_layers.py core
@@ -79,7 +79,7 @@ if [[ -n "$dual" ]]; then
   note "     $(grep -c '^test result: ok' "$out/dual-suite.log") suites ok with $area on Dual (fail fast)"
   # SHARDS (default 4; 1 = one process) parallel shards, merged into the text of the single run.
   check dual-golden env TI4_DUAL_FAIL_FAST=1 tools/engine_core/dual_sharded.sh "$target/gate/dual_run" \
-    tools/engine_profile/profile-20.json "$games" "$area=dual" "$out/dual-golden-shards"
+    tools/engine_profile/profile-20.json "$games" "$area=dual${EXTRA_DUAL:+,$EXTRA_DUAL}" "$out/dual-golden-shards"
   sed 's/^/     /' "$out/dual-golden.log" | head -12 | tee -a "$out/summary.txt"
   if [[ "$area" == board ]]; then
     check dual-templates "$target/gate/board_equivalence" templates

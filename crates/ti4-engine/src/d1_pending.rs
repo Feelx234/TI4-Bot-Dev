@@ -31,7 +31,7 @@ use crate::generated::IdStr;
 use crate::objectives::Book;
 use crate::secrets::Timing;
 use crate::render::Render;
-use crate::strategy::{SecondaryParts, SecondaryResolution, StepOutcome, StrategySecondaryWindow};
+use crate::strategy::{SecondaryResolution, StepOutcome, StrategySecondaryWindow};
 
 const LABEL: &str = "d1::pending";
 
