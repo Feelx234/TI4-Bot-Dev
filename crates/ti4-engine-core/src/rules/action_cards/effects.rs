@@ -24,7 +24,8 @@ use crate::containers::SmallList;
 use crate::generated::{ActionCard, Agenda, Planet, PlanetTrait, StrategyCard, System, UnitBaseType};
 use crate::ids::Seat;
 use crate::keys::{Prediction, PredictionTag, VoteBar};
-use crate::kernel::stage::{Illegal, Sx, Window};
+use crate::kernel::stage::{Child, Illegal, Ran, Sx, Window};
+use crate::rules::production::pay::PayBill;
 use crate::kernel::{Kernel, Next, fx, fx_ground};
 use crate::keys::{ActionCardCause, DestroyReason};
 use crate::state::{RngDomain, SeedSource};
@@ -116,6 +117,10 @@ pub enum Fx {
     Scuttle,
     /// Archaeological Expedition: the top three cards of the deck of a planet's trait; fragments are kept.
     Dig,
+    /// Pirate Contract: a neutral destroyer in a non-home system without a player's ship.
+    PirateContract,
+    /// Pirate Fleet: three resources, then a neutral carrier, cruiser, destroyer and two fighters in such a system.
+    PirateFleet,
 }
 
 impl Fx {
@@ -123,6 +128,21 @@ impl Fx {
     #[must_use]
     pub const fn rolls(self) -> bool {
         matches!(self, Self::Spy | Self::Plague)
+    }
+
+    /// Whether the effect places units of the neutral owner (the owner table must hold it).
+    #[must_use]
+    pub const fn needs_neutral(self) -> bool {
+        matches!(self, Self::PirateContract | Self::PirateFleet)
+    }
+
+    /// The bill the effect pays before anything else (the string `production::pay`): the currency and the amount.
+    #[must_use]
+    pub const fn bill(self) -> Option<(economy::Spend, i64)> {
+        match self {
+            Self::PirateFleet => Some((economy::Spend::Resources, 3)),
+            _ => None,
+        }
     }
 
     /// The effect of a card, `None` for a card the window does not play (the bail).
@@ -178,6 +198,8 @@ impl Fx {
             C::Reparations => Self::Reparations,
             C::PublicDisgrace => Self::Disgrace,
             C::ArchaeologicalExpedition => Self::Dig,
+            C::PirateContract1 | C::PirateContract2 | C::PirateContract3 | C::PirateContract4 => Self::PirateContract,
+            C::PirateFleet => Self::PirateFleet,
             _ => return None,
         })
     }
@@ -190,6 +212,8 @@ pub enum Stage {
     Start,
     /// Waiting on the holder's pick.
     Asking,
+    /// Paying the bill of the card (the child window [`PayBill`]).
+    Paying,
     Done,
 }
 
@@ -223,6 +247,10 @@ pub struct Play {
     first_ship: Option<(System, u8)>,
     /// Exchange Program: the planet offered.
     offer: Option<(System, Planet)>,
+    /// The bill of the card while it is paid (a child window).
+    pay: Child<PayBill>,
+    /// The question the bill's child waits on.
+    pay_ask: Option<crate::choice::Ask>,
 }
 
 /// The sides of the die the string `Dice` rolls.
@@ -281,6 +309,14 @@ impl Play {
         if matches!(fx, Fx::Veto | Fx::Dig) && core.cards().reserve.is_some() {
             return None;
         }
+        // A readied Keleres agent could be offered before a payment (a window of its own, the goods window).
+        if fx.bill().is_some() && env.facts.agent_offered {
+            return None;
+        }
+        // The neutral owner has a seat only when the adapter put it in the table.
+        if fx.needs_neutral() && env.facts.neutral.is_none() {
+            return None;
+        }
         let frame = match fx {
             Fx::Rider(_) => {
                 let agenda = core.agenda().in_play;
@@ -292,7 +328,7 @@ impl Play {
             }
             _ => None,
         };
-        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None })
+        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: Child::idle(), pay_ask: None })
     }
 
     fn what(&self) -> Option<What> {
@@ -304,6 +340,7 @@ impl Play {
             Fx::Reparations if self.step == 0 => What::Exhaust,
             Fx::Reparations => What::Ready,
             Fx::Dig => What::Dig,
+            Fx::PirateContract | Fx::PirateFleet => What::Pirate,
             Fx::Exchange if self.step == 0 => What::Player,
             Fx::Exchange if self.step == 1 => What::Offer,
             Fx::Exchange => What::Accept,
@@ -529,6 +566,20 @@ impl Play {
                 }
                 spots.as_mut_slice().sort_by_key(|(_, p)| *p);
                 spots.as_slice().iter().map(|(s, p)| Opt::Spot(*s, *p)).collect()
+            }
+            Fx::PirateContract | Fx::PirateFleet => {
+                // A system with a board entry and no unit of a seated player in its space area, off the homeworlds.
+                let mut open: SmallList<System, 16> = System::ALL
+                    .iter()
+                    .copied()
+                    .filter(|s| {
+                        core.board().sys(*s).flags.has(crate::state::SysFlags::TOUCHED)
+                            && !board::space_units(core, *s).iter().any(|p| core.players().by_seat(p.owner()).is_some())
+                            && !is_home_system(self.env.scope, *s)
+                    })
+                    .collect();
+                open.as_mut_slice().sort_unstable();
+                open.as_slice().iter().map(|s| Opt::System(*s)).collect()
             }
             Fx::Dig => {
                 let mut spots = SmallList::<(System, Planet), 16>::new();
@@ -1025,6 +1076,19 @@ impl Play {
                     self.unsupported = true;
                 }
             }
+            (Fx::PirateContract, Opt::System(system)) => {
+                if let Some(neutral) = self.env.facts.neutral {
+                    fx::place_unit(core, neutral, system, None, crate::generated::Unit::NeutralDestroyer);
+                }
+            }
+            (Fx::PirateFleet, Opt::System(system)) => {
+                use crate::generated::Unit as U;
+                if let Some(neutral) = self.env.facts.neutral {
+                    for unit in [U::NeutralCarrier, U::NeutralCruiser, U::NeutralDestroyer, U::NeutralFighter, U::NeutralFighter] {
+                        fx::place_unit(core, neutral, system, None, unit);
+                    }
+                }
+            }
             (Fx::Cripple | Fx::Meltdown, Opt::Spot(_, planet)) => {
                 let (base, limit) = if self.fx == Fx::Cripple { (UnitBaseType::Pds, usize::MAX) } else { (UnitBaseType::Spacedock, 1) };
                 let scope = self.env.scope;
@@ -1093,6 +1157,9 @@ impl Play {
 
     /// The question as the driver names it (Summit asks the strategy area's pool question).
     pub(super) fn any_ask(&self) -> crate::choice::Ask {
+        if let (Stage::Paying, Some(ask)) = (self.stage, self.pay_ask) {
+            return ask;
+        }
         if self.fx == Fx::Summit {
             return crate::choice::Ask::Strategy(crate::choice::strategy::Ask::GainPool { left: Self::SUMMIT_TOKENS - self.step });
         }
@@ -1109,13 +1176,24 @@ impl Play {
 }
 
 impl Play {
-    /// The part of the play before its first question (the effect that needs no pick, then the options of the
+    /// The part of the play before its first question (the effect that needs no pick, the bill, then the options of the
     /// first question); `asking` says whether it waits on a pick afterwards.
-    pub fn begin(&mut self, core: &mut CoreState, seeds: &dyn SeedSource) {
+    pub fn begin(&mut self, sx: &mut Sx<'_>) {
         if self.stage != Stage::Start {
             return;
         }
-        self.before(core);
+        self.before(sx.state);
+        if let Some((kind, cost)) = self.fx.bill() {
+            self.pay.start(PayBill::new(self.who, kind, cost));
+            self.stage = Stage::Paying;
+            self.drive_bill(sx);
+            return;
+        }
+        self.start_questions(sx.state, sx.seeds);
+    }
+
+    /// The first question of the card (after the bill, when it has one).
+    fn start_questions(&mut self, core: &mut CoreState, seeds: &dyn SeedSource) {
         if self.fx == Fx::Summit {
             self.stage = Stage::Asking;
             return;
@@ -1125,6 +1203,32 @@ impl Play {
             return;
         }
         self.advance(core, seeds);
+    }
+
+    /// Step the bill until it asks or ends; a paid bill goes on to the questions, an unpaid one ends the card.
+    fn drive_bill(&mut self, sx: &mut Sx<'_>) {
+        self.pay_ask = None;
+        loop {
+            match self.pay.step(sx) {
+                Some(Ran::Asks(ask)) => {
+                    self.pay_ask = Some(ask);
+                    return;
+                }
+                Some(Ran::Pass(_)) => {}
+                Some(Ran::Done(bill)) => {
+                    if bill.outcome == Some(true) {
+                        self.start_questions(sx.state, sx.seeds);
+                    } else {
+                        self.stage = Stage::Done;
+                    }
+                    return;
+                }
+                None => {
+                    self.stage = Stage::Done;
+                    return;
+                }
+            }
+        }
     }
 
     /// The dice rolled, in order.
@@ -1139,20 +1243,27 @@ impl Play {
         self.unsupported
     }
 
-    /// Whether the play waits on the holder's pick.
+    /// Whether the play waits on the holder's pick (or on a payment).
     #[must_use]
     pub fn asking(&self) -> bool {
-        self.stage == Stage::Asking
+        self.stage == Stage::Asking || (self.stage == Stage::Paying && self.pay_ask.is_some())
     }
 
     /// Apply a pick to the pending question (`Window::answer` without the services).
     ///
     /// # Errors
     /// The pick is not an option of the pending question.
-    pub fn choose(&mut self, core: &mut CoreState, seeds: &dyn SeedSource, pick: Pick) -> Result<(), Illegal> {
+    pub fn choose(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        if self.stage == Stage::Paying {
+            self.pay.answer(sx, pick)?;
+            self.drive_bill(sx);
+            return Ok(());
+        }
         if self.stage != Stage::Asking {
             return Err(Illegal);
         }
+        let seeds = sx.seeds;
+        let core = &mut *sx.state;
         if self.fx == Fx::Summit {
             let Pick::Opt(crate::choice::Opt::Strategy(crate::choice::strategy::Opt::Pool(pool))) = pick else { return Err(Illegal) };
             fx::gain_token(core, self.who, pool, 1);
@@ -1183,14 +1294,18 @@ impl Window for Play {
     }
 
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
-        self.begin(sx.state, sx.seeds);
+        self.begin(sx);
         match self.stage {
             Stage::Asking => Next::Continue(self.any_ask()),
+            Stage::Paying => self.pay_ask.map_or(Next::Done, Next::Continue),
             Stage::Start | Stage::Done => Next::Done,
         }
     }
 
-    fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        if self.stage == Stage::Paying {
+            return self.pay.ask_of(s, k);
+        }
         if self.fx == Fx::Summit {
             return (self.stage == Stage::Asking).then(|| crate::choice::strategy::gain_pool_choice(self.who, Self::SUMMIT_TOKENS - self.step));
         }
@@ -1215,7 +1330,7 @@ impl Window for Play {
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
-        self.choose(sx.state, sx.seeds, pick)
+        self.choose(sx, pick)
     }
 }
 
@@ -1231,7 +1346,6 @@ mod tests {
         for (card, why) in [
             (C::DirectHit1, "the exact sustain mark and the ship-lost observers"),
             (C::DirectHit4, "the exact sustain mark and the ship-lost observers"),
-            (C::PirateContract1, "the neutral destroyer has no seat"),
             (C::SkilledRetreat1, "destinations and previews"),
             (C::GhostShip, "the game's map and the wormhole systems"),
             (C::CourageousToTheEnd, "dice and a casualty choice"),
@@ -1267,6 +1381,9 @@ mod tests {
             C::Summit,
             C::LuckyShot,
             C::Scuttle,
+            C::PirateContract1,
+            C::PirateContract4,
+            C::PirateFleet,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }
@@ -1283,6 +1400,7 @@ mod tests {
             infantry: super::super::Placed::NONE,
             cruiser: super::super::Placed::NONE,
             fighter: super::super::Placed::NONE,
+            facts: super::super::Facts::default(),
         }
     }
 
@@ -1294,6 +1412,26 @@ mod tests {
         let who = Seat(0);
         assert!(Play::of(&core, ActionCard::Summit, who, bare_env()).is_some());
         assert!(Play::of(&core, ActionCard::Summit, who, Env { mahact_held: 1, ..bare_env() }).is_none());
+    }
+
+    /// Bail: a card that pays a bill (Pirate Fleet) while a readied Keleres agent could be offered before the payment.
+    #[test]
+    fn bail_a_paid_card_declines_while_the_keleres_agent_could_be_offered() {
+        let core = CoreState::all_loaded();
+        let facts = super::super::Facts { neutral: Some(Seat(1)), agent_offered: false };
+        let env = Env { facts, ..bare_env() };
+        assert!(Play::of(&core, ActionCard::PirateFleet, Seat(0), env).is_some());
+        let env = Env { facts: super::super::Facts { agent_offered: true, ..facts }, ..bare_env() };
+        assert!(Play::of(&core, ActionCard::PirateFleet, Seat(0), env).is_none());
+        // A card without a bill does not care.
+        assert!(Play::of(&core, ActionCard::PirateContract1, Seat(0), env).is_some());
+    }
+
+    /// Bail: a card that places neutral units needs the neutral owner in the table.
+    #[test]
+    fn bail_a_neutral_card_declines_without_a_neutral_seat() {
+        let core = CoreState::all_loaded();
+        assert!(Play::of(&core, ActionCard::PirateContract2, Seat(0), bare_env()).is_none());
     }
 
     /// Bail: Archaeological Expedition while a replay reserve is installed (the string draws through it).
@@ -1330,11 +1468,6 @@ mod tests {
             (C::LieInWait, "the neighbours of the map who traded this round (the transactions)"),
             (C::MercenaryContract, "neutral infantry (the neutral has no seat) and the Keleres goods window"),
             (C::Overrule, "performs the primary ability of another strategy card (the strategy area's windows)"),
-            (C::PirateContract1, "the neutral destroyer has no seat"),
-            (C::PirateContract2, "the neutral destroyer has no seat"),
-            (C::PirateContract3, "the neutral destroyer has no seat"),
-            (C::PirateContract4, "the neutral destroyer has no seat"),
-            (C::PirateFleet, "neutral ships (the neutral has no seat) and three resources by the question-driven payment"),
             (C::Plagiarize, "five influence by the question-driven payment, then a technology gained from a neighbour"),
             (C::ExplorationProbe, "the frontier tokens adjacent to the holder's ships (the map)"),
             (C::RefitTroops, "infantry replaced by mechs through the unit-form flip of the faction hooks"),
@@ -1396,6 +1529,7 @@ mod tests {
             infantry: super::super::Placed::NONE,
             cruiser: super::super::Placed::NONE,
             fighter: super::super::Placed::NONE,
+            facts: super::super::Facts::default(),
         };
         let who = Seat(0);
         assert!(Play::of(&core, ActionCard::Veto, who, env).is_some());

@@ -147,6 +147,8 @@ mod action_cards_announce_tests;
 #[cfg(test)]
 mod action_cards_closing_tests;
 #[cfg(all(test, feature = "typed-core"))]
+mod action_cards_b6d_tests;
+#[cfg(all(test, feature = "typed-core"))]
 mod strategy_secondary_dual_tests;
 #[cfg(test)]
 mod strategy_research_tests;

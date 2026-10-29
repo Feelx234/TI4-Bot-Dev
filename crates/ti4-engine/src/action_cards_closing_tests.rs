@@ -10,11 +10,11 @@ use crate::action_cards_announce_tests::{DeclineSlots, announce};
 use crate::choice::{Choice, ChoiceOption, Decider, IllegalChoice};
 use crate::dual::{AreaMask, Backend, with_mask};
 
-fn dual() -> AreaMask {
+pub(crate) fn dual() -> AreaMask {
     AreaMask::STRING.with(crate::dual::Area::ActionCards, Backend::Dual)
 }
 
-fn windows(label: &str) -> (u64, u64) {
+pub(crate) fn windows(label: &str) -> (u64, u64) {
     let r = crate::dual::report();
     let w = r.windows.get(label).cloned().unwrap_or_default();
     (w.compared, w.bailed)
@@ -60,7 +60,7 @@ impl Decider for LastGo {
 
 /// Play each of `cases` (alias, position) as the component action of seat `a` and compare the announce window; the
 /// position must change and the card must be on the pile.
-fn announce_all(cases: &[(&str, GameState)]) {
+pub(crate) fn announce_all(cases: &[(&str, GameState)]) {
     let a = PlayerId::new("a");
     let _ = crate::dual::take_report();
     for pass in 0..3 {

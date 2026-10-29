@@ -243,6 +243,19 @@ fn env_of(state: &GameState, player: &PlayerId, sources: &ti4_model::content_typ
         infantry: rules::Placed::NONE,
         cruiser: rules::Placed::NONE,
         fighter: rules::Placed { unit: Some(ti4_engine_core::generated::Unit::FighterI), on_card: fighter_on_card(state, player, sources) },
+        facts: rules::Facts {
+            neutral: r.seat(crate::neutral_units::NEUTRAL),
+            agent_offered: state.player(player).is_some_and(|p| p.commodities > 0) && crate::factions::keleres::agent_could_grant(state, player),
+        },
+    }
+}
+
+/// The owner table of a card's window: with the neutral owner when the card places its units (`Fx::needs_neutral`).
+fn tables_of(gs: &GameState, card: ActionCard) -> Option<(Ctx, crate::render::Render)> {
+    if rules::effects::Fx::of(card).is_some_and(rules::effects::Fx::needs_neutral) {
+        crate::dual_window::tables_with(gs, &[crate::neutral_units::NEUTRAL])
+    } else {
+        crate::dual_window::tables(gs)
     }
 }
 
@@ -300,7 +313,7 @@ pub fn play_window(
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::Kernel;
     let card = ActionCard::from_id(alias.as_str())?;
-    let (mut cx, r) = crate::dual_window::tables(gs)?;
+    let (mut cx, r) = tables_of(gs, card)?;
     let seat = r.seat(player.as_str())?;
     let mut env = env_of(gs, player, sources, &r);
     env.infantry = placed(gs, player, sources, "infantry")?;
@@ -415,7 +428,7 @@ pub fn announce_window(
     if !rules::announce::plays(card) && crate::action_cards::effect_for(alias).is_some() {
         return None;
     }
-    let (mut cx, r) = crate::dual_window::tables(gs)?;
+    let (mut cx, r) = tables_of(gs, card)?;
     let seat = r.seat(player.as_str())?;
     let mut env = env_of(gs, player, sources, &r);
     env.infantry = placed(gs, player, sources, "infantry")?;

@@ -55,6 +55,8 @@ pub enum What {
     Hull,
     /// kind `ship`: a ship Scuttle returns; the second question (`second`) also offers to stop after one.
     Scuttle { second: bool },
+    /// kind `system`: the system a neutral destroyer enters (Pirate Contract).
+    Pirate,
     /// kind `strategy_card`: the picker chooses again; `first` was taken away, `by` played the card (Public Disgrace).
     Redraft { first: crate::generated::StrategyCard, by: Seat },
 }

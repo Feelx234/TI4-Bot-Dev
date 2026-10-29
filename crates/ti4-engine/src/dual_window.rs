@@ -784,7 +784,12 @@ fn slot_options(
 
 /// The tables a core half needs, for one position. `None`: more than 16 owners.
 pub(crate) fn tables(gs: &GameState) -> Option<(Ctx, Render)> {
-    let cx = Ctx::of(gs).ok()?;
+    tables_with(gs, &[])
+}
+
+/// [`tables`] with owners the position does not hold yet in the table (the neutral owner of a card that places units for it).
+pub(crate) fn tables_with(gs: &GameState, extra: &[&str]) -> Option<(Ctx, Render)> {
+    let cx = Ctx::with_extra(gs, extra).ok()?;
     let r = Render::new(cx.owners.ids().to_vec());
     Some((cx, r))
 }

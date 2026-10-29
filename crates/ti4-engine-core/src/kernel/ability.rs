@@ -11,6 +11,7 @@
 //! complete for a window to be followed: an ability whose condition does not hold changes nothing, so it may be
 //! missing; one that is eligible must be in the table ([`AbilityTable::knows`]).
 
+use super::stage::Sx;
 use super::resolver::{AbilityDef, CannotDef, Host, Resolver, TimingError};
 use super::{Asker, Kernel};
 use crate::choice::reaction::{AbilityId, AbilityKind, Frequency, Relation};
@@ -772,6 +773,9 @@ pub trait Runner {
     fn unknown(&mut self, why: Unknown);
     /// Change the state with the seeds of the random streams at hand (a rule that rolls while it writes).
     fn with_seeds<T>(&mut self, f: impl FnOnce(&mut CoreState, &dyn SeedSource) -> T) -> T;
+    /// Run `f` with the services of a stage (a window's `Sx`) over this runner: how a rule that is a [`Window`] with a child
+    /// window (a payment, a research) is stepped inside an effect or at the close of a window.
+    fn with_sx<T>(&mut self, f: impl FnOnce(&mut Sx<'_>) -> T) -> T;
     /// Whether a rules package registered the effect of `card` (`AbilityTable::add_card_play`): the effects that read the
     /// combat or invasion area and run on the host and the resolver of the window.
     fn has_registered_play(&self, _card: crate::generated::ActionCard) -> bool {
@@ -838,6 +842,21 @@ impl Runner for Inline<'_, '_> {
 
     fn with_seeds<T>(&mut self, f: impl FnOnce(&mut CoreState, &dyn SeedSource) -> T) -> T {
         f(&mut *self.host.state, self.host.seeds)
+    }
+
+    fn with_sx<T>(&mut self, f: impl FnOnce(&mut Sx<'_>) -> T) -> T {
+        let mut emitted = Vec::new();
+        let mut sx = Sx {
+            state: &mut *self.host.state,
+            kernel: self.host.kernel,
+            resolver: &mut *self.resolver,
+            table: self.host.table,
+            tape: &mut *self.host.tape,
+            next_id: &mut *self.host.next_id,
+            emitted: &mut emitted,
+            seeds: self.host.seeds,
+        };
+        f(&mut sx)
     }
 
     fn has_registered_play(&self, card: crate::generated::ActionCard) -> bool {

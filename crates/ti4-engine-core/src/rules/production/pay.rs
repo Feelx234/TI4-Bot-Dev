@@ -10,7 +10,7 @@ use crate::choice::{Ask, Choice, Ctx, Opt, Origin, Owed, OwedKind, Pick, Subtype
 use crate::containers::SmallList;
 use crate::ids::Seat;
 use crate::kernel::fx;
-use crate::kernel::stage::{Illegal, Sx, Window};
+use crate::kernel::stage::{Child, Illegal, Ran, Sx, Window};
 use crate::kernel::{Kernel, Next};
 use crate::query::economy::Spend;
 use crate::query::reach;
@@ -147,5 +147,152 @@ impl Window for PayStep {
         self.took = self.apply(sx.state, sx.kernel, opt);
         self.stage = Stage::Done;
         Ok(())
+    }
+}
+
+/// The suspension points of [`PayBill`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BillStage {
+    Start,
+    Paying,
+    Done,
+}
+
+/// A whole bill paid with the free payment loop (the string `production::pay` without a credit): the cost is checked against
+/// what the seat holds (`false` with no question when it cannot be met), then [`PayStep`]s run as a [`Child`] until the
+/// worth taken covers the bill. [`Self::outcome`] is the string's `Ok(bool)`.
+///
+/// Not carried: the Keleres agent's offer before the payment (the caller bails while it could be offered, `Facts`).
+#[derive(Debug, Clone)]
+pub struct PayBill {
+    pub who: Seat,
+    pub kind: Spend,
+    pub cost: i64,
+    paid: i64,
+    step: Child<PayStep>,
+    stage: BillStage,
+    /// Whether the bill was paid; `None` while it runs.
+    pub outcome: Option<bool>,
+}
+
+impl PayBill {
+    #[must_use]
+    pub const fn new(who: Seat, kind: Spend, cost: i64) -> Self {
+        Self { who, kind, cost, paid: 0, step: Child::idle(), stage: BillStage::Start, outcome: None }
+    }
+
+    fn next_step(&self) -> PayStep {
+        PayStep { who: self.who, kind: self.kind, cost: self.cost, used_credit: 0, owed: self.cost, paid: self.paid, took: None, stage: Stage::Paying }
+    }
+
+    fn finish(&mut self, paid: bool) {
+        self.outcome = Some(paid);
+        self.stage = BillStage::Done;
+    }
+}
+
+impl Window for PayBill {
+    type Stage = BillStage;
+
+    fn stage(&self) -> BillStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        loop {
+            match self.stage {
+                BillStage::Start => {
+                    if self.cost <= 0 {
+                        self.finish(true);
+                        continue;
+                    }
+                    let cx = PayStep::cx(sx.state, sx.kernel);
+                    if rules::available(&cx, self.who, self.kind, &Held::of(&cx, self.who).extras()) < self.cost {
+                        self.finish(false);
+                        continue;
+                    }
+                    self.step.start(self.next_step());
+                    self.stage = BillStage::Paying;
+                }
+                BillStage::Paying => match self.step.step(sx) {
+                    Some(Ran::Asks(ask)) => return Next::Continue(ask),
+                    Some(Ran::Pass(next)) => return next,
+                    Some(Ran::Done(step)) => match step.took {
+                        Some(worth) => {
+                            self.paid += worth;
+                            if self.paid >= self.cost {
+                                self.finish(true);
+                            } else {
+                                self.step.start(self.next_step());
+                            }
+                        }
+                        None => self.finish(false),
+                    },
+                    None => self.finish(false),
+                },
+                BillStage::Done => return Next::Done,
+            }
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        self.step.ask_of(s, k)
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        self.step.answer(sx, pick)
+    }
+}
+
+#[cfg(test)]
+mod bill_tests {
+    use super::*;
+    use crate::driver::{Driver, Status};
+    use crate::generated::Faction;
+    use crate::kernel::stage::AbilityTable;
+    use crate::kernel::Resolver;
+    use crate::state::{Player, Players};
+
+    fn game(goods: i16) -> CoreState {
+        let mut s = CoreState::all_loaded();
+        s.players = Players::from_vec(vec![Player::new(Seat(0), Faction::TheArborec)]);
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().econ.trade_goods = goods;
+        s
+    }
+
+    fn pay(s: &mut CoreState, cost: i64) -> Driver<PayBill> {
+        let k = Kernel::plain();
+        let mut d = Driver::new(PayBill::new(Seat(0), Spend::Influence, cost), Resolver::new(&[Seat(0)], Some(Seat(0))), AbilityTable::default(), 1);
+        let mut status = d.run(s, &k).unwrap();
+        while let Status::Asking(c) = status {
+            let pick = c.pick(0).unwrap();
+            status = d.resume(s, &k, pick).unwrap();
+        }
+        d
+    }
+
+    /// Trade goods stand in for influence one at a time; a lone option is taken without a question.
+    #[test]
+    fn a_bill_is_paid_in_trade_goods_without_a_question_when_they_are_the_only_way() {
+        let mut s = game(5);
+        let d = pay(&mut s, 3);
+        assert_eq!(d.window.outcome, Some(true));
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.trade_goods, 2);
+    }
+
+    /// A bill the seat cannot meet is `false` with nothing spent and no question (the string `Ok(false)`).
+    #[test]
+    fn a_bill_that_cannot_be_met_changes_nothing() {
+        let mut s = game(2);
+        let d = pay(&mut s, 3);
+        assert_eq!(d.window.outcome, Some(false));
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.trade_goods, 2);
+    }
+
+    /// Nothing owed is paid.
+    #[test]
+    fn a_bill_of_nothing_is_paid() {
+        let mut s = game(0);
+        assert_eq!(pay(&mut s, 0).window.outcome, Some(true));
     }
 }

@@ -339,6 +339,19 @@ pub struct Env {
     pub cruiser: Placed,
     /// The fighters on the Crimson hero card (Fighter Conscription places the plain fighter).
     pub fighter: Placed,
+    /// The facts the later cards of the package read (B6d): the neutral seat, the unit forms they place, the game's map.
+    pub facts: Facts,
+}
+
+/// What the cards of package B6d read from outside the core (inputs of the card, like the adjacency of Argent's agent):
+/// the neutral owner of the table, the forms the seat places, the systems of the game's map that carry a wormhole.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Facts {
+    /// The seat of the neutral owner (`neutral_units::NEUTRAL`), present in the owner table when the card needs it.
+    pub neutral: Option<Seat>,
+    /// A readied Keleres agent could be offered before a payment of the holder (the goods window and the payment window ask
+    /// the holders first: a window of its own the card does not carry).
+    pub agent_offered: bool,
 }
 
 impl Simple {

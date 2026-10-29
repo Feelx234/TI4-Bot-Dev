@@ -129,7 +129,7 @@ impl Announce {
             }
             match &mut self.effect {
                 Effect::Simple(simple) => super::play_simple(rt.state(), self.who, *simple, self.env),
-                Effect::Play(play) => rt.with_seeds(|state, seeds| play.begin(state, seeds)),
+                Effect::Play(play) => rt.with_sx(|sx| play.begin(sx)),
                 Effect::Registered => rt.run_registered_play(self.who, self.card)?,
                 Effect::Unresolved => {
                     rt.emit(card_event(EventKind::ActionCardUnresolved, None, self.card))?;
@@ -183,7 +183,7 @@ impl Announce {
         while let Some(choice) = self.advance(rt)? {
             let pick = rt.ask(&choice);
             let Effect::Play(play) = &mut self.effect else { break };
-            if rt.with_seeds(|state, seeds| play.choose(state, seeds, pick)).is_err() {
+            if rt.with_sx(|sx| play.choose(sx, pick)).is_err() {
                 break;
             }
         }
@@ -218,7 +218,7 @@ impl Window for Announce {
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
         match &mut self.effect {
-            Effect::Play(play) => play.choose(sx.state, sx.seeds, pick),
+            Effect::Play(play) => play.choose(sx, pick),
             _ => Err(Illegal),
         }
     }
@@ -238,6 +238,7 @@ fn env_of(rt: &impl Runner, who: Seat) -> Option<Env> {
         infantry: Placed { unit: seat.infantry.0, on_card: seat.infantry.1 },
         cruiser: Placed { unit: seat.cruiser.0, on_card: seat.cruiser.1 },
         fighter: Placed { unit: Some(crate::generated::Unit::FighterI), on_card: seat.fighter_on_card },
+        facts: super::Facts::default(),
     };
     Some(env)
 }
@@ -320,6 +321,7 @@ mod tests {
             infantry: Placed::NONE,
             cruiser: Placed::NONE,
             fighter: Placed::NONE,
+            facts: crate::rules::action_cards::Facts::default(),
         }
     }
 
