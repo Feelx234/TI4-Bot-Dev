@@ -173,14 +173,19 @@ fn a_damaged_and_a_fresh_dreadnought_are_two_options_and_the_second_hull_moves()
 }
 
 #[test]
-fn the_second_of_three_identical_fighters_moves_by_index() {
+fn a_hull_is_chosen_by_its_index_among_the_seats_units_when_a_damaged_one_comes_first() {
+    // [damaged, fresh, fresh]: the two fresh hulls are one option, whose index is the first of them (1).
     let (hub, origin, target) = hub();
     let mut state = sol_hacan();
-    crate::fixtures::put(&mut state, &origin, "fighter2", &a(), 3);
-    let mv = id(&origin, 2);
+    crate::fixtures::put(&mut state, &origin, "dreadnought", &a(), 3);
+    state.system_mut(&origin).units[0].sustained_damage = true;
+    let mv = id(&origin, 1);
     let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv], |_| {});
     assert_eq!(done.counts("tactical::move"), (1, 0), "{:?}", done.reasons);
-    assert_eq!(done.state.system_state(&origin).units.iter().filter(|u| u.owner == a()).count(), 2);
+    let left = done.state.system_state(&origin);
+    assert_eq!(left.units.len(), 2);
+    assert_eq!(left.units.iter().filter(|u| u.sustained_damage).count(), 1, "the damaged hull stayed");
+    assert_eq!(total(&done.state, &target, &a(), Some("dreadnought")), 1);
 }
 
 #[test]
