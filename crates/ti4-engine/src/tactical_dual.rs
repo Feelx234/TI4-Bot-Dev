@@ -94,6 +94,10 @@ mod stub {
         None
     }
 
+    pub fn enforce(_: &mut GameState, _: &ContentStore, _: SourceSet, _: &ti4_model::id::PlayerId, _: &SystemId, _: &Recording) -> Option<CoreWindow<Option<usize>>> {
+        None
+    }
+
     pub fn finish(_: &mut GameState, _: &ContentStore, _: SourceSet, _: &Galaxy, _: &ti4_model::id::PlayerId, _: bool, _: &Recording) -> Option<CoreWindow<super::Closed>> {
         None
     }
@@ -398,6 +402,61 @@ mod real {
         let events = emitted.iter().map(|e| event_of(&r, e)).collect::<Option<Vec<_>>>()?;
         let stepped = Stepped { stage: tag_of(stage), plain: if script.nested { Vec::new() } else { plain.into_iter().map(|p| plain_text(&r, p)).collect() }, failed: false, rift_faces: Vec::new(), rng };
         Some(CoreWindow { run: Run::new(stepped).with_events_vec(events), questions: driven.rendered })
+    }
+
+    /// What fleet enforcement reads and writes: the units of the system (Board) with the scope and the rules version
+    /// (Meta); the limits are facts of the string.
+    pub(crate) const ENFORCE: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board], &[Slice::Board]);
+
+    /// The core half of `fleet::enforce_seeing`: the units over the fleet supply, then over capacity, removed one question
+    /// at a time. The value is the number of units removed (`None`: the string refused an answer).
+    #[must_use]
+    pub fn enforce(gs: &mut GameState, content: &ContentStore, sources: SourceSet, player: &ti4_model::id::PlayerId, system: &SystemId, script: &Recording) -> Option<CoreWindow<Option<usize>>> {
+        use ti4_engine_core::rules::tactical::fleet::{Enforce, Limits};
+        const LABEL: &str = "tactical::enforce";
+        if !content.is_embedded() || script.nested {
+            return None;
+        }
+        if script.questions.iter().any(|q| q.answer.is_none()) {
+            return None;
+        }
+        let (mut cx, r) = tables(gs)?;
+        let seat = r.seat(player.as_str())?;
+        let at = <System as IdStr>::from_id(system.as_str())?;
+        // The string's limits: the one the enforcement judges by, the one the question shows, the half-weight fighters.
+        let enforce = crate::fleet::limit_for_enforcement(gs, content, player);
+        let shown = if crate::fleet::is_unlimited(gs, player) { crate::fleet::UNLIMITED_FLEET_BILL } else { i64::from(crate::fleet::limit(gs, content, player)).max(0) };
+        let mut halves = [None, None];
+        let here = gs.system_state(system);
+        let mut types: Vec<&str> = here.units.iter().filter(|u| &u.owner == player).map(|u| u.type_id.as_str()).collect();
+        types.sort_unstable();
+        types.dedup();
+        let mut found = 0;
+        for id in types {
+            if crate::factions::hooks_combat::fighter_fleet_weight_halves(gs, content, player, id) {
+                if found >= halves.len() {
+                    return bail(LABEL, "more than two half-weight fighter forms");
+                }
+                halves[found] = Some(<CUnit as IdStr>::from_id(id)?);
+                found += 1;
+            }
+        }
+        let before = gs.clone();
+        let kernel = crate::core_adapter::kernel_for(sources);
+        let resolver = Resolver::new(&[seat], Some(seat));
+        let mut out = None;
+        let driven = with_core(gs, &mut cx, Sources::default(), ENFORCE, |core, _| {
+            let mut driver = Driver::new(Enforce::new(seat, at, Limits { enforce, shown, halves }), resolver, AbilityTable::default(), 1);
+            let driven = drive_with(&mut driver, core, kernel, &r, &before, script, &|_, _, _| {});
+            out = Some(driver.window.removed);
+            driven
+        });
+        let driven = match driven {
+            Ok(Ok(d)) => d,
+            _ => return bail(LABEL, "a position the codecs refuse"),
+        };
+        let removed = out?;
+        Some(CoreWindow { run: Run::new(Some(removed as usize)).with_events_vec(Vec::new()), questions: driven.rendered })
     }
 
     /// What the head of the close of the movement step holds that the machine does not follow: Nova Seed's map edits, the

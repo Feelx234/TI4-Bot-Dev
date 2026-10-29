@@ -441,3 +441,58 @@ fn a_free_rider_taken_first_leaves_the_slot_for_an_ordinary_unit() {
     assert_eq!(done.counts("tactical::load"), (2, 0), "{:?}", done.reasons);
     assert_eq!(total(&done.state, &target, &a(), Some("infantry")), 1, "the one slot was still free for the infantry");
 }
+
+// -- fleet and capacity enforcement (the head of the aftermath) -----------------------------------------------
+
+/// Run `fleet::enforce_seeing` for `a` in `system` with the scripted answers, under `movement=dual`.
+fn enforce(mut state: GameState, system: &SystemId, script: &[&str]) -> (Result<usize, crate::choice::IllegalChoice>, GameState, (u64, u64), Vec<String>) {
+    let _guard = crate::dual::tests::serial();
+    let _ = take_report();
+    crate::dual::reset_thread_windows();
+    let mut table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(script.iter().map(|s| (*s).to_owned()))));
+    let out = with_mask(AreaMask::STRING.with(Area::Movement, Backend::Dual), || {
+        crate::fleet::enforce_seeing(&mut state, ContentStore::embedded(), POK, None, &mut table, &a(), system)
+    });
+    let r = report();
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+    let reasons = r.windows.iter().filter(|(k, _)| k.starts_with("tactical::enforce") && k.contains("[bail")).map(|(k, w)| format!("{k} x{}", w.bailed)).collect();
+    (out, state, crate::dual::thread_window_counts("tactical::enforce"), reasons)
+}
+
+#[test]
+fn a_fleet_over_its_supply_removes_the_ship_the_owner_names() {
+    let (_, origin, _) = hub();
+    let mut state = sol_hacan();
+    state.player_mut(&a()).unwrap().fleet_tokens = 1;
+    crate::fixtures::put(&mut state, &origin, "destroyer", &a(), 1);
+    crate::fixtures::put(&mut state, &origin, "cruiser", &a(), 1);
+    crate::fixtures::put(&mut state, &origin, "dreadnought", &a(), 1);
+    // Three ships against a pool of one: two come off. The options are the distinct types, in board order.
+    let (out, state, counts, reasons) = enforce(state, &origin, &["remove|2", "remove|0"]);
+    assert_eq!(out.expect("both answers were offered"), 2);
+    assert_eq!(counts, (1, 0), "{reasons:?}");
+    let left: Vec<String> = state.system_state(&origin).units.iter().map(|u| u.type_id.to_string()).collect();
+    assert_eq!(left, ["cruiser"], "the dreadnought and the first remaining ship (the destroyer) were removed");
+}
+
+#[test]
+fn units_over_capacity_are_removed_after_the_supply() {
+    let (_, origin, _) = hub();
+    let mut state = sol_hacan();
+    crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+    crate::fixtures::put(&mut state, &origin, "infantry", &a(), 6);
+    let (out, state, counts, reasons) = enforce(state, &origin, &["remove|0", "remove|0"]);
+    assert_eq!(out.expect("answered"), 2, "{reasons:?}");
+    assert_eq!(counts, (1, 0));
+    assert_eq!(state.system_state(&origin).units.iter().filter(|u| u.type_id.as_str() == "infantry").count(), 4, "a carrier holds four");
+}
+
+#[test]
+fn a_position_within_its_limits_asks_nothing() {
+    let (_, origin, _) = hub();
+    let mut state = sol_hacan();
+    crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+    let (out, _, counts, _) = enforce(state, &origin, &[]);
+    assert_eq!(out.expect("nothing to remove"), 0);
+    assert_eq!(counts, (1, 0));
+}

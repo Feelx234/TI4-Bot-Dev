@@ -6,7 +6,7 @@
 //! option previews and the question details (`routes`, `fleet_supply`, `movable`, `rift_exits`); the dual run
 //! takes them from the recorded string question (item A2b-12 of docs/todo/A2b.md produces them from the core).
 
-use ti4_engine_core::choice::tactical::{Ask, Opt, Subtype};
+use ti4_engine_core::choice::tactical::{Ask, Opt, Over, Subtype};
 use ti4_engine_core::generated::{Planet, System, Unit};
 
 use super::{Family, Render};
@@ -22,6 +22,15 @@ const ACTIVATE_KIND: &str = "activate";
 const MOVE_KIND: &str = "move";
 /// The kind of a pickup option (`transit::LOAD_KIND`).
 const LOAD_KIND: &str = "load";
+/// The kind of a removal option (`fleet::REMOVE_KIND`).
+const REMOVE_KIND: &str = "remove";
+
+const fn reason(over: Over) -> &'static str {
+    match over {
+        Over::Supply => "fleet supply",
+        Over::Capacity => "capacity",
+    }
+}
 
 fn system_id(s: System) -> &'static str {
     <System as IdStr>::as_str(s)
@@ -59,6 +68,7 @@ impl Family for Fam {
             Ask::Activate { .. } => "activate a system".to_owned(),
             Ask::Move { .. } => "movement".to_owned(),
             Ask::Load { ship, free, .. } => format!("load {} ({free} free)", unit_id(*ship)),
+            Ask::Remove { system, over, .. } => format!("remove a unit: over {} in {}", reason(*over), system_id(*system)),
         }
     }
 
@@ -67,6 +77,7 @@ impl Family for Fam {
             Subtype::ActivateSystem => "activate_system",
             Subtype::MovementStep => "movement_step",
             Subtype::LoadCargo => "load_cargo",
+            Subtype::RemoveUnit => "remove_unit",
         }
         .to_owned()
     }
@@ -117,6 +128,7 @@ impl Family for Fam {
                     .with("loaded_fighters", usize::from(*fighters))
                     .with("system", system_id(*origin))
             }
+            Opt::Remove { index, kind } => ChoiceOption::labelled(format!("remove|{index}"), REMOVE_KIND, format!("remove {}", unit_id(*kind))),
             Opt::DoneLoading { ground, fighters, available } => {
                 let Ask::Load { origin, .. } = a else { panic!("a pickup in a question of another kind") };
                 ChoiceOption::labelled("done_loading", DECLINE_KIND, "carry nothing further")
@@ -134,7 +146,20 @@ impl Family for Fam {
             // A hull, a pickup and a close of the hold carry facts of the position: the dual matches the id against
             // the rendered options of the very question (`dual_window::drive_positioned`).
             Ask::Move { .. } => (id == "done_moving").then_some(Opt::DoneMoving),
-            Ask::Load { .. } => None,
+            Ask::Load { .. } | Ask::Remove { .. } => None,
         }
+    }
+
+    fn details(_: &Render, a: &Ask) -> serde_json::Map<String, serde_json::Value> {
+        let mut out = serde_json::Map::new();
+        if let Ask::Remove { system, over, charged, limit, consumed, transport, .. } = a {
+            out.insert("reason".to_owned(), reason(*over).into());
+            out.insert("system".to_owned(), system_id(*system).into());
+            out.insert("fleet_charged".to_owned(), i64::from(*charged).into());
+            out.insert("fleet_limit".to_owned(), i64::from(*limit).into());
+            out.insert("capacity_consumed".to_owned(), i64::from(*consumed).into());
+            out.insert("capacity_transport".to_owned(), i64::from(*transport).into());
+        }
+        out
     }
 }

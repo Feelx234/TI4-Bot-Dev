@@ -9,6 +9,15 @@
 use crate::generated::{Planet, System, Unit};
 use crate::ids::Seat;
 
+/// What a unit has to be removed for (`fleet::enforce_seeing`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Over {
+    /// More non-fighter ships than the fleet supply allows (37.1).
+    Supply,
+    /// More fighters and ground forces than the ships carry (16.3).
+    Capacity,
+}
+
 /// What the area asks. Parameters only; the option list is derived by the window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Ask {
@@ -18,6 +27,9 @@ pub enum Ask {
     Move { seat: Seat },
     /// `seat` fills the hold of `ship`, which moves from `origin`; `free` slots are left (95).
     Load { seat: Seat, ship: Unit, origin: System, free: i8 },
+    /// `seat` removes a unit from `system` (it is `over` its limit); the figures are the display facts of the string
+    /// question: ships charged against the fleet supply and its limit, capacity consumed and provided.
+    Remove { seat: Seat, system: System, over: Over, charged: i32, limit: i32, consumed: i32, transport: i32 },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -36,6 +48,8 @@ pub enum Opt {
     Load { index: u16, kind: Unit, source: Option<Planet>, pickup: System, damaged: bool, galvanized: bool, remaining: i8, ground: u8, fighters: u8 },
     /// Carry nothing further. `available` counts the ground forces still to take.
     DoneLoading { ground: u8, fighters: u8, available: u8 },
+    /// Remove candidate `index` (a unit `kind` of the seat in the space area); interchangeable units are offered once.
+    Remove { index: u16, kind: Unit },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -47,4 +61,6 @@ pub enum Subtype {
     MovementStep,
     /// `load_cargo` (rule 95), about the origin system.
     LoadCargo,
+    /// `remove_unit` (the string question carries no context; the dual compares without one).
+    RemoveUnit,
 }

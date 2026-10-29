@@ -15,6 +15,7 @@
 mod activate;
 mod cargo;
 mod finish;
+pub mod fleet;
 mod movement;
 
 use crate::choice::generic::Rule;
