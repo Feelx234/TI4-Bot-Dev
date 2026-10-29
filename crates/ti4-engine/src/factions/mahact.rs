@@ -72,7 +72,7 @@ const IMPERIA: &str = "imperia";
 pub const RECOMBINATION: &str = "gr";
 const SCEPTER: &str = "scepter";
 const BREAKTHROUGH: &str = "mahactbt";
-const AGENT: &str = "mahactagent";
+pub(crate) const AGENT: &str = "mahactagent";
 const COMMANDER: &str = "mahactcommander";
 
 /// The component-action option id prefix.
@@ -80,7 +80,7 @@ const OPTION_PREFIX: &str = "faction|mahact|";
 /// Prefix of the Vaults of the Heir options: `faction|mahact|vaults|<technology>`.
 const VAULTS_PREFIX: &str = "vaults|";
 /// Prefix of the agent's waiver ids: `agent|<system>`.
-const AGENT_WAIVER_PREFIX: &str = "agent|";
+pub(crate) const AGENT_WAIVER_PREFIX: &str = "agent|";
 
 /// What this faction implements; grows package by package.
 pub const MODULE: FactionModule = FactionModule {
