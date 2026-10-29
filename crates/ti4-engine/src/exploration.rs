@@ -4385,10 +4385,12 @@ mod window_tests {
         let _ = take_report();
     }
 
-    /// The effects that stay string (docs/ENGINE_KNOWN_ISSUES.md, B5-bail-04): command tokens, the Mirage and
-    /// the Dead World, Freelancers' production, the secret and action cards drawn, the Gamma wormhole, the
-    /// Demilitarized Zone and a unit placed by Mercenary Outfit. Under `Dual` each runs alone: the card
-    /// resolves, the log row (a core write) agrees, and nothing differs.
+    /// The effects whose reach into other areas keeps them string (docs/ENGINE_KNOWN_ISSUES.md, B5-bail-04):
+    /// command tokens (B8's pool question), Freelancers' production (B3), the secret and action cards drawn
+    /// (A4's hand limit, the faction draw hooks), the Dead World (a relic through the core gain, the dispatch
+    /// string). Mirage, the Gamma wormhole, the Demilitarized Zone and a unit placed by Mercenary Outfit run on
+    /// core writes now (the lockstep tests beside this one). Under `Dual` each runs: the card resolves, the log
+    /// row (a core write) agrees, and nothing differs.
     #[test]
     fn the_effects_that_stay_string_run_alone_under_dual() {
         let _guard = crate::dual::tests::serial();
