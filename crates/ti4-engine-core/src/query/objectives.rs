@@ -870,16 +870,26 @@ pub fn remaining_position_progress(pos: &Pos<'_>, obj: PublicObjective) -> Optio
 /// `payment::MAX_PLANETS_PER_PLAN`.
 const MAX_PLANETS_PER_PLAN: usize = 6;
 
+/// `payment::Plan`: the planets to exhaust (in the order `payment::plans` lists them) and the trade goods to
+/// spend (commodities first, see `kernel::fx_pay`).
 #[derive(Debug, Clone, Copy)]
-struct PlanC {
-    trade_goods: i32,
+pub struct PlanC {
+    pub trade_goods: i32,
     n: u8,
     planets: [Planet; MAX_PLANETS_PER_PLAN],
 }
 
+impl PlanC {
+    /// The planets to exhaust.
+    #[must_use]
+    pub fn planets(&self) -> &[Planet] {
+        &self.planets[..usize::from(self.n)]
+    }
+}
+
 /// The planets that can pay `kind` with their worth, `payment::plans`' `useful` list; `None` while
 /// the seat holds cards the core has no planets for (ocean cards).
-fn useful_planets(core: &CoreState, f: &SeatFacts, kind: Spend) -> Option<SmallList<(Planet, i64), 8>> {
+pub fn useful_planets(core: &CoreState, f: &SeatFacts, kind: Spend) -> Option<SmallList<(Planet, i64), 8>> {
     if f.terms.oceans {
         return None;
     }
@@ -899,8 +909,8 @@ fn useful_planets(core: &CoreState, f: &SeatFacts, kind: Spend) -> Option<SmallL
     Some(useful)
 }
 
-/// `payment::plans` for `cost > 0`, sorted as the string engine sorts them.
-fn plans(useful: &[(Planet, i64)], cost: i64, goods: i64, per_good: i64) -> SmallList<PlanC, 64> {
+/// `payment::plans`, sorted as the string engine sorts them.
+pub fn plans(useful: &[(Planet, i64)], cost: i64, goods: i64, per_good: i64) -> SmallList<PlanC, 64> {
     let mut found: SmallList<PlanC, 64> = SmallList::new();
     let count = useful.len();
     for mask in 0u32..(1u32 << count) {
@@ -934,7 +944,9 @@ fn plans(useful: &[(Planet, i64)], cost: i64, goods: i64, per_good: i64) -> Smal
     found
 }
 
-fn token_pool(core: &CoreState, seat: Seat) -> i32 {
+/// The eligible token pool of a payment: strategy then tactic tokens, never fleet (`TOKEN_COST_POOLS`).
+#[must_use]
+pub fn token_pool(core: &CoreState, seat: Seat) -> i32 {
     core.players().by_seat(seat).map_or(0, |p| i32::from(p.econ.strategic_tokens) + i32::from(p.econ.tactic_tokens))
 }
 
@@ -947,47 +959,67 @@ fn can_afford(
     useful: &Useful,
 ) -> Option<bool> {
     let player = core.players().by_seat(f.seat);
-    let goods = |per: i64| -> i64 {
-        (player.map_or(0, |p| i64::from(p.econ.trade_goods)) + f.terms.commodities) * per
-    };
     Some(match cost {
         Cost::Spend { amount, kind } => {
             if amount <= 0 {
                 return Some(true);
             }
             let list = useful.of(kind)?;
-            !plans(list.as_slice(), amount, goods(f.terms.per_good), f.terms.per_good).is_empty()
+            !plans(list.as_slice(), amount, goods_of(core, f, f.terms.per_good), f.terms.per_good).is_empty()
         }
         Cost::TradeGoods(amount) => player.is_some_and(|p| i32::from(p.econ.trade_goods) >= amount),
         Cost::Tokens(amount) => player.is_some() && token_pool(core, f.seat) >= amount,
         Cost::AllThree(amount) => {
-            let held = i64::from(player?.econ.trade_goods);
+            player?;
             let res = useful.of(Spend::Resources)?;
             let inf = useful.of(Spend::Influence)?;
-            if amount <= 0 {
-                // plans() of a free cost is the single empty plan on both sides
-                return Some(amount <= held);
-            }
-            let g = goods(f.terms.per_good);
-            let resources = plans(res.as_slice(), amount, g, f.terms.per_good);
-            let influence = plans(inf.as_slice(), amount, g, f.terms.per_good);
-            let mut ok = false;
-            'outer: for r in resources.as_slice() {
-                for i in influence.as_slice() {
-                    let disjoint = !r.planets[..usize::from(r.n)].iter().any(|p| i.planets[..usize::from(i.n)].contains(p));
-                    if !disjoint {
-                        continue;
-                    }
-                    let goods_needed = i64::from(r.trade_goods) + i64::from(i.trade_goods) + amount;
-                    if goods_needed <= held {
-                        ok = true;
-                        break 'outer;
-                    }
-                }
-            }
-            ok
+            all_three_from(core, f, res.as_slice(), inf.as_slice(), amount).is_some()
         }
     })
+}
+
+/// `objectives::all_three_plan` over the two spendable lists: the first disjoint pair of a resources plan and
+/// an influence plan whose trade goods, plus the printed `amount`, the seat holds (plain trade goods: the
+/// string compares with `trade_goods` alone, commodities only pay inside the plans).
+fn all_three_from(core: &CoreState, f: &SeatFacts, res: &[(Planet, i64)], inf: &[(Planet, i64)], amount: i64) -> Option<(PlanC, PlanC)> {
+    let held = i64::from(core.players().by_seat(f.seat)?.econ.trade_goods);
+    let g = goods_of(core, f, f.terms.per_good);
+    let resources = plans(res, amount, g, f.terms.per_good);
+    let influence = plans(inf, amount, g, f.terms.per_good);
+    for r in resources.as_slice() {
+        for i in influence.as_slice() {
+            let disjoint = !r.planets().iter().any(|p| i.planets().contains(p));
+            if !disjoint {
+                continue;
+            }
+            let goods_needed = i64::from(r.trade_goods) + i64::from(i.trade_goods) + amount;
+            if goods_needed <= held {
+                return Some((*r, *i));
+            }
+        }
+    }
+    None
+}
+
+/// The trade goods a payment may count, each worth `per` (commodities a Keleres agent made spendable included).
+fn goods_of(core: &CoreState, f: &SeatFacts, per: i64) -> i64 {
+    (core.players().by_seat(f.seat).map_or(0, |p| i64::from(p.econ.trade_goods)) + f.terms.commodities) * per
+}
+
+/// The first plan `payment::plans` lists for `amount` of `kind` (`objectives::pay_for` pays this one). `None`
+/// when no plan pays it, and while the seat holds ocean cards (the string pays with those too).
+#[must_use]
+pub fn first_plan(core: &CoreState, f: &SeatFacts, kind: Spend, amount: i64) -> Option<PlanC> {
+    let list = useful_planets(core, f, kind)?;
+    plans(list.as_slice(), amount, goods_of(core, f, f.terms.per_good), f.terms.per_good).as_slice().first().copied()
+}
+
+/// `objectives::all_three_plan`. `None` when no pair pays, and while the seat holds ocean cards.
+#[must_use]
+pub fn all_three_plan(core: &CoreState, f: &SeatFacts, amount: i64) -> Option<(PlanC, PlanC)> {
+    let res = useful_planets(core, f, Spend::Resources)?;
+    let inf = useful_planets(core, f, Spend::Influence)?;
+    all_three_from(core, f, res.as_slice(), inf.as_slice(), amount)
 }
 
 struct Useful {

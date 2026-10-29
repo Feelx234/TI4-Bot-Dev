@@ -264,6 +264,17 @@ pub fn return_secret(s: &mut CoreState, who: Seat, secret: SecretObjective) {
     s.decks_mut().secret.put_bottom(secret);
 }
 
+/// Classified Document Leaks (`laws::classified_leak`, `agenda_effects::effect_classified`): the secret becomes a
+/// public objective, scoreable by everybody. `false`, nothing changed, when it already is one.
+pub fn make_public(s: &mut CoreState, secret: SecretObjective) -> bool {
+    let o = ObjectiveRef::Secret(secret);
+    if s.objectives().revealed.as_slice().contains(&o) {
+        return false;
+    }
+    s.objectives_mut().revealed.push(o);
+    true
+}
+
 // -- board --------------------------------------------------------------------------------------
 
 /// Place a unit in a system's space area, or on a planet when `planet` is given.

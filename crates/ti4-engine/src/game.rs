@@ -5557,9 +5557,10 @@ impl<'a> Game<'a> {
         let table = &mut self.table;
         let slot = if event { &mut self.event_scoring } else { &mut self.scoring };
         let mut failed = None;
-        let (_, scored) = crate::dual_window!(
+        let book_before = args.book.clone();
+        let (_, scored, _) = crate::dual_window!(
             crate::dual::Area::Objectives,
-            "scoring::step",
+            crate::objectives_write::SCORE_LABEL,
             &mut self.state,
             |state: &mut GameState| {
                 // Field borrows, not `self`: the table answers while the position stays readable.
@@ -5568,24 +5569,25 @@ impl<'a> Game<'a> {
                         Ok(answer) => answer,
                         Err(error) => {
                             failed = Some(GameError::from(error));
-                            return crate::dual::Run::new((false, None));
+                            return crate::dual::Run::new((false, None, book_before));
                         }
                     };
                 let Some(mut window) = slot.take() else {
                     unreachable!("the scoring window is open");
                 };
                 let outcome = window.resolve(state, content, sources, answer);
+                let book = window.book();
                 *slot = Some(window);
                 match outcome {
-                    Ok(scored) => crate::dual::Run::new((true, scored)),
+                    Ok(scored) => crate::dual::Run::new((true, scored, book)),
                     Err(error) => {
                         failed = Some(GameError::from(error));
-                        crate::dual::Run::new((false, None))
+                        crate::dual::Run::new((false, None, book))
                     }
                 }
             },
             |state: &mut GameState, script: &crate::dual_window::Recording| {
-                crate::objectives_write::score_one(state, content, sources, choice, args, script)
+                crate::objectives_write::score_one(state, content, sources, galaxy, choice, &args, script)
             }
         );
         failed.map_or(Ok(scored), Err)
@@ -13695,14 +13697,24 @@ mod tests {
             "score an objective",
             vec![crate::choice::ChoiceOption::labelled("btv", "score", "btv"), crate::choice::ChoiceOption::decline()],
         );
-        let args = crate::objectives_write::ScoreArgs { status: false, occurrence: Some(1) };
+        let (occurrence_window, probe_state) = {
+            let mut probe = probe_state.clone();
+            let occurrence = FeatOccurrence(1);
+            probe.record_event_feat(&a, Feat::WonInAnAnomaly, occurrence);
+            probe.player_mut(&a).unwrap().secret_objectives = vec![ti4_model::id::SecretObjectiveId::new("btv")];
+            (ScoringWindow::for_occurrence(&probe.initiative_order(), crate::secrets::Timing::Action, occurrence, EventScoreLimit::OnePerPlayer), probe)
+        };
+        let ask = occurrence_window.pending_choice(&probe_state, ContentStore::embedded(), POK).expect("the window asks");
+        let mut script = crate::dual_window::Recording::default();
+        script.questions.push(crate::dual_window::Asked { choice: ask.clone(), answer: None, nested: false });
         let window = crate::objectives_write::score_one(
             &mut probe_state.clone(),
             ContentStore::embedded(),
             POK,
+            None,
             &ask,
-            args,
-            &crate::dual_window::Recording::default(),
+            &occurrence_window.core_args(),
+            &script,
         );
         assert!(window.is_some());
         let _ = take_report();

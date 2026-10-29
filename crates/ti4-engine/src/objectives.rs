@@ -2330,6 +2330,20 @@ impl ScoringWindow {
         self.pending.is_empty() && self.plot_card.is_none()
     }
 
+    /// The bookkeeping as plain data (who is asked next, the caps, the plot card to place).
+    #[must_use]
+    pub(crate) fn book(&self) -> Book {
+        Book {
+            pending: self.pending.clone(),
+            public_used: self.scored_public_this_window.iter().cloned().collect(),
+            secret_used: self.scored_secret_this_window.iter().cloned().collect(),
+            plot_card: self.plot_card.clone(),
+            timing: self.timing,
+            occurrence: self.event_occurrence,
+            one_per_player: self.event_score_limit == EventScoreLimit::OnePerPlayer,
+        }
+    }
+
     /// What the core window needs of this one: the timing, and the occurrence its one-per-player cap records.
     #[must_use]
     pub(crate) fn core_args(&self) -> crate::objectives_write::ScoreArgs {
@@ -2339,6 +2353,7 @@ impl ScoringWindow {
                 (EventScoreLimit::OnePerPlayer, Some(occurrence)) => Some(occurrence.0),
                 _ => None,
             },
+            book: self.book(),
         }
     }
 
@@ -2471,29 +2486,10 @@ impl ScoringWindow {
                 // an empty list here means this player's one public score is already spent.
                 Vec::new()
             };
-            let secrets = if self.timing == crate::secrets::Timing::Status {
-                if self.scored_secret_this_window.contains(player) {
-                    Vec::new()
-                } else {
-                    crate::secrets::scoreable_on(
-                        state,
-                        content,
-                        sources,
-                        player,
-                        self.galaxy.as_ref(),
-                    )
-                }
+            let secrets = if self.timing == crate::secrets::Timing::Status && self.scored_secret_this_window.contains(player) {
+                Vec::new()
             } else {
-                crate::secrets::scoreable_event(
-                    state,
-                    content,
-                    sources,
-                    player,
-                    self.timing,
-                    self.event_occurrence
-                        .expect("non-status scoring windows have an occurrence"),
-                    self.galaxy.as_ref(),
-                )
+                window_secrets(state, content, sources, player, self.timing, self.event_occurrence, self.galaxy.as_ref())
             };
             let secrets = if self.event_score_limit == EventScoreLimit::OnePerPlayer
                 && self
@@ -2675,6 +2671,47 @@ impl ScoringWindow {
         self.scored.push((player, alias.clone()));
         Ok(Some(alias))
     }
+}
+
+/// The secrets a player could score in a window of this timing: the status secrets, or the ones the event
+/// satisfied. Before the window's own caps (`ScoringWindow::next_askable`).
+pub(crate) fn window_secrets(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    timing: crate::secrets::Timing,
+    occurrence: Option<ti4_model::state::FeatOccurrence>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+) -> Vec<ti4_model::id::SecretObjectiveId> {
+    if timing == crate::secrets::Timing::Status {
+        crate::secrets::scoreable_on(state, content, sources, player, galaxy)
+    } else {
+        crate::secrets::scoreable_event(
+            state,
+            content,
+            sources,
+            player,
+            timing,
+            occurrence.expect("non-status scoring windows have an occurrence"),
+            galaxy,
+        )
+    }
+}
+
+/// The bookkeeping of a [`ScoringWindow`] as plain data: who is still to be asked, who used the window's
+/// public and secret score, the Plots Within Plots card still to be placed. What the core
+/// `rules::scoring_book::ScoringBook` holds, compared field by field in the lockstep (package A4b-2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Book {
+    /// The stored order: the next player to ask is LAST.
+    pub pending: Vec<PlayerId>,
+    pub public_used: Vec<PlayerId>,
+    pub secret_used: Vec<PlayerId>,
+    pub plot_card: Option<(PlayerId, PlayerId)>,
+    pub timing: crate::secrets::Timing,
+    pub occurrence: Option<ti4_model::state::FeatOccurrence>,
+    pub one_per_player: bool,
 }
 
 /// A failure while resolving the 81.1 window.
