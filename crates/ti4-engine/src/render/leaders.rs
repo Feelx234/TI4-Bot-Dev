@@ -49,7 +49,7 @@ fn round_target_of(r: &Render, id: &str) -> Option<RoundTarget> {
 /// the unit stands and whose it is. Needs the options, so the adapter calls it with the core question.
 pub fn complete_round_agent(r: &Render, choice: &ti4_engine_core::choice::Choice, rendered: &mut crate::choice::Choice) {
     use ti4_engine_core::choice::Opt as COpt;
-    let ti4_engine_core::choice::Ask::Leaders(Ask::RoundAgentUnit { agent }) = choice.ask else { return };
+    let ti4_engine_core::choice::Ask::Leaders(Ask::RoundAgentUnit { agent, copied }) = choice.ask else { return };
     let content = ti4_content::ContentStore::embedded();
     let captions: Vec<(String, serde_json::Value)> = choice
         .opts
@@ -77,7 +77,7 @@ pub fn complete_round_agent(r: &Render, choice: &ti4_engine_core::choice::Choice
         })
         .collect();
     let captions: Vec<(&str, serde_json::Value)> = captions.iter().map(|(id, c)| (id.as_str(), c.clone())).collect();
-    rendered.details = crate::choice::offer_details(crate::strategy_cards::leader_card(content, agent.as_str(), "agent"), Vec::new(), &captions);
+    rendered.details = crate::choice::offer_details(crate::strategy_cards::leader_card(content, agent.as_str(), if copied { "agent (copied by Ssruu)" } else { "agent" }), Vec::new(), &captions);
 }
 
 pub const GAIN_ID: &str = "gain";
@@ -105,7 +105,8 @@ impl Family for Fam {
             Ask::HacanBranch => "Leader: gain 2 commodities or replenish another player".to_owned(),
             Ask::L1z1xDestination => "Leader: which system to gather your ships in".to_owned(),
             Ask::JolnarSwap { .. } => "Leader: replace which technology with what".to_owned(),
-            Ask::RoundAgentUnit { agent } => format!("{}: choose one unit for +1 combat die", agent.as_str()),
+            Ask::RoundAgentUnit { agent, copied: false } => format!("{}: choose one unit for +1 combat die", agent.as_str()),
+            Ask::RoundAgentUnit { agent, copied: true } => format!("Ssruu copying {}: choose one unit for +1 combat die", agent.as_str()),
             Ask::XxchaHeroPlace => "Leader: place up to 4 PDS or mechs (how many more?)".to_owned(),
             Ask::XxchaHeroPlanet => "Leader: which planet gets the unit?".to_owned(),
         }

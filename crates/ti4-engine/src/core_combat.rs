@@ -209,26 +209,11 @@ fn register_string_bridge(seams: &mut Seams) {
         .unwrap_or(acc);
         if to == acc { Delta::None } else { Delta::Set { to, why: SetWhy::LegacyFold } }
     });
-    seams.dice.push_add(STRINGS, Layer::Faction, |_, site: &RollSite, _| {
+    seams.dice.push_add(STRINGS, Layer::Faction, |q, site: &RollSite, _| {
         if site.kind == RollKind::Ground {
             // B2: the round agents' extra die of a ground force (the galvanized die and the Sol agent's die are
             // the invasion rule's own).
-            return add(with_oracle(|o| {
-                let player = o.player(site.unit.owner)?;
-                Some(crate::factions::borrowed_round_agents::extra_die_for(
-                    &o.gs,
-                    ContentStore::embedded(),
-                    o.sources,
-                    &SystemId::new(site.unit.system?.as_str()),
-                    site.unit.planet.map(|p| PlanetId::new(p.as_str())).as_ref(),
-                    &player,
-                    site.unit.unit.as_str(),
-                    usize::from(site.unit_index),
-                    o.gs.combat_round_seq,
-                ))
-            })
-            .flatten()
-            .unwrap_or(0));
+            return add(site.unit.system.map_or(0, |sys| ti4_engine_core_factions::cc_ground::borrowed::query::extra_die_for(q.s, q.k, sys, site.unit.planet, site.unit.owner, site.unit.unit, usize::from(site.unit_index), q.s.meta().combat_round_seq)));
         }
         if !matches!(site.kind, RollKind::Combat | RollKind::Barrage) {
             return Delta::None;
@@ -242,17 +227,8 @@ fn register_string_bridge(seams: &mut Seams) {
             let bastion = ships
                 .get(index)
                 .map_or(0, |unit| i64::try_from(crate::factions::bastion::extra_die(unit)).unwrap_or(0));
-            let agent = if !combat { 0 } else { crate::factions::borrowed_round_agents::extra_die_for(
-                &o.gs,
-                ContentStore::embedded(),
-                o.sources,
-                &sid,
-                None,
-                &player,
-                site.unit.unit.as_str(),
-                index,
-                o.gs.combat_round_seq,
-            ) };
+            // The round agents' extra die is read from the core state (a mark written in the same window is not in the oracle).
+            let agent = if !combat { 0 } else { site.unit.system.map_or(0, |sys| ti4_engine_core_factions::cc_ground::borrowed::query::extra_die_for(q.s, q.k, sys, None, site.unit.owner, site.unit.unit, index, q.s.meta().combat_round_seq)) };
             bastion + agent
         })
         .unwrap_or(0))

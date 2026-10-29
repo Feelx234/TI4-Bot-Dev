@@ -89,6 +89,27 @@ impl AbilityDef {
         self.arg = arg;
         self
     }
+
+    /// The ability is the copy of a rule `source` owns (Ssruu borrowing an agent): the source seat rides in the high half
+    /// of `arg`, the slot of the rule in the low half.
+    #[must_use]
+    pub const fn with_pair_source(mut self, source: Seat) -> Self {
+        self.arg = (self.arg & 0xFFFF) | ((source.0 as u32 + 1) << 16);
+        self
+    }
+
+    /// The slot bits of `arg`.
+    #[must_use]
+    pub const fn slot_bits(&self) -> u32 {
+        self.arg & 0xFFFF
+    }
+
+    /// The seat whose rule this ability copies, for a pair ability.
+    #[must_use]
+    pub const fn pair_source(&self) -> Option<Seat> {
+        let high = self.arg >> 16;
+        if high == 0 { None } else { Some(Seat((high - 1) as u8)) }
+    }
 }
 
 /// A registered absolute "cannot" effect (`timing::CannotEffect`): the label shown in the trace and a word

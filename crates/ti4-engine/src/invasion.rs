@@ -6892,6 +6892,83 @@ mod tests {
         let _ = take_report();
     }
 
+    /// A ground combat with a third seat holding Ssruu (Yssaril, readied) next to a lender: the borrower takes the copy of the
+    /// lender's agent (`prefer`: a substring of the ability id) and answers the questions with the option `seed` picks.
+    fn ssruu_ground(lender: &str, agent: &str, prefer: &'static str) -> (usize, usize, crate::dual::DualReport) {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        struct Pick(&'static str, u64);
+        impl crate::choice::Decider for Pick {
+            fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, crate::choice::IllegalChoice> {
+                let i = choice.options.iter().position(|o| o.id.contains(self.0)).unwrap_or(if choice.prompt.starts_with("Ssruu copying") { self.1 as usize % choice.options.len() } else { 0 });
+                Ok(choice.options[i].clone())
+            }
+        }
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        let (mut copied, mut placed) = (0, 0);
+        with_mask(mask, || {
+            for seed in 1..=6_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "hacan"), ("b", lender), ("c", "yssaril")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                state.player_mut(&PlayerId::new("c")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("yssarilagent"), ti4_model::state::LeaderStatus::Readied);
+                state.player_mut(&PlayerId::new("b")).unwrap().leaders.insert(ti4_model::id::LeaderId::new(agent), ti4_model::state::LeaderStatus::Exhausted);
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 6);
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 4);
+                let before: usize = state.system_state(&system).planet_units.values().flatten().count();
+                let mut table = Table::with_default(Box::new(Pick(prefer, seed)));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let content = ContentStore::embedded();
+                let order: Vec<PlayerId> = state.players.iter().map(|p| p.id.clone()).collect();
+                let mut resolver = armed_resolver(&state, order);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut window = InvasionWindow::new(&mut state, content, POK, &mut dice, &mut rng, &PlayerId::new("a"), &system);
+                let mut ctx = Resolving {
+                    content,
+                    sources: POK,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                while !window.is_done() {
+                    window.drive(&mut state, &mut ctx).unwrap();
+                    while window.take_scoring_occurrence().is_some() {}
+                    window.settle(&mut state, &mut ctx);
+                }
+                copied += usize::from(state.player(&PlayerId::new("c")).unwrap().leaders[&ti4_model::id::LeaderId::new("yssarilagent")] == ti4_model::state::LeaderStatus::Exhausted);
+                placed += usize::from(state.system_state(&system).planet_units.values().flatten().count() + 20 > before);
+            }
+        });
+        let r = report();
+        let _ = take_report();
+        (copied, placed, r)
+    }
+
+    /// Ssruu copies Evelyn De Louis (Sol): the copy chooses one ground force of the system for an extra die, the mark names
+    /// borrower and lender and the dice of the round read it from the core state.
+    #[test]
+    fn ssruu_copies_the_sol_agent_in_the_core_window_in_lockstep() {
+        let (copied, _, r) = ssruu_ground("sol", "solagent", "ssruu-copy");
+        assert!(copied > 0, "Ssruu was used");
+        assert!(r.windows.keys().all(|k| !k.contains("[bail:")), "{:?}", r.windows);
+        assert!(r.windows.get("invasion::begin_ground_round").is_some_and(|w| w.compared >= 1), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    }
+
+    /// Ssruu copies Brother Milor's ground branch: the owner of the destroyed ground force places 2 infantry.
+    #[test]
+    fn ssruu_copies_brother_milor_on_the_ground_in_the_core_window_in_lockstep() {
+        let (copied, _, r) = ssruu_ground("yin", "yinagent", "yssarilagent:yinagent");
+        assert!(copied > 0, "Ssruu was used");
+        assert!(r.windows.keys().all(|k| !k.contains("[bail:")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    }
+
     /// A Nomad that listens to the exhaustion of an agent (Temporal Command Suite) hears the Sol agent's exhaustion; the
     /// core does not announce it, so the window that follows the agent is the string's (`Unknown`), counted under the
     /// window's label with the Nomad as the reason.

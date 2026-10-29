@@ -255,6 +255,8 @@ impl AdapterFacts {
 
 /// A rule-specific eligibility (`Host::condition`).
 pub type Condition = fn(&CondCx<'_>) -> bool;
+/// Whether `lender`'s rule is copied by `borrower` (Ssruu): `(state, borrower, lender)`.
+pub type Pair = fn(&CoreState, Seat, Seat) -> bool;
 /// The effect of a selected ability.
 pub type Effect = fn(&mut Eff<'_, '_>) -> Result<(), TimingError>;
 /// The close hook of a window (`AbilityTable::on_close`).
@@ -292,6 +294,9 @@ pub struct Spec {
     pub repeatable: bool,
     pub condition: Option<Condition>,
     pub effect: Effect,
+    /// A pair rule: registered for `(borrower, lender)` where this holds, owned by the borrower (`AbilityDef::pair_source` is
+    /// the lender). `applies` then tests the lender.
+    pub pair: Option<Pair>,
     /// The effect is the core's. `false`: only the eligibility is (the offer is rendered and a decline is
     /// followed); a run in which the string took the ability is not followed.
     pub effect_ported: bool,
@@ -318,6 +323,7 @@ impl Spec {
             repeatable: false,
             condition: None,
             effect,
+            pair: None,
             effect_ported: true,
         }
     }
@@ -340,6 +346,12 @@ impl Spec {
     #[must_use]
     pub const fn when(mut self, c: Condition) -> Self {
         self.condition = Some(c);
+        self
+    }
+
+    #[must_use]
+    pub const fn pair(mut self, lends: Pair) -> Self {
+        self.pair = Some(lends);
         self
     }
 
@@ -444,14 +456,14 @@ impl AbilityTable {
     /// The spec behind a registry row (`arg` is the slot).
     #[must_use]
     pub fn of(&self, def: &AbilityDef) -> Option<&Spec> {
-        let slot = u16::try_from(def.arg).ok()?;
+        let slot = u16::try_from(def.slot_bits()).ok()?;
         self.of_slot(Slot(slot))
     }
 
     /// Whether the table has a rule for `arg`.
     #[must_use]
     pub fn knows(&self, arg: u32) -> bool {
-        u16::try_from(arg).ok().is_some_and(|s| self.of_slot(Slot(s)).is_some())
+        u16::try_from(arg & 0xFFFF).ok().is_some_and(|s| self.of_slot(Slot(s)).is_some())
     }
 
     /// The registry of a game: per seat of `order`, the specs that apply to it, in table order. `name` interns
@@ -460,13 +472,25 @@ impl AbilityTable {
         &self,
         s: &CoreState,
         order: &[Seat],
-        name: &mut dyn FnMut(&Spec, Seat) -> AbilityId,
+        name: &mut dyn FnMut(&Spec, Seat, Option<Seat>) -> AbilityId,
     ) -> Vec<AbilityDef> {
         let mut out = Vec::new();
-        for &who in order {
+        // The string registers while it walks the seats, each module's abilities for the seat it walks: a pair rule (a
+        // copy of this seat's agent by another seat) is registered for the borrower at the point of the lender's walk.
+        for &lender in order {
             for spec in &self.specs {
-                if spec.applies.holds(s, who) {
-                    out.push(spec.def(name(spec, who), who));
+                if !spec.applies.holds(s, lender) {
+                    continue;
+                }
+                match spec.pair {
+                    None => out.push(spec.def(name(spec, lender, None), lender)),
+                    Some(lends) => {
+                        for &borrower in order {
+                            if borrower != lender && lends(s, borrower, lender) {
+                                out.push(spec.def(name(spec, borrower, Some(lender)), borrower).with_pair_source(lender));
+                            }
+                        }
+                    }
                 }
             }
         }

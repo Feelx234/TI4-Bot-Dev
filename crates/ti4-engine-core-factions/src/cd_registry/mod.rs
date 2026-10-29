@@ -273,4 +273,5 @@ mod tests {
 pub fn register_abilities(t: &mut ti4_engine_core::kernel::ability::AbilityTable) {
     yin::timing::register_abilities(t);
     sardakk::timing::register_abilities(t);
+    yssaril::ssruu::register_abilities(t);
 }

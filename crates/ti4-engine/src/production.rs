@@ -7278,8 +7278,17 @@ mod tests {
     fn argent_agent_production_board(
         remote_owner: Option<PlayerId>,
     ) -> (GameState, Galaxy, SystemId, PlanetId, SystemId, PlanetId) {
+        argent_agent_production_board_with(remote_owner, false)
+    }
+
+    /// [`argent_agent_production_board`], with a third seat (`c`, Yssaril, Ssruu readied) when `borrower`.
+    fn argent_agent_production_board_with(
+        remote_owner: Option<PlayerId>,
+        borrower: bool,
+    ) -> (GameState, Galaxy, SystemId, PlanetId, SystemId, PlanetId) {
         let content = ContentStore::embedded();
-        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "argent")], POK);
+        let seats: &[(&str, &str)] = if borrower { &[("a", "sol"), ("b", "argent"), ("c", "yssaril")] } else { &[("a", "sol"), ("b", "argent")] };
+        let mut state = crate::fixtures::seated_game(seats, POK);
         let mut ids = vec!["18".to_owned()];
         ids.extend(
             crate::fixtures::plain_systems(14)
@@ -7656,6 +7665,52 @@ mod tests {
         assert!(exhausted, "the agent was used");
         assert!(w.compared >= 2, "the build and the placement are compared: {:?}", r.windows);
         assert!(r.windows.keys().all(|k| !k.contains("unported ability leader:*:argentagent")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    /// Ssruu copies Trilossa Aun Mirik (a pair rule): the borrower (a third seat) exhausts Ssruu and the producing player's ground
+    /// forces may be placed on the adjacent planet; the core resolver offers the copy, exhausts Ssruu and writes the same grant.
+    #[test]
+    fn ssruu_copies_the_argent_agent_in_the_core_production_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Production, Backend::Dual).with(Area::Driver, Backend::Dual);
+        let (mut exhausted, mut offered) = (false, false);
+        with_mask(mask, || {
+            let (mut state, galaxy, producing, _, remote, planet) = argent_agent_production_board_with(Some(player()), true);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.player_mut(&PlayerId::new("c")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("yssarilagent"), ti4_model::state::LeaderStatus::Readied);
+            let content = ContentStore::embedded();
+            let mut window = ProductionWindow::new(&state, content, POK, &player(), &producing);
+            window.credit = 30;
+            let build = infantry_build_offer(&window.pending_choice(&state, content, POK).expect("ground forces are producible"), content);
+            let resolver = crate::fixtures::armed_resolver(&state);
+            let mut resolver = resolver;
+            let mut sequence = crate::event::EventSequence::new();
+            let (mut dice, mut rng) = (crate::dice::Dice::new(), crate::rng::GameRng::new(0));
+            let mut table = Table::default();
+            table.seat(PlayerId::new("c"), Box::new(crate::choice::Scripted::new(["leader:argent:b:yssarilagent:argentagent:GROUND_FORCES_BEING_PRODUCED:when"])));
+            let mut ctx = Resolving {
+                content,
+                sources: POK,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: Some(&galaxy) }),
+            };
+            window.resolve(&mut state, &mut ctx, build).expect("the copy resolves");
+            exhausted = state.player(&PlayerId::new("c")).unwrap().leaders[&ti4_model::id::LeaderId::new("yssarilagent")] == ti4_model::state::LeaderStatus::Exhausted;
+            let place = window.pending_choice(&state, content, POK).expect("local and adjacent destinations are offered");
+            offered = place.option(&format!("place|{remote}@{planet}")).is_some();
+        });
+        let r = report();
+        assert!(exhausted, "Ssruu was used");
+        assert!(offered, "the adjacent planet is offered");
+        assert!(r.windows.keys().all(|k| !k.contains("[bail:")), "{:?}", r.windows);
+        assert!(r.windows.get("ProductionWindow::step").is_some_and(|w| w.compared >= 1), "{:?}", r.windows);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }

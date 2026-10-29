@@ -83,6 +83,22 @@ fn rel_segment(spec: &Spec) -> &'static str {
     if spec.slot == ti4_engine_core_factions::cc_ground::mentak::timing::SALVAGE_SHIP { "produce" } else { relation_text(spec.relation) }
 }
 
+/// How the string spells the id of a pair rule (Ssruu's copies): `A` is `leader:{lender faction}:{lender}:yssarilagent:{agent}:EVENT:rel`,
+/// `B` is `leader:ssruu-copy:{borrower}:{agent}:{lender}:EVENT:after`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PairStyle {
+    A,
+    B,
+}
+
+const PAIRS: &[(Slot, &str, PairStyle)] = &[
+    (ti4_engine_core_factions::cd_registry::yssaril::ssruu::YIN_SHIPS, "yinagent", PairStyle::A),
+    (ti4_engine_core_factions::cd_registry::yssaril::ssruu::YIN_GROUND, "yinagent", PairStyle::A),
+    (ti4_engine_core_factions::cd_registry::yssaril::ssruu::SOL, "solagent", PairStyle::B),
+    (ti4_engine_core_factions::cd_registry::yssaril::ssruu::LETNEV, "letnevagent", PairStyle::B),
+    (ti4_engine_core_factions::cd_registry::yssaril::ssruu::ARGENT, "argentagent", PairStyle::A),
+];
+
 fn is_reaction_slot(slot: Slot) -> bool {
     let base = ti4_engine_core::rules::action_cards::reaction_slot::SLOT_BASE;
     (base..base + 100).contains(&slot.0)
@@ -118,8 +134,14 @@ pub fn with_reach<T>(entries: Vec<(String, String, Vec<String>)>, body: impl FnO
 }
 
 /// The registered id of `spec` for an owner called `owner`.
-fn id_text(r: &Render, spec: &Spec, owner: &str) -> String {
+fn id_text(r: &Render, spec: &Spec, owner: &str, owner_seat: &str, lender: Option<&(String, String)>) -> String {
     let (event, rel) = (event_text(r, spec.event), rel_segment(spec));
+    if let (Some((lender_faction, lender_seat)), Some((_, agent, style))) = (lender, PAIRS.iter().find(|p| p.0 == spec.slot)) {
+        return match style {
+            PairStyle::A => format!("leader:{lender_faction}:{lender_seat}:yssarilagent:{agent}:{event}:{rel}"),
+            PairStyle::B => format!("leader:ssruu-copy:{owner_seat}:{agent}:{lender_seat}:{event}:{rel}"),
+        };
+    }
     if is_reaction_slot(spec.slot) {
         return format!("reaction:{owner}:{event}:{rel}");
     }
@@ -185,6 +207,20 @@ pub fn slot_of(id: &str) -> Option<Slot> {
         let w = ti4_engine_core::rules::action_cards::reaction_slot::windows();
         let at = w.iter().position(|(e, rel)| event_text(&r, *e) == parts[2] && relation_text(*rel) == parts[3])?;
         return Some(Slot(ti4_engine_core::rules::action_cards::reaction_slot::SLOT_BASE + u16::try_from(at).ok()?));
+    }
+    // Ssruu's copies: the lender and the agent are inside the id.
+    if parts.len() == 7 && parts[0] == "leader" {
+        let all = specs();
+        let found = if parts[1] == "ssruu-copy" {
+            PAIRS.iter().filter(|p| p.2 == PairStyle::B && p.1 == parts[3]).find(|p| all.iter().find(|s| s.slot == p.0).is_some_and(|s| event_text(&r, s.event) == parts[5] && relation_text(s.relation) == parts[6]))
+        } else if parts[3] == "yssarilagent" {
+            PAIRS.iter().filter(|p| p.2 == PairStyle::A && p.1 == parts[4]).find(|p| all.iter().find(|s| s.slot == p.0).is_some_and(|s| event_text(&r, s.event) == parts[5] && relation_text(s.relation) == parts[6]))
+        } else {
+            None
+        };
+        if let Some(p) = found {
+            return Some(p.0);
+        }
     }
     if parts.len() < 5 {
         return None;
@@ -391,7 +427,7 @@ impl Follow {
     pub fn arm(&mut self, r: &Render, gs: &GameState, core: &CoreState) {
         let order: Vec<Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(Seat)).collect();
         let owner_name = |who: Seat| crate::promissory::faction_name(gs, &ti4_model::id::PlayerId::new(r.seat_text(who)));
-        let mut name = |spec: &Spec, who: Seat| -> AbilityId { ability_id(r, &id_text(r, spec, &owner_name(who))) };
+        let mut name = |spec: &Spec, who: Seat, lender: Option<Seat>| -> AbilityId { ability_id(r, &id_text(r, spec, &owner_name(who), r.seat_text(who), lender.map(|l| (owner_name(l), r.seat_text(l).to_owned())).as_ref())) };
         self.table.codes.ground_combat = r.code("ground_combat");
         self.table.codes.harrow = r.code("harrow");
         self.table.codes.self_assembly = r.code("self_assembly_routines");
@@ -433,13 +469,13 @@ mod tests {
         let t = table();
         for n in NAMED {
             let spec = t.of_slot(n.slot).expect("a named slot is in the table");
-            let id = id_text(&Render::new(Vec::new()), spec, "hacan");
+            let id = id_text(&Render::new(Vec::new()), spec, "hacan", "a", None);
             assert_eq!(slot_of(&id), Some(n.slot), "{id}");
         }
         let w = ti4_engine_core::rules::action_cards::reaction_slot::windows();
         for (i, _) in w.iter().enumerate() {
             let slot = Slot(ti4_engine_core::rules::action_cards::reaction_slot::SLOT_BASE + u16::try_from(i).unwrap());
-            let id = id_text(&Render::new(Vec::new()), t.of_slot(slot).unwrap(), "sol");
+            let id = id_text(&Render::new(Vec::new()), t.of_slot(slot).unwrap(), "sol", "a", None);
             assert_eq!(slot_of(&id), Some(slot), "{id}");
         }
         assert!(slot_of("leader:sol:solagent:GROUND_COMBAT_ROUND_STARTED:after").is_some());
@@ -472,11 +508,6 @@ mod tests {
         for id in [
             "unit:sardakk:sardakk_mech:GROUND_FORCE_SUSTAINED:after",
             "leader:sardakk:sardakkhero_turn:TURN_BEGAN:after",
-            "leader:yssaril:a:yssarilagent:yinagent:SHIP_DESTROYED:after",
-            "leader:yssaril:a:yssarilagent:yinagent:GROUND_FORCE_DESTROYED:after",
-            "leader:yssaril:a:yssarilagent:solagent:GROUND_COMBAT_ROUND_STARTED:after",
-            "leader:yssaril:a:yssarilagent:letnevagent:COMBAT_ROUND_STARTED:after",
-            "leader:yssaril:a:yssarilagent:argentagent:GROUND_FORCES_BEING_PRODUCED:when",
         ] {
             assert_eq!(slot_of(id), None, "{id} is not in the table");
             let why = rec(&[id], &[]).unported(&t).unwrap_or_default();
@@ -604,7 +635,7 @@ mod tests {
         use ti4_engine_core::state::Slice;
         let content = ti4_content::ContentStore::embedded();
         let _ = content;
-        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")]] {
+        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")]] {
             let mut gs = crate::fixtures::seated_game(&factions, ti4_model::content_types::POK);
             gs.promissory_notes.clear();
             gs.promissory_faceup.clear();
@@ -616,6 +647,13 @@ mod tests {
                 .filter(|a| slot_of(&a.id).is_some())
                 .map(|a| (a.id.clone(), a.owner.clone(), a.event.clone(), a.when, a.optional, a.repeatable, a.has_condition))
                 .collect();
+            // The copies of Ssruu are in the comparison (a pair rule: owned by the borrower, the lender in the id).
+            if factions == [("a", "yin"), ("b", "yssaril")] {
+                assert!(want.iter().any(|x| x.0 == "leader:yin:a:yssarilagent:yinagent:SHIP_DESTROYED:after" && x.1 == "b"), "{want:?}");
+            }
+            if factions == [("a", "yssaril"), ("b", "sol")] {
+                assert!(want.iter().any(|x| x.0 == "leader:ssruu-copy:a:solagent:b:GROUND_COMBAT_ROUND_STARTED:after" && x.1 == "a"), "{want:?}");
+            }
             let (mut cx, r) = crate::dual_window::tables(&gs).unwrap();
             let before = gs.clone();
             let mut fol = Follow { table: table(), resolver: Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))) };
@@ -624,8 +662,8 @@ mod tests {
             with_core(&mut gs, &mut cx, Sources::default(), fp, |core, _| {
                 let order: Vec<Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(Seat)).collect();
                 fol.arm(&r, &before, core);
-                let defs = fol.table.registry(core, &order, &mut |spec, who| {
-                    ability_id(&r, &id_text(&r, spec, &crate::promissory::faction_name(&before, &ti4_model::id::PlayerId::new(r.seat_text(who)))))
+                let defs = fol.table.registry(core, &order, &mut |spec, who, lender| {
+                    ability_id(&r, &id_text(&r, spec, &crate::promissory::faction_name(&before, &ti4_model::id::PlayerId::new(r.seat_text(who))), r.seat_text(who), lender.map(|l| (crate::promissory::faction_name(&before, &ti4_model::id::PlayerId::new(r.seat_text(l))), r.seat_text(l).to_owned())).as_ref()))
                 });
                 for d in defs {
                     got.push((

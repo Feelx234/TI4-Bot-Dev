@@ -150,3 +150,56 @@ mod tests {
 pub fn has_commander_ability(s: &CoreState, k: &Kernel, who: Seat, commander: Leader) -> bool {
     ti4_engine_core::rules::leaders::has_commander_ability_with(s, who, commander, || k.hooks.direct.mahact_imperia_grants(s, who, commander))
 }
+
+/// `borrowed_round_agents::extra_die_for` on the core state: the dice a round agent's mark adds to the unit at the ordinal
+/// `index` of the owner's roll roster (ships of the system, or the ground forces of the planet). The mark counts only while
+/// the unit that stands at that ordinal is the one it was made for (type, owner, damage, galvanize), in the round it names.
+#[must_use]
+pub fn extra_die_for(s: &CoreState, k: &Kernel, system: ti4_engine_core::generated::System, planet: Option<Planet>, who: Seat, unit: ti4_engine_core::generated::Unit, index: usize, round: u32) -> i64 {
+    use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
+    use ti4_engine_core::kernel::read::Rd;
+    if s.meta().combat_round_seq != round {
+        return 0;
+    }
+    let rd = Rd::new(s, k).with_blanked(ti4_engine_core::query::reach::blanked(s));
+    let target = match planet {
+        Some(planet) => board::planet_units(s, planet)
+            .iter()
+            .filter(|u| u.owner() == who)
+            .filter(|u| ti4_engine_core::rules::invasion::is_ground_force_here(rd, who, system, planet, **u))
+            .nth(index)
+            .copied(),
+        None => ti4_engine_core::rules::combat::ships_of(rd, who, system).into_iter().nth(index),
+    };
+    let Some(target) = target.filter(|t| t.kind() == unit) else { return 0 };
+    let planet_atom = |p: Option<Planet>| Atom::Planet(p.unwrap_or(Planet::ALL[0]));
+    let same_planet = |v: &MarkVal| match (v, planet) {
+        (MarkVal::Atom(Atom::Absent), None) => true,
+        (MarkVal::Atom(a), Some(p)) => *a == planet_atom(Some(p)),
+        _ => false,
+    };
+    let count = s
+        .marks()
+        .tail
+        .iter()
+        .filter(|(key, _)| matches!(key, MarkKey::YssarilSsruuRoundAgent(..)))
+        .filter(|(_, value)| match value {
+            MarkVal::Rec(v) => match v.as_slice() {
+                [_, _, _, MarkVal::Atom(Atom::System(sys)), combat_planet, unit_planet, MarkVal::Atom(Atom::Seat(owner)), MarkVal::Atom(Atom::Unit(kind)), MarkVal::Atom(Atom::Num(sustained)), MarkVal::Atom(Atom::Num(galvanized)), MarkVal::Atom(Atom::Num(ordinal)), MarkVal::Atom(Atom::Num(round_seq))] => {
+                    *sys == system
+                        && same_planet(combat_planet)
+                        && same_planet(unit_planet)
+                        && *owner == who
+                        && *kind == unit
+                        && *ordinal as usize == index
+                        && *round_seq == round
+                        && (*sustained != 0) == target.sustained()
+                        && (*galvanized != 0) == target.galvanized()
+                }
+                _ => false,
+            },
+            _ => false,
+        })
+        .count();
+    i64::try_from(count).unwrap_or(0)
+}

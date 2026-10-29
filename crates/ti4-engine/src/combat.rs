@@ -10131,7 +10131,7 @@ mod tests {
     /// `(the state after, the windows of the report, the number of differences)`.
     fn hub_fight(
         seed: u64,
-        factions: [&str; 2],
+        factions: &[&str],
         prepare: impl Fn(&mut GameState, &SystemId),
         pick: fn(u64, usize, &Choice) -> usize,
     ) -> (GameState, std::collections::BTreeMap<String, crate::dual::WindowCounts>, u64, Vec<String>) {
@@ -10149,7 +10149,9 @@ mod tests {
         let hub = crate::fixtures::plain_hub();
         let mut out = None;
         with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || crate::dual_window::with_composed(true, || {
-            let mut state = crate::fixtures::seated_game(&[("a", factions[0]), ("b", factions[1])], ti4_model::content_types::DEFAULT);
+            let names = ["a", "b", "c", "d"];
+            let seats: Vec<(&str, &str)> = factions.iter().enumerate().map(|(i, f)| (names[i], *f)).collect();
+            let mut state = crate::fixtures::seated_game(&seats, ti4_model::content_types::DEFAULT);
             state.promissory_notes.clear();
             state.promissory_faceup.clear();
             state.rng_seed = seed;
@@ -10191,7 +10193,7 @@ mod tests {
         for seed in 0..10_u64 {
             let (_state, windows, differences, nested) = hub_fight(
                 seed,
-                ["empyrean", "hacan"],
+                &["empyrean", "hacan"],
                 |s, system| {
                     // Half of the fights have the flagship in an adjacent system: the map is an input of the ability.
                     let home = if s.rng_seed % 2 == 1 { SystemId::new(crate::fixtures::plain_hub().outer[0].clone()) } else { system.clone() };
@@ -10221,7 +10223,7 @@ mod tests {
         for seed in 0..8_u64 {
             let (state, windows, differences, nested) = hub_fight(
                 seed,
-                ["empyrean", "hacan"],
+                &["empyrean", "hacan"],
                 |s, system| {
                     put(s, system, "cruiser", &attacker(), 2);
                     put(s, system, "empyrean_mech", &attacker(), 2);
@@ -10258,7 +10260,7 @@ mod tests {
         for seed in 0..12_u64 {
             let (state, windows, differences, nested) = hub_fight(
                 seed,
-                ["mentak", "hacan"],
+                &["mentak", "hacan"],
                 |s, system| {
                     s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("so"));
                     put(s, system, "dreadnought", &attacker(), 3);
@@ -10286,7 +10288,7 @@ mod tests {
         for seed in 0..6_u64 {
             let (_state, windows, differences, _) = hub_fight(
                 seed,
-                ["mentak", "hacan"],
+                &["mentak", "hacan"],
                 |s, system| {
                     s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("so"));
                     put(s, system, "dreadnought", &attacker(), 3);
@@ -10300,6 +10302,87 @@ mod tests {
             bailed += usize::from(windows.keys().any(|k| k.contains("a fact the adapter did not compute")));
         }
         assert!(bailed > 0, "the cruiser is the string's");
+    }
+
+    /// Ssruu (the Yssaril agent) copies Brother Milor (Yin, a third seat) in a fight: when a ship is destroyed in combat the
+    /// borrower exhausts Ssruu and the owner of the ship places 2 fighters. A pair rule of the table: owned by the borrower, the
+    /// lender in the id.
+    #[test]
+    fn ssruu_copies_brother_milor_in_the_core_window_in_lockstep() {
+        let mut offered = 0;
+        for seed in 0..10_u64 {
+            let (state, windows, differences, nested) = hub_fight(
+                seed,
+                &["yssaril", "hacan", "yin"],
+                |s, system| {
+                    put(s, system, "cruiser", &attacker(), 3);
+                    put(s, system, "destroyer", &defender(), 3);
+                    put(s, system, "dreadnought", &defender(), 1);
+                },
+                |_, _, c| c.options.iter().position(|o| o.id.contains("yssarilagent:yinagent")).unwrap_or(0),
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            assert!(windows.keys().all(|k| !k.contains("[bail:")), "seed {seed}: {windows:?}");
+            offered += nested.iter().filter(|k| k.contains("yssarilagent:yinagent:SHIP_DESTROYED:after")).count();
+            if state.player(&attacker()).unwrap().leaders.get(ti4_model::id::text(&"yssarilagent")) == Some(&ti4_model::state::LeaderStatus::Readied) {
+                continue;
+            }
+        }
+        assert!(offered > 0, "the copy was offered and followed");
+    }
+
+    /// Ssruu copies Viscount Unlenn (Letnev, a third seat) at the start of a space combat round: the borrower chooses one ship
+    /// for an extra die, the mark names borrower and lender.
+    #[test]
+    fn ssruu_copies_viscount_unlenn_in_the_core_window_in_lockstep() {
+        let (mut offered, mut asked) = (0, 0);
+        for seed in 0..8_u64 {
+            let (state, windows, differences, nested) = hub_fight(
+                seed,
+                &["yssaril", "hacan", "letnev"],
+                |s, system| {
+                    put(s, system, "cruiser", &attacker(), 3);
+                    put(s, system, "destroyer", &defender(), 3);
+                },
+                |seed, _, c| {
+                    if let Some(i) = c.options.iter().position(|o| o.id.contains("ssruu-copy")) {
+                        return i;
+                    }
+                    if c.prompt.starts_with("Ssruu copying") {
+                        return seed as usize;
+                    }
+                    0
+                },
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            assert!(windows.keys().all(|k| !k.contains("[bail:")), "seed {seed}: {windows:?}");
+            offered += nested.iter().filter(|k| k.contains(":letnevagent:c:COMBAT_ROUND_STARTED:after")).count();
+            asked += nested.iter().filter(|k| k.contains("ask:Ssruu copying")).count();
+            assert!(state.faction_marks.keys().any(|k| k.starts_with("yssaril:ssruu-round-agent:a:letnevagent:")) || offered == 0);
+        }
+        assert!(offered > 0 && asked > 0, "the copy was offered ({offered}) and asked ({asked})");
+    }
+
+    /// The extra die of a round agent is read from the core state: in the composed settle the mark is written and read in one
+    /// window, which the string-oracle snapshot of the position at its start could not see (the Ssruu copy of Viscount Unlenn
+    /// found it: 3 dice against 5).
+    #[test]
+    fn the_letnev_agent_extra_die_is_read_in_the_window_that_writes_the_mark() {
+        let mut marked = 0;
+        for seed in 0..6_u64 {
+            let (state, windows, differences, _) = hub_fight(
+                seed,
+                &["letnev", "hacan"],
+                |s, system| {
+                    put(s, system, "cruiser", &attacker(), 3);
+                    put(s, system, "destroyer", &defender(), 3);
+                },
+                |seed, _, c| if c.prompt.starts_with("leader") || c.prompt.contains("choose one unit") { seed as usize } else { 0 },
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            marked += state.faction_marks.keys().filter(|k| k.starts_with("yssaril:ssruu-round-agent:a:letnevagent:")).count();
+        }
+        assert!(marked > 0, "the agent marked a ship");
     }
 
     /// Direct Hit: the attacker's hit is sustained by a dreadnought, the attacker destroys that ship from the slot of
