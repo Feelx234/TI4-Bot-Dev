@@ -718,6 +718,26 @@ mod price {
         })
         .expect("loads");
         assert!(outcome.is_ok(), "paid and scored");
+        // A priced secret without the environment is refused as well (and with it, taken).
+        let mut held = state.clone();
+        let seat_state = held.player_mut(&a()).unwrap();
+        seat_state.secret_objectives = vec![SecretObjectiveId::new("dhw")];
+        seat_state.relic_fragments = [("CULTURAL".to_owned(), 2)].into_iter().collect();
+        let secret = ObjectiveRef::Secret(ti4_engine_core::generated::SecretObjective::DestroyHereticalWorks);
+        for (env, paid) in [(None, false), (Some(env), true)] {
+            let mut window = ti4_engine_core::rules::objective_windows::ScoreOne::new(seat, true, &[secret], None);
+            if let Some(env) = env {
+                window = window.with_price(env);
+            }
+            let mut driver = ti4_engine_core::driver::Driver::new(window, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+            let mut probe = held.clone();
+            let outcome = crate::core_sync::with_core(&mut probe, &mut cx, crate::core_sync::Sources::default(), PRICE_AND_SCORE, |core, _| {
+                driver.run(core, crate::production_view::kernel()).expect("asks");
+                driver.resume(core, crate::production_view::kernel(), ti4_engine_core::choice::Pick::Opt(ti4_engine_core::choice::Opt::Objectives(ti4_engine_core::choice::objectives::Opt::Score(secret))))
+            })
+            .expect("loads");
+            assert_eq!(outcome.is_ok(), paid, "a priced secret is taken only with its price environment");
+        }
         let _ = take_report();
     }
 
