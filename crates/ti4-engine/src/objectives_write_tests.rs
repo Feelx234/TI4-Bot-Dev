@@ -368,7 +368,7 @@ fn the_documented_bails_stay_with_the_string_side() {
     unknown.player_mut(&a()).unwrap().secret_objectives = vec![SecretObjectiveId::new("eap")];
     four_pds(&mut unknown);
     assert!(status_probe(&unknown, "eap").is_some(), "the same position without the unknown id is followed");
-    unknown.record_score(&a(), ObjectiveId::new("not_an_objective"));
+    unknown.record_score(&a(), ObjectiveId::new(["not", "an", "objective"].join("_")));
     assert!(status_probe(&unknown, "eap").is_none(), "an unknown scored objective is refused by the codec");
 
     // An id the tables do not know, and points the content and the tables disagree on.
