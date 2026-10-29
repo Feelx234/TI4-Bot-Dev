@@ -207,18 +207,31 @@ fn a_secret_drawn_over_the_hand_limit_is_returned_in_lockstep_with_the_core() {
     let _ = take_report();
 }
 
-/// The core window of one scoring question, answered with `answer` as the string side did: `None` when the
-/// core bailed (silent in the lockstep), else what the window scored.
-fn probe_score(state: &GameState, offers: &[&str], answer: &str) -> Option<(bool, Option<ObjectiveId>)> {
-    let mut options: Vec<crate::choice::ChoiceOption> =
-        offers.iter().map(|id| crate::choice::ChoiceOption::labelled(*id, "score", *id)).collect();
-    options.push(crate::choice::ChoiceOption::decline());
-    let ask = Question::new(a(), "score an objective", options);
-    let mut script = crate::dual_window::Recording::default();
+/// The core half of the status window's next question for `state`, answered with `answer` as the string side
+/// did, and the position it leaves. The question, the arguments and the book are the string window's own.
+/// `None` when the string window asks nothing, or the core bailed (silent in the lockstep).
+fn status_probe(state: &GameState, answer: &str) -> Option<(GameState, crate::dual::CoreWindow<crate::objectives_write::ScoreValue>)> {
+    status_probe_with(state, answer, &crate::dual_window::Recording::default())
+}
+
+fn status_probe_with(
+    state: &GameState,
+    answer: &str,
+    base: &crate::dual_window::Recording,
+) -> Option<(GameState, crate::dual::CoreWindow<crate::objectives_write::ScoreValue>)> {
+    let content = ContentStore::embedded();
+    let window = crate::objectives::ScoringWindow::new(&state.initiative_order());
+    let ask = window.pending_choice(state, content, POK)?;
+    let mut script = base.clone();
     script.questions.push(crate::dual_window::Asked { choice: ask.clone(), answer: Some(answer.to_owned()), nested: false });
-    let args = crate::objectives_write::ScoreArgs { status: true, occurrence: None };
-    let window = crate::objectives_write::score_one(&mut state.clone(), ContentStore::embedded(), POK, &ask, args, &script)?;
-    Some(window.run.value)
+    let mut after = state.clone();
+    let core = crate::objectives_write::score_one(&mut after, content, POK, None, &ask, &window.core_args(), &script)?;
+    Some((after, core))
+}
+
+/// What the core window scored (`finished`, the objective), for the paths a test follows to their answer.
+fn probe_score(state: &GameState, answer: &str) -> Option<(bool, Option<ObjectiveId>)> {
+    status_probe(state, answer).map(|(_, w)| (w.run.value.0, w.run.value.1))
 }
 
 /// A game in the status phase, for `player`'s score.
@@ -300,27 +313,22 @@ fn the_status_scoring_window_runs_in_lockstep_with_the_core() {
     for planet in non_home_planets(6) {
         give(&mut public, &planet, "a");
     }
-    assert_eq!(probe_score(&public, &["expand_borders"], "expand_borders"), Some((true, Some(ObjectiveId::new("expand_borders")))));
-    assert_eq!(probe_score(&public, &["expand_borders"], "decline"), Some((true, None)));
+    assert_eq!(probe_score(&public, "expand_borders"), Some((true, Some(ObjectiveId::new("expand_borders")))));
+    assert_eq!(probe_score(&public, "decline"), Some((true, None)));
     let mut held = clean(&[("a", "letnev"), ("b", "sol")]);
     held.player_mut(&a()).unwrap().secret_objectives = vec![SecretObjectiveId::new("eap")];
-    assert_eq!(probe_score(&held, &["eap"], "eap"), Some((true, Some(ObjectiveId::new("eap")))));
+    four_pds(&mut held);
+    assert_eq!(probe_score(&held, "eap"), Some((true, Some(ObjectiveId::new("eap")))));
     let mut leaked = clean(&[("a", "letnev"), ("b", "sol")]);
     leaked.revealed_objectives = vec![ObjectiveId::new("eap")];
-    assert_eq!(probe_score(&leaked, &["eap"], "eap"), Some((true, Some(ObjectiveId::new("eap")))));
-    // A secret that is neither in the hand nor public is not scored by the core (stale window): the step bails.
+    four_pds(&mut leaked);
+    assert_eq!(probe_score(&leaked, "eap"), Some((true, Some(ObjectiveId::new("eap")))));
+    // The core works out who is asked and what they may score itself (A4b-2): a position where the string
+    // window asks nothing has no question to follow.
     let empty = clean(&[("a", "letnev"), ("b", "sol")]);
-    assert_eq!(probe_score(&empty, &["eap"], "eap"), None);
-    // Probed: the core window of a scoring question answers (a question put, nothing answered yet).
-    let mut probe = clean(&[("a", "letnev"), ("b", "sol")]);
-    let ask = Question::new(
-        a(),
-        "score an objective",
-        vec![crate::choice::ChoiceOption::labelled("eap", "score", "eap"), crate::choice::ChoiceOption::decline()],
-    );
-    let args = crate::objectives_write::ScoreArgs { status: true, occurrence: None };
-    let window = crate::objectives_write::score_one(&mut probe, ContentStore::embedded(), POK, &ask, args, &crate::dual_window::Recording::default())
-        .expect("the core window answers");
+    assert_eq!(probe_score(&empty, "eap"), None);
+    // The core window puts the question the string put.
+    let (_, window) = status_probe(&held, "decline").expect("the core window answers");
     assert_eq!(window.questions.len(), 1);
     assert_eq!(window.questions[0].prompt, "score an objective");
     let _ = take_report();
@@ -330,11 +338,8 @@ fn the_status_scoring_window_runs_in_lockstep_with_the_core() {
 /// declines, so the string write stands. Bails are silent in the lockstep, so each is probed here.
 #[test]
 fn the_documented_bails_stay_with_the_string_side() {
-    use crate::choice::ChoiceOption;
-    use crate::dual_window::Recording;
-    use crate::objectives_write::{ScoreArgs, adjust, draw_secret, reveal_stage, reveal_top, score_one, score_public, score_secret};
+    use crate::objectives_write::{adjust, draw_secret, reveal_stage, reveal_top, score_public, score_secret};
     let content = ContentStore::embedded();
-    let args = ScoreArgs { status: true, occurrence: None };
 
     // A turn redo draws through a deck reserve: the draws are the string's.
     let mut state = clean(&[("a", "letnev"), ("b", "sol")]);
@@ -362,43 +367,6 @@ fn the_documented_bails_stay_with_the_string_side() {
     state.player_mut(&a()).unwrap().secret_objectives.clear();
     assert_eq!(score_secret(&mut state, &a(), &SecretObjectiveId::new("eap"), 1), Some(None));
 
-    // The scoring question: an option that is no objective (a Firmament plot), a bought objective (the price
-    // is the string's), a question the string put inside a nested emission.
-    let ask = |ids: &[&str]| {
-        let mut options: Vec<ChoiceOption> = ids.iter().map(|id| ChoiceOption::labelled(*id, "score", *id)).collect();
-        options.push(ChoiceOption::decline());
-        Question::new(a(), "score an objective", options)
-    };
-    let script = Recording::default();
-    let mut state = clean(&[("a", "letnev"), ("b", "sol")]);
-    assert!(score_one(&mut state, content, POK, &ask(&["eap"]), args, &script).is_some(), "the plain question is followed");
-    assert!(score_one(&mut state, content, POK, &ask(&["eap", "eap|plot|b"]), args, &script).is_none());
-    // A bought objective and the two secrets with a price (two relic fragments, five action cards) are followed
-    // (the core window pays them, `the_price_*` tests below); the price stays with the string at a table with a
-    // Last Bastion or a Crimson seat, and for a payer holding ocean cards.
-    assert!(score_one(&mut state, content, POK, &ask(&["amass_wealth"]), args, &script).is_some());
-    assert!(score_one(&mut state, content, POK, &ask(&["dhw"]), args, &script).is_some());
-    assert!(score_one(&mut state, content, POK, &ask(&["fsn"]), args, &script).is_some());
-    for faction in [crate::factions::bastion::FACTION, crate::factions::crimson::FACTION] {
-        let mut table = clean(&[("a", "letnev"), ("b", faction)]);
-        assert!(score_one(&mut table, content, POK, &ask(&["amass_wealth"]), args, &script).is_none(), "{faction} at the table");
-        assert!(score_one(&mut table, content, POK, &ask(&["dhw"]), args, &script).is_none(), "{faction} at the table");
-        assert!(score_one(&mut table, content, POK, &ask(&["eap"]), args, &script).is_some(), "an unpriced offer is not affected");
-    }
-    let mut oceans = clean(&[("a", crate::factions::deepwrought::FACTION), ("b", "sol")]);
-    let (system, planet) = crate::fixtures::a_placed_planet();
-    oceans.system_mut(&system).set_control(planet.clone(), PlayerId::new("b"));
-    crate::fixtures::put_on_planet(&mut oceans, &system, &planet, "infantry", &PlayerId::new("b"), 1);
-    crate::fixtures::put_on_planet(&mut oceans, &system, &planet, "infantry", &a(), 1);
-    assert!(crate::factions::deepwrought::begin_coexisting(&mut oceans, &a(), &system, &planet, None).expect("begins"));
-    assert!(!crate::factions::deepwrought::spendable_oceans(&oceans, &a()).is_empty(), "the fixture holds an ocean card");
-    assert!(score_one(&mut oceans, content, POK, &ask(&["amass_wealth"]), args, &script).is_none());
-    assert!(score_one(&mut oceans, content, POK, &ask(&["eap"]), args, &script).is_some());
-    let mut nested = Recording::default();
-    nested.nested = true;
-    assert!(score_one(&mut state, content, POK, &ask(&["eap"]), args, &nested).is_none());
-    state.diplomacy.enabled = true;
-    assert!(score_one(&mut state, content, POK, &ask(&["eap"]), args, &script).is_none());
 }
 
 // -- the price of a bought objective and of the priced secrets (package A4b-1) ------------------------------
@@ -523,17 +491,10 @@ mod price {
         assert!(paid > 200 && paid < compared - 200, "both outcomes are covered: {paid} of {compared} paid");
     }
 
-    /// The core window of one scoring question answered with `answer`, and the position it leaves.
-    fn probe_after(state: &GameState, id: &str, answer: &str) -> Option<(GameState, (bool, Option<ObjectiveId>))> {
-        let mut options = vec![crate::choice::ChoiceOption::labelled(id, "score", id)];
-        options.push(crate::choice::ChoiceOption::decline());
-        let ask = Question::new(a(), "score an objective", options);
-        let mut script = crate::dual_window::Recording::default();
-        script.questions.push(crate::dual_window::Asked { choice: ask.clone(), answer: Some(answer.to_owned()) });
-        let args = crate::objectives_write::ScoreArgs { status: true, occurrence: None };
-        let mut after = state.clone();
-        let window = crate::objectives_write::score_one(&mut after, ContentStore::embedded(), POK, &ask, args, &script)?;
-        Some((after, window.run.value))
+    /// The core window of the status question answered with `answer`, and the position it leaves.
+    fn probe_after(state: &GameState, _id: &str, answer: &str) -> Option<(GameState, (bool, Option<ObjectiveId>))> {
+        let (after, w) = status_probe(state, answer)?;
+        Some((after, (w.run.value.0, w.run.value.1)))
     }
 
     /// The first plan is the cheapest in goods and exhausts planets: a price that spends planets is covered.
@@ -691,7 +652,7 @@ mod price {
         let seat = r.seat("a").unwrap();
         let obj = ObjectiveRef::Public(PublicObjective::AmassWealth);
         let mut driver = ti4_engine_core::driver::Driver::new(
-            ti4_engine_core::rules::objective_windows::ScoreOne::new(seat, true, &[obj], None),
+            ti4_engine_core::rules::objective_windows::ScoreOne::new(seat, true, &[ti4_engine_core::choice::objectives::Offer::Objective(obj)], None),
             Resolver::new(&[seat], Some(seat)),
             AbilityTable::default(),
             1,
@@ -706,7 +667,7 @@ mod price {
         // The same window with its price environment pays and scores.
         let env = PayEnv { scope: crate::core_adapter::scope(POK), blanked: false };
         let mut driver = ti4_engine_core::driver::Driver::new(
-            ti4_engine_core::rules::objective_windows::ScoreOne::new(seat, true, &[obj], None).with_price(env),
+            ti4_engine_core::rules::objective_windows::ScoreOne::new(seat, true, &[ti4_engine_core::choice::objectives::Offer::Objective(obj)], None).with_price(env),
             Resolver::new(&[seat], Some(seat)),
             AbilityTable::default(),
             1,
@@ -725,7 +686,7 @@ mod price {
         seat_state.relic_fragments = [("CULTURAL".to_owned(), 2)].into_iter().collect();
         let secret = ObjectiveRef::Secret(ti4_engine_core::generated::SecretObjective::DestroyHereticalWorks);
         for (env, paid) in [(None, false), (Some(env), true)] {
-            let mut window = ti4_engine_core::rules::objective_windows::ScoreOne::new(seat, true, &[secret], None);
+            let mut window = ti4_engine_core::rules::objective_windows::ScoreOne::new(seat, true, &[ti4_engine_core::choice::objectives::Offer::Objective(secret)], None);
             if let Some(env) = env {
                 window = window.with_price(env);
             }
@@ -744,8 +705,237 @@ mod price {
     /// The string took a price the core refuses (the facts differ): the lockstep reports it instead of bailing.
     #[test]
     fn an_answer_the_core_cannot_pay_is_reported_not_bailed() {
-        let poor = clean(&[("a", "letnev"), ("b", "sol")]);
-        let value = probe_score(&poor, &["amass_wealth"], "amass_wealth");
+        // Something else is on offer, so a question exists; the bought objective is revealed but not affordable.
+        let mut poor = clean(&[("a", "letnev"), ("b", "sol")]);
+        poor.player_mut(&a()).unwrap().secret_objectives = vec![SecretObjectiveId::new("eap")];
+        four_pds(&mut poor);
+        poor.revealed_objectives = vec![ObjectiveId::new("amass_wealth")];
+        let value = probe_score(&poor, "amass_wealth");
         assert_eq!(value, Some((false, None)), "a window that never finished: a difference against the string's score");
+    }
+}
+
+// -- the window's bookkeeping and Plots Within Plots (package A4b-2) ----------------------------------------
+
+mod book {
+    use super::*;
+    use crate::dual_window::{Asked, Recording};
+    use crate::objectives::{EventScoreLimit, ScoringWindow};
+    use crate::secrets::Timing;
+    use ti4_model::state::Feat;
+
+    fn json(state: &GameState) -> serde_json::Value {
+        serde_json::to_value(state).expect("a state serialises")
+    }
+
+    /// What a walk saw: the steps taken and who was asked at each.
+    #[derive(Debug, Default)]
+    pub(super) struct Trace {
+        pub asked: Vec<(String, Vec<String>)>,
+    }
+
+    /// Play `window` on `state` with the string engine, and at each question also with the core on a copy: the
+    /// core must follow (a bail fails the walk), put the same question, and leave the same position, value and
+    /// bookkeeping. `answers` are the option ids, in order; the walk ends when the window asks nothing.
+    pub(super) fn walk(mut state: GameState, mut window: ScoringWindow, answers: &[&str]) -> (GameState, ScoringWindow, Trace) {
+        let content = ContentStore::embedded();
+        let mut trace = Trace::default();
+        for (step, answer) in answers.iter().enumerate() {
+            let ask = window
+                .pending_choice(&state, content, POK)
+                .unwrap_or_else(|| panic!("step {step}: the window asks nothing, wanted {answer}"));
+            trace.asked.push((ask.player.to_string(), ask.ids().iter().map(|s| (*s).to_owned()).collect()));
+            let mut script = Recording::default();
+            script.questions.push(Asked { choice: ask.clone(), answer: Some((*answer).to_owned()), nested: false });
+            let mut core_state = state.clone();
+            let core = crate::objectives_write::score_one(&mut core_state, content, POK, None, &ask, &window.core_args(), &script)
+                .unwrap_or_else(|| panic!("step {step}: the core bailed on {answer}"));
+            assert_eq!(core.questions.len(), 1, "step {step}: one question");
+            let rendered = &core.questions[0];
+            assert_eq!(rendered.player, ask.player, "step {step}: who is asked");
+            assert_eq!(rendered.prompt, ask.prompt, "step {step}");
+            assert_eq!(rendered.ids(), ask.ids(), "step {step}: what is on offer");
+            assert_eq!(rendered.context, ask.context, "step {step}: the context");
+            let option = ask.option(answer).unwrap_or_else(|| panic!("step {step}: {answer} in {:?}", ask.ids())).clone();
+            let scored = window.resolve(&mut state, content, POK, option).expect("the string resolves");
+            assert_eq!(core.run.value, (true, scored, window.book()), "step {step}: value and book after {answer}");
+            assert_eq!(json(&core_state), json(&state), "step {step}: the position after {answer}");
+        }
+        (state, window, trace)
+    }
+
+    /// The window has nothing left to ask.
+    fn finished(state: &GameState, window: &ScoringWindow) -> bool {
+        window.pending_choice(state, ContentStore::embedded(), POK).is_none()
+    }
+
+    fn two_scoring_seats() -> GameState {
+        // `a` meets a public (six planets) and a secret (four pds); `b` meets the same secret.
+        let mut state = clean(&[("a", "letnev"), ("b", "sol")]);
+        state.revealed_objectives = vec![ObjectiveId::new("expand_borders")];
+        for planet in non_home_planets(6) {
+            give(&mut state, &planet, "a");
+        }
+        state.player_mut(&a()).unwrap().secret_objectives = vec![SecretObjectiveId::new("eap")];
+        four_pds(&mut state);
+        state
+    }
+
+    #[test]
+    fn the_status_window_asks_one_public_and_one_secret_then_the_next_player() {
+        let state = two_scoring_seats();
+        let window = ScoringWindow::new(&state.initiative_order());
+        let (end, window, trace) = walk(state, window, &["expand_borders", "eap"]);
+        assert!(finished(&end, &window), "nobody else has anything to score");
+        assert_eq!(trace.asked.len(), 2);
+        assert_eq!(trace.asked[0].0, "a");
+        assert_eq!(trace.asked[1].0, "a", "the player stays while the other category is on offer");
+        assert!(trace.asked[1].1.contains(&"eap".to_owned()) && !trace.asked[1].1.contains(&"expand_borders".to_owned()), "the public cap is spent");
+        assert_eq!(end.player(&a()).unwrap().victory_points, 2);
+    }
+
+    #[test]
+    fn a_decline_ends_the_players_whole_turn_in_the_status_window() {
+        let state = two_scoring_seats();
+        let window = ScoringWindow::new(&state.initiative_order());
+        let (end, window, trace) = walk(state, window, &["decline"]);
+        assert_eq!(trace.asked.len(), 1);
+        assert!(finished(&end, &window), "declining leaves nothing pending for the only player with something to score");
+    }
+
+    #[test]
+    fn the_next_player_is_asked_after_the_first_has_used_both_caps() {
+        let mut state = two_scoring_seats();
+        // `b` holds the same secret and meets it too (four pds is a position of `a`; give `b` its own).
+        crate::fixtures::put(&mut state, &SystemId::new("37"), "pds", &PlayerId::new("b"), 4);
+        state.player_mut(&PlayerId::new("b")).unwrap().secret_objectives = vec![SecretObjectiveId::new("eap")];
+        let window = ScoringWindow::new(&state.initiative_order());
+        let first = window.pending_choice(&state, ContentStore::embedded(), POK).expect("someone is asked").player;
+        let answers: Vec<&str> = if first == a() { vec!["expand_borders", "eap", "eap"] } else { vec!["eap", "expand_borders", "eap"] };
+        let (end, window, trace) = walk(state, window, &answers);
+        assert!(finished(&end, &window));
+        assert_eq!(trace.asked.len(), 3);
+        let seats: Vec<&str> = trace.asked.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(seats.iter().filter(|p| **p == "b").count() + seats.iter().filter(|p| **p == "a").count(), 3);
+    }
+
+    /// An action-timed window with the per-event cap: the first score uses the occurrence; a second secret is
+    /// not offered (one per player and event), while the unlimited window offers it again.
+    #[test]
+    fn the_event_window_caps_a_player_by_occurrence_or_not() {
+        for limit in [EventScoreLimit::OnePerPlayer, EventScoreLimit::AnyPerPlayer] {
+            let mut state = clean(&[("a", "letnev"), ("b", "sol")]);
+            state.player_mut(&a()).unwrap().secret_objectives = ["btv", "dtgs"].map(SecretObjectiveId::new).to_vec();
+            let occurrence = state.begin_feat_occurrence();
+            state.record_event_feat(&a(), Feat::WonInAnAnomaly, occurrence);
+            state.record_event_feat(&a(), Feat::DestroyedACapitalShip, occurrence);
+            let window = ScoringWindow::for_occurrence(&state.initiative_order(), Timing::Action, occurrence, limit);
+            let answers: &[&str] = if limit == EventScoreLimit::OnePerPlayer { &["btv"] } else { &["btv", "dtgs"] };
+            let (end, window, trace) = walk(state, window, answers);
+            assert!(finished(&end, &window), "{limit:?}");
+            assert_eq!(trace.asked.len(), answers.len(), "{limit:?}");
+            assert_eq!(end.player(&a()).unwrap().victory_points, i32::try_from(answers.len()).unwrap(), "{limit:?}");
+        }
+    }
+
+    // -- Plots Within Plots ----------------------------------------------------------------------------
+
+    /// `a` (Firmament) has three space docks; `b` has scored `fwm` ("Have 3 space docks").
+    fn docks_game() -> GameState {
+        let mut state = clean(&[("a", crate::factions::firmament::FACTION), ("b", "sol"), ("c", "letnev")]);
+        crate::fixtures::put(&mut state, &SystemId::new("18"), "spacedock", &a(), 3);
+        state.record_score(&PlayerId::new("b"), ObjectiveId::new("fwm"));
+        state
+    }
+
+    #[test]
+    fn a_plot_is_scored_for_no_point_and_the_card_is_asked_next() {
+        let state = docks_game();
+        let window = ScoringWindow::new(&state.initiative_order());
+        let (end, window, trace) = walk(state, window, &["plot|fwm|b", "assail"]);
+        assert!(finished(&end, &window));
+        assert_eq!(trace.asked.len(), 2);
+        assert_eq!(trace.asked[1].1, ["enervate", "siphon", "seethe", "assail", "extract"], "the card question lists the remaining cards");
+        let seat = end.player(&a()).unwrap();
+        assert_eq!(seat.victory_points, 0, "a plot gives no victory point");
+        assert_eq!(seat.plots, ["d:assail:b"]);
+        assert!(seat.plot_objectives.contains(ti4_model::id::text(&"fwm")));
+        assert!(!end.scored_by(&a()).contains(ti4_model::id::text(&"fwm")), "a plot is no scored objective");
+    }
+
+    #[test]
+    fn the_last_plot_card_is_placed_at_once() {
+        let mut state = docks_game();
+        for (card, token) in [("enervate", "b"), ("siphon", "c"), ("seethe", "b"), ("assail", "c")] {
+            let cards = ti4_model::plots::Plot::facedown(card, &PlayerId::new(token)).encode();
+            state.player_mut(&PlayerId::new("c")).unwrap().plots.push(cards);
+        }
+        let window = ScoringWindow::new(&state.initiative_order());
+        let (end, window, trace) = walk(state, window, &["plot|fwm|b"]);
+        assert!(finished(&end, &window), "one card remained: placed without a question");
+        assert_eq!(trace.asked.len(), 1);
+        assert_eq!(end.player(&a()).unwrap().plots, ["d:extract:b"]);
+    }
+
+    #[test]
+    fn a_plot_leaves_the_ordinary_caps_open_in_the_status_window() {
+        for plot_first in [true, false] {
+            let mut state = docks_game();
+            crate::fixtures::put(&mut state, &SystemId::new("18"), "pds", &a(), 4);
+            state.player_mut(&a()).unwrap().secret_objectives = vec![SecretObjectiveId::new("eap")];
+            let window = ScoringWindow::new(&state.initiative_order());
+            let answers: &[&str] = if plot_first { &["plot|fwm|b", "seethe", "eap"] } else { &["eap", "plot|fwm|b", "seethe"] };
+            let (end, window, _) = walk(state, window, answers);
+            assert!(finished(&end, &window), "plot first: {plot_first}");
+            assert_eq!(end.player(&a()).unwrap().victory_points, 1, "only the ordinary secret scores");
+        }
+    }
+
+    #[test]
+    fn a_plot_is_scored_in_an_event_window_beside_the_capped_secret() {
+        let mut state = clean(&[("a", crate::factions::firmament::FACTION), ("b", "sol")]);
+        state.record_score(&PlayerId::new("b"), ObjectiveId::new("dtgs"));
+        state.player_mut(&a()).unwrap().secret_objectives = vec![SecretObjectiveId::new("btv")];
+        let occurrence = state.begin_feat_occurrence();
+        state.record_event_feat(&a(), Feat::DestroyedACapitalShip, occurrence);
+        state.record_event_feat(&a(), Feat::WonInAnAnomaly, occurrence);
+        let window = ScoringWindow::for_occurrence(&[a()], Timing::Action, occurrence, EventScoreLimit::OnePerPlayer);
+        let (end, window, _) = walk(state, window, &["btv", "plot|dtgs|b", "extract"]);
+        assert!(finished(&end, &window));
+        assert_eq!(end.player(&a()).unwrap().plots, ["d:extract:b"]);
+    }
+
+    /// The Game stepper, with the objectives area on dual: the same window through `scoring::step`.
+    #[test]
+    fn the_plot_window_runs_in_lockstep_through_the_game() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let state = docks_game();
+        let mut game = None;
+        with_mask(mask(), || {
+            let mut g = status_game(state.clone(), &["plot|fwm|b", "assail"]);
+            run_status(&mut g);
+            game = Some(g);
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+        let game = game.unwrap();
+        assert_eq!(game.state.player(&a()).unwrap().plots, ["d:assail:b"]);
+    }
+
+    /// A plot whose secret has a price (Destroy Heretical Works needs two fragments) pays it, like the string
+    /// `award_plot`; without the fragments the plot is not scored.
+    #[test]
+    fn a_priced_plot_is_paid_with_its_secret_price() {
+        let mut state = clean(&[("a", crate::factions::firmament::FACTION), ("b", "sol")]);
+        state.record_score(&PlayerId::new("b"), ObjectiveId::new("dhw"));
+        let seat = state.player_mut(&a()).unwrap();
+        seat.relic_fragments = [("CULTURAL", 1), ("HAZARDOUS", 2)].map(|(k, v)| (k.to_owned(), v)).into_iter().collect();
+        let window = ScoringWindow::new(&state.initiative_order());
+        assert!(window.pending_choice(&state, ContentStore::embedded(), POK).is_some(), "the plot is on offer");
+        let (end, _, _) = walk(state, window, &["plot|dhw|b", "enervate"]);
+        let held: i32 = end.player(&a()).unwrap().relic_fragments.values().sum();
+        assert_eq!(held, 1, "two of the three fragments were paid");
     }
 }

@@ -15,13 +15,21 @@ pub use real::*;
 pub use stub::*;
 
 /// The scoring window's arguments that the core window needs and the string window keeps private.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScoreArgs {
     /// The status window (publics and secrets in one list); an event window offers secrets only.
     pub status: bool,
     /// The feat occurrence the one-per-player cap records the score under.
     pub occurrence: Option<u64>,
+    /// The window's bookkeeping before the step: who is asked, the caps, the plot card to place.
+    pub book: crate::objectives::Book,
 }
+
+/// The label the scoring step's bails are counted under.
+pub const SCORE_LABEL: &str = "scoring::step";
+
+/// What a scoring step returns: whether the window finished, what was scored, the window's book afterwards.
+pub type ScoreValue = (bool, Option<ti4_model::id::ObjectiveId>, crate::objectives::Book);
 
 #[cfg(feature = "typed-core")]
 mod real {
@@ -33,14 +41,20 @@ mod real {
     use ti4_engine_core::kernel::Kernel;
     use ti4_engine_core::kernel::Resolver;
     use ti4_engine_core::query::objectives as q;
-    use ti4_engine_core::rules::objective_windows::{HandLimit, ScoreOne};
+    use ti4_engine_core::choice::objectives::Offer;
+    use ti4_engine_core::containers::{SeatSet, SmallList};
+    use ti4_engine_core::ids::Seat;
+    use ti4_engine_core::rules::objective_windows::{HandLimit, PlaceCard, ScoreOne};
+    use ti4_engine_core::rules::scoring_book::{Asked, Offers, Outcome, ScoringBook};
     use ti4_engine_core::rules::objectives as rules;
     use ti4_engine_core::state::{ObjectiveRef, Slice};
     use ti4_model::id::{ObjectiveId, PlayerId, SecretObjectiveId};
     use ti4_model::state::GameState;
 
-    use super::ScoreArgs;
+    use super::{ScoreArgs, ScoreValue};
     use crate::choice::Choice;
+    use crate::objectives::Book;
+    use crate::render::Render;
     use crate::core_sync::keys::{parse_ledger, render_ledger};
     use crate::core_sync::{Footprint, Sources};
     use crate::dual::{CoreWindow, Run};
@@ -70,6 +84,8 @@ mod real {
         &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Objectives, Slice::Ledger, Slice::Pending, Slice::Board, Slice::Marks, Slice::Agenda],
         &[Slice::Meta, Slice::Players, Slice::Objectives, Slice::Ledger, Slice::Board],
     );
+    /// The plot card question (Plots Within Plots, second step): the plot cards in every hand.
+    const PLOT_WINDOW: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Pending], &[Slice::Players]);
     /// The hand limit question: the hand and the secret deck.
     const HAND_WINDOW: Footprint = Footprint::new(
         &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Objectives, Slice::Decks, Slice::Pending],
@@ -149,75 +165,272 @@ mod real {
 
     // -- the windows -----------------------------------------------------------------------------------
 
-    /// The core half of `scoring_step`: one player's turn in a scoring window. `asked` is the question the
-    /// string window put (its options are the offers). `None` where the core cannot follow: a plot or any option
-    /// that is no objective, a bought objective (the price is the string's), a position the codecs refuse.
+    /// A bail of the scoring step, counted with its reason in the census.
+    fn bail<T>(why: &str) -> Option<T> {
+        crate::dual::note_bail(super::SCORE_LABEL, why);
+        None
+    }
+
+    /// What a scoring window cannot follow: diplomacy promises a favour keeps and a nested emission. A battle
+    /// or an invasion in progress is followed (an invasion is named in the question's context, see `complete`).
+    fn outside_scoring(gs: &GameState, script: &Recording) -> bool {
+        script.nested || gs.diplomacy.enabled
+    }
+
+    /// The display fact only the state knows: `ask_seeing` names the invasion a question is asked in.
+    fn complete(gs: &GameState) -> impl Fn(&ti4_engine_core::choice::Choice, &ti4_engine_core::state::CoreState, &mut Choice) + '_ {
+        move |_, _, rendered| {
+            if let Some(ctx) = rendered.context.take() {
+                rendered.context = Some(ctx.about_invasion(gs));
+            }
+        }
+    }
+
+    /// The lists the string engine computes for a scoring window, given to the core book as facts.
+    struct StringOffers<'a> {
+        gs: &'a GameState,
+        content: &'a ti4_content::ContentStore,
+        sources: ti4_model::content_types::SourceSet,
+        galaxy: Option<&'a ti4_content::galaxy::Galaxy>,
+        book: &'a Book,
+        r: &'a Render,
+        /// Something the core cannot name (an unknown id, an unseated player): the step bails.
+        unmapped: bool,
+    }
+
+    impl StringOffers<'_> {
+        fn player(&self, seat: Seat) -> PlayerId {
+            PlayerId::new(self.r.seat_text(seat))
+        }
+    }
+
+    impl Offers for StringOffers<'_> {
+        fn publics(&mut self, seat: Seat) -> SmallList<ObjectiveRef, 24> {
+            let who = self.player(seat);
+            let mut out = SmallList::new();
+            for alias in crate::objectives::scoreable_on(self.gs, self.content, self.sources, &who, self.galaxy) {
+                match objective(alias.as_str()) {
+                    Some(o) if out.len() < 24 => out.push(o),
+                    _ => self.unmapped = true,
+                }
+            }
+            out
+        }
+
+        fn secrets(&mut self, seat: Seat) -> SmallList<SecretObjective, 8> {
+            let who = self.player(seat);
+            let mut out = SmallList::new();
+            let found = crate::objectives::window_secrets(self.gs, self.content, self.sources, &who, self.book.timing, self.book.occurrence, self.galaxy);
+            for alias in found {
+                match SecretObjective::from_id(alias.as_str()) {
+                    Some(s) if out.len() < 8 => out.push(s),
+                    _ => self.unmapped = true,
+                }
+            }
+            out
+        }
+
+        fn plots(&mut self, seat: Seat) -> SmallList<(SecretObjective, Seat), 8> {
+            let who = self.player(seat);
+            let mut out = SmallList::new();
+            let found = crate::factions::firmament::plot_options(self.gs, self.content, self.sources, &who, self.book.timing, self.book.occurrence, self.galaxy);
+            for (secret, token) in found {
+                match (SecretObjective::from_id(secret.as_str()), self.r.seat(token.as_str())) {
+                    (Some(s), Some(t)) if out.len() < 8 => out.push((s, t)),
+                    _ => self.unmapped = true,
+                }
+            }
+            out
+        }
+
+        fn scored_at_occurrence(&mut self, seat: Seat) -> bool {
+            let who = self.player(seat);
+            self.book.occurrence.is_some_and(|o| self.gs.scored_at_occurrence(&who, o))
+        }
+    }
+
+    /// The string window's book on the core's seats; `None` for a player that has no seat.
+    fn to_core(book: &Book, r: &Render) -> Option<ScoringBook> {
+        let seat = |p: &PlayerId| r.seat(p.as_str());
+        let set = |l: &[PlayerId]| l.iter().map(&seat).collect::<Option<SeatSet>>();
+        let pending: Vec<Seat> = book.pending.iter().map(&seat).collect::<Option<_>>()?;
+        let plot_card = match &book.plot_card {
+            Some((owner, token)) => Some((seat(owner)?, seat(token)?)),
+            None => None,
+        };
+        Some(ScoringBook::restore(
+            &pending,
+            set(&book.public_used)?,
+            set(&book.secret_used)?,
+            plot_card,
+            book.timing == crate::secrets::Timing::Status,
+            book.one_per_player,
+            book.occurrence.is_some(),
+        ))
+    }
+
+    /// The core's book in the string window's form.
+    fn to_string_form(b: &ScoringBook, like: &Book, r: &Render) -> Book {
+        let id = |s: Seat| PlayerId::new(r.seat_text(s));
+        let sorted = |set: SeatSet| {
+            let mut v: Vec<PlayerId> = set.iter().map(id).collect();
+            v.sort();
+            v
+        };
+        Book {
+            pending: b.pending().iter().map(|s| id(*s)).collect(),
+            public_used: sorted(b.public_used()),
+            secret_used: sorted(b.secret_used()),
+            plot_card: b.plot_card().map(|(o, t)| (id(o), id(t))),
+            timing: like.timing,
+            occurrence: like.occurrence,
+            one_per_player: like.one_per_player,
+        }
+    }
+
+    fn is_priced(o: ObjectiveRef) -> bool {
+        matches!(o, ObjectiveRef::Public(p) if q::cost_of(p).is_some()) || matches!(o, ObjectiveRef::Secret(s) if PRICED_SECRETS.contains(&s.as_str()))
+    }
+
+    /// The core half of `scoring_step`: one player's turn in a scoring window, and the window's bookkeeping.
+    /// The core book works out who is asked and what they may score from the lists the string engine computes
+    /// (`StringOffers`), puts the question, takes the answer and updates the book from the position the
+    /// answer left; `asked` is the question the string window put, against which the core's is compared.
+    /// `None` where the core cannot follow (each reason is counted): a nested emission, diplomacy, a bought
+    /// objective with a Bastion or Crimson seat at the table, a position the codecs refuse.
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     pub fn score_one(
         gs: &mut GameState,
         content: &ti4_content::ContentStore,
         sources: ti4_model::content_types::SourceSet,
-        asked: &Choice,
-        args: ScoreArgs,
+        galaxy: Option<&ti4_content::galaxy::Galaxy>,
+        _asked: &Choice,
+        args: &ScoreArgs,
         script: &Recording,
-    ) -> Option<CoreWindow<(bool, Option<ObjectiveId>)>> {
-        if crate::dual_window::outside(gs, script) {
-            return None;
+    ) -> Option<CoreWindow<ScoreValue>> {
+        if outside_scoring(gs, script) {
+            return bail(if script.nested { "nested emission" } else { "diplomacy" });
         }
-        let mut offers = Vec::new();
-        let mut priced = false;
-        for option in asked.options.iter().filter(|o| !o.is_decline()) {
-            let obj = objective(&option.id)?;
-            // The price of a bought objective (`objectives::pay_for`) and of the two priced secrets
-            // (`secrets::pay_for`: two relic fragments, five action cards) is paid by the core window.
-            priced |= matches!(obj, ObjectiveRef::Public(p) if q::cost_of(p).is_some()) || PRICED_SECRETS.contains(&option.id.as_str());
-            offers.push(obj);
-        }
-        if priced && price_is_string(gs, &asked.player) {
-            return None;
-        }
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let seat = r.seat(asked.player.as_str())?;
+        let Some((mut cx, r)) = crate::dual_window::tables(gs) else { return bail("more than 16 owners") };
+        let Some(mut book) = to_core(&args.book, &r) else { return bail("a player without a seat in the book") };
         let before = gs.clone();
-        // The production kernel: its hooks answer what a trade good pays, which commodities a payment may spend
-        // and the ocean cards (`fx_pay::pay_facts`).
-        let kernel = crate::production_view::kernel();
-        let env = PayEnv { scope: crate::core_adapter::scope(sources), blanked: crate::laws::blanked(gs) };
-        let mut driver = Driver::new(
-            ScoreOne::new(seat, args.status, &offers, args.occurrence).with_price(env),
-            Resolver::new(&[seat], Some(seat)),
-            AbilityTable::default(),
-            1,
-        );
-        // The string was answered with an offer that has a price and the core refused the answer.
-        let answered_priced = script
-            .questions
-            .first()
-            .and_then(|q| q.answer.as_deref())
-            .and_then(objective)
-            .is_some_and(|o| matches!(o, ObjectiveRef::Public(p) if q::cost_of(p).is_some()) || matches!(o, ObjectiveRef::Secret(s) if PRICED_SECRETS.contains(&s.as_str())));
-        let footprint = if priced { SCORE_PRICED_WINDOW } else { SCORE_WINDOW };
-        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), footprint, |core, _| {
-            crate::dual_window::drive(&mut driver, core, kernel, &r, &before, script)
-        })
-        .ok()?;
-        let driven = match driven {
-            Ok(driven) => driven,
-            // The string took a price the core refuses: the facts differ. Report it (a window that never
-            // finished, nothing scored) instead of bailing silently.
-            Err(DriverError::Illegal) if answered_priced => {
-                Driven { questions: Vec::new(), rendered: Vec::new(), finished: false }
-            }
-            Err(_) => return None,
+        let mut pre = StringOffers { gs: &before, content, sources, galaxy, book: &args.book, r: &r, unmapped: false };
+        // The step is the plot card placement, or one player's turn.
+        let step = match book.plot_card() {
+            Some((owner, token)) => Step::Card { owner, token },
+            None => match book.asked(&mut pre) {
+                Some(next) => Step::Score(next),
+                None => {
+                    // The core finds nobody to ask where the string asked: the questions differ.
+                    let value = (false, None, to_string_form(&book, &args.book, &r));
+                    return Some(CoreWindow { run: Run::new(value), questions: Vec::new() });
+                }
+            },
         };
-        let scored = driver.window.scored;
-        // What the core does not do: the leaders a public score unlocks and Yin's staged event.
-        let public_now = scored.is_some_and(|o| before_revealed(&before, o) || matches!(o, ObjectiveRef::Public(_)));
-        if let (Some(obj), true) = (scored, public_now) {
-            crate::objectives::award_tail(gs, content, sources, asked.player.clone(), &ObjectiveId::new(crate::render::objectives::objective_text(obj)));
+        if pre.unmapped {
+            return bail("an objective or secret the core has no id for");
         }
-        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
-        let value = (driven.finished, scored.map(|o| ObjectiveId::new(crate::render::objectives::objective_text(o))));
-        Some(CoreWindow { run: Run::new(value).with_events_vec(events), questions: driven.rendered })
+        match &step {
+            Step::Card { owner, token } => {
+                let source = r.code(crate::factions::firmament::PLOTS);
+                let kernel = Kernel::plain();
+                let mut driver = Driver::new(PlaceCard::new(*owner, *token, source), Resolver::new(&[*owner], Some(*owner)), AbilityTable::default(), 1);
+                let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), PLOT_WINDOW, |core, _| {
+                    crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &complete(&before))
+                })
+                .ok()?;
+                let Ok(driven) = driven else { return bail("the core refused the plot card") };
+                if driven.finished {
+                    book.card_placed();
+                }
+                let value = (driven.finished, None, to_string_form(&book, &args.book, &r));
+                Some(CoreWindow { run: Run::new(value), questions: driven.rendered })
+            }
+            Step::Score(next) => {
+                let who = PlayerId::new(r.seat_text(next.seat));
+                let offers: Vec<Offer> = next.offers.iter().copied().collect();
+                let priced = offers.iter().any(|o| matches!(o, Offer::Objective(x) if is_priced(*x)));
+                if priced && price_is_string(gs, &who) {
+                    return bail("a priced offer at a table with a Bastion or Crimson seat, or ocean cards");
+                }
+                // The production kernel: its hooks answer what a trade good pays, which commodities a payment
+                // may spend and the ocean cards (`fx_pay::pay_facts`).
+                let kernel = crate::production_view::kernel();
+                let env = PayEnv { scope: crate::core_adapter::scope(sources), blanked: crate::laws::blanked(gs) };
+                let mut driver = Driver::new(
+                    ScoreOne::new(next.seat, args.status, &offers, args.occurrence).with_price(env),
+                    Resolver::new(&[next.seat], Some(next.seat)),
+                    AbilityTable::default(),
+                    1,
+                );
+                // The string was answered with an offer that has a price and the core refused the answer.
+                let answered_priced = script.questions.first().and_then(|q| q.answer.as_deref()).and_then(objective).is_some_and(is_priced);
+                let footprint = if priced { SCORE_PRICED_WINDOW } else { SCORE_WINDOW };
+                let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), footprint, |core, _| {
+                    crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &complete(&before))
+                })
+                .ok()?;
+                let driven = match driven {
+                    Ok(driven) => driven,
+                    // The string took a price the core refuses: the facts differ. Report it (a window that never
+                    // finished, nothing scored) instead of bailing silently.
+                    Err(DriverError::Illegal) if answered_priced => Driven { questions: Vec::new(), rendered: Vec::new(), finished: false },
+                    Err(_) => return bail("the core refused the answer (a stale window)"),
+                };
+                let w = &driver.window;
+                let scored = w.scored;
+                let outcome = if !driven.finished {
+                    None
+                } else if let Some((_, token, placed)) = w.plotted {
+                    Some(Outcome::PlotScored { token, placed })
+                } else if let Some(o) = scored {
+                    Some(Outcome::Scored { secret: matches!(o, ObjectiveRef::Secret(_)) && !before_revealed(&before, o) })
+                } else {
+                    Some(Outcome::Declined)
+                };
+                let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
+                // What the core does not do: the leaders a public score unlocks and Yin's staged event.
+                let public_now = scored.is_some_and(|o| before_revealed(&before, o) || matches!(o, ObjectiveRef::Public(_)));
+                if let (Some(obj), true) = (scored, public_now) {
+                    crate::objectives::award_tail(gs, content, sources, who, &ObjectiveId::new(crate::render::objectives::objective_text(obj)));
+                }
+                finish_score(gs, content, sources, galaxy, args, &r, book, next, outcome, driven.finished, scored, driven.rendered, events)
+            }
+        }
+    }
+
+    /// The step that asks a player to score something, or the placement of a plot card.
+    enum Step {
+        Score(Asked),
+        Card { owner: Seat, token: Seat },
+    }
+
+    /// The book after a scoring turn, once the position it reads is the one the answer left.
+    #[allow(clippy::too_many_arguments)]
+    fn finish_score(
+        gs: &GameState,
+        content: &ti4_content::ContentStore,
+        sources: ti4_model::content_types::SourceSet,
+        galaxy: Option<&ti4_content::galaxy::Galaxy>,
+        args: &ScoreArgs,
+        r: &Render,
+        mut book: ScoringBook,
+        next: &Asked,
+        outcome: Option<Outcome>,
+        finished: bool,
+        scored: Option<ObjectiveRef>,
+        questions: Vec<Choice>,
+        events: Vec<crate::event::Event>,
+    ) -> Option<CoreWindow<ScoreValue>> {
+        if let Some(outcome) = outcome {
+            let mut post = StringOffers { gs, content, sources, galaxy, book: &args.book, r, unmapped: false };
+            book.after(next, outcome, &mut post);
+            if post.unmapped {
+                return bail("an objective or secret the core has no id for");
+            }
+        }
+        let value = (finished, scored.map(|o| ObjectiveId::new(crate::render::objectives::objective_text(o))), to_string_form(&book, &args.book, r));
+        Some(CoreWindow { run: Run::new(value).with_events_vec(events), questions })
     }
 
     /// Where the price stays with the string: a table with a Last Bastion or a Crimson seat (their economy hooks
@@ -236,8 +449,8 @@ mod real {
 
     /// The core half of `secrets::enforce_hand_limit`.
     pub fn hand_limit(gs: &mut GameState, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
-        if crate::dual_window::outside(gs, script) {
-            return None;
+        if outside_scoring(gs, script) {
+            return bail(if script.nested { "nested emission" } else { "diplomacy" });
         }
         let (mut cx, r) = crate::dual_window::tables(gs)?;
         let seat = r.seat(player.as_str())?;
@@ -245,7 +458,7 @@ mod real {
         let kernel = Kernel::plain();
         let mut driver = Driver::new(HandLimit::new(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), HAND_WINDOW, |core, _| {
-            crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script)
+            crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &complete(&before))
         })
         .ok()?
         .ok()?;
@@ -259,7 +472,7 @@ mod stub {
     use ti4_model::id::{ObjectiveId, PlayerId, SecretObjectiveId};
     use ti4_model::state::GameState;
 
-    use super::ScoreArgs;
+    use super::{ScoreArgs, ScoreValue};
     use crate::choice::Choice;
     use crate::dual::CoreWindow;
     use crate::dual_window::Recording;
@@ -286,10 +499,11 @@ mod stub {
         _: &mut GameState,
         _: &ti4_content::ContentStore,
         _: ti4_model::content_types::SourceSet,
+        _: Option<&ti4_content::galaxy::Galaxy>,
         _: &Choice,
-        _: ScoreArgs,
+        _: &ScoreArgs,
         _: &Recording,
-    ) -> Option<CoreWindow<(bool, Option<ObjectiveId>)>> {
+    ) -> Option<CoreWindow<ScoreValue>> {
         None
     }
     pub fn hand_limit(_: &mut GameState, _: &PlayerId, _: &Recording) -> Option<CoreWindow<bool>> {
