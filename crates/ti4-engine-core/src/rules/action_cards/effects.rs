@@ -176,13 +176,19 @@ pub enum Fx {
     /// Scramble Frequency: all the dice staged for the seat that just rolled a bombardment, a space cannon or an anti-fighter barrage
     /// are rolled again (forced: no question).
     Scramble,
+    /// Courageous To The End: two dice; for each result equal to or higher than the combat value of the holder's destroyed ship, the
+    /// opponent chooses one of their own ships and it is destroyed (the destructions are staged for the announcement of the play).
+    Courageous,
+    /// Experimental Battlestation: a space dock of the holder in or next to the active system rolls three dice (hits on 5); the hits
+    /// are absorbed by the active seat's ships in the active system (SUSTAIN DAMAGE offers, casualty questions).
+    Battlestation,
 }
 
 impl Fx {
     /// Whether the effect rolls the game's dice (the window needs the random streams of the state).
     #[must_use]
     pub const fn rolls(self) -> bool {
-        matches!(self, Self::Spy | Self::Plague | Self::Brilliance | Self::Reroll | Self::Scramble)
+        matches!(self, Self::Spy | Self::Plague | Self::Brilliance | Self::Reroll | Self::Scramble | Self::Courageous | Self::Battlestation)
     }
 
     /// Whether the effect can be played from inside another area's window (a reaction slot, a card declared there): its facts
@@ -219,6 +225,8 @@ impl Fx {
                 | Self::Perform { .. }
                 | Self::Reroll
                 | Self::Scramble
+                | Self::Courageous
+                | Self::Battlestation
         )
     }
 
@@ -240,7 +248,7 @@ impl Fx {
     /// declines its run at the start.
     #[must_use]
     pub const fn links(self) -> bool {
-        self.bill().is_some() || matches!(self, Self::Impersonation | Self::Focused | Self::Divert | Self::Reveal | Self::Probe | Self::Perform { .. })
+        self.bill().is_some() || matches!(self, Self::Impersonation | Self::Focused | Self::Divert | Self::Reveal | Self::Probe | Self::Perform { .. } | Self::Courageous | Self::Battlestation)
     }
 
     /// Whether the effect reads the game's map (the adapter lends the galaxy; without one it bails).
@@ -253,7 +261,7 @@ impl Fx {
     /// [`Facts::map`]; without one the effect does what the string does without a map). Exploration Probe's adjacency.
     #[must_use]
     pub const fn uses_map(self) -> bool {
-        self.needs_map() || matches!(self, Self::Probe)
+        self.needs_map() || matches!(self, Self::Probe | Self::Battlestation)
     }
 
     /// The bill the effect pays before anything else (the string `production::pay`): the currency and the amount.
@@ -345,6 +353,8 @@ impl Fx {
             C::Overrule => Self::Perform { primary: true },
             C::FireTeam => Self::Reroll,
             C::ScrambleFrequency => Self::Scramble,
+            C::CourageousToTheEnd => Self::Courageous,
+            C::ExperimentalBattlestation => Self::Battlestation,
             _ => return None,
         })
     }
@@ -375,6 +385,9 @@ pub enum Stage {
     Performing,
     /// Fire Team: walking the staged dice, one optional question per die.
     Rerolling,
+    /// Courageous To The End and Experimental Battlestation: the hit flow of the card (the child windows `Destroy` and
+    /// `Absorb` of the combat area).
+    Hitting,
     Done,
 }
 
@@ -471,6 +484,12 @@ pub struct Play {
     tokens: Option<(System, SmallList<Seat, 8>)>,
     /// Fire Team: the walk over the staged dice.
     walk: Walk,
+    /// Courageous To The End and Experimental Battlestation: the hit flow, while it runs (a child window of the combat area).
+    flow: ErasedChild,
+    /// The scene of the hit flow: the system and the seat that takes the loss (Courageous: the opponent; Battlestation: the active seat).
+    scene: Option<(System, Seat)>,
+    /// Courageous: the dice that reached the combat value, one casualty each. Battlestation: the hits that landed.
+    owed: u8,
 }
 
 /// Fire Team's walk over the staged dice: every die in the order the string asks about them (entry by entry, die by die), where the
@@ -496,6 +515,10 @@ const RULES_OFFICIAL_ACTION_DECK: u32 = 30;
 const DIE_SIDES: u32 = 10;
 /// Plague destroys an infantry on a six or better.
 const PLAGUE_KILLS_ON: u32 = 6;
+/// Courageous To The End rolls two dice; Experimental Battlestation's space dock rolls three, hitting on a five or better.
+const COURAGEOUS_DICE: u8 = 2;
+const BATTLESTATION_DICE: u8 = 3;
+const BATTLESTATION_HITS_ON: u32 = 5;
 
 fn sorted(mut spots: SmallList<(System, Planet), 16>) -> SmallList<(System, Planet), 16> {
     spots.as_mut_slice().sort_unstable();
@@ -536,6 +559,13 @@ impl Play {
         // Intercept's combatants include the units that fight from a planet (a Naaz Eidolon Maximum, the ground
         // forces a Nekro Alastor chose): the kernel's combat rules decide them, which this area may not import.
         if fx == Fx::Intercept
+            && core.players().iter().any(|p| matches!(p.faction, crate::generated::Faction::TheNaazRokhaAlliance | crate::generated::Faction::TheNekroVirus))
+        {
+            return None;
+        }
+        // Courageous To The End names "your opponent" as the other seat with ships in the system, and the casualty it chooses is any of
+        // that seat's combatants: the units that fight from a planet are the combat area's, which this area may not import.
+        if fx == Fx::Courageous
             && core.players().iter().any(|p| matches!(p.faction, crate::generated::Faction::TheNaazRokhaAlliance | crate::generated::Faction::TheNekroVirus))
         {
             return None;
@@ -587,7 +617,7 @@ impl Play {
             }
             _ => None,
         };
-        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: ErasedChild::idle(), hand: ErasedChild::idle(), chosen: None, landing: None, jam: None, troop: None, pulled: SmallList::new(), received: SmallList::new(), pay_ask: None, probe: None, explored: None, owed_goods: 0, pool_left: 0, reward: ErasedChild::idle(), held: None, gamma: None, picked: None, perform: ErasedChild::idle(), tokens: None, walk: Walk::default() })
+        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: ErasedChild::idle(), hand: ErasedChild::idle(), chosen: None, landing: None, jam: None, troop: None, pulled: SmallList::new(), received: SmallList::new(), pay_ask: None, probe: None, explored: None, owed_goods: 0, pool_left: 0, reward: ErasedChild::idle(), held: None, gamma: None, picked: None, perform: ErasedChild::idle(), tokens: None, walk: Walk::default(), flow: ErasedChild::idle(), scene: None, owed: 0 })
     }
 
     fn what(&self) -> Option<What> {
@@ -601,6 +631,7 @@ impl Play {
             Fx::Dig => What::Dig,
             Fx::PirateContract | Fx::PirateFleet => What::Pirate,
             Fx::Probe => What::Probe,
+            Fx::Battlestation => What::Dock,
             Fx::Mercenary => What::Landing,
             Fx::Ghost => What::Ghost,
             Fx::Upgrade => What::Cruiser,
@@ -1119,6 +1150,35 @@ impl Play {
                     }
                 }
                 core.explore().frontier.iter().filter(|system| reach.contains(*system)).map(Opt::System).collect()
+            }
+            Fx::Battlestation => {
+                // "A space dock that is either in or adjacent to the active system": the systems with a space dock of the holder, in
+                // the active system or next to it (the map's adjacency when the adapter lent it; without one only the active system).
+                let Some(active) = core.meta().active_system else { return SmallList::new() };
+                let scope = self.env.scope;
+                let mut near: SmallList<System, 16> = SmallList::new();
+                near.push(active);
+                if let Some(galaxy) = if self.env.facts.map { core.galaxy() } else { None }
+                    && let Some(at) = System::ALL.iter().position(|s| *s == active)
+                {
+                    for j in galaxy.adjacent(crate::ids::system_at(at)).iter() {
+                        if let Some(next) = System::ALL.get(j) {
+                            near.push(*next);
+                        }
+                    }
+                }
+                let mut docks: SmallList<System, 16> = SmallList::new();
+                for (system, _) in planets_where(core, |_, _, cell| {
+                    cell.units.as_slice().iter().any(|p| p.owner() == who && scope.unit(p.kind()).map(|d| d.base_type) == Some(UnitBaseType::Spacedock))
+                })
+                .as_slice()
+                {
+                    if near.as_slice().contains(system) && !docks.as_slice().contains(system) {
+                        docks.push(*system);
+                    }
+                }
+                docks.as_mut_slice().sort_unstable();
+                docks.as_slice().iter().map(|s| Opt::System(*s)).collect()
             }
             Fx::Disgrace => {
                 let Some((_, Some(first))) = self.taken else { return SmallList::new() };
@@ -1791,6 +1851,19 @@ impl Play {
                 }
             }
             (Fx::Perform { .. }, Opt::Perform { card, .. }) => self.picked = Some(card),
+            (Fx::Battlestation, Opt::System(_)) => {
+                // SPACE CANNON 5(x3), whichever dock fires: the dice come first, then the active seat (not the holder) takes the hits.
+                let mut hits = 0u8;
+                for _ in 0..BATTLESTATION_DICE {
+                    let face = core.rng_mut().die(RngDomain::Dice, seeds, DIE_SIDES);
+                    self.faces.push(face);
+                    hits += u8::from(face >= BATTLESTATION_HITS_ON);
+                }
+                if let (true, Some(system), Some(target)) = (hits > 0, core.meta().active_system, core.meta().active) {
+                    self.scene = Some((system, target));
+                    self.owed = hits;
+                }
+            }
             (Fx::Crash, Opt::Kind(kind)) => {
                 self.landing = Some(kind);
                 self.step = 1;
@@ -2019,7 +2092,7 @@ impl Play {
 
     /// The question as the driver names it (Summit asks the strategy area's pool question).
     pub(super) fn any_ask(&self) -> crate::choice::Ask {
-        if let (Stage::Paying | Stage::Limiting | Stage::Rewarding | Stage::Performing, Some(ask)) = (self.stage, self.pay_ask) {
+        if let (Stage::Paying | Stage::Limiting | Stage::Rewarding | Stage::Performing | Stage::Hitting, Some(ask)) = (self.stage, self.pay_ask) {
             return ask;
         }
         if self.stage == Stage::Pooling {
@@ -2075,9 +2148,99 @@ impl Play {
             self.pay_bill(sx, kind, cost);
             return;
         }
-        self.start_questions(sx.state, sx.kernel, &sx.table.links, sx.seeds);
+        if self.fx == Fx::Courageous {
+            self.begin_courageous(sx);
+        } else {
+            self.start_questions(sx.state, sx.kernel, &sx.table.links, sx.seeds);
+        }
         self.maybe_bill(sx);
         self.maybe_explore(sx);
+        self.maybe_hit(sx);
+    }
+
+    /// Courageous To The End: "after 1 of your ships is destroyed during a space combat: roll 2 dice. For each result equal to or
+    /// higher than that ship's combat value, your opponent must choose and destroy 1 of their ships." The ship is the handoff of
+    /// the last destruction (the holder's own); "your opponent" is the first other seat, in seating order, with a ship in its
+    /// system *now* (the holder may have lost the last one). Nobody to choose, or a ship that does not fight: no dice.
+    fn begin_courageous(&mut self, sx: &mut Sx<'_>) {
+        self.stage = Stage::Done;
+        let core = &*sx.state;
+        let Some((system, victim, unit)) = core.transient().combat.last_ship_destroyed else { return };
+        if victim != self.who {
+            return;
+        }
+        let scope = self.env.scope;
+        let ship = |seat: Seat| board::space_units(core, system).iter().any(|p| p.owner() == seat && scope.unit(p.kind()).is_some_and(|d| d.ship));
+        let Some(opponent) = seats::seating_order(core).as_slice().iter().copied().find(|s| *s != self.who && ship(*s)) else {
+            // Only a neutral owner's ship is left to fight (the string names it the opponent, after the seated ones; nobody chooses its
+            // loss): the string's, declined before anything is rolled.
+            if board::space_units(core, system).iter().any(|p| !seats::is_player(core, p.owner()) && scope.unit(p.kind()).is_some_and(|d| d.ship)) {
+                self.unsupported = true;
+            }
+            return;
+        };
+        let Some(value) = scope.unit(unit).and_then(|d| d.combat).map(|roll| u32::from(roll.hits_on)).filter(|v| *v > 0) else { return };
+        for _ in 0..COURAGEOUS_DICE {
+            let face = sx.die(RngDomain::Dice, DIE_SIDES);
+            self.faces.push(face);
+            self.owed += u8::from(face >= value);
+        }
+        if self.owed > 0 {
+            self.scene = Some((system, opponent));
+            self.stage = Stage::Hitting;
+        }
+    }
+
+    /// The hit flow of the card starts once its dice are rolled.
+    fn maybe_hit(&mut self, sx: &mut Sx<'_>) {
+        if self.stage == Stage::Hitting && !self.flow.running() {
+            self.next_hit(sx);
+        }
+    }
+
+    /// Start the next child window of the hit flow (Courageous: one casualty per die that reached the combat value; Battlestation:
+    /// all the hits at once), or finish when nothing is owed. A table without the link declines the run.
+    fn next_hit(&mut self, sx: &mut Sx<'_>) {
+        loop {
+            let Some((system, target)) = self.scene.filter(|_| self.owed > 0) else {
+                self.stage = Stage::Done;
+                return;
+            };
+            let request = if self.fx == Fx::Courageous {
+                self.owed -= 1;
+                Spawn::Destroy { who: target, system, card: self.card, subtype: self.env.facts.courageous_subtype, cause: self.env.facts.courageous_cause }
+            } else {
+                Spawn::Absorb { who: target, producer: self.who, system, hits: u16::from(std::mem::take(&mut self.owed)), texts: self.env.facts.hits }
+            };
+            let Some(window) = sx.table.links.start(&request) else { return self.decline() };
+            self.flow.start(window);
+            self.stage = Stage::Hitting;
+            if self.drive_hit(sx) {
+                return;
+            }
+        }
+    }
+
+    /// Step the hit flow's child until it asks (`true`) or ends. Courageous stops at the first die that finds no ship to destroy
+    /// (the string `break`s: nothing is left to lose).
+    fn drive_hit(&mut self, sx: &mut Sx<'_>) -> bool {
+        self.pay_ask = None;
+        loop {
+            match self.flow.step(sx) {
+                Some(Ran::Asks(ask)) => {
+                    self.pay_ask = Some(ask);
+                    return true;
+                }
+                Some(Ran::Pass(_)) => {}
+                Some(Ran::Done(report)) => {
+                    if report == Report::Destroyed(false) {
+                        self.owed = 0;
+                    }
+                    return false;
+                }
+                None => return false,
+            }
+        }
     }
 
     /// Where a card stands once its last pick is applied: Reveal Prototype owes its bill, Exploration Probe explores, the rest is done.
@@ -2088,6 +2251,8 @@ impl Play {
             Stage::Exploring
         } else if self.picked.is_some() {
             Stage::Chosen
+        } else if self.fx == Fx::Battlestation && self.owed > 0 {
+            Stage::Hitting
         } else {
             Stage::Done
         }
@@ -2578,7 +2743,7 @@ impl Play {
         self.stage == Stage::Asking
             || self.stage == Stage::Pooling
             || self.stage == Stage::Rerolling
-            || (matches!(self.stage, Stage::Paying | Stage::Limiting | Stage::Rewarding | Stage::Performing) && self.pay_ask.is_some())
+            || (matches!(self.stage, Stage::Paying | Stage::Limiting | Stage::Rewarding | Stage::Performing | Stage::Hitting) && self.pay_ask.is_some())
     }
 
     /// Apply a pick to the pending question (`Window::answer` without the services).
@@ -2624,6 +2789,13 @@ impl Play {
         if self.stage == Stage::Rerolling {
             return self.answer_reroll(sx, pick);
         }
+        if self.stage == Stage::Hitting {
+            self.flow.answer(sx, pick)?;
+            if !self.drive_hit(sx) {
+                self.next_hit(sx);
+            }
+            return Ok(());
+        }
         if self.stage != Stage::Asking {
             return Err(Illegal);
         }
@@ -2654,6 +2826,7 @@ impl Play {
         }
         self.maybe_bill(sx);
         self.maybe_explore(sx);
+        self.maybe_hit(sx);
         Ok(())
     }
 }
@@ -2670,7 +2843,7 @@ impl Window for Play {
         match self.stage {
             Stage::Asking => Next::Continue(self.any_ask()),
             Stage::Pooling | Stage::Rerolling => Next::Continue(self.any_ask()),
-            Stage::Paying | Stage::Limiting | Stage::Rewarding | Stage::Performing => self.pay_ask.map_or(Next::Done, Next::Continue),
+            Stage::Paying | Stage::Limiting | Stage::Rewarding | Stage::Performing | Stage::Hitting => self.pay_ask.map_or(Next::Done, Next::Continue),
             Stage::Start | Stage::Billing | Stage::Exploring | Stage::Chosen | Stage::Done => Next::Done,
         }
     }
@@ -2693,6 +2866,9 @@ impl Window for Play {
         }
         if self.stage == Stage::Rerolling {
             return self.reroll_ask(s);
+        }
+        if self.stage == Stage::Hitting {
+            return self.flow.ask_of(s, k);
         }
         if self.fx == Fx::Summit {
             return (self.stage == Stage::Asking).then(|| crate::choice::strategy::gain_pool_choice(self.who, Self::SUMMIT_TOKENS - self.step));
@@ -2745,7 +2921,6 @@ mod tests {
             (C::DirectHit1, "the exact sustain mark and the ship-lost observers"),
             (C::DirectHit4, "the exact sustain mark and the ship-lost observers"),
             (C::SkilledRetreat1, "destinations and previews"),
-            (C::CourageousToTheEnd, "dice and a casualty choice"),
         ] {
             assert_eq!(Fx::of(card), None, "{card:?}: {why}");
         }
@@ -2801,8 +2976,6 @@ mod tests {
             C::Strategize1,
             C::Strategize4,
             C::Overrule,
-            C::FireTeam,
-            C::ScrambleFrequency,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }
@@ -3626,8 +3799,6 @@ mod tests {
     const BAILS: &[(ActionCard, &str)] = &{
         use ActionCard as C;
         [
-            (C::CourageousToTheEnd, "dice, then the opponent's casualty choice with the card's holder as producer: the combat area's hit flow (core-b12 keeps the child casualty flows, ENGINE_REACTIONS 9.2)"),
-            (C::ExperimentalBattlestation, "a space cannon roll whose hits go through the combat area's sustain and casualty questions (a child hit flow, core-b12's area) from a dock in or adjacent to the active system"),
         ]
     };
 
@@ -3676,7 +3847,7 @@ mod tests {
 
     /// The cards that run a window or a query of another area (a bill, the hand limit, a research, the Merchant Station's reward,
     /// the ability of a strategy card).
-    const LINKED_CARDS: [ActionCard; 9] = [
+    const LINKED_CARDS: [ActionCard; 11] = [
         ActionCard::PirateFleet,
         ActionCard::Impersonation,
         ActionCard::Plagiarize,
@@ -3686,6 +3857,8 @@ mod tests {
         ActionCard::ExplorationProbe,
         ActionCard::Strategize1,
         ActionCard::Overrule,
+        ActionCard::CourageousToTheEnd,
+        ActionCard::ExperimentalBattlestation,
     ];
 
     fn linked_env() -> Env {
@@ -3755,6 +3928,351 @@ mod tests {
             assert!(!why.is_empty(), "{card:?}");
             assert!(Fx::of(*card).is_none(), "{card:?}: a documented bail has no Fx");
         }
+    }
+
+    // -- Courageous To The End and Experimental Battlestation (branch b6d-hits) --------------------------------------------------
+
+    /// The dice of the game from a seed byte: every outcome of a roll is met by running a card under several.
+    struct Seeded(u8);
+
+    impl SeedSource for Seeded {
+        fn seed_for(&self, _: u64, _: RngDomain) -> [u8; 32] {
+            [self.0; 32]
+        }
+    }
+
+    const COURAGEOUS_SUBTYPE: crate::state::Code = crate::state::Code(21);
+    const COURAGEOUS_CAUSE: crate::state::Code = crate::state::Code(22);
+
+    fn hits_env() -> Env {
+        Env {
+            facts: super::super::Facts {
+                courageous_subtype: COURAGEOUS_SUBTYPE,
+                courageous_cause: COURAGEOUS_CAUSE,
+                hits: crate::kernel::children::HitTexts { staging: true, commander: crate::state::Code(1), casualty: crate::state::Code(2), effect_hit: crate::state::Code(3) },
+                ..super::super::Facts::default()
+            },
+            ..bare_env()
+        }
+    }
+
+    /// Three seats (0 holds the card), `fleet`: the ships on the board `(unit, seat)`; `lost` is the handoff of the last destruction.
+    fn fight(fleet: &[(crate::generated::Unit, u8)], lost: Option<(Seat, crate::generated::Unit)>) -> (CoreState, System) {
+        use crate::state::{Player, Players, Seats};
+        let mut s = CoreState::all_loaded();
+        s.players = Players::from_vec(vec![
+            Player::new(Seat(0), crate::generated::Faction::TheArborec),
+            Player::new(Seat(1), crate::generated::Faction::TheEmiratesOfHacan),
+            Player::new(Seat(2), crate::generated::Faction::TheFederationOfSol),
+        ]);
+        s.seats = Seats::new(&[Seat(0), Seat(1), Seat(2)], &[Seat(0), Seat(1), Seat(2)], 3);
+        let system = System::ALL[0];
+        for (unit, seat) in fleet {
+            s.board_mut().sys_mut(system).units.push(Piece::new(*unit, Seat(*seat)));
+        }
+        s.transient_mut().combat.last_ship_destroyed = lost.map(|(seat, unit)| (system, seat, unit));
+        (s, system)
+    }
+
+    /// What a hit-flow card run left: the state, the faces rolled, whether the run was declined, the questions asked.
+    struct Ran3 {
+        after: CoreState,
+        faces: Vec<u32>,
+        unsupported: bool,
+        asked: Vec<Choice>,
+    }
+
+    /// Run `card` for seat 0 under the dice of `seed`, taking option `pick` of every question (the last when there are fewer).
+    fn played_hits(mut s: CoreState, card: ActionCard, seed: u8, pick: usize) -> Ran3 {
+        use crate::driver::{Driver, Status};
+        use crate::kernel::Resolver;
+        let play = Play::of(&s, card, Seat(0), hits_env()).expect("a play");
+        let k = Kernel::plain();
+        let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1), Seat(2)], Some(Seat(0))), linked(), 1);
+        d = d.with_seeds(std::rc::Rc::new(Seeded(seed)));
+        let mut asked = Vec::new();
+        let mut status = d.run(&mut s, &k).unwrap();
+        while let Status::Asking(c) = status {
+            let answer = c.pick(pick.min(c.opts.len() - 1)).unwrap();
+            asked.push(c);
+            status = d.resume(&mut s, &k, answer).unwrap();
+        }
+        Ran3 { faces: d.window.faces().to_vec(), unsupported: d.window.unsupported(), after: s, asked }
+    }
+
+    fn on_board(s: &CoreState, system: System, seat: u8) -> usize {
+        s.board().sys(system).units.iter().filter(|p| p.owner() == Seat(seat)).count()
+    }
+
+    /// Courageous To The End: two dice (the Dice stream), and for each result equal to or higher than the combat value of the
+    /// destroyed ship the opponent chooses one of its ships, which is destroyed and staged with the card's cause.
+    #[test]
+    fn courageous_to_the_end_destroys_a_ship_of_the_opponent_for_every_die_that_reaches_the_combat_value() {
+        use crate::generated::Unit as U;
+        // A dreadnought (5) was lost; seat 1 is the first other seat with ships and has four of them, three kinds.
+        let fleet = [(U::CruiserI, 1), (U::CruiserI, 1), (U::DestroyerI, 1), (U::CarrierI, 1), (U::CruiserI, 2), (U::DreadnoughtI, 0)];
+        let mut met = std::collections::BTreeSet::new();
+        for seed in 0..40 {
+            let (s, system) = fight(&fleet, Some((Seat(0), U::DreadnoughtI)));
+            let run = played_hits(s, ActionCard::CourageousToTheEnd, seed, 0);
+            assert!(!run.unsupported);
+            assert_eq!(run.faces.len(), 2, "two dice");
+            let want = run.faces.iter().filter(|f| **f >= 5).count();
+            met.insert(want);
+            let staged = run.after.transient().combat.pending_destructions.as_slice();
+            assert_eq!(staged.len(), want, "one destruction for each die at the combat value or above ({:?})", run.faces);
+            assert!(staged.iter().all(|d| d.owner == Seat(1) && d.reason == COURAGEOUS_CAUSE && d.during_space_combat && d.system == system));
+            assert_eq!(run.asked.len(), want, "the opponent chooses every time: several kinds are left");
+            for c in &run.asked {
+                assert_eq!(c.actor, Seat(1), "the opponent chooses, not the holder");
+                assert_eq!(c.ctx.origin, crate::choice::Origin::ActionCard(ActionCard::CourageousToTheEnd));
+                assert_eq!(c.ctx.subtype, crate::choice::Subtype::Combat(crate::choice::combat::Subtype::Casualty(COURAGEOUS_SUBTYPE)));
+            }
+            assert_eq!(on_board(&run.after, system, 1), 4 - want, "seat 1 lost the ships");
+            assert_eq!((on_board(&run.after, system, 0), on_board(&run.after, system, 2)), (1, 1), "nobody else did");
+            assert_eq!(run.after.transient().combat.last_ship_destroyed, Some((system, Seat(0), U::DreadnoughtI)), "announcing the losses is the play's, after the discard");
+        }
+        assert_eq!(met, [0, 1, 2].into_iter().collect(), "every outcome of two dice met");
+    }
+
+    /// The combat value of the destroyed ship decides: a war sun (3) is avenged by more dice than a fighter (9).
+    #[test]
+    fn courageous_to_the_end_compares_each_die_with_the_printed_combat_value_of_the_ship() {
+        use crate::generated::Unit as U;
+        let fleet = [(U::CruiserI, 1), (U::CruiserI, 1), (U::DestroyerI, 1), (U::CarrierI, 1)];
+        for (victim, value) in [(U::WarSun, 3), (U::CruiserI, 7), (U::FighterI, 9)] {
+            let mut seen = 0;
+            for seed in 0..20 {
+                let (s, _) = fight(&fleet, Some((Seat(0), victim)));
+                let run = played_hits(s, ActionCard::CourageousToTheEnd, seed, 0);
+                assert_eq!(run.after.transient().combat.pending_destructions.len(), run.faces.iter().filter(|f| **f >= value).count(), "{victim:?} avenged on {value}: {:?}", run.faces);
+                seen += run.faces.iter().filter(|f| **f >= value).count();
+            }
+            assert!(seen > 0, "{victim:?}: some die reached the value");
+        }
+    }
+
+    /// The opponent's last ship is taken without a question, and a die after it finds nothing to destroy (the string `break`s).
+    #[test]
+    fn courageous_to_the_end_takes_a_lone_ship_without_asking_and_stops_when_none_is_left() {
+        use crate::generated::Unit as U;
+        let mut both = 0;
+        for seed in 0..40 {
+            let (s, system) = fight(&[(U::DestroyerI, 1), (U::CruiserI, 0)], Some((Seat(0), U::WarSun)));
+            let run = played_hits(s, ActionCard::CourageousToTheEnd, seed, 0);
+            let hits = run.faces.iter().filter(|f| **f >= 3).count();
+            both += usize::from(hits == 2);
+            assert!(run.asked.is_empty(), "a lone ship is chosen for the owner");
+            assert_eq!(run.after.transient().combat.pending_destructions.len(), hits.min(1), "one ship to lose: {:?}", run.faces);
+            assert_eq!(on_board(&run.after, system, 1), 1 - hits.min(1));
+        }
+        assert!(both > 0, "a seed where both dice hit met the empty fleet");
+    }
+
+    /// "Your opponent" is the first other seat with a ship *now* in the seating order (the holder's last ship may be the one that
+    /// was lost); nobody to choose, a victim that is not the holder's, a ship that does not fight or no handoff: no dice, nothing changes.
+    #[test]
+    fn courageous_to_the_end_rolls_nothing_when_it_has_no_one_to_avenge_or_no_one_to_hit() {
+        use crate::generated::Unit as U;
+        let lost = Some((Seat(0), U::DreadnoughtI));
+        // The holder's last ship was lost; seats 1 and 2 have ships: seat 1 is the opponent (seating order).
+        let mut staged = 0;
+        for seed in 0..20 {
+            let (s, system) = fight(&[(U::CruiserI, 2), (U::CruiserI, 1)], lost);
+            let run = played_hits(s, ActionCard::CourageousToTheEnd, seed, 0);
+            assert!(run.after.transient().combat.pending_destructions.iter().all(|d| d.owner == Seat(1)), "seat 1 sits before seat 2");
+            assert_eq!(on_board(&run.after, system, 2), 1);
+            staged += run.after.transient().combat.pending_destructions.len();
+        }
+        assert!(staged > 0, "some die reached the value");
+        // Nobody else has a ship: no dice.
+        for (fleet, lost, why) in [
+            (vec![(U::CruiserI, 0)], lost, "nobody else has a ship"),
+            (vec![(U::CruiserI, 1), (U::CruiserI, 2)], Some((Seat(1), U::DreadnoughtI)), "the lost ship was another seat's"),
+            (vec![(U::CruiserI, 1)], Some((Seat(0), U::SpaceDockI)), "a structure does not fight"),
+            (vec![(U::CruiserI, 1)], None, "no ship was destroyed"),
+        ] {
+            let (s, _) = fight(&fleet, lost);
+            let before = s.clone();
+            let run = played_hits(s, ActionCard::CourageousToTheEnd, 3, 0);
+            assert!(run.faces.is_empty() && run.asked.is_empty() && !run.unsupported, "{why}");
+            assert!(run.after == before, "{why}: the position is untouched (the dice stream too)");
+        }
+    }
+
+    /// Bail: the units that fight from a planet (a Naaz Eidolon Maximum, the ground forces of a Nekro Alastor) are combatants of the
+    /// combat area's, which this area may not import: Courageous To The End is the string's at a table with such a seat.
+    #[test]
+    fn bail_courageous_to_the_end_declines_at_a_table_with_a_naaz_or_nekro_seat() {
+        use crate::generated::Faction as F;
+        let (s, _) = fight(&[], None);
+        assert!(Play::of(&s, ActionCard::CourageousToTheEnd, Seat(0), hits_env()).is_some());
+        for faction in [F::TheNaazRokhaAlliance, F::TheNekroVirus] {
+            let mut table = s.clone();
+            table.players_mut().by_seat_mut(Seat(2)).unwrap().faction = faction;
+            assert!(Play::of(&table, ActionCard::CourageousToTheEnd, Seat(0), hits_env()).is_none(), "{faction:?}");
+        }
+        // The other card has no such condition: its combatants are the combat area's own (the hit flow is a child window).
+        let mut naaz = s.clone();
+        naaz.players_mut().by_seat_mut(Seat(2)).unwrap().faction = F::TheNaazRokhaAlliance;
+        assert!(Play::of(&naaz, ActionCard::ExperimentalBattlestation, Seat(0), hits_env()).is_some());
+    }
+
+    /// Bail: a neutral owner's ship is "your opponent" after the seated ones (nobody chooses its loss: the roster order of its
+    /// reference card): the string plays the card, declined before any die is rolled. A seated opponent comes first.
+    #[test]
+    fn bail_courageous_to_the_end_declines_when_only_a_neutral_ship_is_left() {
+        use crate::generated::Unit as U;
+        let neutral = |s: &mut CoreState, system: System| s.board_mut().sys_mut(system).units.push(Piece::new(U::NeutralDestroyer, Seat(9)));
+        let (mut s, system) = fight(&[(U::CruiserI, 0)], Some((Seat(0), U::DreadnoughtI)));
+        neutral(&mut s, system);
+        let before = s.clone();
+        let run = played_hits(s, ActionCard::CourageousToTheEnd, 3, 0);
+        assert!(run.unsupported && run.faces.is_empty(), "declined before the dice");
+        assert!(run.after == before, "and nothing changed");
+        let (mut s, system) = fight(&[(U::CruiserI, 0), (U::CruiserI, 1)], Some((Seat(0), U::DreadnoughtI)));
+        neutral(&mut s, system);
+        let run = played_hits(s, ActionCard::CourageousToTheEnd, 3, 0);
+        assert!(!run.unsupported && run.faces.len() == 2, "a seated opponent is chosen first");
+    }
+
+    /// A space dock of the holder's on a planet of `system` (a Mecatol-like planet of the tile).
+    fn dock(s: &mut CoreState, system: System, who: u8) {
+        let planet = Planet::ALL.iter().copied().find(|p| p.data().system == Some(system)).expect("a planet in the tile");
+        fx::place_unit(s, Seat(who), system, Some(planet), crate::generated::Unit::SpaceDockI);
+    }
+
+    /// The position of a Battlestation: seat 1 is the active seat with `fleet` in the active system (the first one), seat 0's dock
+    /// stands there.
+    fn battle(fleet: &[crate::generated::Unit]) -> (CoreState, System) {
+        let (mut s, system) = fight(&fleet.iter().map(|u| (*u, 1)).collect::<Vec<_>>(), None);
+        s.meta_mut().active = Some(Seat(1));
+        s.meta_mut().active_system = Some(system);
+        dock(&mut s, system, 0);
+        (s, system)
+    }
+
+    /// Experimental Battlestation: three dice (hits on 5), the dock fires without a question when one stands in the active system,
+    /// and the active seat (not the holder) absorbs the hits through the combat area's child window.
+    #[test]
+    fn experimental_battlestation_rolls_three_dice_and_the_active_seat_takes_the_hits() {
+        use crate::generated::Unit as U;
+        let mut met = std::collections::BTreeSet::new();
+        for seed in 0..40 {
+            let (s, system) = battle(&[U::CruiserI, U::CruiserI, U::CruiserI, U::DestroyerI, U::DestroyerI, U::CarrierI]);
+            let run = played_hits(s, ActionCard::ExperimentalBattlestation, seed, 0);
+            assert!(!run.unsupported);
+            assert_eq!(run.faces.len(), 3, "three dice");
+            let hits = run.faces.iter().filter(|f| **f >= 5).count();
+            met.insert(hits);
+            assert!(run.asked.iter().all(|c| c.actor == Seat(1)), "the active seat answers, not the holder");
+            assert_eq!(run.asked.len(), hits, "no ship sustains: one casualty question per hit while several kinds are left");
+            assert_eq!(on_board(&run.after, system, 1), 6 - hits);
+            assert!(run.after.transient().combat.pending_destructions.is_empty(), "the losses are not announced");
+            let docks = Planet::ALL.iter().filter(|p| p.data().system == Some(system)).filter(|p| run.after.board().planet(**p).units.contains(&Piece::new(U::SpaceDockI, Seat(0)))).count();
+            assert_eq!(docks, 1, "the dock stands");
+        }
+        assert_eq!(met, [0, 1, 2, 3].into_iter().collect(), "every outcome of three dice met");
+    }
+
+    /// The hits are an effect's, not a combat's: the fleet may sustain, the cancellations a card granted are spent first.
+    #[test]
+    fn experimental_battlestation_offers_sustain_damage_and_spends_the_cancellations_first() {
+        use crate::generated::Unit as U;
+        let mut offered = 0;
+        for seed in 0..40 {
+            let (mut s, system) = battle(&[U::DreadnoughtI, U::CruiserI]);
+            crate::kernel::hits::grant(&mut s, Seat(1), 1);
+            let run = played_hits(s, ActionCard::ExperimentalBattlestation, seed, 0);
+            let hits = run.faces.iter().filter(|f| **f >= 5).count();
+            let after_cancel = hits.saturating_sub(1);
+            // Hits that survived the cancellation: the dreadnought is offered SUSTAIN DAMAGE (the first option).
+            let sustain = run.asked.iter().find(|c| matches!(c.ask, crate::choice::Ask::Combat(crate::choice::combat::Ask::CancelHit { .. })));
+            assert_eq!(sustain.is_some(), after_cancel > 0, "{:?}", run.faces);
+            if let Some(c) = sustain {
+                offered += 1;
+                let crate::choice::Ask::Combat(crate::choice::combat::Ask::CancelHit { hits: owed, in_combat, .. }) = c.ask else { unreachable!() };
+                assert_eq!((usize::from(owed), in_combat), (after_cancel, false), "the cancellation was spent before the offer");
+                assert_eq!(run.after.transient().combat.last_sustain, Some((system, Seat(1), U::DreadnoughtI, Seat(0), false)), "the first option sustained: the holder produced the hit, outside a combat");
+            }
+            assert_eq!(crate::kernel::hits::cancellable(&run.after, Seat(1)), 1usize.saturating_sub(hits) as u32);
+        }
+        assert!(offered > 0, "a seed where a hit got through met the offer");
+    }
+
+    /// Which dock fires is the holder's choice, one option per system with a dock in or next to the active system (the map's adjacency)
+    /// in the order of the system ids; a lone dock is taken without a question; docks of others and far ones do not count; no dock,
+    /// no dice. The dice are rolled whichever dock fires.
+    #[test]
+    fn experimental_battlestation_asks_which_dock_fires_among_those_in_or_next_to_the_active_system() {
+        use crate::choice::{Ask as AnyAsk, Opt as AnyOpt};
+        use crate::driver::{Driver, Status};
+        use crate::generated::Unit as U;
+        use crate::kernel::Resolver;
+        let (active, next, far) = (System::ALL[0], System::ALL[1], System::ALL[3]);
+        let adjacent = |s: &mut CoreState| {
+            let mut galaxy = crate::galaxy::CoreGalaxy::new(&[]);
+            for (system, hex) in [(active, crate::hex::Hex::new(0, 0)), (next, crate::hex::Hex::new(1, 0)), (far, crate::hex::Hex::new(3, 0))] {
+                galaxy.place(crate::ids::system_at(system as usize), hex).expect("on the grid");
+            }
+            s.map_mut().set_galaxy(galaxy);
+        };
+        let run = |s: &mut CoreState, mapped: bool| {
+            let mut env = hits_env();
+            env.facts.map = mapped;
+            let play = Play::of(s, ActionCard::ExperimentalBattlestation, Seat(0), env).expect("a play");
+            let k = Kernel::plain();
+            let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1), Seat(2)], Some(Seat(0))), linked(), 1);
+            d = d.with_seeds(std::rc::Rc::new(Seeded(5)));
+            let mut asked = Vec::new();
+            let mut status = d.run(s, &k).unwrap();
+            while let Status::Asking(c) = status {
+                let answer = c.pick(0).unwrap();
+                asked.push(c);
+                status = d.resume(s, &k, answer).unwrap();
+            }
+            (d.window.faces().to_vec(), asked)
+        };
+        // The dock in the active system and one next to it (and a far one, and a rival's next to it): the holder picks.
+        let (mut s, _) = battle(&[U::DestroyerI]);
+        adjacent(&mut s);
+        dock(&mut s, next, 0);
+        dock(&mut s, far, 0);
+        let mut mapped = s.clone();
+        let (faces, asked) = run(&mut mapped, true);
+        assert_eq!(faces.len(), 3);
+        let first = &asked[0];
+        assert_eq!(first.actor, Seat(0), "the holder picks the dock");
+        assert_eq!(first.ask, AnyAsk::Cards(crate::choice::cards::Ask::Pick { card: ActionCard::ExperimentalBattlestation, what: crate::choice::cards::What::Dock }));
+        let options: Vec<System> = first.opts.iter().filter_map(|o| if let AnyOpt::Cards(crate::choice::cards::Opt::System(system)) = o { Some(*system) } else { None }).collect();
+        assert_eq!(options, vec![active, next], "in the order of the ids; the far dock is not offered");
+        // Without the map only the active system counts: one dock, no question.
+        let mut unmapped = s.clone();
+        let (faces, asked) = run(&mut unmapped, false);
+        assert_eq!(faces.len(), 3);
+        assert!(asked.iter().all(|c| c.actor == Seat(1)), "no dock question without the map");
+        // Only a dock next to the system: it fires without a question on the map, and not at all without one (no dice).
+        let (mut only_next, _) = fight(&[(U::DestroyerI, 1)], None);
+        only_next.meta_mut().active = Some(Seat(1));
+        only_next.meta_mut().active_system = Some(active);
+        adjacent(&mut only_next);
+        dock(&mut only_next, next, 0);
+        dock(&mut only_next, active, 2);
+        let mut with_map = only_next.clone();
+        assert_eq!(run(&mut with_map, true).0.len(), 3);
+        let mut without_map = only_next.clone();
+        assert!(run(&mut without_map, false).0.is_empty() && without_map == only_next, "no dock may fire: no dice, nothing changes");
+    }
+
+    /// The dice are rolled even when nobody is active to take the hits (the string rolls, then finds no target).
+    #[test]
+    fn experimental_battlestation_with_no_active_seat_rolls_and_hits_nobody() {
+        use crate::generated::Unit as U;
+        let (mut s, system) = battle(&[U::CruiserI]);
+        s.meta_mut().active = None;
+        let run = played_hits(s, ActionCard::ExperimentalBattlestation, 4, 0);
+        assert_eq!(run.faces.len(), 3);
+        assert!(run.asked.is_empty() && on_board(&run.after, system, 1) == 1);
     }
 
     #[test]

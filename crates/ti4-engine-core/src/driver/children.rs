@@ -9,6 +9,7 @@
 
 use crate::kernel::children::{AreaLinks, Erased, ErasedWindow, Report, Spawn};
 use crate::kernel::stage::AbilityTable;
+use crate::rules::combat::effect_hits::{Absorb, Destroy};
 use crate::rules::explore_windows::Reward;
 use crate::rules::objective_windows::HandLimit;
 use crate::rules::production::pay::PayBill;
@@ -39,6 +40,8 @@ fn spawn(request: &Spawn) -> Option<Box<dyn ErasedWindow>> {
             Erased::boxed(Diplomacy::new(*who, *card, mode), |w| w.chosen().map_or(Report::Nothing, |system| Report::Placed(system, w.placed.clone())))
         }
         Spawn::Trade { who } => Erased::boxed(TradePrimary::new(*who), |w| Report::Goods(w.who, TRADE_PRIMARY_GOODS)),
+        Spawn::Destroy { who, system, card, subtype, cause } => Erased::boxed(Destroy::new(*who, *system, *card, *subtype, *cause), |w| Report::Destroyed(w.destroyed)),
+        Spawn::Absorb { who, producer, system, hits, texts } => Erased::boxed(Absorb::new(*who, *producer, *system, *hits, *texts), |_| Report::Nothing),
     })
 }
 
@@ -145,6 +148,8 @@ mod tests {
             Spawn::Warfare { who, letnev_pool: false },
             Spawn::Diplomacy { who, card: crate::generated::StrategyCard::DiplomacyBase, primary: false, base_printing: false },
             Spawn::Trade { who },
+            Spawn::Destroy { who, system: crate::generated::System::ALL[0], card: crate::generated::ActionCard::CourageousToTheEnd, subtype: crate::state::Code(0), cause: crate::state::Code(0) },
+            Spawn::Absorb { who, producer: who, system: crate::generated::System::ALL[0], hits: 1, texts: crate::kernel::children::HitTexts::default() },
         ];
         for request in &requests {
             assert!(table.links.start(request).is_some(), "{request:?}");

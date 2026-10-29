@@ -96,6 +96,7 @@ impl Family for Fam {
                     What::Rescue => ChoiceOption::labelled(id, "rescue_from", format!("a ship from {id}")).with("system", id),
                     What::Deploy => ChoiceOption::labelled(id, "system", format!("cruiser into {id}")),
                     What::Pirate | What::Probe => ChoiceOption::labelled(id, "system", id),
+                    What::Dock => ChoiceOption::labelled(id, "space dock", format!("dock in {id}")).with("system", id),
                     What::Ghost => ChoiceOption::labelled(id, "system", format!("destroyer into {id}")),
                     What::Jam => ChoiceOption::labelled(id, "system", format!("jam {id}")),
                     _ => ChoiceOption::labelled(id, "recall", format!("recall your token from {id}")),
@@ -247,7 +248,7 @@ impl Family for Fam {
             Ask::OwnHand { .. } | Ask::PlayCard { .. } => ActionCard::from_id(id).map(Opt::Card),
             Ask::Pick { what: What::Player | What::Elect | What::Gain, .. } => r.seat(id).map(Opt::Seat),
             Ask::Pick { what: What::JamWho { .. }, .. } => (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(ti4_engine_core::Seat)).find(|s| r.faction_text(*s) == id).map(Opt::Seat),
-            Ask::Pick { what: What::Recall | What::Silence | What::Bombard | What::Deploy | What::Rescue | What::Pirate | What::Probe | What::Ghost | What::Jam, .. } => System::from_id(id).map(Opt::System),
+            Ask::Pick { what: What::Recall | What::Silence | What::Bombard | What::Deploy | What::Rescue | What::Pirate | What::Probe | What::Ghost | What::Jam | What::Dock, .. } => System::from_id(id).map(Opt::System),
             Ask::Pick { what: What::Planet | What::Landing, .. } => {
                 let (system, planet) = id.split_once('|')?;
                 Some(Opt::Spot(System::from_id(system)?, Planet::from_id(planet)?))
@@ -293,6 +294,7 @@ const fn pick_kind(what: What) -> &'static str {
         What::Recall => "recall",
         What::Bombard | What::Deploy | What::Pirate | What::Probe | What::Ghost | What::Jam => "system",
         What::Silence => "silence",
+        What::Dock => "space dock",
         What::Note => "promissory note",
         What::Planet => "planet",
         What::Rescue => "rescue_from",
@@ -390,6 +392,7 @@ const fn pick_prompt(card: ActionCard, what: What) -> &'static str {
         (C::GhostShip, _) => "Ghost Ship: into which wormhole system",
         (C::MercenaryContract, _) => "Mercenary Contract: which planet the infantry land on",
         (C::PirateFleet, _) => "Pirate Fleet: which system the fleet enters",
+        (C::ExperimentalBattlestation, _) => "Experimental Battlestation: which dock fires",
         (C::ExplorationProbe, _) => "Exploration Probe: which frontier token to explore",
         (C::PirateContract1 | C::PirateContract2 | C::PirateContract3 | C::PirateContract4, _) => "Pirate Contract: which system the destroyer enters",
         (C::Strategize1 | C::Strategize2 | C::Strategize3 | C::Strategize4, _) => "Strategize: which card's secondary ability to perform",

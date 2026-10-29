@@ -149,6 +149,9 @@ plot, a Trade Agreement). A replay reserve declines the play (`Play::of`).
 DOCUMENTED BAILS left (`BAILS` in `rules/action_cards/effects.rs`; the reason of each is the constant):
 Strategize x4 and Overrule (eight card kinds, each with a window and guards of its own to run as child windows), Courageous To The End, Experimental Battlestation (the combat
 area's hit flow as a child window), Fire Team and Scramble Frequency (ported afterwards, branch b6d-rerolls, see below).
+Strategize x4 and Overrule (eight card kinds, each with a window and guards of its own to run as child windows), Fire Team
+(ported on `core-b12` as a registered play, bb26913b; not merged here) and Scramble Frequency (a bail of `core-b12` too).
+Courageous To The End and Experimental Battlestation left the list in branch `b6d-hits` (section below).
 STRATEGIZE x4 AND OVERRULE (branch b6d-strategize, after the list above; core half `rules/action_cards/perform.rs`, lockstep tests in
 `ti4-engine/src/action_cards_b6d_tests.rs` and `action_cards::tests::strategize_and_overrule_agree_with_the_core_play_window_in_lockstep`).
 `Fx::Perform { primary }`: the pick question byte for byte (`What::Perform`, `Opt::Perform { card, holder }`, kind `strategy card`, the
@@ -173,6 +176,9 @@ the display facts of the child questions are `strategy_cards_core::Performing`.
 DOCUMENTED BAILS left (`BAILS` in `rules/action_cards/effects.rs`; the reason of each is the constant):
 Courageous To The End and Experimental Battlestation (the combat area's hit flow as a child window; Exploration Probe, Fire Team and
 Scramble Frequency are ported, see their sections).
+Exploration Probe (the exploration resolution is not one core window; ported later, see above), Fire Team (ported on `core-b12` as a
+registered play, bb26913b; not merged here) and Scramble Frequency (a bail of `core-b12` too). Courageous To The End and Experimental
+Battlestation left the list in branch `b6d-hits` (section below).
 
 Layers (branch `b6d-layers`): `tools/engine_core/check_layers.py core` reports 0 violations again. The card windows of B6d ran other
 areas' windows as children (`PayBill`, `HandLimit`, `Reward`, the strategy windows) and called their helpers; areas may not import
@@ -224,3 +230,75 @@ Spy's and Plague's (`Fx::rolls`: the adapter lends the streams, the faces and th
   registered play inside the ground roll's tail; when the lines are merged `Announce::of` prefers a registration over a window that is
   not nested (test `a_registered_effect_wins_over_a_window_that_is_not_played_nested`), so the registered play is not shadowed by
   `Fx::Reroll`; Scramble Frequency inside its windows needs the same dice-stream plumbing (`roll_tail`) and stays a bail there.
+## B6d hits: Courageous To The End and Experimental Battlestation (branch b6d-hits, cut from core-b6-action-cards at 891aed47)
+
+Both cards run a hit flow of the combat area, so they are `Fx::Courageous` and `Fx::Battlestation` of the play window with the hits
+as **child windows reached through the kernel links** (`kernel::children::Spawn::{Destroy, Absorb}`, filled in `driver::children`;
+`check_layers.py core` stays at 0 violations: `rules/action_cards` imports nothing of `rules/combat`). The core half is
+`rules/combat/effect_hits.rs`; the play window starts the child, steps it, forwards its question and its answers (`Stage::Hitting`,
+`Play::flow`). Both cards are `Fx::rolls` (the dice are the Dice stream: faces and stream positions are compared like Spy and Plague)
+and need the table's links (`Fx::links`), so a table without them declines at the first step, never a panic.
+
+* **Courageous To The End** (`Fx::Courageous`): the handoff `last_ship_destroyed` must be the holder's own ship; "your opponent" is
+  the first other seat with a ship in that system *now* (seating order, as the string `combatants`), none: no dice. A ship type
+  without a combat value rolls nothing. Two dice; each result at or above the printed combat value of the destroyed ship is one
+  casualty. One child per casualty, `Spawn::Destroy { who: opponent, system, card, subtype, cause }` -> `combat::effect_hits::Destroy`:
+  the opponent's ships (`ships_of`: a lone ship is taken unasked, as the string `choose_casualty_as`), one option per (type, damage)
+  (`casualty_opts`), the question `Ask::Combat(AssignHit)` with `Origin::ActionCard(card)`, the subtype
+  `courageous_to_the_end_assign_casualty`, the system as target and nothing owed; the answer removes the ship (`assign::remove_ship`:
+  the ship-lost observers) and **stages** its destruction in `combat.pending_destructions` (cause `action_card:courageous`,
+  `during_space_combat`). A die that finds no ship ends the card (`Report::Destroyed(false)`; the string `break`s). The `HitDetail`
+  of the question (producer = the holder, `destroy: true`, cause `CourageousToTheEnd`) is the adapter's display fact
+  (`action_cards_view::hit_details`), as for every assignment question.
+* **Experimental Battlestation** (`Fx::Battlestation`, `What::Dock`, kind `space dock`, options the systems): the systems with a space
+  dock of the holder that are the active system or next to it (the map's adjacency when the adapter lent the galaxy,
+  `Fx::uses_map`/`Facts::map`; without a map only the active system, as the string), sorted by id; none: nothing rolled, one: no
+  question. Three dice, hits on 5; the active seat (`meta.active`, not the holder) takes the hits: `Spawn::Absorb { who, producer: holder,
+  system, hits, texts }` -> `Absorb`: the cancellations a card granted are spent (`kernel::hits::spend`), SUSTAIN DAMAGE is offered
+  (`SustainOffer`, not in a combat, nothing announced), the rest assigned (`AssignHits`, cause `effect_hit`). Nobody active: the dice
+  are rolled and the hits have no target.
+* `Absorb` is the child hit flow of ENGINE_REACTIONS 9.2 (a sustain offer and an assignment run inside another window's step); the
+  combat agent of `core-b12` owns Reflective Shielding and may reuse it (`Spawn::Absorb` with the producer as target); it is not
+  ported here.
+* **The announcement.** The destructions Courageous stages are announced after the card's discard (`ACTION_CARD_DISCARDED`) by
+  `AbilityTable::after_play`, the hook the reactions table already carries for Direct Hit. The adapter's `play_table()` now carries it
+  too (`ti4_engine_core_factions::cards::register_after_play`), so `Announce` no longer ends the run `Unknown::PendingDestructions`.
+  Found by the lockstep test: the events the hook emits (`SHIP_DESTROYED`) were lost by the window that ran it (the helper services
+  of the faction crate keep their own list); they travel in `Tape::emitted` and `Sx::after_play`/`run_registered_play` append them
+  to the window's events.
+* **Texts.** The interned texts the child windows and events carry are `Facts` of the play (`courageous_subtype`, `courageous_cause`,
+  `hits: HitTexts`), computed by `action_cards_view::hit_facts`. A staged destruction that stays in the state (the plain `play`
+  window, no announcement) carries the text code of the state's table; one that is announced carries the render code of the event.
+
+Conditions that stay string (each a `None` of `Play::of`, `unsupported`, or a counted bail of the adapter; a test each):
+* Courageous To The End at a table with a Naaz or Nekro seat (the units that fight from a planet are the combat area's; the same
+  condition as Intercept, B6-bail-12): `bail_courageous_to_the_end_declines_at_a_table_with_a_naaz_or_nekro_seat`,
+  `bail_courageous_to_the_end_with_a_neutral_opponent_or_a_naaz_seat_is_counted`.
+* Courageous To The End when the only ship left to fight is a neutral owner's (the string names it the opponent after the seated
+  ones and nobody chooses its loss; declined before any die): `bail_courageous_to_the_end_declines_when_only_a_neutral_ship_is_left`.
+* Experimental Battlestation in a game below `RULES_FACTION_EFFECTS` and against a seat that pays on a sustain without an unlocked
+  commander (the sustain offer is the combat window's from that rules version, the commander's payment only when unlocked, as
+  `dual_window::sustain_offer`): `bail_experimental_battlestation_where_the_sustain_offer_is_not_the_core_windows`.
+* **From inside another window (a reaction slot, a card declared there) both cards are still the string's**: they are not
+  `Fx::nested` (`the_b6d_cards_are_not_played_from_inside_another_window`; the census names them as before, and core-b12's
+  `bail_courageous_to_the_end_is_counted` stays true). Their reaction windows (SHIP_DESTROYED after, the movement of the active
+  player) are the combat area's and run on the reactions table, which carries the links and the `after_play` hook but not the texts
+  (`courageous_subtype`, `hits`) nor the combat kernel the play window lends; making that path work needs the texts in
+  `PlayFacts` and the stub-resolver semantic (nothing announced) of the dock's hits inside an ability, which `Inline` does not give.
+* The dice of a game whose streams the core cannot reproduce (test faces, a pending restore): `lend_rolls`, as Spy.
+
+Tests: core `rules::combat::effect_hits::tests` (7), `rules::action_cards::effects::tests` (the `courageous_*`, `bail_courageous_*`,
+`experimental_battlestation_*` group, 9), `ti4-engine-core-factions::cards::tests::the_events_of_the_after_play_hook_are_the_events_of_the_window_that_plays_the_card`,
+adapter `action_cards_b6d_tests` (lockstep through the announce window under three deciders and twelve dice seeds, `(n, 0)` windows:
+`courageous_to_the_end_makes_the_opponent_destroy_ships_in_the_core_window`,
+`experimental_battlestation_rolls_and_the_active_seat_absorbs_the_hits_in_the_core_window`,
+`experimental_battlestation_offers_the_letnev_commander_after_a_sustain_in_the_core_window`, the play-window test
+`courageous_to_the_end_and_experimental_battlestation_agree_with_the_core_play_window_in_lockstep`,
+`courageous_to_the_end_is_announced_on_the_plain_table_of_the_play_window` (no nested activity: the table is `play_table()`, whose
+`after_play` is the only announcement), `experimental_battlestation_follows_non_euclidean_shielding_in_the_core_window` (the combat
+kernel the play window lends), `action_cards_view::hit_facts_tests`, and the bail tests above). Mutation checks (Haiku runner, scratch
+worktree, 48 mutations of the core halves, the adapter and the render; the first batch left six survivors, five of which got
+the tests above and were killed on the re-run): all killed except one equivalent mutant,
+`.filter(|v| *v > 0)` of Courageous's combat value (no unit of the tables prints a combat value of 0; the guard is parity with
+`combat::hits_on`).
+

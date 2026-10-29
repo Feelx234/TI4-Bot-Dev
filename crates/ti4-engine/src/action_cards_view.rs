@@ -266,6 +266,9 @@ fn env_of(state: &GameState, player: &PlayerId, sources: &ti4_model::content_typ
             action_draw_plain: false,
             carried: rules::perform::Carried::default(),
             reroll: None,
+            courageous_subtype: ti4_engine_core::state::Code(0),
+            courageous_cause: ti4_engine_core::state::Code(0),
+            hits: ti4_engine_core::kernel::children::HitTexts::default(),
         },
     }
 }
@@ -360,6 +363,93 @@ fn lend_rolls(
     Some(Some(crate::dual_window::Lent { before: before.clone() }))
 }
 
+/// Courageous To The End and Experimental Battlestation: the cards whose effect runs a hit flow of the combat area as a child window.
+fn hits_card(card: ActionCard) -> bool {
+    matches!(rules::effects::Fx::of(card), Some(rules::effects::Fx::Courageous | rules::effects::Fx::Battlestation))
+}
+
+/// What the hit flows of Courageous To The End and Experimental Battlestation read that the core does not hold: the interned texts
+/// of their questions and events, whether the map is lent (the adjacency of the dock), the staging flag. `announce` says whether
+/// the play is announced (the staged destructions are given their events by the announcement, with the render codes of the events;
+/// otherwise they stay in the state, with the texts of the state). `None` when the string position holds something the combat
+/// windows do not carry: the string plays the card (a counted bail).
+fn hit_facts(
+    gs: &GameState,
+    r: &crate::render::Render,
+    cx: &mut Ctx,
+    card: ActionCard,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    announce: bool,
+    facts: &mut rules::Facts,
+) -> Option<()> {
+    use rules::effects::Fx;
+    match Fx::of(card) {
+        Some(Fx::Courageous) => {
+            facts.courageous_subtype = r.code("courageous_to_the_end_assign_casualty");
+            facts.courageous_cause = if announce { r.code("action_card:courageous") } else { cx.texts.intern(Slice::Transient, "action_card:courageous").ok()? };
+        }
+        Some(Fx::Battlestation) => {
+            facts.map = galaxy.is_some();
+            facts.hits = ti4_engine_core::kernel::children::HitTexts {
+                staging: crate::supply::staging_enabled(gs),
+                commander: r.code("letnevcommander"),
+                casualty: r.code("assign_casualty"),
+                effect_hit: r.code("effect_hit"),
+            };
+            // The sustain offer of the core is the string's from `RULES_FACTION_EFFECTS`, and pays the Letnev commander's offer only for an
+            // unlocked commander (`dual_window::sustain_offer`): the seat that takes the hits is the active one.
+            let label = if announce { "action_cards::announce" } else { "action_cards::play" };
+            if gs.rules_version < ti4_model::state::RULES_FACTION_EFFECTS {
+                crate::dual::note_bail(label, "hits absorbed in a game below the faction effects");
+                return None;
+            }
+            if let Some(target) = gs.active.as_ref() {
+                let unlocked = gs
+                    .player(target)
+                    .is_some_and(|p| p.leaders.get(ti4_model::id::text("letnevcommander")) == Some(&ti4_model::state::LeaderStatus::Unlocked));
+                if crate::leaders::pays_on_sustain(gs, ti4_content::ContentStore::embedded(), target) && !unlocked {
+                    crate::dual::note_bail(label, "a sustain payment the core does not follow");
+                    return None;
+                }
+            }
+        }
+        _ => {}
+    }
+    Some(())
+}
+
+/// The display facts of the questions of a hit flow: the hit a casualty question assigns (a Courageous To The End loss is a destruction
+/// the holder produces; the dock's hits are an effect's, produced by the holder) and the sustainers of a sustain question.
+fn hit_details(
+    c: &ti4_engine_core::choice::Choice,
+    core: &ti4_engine_core::state::CoreState,
+    kernel: &ti4_engine_core::kernel::Kernel,
+    card: ActionCard,
+    holder: &PlayerId,
+    rendered: &mut crate::choice::Choice,
+) {
+    use crate::decision_context::{HitCause, HitDetail, HitRestriction};
+    use ti4_engine_core::choice::combat::Ask as CAsk;
+    use ti4_engine_core::choice::Ask;
+    match c.ask {
+        Ask::Combat(CAsk::AssignHit) => {
+            let courageous = card == ActionCard::CourageousToTheEnd;
+            if let Some(context) = rendered.context.take() {
+                rendered.context = Some(context.with_hit(HitDetail {
+                    cause: if courageous { HitCause::CourageousToTheEnd } else { HitCause::Other },
+                    destroy: courageous,
+                    restriction: HitRestriction::Any,
+                    producer: Some(holder.clone()),
+                }));
+            }
+        }
+        Ask::Combat(ask @ CAsk::CancelHit { .. }) => {
+            rendered.details.insert("sustainers".to_owned(), crate::core_combat::sustainers_detail(kernel, core, &ask, c.actor));
+        }
+        _ => {}
+    }
+}
+
 /// Whether the core has a window for the card (`rules::action_cards::effects::Fx`).
 #[must_use]
 pub fn plays(alias: &ActionCardId) -> bool {
@@ -440,6 +530,9 @@ const PLAY: crate::core_sync::Footprint = crate::core_sync::Footprint::new(
 pub(crate) fn play_table() -> ti4_engine_core::kernel::stage::AbilityTable {
     let mut table = ti4_engine_core::kernel::stage::AbilityTable::default();
     ti4_engine_core::driver::children::register(&mut table);
+    // A card that destroys ships itself (Courageous To The End) stages the destructions; the announcement of the play gives them their
+    // `SHIP_DESTROYED` windows after the discard (`ti4_engine_core_factions::cards`, as for the reactions table).
+    ti4_engine_core_factions::cards::register_after_play(&mut table);
     table
 }
 
@@ -483,8 +576,11 @@ pub fn play_window(
     if probe {
         probe_facts(gs, &mut cx, player, galaxy, &mut env.facts)?;
     }
+    hit_facts(gs, &r, &mut cx, card, galaxy, false, &mut env.facts)?;
     let lent = lend_rolls(alias, before_rolls, "action_cards::play")?;
     let before = gs.clone();
+    let hitting = hits_card(card);
+    let combat = if hitting { Some(crate::core_combat::window_env(gs, &cx, sources.clone())?) } else { None };
     let technology = rules::effects::Fx::of(card).is_some_and(rules::effects::Fx::technology);
     if technology && technology_unported(gs, sources, player) {
         crate::dual::note_bail("action_cards::play", "a technology gained at a table the research window does not carry");
@@ -492,7 +588,13 @@ pub fn play_window(
     }
     let performs = matches!(rules::effects::Fx::of(card), Some(rules::effects::Fx::Perform { .. }));
     let plain = Kernel::plain();
-    let kernel = if technology || performs { crate::production_view::kernel() } else { &plain };
+    let kernel = if technology || performs {
+        crate::production_view::kernel()
+    } else if let Some(window) = &combat {
+        &window.kernel
+    } else {
+        &plain
+    };
     let mut staged = Vec::new();
     let mut emitted = Vec::new();
     let mut faces = Vec::new();
@@ -524,6 +626,9 @@ pub fn play_window(
         crate::strategy_cards_core::complete_tokens(c, core, rendered, letnev);
         if performs {
             performing.complete(c, core, rendered);
+        }
+        if hitting {
+            hit_details(c, core, kernel, card, player, rendered);
         }
     };
     let mut row = None;
@@ -659,6 +764,8 @@ pub fn announce_window(
     if probe {
         probe_facts(gs, &mut cx, player, galaxy, &mut env.facts)?;
     }
+    hit_facts(gs, &r, &mut cx, card, galaxy, true, &mut env.facts)?;
+    let hitting = hits_card(card);
     if crate::factions::ralnel_cards::skimmer_holder(gs).is_some() {
         crate::dual::note_bail("action_cards::announce", SKIMMER_BAIL);
         return None;
@@ -736,6 +843,9 @@ pub fn announce_window(
             crate::strategy_cards_core::complete_tokens(_c, _core, rendered, letnev);
             if performs {
                 performing.complete(_c, _core, rendered);
+            }
+            if hitting {
+                hit_details(_c, _core, kernel, card, player, rendered);
             }
         };
         let driven = crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &battle);
@@ -886,4 +996,51 @@ fn traders_of(gs: &GameState, galaxy: Option<&ti4_content::galaxy::Galaxy>, play
         *slot = r.seat(who.as_str());
     }
     out
+}
+
+#[cfg(test)]
+mod hit_facts_tests {
+    use super::*;
+    use crate::action_cards::tests::closing_position;
+
+    /// The guards of Experimental Battlestation's hit flow (`hit_facts`): below `RULES_FACTION_EFFECTS` and against a seat that pays on a
+    /// sustain without an unlocked commander the string plays the card; the contrast cases are carried.
+    #[test]
+    fn the_sustain_guards_of_experimental_battlestation_decline_only_what_the_core_window_does_not_follow() {
+        let _serial = crate::dual::tests::serial();
+        let card = ActionCard::ExperimentalBattlestation;
+        let b = PlayerId::new("b");
+        let mut plain = closing_position();
+        plain.active = Some(b.clone());
+        let run = |state: &GameState| {
+            let (mut cx, r) = crate::dual_window::tables(state).expect("tables");
+            let mut facts = rules::Facts::default();
+            let out = hit_facts(state, &r, &mut cx, card, None, true, &mut facts);
+            (out.is_some(), facts)
+        };
+        let (carried, facts) = run(&plain);
+        assert!(carried);
+        assert!(!facts.map, "no map was lent");
+        assert_eq!(facts.hits.staging, crate::supply::staging_enabled(&plain));
+        let mut old = plain.clone();
+        old.rules_version = ti4_model::state::RULES_FACTION_EFFECTS - 1;
+        assert!(!run(&old).0, "below the faction effects");
+        // Held another way than as an unlocked leader: the string pays, the core window would not.
+        let mut held = plain.clone();
+        held.faction_marks.insert("commander_ability:b:letnevcommander".to_owned(), "1".to_owned());
+        assert!(!run(&held).0, "a commander held another way");
+        // Unlocked: the core's commander window pays the same.
+        let mut unlocked = held.clone();
+        unlocked.player_mut(&b).unwrap().leaders.insert(ti4_model::id::LeaderId::new("letnevcommander"), ti4_model::state::LeaderStatus::Unlocked);
+        assert!(run(&unlocked).0, "an unlocked commander is followed");
+        // The card that destroys ships has no such guard; its texts are the play's.
+        let (mut cx, r) = crate::dual_window::tables(&held).expect("tables");
+        let mut facts = rules::Facts::default();
+        assert!(hit_facts(&held, &r, &mut cx, ActionCard::CourageousToTheEnd, None, true, &mut facts).is_some());
+        assert_eq!(r.code_text(facts.courageous_subtype), "courageous_to_the_end_assign_casualty");
+        assert_eq!(r.code_text(facts.courageous_cause), "action_card:courageous");
+        let mut state_texts = rules::Facts::default();
+        assert!(hit_facts(&held, &r, &mut cx, ActionCard::CourageousToTheEnd, None, false, &mut state_texts).is_some());
+        assert_eq!(cx.texts.text(Slice::Transient, state_texts.courageous_cause).unwrap(), "action_card:courageous", "a destruction left in the state carries the text of the state");
+    }
 }

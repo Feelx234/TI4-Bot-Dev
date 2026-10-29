@@ -418,11 +418,17 @@ pub struct Facts {
     pub carried: perform::Carried,
     /// Fire Team and Scramble Frequency: the texts of the staged dice (`None`: the adapter computed none, the card is the string's).
     pub reroll: Option<RerollFacts>,
+    /// Courageous To The End: the interned subtype of its casualty question (`courageous_to_the_end_assign_casualty`) and the cause
+    /// of the destructions it stages (`action_card:courageous`).
+    pub courageous_subtype: crate::state::Code,
+    pub courageous_cause: crate::state::Code,
+    /// The texts and the flag of the hit flows a card runs as children of the combat area (Experimental Battlestation).
+    pub hits: crate::kernel::children::HitTexts,
 }
 
 impl Default for Facts {
     fn default() -> Self {
-        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE, dreadnought: Placed::NONE, mech: Placed::NONE, pds: Placed::NONE, holder_deepwrought: false, spacedock: Placed::NONE, replenish_events: false, rules_version: u32::MAX, tech_order: |a, b| a.cmp(&b), roster: None, reveal: crate::state::TechSet::default(), traders: [None; 2], fracture_in_play: false, own_breakthrough: [None; 16], unit_order: |a, b| a.cmp(&b), map: false, explore_empty: crate::state::Code(0), action_draw_plain: false, carried: perform::Carried { plain_draw: false, research: false, payments: false, structures: None, trade_source: crate::state::Code(0) }, reroll: None }
+        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE, dreadnought: Placed::NONE, mech: Placed::NONE, pds: Placed::NONE, holder_deepwrought: false, spacedock: Placed::NONE, replenish_events: false, rules_version: u32::MAX, tech_order: |a, b| a.cmp(&b), roster: None, reveal: crate::state::TechSet::default(), traders: [None; 2], fracture_in_play: false, own_breakthrough: [None; 16], unit_order: |a, b| a.cmp(&b), map: false, explore_empty: crate::state::Code(0), action_draw_plain: false, carried: perform::Carried { plain_draw: false, research: false, payments: false, structures: None, trade_source: crate::state::Code(0) }, courageous_subtype: crate::state::Code(0), courageous_cause: crate::state::Code(0), hits: crate::kernel::children::HitTexts { staging: false, commander: crate::state::Code(0), casualty: crate::state::Code(0), effect_hit: crate::state::Code(0) }, reroll: None }
     }
 }
 

@@ -72,9 +72,23 @@ pub(crate) fn announce_on(
     decider: Box<dyn Decider>,
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
 ) -> bool {
+    announce_seeded(state, alias, player, decider, galaxy, 0)
+}
+
+/// [`announce_on`] with the dice of the game seeded by `seed` (the state carries it too, so the core can reproduce the rolls):
+/// the cards that roll are played under several seeds to meet every outcome of the dice.
+pub(crate) fn announce_seeded(
+    state: &mut GameState,
+    alias: &str,
+    player: &PlayerId,
+    decider: Box<dyn Decider>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    seed: u64,
+) -> bool {
+    state.rng_seed = seed;
     let mut table = Table::with_default(decider);
     let mut dice = crate::dice::Dice::new();
-    let mut rng = crate::rng::GameRng::new(0);
+    let mut rng = crate::rng::GameRng::new(seed);
     let mut sequence = crate::event::EventSequence::new();
     let mut resolver = crate::fixtures::armed_resolver(state);
     let mut context = crate::timing::TimingContext {

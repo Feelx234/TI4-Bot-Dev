@@ -176,14 +176,20 @@ impl super::ability::Runner for Sx<'_> {
 
     fn run_registered_play(&mut self, who: crate::ids::Seat, card: crate::generated::ActionCard) -> Result<(), TimingError> {
         let Some(play) = self.table.card_play(card).copied() else { return Ok(()) };
+        self.tape.emitted.clear();
         let mut host = RulesHost { state: &mut *self.state, kernel: self.kernel, table: self.table, tape: &mut *self.tape, next_id: &mut *self.next_id, seeds: self.seeds };
-        (play.effect)(&mut host, &mut *self.resolver, who, card)
+        let done = (play.effect)(&mut host, &mut *self.resolver, who, card);
+        self.emitted.append(&mut self.tape.emitted);
+        done
     }
 
     fn after_play(&mut self) -> Result<(), TimingError> {
         let Some(after) = self.table.after_play else { return Ok(()) };
+        self.tape.emitted.clear();
         let mut host = RulesHost { state: &mut *self.state, kernel: self.kernel, table: self.table, tape: &mut *self.tape, next_id: &mut *self.next_id, seeds: self.seeds };
-        after(&mut host, &mut *self.resolver)
+        let done = after(&mut host, &mut *self.resolver);
+        self.emitted.append(&mut self.tape.emitted);
+        done
     }
 }
 

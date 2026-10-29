@@ -446,11 +446,13 @@ mod tests {
 
     /// The cards of package B6d read facts only the adapter's play window supplies (forms, roster, map, traders): from inside
     /// another window they are the string's, and the census says so (found by the first run of the slot test of Reveal
-    /// Prototype, which played with default facts).
+    /// Prototype, which played with default facts). Courageous To The End and Experimental Battlestation are among them: they run
+    /// hit flows of the combat area as child windows through the links the play window's table carries, and the texts of their
+    /// questions and events are the play window's facts (their reaction windows are the combat area's, B12).
     #[test]
     fn the_b6d_cards_are_not_played_from_inside_another_window() {
         let t = AbilityTable::default();
-        for card in [ActionCard::Upgrade, ActionCard::DecoyOperation, ActionCard::RevealPrototype, ActionCard::LieInWait, ActionCard::Bribery, ActionCard::HarnessEnergy, ActionCard::Infiltrate, ActionCard::CrashLanding, ActionCard::GhostSquad, ActionCard::ExplorationProbe, ActionCard::Strategize2, ActionCard::Overrule, ActionCard::FireTeam, ActionCard::ScrambleFrequency] {
+        for card in [ActionCard::Upgrade, ActionCard::DecoyOperation, ActionCard::RevealPrototype, ActionCard::LieInWait, ActionCard::Bribery, ActionCard::HarnessEnergy, ActionCard::Infiltrate, ActionCard::CrashLanding, ActionCard::GhostSquad, ActionCard::FireTeam, ActionCard::ScrambleFrequency, ActionCard::ExplorationProbe, ActionCard::Strategize2, ActionCard::Overrule, ActionCard::CourageousToTheEnd, ActionCard::ExperimentalBattlestation] {
             assert!(plays(card), "{card:?} has a window of its own");
             assert!(!plays_in(&t, card), "{card:?}");
         }
@@ -474,8 +476,7 @@ mod tests {
     #[test]
     fn bail_a_card_with_an_unported_effect_has_no_announcement() {
         let s = two_seats();
-        assert!(Announce::of(&s, ActionCard::CourageousToTheEnd, Seat(0), env(), true, false).is_none());
-        assert!(Announce::of(&s, ActionCard::ExperimentalBattlestation, Seat(0), env(), true, false).is_none());
+        assert!(Announce::of(&s, ActionCard::Parley, Seat(0), env(), true, false).is_none());
         assert!(Announce::of(&s, ActionCard::DirectHit1, Seat(0), env(), true, false).is_none());
     }
 
