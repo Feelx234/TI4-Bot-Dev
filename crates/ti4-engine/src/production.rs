@@ -2872,7 +2872,7 @@ impl ProductionWindow {
             } else {
                 i64::from(crate::fleet::limit(state, content, &self.player)).max(0)
             };
-            crate::production_view::ProdView::of(state, content, sources)?.placement_options(&self.player, &self.system, id, made, fleet_limit)
+            crate::production_view::ProdView::of(state, content, sources)?.placement_options(&self.player, &self.system, id, made, fleet_limit, &self.report.produced)
         };
         #[cfg(not(feature = "typed-core"))]
         let typed = || None;
@@ -3140,6 +3140,7 @@ impl ProductionWindow {
                 only_unit: self.only_unit.as_deref(),
                 max_unit_cost: self.max_unit_cost,
                 produced: self.report.produced.iter().map(|(unit, _)| unit.as_str()).collect(),
+                produced_at: self.report.produced.iter().map(|(_, at)| at.as_str()).collect(),
                 armada: i64::from(crate::faction_abilities::armada_bonus(state, content, &self.player)),
             };
             let buildable = buildable_for(state, content, sources, &self.player);
@@ -7030,6 +7031,10 @@ mod tests {
             ("sol", "yssaril"),
             ("sol", "keleresm"),
             ("hacan", "winnu"),
+            ("bastion", "sardakk"),
+            ("crimson", "sardakk"),
+            ("sol", "bastion"),
+            ("sol", "crimson"),
         ];
         let (mut compared, mut mechs) = (0, 0);
         for (mine, other) in cases {
@@ -7087,6 +7092,74 @@ mod tests {
         crate::dual::set_fail_fast(fail_fast);
         assert!(compared > 100, "the steps were compared: {compared}");
         assert!(mechs > 0, "a Naaz mech was built");
+    }
+
+    /// The Last Bastion's Icon and the Crimson hero card are spots of the core window: a ship may be placed in an Icon system (the
+    /// first one fixes the spot of the rest and exhausts the card) or put on the card (off the board, still out of the box). Every
+    /// step of a producer with pseudo-random answers (half of the seeds prefer the remote spot) is compared with the core window.
+    #[test]
+    fn the_icon_and_the_crimson_card_are_spots_of_the_core_production_window_in_lockstep() {
+        let content = ContentStore::embedded();
+        let _guard = crate::dual::tests::serial();
+        let fail_fast = crate::dual::fail_fast();
+        crate::dual::set_fail_fast(false);
+        let mask = crate::dual::AreaMask::parse("production=dual", crate::dual::AreaMask::STRING).unwrap();
+        let (mut remote, mut carded, mut compared) = (0, 0, 0);
+        for faction in ["bastion", "crimson"] {
+            for seed in 0..10_usize {
+                let _ = crate::dual::take_report();
+                let (mut state, system, planet) = seated();
+                state.player_mut(&player()).unwrap().faction = ti4_model::id::FactionId::new(faction);
+                state.player_mut(&PlayerId::new("b")).unwrap().faction = ti4_model::id::FactionId::new("sardakk");
+                state.promissory_notes.clear();
+                state.system_mut(&system).set_control(planet.clone(), player());
+                put_on_planet(&mut state, &system, &planet, "spacedock", &player(), 2);
+                state.player_mut(&player()).unwrap().trade_goods = 30;
+                // A second system holding a command token and an infantry of the producer: an Icon target.
+                let there = SystemId::new(crate::fixtures::plain_systems(9).into_iter().find(|id| id != system.as_str()).unwrap());
+                state.system_mut(&there).command_tokens.insert(player());
+                state.system_mut(&there).units.push(ti4_model::units::Unit::new(UnitTypeId::new("infantry"), player()));
+                if faction == "bastion" {
+                    state.player_mut(&player()).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new(crate::factions::bastion::BREAKTHROUGH));
+                } else {
+                    state.player_mut(&player()).unwrap().leaders.insert(ti4_model::id::LeaderId::new(crate::factions::crimson_cards::HERO), ti4_model::state::LeaderStatus::Unlocked);
+                }
+                let mut dice = crate::dice::Dice::new();
+                let mut rng = crate::rng::GameRng::new(0);
+                let mut table = Table::new();
+                let mut ctx = Resolving { content, sources: POK, dice: &mut dice, rng: &mut rng, table: &mut table, timing: None };
+                crate::dual::with_mask(mask, || {
+                    let mut window = ProductionWindow::new(&state, content, POK, &player(), &system);
+                    let mut steps = 0;
+                    while let Some(choice) = window.pending_choice(&state, content, POK) {
+                        steps += 1;
+                        if steps > 40 {
+                            break;
+                        }
+                        let ship = |o: &ChoiceOption| o.id.starts_with("build|") && (o.id.contains("cruiser") || o.id.contains("destroyer") || o.id.contains("carrier"));
+                        let pick = if let Some(o) = choice.options.iter().find(|o| o.id.starts_with("place|") && (o.id.contains('@')) == (seed % 2 == 0)) {
+                            o.clone()
+                        } else if let Some(o) = choice.options.iter().find(|o| ship(o)) {
+                            o.clone()
+                        } else {
+                            choice.options[(seed * 5 + steps) % choice.options.len()].clone()
+                        };
+                        if window.resolve(&mut state, &mut ctx, pick).is_err() {
+                            break;
+                        }
+                    }
+                });
+                remote += state.system_state(&there).units.iter().filter(|u| u.owner == player() && u.type_id.as_str() != "infantry").count();
+                carded += state.faction_marks.get("crimson:card:a").map_or(0, |ships| ships.split(',').count());
+                let r = crate::dual::take_report();
+                assert_eq!(r.total_differences(), 0, "{faction} seed {seed}: {:?}", r.differences.first());
+                compared += r.windows.get("ProductionWindow::step").map_or(0, |w| w.compared);
+            }
+        }
+        crate::dual::set_fail_fast(fail_fast);
+        assert!(compared > 50, "the steps were compared: {compared}");
+        assert!(remote > 0, "a ship was placed in the Icon's system");
+        assert!(carded > 0, "a ship was put on the card");
     }
 
     /// Runs one use of PRODUCTION for `a` (a dock on its planet, `goods` trade goods) with the first answers scripted and the
@@ -7472,7 +7545,7 @@ mod tests {
 
     /// The documented bails of the triggered productions (docs/ENGINE_KNOWN_ISSUES.md, B3-bail-01..03): a Keleres
     /// seat (the tier-W agent offer at the payment window), a Naaz producer (the staged `NAAZ_MECH_PLACED` event)
-    /// and a Bastion table (the Last Bastion's docks) keep the string answer; the dual reports a bail, not a
+    /// keep the string answer (a Bastion table is followed since B12); the dual reports a bail, not a
     /// difference, and the string run is untouched.
     #[test]
     fn the_triggered_productions_bail_where_a_tier_w_offer_could_fire() {
@@ -7481,7 +7554,7 @@ mod tests {
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
         with_mask(AreaMask::STRING.with(Area::Production, Backend::Dual), || {
-            for (mine, theirs) in [("sol", "keleresm"), ("naaz", "sardakk"), ("sol", "bastion")] {
+            for (mine, theirs) in [("sol", "keleresm"), ("naaz", "sardakk")] {
                 let (mut state, system, planet) = sling_table();
                 state.player_mut(&player()).unwrap().faction = ti4_model::id::FactionId::new(mine);
                 state.player_mut(&PlayerId::new("b")).unwrap().faction = ti4_model::id::FactionId::new(theirs);
@@ -7494,7 +7567,7 @@ mod tests {
         let r = report();
         for label in ["production::sling_relay", "production::integrated_economy"] {
             let w = r.windows.get(label).copied().unwrap_or_default();
-            assert_eq!((w.compared, w.bailed), (0, 3), "{label}: {:?}", r.windows);
+            assert_eq!((w.compared, w.bailed), (0, 2), "{label}: {:?}", r.windows);
         }
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();

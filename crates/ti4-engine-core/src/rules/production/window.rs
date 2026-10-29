@@ -10,7 +10,7 @@
 //! (`production_window_dual.rs`).
 
 use crate::choice::generic::Rule;
-use crate::choice::production::{Ask as PAsk, ChooseAsk, Currency, Opt as POpt, PlaceAsk, Subtype as PSub};
+use crate::choice::production::{Ask as PAsk, ChooseAsk, Currency, Icon, Opt as POpt, PlaceAsk, Subtype as PSub};
 use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Owed, OwedKind, Pick, Subtype, Target};
 use crate::containers::SmallList;
 use crate::generated::{Planet, System, Unit, UnitBaseType};
@@ -99,11 +99,29 @@ impl ProductionWindow {
             produced,
             armada: self.armada,
             buildable: self.buildable,
+            icon: self.icon(),
         }
     }
 
     fn place_ask(&self, unit: Unit, made: u8) -> PlaceAsk {
-        PlaceAsk { who: self.who, system: self.system, unit, made, fleet_limit: self.fleet_limit }
+        PlaceAsk { who: self.who, system: self.system, unit, made, fleet_limit: self.fleet_limit, icon: self.icon() }
+    }
+
+    /// What the ships of this use have done so far (`bastion::adjust_ship_spots`): the first ship placed away from the
+    /// producing system fixes the spot of the rest; a ship placed in the producing system closes the Icon.
+    #[must_use]
+    pub fn icon(&self) -> Icon {
+        let mut placed = false;
+        for (unit, spot) in self.produced.as_slice() {
+            if !unit.data().ship {
+                continue;
+            }
+            if matches!(spot, Spot::Remote(..) | Spot::Card) {
+                return Icon::Remote(*spot);
+            }
+            placed = true;
+        }
+        if placed { Icon::Local } else { Icon::Fresh }
     }
 
     fn ctx(&self, s: &CoreState, rule: Rule, subtype: PSub, outstanding: SmallList<Owed, 4>) -> Ctx {
@@ -236,9 +254,16 @@ impl ProductionWindow {
             Spot::Space => (self.system, None),
             Spot::Planet(p) => (self.system, Some(p)),
             Spot::Remote(sys, at) => (sys, at),
+            Spot::Card => (self.system, None),
         };
         let naaz = unit == Unit::Eidolon && s.players().by_seat(self.who).is_some_and(|p| p.faction == crate::generated::Faction::TheNaazRokhaAlliance);
         for _ in 0..made {
+            if spot == Spot::Card {
+                // The Crimson hero card is not a place on the board.
+                k.hooks.direct.crimson_cards_put_on_card(s, self.who, unit);
+                self.produced.push((unit, spot));
+                continue;
+            }
             fx::place_unit(s, self.who, system, planet, unit);
             self.produced.push((unit, spot));
             if naaz {
@@ -246,6 +271,10 @@ impl ProductionWindow {
                 let payload = Payload::new().with(Key::Player, Val::Seat(self.who)).with(Key::System, Val::System(system));
                 fx::stage(s, fx::event(EventKind::NaazMechPlaced, payload));
             }
+        }
+        // The Last Bastion's Icon is exhausted by placing the ships in one of its systems.
+        if made > 0 && spot != Spot::Card && system != self.system {
+            k.hooks.direct.bastion_ship_placed(s, k, self.who, self.system, system, unit);
         }
         let d = unit.data();
         let count = made as i64;
@@ -310,7 +339,7 @@ impl Window for ProductionWindow {
                         }
                         self.placement_timing_done = true;
                     }
-                    let spots = rules::spots_of(&self.cx(sx.state, sx.kernel), self.who, self.system, unit);
+                    let spots = rules::spots_of(&self.cx(sx.state, sx.kernel), self.who, self.system, unit, self.icon());
                     match spots.as_slice() {
                         [only] => {
                             let only = *only;

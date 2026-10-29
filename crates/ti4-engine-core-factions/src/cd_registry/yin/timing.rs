@@ -44,7 +44,7 @@ pub fn placed_form(s: &CoreState, scope: Scope, who: Seat, base: UnitBaseType) -
 /// `in_reinforcements`: the form the player places, and one of it left in the box.
 fn in_reinforcements(s: &CoreState, scope: Scope, who: Seat, base: UnitBaseType) -> Option<Unit> {
     let unit = placed_form(s, scope, who, base)?;
-    (fleet::remaining(s, scope, who, unit, 0) > 0).then_some(unit)
+    (fleet::remaining_all(s, scope, who, unit) > 0).then_some(unit)
 }
 
 fn scope(k: &ti4_engine_core::kernel::Kernel) -> Scope {
@@ -109,7 +109,7 @@ pub(crate) fn place_by(eff: &mut Eff<'_, '_>, base: UnitBaseType, on_planet: boo
     if let Some(a) = eff.state().players_mut().by_seat_mut(owner) {
         a.leaders.status.insert(card, LeaderStatus::Exhausted);
     }
-    let count = fleet::remaining(eff.state(), scope, who, unit, 0).min(2);
+    let count = fleet::remaining_all(eff.state(), scope, who, unit).min(2);
     for _ in 0..count {
         fx::place_unit(eff.state(), who, system, planet, unit);
     }

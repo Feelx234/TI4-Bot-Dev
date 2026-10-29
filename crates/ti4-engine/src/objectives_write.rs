@@ -220,13 +220,10 @@ mod real {
         Some(CoreWindow { run: Run::new(value).with_events_vec(events), questions: driven.rendered })
     }
 
-    /// Where the price stays with the string: a table with a Last Bastion or a Crimson seat (their economy hooks
-    /// are not in the production kernel's reads, `production_view::unported_economy`), and a payer holding
-    /// Deepwrought ocean cards (planet cards off the map the core has no planets for).
+    /// Where the price stays with the string: a payer holding Deepwrought ocean cards (planet cards off the map the core has
+    /// no planets for). The Last Bastion's Helios bonus is in the payment facts, the Crimson has no economy hook.
     fn price_is_string(gs: &GameState, payer: &PlayerId) -> bool {
-        use crate::factions::{bastion, crimson};
-        gs.players.iter().any(|p| [bastion::MODULE.alias, crimson::MODULE.alias].contains(&p.faction.as_str()))
-            || !crate::factions::deepwrought::spendable_oceans(gs, payer).is_empty()
+        !crate::factions::deepwrought::spendable_oceans(gs, payer).is_empty()
     }
 
     fn before_revealed(gs: &GameState, obj: ObjectiveRef) -> bool {

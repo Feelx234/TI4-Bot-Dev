@@ -17,6 +17,7 @@
 
 use super::{CombatCtx, hook_group};
 use crate::containers::SmallList;
+use crate::choice::production::Icon;
 use crate::generated::{ActionCard, Faction, Leader, Planet, SecretObjective, System, Technology, Unit};
 use crate::ids::Seat;
 use crate::kernel::{Cx, Kernel};
@@ -26,6 +27,8 @@ use crate::state::{CoreState, Piece};
 pub type Planets = SmallList<Planet, 4>;
 /// A short list of systems.
 pub type Systems = SmallList<System, 4>;
+/// The spots of a produced unit (`rules::production::spots_of`).
+pub type SpotList = SmallList<crate::choice::production::Spot, 12>;
 /// A short list of seats.
 pub type Seats = SmallList<Seat, 4>;
 /// Pieces on a planet or in space.
@@ -75,9 +78,9 @@ hook_group! {
         /// Clear the retreat marks of `system`. String: `combat`.
         each bastion_clear_retreated(cx: &mut Cx<'_>, system: System) -> ();
         /// Adjust the spots where produced ships may be placed (the list is edited in place). String: `production`.
-        each bastion_adjust_ship_spots(s: &CoreState, k: &Kernel, who: Seat, producing: System, produced: &[Unit], spots: &mut Systems) -> ();
-        /// A ship was placed by production. String: `production`.
-        each bastion_ship_placed(cx: &mut Cx<'_>, who: Seat, producing: System, target: System, unit: Unit) -> ();
+        each bastion_adjust_ship_spots(s: &CoreState, k: &Kernel, who: Seat, producing: System, icon: Icon, spots: &mut SpotList) -> ();
+        /// A ship was placed in `target` by a use of production in `producing`. String: `production`.
+        each bastion_ship_placed(s: &mut CoreState, k: &Kernel, who: Seat, producing: System, target: System, unit: Unit) -> ();
         /// Resource bonus of a Bastion planet. String: `production` (2).
         call bastion_units_resource_bonus(s: &CoreState, planet: Planet) -> i64;
         /// Bombardment hits cancelled on a planet. String: `invasion` (2).
@@ -122,9 +125,9 @@ hook_group! {
         /// Place the Sorrow breach at setup. String: `seating`.
         each crimson_place_sorrow_breach(cx: &mut Cx<'_>) -> ();
         /// Offer the card spot among the placement spots. String: `production`.
-        each crimson_cards_offer_card_spot(s: &CoreState, who: Seat, spots: &mut Systems) -> ();
+        each crimson_cards_offer_card_spot(s: &CoreState, who: Seat, spots: &mut SpotList) -> ();
         /// Put a unit on the Crimson card. String: `production`.
-        each crimson_cards_put_on_card(cx: &mut Cx<'_>, who: Seat, unit: Unit) -> ();
+        each crimson_cards_put_on_card(s: &mut CoreState, who: Seat, unit: Unit) -> ();
 
         // ---- Deepwrought -------------------------------------------------------------------------------
         /// Oceans the player holds. String: `action_cards`.

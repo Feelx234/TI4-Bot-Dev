@@ -265,6 +265,7 @@ pub fn spot_text(s: Spot) -> String {
             crate::production::REMOTE_SEPARATOR,
             at.map_or(crate::production::SPACE, planet_id)
         ),
+        Spot::Card => format!("{}{}{}", crate::factions::crimson_cards::CARD_SYSTEM, crate::production::REMOTE_SEPARATOR, crate::production::SPACE),
     }
 }
 
@@ -407,6 +408,7 @@ fn build_option(r: &Render, ask: &ChooseAsk, o: &Opt) -> ChoiceOption {
 fn parse_place(ask: &PlaceAsk, id: &str) -> Option<Opt> {
     let at = id.strip_prefix("place|")?;
     let spot = match at.split_once(crate::production::REMOTE_SEPARATOR) {
+        Some((system, rest)) if system == crate::factions::crimson_cards::CARD_SYSTEM && rest == crate::production::SPACE => Spot::Card,
         Some((system, rest)) => Spot::Remote(
             <System as IdStr>::from_id(system)?,
             if rest == crate::production::SPACE { None } else { Some(<Planet as IdStr>::from_id(rest)?) },
@@ -475,7 +477,7 @@ fn choose_details(r: &Render, c: &ChooseAsk) -> Option<serde_json::Map<String, s
             entry["units"].as_array_mut().expect("units array").push(serde_json::json!(id));
             continue;
         }
-        let held = fl::held_on_board(core, scope, c.who, base);
+        let held = fl::held_on_board(core, scope, c.who, base) + fl::on_crimson_card(core, scope, c.who, base);
         limits.insert(
             base_text.to_owned(),
             serde_json::json!({ "units": [id], "limit": limit, "held": held, "remaining": (limit - held).max(0) }),
@@ -492,6 +494,7 @@ fn choose_details(r: &Render, c: &ChooseAsk) -> Option<serde_json::Map<String, s
 #[must_use]
 pub fn spot_of(text: &str) -> Option<Spot> {
     match text.split_once(crate::production::REMOTE_SEPARATOR) {
+        Some((system, rest)) if system == crate::factions::crimson_cards::CARD_SYSTEM && rest == crate::production::SPACE => Some(Spot::Card),
         Some((system, rest)) => Some(Spot::Remote(
             <System as IdStr>::from_id(system)?,
             if rest == crate::production::SPACE { None } else { Some(<Planet as IdStr>::from_id(rest)?) },

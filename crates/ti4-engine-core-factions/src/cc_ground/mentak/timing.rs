@@ -72,7 +72,7 @@ fn salvage_options(s: &CoreState, f: &AdapterFacts, owner: Seat, p: &Payload) ->
     let mut out = Vec::new();
     for unit in buildable.iter().copied() {
         let data = unit.data();
-        if !(data.ship && destroyed.contains(&data.base_type)) || ti4_engine_core::query::fleet::remaining(s, scope, owner, unit, 0) <= 0 {
+        if !(data.ship && destroyed.contains(&data.base_type)) || ti4_engine_core::query::fleet::remaining_all(s, scope, owner, unit) <= 0 {
             continue;
         }
         let cost = (i64::from(data.cost_halves.unwrap_or(0)) + 1) / 2;
@@ -126,7 +126,7 @@ fn salvage(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let scope = ti4_engine_core::tables::Scope(u32::from(eff.kernel().sources.0));
     let placed = paid
         && crate::cd_registry::yin::timing::placed_form(eff.state(), scope, me, base)
-            .filter(|form| ti4_engine_core::query::fleet::remaining(eff.state(), scope, me, *form, 0) > 0)
+            .filter(|form| ti4_engine_core::query::fleet::remaining_all(eff.state(), scope, me, *form) > 0)
             .map(|form| fx::place_unit(eff.state(), me, system, None, form))
             .is_some();
     if !placed {
@@ -186,7 +186,7 @@ fn place_ship(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
         return Ok(());
     }
     let Some(form) = crate::cd_registry::yin::timing::placed_form(eff.state(), scope, me, base) else { return Ok(()) };
-    if ti4_engine_core::query::fleet::remaining(eff.state(), scope, me, form, 0) > 0 {
+    if ti4_engine_core::query::fleet::remaining_all(eff.state(), scope, me, form) > 0 {
         fx::place_unit(eff.state(), me, system, None, form);
     }
     Ok(())

@@ -375,14 +375,14 @@ fn the_documented_bails_stay_with_the_string_side() {
     assert!(score_one(&mut state, content, POK, &ask(&["eap", "eap|plot|b"]), args, &script).is_none());
     // A bought objective and the two secrets with a price (two relic fragments, five action cards) are followed
     // (the core window pays them, `the_price_*` tests below); the price stays with the string at a table with a
-    // Last Bastion or a Crimson seat, and for a payer holding ocean cards.
+    // payer holding ocean cards (a Last Bastion or a Crimson seat no longer keeps it: B12).
     assert!(score_one(&mut state, content, POK, &ask(&["amass_wealth"]), args, &script).is_some());
     assert!(score_one(&mut state, content, POK, &ask(&["dhw"]), args, &script).is_some());
     assert!(score_one(&mut state, content, POK, &ask(&["fsn"]), args, &script).is_some());
     for faction in [crate::factions::bastion::FACTION, crate::factions::crimson::FACTION] {
         let mut table = clean(&[("a", "letnev"), ("b", faction)]);
-        assert!(score_one(&mut table, content, POK, &ask(&["amass_wealth"]), args, &script).is_none(), "{faction} at the table");
-        assert!(score_one(&mut table, content, POK, &ask(&["dhw"]), args, &script).is_none(), "{faction} at the table");
+        assert!(score_one(&mut table, content, POK, &ask(&["amass_wealth"]), args, &script).is_some(), "{faction} at the table");
+        assert!(score_one(&mut table, content, POK, &ask(&["dhw"]), args, &script).is_some(), "{faction} at the table");
         assert!(score_one(&mut table, content, POK, &ask(&["eap"]), args, &script).is_some(), "an unpriced offer is not affected");
     }
     let mut oceans = clean(&[("a", crate::factions::deepwrought::FACTION), ("b", "sol")]);
@@ -499,7 +499,7 @@ mod price {
         let content = ContentStore::embedded();
         let mut compared = 0;
         let mut paid = 0;
-        for faction in ["letnev", "jolnar", "mentak", "keleresm"] {
+        for faction in ["letnev", "jolnar", "mentak", "keleresm", "bastion", "crimson"] {
             for planets in [0, 2, 5, 8] {
                 for goods in [0, 2, 5, 11] {
                     for tokens in [(0, 0, 0), (2, 1, 3), (5, 5, 0), (1, 0, 9)] {
@@ -603,7 +603,7 @@ mod price {
         let _ = take_report();
         let priced = costs();
         assert_eq!(priced.len(), 10);
-        for faction in ["letnev", "jolnar", "mentak", "keleresm"] {
+        for faction in ["letnev", "jolnar", "mentak", "keleresm", "bastion", "crimson"] {
             for (id, cost) in &priced {
                 let mut state = rich(faction);
                 state.revealed_objectives = vec![ObjectiveId::new(id.as_str())];

@@ -53,6 +53,25 @@ pub fn held_on_board(core: &CoreState, scope: Scope, seat: Seat, base: UnitBaseT
     total
 }
 
+/// The ships of this base type on the Crimson hero card (`factions::crimson_cards::held_on_card`): off the board, still out of the box.
+#[must_use]
+pub fn on_crimson_card(core: &CoreState, scope: Scope, seat: Seat, base: UnitBaseType) -> i64 {
+    use crate::keys::{Atom, MarkKey, MarkVal};
+    match core.marks().tail.get(&MarkKey::CrimsonCard(seat)) {
+        Some(MarkVal::List(items)) => items
+            .iter()
+            .filter(|v| matches!(v, MarkVal::Atom(Atom::Unit(u)) if in_scope(scope, *u) && u.data().base_type == base))
+            .count() as i64,
+        _ => 0,
+    }
+}
+
+/// [`remaining`] counting the ships on the Crimson hero card, read from the state (`supply::remaining`).
+#[must_use]
+pub fn remaining_all(core: &CoreState, scope: Scope, seat: Seat, unit: Unit) -> i64 {
+    remaining(core, scope, seat, unit, on_crimson_card(core, scope, seat, unit.data().base_type))
+}
+
 /// `supply::remaining` with `on_card` ships on the Crimson hero card: how many more of this unit
 /// may be placed. [`UNCAPPED`] for a unit out of the scope or without plastic.
 #[must_use]
@@ -184,8 +203,22 @@ pub fn standing(
     arriving: Option<Arrival>,
     half_weight: &dyn Fn(Unit) -> bool,
 ) -> Standing {
+    standing_in(core, scope, seat, Some(system), fleet_limit, arriving, half_weight)
+}
+
+/// [`standing`] for a place that may not be a system: `None` is an empty place (the Crimson hero card), where only the arrival counts.
+#[must_use]
+pub fn standing_in(
+    core: &CoreState,
+    scope: Scope,
+    seat: Seat,
+    system: Option<System>,
+    fleet_limit: i64,
+    arriving: Option<Arrival>,
+    half_weight: &dyn Fn(Unit) -> bool,
+) -> Standing {
     let space = || {
-        board::space_units(core, system).iter().filter(|p| p.owner() == seat).map(|p| p.kind()).filter(|u| in_scope(scope, *u))
+        system.map(|system| board::space_units(core, system)).unwrap_or(&[]).iter().filter(|p| p.owner() == seat).map(|p| p.kind()).filter(|u| in_scope(scope, *u))
     };
     let landing = arriving.filter(|a| !a.in_space);
     let arrival = arriving.filter(|a| a.in_space);
@@ -207,7 +240,7 @@ pub fn standing(
     let carried: i64 = space().filter(|u| consumes_capacity(*u) && !is_fighter(*u)).map(capacity_cost).sum::<i64>() + new_carried;
     let fighters: i64 = space().filter(|u| is_fighter(*u)).map(capacity_cost).sum::<i64>() + new_fighters;
     let mut support: i64 = 0;
-    for planet in planets_in_system(core, system) {
+    for planet in system.into_iter().flat_map(|system| planets_in_system(core, system)) {
         support += board::planet_units(core, planet)
             .iter()
             .filter(|p| p.owner() == seat && in_scope(scope, p.kind()))
