@@ -205,3 +205,17 @@ fn summit_is_announced_and_resolved_in_the_core_window() {
     seat.strategic_tokens = 0;
     announce_all(&[("summit", closing_position()), ("summit", letnev), ("summit", thin)]);
 }
+
+/// Exchange Program through the announcement: the other seat answers (accepts under the first-option decider, refuses
+/// under the last), and a table where nobody stands on a planet (both pay a fleet token).
+#[test]
+fn exchange_program_is_announced_and_resolved_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let mut bare = closing_position();
+    for board in bare.board.values_mut() {
+        for units in board.planet_units.values_mut() {
+            units.retain(|u| u.type_id.as_str() != "infantry");
+        }
+    }
+    announce_all(&[("exchangeprogram", closing_position()), ("exchangeprogram", bare)]);
+}

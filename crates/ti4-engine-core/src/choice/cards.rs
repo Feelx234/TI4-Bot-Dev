@@ -47,6 +47,10 @@ pub enum What {
     Ready,
     /// kind `planet`, the id the planet alone: the deck of a planet the holder controls (Archaeological Expedition).
     Dig,
+    /// kind `planet`, label `planet in system`: a planet of the other seat the holder offers coexistence on (Exchange Program).
+    Offer,
+    /// kind `answer`: the other seat accepts the exchange or refuses.
+    Accept,
     /// kind `ship`: the ship Lucky Shot destroys.
     Hull,
     /// kind `ship`: a ship Scuttle returns; the second question (`second`) also offers to stop after one.
@@ -107,6 +111,8 @@ pub enum Opt {
     /// A ship in a system's space area (`What::Hull`, `What::Scuttle`): the system, its place in the unit list, the owner
     /// and the unit form (the label names them).
     Ship { system: System, index: u8, owner: Seat, kind: crate::generated::Unit },
+    /// yes or no (`What::Accept`).
+    Answer(bool),
     /// "stop after one" (`What::Scuttle { second: true }`).
     Stop,
     /// A fragment trait (`What::Fragment`).

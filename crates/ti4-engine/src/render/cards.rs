@@ -56,6 +56,7 @@ impl Family for Fam {
                 return match what {
                     What::Elect => "confusing_legal_text_elect".to_owned(),
                     What::Silence => "silence_choose_system".to_owned(),
+                    What::Accept => "exchange_program_answer".to_owned(),
                     What::Exhaust => "reparations_exhaust".to_owned(),
                     What::Ready => "reparations_ready".to_owned(),
                     What::Redraft { .. } => "public_disgrace_choose_card".to_owned(),
@@ -93,10 +94,17 @@ impl Family for Fam {
                 ChoiceOption::labelled(id, "ship", label).with("system", system.as_str())
             }
             Opt::Stop => ChoiceOption::labelled("stop", "ship", "stop after one"),
+            Opt::Answer(yes) => ChoiceOption::labelled(if *yes { "yes" } else { "no" }, "answer", if *yes { "accept" } else { "refuse" }),
             Opt::Fragment(kind) => {
                 let id = kind.as_str().to_ascii_uppercase();
                 ChoiceOption::labelled(id.clone(), "fragment", id)
             }
+            Opt::Spot(system, planet) if matches!(pick_of(a).1, What::Offer) => ChoiceOption::labelled(
+                format!("{}|{}", system.as_str(), planet.as_str()),
+                "planet",
+                format!("{} in {}", planet.as_str(), system.as_str()),
+            )
+            .with_planet(planet.as_str(), Some(system.as_str())),
             Opt::Spot(system, planet) if matches!(pick_of(a).1, What::Exhaust | What::Ready | What::Dig) => {
                 ChoiceOption::labelled(planet.as_str(), pick_kind(pick_of(a).1), planet.as_str()).with_planet(planet.as_str(), Some(system.as_str()))
             }
@@ -159,6 +167,11 @@ impl Family for Fam {
             }
             Ask::Pick { what: What::Note, .. } => parse_note(id).map(Opt::Note),
             Ask::Pick { what: What::Invest { .. }, .. } => ti4_engine_core::generated::StrategyCard::from_id(id).map(Opt::Strat),
+            Ask::Pick { what: What::Accept, .. } => match id {
+                "yes" => Some(Opt::Answer(true)),
+                "no" => Some(Opt::Answer(false)),
+                _ => None,
+            },
             Ask::Pick { what: What::Hull | What::Scuttle { .. }, .. } => {
                 let (system, index) = id.split_once('|')?;
                 // Only the id is read back; the owner and unit form are the question's.
@@ -169,7 +182,7 @@ impl Family for Fam {
             Ask::Pick { what: What::Fragment, .. } => {
                 ti4_engine_core::generated::ExploreType::ALL.iter().copied().find(|k| k.as_str().eq_ignore_ascii_case(id)).map(Opt::Fragment)
             }
-            Ask::Pick { what: What::Exhaust | What::Ready | What::Dig, .. } => {
+            Ask::Pick { what: What::Exhaust | What::Ready | What::Dig | What::Offer, .. } => {
                 let planet = Planet::from_id(id)?;
                 Some(Opt::Spot(planet.data().system?, planet))
             }
@@ -193,6 +206,8 @@ const fn pick_kind(what: What) -> &'static str {
         What::Invest { .. } => "strategy_card",
         What::Law => "repeal",
         What::Hull | What::Scuttle { .. } => "ship",
+        What::Offer => "planet",
+        What::Accept => "answer",
         What::Fragment => "fragment",
         What::Exhaust => "reparations_exhaust",
         What::Ready => "reparations_ready",
@@ -236,6 +251,9 @@ const fn pick_prompt(card: ActionCard, what: What) -> &'static str {
         (C::CrippleDefenses, _) => "Cripple Defenses: which planet",
         (C::ReactorMeltdown, _) => "Reactor Meltdown: which space dock",
         (C::RepealLaw, _) => "repeal which law",
+        (C::ExchangeProgram, What::Offer) => "Exchange Program: which planet to offer",
+        (C::ExchangeProgram, What::Accept) => "Exchange Program: accept the exchange?",
+        (C::ExchangeProgram, _) => "Exchange Program: which player to ask",
         (C::LuckyShot, _) => "Lucky Shot: destroy which ship",
         (C::Scuttle, What::Scuttle { second: true }) => "Scuttle: another ship or stop",
         (C::Scuttle, _) => "Scuttle: which ship to scuttle",

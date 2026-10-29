@@ -106,6 +106,8 @@ pub enum Fx {
     Reparations,
     /// Public Disgrace: the picker of a strategy card chooses a different one.
     Disgrace,
+    /// Exchange Program: another seat is asked; it names a planet, the other seat accepts, one infantry each stands there.
+    Exchange,
     /// Summit: gain two command tokens, each into a pool of the holder's choice (the strategy area's pool question).
     Summit,
     /// Lucky Shot: a dreadnought, cruiser or destroyer of another seat, in a system the holder holds a planet in, is destroyed.
@@ -171,6 +173,7 @@ impl Fx {
             C::SeizeArtifact => Self::Seize,
             C::LuckyShot => Self::Lucky,
             C::Summit => Self::Summit,
+            C::ExchangeProgram => Self::Exchange,
             C::Scuttle => Self::Scuttle,
             C::Reparations => Self::Reparations,
             C::PublicDisgrace => Self::Disgrace,
@@ -218,6 +221,8 @@ pub struct Play {
     taken: Option<(Seat, Option<StrategyCard>)>,
     /// Scuttle: the ship chosen first.
     first_ship: Option<(System, u8)>,
+    /// Exchange Program: the planet offered.
+    offer: Option<(System, Planet)>,
 }
 
 /// The sides of the die the string `Dice` rolls.
@@ -287,7 +292,7 @@ impl Play {
             }
             _ => None,
         };
-        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None })
+        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None })
     }
 
     fn what(&self) -> Option<What> {
@@ -299,6 +304,9 @@ impl Play {
             Fx::Reparations if self.step == 0 => What::Exhaust,
             Fx::Reparations => What::Ready,
             Fx::Dig => What::Dig,
+            Fx::Exchange if self.step == 0 => What::Player,
+            Fx::Exchange if self.step == 1 => What::Offer,
+            Fx::Exchange => What::Accept,
             Fx::Lucky => What::Hull,
             Fx::Scuttle => What::Scuttle { second: self.first_ship.is_some() },
             Fx::Disgrace => {
@@ -416,6 +424,28 @@ impl Play {
                 held.as_mut_slice().sort_unstable();
                 held.as_slice().iter().map(|s| Opt::System(*s)).collect()
             }
+            Fx::Exchange => match (self.step, self.taken) {
+                (0, _) => Self::seat_opts(seats::seating_order(core).as_slice().iter().copied().filter(|s| *s != who)),
+                (1, Some((other, _))) => {
+                    let scope = self.env.scope;
+                    let mut offers = SmallList::new();
+                    for (system, planet) in board::controlled_planets(core, other).as_slice() {
+                        // Ground forces: infantry and mechs (and the Titans' PDS, which is both).
+                        let own_ground = core.board().planet(*planet).units.as_slice().iter().any(|p| {
+                            p.owner() == other
+                                && scope.unit(p.kind()).is_some_and(|d| {
+                                    matches!(d.base_type, UnitBaseType::Infantry | UnitBaseType::Mech) || (d.base_type == UnitBaseType::Pds && d.ground_force)
+                                })
+                        });
+                        if own_ground {
+                            offers.push(Opt::Spot(*system, *planet));
+                        }
+                    }
+                    offers
+                }
+                (_, Some(_)) => [Opt::Answer(true), Opt::Answer(false)].into_iter().collect(),
+                _ => SmallList::new(),
+            },
             Fx::Lucky => {
                 let mut seen: SmallList<(System, Seat, crate::generated::Unit, bool), 16> = SmallList::new();
                 let mut out = SmallList::new();
@@ -599,6 +629,17 @@ impl Play {
             }
         }
         fx::gain_trade_goods_staged(core, self.who, goods, self.env.action_card);
+    }
+
+    /// The failed half of Exchange Program: both seats discard one fleet token (an empty pool has nothing to discard).
+    fn refuse_exchange(core: &mut CoreState, who: Seat, other: Seat) {
+        for seat in [who, other] {
+            if let Some(p) = core.players_mut().by_seat_mut(seat)
+                && p.econ.fleet_tokens > 0
+            {
+                p.econ.fleet_tokens -= 1;
+            }
+        }
     }
 
     /// Put the first choice back with its picker and off the mat.
@@ -838,6 +879,25 @@ impl Play {
                     core.cards_mut().promissory_faceup.edit().insert(key, ());
                 }
             }
+            (Fx::Exchange, Opt::Seat(other)) => {
+                self.taken = Some((other, None));
+                self.step = 1;
+                return true;
+            }
+            (Fx::Exchange, Opt::Spot(system, planet)) => {
+                self.offer = Some((system, planet));
+                self.step = 2;
+                return true;
+            }
+            (Fx::Exchange, Opt::Answer(accepted)) => {
+                let (Some((other, _)), Some((system, planet))) = (self.taken, self.offer) else { return false };
+                if accepted {
+                    fx::place_unit(core, other, system, Some(planet), crate::generated::Unit::InfantryI);
+                    fx::place_unit(core, who, system, Some(planet), crate::generated::Unit::InfantryI);
+                } else {
+                    Self::refuse_exchange(core, who, other);
+                }
+            }
             (Fx::Lucky, Opt::Ship { system, index, .. }) => {
                 let units = &mut core.board_mut().sys_mut(system).units;
                 if usize::from(index) < units.len() {
@@ -987,6 +1047,14 @@ impl Play {
         loop {
             self.opts = self.options(core);
             match self.opts.as_slice() {
+                [] if self.fx == Fx::Exchange && self.step == 1 => {
+                    // Nothing to offer is a failed deal: both sides pay the fleet token.
+                    if let Some((other, _)) = self.taken {
+                        Self::refuse_exchange(core, self.who, other);
+                    }
+                    self.stage = Stage::Done;
+                    return;
+                }
                 [] if self.fx == Fx::Reparations && self.step == 0 => {
                     // The new controller has no planet to exhaust: the holder readies one.
                     self.step = 1;
@@ -1015,6 +1083,7 @@ impl Play {
             Fx::Pressure => self.victim.unwrap_or(self.who),
             Fx::Disgrace => self.taken.map_or(self.who, |(picker, _)| picker),
             Fx::Reparations if self.step == 0 => self.taken.map_or(self.who, |(gainer, _)| gainer),
+            Fx::Exchange if self.step == 2 => self.taken.map_or(self.who, |(other, _)| other),
             _ => self.who,
         }
     }
@@ -1135,7 +1204,8 @@ impl Window for Play {
                     None => Subtype::PredictOutcome,
                 }),
                 optional: false,
-                target: None,
+                // Exchange Program's answer is about the seat that asks.
+                target: (self.fx == Fx::Exchange && self.step == 2).then_some(crate::choice::Target::Seat(self.who)),
                 outstanding: SmallList::new(),
                 space_battle: false,
                 invasion_seq: None,
