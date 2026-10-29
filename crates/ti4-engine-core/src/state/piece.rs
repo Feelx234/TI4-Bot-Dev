@@ -51,6 +51,12 @@ impl Piece {
         Self((self.0 & !0xF0) | ((owner.0 as u16) << 4))
     }
 
+    /// The same piece (owner, damage and galvanize bits) in another unit form (an upgrade replaces the card).
+    #[must_use]
+    pub fn with_kind(self, kind: Unit) -> Self {
+        Self((self.0 & 0xFF) | ((kind.index() as u16) << 8))
+    }
+
     /// The packed bits (codec and hashing use).
     #[must_use]
     pub const fn bits(self) -> u16 {

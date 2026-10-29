@@ -384,8 +384,61 @@ impl Window for Construction {
 
 // -- Technology ------------------------------------------------------------------------------------------
 
-use crate::generated::{StrategyCard, Technology};
-use crate::query::tech;
+use crate::generated::{Faction, PromissoryNote, StrategyCard, Technology};
+use crate::kernel::{fx_pay, fx_strategy};
+use crate::query::tech::{self, Colours, ResearchCtx, ResearchHooks, UnitRoster};
+use crate::state::NoteKey;
+
+/// The answers of the faction hooks to the research questions, read from the kernel's hook table (package B8c-2):
+/// the printed Analytical and the modules' waived prerequisites, the colours a module counts extra (Yin's commander),
+/// the research waivers modules offer, and whether two resources are at hand for Inheritance Systems. Ta Zern's purge
+/// has no core home: the adapter declines a position where the string says a technology is purged.
+pub struct KernelHooks<'a> {
+    s: &'a CoreState,
+    k: &'a Kernel,
+    who: Seat,
+    afford_inheritance: bool,
+}
+
+impl<'a> KernelHooks<'a> {
+    #[must_use]
+    pub fn new(s: &'a CoreState, k: &'a Kernel, who: Seat) -> Self {
+        let cx = ProdCx::new(s, k, Scope(u32::from(k.sources.0)), reach::blanked(s));
+        let afford_inheritance = prod::available(&cx, who, Spend::Resources, &Extras::default()) >= tech::INHERITANCE_SYSTEMS_COST;
+        Self { s, k, who, afford_inheritance }
+    }
+}
+
+impl ResearchHooks for KernelHooks<'_> {
+    fn purged(&self, _: Technology) -> bool {
+        false
+    }
+
+    fn waived_prerequisites(&self, t: Technology) -> usize {
+        // `faction_abilities::waived_prerequisites`: Analytical waives one prerequisite of a non-upgrade, plus the modules'.
+        let analytical = !tech::is_unit_upgrade(t)
+            && self.s.players().by_seat(self.who).is_some_and(|p| p.faction.data().abilities.contains(&crate::generated::Ability::Analytical));
+        usize::from(analytical) + self.k.hooks.general.waived_prerequisites(self.s, self.k, self.who, t)
+    }
+
+    fn extra_colours(&self) -> Colours {
+        let mut out = [0u16; 4];
+        for extra in self.k.hooks.strategy.extra_prerequisite_colours(self.s, self.k, self.who).as_slice() {
+            if let Some(i) = tech::colour_index(extra.colour) {
+                out[i] += u16::try_from(extra.count).unwrap_or(u16::MAX);
+            }
+        }
+        out
+    }
+
+    fn inheritance_affordable(&self) -> bool {
+        self.afford_inheritance
+    }
+
+    fn waiver_offer(&self, t: Technology) -> bool {
+        self.k.hooks.strategy.research_waiver_offer(self.s, self.k, self.who, t).is_some()
+    }
+}
 
 /// The suspension points of [`Research`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -401,16 +454,25 @@ pub enum RStage {
 }
 
 /// Technology: the primary (one free research, then one for six resources) and the secondary (one for four).
-/// The plain path only: a technology whose prerequisites the seat's own colours do not cover (specialty
-/// planets, waivers, Inheritance Systems), a unit upgrade, and everything the faction abilities, laws and
-/// notes add to a research stay with the string caller; the adapter bails, and the window marks
-/// [`Research::failed`] where an answer leads out of the plain path.
+///
+/// The technology is chosen among what the seat can research under the faction hooks of the kernel
+/// ([`KernelHooks`]); a chosen technology lands as `technology::research` lands it: the prerequisites the colours do
+/// not cover are paid by Inheritance Systems (two resources by the first plan, the card exhausted) or covered by
+/// exhausting specialty planets (`exhaust_specialties_for_research`: the standing waivers first, AI Development
+/// Algorithm when nothing else covers it), then the card is gained, the unit forms of an upgrade change on the board,
+/// the Anti-Intellectual Revolution takes a ship, and Research Agreement hands the technology to its holder. A Nekro
+/// seat gains three command tokens instead (Propagation).
+///
+/// Not carried (the window marks [`Research::failed`]; the adapter declines the run, one test each): a technology
+/// only a faction waiver opens (a question about the waiver and its payment) and a research Inheritance Systems can no
+/// longer pay after the bill.
 #[derive(Debug, Clone)]
 pub struct Research {
     pub who: Seat,
     primary: bool,
     cost: i64,
     scope: Scope,
+    roster: Option<UnitRoster>,
     stage: RStage,
     pay: Option<PayStep>,
     chosen: Option<Technology>,
@@ -424,23 +486,22 @@ impl Research {
     /// `cost`: the resources the paid research costs (6 for the primary's second, 4 for the secondary).
     #[must_use]
     pub const fn new(who: Seat, primary: bool, cost: i64, scope: Scope) -> Self {
-        Self { who, primary, cost, scope, stage: RStage::Start, pay: None, chosen: None, failed: false, researched: SmallList::new() }
+        Self { who, primary, cost, scope, roster: None, stage: RStage::Start, pay: None, chosen: None, failed: false, researched: SmallList::new() }
+    }
+
+    /// The faction units of the scope (`ti4_content::units::faction_unit`), for the unit forms an upgrade changes.
+    #[must_use]
+    pub const fn with_roster(mut self, roster: UnitRoster) -> Self {
+        self.roster = Some(roster);
+        self
     }
 
     fn cx<'a>(s: &'a CoreState, k: &'a Kernel) -> ProdCx<'a> {
         ProdCx::new(s, k, Scope(u32::from(k.sources.0)), reach::blanked(s))
     }
 
-    fn open(&self, s: &CoreState) -> SmallList<Technology, 40> {
-        tech::researchable(s, self.scope, reach::blanked(s), self.who, &tech::NoHooks).iter().collect()
-    }
-
-    /// Whether researching `t` is only a grant: its prerequisites are covered by the seat's colours alone (no
-    /// specialty planet to exhaust, no waiver to spend) and it is no unit upgrade (whose units on the board
-    /// change form).
-    fn plain(&self, s: &CoreState, t: Technology) -> bool {
-        let held = tech::owned_colours(s, self.who);
-        !tech::is_unit_upgrade(t) && tech::prerequisites(t).iter().zip(held.iter()).all(|(need, have)| need <= have)
+    fn open(&self, s: &CoreState, k: &Kernel) -> SmallList<Technology, 40> {
+        tech::researchable(s, self.scope, reach::blanked(s), self.who, &KernelHooks::new(s, k, self.who)).iter().collect()
     }
 
     fn begin_paid(&mut self, s: &CoreState, k: &Kernel) {
@@ -452,13 +513,132 @@ impl Research {
         PayStep { who: self.who, kind: Spend::Resources, cost: self.cost, used_credit: 0, owed: self.cost, paid, took: None, stage: PayStage::Paying }
     }
 
-    fn land(&mut self, s: &mut CoreState, t: Technology) {
+    /// `technology::exhaust_specialties_for_research`: the specialty planets (and AI Development Algorithm) that pay the
+    /// prerequisites the colours owned do not cover.
+    fn exhaust_specialties(&self, s: &mut CoreState, k: &Kernel, t: Technology) {
+        let blanked = reach::blanked(s);
+        if tech::war_sun_prerequisites_waived(s, blanked, t) {
+            return;
+        }
+        let reqs = tech::prerequisites(t);
+        if reqs.iter().all(|n| *n == 0) {
+            return;
+        }
+        let held = tech::owned_colours(s, self.who);
+        let (mut waivable, aida) = {
+            let hooks = KernelHooks::new(s, k, self.who);
+            let mut waivable = hooks.waived_prerequisites(t);
+            for colour in tech::COLOURS {
+                waivable += crate::query::laws::research_team_waivers(s, blanked, self.who, colour);
+            }
+            waivable += tech::relic_waivers(s, self.who);
+            // AI Development Algorithm: spent only when nothing else covers the prerequisites.
+            let aida = tech::aida_waiver(s, self.who, t) > 0
+                && ResearchCtx::of(s, self.scope, blanked, self.who, &hooks).is_some_and(|c| !c.prerequisites_met(t, &hooks, false));
+            (waivable, aida)
+        };
+        if aida {
+            waivable += 1;
+            fx_strategy::exhaust_technology(s, self.who, Technology::AIDevelopmentAlgorithm);
+        }
+        let mut to_exhaust: SmallList<crate::generated::Planet, 8> = SmallList::new();
+        for (i, colour) in tech::COLOURS.into_iter().enumerate() {
+            let (need, have) = (usize::from(reqs[i]), usize::from(held[i]));
+            if need <= have {
+                continue;
+            }
+            let mut shortage = need - have;
+            if waivable > 0 {
+                let waived = shortage.min(waivable);
+                shortage -= waived;
+                waivable -= waived;
+            }
+            let mut exhausted_for_colour = 0;
+            for (_, planet) in board::controlled_planets(s, self.who).as_slice() {
+                if exhausted_for_colour >= shortage {
+                    break;
+                }
+                if board::exhausted(s, *planet) || to_exhaust.as_slice().contains(planet) {
+                    continue;
+                }
+                if tech::specialties_now(s, self.scope, *planet).as_slice().contains(&colour) {
+                    to_exhaust.push(*planet);
+                    exhausted_for_colour += 1;
+                }
+            }
+        }
+        if tech::psychoarchaeology_frees_specialties(s, self.who) {
+            return;
+        }
+        for planet in to_exhaust.as_slice() {
+            fx::exhaust_planet(s, *planet);
+        }
+    }
+
+    /// `technology::complete_research`.
+    fn complete(&mut self, s: &mut CoreState, k: &Kernel, t: Technology) {
+        let roster = self.roster.unwrap_or_default();
+        let blanked = reach::blanked(s);
+        let Some(faction) = s.players().by_seat(self.who).map(|p| p.faction) else { return };
+        // Propagation (Nekro): three command tokens instead, nothing is gained.
+        if faction == Faction::TheNekroVirus {
+            fx_strategy::note_propagation(s, self.who);
+            return;
+        }
         fx::grant_technology(s, self.who, t);
         self.researched.push(t);
+        fx_strategy::apply_unit_upgrades(s, k, self.scope, &roster, self.who);
+        fx_strategy::revolution_tax(s, self.scope, blanked, self.who);
+        // Research Agreement: a technology that is not a faction technology goes to the holder, and the note goes home.
+        if tech::faction_of(t).is_none() {
+            let key = NoteKey { note: PromissoryNote::ResearchAgreement, faction };
+            let holder = s.cards().promissory.get(&key).copied();
+            if let Some(holder) = holder
+                && s.players().by_seat(holder).is_some_and(|h| h.faction != faction && !h.tech.owned.contains(t))
+            {
+                fx::grant_technology(s, holder, t);
+                fx_strategy::apply_unit_upgrades(s, k, self.scope, &roster, holder);
+                fx::give_back_note(s, key);
+            }
+        }
+    }
+
+    /// `technology::research` for a technology just chosen (and the bill paid): the prerequisites are met or paid, then
+    /// the research completes. `false`, with the run to be the string's, where the path is not carried.
+    fn settle(&mut self, s: &mut CoreState, k: &Kernel, t: Technology) -> bool {
+        let blanked = reach::blanked(s);
+        let (met, inheritance, waiver) = {
+            let hooks = KernelHooks::new(s, k, self.who);
+            let Some(ctx) = ResearchCtx::of(s, self.scope, blanked, self.who, &hooks) else { return false };
+            (ctx.prerequisites_met(t, &hooks, true), tech::inheritance_ready(s, self.who, &hooks), hooks.waiver_offer(t))
+        };
+        if met {
+            self.exhaust_specialties(s, k, t);
+        } else if inheritance {
+            // Ignore the prerequisites: exhaust the card and pay two resources with the first plan.
+            let env = fx_pay::PayEnv { scope: self.scope, blanked };
+            if !fx_pay::pay_first_plan(s, k, env, self.who, Spend::Resources, tech::INHERITANCE_SYSTEMS_COST) {
+                return false;
+            }
+            fx_strategy::exhaust_technology(s, self.who, Technology::InheritanceSystems);
+        } else {
+            // Only a faction waiver opens it (a question), or the two resources are gone after the bill (the string
+            // restores the position): not carried.
+            let _ = waiver;
+            return false;
+        }
+        self.complete(s, k, t);
+        true
+    }
+
+    fn land(&mut self, s: &mut CoreState, k: &Kernel, t: Technology) {
+        if !self.settle(s, k, t) {
+            self.failed = true;
+        }
         self.stage = RStage::Done;
     }
 
-    fn after_step(&mut self, s: &mut CoreState) {
+    fn after_step(&mut self, s: &mut CoreState, k: &Kernel) {
         let Some(step) = self.pay.take() else {
             self.failed = true;
             self.stage = RStage::Done;
@@ -473,16 +653,16 @@ impl Research {
         if paid < step.owed {
             self.pay = Some(self.pay_step(paid));
         } else if let Some(t) = self.chosen.take() {
-            self.land(s, t);
+            self.land(s, k, t);
         } else {
             self.failed = true;
             self.stage = RStage::Done;
         }
     }
 
-    fn research_choice(&self, s: &CoreState, decline: bool) -> Choice {
+    fn research_choice(&self, s: &CoreState, k: &Kernel, decline: bool) -> Choice {
         let owned = u8::try_from(tech::owned(s, self.who).len()).unwrap_or(u8::MAX);
-        let mut options = opts(self.open(s).as_slice().iter().map(|t| SOpt::Research(*t)));
+        let mut options = opts(self.open(s, k).as_slice().iter().map(|t| SOpt::Research(*t)));
         if decline {
             options.push(Opt::Decline);
         }
@@ -507,18 +687,18 @@ impl Window for Research {
         loop {
             match self.stage {
                 RStage::Start => {
-                    if self.primary && !self.open(sx.state).is_empty() {
+                    if self.primary && !self.open(sx.state, sx.kernel).is_empty() {
                         self.stage = RStage::Free;
                     } else {
                         self.begin_paid(sx.state, sx.kernel);
                     }
                 }
-                RStage::Free => return Next::Continue(self.research_choice(sx.state, false).ask),
+                RStage::Free => return Next::Continue(self.research_choice(sx.state, sx.kernel, false).ask),
                 RStage::Choose => {
-                    if self.open(sx.state).is_empty() {
+                    if self.open(sx.state, sx.kernel).is_empty() {
                         self.stage = RStage::Done;
                     } else {
-                        return Next::Continue(self.research_choice(sx.state, true).ask);
+                        return Next::Continue(self.research_choice(sx.state, sx.kernel, true).ask);
                     }
                 }
                 RStage::Pay => {
@@ -528,7 +708,7 @@ impl Window for Research {
                         continue;
                     };
                     match step.step(sx) {
-                        Next::Done => self.after_step(sx.state),
+                        Next::Done => self.after_step(sx.state, sx.kernel),
                         other => return other,
                     }
                 }
@@ -539,8 +719,8 @@ impl Window for Research {
 
     fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
         match self.stage {
-            RStage::Free => Some(self.research_choice(s, false)),
-            RStage::Choose => Some(self.research_choice(s, true)),
+            RStage::Free => Some(self.research_choice(s, k, false)),
+            RStage::Choose => Some(self.research_choice(s, k, true)),
             RStage::Pay => self.pay.as_ref()?.ask_of(s, k),
             RStage::Start | RStage::Done => None,
         }
@@ -558,25 +738,20 @@ impl Window for Research {
         match (self.stage, chosen) {
             (RStage::Choose, Opt::Decline) => self.stage = RStage::Done,
             (RStage::Free, Opt::Strategy(SOpt::Research(t))) => {
-                if !self.plain(sx.state, t) {
+                if self.settle(sx.state, sx.kernel, t) {
+                    self.begin_paid(sx.state, sx.kernel);
+                } else {
                     self.failed = true;
                     self.stage = RStage::Done;
-                } else {
-                    fx::grant_technology(sx.state, self.who, t);
-                    self.researched.push(t);
-                    self.begin_paid(sx.state, sx.kernel);
                 }
             }
             (RStage::Choose, Opt::Strategy(SOpt::Research(t))) => {
-                if !self.plain(sx.state, t) {
-                    self.failed = true;
-                    self.stage = RStage::Done;
-                } else if self.cost > 0 {
+                if self.cost > 0 {
                     self.chosen = Some(t);
                     self.pay = Some(self.pay_step(0));
                     self.stage = RStage::Pay;
                 } else {
-                    self.land(sx.state, t);
+                    self.land(sx.state, sx.kernel, t);
                 }
             }
             _ => return Err(Illegal),

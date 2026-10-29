@@ -254,7 +254,7 @@ mod real {
         let before = gs.clone();
         let kernel = crate::production_view::kernel();
         let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
-        let fp = Footprint { reads: crate::production_view::READS, writes: ti4_engine_core::state::SliceSet::of(&[Slice::Board, Slice::Players]) };
+        let fp = Footprint { reads: crate::production_view::READS, writes: ti4_engine_core::state::SliceSet::of(&[Slice::Board, Slice::Players, Slice::Cards, Slice::Marks]) };
         let driven = with_core(gs, cx, Sources::default(), fp, |core, _| drive_at(&mut driver, core, kernel, r, &before, script, complete))
             .ok()?
             .ok()?;
@@ -390,32 +390,40 @@ mod real {
 
     // -- Technology ----------------------------------------------------------------------------------------
 
-    /// Whether the position holds a faction effect on a research the plain path does not carry: the Jol-Nar
-    /// agent and Specialist Compounds, Nekro's Propagation, Yin's grants, Mahact's commander copies (besides
-    /// what `production_view::unported_window` declines: Deepwrought, Keleres, Yssaril, Naaz, Mentak, Argent,
-    /// Nomad), a law that taxes a research, a Research Agreement, Inheritance Systems, and any faction hook
-    /// that answers a research question (a purge, a waiver, a colour).
+    /// Whether the position holds an effect on a research the core `Research` window does not carry: what
+    /// `production_view::unported_window` declines (Deepwrought, Keleres, Naaz, Mentak seats; Nomad, Yssaril at the
+    /// table), a technology purged by Ta Zern, a hook the core table answers differently from the string modules (a
+    /// faction effect nobody ported), and the questions of the paid research (`strategy_cards::research_asks_more`:
+    /// Specialist Compounds, Doctor Sucaban, the Deepwrought commander).
     fn research_unported(gs: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId) -> bool {
         use ti4_engine_core::generated::Technology;
-        if crate::production_view::unported_window(gs, player)
-            || gs.players.iter().any(|p| matches!(p.faction.as_str(), "jolnar" | "nekro" | "yin" | "mahact"))
-            || crate::laws::active(gs, "revolution")
-            || gs.players.iter().any(|p| crate::promissory::holder_of(gs, "ra", &p.id).is_some())
-            || gs.player(player).is_none_or(|p| p.technologies.contains(&ti4_model::id::TechnologyId::new("is")))
-        {
+        if crate::production_view::unported_window(gs, player) || crate::strategy_cards::research_asks_more(gs, content, sources, player) {
             return true;
         }
         let hooks = crate::technology_core::StringHooks { state: gs, content, sources, player };
-        let neutral = ti4_engine_core::query::tech::NoHooks;
         use ti4_engine_core::query::tech::ResearchHooks as _;
-        hooks.extra_colours() != neutral.extra_colours()
-            || Technology::ALL.iter().any(|t| hooks.purged(*t) || hooks.waived_prerequisites(*t) != 0 || hooks.waiver_offer(*t))
+        Technology::ALL.iter().any(|t| hooks.purged(*t))
+    }
+
+    /// The hooks of the core window against the string modules' answers, over every technology: a mismatch means a
+    /// faction effect on a research (a waived prerequisite, a colour, a waiver) the core table does not carry.
+    fn research_hooks_agree(core: &CoreState, gs: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, seat: Seat) -> bool {
+        use ti4_engine_core::generated::Technology;
+        use ti4_engine_core::query::tech::ResearchHooks as _;
+        let kernel = crate::production_view::kernel();
+        let core_hooks = ti4_engine_core::rules::production::strategy_cards::KernelHooks::new(core, kernel, seat);
+        let string_hooks = crate::technology_core::StringHooks { state: gs, content, sources, player };
+        core_hooks.extra_colours() == string_hooks.extra_colours()
+            && core_hooks.inheritance_affordable() == string_hooks.inheritance_affordable()
+            && Technology::ALL.iter().all(|t| {
+                core_hooks.waived_prerequisites(*t) == string_hooks.waived_prerequisites(*t) && core_hooks.waiver_offer(*t) == string_hooks.waiver_offer(*t)
+            })
     }
 
     /// The core half of the two Technology abilities (`primary`: the free research and the six-resource one,
     /// else the secondary's four-resource one). `None` as for Leadership, and where [`research_unported`]
-    /// says so, below `RULES_TECH_PAYMENT_CHOICE` (the plan is not asked), and where an answer leaves the
-    /// plain path (a prerequisite the colours do not cover, a unit upgrade).
+    /// says so, below `RULES_TECH_PAYMENT_CHOICE` (the plan is not asked), where the faction hooks of the core and
+    /// the string differ, and where an answer leaves the carried paths (a technology only a faction waiver opens).
     pub fn research(
         gs: &mut GameState,
         content: &ContentStore,
@@ -431,10 +439,19 @@ mod real {
         {
             return None;
         }
+        let roster = *crate::technology_core::roster_for(content, sources)?;
         let (mut cx, r) = crate::dual_window::tables(gs)?;
         let seat = r.seat(player.as_str())?;
         let scope = crate::technology_core::scope(sources);
-        let (window, driven) = run_production(gs, &mut cx, &r, Research::new(seat, primary, cost, scope), seat, script, &|c, _, rendered| {
+        let before = gs.clone();
+        let agree = with_core(gs, &mut cx, Sources::default(), Footprint::reads(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Agenda, Slice::Marks, Slice::Strategy, Slice::Cards, Slice::Trade, Slice::Transient, Slice::Explore]), |core, _| {
+            research_hooks_agree(core, &before, content, sources, player, seat)
+        })
+        .ok()?;
+        if !agree {
+            return None;
+        }
+        let (window, driven) = run_production(gs, &mut cx, &r, Research::new(seat, primary, cost, scope).with_roster(roster), seat, script, &|c, _, rendered| {
             if matches!(c.ask, Ask::Strategy(SAsk::ResearchTechnology { .. })) {
                 for (option, opt) in rendered.options.iter_mut().zip(c.opts.iter()) {
                     if let ti4_engine_core::choice::Opt::Strategy(ti4_engine_core::choice::strategy::Opt::Research(t)) = opt {
@@ -1135,43 +1152,22 @@ mod tests {
     }
 
     #[test]
-    fn technology_declines_what_the_plain_path_does_not_carry() {
+    fn technology_declines_what_the_core_window_does_not_carry() {
         let label = "strategy_cards::technology_primary";
         let techs = plain_techs(&F3);
         let rich = goods(4);
-        // Faction effects on a research.
+        // Since B8c-2 the Nekro seat, the Anti-Intellectual Revolution, a unit upgrade and Inheritance Systems are
+        // carried (`strategy_research_tests` plays each in lockstep). A Jol-Nar at the table is not: its readied
+        // agent, Doctor Sucaban, offers every researcher a discount for infantry (a question the window does not carry).
         let jolnar = [("a", "sol"), ("b", "jolnar")];
-        assert_eq!(run(label, &jolnar, &rich, &[&techs[0], "decline"], primary("pok7technology")), (0, 1));
+        assert_eq!(run(label, &jolnar, &rich, &[&techs[0], "decline", "decline"], primary("pok7technology")), (0, 1));
         let nekro = [("a", "sol"), ("b", "nekro")];
-        assert_eq!(run(label, &nekro, &rich, &[&techs[0], "decline"], primary("pok7technology")), (0, 1));
-        // The Anti-Intellectual Revolution taxes a research.
+        assert_eq!(run(label, &nekro, &rich, &[&techs[0], "decline"], primary("pok7technology")), (1, 0));
         let law = |s: &mut GameState| {
             goods(4)(s);
             s.enact_law("revolution", "for");
         };
-        assert_eq!(run(label, &F3, law, &[&techs[0], "decline"], primary("pok7technology")), (0, 1));
-        // A unit upgrade changes the units on the board: the free research is one (Infantry II, with two green).
-        let content = ContentStore::embedded();
-        let upgrade = |s: &mut GameState| {
-            goods(4)(s);
-            for t in ["nm", "dxa"] {
-                s.player_mut(&a()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(t));
-            }
-        };
-        let mut probe = crate::fixtures::seated_game(&F3, POK);
-        upgrade(&mut probe);
-        let first_upgrade = crate::technology::researchable(&probe, content, POK, &a())
-            .into_iter()
-            .find(|t| crate::technology::is_unit_upgrade(content, t))
-            .map(|t| t.to_string())
-            .expect("an upgrade is researchable");
-        assert_eq!(run(label, &F3, upgrade, &[&first_upgrade, "decline"], primary("pok7technology")), (0, 1));
-        // Inheritance Systems can research past a prerequisite: a research the plain path does not carry.
-        let inheritance = |s: &mut GameState| {
-            goods(4)(s);
-            s.player_mut(&a()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("is"));
-        };
-        assert_eq!(run(label, &F3, inheritance, &[&techs[0], "decline"], primary("pok7technology")), (0, 1));
+        assert_eq!(run(label, &F3, law, &[&techs[0], "decline"], primary("pok7technology")), (1, 0));
         // Below the rules version that asks which planets pay, the plan is chosen for the player.
         let old_rules = |s: &mut GameState| {
             goods(4)(s);

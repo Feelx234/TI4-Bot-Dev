@@ -142,6 +142,8 @@ pub(crate) mod action_cards_typed;
 mod action_cards_announce_tests;
 #[cfg(all(test, feature = "typed-core"))]
 mod strategy_secondary_dual_tests;
+#[cfg(test)]
+mod strategy_research_tests;
 /// The offline dual of Area::ActionCards.
 #[cfg(feature = "typed-core")]
 #[doc(hidden)]
