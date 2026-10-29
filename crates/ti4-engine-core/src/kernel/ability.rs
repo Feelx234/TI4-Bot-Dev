@@ -66,8 +66,6 @@ pub enum Unknown {
     HarnessOrInfiltrate,
     /// A Nomad that listens to the exhaustion of an agent (Temporal Command Suite): the exhaustion is announced.
     NomadAgentExhaustion,
-    /// Instinct Training may be carried by a Nekro Valefar Assimilator.
-    NekroCarriedCard,
     /// An action card played into a window at once (the Sabotage window, or a rules version before 3): the string path.
     ImmediateCardPlay,
     /// A played card whose effect is not one of the stamps the core plays, or one that comes from the salvage yard.
