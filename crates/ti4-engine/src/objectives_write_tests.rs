@@ -351,6 +351,11 @@ fn the_documented_bails_stay_with_the_string_side() {
     state.deck_reserve = None;
     assert!(reveal_top(&mut state).is_some());
 
+    // A ledger reason the codec does not type (A4-bail-1) is the string's; a typed one is followed.
+    assert!(adjust(&mut state, &a(), 1, "not a ledger reason").is_none());
+    assert!(adjust(&mut state, &a(), 1, "agenda:not_an_agenda").is_none());
+    assert_eq!(adjust(&mut state, &a(), 1, "objective"), Some(1));
+
     // A player who has no seat, and a position the Players codec refuses (the fixture faction "generic").
     assert!(adjust(&mut state, &PlayerId::new("nobody"), 1, "objective").is_none());
     assert!(draw_secret(&mut state, &PlayerId::new("nobody")).is_none());
