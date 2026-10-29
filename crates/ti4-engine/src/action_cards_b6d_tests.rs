@@ -1665,3 +1665,14 @@ fn bail_overrule_at_a_table_where_two_seats_share_a_faction() {
     // The secondaries name nobody: the same table is carried.
     assert_eq!(bails_picking("strategize1", &twins, "pok5trade", 0), (1, 0));
 }
+
+/// The tables a play window runs on carry the links to the areas whose windows a card runs as children (the payment, the hand
+/// limit, the research, the exploration reward, the abilities of the strategy cards; `ti4_engine_core::driver::children`): the
+/// plain table of `play_window` and `announce_window`, and the reactions table a window that follows nested activity runs on.
+/// A table without them makes every such card decline (a bail in each lockstep window above, counted `(0, 1)`).
+#[test]
+fn the_tables_a_play_window_runs_on_carry_the_links_to_the_other_areas() {
+    assert!(crate::action_cards_view::play_table().links.complete());
+    assert!(crate::reactions_core::table().links.complete());
+    assert!(ti4_engine_core::kernel::stage::AbilityTable::default().links.spawn.is_none(), "the empty table has none");
+}

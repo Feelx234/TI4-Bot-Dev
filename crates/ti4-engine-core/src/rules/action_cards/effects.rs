@@ -25,18 +25,15 @@ use crate::choice::explore::{Opt as EOpt, Step as EStep};
 use crate::generated::{ActionCard, Agenda, Explore, ExploreResolution, ExploreType, Planet, PlanetTrait, StrategyCard, System, UnitBaseType, Wormhole};
 use crate::ids::Seat;
 use crate::keys::{Prediction, PredictionTag, VoteBar};
-use crate::kernel::stage::{Child, Illegal, Ran, Sx, Window};
-use crate::rules::explore;
-use crate::rules::explore_windows::Reward;
-use crate::rules::objective_windows::HandLimit;
-use crate::rules::production::pay::PayBill;
-use crate::kernel::{Kernel, Next, fx, fx_ground, fx_pay};
+use crate::kernel::stage::{Illegal, Ran, Sx, Window};
+use crate::kernel::children::{AreaLinks, ErasedChild, Report, Spawn};
+use crate::kernel::{Kernel, Next, fx, fx_explore, fx_ground, fx_pay, fx_relic};
 use crate::keys::{ActionCardCause, DestroyReason};
 use crate::state::{RngDomain, SeedSource};
 use crate::query::{board, economy, seats};
 use crate::state::{CoreState, Piece, TransientFlags};
 
-use super::perform::{self, Began, Performed};
+use super::perform::{self, Began};
 use super::{Env, is_home_system};
 
 /// What a card does.
@@ -225,6 +222,14 @@ impl Fx {
         matches!(self, Self::Plagiarize | Self::Focused | Self::Divert | Self::Reveal)
     }
 
+    /// Whether the effect runs a window or a query of another area through the table's links ([`AreaLinks`]): a bill, a hand
+    /// limit, a research, the Merchant Station's reward or the ability of a strategy card. A play whose table has no link
+    /// declines its run at the start.
+    #[must_use]
+    pub const fn links(self) -> bool {
+        self.bill().is_some() || matches!(self, Self::Impersonation | Self::Focused | Self::Divert | Self::Reveal | Self::Probe | Self::Perform { .. })
+    }
+
     /// Whether the effect reads the game's map (the adapter lends the galaxy; without one it bails).
     #[must_use]
     pub const fn needs_map(self) -> bool {
@@ -409,14 +414,14 @@ pub struct Play {
     first_ship: Option<(System, u8)>,
     /// Exchange Program: the planet offered.
     offer: Option<(System, Planet)>,
-    /// The bill of the card while it is paid (a child window).
-    pay: Child<PayBill>,
+    /// The bill of the card while it is paid (a child window of the production area, started through the kernel).
+    pay: ErasedChild,
     /// Reveal Prototype: the technology chosen, researched once the bill is paid.
     chosen: Option<crate::generated::Technology>,
     /// Crash Landing: the type of ground force chosen.
     landing: Option<crate::generated::Unit>,
-    /// Impersonation: the hand limit after the draw (a child window).
-    hand: Child<HandLimit>,
+    /// Impersonation: the hand limit after the draw (a child window of the objectives area).
+    hand: ErasedChild,
     /// Signal Jamming: the system chosen.
     jam: Option<System>,
     /// Refit Troops: the first infantry chosen.
@@ -435,16 +440,16 @@ pub struct Play {
     owed_goods: i32,
     /// Exploration Probe: command tokens still to place.
     pool_left: u8,
-    /// Exploration Probe: the Merchant Station's reward question (a child window).
-    reward: Child<Reward>,
+    /// Exploration Probe: the Merchant Station's reward question (a child window of the exploration area).
+    reward: ErasedChild,
     /// Exploration Probe: what the seat held before the draw, and once the card has resolved.
     held: Option<(crate::query::explore::Holdings, Option<crate::query::explore::Holdings>)>,
     /// Exploration Probe: the system a gamma token was placed in (not where it was already).
     gamma: Option<System>,
     /// Strategize and Overrule: the strategy card chosen.
     picked: Option<StrategyCard>,
-    /// Strategize and Overrule: the ability of the card, while it runs (a child window).
-    perform: Child<Performed>,
+    /// Strategize and Overrule: the ability of the card, while it runs (a child window of a strategy area).
+    perform: ErasedChild,
     /// The Diplomacy primary: the system it placed tokens in and the seats that got one.
     tokens: Option<(System, SmallList<Seat, 8>)>,
 }
@@ -550,7 +555,7 @@ impl Play {
             }
             _ => None,
         };
-        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: Child::idle(), hand: Child::idle(), chosen: None, landing: None, jam: None, troop: None, pulled: SmallList::new(), received: SmallList::new(), pay_ask: None, probe: None, explored: None, owed_goods: 0, pool_left: 0, reward: Child::idle(), held: None, gamma: None, picked: None, perform: Child::idle(), tokens: None })
+        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: ErasedChild::idle(), hand: ErasedChild::idle(), chosen: None, landing: None, jam: None, troop: None, pulled: SmallList::new(), received: SmallList::new(), pay_ask: None, probe: None, explored: None, owed_goods: 0, pool_left: 0, reward: ErasedChild::idle(), held: None, gamma: None, picked: None, perform: ErasedChild::idle(), tokens: None })
     }
 
     fn what(&self) -> Option<What> {
@@ -633,7 +638,7 @@ impl Play {
     }
 
     /// The options of the card's question, in the string order.
-    fn options(&self, core: &CoreState, k: &Kernel) -> SmallList<Opt, 16> {
+    fn options(&self, core: &CoreState, k: &Kernel, links: &AreaLinks) -> SmallList<Opt, 16> {
         let who = self.who;
         let others = || core.players().iter().map(|p| p.seat).filter(move |s| *s != who);
         match self.fx {
@@ -869,8 +874,8 @@ impl Play {
                 None => SmallList::new(),
             },
             Fx::Focused | Fx::Reveal | Fx::Divert if self.step == 9 => SmallList::new(),
-            Fx::Focused => crate::rules::production::strategy_cards::Research::researchable_for(core, k, self.env.scope, who).as_slice().iter().map(|t| Opt::Tech(*t)).collect(),
-            Fx::Reveal => crate::rules::production::strategy_cards::Research::researchable_for(core, k, self.env.scope, who)
+            Fx::Focused => Self::researchable(links, core, k, self.env.scope, who).as_slice().iter().map(|t| Opt::Tech(*t)).collect(),
+            Fx::Reveal => Self::researchable(links, core, k, self.env.scope, who)
                 .as_slice()
                 .iter()
                 .filter(|t| self.env.facts.reveal.contains(**t))
@@ -886,7 +891,7 @@ impl Play {
                     .map(|t| Opt::Tech(*t))
                     .collect()
             }
-            Fx::Divert => crate::rules::production::strategy_cards::Research::researchable_for(core, k, self.env.scope, who).as_slice().iter().map(|t| Opt::Tech(*t)).collect(),
+            Fx::Divert => Self::researchable(links, core, k, self.env.scope, who).as_slice().iter().map(|t| Opt::Tech(*t)).collect(),
             Fx::Plagiarize => {
                 let mut near: SmallList<Seat, 2> = SmallList::new();
                 let order = seats::seating_order(core);
@@ -1216,11 +1221,17 @@ impl Play {
             .collect()
     }
 
-    /// `technology::research` of the chosen technology (the string ignores its answer).
-    fn research(&self, core: &mut CoreState, k: &Kernel, t: crate::generated::Technology) {
-        if let Some(roster) = self.env.facts.roster {
-            crate::rules::production::strategy_cards::Research::research_chosen(core, k, self.env.scope, *roster, self.who, t);
+    /// `technology::research` of the chosen technology (the string ignores its answer). The technology area is reached through
+    /// the table's links ([`AreaLinks::research`]); a play that needs them declined at its start when the table has none.
+    fn research(&self, core: &mut CoreState, k: &Kernel, links: &AreaLinks, t: crate::generated::Technology) {
+        if let (Some(roster), Some(research)) = (self.env.facts.roster, links.research) {
+            research(core, k, self.env.scope, *roster, self.who, t);
         }
+    }
+
+    /// The technologies the holder can research now (the technology area's query, through [`AreaLinks::researchable`]).
+    fn researchable(links: &AreaLinks, core: &CoreState, k: &Kernel, scope: crate::tables::Scope, who: Seat) -> SmallList<crate::generated::Technology, 40> {
+        links.researchable.map_or_else(SmallList::new, |query| query(core, k, scope, who))
     }
 
     /// The holder's ground forces on the board, system by system, planet by planet, in the order of the planets' lists.
@@ -1494,7 +1505,7 @@ impl Play {
 
     /// Apply the chosen option.
     /// Apply the chosen option; `true` when another question of the same card follows.
-    fn apply(&mut self, core: &mut CoreState, k: &Kernel, seeds: &dyn SeedSource, opt: Opt) -> bool {
+    fn apply(&mut self, core: &mut CoreState, k: &Kernel, links: &AreaLinks, seeds: &dyn SeedSource, opt: Opt) -> bool {
         let who = self.who;
         match (self.fx, opt) {
             (Fx::Insubordination, Opt::Seat(target)) => {
@@ -1662,7 +1673,7 @@ impl Play {
                 for _ in 0..3 {
                     // The deck ran out before the third card.
                     let d = core.decks_mut();
-                    // `rules::explore::draw` (the exploration area): the top card of one deck, none when the deck is absent or empty.
+                    // `kernel::fx_explore::draw` (the exploration primitives): the top card of one deck, none when the deck is absent or empty.
                     let drawn = if d.explore_present & (1 << deck as u8) == 0 { None } else { d.explore[deck as usize].draw() };
                     let Some(card) = drawn else { break };
                     if card.data().resolution == crate::generated::ExploreResolution::Fragment {
@@ -1780,7 +1791,7 @@ impl Play {
             }
             (Fx::Focused, Opt::Tech(t)) => {
                 fx_pay::pay_trade_goods(core, who, 4);
-                self.research(core, k, t);
+                self.research(core, k, links, t);
             }
             (Fx::Divert, Opt::Tech(t)) if self.step == 0 => {
                 if let Some(p) = core.players_mut().by_seat_mut(who) {
@@ -1789,7 +1800,7 @@ impl Play {
                 self.step = 1;
                 return true;
             }
-            (Fx::Divert, Opt::Tech(t)) => self.research(core, k, t),
+            (Fx::Divert, Opt::Tech(t)) => self.research(core, k, links, t),
             (Fx::Reveal, Opt::Tech(t)) => {
                 // The four resources are paid first (a child window), then the research lands.
                 self.chosen = Some(t);
@@ -1913,7 +1924,7 @@ impl Play {
     }
 
     /// Compute the options of the next question and apply the options that need no asking.
-    fn advance(&mut self, core: &mut CoreState, k: &Kernel, seeds: &dyn SeedSource) {
+    fn advance(&mut self, core: &mut CoreState, k: &Kernel, links: &AreaLinks, seeds: &dyn SeedSource) {
         loop {
             if self.fx == Fx::Lie {
                 // The next trader (of the first two) who holds a card.
@@ -1928,7 +1939,7 @@ impl Play {
                     self.step += 1;
                 }
             }
-            self.opts = self.options(core, k);
+            self.opts = self.options(core, k, links);
             match self.opts.as_slice() {
                 [] if self.fx == Fx::Exchange && self.step == 1 => {
                     // Nothing to offer is a failed deal: both sides pay the fleet token.
@@ -1948,7 +1959,7 @@ impl Play {
                 }
                 [only] if self.fx != Fx::Squad => {
                     let only = *only;
-                    if !self.apply(core, k, seeds, only) {
+                    if !self.apply(core, k, links, seeds, only) {
                         self.stage = self.settled();
                         return;
                     }
@@ -2009,19 +2020,22 @@ impl Play {
         if self.stage != Stage::Start {
             return;
         }
+        // A card that runs a window of another area needs the table's links; a table that has none declines the run before
+        // anything changed (the adapter plays the card on the string side: a counted bail).
+        if self.fx.links() && !sx.table.links.complete() {
+            return self.decline();
+        }
         self.before(sx.state);
         // Rules version 23: with nothing to take the five influence are never spent (older games paid first).
-        if self.fx == Fx::Plagiarize && self.env.facts.rules_version >= RULES_ACTION_CARD_COSTS && self.options(sx.state, sx.kernel).is_empty() {
+        if self.fx == Fx::Plagiarize && self.env.facts.rules_version >= RULES_ACTION_CARD_COSTS && self.options(sx.state, sx.kernel, &sx.table.links).is_empty() {
             self.stage = Stage::Done;
             return;
         }
         if let Some((kind, cost)) = self.fx.bill() {
-            self.pay.start(PayBill::new(self.who, kind, cost));
-            self.stage = Stage::Paying;
-            self.drive_bill(sx);
+            self.pay_bill(sx, kind, cost);
             return;
         }
-        self.start_questions(sx.state, sx.kernel, sx.seeds);
+        self.start_questions(sx.state, sx.kernel, &sx.table.links, sx.seeds);
         self.maybe_bill(sx);
         self.maybe_explore(sx);
     }
@@ -2051,7 +2065,8 @@ impl Play {
                 self.unsupported = true;
                 self.stage = Stage::Done;
             }
-            Began::Run(window) => {
+            Began::Run(request) => {
+                let Some(window) = sx.table.links.start(&request) else { return self.decline() };
                 self.perform.start(window);
                 self.stage = Stage::Performing;
                 self.drive_perform(sx);
@@ -2069,11 +2084,11 @@ impl Play {
                     return;
                 }
                 Some(Ran::Pass(_)) => {}
-                Some(Ran::Done(window)) => {
+                Some(Ran::Done(report)) => {
                     // An answer that left the carried path (a research only a faction waiver opens): the string performs it.
-                    self.unsupported |= window.failed();
-                    window.finish(sx.state, self.env);
-                    self.tokens = window.tokens();
+                    let done = perform::finish(report, sx.state, self.env);
+                    self.unsupported |= done.failed;
+                    self.tokens = done.tokens;
                     self.stage = Stage::Done;
                     return;
                 }
@@ -2091,23 +2106,29 @@ impl Play {
             self.begin_perform(sx);
         }
         if self.stage == Stage::Billing {
-            self.pay.start(PayBill::new(self.who, economy::Spend::Resources, 4));
-            self.stage = Stage::Paying;
-            self.drive_bill(sx);
+            self.pay_bill(sx, economy::Spend::Resources, 4);
         }
+    }
+
+    /// The bill of the card is paid by a child window of the production area (asked of the kernel).
+    fn pay_bill(&mut self, sx: &mut Sx<'_>, kind: economy::Spend, cost: i64) {
+        let Some(window) = sx.table.links.start(&Spawn::Bill { who: self.who, kind, cost }) else { return self.decline() };
+        self.pay.start(window);
+        self.stage = Stage::Paying;
+        self.drive_bill(sx);
     }
 
     /// What follows a paid bill: the questions of the card, or Impersonation's draw and the hand limit.
     fn after_bill(&mut self, sx: &mut Sx<'_>) {
         if self.fx == Fx::Reveal {
             if let Some(t) = self.chosen.take() {
-                self.research(sx.state, sx.kernel, t);
+                self.research(sx.state, sx.kernel, &sx.table.links, t);
             }
             self.stage = Stage::Done;
             return;
         }
         if self.fx != Fx::Impersonation {
-            self.start_questions(sx.state, sx.kernel, sx.seeds);
+            self.start_questions(sx.state, sx.kernel, &sx.table.links, sx.seeds);
             return;
         }
         self.draw_secret(sx);
@@ -2119,7 +2140,8 @@ impl Play {
             self.stage = Stage::Done;
             return;
         }
-        self.hand.start(HandLimit::new(self.who));
+        let Some(window) = sx.table.links.start(&Spawn::HandLimit { who: self.who }) else { return self.decline() };
+        self.hand.start(window);
         self.stage = Stage::Limiting;
         self.drive_hand(sx);
     }
@@ -2139,16 +2161,16 @@ impl Play {
         let Some(system) = self.probe.take() else { return };
         let core = &mut *sx.state;
         // The token goes first: a deck that has run out (or is not dealt) loses the token for nothing.
-        if !explore::take_frontier(core, system) {
+        if !fx_explore::take_frontier(core, system) {
             return;
         }
-        let Some(card) = explore::draw(core, ExploreType::Frontier) else { return };
-        explore::open_record(core, who, ExploreType::Frontier, card, None, None, self.env.facts.explore_empty);
+        let Some(card) = fx_explore::draw(core, ExploreType::Frontier) else { return };
+        fx_explore::open_record(core, who, ExploreType::Frontier, card, None, None, self.env.facts.explore_empty);
         self.held = Some((crate::query::explore::holdings(core, who, None), None));
         let data = card.data();
         let (outcome, goods) = match data.resolution {
             ExploreResolution::Fragment => {
-                explore::gain_fragment(core, who, data.deck);
+                fx_explore::gain_fragment(core, who, data.deck);
                 (Explored::Fragment(data.deck), None)
             }
             // A card of another deck (an attachment, a planet's reward) is not in the frontier deck of any game.
@@ -2159,7 +2181,7 @@ impl Play {
                 Explore::MajorEntropicField => (Explored::Resolved, Some((1, 3))),
                 Explore::KeleresShip1 | Explore::KeleresShip2 => (Explored::Resolved, Some((2, 0))),
                 Explore::DeadWorld => {
-                    explore::relic_gain(core, who);
+                    fx_relic::relic_gain(core, who);
                     (Explored::Resolved, None)
                 }
                 Explore::DerelictVessel1 | Explore::DerelictVessel2 => {
@@ -2167,7 +2189,7 @@ impl Play {
                     return self.draw_secret(sx);
                 }
                 Explore::EnigmaticDevice1 | Explore::EnigmaticDevice2 => {
-                    explore::play_area_card(core, who, card);
+                    fx_explore::play_area_card(core, who, card);
                     (Explored::Resolved, None)
                 }
                 Explore::GammaRelay | Explore::GammaWormhole => match core.meta().active_system {
@@ -2175,7 +2197,7 @@ impl Play {
                         if core.explore().wormhole_tokens.get(&Wormhole::Gamma) != Some(&here) {
                             self.gamma = Some(here);
                         }
-                        explore::place_wormhole_token(core, Wormhole::Gamma, here);
+                        fx_explore::place_wormhole_token(core, Wormhole::Gamma, here);
                         (Explored::Resolved, None)
                     }
                     None => (Explored::Unresolved, None),
@@ -2243,7 +2265,9 @@ impl Play {
         if self.env.facts.rules_version < RULES_NO_EMPTY_CONVERT || has_commodities {
             options.push(EOpt::Convert);
         }
-        self.reward.start(Reward::new(self.who, EStep::MerchantStation, &options, true));
+        let request = Spawn::Reward { who: self.who, step: EStep::MerchantStation, options: SmallList::from_slice(&options), skip_single: true };
+        let Some(window) = sx.table.links.start(&request) else { return self.decline() };
+        self.reward.start(window);
         self.stage = Stage::Rewarding;
         self.drive_reward(sx);
     }
@@ -2258,16 +2282,16 @@ impl Play {
                     return;
                 }
                 Some(Ran::Pass(_)) => {}
-                Some(Ran::Done(window)) => {
+                Some(Ran::Done(report)) => {
                     self.stage = Stage::Done;
-                    if window.chosen == Some(EOpt::Convert) {
-                        let moved = explore::spend_commodities(sx.state, self.who, None);
+                    if report == Report::Chose(Some(EOpt::Convert)) {
+                        let moved = fx_explore::spend_commodities(sx.state, self.who, None);
                         fx::gain_trade_goods(sx.state, self.who, moved);
                     } else if self.env.facts.replenish_events {
                         // The Siphon event, Cabal's note and the Trade Agreement hook follow a replenishment: the string's.
                         self.decline();
                     } else if let Some(limit) = sx.state.players().by_seat(self.who).map(|p| i32::from(p.faction.data().commodities)) {
-                        explore::gain_commodities(sx.state, self.who, limit);
+                        fx_explore::gain_commodities(sx.state, self.who, limit);
                     }
                     return;
                 }
@@ -2298,7 +2322,7 @@ impl Play {
     }
 
     /// The first question of the card (after the bill, when it has one).
-    fn start_questions(&mut self, core: &mut CoreState, k: &Kernel, seeds: &dyn SeedSource) {
+    fn start_questions(&mut self, core: &mut CoreState, k: &Kernel, links: &AreaLinks, seeds: &dyn SeedSource) {
         if self.fx == Fx::Summit {
             self.stage = Stage::Asking;
             return;
@@ -2307,7 +2331,7 @@ impl Play {
             self.stage = Stage::Done;
             return;
         }
-        self.advance(core, k, seeds);
+        self.advance(core, k, links, seeds);
     }
 
     /// Step the bill until it asks or ends; a paid bill goes on to the questions, an unpaid one ends the card.
@@ -2320,8 +2344,8 @@ impl Play {
                     return;
                 }
                 Some(Ran::Pass(_)) => {}
-                Some(Ran::Done(bill)) => {
-                    if bill.outcome == Some(true) {
+                Some(Ran::Done(report)) => {
+                    if report == Report::Paid(true) {
                         self.after_bill(sx);
                     } else {
                         self.stage = Stage::Done;
@@ -2442,8 +2466,9 @@ impl Play {
         if !self.opts.as_slice().contains(&opt) {
             return Err(Illegal);
         }
-        if self.apply(core, k, seeds, opt) {
-            self.advance(core, k, seeds);
+        let links = &sx.table.links;
+        if self.apply(core, k, links, seeds, opt) {
+            self.advance(core, k, links, seeds);
         } else {
             self.stage = self.settled();
         }
@@ -2599,6 +2624,13 @@ mod tests {
         }
     }
 
+    /// The table of a play window (the adapter's `play_table`): the links to the areas whose windows a card runs as children.
+    fn linked() -> crate::kernel::stage::AbilityTable {
+        let mut table = crate::kernel::stage::AbilityTable::default();
+        crate::driver::children::register(&mut table);
+        table
+    }
+
     fn bare_env() -> Env {
         Env {
             mahact_held: 0,
@@ -2652,7 +2684,6 @@ mod tests {
     fn bail_brilliance_for_the_cabal_marks_the_run_unsupported() {
         use crate::driver::{Driver, Status};
         use crate::generated::{Breakthrough, Faction, FactionTag};
-        use crate::kernel::stage::AbilityTable;
         use crate::kernel::Resolver;
         use crate::state::{Player, Players};
         let cabal_bt = Breakthrough::ALL.iter().copied().find(|b| b.data().faction == FactionTag::Cabal).expect("the Cabal breakthrough");
@@ -2667,7 +2698,7 @@ mod tests {
             let env = Env { facts, ..bare_env() };
             let play = Play::of(&s, ActionCard::Brilliance, Seat(0), env).expect("a play");
             let k = Kernel::plain();
-            let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), 1);
+            let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), linked(), 1);
             let seeds: std::rc::Rc<dyn SeedSource> = std::rc::Rc::new(ZeroSeeds);
             d = d.with_seeds(seeds);
             let mut status = d.run(&mut s, &k).unwrap();
@@ -2688,7 +2719,6 @@ mod tests {
     /// test's. `(the run is unsupported, the position after, the question the run stopped at)`.
     fn performs(card: ActionCard, held: StrategyCard, facts: super::super::Facts, kernel: &Kernel) -> (bool, CoreState, bool) {
         use crate::driver::{Driver, Status};
-        use crate::kernel::stage::AbilityTable;
         use crate::kernel::Resolver;
         use crate::state::{Player, Players};
         let mut s = CoreState::all_loaded();
@@ -2696,7 +2726,7 @@ mod tests {
         s.seats = crate::state::Seats::new(&[Seat(0), Seat(1)], &[Seat(0), Seat(1)], 2);
         fx::deal_strategy_card(&mut s, Seat(1), held);
         let play = Play::of(&s, card, Seat(0), Env { facts, ..bare_env() }).expect("a play");
-        let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), 1);
+        let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), linked(), 1);
         let asked = matches!(d.run(&mut s, kernel).unwrap(), Status::Asking(_));
         (d.window.unsupported(), s, asked)
     }
@@ -2783,7 +2813,6 @@ mod tests {
     fn bail_a_research_only_a_waiver_opens_marks_the_run_unsupported() {
         use crate::driver::{Driver, Status};
         use crate::kernel::hooks::{ResearchWaiver, Waiver};
-        use crate::kernel::stage::AbilityTable;
         use crate::kernel::Resolver;
         use crate::state::{Player, Players};
         fn offers_a_waiver(_: &CoreState, _: &Kernel, _: Seat, _: crate::generated::Technology) -> Option<ResearchWaiver> {
@@ -2805,7 +2834,7 @@ mod tests {
             .iter()
             .position(|t| !crate::query::tech::prerequisites_met(&s, scope, false, Seat(0), *t, &crate::rules::production::strategy_cards::KernelHooks::new(&s, &k, Seat(0))))
             .expect("the waiver opens a technology the colours do not cover");
-        let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), 1);
+        let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), linked(), 1);
         let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("the free research asks") };
         let status = d.resume(&mut s, &k, c.pick(walled).unwrap()).unwrap();
         assert!(matches!(status, Status::Done) && d.window.unsupported(), "the waiver is a question: the string plays it");
@@ -2827,7 +2856,6 @@ mod tests {
     #[test]
     fn bail_the_warfare_primary_declines_with_a_mahact_token() {
         use crate::driver::{Driver, Status};
-        use crate::kernel::stage::AbilityTable;
         use crate::kernel::Resolver;
         use crate::state::{Player, Players};
         for (held, bails) in [(0, false), (1, true)] {
@@ -2836,7 +2864,7 @@ mod tests {
             s.seats = crate::state::Seats::new(&[Seat(0), Seat(1)], &[Seat(0), Seat(1)], 2);
             fx::deal_strategy_card(&mut s, Seat(1), StrategyCard::Warfare);
             let play = Play::of(&s, ActionCard::Overrule, Seat(0), Env { mahact_held: held, ..bare_env() }).expect("a play");
-            let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), 1);
+            let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), linked(), 1);
             let status = d.run(&mut s, &Kernel::plain()).unwrap();
             assert!(matches!(status, Status::Done), "no token on the board: nothing is asked");
             assert_eq!(d.window.unsupported(), bails, "{held} tokens held by Mahact");
@@ -2871,7 +2899,6 @@ mod tests {
     #[test]
     fn strategize_with_no_card_on_offer_asks_nothing() {
         use crate::driver::{Driver, Status};
-        use crate::kernel::stage::AbilityTable;
         use crate::kernel::Resolver;
         use crate::state::{Player, Players};
         let mut s = CoreState::all_loaded();
@@ -2882,7 +2909,7 @@ mod tests {
         s.players_mut().by_seat_mut(Seat(1)).unwrap().strat_exhausted.insert(StrategyCard::Warfare);
         let before = s.clone();
         let play = Play::of(&s, ActionCard::Strategize2, Seat(0), bare_env()).expect("a play");
-        let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), 1);
+        let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), linked(), 1);
         assert!(matches!(d.run(&mut s, &Kernel::plain()).unwrap(), Status::Done));
         assert!(!d.window.unsupported() && s.players().by_seat(Seat(0)) == before.players().by_seat(Seat(0)), "nothing happened");
     }
@@ -2952,11 +2979,10 @@ mod tests {
     /// and the questions asked.
     fn run_probe(mut s: CoreState, env: Env) -> (CoreState, bool, usize) {
         use crate::driver::{Driver, Status};
-        use crate::kernel::stage::AbilityTable;
         use crate::kernel::Resolver;
         let play = Play::of(&s, ActionCard::ExplorationProbe, Seat(0), env).expect("a play");
         let k = Kernel::plain();
-        let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), 1);
+        let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), linked(), 1);
         d = d.with_seeds(std::rc::Rc::new(ZeroSeeds));
         let mut asked = 0;
         let mut status = d.run(&mut s, &k).unwrap();
@@ -2980,7 +3006,6 @@ mod tests {
         use crate::choice::{Ask as AnyAsk, Opt as AnyOpt};
         use crate::driver::{Driver, Status};
         use crate::generated::{Explore as E, Unit};
-        use crate::kernel::stage::AbilityTable;
         use crate::kernel::Resolver;
         let mut s = probe_state(&[E::UnknownRelicFragment1]);
         let (first, second) = (System::ALL[0], System::ALL[1]);
@@ -2991,7 +3016,7 @@ mod tests {
         s.board_mut().sys_mut(System::ALL[2]).units.push(Piece::new(Unit::CruiserI, Seat(1)));
         let play = Play::of(&s, ActionCard::ExplorationProbe, Seat(0), probe_env()).expect("a play");
         let k = Kernel::plain();
-        let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), 1);
+        let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), linked(), 1);
         let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("a question") };
         assert_eq!(c.ask, AnyAsk::Cards(Ask::Pick { card: ActionCard::ExplorationProbe, what: What::Probe }));
         let offered: Vec<_> = c.opts.as_slice().iter().map(|o| *o).collect();
@@ -3108,6 +3133,97 @@ mod tests {
             C::SkilledRetreat4,
         ]
     };
+
+    // -- The links to the other areas (docs/B6_CARDS.md B6d, layering) -----------------------------------------------------------
+
+    /// Seat 0 plays `card` on `table`: `(the run is unsupported, the questions asked, the position is untouched)`.
+    fn played_on(card: ActionCard, env: Env, table: crate::kernel::stage::AbilityTable) -> (bool, usize, bool) {
+        use crate::driver::{Driver, Status};
+        use crate::kernel::Resolver;
+        use crate::state::{Player, Players};
+        let mut s = CoreState::all_loaded();
+        s.players = Players::from_vec(vec![Player::new(Seat(0), crate::generated::Faction::TheArborec), Player::new(Seat(1), crate::generated::Faction::TheEmiratesOfHacan)]);
+        s.seats = crate::state::Seats::new(&[Seat(0), Seat(1)], &[Seat(0), Seat(1)], 2);
+        fx::deal_strategy_card(&mut s, Seat(1), StrategyCard::Trade);
+        let before = s.clone();
+        let play = Play::of(&s, card, Seat(0), env).unwrap_or_else(|| panic!("{card:?}: a play"));
+        let k = Kernel::plain();
+        let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), table, 1);
+        let seeds: std::rc::Rc<dyn SeedSource> = std::rc::Rc::new(ZeroSeeds);
+        d = d.with_seeds(seeds);
+        let mut asked = 0;
+        let mut status = d.run(&mut s, &k).unwrap();
+        while let Status::Asking(choice) = status {
+            asked += 1;
+            status = d.resume(&mut s, &k, choice.pick(0).unwrap()).unwrap();
+        }
+        (d.window.unsupported(), asked, s == before)
+    }
+
+    /// The cards that run a window or a query of another area (a bill, the hand limit, a research, the Merchant Station's reward,
+    /// the ability of a strategy card).
+    const LINKED_CARDS: [ActionCard; 9] = [
+        ActionCard::PirateFleet,
+        ActionCard::Impersonation,
+        ActionCard::Plagiarize,
+        ActionCard::FocusedResearch,
+        ActionCard::DivertFunding,
+        ActionCard::RevealPrototype,
+        ActionCard::ExplorationProbe,
+        ActionCard::Strategize1,
+        ActionCard::Overrule,
+    ];
+
+    fn linked_env() -> Env {
+        Env { facts: super::super::Facts { neutral: Some(Seat(1)), action_draw_plain: true, ..super::super::Facts::default() }, ..bare_env() }
+    }
+
+    /// A play window built on a table without the links (an adapter that forgot `driver::children::register`) declines the run
+    /// of a card that needs another area: unsupported (the adapter plays the card on the string side: a counted bail), nothing
+    /// asked, nothing changed, no panic. Every card that needs a link is covered; a card that needs none is not affected.
+    #[test]
+    fn a_play_built_without_the_links_declines_instead_of_panicking() {
+        for card in LINKED_CARDS {
+            let fx = Fx::of(card).expect("a ported card");
+            assert!(fx.links(), "{card:?} runs a window or a query of another area");
+            let (unsupported, asked, untouched) = played_on(card, linked_env(), crate::kernel::stage::AbilityTable::default());
+            assert!(unsupported && asked == 0 && untouched, "{card:?}: a counted bail with the position as it was ({unsupported}, {asked}, {untouched})");
+        }
+        // A card that needs no other area plays on the empty table.
+        let (unsupported, _, _) = played_on(ActionCard::Summit, linked_env(), crate::kernel::stage::AbilityTable::default());
+        assert!(!unsupported && !Fx::Summit.links());
+        // A table with only some of the links is not enough either: the play declines at its start, not half-way.
+        for part in 0..3 {
+            let mut table = linked();
+            match part {
+                0 => table.links.spawn = None,
+                1 => table.links.researchable = None,
+                _ => table.links.research = None,
+            }
+            let (unsupported, asked, untouched) = played_on(ActionCard::FocusedResearch, linked_env(), table);
+            assert!(unsupported && asked == 0 && untouched, "link {part} missing");
+        }
+    }
+
+    /// The same cards on the table with the links do not decline for that reason (the contrast of the test above).
+    #[test]
+    fn a_play_built_with_the_links_is_not_declined_for_want_of_them() {
+        let (unsupported, _, _) = played_on(ActionCard::Strategize1, linked_env(), linked());
+        assert!(!unsupported);
+        let (unsupported, _, _) = played_on(ActionCard::Impersonation, linked_env(), linked());
+        assert!(!unsupported);
+    }
+
+    /// A card that needs a link is never played from inside a reaction window (the reactions table carries no links): the
+    /// nested plays are exactly the ones that need none.
+    #[test]
+    fn a_card_that_needs_a_link_is_not_played_in_a_reaction_window() {
+        for card in ActionCard::ALL {
+            if let Some(fx) = Fx::of(card) {
+                assert!(!(fx.links() && fx.nested()), "{card:?} needs the links and is nested");
+            }
+        }
+    }
 
     /// Every card is played by the core or a documented bail, never both (docs/B6_CARDS.md).
     #[test]

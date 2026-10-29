@@ -363,6 +363,9 @@ pub struct AbilityTable {
     pub card_name: Option<fn(crate::generated::ActionCard) -> u32>,
     /// What follows the discard of a played reaction card: announce what its effect staged (a destroyed ship).
     pub after_play: Option<Closed>,
+    /// The calls a window makes into other rule areas (child windows, the research queries): areas do not import each
+    /// other, so the layer that may (`driver::children::register`) fills them. Empty by default.
+    pub links: super::children::AreaLinks,
     card_plays: Vec<CardPlay>,
 }
 

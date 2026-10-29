@@ -18,7 +18,9 @@
 //! arguments.
 
 pub mod ability;
+pub mod children;
 pub mod fx;
+pub mod fx_explore;
 pub mod fx_pay;
 pub mod fx_plots;
 pub mod fx_strategy;

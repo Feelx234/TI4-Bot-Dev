@@ -399,6 +399,15 @@ const PLAY: crate::core_sync::Footprint = crate::core_sync::Footprint::new(
     &[Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending, Slice::Strategy, Slice::Ledger],
 );
 
+/// The ability table of a play window: no rule of the reactions table (a play is compared on its own), only the links to the
+/// areas whose windows a card runs as children (the payment, the hand limit, the research, the exploration reward, the
+/// abilities of the strategy cards; `ti4_engine_core::driver::children`). A table without them makes the play decline.
+pub(crate) fn play_table() -> ti4_engine_core::kernel::stage::AbilityTable {
+    let mut table = ti4_engine_core::kernel::stage::AbilityTable::default();
+    ti4_engine_core::driver::children::register(&mut table);
+    table
+}
+
 /// The core half of a played card effect (`action_cards::effect_for`), as a lockstep window. `None` when the
 /// card has no window or the position holds something the core cannot express.
 #[must_use]
@@ -412,7 +421,6 @@ pub fn play_window(
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
 ) -> Option<crate::dual::CoreWindow<crate::action_cards_typed::Rolled>> {
     use ti4_engine_core::driver::Driver;
-    use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::Kernel;
     let card = ActionCard::from_id(alias.as_str())?;
     let (mut cx, r) = tables_of(gs, card)?;
@@ -492,7 +500,7 @@ pub fn play_window(
             env.facts.carried = carried_of(core, &before, sources, player, seat, &r);
         }
         let play = rules::effects::Play::of(core, card, seat, env)?;
-        let mut driver = Driver::new(play, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = Driver::new(play, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), play_table(), 1);
         if let Some(seeds) = driver_seeds {
             driver = driver.with_seeds(seeds);
         }
@@ -583,7 +591,6 @@ pub fn announce_window(
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
 ) -> Option<crate::dual::CoreWindow<(Option<bool>, crate::action_cards_typed::Rolled)>> {
     use ti4_engine_core::driver::Driver;
-    use ti4_engine_core::kernel::stage::AbilityTable;
     let card = ActionCard::from_id(alias.as_str())?;
     if !rules::announce::plays(card) && crate::action_cards::effect_for(alias).is_some() {
         return None;
@@ -672,7 +679,7 @@ pub fn announce_window(
             env.facts.carried = carried_of(core, &before, sources, player, seat, &r);
         }
         let announce = rules::announce::Announce::of(core, card, seat, env, has_effect, false)?;
-        let mut driver = Driver::new(announce, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = Driver::new(announce, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), play_table(), 1);
         if let Some(seeds) = seeds {
             driver = driver.with_seeds(seeds);
         }

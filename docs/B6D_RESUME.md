@@ -8,10 +8,7 @@ The block is NOT complete, so the heavy gate (`flock /root/.ti4-heavy.lock`, `to
 
 ## Open
 
-* The layer gate: `python3 -I tools/engine_core/check_layers.py core` reported 12 violations after the merge of the Probe and
-  Strategize branches (`rules/action_cards/{effects,perform}.rs` import other L4 areas for their child windows). Branch
-  `b6d-layers` (worktree `.claude/worktrees/b6d-layers`) is the fix (a kernel registry of erased child windows registered by the
-  factions crate); merge it before the gate. `lint_core.sh` was 0 hits.
+* The layer gate is fixed (branch `b6d-layers`, merged): the card windows reach other areas through `kernel::children` (erased child windows, `AbilityTable::links`) registered in `driver::children`; `check_layers.py core` 0 violations, `lint_core.sh` 0 hits.
 * Still without a core effect (`BAILS`): Courageous To The End and Experimental Battlestation (they need the combat area's hit
   flow as a child window: `AssignHits`/`SustainOffer`, ENGINE_REACTIONS 9.2, the area of `core-b12`), Fire Team (ported on
   `core-b12`, bb26913b, not merged here; remove it from `BAILS` when the lines are merged) and Scramble Frequency (a documented bail

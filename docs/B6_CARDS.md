@@ -176,6 +176,21 @@ Exploration Probe (the exploration resolution is not one core window), Courageou
 area's hit flow as a child window), Fire Team (ported on `core-b12` as a registered play, bb26913b; not merged here) and Scramble
 Frequency (a bail of `core-b12` too).
 
-Layers: `tools/engine_core/check_layers.py core` reports 10 violations in `rules/action_cards` (6 from the B6d child windows of
-`effects.rs` before this branch, 4 more in `perform.rs`): the card windows import the areas whose windows they run as children. The
-gate cannot pass until the child windows are reached through a registry in the kernel instead of an import.
+Layers (branch `b6d-layers`): `tools/engine_core/check_layers.py core` reports 0 violations again. The card windows of B6d ran other
+areas' windows as children (`PayBill`, `HandLimit`, `Reward`, the strategy windows) and called their helpers; areas may not import
+each other, so they now talk through the kernel, as ability effects and `Next::Open` do:
+* `kernel::children` (L3): `Spawn` (a request for a child window, the arguments of its constructor as plain data), `ErasedWindow`
+  and `Erased<W>` (the object-safe face of a `Window`, with a function that reads what the finished window did as a `Report`),
+  `ErasedChild` (`Child<W>` over an erased window; `Child<W>` stays for same-area children) and `AreaLinks` (three function
+  pointers on `AbilityTable::links`: start a child, `researchable`, `research`). `StructureFacts` moved here (re-exported by
+  `production::strategy_cards`).
+* `driver::children::register` (L5, which may import every area) fills the links; it is the only place that names the windows.
+  The adapter installs it: `action_cards_view::play_table` (the plain table of `play_window` and `announce_window`) and
+  `reactions_core::table()` (the table a window that follows nested activity runs on).
+* The exploration writes a card plays in its own window (`draw`, `gain_fragment`, `take_frontier`, `open_record`, `play_area_card`,
+  `place_wormhole_token`, `gain_commodities`, `spend_commodities`) are L3 primitives in `kernel::fx_explore`; `rules::explore`
+  re-exports them.
+* A play whose card needs a link (`Fx::links`: a bill, the hand limit, a research, the Merchant Station, Strategize/Overrule) on a
+  table without all of them declines at its first step, before anything changed: `unsupported`, so `play_window` answers `None`
+  (a counted bail) and the inline announcement marks the run unknown; never a panic. Those cards are exactly the ones that are not
+  `Fx::nested` (a test checks it), so the reactions table never needs them for a nested play.
