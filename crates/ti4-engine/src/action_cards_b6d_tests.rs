@@ -617,3 +617,37 @@ fn reveal_prototype_researches_a_unit_upgrade_of_a_unit_in_the_combat_in_the_cor
     assert!(after.player(&a).unwrap().technologies.len() > state.player(&a).unwrap().technologies.len(), "a prototype was researched");
     let _ = crate::dual::take_report();
 }
+
+/// Lie in Wait: one action card from each of the first two neighbours (by the map) who traded this round; a neighbour without a
+/// card is skipped.
+#[test]
+fn lie_in_wait_takes_a_card_from_each_neighbour_who_traded_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let galaxy = ring();
+    let (a, b, c) = (PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c"));
+    let mut state = closing_position();
+    // Ships side by side on the ring make the three neighbours of one another.
+    state.board.clear();
+    for (system, owner) in [("25", "a"), ("26", "b"), ("51", "c")] {
+        state.system_mut(&ti4_model::id::SystemId::new(system)).units.push(unit("cruiser", owner));
+    }
+    state.transactions_this_round = vec![(b.clone(), c.clone()), (c.clone(), b.clone())];
+    let hand = |aliases: &[&str]| aliases.iter().map(|x| ti4_model::id::ActionCardId::new(*x)).collect::<Vec<_>>();
+    state.player_mut(&b).unwrap().action_cards = hand(&["sabo1", "insub", "uprising"]);
+    state.player_mut(&c).unwrap().action_cards = hand(&["rout", "waylay"]);
+    let mut empty_hand = state.clone();
+    empty_hand.player_mut(&b).unwrap().action_cards.clear();
+    let mut none = state.clone();
+    none.transactions_this_round.clear();
+    crate::action_cards_closing_tests::announce_all_on(&[("lieinwait", state.clone()), ("lieinwait", empty_hand.clone()), ("lieinwait", none.clone())], Some(&galaxy));
+    let _ = crate::dual::take_report();
+    let mut game = state.clone();
+    game.player_mut(&a).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("lieinwait")];
+    crate::action_cards::discard(&mut game, &a, 0);
+    crate::dual::with_mask(crate::action_cards_closing_tests::dual(), || {
+        crate::action_cards_announce_tests::announce_on(&mut game, "lieinwait", &a, Box::new(crate::action_cards_announce_tests::DeclineSlots), Some(&galaxy))
+    });
+    assert_eq!(game.player(&a).unwrap().action_cards.len(), 2, "one card from each of two neighbours");
+    assert_eq!(game.player(&b).unwrap().action_cards.len(), 2);
+    let _ = crate::dual::take_report();
+}

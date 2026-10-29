@@ -178,6 +178,13 @@ impl Family for Fam {
                 let named = super::agenda::outcome_label(r, frame, *outcome);
                 ChoiceOption::labelled(super::agenda::outcome_text(r, *outcome), "prediction", format!("predict {named}"))
             }
+            Opt::Card(card) if matches!(pick_of(a).1, What::Lie { .. }) && matches!(a, Ask::Pick { .. }) => {
+                let from = match pick_of(a).1 {
+                    What::Lie { from } => r.seat_text(from).to_owned(),
+                    _ => String::new(),
+                };
+                ChoiceOption::labelled(card.as_str(), "action_card", format!("take {} from {from}", card.as_str()))
+            }
             Opt::Card(card) if matches!(a, Ask::PlayCard { .. }) => {
                 let id = ActionCardId::new(card.as_str());
                 let name = crate::action_cards::name_of(ContentStore::embedded(), &id);
@@ -198,6 +205,9 @@ impl Family for Fam {
             // Display only: the card that was taken away, and who played Public Disgrace.
             out.insert("first".to_owned(), first.as_str().into());
             out.insert("played_by".to_owned(), r.seat_text(*by).into());
+        }
+        if let Ask::Pick { what: What::Lie { from }, .. } = a {
+            out.insert("from".to_owned(), r.seat_text(*from).into());
         }
         if let Ask::Pick { what: What::Invest { step, owed }, .. } = a {
             out.insert("step".to_owned(), (*step).into());
@@ -225,6 +235,7 @@ impl Family for Fam {
                 _ => None,
             },
             Ask::Pick { what: What::Cruiser | What::Troops { .. } | What::Pull { .. } | What::Squad { .. } | What::Steal, .. } => None,
+            Ask::Pick { what: What::Lie { .. }, .. } => ActionCard::from_id(id).map(Opt::Card),
             Ask::Pick { what: What::Focus | What::Return | What::Funding | What::Prototype, .. } => ti4_engine_core::generated::Technology::from_id(id).map(Opt::Tech),
             Ask::Pick { what: What::Hull | What::Scuttle { .. }, .. } => {
                 let (system, index) = id.split_once('|')?;
@@ -266,6 +277,7 @@ const fn pick_kind(what: What) -> &'static str {
         What::Land => "planet",
         What::Squad { .. } => "move",
         What::Gain => "player",
+        What::Lie { .. } => "action_card",
         What::Steal | What::Focus | What::Return | What::Funding | What::Prototype => "technology",
         What::Offer | What::Landing => "planet",
         What::JamWho { .. } => "player",
@@ -338,6 +350,7 @@ const fn pick_prompt(card: ActionCard, what: What) -> &'static str {
         (C::DivertFunding, What::Return) => "Divert Funding: which technology to return",
         (C::DivertFunding, _) => "Divert Funding: what to research with the funding",
         (C::RevealPrototype, _) => "Reveal Prototype: which prototype to reveal",
+        (C::LieInWait, _) => "Lie in Wait: take which action card",
         (C::Plagiarize, _) => "Plagiarize: which technology to steal",
         (C::Upgrade, _) => "Upgrade: which cruiser becomes a dreadnought",
         (C::SignalJamming, _) => "Signal Jamming: jam which system",

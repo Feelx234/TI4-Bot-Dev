@@ -370,6 +370,9 @@ pub struct Facts {
     pub roster: Option<&'static crate::query::tech::UnitRoster>,
     /// Reveal Prototype: the unit upgrades of the line of a unit of the holder in the active system.
     pub reveal: crate::state::TechSet,
+    /// Lie in Wait: the neighbours who resolved a transaction this round (`transactions::neighbours_who_transacted`: the map's
+    /// neighbours, in the order of the transactions), the first two.
+    pub traders: [Option<Seat>; 2],
     /// The Fracture is in play already (a breakthrough gained then rolls nothing).
     pub fracture_in_play: bool,
     /// The breakthrough of each seat's faction (`breakthroughs::for_faction`), by seat.
@@ -380,7 +383,7 @@ pub struct Facts {
 
 impl Default for Facts {
     fn default() -> Self {
-        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE, dreadnought: Placed::NONE, mech: Placed::NONE, replenish_events: false, rules_version: u32::MAX, tech_order: |a, b| a.cmp(&b), roster: None, reveal: crate::state::TechSet::default(), fracture_in_play: false, own_breakthrough: [None; 16], unit_order: |a, b| a.cmp(&b) }
+        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE, dreadnought: Placed::NONE, mech: Placed::NONE, replenish_events: false, rules_version: u32::MAX, tech_order: |a, b| a.cmp(&b), roster: None, reveal: crate::state::TechSet::default(), traders: [None; 2], fracture_in_play: false, own_breakthrough: [None; 16], unit_order: |a, b| a.cmp(&b) }
     }
 }
 

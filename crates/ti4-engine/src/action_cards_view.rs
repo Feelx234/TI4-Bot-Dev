@@ -254,6 +254,7 @@ fn env_of(state: &GameState, player: &PlayerId, sources: &ti4_model::content_typ
             tech_order: |a, b| crate::generated::IdStr::as_str(a).cmp(crate::generated::IdStr::as_str(b)),
             roster: crate::technology_core::roster_for(ti4_content::ContentStore::embedded(), sources.clone()),
             reveal: reveal_set(state, player, sources),
+            traders: [None; 2],
             fracture_in_play: state.fracture_in_play,
             own_breakthrough: own_breakthroughs(state, r),
             unit_order: |a, b| crate::generated::IdStr::as_str(a).cmp(crate::generated::IdStr::as_str(b)),
@@ -348,6 +349,7 @@ pub fn play_window(
     env.infantry = placed(gs, player, sources, "infantry")?;
     env.cruiser = placed(gs, player, sources, "cruiser")?;
     env.facts.destroyer = placed(gs, player, sources, "destroyer")?;
+    env.facts.traders = traders_of(gs, galaxy, player, &r);
     env.facts.mech = rules::Placed {
         // The plain mech; a Naaz seat's is a unit whose placement the string announces (a bail: no unit).
         unit: (gs.player(player)?.faction.as_str() != "naaz").then(|| <ti4_engine_core::generated::Unit as crate::generated::IdStr>::from_id("mech")).flatten(),
@@ -492,6 +494,7 @@ pub fn announce_window(
     env.infantry = placed(gs, player, sources, "infantry")?;
     env.cruiser = placed(gs, player, sources, "cruiser")?;
     env.facts.destroyer = placed(gs, player, sources, "destroyer")?;
+    env.facts.traders = traders_of(gs, galaxy, player, &r);
     env.facts.mech = rules::Placed {
         // The plain mech; a Naaz seat's is a unit whose placement the string announces (a bail: no unit).
         unit: (gs.player(player)?.faction.as_str() != "naaz").then(|| <ti4_engine_core::generated::Unit as crate::generated::IdStr>::from_id("mech")).flatten(),
@@ -635,4 +638,17 @@ fn technology_unported(gs: &GameState, sources: &ti4_model::content_types::Sourc
     let content = ti4_content::ContentStore::embedded();
     gs.players.iter().any(|p| matches!(p.faction.as_str(), "deepwrought" | "mentak") || p.faction.as_str().starts_with("keleres"))
         || crate::strategy_cards_core::research_unported(gs, content, sources.clone(), player)
+}
+
+/// Lie in Wait: the first two neighbours (by the map) who resolved a transaction this round; none without a map.
+fn traders_of(gs: &GameState, galaxy: Option<&ti4_content::galaxy::Galaxy>, player: &PlayerId, r: &crate::render::Render) -> [Option<ti4_engine_core::Seat>; 2] {
+    let mut out = [None; 2];
+    let Some(galaxy) = galaxy else { return out };
+    if gs.transactions_this_round.is_empty() {
+        return out;
+    }
+    for (slot, who) in out.iter_mut().zip(crate::transactions::neighbours_who_transacted(gs, galaxy, player)) {
+        *slot = r.seat(who.as_str());
+    }
+    out
 }

@@ -55,6 +55,8 @@ pub enum What {
     Hull,
     /// kind `ship`: a ship Scuttle returns; the second question (`second`) also offers to stop after one.
     Scuttle { second: bool },
+    /// kind `action_card`, label `take <card> from <seat>`, detail `from`: the card Lie in Wait takes from `from`.
+    Lie { from: Seat },
     /// kind `technology`, label `research <id>`: the technology Focused Research researches.
     Focus,
     /// kind `technology`, label the name: the technology Divert Funding returns.

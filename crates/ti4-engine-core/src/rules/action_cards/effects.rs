@@ -151,6 +151,8 @@ pub enum Fx {
     Divert,
     /// Reveal Prototype: a unit upgrade of the line of a unit in the combat is researched for four resources.
     Reveal,
+    /// Lie in Wait: one action card is taken from each of two neighbours who traded this round.
+    Lie,
 }
 
 impl Fx {
@@ -259,6 +261,7 @@ impl Fx {
             C::FocusedResearch => Self::Focused,
             C::DivertFunding => Self::Divert,
             C::RevealPrototype => Self::Reveal,
+            C::LieInWait => Self::Lie,
             _ => return None,
         })
     }
@@ -433,6 +436,7 @@ impl Play {
             Fx::Upgrade => What::Cruiser,
             Fx::Plagiarize => What::Steal,
             Fx::Focused => What::Focus,
+            Fx::Lie => What::Lie { from: self.victim? },
             Fx::Divert if self.step == 0 => What::Return,
             Fx::Divert => What::Funding,
             Fx::Reveal => What::Prototype,
@@ -694,6 +698,10 @@ impl Play {
                 reach.as_mut_slice().sort_unstable();
                 reach.as_slice().iter().copied().filter(|s| !is_home_system(scope, *s)).map(Opt::System).collect()
             }
+            Fx::Lie => match self.victim.and_then(|v| core.players().by_seat(v)) {
+                Some(p) => p.cards.hand.iter().map(|c| Opt::Card(*c)).collect(),
+                None => SmallList::new(),
+            },
             Fx::Focused | Fx::Reveal | Fx::Divert if self.step == 9 => SmallList::new(),
             Fx::Focused => crate::rules::production::strategy_cards::Research::researchable_for(core, k, self.env.scope, who).as_slice().iter().map(|t| Opt::Tech(*t)).collect(),
             Fx::Reveal => crate::rules::production::strategy_cards::Research::researchable_for(core, k, self.env.scope, who)
@@ -1487,6 +1495,16 @@ impl Play {
                     fx::place_unit(core, neutral, system, None, crate::generated::Unit::NeutralDestroyer);
                 }
             }
+            (Fx::Lie, Opt::Card(card)) => {
+                let Some(victim) = self.victim else { return false };
+                let at = core.players().by_seat(victim).and_then(|p| p.cards.hand.iter().position(|c| *c == card));
+                let Some(taken) = at.and_then(|i| super::discard_from_hand(core, victim, i)) else { return false };
+                if let Some(p) = core.players_mut().by_seat_mut(who) {
+                    p.cards.hand.push(taken);
+                }
+                self.step += 1;
+                return true;
+            }
             (Fx::Focused, Opt::Tech(t)) => {
                 fx_pay::pay_trade_goods(core, who, 4);
                 self.research(core, k, t);
@@ -1622,6 +1640,19 @@ impl Play {
     /// Compute the options of the next question and apply the options that need no asking.
     fn advance(&mut self, core: &mut CoreState, k: &Kernel, seeds: &dyn SeedSource) {
         loop {
+            if self.fx == Fx::Lie {
+                // The next trader (of the first two) who holds a card.
+                self.victim = None;
+                while usize::from(self.step) < self.env.facts.traders.len() {
+                    let held = self.env.facts.traders[usize::from(self.step)]
+                        .filter(|v| core.players().by_seat(*v).is_some_and(|p| !p.cards.hand.is_empty()));
+                    if let Some(v) = held {
+                        self.victim = Some(v);
+                        break;
+                    }
+                    self.step += 1;
+                }
+            }
             self.opts = self.options(core, k);
             match self.opts.as_slice() {
                 [] if self.fx == Fx::Exchange && self.step == 1 => {
@@ -1767,7 +1798,7 @@ impl Play {
             self.stage = Stage::Asking;
             return;
         }
-        if self.what().is_none() && !matches!(self.fx, Fx::Rider(_)) {
+        if self.what().is_none() && !matches!(self.fx, Fx::Rider(_) | Fx::Lie) {
             self.stage = Stage::Done;
             return;
         }
@@ -1991,6 +2022,7 @@ mod tests {
             C::FocusedResearch,
             C::DivertFunding,
             C::RevealPrototype,
+            C::LieInWait,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }
@@ -2125,7 +2157,6 @@ mod tests {
             (C::ExperimentalBattlestation, "the space cannon of a structure joined to the movement window"),
             (C::FireTeam, "per-die reroll questions of a staged ground roll"),
             (C::Infiltrate, "the structure swap of the capture (rules version dependent unit forms)"),
-            (C::LieInWait, "the neighbours of the map who traded this round (the transactions)"),
             (C::Overrule, "performs the primary ability of another strategy card (the strategy area's windows)"),
             (C::ExplorationProbe, "the frontier tokens adjacent to the holder's ships (the map)"),
             (C::ScrambleFrequency, "per-die reroll questions of a staged roll of another seat"),
