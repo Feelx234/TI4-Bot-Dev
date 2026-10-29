@@ -926,6 +926,9 @@ mod tests {
         assert_eq!(pieces(&s, planets[1].1, pds), 0, "nothing placed yet");
         assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::HeroPlanet(planets[1].1, Shown::default())))).unwrap(), Status::Done, "the PDS was the last unit");
         assert_eq!(pieces(&s, planets[1].1, pds), 1);
+        let touched = |system: System| s.board().sys(system).flags.has(crate::state::SysFlags::TOUCHED);
+        assert!(touched(planets[1].0), "the system of the planet chosen is where the unit went");
+        assert!(!touched(planets[0].0), "not the system of the first planet");
     }
 
     #[test]
