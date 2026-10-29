@@ -1050,12 +1050,12 @@ thread_local! {
 
 /// `(on the core, bailed)` plays of this thread since [`reset_core_plays`].
 #[cfg(test)]
-fn core_plays() -> (u32, u32) {
+pub(crate) fn core_plays() -> (u32, u32) {
     CORE_PLAYS.with(std::cell::Cell::get)
 }
 
 #[cfg(test)]
-fn reset_core_plays() {
+pub(crate) fn reset_core_plays() {
     CORE_PLAYS.with(|c| c.set((0, 0)));
 }
 
@@ -4934,9 +4934,11 @@ fn divert_funding_research(context: &mut crate::timing::TimingContext<'_>, playe
 /// Exploration Probe: "Explore a frontier token that is in or adjacent to a system that
 /// contains 1 or more of your ships."
 ///
-/// The frontier token is removed when its card is drawn; a deck that runs out before the draw
-/// keeps its token, because nothing was explored. Adjacency needs a map, so a game without one
-/// can only probe tokens in systems its ships already sit in.
+/// The frontier token is removed before its card is drawn, so a deck that has run out (or was never
+/// dealt) loses the token for nothing and logs no card. The card is drawn without a planet and without
+/// the system of the token: the cards that need either (the ion storm, the Mirage, a planet's reward)
+/// have nowhere to act. Adjacency needs a map, so a game without one can only probe tokens in systems
+/// its ships already sit in. The core plays this card as `rules::action_cards::effects::Fx::Probe`.
 fn exploration_probe(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
     let mine = systems_with_my_ships(context.state, context.content, context.sources, player);
     let mut eligible: BTreeSet<String> = mine.into_iter().collect();

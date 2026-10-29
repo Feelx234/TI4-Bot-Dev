@@ -112,6 +112,15 @@ impl Announce {
         }
     }
 
+    /// Exploration Probe: the card the frontier deck gave and what the seat held around it (see [`Play::explored`]).
+    #[must_use]
+    pub fn explored(&self) -> Option<super::effects::ProbeRow> {
+        match &self.effect {
+            Effect::Play(play) => play.explored(),
+            _ => None,
+        }
+    }
+
     /// Go on until the effect asks (the question) or the flow is finished (`None`).
     ///
     /// # Errors
@@ -430,7 +439,7 @@ mod tests {
     #[test]
     fn the_b6d_cards_are_not_played_from_inside_another_window() {
         let t = AbilityTable::default();
-        for card in [ActionCard::Upgrade, ActionCard::DecoyOperation, ActionCard::RevealPrototype, ActionCard::LieInWait, ActionCard::Bribery, ActionCard::HarnessEnergy, ActionCard::Infiltrate, ActionCard::CrashLanding, ActionCard::GhostSquad] {
+        for card in [ActionCard::Upgrade, ActionCard::DecoyOperation, ActionCard::RevealPrototype, ActionCard::LieInWait, ActionCard::Bribery, ActionCard::HarnessEnergy, ActionCard::Infiltrate, ActionCard::CrashLanding, ActionCard::GhostSquad, ActionCard::ExplorationProbe] {
             assert!(plays(card), "{card:?} has a window of its own");
             assert!(!plays_in(&t, card), "{card:?}");
         }

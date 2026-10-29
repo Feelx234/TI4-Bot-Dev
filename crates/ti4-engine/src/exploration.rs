@@ -1433,48 +1433,33 @@ fn explore_in(
     let ion_before = state.ion_storm.clone();
     let outcome = explore_drawn(state, ctx, player, deck, planet, system)?;
     // UI-01: the record `explore_drawn` opened gets its outcome now that it is known.
-    let text = match &outcome {
-        Explored::Fragment { .. } => "fragment".to_owned(),
-        Explored::Attached { .. } => format!(
-            "attached:{}",
-            planet
-                .and_then(|planet| state.planet_attachments.get(planet))
-                .and_then(|attached| attached.last().cloned())
-                .unwrap_or_default()
-        ),
-        Explored::Unresolved { .. } => "unresolved".to_owned(),
-        Explored::Resolved { .. } => "resolved".to_owned(),
-        Explored::Discarded { .. } => "discarded".to_owned(),
-    };
     let after = Holdings::of(state, player, planet);
-    let result = before.describe_change(&after, planet, &outcome);
-    let gains = before.gains(&after);
-    let mut placed = Vec::new();
+    let mut tokens = Vec::new();
     for (kind, system) in &state.wormhole_tokens {
         if wormholes_before.get(kind) != Some(system) {
-            placed.push(format!("wormhole:{kind}:{system}"));
+            tokens.push(format!("wormhole:{kind}:{system}"));
         }
     }
     if state.ion_storm != ion_before
         && let Some((system, face)) = &state.ion_storm
     {
-        placed.push(format!("ion_storm:{system}:{face}"));
+        tokens.push(format!("ion_storm:{system}:{face}"));
     }
-    if let Explored::Fragment { trait_name } = &outcome {
-        placed.push(format!("fragment:{}", trait_name.to_ascii_lowercase()));
-    }
-    if after.play_area > before.play_area
-        && let Some(card) = state
-            .player(player)
-            .and_then(|seat| seat.exploration_cards.last())
-    {
-        placed.push(format!("play_area:{card}"));
-    }
-    if let (Explored::Attached { .. }, Some(planet)) = (&outcome, planet)
-        && let Some(id) = text.strip_prefix("attached:")
-    {
-        placed.push(format!("attachment:{id}:{planet}"));
-    }
+    let attached = planet
+        .and_then(|planet| state.planet_attachments.get(planet))
+        .and_then(|attached| attached.last().cloned());
+    let kept = state
+        .player(player)
+        .and_then(|seat| seat.exploration_cards.last().cloned());
+    let RowWords { text, result, gains, placed } = row_words(
+        &before,
+        &after,
+        planet,
+        &outcome,
+        tokens,
+        kept.as_deref(),
+        attached.as_deref(),
+    );
     // The row is closed with the texts above: one core write (`rules::explore::close_record`).
     dual_write(
         state,
@@ -1715,6 +1700,53 @@ impl Holdings {
         }
         parts.join(", ")
     }
+}
+
+/// The words the log row of a drawn card is closed with (`explore_in`): the outcome, what the card did to the seat, what the seat
+/// gained, and what was placed.
+pub(crate) struct RowWords {
+    pub text: String,
+    pub result: String,
+    pub gains: std::collections::BTreeMap<String, i32>,
+    pub placed: Vec<String>,
+}
+
+/// [`RowWords`] from what the seat held before and after the card, the outcome, the wormhole and ion storm tokens the card placed
+/// (in that order), the card it kept in its play area and the attachment it put on the planet. The exploration of a frontier token
+/// by an action card closes its row with the same words (`action_cards_view`).
+pub(crate) fn row_words(
+    before: &Holdings,
+    after: &Holdings,
+    planet: Option<&PlanetId>,
+    outcome: &Explored,
+    tokens: Vec<String>,
+    play_area: Option<&str>,
+    attached: Option<&str>,
+) -> RowWords {
+    let text = match outcome {
+        Explored::Fragment { .. } => "fragment".to_owned(),
+        Explored::Attached { .. } => format!("attached:{}", attached.unwrap_or_default()),
+        Explored::Unresolved { .. } => "unresolved".to_owned(),
+        Explored::Resolved { .. } => "resolved".to_owned(),
+        Explored::Discarded { .. } => "discarded".to_owned(),
+    };
+    let result = before.describe_change(after, planet, outcome);
+    let gains = before.gains(after);
+    let mut placed = tokens;
+    if let Explored::Fragment { trait_name } = outcome {
+        placed.push(format!("fragment:{}", trait_name.to_ascii_lowercase()));
+    }
+    if after.play_area > before.play_area
+        && let Some(card) = play_area
+    {
+        placed.push(format!("play_area:{card}"));
+    }
+    if let (Explored::Attached { .. }, Some(planet)) = (outcome, planet)
+        && let Some(id) = text.strip_prefix("attached:")
+    {
+        placed.push(format!("attachment:{id}:{planet}"));
+    }
+    RowWords { text, result, gains, placed }
 }
 
 fn explore_drawn(
