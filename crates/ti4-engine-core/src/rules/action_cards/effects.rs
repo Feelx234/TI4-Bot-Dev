@@ -155,6 +155,8 @@ pub enum Fx {
     Lie,
     /// Bribery: any number of trade goods are spent, one extra vote each on this agenda.
     Bribery,
+    /// Infiltrate: each PDS and space dock of another seat on the planet just taken is replaced by the holder's own.
+    Infiltrate,
 }
 
 impl Fx {
@@ -265,6 +267,7 @@ impl Fx {
             C::RevealPrototype => Self::Reveal,
             C::LieInWait => Self::Lie,
             C::Bribery => Self::Bribery,
+            C::Infiltrate => Self::Infiltrate,
             _ => return None,
         })
     }
@@ -337,6 +340,8 @@ pub struct Play {
 /// `RULES_PLAGIARIZE_OWNED` and `RULES_ACTION_CARD_COSTS` (`ti4_model::state`).
 const RULES_PLAGIARIZE_OWNED: u32 = 28;
 const RULES_ACTION_CARD_COSTS: u32 = 23;
+/// `RULES_INFILTRATE_FIX` (`ti4_model::state`).
+const RULES_INFILTRATE_FIX: u32 = 1;
 
 /// The sides of the die the string `Dice` rolls.
 const DIE_SIDES: u32 = 10;
@@ -400,6 +405,10 @@ impl Play {
         }
         // The Siphon event, Cabal's note and the Trade Agreement hook follow a replenishment: the string's.
         if fx == Fx::Harness && env.facts.replenish_events {
+            return None;
+        }
+        // Games below rules version 1 played Infiltrate differently (kept for their logs).
+        if fx == Fx::Infiltrate && env.facts.rules_version < RULES_INFILTRATE_FIX {
             return None;
         }
         // A mech the seat places with an announcement of its own (Naaz) is the string's.
@@ -1117,6 +1126,36 @@ impl Play {
                 };
                 if !board::has_space_units_of(core, system, self.who) {
                     self.step = 9;
+                }
+            }
+            Fx::Infiltrate => {
+                let Some((_, planet, _, _)) = core.transient().combat.last_control_gained else { return };
+                let scope = self.env.scope;
+                let who = self.who;
+                let mut used = [0_i64; 2];
+                let mut swaps: SmallList<(Piece, crate::generated::Unit), 8> = SmallList::new();
+                for piece in core.board().planet(planet).units.as_slice() {
+                    if piece.owner() == who {
+                        continue;
+                    }
+                    let (slot, plain, own) = match scope.unit(piece.kind()).map(|d| d.base_type) {
+                        Some(UnitBaseType::Pds) => (0, crate::generated::Unit::PDSI, self.env.facts.pds),
+                        Some(UnitBaseType::Spacedock) => (1, crate::generated::Unit::SpaceDockI, self.env.facts.spacedock),
+                        _ => continue,
+                    };
+                    // "From your reinforcements": the box still holds that kind, counting the swaps already planned.
+                    let left = crate::query::fleet::remaining(core, scope, who, plain, 0);
+                    if left <= 0 || left - used[slot] <= 0 {
+                        continue;
+                    }
+                    used[slot] += 1;
+                    swaps.push((*piece, own.unit.unwrap_or(plain)));
+                }
+                for (old, new) in swaps.as_slice() {
+                    let list = &mut core.board_mut().planet_mut(planet).units;
+                    if let Some(at) = list.as_slice().iter().position(|p| p == old) {
+                        list.as_mut_slice()[at] = Piece::new(*new, who);
+                    }
                 }
             }
             Fx::Squad => self.jam = core.meta().active_system,
@@ -2047,6 +2086,7 @@ mod tests {
             C::RevealPrototype,
             C::LieInWait,
             C::Bribery,
+            C::Infiltrate,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }
@@ -2179,7 +2219,6 @@ mod tests {
             (C::CrashLanding, "placement of a ground force through the faction hooks onto a contested planet"),
             (C::ExperimentalBattlestation, "the space cannon of a structure joined to the movement window"),
             (C::FireTeam, "per-die reroll questions of a staged ground roll"),
-            (C::Infiltrate, "the structure swap of the capture (rules version dependent unit forms)"),
             (C::Overrule, "performs the primary ability of another strategy card (the strategy area's windows)"),
             (C::ExplorationProbe, "the frontier tokens adjacent to the holder's ships (the map)"),
             (C::ScrambleFrequency, "per-die reroll questions of a staged roll of another seat"),

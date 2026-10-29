@@ -249,6 +249,8 @@ fn env_of(state: &GameState, player: &PlayerId, sources: &ti4_model::content_typ
             destroyer: rules::Placed::NONE,
             dreadnought: rules::Placed::NONE,
             mech: rules::Placed::NONE,
+            pds: rules::Placed::NONE,
+            spacedock: rules::Placed::NONE,
             replenish_events: crate::leaders_core::replenish_causes_events(state),
             rules_version: state.rules_version,
             tech_order: |a, b| crate::generated::IdStr::as_str(a).cmp(crate::generated::IdStr::as_str(b)),
@@ -349,6 +351,8 @@ pub fn play_window(
     env.infantry = placed(gs, player, sources, "infantry")?;
     env.cruiser = placed(gs, player, sources, "cruiser")?;
     env.facts.destroyer = placed(gs, player, sources, "destroyer")?;
+    env.facts.pds = placed(gs, player, sources, "pds")?;
+    env.facts.spacedock = placed(gs, player, sources, "spacedock")?;
     env.facts.traders = traders_of(gs, galaxy, player, &r);
     env.facts.mech = rules::Placed {
         // The plain mech; a Naaz seat's is a unit whose placement the string announces (a bail: no unit).
@@ -494,6 +498,8 @@ pub fn announce_window(
     env.infantry = placed(gs, player, sources, "infantry")?;
     env.cruiser = placed(gs, player, sources, "cruiser")?;
     env.facts.destroyer = placed(gs, player, sources, "destroyer")?;
+    env.facts.pds = placed(gs, player, sources, "pds")?;
+    env.facts.spacedock = placed(gs, player, sources, "spacedock")?;
     env.facts.traders = traders_of(gs, galaxy, player, &r);
     env.facts.mech = rules::Placed {
         // The plain mech; a Naaz seat's is a unit whose placement the string announces (a bail: no unit).

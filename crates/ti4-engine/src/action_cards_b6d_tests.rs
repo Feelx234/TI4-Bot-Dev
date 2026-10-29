@@ -680,3 +680,47 @@ fn bribery_spends_trade_goods_for_votes_in_the_core_window() {
     assert_eq!(played("bribery", &broke).player(&a).unwrap().extra_votes_agenda, None);
     let _ = crate::dual::take_report();
 }
+
+/// Infiltrate: each PDS and space dock of another seat on the planet just taken is replaced by the holder's own, while the box
+/// holds that kind.
+#[test]
+fn infiltrate_replaces_the_structures_of_the_planet_just_taken_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+    let mut state = closing_position();
+    state.rules_version = ti4_model::state::RULES_VERSION;
+    let planet = ti4_model::id::PlanetId::new("corneeq");
+    state.system_mut(&ti4_model::id::SystemId::new("33")).planet_units.insert(
+        planet.clone(),
+        vec![unit("pds", "c"), unit("spacedock", "b"), unit("infantry", "b"), unit("pds", "b"), unit("spacedock", "c"), unit("pds", "a")],
+    );
+    state.last_control_gained = Some((ti4_model::id::SystemId::new("33"), planet, a.clone(), Some(b.clone())));
+    // The box holds only one more PDS: the second swap is not made.
+    let mut thin = state.clone();
+    thin.system_mut(&ti4_model::id::SystemId::new("33")).planet_units.get_mut("corneeq").unwrap().extend((0..4).map(|_| unit("pds", "a")));
+    let mut older = state.clone();
+    older.rules_version = 0;
+    announce_all(&[("infiltrate", state.clone())]);
+    announce_all(&[("infiltrate", thin.clone())]);
+    let _ = crate::dual::take_report();
+    // Below rules version 1 the string plays the card as it did then: the core declines (a counted bail).
+    let mut legacy = older.clone();
+    legacy.player_mut(&a).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("infiltrate")];
+    crate::action_cards::discard(&mut legacy, &a, 0);
+    crate::dual::with_mask(crate::action_cards_closing_tests::dual(), || {
+        crate::action_cards_announce_tests::announce(&mut legacy, "infiltrate", &a, Box::new(crate::action_cards_announce_tests::DeclineSlots))
+    });
+    assert_eq!(crate::action_cards_closing_tests::windows("action_cards::announce"), (0, 1));
+    let _ = crate::dual::take_report();
+    let after = played("infiltrate", &state);
+    let on = |s: &GameState, kind: &str, owner: &str| {
+        s.board.get(&ti4_model::id::SystemId::new("33")).unwrap().planet_units["corneeq"].iter().filter(|u| u.type_id.as_str() == kind && u.owner.as_str() == owner).count()
+    };
+    assert_eq!(on(&after, "pds", "a"), 3, "two PDS replaced beside the holder's own");
+    assert_eq!(on(&after, "spacedock", "a"), 2);
+    assert_eq!(on(&after, "infantry", "b"), 1, "the infantry stays");
+    let thin_after = played("infiltrate", &thin);
+    assert_eq!(on(&thin_after, "pds", "a"), 6, "one PDS was left in the box: one swap");
+    // Below rules version 1 the string plays another card: the core declines.
+    let _ = crate::dual::take_report();
+}

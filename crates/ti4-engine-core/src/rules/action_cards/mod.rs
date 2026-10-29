@@ -359,6 +359,9 @@ pub struct Facts {
     pub dreadnought: Placed,
     /// The plain mech Refit Troops places (`None` for a seat whose mech is a faction unit with an announcement of its own).
     pub mech: Placed,
+    /// The PDS and the space dock the seat places (Infiltrate).
+    pub pds: Placed,
+    pub spacedock: Placed,
     /// A replenishment at this table causes events the core does not hold (a Cabal, a siphoning Firmament plot, a Trade Agreement
     /// in play): Harness Energy is the string's.
     pub replenish_events: bool,
@@ -383,7 +386,7 @@ pub struct Facts {
 
 impl Default for Facts {
     fn default() -> Self {
-        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE, dreadnought: Placed::NONE, mech: Placed::NONE, replenish_events: false, rules_version: u32::MAX, tech_order: |a, b| a.cmp(&b), roster: None, reveal: crate::state::TechSet::default(), traders: [None; 2], fracture_in_play: false, own_breakthrough: [None; 16], unit_order: |a, b| a.cmp(&b) }
+        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE, dreadnought: Placed::NONE, mech: Placed::NONE, pds: Placed::NONE, spacedock: Placed::NONE, replenish_events: false, rules_version: u32::MAX, tech_order: |a, b| a.cmp(&b), roster: None, reveal: crate::state::TechSet::default(), traders: [None; 2], fracture_in_play: false, own_breakthrough: [None; 16], unit_order: |a, b| a.cmp(&b) }
     }
 }
 
