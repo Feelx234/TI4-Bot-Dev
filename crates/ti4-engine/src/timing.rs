@@ -883,7 +883,7 @@ impl Resolver {
     }
 
     /// What a core resolver needs to continue this one (the window dual: the registry is rebuilt natively).
-    pub(crate) fn core_cfg(&self) -> crate::dual_window::ResolverCfg {
+    pub(crate) fn core_cfg(&self, sources: &ti4_model::content_types::SourceSet) -> crate::dual_window::ResolverCfg {
         crate::dual_window::ResolverCfg {
             initiative: self.initiative_order.iter().map(ToString::to_string).collect(),
             seating: self.seating_order.iter().map(ToString::to_string).collect(),
@@ -894,6 +894,8 @@ impl Resolver {
             turn: self.turn_number,
             max_depth: self.maximum_depth,
             used: self.used.order.iter().map(|(id, scope)| (id.clone(), format!("{scope:?}"))).collect(),
+            sources: sources.clone(),
+            stack: self.emission_stack.clone(),
         }
     }
 
@@ -1041,7 +1043,7 @@ impl Resolver {
         event: Event,
         resolve: impl FnOnce(&mut Event, &mut TimingContext<'_>),
     ) -> Result<Event, TimingError> {
-        crate::dual_window::note_resolver(event.id, || self.core_cfg());
+        crate::dual_window::note_resolver(event.id, || self.core_cfg(&context.sources));
         let guard = crate::dual_window::enter_emit();
         let result = self.emit_with_context_inner_raw(context, event, resolve);
         crate::dual_window::leave_emit(guard, result.as_ref().ok());
@@ -1262,6 +1264,7 @@ impl Resolver {
         let result = result.and_then(|()| {
             crate::kernel_sync::trace::closed_begin();
             let declared = std::mem::take(&mut context.state.declared_card_plays);
+            let _closing = (!declared.is_empty()).then(crate::dual_window::CloseGuard::enter);
             let announced = (|| {
                 for (player, alias) in declared {
                     crate::reactions::announce(context, self, &player, &alias)?;

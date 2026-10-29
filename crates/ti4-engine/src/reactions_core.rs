@@ -18,7 +18,7 @@ use ti4_model::state::GameState;
 use ti4_engine_core_factions::cb_economy::cabal::timing as cabal;
 
 use crate::dual_window::{Recording, ResolverCfg};
-use crate::kernel_sync::text::{ability_id, event_text, relation_text};
+use crate::kernel_sync::text::{ability_id, event_kind, event_text, relation_text};
 use crate::render::Render;
 
 /// One ported ability rule, named: the registered id of an owner is `{kind}:{owner}:{card}:{EVENT}:{rel}`; the
@@ -214,8 +214,61 @@ pub fn follow(r: &Render, gs: &GameState, script: &Recording) -> Result<Option<F
     let Some(cfg) = script.cfg.as_ref() else {
         return Err("nested activity without a resolver".to_owned());
     };
+    table.facts.plays = play_facts(r, gs, &cfg.sources);
     let resolver = resolver_of(r, cfg).ok_or_else(|| "a resolver seat the tables do not know".to_owned())?;
     Ok(Some(Follow { table, resolver }))
+}
+
+/// The printed name of each card as the index of the first card with the same name, and whether the string side has
+/// an effect for each card: constant, built once.
+fn card_tables() -> &'static (Vec<u8>, Vec<bool>) {
+    static T: std::sync::OnceLock<(Vec<u8>, Vec<bool>)> = std::sync::OnceLock::new();
+    T.get_or_init(|| {
+        use crate::generated::IdStr;
+        let content = ti4_content::ContentStore::embedded();
+        let names: Vec<String> = ti4_engine_core::generated::ActionCard::ALL
+            .iter()
+            .map(|c| crate::action_cards::name_of(content, &ti4_model::id::ActionCardId::new(c.as_str())))
+            .collect();
+        let group = (0..names.len()).map(|i| u8::try_from(names.iter().position(|n| *n == names[i]).unwrap_or(i)).unwrap_or(u8::MAX)).collect();
+        let effect = ti4_engine_core::generated::ActionCard::ALL
+            .iter()
+            .map(|c| crate::action_cards::effect_for(&ti4_model::id::ActionCardId::new(c.as_str())).is_some())
+            .collect();
+        (group, effect)
+    })
+}
+
+/// What the play of an action card inside a window reads from outside the core (`None`: a seat or a unit form the
+/// tables do not know; the play then marks the run unknown and the window bails).
+fn play_facts(r: &Render, gs: &GameState, sources: &ti4_model::content_types::SourceSet) -> Option<ti4_engine_core::kernel::ability::PlayFacts> {
+    use ti4_engine_core::kernel::ability::{PlayFacts, SeatPlay};
+    let (name_group, has_effect) = card_tables().clone();
+    let mut seats = Vec::new();
+    for i in 0..r.seats.len() {
+        let who = Seat(u8::try_from(i).ok()?);
+        let player = ti4_model::id::PlayerId::new(r.seat_text(who));
+        let infantry = crate::action_cards_view::placed(gs, &player, sources, "infantry")?;
+        let cruiser = crate::action_cards_view::placed(gs, &player, sources, "cruiser")?;
+        seats.push(SeatPlay {
+            who,
+            mahact_held: gs.tokens_held_by_mahact(&player),
+            infantry: (infantry.unit, infantry.on_card),
+            cruiser: (cruiser.unit, cruiser.on_card),
+            fighter_on_card: crate::action_cards_view::fighter_on_card(gs, &player, sources),
+        });
+    }
+    Some(PlayFacts {
+        scope: crate::core_adapter::scope(sources.clone()).0,
+        blanked: crate::laws::blanked(gs),
+        action_card: r.code("action_card"),
+        supply_base: r.code("forward_supply_base"),
+        note_order: |a, b| crate::render::cards::note_text(a).cmp(&crate::render::cards::note_text(b)),
+        seats,
+        name_group,
+        has_effect,
+        skimmer: crate::factions::ralnel_cards::skimmer_holder(gs).is_some(),
+    })
 }
 
 fn phase_of(p: ti4_model::state::Phase) -> ti4_engine_core::state::Phase {
@@ -232,6 +285,7 @@ pub fn resolver_of(r: &Render, cfg: &ResolverCfg) -> Option<Resolver> {
     core.set_seating_order(&seats(&cfg.seating)?);
     core.set_speaker(cfg.speaker.as_deref().and_then(|s| r.seat(s)));
     core.set_counters(cfg.round, cfg.turn);
+    core.set_emission_stack(&cfg.stack.iter().map(|(kind, id)| (event_kind(r, kind), *id)).collect::<Vec<_>>());
     core.set_maximum_depth(cfg.max_depth);
     for (id, scope) in &cfg.used {
         let Some((kind, rest)) = scope.split_once('(') else { continue };
@@ -305,12 +359,13 @@ mod tests {
     }
 
     #[test]
-    fn bail_a_declined_reaction_slot_is_followed_and_a_played_one_is_not() {
+    fn a_reaction_slot_is_followed_whether_it_was_declined_or_played() {
         let t = table();
         let id = "reaction:hacan:HITS_TO_ASSIGN:when";
         assert!(slot_of(id).is_some());
         assert_eq!(rec(&[id], &[]).unported(&t), None, "offered and declined");
-        assert_eq!(rec(&[id], &[id]).unported(&t).as_deref(), Some("unported ability reaction:*:HITS_TO_ASSIGN:when"), "a card was played");
+        // Playing the card is ported (B6: `reaction_slot::play`); it used to be the bail "a card was played".
+        assert_eq!(rec(&[id], &[id]).unported(&t), None, "a card was played");
     }
 
     #[test]

@@ -35,11 +35,17 @@ impl Family for Fam {
             },
             Ask::Pick { card, what } => pick_prompt(*card, *what).to_owned(),
             Ask::Predict { card, .. } => format!("{}: predict the agenda outcome", rider_name(*card)),
+            Ask::PlayCard { relation, event } => {
+                format!("play an action card ({} {})", crate::kernel_sync::text::relation_text(*relation), crate::kernel_sync::event_text(r, *event))
+            }
         }
     }
 
-    fn subtype(_: &Render, s: &Subtype) -> String {
+    fn subtype(r: &Render, s: &Subtype) -> String {
         match s {
+            Subtype::PlayReaction { relation, event } => {
+                return format!("play_reaction_{}_{}", crate::kernel_sync::text::relation_text(*relation), crate::kernel_sync::event_text(r, *event));
+            }
             Subtype::StallTacticsDiscard => "stall_tactics_discard",
             Subtype::DeepgloomStallTacticsDiscard => "deepgloom_stall_tactics_discard",
             Subtype::MalleonDiscard => "malleon_discard",
@@ -69,12 +75,17 @@ impl Family for Fam {
                 match pick_of(a).1 {
                     What::Silence => ChoiceOption::labelled(id, "silence", format!("ships in {id} may pass blockades")),
                     What::Bombard => ChoiceOption::labelled(id, "system", format!("bombard {id}")),
+                    What::Rescue => ChoiceOption::labelled(id, "rescue_from", format!("a ship from {id}")).with("system", id),
                     What::Deploy => ChoiceOption::labelled(id, "system", format!("cruiser into {id}")),
                     _ => ChoiceOption::labelled(id, "recall", format!("recall your token from {id}")),
                 }
             }
             Opt::Spot(system, planet) => ChoiceOption::labelled(format!("{}|{}", system.as_str(), planet.as_str()), "planet", planet.as_str())
                 .with_planet(planet.as_str(), Some(system.as_str())),
+            Opt::Strat(card) => {
+                let id = card.as_str();
+                ChoiceOption::labelled(id, "strategy_card", format!("place a trade good on {id}"))
+            }
             Opt::Note(key) => {
                 let id = note_text(*key);
                 ChoiceOption::labelled(id.clone(), "promissory note", id)
@@ -84,6 +95,13 @@ impl Family for Fam {
                 let named = super::agenda::outcome_label(r, frame, *outcome);
                 ChoiceOption::labelled(super::agenda::outcome_text(r, *outcome), "prediction", format!("predict {named}"))
             }
+            Opt::Card(card) if matches!(a, Ask::PlayCard { .. }) => {
+                let id = ActionCardId::new(card.as_str());
+                let name = crate::action_cards::name_of(ContentStore::embedded(), &id);
+                ChoiceOption::labelled(card.as_str(), crate::reactions::ACTION_CARD_KIND, format!("play {name}"))
+                    .with("card", card.as_str())
+                    .with("card_name", name)
+            }
             Opt::Card(card) => {
                 let id = ActionCardId::new(card.as_str());
                 ChoiceOption::labelled(card.as_str(), crate::action_cards::OWN_HAND_KIND, crate::action_cards::name_of(ContentStore::embedded(), &id))
@@ -91,16 +109,27 @@ impl Family for Fam {
         }
     }
 
+    fn details(_: &Render, a: &Ask) -> serde_json::Map<String, serde_json::Value> {
+        let mut out = serde_json::Map::new();
+        if let Ask::Pick { what: What::Invest { step, owed }, .. } = a {
+            out.insert("step".to_owned(), (*step).into());
+            out.insert("of".to_owned(), 5.into());
+            out.insert("distinct_owed".to_owned(), (*owed).into());
+        }
+        out
+    }
+
     fn parse(r: &Render, a: &Ask, id: &str) -> Option<Opt> {
         match a {
-            Ask::OwnHand { .. } => ActionCard::from_id(id).map(Opt::Card),
+            Ask::OwnHand { .. } | Ask::PlayCard { .. } => ActionCard::from_id(id).map(Opt::Card),
             Ask::Pick { what: What::Player | What::Elect, .. } => r.seat(id).map(Opt::Seat),
-            Ask::Pick { what: What::Recall | What::Silence | What::Bombard | What::Deploy, .. } => System::from_id(id).map(Opt::System),
+            Ask::Pick { what: What::Recall | What::Silence | What::Bombard | What::Deploy | What::Rescue, .. } => System::from_id(id).map(Opt::System),
             Ask::Pick { what: What::Planet, .. } => {
                 let (system, planet) = id.split_once('|')?;
                 Some(Opt::Spot(System::from_id(system)?, Planet::from_id(planet)?))
             }
             Ask::Pick { what: What::Note, .. } => parse_note(id).map(Opt::Note),
+            Ask::Pick { what: What::Invest { .. }, .. } => ti4_engine_core::generated::StrategyCard::from_id(id).map(Opt::Strat),
             Ask::Predict { frame, .. } => super::agenda::parse_outcome(r, frame, id).map(Opt::Outcome),
         }
     }
@@ -116,6 +145,8 @@ const fn pick_kind(what: What) -> &'static str {
         What::Silence => "silence",
         What::Note => "promissory note",
         What::Planet => "planet",
+        What::Rescue => "rescue_from",
+        What::Invest { .. } => "strategy_card",
     }
 }
 
@@ -123,7 +154,7 @@ fn pick_of(a: &Ask) -> (ActionCard, What) {
     match a {
         Ask::Pick { card, what } => (*card, *what),
         Ask::Predict { card, .. } => (*card, What::Player),
-        Ask::OwnHand { .. } => (ActionCard::Spy, What::Player),
+        Ask::OwnHand { .. } | Ask::PlayCard { .. } => (ActionCard::Spy, What::Player),
     }
 }
 
@@ -148,6 +179,8 @@ const fn pick_prompt(card: ActionCard, what: What) -> &'static str {
         (C::DiplomaticPressure1 | C::DiplomaticPressure2 | C::DiplomaticPressure3 | C::DiplomaticPressure4, _) => {
             "Diplomatic Pressure: choose another player"
         }
+        (C::Rescue, _) => "Rescue: bring a ship from where",
+        (C::ManipulateInvestments, _) => "Manipulate Investments: place a trade good on which strategy card",
         (C::Uprising, _) => "Uprising: which planet",
         (C::CrippleDefenses, _) => "Cripple Defenses: which planet",
         (C::ReactorMeltdown, _) => "Reactor Meltdown: which space dock",
@@ -200,6 +233,30 @@ mod tests {
         assert_eq!((opt.id.as_str(), opt.kind.as_str(), opt.label.as_str()), ("bribery", "own_hand_card", "Bribery"));
         assert_eq!(Fam::parse(&r, &ask, "bribery"), Some(Opt::Card(ActionCard::Bribery)));
         assert_eq!(Fam::parse(&r, &ask, "nonsense"), None);
+    }
+
+    /// The slot's card question renders as `reactions::slot` words it: the prompt, the subtype and one option per
+    /// printed name (id, kind, label and the card payload of `reaction_card_options`).
+    #[test]
+    fn the_play_card_question_renders_as_the_reaction_slot_words_it() {
+        use ti4_engine_core::choice::reaction::Relation;
+        use ti4_engine_core::state::EventKind;
+        let r = Render::new(vec!["a".to_owned(), "b".to_owned()]);
+        let ask = Ask::PlayCard { relation: Relation::After, event: EventKind::SystemActivated };
+        assert_eq!(Fam::prompt(&r, &ask), "play an action card (after SYSTEM_ACTIVATED)");
+        assert_eq!(
+            Fam::subtype(&r, &Subtype::PlayReaction { relation: Relation::When, event: EventKind::HitsToAssign }),
+            "play_reaction_when_HITS_TO_ASSIGN"
+        );
+        let content = ContentStore::embedded();
+        let hand = [ActionCardId::new("fs2"), ActionCardId::new("nav_suite"), ActionCardId::new("fs1")];
+        let string = crate::reactions::reaction_card_options(content, &hand);
+        assert_eq!(string.len(), 2);
+        for (want, card) in string.iter().zip([ActionCard::FlankSpeed2, ActionCard::NavSuite]) {
+            let got = Fam::option(&r, &ask, &Opt::Card(card));
+            assert_eq!((&got.id, &got.kind, &got.label, &got.payload), (&want.id, &want.kind, &want.label, &want.payload));
+            assert_eq!(Fam::parse(&r, &ask, &want.id), Some(Opt::Card(card)));
+        }
     }
 }
 

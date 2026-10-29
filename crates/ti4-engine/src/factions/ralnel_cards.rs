@@ -253,7 +253,7 @@ fn courier(context: &mut TimingContext<'_>, player: &PlayerId) -> Result<bool, T
 // -- the Data Skimmer ------------------------------------------------------------------------------
 
 /// The player holding Data Skimmer, if any.
-fn skimmer_holder(state: &GameState) -> Option<PlayerId> {
+pub(crate) fn skimmer_holder(state: &GameState) -> Option<PlayerId> {
     state
         .players
         .iter()

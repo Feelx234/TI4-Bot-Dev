@@ -182,3 +182,22 @@ pub(crate) fn discard(state: &mut GameState, player: &PlayerId, index: usize) ->
         None
     }
 }
+
+/// The core half of a card's announcement and resolution (`None`: bail).
+pub(crate) fn announce_window(
+    state: &mut GameState,
+    player: &PlayerId,
+    alias: &ActionCardId,
+    sources: &ti4_model::content_types::SourceSet,
+    script: &crate::dual_window::Recording,
+) -> Option<crate::dual::CoreWindow<Option<bool>>> {
+    #[cfg(feature = "typed-core")]
+    {
+        crate::action_cards_view::announce_window(state, player, alias, sources, script)
+    }
+    #[cfg(not(feature = "typed-core"))]
+    {
+        let _ = (state, player, alias, sources, script);
+        None
+    }
+}

@@ -4,6 +4,7 @@
 //! asked here and the string function stands; each such place is a documented bail (see
 //! [`has_legal_target`]). No `Env` trait: the faction answers are plain arguments.
 
+pub mod announce;
 pub mod effects;
 pub mod reaction_slot;
 
@@ -336,6 +337,8 @@ pub struct Env {
     pub infantry: Placed,
     /// The cruiser the seat places (War Effort).
     pub cruiser: Placed,
+    /// The fighters on the Crimson hero card (Fighter Conscription places the plain fighter).
+    pub fighter: Placed,
 }
 
 impl Simple {

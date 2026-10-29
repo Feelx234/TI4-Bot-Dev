@@ -58,6 +58,10 @@ pub struct ResolverCfg {
     pub max_depth: usize,
     /// `(ability id, scope Debug text)`
     pub used: Vec<(String, String)>,
+    /// The sources in play (the play of an action card reads them).
+    pub sources: ti4_model::content_types::SourceSet,
+    /// The emissions open around the window's first emission (`(event type, trace id)`, outermost first).
+    pub stack: Vec<(String, u64)>,
 }
 
 /// What the string window did at its own level.
@@ -197,6 +201,33 @@ impl EffectGuard {
 }
 
 impl Drop for EffectGuard {
+    fn drop(&mut self) {
+        REC.with(|r| {
+            if let Some(rec) = r.borrow_mut().as_mut() {
+                rec.effect_depth = rec.effect_depth.saturating_sub(1);
+            }
+        });
+    }
+}
+
+/// The cards declared in a window are announced while this guard lives (the close of the window, outside any
+/// ability's effect): what is asked or emitted meanwhile belongs to the plays, which the core follows.
+pub struct CloseGuard;
+
+impl CloseGuard {
+    #[must_use]
+    pub fn enter() -> Self {
+        REC.with(|r| {
+            if let Some(rec) = r.borrow_mut().as_mut() {
+                rec.nested = true;
+                rec.effect_depth += 1;
+            }
+        });
+        Self
+    }
+}
+
+impl Drop for CloseGuard {
     fn drop(&mut self) {
         REC.with(|r| {
             if let Some(rec) = r.borrow_mut().as_mut() {
@@ -458,6 +489,10 @@ pub fn drive_positioned<W: Window>(
                 ti4_engine_core::kernel::ability::Unknown::NomadAgentExhaustion => "Nomad Temporal Command Suite (agent exhaustion)",
                 ti4_engine_core::kernel::ability::Unknown::NekroCarriedCard => "a technology carried by a Nekro Valefar Assimilator",
                 ti4_engine_core::kernel::ability::Unknown::MissingFact => "a fact the adapter did not compute for the window",
+                ti4_engine_core::kernel::ability::Unknown::PendingDestructions => "an action card that staged destructions",
+                ti4_engine_core::kernel::ability::Unknown::DataSkimmer => "a discard the Data Skimmer could take",
+                ti4_engine_core::kernel::ability::Unknown::PlayFacts => "an action card the core does not play",
+                ti4_engine_core::kernel::ability::Unknown::ReflectiveShielding => "Reflective Shielding played inside a window (its hits are drained by the sustain step)",
             };
             crate::dual::note_bail(LABEL.with(Cell::get), &format!("nested ({why})"));
             return Err(DriverError::NotAsking);
@@ -478,7 +513,7 @@ pub fn drive_positioned<W: Window>(
                 let mut rendered = typed.rendered;
                 complete(&choice, core, &mut rendered);
                 if let Some(facts) = driver.nested_facts() {
-                    complete_nested(r, &choice, facts, gs, core, kernel, &mut rendered);
+                    complete_nested(r, &choice, facts, gs, &mut rendered);
                     // The previews of a reaction window ("what each single-card slot would do now") are display facts
                     // the string builds from its position (`reaction_preview`); the core renders none, so they are the
                     // recorded question's own (the same convention as the option previews, B1g-10).
@@ -574,13 +609,23 @@ pub(crate) const fn ability_fp() -> Footprint {
 /// ... and the streams, when the abilities draw (the window has to be lent them: `Sources::rng`).
 const ABILITY_DICE_FP: Footprint = Footprint::new(&[Slice::Rng, Slice::Ledger], &[Slice::Rng, Slice::Ledger]);
 
+/// ... and what the play of an action card touches (the reaction slot's play; the decks for Veto and Insider
+/// Information, the agenda for the Riders).
+const CARD_PLAY_FP: Footprint = Footprint::new(
+    &[Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending, Slice::Strategy],
+    &[Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending, Slice::Strategy],
+);
+
 /// `base`, widened by what the table's abilities touch when the string run had nested activity.
 #[must_use]
 pub(crate) fn nested_fp(base: Footprint, script: &Recording) -> Footprint {
     if !script.nested {
         return base;
     }
-    let fp = base.union(ability_fp());
+    let mut fp = base.union(ability_fp());
+    if script.effects.iter().any(|e| e.starts_with("reaction:")) {
+        fp = fp.union(CARD_PLAY_FP);
+    }
     if script.dice.is_empty() { fp } else { fp.union(ABILITY_DICE_FP) }
 }
 
@@ -592,8 +637,6 @@ fn complete_nested(
     choice: &CoreChoice,
     facts: &ti4_engine_core::kernel::NestedFacts,
     gs: &GameState,
-    core: &CoreState,
-    kernel: &Kernel,
     rendered: &mut Choice,
 ) {
     if let Some(ctx) = rendered.context.take() {
@@ -612,7 +655,7 @@ fn complete_nested(
     }
     crate::render::leaders::complete_round_agent(r, choice, rendered);
     if is_window_pick(choice) {
-        slot_options(r, choice, facts, core, kernel, rendered);
+        slot_options(r, choice, facts, rendered);
     }
     if is_window_pick(choice) && gs.phase == ti4_model::state::Phase::Action {
         if let Some(active) = &gs.active {
@@ -624,7 +667,10 @@ fn complete_nested(
 /// Whether a nested question carries the trigger of its window in its context: the window's own pick, and the
 /// questions whose string ability builds one (`DecisionTrigger::from_event`).
 fn with_trigger_of(choice: &CoreChoice) -> bool {
-    matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(_))
+    matches!(
+        choice.ask,
+        ti4_engine_core::choice::Ask::Reaction(_) | ti4_engine_core::choice::Ask::Cards(ti4_engine_core::choice::cards::Ask::PlayCard { .. })
+    )
 }
 
 /// Whether a nested question is the window's own pick (the one that carries the `active` detail of the action phase).
@@ -638,8 +684,6 @@ fn slot_options(
     r: &Render,
     choice: &CoreChoice,
     facts: &ti4_engine_core::kernel::NestedFacts,
-    core: &CoreState,
-    kernel: &Kernel,
     rendered: &mut Choice,
 ) {
     use ti4_engine_core::choice::reaction::{AbilityKind, Opt as ROpt};
@@ -649,13 +693,10 @@ fn slot_options(
         if id.kind != AbilityKind::Reaction {
             continue;
         }
-        let barred = ti4_engine_core::rules::agenda::political_secret_bars(core, choice.actor);
-        let Ok(cards) = ti4_engine_core::rules::action_cards::reaction_slot::playable(core, kernel, barred, choice.actor, &facts.event, facts.relation) else {
-            continue;
-        };
+        let cards = &facts.offered;
         let name_of = |c: &ti4_engine_core::generated::ActionCard| crate::action_cards::name_of(content, &ti4_model::id::ActionCardId::new(c.as_str()));
         let mut names: Vec<String> = Vec::new();
-        for c in cards.as_slice() {
+        for c in cards.iter() {
             let n = name_of(c);
             if !names.contains(&n) {
                 names.push(n);
@@ -663,7 +704,7 @@ fn slot_options(
         }
         let Some(option) = rendered.options.get_mut(i) else { continue };
         option.payload.insert("card_names".to_owned(), serde_json::json!(names));
-        if let Some(first) = cards.as_slice().first().filter(|f| cards.as_slice().iter().all(|c| name_of(c) == name_of(f))) {
+        if let Some(first) = cards.first().filter(|f| cards.iter().all(|c| name_of(c) == name_of(f))) {
             let name = name_of(first);
             option.label = format!("Play {name}");
             option.payload.insert("card".to_owned(), first.as_str().into());

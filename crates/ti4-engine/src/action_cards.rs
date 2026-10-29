@@ -8047,7 +8047,7 @@ pub fn unimplemented(content: &ContentStore) -> Vec<ActionCardId> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crate::choice::Window;
 
     /// Resolve one card's effect against a state, through a real timing context.
@@ -8231,7 +8231,7 @@ mod tests {
     /// The position the question effects are played in: three seats, a rival with tokens and cultural planets,
     /// planets with PDS and docks, a pending agenda with two outcomes.
     #[cfg(feature = "typed-core")]
-    fn question_position() -> GameState {
+    pub(crate) fn question_position() -> GameState {
         use crate::generated::IdStr;
         use ti4_engine_core::generated::{Planet, PlanetTrait, Source};
         let (a, b, c) = (PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c"));
