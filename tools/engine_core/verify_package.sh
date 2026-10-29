@@ -9,7 +9,10 @@
 # BASE_SELFPLAY  a selfplay binary built from the previous merge commit (the CPU A/B baseline).
 # Env: CARGO_TARGET_DIR (required, private), BASE_REF (git ref the immutable surfaces are compared
 # with; default engine-core-state-base), GAMES (dual games, default 20), DUAL_BENCH=1 (also run the
-# bench with the area on Dual, ~2-3x slower), WASM_OPT (binary of wasm-opt), SKIP_AB=1.
+# bench with the area on Dual, ~2-3x slower), WASM_OPT (binary of wasm-opt), SKIP_AB=1, SHARDS (default 4:
+# the 20-game dual run of check 3 as that many parallel `dual_run --shard i/N` processes whose files are
+# merged into the single-run text, tools/engine_core/dual_sharded.sh; 1 = one process as before). The caller
+# holds the heavy lane (/root/.ti4-heavy.lock) for the whole gate; the shards run concurrently inside it.
 # Builds use the `gate` profile (docs/ENGINE_BUILD_SPEED.md): binaries are in $CARGO_TARGET_DIR/gate/.
 # The CPU A/B (6/7) and the wasm size gate (8) are OFF by default (they need release/wasm-release
 # builds): RUN_AB=1 / RUN_WASM=1 turn them on. The hash checks of the benches stay.
@@ -74,7 +77,9 @@ check tests-wasm cargo test -p ti4-wasm --features ts
 if [[ -n "$dual" ]]; then
   check dual-suite env "$dual" TI4_DUAL_FAIL_FAST=1 cargo test -p ti4-engine
   note "     $(grep -c '^test result: ok' "$out/dual-suite.log") suites ok with $area on Dual (fail fast)"
-  check dual-golden env TI4_DUAL_FAIL_FAST=1 "$target/gate/dual_run" tools/engine_profile/profile-20.json "$games" "$area=dual"
+  # SHARDS (default 4; 1 = one process) parallel shards, merged into the text of the single run.
+  check dual-golden env TI4_DUAL_FAIL_FAST=1 tools/engine_core/dual_sharded.sh "$target/gate/dual_run" \
+    tools/engine_profile/profile-20.json "$games" "$area=dual" "$out/dual-golden-shards"
   sed 's/^/     /' "$out/dual-golden.log" | head -12 | tee -a "$out/summary.txt"
   if [[ "$area" == board ]]; then
     check dual-templates "$target/gate/board_equivalence" templates
