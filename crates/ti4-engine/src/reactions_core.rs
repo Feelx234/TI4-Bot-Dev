@@ -508,6 +508,8 @@ mod tests {
         for id in [
             "unit:sardakk:sardakk_mech:GROUND_FORCE_SUSTAINED:after",
             "leader:sardakk:sardakkhero_turn:TURN_BEGAN:after",
+            "promissory:letnev:ambuscade:UNIT_ABILITY_ROLLED:when",
+            "leader:winnu:winnucommander_unlock:SPACE_COMBAT_STARTED:after",
         ] {
             assert_eq!(slot_of(id), None, "{id} is not in the table");
             let why = rec(&[id], &[]).unported(&t).unwrap_or_default();
@@ -537,6 +539,10 @@ mod tests {
         assert_eq!(r.unported(&t), None, "a Morale Boost is a stamp the core plays");
         r.played = vec!["mb1".to_owned(), "reveal_prototype".to_owned()];
         assert_eq!(r.unported(&t).as_deref(), Some("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card reveal_prototype)"));
+        for card in ["courageous", "scramble", "reflective", "fire_team"] {
+            r.played = vec![card.to_owned()];
+            assert_eq!(r.unported(&t).as_deref(), Some(&*format!("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card {card})")), "{card} stays the string's");
+        }
         r.played = vec!["s_retreat1".to_owned(), "intercept".to_owned(), "dh2".to_owned(), "parley".to_owned()];
         assert_eq!(r.unported(&t), None, "the cards of the card module are played by the core");
     }

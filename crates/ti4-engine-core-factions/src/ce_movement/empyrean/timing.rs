@@ -250,4 +250,40 @@ mod tests {
         assert_eq!(any_near(&f, [b, c].into_iter(), a, true), Ok(true));
         assert_eq!(any_near(&f, [c].into_iter(), b, false), Err(()), "the pair is asked in the string's order (system, candidate)");
     }
+
+    fn plain_kernel() -> &'static ti4_engine_core::kernel::Kernel {
+        Box::leak(Box::new(ti4_engine_core::kernel::Kernel::plain()))
+    }
+
+    /// A window that follows nested activity is the only one that arms the table, so a condition that wrongly says yes cannot
+    /// show in a lockstep test of a window without activity: these are the pure checks of the conditions.
+    #[test]
+    fn dynamo_wants_two_influence_the_seat_can_pay() {
+        let (mut s, _) = table(&[Faction::TheEmpyrean, Faction::TheEmiratesOfHacan]);
+        let mut f = AdapterFacts::default();
+        f.pay_kernel = Some(plain_kernel);
+        assert_eq!(affordable(&s, &f, Seat(0)), Ok(false), "no planet, no trade good");
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().econ.trade_goods = 1;
+        assert_eq!(affordable(&s, &f, Seat(0)), Ok(false), "one trade good is one influence");
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().econ.trade_goods = 2;
+        assert_eq!(affordable(&s, &f, Seat(0)), Ok(true));
+        assert_eq!(affordable(&s, &AdapterFacts::default(), Seat(0)), Err(()), "no payment kernel lent: unknown");
+    }
+
+    #[test]
+    fn the_watcher_is_for_another_players_card_and_a_mech_in_reach() {
+        let (mut s, _) = table(&[Faction::TheEmpyrean, Faction::TheEmiratesOfHacan]);
+        let (home, there) = (System::ALL[0], System::ALL[1]);
+        s.board_mut().sys_mut(there).units.push(Piece::new(Unit::Watcher, Seat(0)));
+        s.board_mut().sys_mut(home).units.push(Piece::new(Unit::CruiserI, Seat(1)));
+        let played = |by: Seat| Payload::new().with(Key::Player, Val::Seat(by));
+        let mut f = AdapterFacts::default();
+        f.set_adjacent(there, home, true);
+        assert_eq!(watcher_window(&s, &f, Seat(0), &played(Seat(1))), Ok(Some((Seat(1), vec![(there, None)]))));
+        assert_eq!(watcher_window(&s, &f, Seat(0), &played(Seat(0))), Ok(None), "not for the Empyrean's own card");
+        let mut far = AdapterFacts::default();
+        far.set_adjacent(there, home, false);
+        assert_eq!(watcher_window(&s, &far, Seat(0), &played(Seat(1))), Ok(None), "out of reach");
+        assert_eq!(watcher_window(&s, &AdapterFacts::default(), Seat(0), &played(Seat(1))), Err(()), "the pair was not asked");
+    }
 }

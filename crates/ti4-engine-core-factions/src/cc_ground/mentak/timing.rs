@@ -213,3 +213,51 @@ pub fn register_abilities(t: &mut AbilityTable) {
     t.add(Spec::new(HERO_SHIPS, AbilityKind::Leader, EventKind::ShipDestroyed, Relation::After, place_ship).when(ships_when));
     t.add(Spec::new(HERO_END, AbilityKind::Leader, EventKind::SpaceCombatEnded, Relation::After, close).when(end_when));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::testkit::table;
+    use ti4_engine_core::generated::{Faction, System};
+    use ti4_engine_core::state::{List, Piece, Val};
+
+    fn plain_kernel() -> &'static ti4_engine_core::kernel::Kernel {
+        Box::leak(Box::new(ti4_engine_core::kernel::Kernel::plain()))
+    }
+
+    /// The Mentak (seat 0) won against a Hacan; the Hacan lost a dreadnought and a destroyer; the Mentak may build both.
+    fn setup() -> (CoreState, AdapterFacts, Payload) {
+        let (mut s, _) = table(&[Faction::TheMentakCoalition, Faction::TheEmiratesOfHacan]);
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.insert(Technology::SalvageOperations);
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().econ.trade_goods = 6;
+        let mut f = AdapterFacts::default();
+        f.pay_kernel = Some(plain_kernel);
+        f.set_buildable(Seat(0), vec![Unit::DestroyerI, Unit::DreadnoughtI, Unit::InfantryI]);
+        let p = Payload::new()
+            .with(Key::Attacker, Val::Seat(Seat(0)))
+            .with(Key::Defender, Val::Seat(Seat(1)))
+            .with(Key::Winner, Val::Seat(Seat(0)))
+            .with_list(Key::Destroyed, List::Units([(Seat(1), Unit::DreadnoughtI), (Seat(1), Unit::DestroyerI)].into_iter().collect()));
+        (s, f, p)
+    }
+
+    #[test]
+    fn salvage_offers_the_destroyed_ship_types_the_owner_may_build_and_pay() {
+        let (mut s, f, p) = setup();
+        assert_eq!(salvage_options(&s, &f, Seat(0), &p), Ok(vec![(Unit::DestroyerI, 1), (Unit::DreadnoughtI, 4)]), "ships only, in the string's buildable order");
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().econ.trade_goods = 2;
+        assert_eq!(salvage_options(&s, &f, Seat(0), &p), Ok(vec![(Unit::DestroyerI, 1)]), "the dreadnought is out of reach of 2 resources");
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().econ.trade_goods = 6;
+        let loser = p.clone().with(Key::Winner, Val::Seat(Seat(1)));
+        assert_eq!(salvage_options(&s, &f, Seat(0), &loser), Ok(Vec::new()), "only the winner produces");
+        let outsider = p.clone().with(Key::Attacker, Val::Seat(Seat(1)));
+        assert_eq!(salvage_options(&s, &f, Seat(0), &outsider), Ok(Vec::new()), "the owner fought in it");
+        for _ in 0..5 {
+            s.board_mut().sys_mut(System::ALL[0]).units.push(Piece::new(Unit::DreadnoughtI, Seat(0)));
+        }
+        assert_eq!(salvage_options(&s, &f, Seat(0), &p), Ok(vec![(Unit::DestroyerI, 1)]), "no dreadnought plastic left");
+        assert_eq!(salvage_options(&s, &AdapterFacts::default(), Seat(0), &p), Err(()), "no buildable list or payment kernel lent");
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.remove(Technology::SalvageOperations);
+        assert_eq!(salvage_options(&s, &f, Seat(0), &p), Ok(Vec::new()), "without the technology");
+    }
+}
