@@ -345,6 +345,21 @@ pub fn normalized(events: &[Event]) -> Vec<Event> {
 /// The string `Event` of a core record (id zeroed). `None` for a payload the conversion does not cover
 /// (a nested tally list or an outcome value).
 #[must_use]
+/// The text of an agenda outcome in an event payload (`Codec::render_outcome`, with the seats of `r`).
+fn outcome_text(r: &Render, outcome: ti4_engine_core::keys::Outcome) -> Option<String> {
+    use ti4_engine_core::keys::Outcome;
+    Some(match outcome {
+        Outcome::Empty => String::new(),
+        Outcome::For => "for".to_owned(),
+        Outcome::Against => "against".to_owned(),
+        Outcome::Seat(s) => r.seats.get(usize::from(s.0))?.clone(),
+        Outcome::Planet(x) => x.as_str().to_owned(),
+        Outcome::StrategyCard(x) => ti4_engine_core::generated::StrategyCard::as_str(x).to_owned(),
+        Outcome::Law(x) => x.as_str().to_owned(),
+        Outcome::Secret(x) => x.as_str().to_owned(),
+    })
+}
+
 pub fn event_of(r: &Render, rec: &EventRec) -> Option<Event> {
     if !rec.payload.units.is_empty() {
         return None;
@@ -364,7 +379,7 @@ pub fn event_of(r: &Render, rec: &EventRec) -> Option<Event> {
             Val::Int(i) => i.into(),
             Val::Flag(b) => b.into(),
             Val::Code(c) => r.code_text(c).into(),
-            Val::Outcome(_) => return None,
+            Val::Outcome(outcome) => outcome_text(r, outcome)?.into(),
         };
         payload.insert(key_text(r, *key), v);
     }

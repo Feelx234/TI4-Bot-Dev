@@ -33,7 +33,7 @@ use crate::tactical::{
 use crate::timing::{Resolver, TimingContext, TimingError};
 use crate::tokens::{TokenGain, TokenGainError};
 use crate::transit::{CargoError, CargoWindow, MoveOutcome, apply_move, survives_gravity_rifts};
-use crate::vote::{AGAINST, VoteError, VoteWindow, is_law, outcomes};
+use crate::vote::{VoteError, VoteWindow, is_law, outcomes};
 
 /// Metadata returned after one attempted game step.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -6119,97 +6119,6 @@ impl<'a> Game<'a> {
         }
     }
 
-    /// The seat the outcome names if it is a player, else the controller of the planet it
-    /// names (the "you or a planet you control are elected" reading). An outcome that is
-    /// neither — a law, "for", "against" — matches nobody.
-    ///
-    /// `close_vote` calls this after the outcome, the predictions and the law have been
-    /// settled and the agenda's own effect has been resolved through `crate::agenda_effects`;
-    /// an effect the corpus does not resolve is announced as `AGENDA_EFFECT_UNRESOLVED`
-    /// rather than silently skipped.
-    fn elected_seat_or_planet(&self, outcome: &str) -> Option<PlayerId> {
-        let elected = PlayerId::new(outcome.to_owned());
-        if self.state.player(&elected).is_some() {
-            return Some(elected);
-        }
-        let planet = ti4_model::id::PlanetId::new(outcome.to_owned());
-        self.state
-            .board
-            .values()
-            .find_map(|board| board.planet_control.get(&planet).cloned())
-    }
-
-    /// Resolve an agenda that was not discarded, returning the elected player if there was one.
-    ///
-    /// The whole non-discarded path: the redirect, the prediction payouts, enacting a law, and the
-    /// agenda's own effect. Split out of `close_vote` because it is the only branch that does
-    /// anything -- the discard branch clears three fields -- and because the effect needs the
-    /// game's own dice, table and map, which is a block of borrowing that reads better alone.
-    fn resolve_agenda_outcome(
-        &mut self,
-        alias: &str,
-        outcome: &str,
-        ballot: &crate::vote::Ballot,
-    ) -> Option<ti4_model::id::PlayerId> {
-        let effective = self.redirect_elected(outcome);
-        // Drive the Debate: "you or a planet you control are elected". The outcome
-        // names a player, a planet, or an outcome like "for" -- so both readings
-        // have to be tried, and an outcome that is neither matches nobody. Read
-        // from the (possibly redirected) elected player.
-        let elected = self.elected_seat_or_planet(&effective);
-        self.pay_predictions(outcome);
-        self.enact_if_law(alias, outcome);
-        self.run_agenda_effect(alias, &effective, ballot);
-        elected
-    }
-
-    /// Confusing / Confounding Legal Text, played into the window above, redirect
-    /// who is the elected player. The vote's own result (`outcome`) still settles
-    /// predictions and any law; the agenda's effect on the elected player and the
-    /// "elected by an agenda" feat follow the redirect. Returns the effective outcome.
-    fn redirect_elected(&mut self, outcome: &str) -> String {
-        if let Some(override_player) = self.state.agenda_elected_override.take() {
-            self.emit(&format!(
-                "AGENDA_OUTCOME_REDIRECTED:{outcome}:{override_player}"
-            ));
-            override_player.to_string()
-        } else {
-            outcome.to_owned()
-        }
-    }
-
-    /// Imperial Rider pays out before the agenda's own effect, and clears the
-    /// predictions. A prediction left behind would pay again on the next agenda,
-    /// for a card that was spent on this one.
-    fn pay_predictions(&mut self, outcome: &str) {
-        for player in crate::action_cards::resolve_predictions_asking(
-            &mut self.state,
-            self.content,
-            self.sources,
-            self.galaxy.as_ref(),
-            &mut self.table,
-            outcome,
-        ) {
-            self.emit(&format!("AGENDA_PREDICTION_CORRECT:{player}"));
-        }
-    }
-
-    /// 8.20 first: an elected or "For" law stays in play, and an effect that reads
-    /// the laws must see this one already there. 8.21 discards everything else.
-    fn enact_if_law(&mut self, alias: &str, outcome: &str) {
-        if is_law(self.content, alias) && outcome != AGAINST {
-            self.state.enact_law(alias, outcome);
-            // Classified Document Leaks: "The elected secret objective becomes a public
-            // objective." Only for its own enactment -- `outcome` here is whatever *this* agenda
-            // elected, so calling it for every law would publish a player name or a planet as an
-            // objective the moment Classified was anywhere in play.
-            if alias == "classified" {
-                crate::laws::classified_leak(&mut self.state, outcome);
-            }
-            self.emit(&format!("LAW_ENACTED:{alias}:{outcome}"));
-        }
-    }
-
     /// With the game's own dice, table and map: several agendas roll, ask, or read
     /// the shape of the board, and one borrowed from nowhere would roll off a
     /// stream no seed covers. The speaker's tie-break (8.18) is asked through the
@@ -6520,26 +6429,6 @@ impl<'a> Game<'a> {
         self.emit(&format!("STRATEGY_CARDS_SWAPPED:{owner}:{holder}"));
     }
 
-    /// The public record of a finished vote, for viewers only (no rule reads it). Written once
-    /// the outcome and a Deadly Plot discard are settled, before the agenda's effect is asked.
-    fn log_agenda(
-        &mut self,
-        window: &crate::vote::VoteWindow,
-        outcome: Option<&str>,
-        discarded: bool,
-    ) {
-        let ballot = window.ballot();
-        let speaker_decided =
-            outcome.is_some() && crate::vote::undisputed_winner(&self.state, window.alias(), ballot, window.choices()).is_none();
-        self.push_agenda_record(
-            window.alias(),
-            outcome,
-            ballot.counts.clone(),
-            speaker_decided,
-            discarded,
-        );
-    }
-
     fn push_agenda_record(
         &mut self,
         alias: &str,
@@ -6559,117 +6448,10 @@ impl<'a> Game<'a> {
         );
     }
 
-    /// The vote has a winner: announce it, record it, resolve the agenda (or drop it when a Deadly Plot
-    /// discarded it) and open the agenda-phase scoring window. `Some` ends the step early on an illegal
-    /// answer inside the `AGENDA_RESOLVED` window.
-    fn settle_winner(
-        &mut self,
-        window: &crate::vote::VoteWindow,
-        alias: &str,
-        covert: Option<&String>,
-        outcome: &str,
-    ) -> Option<StepResult> {
-        let alias = alias.to_owned();
-        let covert = covert.cloned();
-        let outcome = outcome.to_owned();
-        let outcome = outcome.to_owned();
-        self.emit(&format!("AGENDA_RESOLVED:{alias}:{outcome}"));
-        // The outcome names a player when the agenda elects one, which is what the "when
-        // you are elected" windows read. `elected_player` is set only for a real seat, so
-        // a window can tell "a player was elected" from an outcome that is a law, a planet,
-        // or For/Against.
-        let outcome_is_player = self.state.player(&PlayerId::new(outcome.clone())).is_some();
-        let mut payload = BTreeMap::new();
-        payload.insert(
-            "agenda".to_owned(),
-            serde_json::Value::String(alias.clone()),
-        );
-        payload.insert(
-            "player".to_owned(),
-            serde_json::Value::String(outcome.clone()),
-        );
-        if outcome_is_player {
-            payload.insert(
-                "elected_player".to_owned(),
-                serde_json::Value::String(outcome.clone()),
-            );
-        }
-        // Mirror the ballot for a Deadly Plot guard played into the window below: the
-        // ballot itself lives in the vote window this function holds, and a guard can
-        // only read the game state.
-        self.state.agenda_votes = window.ballot().votes.clone();
-        crate::diplomacy::evaluate_event(
-            &mut self.state,
-            &crate::diplomacy::DiplomacyEventContext::VotesRecorded {
-                agenda: alias.clone(),
-            },
-        )
-        .expect("validated vote promises settle deterministically");
-        if let Err(error) = self.emit_typed("AGENDA_RESOLVED", payload) {
-            return Some(self.result(false, Some(error)));
-        }
-        self.state.agenda_votes.clear();
-        let discarded = self
-            .state
-            .transient_flags
-            .has(TransientFlags::AGENDA_DISCARDED);
-        self.state
-            .transient_flags
-            .clear(TransientFlags::AGENDA_DISCARDED);
-
-        self.log_agenda(&window, Some(&outcome), discarded);
-        if let Some(hidden) = &covert {
-            // The face-down agenda is turned up and listed with the outcome it was given.
-            self.emit(&format!("COVERT_AGENDA_RESOLVED:{hidden}:{outcome}"));
-            let ballot = window.ballot();
-            let speaker_decided =
-                crate::vote::undisputed_winner(&self.state, window.alias(), ballot, window.choices()).is_none();
-            self.push_agenda_record(
-                hidden,
-                Some(&outcome),
-                ballot.counts.clone(),
-                speaker_decided,
-                discarded,
-            );
-        }
-        let resolved = covert.as_deref().unwrap_or(&alias).to_owned();
-        let elected_player: Option<ti4_model::id::PlayerId> = if discarded {
-            // Deadly Plot: "discard the agenda instead. The agenda is resolved with no
-            // effect and it is not replaced." The vote still happened, so the
-            // occurrence window below still opens — but the agenda's own effect, the
-            // prediction payouts, any law, and the elected feat are all suppressed. A
-            // redirect played into the same window (Confusing / Confounding) is spent
-            // on an election that has no effect, so it is dropped with it. (This
-            // engine does not draw a replacement after a resolution, so "not
-            // replaced" has nothing to suppress.)
-            self.state.agenda_elected_override = None;
-            self.state.agenda_predictions.clear();
-            self.emit(&format!("AGENDA_DISCARDED:{alias}"));
-            None
-        } else {
-            self.resolve_agenda_outcome(&resolved, &outcome, window.ballot())
-        };
-        // Agenda-timed secrets are offered only after the complete agenda outcome is live:
-        // Dictate Policy therefore sees a law enacted by this agenda. A Deadly Plot
-        // discard suppresses the agenda's effect, not the fact that the vote resolved.
-        let occurrence = self.state.begin_feat_occurrence();
-        if let Some(elected_player) = elected_player {
-            self.state
-                .record_event_feat(&elected_player, Feat::ElectedByAnAgenda, occurrence);
-        }
-        // Every resolved agenda is its own agenda-phase occurrence. Objectives such as
-        // Dictate Policy depend on the completed outcome rather than on a player election,
-        // so For/Against and other non-player outcomes must open this window too.
-        self.open_occurrence_event_scoring(
-            crate::secrets::Timing::Agenda,
-            occurrence,
-            EventScoreLimit::AnyPerPlayer,
-        );
-
-        None
-    }
-
-    fn close_vote(&mut self) -> StepResult {
+    /// Close the vote that was open: the close itself is [`crate::agenda_close::Live::close_resolution`] (the core
+    /// `rules::agenda::close::Close` runs beside it on `agenda=dual`); then the agenda's own effect, the feat of an
+    /// election and the agenda-phase scoring window.
+    pub(crate) fn close_vote(&mut self) -> StepResult {
         let Some((window, queue)) = self.voting.take() else {
             unreachable!("a vote was open");
         };
@@ -6682,17 +6464,31 @@ impl<'a> Game<'a> {
         };
         self.state.agenda_choices.clear();
         self.state.agenda_in_play = None;
-        if window.winner().is_none() {
-            self.log_agenda(&window, None, false);
-            // No outcome, so nobody predicted correctly — but the cards were still spent, and a
-            // prediction left behind would pay out on the next agenda.
-            self.state.agenda_predictions.clear();
-        }
-        if let Some(outcome) = window.winner() {
-            let outcome = outcome.to_owned();
-            if let Some(early) = self.settle_winner(&window, &alias, covert.as_ref(), &outcome) {
-                return early;
+        let settled = match self.close_window(&window, covert.as_deref()) {
+            Ok(settled) => settled,
+            Err(error) => return self.result(false, Some(error)),
+        };
+        if settled.resolved {
+            let resolved = covert.as_deref().unwrap_or(&alias).to_owned();
+            if let Some(effective) = &settled.effective {
+                self.run_agenda_effect(&resolved, effective, window.ballot());
             }
+            // Agenda-timed secrets are offered only after the complete agenda outcome is live:
+            // Dictate Policy therefore sees a law enacted by this agenda. A Deadly Plot
+            // discard suppresses the agenda's effect, not the fact that the vote resolved.
+            let occurrence = self.state.begin_feat_occurrence();
+            if let Some(elected_player) = settled.elected.map(PlayerId::new) {
+                self.state
+                    .record_event_feat(&elected_player, Feat::ElectedByAnAgenda, occurrence);
+            }
+            // Every resolved agenda is its own agenda-phase occurrence. Objectives such as
+            // Dictate Policy depend on the completed outcome rather than on a player election,
+            // so For/Against and other non-player outcomes must open this window too.
+            self.open_occurrence_event_scoring(
+                crate::secrets::Timing::Agenda,
+                occurrence,
+                EventScoreLimit::AnyPerPlayer,
+            );
         }
         if self.event_scoring.is_some() {
             self.agenda_queue_after_event_scoring = Some(queue);
@@ -6700,6 +6496,53 @@ impl<'a> Game<'a> {
         } else {
             self.open_next_vote(queue)
         }
+    }
+
+    /// The resolution of an outcome with its effect (the former single method), for the tests of the pieces.
+    #[cfg(test)]
+    fn resolve_agenda_outcome(
+        &mut self,
+        alias: &str,
+        outcome: &str,
+        ballot: &crate::vote::Ballot,
+    ) -> Option<PlayerId> {
+        let (state, mut live) = self.split();
+        let (effective, elected) = live.resolve_agenda_outcome(state, alias, outcome);
+        self.run_agenda_effect(alias, &effective, ballot);
+        elected
+    }
+
+    /// Put a finished vote in front of `close_vote` (the tests).
+    #[cfg(test)]
+    pub(crate) fn put_vote(&mut self, window: VoteWindow) {
+        self.voting = Some((Box::new(window), Vec::new()));
+    }
+
+    /// The close of a vote under the window dual.
+    fn close_window(
+        &mut self,
+        window: &crate::vote::VoteWindow,
+        covert: Option<&str>,
+    ) -> Result<crate::agenda_close::Settled, GameError> {
+        let (content, sources) = (self.content, self.sources);
+        let mut failure: Option<GameError> = None;
+        let (state, mut live) = self.split();
+        let settled = crate::dual_window!(
+            crate::dual::Area::AgendaLaws,
+            "game::close_vote",
+            state,
+            |s: &mut GameState| match live.close_resolution(s, window, covert) {
+                Ok(settled) => crate::dual::Run::new(settled),
+                Err(error) => {
+                    failure = Some(error);
+                    crate::dual::Run::new(crate::agenda_close::Settled::default())
+                }
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                crate::agenda_close_dual::close(s, content, sources, window, covert, script)
+            }
+        );
+        failure.map_or(Ok(settled), Err)
     }
 
     fn step_phase(&mut self) -> StepResult {
@@ -14780,7 +14623,7 @@ mod tests {
                 assert_eq!(record.round, round);
                 assert_eq!(record.law, is_law(content, &record.agenda));
                 assert!(!record.name.is_empty(), "the printed name travels with it");
-                assert_eq!(record.enacted, record.law && outcome != AGAINST);
+                assert_eq!(record.enacted, record.law && outcome != crate::vote::AGAINST);
                 let best = record.votes.values().copied().max().unwrap_or(0);
                 let leaders = record
                     .votes
