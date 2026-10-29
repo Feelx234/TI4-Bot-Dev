@@ -223,6 +223,20 @@ impl Machine {
         }
     }
 
+    /// What the machine hands on once it is done: the aftermath (`WindowKind::Aftermath`) of the closed movement step, with
+    /// the system and whether the Sardakk hero skips to the commit step in its payload; nothing before the close.
+    #[must_use]
+    pub fn done_next(&self) -> Next {
+        match self.closed {
+            Some(c) => Next::Open(crate::state::Window {
+                kind: crate::state::WindowKind::Aftermath,
+                actor: Some(c.player),
+                data: [u32::try_from(c.system.index()).unwrap_or(u32::MAX), u32::from(c.skip_to_commit), 0],
+            }),
+            None => Next::Done,
+        }
+    }
+
     /// The seat that acts.
     #[must_use]
     pub const fn seat(&self) -> Seat {
