@@ -818,6 +818,23 @@ pub fn sustain_commander(
     Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(events), questions: driven.rendered })
 }
 
+/// Seats (bit per seat) whose action card draw a faction hook changes: every seat with Yssaril in the game
+/// (Scheming), else the seats a draw bonus applies to.
+#[must_use]
+pub fn draw_hooks(gs: &GameState, r: &Render) -> u16 {
+    let content = ti4_content::ContentStore::embedded();
+    let yssaril = gs.players.iter().any(|p| p.faction.as_str() == "yssaril");
+    let mut hooked = 0;
+    for (at, id) in r.seats.iter().enumerate().take(16) {
+        let player = PlayerId::new(id.as_str());
+        let bonus = [1, 2, 3].iter().any(|n| crate::factions::hooks_economy::action_card_draw_bonus(gs, content, &player, *n) != 0);
+        if yssaril || bonus {
+            hooked |= 1 << at;
+        }
+    }
+    hooked
+}
+
 const AGENDA_EFFECT: Footprint = Footprint::new(
     &[
         Slice::Meta,
@@ -862,13 +879,20 @@ pub struct EffectArgs<'a> {
     pub sources: ti4_model::content_types::SourceSet,
     /// The game's map, when the caller has one.
     pub galaxy: Option<&'a ti4_content::galaxy::Galaxy>,
+    /// Where the random streams stood before the effect, when the dice are ones the core can reproduce (no test
+    /// faces, no pending restore): the effects that roll (Executive Sanctions, Ixthian Artifact) need it.
+    pub rolls: Option<&'a crate::rng::RngPositions>,
 }
+
+/// What an agenda effect leaves besides the state: whether it resolved, the faces it rolled and where the streams
+/// stand (`None`: the effect rolls nothing).
+pub type EffectOut = (bool, Vec<u32>, Option<crate::rng::RngPositions>);
 
 /// The core half of `agenda_effects::resolve_with` for the effects the core has a window for
 /// (`rules::agenda::effects`). `None` for any other agenda, an outcome that does not parse, or a position the
 /// codecs refuse.
 #[must_use]
-pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, a: &EffectArgs<'_>, script: &Recording) -> Option<CoreWindow<bool>> {
+pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, a: &EffectArgs<'_>, script: &Recording) -> Option<CoreWindow<EffectOut>> {
     use ti4_engine_core::generated::Agenda;
     use ti4_engine_core::rules::agenda::effects::Resolve;
     use ti4_engine_core::rules::agenda::table_effects::EffectFacts;
@@ -903,20 +927,47 @@ pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, a: &Effect
         pool: r.code("reinforcements"),
         has_galaxy: a.galaxy.is_some(),
         defense_act: r.code("defense_act"),
+        hooked: draw_hooks(gs, &r),
+        drop_unofficial: gs.rules_version >= ti4_model::state::RULES_OFFICIAL_ACTION_DECK,
+        blanked: crate::laws::blanked(gs),
     };
     let window = Resolve::of_facts(agenda, outcome, &facts)?;
     if window.draws() && gs.deck_reserve.is_some() {
         return None;
     }
+    // The dice: only streams the core can reproduce; a discard Ral Nel's Skimmer takes is not a rule of the core.
+    let rolls = if window.rolls() {
+        if crate::factions::ralnel_cards::skimmer_holder(gs).is_some() {
+            crate::dual::note_bail("agenda_effects::resolve_with", "Ral Nel Skimmer takes a discard");
+            return None;
+        }
+        let Some(before) = a.rolls else {
+            crate::dual::note_bail("agenda_effects::resolve_with", "irreproducible dice (test faces or a stream restore)");
+            return None;
+        };
+        Some(before)
+    } else {
+        None
+    };
     let before = gs.clone();
     let kernel = Kernel::plain();
     let mut driver = Driver::new(window, Resolver::new(&[], None), AbilityTable::default(), 1);
     let mut staged = Vec::new();
-    let footprint = if driver.window.needs_map() { AGENDA_EFFECT_MAP } else { AGENDA_EFFECT };
-    let src = Sources { galaxy: a.galaxy.filter(|_| driver.window.needs_map()), rng: None };
+    let mut footprint = if driver.window.needs_map() { AGENDA_EFFECT_MAP } else { AGENDA_EFFECT };
+    if rolls.is_some() {
+        footprint = footprint.union(Footprint::new(&[Slice::Rng], &[Slice::Rng]));
+    }
+    let src = Sources { galaxy: a.galaxy.filter(|_| driver.window.needs_map()), rng: rolls };
+    if rolls.is_some() {
+        driver = driver.with_seeds(std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?)));
+    }
+    let mut rng_after = None;
     let driven = with_core(gs, &mut cx, src, footprint, |core, _| {
         let driven = drive(&mut driver, core, &kernel, &r, &before, script);
         staged = std::mem::take(&mut core.pending_mut().staged);
+        if rolls.is_some() {
+            rng_after = Some(core.rng().clone());
+        }
         driven
     })
     .ok()?
@@ -926,7 +977,12 @@ pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, a: &Effect
     }
     apply_staged(gs, &r, &staged)?;
     let resolved = driver.window.done() == ti4_engine_core::rules::agenda::effects::Done::Resolved;
-    Some(CoreWindow { run: Run::new(resolved), questions: driven.rendered })
+    let positions = match rng_after {
+        Some(after) => Some(crate::core_sync::codec::rng::positions(&cx, &after).ok()?),
+        // An effect that rolls nothing (the other half of the card) leaves the streams where they were.
+        None => a.rolls.cloned(),
+    };
+    Some(CoreWindow { run: Run::new((resolved, driver.window.faces().to_vec(), positions)), questions: driven.rendered })
 }
 
 const OFFER_DISCARD: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Agenda, Slice::Pending], &[Slice::Agenda]);

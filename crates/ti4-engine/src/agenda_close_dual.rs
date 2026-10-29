@@ -50,7 +50,7 @@ const CLOSE: Footprint = Footprint::new(
 #[must_use]
 pub fn close(
     gs: &mut GameState,
-    content: &ti4_content::ContentStore,
+    _content: &ti4_content::ContentStore,
     _sources: SourceSet,
     window: &VoteWindow,
     covert: Option<&str>,
@@ -93,21 +93,12 @@ pub fn close(
         crate::dual::note_bail(LABEL, "a Mahact fleet token under Leadership Rider");
         return None;
     }
-    let yssaril = gs.players.iter().any(|p| p.faction.as_str() == "yssaril");
-    let mut hooked: u16 = 0;
-    for (at, id) in r.seats.iter().enumerate().take(16) {
-        let player = PlayerId::new(id.as_str());
-        let bonus = [1, 3].iter().any(|n| crate::factions::hooks_economy::action_card_draw_bonus(gs, content, &player, *n) != 0);
-        if yssaril || bonus {
-            hooked |= 1 << at;
-        }
-    }
     let facts = Facts {
         trade_rider: r.code("trade_rider"),
         keleres_rider: r.code("keleres_rider"),
         drop_unofficial: gs.rules_version >= ti4_model::state::RULES_OFFICIAL_ACTION_DECK,
         blanked: crate::laws::blanked(gs),
-        hooked,
+        hooked: crate::dual_window::draw_hooks(gs, &r),
     };
     let before = gs.clone();
     let kernel = crate::production_view::kernel();

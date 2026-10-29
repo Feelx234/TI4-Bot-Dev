@@ -37,6 +37,9 @@ mod questions;
 
 pub use crate::kernel::fx::VICTORY_TARGET;
 
+/// The sides of the game's dice (`dice::Dice`: tens).
+const DIE_SIDES: u32 = 10;
+
 /// What the effect does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Kind {
@@ -64,6 +67,11 @@ pub enum Kind {
     Seed(Agenda, bool),
     /// Homeland Defense Act, Against: each seat destroys one of its PDS.
     Defense,
+    /// Executive Sanctions, Against: each seat with a hand discards the card a die picks.
+    Sanctions,
+    /// Ixthian Artifact, For: a die; a 6 is a windfall that needs a payer (deferred), anything else destroys every ship that
+    /// cannot sustain damage.
+    Crater,
 }
 
 /// How the effect ended (`agenda_effects::Effect`).
@@ -101,6 +109,8 @@ pub struct Resolve {
     tied: SmallList<Seat, 8>,
     /// Homeland Defense Act: the seat (in seating order) being served.
     cursor: u8,
+    /// The faces of the dice the effect rolled, in order (Executive Sanctions, Ixthian Artifact).
+    faces: SmallList<u32, 16>,
 }
 
 impl Resolve {
@@ -157,7 +167,7 @@ impl Resolve {
             ) => Kind::Nothing,
             _ => return None,
         };
-        Some(Self { kind, stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: None, unsupported: false, tied: SmallList::new(), cursor: 0 })
+        Some(Self { kind, stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: None, unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new() })
     }
 
     /// [`Resolve::of`], then the table effects: `facts` carries the ballot and everything the table reads.
@@ -170,14 +180,17 @@ impl Resolve {
             (Agenda::SeedOfAnEmpire, Outcome::For) => Some(Kind::Seed(agenda, true)),
             (Agenda::SeedOfAnEmpire, _) => Some(Kind::Seed(agenda, false)),
             (Agenda::HomelandDefenseAct, Outcome::Against) => Some(Kind::Defense),
+            (Agenda::ExecutiveSanctions, Outcome::Against) => Some(Kind::Sanctions),
+            (Agenda::ExecutiveSanctions, Outcome::For) | (Agenda::IxthianArtifact, Outcome::Against) => Some(Kind::Nothing),
+            (Agenda::IxthianArtifact, Outcome::For) => Some(Kind::Crater),
             _ => None,
         };
         if let Some(kind) = special {
-            return Some(Self { kind, stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false, facts: Some(facts.clone()), unsupported: false, tied: SmallList::new(), cursor: 0 });
+            return Some(Self { kind, stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false, facts: Some(facts.clone()), unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new() });
         }
         let (table, deferred) = Table::of(agenda, outcome, facts.has_galaxy)?;
         let done = if deferred { Done::Deferred } else { Done::Resolved };
-        Some(Self { kind: Kind::Table(table), stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: Some(facts.clone()), unsupported: false, tied: SmallList::new(), cursor: 0 })
+        Some(Self { kind: Kind::Table(table), stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: Some(facts.clone()), unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new() })
     }
 
     /// Whether the table effect met a position it does not express (its result is not to be compared).
@@ -189,7 +202,19 @@ impl Resolve {
     /// `laws::repeal` of `law`.
     #[must_use]
     pub const fn repeal(law: Agenda) -> Self {
-        Self { kind: Kind::Repeal(law), stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false, facts: None, unsupported: false, tied: SmallList::new(), cursor: 0 }
+        Self { kind: Kind::Repeal(law), stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false, facts: None, unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new() }
+    }
+
+    /// Whether the effect rolls dice (it needs the random streams of the state).
+    #[must_use]
+    pub const fn rolls(&self) -> bool {
+        matches!(self.kind, Kind::Sanctions | Kind::Crater)
+    }
+
+    /// The faces of the dice rolled, in order.
+    #[must_use]
+    pub fn faces(&self) -> &[u32] {
+        self.faces.as_slice()
     }
 
     /// Whether the table effect reads the map slice.
@@ -214,6 +239,19 @@ impl Resolve {
     #[must_use]
     pub const fn done(&self) -> Done {
         self.done
+    }
+
+    /// Ixthian Artifact's crater: every ship that cannot sustain damage leaves every system.
+    fn crater(core: &mut CoreState, scope: crate::tables::Scope) {
+        let doomed = |p: &crate::state::Piece| {
+            let d = p.kind().data();
+            d.ship && !d.sustain_damage && scope.0 & crate::tables::source_bit(d.source) != 0
+        };
+        for system in System::ALL {
+            if core.board().sys(system).units.as_slice().iter().any(doomed) {
+                core.board_mut().sys_mut(system).units.retain(|p| !doomed(p));
+            }
+        }
     }
 
     /// `laws::repeal`: the law leaves play; Political Censure's holder loses its point.
@@ -311,6 +349,32 @@ impl Window for Resolve {
                     let placed = |tile: System| sx.state.board().systems().any(|(s, c)| s == tile && c.flags.has(SysFlags::TOUCHED));
                     let mecatol = if placed(System::MecatolRex112) { System::MecatolRex112 } else { System::MecatolRex18 };
                     sx.state.explore_mut().wormhole_tokens.insert(Wormhole::Gamma, mecatol);
+                }
+                Kind::Sanctions => {
+                    // Each seat with a hand discards the card at `face % held`: random through the seeded dice. The card
+                    // is gone (`discarded` with no pile).
+                    for seat in SmallList::<Seat, 8>::from_slice(sx.state.seats().seating_order()).as_slice() {
+                        let held = sx.state.players().by_seat(*seat).map_or(0, |p| p.cards.hand.len());
+                        if held == 0 {
+                            continue;
+                        }
+                        let face = sx.die(crate::state::RngDomain::Dice, DIE_SIDES);
+                        self.faces.push(face);
+                        if let Some(p) = sx.state.players_mut().by_seat_mut(*seat) {
+                            p.cards.hand.remove(usize::try_from(face).unwrap_or(0) % held);
+                        }
+                    }
+                }
+                Kind::Crater => {
+                    let face = sx.die(crate::state::RngDomain::Dice, DIE_SIDES);
+                    self.faces.push(face);
+                    if face >= 6 {
+                        self.done = Done::Deferred;
+                    } else if let Some(facts) = &self.facts {
+                        Self::crater(sx.state, facts.scope);
+                    } else {
+                        self.unsupported = true;
+                    }
                 }
                 Kind::Nothing | Kind::Draw(..) | Kind::Seed(..) | Kind::Defense => {}
                 Kind::Table(table) => {
