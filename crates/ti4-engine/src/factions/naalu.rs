@@ -844,7 +844,7 @@ fn hero(owner_name: &str, seat: &PlayerId) -> Ability {
 
 // -- Mindsieve -----------------------------------------------------------------------------------
 
-const MINDSIEVE_PREFIX: &str = "ms|";
+pub(crate) const MINDSIEVE_PREFIX: &str = "ms|";
 
 /// One waiver per note the follower could give: the note is part of the choice, since the
 /// waiver hooks have no table to ask with.

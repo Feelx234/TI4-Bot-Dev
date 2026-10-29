@@ -11,15 +11,16 @@
 use crate::choice::agenda::Shown;
 use crate::choice::generic::Rule;
 use crate::choice::strategy::{ctx, gain_pool_choice, rule_ctx, Ask as SAsk, Opt as SOpt, Subtype as SSub};
-use crate::choice::{Ask, Choice, Opt, Opts, Pick};
+use crate::choice::generic::Content;
+use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use crate::containers::SmallList;
 use crate::generated::{Agenda, Faction, Planet, PublicObjective, StrategyCard, System};
 use crate::ids::Seat;
-use crate::kernel::fx;
+use crate::kernel::{fx, fx_pay};
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
 use crate::query::{board, seats};
-use crate::state::CoreState;
+use crate::state::{Code, CoreState};
 
 fn ask(a: SAsk) -> Ask {
     Ask::Strategy(a)
@@ -468,23 +469,33 @@ pub enum IStage {
     Done,
 }
 
-/// Imperial's primary: score a public objective (the options are the caller's `scoreable_on`: the scoring
-/// itself, `objectives::award`, is not in the core, so an accepted objective ends the window with
-/// [`ImperialPrimary::scored`] set and the adapter declines the whole run), then gain a victory point for
-/// Mecatol Rex or draw a secret objective.
+/// Imperial's primary: score a public objective (the options are the caller's `scoreable_on`: the scoring window is
+/// the string's judgment), paying its price first (`objectives::award`: the first plan, the tokens, the goods), then
+/// gain a victory point for Mecatol Rex or draw a secret objective. What a public score sets off besides the points
+/// (leaders unlocking, Yin's breakthrough) is the caller's, announced by [`ImperialPrimary::scored`]. Without a
+/// [`ImperialPrimary::with_price`] environment a bought objective cannot be paid and is not scored (the string refuses it
+/// the same way when the price cannot be met).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImperialPrimary {
     pub who: Seat,
     scoreable: SmallList<PublicObjective, 16>,
     stage: IStage,
-    /// The objective the holder chose to score, if any (the core cannot score it).
+    env: Option<fx_pay::PayEnv>,
+    /// The objective the holder scored, if any.
     pub scored: Option<PublicObjective>,
 }
 
 impl ImperialPrimary {
     #[must_use]
     pub const fn new(who: Seat, scoreable: SmallList<PublicObjective, 16>) -> Self {
-        Self { who, scoreable, stage: IStage::Start, scored: None }
+        Self { who, scoreable, stage: IStage::Start, env: None, scored: None }
+    }
+
+    /// The window pays the price of a bought objective with this environment.
+    #[must_use]
+    pub const fn with_price(mut self, env: fx_pay::PayEnv) -> Self {
+        self.env = Some(env);
+        self
     }
 
     /// Whether the seat controls Mecatol Rex (either printing).
@@ -539,13 +550,138 @@ impl Window for ImperialPrimary {
         }
         match pick {
             Pick::Opt(Opt::Decline) => {}
-            Pick::Opt(Opt::Strategy(SOpt::Objective(o))) if self.scoreable.as_slice().contains(&o) => self.scored = Some(o),
+            Pick::Opt(Opt::Strategy(SOpt::Objective(o))) if self.scoreable.as_slice().contains(&o) => {
+                // `objectives::award`: the price first (an unaffordable one scores nothing), then the score.
+                let paid = match crate::query::objectives::cost_of(o) {
+                    None => true,
+                    Some(cost) => self.env.is_some_and(|env| fx_pay::pay_cost(sx.state, sx.kernel, env, self.who, cost)),
+                };
+                if paid {
+                    fx::score_public(sx.state, self.who, crate::state::ObjectiveRef::Public(o));
+                    self.scored = Some(o);
+                }
+            }
             _ => return Err(Illegal),
         }
-        if self.scored.is_some() {
-            self.stage = IStage::Done;
-        } else {
-            self.finish(sx.state);
+        self.finish(sx.state);
+        Ok(())
+    }
+}
+
+// -- Thunder's Edge Warfare ----------------------------------------------------------------------------------
+
+/// The suspension points of [`TeWarfare`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TStage {
+    Start,
+    /// Waiting on the split of the sheet before the tactical action.
+    Redistribute,
+    /// Waiting on the system of the free tactical action.
+    Choose,
+    Done,
+}
+
+/// The primary of the Thunder's Edge Warfare: "You may redistribute your command tokens before and after this action",
+/// then a tactical action in any system without spending a command token. The first redistribution and the choice of
+/// the system are this window; the tactical action itself and the redistribution after it are the game's
+/// (`Ability::FreeTactical`). The systems offered are the caller's (the map's, the string's judgment).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TeWarfare {
+    pub who: Seat,
+    systems: Vec<System>,
+    stage: TStage,
+    letnev_zero_floor: bool,
+    /// The interned `te6warfare`: the source of the system question.
+    source: Code,
+    /// The system chosen for the free tactical action.
+    pub chosen: Option<System>,
+}
+
+impl TeWarfare {
+    #[must_use]
+    pub fn new(who: Seat, systems: &[System], letnev_zero_floor: bool, source: Code) -> Self {
+        Self { who, systems: systems.to_vec(), stage: TStage::Start, letnev_zero_floor, source, chosen: None }
+    }
+
+    fn floor(&self, core: &CoreState) -> u8 {
+        let letnev = core.players().by_seat(self.who).is_some_and(|p| p.faction == Faction::TheBaronyOfLetnev);
+        if letnev && self.letnev_zero_floor { 0 } else { 2 }
+    }
+
+    fn ask_now(&self, core: &CoreState) -> Option<SAsk> {
+        match self.stage {
+            TStage::Redistribute => Some(SAsk::TeWarfareRedistribute {
+                total: u8::try_from(sheet_total(core, self.who)).unwrap_or(u8::MAX),
+                floor: self.floor(core),
+            }),
+            TStage::Choose => Some(SAsk::TeWarfareTactical),
+            TStage::Start | TStage::Done => None,
+        }
+    }
+}
+
+impl Window for TeWarfare {
+    type Stage = TStage;
+
+    fn stage(&self) -> TStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == TStage::Start {
+            self.stage = if sheet_total(sx.state, self.who) > 0 { TStage::Redistribute } else { TStage::Choose };
+        }
+        if self.stage == TStage::Choose && self.systems.is_empty() {
+            self.stage = TStage::Done;
+        }
+        match self.ask_now(sx.state) {
+            Some(a) => Next::Continue(ask(a)),
+            None => Next::Done,
+        }
+    }
+
+    fn ask_of(&self, core: &CoreState, _: &Kernel) -> Option<Choice> {
+        let a = self.ask_now(core)?;
+        Some(match a {
+            SAsk::TeWarfareRedistribute { total, floor } => Choice {
+                actor: self.who,
+                ask: ask(a),
+                ctx: ctx(StrategyCard::Warfare, false, SSub::WarfareRedistributeTokens),
+                opts: opts(splits(total, floor)),
+            },
+            _ => Choice {
+                actor: self.who,
+                ask: ask(a),
+                ctx: Ctx {
+                    origin: Origin::Content(Content::Other(self.source)),
+                    subtype: Subtype::Strategy(SSub::WarfareFreeTactical),
+                    optional: false,
+                    target: None,
+                    outstanding: SmallList::new(),
+                    space_battle: false,
+                    invasion_seq: None,
+                },
+                opts: opts(self.systems.iter().map(|s| SOpt::System(*s))),
+            },
+        })
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        let Pick::Opt(Opt::Strategy(chosen)) = pick else { return Err(Illegal) };
+        let offered = self.ask_of(sx.state, sx.kernel).ok_or(Illegal)?;
+        if !offered.opts.as_slice().contains(&Opt::Strategy(chosen)) {
+            return Err(Illegal);
+        }
+        match (self.stage, chosen) {
+            (TStage::Redistribute, SOpt::Split { tactic, fleet, strategic }) => {
+                apply_split(sx.state, self.who, tactic, fleet, strategic);
+                self.stage = TStage::Choose;
+            }
+            (TStage::Choose, SOpt::System(system)) => {
+                self.chosen = Some(system);
+                self.stage = TStage::Done;
+            }
+            _ => return Err(Illegal),
         }
         Ok(())
     }
