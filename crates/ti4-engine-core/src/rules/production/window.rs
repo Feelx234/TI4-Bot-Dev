@@ -231,9 +231,15 @@ impl ProductionWindow {
             Spot::Planet(p) => (self.system, Some(p)),
             Spot::Remote(sys, at) => (sys, at),
         };
+        let naaz = unit == Unit::Eidolon && s.players().by_seat(self.who).is_some_and(|p| p.faction == crate::generated::Faction::TheNaazRokhaAlliance);
         for _ in 0..made {
             fx::place_unit(s, self.who, system, planet, unit);
             self.produced.push((unit, spot));
+            if naaz {
+                // `supply::stage_naaz_mech_placed`: Absolute Synergy resolves before the next action.
+                let payload = Payload::new().with(Key::Player, Val::Seat(self.who)).with(Key::System, Val::System(system));
+                fx::stage(s, fx::event(EventKind::NaazMechPlaced, payload));
+            }
         }
         let d = unit.data();
         let count = made as i64;
