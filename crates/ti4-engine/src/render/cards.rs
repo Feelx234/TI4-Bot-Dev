@@ -56,6 +56,9 @@ impl Family for Fam {
                 return match what {
                     What::Elect => "confusing_legal_text_elect".to_owned(),
                     What::Silence => "silence_choose_system".to_owned(),
+                    What::Exhaust => "reparations_exhaust".to_owned(),
+                    What::Ready => "reparations_ready".to_owned(),
+                    What::Redraft { .. } => "public_disgrace_choose_card".to_owned(),
                     _ => format!("{}_pick_{}", card.as_str(), pick_kind(*what)),
                 };
             }
@@ -81,8 +84,19 @@ impl Family for Fam {
                 }
             }
             Opt::Law(law) => ChoiceOption::labelled(law.as_str(), "repeal", law.as_str()),
+            Opt::Fragment(kind) => {
+                let id = kind.as_str().to_ascii_uppercase();
+                ChoiceOption::labelled(id.clone(), "fragment", id)
+            }
+            Opt::Spot(system, planet) if matches!(pick_of(a).1, What::Exhaust | What::Ready | What::Dig) => {
+                ChoiceOption::labelled(planet.as_str(), pick_kind(pick_of(a).1), planet.as_str()).with_planet(planet.as_str(), Some(system.as_str()))
+            }
             Opt::Spot(system, planet) => ChoiceOption::labelled(format!("{}|{}", system.as_str(), planet.as_str()), "planet", planet.as_str())
                 .with_planet(planet.as_str(), Some(system.as_str())),
+            Opt::Strat(card) if matches!(pick_of(a).1, What::Redraft { .. }) => {
+                let id = card.as_str();
+                ChoiceOption::labelled(id, "strategy_card", crate::draft::strategy_card_label(ContentStore::embedded(), id))
+            }
             Opt::Strat(card) => {
                 let id = card.as_str();
                 ChoiceOption::labelled(id, "strategy_card", format!("place a trade good on {id}"))
@@ -110,8 +124,13 @@ impl Family for Fam {
         }
     }
 
-    fn details(_: &Render, a: &Ask) -> serde_json::Map<String, serde_json::Value> {
+    fn details(r: &Render, a: &Ask) -> serde_json::Map<String, serde_json::Value> {
         let mut out = serde_json::Map::new();
+        if let Ask::Pick { what: What::Redraft { first, by }, .. } = a {
+            // Display only: the card that was taken away, and who played Public Disgrace.
+            out.insert("first".to_owned(), first.as_str().into());
+            out.insert("played_by".to_owned(), r.seat_text(*by).into());
+        }
         if let Ask::Pick { what: What::Invest { step, owed }, .. } = a {
             out.insert("step".to_owned(), (*step).into());
             out.insert("of".to_owned(), 5.into());
@@ -132,6 +151,14 @@ impl Family for Fam {
             Ask::Pick { what: What::Note, .. } => parse_note(id).map(Opt::Note),
             Ask::Pick { what: What::Invest { .. }, .. } => ti4_engine_core::generated::StrategyCard::from_id(id).map(Opt::Strat),
             Ask::Pick { what: What::Law, .. } => ti4_engine_core::generated::Agenda::from_id(id).map(Opt::Law),
+            Ask::Pick { what: What::Fragment, .. } => {
+                ti4_engine_core::generated::ExploreType::ALL.iter().copied().find(|k| k.as_str().eq_ignore_ascii_case(id)).map(Opt::Fragment)
+            }
+            Ask::Pick { what: What::Exhaust | What::Ready | What::Dig, .. } => {
+                let planet = Planet::from_id(id)?;
+                Some(Opt::Spot(planet.data().system?, planet))
+            }
+            Ask::Pick { what: What::Redraft { .. }, .. } => ti4_engine_core::generated::StrategyCard::from_id(id).map(Opt::Strat),
             Ask::Predict { frame, .. } => super::agenda::parse_outcome(r, frame, id).map(Opt::Outcome),
         }
     }
@@ -150,6 +177,11 @@ const fn pick_kind(what: What) -> &'static str {
         What::Rescue => "rescue_from",
         What::Invest { .. } => "strategy_card",
         What::Law => "repeal",
+        What::Fragment => "fragment",
+        What::Exhaust => "reparations_exhaust",
+        What::Ready => "reparations_ready",
+        What::Dig => "planet",
+        What::Redraft { .. } => "strategy_card",
     }
 }
 
@@ -188,6 +220,12 @@ const fn pick_prompt(card: ActionCard, what: What) -> &'static str {
         (C::CrippleDefenses, _) => "Cripple Defenses: which planet",
         (C::ReactorMeltdown, _) => "Reactor Meltdown: which space dock",
         (C::RepealLaw, _) => "repeal which law",
+        (C::SeizeArtifact, What::Fragment) => "Seize Artifact: which fragment to take",
+        (C::SeizeArtifact, _) => "Seize Artifact: which neighbor to take from",
+        (C::Reparations, What::Ready) => "ready a planet (Reparations)",
+        (C::Reparations, _) => "exhaust a planet (Reparations)",
+        (C::ArchaeologicalExpedition, _) => "Archaeological Expedition: which planet's deck",
+        (C::PublicDisgrace, _) => "choose a different strategy card",
         (C::Spy, _) => "Spy: rob which player",
         (C::Plague, _) => "Plague: which planet",
         (C::UnstablePlanet, _) => "Unstable Planet: which hazardous planet",

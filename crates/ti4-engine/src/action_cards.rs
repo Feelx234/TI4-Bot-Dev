@@ -8349,6 +8349,27 @@ pub(crate) mod tests {
                 units.push(unit("infantry", if n % 2 == 0 { &b } else { &c }));
             }
         }
+        // The B6c cards: fragments on the neighbours, a planet just taken from `a`, a strategy card just picked by `b`.
+        state.player_mut(&b).unwrap().relic_fragments = [("CULTURAL".to_owned(), 2), ("HAZARDOUS".to_owned(), 1)].into_iter().collect();
+        state.player_mut(&c).unwrap().relic_fragments = [("FRONTIER".to_owned(), 1)].into_iter().collect();
+        let exhausted: Vec<ti4_model::id::PlanetId> = state
+            .board
+            .values()
+            .flat_map(|board| board.planet_control.iter().filter(|(_, owner)| **owner == a).map(|(planet, _)| planet.clone()))
+            .collect();
+        state.exhausted_planets.extend(exhausted);
+        let (system, planet) = state
+            .board
+            .iter()
+            .find_map(|(system, board)| board.planet_control.iter().find(|(_, owner)| **owner == b).map(|(planet, _)| (system.clone(), planet.clone())))
+            .expect("a planet of b");
+        state.last_control_gained = Some((system, planet, b.clone(), Some(a.clone())));
+        let mut mat = state.unclaimed_strategy_cards.clone();
+        assert!(mat.len() >= 3, "the mat holds the cards: {mat:?}");
+        let picked = mat.remove(0);
+        state.unclaimed_strategy_cards = mat;
+        state.player_mut(&b).unwrap().strategy_cards = vec![picked.clone()];
+        state.last_strategy_choice = Some((b.clone(), picked));
         // Two hazardous planets with infantry on them.
         let hazardous: Vec<Planet> = Planet::ALL
             .iter()
@@ -8362,6 +8383,7 @@ pub(crate) mod tests {
         for planet in hazardous {
             let sys = ti4_model::id::SystemId::new(planet.data().system.unwrap().as_str());
             let pid = ti4_model::id::PlanetId::new(planet.as_str());
+            state.system_mut(&sys).planet_control.insert(pid.clone(), a.clone());
             let units = state.system_mut(&sys).planet_units.entry(pid).or_default();
             for _ in 0..4 {
                 units.push(unit("infantry", &a));

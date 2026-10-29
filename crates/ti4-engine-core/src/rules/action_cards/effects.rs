@@ -100,6 +100,14 @@ pub enum Fx {
     Plague,
     /// Unstable Planet: a hazardous planet exhausts and loses up to three infantry.
     Unstable,
+    /// Seize Artifact: a neighbour with fragments gives one (two questions).
+    Seize,
+    /// Reparations: the new controller of the holder's planet exhausts one of its planets, the holder readies one.
+    Reparations,
+    /// Public Disgrace: the picker of a strategy card chooses a different one.
+    Disgrace,
+    /// Archaeological Expedition: the top three cards of the deck of a planet's trait; fragments are kept.
+    Dig,
 }
 
 impl Fx {
@@ -154,6 +162,10 @@ impl Fx {
             C::Spy => Self::Spy,
             C::Plague => Self::Plague,
             C::UnstablePlanet => Self::Unstable,
+            C::SeizeArtifact => Self::Seize,
+            C::Reparations => Self::Reparations,
+            C::PublicDisgrace => Self::Disgrace,
+            C::ArchaeologicalExpedition => Self::Dig,
             _ => return None,
         })
     }
@@ -190,6 +202,11 @@ pub struct Play {
     faces: SmallList<u32, 16>,
     /// The position held something the window does not express (a galvanized ground force fell): not compared.
     unsupported: bool,
+    /// The question of a card with several: 0 is the first (Seize Artifact: the neighbour, then the fragment;
+    /// Reparations: the exhaust, then the ready).
+    step: u8,
+    /// Seize Artifact: the neighbour chosen. Public Disgrace: the picker and the card taken from them.
+    taken: Option<(Seat, Option<StrategyCard>)>,
 }
 
 /// The sides of the die the string `Dice` rolls.
@@ -216,6 +233,13 @@ fn planets_where(core: &CoreState, keep: impl Fn(System, Planet, &crate::state::
     sorted(out)
 }
 
+/// The sum of the fragment counts of a seat (the string sums the values of the map; a negative count is possible).
+fn fragments_held(core: &CoreState, seat: Seat) -> i32 {
+    core.players()
+        .by_seat(seat)
+        .map_or(0, |p| crate::generated::ExploreType::ALL.iter().map(|t| i32::from(p.cards.fragments.get(*t).unwrap_or(0))).sum())
+}
+
 fn has_base(env: Env, cell: &crate::state::PlanetCell, base: UnitBaseType) -> bool {
     cell.units.as_slice().iter().any(|p| env.scope.unit(p.kind()).map(|d| d.base_type) == Some(base))
 }
@@ -234,7 +258,7 @@ impl Play {
             return None;
         }
         // The deck reserve (a replay's forced draws) is the host's: the string draws through it.
-        if fx == Fx::Veto && core.cards().reserve.is_some() {
+        if matches!(fx, Fx::Veto | Fx::Dig) && core.cards().reserve.is_some() {
             return None;
         }
         let frame = match fx {
@@ -248,13 +272,22 @@ impl Play {
             }
             _ => None,
         };
-        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false })
+        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None })
     }
 
     fn what(&self) -> Option<What> {
         Some(match self.fx {
             Fx::Insubordination | Fx::Assassinate | Fx::BurialSites | Fx::SupplyBase | Fx::Spy => What::Player,
             Fx::Repeal => What::Law,
+            Fx::Seize if self.step == 0 => What::Player,
+            Fx::Seize => What::Fragment,
+            Fx::Reparations if self.step == 0 => What::Exhaust,
+            Fx::Reparations => What::Ready,
+            Fx::Dig => What::Dig,
+            Fx::Disgrace => {
+                let (_, first) = self.taken?;
+                What::Redraft { first: first?, by: self.who }
+            }
             Fx::Confusing => What::Elect,
             Fx::Recall => What::Recall,
             Fx::Silence => What::Silence,
@@ -366,6 +399,58 @@ impl Play {
                 held.as_mut_slice().sort_unstable();
                 held.as_slice().iter().map(|s| Opt::System(*s)).collect()
             }
+            Fx::Seize if self.step == 0 => {
+                let mut near: SmallList<Seat, 2> = SmallList::new();
+                let order = seats::seating_order(core);
+                if let Some(at) = order.as_slice().iter().position(|s| *s == who) {
+                    let n = order.len();
+                    let before = order.as_slice()[(at + n - 1) % n];
+                    let after = order.as_slice()[(at + 1) % n];
+                    near.push(before);
+                    if before != after {
+                        near.push(after);
+                    }
+                }
+                Self::seat_opts(near.as_slice().iter().copied().filter(|s| fragments_held(core, *s) > 0))
+            }
+            Fx::Seize => match self.taken {
+                Some((victim, _)) => crate::generated::ExploreType::ALL
+                    .iter()
+                    .filter(|t| core.players().by_seat(victim).and_then(|p| p.cards.fragments.get(**t)).unwrap_or(0) > 0)
+                    .map(|t| Opt::Fragment(*t))
+                    .collect(),
+                None => SmallList::new(),
+            },
+            Fx::Reparations => {
+                let Some((_, _, gainer, previous)) = core.transient().combat.last_control_gained else { return SmallList::new() };
+                // "A planet you control" is about the planet's former holder, not its new one.
+                if previous != Some(who) || gainer == who {
+                    return SmallList::new();
+                }
+                let mut spots = SmallList::<(System, Planet), 16>::new();
+                let owner = if self.step == 0 { gainer } else { who };
+                for (system, planet) in board::controlled_planets(core, owner).as_slice() {
+                    // Readying only reaches planets that are exhausted: readying a ready one is not a thing the board records.
+                    if self.step == 0 || board::exhausted(core, *planet) {
+                        spots.push((*system, *planet));
+                    }
+                }
+                spots.as_mut_slice().sort_by_key(|(_, p)| *p);
+                spots.as_slice().iter().map(|(s, p)| Opt::Spot(*s, *p)).collect()
+            }
+            Fx::Dig => {
+                let mut spots = SmallList::<(System, Planet), 16>::new();
+                for (system, planet) in board::controlled_planets(core, who).as_slice() {
+                    if self.dig_deck(core, *planet).is_some() {
+                        spots.push((*system, *planet));
+                    }
+                }
+                spots.as_slice().iter().map(|(s, p)| Opt::Spot(*s, *p)).collect()
+            }
+            Fx::Disgrace => {
+                let Some((_, Some(first))) = self.taken else { return SmallList::new() };
+                core.strategy().unclaimed.as_slice().iter().filter(|c| **c != first).map(|c| Opt::Strat(*c)).collect()
+            }
             Fx::Repeal => crate::query::laws::in_play(core, self.env.blanked).as_slice().iter().map(|l| Opt::Law(*l)).collect(),
             Fx::Spy => Self::seat_opts(core.players().iter().filter(|p| p.seat != who && !p.cards.hand.is_empty()).map(|p| p.seat)),
             Fx::Plague => planets_where(core, |_, _, cell| cell.control.is_some_and(|owner| owner != who))
@@ -407,6 +492,22 @@ impl Play {
         }
     }
 
+    /// `planets::traits_now` first trait as an exploration deck: the printed traits (in scope) in printed order, then the
+    /// traits the planet's attachments add.
+    fn dig_deck(&self, core: &CoreState, planet: Planet) -> Option<crate::generated::ExploreType> {
+        let mut found = crate::query::explore::traits_of(self.env.scope, planet);
+        for a in core.board().planet(planet).attach.as_slice() {
+            for t in a.data().traits {
+                if let Some(deck) = crate::query::explore::deck_of(*t)
+                    && !found.as_slice().contains(&deck)
+                {
+                    found.push(deck);
+                }
+            }
+        }
+        found.as_slice().first().copied()
+    }
+
     /// `action_cards::place_units`: up to `count` of the unit, as many as the supply still holds.
     fn place(&self, core: &mut CoreState, placed: super::Placed, system: System, planet: Option<Planet>, count: usize) {
         let Some(unit) = placed.unit else { return };
@@ -421,8 +522,16 @@ impl Play {
         fx::gain_trade_goods_staged(core, who, amount, self.env.action_card);
     }
 
+    /// Put the first choice back with its picker and off the mat.
+    fn restore_first_choice(core: &mut CoreState, picker: Seat, first: StrategyCard) {
+        if let Some(at) = core.strategy().unclaimed.as_slice().iter().position(|c| *c == first) {
+            core.strategy_mut().unclaimed.remove(at);
+        }
+        fx::deal_strategy_card(core, picker, first);
+    }
+
     /// The effect that needs no pick (and the part of a pick effect that precedes the question).
-    fn before(&self, core: &mut CoreState) {
+    fn before(&mut self, core: &mut CoreState) {
         match self.fx {
             Fx::SupplyBase => {
                 fx::gain_trade_goods_staged(core, self.who, 3, self.env.supply_base);
@@ -471,6 +580,33 @@ impl Play {
                     })
                     .count();
                 self.goods(core, self.who, i64::try_from(count).unwrap_or(0));
+            }
+            Fx::Reparations => {
+                if let Some((_, _, gainer, previous)) = core.transient().combat.last_control_gained
+                    && previous == Some(self.who)
+                    && gainer != self.who
+                {
+                    self.taken = Some((gainer, None));
+                }
+            }
+            Fx::Disgrace => {
+                let Some((picker, first)) = core.transient().misc.last_strategy_choice else { return };
+                // The row's guard says "another player"; the card cannot act on itself.
+                if picker == self.who {
+                    return;
+                }
+                let Some(held) = core.players().by_seat(picker) else { return };
+                let Some(at) = held.strat.as_slice().iter().position(|c| *c == first) else { return };
+                if let Some(p) = core.players_mut().by_seat_mut(picker) {
+                    p.strat.remove(at);
+                }
+                core.strategy_mut().unclaimed.push(first);
+                if core.strategy().unclaimed.as_slice().iter().all(|c| *c == first) {
+                    // "If able": nothing else is on the mat, so the first choice stands.
+                    Self::restore_first_choice(core, picker, first);
+                    return;
+                }
+                self.taken = Some((picker, Some(first)));
             }
             Fx::Intercept => {
                 // The combatants are the seats with ships in the active system (the seated ones, in seating order).
@@ -623,6 +759,61 @@ impl Play {
                     core.cards_mut().promissory_faceup.edit().insert(key, ());
                 }
             }
+            (Fx::Seize, Opt::Seat(victim)) => {
+                self.taken = Some((victim, None));
+                self.step = 1;
+                return true;
+            }
+            (Fx::Seize, Opt::Fragment(kind)) => {
+                let Some((victim, _)) = self.taken else { return false };
+                let count = core.players().by_seat(victim).and_then(|p| p.cards.fragments.get(kind)).unwrap_or(0);
+                if count <= 0 {
+                    return false;
+                }
+                if let Some(p) = core.players_mut().by_seat_mut(victim) {
+                    if count - 1 == 0 {
+                        p.cards.fragments.remove(kind);
+                    } else {
+                        p.cards.fragments.set(kind, count - 1);
+                    }
+                }
+                if let Some(p) = core.players_mut().by_seat_mut(who) {
+                    let mine = p.cards.fragments.get(kind).unwrap_or(0);
+                    p.cards.fragments.set(kind, mine + 1);
+                }
+            }
+            (Fx::Reparations, Opt::Spot(_, planet)) => {
+                if self.step == 0 {
+                    fx::exhaust_planet(core, planet);
+                    self.step = 1;
+                    return true;
+                }
+                fx::ready_planet(core, planet);
+            }
+            (Fx::Dig, Opt::Spot(_, planet)) => {
+                let Some(deck) = self.dig_deck(core, planet) else { return false };
+                for _ in 0..3 {
+                    // The deck ran out before the third card.
+                    let d = core.decks_mut();
+                    // `rules::explore::draw` (the exploration area): the top card of one deck, none when the deck is absent or empty.
+                    let drawn = if d.explore_present & (1 << deck as u8) == 0 { None } else { d.explore[deck as usize].draw() };
+                    let Some(card) = drawn else { break };
+                    if card.data().resolution == crate::generated::ExploreResolution::Fragment {
+                        let kind = card.data().deck;
+                        if let Some(p) = core.players_mut().by_seat_mut(who) {
+                            let held = p.cards.fragments.get(kind).unwrap_or(0);
+                            p.cards.fragments.set(kind, held + 1);
+                        }
+                    }
+                }
+            }
+            (Fx::Disgrace, Opt::Strat(picked)) => {
+                let Some((picker, _)) = self.taken else { return false };
+                if let Some(at) = core.strategy().unclaimed.as_slice().iter().position(|c| *c == picked) {
+                    core.strategy_mut().unclaimed.remove(at);
+                    fx::deal_strategy_card(core, picker, picked);
+                }
+            }
             (Fx::Repeal, Opt::Law(law)) => {
                 fx::repeal_law(core, law);
             }
@@ -694,6 +885,10 @@ impl Play {
         loop {
             self.opts = self.options(core);
             match self.opts.as_slice() {
+                [] if self.fx == Fx::Reparations && self.step == 0 => {
+                    // The new controller has no planet to exhaust: the holder readies one.
+                    self.step = 1;
+                }
                 [] => {
                     self.stage = Stage::Done;
                     return;
@@ -714,7 +909,12 @@ impl Play {
     }
 
     fn actor(&self) -> Seat {
-        if self.fx == Fx::Pressure { self.victim.unwrap_or(self.who) } else { self.who }
+        match self.fx {
+            Fx::Pressure => self.victim.unwrap_or(self.who),
+            Fx::Disgrace => self.taken.map_or(self.who, |(picker, _)| picker),
+            Fx::Reparations if self.step == 0 => self.taken.map_or(self.who, |(gainer, _)| gainer),
+            _ => self.who,
+        }
     }
 
     pub(super) fn ask_value(&self) -> Ask {
@@ -863,6 +1063,10 @@ mod tests {
             C::Spy,
             C::Plague,
             C::UnstablePlanet,
+            C::SeizeArtifact,
+            C::Reparations,
+            C::PublicDisgrace,
+            C::ArchaeologicalExpedition,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }

@@ -39,6 +39,16 @@ pub enum What {
     Invest { step: u8, owed: u8 },
     /// kind `repeal`: a law in play (Repeal Law).
     Law,
+    /// kind `fragment`: a relic fragment of the asked seat's neighbour (Seize Artifact).
+    Fragment,
+    /// kind `reparations_exhaust`: the planet the new controller exhausts (asked of the new controller).
+    Exhaust,
+    /// kind `reparations_ready`: the planet the holder readies.
+    Ready,
+    /// kind `planet`, the id the planet alone: the deck of a planet the holder controls (Archaeological Expedition).
+    Dig,
+    /// kind `strategy_card`: the picker chooses again; `first` was taken away, `by` played the card (Public Disgrace).
+    Redraft { first: crate::generated::StrategyCard, by: Seat },
 }
 
 /// Why a seat is asked to pick a card from its own hand; it decides the prompt and the subtype.
@@ -90,6 +100,8 @@ pub enum Opt {
     Strat(crate::generated::StrategyCard),
     /// A law in play (`What::Law`).
     Law(crate::generated::Agenda),
+    /// A fragment trait (`What::Fragment`).
+    Fragment(crate::generated::ExploreType),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).

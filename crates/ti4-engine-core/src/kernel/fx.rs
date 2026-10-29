@@ -518,3 +518,17 @@ pub fn repeal_law(s: &mut CoreState, law: crate::generated::Agenda) -> bool {
     }
     owner.is_some()
 }
+
+/// `GameState::deal_strategy_card`: the card joins the holding in initiative order. `false`: no such seat. The body of
+/// `strategy_flow::deal` (strategy area), repeated for the cards that redeal (Public Disgrace).
+pub fn deal_strategy_card(s: &mut CoreState, who: Seat, card: crate::generated::StrategyCard) -> bool {
+    let Some(p) = s.players().by_seat(who) else { return false };
+    let mut held: Vec<crate::generated::StrategyCard> = p.strat.as_slice().to_vec();
+    held.push(card);
+    let init = &s.strategy().initiative;
+    held.sort_by_key(|c| init.get(c).copied().unwrap_or(99));
+    if let Some(p) = s.players_mut().by_seat_mut(who) {
+        p.strat = held.into_iter().collect();
+    }
+    true
+}
