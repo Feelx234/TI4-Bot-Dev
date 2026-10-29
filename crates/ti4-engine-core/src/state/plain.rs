@@ -134,6 +134,7 @@ plain_kinds! {
     ComponentActionFailed => (None, None);
     ComponentActionResolved => (None, None);
     CovertAgendaResolved => (Agenda, Outcome);
+    Counteroffer => (None, None);
     DiplomacyPaymentFulfilled => (None, None);
     EResSiphons => (Seat, None);
     EntropicScarTechnologyGained => (Seat, Tech);
@@ -159,6 +160,8 @@ plain_kinds! {
     QuashUsed => (None, None);
     RoundBegan => (None, None);
     ScanlinkExplored => (Planet, None);
+    ShipLostToGravityRift => (None, None);
+    ShipMoved => (None, None);
     SpaceCombatResolved => (None, None);
     SpatialConduit => (Seat, System);
     SpecOpsLost => (Seat, None);
@@ -176,11 +179,16 @@ plain_kinds! {
     StrategyCardsSwapped => (Seat, Seat);
     StrategySecondaryDeclined => (None, None);
     StrategySecondaryFollowed => (None, None);
+    StrategySecondaryPreviewComplete => (None, None);
     SupportForTheThroneReturned => (Seat, None);
     SystemActivated => (MaybeSystem, None);
     TacticalActionBegan => (None, None);
     TacticalActionComplete => (None, None);
     Transaction => (None, None);
+    TransactionAbandoned => (None, None);
+    TransactionOffered => (None, None);
+    TransactionRefused => (None, None);
+    TransactionRejected => (None, None);
     TurnClosing => (None, None);
     TurnEndedByMahactCommander => (Seat, None);
     TurnEndedByMinisterOfPeace => (None, None);

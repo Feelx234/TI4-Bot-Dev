@@ -77,26 +77,8 @@ impl Env for KernelEnv<'_> {
     }
 }
 
-/// Where the vote has reached.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Stage {
-    /// Asking `order[index]` which outcome to back.
-    Outcome(u8),
-    /// Genetic Recombination: asking its holder which outcome `order[index]` must back.
-    Recombine(u8),
-    /// Genetic Recombination was used on `order[index]`: back the outcome or return a fleet token.
-    Tribute(u8),
-    /// Asking `order[index]` which planet to exhaust for `outcome`, `votes` cast so far.
-    Planets { index: u8, outcome: Outcome, votes: i64 },
-    /// Asking `order[index]` how many trade goods to spend for votes.
-    TradeGoods { index: u8, outcome: Outcome, votes: i64 },
-    /// Asking `order[index]`, who holds a ready Predictive Intelligence, whether to cast 3 more votes.
-    Predictive { index: u8, outcome: Outcome, votes: i64 },
-    /// The speaker decides a tie or a silent table.
-    Tiebreak,
-    /// Finished, with the winning outcome if there was one.
-    Done(Option<Outcome>),
-}
+/// Where the vote has reached (the payload type of `Pending`, `state::VoteStage`).
+pub use crate::state::VoteStage as Stage;
 
 /// One agenda's vote.
 #[derive(Debug, Clone)]

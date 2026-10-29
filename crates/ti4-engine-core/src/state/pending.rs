@@ -1,6 +1,7 @@
 //! `Pending`: the open windows and the question (skeleton; the model is section 2, packages F4 and
 //! D1). Replaces the private window fields of `Game` and `GameState.pending`.
 
+use super::pending_windows::{LeaderFollowers, Tokens, Trade, Voting};
 use crate::containers::{SeatSet, SmallList};
 use crate::generated::{Agenda, Leader, StrategyCard};
 use crate::ids::Seat;
@@ -96,6 +97,14 @@ pub enum Window {
     Scoring(Scoring),
     /// The window of an action- or agenda-timed secret.
     EventScoring(Scoring),
+    /// Mathis Mathinus (Winnu hero): the follower selection still running (package D1a remainder).
+    LeaderFollowers(LeaderFollowers),
+    /// The command token gain of the status phase with the status report it carries.
+    Tokens(Box<Tokens>),
+    /// The agenda phase's vote and the agendas still to come.
+    Voting(Box<Voting>),
+    /// An open transaction between two seats.
+    Trade(Trade),
     /// A kind with no typed payload yet.
     Untyped { kind: WindowKind, actor: Option<Seat>, data: [u32; 3] },
 }
@@ -111,6 +120,10 @@ impl Window {
             Self::AgendaQueueAfterEventScoring(_) => WindowKind::AgendaQueueAfterEventScoring,
             Self::Scoring(_) => WindowKind::Scoring,
             Self::EventScoring(_) => WindowKind::EventScoring,
+            Self::LeaderFollowers(_) => WindowKind::LeaderFollowers,
+            Self::Tokens(_) => WindowKind::Tokens,
+            Self::Voting(_) => WindowKind::Voting,
+            Self::Trade(_) => WindowKind::Trade,
             Self::Untyped { kind, .. } => *kind,
         }
     }
