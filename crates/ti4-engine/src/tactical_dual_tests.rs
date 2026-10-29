@@ -413,3 +413,18 @@ fn an_open_hold_round_trips_through_the_typed_payload_and_asks_the_same_question
     assert_eq!(Some(asked), again, "the machine read back from its payload asks the same question");
     let _ = Slice::Meta;
 }
+
+#[test]
+fn an_argent_mech_rides_free_in_a_full_hold() {
+    let (hub, origin, target) = hub();
+    let mut state = table(&[("a", "argent"), ("b", "hacan")]);
+    crate::fixtures::put(&mut state, &origin, "dreadnought", &a(), 1);
+    crate::fixtures::put(&mut state, &origin, "infantry", &a(), 1);
+    crate::fixtures::put(&mut state, &origin, "argent_mech", &a(), 1);
+    let mv = id(&origin, 0);
+    // The dreadnought carries one unit; the infantry takes the slot, the mech still asks to come along.
+    let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv, "load|0", "load|1"], |_| {});
+    assert_eq!(done.counts("tactical::load"), (2, 0), "{:?}", done.reasons);
+    assert_eq!(total(&done.state, &target, &a(), Some("argent_mech")), 1, "the mech arrived with a full hold");
+    assert_eq!(total(&done.state, &target, &a(), Some("infantry")), 1);
+}
