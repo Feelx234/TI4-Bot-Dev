@@ -359,7 +359,7 @@ fn close_row(gs: &mut GameState, player: &PlayerId, row: &rules::effects::ProbeR
     use crate::exploration::{Explored, Holdings};
     use rules::effects::Explored as How;
     let at = gs.exploration_log.len().checked_sub(1)?;
-    let record = &gs.exploration_log[at];
+    let record = gs.exploration_log.get(at)?;
     if record.player != *player || record.card != row.card.as_str() || !record.outcome.is_empty() || record.deck != "FRONTIER" {
         return None;
     }
@@ -377,7 +377,7 @@ fn close_row(gs: &mut GameState, player: &PlayerId, row: &rules::effects::ProbeR
         .collect();
     let kept = gs.player(player).and_then(|seat| seat.exploration_cards.last().cloned());
     let words = crate::exploration::row_words(&Holdings::from_core(row.before), &Holdings::from_core(row.after), None, &outcome, tokens, kept.as_deref(), None);
-    let record = &mut gs.exploration_log[at];
+    let record = gs.exploration_log.get_mut(at)?;
     record.outcome = words.text;
     record.result = words.result;
     record.gains = words.gains;

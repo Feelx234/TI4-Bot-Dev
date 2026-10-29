@@ -1224,3 +1224,22 @@ fn bail_exploration_probe_with_a_replay_reserve_is_counted() {
     let (_, counts) = announced_once("probe", &state, Some(&galaxy), Box::new(crate::action_cards_announce_tests::DeclineSlots));
     assert_eq!(counts, (0, 1));
 }
+
+/// The ion storm and the Mirage say "in this system": the probe's draw names no system (`explore_with` passes none), so the string
+/// cannot resolve them: the token is spent, the row says so, nothing is placed. A shortcoming of the string, copied on purpose
+/// (docs/ENGINE_KNOWN_ISSUES.md, B6-copy-07).
+#[test]
+fn exploration_probe_cannot_resolve_the_ion_storm_and_the_mirage_without_a_system() {
+    let _serial = crate::dual::tests::serial();
+    let galaxy = ring();
+    for card in ["ion", "mirage"] {
+        let start = probe_position(&[card, "urf1"]);
+        let (after, counts) = announced_once("probe", &start, Some(&galaxy), Box::new(crate::action_cards_announce_tests::DeclineSlots));
+        assert_eq!(counts, (1, 0), "{card}");
+        let row = after.exploration_log.last().expect("a row");
+        assert!(row.card == card && row.outcome == "unresolved" && row.result == "could not be resolved", "{card}: {:?}", (&row.outcome, &row.result));
+        assert!(after.wormhole_tokens == start.wormhole_tokens && after.ion_storm == start.ion_storm, "{card}: no token placed");
+        assert!(serde_json::to_string(&after.board).unwrap() == serde_json::to_string(&start.board).unwrap(), "{card}: nothing on the board");
+        assert_eq!(after.frontier_tokens.len(), start.frontier_tokens.len() - 1, "{card}: the token is spent");
+    }
+}

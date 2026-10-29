@@ -2316,7 +2316,7 @@ impl Play {
         if self.stage == Stage::Pooling {
             let Pick::Opt(crate::choice::Opt::Strategy(crate::choice::strategy::Opt::Pool(pool))) = pick else { return Err(Illegal) };
             fx::gain_token(sx.state, self.who, pool, 1);
-            self.pool_left -= 1;
+            self.pool_left = self.pool_left.saturating_sub(1);
             if self.pool_left == 0 {
                 self.finish_goods(sx);
             }
@@ -2652,6 +2652,36 @@ mod tests {
 
     fn probe_env() -> Env {
         Env { facts: super::super::Facts { action_draw_plain: true, ..super::super::Facts::default() }, ..bare_env() }
+    }
+
+    /// The probe asks which frontier token to explore: one option per token in (or, with the map, next to) a system with a ship of
+    /// the holder, in the order of the system ids; a lone option is taken without a question.
+    #[test]
+    fn exploration_probe_asks_which_frontier_token_to_explore() {
+        use crate::choice::{Ask as AnyAsk, Opt as AnyOpt};
+        use crate::driver::{Driver, Status};
+        use crate::generated::{Explore as E, Unit};
+        use crate::kernel::stage::AbilityTable;
+        use crate::kernel::Resolver;
+        let mut s = probe_state(&[E::UnknownRelicFragment1]);
+        let (first, second) = (System::ALL[0], System::ALL[1]);
+        // A token with no ship of the holder's near it (no map) is not offered; a rival's ship does not count.
+        s.board_mut().sys_mut(second).units.push(Piece::new(Unit::CruiserI, Seat(0)));
+        s.explore_mut().frontier.insert(second);
+        s.explore_mut().frontier.insert(System::ALL[2]);
+        s.board_mut().sys_mut(System::ALL[2]).units.push(Piece::new(Unit::CruiserI, Seat(1)));
+        let play = Play::of(&s, ActionCard::ExplorationProbe, Seat(0), probe_env()).expect("a play");
+        let k = Kernel::plain();
+        let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), 1);
+        let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("a question") };
+        assert_eq!(c.ask, AnyAsk::Cards(Ask::Pick { card: ActionCard::ExplorationProbe, what: What::Probe }));
+        let offered: Vec<_> = c.opts.as_slice().iter().map(|o| *o).collect();
+        assert_eq!(offered, [AnyOpt::Cards(Opt::System(first)), AnyOpt::Cards(Opt::System(second))]);
+        // One ship system with a token: no question.
+        let mut lone = probe_state(&[E::UnknownRelicFragment1]);
+        lone.explore_mut().frontier.insert(System::ALL[3]);
+        let (after, unsupported, asked) = run_probe(lone, probe_env());
+        assert!(!unsupported && asked == 0 && after.explore().frontier.len() == 1, "the token with no ship near it stays");
     }
 
     /// Bail: Exploration Probe while a replay reserve is installed (the string draws through it).
