@@ -416,12 +416,18 @@ fn place_on_planet(
     if crate::supply::allowed(state, content, sources, player, &type_id, 1) == 0 {
         return false;
     }
-    state
-        .system_mut(&system)
-        .planet_units
-        .entry(planet.clone())
-        .or_default()
-        .push(ti4_model::units::Unit::new(type_id.clone(), player.clone()));
+    dual_write(
+        state,
+        "exploration::place_unit",
+        |s| {
+            s.system_mut(&system)
+                .planet_units
+                .entry(planet.clone())
+                .or_default()
+                .push(ti4_model::units::Unit::new(type_id.clone(), player.clone()));
+        },
+        |s| crate::explore_write::place_unit(s, player, &system, planet, &type_id),
+    );
     crate::supply::stage_naaz_mech_placed(state, player, &system, &type_id);
     true
 }
@@ -4102,6 +4108,44 @@ mod window_tests {
             assert_eq!(crate::explore_write::place_planet(&mut state.clone(), &me(), &system, &odd), None);
             assert_eq!(crate::explore_write::demilitarize(&mut state.clone(), ti4_model::content_types::FULL, &odd), None);
             assert_eq!(state.controlled_planets(&me()).iter().filter(|(_, p)| p.as_str() == "mirage").count(), 1, "still the first seat's");
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    /// Mercenary Outfit (an infantry) and Local Fabricators (a mech for a trade good) put a unit on the explored
+    /// planet through a core write; the supply gate and the unit form stay the string's (`supply::allowed`).
+    #[test]
+    fn a_unit_placed_by_an_exploration_card_is_a_core_write_in_lockstep() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        dual(|| {
+            for (card, answers, kind, goods_left) in [("mo1", vec!["place"], "infantry", 0), ("lf1", vec!["spend_tg"], "mech", 0), ("lf1", vec!["spend_tg"], "mech", 1)] {
+                let (mut state, planet) = table(1, 0);
+                let (system, _) = crate::fixtures::a_placed_planet();
+                state.player_mut(&me()).unwrap().trade_goods = 1;
+                if goods_left == 1 {
+                    // No mech left in the supply: nothing is placed and nothing is charged (the string gate).
+                    let mech = crate::action_cards::placed_unit_id(&state, ContentStore::embedded(), ti4_model::content_types::FULL, &me(), "mech").expect("a mech");
+                    crate::fixtures::put_on_planet(&mut state, &system, &planet, mech.as_str(), &me(), 4);
+                }
+                let mut probe = state.clone();
+                let form = crate::action_cards::placed_unit_id(&probe, ContentStore::embedded(), ti4_model::content_types::FULL, &me(), kind).expect("a form");
+                assert!(crate::explore_write::place_unit(&mut probe, &me(), &system, &planet, &form).is_some(), "the core takes the position");
+                let count = |s: &GameState| s.system_state(&system).on_planet(&planet).iter().filter(|u| u.type_id == form && u.owner == me()).count();
+                let before = count(&state);
+                state.exploration_decks.insert("CULTURAL".to_owned(), vec![card.to_owned()]);
+                let outcome = with_ctx(&answers, |ctx| explore_with(&mut state, ctx, &me(), "CULTURAL", Some(&planet)));
+                assert!(outcome.is_some(), "{card}");
+                let placed = count(&state) - before;
+                if goods_left == 1 {
+                    assert_eq!(placed, 0, "{card}: the supply gate");
+                    assert_eq!(state.player(&me()).unwrap().trade_goods, 1, "nothing charged");
+                } else {
+                    assert_eq!(placed, 1, "{card}");
+                }
+            }
         });
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
