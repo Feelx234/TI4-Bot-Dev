@@ -9,12 +9,12 @@
 //! other areas' rules, see `docs/ENGINE_KNOWN_ISSUES.md`), and the hook that decides Distant Suns applies.
 
 use crate::choice::agenda::Shown;
-use crate::choice::explore::{Ask as EAsk, Opt as EOpt, Step, Subtype as ESub};
+use crate::choice::explore::{Ask as EAsk, Opt as EOpt, PayReward, Step, Subtype as ESub};
 use crate::choice::relic::{Ask as RAsk, Opt as ROpt, Subtype as RSub};
 use crate::choice::generic::Content;
 use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use crate::containers::SmallList;
-use crate::generated::{Explore, ExploreType, Planet, Relic, System, Wormhole};
+use crate::generated::{Explore, ExploreType, Planet, Relic, System, UnitBaseType, Wormhole};
 use crate::ids::Seat;
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
@@ -57,7 +57,7 @@ macro_rules! in_invasion {
         }
     )*};
 }
-in_invasion!(ChooseDeck, DistantSuns, IonStorm, Reward, DominusOrb, CrownExplore);
+in_invasion!(ChooseDeck, DistantSuns, IonStorm, Reward, DominusOrb, CrownExplore, PayMechOrInfantry);
 pub(super) use in_invasion;
 
 /// The suspension points of the windows of this file: at the start, at the question, finished.
@@ -312,6 +312,95 @@ impl Window for Reward {
         match (self.stage, pick) {
             (XStage::Asking, Pick::Opt(Opt::Explore(o))) if self.options.as_slice().contains(&o) => {
                 self.chosen = Some(o);
+                self.stage = XStage::Done;
+                Ok(())
+            }
+            _ => Err(Illegal),
+        }
+    }
+}
+
+// -- a mech or an infantry pays -------------------------------------------------------------------------
+
+/// `exploration::pay_with_mech_or_infantry`: "if you have at least 1 mech on this planet, or if you remove 1
+/// infantry from it". A mech satisfies the card by being there; an infantry only when the seat agrees to remove
+/// it (the question); neither (or a planet no system holds) cannot resolve it. `paid` is the string function's
+/// answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PayMechOrInfantry {
+    pub who: Seat,
+    card: Explore,
+    planet: Planet,
+    reward: PayReward,
+    stage: XStage,
+    pub paid: bool,
+    inv: Option<u64>,
+}
+
+impl PayMechOrInfantry {
+    #[must_use]
+    pub const fn new(who: Seat, card: Explore, planet: Planet, reward: PayReward) -> Self {
+        Self { who, card, planet, reward, stage: XStage::Start, paid: false, inv: None }
+    }
+
+    const fn ask(&self) -> Ask {
+        Ask::Explore(EAsk::PayInfantry { card: self.card, planet: self.planet, reward: self.reward })
+    }
+
+    /// The position of the seat's first infantry in the planet's unit list.
+    fn infantry(&self, core: &CoreState) -> Option<usize> {
+        board::planet_units(core, self.planet)
+            .iter()
+            .position(|u| u.owner() == self.who && u.kind().data().base_type == UnitBaseType::Infantry)
+    }
+}
+
+impl Window for PayMechOrInfantry {
+    type Stage = XStage;
+
+    fn stage(&self) -> XStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == XStage::Start {
+            let cell = sx.state.board().planet(self.planet);
+            self.stage = if !(cell.flags.has(crate::state::PlanetFlags::UNITS_ENTRY) || cell.control.is_some()) {
+                XStage::Done
+            } else if board::planet_units(sx.state, self.planet)
+                .iter()
+                .any(|u| u.owner() == self.who && u.kind().data().base_type == UnitBaseType::Mech)
+            {
+                self.paid = true;
+                XStage::Done
+            } else if self.infantry(sx.state).is_some() {
+                XStage::Asking
+            } else {
+                XStage::Done
+            };
+        }
+        if self.stage == XStage::Asking { Next::Continue(self.ask()) } else { Next::Done }
+    }
+
+    fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {
+        (self.stage == XStage::Asking).then(|| Choice {
+            actor: self.who,
+            ask: self.ask(),
+            ctx: ctx(Content::Explore(self.card), ESub::Card(self.card), self.inv),
+            opts: opts([EOpt::RemoveInfantry, EOpt::KeepInfantry]),
+        })
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        match (self.stage, pick) {
+            (XStage::Asking, Pick::Opt(Opt::Explore(EOpt::RemoveInfantry))) => {
+                let at = self.infantry(sx.state).ok_or(Illegal)?;
+                explore::remove_unit_at(sx.state, self.planet, at);
+                self.paid = true;
+                self.stage = XStage::Done;
+                Ok(())
+            }
+            (XStage::Asking, Pick::Opt(Opt::Explore(EOpt::KeepInfantry))) => {
                 self.stage = XStage::Done;
                 Ok(())
             }

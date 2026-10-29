@@ -16,7 +16,7 @@ pub use stub::*;
 
 #[cfg(feature = "typed-core")]
 mod real {
-    use ti4_engine_core::choice::explore::{Opt as EOpt, Step};
+    use ti4_engine_core::choice::explore::{Opt as EOpt, PayReward, Step};
     use ti4_engine_core::driver::Driver;
     use ti4_engine_core::generated::{Attachment, Explore, ExploreType, Planet, PublicObjective, Relic, System, Technology, Wormhole};
     use ti4_engine_core::ids::Seat;
@@ -24,7 +24,7 @@ mod real {
     use ti4_engine_core::kernel::{Kernel, Resolver};
     use ti4_engine_core::rules::explore as rules;
     use ti4_engine_core::rules::relic_windows::{Codex, GainTechnology, Neuraloop, StellarConverter, TitanPrototype};
-    use ti4_engine_core::rules::explore_windows::{InInvasion, ChooseDeck, CrownExplore, DistantSuns, DominusOrb, IonStorm, Reward};
+    use ti4_engine_core::rules::explore_windows::{PayMechOrInfantry, InInvasion, ChooseDeck, CrownExplore, DistantSuns, DominusOrb, IonStorm, Reward};
     use ti4_engine_core::state::{CoreState, Slice};
     use ti4_model::content_types::SourceSet;
     use ti4_model::id::{PlanetId, PlayerId, RelicId, SystemId};
@@ -121,6 +121,129 @@ mod real {
         lend(gs, Some(player), |core, who| rules::crown_point(core, seat_of(who)))
     }
 
+    /// [`lend`] for a write that carries texts: they are interned before the lend, so the core holds their codes.
+    fn lend_texts<T>(
+        gs: &mut GameState,
+        player: Option<&PlayerId>,
+        texts: &[&str],
+        f: impl FnOnce(&mut CoreState, Option<Seat>, &[ti4_engine_core::state::Code]) -> T,
+    ) -> Option<T> {
+        if gs.deck_reserve.is_some() {
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let who = match player {
+            Some(p) => Some(r.seat(p.as_str())?),
+            None => None,
+        };
+        let codes: Vec<_> = texts.iter().map(|t| cx.texts.intern(Slice::Explore, t)).collect::<Result<_, _>>().ok()?;
+        crate::core_sync::with_core(gs, &mut cx, Sources::default(), WRITES, |core, _| f(core, who, &codes)).ok()
+    }
+
+    /// The log row `explore_drawn` opens when a card is drawn.
+    pub fn open_record(
+        gs: &mut GameState,
+        player: &PlayerId,
+        deck: &str,
+        card: &str,
+        planet: Option<&PlanetId>,
+        system: Option<&SystemId>,
+    ) -> Option<()> {
+        let kind = explore_type(Slice::Decks, deck).ok()?;
+        let card = typed::<Explore>(card)?;
+        let planet = match planet {
+            Some(p) => Some(typed::<Planet>(p.as_str())?),
+            None => None,
+        };
+        let system = match system {
+            Some(s) => Some(typed::<System>(s.as_str())?),
+            None => None,
+        };
+        lend_texts(gs, Some(player), &[""], |core, who, codes| {
+            rules::open_record(core, seat_of(who), kind, card, planet, system, codes[0]);
+        })
+    }
+
+    /// The texts `explore_in` writes into the row it opened.
+    pub fn close_record(
+        gs: &mut GameState,
+        index: usize,
+        outcome: &str,
+        result: &str,
+        gains: &std::collections::BTreeMap<String, i32>,
+        placed: &[String],
+    ) -> Option<()> {
+        let mut texts: Vec<&str> = vec![outcome, result];
+        texts.extend(gains.keys().map(String::as_str));
+        texts.extend(placed.iter().map(String::as_str));
+        let values: Vec<i32> = gains.values().copied().collect();
+        let (n_gains, n_placed) = (gains.len(), placed.len());
+        lend_texts(gs, None, &texts, |core, _, codes| {
+            let closing = rules::Closing {
+                outcome: codes[0],
+                result: (!result.is_empty()).then_some(codes[1]),
+                gains: codes[2..2 + n_gains].iter().copied().zip(values.iter().copied()).collect(),
+                placed: codes[2 + n_gains..2 + n_gains + n_placed].to_vec(),
+            };
+            rules::close_record(core, index, &closing);
+        })
+    }
+
+    /// `record.system = Some(system)`.
+    pub fn set_record_system(gs: &mut GameState, index: usize, system: &SystemId) -> Option<()> {
+        let s = typed::<System>(system.as_str())?;
+        lend(gs, None, |core, _| rules::set_record_system(core, index, s))
+    }
+
+    /// Status phase 81.6, the relic and legendary half (`status::resolve_after_token_gain`).
+    pub fn ready_relics_and_legendary(gs: &mut GameState) -> Option<()> {
+        lend(gs, None, |core, _| rules::ready_relics_and_legendary(core))
+    }
+
+    /// `legendary::exhaust`.
+    pub fn exhaust_legendary(gs: &mut GameState, player: &PlayerId, planet: &PlanetId) -> Option<()> {
+        let p = typed::<Planet>(planet.as_str())?;
+        lend(gs, Some(player), |core, who| rules::exhaust_legendary(core, seat_of(who), p))
+    }
+
+    /// An exploration card kept faceup in the play area (Enigmatic Device).
+    pub fn play_area_card(gs: &mut GameState, player: &PlayerId, card: &str) -> Option<()> {
+        let c = typed::<Explore>(card)?;
+        lend(gs, Some(player), |core, who| rules::play_area_card(core, seat_of(who), c))
+    }
+
+    /// Maw of Worlds: every planet the seat controls is exhausted.
+    pub fn exhaust_controlled_planets(gs: &mut GameState, player: &PlayerId) -> Option<()> {
+        lend(gs, Some(player), |core, who| rules::exhaust_controlled_planets(core, seat_of(who)))
+    }
+
+    /// `state.exhausted_planets.remove(planet)`: whether it was exhausted.
+    pub fn ready_planet(gs: &mut GameState, planet: &PlanetId) -> Option<bool> {
+        let p = typed::<Planet>(planet.as_str())?;
+        lend(gs, None, |core, _| ti4_engine_core::kernel::fx::ready_planet(core, p))
+    }
+
+    /// `exploration::gain_commodities`: the amount gained.
+    pub fn gain_commodities(gs: &mut GameState, player: &PlayerId, count: i32) -> Option<i32> {
+        lend(gs, Some(player), |core, who| rules::gain_commodities(core, seat_of(who), count))
+    }
+
+    /// `exploration::convert_commodities`, the commodities half: how many left the seat.
+    pub fn spend_commodities(gs: &mut GameState, player: &PlayerId, most: Option<i32>) -> Option<i32> {
+        lend(gs, Some(player), |core, who| rules::spend_commodities(core, seat_of(who), most))
+    }
+
+    /// The Book of Latvinia: whether it scored (otherwise the seat became the speaker).
+    pub fn book_of_latvinia(gs: &mut GameState, player: &PlayerId, sources: SourceSet) -> Option<bool> {
+        let scope = crate::core_adapter::scope(sources);
+        lend(gs, Some(player), |core, who| rules::book_of_latvinia(core, seat_of(who), scope))
+    }
+
+    /// The Silver Flame after the roll.
+    pub fn silver_flame(gs: &mut GameState, player: &PlayerId, rolled_ten: bool) -> Option<()> {
+        lend(gs, Some(player), |core, who| rules::silver_flame(core, seat_of(who), rolled_ten))
+    }
+
     // -- the windows -----------------------------------------------------------------------------------
 
     const WINDOW: Footprint = Footprint::new(
@@ -132,6 +255,12 @@ mod real {
     const RELIC_WINDOW: Footprint = Footprint::new(
         &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Pending],
         &[Slice::Players],
+    );
+
+    /// An infantry leaves a planet.
+    const WINDOW_BOARD: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Pending],
+        &[Slice::Board],
     );
 
     /// The Codex moves cards between the discard pile and the hand; the Stellar Converter destroys a planet.
@@ -282,6 +411,31 @@ mod real {
         })
     }
 
+    /// The core half of `exploration::pay_with_mech_or_infantry` (the value: the card was paid for).
+    pub fn pay_infantry(
+        gs: &mut GameState,
+        content: &ti4_content::ContentStore,
+        player: &PlayerId,
+        card: &str,
+        planet: &PlanetId,
+        reward: &str,
+        script: &Recording,
+    ) -> Option<CoreWindow<bool>> {
+        let (card_id, planet_id) = (typed::<Explore>(card)?, typed::<Planet>(planet.as_str())?);
+        let kind = match reward {
+            "gain 1 trade good" => PayReward::TradeGood,
+            "ready this planet" => PayReward::ReadyPlanet,
+            "gain 1 command token" => PayReward::CommandToken,
+            _ => return None,
+        };
+        let system = crate::exploration::system_of(gs, planet).map(|s| s.to_string()).unwrap_or_default();
+        let details = |_: &ti4_engine_core::choice::Choice, _: &CoreState, rendered: &mut crate::choice::Choice| {
+            let offer = crate::exploration::pay_offer(content, card, planet, &system, reward);
+            *rendered = offer(rendered.clone());
+        };
+        drive_window(gs, WINDOW_BOARD, player, |s| PayMechOrInfantry::new(s, card_id, planet_id, kind), script, &details, |w| Some(w.paid))
+    }
+
     /// The core half of a reward question of an instant card. `options` are the ids the string side offers, in
     /// its order; `details` completes the rendered question (the commodity standing of the four commodity cards).
     pub fn reward(
@@ -383,6 +537,60 @@ mod stub {
         None
     }
     pub fn ion_storm(_: &mut GameState, _: &PlayerId, _: &SystemId, _: &Recording) -> Option<CoreWindow<String>> {
+        None
+    }
+    pub fn ready_relics_and_legendary(_: &mut GameState) -> Option<()> {
+        None
+    }
+    pub fn open_record(_: &mut GameState, _: &PlayerId, _: &str, _: &str, _: Option<&PlanetId>, _: Option<&SystemId>) -> Option<()> {
+        None
+    }
+    pub fn close_record(
+        _: &mut GameState,
+        _: usize,
+        _: &str,
+        _: &str,
+        _: &std::collections::BTreeMap<String, i32>,
+        _: &[String],
+    ) -> Option<()> {
+        None
+    }
+    pub fn set_record_system(_: &mut GameState, _: usize, _: &SystemId) -> Option<()> {
+        None
+    }
+    pub fn exhaust_legendary(_: &mut GameState, _: &PlayerId, _: &PlanetId) -> Option<()> {
+        None
+    }
+    pub fn play_area_card(_: &mut GameState, _: &PlayerId, _: &str) -> Option<()> {
+        None
+    }
+    pub fn exhaust_controlled_planets(_: &mut GameState, _: &PlayerId) -> Option<()> {
+        None
+    }
+    pub fn ready_planet(_: &mut GameState, _: &PlanetId) -> Option<bool> {
+        None
+    }
+    pub fn gain_commodities(_: &mut GameState, _: &PlayerId, _: i32) -> Option<i32> {
+        None
+    }
+    pub fn spend_commodities(_: &mut GameState, _: &PlayerId, _: Option<i32>) -> Option<i32> {
+        None
+    }
+    pub fn book_of_latvinia(_: &mut GameState, _: &PlayerId, _: ti4_model::content_types::SourceSet) -> Option<bool> {
+        None
+    }
+    pub fn silver_flame(_: &mut GameState, _: &PlayerId, _: bool) -> Option<()> {
+        None
+    }
+    pub fn pay_infantry(
+        _: &mut GameState,
+        _: &ti4_content::ContentStore,
+        _: &PlayerId,
+        _: &str,
+        _: &PlanetId,
+        _: &str,
+        _: &Recording,
+    ) -> Option<CoreWindow<bool>> {
         None
     }
     pub fn neuraloop(_: &mut GameState, _: &PlayerId, _: &str, _: &Recording) -> Option<CoreWindow<Option<String>>> {
