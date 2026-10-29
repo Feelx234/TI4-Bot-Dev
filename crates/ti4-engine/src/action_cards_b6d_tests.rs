@@ -1995,3 +1995,55 @@ fn courageous_to_the_end_and_experimental_battlestation_agree_with_the_core_play
     assert_eq!(ran, 2 * SEEDS.len());
     let _ = crate::dual::take_report();
 }
+
+/// Courageous To The End where no seat holds a card that could answer the announcement: the string's run has no nested activity, so
+/// the core window runs on the plain table of the play window (not the reactions table a nested run is followed on), which must
+/// carry the announcement of the staged destructions itself (`action_cards_view::play_table`).
+#[test]
+fn courageous_to_the_end_is_announced_on_the_plain_table_of_the_play_window() {
+    let _serial = crate::dual::tests::serial();
+    let mut cases: Vec<(&str, GameState)> = Vec::new();
+    for victim in ["dreadnought", "cruiser"] {
+        let (mut state, _) = courageous_position(victim);
+        for player in state.players.iter_mut() {
+            player.action_cards.clear();
+        }
+        cases.push(("courageous", state));
+    }
+    crate::action_cards_closing_tests::announce_all_seeded(&cases, None, &SEEDS);
+    let _ = crate::dual::take_report();
+    // Some seed destroys a ship on that table (the lockstep compared its `SHIP_DESTROYED` with the string's).
+    let (system, lost) = {
+        let system = fight_system(&cases[0].1);
+        let lost = SEEDS.iter().any(|seed| ships_in(&played_seeded("courageous", &cases[0].1, *seed, None), &system, "b") < ships_in(&cases[0].1, &system, "b"));
+        (system, lost)
+    };
+    let _ = system;
+    assert!(lost, "a ship was destroyed under some seed");
+    let _ = crate::dual::take_report();
+}
+
+/// Experimental Battlestation against a seat with Non-Euclidean Shielding ("cancel 2 hits" for each use of SUSTAIN DAMAGE): the
+/// sustain offer of the child window reads the combat kernel the play window lends (the faction modules' rows), not a plain one.
+#[test]
+fn experimental_battlestation_follows_non_euclidean_shielding_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let galaxy = ring();
+    let (active, _, _) = battlestation_sites(&galaxy);
+    let mut state = battlestation_position(active, &["dreadnought", "dreadnought", "cruiser", "cruiser"]);
+    assert!(dock_in(&mut state, active, "a"));
+    state.player_mut(&PlayerId::new("b")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("nes"));
+    crate::action_cards_closing_tests::announce_all_seeded(&[("experimental", state.clone())], Some(&galaxy), &SEEDS);
+    let _ = crate::dual::take_report();
+    // With the shielding a single sustain absorbs two hits: the fleet loses fewer ships than without it, under some seed.
+    let mut bare = state.clone();
+    bare.player_mut(&PlayerId::new("b")).unwrap().technologies.clear();
+    let system = ti4_model::id::SystemId::new(active);
+    let fewer = SEEDS.iter().any(|seed| {
+        let shielded = played_seeded_by("experimental", &state, *seed, Some(&galaxy), Box::new(crate::action_cards_closing_tests::FirstOption));
+        let open = played_seeded_by("experimental", &bare, *seed, Some(&galaxy), Box::new(crate::action_cards_closing_tests::FirstOption));
+        ships_in(&shielded, &system, "b") > ships_in(&open, &system, "b")
+    });
+    assert!(fewer, "two hits cancelled by one sustain saved a ship under some seed");
+    let _ = crate::dual::take_report();
+}

@@ -954,3 +954,50 @@ fn traders_of(gs: &GameState, galaxy: Option<&ti4_content::galaxy::Galaxy>, play
     }
     out
 }
+
+#[cfg(test)]
+mod hit_facts_tests {
+    use super::*;
+    use crate::action_cards::tests::closing_position;
+
+    /// The guards of Experimental Battlestation's hit flow (`hit_facts`): below `RULES_FACTION_EFFECTS` and against a seat that pays on a
+    /// sustain without an unlocked commander the string plays the card; the contrast cases are carried.
+    #[test]
+    fn the_sustain_guards_of_experimental_battlestation_decline_only_what_the_core_window_does_not_follow() {
+        let _serial = crate::dual::tests::serial();
+        let card = ActionCard::ExperimentalBattlestation;
+        let b = PlayerId::new("b");
+        let mut plain = closing_position();
+        plain.active = Some(b.clone());
+        let run = |state: &GameState| {
+            let (mut cx, r) = crate::dual_window::tables(state).expect("tables");
+            let mut facts = rules::Facts::default();
+            let out = hit_facts(state, &r, &mut cx, card, None, true, &mut facts);
+            (out.is_some(), facts)
+        };
+        let (carried, facts) = run(&plain);
+        assert!(carried);
+        assert!(!facts.map, "no map was lent");
+        assert_eq!(facts.hits.staging, crate::supply::staging_enabled(&plain));
+        let mut old = plain.clone();
+        old.rules_version = ti4_model::state::RULES_FACTION_EFFECTS - 1;
+        assert!(!run(&old).0, "below the faction effects");
+        // Held another way than as an unlocked leader: the string pays, the core window would not.
+        let mut held = plain.clone();
+        held.faction_marks.insert("commander_ability:b:letnevcommander".to_owned(), "1".to_owned());
+        assert!(!run(&held).0, "a commander held another way");
+        // Unlocked: the core's commander window pays the same.
+        let mut unlocked = held.clone();
+        unlocked.player_mut(&b).unwrap().leaders.insert(ti4_model::id::LeaderId::new("letnevcommander"), ti4_model::state::LeaderStatus::Unlocked);
+        assert!(run(&unlocked).0, "an unlocked commander is followed");
+        // The card that destroys ships has no such guard; its texts are the play's.
+        let (mut cx, r) = crate::dual_window::tables(&held).expect("tables");
+        let mut facts = rules::Facts::default();
+        assert!(hit_facts(&held, &r, &mut cx, ActionCard::CourageousToTheEnd, None, true, &mut facts).is_some());
+        assert_eq!(r.code_text(facts.courageous_subtype), "courageous_to_the_end_assign_casualty");
+        assert_eq!(r.code_text(facts.courageous_cause), "action_card:courageous");
+        let mut state_texts = rules::Facts::default();
+        assert!(hit_facts(&held, &r, &mut cx, ActionCard::CourageousToTheEnd, None, false, &mut state_texts).is_some());
+        assert_eq!(cx.texts.text(Slice::Transient, state_texts.courageous_cause).unwrap(), "action_card:courageous", "a destruction left in the state carries the text of the state");
+    }
+}
