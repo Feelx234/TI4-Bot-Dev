@@ -233,6 +233,7 @@ pub fn structure_allowed(cx: &Cx<'_>, who: Seat, planet: Planet, base: UnitBaseT
     structure_limit(base).is_none_or(|cap| structures_on(cx, who, planet, base) < cap)
 }
 
+pub mod offers;
 pub mod pay;
 
 /// What the table adds to a context when it asks (`DecisionContext::about_invasion`): the invasion of the system
@@ -319,6 +320,31 @@ pub fn placements(cx: &Cx<'_>, who: Seat, system: System, unit: Unit) -> SmallLi
 pub struct Extras<'a> {
     pub commodities: i64,
     pub oceans: &'a [Planet],
+}
+
+/// The payment extras of a seat as the hook table answers them: Keleres' commodities (open only inside a payment window
+/// the agent was used for) and the Deepwrought's readied ocean cards.
+#[derive(Debug, Clone)]
+pub struct Held {
+    commodities: i64,
+    oceans: SmallList<Planet, 8>,
+}
+
+impl Held {
+    #[must_use]
+    pub fn of(cx: &Cx<'_>, who: Seat) -> Self {
+        let (s, k) = (cx.core(), cx.q.k);
+        let mut oceans = SmallList::new();
+        for p in k.hooks.direct.deepwrought_spendable_oceans(s, who).as_slice() {
+            oceans.push(*p);
+        }
+        Self { commodities: k.hooks.direct.keleres_spendable_commodities(s, who), oceans }
+    }
+
+    #[must_use]
+    pub fn extras(&self) -> Extras<'_> {
+        Extras { commodities: self.commodities, oceans: self.oceans.as_slice() }
+    }
 }
 
 /// `production::trade_good_worth`: one, folded through the `trade_good_worth` hook (Mentak).

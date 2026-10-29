@@ -924,6 +924,40 @@ pub fn offer_production_hero(
     table: &mut crate::choice::Table,
     player: &PlayerId,
 ) -> Result<bool, crate::choice::IllegalChoice> {
+    // The offer is a window of the core on `production=dual`: the question, the purge of the card and the free use.
+    let mut outcome = Ok(false);
+    crate::dual_window!(
+        crate::dual::Area::Production,
+        "production::hero_offer",
+        state,
+        |s: &mut GameState| {
+            outcome = offer_production_hero_text(s, content, sources, galaxy, table, player);
+            crate::dual::Run::new(outcome.as_ref().ok().copied().unwrap_or(false))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            #[cfg(feature = "typed-core")]
+            {
+                crate::production_window_dual::hero_offer(s, player, script)
+            }
+            #[cfg(not(feature = "typed-core"))]
+            {
+                let _ = (s, script);
+                None
+            }
+        }
+    );
+    outcome
+}
+
+/// The string body of [`offer_production_hero`].
+fn offer_production_hero_text(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut crate::choice::Table,
+    player: &PlayerId,
+) -> Result<bool, crate::choice::IllegalChoice> {
     let hero = LeaderId::new("hacanhero");
     let unlocked = state
         .player(player)

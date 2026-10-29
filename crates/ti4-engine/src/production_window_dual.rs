@@ -20,7 +20,7 @@ use ti4_content::ContentStore;
 
 use crate::core_sync::{Footprint, Sources, with_core};
 use crate::dual::{CoreWindow, Run};
-use crate::dual_window::{Recording, event_of, nested_fp, tables};
+use crate::dual_window::{Recording, drive, event_of, nested_check, nested_fp, tables};
 use crate::event::Event;
 use crate::production::{ProductionWindow, WindowSnap};
 use crate::render::{self, Position, Typed};
@@ -153,4 +153,38 @@ pub fn pay_step(
     .ok()?
     .ok()?;
     Some(CoreWindow { run: Run::new(driver.window.took), questions: rendered })
+}
+
+const OFFER_FOOTPRINT: Footprint = Footprint {
+    reads: crate::production_view::READS,
+    writes: SliceSet::of(&[Slice::Players, Slice::Marks]),
+};
+
+/// The core half of `leaders::offer_production_hero`: whether the Hacan hero was purged to make the use free. `None`: the
+/// position holds something the core window does not carry (the string result stands).
+#[must_use]
+pub fn hero_offer(gs: &mut GameState, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
+    use ti4_engine_core::rules::production::offers::HeroOffer;
+    let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
+    let seat = r.seat(player.as_str())?;
+    let before = gs.clone();
+    let kernel = crate::production_view::kernel();
+    let mut driver = Driver::new(HeroOffer::new(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(OFFER_FOOTPRINT, script), |core, _| drive(&mut driver, core, kernel, &r, &before, script)).ok()?.ok()?;
+    Some(CoreWindow { run: Run::new(driver.window.used), questions: driven.rendered })
+}
+
+/// The core half of `keleres::offer_agent`: whether the offer opened a window the caller must close. `None` as above.
+#[must_use]
+pub fn agent_offer(gs: &mut GameState, payer: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
+    use ti4_engine_core::rules::production::offers::AgentOffer;
+    let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
+    let seat = r.seat(payer.as_str())?;
+    let before = gs.clone();
+    let kernel = crate::production_view::kernel();
+    let mut driver = Driver::new(AgentOffer::new(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(OFFER_FOOTPRINT, script), |core, _| drive(&mut driver, core, kernel, &r, &before, script)).ok()?.ok()?;
+    Some(CoreWindow { run: Run::new(driver.window.opened), questions: driven.rendered })
 }

@@ -7011,6 +7011,117 @@ mod tests {
         assert!(mechs > 0, "a Naaz mech was built");
     }
 
+    /// Runs one use of PRODUCTION for `a` (a dock on its planet, `goods` trade goods) with the first answers scripted and the
+    /// area on Dual; the windows of the report and the state.
+    fn offered_use(factions: [&str; 3], goods: i32, prepare: impl FnOnce(&mut GameState), answers: &[&str]) -> (GameState, crate::dual::DualReport) {
+        let _guard = crate::dual::tests::serial();
+        let _ = crate::dual::take_report();
+        let content = ContentStore::embedded();
+        let mask = crate::dual::AreaMask::parse("production=dual", crate::dual::AreaMask::STRING).unwrap();
+        let mut state = crate::fixtures::seated_game(&[("a", factions[0]), ("b", factions[1]), ("c", factions[2])], POK);
+        state.promissory_notes.clear();
+        let (system, planet) = a_placed_planet();
+        state.system_mut(&system).set_control(planet.clone(), player());
+        put_on_planet(&mut state, &system, &planet, "spacedock", &player(), 1);
+        state.player_mut(&player()).unwrap().trade_goods = goods;
+        prepare(&mut state);
+        let mut table = Table::with_default(Box::new(crate::choice::Scripted::new(answers.iter().copied())));
+        crate::dual::with_mask(mask, || {
+            resolve(&mut state, content, POK, None, &mut table, &player(), &system).unwrap();
+        });
+        (state, crate::dual::take_report())
+    }
+
+    /// Harrugh Gefhara: offered when a use of PRODUCTION starts; purged to make the use free, or declined.
+    #[test]
+    fn the_hacan_hero_is_offered_in_the_core_window_in_lockstep() {
+        for (answer, free) in [("use", true), ("decline", false)] {
+            let (state, r) = offered_use(
+                ["hacan", "sol", "sardakk"],
+                10,
+                |s| {
+                    s.player_mut(&player()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("hacanhero"), ti4_model::state::LeaderStatus::Unlocked);
+                },
+                &[answer],
+            );
+            let w = r.windows.get("production::hero_offer").copied().unwrap_or_default();
+            assert!(w.compared >= 1 && w.bailed == 0, "{answer}: {:?}", r.windows);
+            assert_eq!(r.total_differences(), 0, "{answer}: {:?}", r.differences.first());
+            let purged = state.player(&player()).unwrap().leaders.get(ti4_model::id::text(&"hacanhero")) == Some(&ti4_model::state::LeaderStatus::Purged);
+            assert_eq!(purged, free, "{answer}");
+            assert_eq!(state.player(&player()).unwrap().free_production_use.is_some(), free, "{answer}");
+        }
+    }
+
+    /// Xander Alexin Victori III: offered to the Keleres holder when the producer starts a use holding commodities; used
+    /// (the agent is exhausted, the window's mark names the holder) or declined (the window opens without it).
+    #[test]
+    fn the_keleres_agent_is_offered_in_the_core_window_in_lockstep() {
+        for (answer, used) in [("use", true), ("decline", false)] {
+            let (state, r) = offered_use(
+                ["hacan", "keleresm", "sardakk"],
+                1,
+                |s| {
+                    s.player_mut(&player()).unwrap().commodities = 3;
+                    s.player_mut(&PlayerId::new("b")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("keleresagent"), ti4_model::state::LeaderStatus::Readied);
+                },
+                &[answer],
+            );
+            let w = r.windows.get("production::agent_offer").copied().unwrap_or_default();
+            assert!(w.compared >= 1 && w.bailed == 0, "{answer}: {:?}", r.windows);
+            assert_eq!(r.total_differences(), 0, "{answer}: {:?}", r.differences.first());
+            let exhausted = state.player(&PlayerId::new("b")).unwrap().leaders.get(ti4_model::id::text(&"keleresagent")) == Some(&ti4_model::state::LeaderStatus::Exhausted);
+            assert_eq!(exhausted, used, "{answer}");
+        }
+    }
+
+    /// The payment window of the Keleres agent: a bill only the producer's commodities can pay is offered to the holder, who
+    /// uses it; each step of the payment is a core window with the commodity as an option, and the string closes the window.
+    #[test]
+    fn a_payment_with_the_keleres_agent_runs_in_the_core_window_in_lockstep() {
+        let _guard = crate::dual::tests::serial();
+        let _ = crate::dual::take_report();
+        let content = ContentStore::embedded();
+        let mask = crate::dual::AreaMask::parse("production=dual", crate::dual::AreaMask::STRING).unwrap();
+        let mut state = crate::fixtures::seated_game(&[("a", "hacan"), ("b", "keleresm"), ("c", "sardakk")], POK);
+        state.promissory_notes.clear();
+        let held: Vec<_> = state.controlled_planets(&player()).into_iter().map(|(_, planet)| planet.clone()).collect();
+        state.exhausted_planets.extend(held);
+        state.player_mut(&player()).unwrap().trade_goods = 0;
+        state.player_mut(&player()).unwrap().commodities = 3;
+        state.player_mut(&PlayerId::new("b")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("keleresagent"), ti4_model::state::LeaderStatus::Readied);
+        let mut table = Table::new();
+        let paid = crate::dual::with_mask(mask, || pay(&mut state, content, POK, &mut table, &player(), 2, Spend::Resources).unwrap());
+        let r = crate::dual::take_report();
+        assert!(paid, "the commodities paid the bill");
+        assert_eq!(state.player(&player()).unwrap().commodities, 1);
+        assert!(!state.faction_marks.keys().any(|k| k.starts_with("keleres|agent_goods|")), "the string closed the window");
+        let step = r.windows.get("production::pay_step").copied().unwrap_or_default();
+        let offer = r.windows.get("production::agent_offer").copied().unwrap_or_default();
+        assert!(step.compared >= 1 && offer.compared >= 1, "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    }
+
+    /// A Nomad that hears the exhaustion of an agent (Temporal Command Suite) is told by the string; the core window does
+    /// not tell it, so the offer bails (the window is counted, nothing differs).
+    #[test]
+    fn bail_the_keleres_agent_with_a_listening_nomad_is_counted() {
+        let (_, r) = offered_use(
+            ["hacan", "keleresm", "nomad"],
+            1,
+            |s| {
+                s.player_mut(&player()).unwrap().commodities = 3;
+                s.player_mut(&PlayerId::new("b")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("keleresagent"), ti4_model::state::LeaderStatus::Readied);
+                crate::technology::grant(s, &PlayerId::new("c"), &ti4_model::id::TechnologyId::new("tcs"));
+            },
+            &["use"],
+        );
+        let w = r.windows.get("production::agent_offer").copied().unwrap_or_default();
+        assert_eq!(w.compared, 0, "{:?}", r.windows);
+        assert!(w.bailed >= 1 || r.windows.keys().any(|k| k.contains("production::agent_offer") && k.contains("Nomad")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    }
+
     #[test]
     fn production_places_units_and_charges_for_them() {
         let (mut state, system, planet) = seated();

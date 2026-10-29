@@ -112,6 +112,10 @@ pub enum Ask {
     Choose(ChooseAsk),
     /// Choose where to put what was produced.
     Place(PlaceAsk),
+    /// Harrugh Gefhara (the Hacan hero): make this use of PRODUCTION free.
+    Hero,
+    /// Xander Alexin Victori III (a Keleres agent): let `payer` spend commodities as trade goods.
+    AgentOffer { payer: Seat },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -133,6 +137,8 @@ pub enum Opt {
     Stop,
     /// Winnu: exhaust Berekar Berekon for -2 on the use's combined cost.
     Agent,
+    /// Use the leader the question offers (the Hacan hero, the Keleres agent); declining is the generic option.
+    Use,
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -141,4 +147,8 @@ pub enum Subtype {
     Pay(Currency),
     Choose,
     Place,
+    /// `leader_hacanhero_free_production`.
+    Hero,
+    /// `keleres_agent_commodities`.
+    AgentOffer,
 }

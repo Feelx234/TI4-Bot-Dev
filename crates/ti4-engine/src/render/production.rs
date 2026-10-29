@@ -41,8 +41,10 @@ impl Family for Fam {
     type Opt = Opt;
     type Subtype = Subtype;
 
-    fn prompt(_: &Render, a: &Ask) -> String {
+    fn prompt(r: &Render, a: &Ask) -> String {
         match a {
+            Ask::Hero => "Harrugh Gefhara: make this use of PRODUCTION free".to_owned(),
+            Ask::AgentOffer { payer } => format!("Xander Alexin Victori III: let {} spend commodities as trade goods", r.seat_text(*payer)),
             Ask::Pay(p) => format!("pay {} more {}", p.owed, name(p.kind)),
             Ask::Choose(c) => format!("produce in {} ({} left)", <System as IdStr>::as_str(c.system), c.remaining),
             Ask::Place(p) => format!("place the {}", unit_id(p.unit)),
@@ -54,11 +56,17 @@ impl Family for Fam {
             Subtype::Pay(kind) => format!("pay_{}", name(*kind)),
             Subtype::Choose => "produce_unit".to_owned(),
             Subtype::Place => "place_unit".to_owned(),
+            Subtype::Hero => "leader_hacanhero_free_production".to_owned(),
+            Subtype::AgentOffer => "keleres_agent_commodities".to_owned(),
         }
     }
 
     fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
         let PayAsk { kind, owed, pool, goods } = match *a {
+            Ask::Hero => return ChoiceOption::labelled("use", "leader_hacanhero_free_production", "purge Harrugh Gefhara: every unit costs 0"),
+            Ask::AgentOffer { payer } => {
+                return ChoiceOption::labelled("use", "leader_ability", format!("exhaust the agent: {}'s commodities count as trade goods", r.seat_text(payer)));
+            }
             Ask::Pay(p) => p,
             Ask::Choose(c) => return build_option(r, &c, o),
             Ask::Place(p) => return place_option(r, &p, o),
@@ -97,7 +105,7 @@ impl Family for Fam {
                         Delta::new(Quantity::TradeGoods, goods, goods - 1),
                     ]))
             }
-            Opt::Build { .. } | Opt::Exchange { .. } | Opt::Place { .. } | Opt::Stop | Opt::Agent => unreachable!("builds are asked by Ask::Choose"),
+            Opt::Build { .. } | Opt::Exchange { .. } | Opt::Place { .. } | Opt::Stop | Opt::Agent | Opt::Use => unreachable!("builds are asked by Ask::Choose"),
             Opt::Commodity { shown } => {
                 let worth = i64::from(shown.worth);
                 ChoiceOption::labelled("commodity", crate::production::PAY_KIND, "spend a commodity as a trade good")
@@ -118,6 +126,7 @@ impl Family for Fam {
 
     fn parse(_: &Render, a: &Ask, id: &str) -> Option<Opt> {
         let kind = match *a {
+            Ask::Hero | Ask::AgentOffer { .. } => return (id == "use").then_some(Opt::Use),
             Ask::Pay(p) => p.kind,
             Ask::Choose(_) => return parse_build(id),
             Ask::Place(p) => return parse_place(&p, id),

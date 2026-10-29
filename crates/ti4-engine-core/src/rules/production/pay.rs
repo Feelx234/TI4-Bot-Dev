@@ -3,7 +3,7 @@
 //! the answer. The caller (the string loop) repeats it until the bill is paid.
 
 use crate::rules::production as rules;
-use crate::rules::production::{Cx, Extras};
+use crate::rules::production::{Cx, Held};
 use crate::choice::generic::Rule;
 use crate::choice::production::{Ask as PAsk, Currency, Opt as POpt, Subtype as PSub};
 use crate::choice::{Ask, Choice, Ctx, Opt, Origin, Owed, OwedKind, Pick, Subtype};
@@ -46,7 +46,8 @@ impl PayStep {
         if self.stage == Stage::Done {
             return None;
         }
-        let (ask, opts) = rules::pay_opts(&Self::cx(s, k), self.who, self.kind, self.paid, self.owed, &Extras::default());
+        let cx = Self::cx(s, k);
+        let (ask, opts) = rules::pay_opts(&cx, self.who, self.kind, self.paid, self.owed, &Held::of(&cx, self.who).extras());
         if opts.as_slice().is_empty() {
             return None;
         }
@@ -80,7 +81,8 @@ impl PayStep {
 
     /// Take `picked`; the worth of the face, `None` for one that cannot be paid.
     fn apply(&self, s: &mut CoreState, k: &Kernel, picked: POpt) -> Option<i64> {
-        let (_, offered) = rules::pay_opts(&Self::cx(s, k), self.who, self.kind, self.paid, self.owed, &Extras::default());
+        let cx = Self::cx(s, k);
+        let (_, offered) = rules::pay_opts(&cx, self.who, self.kind, self.paid, self.owed, &Held::of(&cx, self.who).extras());
         let chosen = *offered.as_slice().iter().find(|o| **o == picked)?;
         match chosen {
             POpt::Exhaust { planet, shown, .. } => {
@@ -93,6 +95,11 @@ impl PayStep {
                     return None;
                 }
                 p.econ.trade_goods -= 1;
+                Some(i64::from(shown.worth))
+            }
+            POpt::Commodity { shown } => {
+                // Keleres' agent: a commodity spent as if it were a trade good.
+                s.players_mut().by_seat_mut(self.who)?.econ.commodities -= 1;
                 Some(i64::from(shown.worth))
             }
             _ => None,
@@ -111,7 +118,8 @@ impl Window for PayStep {
         if self.stage == Stage::Done {
             return Next::Done;
         }
-        let (_, opts) = rules::pay_opts(&Self::cx(sx.state, sx.kernel), self.who, self.kind, self.paid, self.owed, &Extras::default());
+        let cx = Self::cx(sx.state, sx.kernel);
+        let (_, opts) = rules::pay_opts(&cx, self.who, self.kind, self.paid, self.owed, &Held::of(&cx, self.who).extras());
         match opts.as_slice() {
             [] => {
                 self.stage = Stage::Done;
