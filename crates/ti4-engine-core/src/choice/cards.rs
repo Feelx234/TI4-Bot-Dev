@@ -55,6 +55,8 @@ pub enum What {
     Hull,
     /// kind `ship`: a ship Scuttle returns; the second question (`second`) also offers to stop after one.
     Scuttle { second: bool },
+    /// kind `planet`, label `planet in system`: where Mercenary Contract's neutral infantry land.
+    Landing,
     /// kind `system`: the system a neutral destroyer enters (Pirate Contract).
     Pirate,
     /// kind `strategy_card`: the picker chooses again; `first` was taken away, `by` played the card (Public Disgrace).

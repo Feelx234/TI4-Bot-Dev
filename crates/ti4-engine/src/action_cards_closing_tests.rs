@@ -61,6 +61,11 @@ impl Decider for LastGo {
 /// Play each of `cases` (alias, position) as the component action of seat `a` and compare the announce window; the
 /// position must change and the card must be on the pile.
 pub(crate) fn announce_all(cases: &[(&str, GameState)]) {
+    announce_all_on(cases, None);
+}
+
+/// [`announce_all`] on a map.
+pub(crate) fn announce_all_on(cases: &[(&str, GameState)], galaxy: Option<&ti4_content::galaxy::Galaxy>) {
     let a = PlayerId::new("a");
     let _ = crate::dual::take_report();
     for pass in 0..3 {
@@ -75,7 +80,7 @@ pub(crate) fn announce_all(cases: &[(&str, GameState)]) {
                 1 => Box::new(FirstOption),
                 _ => Box::new(LastGo),
             };
-            with_mask(dual(), || announce(&mut state, alias, &a, decider));
+            with_mask(dual(), || crate::action_cards_announce_tests::announce_on(&mut state, alias, &a, decider, galaxy));
             assert_eq!(state.discarded_action_cards.last(), Some(&ActionCardId::new(*alias)), "{alias} is on the pile");
             assert!(serde_json::to_string(&state).unwrap() != serde_json::to_string(&before).unwrap(), "{alias} changed nothing ({first})");
         }

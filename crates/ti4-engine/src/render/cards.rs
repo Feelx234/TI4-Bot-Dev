@@ -100,7 +100,7 @@ impl Family for Fam {
                 let id = kind.as_str().to_ascii_uppercase();
                 ChoiceOption::labelled(id.clone(), "fragment", id)
             }
-            Opt::Spot(system, planet) if matches!(pick_of(a).1, What::Offer) => ChoiceOption::labelled(
+            Opt::Spot(system, planet) if matches!(pick_of(a).1, What::Offer | What::Landing) => ChoiceOption::labelled(
                 format!("{}|{}", system.as_str(), planet.as_str()),
                 "planet",
                 format!("{} in {}", planet.as_str(), system.as_str()),
@@ -162,7 +162,7 @@ impl Family for Fam {
             Ask::OwnHand { .. } | Ask::PlayCard { .. } => ActionCard::from_id(id).map(Opt::Card),
             Ask::Pick { what: What::Player | What::Elect, .. } => r.seat(id).map(Opt::Seat),
             Ask::Pick { what: What::Recall | What::Silence | What::Bombard | What::Deploy | What::Rescue | What::Pirate, .. } => System::from_id(id).map(Opt::System),
-            Ask::Pick { what: What::Planet, .. } => {
+            Ask::Pick { what: What::Planet | What::Landing, .. } => {
                 let (system, planet) = id.split_once('|')?;
                 Some(Opt::Spot(System::from_id(system)?, Planet::from_id(planet)?))
             }
@@ -207,7 +207,7 @@ const fn pick_kind(what: What) -> &'static str {
         What::Invest { .. } => "strategy_card",
         What::Law => "repeal",
         What::Hull | What::Scuttle { .. } => "ship",
-        What::Offer => "planet",
+        What::Offer | What::Landing => "planet",
         What::Accept => "answer",
         What::Fragment => "fragment",
         What::Exhaust => "reparations_exhaust",
@@ -267,6 +267,7 @@ const fn pick_prompt(card: ActionCard, what: What) -> &'static str {
         (C::Spy, _) => "Spy: rob which player",
         (C::Plague, _) => "Plague: which planet",
         (C::UnstablePlanet, _) => "Unstable Planet: which hazardous planet",
+        (C::MercenaryContract, _) => "Mercenary Contract: which planet the infantry land on",
         (C::PirateFleet, _) => "Pirate Fleet: which system the fleet enters",
         (C::PirateContract1 | C::PirateContract2 | C::PirateContract3 | C::PirateContract4, _) => "Pirate Contract: which system the destroyer enters",
         _ => "",

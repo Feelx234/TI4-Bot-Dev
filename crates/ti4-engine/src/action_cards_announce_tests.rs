@@ -49,6 +49,17 @@ impl Decider for DeclineSlots {
 
 /// Announce `alias` as played by `player` with the resolver armed for the table; whether the play stood.
 pub(crate) fn announce(state: &mut GameState, alias: &str, player: &PlayerId, decider: Box<dyn Decider>) -> bool {
+    announce_on(state, alias, player, decider, None)
+}
+
+/// [`announce`] on a map.
+pub(crate) fn announce_on(
+    state: &mut GameState,
+    alias: &str,
+    player: &PlayerId,
+    decider: Box<dyn Decider>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+) -> bool {
     let mut table = Table::with_default(decider);
     let mut dice = crate::dice::Dice::new();
     let mut rng = crate::rng::GameRng::new(0);
@@ -62,7 +73,7 @@ pub(crate) fn announce(state: &mut GameState, alias: &str, player: &PlayerId, de
         dice: &mut dice,
         rng: &mut rng,
         event_sequence: &mut sequence,
-        galaxy: None,
+        galaxy,
     };
     crate::reactions::announce(&mut context, &mut resolver, player, &ActionCardId::new(alias)).unwrap_or(false)
 }

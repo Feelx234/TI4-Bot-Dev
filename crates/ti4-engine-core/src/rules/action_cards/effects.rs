@@ -26,7 +26,7 @@ use crate::ids::Seat;
 use crate::keys::{Prediction, PredictionTag, VoteBar};
 use crate::kernel::stage::{Child, Illegal, Ran, Sx, Window};
 use crate::rules::production::pay::PayBill;
-use crate::kernel::{Kernel, Next, fx, fx_ground};
+use crate::kernel::{Kernel, Next, fx, fx_ground, fx_pay};
 use crate::keys::{ActionCardCause, DestroyReason};
 use crate::state::{RngDomain, SeedSource};
 use crate::query::{board, economy, seats};
@@ -121,6 +121,8 @@ pub enum Fx {
     PirateContract,
     /// Pirate Fleet: three resources, then a neutral carrier, cruiser, destroyer and two fighters in such a system.
     PirateFleet,
+    /// Mercenary Contract: two trade goods, then two neutral infantry on a non-home planet without units.
+    Mercenary,
 }
 
 impl Fx {
@@ -133,7 +135,7 @@ impl Fx {
     /// Whether the effect places units of the neutral owner (the owner table must hold it).
     #[must_use]
     pub const fn needs_neutral(self) -> bool {
-        matches!(self, Self::PirateContract | Self::PirateFleet)
+        matches!(self, Self::PirateContract | Self::PirateFleet | Self::Mercenary)
     }
 
     /// The bill the effect pays before anything else (the string `production::pay`): the currency and the amount.
@@ -200,6 +202,7 @@ impl Fx {
             C::ArchaeologicalExpedition => Self::Dig,
             C::PirateContract1 | C::PirateContract2 | C::PirateContract3 | C::PirateContract4 => Self::PirateContract,
             C::PirateFleet => Self::PirateFleet,
+            C::MercenaryContract => Self::Mercenary,
             _ => return None,
         })
     }
@@ -310,7 +313,7 @@ impl Play {
             return None;
         }
         // A readied Keleres agent could be offered before a payment (a window of its own, the goods window).
-        if fx.bill().is_some() && env.facts.agent_offered {
+        if (fx.bill().is_some() || fx == Fx::Mercenary) && env.facts.agent_offered {
             return None;
         }
         // The neutral owner has a seat only when the adapter put it in the table.
@@ -341,6 +344,7 @@ impl Play {
             Fx::Reparations => What::Ready,
             Fx::Dig => What::Dig,
             Fx::PirateContract | Fx::PirateFleet => What::Pirate,
+            Fx::Mercenary => What::Landing,
             Fx::Exchange if self.step == 0 => What::Player,
             Fx::Exchange if self.step == 1 => What::Offer,
             Fx::Exchange => What::Accept,
@@ -566,6 +570,23 @@ impl Play {
                 }
                 spots.as_mut_slice().sort_by_key(|(_, p)| *p);
                 spots.as_slice().iter().map(|(s, p)| Opt::Spot(*s, *p)).collect()
+            }
+            Fx::Mercenary => {
+                // Two trade goods are held (the goods are spent after the infantry land, so the check comes first).
+                if core.players().by_seat(who).is_none_or(|p| p.econ.trade_goods < 2) {
+                    return SmallList::new();
+                }
+                let scope = self.env.scope;
+                planets_where(core, |system, planet, cell| {
+                    cell.flags.has(crate::state::PlanetFlags::UNITS_ENTRY)
+                        && cell.units.as_slice().is_empty()
+                        && !is_home_system(scope, system)
+                        && scope.0 & crate::tables::source_bit(planet.data().source) != 0
+                })
+                .as_slice()
+                .iter()
+                .map(|(s, p)| Opt::Spot(*s, *p))
+                .collect()
             }
             Fx::PirateContract | Fx::PirateFleet => {
                 // A system with a board entry and no unit of a seated player in its space area, off the homeworlds.
@@ -1081,6 +1102,14 @@ impl Play {
                     fx::place_unit(core, neutral, system, None, crate::generated::Unit::NeutralDestroyer);
                 }
             }
+            (Fx::Mercenary, Opt::Spot(system, planet)) => {
+                if let Some(neutral) = self.env.facts.neutral {
+                    for _ in 0..2 {
+                        fx::place_unit(core, neutral, system, Some(planet), crate::generated::Unit::NeutralInfantry);
+                    }
+                }
+                fx_pay::pay_trade_goods(core, who, 2);
+            }
             (Fx::PirateFleet, Opt::System(system)) => {
                 use crate::generated::Unit as U;
                 if let Some(neutral) = self.env.facts.neutral {
@@ -1384,6 +1413,7 @@ mod tests {
             C::PirateContract1,
             C::PirateContract4,
             C::PirateFleet,
+            C::MercenaryContract,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }
@@ -1466,7 +1496,6 @@ mod tests {
             (C::Infiltrate, "the structure swap of the capture (rules version dependent unit forms)"),
             (C::SignalJamming, "the blockade rules of the map"),
             (C::LieInWait, "the neighbours of the map who traded this round (the transactions)"),
-            (C::MercenaryContract, "neutral infantry (the neutral has no seat) and the Keleres goods window"),
             (C::Overrule, "performs the primary ability of another strategy card (the strategy area's windows)"),
             (C::Plagiarize, "five influence by the question-driven payment, then a technology gained from a neighbour"),
             (C::ExplorationProbe, "the frontier tokens adjacent to the holder's ships (the map)"),

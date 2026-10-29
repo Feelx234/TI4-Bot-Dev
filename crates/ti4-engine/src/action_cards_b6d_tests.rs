@@ -80,3 +80,44 @@ fn pirate_fleet_pays_three_resources_then_places_the_neutral_fleet_in_the_core_w
     assert_eq!(rich_after.player(&a).unwrap().trade_goods, 3, "three resources paid from six trade goods");
     let _ = crate::dual::take_report();
 }
+
+/// Mercenary Contract: two trade goods, two neutral infantry on a bare non-home planet (a planet with a units entry and no
+/// units; a planet with no entry is not a candidate).
+#[test]
+fn mercenary_contract_lands_neutral_infantry_on_a_bare_planet_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    use ti4_engine_core::generated::{Planet, Source};
+    let a = PlayerId::new("a");
+    let mut state = closing_position();
+    // Three bare planets of the base game (not homes), one more without a units entry.
+    let bare: Vec<Planet> = Planet::ALL
+        .iter()
+        .copied()
+        .filter(|p| {
+            let d = p.data();
+            d.system.is_some() && d.homeworld_of.is_none() && d.source == Source::Base
+        })
+        .filter(|p| {
+            let sys = ti4_model::id::SystemId::new(crate::generated::IdStr::as_str(p.data().system.unwrap()));
+            state.board.get(&sys).is_none_or(|b| !b.planet_units.contains_key(ti4_model::id::text(crate::generated::IdStr::as_str(*p))))
+        })
+        .take(4)
+        .collect();
+    assert_eq!(bare.len(), 4);
+    for p in &bare[..3] {
+        let sys = ti4_model::id::SystemId::new(crate::generated::IdStr::as_str(p.data().system.unwrap()));
+        state.system_mut(&sys).planet_units.insert(ti4_model::id::PlanetId::new(crate::generated::IdStr::as_str(*p)), vec![]);
+    }
+    state.player_mut(&a).unwrap().trade_goods = 5;
+    let mut poor = state.clone();
+    poor.player_mut(&a).unwrap().trade_goods = 1;
+    announce_all(&[("mercenarycontract", state.clone()), ("mercenarycontract", poor.clone())]);
+    let _ = crate::dual::take_report();
+    let after = played("mercenarycontract", &state);
+    let on_planets: usize = after.board.values().flat_map(|b| b.planet_units.values()).flatten().filter(|u| u.type_id.as_str() == "neutral_infantry").count();
+    assert_eq!(on_planets, 2);
+    assert_eq!(after.player(&a).unwrap().trade_goods, 3);
+    let after = played("mercenarycontract", &poor);
+    assert_eq!(after.player(&a).unwrap().trade_goods, 1, "one trade good buys nothing");
+    let _ = crate::dual::take_report();
+}
