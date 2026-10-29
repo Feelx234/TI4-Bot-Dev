@@ -60,6 +60,7 @@ fn any_open(g: &Game<'_>) -> bool {
         || g.agenda_queue_after_event_scoring.is_some()
         || g.scoring.is_some()
         || g.event_scoring.is_some()
+        || g.agenda_talks.is_some()
 }
 
 /// The string fields that hold a window no typed payload exists for, by name.
@@ -72,7 +73,6 @@ fn untyped_open(g: &Game<'_>) -> Vec<&'static str> {
         ("aftermath", g.aftermath.is_some()),
         ("trade", g.trade.is_some()),
         ("diplomacy", g.diplomacy.is_some()),
-        ("agenda_talks", g.agenda_talks.is_some()),
     ]
     .into_iter()
     .filter_map(|(name, open)| open.then_some(name))
@@ -198,7 +198,7 @@ fn scoring_back(s: &Scoring, r: &Render) -> Book {
 }
 
 /// The typed windows the string fields hold now, in the order of the `Game` fields.
-fn observe(g: &Game<'_>, r: &Render) -> Result<Vec<Window>, &'static str> {
+fn observe(g: &Game<'_>, r: &Render, cx: &crate::core_sync::Ctx) -> Result<Vec<Window>, &'static str> {
     let seat = |p: &PlayerId| r.seat(p.as_str()).ok_or("a seat the table does not know");
     let mut out = Vec::new();
     if let Some(w) = &g.secondary {
@@ -223,6 +223,28 @@ fn observe(g: &Game<'_>, r: &Render) -> Result<Vec<Window>, &'static str> {
     if let Some(w) = &g.event_scoring {
         out.push(Window::EventScoring(scoring_of(&w.book(), r)?));
     }
+    if let Some(t) = &g.agenda_talks {
+        let agenda = Agenda::from_id(&t.alias).ok_or("an agenda the tables do not know")?;
+        let mut choices = SmallList::new();
+        for text in &t.choices {
+            // The outcomes are the agenda's own; the text must turn back into itself.
+            let outcome = cx
+                .keys
+                .parse_outcome(text, Some(agenda.data().elects))
+                .filter(|o| cx.keys.render_outcome(*o).is_some_and(|back| back == *text))
+                .ok_or("an outcome with no typed form")?;
+            choices.push(outcome);
+        }
+        let mut queue = SmallList::new();
+        for alias in &t.queue {
+            queue.push(Agenda::from_id(alias).ok_or("an agenda the tables do not know")?);
+        }
+        let mut seats = SmallList::new();
+        for p in &t.seats {
+            seats.push(seat(p)?);
+        }
+        out.push(Window::AgendaTalks { agenda, choices, queue, seats });
+    }
     if let Some(queue) = &g.agenda_queue_after_event_scoring {
         let mut agendas = SmallList::new();
         for alias in queue {
@@ -234,7 +256,7 @@ fn observe(g: &Game<'_>, r: &Render) -> Result<Vec<Window>, &'static str> {
 }
 
 /// Whether every typed window turns back into the string field it was made from.
-fn roundtrip(g: &Game<'_>, windows: &[Window], r: &Render) -> bool {
+fn roundtrip(g: &Game<'_>, windows: &[Window], r: &Render, cx: &crate::core_sync::Ctx) -> bool {
     let mut ok = true;
     for w in windows {
         ok &= match w {
@@ -265,6 +287,17 @@ fn roundtrip(g: &Game<'_>, windows: &[Window], r: &Render) -> bool {
             }
             Window::EventScoring(sc) => {
                 compare_value(Area::Driver, "d1::pending.roundtrip", &g.event_scoring.as_ref().map(|w| w.book()), &Some(scoring_back(sc, r)))
+            }
+            Window::AgendaTalks { agenda, choices, queue, seats } => {
+                let text = |o: &ti4_engine_core::keys::Outcome| cx.keys.render_outcome(*o).unwrap_or_default();
+                let back = super::AgendaTalks {
+                    alias: agenda.as_str().to_owned(),
+                    choices: choices.as_slice().iter().map(text).collect(),
+                    queue: queue.as_slice().iter().map(|a| a.as_str().to_owned()).collect(),
+                    seats: seats.as_slice().iter().map(|s| r.player(*s)).collect(),
+                };
+                let own = g.agenda_talks.as_ref().map(|t| (&t.alias, &t.choices, &t.queue, &t.seats));
+                compare_value(Area::Driver, "d1::pending.roundtrip", &own, &Some((&back.alias, &back.choices, &back.queue, &back.seats)))
             }
             Window::Untyped { .. } => true,
         };
@@ -325,7 +358,7 @@ pub(super) fn check(g: &mut Game<'_>, result: &StepResult) {
         return;
     };
     let r = Render::new(cx.owners.ids().to_vec());
-    let observed = match observe(g, &r) {
+    let observed = match observe(g, &r, &cx) {
         Ok(w) => w,
         Err(why) => {
             note_bail(LABEL, why);
@@ -362,7 +395,7 @@ pub(super) fn check(g: &mut Game<'_>, result: &StepResult) {
     // The kinds without a core transition follow the string: what is compared is that the typed copy is total.
     if !observed.is_empty() {
         compared = true;
-        ok &= roundtrip(g, &observed, &r);
+        ok &= roundtrip(g, &observed, &r, &cx);
     }
     note_window(LABEL, compared);
     let _ = ok;
@@ -590,12 +623,27 @@ mod tests {
     }
 
     #[test]
-    fn windows_without_a_typed_payload_are_counted_by_field() {
+    fn the_agenda_talks_are_typed_and_turn_back_and_windows_without_a_payload_are_counted_by_field() {
         let _serial = crate::dual::tests::serial();
         let state = dealt(&F3, "Politics");
         let mut g = Game::with_table(state, ContentStore::embedded(), Table::with_default(Box::new(Followers { follow: "yes" })));
-        g.agenda_talks = Some(super::super::AgendaTalks { alias: "checks".to_owned(), choices: vec![], queue: vec![], seats: vec![] });
+        g.agenda_talks = Some(super::super::AgendaTalks {
+            alias: "checks".to_owned(),
+            choices: vec!["for".to_owned(), "against".to_owned()],
+            queue: vec!["committee".to_owned()],
+            seats: vec![pid("c"), pid("a")],
+        });
+        let (r, held) = checked(&mut g);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        match held.window(WindowKind::AgendaTalks) {
+            Some(Window::AgendaTalks { choices, queue, seats, .. }) => {
+                assert_eq!((choices.len(), queue.len(), seats.as_slice()), (2, 1, [Seat(2), Seat(0)].as_slice()));
+            }
+            other => panic!("{other:?} {:?}", r.windows),
+        }
+        g.agenda_talks = None;
+        g.leader_followers = Some((Vec::new(), vec![pid("a")]));
         let (r, _) = checked(&mut g);
-        assert!(r.windows.keys().any(|k| k == "d1::pending.untyped [bail: agenda_talks]"), "{:?}", r.windows);
+        assert!(r.windows.keys().any(|k| k == "d1::pending.untyped [bail: leader_followers]"), "{:?}", r.windows);
     }
 }
