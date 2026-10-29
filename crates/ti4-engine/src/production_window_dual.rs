@@ -20,14 +20,14 @@ use ti4_content::ContentStore;
 
 use crate::core_sync::{Footprint, Sources, with_core};
 use crate::dual::{CoreWindow, Run};
-use crate::dual_window::{Recording, event_of, nested_fp, tables};
+use crate::dual_window::{Recording, drive, event_of, nested_check, nested_fp, tables};
 use crate::event::Event;
 use crate::production::{ProductionWindow, WindowSnap};
 use crate::render::{self, Position, Typed};
 
 const FOOTPRINT: Footprint = Footprint {
-    reads: crate::production_view::READS,
-    writes: SliceSet::of(&[Slice::Board, Slice::Players, Slice::Transient, Slice::Marks]),
+    reads: crate::production_view::READS.union(SliceSet::of(&[Slice::Pending])),
+    writes: SliceSet::of(&[Slice::Board, Slice::Players, Slice::Transient, Slice::Marks, Slice::Pending]),
 };
 
 /// Run one step of `before` (the string window as it stood at the question) on the core. `None`: the
@@ -43,7 +43,7 @@ pub fn step(
     emit_timing: bool,
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
 ) -> Option<CoreWindow<WindowSnap>> {
-    if crate::production_view::unported_window(gs, player) {
+    if crate::production_view::unported_production(gs, player) {
         return None;
     }
     let (mut cx, r) = tables(gs)?;
@@ -59,9 +59,11 @@ pub fn step(
     let reach = vec![(player.to_string(), before.system.to_string(), neighbours)];
     let before_state = gs.clone();
     let mut rendered = Vec::new();
+    let mut staged = Vec::new();
     let driven = crate::reactions_core::with_reach(reach, || {
         with_core(gs, &mut cx, Sources::default(), nested_fp(FOOTPRINT, script), |core, _| {
             let driven = crate::dual_window::drive_positioned(&mut driver, core, kernel, Some(kernel), &r, &before_state, script, &|_, _, _| {});
+            staged = std::mem::take(&mut core.pending_mut().staged);
             if let Ok(d) = &driven {
                 // The question the window then waits on is the next step's.
                 rendered = d.rendered.iter().take(script.questions.len().max(1)).cloned().collect();
@@ -71,6 +73,7 @@ pub fn step(
     })
     .ok()?;
     driven.ok()?;
+    crate::dual_window::apply_staged(gs, &r, &staged)?;
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     let w = &driver.window;
     let unit = |u: ti4_engine_core::generated::Unit| <ti4_engine_core::generated::Unit as crate::generated::IdStr>::as_str(u).to_owned();
@@ -114,7 +117,7 @@ pub fn pay_step(
 ) -> Option<CoreWindow<Option<i64>>> {
     use ti4_engine_core::query::economy::Spend as CoreSpend;
     use ti4_engine_core::rules::production::pay::{PayStep, Stage};
-    if crate::production_view::unported_window(gs, player) {
+    if crate::production_view::unported_production(gs, player) {
         return None;
     }
     let (mut cx, r) = tables(gs)?;
@@ -258,4 +261,24 @@ pub fn hero_offer(gs: &mut GameState, player: &PlayerId, script: &Recording) -> 
         script,
         |w| w.used,
     )
+}
+
+const OFFER_FOOTPRINT: Footprint = Footprint {
+    reads: crate::production_view::READS,
+    writes: SliceSet::of(&[Slice::Players, Slice::Marks]),
+};
+
+/// The core half of `keleres::offer_agent`: whether the offer opened a window the caller must close. `None`: the position holds
+/// something the core window does not carry (the string result stands).
+#[must_use]
+pub fn agent_offer(gs: &mut GameState, payer: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
+    use ti4_engine_core::rules::production::offers::AgentOffer;
+    let (mut cx, r) = tables(gs)?;
+    nested_check(script)?;
+    let seat = r.seat(payer.as_str())?;
+    let before = gs.clone();
+    let kernel = crate::production_view::kernel();
+    let mut driver = Driver::new(AgentOffer::new(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(OFFER_FOOTPRINT, script), |core, _| drive(&mut driver, core, kernel, &r, &before, script)).ok()?.ok()?;
+    Some(CoreWindow { run: Run::new(driver.window.opened), questions: driven.rendered })
 }

@@ -474,7 +474,7 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         // Keleres agent: offered once per payment window (BF-keleres.md).
         module: "keleres.rs",
-        function: "offer_agent",
+        function: "offer_agent_text",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1148,14 +1148,15 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
-        // LEADER-FIX-001: the action-phase leaders ask their targets in `dispatch_leader` (the Thunder's Edge
-        // Xxcha hero) and in the string halves split out of it for package B7, which stand beside their
-        // core windows: which planet to ready, whether to remove the infantry, gain-or-replenish, which
-        // system to gather in, and per-technology swap or keep. They ask through `ask_seeing_parts`.
+        // LEADER-FIX-001: the action-phase leaders ask their targets in the string halves split out of
+        // `dispatch_leader` for package B7, which stand beside their core windows: which planet to ready,
+        // whether to remove the infantry, gain-or-replenish, which system to gather in, per-technology
+        // swap or keep, and the Thunder's Edge Xxcha hero's units and planets. They ask through
+        // `ask_seeing_parts`.
         module: "leaders.rs",
-        function: "dispatch_leader",
+        function: "xxcha_hero_te_string",
         count: 2,
-        delivery: Delivery::ObservedHere,
+        delivery: Delivery::ObservedVia("leaders.rs::ask_seeing_parts"),
     },
     Producer {
         module: "leaders.rs",
@@ -1643,7 +1644,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("cabal.rs", "alraith", 1),
     ("nomad.rs", "ask", 1),
     ("keleres.rs", "laws_order", 1),
-    ("keleres.rs", "offer_agent", 1),
+    ("keleres.rs", "offer_agent_text", 1),
     ("keleres_units.rs", "ask", 1),
     ("production.rs", "agency_supply_network", 2),
     ("empyrean.rs", "tether_place", 1),
@@ -1769,7 +1770,6 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("invasion.rs", "apply_bombard_plan", 1),
     ("invasion.rs", "dunlain_reaper", 1),
     ("laws.rs", "offer_discard_text", 1),
-    ("leaders.rs", "dispatch_leader", 2),
     ("leaders.rs", "ask_seeing_parts", 1),
     ("leaders.rs", "offer_production_hero_text", 1),
     ("borrowed_round_agents.rs", "resolve_copy", 1),

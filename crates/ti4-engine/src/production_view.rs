@@ -46,9 +46,10 @@ pub(crate) fn unported_economy(state: &GameState) -> bool {
 }
 
 /// Whether the producing seat or a seat that can act on it holds a faction whose production hooks the typed
-/// window does not carry yet: the seat's own (Deepwrought oceans, Keleres commodities, Naaz mechs, Mentak's
-/// Corsair form) and the cross-seat ones (Yssaril's borrowed agents, Nomad's agent
-/// watch; Argent's agent is an ability of the core table), on top of [`unported_economy`].
+/// window does not carry yet, for the windows that pay and place themselves (the invasion's custodians and toll
+/// payments): the seat's own (Deepwrought oceans, Keleres commodities, Naaz mechs, Mentak's Corsair form) and the
+/// cross-seat ones (Yssaril's borrowed agents, Nomad's agent watch; Argent's agent is an ability of the core
+/// table), on top of [`unported_economy`].
 pub(crate) fn unported_window(state: &GameState, player: &PlayerId) -> bool {
     use crate::factions::{deepwrought, keleres, mentak, naaz, nomad, yssaril};
     let own = [
@@ -72,6 +73,15 @@ pub(crate) fn unported_triggered(state: &GameState, player: &PlayerId) -> bool {
     use crate::factions::keleres;
     let keleres = [keleres::MODULE_M.alias, keleres::MODULE_X.alias, keleres::MODULE_A.alias];
     unported_window(state, player) || state.players.iter().any(|p| keleres.contains(&p.faction.as_str()))
+}
+
+/// The same question for the production window and its payment steps, which follow the table's abilities and carry
+/// the faction hooks of the seats of Deepwrought, Keleres, Naaz, Nomad and Yssaril (the lockstep tests
+/// `the_tier_w_factions_run_in_lockstep_on_the_core_production_window` and the golden dual). Left to the string: the
+/// Last Bastion and the Crimson (`unported_economy`) and Mentak's Corsair form.
+pub(crate) fn unported_production(state: &GameState, player: &PlayerId) -> bool {
+    use crate::factions::mentak;
+    unported_economy(state) || state.player(player).is_some_and(|p| p.faction.as_str() == mentak::MODULE.alias)
 }
 
 /// The kernel of the production reads: the seams of the laws and relics, and the bridge to the legacy

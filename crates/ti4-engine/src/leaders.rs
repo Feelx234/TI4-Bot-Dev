@@ -1983,6 +1983,208 @@ fn jolnar_hero_string(
     opportunity
 }
 
+/// Xxekir Grom, the Thunder's Edge hero (`xxchahero-te`): the string arm of `dispatch_leader` beside its core window.
+fn xxcha_hero_te(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) -> bool {
+    split_context!(context => state, content, sources, galaxy, table);
+    // What the core window is given: the planets in the string's order, the unit forms and the supply left.
+    let facts = xxcha_hero_te_facts(state, content, sources, player);
+    crate::dual_window!(
+        crate::dual::Area::LeadersAbilities,
+        "leaders::xxchahero_te",
+        state,
+        |state: &mut GameState| crate::dual::Run::new(xxcha_hero_te_string(state, content, sources, galaxy, table, player)),
+        |state: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::leaders_core::xxcha_hero_te(state, player, &facts, script)
+        }
+    )
+}
+
+/// What Xxekir Grom places and where.
+pub struct HeroTeFacts {
+    /// The planets the seat controls, `(system, planet)` in the order of `controlled_planets`.
+    pub planets: Vec<(ti4_model::id::SystemId, ti4_model::id::PlanetId)>,
+    /// The unit form of a PDS and of a mech for this seat, with how many the supply allows.
+    pub pds: Option<(ti4_model::id::UnitTypeId, usize)>,
+    pub mech: Option<(ti4_model::id::UnitTypeId, usize)>,
+}
+
+fn xxcha_hero_te_facts(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+) -> HeroTeFacts {
+    let planets = state
+        .controlled_planets(player)
+        .into_iter()
+        .map(|(system, planet)| (system.clone(), planet.clone()))
+        .collect();
+    let form = |base_type: &str| {
+        crate::action_cards::placed_unit_id(state, content, sources, player, base_type).map(|unit| {
+            let left = crate::supply::allowed(state, content, sources, player, &unit, 1);
+            (unit, left)
+        })
+    };
+    HeroTeFacts { planets, pds: form("pds"), mech: form("mech") }
+}
+
+fn xxcha_hero_te_string(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut crate::choice::Table,
+    player: &PlayerId,
+) -> bool {
+    let controlled: Vec<(ti4_model::id::SystemId, ti4_model::id::PlanetId)> = state
+        .controlled_planets(player)
+        .into_iter()
+        .map(|(system, planet)| (system.clone(), planet.clone()))
+        .collect();
+    if controlled.is_empty() {
+        return false; // nothing to place on, so it was never offered
+    }
+    let unit_id = |base_type: &str| -> Option<ti4_model::id::UnitTypeId> {
+        crate::action_cards::placed_unit_id(
+            state,
+            content,
+            sources,
+            player,
+            base_type,
+        )
+    };
+    let pds = unit_id("pds");
+    let mech = unit_id("mech");
+    let available = |kind: &Option<ti4_model::id::UnitTypeId>| -> usize {
+        kind.as_ref()
+            .map(|unit| {
+                crate::supply::allowed(
+                    state,
+                    content,
+                    sources,
+                    player,
+                    unit,
+                    1,
+                )
+            })
+            .unwrap_or_default()
+    };
+    let mut pds_left = available(&pds);
+    let mut mech_left = available(&mech);
+    let mut plan: Vec<(
+        ti4_model::id::UnitTypeId,
+        (ti4_model::id::SystemId, ti4_model::id::PlanetId),
+    )> = Vec::new();
+    for _ in 0..4 {
+        if pds_left == 0 && mech_left == 0 {
+            break;
+        }
+        let mut options: Vec<crate::choice::ChoiceOption> = Vec::new();
+        if pds_left > 0 {
+            options.push(crate::choice::ChoiceOption::labelled(
+                "place|pds",
+                "leader_xxchahero_te_place",
+                "place 1 PDS on a planet you control",
+            ));
+        }
+        if mech_left > 0 {
+            options.push(crate::choice::ChoiceOption::labelled(
+                "place|mech",
+                "leader_xxchahero_te_place",
+                "place 1 mech on a planet you control",
+            ));
+        }
+        // Decline last: a first-option decider places, which is the card's natural play.
+        options.push(crate::choice::ChoiceOption::labelled(
+            "stop",
+            "leader_xxchahero_te_stop",
+            "stop placing",
+        ));
+        let choice = crate::choice::Choice::new(
+            player.clone(),
+            "Leader: place up to 4 PDS or mechs (how many more?)",
+            options,
+        )
+        .contextualized(crate::decision_context::DecisionContext::new(
+            player.clone(),
+            crate::decision_context::DecisionSource::FactionAbility(
+                "xxchahero-te".to_owned(),
+            ),
+            "leader_xxchahero_te_place",
+            state.phase,
+            state.round,
+        ));
+        let Ok(answer) = ask_seeing_parts(state, content, sources, galaxy, table, &choice) else {
+            return false;
+        };
+        if answer.id == "stop" {
+            break;
+        }
+        let (kind, counter) = match answer.id.as_str() {
+            "place|pds" => (pds.clone(), &mut pds_left),
+            "place|mech" => (mech.clone(), &mut mech_left),
+            _ => return false,
+        };
+        let Some(kind) = kind else {
+            return false;
+        };
+        *counter -= 1;
+        if controlled.len() == 1 {
+            plan.push((kind, controlled[0].clone()));
+        } else {
+            let options: Vec<crate::choice::ChoiceOption> = controlled
+                .iter()
+                .map(|(system, planet)| {
+                    crate::choice::ChoiceOption::labelled(
+                        format!("planet|{}", planet.as_str()),
+                        "leader_xxchahero_te_planet",
+                        format!("{planet} in {system}"),
+                    )
+                    .with_planet(planet.as_str(), Some(system.as_str()))
+                })
+                .collect();
+            let choice = crate::choice::Choice::new(
+                player.clone(),
+                "Leader: which planet gets the unit?",
+                options,
+            )
+            .contextualized(
+                crate::decision_context::DecisionContext::new(
+                    player.clone(),
+                    crate::decision_context::DecisionSource::FactionAbility(
+                        "xxchahero-te".to_owned(),
+                    ),
+                    "leader_xxchahero_te_planet",
+                    state.phase,
+                    state.round,
+                ),
+            );
+            let Ok(answer) = ask_seeing_parts(state, content, sources, galaxy, table, &choice) else {
+                return false;
+            };
+            let Some((system, planet)) = controlled
+                .iter()
+                .find(|(_, p)| answer.id == format!("planet|{}", p.as_str()))
+            else {
+                return false;
+            };
+            plan.push((kind, (system.clone(), planet.clone())));
+        }
+    }
+    for (unit, (system, planet)) in &plan {
+        state
+            .system_mut(system)
+            .planet_units
+            .entry(planet.clone())
+            .or_default()
+            .push(ti4_model::units::Unit::new(unit.clone(), player.clone()));
+        crate::supply::stage_naaz_mech_placed(state, player, system, unit);
+        // "ready each planet that you place a unit on"
+        state.exhausted_planets.remove(planet);
+    }
+    true
+}
+
 /// The per-leader effect dispatch shared by [`use_leader`] and [`use_leader_text`]: runs the leader's
 /// printed effect for `player` and reports whether it resolved. No status gate, no exhaust or purge:
 /// the callers own both.
@@ -2085,157 +2287,7 @@ fn dispatch_leader(
         // Then, purge this card." Every placement is decided before anything is placed, so a
         // failed nested choice leaves the position untouched. Declining early is legal ("up to
         // 4"); the purge happens either way — it is part of the effect, not a reward for using.
-        "xxchahero-te" => {
-            let controlled: Vec<(ti4_model::id::SystemId, ti4_model::id::PlanetId)> = context
-                .state
-                .controlled_planets(player)
-                .into_iter()
-                .map(|(system, planet)| (system.clone(), planet.clone()))
-                .collect();
-            if controlled.is_empty() {
-                return false; // nothing to place on, so it was never offered
-            }
-            let unit_id = |base_type: &str| -> Option<ti4_model::id::UnitTypeId> {
-                crate::action_cards::placed_unit_id(
-                    context.state,
-                    context.content,
-                    context.sources,
-                    player,
-                    base_type,
-                )
-            };
-            let pds = unit_id("pds");
-            let mech = unit_id("mech");
-            let available = |kind: &Option<ti4_model::id::UnitTypeId>| -> usize {
-                kind.as_ref()
-                    .map(|unit| {
-                        crate::supply::allowed(
-                            context.state,
-                            context.content,
-                            context.sources,
-                            player,
-                            unit,
-                            1,
-                        )
-                    })
-                    .unwrap_or_default()
-            };
-            let mut pds_left = available(&pds);
-            let mut mech_left = available(&mech);
-            let mut plan: Vec<(
-                ti4_model::id::UnitTypeId,
-                (ti4_model::id::SystemId, ti4_model::id::PlanetId),
-            )> = Vec::new();
-            for _ in 0..4 {
-                if pds_left == 0 && mech_left == 0 {
-                    break;
-                }
-                let mut options: Vec<crate::choice::ChoiceOption> = Vec::new();
-                if pds_left > 0 {
-                    options.push(crate::choice::ChoiceOption::labelled(
-                        "place|pds",
-                        "leader_xxchahero_te_place",
-                        "place 1 PDS on a planet you control",
-                    ));
-                }
-                if mech_left > 0 {
-                    options.push(crate::choice::ChoiceOption::labelled(
-                        "place|mech",
-                        "leader_xxchahero_te_place",
-                        "place 1 mech on a planet you control",
-                    ));
-                }
-                // Decline last: a first-option decider places, which is the card's natural play.
-                options.push(crate::choice::ChoiceOption::labelled(
-                    "stop",
-                    "leader_xxchahero_te_stop",
-                    "stop placing",
-                ));
-                let choice = crate::choice::Choice::new(
-                    player.clone(),
-                    "Leader: place up to 4 PDS or mechs (how many more?)",
-                    options,
-                )
-                .contextualized(crate::decision_context::DecisionContext::new(
-                    player.clone(),
-                    crate::decision_context::DecisionSource::FactionAbility(
-                        "xxchahero-te".to_owned(),
-                    ),
-                    "leader_xxchahero_te_place",
-                    context.state.phase,
-                    context.state.round,
-                ));
-                let Ok(answer) = context.ask_seeing(&choice) else {
-                    return false;
-                };
-                if answer.id == "stop" {
-                    break;
-                }
-                let (kind, counter) = match answer.id.as_str() {
-                    "place|pds" => (pds.clone(), &mut pds_left),
-                    "place|mech" => (mech.clone(), &mut mech_left),
-                    _ => return false,
-                };
-                let Some(kind) = kind else {
-                    return false;
-                };
-                *counter -= 1;
-                if controlled.len() == 1 {
-                    plan.push((kind, controlled[0].clone()));
-                } else {
-                    let options: Vec<crate::choice::ChoiceOption> = controlled
-                        .iter()
-                        .map(|(system, planet)| {
-                            crate::choice::ChoiceOption::labelled(
-                                format!("planet|{}", planet.as_str()),
-                                "leader_xxchahero_te_planet",
-                                format!("{planet} in {system}"),
-                            )
-                            .with_planet(planet.as_str(), Some(system.as_str()))
-                        })
-                        .collect();
-                    let choice = crate::choice::Choice::new(
-                        player.clone(),
-                        "Leader: which planet gets the unit?",
-                        options,
-                    )
-                    .contextualized(
-                        crate::decision_context::DecisionContext::new(
-                            player.clone(),
-                            crate::decision_context::DecisionSource::FactionAbility(
-                                "xxchahero-te".to_owned(),
-                            ),
-                            "leader_xxchahero_te_planet",
-                            context.state.phase,
-                            context.state.round,
-                        ),
-                    );
-                    let Ok(answer) = context.ask_seeing(&choice) else {
-                        return false;
-                    };
-                    let Some((system, planet)) = controlled
-                        .iter()
-                        .find(|(_, p)| answer.id == format!("planet|{}", p.as_str()))
-                    else {
-                        return false;
-                    };
-                    plan.push((kind, (system.clone(), planet.clone())));
-                }
-            }
-            for (unit, (system, planet)) in &plan {
-                context
-                    .state
-                    .system_mut(system)
-                    .planet_units
-                    .entry(planet.clone())
-                    .or_default()
-                    .push(ti4_model::units::Unit::new(unit.clone(), player.clone()));
-                crate::supply::stage_naaz_mech_placed(context.state, player, system, unit);
-                // "ready each planet that you place a unit on"
-                context.state.exhausted_planets.remove(planet);
-            }
-            true
-        }
+        "xxchahero-te" => xxcha_hero_te(context, player),
         // "Gain 2 commodities or replenish another player's commodities" — the branch is the
         // player's, and so is the target when there is more than one way to spend it.
         "hacanagent" => hacan_agent(context, player),
@@ -2795,6 +2847,100 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Xxekir Grom (Thunder's Edge hero): the string arm and the core window put the same questions, take the same
+    /// answers and leave the same position (units placed, planets readied), with and without the planet question.
+    #[test]
+    fn xxekir_grom_runs_in_lockstep_with_the_core_window() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual);
+        let content = ContentStore::embedded();
+        with_mask(mask, || {
+            let hero_state = || {
+                let mut state = seated_clean(&[("a", "xxcha"), ("b", "hacan")]);
+                holding(&mut state, "xxchahero-te", LeaderStatus::Unlocked);
+                state
+            };
+            let units_of = |s: &GameState, kind: &str| -> usize {
+                s.board
+                    .values()
+                    .flat_map(|b| b.planet_units.values())
+                    .flatten()
+                    .filter(|u| u.owner == player() && u.type_id.as_str().contains(kind))
+                    .count()
+            };
+            // Two or more planets: a PDS, a mech, then stop; each placement asks its planet; the planets are readied.
+            let mut state = hero_state();
+            let mine: Vec<_> = state.controlled_planets(&player()).into_iter().map(|(_, p)| p.clone()).collect();
+            assert!(mine.len() >= 2, "Xxcha holds two planets at home: {mine:?}");
+            for p in &mine {
+                state.exhausted_planets.insert(p.clone());
+            }
+            let (pds0, mech0) = (units_of(&state, "pds"), units_of(&state, "mech"));
+            let answers = vec![
+                "place|pds".to_owned(),
+                format!("planet|{}", mine[1]),
+                "place|mech".to_owned(),
+                format!("planet|{}", mine[0]),
+                "stop".to_owned(),
+            ];
+            assert!(use_scripted(&mut state, "xxchahero-te", None, answers));
+            assert_eq!(units_of(&state, "pds"), pds0 + 1);
+            assert_eq!(units_of(&state, "mech"), mech0 + 1);
+            assert!(mine.iter().all(|p| !state.exhausted_planets.contains(p)), "each planet placed on is readied");
+
+            // Only the planets placed on are readied.
+            let mut state = hero_state();
+            for p in &mine {
+                state.exhausted_planets.insert(p.clone());
+            }
+            assert!(use_scripted(&mut state, "xxchahero-te", None, vec!["place|pds".to_owned(), format!("planet|{}", mine[1]), "stop".to_owned()]));
+            assert!(state.exhausted_planets.contains(&mine[0]), "the planet without a unit stays exhausted");
+            assert!(!state.exhausted_planets.contains(&mine[1]));
+
+            // Stopping at once is legal, and the use still resolves.
+            let mut state = hero_state();
+            let before = state.clone();
+            assert!(use_scripted(&mut state, "xxchahero-te", None, vec!["stop".to_owned()]));
+            assert_eq!(units_of(&state, "pds"), units_of(&before, "pds"));
+
+            // Copied string behaviour (B7-copy-01): `supply::allowed(.., 1)` clamps the supply to one, so at most one
+            // PDS and one mech are offered, and the loop ends without a "stop" once both are placed.
+            let mut state = hero_state();
+            let seen = use_capturing(&mut state, "xxchahero-te", vec!["place|pds".to_owned(), format!("planet|{}", mine[0]), "place|mech".to_owned(), format!("planet|{}", mine[0])]);
+            assert_eq!(seen.len(), 4, "no fifth question: {seen:?}");
+            assert_eq!(units_of(&state, "pds"), pds0 + 1);
+            assert_eq!(units_of(&state, "mech"), mech0 + 1);
+
+            // A single controlled planet asks no planet question.
+            let mut state = hero_state();
+            for p in &mine[1..] {
+                let system = state.controlled_planets(&player()).into_iter().find(|(_, q)| *q == p).map(|(s, _)| s.clone()).expect("a system");
+                state.system_mut(&system).planet_control.remove(p);
+            }
+            assert_eq!(state.controlled_planets(&player()).len(), 1);
+            assert!(use_scripted(&mut state, "xxchahero-te", None, vec!["place|mech".to_owned(), "place|pds".to_owned(), "stop".to_owned()]));
+            assert_eq!(units_of(&state, "mech"), mech0 + 1);
+
+            // A seat that controls nothing is never offered the use.
+            let mut state = hero_state();
+            for p in &mine {
+                let system = state.controlled_planets(&player()).into_iter().find(|(_, q)| *q == p).map(|(s, _)| s.clone());
+                if let Some(system) = system {
+                    state.system_mut(&system).planet_control.remove(p);
+                }
+            }
+            assert!(!use_scripted(&mut state, "xxchahero-te", None, Vec::new()));
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(window_counts("leaders::xxchahero_te").0 >= 6, "the core window ran: {r:?}");
+        assert_eq!(window_counts("leaders::xxchahero_te").1, 0, "none bailed: {r:?}");
+        let _ = take_report();
+        let _ = content;
+    }
+
     #[test]
     fn jace_and_i48s_run_in_lockstep_with_the_core() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
@@ -3007,6 +3153,49 @@ mod tests {
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         assert!(window_counts("leaders::xxchaagent").1 >= 2, "{r:?}");
         assert!(window_counts("leaders::hacanagent").1 >= 1, "{r:?}");
+        let _ = take_report();
+    }
+
+    /// The documented bails of Xxekir Grom (B7-bail-10): a question inside a battle, diplomacy promises, a Naaz mech
+    /// (its placement is announced), a unit form the core tables do not know. The string arm answers alone.
+    #[test]
+    fn xxekir_grom_bails_where_the_core_holds_less() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual);
+        with_mask(mask, || {
+            let hero_state = || {
+                let mut state = seated_clean(&[("a", "xxcha"), ("b", "hacan")]);
+                holding(&mut state, "xxchahero-te", LeaderStatus::Unlocked);
+                state
+            };
+            let answers = || vec!["place|pds".to_owned(), "planet|archonren".to_owned(), "stop".to_owned()];
+            // In a space battle.
+            let mut state = hero_state();
+            state.active_space_combat = Some((ti4_model::id::SystemId::new("26"), player(), PlayerId::new("b")));
+            assert!(use_scripted(&mut state, "xxchahero-te", None, answers()));
+            // With diplomacy on.
+            let mut state = hero_state();
+            state.diplomacy.enabled = true;
+            assert!(use_scripted(&mut state, "xxchahero-te", None, answers()));
+            // The facts the string arm computed, with a form the core cannot place.
+            let state = hero_state();
+            let content = ContentStore::embedded();
+            let good = xxcha_hero_te_facts(&state, content, POK, &player());
+            let none = crate::dual_window::Recording::default();
+            let with_mech = |form: String| HeroTeFacts {
+                planets: good.planets.clone(),
+                pds: good.pds.clone(),
+                mech: Some((ti4_model::id::UnitTypeId::new(form), 1)),
+            };
+            assert!(crate::leaders_core::xxcha_hero_te(&mut state.clone(), &player(), &good, &none).is_some(), "the core takes the position");
+            assert!(crate::leaders_core::xxcha_hero_te(&mut state.clone(), &player(), &with_mech("naaz_mech".to_owned()), &none).is_none(), "the Naaz mech placement is announced");
+            assert!(crate::leaders_core::xxcha_hero_te(&mut state.clone(), &player(), &with_mech(["no", "such", "form"].join("_")), &none).is_none());
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(window_counts("leaders::xxchahero_te").1 >= 2, "{r:?}");
         let _ = take_report();
     }
 

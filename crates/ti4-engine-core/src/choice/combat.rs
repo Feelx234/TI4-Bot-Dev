@@ -41,6 +41,8 @@ pub enum Ask {
     AnnounceRetreat { system: System, forced: bool, ships: u16 },
     /// "retreat to which system" (78.7): the whole fleet of `fleet` ships moves to the chosen neighbour.
     RetreatTo { system: System, fleet: u16 },
+    /// Skilled Retreat: "withdraw to which system" (the card moves the whole fleet of `fleet` ships).
+    Withdraw { system: System, fleet: u16 },
     /// "assign a hit": the owner picks which of the listed units is lost. The list is the caller's
     /// (ships, a group, a planet's units); the options are derived from it by `casualty_opts`.
     AssignHit,
@@ -82,6 +84,8 @@ pub enum Opt {
     Announce,
     /// Retreat to `system`, where `there` of the player's ships stand already.
     RetreatTo { system: System, there: u16 },
+    /// Skilled Retreat: withdraw to `system`, where `there` of the player's ships stand already.
+    Withdraw { system: System, there: u16 },
     /// Destroy the unit at `index` of the caller's list (the first of its type and damage).
     Destroy { index: u16, unit: Unit, damaged: bool },
     /// Damage a ship of this type (the first undamaged one).
@@ -103,6 +107,8 @@ pub enum Subtype {
     SustainDamage,
     AnnounceRetreat,
     RetreatTo,
+    /// `skilled_retreat_choose_system`.
+    Withdraw,
     /// The caller's subtype text (interned) of a casualty question.
     Casualty(crate::state::Code),
     /// The per-die reroll question of a card.

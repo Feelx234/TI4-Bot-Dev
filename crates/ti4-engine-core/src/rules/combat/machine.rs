@@ -54,8 +54,11 @@ pub struct Env {
     pub announce: bool,
     /// `supply::staging_enabled`.
     pub staging: bool,
-    /// The feat occurrence of the combat (already begun by the adapter when the first round opens).
+    /// The feat occurrence of the combat (already begun when the combat had one).
     pub occurrence: u64,
+    /// The combat has none yet: the first round begins it, after the opening (a fight that ends in the opening, a card
+    /// played at its start, never does).
+    pub begin_occurrence: bool,
     /// The presentation phases: `pre_roll`, `barrage`, `resolving_hits`, `retreating`, `complete`.
     pub phases: [Code; 5],
     /// `round_opening_unported` (Naaz, Letnev, diplomacy): the opening of a round is the string's.
@@ -433,8 +436,19 @@ impl Machine {
             self.begin(sx, round);
         }
         if round == 1 {
+            // The string checks the fight after the round's opening (Assault Cannon, or a card played at its start, a
+            // Skilled Retreat) before the barrage.
+            if !resumed && self.over(sx) {
+                self.conclude(sx, round);
+                return Some(true);
+            }
             if self.env.barrage_unported {
                 return None;
+            }
+            if std::mem::take(&mut self.env.begin_occurrence) {
+                let meta = sx.state.meta_mut();
+                meta.feat_occurrence_seq += 1;
+                self.env.occurrence = meta.feat_occurrence_seq;
             }
             self.barrage(sx, round);
             if !self.feat.is_empty() {
@@ -927,6 +941,7 @@ impl Machine {
                             }
                             Some((after, piece)) => {
                                 *sx.state = after;
+                                super::sustain_offer::remember_target(sx.state, env_system, self.env.staging, site, piece);
                                 self.last_sustain = Some((site, piece));
                                 let offer = Offer {
                                     player: front.player,

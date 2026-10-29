@@ -67,6 +67,13 @@ pub enum Ask {
     /// I48S (the L1Z1X agent): exhaust it to let `target` (the active player, `None`: nobody is active) replace 1
     /// infantry in the active system with a mech.
     AgentSwap { target: Option<Seat> },
+    /// Which action card to play into the window of `relation` around `event` (the reaction slot of a seat holding
+    /// two different cards for it).
+    PlayCard { event: EventKind, relation: Relation },
+    /// Crimson Legionnaire (Mahact; `second`: the II): "gain 1 commodity or convert 1 to a trade good".
+    Legionnaire { second: bool },
+    /// The Cavalry (a promissory note of the Nomad): which non-fighter ship takes the Nomad flagship's abilities.
+    Cavalry,
 }
 
 /// One answer the area offers (not stored in the state).
@@ -76,6 +83,14 @@ pub enum Opt {
     Ability(AbilityId),
     /// Use the technology or the agent the question is about.
     Use,
+    /// Play this card (the alias of the first copy in the hand).
+    Card(ActionCard),
+    /// Gain 1 commodity (Crimson Legionnaire).
+    Gain,
+    /// Convert 1 commodity to a trade good (Crimson Legionnaire).
+    Convert,
+    /// A ship type (The Cavalry).
+    Ship(crate::generated::Unit),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`): `reaction_{relation}_{EVENT}`.
@@ -84,4 +99,9 @@ pub enum Subtype {
     Window { event: EventKind, relation: Relation },
     InstinctTraining,
     AgentSwap,
+    PlayCard { event: EventKind, relation: Relation },
+    /// `legionnaire_payment`.
+    Legionnaire,
+    /// `cavalry_ship`.
+    Cavalry,
 }

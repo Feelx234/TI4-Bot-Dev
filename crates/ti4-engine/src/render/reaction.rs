@@ -13,6 +13,7 @@
 use serde_json::Value;
 use ti4_content::ContentStore;
 use ti4_engine_core::choice::reaction::{Ask, Opt, Relation, Subtype};
+use ti4_engine_core::generated::ActionCard;
 
 use super::{Family, Render};
 use crate::generated::IdStr;
@@ -30,7 +31,10 @@ impl Family for Fam {
     fn prompt(r: &Render, a: &Ask) -> String {
         match a {
             Ask::Window { event, relation } => format!("{} {}", relation_text(*relation), event_text(r, *event)),
+            Ask::PlayCard { event, relation } => format!("play an action card ({} {})", relation_text(*relation), event_text(r, *event)),
             Ask::InstinctTraining { card } => format!("Instinct Training: exhaust and spend a strategy token to cancel {}", card.as_str()),
+            Ask::Legionnaire { .. } => "Crimson Legionnaire: gain 1 commodity or convert 1 to a trade good".to_owned(),
+            Ask::Cavalry => "The Cavalry: which non-fighter ship takes the Nomad flagship's abilities".to_owned(),
             Ask::AgentSwap { target } => format!(
                 "I48S: exhaust to let {} replace 1 infantry in the active system with a mech",
                 target.map_or_else(|| "the active player".to_owned(), |t| r.seat_text(t).to_owned())
@@ -41,8 +45,11 @@ impl Family for Fam {
     fn subtype(r: &Render, s: &Subtype) -> String {
         match s {
             Subtype::Window { event, relation } => format!("reaction_{}_{}", relation_text(*relation), event_text(r, *event)),
+            Subtype::PlayCard { event, relation } => format!("play_reaction_{}_{}", relation_text(*relation), event_text(r, *event)),
             Subtype::InstinctTraining => "instinct_training_cancel".to_owned(),
             Subtype::AgentSwap => "l1z1x_agent_swap".to_owned(),
+            Subtype::Legionnaire => "legionnaire_payment".to_owned(),
+            Subtype::Cavalry => "cavalry_ship".to_owned(),
         }
     }
 
@@ -53,13 +60,38 @@ impl Family for Fam {
                 let label = crate::timing::ability_label(Some(ContentStore::embedded()), &text);
                 ChoiceOption::labelled(&text, "ability", label).with("event", event_text(r, *event))
             }
+            (Ask::PlayCard { .. }, Opt::Card(card)) => {
+                let content = ContentStore::embedded();
+                let id = card.as_str();
+                let name = crate::action_cards::name_of(content, &ti4_model::id::ActionCardId::new(id));
+                ChoiceOption::labelled(id, crate::reactions::ACTION_CARD_KIND, format!("play {name}")).with("card", id).with("card_name", name)
+            }
             (Ask::InstinctTraining { .. }, Opt::Use) => ChoiceOption::labelled("use", "technology", "cancel it"),
             (Ask::AgentSwap { .. }, Opt::Use) => ChoiceOption::labelled("use", "leader", "exhaust the agent"),
+            (Ask::Cavalry, Opt::Ship(unit)) => {
+                let id = unit.as_str();
+                ChoiceOption::labelled(id, "cavalry_ship", format!("treat a {id} as the Nomad flagship")).with("unit", id)
+            }
+            (Ask::Legionnaire { .. }, Opt::Gain) => ChoiceOption::labelled("gain", "economy", "gain 1 commodity"),
+            (Ask::Legionnaire { .. }, Opt::Convert) => ChoiceOption::labelled("convert", "economy", "convert 1 commodity to a trade good"),
             _ => panic!("option {o:?} in the question {a:?}"),
         }
     }
 
     fn parse(r: &Render, a: &Ask, id: &str) -> Option<Opt> {
+        if let Ask::PlayCard { .. } = a {
+            return ActionCard::from_id(id).map(Opt::Card);
+        }
+        if let Ask::Cavalry = a {
+            return <ti4_engine_core::generated::Unit as IdStr>::from_id(id).map(Opt::Ship);
+        }
+        if let Ask::Legionnaire { .. } = a {
+            return match id {
+                "gain" => Some(Opt::Gain),
+                "convert" => Some(Opt::Convert),
+                _ => None,
+            };
+        }
         if !matches!(a, Ask::Window { .. }) {
             return (id == "use").then_some(Opt::Use);
         }

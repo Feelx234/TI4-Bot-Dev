@@ -153,6 +153,8 @@ pub enum Ask {
     Economy(EconomyAsk),
     /// Harrugh Gefhara: free production, or not.
     Hero(HeroAsk),
+    /// Xander Alexin Victori III (a Keleres agent): let `payer` spend commodities as trade goods.
+    AgentOffer { payer: Seat },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -184,6 +186,8 @@ pub enum Opt {
     HeroUse,
     /// Decline the offer (`decline`).
     Decline,
+    /// Use the leader the question offers (the Keleres agent); declining is the generic option.
+    Use,
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -196,4 +200,6 @@ pub enum Subtype {
     SlingShip,
     Economy,
     HeroFree,
+    /// `keleres_agent_commodities`.
+    AgentOffer,
 }

@@ -636,6 +636,40 @@ pub(crate) fn offer_agent(
     table: &mut crate::choice::Table,
     payer: &PlayerId,
 ) -> Result<bool, IllegalChoice> {
+    // The offer is a window of the core on `production=dual`: a question per holder, the exhaustion, the window's mark.
+    let mut outcome = Ok(false);
+    crate::dual_window!(
+        crate::dual::Area::Production,
+        "production::agent_offer",
+        state,
+        |s: &mut GameState| {
+            outcome = offer_agent_text(s, content, sources, galaxy, table, payer);
+            crate::dual::Run::new(outcome.as_ref().ok().copied().unwrap_or(false))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            #[cfg(feature = "typed-core")]
+            {
+                crate::production_window_dual::agent_offer(s, payer, script)
+            }
+            #[cfg(not(feature = "typed-core"))]
+            {
+                let _ = (s, script);
+                None
+            }
+        }
+    );
+    outcome
+}
+
+/// The string body of [`offer_agent`].
+fn offer_agent_text(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut crate::choice::Table,
+    payer: &PlayerId,
+) -> Result<bool, IllegalChoice> {
     let holders = agent_holders(state, payer);
     if holders.is_empty() {
         return Ok(false);

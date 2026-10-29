@@ -9794,6 +9794,266 @@ mod tests {
         let _ = take_report();
     }
 
+    /// A reaction card is played from the standing slot: the slot asks which card when they differ, the card is spent
+    /// into the declared plays, and at the close of the window the core announces `ACTION_CARD_PLAYED`, plays the stamp
+    /// of its effect and discards it (`ACTION_CARD_DISCARDED`), as the string `reactions::announce` does.
+    #[test]
+    fn declared_reaction_cards_are_played_in_the_core_window_in_lockstep() {
+        let mut played = 0;
+        let mut asked = 0;
+        for (seed, hand) in (1..=6_u64).zip([&["mb1"][..], &["mb1", "emergency"], &["sh1", "mb2"], &["mb1", "mb2"], &["emergency", "mb3", "sh3"], &["sh1", "sh2"]]) {
+            let (p, a, bails) = declared_cards_fight(seed, hand, true);
+            assert!(bails.iter().all(|k| !k.contains("(card ") && !k.contains("(a card played at once)")), "{hand:?}: {bails:?}");
+            played += p;
+            asked += a;
+        }
+        assert!(played > 0 && asked > 0, "cards were played ({played}) and a choice of card was asked ({asked})");
+    }
+
+    /// Sabotage is played at once, in the window of `ACTION_CARD_PLAYED`: the core announces the Sabotage inside the
+    /// slot's effect and cancels the event that opened the window (the declared Morale Boost is spent, its effect is not).
+    #[test]
+    fn sabotage_cancels_a_declared_play_in_the_core_window_in_lockstep() {
+        let mut sabotaged = 0;
+        for seed in 1..=6_u64 {
+            let (_, _, bails, plays) = cards_fight(seed, ["sol", "hacan"], &["sabo1"], &["mb1"], true);
+            assert!(bails.iter().all(|k| !k.contains("(card ") && !k.contains("(a card played at once)")), "{bails:?}");
+            sabotaged += usize::from(plays.iter().any(|c| c == "sabo1"));
+        }
+        assert!(sabotaged > 0, "a Sabotage was played in the window of a declared card");
+    }
+
+    /// Skilled Retreat: the holder withdraws the whole fleet to a free neighbour at the start of a round; the core asks which
+    /// system when there are several (the destinations are the map's, noted by the string card), moves the fleet through the
+    /// retreat window and ends the combat in a draw.
+    #[test]
+    fn skilled_retreat_withdraws_the_fleet_in_the_core_window_in_lockstep() {
+        let mut withdrew = 0;
+        for factions in [["sol", "hacan"], ["sol", "mentak"]] {
+            for seed in 1..=4_u64 {
+                let (_, asked, bails, plays) = cards_fight_at(seed, factions, &[], &["s_retreat1"], true, true);
+                assert!(bails.iter().all(|k| !k.contains("(card s_retreat")), "{bails:?}");
+                withdrew += usize::from(plays.iter().any(|c| c == "s_retreat1"));
+                let _ = asked;
+            }
+        }
+        assert!(withdrew > 0, "a Skilled Retreat was played");
+    }
+
+    /// The promissory notes played at the start of a space combat: Antivirus (placed faceup) and The Cavalry (a ship type
+    /// takes the flagship's abilities, the note goes home when the combat ends), both held by the defender.
+    #[test]
+    fn the_antivirus_and_the_cavalry_are_played_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let (mut faceup, mut home) = (0, 0);
+        for (note, third) in [("antivirus:nekro", "nekro"), ("cavalry:nomad", "nomad")] {
+            let _ = take_report();
+            with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+                for seed in 1..=4_u64 {
+                    let mut state = crate::fixtures::seated_game(&[("a", "hacan"), ("b", "sol"), ("c", third)], ti4_model::content_types::DEFAULT);
+                    state.promissory_notes.clear();
+                    state.promissory_faceup.clear();
+                    state.rng_seed = seed;
+                    crate::promissory::take(&mut state, ContentStore::embedded(), &defender(), note);
+                    let system = SystemId::new("18");
+                    put(&mut state, &system, "cruiser", &attacker(), 3);
+                    put(&mut state, &system, "cruiser", &defender(), 2);
+                    if seed % 2 == 0 {
+                        put(&mut state, &system, "dreadnought", &defender(), 1);
+                    }
+                    state.active_system = Some(system.clone());
+                    state.active = Some(attacker());
+                    let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                    let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                    let mut resolver = crate::fixtures::armed_resolver(&state);
+                    let mut sequence = crate::event::EventSequence::new();
+                    let mut ctx = Resolving {
+                        content: ContentStore::embedded(),
+                        sources: ti4_model::content_types::DEFAULT,
+                        dice: &mut dice,
+                        rng: &mut rng,
+                        table: &mut table,
+                        timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                    };
+                    resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+                    faceup += usize::from(state.promissory_faceup.contains(note));
+                    home += usize::from(state.promissory_notes.get(note) == Some(&PlayerId::new("c")));
+                }
+            });
+            let r = report();
+            assert!(r.windows.keys().all(|k| !k.contains("unported ability promissory:*:")), "{note}: {:?}", r.windows);
+            if note.starts_with("cavalry") {
+                assert!(r.windows.get("combat::announce_end").is_some_and(|w| w.compared > 0), "the end of the combat, where the note goes home, is compared: {:?}", r.windows);
+            }
+            assert_eq!(r.total_differences(), 0, "{note}: {:?}", r.differences);
+        }
+        assert!(faceup > 0, "Antivirus was placed faceup");
+        assert!(home > 0, "The Cavalry went home at the end of the combat");
+        let _ = take_report();
+    }
+
+    /// Ipswitch, Loose Cannon (the Mentak hero): purged at the start of the combat, it places a ship of the type of every
+    /// other player's ship destroyed in it, and the record of the combat is cleared at its end.
+    #[test]
+    fn the_mentak_hero_places_ships_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        for composed in [false, true] {
+            let _ = take_report();
+            let (mut purged, mut gained) = (0, 0_i64);
+            with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || crate::dual_window::with_composed(composed, || {
+                for seed in 1..=6_u64 {
+                    let mut state = crate::fixtures::seated_game(&[("a", "mentak"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+                    state.promissory_notes.clear();
+                    state.promissory_faceup.clear();
+                    state.rng_seed = seed;
+                    state.player_mut(&attacker()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("mentakhero"), ti4_model::state::LeaderStatus::Unlocked);
+                    let system = SystemId::new("18");
+                    put(&mut state, &system, "cruiser", &attacker(), 3);
+                    put(&mut state, &system, "cruiser", &defender(), 2);
+                    put(&mut state, &system, "destroyer", &defender(), 2);
+                    if seed % 2 == 0 {
+                        // The hero's owner loses ships too: those place nothing.
+                        put(&mut state, &system, "destroyer", &attacker(), 4);
+                        put(&mut state, &system, "dreadnought", &defender(), 2);
+                    }
+                    state.active_system = Some(system.clone());
+                    state.active = Some(attacker());
+                    let before = state.system_state(&system).units.iter().filter(|u| u.owner == attacker()).count() as i64;
+                    let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                    let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                    let mut resolver = crate::fixtures::armed_resolver(&state);
+                    let mut sequence = crate::event::EventSequence::new();
+                    let mut ctx = Resolving {
+                        content: ContentStore::embedded(),
+                        sources: ti4_model::content_types::DEFAULT,
+                        dice: &mut dice,
+                        rng: &mut rng,
+                        table: &mut table,
+                        timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                    };
+                    resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+                    purged += usize::from(state.player(&attacker()).unwrap().leaders.get(ti4_model::id::text(&"mentakhero")) == Some(&ti4_model::state::LeaderStatus::Purged));
+                    assert!(!state.faction_marks.contains_key("mentak:hero:18"), "the record of the combat is cleared");
+                    if seed % 2 == 1 {
+                        gained += state.system_state(&system).units.iter().filter(|u| u.owner == attacker()).count() as i64 - before;
+                    }
+                }
+            }));
+            let r = report();
+            assert!(purged > 0, "composed {composed}: the hero was purged");
+            assert!(gained > 0, "composed {composed}: ships were placed ({gained})");
+            assert!(r.windows.keys().all(|k| !k.contains("unported ability leader:*:mentakhero")), "composed {composed}: {:?}", r.windows);
+            assert!(!composed || r.windows.keys().any(|k| k.contains("a fact the adapter did not compute")), "composed {composed}: a destroyed cruiser is the string's form: {:?}", r.windows);
+            assert_eq!(r.total_differences(), 0, "composed {composed}: {:?}", r.differences);
+        }
+        let _ = take_report();
+    }
+
+    /// Direct Hit: the attacker's hit is sustained by a dreadnought, the attacker destroys that ship from the slot of
+    /// `SUSTAIN_DAMAGE_USED`; the core removes it and announces `SHIP_DESTROYED` after the discard. With a faction module
+    /// seated (staging) the exact sustained ship goes; without, the first of the type.
+    #[test]
+    fn direct_hit_destroys_the_sustained_ship_in_the_core_window_in_lockstep() {
+        for factions in [["sol", "hacan"], ["mentak", "hacan"]] {
+            let mut hit = 0;
+            for seed in 1..=8_u64 {
+                let (_, _, bails, plays) = cards_fight(seed, factions, &["dh1"], &[], false);
+                assert!(bails.iter().all(|k| !k.contains("(card dh")), "{factions:?}: {bails:?}");
+                hit += usize::from(plays.iter().any(|c| c == "dh1"));
+            }
+            assert!(hit > 0, "{factions:?}: a Direct Hit was played");
+        }
+    }
+
+    /// The first golden run of the card plays found 12 differences: Reflective Shielding stages hits that the sustain
+    /// window of the string takes up afterwards, a state the core windows do not carry. The card stays the string's: the
+    /// window bails naming it, nothing differs.
+    #[test]
+    fn reflective_shielding_stays_in_the_string_in_lockstep() {
+        let mut bailed = 0;
+        for seed in 1..=8_u64 {
+            let (_, _, bails) = declared_cards_fight(seed, &["reflective"], false);
+            bailed += bails.iter().filter(|k| k.contains("(card reflective)")).count();
+        }
+        assert!(bailed > 0, "a Reflective Shielding was played and named");
+    }
+
+    /// One space fight in which the defender holds `hand`, every question answered with its first option; the windows
+    /// are compared. `(cards played, choices of a card asked, the window keys of the report)`.
+    fn declared_cards_fight(seed: u64, hand: &[&str], damaged: bool) -> (usize, usize, Vec<String>) {
+        let (played, asked, bails, _) = cards_fight(seed, ["sol", "hacan"], &[], hand, damaged);
+        (played, asked, bails)
+    }
+
+    /// [`declared_cards_fight`] with the attacker's hand too; the last element is the card plays of the state, in order.
+    fn cards_fight(seed: u64, factions: [&str; 2], attacker_hand: &[&str], hand: &[&str], damaged: bool) -> (usize, usize, Vec<String>, Vec<String>) {
+        cards_fight_at(seed, factions, attacker_hand, hand, damaged, false)
+    }
+
+    /// [`cards_fight`] on the centre of a plain hub, with its map lent to the combat (`hub`): the cards that look at the map
+    /// (Skilled Retreat) find their destinations.
+    fn cards_fight_at(seed: u64, factions: [&str; 2], attacker_hand: &[&str], hand: &[&str], damaged: bool, hub: bool) -> (usize, usize, Vec<String>, Vec<String>) {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let hub_map = crate::fixtures::plain_hub();
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let (mut played, mut asked) = (0, 0);
+        let mut plays = Vec::new();
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || crate::dual_window::with_composed(true, || {
+            let mut state = crate::fixtures::seated_game(&[("a", factions[0]), ("b", factions[1])], ti4_model::content_types::DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = seed;
+            state.player_mut(&defender()).unwrap().action_cards = hand.iter().map(|c| ti4_model::id::ActionCardId::new(*c)).collect();
+            state.player_mut(&attacker()).unwrap().action_cards = attacker_hand.iter().map(|c| ti4_model::id::ActionCardId::new(*c)).collect();
+            let system = if hub { SystemId::new(hub_map.centre.clone()) } else { SystemId::new("18") };
+            put(&mut state, &system, "cruiser", &attacker(), 3);
+            if damaged {
+                put(&mut state, &system, "cruiser", &defender(), 3);
+            }
+            put(&mut state, &system, "dreadnought", &defender(), 2);
+            state.active_system = Some(system.clone());
+            state.active = Some(attacker());
+            for unit in state.system_mut(&system).units.iter_mut().filter(|u| u.owner == defender() && u.type_id.as_str() == "dreadnought") {
+                unit.sustained_damage = damaged;
+            }
+            let seen = std::rc::Rc::new(std::cell::RefCell::new(0));
+            struct Count(std::rc::Rc<std::cell::RefCell<usize>>);
+            impl crate::choice::Decider for Count {
+                fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+                    if choice.prompt.starts_with("play an action card") {
+                        *self.0.borrow_mut() += 1;
+                    }
+                    crate::choice::FirstOption.choose(choice)
+                }
+            }
+            let mut table = Table::with_default(Box::new(Count(seen.clone())));
+            let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+            let mut resolver = crate::fixtures::armed_resolver(&state);
+            let mut sequence = crate::event::EventSequence::new();
+            let mut ctx = Resolving {
+                content: ContentStore::embedded(),
+                sources: ti4_model::content_types::DEFAULT,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: hub.then_some(&hub_map.galaxy) }),
+            };
+            resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+            played = state.action_card_plays.len();
+            plays = state.action_card_plays.iter().map(|(_, card)| card.to_string()).collect();
+            asked = *seen.borrow();
+        }));
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{attacker_hand:?} {hand:?}: {:?}", r.differences);
+        let bails = r.windows.keys().cloned().collect();
+        let _ = take_report();
+        (played, asked, bails, plays)
+    }
+
     #[test]
     fn the_end_report_of_a_fight_is_checked_against_the_core() {
         // `combat=dual`: the reason, losers, retreats and lost ships of `SPACE_COMBAT_ENDED` are computed by

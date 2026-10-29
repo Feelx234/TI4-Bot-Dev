@@ -191,6 +191,42 @@ mod real {
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
     }
 
+    /// The core half of Xxekir Grom (`xxchahero-te`): up to four PDS or mechs onto controlled planets, each planet
+    /// readied. `None` as for [`xxcha_agent`], and for a unit form the tables do not know or the Naaz mech (its
+    /// placement is announced, which the core window does not do).
+    pub fn xxcha_hero_te(gs: &mut GameState, player: &PlayerId, facts: &crate::leaders::HeroTeFacts, script: &Recording) -> Option<CoreWindow<bool>> {
+        use ti4_engine_core::generated::{Planet, System, Unit};
+        use ti4_engine_core::rules::leader_windows::XxchaHeroTe;
+        if outside(gs, script) {
+            return None;
+        }
+        let form = |f: &Option<(ti4_model::id::UnitTypeId, usize)>| -> Option<Option<(Unit, usize)>> {
+            match f {
+                None => Some(None),
+                Some((unit, _)) if unit.as_str() == "naaz_mech" => None,
+                Some((unit, left)) => Some(Some((typed::<Unit>(unit.as_str())?, (*left).min(usize::from(XxchaHeroTe::MOST))))),
+            }
+        };
+        let (pds, mech) = (form(&facts.pds)?, form(&facts.mech)?);
+        let planets: Vec<(System, Planet)> = facts
+            .planets
+            .iter()
+            .map(|(s, p)| Some((typed::<System>(s.as_str())?, typed::<Planet>(p.as_str())?)))
+            .collect::<Option<_>>()?;
+        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let seat = r.seat(player.as_str())?;
+        let kernel = Kernel::plain();
+        let before = gs.clone();
+        let mut driver = Driver::new(XxchaHeroTe::new(seat, &planets, pds, mech), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), XXCHA_NO_MAP, |core, _| {
+            crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script)
+        })
+        .ok()?
+        .ok()?;
+        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
+        Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
+    }
+
     /// The core half of `leaders::l1z1x_hero` (The Helmsman). `None` as for [`xxcha_agent`].
     pub fn l1z1x_hero(gs: &mut GameState, player: &PlayerId, galaxy: Option<&ti4_content::galaxy::Galaxy>, sources: SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
         if outside(gs, script) {
@@ -360,6 +396,14 @@ mod stub {
         _: &PlayerId,
         _: Option<&ti4_content::galaxy::Galaxy>,
         _: ti4_model::content_types::SourceSet,
+        _: &crate::dual_window::Recording,
+    ) -> Option<crate::dual::CoreWindow<bool>> {
+        None
+    }
+    pub fn xxcha_hero_te(
+        _: &mut GameState,
+        _: &PlayerId,
+        _: &crate::leaders::HeroTeFacts,
         _: &crate::dual_window::Recording,
     ) -> Option<crate::dual::CoreWindow<bool>> {
         None

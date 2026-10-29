@@ -97,6 +97,29 @@ impl SustainOffer {
     }
 }
 
+/// `combat::remember_sustain_target`: with staging, the exact unit that sustained is written as the `combat:sustain_target`
+/// mark (system, planet when the unit stands on one, owner, type, damage, galvanize token) that a Direct Hit reads and clears.
+pub fn remember_target(state: &mut CoreState, system: System, staging: bool, site: crate::choice::combat::SustainSite, piece: crate::state::Piece) {
+    use crate::keys::{Atom, MarkKey, MarkVal};
+    if !staging {
+        return;
+    }
+    let planet = match site {
+        crate::choice::combat::SustainSite::Planet { planet, .. } => Atom::Planet(planet),
+        crate::choice::combat::SustainSite::Space(_) => Atom::Absent,
+    };
+    let num = |b: bool| MarkVal::Atom(Atom::Num(u32::from(b)));
+    let value = MarkVal::Rec(vec![
+        MarkVal::Atom(Atom::System(system)),
+        MarkVal::Atom(planet),
+        MarkVal::Atom(Atom::Seat(piece.owner())),
+        MarkVal::Atom(Atom::Unit(piece.kind())),
+        num(piece.sustained()),
+        num(piece.galvanized()),
+    ]);
+    state.marks_mut().tail.edit().insert(MarkKey::CombatSustainTarget(), value);
+}
+
 /// The handoff of the unit that sustained and, when announced, `SUSTAIN_DAMAGE_USED`.
 pub fn emit_used(sx: &mut Sx<'_>, o: &Offer, unit: Unit) -> Result<(), crate::kernel::TimingError> {
     sx.state.transient_mut().combat.last_sustain = Some((o.system, o.player, unit, o.producer, o.in_combat));
@@ -211,6 +234,7 @@ impl SustainOffer {
                     return Ok(());
                 };
                 *sx.state = after;
+                remember_target(sx.state, self.offer.system, self.offer.staging, site, piece);
                 self.last = Some((site, piece));
                 self.used = Some(unit);
                 self.commander = SustainCommander::new(self.offer.player, self.offer.source);

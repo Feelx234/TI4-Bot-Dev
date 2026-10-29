@@ -172,6 +172,17 @@ impl Decider for FirstCard {
 /// Fights in system 18 (seeds 0..6) with the given hands, the slots played by `decider`; the differences, the cards
 /// that ended on the pile and the report's window counts.
 fn fights(a_hand: &[&str], b_hand: &[&str], rules_version: Option<u32>, decider: &dyn Fn() -> Box<dyn Decider>) -> (u64, usize, std::collections::BTreeMap<String, crate::dual::WindowCounts>) {
+    fights_naming(a_hand, b_hand, rules_version, decider, false)
+}
+
+/// [`fights`]; `named_bails` lets a window bail naming a card the table does not play (the census of the reaction slot).
+fn fights_naming(
+    a_hand: &[&str],
+    b_hand: &[&str],
+    rules_version: Option<u32>,
+    decider: &dyn Fn() -> Box<dyn Decider>,
+    named_bails: bool,
+) -> (u64, usize, std::collections::BTreeMap<String, crate::dual::WindowCounts>) {
     use crate::dual::{report, take_report, Area};
     use crate::choice::Resolving;
     let _ = take_report();
@@ -212,7 +223,7 @@ fn fights(a_hand: &[&str], b_hand: &[&str], rules_version: Option<u32>, decider:
     let shown: String = format!("{:?}", r.differences).chars().take(1500).collect();
     assert_eq!(r.total_differences(), 0, "{shown}");
     let slot_bails: Vec<&String> = r.windows.keys().filter(|k| k.contains("unported ability reaction:")).collect();
-    assert!(slot_bails.is_empty(), "{slot_bails:?}");
+    assert!(named_bails || slot_bails.is_empty(), "{slot_bails:?}");
     let out = (r.total_differences(), played, r.windows.clone());
     let _ = take_report();
     out
@@ -292,15 +303,16 @@ fn bail_a_card_with_an_unported_effect_keeps_the_string_announcement() {
     let _ = crate::dual::take_report();
 }
 
-/// Bail: a card the core does not play (Skilled Retreat) played from the slot of a fight: the combat window that
-/// followed the offer bails with the reason, instead of comparing a play the core cannot make.
+/// Bail: a card the core does not play (Reveal Prototype) played from the slot of a fight: the combat window that
+/// followed the offer bails with the reason, instead of comparing a play the core cannot make. (Skilled Retreat was this
+/// test's card until the reactions line registered its effect in the table; the census now names the card.)
 #[test]
 fn bail_an_unported_card_played_in_a_fight_bails_the_window_with_its_reason() {
     let _serial = crate::dual::tests::serial();
-    let (_, played, windows) = fights(&["s_retreat1"], &[], None, &|| Box::new(PlaySlots));
+    let (_, played, windows) = fights_naming(&["reveal_prototype"], &[], None, &|| Box::new(PlaySlots), true);
     assert!(played > 0, "the card was played");
     assert!(
-        windows.keys().any(|k| k.starts_with("combat::begin_round [bail: nested (an action card the core does not play)]")),
+        windows.keys().any(|k| k.starts_with("combat::begin_round [bail: nested (unported ability reaction:*:COMBAT_ROUND_STARTED:after (card reveal_prototype))]")),
         "{windows:?}"
     );
 }
