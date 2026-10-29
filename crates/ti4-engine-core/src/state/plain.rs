@@ -244,6 +244,7 @@ impl PlainRec {
 
 /// One line of the ordered emission queue (`Game::events`).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::large_enum_variant, reason = "the queue is a chunked `Log` of lines written under the dual run; a box would cost an allocation per mirrored typed event")]
 pub enum Emit {
     /// A typed event the resolver emitted, as the string mirrors it (by name, when the surrounding call returns).
     Typed(EventRec),
