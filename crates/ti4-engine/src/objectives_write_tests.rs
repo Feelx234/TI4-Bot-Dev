@@ -357,11 +357,14 @@ fn the_documented_bails_stay_with_the_string_side() {
     let mut generic = crate::fixtures::game(&["a", "b"]);
     assert!(adjust(&mut generic, &a(), 1, "objective").is_none());
     assert!(score_public(&mut generic, &a(), &ObjectiveId::new("expand_borders"), 1).is_none());
-    // ... and the scoring step of such a table: the book and the question stay with the string.
-    let window = crate::objectives::ScoringWindow::new(&generic.initiative_order());
-    let ask = Question::new(a(), "score an objective", vec![crate::choice::ChoiceOption::decline()]);
-    let step = crate::objectives_write::score_one(&mut generic.clone(), content, POK, None, &ask, &window.core_args(), &crate::dual_window::Recording::default());
-    assert!(step.is_none(), "the fixture faction is refused");
+    // ... and the scoring step of a position the codec refuses (an objective id the tables do not know): the
+    // book and the question stay with the string.
+    let mut unknown = clean(&[("a", "letnev"), ("b", "sol")]);
+    unknown.player_mut(&a()).unwrap().secret_objectives = vec![SecretObjectiveId::new("eap")];
+    four_pds(&mut unknown);
+    assert!(status_probe(&unknown, "eap").is_some(), "the same position without the unknown id is followed");
+    unknown.record_score(&a(), ObjectiveId::new("not_an_objective"));
+    assert!(status_probe(&unknown, "eap").is_none(), "an unknown scored objective is refused by the codec");
 
     // An id the tables do not know, and points the content and the tables disagree on.
     assert!(score_public(&mut state, &a(), &ObjectiveId::new(["not", "an", "objective"].join("_")), 1).is_none());
