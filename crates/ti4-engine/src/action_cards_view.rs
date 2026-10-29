@@ -261,6 +261,9 @@ fn env_of(state: &GameState, player: &PlayerId, sources: &ti4_model::content_typ
             fracture_in_play: state.fracture_in_play,
             own_breakthrough: own_breakthroughs(state, r),
             unit_order: |a, b| crate::generated::IdStr::as_str(a).cmp(crate::generated::IdStr::as_str(b)),
+            map: false,
+            explore_empty: ti4_engine_core::state::Code(0),
+            action_draw_plain: false,
         },
     }
 }
@@ -325,6 +328,63 @@ pub fn plays(alias: &ActionCardId) -> bool {
 /// The map slice, lent for the cards that read it.
 const MAP: crate::core_sync::Footprint = crate::core_sync::Footprint::new(&[Slice::Map], &[]);
 
+/// The exploration slice (the frontier tokens, the wormhole tokens and the log), for the card that explores.
+const EXPLORE: crate::core_sync::Footprint = crate::core_sync::Footprint::new(&[Slice::Explore], &[Slice::Explore]);
+
+/// Whether the card is Exploration Probe.
+fn is_probe(card: ActionCard) -> bool {
+    rules::effects::Fx::of(card) == Some(rules::effects::Fx::Probe)
+}
+
+/// What Exploration Probe reads that the core does not hold: whether the map is lent, the empty text of the exploration log's row (the
+/// core opens the row; its words are written by [`close_row`]) and whether two action cards would be drawn plainly (a Lost Crew).
+fn probe_facts(gs: &GameState, cx: &mut Ctx, player: &PlayerId, galaxy: Option<&ti4_content::galaxy::Galaxy>, facts: &mut rules::Facts) -> Option<()> {
+    facts.map = galaxy.is_some();
+    facts.explore_empty = cx.texts.intern(Slice::Explore, "").ok()?;
+    facts.action_draw_plain = crate::strategy_cards_core::plain_draw(gs, ti4_content::ContentStore::embedded(), player, 2);
+    Some(())
+}
+
+/// The reward question of a Merchant Station carries the seat's commodity standing (display only, read where the string reads it).
+fn reward_details(c: &ti4_engine_core::choice::Choice, before: &GameState, player: &PlayerId, rendered: &mut crate::choice::Choice) {
+    use ti4_engine_core::choice::explore::{Ask as EAsk, Step};
+    if matches!(c.ask, ti4_engine_core::choice::Ask::Explore(EAsk::Reward(Step::MerchantStation))) {
+        rendered.details.insert("commodities".to_owned(), crate::strategy_cards::commodity_standing(before, ti4_content::ContentStore::embedded(), player));
+    }
+}
+
+/// Exploration Probe: the words of the log row the core opened (`explore_in` closes the row of the string with them). `None` when
+/// the row is not the one the core's card opened.
+fn close_row(gs: &mut GameState, player: &PlayerId, row: &rules::effects::ProbeRow) -> Option<()> {
+    use crate::exploration::{Explored, Holdings};
+    use rules::effects::Explored as How;
+    let at = gs.exploration_log.len().checked_sub(1)?;
+    let record = gs.exploration_log.get(at)?;
+    if record.player != *player || record.card != row.card.as_str() || !record.outcome.is_empty() || record.deck != "FRONTIER" {
+        return None;
+    }
+    let card = record.card.clone();
+    let outcome = match row.outcome {
+        How::Fragment(deck) => Explored::Fragment { trait_name: crate::core_sync::conv::explore_key(deck) },
+        How::Resolved => Explored::Resolved { card },
+        How::Unresolved => Explored::Unresolved { card },
+    };
+    let tokens: Vec<String> = gs
+        .wormhole_tokens
+        .iter()
+        .filter(|(kind, system)| kind.eq_ignore_ascii_case("gamma") && Some(system.as_str()) == row.gamma.map(|g| g.as_str()))
+        .map(|(kind, system)| format!("wormhole:{kind}:{system}"))
+        .collect();
+    let kept = gs.player(player).and_then(|seat| seat.exploration_cards.last().cloned());
+    let words = crate::exploration::row_words(&Holdings::from_core(row.before), &Holdings::from_core(row.after), None, &outcome, tokens, kept.as_deref(), None);
+    let record = gs.exploration_log.get_mut(at)?;
+    record.outcome = words.text;
+    record.result = words.result;
+    record.gains = words.gains;
+    record.placed = words.placed;
+    Some(())
+}
+
 const PLAY: crate::core_sync::Footprint = crate::core_sync::Footprint::new(
     &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending, Slice::Strategy, Slice::Ledger, Slice::Objectives],
     &[Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending, Slice::Strategy, Slice::Ledger],
@@ -364,6 +424,10 @@ pub fn play_window(
         unit: Some(ti4_engine_core::generated::Unit::DreadnoughtI),
         on_card: crate::factions::crimson_cards::held_on_card(gs, ti4_content::ContentStore::embedded(), sources.clone(), player, "dreadnought"),
     };
+    let probe = is_probe(card);
+    if probe {
+        probe_facts(gs, &mut cx, player, galaxy, &mut env.facts)?;
+    }
     let lent = lend_rolls(alias, before_rolls, "action_cards::play")?;
     let before = gs.clone();
     let technology = rules::effects::Fx::of(card).is_some_and(rules::effects::Fx::technology);
@@ -384,8 +448,11 @@ pub fn play_window(
         crate::dual::note_bail("action_cards::play", "a card that reads the map, played without one");
         return None;
     }
-    let fp = if wants_map { fp.union(MAP) } else { fp };
-    let src = Sources { galaxy: if wants_map { galaxy } else { None }, rng: lent.as_ref().map(|l| &l.before) };
+    // A card that reads the map when there is one (Exploration Probe) is lent the galaxy the string had, if any.
+    let lends_map = galaxy.is_some() && rules::effects::Fx::of(card).is_some_and(rules::effects::Fx::uses_map);
+    let fp = if lends_map { fp.union(MAP) } else { fp };
+    let fp = if probe { fp.union(EXPLORE) } else { fp };
+    let src = Sources { galaxy: if lends_map { galaxy } else { None }, rng: lent.as_ref().map(|l| &l.before) };
     let mut driver_seeds = None;
     if lent.is_some() {
         driver_seeds = Some(std::rc::Rc::new(crate::dual_window::DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?)));
@@ -393,10 +460,12 @@ pub fn play_window(
     let letnev = gs.player(player)?.faction.as_str() == "letnev";
     let details = |c: &ti4_engine_core::choice::Choice, core: &ti4_engine_core::state::CoreState, rendered: &mut crate::choice::Choice| {
         recorded_details(c, script, rendered);
+        reward_details(c, &before, player, rendered);
         crate::strategy_cards_core::complete_tokens(c, core, rendered, letnev);
     };
+    let mut row = None;
     let driven = crate::core_sync::with_core(gs, &mut cx, src, fp, |core, _| {
-        if wants_map && core.galaxy().is_none() {
+        if lends_map && core.galaxy().is_none() {
             return None;
         }
         if technology && !crate::strategy_cards_core::research_hooks_agree(core, &before, ti4_content::ContentStore::embedded(), sources.clone(), player, seat) {
@@ -412,6 +481,7 @@ pub fn play_window(
         emitted = std::mem::take(&mut driver.emitted);
         faces = driver.window.faces().to_vec();
         unsupported = driver.window.unsupported();
+        row = driver.window.explored();
         if lent.is_some() {
             rng_after = Some(core.rng().clone());
         }
@@ -421,6 +491,9 @@ pub fn play_window(
     .ok()?;
     if unsupported {
         return None;
+    }
+    if let Some(row) = &row {
+        close_row(gs, player, row)?;
     }
     crate::dual_window::apply_staged(gs, &r, &staged)?;
     let events: Vec<crate::event::Event> = emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
@@ -511,6 +584,10 @@ pub fn announce_window(
         unit: Some(ti4_engine_core::generated::Unit::DreadnoughtI),
         on_card: crate::factions::crimson_cards::held_on_card(gs, ti4_content::ContentStore::embedded(), sources.clone(), player, "dreadnought"),
     };
+    let probe = is_probe(card);
+    if probe {
+        probe_facts(gs, &mut cx, player, galaxy, &mut env.facts)?;
+    }
     if crate::factions::ralnel_cards::skimmer_holder(gs).is_some() {
         crate::dual::note_bail("action_cards::announce", SKIMMER_BAIL);
         return None;
@@ -540,17 +617,23 @@ pub fn announce_window(
         crate::dual::note_bail("action_cards::announce", "a card that reads the map, played without one");
         return None;
     }
-    if wants_map {
+    // A card that reads the map when there is one (Exploration Probe) is lent the galaxy the string had, if any.
+    let lends_map = galaxy.is_some() && rules::effects::Fx::of(card).is_some_and(rules::effects::Fx::uses_map);
+    if lends_map {
         fp = fp.union(MAP);
     }
-    let src = Sources { galaxy: if wants_map { galaxy } else { None }, rng: lent.as_ref().map(|l| &l.before) };
+    if probe {
+        fp = fp.union(EXPLORE);
+    }
+    let src = Sources { galaxy: if lends_map { galaxy } else { None }, rng: lent.as_ref().map(|l| &l.before) };
     let seeds = match lent {
         Some(_) => Some(std::rc::Rc::new(crate::dual_window::DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?))),
         None => None,
     };
     let rolled = seeds.is_some();
+    let mut row = None;
     let driven = crate::core_sync::with_core(gs, &mut cx, src, fp, |core, _| {
-        if wants_map && core.galaxy().is_none() {
+        if lends_map && core.galaxy().is_none() {
             return None;
         }
         if technology && !crate::strategy_cards_core::research_hooks_agree(core, &before, ti4_content::ContentStore::embedded(), sources.clone(), player, seat) {
@@ -567,10 +650,12 @@ pub fn announce_window(
                 rendered.context = Some(ctx.about_battle(&before).about_invasion(&before));
             }
             recorded_details(_c, script, rendered);
+            reward_details(_c, &before, player, rendered);
             crate::strategy_cards_core::complete_tokens(_c, _core, rendered, letnev);
         };
         let driven = crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &battle);
         played = Some(driver.window.played());
+        row = driver.window.explored();
         faces = driver.window.faces();
         if rolled {
             rng_after = Some(core.rng().clone());
@@ -581,6 +666,9 @@ pub fn announce_window(
     })
     .ok()??
     .ok()?;
+    if let Some(row) = &row {
+        close_row(gs, player, row)?;
+    }
     crate::dual_window::apply_staged(gs, &r, &staged)?;
     let events: Vec<crate::event::Event> = emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
     let positions = match rng_after {

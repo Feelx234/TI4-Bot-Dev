@@ -96,6 +96,8 @@ pub enum What {
     Landing,
     /// kind `system`: the system a neutral destroyer enters (Pirate Contract).
     Pirate,
+    /// kind `system`, label the id: the system whose frontier token Exploration Probe explores.
+    Probe,
     /// kind `strategy_card`: the picker chooses again; `first` was taken away, `by` played the card (Public Disgrace).
     Redraft { first: crate::generated::StrategyCard, by: Seat },
 }

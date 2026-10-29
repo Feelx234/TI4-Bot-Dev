@@ -656,7 +656,7 @@ mod real {
     /// Whether `player` draws `count` action cards plainly: no faction hook changes the draw (Scheming, a bonus
     /// card), the hand stays within its limit (no discard question) and the unofficial cards need not leave the
     /// deck first.
-    fn plain_draw(gs: &GameState, content: &ContentStore, player: &PlayerId, count: usize) -> bool {
+    pub(crate) fn plain_draw(gs: &GameState, content: &ContentStore, player: &PlayerId, count: usize) -> bool {
         gs.players.iter().all(|p| p.faction.as_str() != "yssaril")
             && crate::factions::hooks_economy::action_card_draw_bonus(gs, content, player, count) == 0
             && gs.player(player).is_some_and(|p| p.action_cards.len() + count <= crate::action_cards::hand_limit(gs, content, player))

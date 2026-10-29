@@ -384,11 +384,20 @@ pub struct Facts {
     pub own_breakthrough: [Option<crate::generated::Breakthrough>; 16],
     /// The order of unit types by their id text (the string orders a set of type ids; the core has no id text).
     pub unit_order: fn(Unit, Unit) -> core::cmp::Ordering,
+    /// The map was lent to the window (the adapter had a galaxy): a card that reads the map when there is one (Exploration Probe)
+    /// takes the adjacency from it, otherwise it does what the string does without one.
+    pub map: bool,
+    /// The interned empty text of the exploration log (Exploration Probe opens the row of the card it draws; the other texts of the
+    /// row are written by the adapter).
+    pub explore_empty: crate::state::Code,
+    /// The holder draws two action cards plainly: no draw hook, the hand stays within its limit (a Lost Crew drawn by Exploration
+    /// Probe). A draw that is not plain is the string's.
+    pub action_draw_plain: bool,
 }
 
 impl Default for Facts {
     fn default() -> Self {
-        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE, dreadnought: Placed::NONE, mech: Placed::NONE, pds: Placed::NONE, holder_deepwrought: false, spacedock: Placed::NONE, replenish_events: false, rules_version: u32::MAX, tech_order: |a, b| a.cmp(&b), roster: None, reveal: crate::state::TechSet::default(), traders: [None; 2], fracture_in_play: false, own_breakthrough: [None; 16], unit_order: |a, b| a.cmp(&b) }
+        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE, dreadnought: Placed::NONE, mech: Placed::NONE, pds: Placed::NONE, holder_deepwrought: false, spacedock: Placed::NONE, replenish_events: false, rules_version: u32::MAX, tech_order: |a, b| a.cmp(&b), roster: None, reveal: crate::state::TechSet::default(), traders: [None; 2], fracture_in_play: false, own_breakthrough: [None; 16], unit_order: |a, b| a.cmp(&b), map: false, explore_empty: crate::state::Code(0), action_draw_plain: false }
     }
 }
 

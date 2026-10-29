@@ -773,3 +773,480 @@ fn crash_landing_lands_a_ground_force_on_a_planet_of_the_system_in_the_core_wind
     assert_eq!(after.board[&sys].units.len(), 3);
     let _ = crate::dual::take_report();
 }
+
+// -- Exploration Probe -----------------------------------------------------------------------------------------------
+
+/// Seat `a` holds a cruiser in "25" of the one-ring map; frontier tokens lie in that system, in a system next to it and in one
+/// out of its reach; the frontier deck holds `deck` (the top card first).
+fn probe_position(deck: &[&str]) -> GameState {
+    let galaxy = ring();
+    let mut state = closing_position();
+    let (near, far) = probe_sites(&galaxy);
+    for id in ["25", near.as_str(), far.as_str()] {
+        state.system_mut(&ti4_model::id::SystemId::new(id));
+    }
+    state.system_mut(&ti4_model::id::SystemId::new("25")).units.push(unit("cruiser", "a"));
+    state.frontier_tokens = ["25", near.as_str(), far.as_str()].iter().map(|id| ti4_model::id::SystemId::new(*id)).collect();
+    state.exploration_decks.insert("FRONTIER".to_owned(), deck.iter().map(|card| (*card).to_owned()).collect());
+    state
+}
+
+/// A system of the ring next to "25" (not the centre) and one out of reach of it.
+fn probe_sites(galaxy: &ti4_content::galaxy::Galaxy) -> (String, String) {
+    let next: Vec<String> = galaxy.adjacent("25").into_iter().map(str::to_owned).collect();
+    let near = ["26", "39", "40", "67", "51"].iter().find(|id| next.iter().any(|n| n == **id)).expect("a ring system next to 25").to_string();
+    let far = ["26", "39", "40", "67", "51"].iter().find(|id| !next.iter().any(|n| n == **id)).expect("a ring system out of reach").to_string();
+    (near, far)
+}
+
+/// Exploration Probe: the frontier tokens in or next to a system with a ship of the holder; the top card of the frontier deck is
+/// drawn and resolved (here a fragment: it needs no question).
+#[test]
+fn exploration_probe_explores_a_frontier_token_near_the_holders_ships_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let galaxy = ring();
+    let state = probe_position(&["urf1", "urf2", "urf3"]);
+    crate::action_cards_closing_tests::announce_all_on(&[("probe", state.clone())], Some(&galaxy));
+    let _ = crate::dual::take_report();
+    let a = PlayerId::new("a");
+    let (_, far) = probe_sites(&galaxy);
+    let after = played_on("probe", &state, &galaxy);
+    assert_eq!(after.frontier_tokens.len(), 2, "one token was explored");
+    assert!(after.frontier_tokens.contains(&ti4_model::id::SystemId::new(far.as_str())), "the token out of reach stays");
+    assert_eq!(after.player(&a).unwrap().relic_fragments.get("FRONTIER"), Some(&1));
+    assert_eq!(after.exploration_decks["FRONTIER"].len(), 2);
+    let row = after.exploration_log.last().expect("a row");
+    assert!(row.card == "urf1" && row.outcome == "fragment" && row.placed == ["fragment:frontier"], "{:?}", (&row.card, &row.outcome, &row.placed));
+    let _ = crate::dual::take_report();
+}
+
+fn played_on(alias: &str, start: &GameState, galaxy: &ti4_content::galaxy::Galaxy) -> GameState {
+    let a = PlayerId::new("a");
+    let mut state = start.clone();
+    state.player_mut(&a).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new(alias)];
+    crate::action_cards::discard(&mut state, &a, 0);
+    crate::dual::with_mask(crate::action_cards_closing_tests::dual(), || {
+        crate::action_cards_announce_tests::announce_on(&mut state, alias, &a, Box::new(crate::action_cards_announce_tests::DeclineSlots), Some(galaxy))
+    });
+    state
+}
+
+/// Every card of the frontier deck, drawn by Exploration Probe: what it does to the holder (a fragment, command tokens into pools of
+/// its choice and trade goods, a relic, a secret objective, two action cards, a Merchant Station's choice, the Enigmatic Device
+/// kept in the play area, a gamma token in the active system) and the cards that have nowhere to act without a planet (the ion
+/// storm and the Mirage), each with the words its log row is closed with.
+#[test]
+fn exploration_probe_resolves_every_card_of_the_frontier_deck_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let galaxy = ring();
+    // The last two are cards of other decks that the string resolves the same way when they are in the frontier deck: the
+    // Gamma Wormhole and a cultural relic fragment (the fragment of the card's own deck).
+    let cards = ["urf1", "minent", "ent", "majent", "kel1", "kel2", "dw", "dv1", "dv2", "ed1", "ed2", "gamma", "ion", "lc1", "lc2", "ms1", "ms2", "mirage", "gw", "crf1"];
+    let mut gamma_less = probe_position(&["gamma"]);
+    gamma_less.active_system = None;
+    let mut cases: Vec<(&str, GameState)> = cards.iter().map(|card| ("probe", probe_position(&[card, "urf2"]))).collect();
+    cases.push(("probe", gamma_less));
+    crate::action_cards_closing_tests::announce_all_on(&cases, Some(&galaxy));
+    let _ = crate::dual::take_report();
+}
+
+/// Without a map only the systems with a ship of the holder are offered (the string asks nothing about a neighbour then); with one,
+/// the systems next to them too. A rival's ship, or a unit that is no ship, makes no system the holder's.
+#[test]
+fn exploration_probe_without_a_map_reaches_only_the_systems_with_a_ship() {
+    let _serial = crate::dual::tests::serial();
+    let galaxy = ring();
+    let (near, far) = probe_sites(&galaxy);
+    let a = PlayerId::new("a");
+    // Ships in "25" and in `near`; the token of `far` is out of reach of both on the map (`near`'s own neighbours aside: the far
+    // system is the one that is no neighbour of "25"), so only a ship there would reach it.
+    let mut two = probe_position(&["urf1", "urf2"]);
+    two.system_mut(&ti4_model::id::SystemId::new(near.as_str())).units.push(unit("destroyer", "a"));
+    // A token beside a ship only: without a map it cannot be reached.
+    let mut beside = probe_position(&["urf1", "urf2"]);
+    beside.frontier_tokens.remove(&ti4_model::id::SystemId::new("25"));
+    // A rival's ship and the holder's ground force in space do not count.
+    let mut rivals = probe_position(&["urf1", "urf2"]);
+    rivals.system_mut(&ti4_model::id::SystemId::new("25")).units.clear();
+    rivals.system_mut(&ti4_model::id::SystemId::new("25")).units.push(unit("cruiser", "b"));
+    rivals.system_mut(&ti4_model::id::SystemId::new("25")).units.push(unit("infantry", "a"));
+    // A ship in a system the map does not hold (the string asks the map for its neighbours all the same).
+    let mut off_map = probe_position(&["urf1", "urf2"]);
+    off_map.system_mut(&ti4_model::id::SystemId::new("27")).units.push(unit("carrier", "a"));
+    off_map.frontier_tokens.insert(ti4_model::id::SystemId::new("27"));
+    for galaxy in [None, Some(&galaxy)] {
+        crate::action_cards_closing_tests::announce_all_on(&[("probe", two.clone()), ("probe", beside.clone()), ("probe", rivals.clone()), ("probe", off_map.clone())], galaxy);
+    }
+    let _ = crate::dual::take_report();
+    // Which tokens go: the last option is taken. Without a map: the ship systems, `near` after "25" (the order of the ids); with one
+    // the neighbours join, and a lone option is taken without a question.
+    let gone = |state: &GameState, galaxy: Option<&ti4_content::galaxy::Galaxy>| {
+        let after = {
+            let mut game = state.clone();
+            game.player_mut(&a).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("probe")];
+            crate::action_cards::discard(&mut game, &a, 0);
+            crate::dual::with_mask(crate::action_cards_closing_tests::dual(), || {
+                crate::action_cards_announce_tests::announce_on(&mut game, "probe", &a, Box::new(crate::action_cards_announce_tests::DeclineSlots), galaxy)
+            });
+            game
+        };
+        let mut lost: Vec<String> = state.frontier_tokens.iter().filter(|s| !after.frontier_tokens.contains(*s)).map(ToString::to_string).collect();
+        lost.sort();
+        lost
+    };
+    assert_eq!(gone(&two, None).len(), 1);
+    assert!(gone(&beside, None).is_empty(), "no ship in a system with a token, no map: nothing to explore");
+    assert_eq!(gone(&beside, Some(&galaxy)).len(), 1, "with the map the neighbour of the ship's system is explored");
+    assert!(gone(&rivals, Some(&galaxy)).is_empty(), "a rival's ship and a ground force are not the holder's ships");
+    let _ = crate::dual::take_report();
+}
+
+/// The frontier deck has run out (or was never dealt): the token is spent for nothing and no row is logged — the string removes the
+/// token before it draws, whatever its comment says.
+#[test]
+fn exploration_probe_spends_the_token_even_when_the_frontier_deck_has_run_out() {
+    let _serial = crate::dual::tests::serial();
+    let galaxy = ring();
+    let empty = probe_position(&[]);
+    let mut absent = probe_position(&[]);
+    absent.exploration_decks.remove("FRONTIER");
+    crate::action_cards_closing_tests::announce_all_on(&[("probe", empty.clone()), ("probe", absent.clone())], Some(&galaxy));
+    let _ = crate::dual::take_report();
+    for start in [&empty, &absent] {
+        let after = played_on("probe", start, &galaxy);
+        assert_eq!(after.frontier_tokens.len(), start.frontier_tokens.len() - 1, "the token is gone");
+        assert_eq!(after.exploration_log.len(), start.exploration_log.len(), "no card was drawn, no row");
+    }
+    let _ = crate::dual::take_report();
+}
+
+/// Command tokens: Entropic Fields and the Keleres Ship hand them out one by one into pools of the holder's choice (rules version
+/// 12); before that into the strategy pool without a question. The trade goods of the field follow the tokens.
+#[test]
+fn exploration_probe_gains_command_tokens_into_pools_and_trade_goods_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let galaxy = ring();
+    let a = PlayerId::new("a");
+    // The pool question begins at version 12.
+    let mut twelve = probe_position(&["majent"]);
+    twelve.rules_version = 12;
+    let mut old = probe_position(&["majent"]);
+    old.rules_version = 11;
+    let mut old_ship = probe_position(&["kel1"]);
+    old_ship.rules_version = 11;
+    let cases = [("probe", probe_position(&["majent"])), ("probe", probe_position(&["kel2"])), ("probe", twelve.clone()), ("probe", old.clone()), ("probe", old_ship.clone())];
+    crate::action_cards_closing_tests::announce_all_on(&cases, Some(&galaxy));
+    let _ = crate::dual::take_report();
+    let held = |s: &GameState| {
+        let p = s.player(&a).unwrap();
+        (p.tactic_tokens + p.fleet_tokens + p.strategic_tokens, p.strategic_tokens, p.trade_goods)
+    };
+    let start = probe_position(&["majent"]);
+    let after = played_on("probe", &start, &galaxy);
+    assert_eq!(held(&after).2 - held(&start).2, 3, "Major Entropic Field: three trade goods");
+    assert_eq!(held(&after).0 - held(&start).0, 1, "and one command token");
+    let (asked, _) = announced_once("probe", &twelve, Some(&galaxy), Box::new(crate::action_cards_closing_tests::FirstOption));
+    assert_eq!(held(&asked).1 - held(&twelve).1, 0, "version 12 asks: the first pool is the tactic pool");
+    assert_eq!(asked.player(&a).unwrap().tactic_tokens - twelve.player(&a).unwrap().tactic_tokens, 1);
+    let after = played_on("probe", &old, &galaxy);
+    assert_eq!(held(&after).1 - held(&old).1, 1, "before version 12 the token goes into the strategy pool");
+    let after = played_on("probe", &old_ship, &galaxy);
+    assert_eq!(held(&after).1 - held(&old_ship).1, 2);
+    let _ = crate::dual::take_report();
+}
+
+/// Play `alias` once from `start` with `decider` (on a map when one is given): the position after it and the `(compared, bailed)`
+/// counts of the announce window.
+fn announced_once(
+    alias: &str,
+    start: &GameState,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    decider: Box<dyn crate::choice::Decider>,
+) -> (GameState, (u64, u64)) {
+    let a = PlayerId::new("a");
+    let _ = crate::dual::take_report();
+    let mut state = start.clone();
+    state.player_mut(&a).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new(alias)];
+    crate::action_cards::discard(&mut state, &a, 0);
+    crate::dual::with_mask(crate::action_cards_closing_tests::dual(), || crate::action_cards_announce_tests::announce_on(&mut state, alias, &a, decider, galaxy));
+    let report = crate::dual::report();
+    assert!(report.differences.is_empty(), "differences: {:?}", format!("{:?}", report.differences).chars().take(600).collect::<String>());
+    let counts = crate::action_cards_closing_tests::windows("action_cards::announce");
+    let _ = crate::dual::take_report();
+    (state, counts)
+}
+
+/// A secret objective drawn by a Derelict Vessel over the hand limit asks which unscored secret goes back to the deck.
+#[test]
+fn exploration_probe_draws_a_secret_objective_and_returns_one_over_the_limit_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let galaxy = ring();
+    let a = PlayerId::new("a");
+    let start = probe_position(&["dv1", "dv2"]);
+    let mut full = start.clone();
+    let hand = full.secret_deck.drain(..3).collect::<Vec<_>>();
+    full.player_mut(&a).unwrap().secret_objectives = hand;
+    assert_eq!(full.player(&a).unwrap().secret_objectives.len(), 3);
+    let mut empty_deck = start.clone();
+    empty_deck.secret_deck.clear();
+    crate::action_cards_closing_tests::announce_all_on(&[("probe", start.clone()), ("probe", full.clone()), ("probe", empty_deck.clone())], Some(&galaxy));
+    let _ = crate::dual::take_report();
+    let after = played_on("probe", &start, &galaxy);
+    assert_eq!(after.player(&a).unwrap().secret_objectives.len(), start.player(&a).unwrap().secret_objectives.len() + 1);
+    let after = played_on("probe", &full, &galaxy);
+    assert_eq!(after.player(&a).unwrap().secret_objectives.len(), 3, "four secrets, one went back");
+    assert_eq!(after.secret_deck.len(), full.secret_deck.len(), "the drawn one and the returned one are both in the deck count");
+    let after = played_on("probe", &empty_deck, &galaxy);
+    assert_eq!(after.player(&a).unwrap().secret_objectives, empty_deck.player(&a).unwrap().secret_objectives, "an empty deck draws nothing");
+    let _ = crate::dual::take_report();
+}
+
+/// Dead World draws a relic (the Shard of the Throne scores at once; an empty relic deck gives nothing); the Enigmatic Device stays in
+/// the play area; the gamma relay places its token in the active system (nowhere without one, nothing new where it already lies).
+#[test]
+fn exploration_probe_gains_relics_and_places_the_device_and_the_gamma_token_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let galaxy = ring();
+    let a = PlayerId::new("a");
+    let mut shard = probe_position(&["dw"]);
+    shard.relic_deck = vec![ti4_model::id::RelicId::new("shard"), ti4_model::id::RelicId::new("thetriad")];
+    let mut no_relics = probe_position(&["dw"]);
+    no_relics.relic_deck.clear();
+    let mut lying = probe_position(&["gamma"]);
+    let here = lying.active_system.clone().expect("an active system");
+    lying.wormhole_tokens.insert("GAMMA".to_owned(), here.clone());
+    let mut elsewhere = probe_position(&["gamma"]);
+    elsewhere.wormhole_tokens.insert("GAMMA".to_owned(), ti4_model::id::SystemId::new("27"));
+    crate::action_cards_closing_tests::announce_all_on(
+        &[("probe", shard.clone()), ("probe", no_relics.clone()), ("probe", lying.clone()), ("probe", elsewhere.clone()), ("probe", probe_position(&["ed2"]))],
+        Some(&galaxy),
+    );
+    let _ = crate::dual::take_report();
+    let after = played_on("probe", &shard, &galaxy);
+    assert_eq!(after.player(&a).unwrap().relics, [ti4_model::id::RelicId::new("shard")]);
+    assert_eq!(after.player(&a).unwrap().victory_points, shard.player(&a).unwrap().victory_points + 1, "the Shard scores");
+    let after = played_on("probe", &no_relics, &galaxy);
+    assert!(after.player(&a).unwrap().relics.is_empty());
+    assert_eq!(after.exploration_log.last().unwrap().outcome, "resolved");
+    let after = played_on("probe", &lying, &galaxy);
+    assert!(after.exploration_log.last().unwrap().placed.is_empty(), "the token lay there already");
+    let after = played_on("probe", &elsewhere, &galaxy);
+    assert_eq!(after.wormhole_tokens.get("GAMMA"), Some(&here), "the token moves to the active system");
+    assert_eq!(after.exploration_log.last().unwrap().placed, [format!("wormhole:GAMMA:{here}")]);
+    let after = played_on("probe", &probe_position(&["ed2"]), &galaxy);
+    assert_eq!(after.player(&a).unwrap().exploration_cards, ["ed2"]);
+    assert_eq!(after.exploration_log.last().unwrap().placed, ["play_area:ed2"]);
+    let _ = crate::dual::take_report();
+}
+
+/// Merchant Station: "replenish, or convert to trade goods" is asked (from rules version 19 only to a seat that has commodities to
+/// convert); the replenish fills up to the faction's value (a seat above it is set down to it), the conversion turns all of them
+/// into trade goods.
+#[test]
+fn exploration_probe_replenishes_or_converts_commodities_at_a_merchant_station_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let galaxy = ring();
+    let a = PlayerId::new("a");
+    let with = |commodities: i32, version: u32| {
+        let mut state = probe_position(&["ms1", "ms2"]);
+        state.player_mut(&a).unwrap().commodities = commodities;
+        state.rules_version = version;
+        state
+    };
+    let current = ti4_model::state::RULES_VERSION;
+    let cases = [with(1, current), with(0, current), with(0, 18), with(3, current), with(5, current), with(0, 19)];
+    let calls: Vec<(&str, GameState)> = cases.iter().map(|state| ("probe", state.clone())).collect();
+    crate::action_cards_closing_tests::announce_all_on(&calls, Some(&galaxy));
+    let _ = crate::dual::take_report();
+    let goods = |s: &GameState| s.player(&a).unwrap().trade_goods;
+    let limit = 3;
+    // The last option is "convert", the first "replenish".
+    let (converted, _) = announced_once("probe", &cases[0], Some(&galaxy), Box::new(crate::action_cards_announce_tests::DeclineSlots));
+    assert_eq!((converted.player(&a).unwrap().commodities, goods(&converted) - goods(&cases[0])), (0, 1), "one commodity became a trade good");
+    let (filled, _) = announced_once("probe", &cases[0], Some(&galaxy), Box::new(crate::action_cards_closing_tests::FirstOption));
+    assert_eq!(filled.player(&a).unwrap().commodities, limit, "replenished to the faction's value");
+    let (set_down, _) = announced_once("probe", &cases[4], Some(&galaxy), Box::new(crate::action_cards_closing_tests::FirstOption));
+    assert_eq!(set_down.player(&a).unwrap().commodities, limit, "a seat above its value is set down to it");
+    // Nothing to convert: the replenish is taken without a question (version 19), the conversion is still offered before.
+    let (lone, _) = announced_once("probe", &cases[1], Some(&galaxy), Box::new(crate::action_cards_announce_tests::DeclineSlots));
+    assert_eq!(lone.player(&a).unwrap().commodities, limit);
+    let (offered, _) = announced_once("probe", &cases[2], Some(&galaxy), Box::new(crate::action_cards_announce_tests::DeclineSlots));
+    assert_eq!((offered.player(&a).unwrap().commodities, goods(&offered)), (0, goods(&cases[2])), "version 18 offered the conversion of nothing");
+    let (lone, _) = announced_once("probe", &cases[5], Some(&galaxy), Box::new(crate::action_cards_announce_tests::DeclineSlots));
+    assert_eq!(lone.player(&a).unwrap().commodities, limit, "version 19 asks nothing of a seat without commodities");
+    let _ = crate::dual::take_report();
+}
+
+/// Lost Crew: two action cards, drawn plainly; a draw that would put the hand over its limit (a question to discard) or a faction
+/// that changes the draw (Yssaril) is the string's.
+#[test]
+fn exploration_probe_draws_two_action_cards_for_a_lost_crew_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let galaxy = ring();
+    let a = PlayerId::new("a");
+    let start = probe_position(&["lc1", "lc2"]);
+    crate::action_cards_closing_tests::announce_all_on(&[("probe", start.clone())], Some(&galaxy));
+    let _ = crate::dual::take_report();
+    // The unofficial cards leave the deck before the draw from version 30.
+    let (mut thirty, mut before_thirty) = (start.clone(), start.clone());
+    thirty.rules_version = 30;
+    before_thirty.rules_version = 29;
+    crate::action_cards_closing_tests::announce_all_on(&[("probe", thirty.clone()), ("probe", before_thirty.clone())], Some(&galaxy));
+    let _ = crate::dual::take_report();
+    let (after, _) = announced_once("probe", &before_thirty, Some(&galaxy), Box::new(crate::action_cards_announce_tests::DeclineSlots));
+    assert_eq!(after.action_card_deck.len() + 2, before_thirty.action_card_deck.len(), "version 29 keeps the unofficial cards");
+    let (after, counts) = announced_once("probe", &start, Some(&galaxy), Box::new(crate::action_cards_announce_tests::DeclineSlots));
+    assert_eq!(counts, (1, 0));
+    assert_eq!(after.player(&a).unwrap().action_cards.len(), 2);
+    assert_eq!(after.action_card_deck.len() + 2, crate::deck::action_deck_len(&start), "two cards left the deck (the unofficial ones left it before)");
+    assert_eq!(after.exploration_log.last().unwrap().gains.get("action_cards"), Some(&2));
+    // Six cards in hand: the draw ends in a discard question.
+    let mut crowded = start.clone();
+    let extra: Vec<_> = crowded.action_card_deck.drain(..6).collect();
+    crowded.player_mut(&a).unwrap().action_cards = extra;
+    let crowded_hand = crowded.player(&a).unwrap().action_cards.clone();
+    let mut played = crowded.clone();
+    played.player_mut(&a).unwrap().action_cards.insert(0, ti4_model::id::ActionCardId::new("probe"));
+    let _ = crate::dual::take_report();
+    crate::action_cards::discard(&mut played, &a, 0);
+    assert_eq!(played.player(&a).unwrap().action_cards, crowded_hand);
+    crate::dual::with_mask(crate::action_cards_closing_tests::dual(), || {
+        crate::action_cards_announce_tests::announce_on(&mut played, "probe", &a, Box::new(crate::action_cards_announce_tests::DeclineSlots), Some(&galaxy))
+    });
+    assert_eq!(crate::action_cards_closing_tests::windows("action_cards::announce"), (0, 1), "the discard question is the string's");
+    let _ = crate::dual::take_report();
+    // Yssaril draws an extra card.
+    let mut scheming = start.clone();
+    scheming.player_mut(&PlayerId::new("b")).unwrap().faction = ti4_model::id::FactionId::new("yssaril");
+    let (_, counts) = announced_once("probe", &scheming, Some(&galaxy), Box::new(crate::action_cards_announce_tests::DeclineSlots));
+    assert_eq!(counts, (0, 1));
+}
+
+/// The effect of `alias` played through `play_effect` itself (the window outside the announcement) under the area on `Dual`: the
+/// position after it and the `(ran on the core, bailed)` count of the thread.
+fn played_directly(alias: &str, start: &GameState, galaxy: Option<&ti4_content::galaxy::Galaxy>) -> (GameState, (u32, u32)) {
+    let a = PlayerId::new("a");
+    let id = ti4_model::id::ActionCardId::new(alias);
+    let effect = crate::action_cards::effect_for(&id).expect("a registered effect");
+    let mut state = start.clone();
+    let _ = crate::dual::take_report();
+    crate::action_cards::reset_core_plays();
+    crate::dual::with_mask(crate::action_cards_closing_tests::dual(), || {
+        let mut table = crate::choice::Table::with_default(Box::new(crate::action_cards_announce_tests::DeclineSlots));
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut context = crate::timing::TimingContext {
+            state: &mut state,
+            content: ti4_content::ContentStore::embedded(),
+            sources: ti4_model::content_types::POK,
+            table: &mut table,
+            dice: &mut dice,
+            rng: &mut rng,
+            event_sequence: &mut sequence,
+            galaxy,
+        };
+        crate::action_cards::play_effect(&mut context, &id, &a, effect);
+    });
+    let report = crate::dual::report();
+    assert!(report.differences.is_empty(), "differences: {}", format!("{:?}", report.differences).chars().take(600).collect::<String>());
+    let counts = crate::action_cards::core_plays();
+    let _ = crate::dual::take_report();
+    (state, counts)
+}
+
+/// The effect played on its own (the play window, not the announcement) agrees with the core, on a map and without one, for a card
+/// that asks nothing, a card that asks for command tokens and a card that opens a child window.
+#[test]
+fn exploration_probe_agrees_with_the_core_play_window_outside_the_announcement() {
+    let _serial = crate::dual::tests::serial();
+    let galaxy = ring();
+    for card in ["urf1", "majent", "ms1", "dv1", "gamma", "lc1", "ed1"] {
+        let start = probe_position(&[card, "urf2"]);
+        for map in [Some(&galaxy), None] {
+            let (after, counts) = played_directly("probe", &start, map);
+            assert_eq!(counts, (1, 0), "{card} ran on the core");
+            assert_eq!(after.frontier_tokens.len(), start.frontier_tokens.len() - 1, "{card}: a token was explored");
+            assert_eq!(after.exploration_log.last().unwrap().card, card);
+        }
+    }
+}
+
+/// Bail: command tokens while a Mahact fleet holds tokens of the holder (the reinforcements the pool question previews and the cap
+/// count them): the core declines after the pick, the string plays alone. A card without tokens is not affected.
+#[test]
+fn bail_exploration_probe_command_tokens_with_a_mahact_fleet_holding_the_holders_tokens_are_counted() {
+    let _serial = crate::dual::tests::serial();
+    let galaxy = ring();
+    let mut held = probe_position(&["ent", "urf1"]);
+    held.faction_marks.insert("mahact:fleet:b".to_owned(), "a".to_owned());
+    let (_, counts) = announced_once("probe", &held, Some(&galaxy), Box::new(crate::action_cards_announce_tests::DeclineSlots));
+    assert_eq!(counts, (0, 1));
+    let mut quiet = probe_position(&["urf1", "urf2"]);
+    quiet.faction_marks.insert("mahact:fleet:b".to_owned(), "a".to_owned());
+    let (_, counts) = announced_once("probe", &quiet, Some(&galaxy), Box::new(crate::action_cards_announce_tests::DeclineSlots));
+    assert_eq!(counts, (1, 0));
+}
+
+/// Bail: a Merchant Station's replenish while a Trade Agreement is in play (the replenishment is announced to the note and to the
+/// Cabal): the core declines the replenish, carries the conversion.
+#[test]
+fn bail_exploration_probe_a_replenish_with_a_trade_agreement_in_play_is_counted() {
+    let _serial = crate::dual::tests::serial();
+    let galaxy = ring();
+    let a = PlayerId::new("a");
+    let mut state = probe_position(&["ms1", "ms2"]);
+    state.player_mut(&a).unwrap().commodities = 1;
+    state.promissory_notes.insert("ta:arborec".to_owned(), PlayerId::new("b"));
+    // The first option is the replenish, the last the conversion.
+    let (_, counts) = announced_once("probe", &state, Some(&galaxy), Box::new(crate::action_cards_closing_tests::FirstOption));
+    assert_eq!(counts, (0, 1));
+    let (after, counts) = announced_once("probe", &state, Some(&galaxy), Box::new(crate::action_cards_announce_tests::DeclineSlots));
+    assert_eq!(counts, (1, 0));
+    assert_eq!(after.player(&a).unwrap().commodities, 0);
+}
+
+/// Bail: a card of another deck in the frontier deck (an attachment, a planet's reward): the string resolves it, the core does not carry it.
+#[test]
+fn bail_exploration_probe_a_card_of_another_deck_is_counted() {
+    let _serial = crate::dual::tests::serial();
+    let galaxy = ring();
+    for card in ["ds", "dmz", "aw1", "lf1", "frln1", "mo1", "cm1", "exp1", "vfs1"] {
+        let state = probe_position(&[card, "urf1"]);
+        let (_, counts) = announced_once("probe", &state, Some(&galaxy), Box::new(crate::action_cards_announce_tests::DeclineSlots));
+        assert_eq!(counts, (0, 1), "{card}");
+    }
+}
+
+/// Bail: a replay reserve is installed (a turn redo draws its cards through it): the string draws.
+#[test]
+fn bail_exploration_probe_with_a_replay_reserve_is_counted() {
+    let _serial = crate::dual::tests::serial();
+    let galaxy = ring();
+    let mut state = probe_position(&["urf1", "urf2"]);
+    state.deck_reserve = Some(ti4_model::deck_reserve::DeckReserve::new(
+        std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(ti4_model::deck_reserve::IDLE)),
+        Vec::new(),
+    ));
+    let (_, counts) = announced_once("probe", &state, Some(&galaxy), Box::new(crate::action_cards_announce_tests::DeclineSlots));
+    assert_eq!(counts, (0, 1));
+}
+
+/// The ion storm and the Mirage say "in this system": the probe's draw names no system (`explore_with` passes none), so the string
+/// cannot resolve them: the token is spent, the row says so, nothing is placed. A shortcoming of the string, copied on purpose
+/// (docs/ENGINE_KNOWN_ISSUES.md, B6-copy-07).
+#[test]
+fn exploration_probe_cannot_resolve_the_ion_storm_and_the_mirage_without_a_system() {
+    let _serial = crate::dual::tests::serial();
+    let galaxy = ring();
+    for card in ["ion", "mirage"] {
+        let start = probe_position(&[card, "urf1"]);
+        let (after, counts) = announced_once("probe", &start, Some(&galaxy), Box::new(crate::action_cards_announce_tests::DeclineSlots));
+        assert_eq!(counts, (1, 0), "{card}");
+        let row = after.exploration_log.last().expect("a row");
+        assert!(row.card == card && row.outcome == "unresolved" && row.result == "could not be resolved", "{card}: {:?}", (&row.outcome, &row.result));
+        assert!(after.wormhole_tokens == start.wormhole_tokens && after.ion_storm == start.ion_storm, "{card}: no token placed");
+        assert!(serde_json::to_string(&after.board).unwrap() == serde_json::to_string(&start.board).unwrap(), "{card}: nothing on the board");
+        assert_eq!(after.frontier_tokens.len(), start.frontier_tokens.len() - 1, "{card}: the token is spent");
+    }
+}
