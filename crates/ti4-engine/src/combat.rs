@@ -5695,6 +5695,7 @@ impl CombatWindow {
         // The rest runs on `driver=dual` as a core window too (`rules::combat::end_announce`); the string body
         // notes what the window does not carry.
         let bail = std::cell::Cell::new(!state.pending_destructions.is_empty());
+        let marks_changed = std::cell::Cell::new(false);
         let facts = crate::dual_window::EndArgs {
             attacker: &self.attacker,
             defender: &self.defender,
@@ -5733,17 +5734,16 @@ impl CombatWindow {
         );
         // A mobile space dock left in a space area with another player's ships is destroyed
         // (Floating Factory); checked when the combat that could have cleared them ends.
-        bail.set(
-            bail.get()
-                || !crate::production::destroy_blockaded_mobile_docks(state, ctx.content, ctx.sources, &self.system).is_empty()
-                || state.faction_marks != marks,
-        );
-        self.machine_bail |= bail.get();
+        bail.set(bail.get() || !crate::production::destroy_blockaded_mobile_docks(state, ctx.content, ctx.sources, &self.system).is_empty());
+        // The notes the announcement leaves (Cabal's marks, a staged event) are the core's when the string run had
+        // nested activity: the abilities of the table write them, and the state comparison tells.
+        marks_changed.set(state.faction_marks != marks);
+        self.machine_bail |= bail.get() || marks_changed.get();
         announce_staged_destructions(state, ctx);
                 crate::dual::Run::new(true)
             },
             |s: &mut GameState, script: &crate::dual_window::Recording| {
-                if bail.get() {
+                if bail.get() || (marks_changed.get() && !script.nested) {
                     return None;
                 }
                 crate::dual_window::announce_end(s, content, sources, facts, script)
@@ -6879,6 +6879,8 @@ impl CombatWindow {
                 state.rules_version >= ti4_model::state::RULES_MUNITIONS_AFTER_ROLL && crate::faction_abilities::has(state, content, side, "munitions")
             }),
             opening_unported,
+            round_seq_listens: crate::factions::borrowed_round_agents::has_round_copy(state, content, "letnevagent")
+                || crate::factions::borrowed_round_agents::has_owner_space_round_agent(state),
             barrage_unported,
             roll_unported: !reproducible || self.roll_unported(state, content),
             retreat_unported,
@@ -9618,6 +9620,180 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Viscount Unlenn (the Letnev agent) is an ability of the core table: a Letnev seat outside the fight that holds
+    /// the readied agent is offered every ship of the system at the start of each round, the choice is marked and
+    /// the card exhausted, and the core `BeginRound` window announces the round with the `round_seq` the agent reads.
+    #[test]
+    fn the_letnev_agent_chooses_a_ship_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut marked = 0;
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+            for seed in 1..=3_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan"), ("c", "letnev")], ti4_model::content_types::DEFAULT);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                state.player_mut(&PlayerId::new("c")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("letnevagent"), ti4_model::state::LeaderStatus::Readied);
+                let system = SystemId::new("18");
+                put(&mut state, &system, "cruiser", &attacker(), 3);
+                put(&mut state, &system, "cruiser", &defender(), 3);
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+                marked += state.faction_marks.keys().filter(|k| k.starts_with("yssaril:ssruu-round-agent:c:letnevagent:")).count();
+            }
+        });
+        let r = report();
+        let w = r.windows.get("combat::begin_round").copied().unwrap_or_default();
+        assert!(marked > 0, "the agent marked a ship");
+        assert!(w.compared >= 1, "the round opening with the agent is compared: {:?}", r.windows);
+        assert!(r.windows.keys().all(|k| !k.contains("unported ability leader:*:letnevagent")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    /// Tellurian (the Titans agent) is an ability of the core table: in the `HITS_TO_ASSIGN` window of a round the
+    /// readied agent is offered, the core resolver exhausts it and grants the cancellation the next hit spends, and
+    /// the window is compared rather than bailed.
+    #[test]
+    fn tellurian_cancels_a_hit_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut used = 0;
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+            for seed in 1..=4_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "titans"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                let system = SystemId::new("18");
+                put(&mut state, &system, "cruiser", &attacker(), 3);
+                put(&mut state, &system, "cruiser", &defender(), 3);
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+                used += usize::from(state.player(&attacker()).unwrap().leaders.get(ti4_model::id::text(&"titansagent")) == Some(&ti4_model::state::LeaderStatus::Exhausted));
+            }
+        });
+        let r = report();
+        assert!(used > 0, "the agent was used");
+        assert!(r.windows.keys().all(|k| !k.contains("unported ability leader:*:titansagent")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    /// Brother Milor, ship branch: after a ship is destroyed in a space combat the readied agent lets its owner place
+    /// 2 fighters in the system (the destroyed ship's owner's form).
+    #[test]
+    fn brother_milor_places_fighters_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut exhausted = 0;
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+            for (seed, who) in (1..=4_u64).zip(["hacan", "naalu", "sol", "letnev"]) {
+                let mut state = crate::fixtures::seated_game(&[("a", who), ("b", "yin")], ti4_model::content_types::DEFAULT);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                state.player_mut(&defender()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("yinagent"), ti4_model::state::LeaderStatus::Readied);
+                let system = SystemId::new("18");
+                put(&mut state, &system, "cruiser", &attacker(), 3);
+                put(&mut state, &system, "cruiser", &defender(), 3);
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+                exhausted += usize::from(state.player(&defender()).unwrap().leaders.get(ti4_model::id::text(&"yinagent")) == Some(&ti4_model::state::LeaderStatus::Exhausted));
+            }
+        });
+        let r = report();
+        assert!(exhausted > 0, "the agent was used");
+        assert!(r.windows.keys().all(|k| !k.contains("unported ability leader:*:yinagent")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    /// Salvage Operations (Mentak), the trade good: after a space combat it took part in and did not draw, the holder
+    /// gains 1 trade good (staged, announced by the end window's adapter).
+    #[test]
+    fn salvage_operations_pays_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut paid = 0;
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+            for seed in 1..=4_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "mentak"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                crate::technology::grant(&mut state, &attacker(), &ti4_model::id::TechnologyId::new("so"));
+                // Nothing to pay the produce half with: it is another ability and stays unoffered.
+                state.player_mut(&attacker()).unwrap().trade_goods = 0;
+                let held: Vec<_> = state.controlled_planets(&attacker()).into_iter().map(|(_, planet)| planet.clone()).collect();
+                state.exhausted_planets.extend(held);
+                let system = SystemId::new("18");
+                put(&mut state, &system, "cruiser", &attacker(), 4);
+                put(&mut state, &system, "cruiser", &defender(), 1);
+                let before = state.player(&attacker()).unwrap().trade_goods;
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+                paid += state.player(&attacker()).unwrap().trade_goods - before;
+            }
+        });
+        let r = report();
+        let ended = r.windows.get("combat::announce_end").copied().unwrap_or_default();
+        assert!(paid > 0, "the holder was paid");
+        assert!(ended.compared >= 1, "the end announcement with the ability is compared: {:?}", r.windows);
+        assert!(r.windows.keys().all(|k| !k.contains("unported ability technology:*:so")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
     #[test]
     fn the_end_report_of_a_fight_is_checked_against_the_core() {
         // `combat=dual`: the reason, losers, retreats and lost ships of `SPACE_COMBAT_ENDED` are computed by
@@ -9697,6 +9873,47 @@ mod tests {
         assert!(killed > 0, "some barrage hit");
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         assert!(r.areas[&Area::Driver].calls >= 20, "the steps were compared: {:?}", r.areas[&Area::Driver]);
+        let _ = take_report();
+    }
+
+    /// Tellurian in the anti-fighter barrage window: the agent's cancellation is spent on the barrage's hits before the
+    /// fighters are taken, by the core barrage window as by the string `apply_barrage`.
+    #[test]
+    fn tellurian_cancels_a_barrage_hit_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut spared = 0;
+        for seed in 0..12_u64 {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "titans")], ti4_model::content_types::DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = seed;
+            let system = SystemId::new("18");
+            put(&mut state, &system, &a_barrage_unit(), &attacker(), 3);
+            put(&mut state, &system, "fighter", &defender(), 4);
+            put(&mut state, &system, "cruiser", &defender(), 1);
+            with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+                spared += usize::from(state.player(&defender()).unwrap().leaders.get(ti4_model::id::text(&"titansagent")) == Some(&ti4_model::state::LeaderStatus::Exhausted));
+            });
+        }
+        let r = report();
+        assert!(spared > 0, "the agent was used");
+        assert!(r.windows.keys().all(|k| !k.contains("unported ability leader:*:titansagent")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }
 
@@ -9844,7 +10061,7 @@ mod tests {
         // string `settle` stands there and the windows inside are compared one by one instead.
         let plain = settle_gates(&|_, _| {});
         assert!(!plain.opening_unported && !plain.barrage_unported && !plain.roll_unported && !plain.retreat_unported);
-        // Naaz and Letnev (Voltron repair, Supercharge, Munitions, the Eidolon flip, the round agent), diplomacy.
+        // Naaz and Letnev (Voltron repair, Supercharge, Munitions, the Eidolon flip), diplomacy.
         for faction in ["naaz", "letnev"] {
             let g = settle_gates(&|state, _| state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new(faction));
             assert!(g.opening_unported, "{faction}");

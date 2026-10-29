@@ -13,7 +13,7 @@
 
 use crate::choice::reaction::{AbilityKind, Relation};
 use crate::containers::SmallList;
-use crate::generated::{ActionCard, Faction, Timing};
+use crate::generated::{ActionCard, Timing};
 use crate::ids::Seat;
 use crate::kernel::ability::{AbilityTable, CondCx, Slot, Spec};
 use crate::kernel::reaction::window_of;
@@ -51,10 +51,6 @@ pub fn window_of_slot(slot: Slot) -> Option<(EventKind, Relation)> {
 pub fn playable(s: &CoreState, k: &Kernel, barred: bool, who: Seat, event: &EventRec, relation: Relation) -> Result<SmallList<ActionCard, 12>, Unknown> {
     let mut out = SmallList::new();
     let Some(p) = s.players().by_seat(who) else { return Ok(out) };
-    if p.faction == Faction::TheYssarilTribes {
-        // Transparasteel Plating: the string hook is the faction module's.
-        return Err(Unknown::YssarilTransparasteel);
-    }
     if barred || k.hooks.economy.action_cards_forbidden(s, who) {
         return Ok(out);
     }
@@ -115,6 +111,7 @@ pub fn register(t: &mut AbilityTable) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::generated::Faction;
 
     #[test]
     fn every_printed_window_has_one_slot_and_the_slot_numbers_are_dense() {
@@ -137,7 +134,12 @@ mod tests {
         s.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand.push(ActionCard::ShieldsHolding1);
         let k = Kernel::plain();
         let e = EventRec { id: 1, kind: EventKind::HitsToAssign, payload: Payload::new().with(Key::Player, crate::state::Val::Seat(Seat(0))), cancelled: false };
-        assert_eq!(playable(&s, &k, false, Seat(0), &e, Relation::When), Err(Unknown::YssarilTransparasteel));
+        // Transparasteel Plating is the kernel's hook (`economy.action_cards_forbidden`), not a bail of the seat.
+        assert_eq!(playable(&s, &k, false, Seat(0), &e, Relation::When).unwrap().as_slice(), &[ActionCard::ShieldsHolding1]);
+        // Bribery's goods are the Keleres agent's commodities: a documented bail of the cost check.
+        s.meta_mut().rules_version = RULES_ACTION_CARD_COSTS;
+        assert_eq!(can_matter(&s, Scope(u32::MAX), Seat(1), ActionCard::Bribery, &e), Err(Unknown::BriberyGoods));
+        s.meta_mut().rules_version = 0;
         // Another faction with the card in hand: Shields Holding listens to the hits before they are assigned.
         s.players_mut().by_seat_mut(Seat(1)).unwrap().cards.hand.push(ActionCard::ShieldsHolding1);
         let e1 = EventRec { id: 1, kind: EventKind::HitsToAssign, payload: Payload::new().with(Key::Player, crate::state::Val::Seat(Seat(1))), cancelled: false };

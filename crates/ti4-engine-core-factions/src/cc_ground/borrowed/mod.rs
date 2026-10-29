@@ -4,6 +4,8 @@
 
 use ti4_engine_core::hooks::HookTable;
 
+pub mod timing;
+
 mod observe;
 mod offer;
 mod query;

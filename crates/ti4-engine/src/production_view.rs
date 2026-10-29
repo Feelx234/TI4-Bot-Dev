@@ -47,10 +47,10 @@ fn unported_economy(state: &GameState) -> bool {
 
 /// Whether the producing seat or a seat that can act on it holds a faction whose production hooks the typed
 /// window does not carry yet: the seat's own (Deepwrought oceans, Keleres commodities, Naaz mechs, Mentak's
-/// Corsair form) and the cross-seat ones (Argent's agent redirects, Yssaril's borrowed agents, Nomad's agent
-/// watch), on top of [`unported_economy`].
+/// Corsair form) and the cross-seat ones (Yssaril's borrowed agents, Nomad's agent
+/// watch; Argent's agent is an ability of the core table), on top of [`unported_economy`].
 pub(crate) fn unported_window(state: &GameState, player: &PlayerId) -> bool {
-    use crate::factions::{argent, deepwrought, keleres, mentak, naaz, nomad, yssaril};
+    use crate::factions::{deepwrought, keleres, mentak, naaz, nomad, yssaril};
     let own = [
         deepwrought::MODULE.alias,
         keleres::MODULE_M.alias,
@@ -59,7 +59,7 @@ pub(crate) fn unported_window(state: &GameState, player: &PlayerId) -> bool {
         naaz::MODULE.alias,
         mentak::MODULE.alias,
     ];
-    let cross = [argent::MODULE.alias, nomad::MODULE.alias, yssaril::MODULE.alias];
+    let cross = [nomad::MODULE.alias, yssaril::MODULE.alias];
     unported_economy(state)
         || state.player(player).is_some_and(|p| own.contains(&p.faction.as_str()))
         || state.players.iter().any(|p| cross.contains(&p.faction.as_str()))

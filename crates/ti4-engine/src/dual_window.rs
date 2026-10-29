@@ -407,9 +407,28 @@ pub fn drive_with<W: Window>(
     script: &Recording,
     complete: &dyn Fn(&CoreChoice, &CoreState, &mut Choice),
 ) -> Result<Driven, DriverError> {
+    drive_positioned(driver, core, kernel, None, r, gs, script, complete)
+}
+
+/// [`drive_with`] for a family that reads the position it is asked in (production: costs, spots): the question is
+/// rendered with the core state and `position`'s kernel (`Typed::new_at`).
+///
+/// # Errors
+/// As [`drive`].
+#[allow(clippy::too_many_arguments)]
+pub fn drive_positioned<W: Window>(
+    driver: &mut Driver<W>,
+    core: &mut CoreState,
+    kernel: &Kernel,
+    position: Option<&'static Kernel>,
+    r: &Render,
+    gs: &GameState,
+    script: &Recording,
+    complete: &dyn Fn(&CoreChoice, &CoreState, &mut Choice),
+) -> Result<Driven, DriverError> {
     let (phase, round) = (render::generic::core_phase(gs.phase), gs.round);
     let mut out = Driven { questions: Vec::new(), rendered: Vec::new(), finished: false };
-    match crate::reactions_core::follow(r, script) {
+    match crate::reactions_core::follow(r, gs, script) {
         Ok(Some(mut fol)) => {
             fol.arm(r, gs, core);
             driver.resolver = fol.resolver;
@@ -424,14 +443,21 @@ pub fn drive_with<W: Window>(
             return Err(DriverError::NotAsking);
         }
     }
+    // The core draws an ability's die from the game's stream; a window that was lent none cannot reproduce the roll.
+    if script.nested && !script.dice.is_empty() && !driver.is_seeded() {
+        crate::dual::note_bail(LABEL.with(Cell::get), "nested (dice rolled by an ability in a window lent no stream)");
+        return Err(DriverError::NotAsking);
+    }
     let mut status = driver.run(core, kernel)?;
     loop {
         if let Some(why) = driver.unknown() {
             let why = match why {
-                ti4_engine_core::kernel::ability::Unknown::YssarilTransparasteel => "Yssaril Transparasteel Plating",
                 ti4_engine_core::kernel::ability::Unknown::BriberyGoods => "Bribery's goods (the Keleres agent)",
                 ti4_engine_core::kernel::ability::Unknown::CardCost => "a card cost the core does not judge",
                 ti4_engine_core::kernel::ability::Unknown::HarnessOrInfiltrate => "Harness Energy / Infiltrate",
+                ti4_engine_core::kernel::ability::Unknown::NomadAgentExhaustion => "Nomad Temporal Command Suite (agent exhaustion)",
+                ti4_engine_core::kernel::ability::Unknown::NekroCarriedCard => "a technology carried by a Nekro Valefar Assimilator",
+                ti4_engine_core::kernel::ability::Unknown::MissingFact => "a fact the adapter did not compute for the window",
             };
             crate::dual::note_bail(LABEL.with(Cell::get), &format!("nested ({why})"));
             return Err(DriverError::NotAsking);
@@ -440,10 +466,14 @@ pub fn drive_with<W: Window>(
             Status::Done => {
                 out.finished = true;
                 compare_ability_dice(core, script);
+                compare_nested_events(r, driver, script);
                 return Ok(out);
             }
             Status::Asking(choice) => {
-                let typed = Typed::new(r, choice.clone(), phase, round);
+                let typed = match position {
+                    Some(k) => Typed::new_at(r, render::Position { state: std::rc::Rc::new(core.clone()), kernel: k }, choice.clone(), phase, round),
+                    None => Typed::new(r, choice.clone(), phase, round),
+                };
                 out.questions.push(choice.clone());
                 let mut rendered = typed.rendered;
                 complete(&choice, core, &mut rendered);
@@ -494,6 +524,25 @@ pub(crate) fn nested_check(script: &Recording) -> Option<()> {
         }
         None => Some(()),
     }
+}
+
+/// The events the abilities emitted inside the window (the string's `nested_kinds` without the questions) against
+/// the core's journal without the window's own emissions: the same kinds, in any order of equal kinds.
+fn compare_nested_events<W: Window>(r: &Render, driver: &Driver<W>, script: &Recording) {
+    if !script.nested {
+        return;
+    }
+    let mut core: Vec<String> = driver.resolver.applied_events().iter().map(|e| crate::kernel_sync::event_text(r, e.kind)).collect();
+    for own in &driver.emitted {
+        let text = crate::kernel_sync::event_text(r, own.kind);
+        if let Some(at) = core.iter().position(|k| *k == text) {
+            core.remove(at);
+        }
+    }
+    core.sort();
+    let mut string: Vec<String> = script.nested_kinds.iter().filter(|k| !k.starts_with("ask:")).cloned().collect();
+    string.sort();
+    crate::dual::compare_value(crate::dual::Area::Driver, "nested.events", &string, &core);
 }
 
 /// The dice the abilities of the string run rolled, against the ones the core abilities rolled (the ledger rows
@@ -548,20 +597,39 @@ fn complete_nested(
     rendered: &mut Choice,
 ) {
     if let Some(ctx) = rendered.context.take() {
-        let trigger = crate::kernel_sync::convert::trigger_text(
-            r,
-            &ti4_engine_core::kernel::trigger::Trigger::from_event(&facts.event, facts.relation, &facts.chain),
-        );
-        rendered.context = Some(ctx.with_trigger(trigger).about_battle(gs).about_invasion(gs));
+        // The window's own pick carries its trigger; a question an ability asks carries one only when the ability
+        // puts it there (`with_trigger_of`).
+        let ctx = if with_trigger_of(choice) {
+            let trigger = crate::kernel_sync::convert::trigger_text(
+                r,
+                &ti4_engine_core::kernel::trigger::Trigger::from_event(&facts.event, facts.relation, &facts.chain),
+            );
+            ctx.with_trigger(trigger)
+        } else {
+            ctx
+        };
+        rendered.context = Some(ctx.about_battle(gs).about_invasion(gs));
     }
-    if matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(_)) {
+    crate::render::leaders::complete_round_agent(r, choice, rendered);
+    if is_window_pick(choice) {
         slot_options(r, choice, facts, core, kernel, rendered);
     }
-    if matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(_)) && gs.phase == ti4_model::state::Phase::Action {
+    if is_window_pick(choice) && gs.phase == ti4_model::state::Phase::Action {
         if let Some(active) = &gs.active {
             rendered.details.insert(crate::timing::ACTIVE_DETAIL.to_owned(), active.to_string().into());
         }
     }
+}
+
+/// Whether a nested question carries the trigger of its window in its context: the window's own pick, and the
+/// questions whose string ability builds one (`DecisionTrigger::from_event`).
+fn with_trigger_of(choice: &CoreChoice) -> bool {
+    matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(_))
+}
+
+/// Whether a nested question is the window's own pick (the one that carries the `active` detail of the action phase).
+fn is_window_pick(choice: &CoreChoice) -> bool {
+    matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(ti4_engine_core::choice::reaction::Ask::Window { .. }))
 }
 
 /// The options of a reaction window that are the standing card slot show what the seat could play: the label
@@ -1403,7 +1471,7 @@ pub struct BeginRoundArgs<'a> {
 
 /// Whether the round opening holds something the core window does not carry: diplomacy (attack promises),
 /// a Naaz or Letnev side (Voltron repair, Supercharge, Munitions, the Eidolon flip, the self-repairing
-/// flagship) or a Letnev round agent (own or copied).
+/// flagship). A Letnev round agent (own or copied) is an ability of the table (the copy bails when it is eligible).
 #[must_use]
 pub fn round_opening_unported(
     gs: &GameState,
@@ -1411,11 +1479,8 @@ pub fn round_opening_unported(
     a: &BeginRoundArgs<'_>,
 ) -> bool {
     let side = |id: &PlayerId| gs.player(id).is_none_or(|p| matches!(p.faction.as_str(), "naaz" | "letnev"));
-    gs.diplomacy.enabled
-        || side(a.attacker)
-        || side(a.defender)
-        || crate::factions::borrowed_round_agents::has_round_copy(gs, content, "letnevagent")
-        || crate::factions::borrowed_round_agents::has_owner_space_round_agent(gs)
+    let _ = content;
+    gs.diplomacy.enabled || side(a.attacker) || side(a.defender)
 }
 
 /// The core half of `CombatWindow::begin_round`. `None` for the positions of [`round_opening_unported`],
@@ -1442,7 +1507,9 @@ pub fn begin_round(
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
     let before = gs.clone();
     let env = crate::core_combat::window_env(&before, &cx, sources)?;
-    let facts = Facts { attacker, defender, system, round: a.round, phase: cx.texts.intern(Slice::Transient, "pre_roll").ok()?, announce: a.announce };
+    let round_seq_listens = crate::factions::borrowed_round_agents::has_round_copy(gs, content, "letnevagent")
+        || crate::factions::borrowed_round_agents::has_owner_space_round_agent(gs);
+    let facts = Facts { attacker, defender, system, round: a.round, phase: cx.texts.intern(Slice::Transient, "pre_roll").ok()?, announce: a.announce, round_seq_listens };
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
     let mut driver = Driver::new(BeginRound::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
@@ -2946,6 +3013,8 @@ pub struct BeginGroundArgs<'a> {
     pub planet: &'a ti4_model::id::PlanetId,
     /// A copied round agent makes the round its own event.
     pub copied_round: bool,
+    /// The sources of the game (the kernel's content scope: a round agent reads which units are ground forces).
+    pub sources: ti4_model::content_types::SourceSet,
 }
 
 /// Why the start of the round holds something the core window does not carry: a Naaz side
@@ -2989,7 +3058,7 @@ pub fn begin_ground(gs: &mut GameState, a: &BeginGroundArgs<'_>, script: &Record
     let planet = <ti4_engine_core::generated::Planet as IdStr>::from_id(a.planet.as_str())?;
     let before = gs.clone();
     let numbered = gs.rules_version >= ti4_model::state::RULES_FACTION_EFFECTS;
-    let env = crate::core_invasion::ground_env(&before, &cx, ti4_model::content_types::SourceSet::default())?;
+    let env = crate::core_invasion::ground_env(&before, &cx, a.sources)?;
     let mut driver = Driver::new(BeginGroundRound::new(Facts { system, planet, invader, defender, copied: a.copied_round, numbered }), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(BEGIN_GROUND, script), |core, _| {
@@ -3157,6 +3226,8 @@ pub struct SettleArgs {
     pub begin_occurrence: bool,
     pub munitions_after: [bool; 2],
     pub opening_unported: bool,
+    /// A Letnev round agent listens (`COMBAT_ROUND_STARTED` carries `round_seq`).
+    pub round_seq_listens: bool,
     pub barrage_unported: bool,
     pub roll_unported: bool,
     pub retreat_unported: bool,
@@ -3302,6 +3373,7 @@ fn settle_run(
         occurrence: a.occurrence.unwrap_or(0),
         phases: phase_codes,
         opening_unported: a.opening_unported,
+        round_seq_listens: a.round_seq_listens,
         barrage_unported: a.barrage_unported,
         barrage_cause: r.code("unit_ability:anti_fighter_barrage"),
         barrage_kind: r.code("anti_fighter_barrage"),

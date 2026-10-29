@@ -303,10 +303,12 @@ impl Window for ProductionWindow {
                         [only] => {
                             let only = *only;
                             self.place(sx.state, sx.kernel, unit, only, usize::from(made));
+                            self.agent_destinations_spent(sx);
                             self.placement_timing_done = false;
                             self.stage = Stage::Choosing;
                         }
                         [] => {
+                            self.agent_destinations_spent(sx);
                             self.stage = Stage::Done;
                             return Next::Done;
                         }
@@ -409,6 +411,7 @@ impl Window for ProductionWindow {
             Stage::Placing { unit, made } => {
                 let POpt::Place { spot } = opt else { return Err(Illegal) };
                 self.place(sx.state, sx.kernel, unit, spot, usize::from(made));
+                self.agent_destinations_spent(sx);
                 self.placement_timing_done = false;
                 self.stage = Stage::Choosing;
                 Ok(())
@@ -418,6 +421,12 @@ impl Window for ProductionWindow {
 }
 
 impl ProductionWindow {
+    /// `Obs::AgentDestinationsSpent` of the string window: a placement spends the grant of Argent's agent
+    /// (the closing observers clear it).
+    fn agent_destinations_spent(&self, sx: &mut Sx<'_>) {
+        sx.observe(&crate::kernel::seam::observe::Obs::ProductionWindowClosed { who: self.who, system: self.system }, crate::kernel::seam::observe::Phase::After);
+    }
+
     fn ask_next(&self, sx: &Sx<'_>) -> Next {
         match self.question(sx.state, sx.kernel) {
             Some(c) => Next::Continue(c.ask),

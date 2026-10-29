@@ -150,25 +150,31 @@ impl Window for BarrageStep {
                 sx.state.board().sys(system).units.iter().filter(|u| u.owner() == target && rd.is_fighter(u.kind())).count()
             };
             let before = fighters(sx);
-            if hits > 0 && before > 0 && self.f.announce {
+            // "Before a hit would be assigned": the barrage's hits are a batch; what a card or an agent cancelled in the
+            // window is spent before the fighters are taken (string `apply_barrage`).
+            let hits = if hits > 0 && before > 0 && self.f.announce {
                 let payload = Payload::new()
                     .with(Key::System, Val::System(system))
                     .with(Key::Player, Val::Seat(target))
                     .with(Key::Gunner, Val::Seat(player))
                     .with(Key::Hits, Val::Int(i64::try_from(hits).unwrap_or(0)));
-                let _ = sx.emit(fx::event(EventKind::AntiFighterBarrageHits, payload));
+                usize::try_from(crate::kernel::hits::open_window(sx, EventKind::AntiFighterBarrageHits, payload, target, u32::try_from(hits).unwrap_or(u32::MAX))).unwrap_or(0)
+            } else {
+                hits
+            };
+            if hits > 0 {
+                super::destroy_fighters::destroy_first_fighters(
+                    sx,
+                    super::destroy_fighters::Fighters {
+                        target,
+                        system,
+                        hits: u16::try_from(hits).unwrap_or(u16::MAX),
+                        cause: self.f.cause,
+                        staging: self.f.staging,
+                        announce: self.f.announce,
+                    },
+                );
             }
-            super::destroy_fighters::destroy_first_fighters(
-                sx,
-                super::destroy_fighters::Fighters {
-                    target,
-                    system,
-                    hits: u16::try_from(hits).unwrap_or(u16::MAX),
-                    cause: self.f.cause,
-                    staging: self.f.staging,
-                    announce: self.f.announce,
-                },
-            );
             if before > 0 && fighters(sx) == 0 {
                 if let Some(p) = sx.state.players_mut().by_seat_mut(player) {
                     let entry = (Feat::BarrageTookTheLastFighters, self.f.occurrence);

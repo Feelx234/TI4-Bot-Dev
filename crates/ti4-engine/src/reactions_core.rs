@@ -31,6 +31,20 @@ struct Named {
 
 /// The ported rules with a card key, in table order (the per-owner registration order of `reactions::arm`).
 const NAMED: &[Named] = &[
+    Named { slot: ti4_engine_core_factions::cb_economy::argent::timing::AGENT, kind: "leader", card: "argentagent" },
+    Named { slot: ti4_engine_core::rules::reactions::instinct_training::INSTINCT_TRAINING, kind: "technology", card: "it" },
+    Named { slot: ti4_engine_core::rules::reactions::l1z1x_agent::I48S, kind: "leader", card: "l1z1xagent" },
+    Named { slot: ti4_engine_core::rules::reactions::tellurian::HITS, kind: "leader", card: "titansagent" },
+    Named { slot: ti4_engine_core::rules::reactions::tellurian::CANNON_HITS, kind: "leader", card: "titansagent" },
+    Named { slot: ti4_engine_core::rules::reactions::tellurian::GROUND_HITS, kind: "leader", card: "titansagent" },
+    Named { slot: ti4_engine_core::rules::reactions::tellurian::BARRAGE_HITS, kind: "leader", card: "titansagent" },
+    Named { slot: ti4_engine_core_factions::ce_movement::arborec::timing::WARRIOR_ROLLS, kind: "unit", card: "arborec_infantry2" },
+    Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::MILOR_SHIPS, kind: "leader", card: "yinagent" },
+    Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::MILOR_GROUND, kind: "leader", card: "yinagent" },
+    Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::SALVAGE_TRADE_GOOD, kind: "technology", card: "so" },
+    Named { slot: ti4_engine_core::rules::reactions::saar::SAAR_TRADE_GOOD, kind: "tech", card: "sar" },
+    Named { slot: ti4_engine_core_factions::cc_ground::borrowed::timing::SOL_AGENT, kind: "leader", card: "solagent" },
+    Named { slot: ti4_engine_core_factions::cc_ground::borrowed::timing::LETNEV_AGENT, kind: "leader", card: "letnevagent" },
     Named { slot: ti4_engine_core::rules::reactions::INFANTRY_II_ROLLS, kind: "technology", card: "inf2" },
     Named { slot: cabal::REANIMATOR, kind: "unit", card: "cabal_mech" },
     Named { slot: cabal::DEVOUR_SHIPS, kind: "ability", card: "devour" },
@@ -46,6 +60,20 @@ const NAMED: &[Named] = &[
 fn is_reaction_slot(slot: Slot) -> bool {
     let base = ti4_engine_core::rules::action_cards::reaction_slot::SLOT_BASE;
     (base..base + 100).contains(&slot.0)
+}
+
+thread_local! {
+    /// `(player, system, neighbours)`: the systems adjacent to `system` as `player` sees them, for the window being
+    /// run (`PlayerAdjacency::neighbours`; the core is lent no galaxy).
+    static REACH: std::cell::RefCell<Vec<(String, String, Vec<String>)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Run `body` with the adjacency facts of the window installed (read by [`follow`]).
+pub fn with_reach<T>(entries: Vec<(String, String, Vec<String>)>, body: impl FnOnce() -> T) -> T {
+    let before = REACH.with(|v| v.replace(entries));
+    let out = body();
+    REACH.with(|v| *v.borrow_mut() = before);
+    out
 }
 
 /// The registered id of `spec` for an owner called `owner`.
@@ -68,9 +96,14 @@ pub fn table() -> AbilityTable {
             t.bars = Some(ti4_engine_core::rules::agenda::political_secret_bars);
             // The string order of `reactions::arm`, per owner: the reaction slots, then Instinct Training, I48S,
             // Infantry II, Magen Defense, the factions.
+            ti4_engine_core_factions::cc_ground::register_first(&mut t);
             ti4_engine_core::rules::action_cards::reaction_slot::register(&mut t);
             ti4_engine_core::rules::reactions::register(&mut t);
             ti4_engine_core_factions::cb_economy::register_abilities(&mut t);
+            ti4_engine_core_factions::ce_movement::register_abilities(&mut t);
+            ti4_engine_core_factions::cd_registry::register_abilities(&mut t);
+            ti4_engine_core_factions::cc_ground::register_abilities(&mut t);
+            ti4_engine_core::rules::reactions::register_after_factions(&mut t);
             t
         })
         .clone()
@@ -118,6 +151,15 @@ pub fn slot_of(id: &str) -> Option<Slot> {
     })
 }
 
+/// An ability id with the owner's faction left out (`technology:*:inf2:GROUND_FORCE_DESTROYED:after`).
+fn anonymous(id: &str) -> String {
+    let mut parts: Vec<&str> = id.split(':').collect();
+    if parts.len() > 2 {
+        parts[1] = "*";
+    }
+    parts.join(":")
+}
+
 impl Recording {
     /// The first ability the string run found eligible (or ran) that the core table has no rule for, anonymised
     /// (`technology:*:inf2:GROUND_FORCE_DESTROYED:after`), or the reason the nested activity cannot be followed.
@@ -129,11 +171,7 @@ impl Recording {
             if known.is_some_and(|spec| spec.effect_ported || !ran) {
                 continue;
             }
-            let mut parts: Vec<&str> = id.split(':').collect();
-            if parts.len() > 2 {
-                parts[1] = "*";
-            }
-            return Some(format!("unported ability {}", parts.join(":")));
+            return Some(format!("unported ability {}", anonymous(id)));
         }
         // After the abilities, so that a card played from a window (announced when the window closes, outside the
         // effect that declared it) is reported as the slot that played it.
@@ -152,13 +190,26 @@ pub struct Follow {
 ///
 /// # Errors
 /// The reason the nested activity cannot be followed (the adapter bails with it).
-pub fn follow(r: &Render, script: &Recording) -> Result<Option<Follow>, String> {
+pub fn follow(r: &Render, gs: &GameState, script: &Recording) -> Result<Option<Follow>, String> {
     if !script.nested {
         return Ok(None);
     }
-    let table = table();
+    let mut table = table();
     if let Some(why) = script.unported(&table) {
         return Err(why);
+    }
+    REACH.with(|v| {
+        for (who, system, neighbours) in v.borrow().iter() {
+            let (Some(who), Some(system)) = (r.seat(who), <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(system)) else { continue };
+            let neighbours = neighbours.iter().filter_map(|n| <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(n)).collect();
+            table.facts.set_reach(who, system, neighbours);
+        }
+    });
+    // The use of a round agent is an event of the diplomacy promises (`LeaderUsedFor`); the core does not evaluate them.
+    if gs.diplomacy.enabled {
+        if let Some(id) = script.effects.iter().find(|e| e.starts_with("leader:") && (e.contains(":solagent:") || e.contains(":letnevagent:"))) {
+            return Err(format!("unported ability {} (diplomacy promises on a leader's use)", anonymous(id)));
+        }
     }
     let Some(cfg) = script.cfg.as_ref() else {
         return Err("nested activity without a resolver".to_owned());
@@ -203,6 +254,10 @@ impl Follow {
         let owner_name = |who: Seat| crate::promissory::faction_name(gs, &ti4_model::id::PlayerId::new(r.seat_text(who)));
         let mut name = |spec: &Spec, who: Seat| -> AbilityId { ability_id(r, &id_text(r, spec, &owner_name(who))) };
         self.table.codes.ground_combat = r.code("ground_combat");
+        self.table.codes.harrow = r.code("harrow");
+        self.table.codes.self_assembly = r.code("self_assembly_routines");
+        self.table.codes.mentak = r.code("mentak");
+        self.table.codes.instinct_training = r.code("instinct_training");
         let defs = self.table.registry(core, &order, &mut name);
         self.resolver.register(defs);
     }
@@ -235,15 +290,17 @@ mod tests {
             let id = id_text(&Render::new(Vec::new()), t.of_slot(slot).unwrap(), "sol");
             assert_eq!(slot_of(&id), Some(slot), "{id}");
         }
-        assert_eq!(slot_of("leader:sol:solagent:GROUND_COMBAT_ROUND_STARTED:after"), None);
+        assert!(slot_of("leader:sol:solagent:GROUND_COMBAT_ROUND_STARTED:after").is_some());
+        assert_eq!(slot_of("leader:yssaril:a:solagent:b:GROUND_COMBAT_ROUND_STARTED:after"), None, "a Ssruu copy is another ability");
         assert_eq!(slot_of("technology:hacan:inf2:SHIP_DESTROYED:after"), None, "the event is part of the identity");
     }
 
     #[test]
     fn bail_an_eligible_ability_the_table_lacks_is_named() {
         let t = table();
-        let why = rec(&["leader:sol:solagent:GROUND_COMBAT_ROUND_STARTED:after"], &[]).unported(&t);
-        assert_eq!(why.as_deref(), Some("unported ability leader:*:solagent:GROUND_COMBAT_ROUND_STARTED:after"));
+        let copy = "leader:yssaril:a:solagent:b:GROUND_COMBAT_ROUND_STARTED:after";
+        let why = rec(&[copy], &[]).unported(&t);
+        assert_eq!(why.as_deref(), Some("unported ability leader:*:a:solagent:b:GROUND_COMBAT_ROUND_STARTED:after"));
         assert_eq!(rec(&["technology:hacan:inf2:GROUND_FORCE_DESTROYED:after"], &["technology:hacan:inf2:GROUND_FORCE_DESTROYED:after"]).unported(&t), None);
     }
 
@@ -272,6 +329,50 @@ mod tests {
         let counted = report().windows.keys().any(|k| k.contains("nested (nested activity without a resolver)"));
         let _ = take_report();
         assert!(counted);
+    }
+
+    /// Brother Milor places the form `placed_unit_id` names (the upgrade, the faction's own unit, the plain one): the core
+    /// answer, built from the unit tables without the content store, equals the string one for every faction.
+    #[test]
+    fn the_core_placed_form_equals_the_string_placed_unit_id() {
+        use crate::core_sync::{with_core, Footprint, Sources};
+        use crate::generated::IdStr;
+        use ti4_engine_core::generated::{Faction as CoreFaction, UnitBaseType};
+        use ti4_engine_core::state::Slice;
+        let content = ti4_content::ContentStore::embedded();
+        let sources = ti4_model::content_types::DEFAULT;
+        let mut checked = 0;
+        for faction in CoreFaction::ALL {
+            let name = <CoreFaction as IdStr>::as_str(faction);
+            if name == "neutral" {
+                continue;
+            }
+            for techs in [&[][..], &["ff2", "inf2"][..], &["hcf2", "lw2", "cl2", "so2"][..]] {
+                let mut gs = crate::fixtures::seated_game(&[("a", name), ("b", "hacan")], sources);
+                gs.promissory_notes.clear();
+                gs.promissory_faceup.clear();
+                for t in techs {
+                    crate::technology::grant(&mut gs, &ti4_model::id::PlayerId::new("a"), &ti4_model::id::TechnologyId::new(*t));
+                }
+                let (mut cx, r) = crate::dual_window::tables(&gs).unwrap();
+                let fp = Footprint::reads(&[Slice::Meta, Slice::Seats, Slice::Players]);
+                let before = gs.clone();
+                let mut got = Vec::new();
+                with_core(&mut gs, &mut cx, Sources::default(), fp, |core, _| {
+                    for base in [UnitBaseType::Fighter, UnitBaseType::Infantry] {
+                        let form = ti4_engine_core_factions::cd_registry::yin::timing::placed_form(core, ti4_engine_core::tables::Scope(crate::core_adapter::scope(sources).0), r.seat("a").unwrap(), base);
+                        got.push((base, form.map(<ti4_engine_core::generated::Unit as IdStr>::as_str)));
+                    }
+                })
+                .unwrap();
+                for (base, form) in got {
+                    let want = crate::action_cards::placed_unit_id_text(&before, content, sources, &ti4_model::id::PlayerId::new("a"), <UnitBaseType as IdStr>::as_str(base));
+                    assert_eq!(form, want.as_ref().map(ti4_model::id::UnitTypeId::as_str), "{name} {base:?} {techs:?}");
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 100);
     }
 
     #[test]
