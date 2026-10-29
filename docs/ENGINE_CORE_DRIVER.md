@@ -371,3 +371,55 @@ The follower and scoring comparisons need `strategy=dual` / `objectives=dual` be
 core outcome and only 1, 4 and 5 run. The windows are opened and closed by the string (phase flow is the next D1a piece); the
 windows of the action phase (tactical, aftermath), trade, diplomacy, voting, tokens and leader followers are D1a's remainder
 and D1b's.
+
+## 9. P1: plain events and the one ordered emission queue; D1a's remainder
+
+### 9.1 The emission queue (package P1)
+
+`Game::events` is ONE ordered log of two kinds of lines. The core keeps the same log in `Ledger.events: Log<Emit>`
+(`state/plain.rs`), output only (no codec loads or stores it, so writing it needs no slice in a footprint):
+
+* `Emit::Plain(PlainRec)`: a plain event of `Game::emit`. `PlainKind` is a closed catalogue (about 80 names, census of
+  `Game::emit` over `ti4-engine/src`; `Untyped` carries any other text as a `Code`), `PlainRec { kind, a, b }` holds up to two
+  typed `PlainArg`s; `PlainKind::shape()` says which (`Slot`), shared by the renderer and the validity test. No text in the core.
+* `Emit::Typed(EventRec)`: a typed event the resolver emitted, as the string mirrors it into `Game::events` (the bare name).
+
+**Ordering rule.** The string pushes a plain event at once, but copies the typed events of the resolver in BATCHES: `mirror_timing_log(logged)`
+copies every `emit NAME#id` line since `logged` (nested ability events included) when the surrounding call returns. A plain event
+pushed after an emission and before the mirror is therefore stored BEFORE that emission's names. The core reproduces this:
+`fx::plain` / `Sx::plain` append at once; `Sx::emit_mirrored` is the string's `emit_typed` (take `fx::journal_mark`, emit,
+`fx::mirror_journal` copies the `Line::Emit` rows since the mark and returns the new cursor); a window that mirrors elsewhere
+calls `mirror_journal` at the same program point as the string. Nothing is mirrored when the emission fails (the string returns
+before the mirror). `Pending.staged` stays `Vec<EventRec>` (typed staged events only): plain events are never staged in the
+string, and changing the element type would break the tests and the 28 `take(&mut ..staged)` sites of files owned by running
+areas.
+
+**Harness (P1.1b).** `Recording.order: Vec<Pushed>` (`Pushed::Plain(text)` / `Pushed::Mirrored(name)`) is the single sequence in push
+order; `plain` and `mirrored` are views of it. `Run::with_order` gives the core side's sequence and `compare_runs` compares it as
+`<label>.order` (and the plain subsequence as `<label>.plain`); a side that gives none compares nothing. The three agenda
+adapters (reveal, close, Committee Formation) read `Ledger.events` after the window and render it with
+`render::events::pushed_of`.
+
+**Renderer.** `render/events.rs`: `plain_text` (kind name = SCREAMING_SNAKE of the variant, `:`-joined arguments), `parse_plain` (the
+inverse; a text outside the catalogue, or whose arguments do not render back to the same line, is `Untyped`), `pushed_of`,
+`pushed_since`, `events_text`.
+
+Not in P1: the plain events of `Game` methods outside a ported window (still counted under `(game)` in the census), the
+`Game::events()` accessor and the migration of the reader crates (P1-6: deferred to the D2 prerequisites), the plain events of the
+windows other packages port (each converts its own list with `sx.plain`).
+
+### 9.2 D1a's remainder: more typed windows
+
+`state::Window` gains `LeaderFollowers` (the seats still to be asked and the followers so far), `Tokens` (boxed: the seats of the
+tokens still to place, the placed ones and a typed `StatusReport`), `Voting` (boxed: the vote of one agenda, `state::Vote` with
+`VoteStage` which `rules::agenda::window::Stage` now re-exports, plus the agendas still to come) and `Trade` (the two chairs, the
+proposals left and the deal on the table as a `choice::trade::Shape`; the terms are a function of the shape and the position).
+Payloads live in `state/pending_windows.rs`. The D1 dual (`d1_pending.rs` + `d1_windows.rs`) observes them from the string fields and
+checks that each turns back into the field it was read from (`d1::pending.roundtrip`). They FOLLOW the string (no core transition);
+`Diplomacy` and `AgendaTalks` stay untyped by decision, `Tactical` and `Aftermath` are D1b.
+
+Phase flow (W3) and the reconcile hooks (W4) are NOT ported; they are counted so D1b's `Session::step` has its worklist:
+`d1::pending.open [bail: <kind>]` / `d1::pending.close [bail: <kind>]` (the window kinds the string opened or closed in a step) and
+`d1::reconcile [bail: <hook>]` (the hooks at the head of `step_flow` that changed the state in a step; `apply_to_galaxy` and
+`replay_map_edits` change the galaxy, which is not in `GameState`, and are not probed).
+
