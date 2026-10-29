@@ -28,17 +28,38 @@ fn ready_card(s: &CoreState, who: Seat, card: Leader) -> bool {
     s.players().by_seat(who).is_some_and(|p| p.leaders.status.get(&card) == Some(&LeaderStatus::Readied))
 }
 
-/// `placed_unit_id` of a seat for a base type: the upgrade it owns, else its faction's own unit, else the plain one.
-pub fn placed_form(s: &CoreState, scope: Scope, who: Seat, base: UnitBaseType) -> Option<Unit> {
+/// The faction units per faction and base type, as the source scope resolves them.
+pub fn roster(scope: Scope) -> tech::UnitRoster {
+    thread_local! {
+        static CACHE: std::cell::Cell<Option<(u32, tech::UnitRoster)>> = const { std::cell::Cell::new(None) };
+    }
+    if let Some((bits, roster)) = CACHE.with(std::cell::Cell::get)
+        && bits == scope.0
+    {
+        return roster;
+    }
+    let roster = build_roster(scope);
+    CACHE.with(|c| c.set(Some((scope.0, roster))));
+    roster
+}
+
+fn build_roster(scope: Scope) -> tech::UnitRoster {
     let mut roster = tech::UnitRoster::default();
     for faction in Faction::ALL {
-        let own = Unit::ALL.into_iter().find(|u| {
-            let d = u.data();
-            d.base_type == base && d.upgrades_from.is_none() && d.faction.is_some_and(|tag| tech::tag_is(tag, faction)) && scope.unit(*u).is_some()
-        });
-        roster.set(faction, base, own);
+        for base in UnitBaseType::ALL {
+            let own = Unit::ALL.into_iter().find(|u| {
+                let d = u.data();
+                d.base_type == base && d.upgrades_from.is_none() && d.faction.is_some_and(|tag| tech::tag_is(tag, faction)) && scope.unit(*u).is_some()
+            });
+            roster.set(faction, base, own);
+        }
     }
-    tech::unit_form(s, scope, &roster, who, base)
+    roster
+}
+
+/// `placed_unit_id` of a seat for a base type: the upgrade it owns, else its faction's own unit, else the plain one.
+pub fn placed_form(s: &CoreState, scope: Scope, who: Seat, base: UnitBaseType) -> Option<Unit> {
+    tech::unit_form(s, scope, &roster(scope), who, base)
 }
 
 /// `in_reinforcements`: the form the player places, and one of it left in the box.

@@ -174,3 +174,58 @@ pub(crate) mod testkit {
         (s, Kernel::plain())
     }
 }
+
+/// `technology::apply_unit_upgrades` on the core state: the units of `who` on the board take the form the seat is entitled to
+/// (the upgrade it owns, else its faction's own unit, else the plain one). The faction override of the form (Mentak's Corsair)
+/// is the caller's to exclude.
+pub fn apply_unit_upgrades(s: &mut CoreState, scope: ti4_engine_core::tables::Scope, who: Seat) {
+    use ti4_engine_core::generated::{Requirement, System};
+    use ti4_engine_core::query::tech;
+    let roster = crate::cd_registry::yin::timing::roster(scope);
+    let Some(p) = s.players().by_seat(who) else { return };
+    let (faction, owned) = (p.faction, p.tech.owned.clone());
+    let chosen = |kind: Unit| -> Unit {
+        let d = kind.data();
+        tech::unlocked_upgrade(scope, d.base_type, faction, &owned)
+            .or_else(|| if d.faction.is_none() && d.required_technology == Requirement::None { tech::faction_unit(&roster, faction, d.base_type) } else { None })
+            .unwrap_or(kind)
+    };
+    let swap = |units: &mut [ti4_engine_core::state::Piece]| {
+        for piece in units.iter_mut().filter(|p| p.owner() == who && scope.unit(p.kind()).is_some()) {
+            let better = chosen(piece.kind());
+            if better != piece.kind() {
+                *piece = piece.with_kind(better);
+            }
+        }
+    };
+    for system in System::ALL {
+        swap(s.board_mut().sys_mut(system).units.as_mut_slice());
+        let planets: Vec<_> = board::planets_of(s, system).collect();
+        for planet in planets {
+            swap(s.board_mut().planet_mut(planet).units.as_mut_slice());
+        }
+    }
+}
+
+#[cfg(test)]
+mod upgrade_tests {
+    use super::*;
+    use ti4_engine_core::generated::Planet;
+
+    #[test]
+    fn an_owned_upgrade_reaches_the_seats_units_on_the_board_and_only_those() {
+        let (mut s, _) = testkit::table(&[Faction::TheNekroVirus, Faction::TheEmiratesOfHacan]);
+        let (system, planet) = (System::ALL[0], Planet::ALL[0]);
+        s.board_mut().sys_mut(system).units.push(Piece::new(Unit::CruiserI, Seat(0)));
+        s.board_mut().sys_mut(system).units.push(Piece::new(Unit::CruiserI, Seat(1)));
+        s.board_mut().planet_mut(planet).units.push(Piece::new(Unit::InfantryI, Seat(0)));
+        let scope = Scope(u32::MAX);
+        apply_unit_upgrades(&mut s, scope, Seat(0));
+        assert_eq!(s.board().sys(system).units.as_slice().iter().map(|p| (p.owner(), p.kind())).collect::<Vec<_>>(), vec![(Seat(0), Unit::CruiserI), (Seat(1), Unit::CruiserI)], "no upgrade owned: nothing changes");
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.insert(Technology::CruiserII);
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.insert(Technology::InfantryII);
+        apply_unit_upgrades(&mut s, scope, Seat(0));
+        assert_eq!(s.board().sys(system).units.as_slice().iter().map(|p| (p.owner(), p.kind())).collect::<Vec<_>>(), vec![(Seat(0), Unit::CruiserII), (Seat(1), Unit::CruiserI)], "the owner's only, in place");
+        assert_eq!(s.board().planet(planet).units.as_slice()[0].kind(), Unit::InfantryII, "a planet's units too");
+    }
+}

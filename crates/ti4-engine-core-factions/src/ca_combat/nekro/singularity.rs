@@ -11,16 +11,17 @@
 //!   (the options of `nekro::assimilation_options`: gain a technology the Nekro lacks, or put the X or Y token of a Valefar
 //!   Assimilator on a faction technology) and applies the answer.
 //!
+//! A gained technology reaches the units on the board (`common::apply_unit_upgrades`, `technology::gain`).
+//!
 //! Not covered (the window bails, tests `bail_*`): the Z token of the Valefar Assimilator breakthrough, which lends a
-//! flagship's text (the Nekro holds the breakthrough and an opponent could take from it), and a gained technology that
-//! changes the form of the Nekro's units (a unit upgrade, or a technology some unit requires): the string swaps the units
-//! on the board.
+//! flagship's text (the Nekro holds the breakthrough and an opponent could take from it), and a Mentak Nekro-less gain is
+//! not possible but a Mentak seat's own Corsair form of a unit is the string's override.
 
 use ti4_engine_core::choice::generic::Content;
 use ti4_engine_core::choice::reaction::{AbilityKind, Ask as RAsk, Opt as ROpt, Relation, Subtype as RSub, Take};
 use ti4_engine_core::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use ti4_engine_core::containers::SmallList;
-use ti4_engine_core::generated::{Breakthrough, Faction, Leader, Requirement, Technology, Unit};
+use ti4_engine_core::generated::{Breakthrough, Faction, Leader, Technology};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::kernel::ability::{CondCx, Eff, Slot, Spec, Unknown};
 use ti4_engine_core::kernel::resolver::TimingError;
@@ -201,13 +202,6 @@ fn singularity_when(c: &CondCx<'_>) -> bool {
     got.is_some()
 }
 
-/// A technology whose gain changes the form of a unit the Nekro owns (`technology::apply_unit_upgrades`): the core does not
-/// swap the units on the board.
-fn changes_unit_forms(t: Technology) -> bool {
-    ti4_engine_core::query::tech::is_unit_upgrade(t)
-        || Unit::ALL.iter().any(|u| matches!(u.data().required_technology, Requirement::Known(r) if r == t))
-}
-
 fn singularity(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let me = eff.owner();
     let ground = Slot(u16::try_from(eff.def.arg).unwrap_or(0)) == GROUND;
@@ -244,11 +238,15 @@ fn singularity(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let Pick::Opt(Opt::Reaction(ROpt::Take { how, tech, .. })) = eff.ask(&choice) else { return Ok(()) };
     match how {
         Take::Gain => {
-            if changes_unit_forms(tech) {
+            // Mentak's Corsair form of a unit is the string's override of the form the units take.
+            if eff.state().players().by_seat(me).is_some_and(|p| p.faction == Faction::TheMentakCoalition) {
                 eff.unknown(Unknown::MissingFact);
                 return Ok(());
             }
             ti4_engine_core::kernel::fx::grant_technology(eff.state(), me, tech);
+            // `technology::gain`: a unit upgrade reaches the units already on the board.
+            let scope = Scope(u32::from(eff.kernel().sources.0));
+            crate::common::apply_unit_upgrades(eff.state(), scope, me);
         }
         Take::TokenX | Take::TokenY => {
             let card = if how == Take::TokenX { Technology::ValefarAssimilatorX } else { Technology::ValefarAssimilatorY };
@@ -363,9 +361,4 @@ mod tests {
         assert!(options(&s, &k, Seat(0), Seat(0)).is_empty(), "nothing of one's own");
     }
 
-    #[test]
-    fn the_technologies_that_change_unit_forms_are_the_documented_bail() {
-        assert!(changes_unit_forms(Technology::CarrierII), "a unit upgrade");
-        assert!(!changes_unit_forms(Technology::GravityDrive));
-    }
 }

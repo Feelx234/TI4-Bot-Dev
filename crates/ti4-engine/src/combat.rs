@@ -10082,18 +10082,24 @@ mod tests {
         }
     }
 
-    /// Documented bails of Technological Singularity: gaining a unit upgrade (the string swaps the units on the board) and a
-    /// Nekro who holds the Z token breakthrough (a flagship's text) stay in the string, counted under the window.
+    /// Gaining a unit upgrade through Technological Singularity reaches the units on the board (`technology::gain`): the Nekro's
+    /// cruisers become Cruiser II in the core window as in the string.
     #[test]
-    fn bail_the_singularity_for_a_unit_upgrade_and_the_z_token() {
-        let (mut gained, mut bailed) = (0, 0);
+    fn the_singularity_gaining_a_unit_upgrade_swaps_the_units_in_lockstep() {
+        let (mut swapped, mut gained) = (0, 0);
         for seed in 0..6_u64 {
-            let (state, bails, differences) = nekro_fight(seed, &["cv2"], |_| {});
+            let (state, windows, differences) = nekro_fight(seed, &["cr2"], |_| {});
             assert_eq!(differences, 0, "seed {seed}");
-            gained += usize::from(state.player(&attacker()).unwrap().technologies.contains(ti4_model::id::text(&"cv2")));
-            bailed += usize::from(bails.iter().any(|k| k.contains("a fact the adapter did not compute")));
+            assert!(windows.iter().all(|k| !k.contains("[bail:")), "seed {seed}: {windows:?}");
+            gained += usize::from(state.player(&attacker()).unwrap().technologies.contains(ti4_model::id::text(&"cr2")));
+            swapped += state.system_state(&SystemId::new("18")).units.iter().filter(|u| u.owner == attacker() && u.type_id.as_str() == "cruiser2").count();
         }
-        assert!(gained > 0 && bailed > 0, "the string gained a unit upgrade ({gained}) and the window named the bail ({bailed})");
+        assert!(gained > 0 && swapped > 0, "the upgrade was gained ({gained}) and reached the board ({swapped})");
+    }
+
+    /// Documented bail of Technological Singularity: a Nekro who holds the Z token breakthrough (a flagship's text is lent).
+    #[test]
+    fn bail_the_singularity_with_the_z_token() {
         let mut bailed = 0;
         for seed in 0..6_u64 {
             let (_, bails, differences) = nekro_fight(seed, &["gd", "qdn"], |s| {
