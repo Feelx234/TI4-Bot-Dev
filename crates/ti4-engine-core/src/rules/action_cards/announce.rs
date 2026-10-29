@@ -379,6 +379,27 @@ mod tests {
         assert_eq!(kinds, [EventKind::ActionCardPlayed, EventKind::ActionCardUnresolved, EventKind::ActionCardDiscarded]);
     }
 
+    /// A rules package registers the effect of a card (`AbilityTable::add_card_play`); the component action's window plays it
+    /// on the host built from its own services, as an inline play does.
+    #[test]
+    fn a_registered_effect_runs_in_the_component_actions_window() {
+        use crate::kernel::ability::CardPlay;
+        fn bump(host: &mut crate::kernel::ability::RulesHost<'_>, _: &mut Resolver, who: Seat, _: ActionCard) -> Result<(), TimingError> {
+            host.state.players_mut().by_seat_mut(who).unwrap().econ.fleet_tokens += 7;
+            Ok(())
+        }
+        let mut s = two_seats();
+        let before = s.players().by_seat(Seat(0)).unwrap().econ.fleet_tokens;
+        let a = Announce::of(&s, ActionCard::Parley, Seat(0), env(), true, true).unwrap();
+        let mut table = plays_table();
+        table.add_card_play(CardPlay { covers: |c| c == ActionCard::Parley, effect: bump });
+        let d = run(a, &mut s, table);
+        assert!(d.window.played());
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.fleet_tokens, before + 7, "the registered effect ran");
+        let kinds: Vec<EventKind> = d.emitted.iter().map(|e| e.kind).collect();
+        assert_eq!(kinds, [EventKind::ActionCardPlayed, EventKind::ActionCardDiscarded]);
+    }
+
     /// Bail: a card with an effect the core does not play has no announcement (the string runs).
     #[test]
     fn bail_a_card_with_an_unported_effect_has_no_announcement() {

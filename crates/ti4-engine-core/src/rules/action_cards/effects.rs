@@ -1306,6 +1306,83 @@ mod tests {
         assert!(Play::of(&core, ActionCard::ArchaeologicalExpedition, who, bare_env()).is_none());
     }
 
+    /// The documented bails of the action-card area (docs/B6_CARDS.md): the cards whose string effect runs alone, each with the
+    /// fact or rule of another area it needs. Every card of the game is either played by the core (a stamp, a window, or
+    /// an effect a rules package registers: `REGISTERED`) or listed here, so a new card cannot be left out without notice.
+    const BAILS: &[(ActionCard, &str)] = &{
+        use ActionCard as C;
+        [
+            (C::Bribery, "the trade goods may include the Keleres agent's commodities (the goods window asks first); the slot judges the bill with them"),
+            (C::Brilliance, "a planet with a technology specialty readies or another seat's breakthrough is gained (the breakthrough hooks and the Fracture)"),
+            (C::CourageousToTheEnd, "dice with the producer in the casualty question"),
+            (C::CrashLanding, "placement of a ground force through the faction hooks onto a contested planet"),
+            (C::DecoyOperation, "structures of the holder, ground forces pulled by the faction hooks"),
+            (C::DivertFunding, "a technology returned, then a research (Deepwrought's window around it)"),
+            (C::ExperimentalBattlestation, "the space cannon of a structure joined to the movement window"),
+            (C::FocusedResearch, "four trade goods (the Keleres goods window) then a research"),
+            (C::FireTeam, "per-die reroll questions of a staged ground roll"),
+            (C::GhostShip, "the systems of the game's map with a wormhole"),
+            (C::GhostSquad, "ground forces moved through the faction hooks"),
+            (C::HarnessEnergy, "the commodity limit of the faction hooks, the Siphon event and the Trade Agreement hook"),
+            (C::Impersonation, "three influence by the question-driven payment, then a secret objective draw with the hand limit"),
+            (C::Infiltrate, "the structure swap of the capture (rules version dependent unit forms)"),
+            (C::SignalJamming, "the blockade rules of the map"),
+            (C::LieInWait, "the neighbours of the map who traded this round (the transactions)"),
+            (C::MercenaryContract, "neutral infantry (the neutral has no seat) and the Keleres goods window"),
+            (C::Overrule, "performs the primary ability of another strategy card (the strategy area's windows)"),
+            (C::PirateContract1, "the neutral destroyer has no seat"),
+            (C::PirateContract2, "the neutral destroyer has no seat"),
+            (C::PirateContract3, "the neutral destroyer has no seat"),
+            (C::PirateContract4, "the neutral destroyer has no seat"),
+            (C::PirateFleet, "neutral ships (the neutral has no seat) and three resources by the question-driven payment"),
+            (C::Plagiarize, "five influence by the question-driven payment, then a technology gained from a neighbour"),
+            (C::ExplorationProbe, "the frontier tokens adjacent to the holder's ships (the map)"),
+            (C::RefitTroops, "infantry replaced by mechs through the unit-form flip of the faction hooks"),
+            (C::RevealPrototype, "four resources by the question-driven payment, then a unit upgrade research"),
+            (C::ScrambleFrequency, "per-die reroll questions of a staged roll of another seat"),
+            (C::Strategize1, "performs the secondary ability of another strategy card (the strategy area's windows)"),
+            (C::Strategize2, "performs the secondary ability of another strategy card (the strategy area's windows)"),
+            (C::Strategize3, "performs the secondary ability of another strategy card (the strategy area's windows)"),
+            (C::Strategize4, "performs the secondary ability of another strategy card (the strategy area's windows)"),
+            (C::Upgrade, "a cruiser replaced by a dreadnought through the unit-form flip of the faction hooks"),
+        ]
+    };
+
+    /// The effects the faction crate registers in the ability table (`ti4_engine_core_factions::cards`): they read the combat
+    /// and invasion areas, which this area may not import.
+    const REGISTERED: &[ActionCard] = &{
+        use ActionCard as C;
+        [
+            C::Parley,
+            C::DirectHit1,
+            C::DirectHit2,
+            C::DirectHit3,
+            C::DirectHit4,
+            C::SkilledRetreat1,
+            C::SkilledRetreat2,
+            C::SkilledRetreat3,
+            C::SkilledRetreat4,
+        ]
+    };
+
+    /// Every card is played by the core or a documented bail, never both (docs/B6_CARDS.md).
+    #[test]
+    fn every_action_card_is_ported_or_a_documented_bail() {
+        let mut unlisted = Vec::new();
+        for card in ActionCard::ALL {
+            let ported = super::super::Simple::of(card).is_some() || Fx::of(card).is_some() || REGISTERED.contains(&card);
+            let bail = BAILS.iter().any(|(c, _)| *c == card);
+            if ported == bail {
+                unlisted.push((card, ported));
+            }
+        }
+        assert!(unlisted.is_empty(), "ported twice or neither ported nor a documented bail: {unlisted:?}");
+        for (card, why) in BAILS {
+            assert!(!why.is_empty(), "{card:?}");
+            assert!(Fx::of(*card).is_none(), "{card:?}: a documented bail has no Fx");
+        }
+    }
+
     #[test]
     fn veto_declines_while_a_replay_reserve_is_installed() {
         let mut core = CoreState::all_loaded();
