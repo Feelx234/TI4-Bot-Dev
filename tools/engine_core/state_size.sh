@@ -6,7 +6,7 @@
 #   tools/engine_core/state_size.sh [CONFIG] [GAMES] [STRIDE] [REPS]
 set -uo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-bin="${CARGO_TARGET_DIR:?set CARGO_TARGET_DIR}/release/state_size"
+bin="${CARGO_TARGET_DIR:?set CARGO_TARGET_DIR}/gate/state_size"
 config="${1:-$repo/tools/engine_profile/profile-20.json}"; games="${2:-2}"; stride="${3:-50}"; reps="${4:-20}"
 "$bin" "$config" "$games" "$stride" "$reps"
 # Allocator counters: the difference between a run that clones and one that does not.

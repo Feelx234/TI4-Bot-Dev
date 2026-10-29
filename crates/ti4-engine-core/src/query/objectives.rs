@@ -1370,3 +1370,37 @@ pub fn secret_progress(pos: &Pos<'_>, obj: SecretObjective) -> Result<Option<Pro
 pub fn secret_points(obj: SecretObjective) -> u8 {
     obj.data().points
 }
+
+/// `secrets::HAND_LIMIT` (45.4): three, scored ones counting.
+pub const HAND_LIMIT: usize = 3;
+
+/// What `secrets::enforce_hand_limit` does next for a seat.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HandStep {
+    /// Within the limit, or every secret in hand is scored and there is nothing to hand back.
+    Within,
+    /// Over the limit with one unscored secret: it goes back without a question.
+    Return(SecretObjective),
+    /// Over the limit: which one goes back. `held` is secrets held plus scored.
+    Ask { held: u8, hand: SmallList<SecretObjective, 4> },
+}
+
+/// `secrets::held_count`: secrets in hand plus the ones already scored.
+#[must_use]
+pub fn secrets_held(core: &CoreState, seat: Seat) -> usize {
+    core.players().by_seat(seat).map_or(0, |p| p.cards.secrets.len()) + core.objectives().scored[usize::from(seat.0)].secret.len()
+}
+
+/// The next step of `secrets::enforce_hand_limit` (the Obsidian lifts the limit by one).
+#[must_use]
+pub fn hand_step(core: &CoreState, seat: Seat) -> HandStep {
+    let held = secrets_held(core, seat);
+    let hand = core.players().by_seat(seat).map_or_else(SmallList::new, |p| p.cards.secrets.clone());
+    if held <= HAND_LIMIT + crate::query::relic::secret_objective_bonus(core, seat) || hand.is_empty() {
+        return HandStep::Within;
+    }
+    match hand.as_slice() {
+        [only] => HandStep::Return(*only),
+        _ => HandStep::Ask { held: u8::try_from(held).unwrap_or(u8::MAX), hand },
+    }
+}

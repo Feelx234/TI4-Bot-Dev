@@ -125,7 +125,7 @@ pub(crate) fn reroll_set_back(cx: &Ctx, r: &c::RerollSet) -> R<m::RerollSet> {
     Ok(m::RerollSet { kind: cx.texts.text(S, r.kind)?.to_owned(), system: sid(r.system), rolls })
 }
 
-fn invasion_step(cx: &mut Ctx, s: &m::InvasionStep) -> R<c::InvasionStep> {
+pub(crate) fn invasion_step(cx: &mut Ctx, s: &m::InvasionStep) -> R<c::InvasionStep> {
     Ok(c::InvasionStep {
         planet: planet(&s.planet)?,
         kind: cx.texts.intern(S, &s.kind)?,

@@ -14,6 +14,11 @@
 //! the A1 prefix table) and the tied set of [`Tiebreak::Tied`] in [`text_cmp`] order (the seats are numbered
 //! in the text order of their owner ids).
 
+pub mod covert;
+pub mod deadly_plot;
+pub mod offer_discard;
+pub mod table_effects;
+pub mod effects;
 pub mod window;
 
 use core::cmp::Ordering;
@@ -172,7 +177,7 @@ pub fn extra_votes(core: &CoreState, seat: Seat) -> i64 {
     core.players()
         .iter()
         .find(|p| p.seat == seat)
-        .and_then(|p| p.timers.extra_votes_agenda)
+        .and_then(|p| p.card_timers.extra_votes_agenda)
         .filter(|e| e.agenda == core.meta().agenda_seq)
         .map_or(0, |e| e.votes)
 }
@@ -231,7 +236,7 @@ pub fn voting_order(cx: &Cx<'_>) -> SmallList<Seat, 8> {
         core.players()
             .iter()
             .find(|p| p.seat == *s)
-            .is_some_and(|p| p.timers.hack_votes_last_agenda.get() == Some(core.meta().agenda_seq))
+            .is_some_and(|p| p.card_timers.hack_votes_last_agenda.get() == Some(core.meta().agenda_seq))
     };
     let mut out = SmallList::new();
     let hackers: SmallList<Seat, 8> = order.as_slice().iter().copied().filter(|s| votes_last(s)).collect_list();
@@ -439,8 +444,11 @@ pub fn vote_question(
 
 /// 8.11, `Stage::Planets`: which planet to exhaust for `outcome`. `None` when nothing is left to exhaust, or
 /// when the vote has more outcomes than the ledger holds (the core does not express it). `must_cast`:
-/// Genetic Recombination makes the first planet not optional.
+/// Genetic Recombination makes the first planet not optional. `spender`: this voter may also exhaust for
+/// resources; `table_spends`: some seat does (Executive Order), which labels every voter's planets with the
+/// face they are exhausted for.
 #[must_use]
+#[allow(clippy::too_many_arguments)]
 pub fn planets_question(
     cx: &Cx<'_>,
     agenda: Agenda,
@@ -448,6 +456,7 @@ pub fn planets_question(
     outcome: Outcome,
     votes: i64,
     spender: bool,
+    table_spends: bool,
     choices: &[Outcome],
     counts: Counts<'_>,
     must_cast: bool,
@@ -470,7 +479,7 @@ pub fn planets_question(
     if !must_cast {
         opts.push(TopOpt::Decline);
     }
-    let ask = Ask::Planets { frame: frame(cx.core, agenda, voter), outcome, votes: votes32(votes), spender, tally };
+    let ask = Ask::Planets { frame: frame(cx.core, agenda, voter), outcome, votes: votes32(votes), spender: table_spends, tally };
     Some(question(voter, ask, Origin::Rule(Rule::R8_11), opts))
 }
 

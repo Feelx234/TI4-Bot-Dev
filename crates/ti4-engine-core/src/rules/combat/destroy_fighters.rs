@@ -43,6 +43,24 @@ impl DestroyFighters {
     }
 }
 
+/// Remove the target's first `f.hits` fighters in unit order, then announce each loss (with staging and a
+/// timing resolver): the whole of the window's work, shared with the barrage step.
+pub fn destroy_first_fighters(sx: &mut Sx<'_>, f: Fighters) {
+    let mut destroyed: Vec<Piece> = Vec::new();
+    for _ in 0..f.hits {
+        let rd = Rd::new(sx.state, sx.kernel);
+        let first = sx.state.board().sys(f.system).units.iter().find(|u| u.owner() == f.target && rd.is_fighter(u.kind())).copied();
+        let Some(fighter) = first else { break };
+        remove_ship(sx, f.system, f.target, fighter);
+        destroyed.push(fighter);
+    }
+    if f.staging {
+        for fighter in destroyed {
+            announce_loss(sx, f.system, f.target, fighter.kind(), f.cause, true, f.announce);
+        }
+    }
+}
+
 impl Window for DestroyFighters {
     type Stage = Stage;
 
@@ -54,20 +72,7 @@ impl Window for DestroyFighters {
         if self.stage == Stage::Done {
             return Next::Done;
         }
-        let f = self.f;
-        let mut destroyed: Vec<Piece> = Vec::new();
-        for _ in 0..f.hits {
-            let rd = Rd::new(sx.state, sx.kernel);
-            let first = sx.state.board().sys(f.system).units.iter().find(|u| u.owner() == f.target && rd.is_fighter(u.kind())).copied();
-            let Some(fighter) = first else { break };
-            remove_ship(sx, f.system, f.target, fighter);
-            destroyed.push(fighter);
-        }
-        if f.staging {
-            for fighter in destroyed {
-                announce_loss(sx, f.system, f.target, fighter.kind(), f.cause, true, f.announce);
-            }
-        }
+        destroy_first_fighters(sx, self.f);
         self.stage = Stage::Done;
         Next::Done
     }

@@ -1,18 +1,61 @@
-//! Decision types of the `relic` area: relics.
+//! Decision types of the `relic` area: the questions a relic puts to its holder.
 //!
-//! Owner: package B5 (docs/ENGINE_CORE_STATE.md 4.4). Created empty by F4: the three enums below are
-//! uninhabited placeholders. The owner replaces them by real variants carrying what the option needs
-//! to be applied (typed ids, counts, seats), never text; every type stays `Copy`. The adapter side is
-//! `ti4-engine/src/render/relic.rs`.
+//! Owner: package B5 (docs/ENGINE_CORE_STATE.md 4.4). Ported: the Dominus Orb's purge offer, the Crown of
+//! Emphidia's choice of a planet to explore, the Neuraloop's relic to purge, the Codex's action cards, the
+//! Titan Prototype's builder, the Stellar Converter's target and the technology of the Enigmatic Device and the
+//! Maw of Worlds. The adapter side is `ti4-engine/src/render/relic.rs`.
 
-/// What the area asks. Parameters only; the option list is derived by `opts(state, ask)`.
+use super::agenda::Shown;
+use crate::generated::{ActionCard, Planet, PublicObjective, Relic, Technology};
+use crate::ids::Seat;
+
+/// What the area asks. Parameters only; the options are the window's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Ask {}
+pub enum Ask {
+    /// "The Dominus Orb: purge to move out of your own command tokens".
+    DominusOrb,
+    /// "The Crown of Emphidia: exhaust to explore a planet".
+    CrownOfEmphidia,
+    /// "The Neuraloop: purge a relic to replace {revealed}".
+    Neuraloop { revealed: PublicObjective },
+    /// "The Codex: take which action card".
+    Codex,
+    /// "Titan Prototype: which player may build".
+    TitanPrototype,
+    /// "Stellar Converter: destroy which planet".
+    StellarConverter,
+    /// "gain which technology" (the source relic is the question's origin).
+    GainTechnology { relic: Relic },
+}
 
 /// One answer the area offers (not stored in the state).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Opt {}
+pub enum Opt {
+    /// Purge the Dominus Orb.
+    Purge,
+    /// A planet to explore, with the system the map shows it in (the `system` payload of the option).
+    Planet(Planet, Shown),
+    /// A relic of the holder to purge (Neuraloop).
+    PurgeRelic(Relic),
+    /// An action card of the discard pile; `Shown::votes` is the cards the seat holds now (the preview's "before").
+    Take(ActionCard, Shown),
+    /// A player who may build (Titan Prototype).
+    Builder(Seat),
+    /// A planet to destroy, with the system the map shows it in.
+    Destroy(Planet, Shown),
+    /// A technology to gain.
+    Tech(Technology),
+}
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Subtype {}
+pub enum Subtype {
+    DominusOrbPurgeToMove,
+    CrownOfEmphidiaChoosePlanet,
+    NeuraloopChooseRelicToPurge,
+    CodexTakeActionCard,
+    TitanPrototypeChooseBuilder,
+    StellarConverterChooseTarget,
+    /// `{relic}_choose_technology`.
+    ChooseTechnology(Relic),
+}

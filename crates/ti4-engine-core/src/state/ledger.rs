@@ -300,6 +300,8 @@ pub enum RollPurpose {
     SpaceCannon,
     Bombardment,
     Reroll,
+    /// Rolled by an ability (the slot of `kernel::ability::Slot`).
+    Ability(u16),
     Other(Code),
 }
 

@@ -31,10 +31,12 @@ pub mod dice;
 pub mod dual;
 pub mod core_factions;
 pub mod dual_window;
+pub mod reactions_core;
 pub mod diplomacy;
 pub mod draft;
 pub mod entropic_scars;
 pub mod explore_core;
+pub mod explore_write;
 /// The offline dual of Area::ExplorationRelics.
 #[cfg(feature = "typed-core")]
 #[doc(hidden)]
@@ -76,6 +78,10 @@ pub mod neutral_units;
 mod nexus_reach_tests;
 pub mod objectives;
 pub mod objectives_core;
+/// Area::Objectives (package A4): the typed objective writes and questions behind the string interface.
+pub mod objectives_write;
+#[cfg(test)]
+mod objectives_write_tests;
 #[cfg(test)]
 mod objectives_monument_tests;
 pub mod observation;
@@ -104,6 +110,7 @@ pub mod core_combat;
 #[cfg(feature = "typed-core")]
 pub mod core_invasion;
 /// Area::LeadersAbilities (package B7): the typed leader reads behind the string interface.
+pub mod leaders_core;
 #[cfg(feature = "typed-core")]
 pub mod leaders_view;
 #[cfg(feature = "typed-core")]
@@ -121,6 +128,15 @@ pub(crate) mod agenda_typed;
 #[cfg(feature = "typed-core")]
 #[doc(hidden)]
 pub mod agenda_check;
+/// Area::ActionCards (package B6): the typed action-card reads behind a string interface.
+#[cfg(feature = "typed-core")]
+pub mod action_cards_view;
+/// The `typed-core`-independent entry points of `action_cards_view` (a `None` without the feature).
+pub(crate) mod action_cards_typed;
+/// The offline dual of Area::ActionCards.
+#[cfg(feature = "typed-core")]
+#[doc(hidden)]
+pub mod action_cards_check;
 /// Area::Strategy (package B8): the typed strategy reads behind a string interface.
 #[cfg(feature = "typed-core")]
 pub mod strategy_view;

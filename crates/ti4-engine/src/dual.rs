@@ -178,6 +178,9 @@ impl AreaMask {
         if cfg!(all(feature = "typed-core", not(feature = "string-exploration"))) {
             mask = mask.with(Area::ExplorationRelics, Backend::Core);
         }
+        if cfg!(all(feature = "typed-core", not(feature = "string-action-cards"))) {
+            mask = mask.with(Area::ActionCards, Backend::Core);
+        }
         if cfg!(all(feature = "typed-core", not(feature = "string-strategy"))) {
             mask = mask.with(Area::Strategy, Backend::Core);
         }
@@ -392,6 +395,9 @@ pub struct DualReport {
     pub hooks: BTreeMap<&'static str, HookCounts>,
     /// Window call sites ([`dual_window!`]), by label: compared runs and runs the core bowed out of.
     pub windows: BTreeMap<String, WindowCounts>,
+    /// The nested activity of the window runs that had any (`Recording::nested`): `"label | events | abilities"`
+    /// with the number of runs (the census of docs/ENGINE_REACTIONS.md; printed with `TI4_NESTED_LOG`).
+    pub nested: BTreeMap<String, u64>,
     /// The first [`MAX_KEPT`] differences.
     pub differences: Vec<Difference>,
     /// Differences beyond [`MAX_KEPT`] (counted only).
@@ -457,6 +463,9 @@ impl DualReport {
             into.compared += counts.compared;
             into.bailed += counts.bailed;
         }
+        for (sig, n) in &other.nested {
+            *self.nested.entry(sig.clone()).or_default() += n;
+        }
         for d in &other.differences {
             if self.differences.len() < MAX_KEPT {
                 self.differences.push(d.clone());
@@ -509,6 +518,14 @@ impl fmt::Display for DualReport {
                 writeln!(f, "    {label}: {} compared, {} bailed", w.compared, w.bailed)?;
             }
         }
+        if !self.nested.is_empty() && std::env::var_os("TI4_NESTED_LOG").is_some() {
+            writeln!(f, "  nested activity: {} signatures, {} runs", self.nested.len(), self.nested.values().sum::<u64>())?;
+            let mut rows: Vec<_> = self.nested.iter().collect();
+            rows.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+            for (sig, n) in rows {
+                writeln!(f, "    {n:>6}  {sig}")?;
+            }
+        }
         for d in &self.differences {
             writeln!(f, "{d}")?;
         }
@@ -522,7 +539,56 @@ impl fmt::Display for DualReport {
 static REPORT: Mutex<Option<DualReport>> = Mutex::new(None);
 static FAIL_FAST: AtomicBool = AtomicBool::new(false);
 
+/// Count one run of a window the dual cannot follow as a call (`compared`) or a bail, for the windows that are
+/// recorded outside [`run_dual_window`] (the vote).
+pub(crate) fn note_window(label: &str, compared: bool) {
+    #[cfg(test)]
+    LOCAL_WINDOWS.with(|m| {
+        let mut m = m.borrow_mut();
+        let w = m.entry(label.to_owned()).or_insert((0, 0));
+        if compared {
+            w.0 += 1;
+        } else {
+            w.1 += 1;
+        }
+    });
+    with_report(|r| {
+        let w = r.windows.entry(label.to_owned()).or_default();
+        if compared {
+            w.compared += 1;
+        } else {
+            w.bailed += 1;
+        }
+    });
+}
+
+#[cfg(test)]
+thread_local! {
+    /// (compared, bailed) windows per label run on this thread: the process-wide report is shared by the
+    /// parallel tests, which take it from each other.
+    static LOCAL_WINDOWS: std::cell::RefCell<BTreeMap<String, (u64, u64)>> = const { std::cell::RefCell::new(BTreeMap::new()) };
+}
+
+/// The windows of `label` this thread compared and bailed.
+#[cfg(test)]
+pub(crate) fn local_windows(label: &str) -> (u64, u64) {
+    LOCAL_WINDOWS.with(|m| m.borrow().get(label).copied().unwrap_or((0, 0)))
+}
+
+/// The thread of the test that holds the report (`tests::serial`): while it runs, the other threads of the test
+/// process (a global `TI4_AREAS` makes every test a dual run) count into a report nobody reads, so the counts a
+/// window test asserts are its own.
+#[cfg(test)]
+static FOCUS: Mutex<Option<std::thread::ThreadId>> = Mutex::new(None);
+
 fn with_report<T>(body: impl FnOnce(&mut DualReport) -> T) -> T {
+    #[cfg(test)]
+    {
+        let focus = *FOCUS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if focus.is_some_and(|t| t != std::thread::current().id()) {
+            return body(&mut DualReport::default());
+        }
+    }
     let mut guard = REPORT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     body(guard.get_or_insert_with(DualReport::default))
 }
@@ -1064,6 +1130,28 @@ pub fn run_dual<R: PartialEq + Debug>(
     string_run.value
 }
 
+/// One state write of an area on both backends (`dual_write`): `string` is the original code, `core` the typed
+/// rule (`None`: the position is outside the tables, the string write runs). Shared by the mutation halves
+/// (B5 `explore_write`, B7 `leaders`).
+pub fn write<R: PartialEq + Debug>(
+    area: Area,
+    state: &mut GameState,
+    label: &str,
+    string: impl Fn(&mut GameState) -> R,
+    core: impl Fn(&mut GameState) -> Option<R>,
+) -> R {
+    crate::dual!(
+        area,
+        label,
+        state,
+        |s: &mut GameState| Run::new(string(s)),
+        |s: &mut GameState| match core(s) {
+            Some(r) => Run::new(r),
+            None => Run::new(string(s)),
+        }
+    )
+}
+
 /// The core half of a window run: what the lockstep driver saw.
 #[derive(Debug, Clone)]
 pub struct CoreWindow<R> {
@@ -1096,11 +1184,16 @@ pub fn run_dual_window<R: PartialEq + Debug>(
     let mut core_state = state.clone();
     let mut string_run = string(state);
     let recording = crate::dual_window::finish();
-    let Some(core_run) = core(&mut core_state, &recording) else {
-        with_report(|r| r.windows.entry(label.to_owned()).or_default().bailed += 1);
+    if recording.nested {
+        let sig = recording.signature();
+        with_report(|r| *r.nested.entry(format!("{label} | {sig}")).or_default() += 1);
+    }
+    let core_run = crate::dual_window::with_label(label, || core(&mut core_state, &recording));
+    let Some(core_run) = core_run else {
+        note_window(label, false);
         return string_run.value;
     };
-    with_report(|r| r.windows.entry(label.to_owned()).or_default().compared += 1);
+    note_window(label, true);
     string_run.events = Some(crate::dual_window::normalized(&recording.emits));
     let ok = compare_value(area, &format!("{label}.questions"), &recording.questions.len(), &core_run.questions.len());
     if ok {
@@ -1112,15 +1205,21 @@ pub fn run_dual_window<R: PartialEq + Debug>(
     string_run.value
 }
 
+/// Count a bail-out of a window adapter under `label` and its `why` (shown in the report next to the window's
+/// own `compared` and `bailed` counts, which stay on the plain label).
+pub fn note_bail(label: &str, why: &str) {
+    with_report(|r| r.windows.entry(format!("{label} [bail: {why}]")).or_default().bailed += 1);
+}
+
 /// The question half of a stage window (`Window::ask_of`): the string window's pending question, compared
 /// with the one the core window puts at the same position. `core` returns `None` when the position holds
 /// something the core cannot express (counted as a bail-out under `label`, nothing compared).
 pub fn run_dual_ask(area: Area, label: &str, string: Option<&Choice>, core: impl FnOnce() -> Option<Choice>) {
     let Some(core) = core() else {
-        with_report(|r| r.windows.entry(label.to_owned()).or_default().bailed += 1);
+        note_window(label, false);
         return;
     };
-    with_report(|r| r.windows.entry(label.to_owned()).or_default().compared += 1);
+    note_window(label, true);
     note_call(area);
     compare_choice(area, label, string, Some(&core));
 }
@@ -1254,6 +1353,7 @@ pub(crate) mod tests {
     impl Drop for Serial {
         fn drop(&mut self) {
             set_fail_fast(self.1);
+            *FOCUS.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
         }
     }
 
@@ -1261,6 +1361,7 @@ pub(crate) mod tests {
         let guard = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let before = fail_fast();
         set_fail_fast(false);
+        *FOCUS.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(std::thread::current().id());
         Serial(guard, before)
     }
 

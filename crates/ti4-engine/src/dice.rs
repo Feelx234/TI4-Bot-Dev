@@ -172,6 +172,7 @@ impl Dice {
             source: None,
         };
         self.history.push(record.clone());
+        crate::dual_window::note_dice(&record);
         record
     }
 

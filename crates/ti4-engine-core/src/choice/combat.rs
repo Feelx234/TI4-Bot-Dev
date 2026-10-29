@@ -31,10 +31,44 @@ pub enum Ask {
         ability: bool,
         /// The hit is part of a space combat (not SPACE CANNON OFFENSE).
         in_combat: bool,
+        /// The combat window's own pending question (not the absorb path's): the owner's ships in the system.
+        /// Its space sustainers are named by their index (`sustain|3`) and every option carries the
+        /// `ShipsInSystem` preview.
+        window: Option<u16>,
     },
+    /// "announce a retreat from {system}" (78.9): `ships` of the asked player are in the system; `forced`: a Rout
+    /// leaves no "stay".
+    AnnounceRetreat { system: System, forced: bool, ships: u16 },
+    /// "retreat to which system" (78.7): the whole fleet of `fleet` ships moves to the chosen neighbour.
+    RetreatTo { system: System, fleet: u16 },
     /// "assign a hit": the owner picks which of the listed units is lost. The list is the caller's
     /// (ships, a group, a planet's units); the options are derived from it by `casualty_opts`.
     AssignHit,
+    /// Raid Formation (Argent): the barrage's producer picks which of `target`'s ships with SUSTAIN DAMAGE
+    /// becomes damaged, for a hit beyond the fighters.
+    RaidDamage { target: crate::ids::Seat },
+    /// "reroll die {n} of {unit}": one optional question per staged die (the Crowns of Thalnos, Munitions
+    /// Reserves' "choose which dice").
+    RerollDie { source: RerollSource, unit: crate::state::Code, die: u8 },
+    /// Heart of Ixth: add or subtract 1 from a die just rolled (one question per holder).
+    HeartIxth,
+    /// War Funding: reroll all of the opponent's dice and the holder's misses.
+    WarFunding,
+    /// Wrath of Kenara: spend trade goods to add 1 to near misses.
+    Wrath,
+    /// Munitions Reserves after the roll: pay 2 trade goods to reroll missed dice.
+    MunitionsRoll,
+}
+
+/// Which card asked the per-die reroll question.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RerollSource {
+    /// The Crown of Thalnos relic.
+    Relic,
+    /// The Crown of Thalnos law.
+    Law,
+    /// Munitions Reserves ("choose which dice to reroll").
+    Munitions,
 }
 
 /// One answer the area offers (not stored in the state).
@@ -42,14 +76,39 @@ pub enum Ask {
 pub enum Opt {
     /// Sustain damage on this unit of the given type; the decline is the generic one ("take the hit").
     Sustain { site: SustainSite, unit: Unit, galvanized: bool },
+    /// Stay and fight (the announcement of a retreat).
+    Stay,
+    /// Announce a retreat.
+    Announce,
+    /// Retreat to `system`, where `there` of the player's ships stand already.
+    RetreatTo { system: System, there: u16 },
     /// Destroy the unit at `index` of the caller's list (the first of its type and damage).
     Destroy { index: u16, unit: Unit, damaged: bool },
+    /// Damage a ship of this type (the first undamaged one).
+    RaidDamage { unit: Unit },
+    /// Reroll the die `die` of staged entry `entry` (`unit` is its rendered text, `face` what it shows).
+    RerollDie { unit: crate::state::Code, entry: u8, die: u8, face: u8, hits_on: Option<u8> },
+    /// Heart of Ixth: add (or subtract) 1 on the die `die` of entry `entry`; `single`: the only die rolled.
+    HeartIxth { unit: crate::state::Code, entry: u8, die: u8, add: bool, single: bool },
+    UseWarFunding,
+    /// Wrath of Kenara: spend `count` trade goods.
+    Kenara { count: u8 },
+    /// Munitions Reserves: `choose` the dice one by one, or reroll all `misses` missed dice.
+    Munitions { choose: bool, misses: u8 },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Subtype {
     SustainDamage,
+    AnnounceRetreat,
+    RetreatTo,
     /// The caller's subtype text (interned) of a casualty question.
     Casualty(crate::state::Code),
+    /// The per-die reroll question of a card.
+    Reroll(RerollSource),
+    HeartIxth,
+    WarFunding,
+    WrathBump,
+    MunitionsRoll,
 }

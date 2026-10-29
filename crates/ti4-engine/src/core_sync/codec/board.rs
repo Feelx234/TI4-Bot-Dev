@@ -31,7 +31,7 @@ fn printed_system(p: Planet) -> Option<System> {
     })[p.index()]
 }
 
-fn piece(cx: &Ctx, u: &StrUnit) -> R<Piece> {
+pub(crate) fn piece(cx: &Ctx, u: &StrUnit) -> R<Piece> {
     let kind = id::<Unit>(S, "unit type", u.type_id.as_str())?;
     Ok(Piece::new(kind, cx.seat(S, u.owner.as_str())?).with_sustained(u.sustained_damage).with_galvanized(u.galvanized))
 }

@@ -11,7 +11,8 @@ use crate::generated::{Planet, System, Unit};
 use crate::ids::Seat;
 use crate::kernel::resolver::{Host, Resolver, TimingError};
 use crate::kernel::Cx;
-use crate::state::{Code, CoreState, EventKind, EventRec, Key, LedgerReason, Payload, Piece, PlanetFlags, Val, VpRec};
+use crate::generated::SecretObjective;
+use crate::state::{Code, CoreState, EventKind, EventRec, Key, LedgerReason, ObjectiveRef, Payload, Piece, PlanetFlags, Val, VpRec};
 
 /// A new event record (id 0: the emitter assigns the trace id).
 #[must_use]
@@ -86,6 +87,38 @@ pub fn gain_trade_goods(s: &mut CoreState, who: Seat, amount: i32) -> i32 {
     after - before
 }
 
+/// Spend `amount` trade goods (`supply::spend_goods` without a Keleres commodity window): all of it or none,
+/// `false` and the state untouched when `who` has fewer.
+pub fn spend_trade_goods(s: &mut CoreState, who: Seat, amount: i32) -> bool {
+    if amount <= 0 {
+        return true;
+    }
+    let Some(p) = s.players_mut().by_seat_mut(who) else { return false };
+    if i32::from(p.econ.trade_goods) < amount {
+        return false;
+    }
+    p.econ.trade_goods -= i16::try_from(amount).unwrap_or(i16::MAX);
+    true
+}
+
+/// `promissory::give_back`: the note goes home to the first seat (in seating order) that plays its faction;
+/// nothing when it is already there or nobody plays the faction.
+pub fn give_back_note(s: &mut CoreState, note: crate::state::NoteKey) {
+    let owner = s
+        .seats()
+        .seating_order()
+        .iter()
+        .copied()
+        .find(|seat| s.players().by_seat(*seat).is_some_and(|p| p.faction == note.faction));
+    let Some(owner) = owner else { return };
+    if s.cards().promissory.get(&note) == Some(&owner) {
+        return;
+    }
+    let cards = s.cards_mut();
+    cards.promissory.edit().insert(note, owner);
+    cards.promissory_faceup.edit().remove(&note);
+}
+
 /// The `TRADE_GOODS_GAINED` event of a gain (`player`, `amount`, `source`).
 #[must_use]
 pub fn trade_goods_gained(who: Seat, gained: i32, source: Code) -> EventRec {
@@ -120,6 +153,104 @@ pub fn gain_victory_points(s: &mut CoreState, who: Seat, delta: i32, reason: Led
     p.econ.victory_points = i16::try_from(total).unwrap_or(0);
     s.ledger_mut().vp.push(VpRec { player: who, delta, reason });
     total
+}
+
+/// `objectives::reveal_stage` (61.13, 61.14a): the first facedown public objective of this stage turns faceup,
+/// wherever it is in the deck. Shared with the agenda effects (Incentive Program); areas do not import each other.
+pub fn reveal_stage(s: &mut CoreState, stage: u8) -> Option<crate::generated::PublicObjective> {
+    let at = s.decks().objective.cards().iter().position(|o| crate::query::objectives::stage_of(*o) == Some(stage))?;
+    let card = s.decks_mut().objective.remove(at);
+    s.objectives_mut().revealed.push(ObjectiveRef::Public(card));
+    Some(card)
+}
+
+/// `objectives::VICTORY_TARGET`: no seat holds more points than this (98.4a).
+pub const VICTORY_TARGET: i32 = 10;
+
+/// `objectives::adjust_victory_points`: a gain stops at [`VICTORY_TARGET`], a loss at zero, and the ledger row
+/// carries the change that happened (a row of 0 included). Returns that change; 0, with no row, for a seat that
+/// is not there.
+pub fn adjust_victory_points(s: &mut CoreState, who: Seat, delta: i32, reason: LedgerReason) -> i32 {
+    let Some(p) = s.players_mut().by_seat_mut(who) else { return 0 };
+    let before = i32::from(p.econ.victory_points);
+    let after = if delta >= 0 { (before + delta).min(VICTORY_TARGET) } else { (before + delta).max(0) };
+    p.econ.victory_points = i16::try_from(after).unwrap_or(0);
+    let applied = after - before;
+    s.ledger_mut().vp.push(VpRec { player: who, delta: applied, reason });
+    applied
+}
+
+/// `GameState::record_score`: the objective is one the seat scored.
+pub fn record_score(s: &mut CoreState, who: Seat, objective: ObjectiveRef) {
+    let o = s.objectives_mut();
+    o.scored_present.insert(who);
+    let cell = &mut o.scored[usize::from(who.0)];
+    match objective {
+        ObjectiveRef::Public(p) => {
+            cell.public.insert(p);
+        }
+        ObjectiveRef::Secret(x) => {
+            cell.secret.insert(x);
+        }
+    }
+}
+
+/// `GameState::record_occurrence_score`: the seat used its score of one feat occurrence.
+pub fn record_occurrence_score(s: &mut CoreState, who: Seat, occurrence: u64) {
+    let feats = s.objectives_mut().scored_feats.edit();
+    if !feats.contains(&(who, occurrence)) {
+        feats.push((who, occurrence));
+    }
+}
+
+/// The state half of `objectives::award` (once the price is paid): the score is recorded and the points move.
+/// Returns the points.
+pub fn score_public(s: &mut CoreState, who: Seat, objective: ObjectiveRef) -> i32 {
+    let points = match objective {
+        ObjectiveRef::Public(p) => crate::query::objectives::points_of(p),
+        ObjectiveRef::Secret(x) => crate::query::objectives::secret_points(x),
+    };
+    record_score(s, who, objective);
+    adjust_victory_points(s, who, i32::from(points), LedgerReason::Objective);
+    i32::from(points)
+}
+
+/// The state half of `secrets::award` (once the price is paid): the score is recorded, the secret leaves the
+/// hand, the points move. `false` (nothing changes) when the secret is not in the hand.
+pub fn score_secret(s: &mut CoreState, who: Seat, secret: SecretObjective) -> bool {
+    if !s.players().by_seat(who).is_some_and(|p| p.cards.secrets.as_slice().contains(&secret)) {
+        return false;
+    }
+    record_score(s, who, ObjectiveRef::Secret(secret));
+    if let Some(p) = s.players_mut().by_seat_mut(who) {
+        p.cards.secrets.retain(|held| *held != secret);
+    }
+    adjust_victory_points(s, who, i32::from(crate::query::objectives::secret_points(secret)), LedgerReason::SecretObjective);
+    true
+}
+
+/// `state.finished = true` once somebody reached the target (`objectives::winner`).
+pub fn finish_if_won(s: &mut CoreState) {
+    if s.players().iter().any(|p| i32::from(p.econ.victory_points) >= VICTORY_TARGET) {
+        s.meta_mut().finished = true;
+    }
+}
+
+/// The draw of `secrets::draw` (before the hand limit): the top secret goes to the seat's hand. `None` for an
+/// empty deck or a seat that is not there.
+pub fn draw_secret(s: &mut CoreState, who: Seat) -> Option<SecretObjective> {
+    s.players().by_seat(who)?;
+    let top = s.decks_mut().secret.draw()?;
+    s.players_mut().by_seat_mut(who)?.cards.secrets.push(top);
+    Some(top)
+}
+
+/// `secrets::enforce_hand_limit`'s hand-back: the secret leaves the hand for the bottom of the deck.
+pub fn return_secret(s: &mut CoreState, who: Seat, secret: SecretObjective) {
+    if let Some(p) = s.players_mut().by_seat_mut(who) {
+        p.cards.secrets.retain(|held| *held != secret);
+    }
+    s.decks_mut().secret.put_bottom(secret);
 }
 
 // -- board --------------------------------------------------------------------------------------

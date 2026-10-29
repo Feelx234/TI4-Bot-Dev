@@ -160,6 +160,7 @@ pub struct Wording {
     pub kind: Option<String>,
     pub label: Option<String>,
     pub payload: BTreeMap<String, Value>,
+    pub preview: Option<crate::preview::Preview>,
 }
 
 /// The renderer of one area (or of the generic asks).
@@ -213,8 +214,8 @@ macro_rules! uninhabited {
     )*};
 }
 uninhabited!(
-    tactical, technology, objectives, tokens, diplomacy, explore,
-    relic, legendary, promissory, cards, strategy
+    tactical, technology, tokens, diplomacy,
+    legendary, promissory, strategy
 );
 
 impl<A: Uninhabited, O: Uninhabited, S: Uninhabited> Family for Unported<A, O, S> {
@@ -303,7 +304,7 @@ macro_rules! registry {
 registry! {
     Tactical => unported!(tactical),
     Technology => unported!(technology),
-    Objectives => unported!(objectives),
+    Objectives => objectives::Fam,
     Tokens => unported!(tokens),
     Reaction => reaction::Fam,
     Combat => combat::Fam,
@@ -311,11 +312,11 @@ registry! {
     Production => production::Fam,
     Trade => trade::Fam,
     Diplomacy => unported!(diplomacy),
-    Explore => unported!(explore),
-    Relic => unported!(relic),
+    Explore => explore::Fam,
+    Relic => relic::Fam,
     Legendary => unported!(legendary),
     Promissory => unported!(promissory),
-    Cards => unported!(cards),
+    Cards => cards::Fam,
     Leaders => leaders::Fam,
     Strategy => unported!(strategy),
     Agenda => agenda::Fam,

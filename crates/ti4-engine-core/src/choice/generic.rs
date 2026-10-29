@@ -62,6 +62,10 @@ pub enum Rule {
     R89_1,
     R89_2,
     R95,
+    /// `Coexistence` (the coexistence rules of the Deepwrought; the chain of combats, 12)
+    Coexistence,
+    /// `Coexistence 7.2` (the bombardment target)
+    Coexistence7_2,
     /// `end of turn`
     EndOfTurn,
     /// A reference not in the list above (the adapter keeps the text in its code table).
@@ -83,5 +87,7 @@ pub enum Content {
     GenericCard(GenericCard),
     Attachment(Attachment),
     ActionCard(ActionCard),
+    /// A step of the exploration area that is no card (`exploration`, `ion_storm`, ...).
+    Step(super::explore::Step),
     Other(Code),
 }

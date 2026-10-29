@@ -13,9 +13,10 @@
 //! `rng` streams, which a rolled-back run restores with the rest of the state.
 
 use crate::choice::{Choice, Pick};
-use crate::kernel::stage::{AbilityTable, Illegal, Sx, Tape, Window};
+use crate::kernel::ability::Unknown;
+use crate::kernel::stage::{AbilityTable, Illegal, NestedFacts, Sx, Tape, Window};
 use crate::kernel::{Kernel, Next, Resolver, TimingError};
-use crate::state::{CoreState, EventRec, Window as OpenWindow};
+use crate::state::{CoreState, EventRec, RngDomain, SeedSource, Window as OpenWindow};
 
 pub mod windows;
 
@@ -90,9 +91,23 @@ pub struct Driver<W: Window> {
     pub emitted: Vec<EventRec>,
     /// The windows the rule areas asked the driver to open (`Next::Open`), in order.
     pub opened: Vec<OpenWindow>,
+    /// The seeds of the random streams a window draws from (`Sx::die`); `NoSeeds` until the adapter gives some.
+    pub seeds: std::rc::Rc<dyn SeedSource>,
     tape: Tape,
+    facts: Option<NestedFacts>,
+    unknown: Option<Unknown>,
     awaiting: Awaiting,
     finished: bool,
+}
+
+/// The seeds of a driver that never draws: every stream is all zeros.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoSeeds;
+
+impl SeedSource for NoSeeds {
+    fn seed_for(&self, _: u64, _: RngDomain) -> [u8; 32] {
+        [0; 32]
+    }
 }
 
 impl<W: Window> Driver<W> {
@@ -105,10 +120,20 @@ impl<W: Window> Driver<W> {
             next_id,
             emitted: Vec::new(),
             opened: Vec::new(),
+            seeds: std::rc::Rc::new(NoSeeds),
             tape: Tape::default(),
+            facts: None,
+            unknown: None,
             awaiting: Awaiting::Nothing,
             finished: false,
         }
+    }
+
+    /// The same driver drawing its dice from streams seeded by `seeds`.
+    #[must_use]
+    pub fn with_seeds(mut self, seeds: std::rc::Rc<dyn SeedSource>) -> Self {
+        self.seeds = seeds;
+        self
     }
 
     /// Step the window to its next question or its end.
@@ -159,6 +184,9 @@ impl<W: Window> Driver<W> {
             let snapshot = (s.clone(), self.window.clone(), self.resolver.checkpoint(), self.emitted.len(), self.opened.len(), self.next_id);
             self.tape.rewind();
             let outcome = self.once(s, k, &op);
+            if let Some(why) = self.tape.take_unknown() {
+                self.unknown.get_or_insert(why);
+            }
             let dry = self.tape.needed().cloned();
             if dry.is_some() || outcome.is_err() {
                 // Undo the run: a nested question found the tape dry (ask it), or the run failed (the
@@ -171,6 +199,7 @@ impl<W: Window> Driver<W> {
                 self.next_id = snapshot.5;
             }
             if let Some(choice) = dry {
+                self.facts = self.tape.needed_facts().cloned();
                 self.awaiting = Awaiting::Nested(op);
                 return Ok(Status::Asking(choice));
             }
@@ -179,6 +208,7 @@ impl<W: Window> Driver<W> {
             }
             match outcome? {
                 Flow::Ask(choice) => {
+                    self.facts = None;
                     self.awaiting = Awaiting::Stage(choice.clone());
                     return Ok(Status::Asking(choice));
                 }
@@ -204,6 +234,7 @@ impl<W: Window> Driver<W> {
             tape: &mut self.tape,
             next_id: &mut self.next_id,
             emitted: &mut self.emitted,
+            seeds: &*self.seeds,
         };
         let next = match op {
             Op::Step => self.window.step(&mut sx),
@@ -233,6 +264,20 @@ impl<W: Window> Driver<W> {
         Ok(flow)
     }
 
+    /// A condition of the ability table the core could not answer (a documented bail of the rule it reads); the
+    /// run is not to be trusted.
+    #[must_use]
+    pub fn unknown(&self) -> Option<Unknown> {
+        self.unknown
+    }
+
+    /// What the nested question reported last was asked about (the event of its window, the relation, the
+    /// emission chain): `None` for a question that is a stage of the window.
+    #[must_use]
+    pub fn nested_facts(&self) -> Option<&NestedFacts> {
+        self.facts.as_ref()
+    }
+
     /// Whether the window ended.
     #[must_use]
     pub fn is_done(&self) -> bool {
@@ -257,7 +302,7 @@ mod tests {
     use crate::ids::Seat;
     use crate::kernel::fx;
     use crate::kernel::resolver::AbilityDef;
-    use crate::kernel::stage::{AbilityImpl, Sx};
+    use crate::kernel::stage::{Slot, Spec, Sx};
     use crate::state::{Code, EventKind, Payload, Player, Players};
 
     /// A window that emits one event and ends: the shape of every `ctx.emit` in the string windows.
@@ -297,20 +342,19 @@ mod tests {
         s.players = Players::from_vec(vec![Player::new(Seat(0), Faction::from_index(0).unwrap())]);
         let mut resolver = Resolver::new(&[Seat(0)], Some(Seat(0)));
         resolver.register([
-            AbilityDef::new(ability(), Seat(0), EventKind::TradeGoodsGained, Relation::After).with_optional(true),
+            AbilityDef::new(ability(), Seat(0), EventKind::TradeGoodsGained, Relation::After).with_optional(true).with_arg(1),
             AbilityDef::new(AbilityId { kind: AbilityKind::Ability, key: Code(2) }, Seat(0), EventKind::TradeGoodsGained, Relation::After)
                 .with_optional(true),
         ]);
         let mut table = AbilityTable::default();
         // The effect gains a trade good: a replayed step that applied it twice would show.
-        table.add(AbilityImpl {
-            id: ability(),
-            condition: None,
-            effect: |s, _, _, _| {
-                fx::gain_trade_goods(s, Seat(0), 1);
+        table.add(
+            Spec::new(Slot(1), AbilityKind::Ability, EventKind::TradeGoodsGained, Relation::After, |eff| {
+                fx::gain_trade_goods(eff.state(), Seat(0), 1);
                 Ok(())
-            },
-        });
+            })
+            .optional(),
+        );
         (s, Kernel::plain(), Driver::new(Announce { done: false }, resolver, table, 10))
     }
 
@@ -344,5 +388,134 @@ mod tests {
         };
         let (a, b) = (run(), run());
         assert!(a.0 == b.0 && a.1 == b.1 && a.2 == b.2);
+    }
+
+    /// An ability that asks a question of its own and emits a nested event: the question comes out with the facts of its
+    /// window (the adapter's trigger), the nested emission opens its own windows, and the effect runs once.
+    #[test]
+    fn an_effect_asks_with_the_facts_of_its_window_and_emits_a_nested_event() {
+        let ask_choice = || {
+            let mut opts = crate::choice::Opts::default();
+            opts.push(Opt::Done);
+            opts.push(Opt::Decline);
+            Choice {
+                actor: Seat(0),
+                ask: Ask::Generic(crate::choice::generic::Ask::Confirm),
+                ctx: crate::choice::Ctx {
+                    origin: crate::choice::Origin::Reaction(EventKind::TradeGoodsGained),
+                    subtype: crate::choice::Subtype::Generic(crate::choice::generic::Subtype::Unclassified),
+                    optional: true,
+                    target: None,
+                    outstanding: Default::default(),
+                    space_battle: false,
+                    invasion_seq: None,
+                },
+                opts,
+            }
+        };
+        let mut s = CoreState::all_loaded();
+        s.players = Players::from_vec(vec![Player::new(Seat(0), Faction::from_index(0).unwrap())]);
+        let mut resolver = Resolver::new(&[Seat(0)], Some(Seat(0)));
+        let id = AbilityId { kind: AbilityKind::Ability, key: Code(5) };
+        let inner = AbilityId { kind: AbilityKind::Ability, key: Code(6) };
+        resolver.register([
+            AbilityDef::new(id, Seat(0), EventKind::TradeGoodsGained, Relation::After).with_arg(5),
+            AbilityDef::new(inner, Seat(0), EventKind::PlanetControlGained, Relation::After).with_arg(6),
+        ]);
+        let mut table = AbilityTable::default();
+        table.add(Spec::new(Slot(5), AbilityKind::Ability, EventKind::TradeGoodsGained, Relation::After, |eff| {
+            let c = {
+                let mut opts = crate::choice::Opts::default();
+                opts.push(Opt::Done);
+                Choice {
+                    actor: eff.owner(),
+                    ask: Ask::Generic(crate::choice::generic::Ask::Confirm),
+                    ctx: crate::choice::Ctx {
+                        origin: crate::choice::Origin::Reaction(EventKind::TradeGoodsGained),
+                        subtype: crate::choice::Subtype::Generic(crate::choice::generic::Subtype::Unclassified),
+                        optional: false,
+                        target: None,
+                        outstanding: Default::default(),
+                        space_battle: false,
+                        invasion_seq: None,
+                    },
+                    opts,
+                }
+            };
+            if eff.ask(&c) == Pick::Opt(Opt::Done) {
+                fx::gain_trade_goods(eff.state(), Seat(0), 3);
+                eff.emit(fx::event(EventKind::PlanetControlGained, Payload::new()))?;
+            }
+            Ok(())
+        }));
+        table.add(Spec::new(Slot(6), AbilityKind::Ability, EventKind::PlanetControlGained, Relation::After, |eff| {
+            fx::gain_trade_goods(eff.state(), Seat(0), 10);
+            Ok(())
+        }));
+        let _ = ask_choice;
+        let k = Kernel::plain();
+        let mut d = Driver::new(Announce { done: false }, resolver, table, 10);
+        let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("the ability asks") };
+        assert_eq!(c.ask, Ask::Generic(crate::choice::generic::Ask::Confirm));
+        let facts = d.nested_facts().expect("a nested question carries the facts of its window");
+        assert_eq!((facts.event.kind, facts.event.id, facts.relation), (EventKind::TradeGoodsGained, 10, Relation::After));
+        assert!(facts.chain.is_empty());
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.trade_goods, 0, "rolled back");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Done)).unwrap(), Status::Done);
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.trade_goods, 13, "the effect and the nested one, once");
+        assert_eq!(d.emitted.len(), 1, "only the window's own emission is the window's");
+        assert_eq!(d.next_id, 12, "the nested event took the next trace id");
+    }
+
+    /// A window that draws three dice and then emits (so the driver may roll the step back).
+    #[derive(Clone)]
+    struct Roller {
+        done: bool,
+        faces: Vec<u32>,
+    }
+
+    impl Window for Roller {
+        type Stage = bool;
+        fn stage(&self) -> bool {
+            self.done
+        }
+        fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+            if !self.done {
+                self.done = true;
+                self.faces = (0..3).map(|_| sx.die(RngDomain::Dice, 10)).collect();
+                let _ = sx.emit(fx::event(EventKind::TradeGoodsGained, Payload::new()));
+            }
+            Next::Done
+        }
+        fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {
+            None
+        }
+        fn answer(&mut self, _: &mut Sx<'_>, _: Pick) -> Result<(), Illegal> {
+            Err(Illegal)
+        }
+    }
+
+    struct Plain;
+    impl SeedSource for Plain {
+        fn seed_for(&self, seed: u64, _: RngDomain) -> [u8; 32] {
+            let mut out = [0u8; 32];
+            out[..8].copy_from_slice(&seed.to_le_bytes());
+            out
+        }
+    }
+
+    #[test]
+    fn dice_drawn_in_a_step_that_is_rolled_back_are_drawn_once() {
+        let (mut s, k, d) = setup();
+        s.rng = crate::state::Rng::new(5);
+        let mut d = Driver::new(Roller { done: false, faces: Vec::new() }, d.resolver, d.table, 10).with_seeds(std::rc::Rc::new(Plain));
+        // The reaction window asks inside the emission: the step is rolled back, the dice with it.
+        assert!(matches!(d.run(&mut s, &k).unwrap(), Status::Asking(_)));
+        d.resume(&mut s, &k, Pick::Opt(Opt::Reaction(ROpt::Ability(ability())))).unwrap();
+        d.resume(&mut s, &k, Pick::Opt(Opt::Decline)).unwrap();
+        let mut bare = crate::state::Rng::new(5);
+        let expect: Vec<u32> = (0..3).map(|_| bare.die(RngDomain::Dice, &Plain, 10)).collect();
+        assert_eq!(d.window.faces, expect);
+        assert!(s.rng.positions().eq(bare.positions()), "three draws were taken, not six");
     }
 }

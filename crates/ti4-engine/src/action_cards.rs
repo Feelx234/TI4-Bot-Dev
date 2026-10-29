@@ -140,6 +140,17 @@ pub fn draw_announced(
 /// 2.4: how many action cards `player` may hold now. `usize::MAX` when there is no limit.
 #[must_use]
 pub fn hand_limit(state: &GameState, content: &ContentStore, player: &PlayerId) -> usize {
+    crate::dual_typed!(
+        crate::dual::Area::ActionCards,
+        "action_cards::hand_limit",
+        crate::action_cards_typed::hand_limit(state, content, player),
+        hand_limit_text(state, content, player)
+    )
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn hand_limit_text(state: &GameState, content: &ContentStore, player: &PlayerId) -> usize {
     crate::factions::hooks_economy::action_card_limit(
         state,
         content,
@@ -234,6 +245,19 @@ pub fn discarded(
 
 /// Remove one card from a hand by index.
 pub fn discard(state: &mut GameState, player: &PlayerId, index: usize) -> Option<ActionCardId> {
+    crate::dual!(
+        crate::dual::Area::ActionCards,
+        "action_cards::discard",
+        state,
+        |s: &mut GameState| crate::dual::Run::new(discard_text(s, player, index)),
+        |s: &mut GameState| match crate::action_cards_typed::discard(s, player, index) {
+            Some(taken) => crate::dual::Run::new(taken),
+            None => crate::dual::Run::new(discard_text(s, player, index)),
+        }
+    )
+}
+
+fn discard_text(state: &mut GameState, player: &PlayerId, index: usize) -> Option<ActionCardId> {
     let seat = state.player_mut(player)?;
     if index >= seat.action_cards.len() {
         return None;
@@ -293,13 +317,23 @@ pub fn choose_from_own_hand(
     if optional {
         options.push(ChoiceOption::decline());
     }
-    let choice = Choice::new(player.clone(), prompt, options).contextualized(DecisionContext::new(
-        player.clone(),
-        DecisionSource::FactionAbility(source.to_owned()),
-        subtype,
-        context.state.phase,
-        context.state.round,
-    ));
+    let firsts: Vec<ActionCardId> = options
+        .iter()
+        .filter(|option| option.kind == OWN_HAND_KIND)
+        .map(|option| ActionCardId::new(option.id.clone()))
+        .collect();
+    let choice = crate::dual_typed!(
+        crate::dual::Area::ActionCards,
+        "action_cards::choose_from_own_hand",
+        crate::action_cards_typed::own_hand_choice(context.state, player, source, subtype, prompt, &firsts, optional),
+        Choice::new(player.clone(), prompt, options).contextualized(DecisionContext::new(
+            player.clone(),
+            DecisionSource::FactionAbility(source.to_owned()),
+            subtype,
+            context.state.phase,
+            context.state.round,
+        ))
+    );
     let answer = context.ask_seeing(&choice)?;
     if answer.is_decline() {
         return Ok(None);
@@ -457,6 +491,17 @@ const SALVAGE_PREFIX: &str = "action_card|salvaged|";
 /// Whether a card's printed window makes it a component action (22.1).
 #[must_use]
 pub fn is_component_action(content: &ContentStore, alias: &ActionCardId) -> bool {
+    crate::dual_typed!(
+        crate::dual::Area::ActionCards,
+        "action_cards::is_component_action",
+        crate::action_cards_typed::is_component_action(alias),
+        is_component_action_text(content, alias)
+    )
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn is_component_action_text(content: &ContentStore, alias: &ActionCardId) -> bool {
     content
         .get(ContentType::ActionCards, alias.as_str())
         .and_then(ti4_content::Record::action_card_window)
@@ -477,8 +522,13 @@ pub fn is_playable(
     player: &PlayerId,
     alias: &ActionCardId,
 ) -> bool {
-    if crate::laws::action_cards_forbidden(state, player)
-        || crate::laws::political_secret_bars(state, player)
+    if crate::dual_typed!(
+        crate::dual::Area::ActionCards,
+        "action_cards::may_play",
+        crate::action_cards_typed::may_play(state, player),
+        !(crate::laws::action_cards_forbidden(state, player)
+            || crate::laws::political_secret_bars(state, player))
+    ) == false
     {
         return false;
     }
@@ -524,6 +574,22 @@ fn can_spend(
 /// payable. Each arm mirrors the effect's own payment and candidate list, so a card is never
 /// offered that would take the payment and then find nothing to act on.
 fn cost_is_payable(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    alias: &ActionCardId,
+) -> bool {
+    crate::dual_typed!(
+        crate::dual::Area::ActionCards,
+        "action_cards::cost_is_payable",
+        crate::action_cards_typed::cost_is_payable(state, player, alias),
+        cost_is_payable_text(state, content, sources, player, alias)
+    )
+}
+
+#[doc(hidden)]
+pub fn cost_is_payable_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -613,6 +679,22 @@ fn mercenary_planets(
 /// cards whose effect starts by picking a target are listed, and each mirrors the candidate list
 /// its effect builds; every other card has no requirement here and stays offered. Rules version 10.
 fn has_legal_target(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    alias: &ActionCardId,
+) -> bool {
+    crate::dual_typed!(
+        crate::dual::Area::ActionCards,
+        "action_cards::has_legal_target",
+        crate::action_cards_typed::has_legal_target(state, player, alias),
+        has_legal_target_text(state, content, sources, player, alias)
+    )
+}
+
+#[doc(hidden)]
+pub fn has_legal_target_text(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -714,7 +796,31 @@ pub fn reaction_can_matter(
     let Some(system) = event.text("system").map(ti4_model::id::SystemId::new) else {
         return true;
     };
-    let board = state.system_state(&system);
+    crate::dual_typed!(
+        crate::dual::Area::ActionCards,
+        "action_cards::reaction_can_matter",
+        crate::action_cards_typed::reaction_can_matter(state, player, alias, system.as_str(), actor),
+        reaction_window_text(state, content, player, alias, event, &system)
+    )
+}
+
+#[doc(hidden)]
+pub fn reaction_window_text(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+    alias: &ActionCardId,
+    event: &crate::event::Event,
+    system: &ti4_model::id::SystemId,
+) -> bool {
+    let unit_kind = |unit: &Unit| {
+        content
+            .get(ContentType::Units, unit.type_id.as_str())
+            .map(UnitType::new)
+    };
+    let actor = event.text("player");
+    let is_actor = actor == Some(player.as_str());
+    let board = state.system_state(system);
     let has_own_ship = board
         .units_of(player)
         .into_iter()
@@ -830,16 +936,26 @@ pub fn available_actions(
             )
         })
         .collect();
-    seat.action_cards
-        .iter()
-        .enumerate()
-        .filter(|(_, alias)| is_component_action(content, alias))
-        .filter(|(_, alias)| is_playable(state, content, sources, galaxy, player, alias))
-        .map(|(index, alias)| {
+    // The hand positions that can be played right now, in hand order: the core's answer where it has one.
+    let playable: Vec<usize> = crate::dual_typed!(
+        crate::dual::Area::ActionCards,
+        "action_cards::playable_hand",
+        crate::action_cards_typed::playable_hand(state, player),
+        seat.action_cards
+            .iter()
+            .enumerate()
+            .filter(|(_, alias)| is_component_action(content, alias))
+            .filter(|(_, alias)| is_playable(state, content, sources, galaxy, player, alias))
+            .map(|(index, _)| index)
+            .collect()
+    );
+    playable
+        .into_iter()
+        .map(|index| {
             crate::choice::ChoiceOption::labelled(
                 format!("{PLAY_PREFIX}{index}"),
                 ACTION_KIND,
-                format!("play {}", name_of(content, alias)),
+                format!("play {}", name_of(content, &seat.action_cards[index])),
             )
         })
         .chain(salvaged)
@@ -926,6 +1042,68 @@ thread_local! {
     static ACTIVE_ACTION_CARD: std::cell::RefCell<Option<ActionCardId>> = const { std::cell::RefCell::new(None) };
 }
 
+thread_local! {
+    /// Per thread: the plays the dual ran on the core window, and those it had to leave to the string. (The
+    /// shared dual report is taken by parallel tests from each other, so tests count here.)
+    static CORE_PLAYS: std::cell::Cell<(u32, u32)> = const { std::cell::Cell::new((0, 0)) };
+}
+
+/// `(on the core, bailed)` plays of this thread since [`reset_core_plays`].
+#[cfg(test)]
+fn core_plays() -> (u32, u32) {
+    CORE_PLAYS.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+fn reset_core_plays() {
+    CORE_PLAYS.with(|c| c.set((0, 0)));
+}
+
+/// Play the registered effect of a card: on the string side, or in lockstep with the core's window when the
+/// area is on `dual` and the core has one for the card (`rules::action_cards::effects`).
+pub(crate) fn play_effect(
+    context: &mut crate::timing::TimingContext<'_>,
+    alias: &ActionCardId,
+    player: &PlayerId,
+    effect: Effect,
+) {
+    with_action_card_source(alias, || {
+        if !crate::action_cards_typed::plays(alias) {
+            effect(context, player);
+            return;
+        }
+        let crate::timing::TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+        let (content, galaxy, sources) = (*content, *galaxy, sources.clone());
+        crate::dual_window!(
+            crate::dual::Area::ActionCards,
+            "action_cards::play",
+            &mut **state,
+            |s: &mut GameState| {
+                let mut inner = crate::timing::TimingContext {
+                    state: s,
+                    content,
+                    sources: sources.clone(),
+                    table: &mut **table,
+                    dice: &mut **dice,
+                    rng: &mut **rng,
+                    event_sequence: &mut **event_sequence,
+                    galaxy,
+                };
+                effect(&mut inner, player);
+                crate::dual::Run::new(())
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                let window = crate::action_cards_typed::play_window(s, player, alias, &sources, script);
+                CORE_PLAYS.with(|c| {
+                    let (ran, bailed) = c.get();
+                    c.set(if window.is_some() { (ran + 1, bailed) } else { (ran, bailed + 1) });
+                });
+                window
+            }
+        );
+    });
+}
+
 /// Run one card effect while exposing its identity to helpers shared by many card effects.
 pub(crate) fn with_action_card_source<T>(card: &ActionCardId, action: impl FnOnce() -> T) -> T {
     ACTIVE_ACTION_CARD.with(|active| {
@@ -951,15 +1129,44 @@ fn played_card_source(fallback: &str) -> DecisionSource {
     )
 }
 
+
+/// Run a stamp-or-flag effect on whichever backend the area has: the string closure, the core's
+/// `rules::action_cards::play_simple`, or both compared (`dual!` compares the resulting positions).
+fn stamped(
+    context: &mut crate::timing::TimingContext<'_>,
+    player: &PlayerId,
+    effect: &'static str,
+    string: impl Fn(&mut GameState),
+) {
+    let sources = context.sources;
+    crate::dual!(
+        crate::dual::Area::ActionCards,
+        effect,
+        context.state,
+        |s: &mut GameState| {
+            string(s);
+            crate::dual::Run::new(())
+        },
+        |s: &mut GameState| {
+            if crate::action_cards_typed::play_simple(s, player, effect, &sources).is_none() {
+                string(s);
+            }
+            crate::dual::Run::new(())
+        }
+    );
+}
+
 /// Morale Boost: "+1 to the result of each of your unit's combat rolls during this combat round."
 ///
 /// Scoped to [`GameState::combat_round_seq`] rather than a flag, so the bonus expires with the
 /// round it was played in. A flag would improve every later round of the same combat too.
 fn morale_boost(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let round = context.state.combat_round_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.combat_bonus_round = Some(round);
-    }
+    stamped(context, player, "morale_boost", |state| {
+        let round = state.combat_round_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.combat_bonus_round = Some(round);
+        }
+    });
 }
 
 /// Flank Speed: "+1 to the move value of each of your ships during this tactical action."
@@ -967,10 +1174,12 @@ fn morale_boost(context: &mut crate::timing::TimingContext<'_>, player: &PlayerI
 /// Scoped to [`GameState::activation_seq`] for the same reason: the card says *this* tactical
 /// action, and an unscoped bonus would follow the fleet for the rest of the game.
 fn flank_speed(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let activation = context.state.activation_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.move_bonus_activation = Some(activation);
-    }
+    stamped(context, player, "flank_speed", |state| {
+        let activation = state.activation_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.move_bonus_activation = Some(activation);
+        }
+    });
 }
 
 /// Solar Flare: "During the 'Movement' step of this tactical action, other players cannot use
@@ -981,10 +1190,12 @@ fn flank_speed(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId
 /// it and suppresses the whole step: every gun in that step belongs to another player and fires
 /// at this player's ships, which is exactly what the card forbids.
 fn solar_flare(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let activation = context.state.activation_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.solar_flare.push(activation);
-    }
+    stamped(context, player, "solar_flare", |state| {
+        let activation = state.activation_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.solar_flare.push(activation);
+        }
+    });
 }
 
 /// Lost Star Chart: "During this tactical action, systems that contain alpha and beta wormholes
@@ -1000,10 +1211,12 @@ fn solar_flare(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId
 /// partner. The switch and the marker are still implemented as printed, and the link rule is
 /// pinned by the galaxy's own tests.
 fn lost_star(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let activation = context.state.activation_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.lost_star.push(activation);
-    }
+    stamped(context, player, "lost_star", |state| {
+        let activation = state.activation_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.lost_star.push(activation);
+        }
+    });
 }
 
 /// Sabotage: "When another player plays an action card other than 'Sabotage': cancel that
@@ -1051,7 +1264,7 @@ fn veto(context: &mut crate::timing::TimingContext<'_>, _: &PlayerId) {
 /// `AGENDA_RESOLVED` window closes and applies the agenda's own effect to this seat instead
 /// of the one the ballots elected.
 fn confounding(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    context.state.agenda_elected_override = Some(player.clone());
+    stamped(context, player, "confounding", |state| state.agenda_elected_override = Some(player.clone()));
 }
 
 /// Confusing Legal Text: "When you are elected as the outcome of an agenda: choose 1 player.
@@ -1112,19 +1325,29 @@ fn confusing(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) 
 /// Then the holder exhausts every planet they control — the card names "your planets",
 /// which are the ones on this player's board, not the planets the agenda would have touched.
 fn deadly_plot(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    context
-        .state
-        .transient_flags
-        .set(TransientFlags::AGENDA_DISCARDED);
-    let planets: Vec<ti4_model::id::PlanetId> = context
-        .state
+    // The core `rules::agenda::deadly_plot::DeadlyPlot` window runs beside the string body on `agenda=dual`.
+    crate::dual_window!(
+        crate::dual::Area::AgendaLaws,
+        "action_cards::deadly_plot",
+        &mut *context.state,
+        |s: &mut GameState| {
+            deadly_plot_state(s, player);
+            crate::dual::Run::new(())
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::dual_window::deadly_plot(s, player, script)
+    );
+}
+
+fn deadly_plot_state(state: &mut GameState, player: &PlayerId) {
+    state.transient_flags.set(TransientFlags::AGENDA_DISCARDED);
+    let planets: Vec<ti4_model::id::PlanetId> = state
         .board
         .values()
         .flat_map(|system| system.planet_control.iter())
         .filter_map(|(planet, owner)| (owner == player).then_some(planet.clone()))
         .collect();
     for planet in planets {
-        context.state.exhaust_planet(planet);
+        state.exhaust_planet(planet);
     }
 }
 
@@ -1135,11 +1358,8 @@ fn deadly_plot(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId
 /// setting `TransientFlags::STRATEGIC_CANCELLED` here still undoes the action entirely:
 /// the card goes back to hand unexhausted, no token is placed, no ability runs, and the
 /// victim's turn simply ends.
-fn coup(context: &mut crate::timing::TimingContext<'_>, _: &PlayerId) {
-    context
-        .state
-        .transient_flags
-        .set(TransientFlags::STRATEGIC_CANCELLED);
+fn coup(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
+    stamped(context, player, "coup", |state| state.transient_flags.set(TransientFlags::STRATEGIC_CANCELLED));
 }
 
 /// Crisis: "At the end of any player's turn, if there are at least 2 players who have not
@@ -1148,11 +1368,8 @@ fn coup(context: &mut crate::timing::TimingContext<'_>, _: &PlayerId) {
 /// The guard counts the unpassed seats at the moment a turn ends; the effect arms
 /// `TransientFlags::SKIP_NEXT_TURN`, which the turn driver consumes on the very next advance —
 /// the seat the turn just landed on is skipped and never acts.
-fn crisis(context: &mut crate::timing::TimingContext<'_>, _: &PlayerId) {
-    context
-        .state
-        .transient_flags
-        .set(TransientFlags::SKIP_NEXT_TURN);
+fn crisis(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
+    stamped(context, player, "crisis", |state| state.transient_flags.set(TransientFlags::SKIP_NEXT_TURN));
 }
 
 /// Master Plan: "After you perform an action: Perform an additional action."
@@ -1161,11 +1378,8 @@ fn crisis(context: &mut crate::timing::TimingContext<'_>, _: &PlayerId) {
 /// `TransientFlags::ADDITIONAL_ACTION`: the next turn advance keeps the same seat — no
 /// `turn_seq` bump, no end-of-turn tech, no transaction reset — and the player simply takes
 /// another action.
-fn master_plan(context: &mut crate::timing::TimingContext<'_>, _: &PlayerId) {
-    context
-        .state
-        .transient_flags
-        .set(TransientFlags::ADDITIONAL_ACTION);
+fn master_plan(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
+    stamped(context, player, "master_plan", |state| state.transient_flags.set(TransientFlags::ADDITIONAL_ACTION));
 }
 
 /// Hack Election: "After an agenda is revealed: During this agenda, you vote last."
@@ -1176,10 +1390,12 @@ fn master_plan(context: &mut crate::timing::TimingContext<'_>, _: &PlayerId) {
 /// order reads it in `VoteWindow::new` and moves the holder to the last seat, after the
 /// speaker.
 fn hack_election(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let agenda = context.state.agenda_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.hack_votes_last_agenda = Some(agenda);
-    }
+    stamped(context, player, "hack_election", |state| {
+        let agenda = state.agenda_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.hack_votes_last_agenda = Some(agenda);
+        }
+    });
 }
 
 /// Summit: "At the start of the strategy phase: Gain 2 command tokens."
@@ -1209,9 +1425,11 @@ fn summit(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
 /// strategy phase that follows. It is cleared when that action phase begins, and the
 /// retained cards then go back to the mat in the following round's status phase.
 fn political_stability(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.stability = true;
-    }
+    stamped(context, player, "political_stability", |state| {
+        if let Some(seat) = state.player_mut(player) {
+            seat.stability = true;
+        }
+    });
 }
 
 /// Public Disgrace: "When another player chooses a strategy card during the strategy
@@ -1369,11 +1587,11 @@ fn extreme_duress(context: &mut crate::timing::TimingContext<'_>, player: &Playe
 /// negotiation closes or the turn ends, so it can never bleed into another player's table. The
 /// "cannot be canceled" clause is structural: once the flag is set, nothing else touches it, so
 /// no counter-play can strip the terms back away.
-fn blackmarketdealings(context: &mut crate::timing::TimingContext<'_>, _player: &PlayerId) {
-    context
-        .state
-        .transient_flags
-        .set(ti4_model::state::TransientFlags::BLACK_MARKET);
+fn blackmarketdealings(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
+    stamped(context, player, "black_market", |state| {
+        state.transient_flags
+            .set(ti4_model::state::TransientFlags::BLACK_MARKET);
+    });
 }
 
 /// Infiltrate: "When you gain control of a planet: Replace each PDS and space dock that is on
@@ -1640,24 +1858,26 @@ fn reparations(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId
 /// and a commodity becomes a trade good the moment it changes hands (21.5), the same handoff
 /// the transaction makes, so the goods arrive as goods.
 fn salvage(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let Some((_system, opponents)) = context.state.last_combat_sides.clone() else {
-        return;
-    };
-    let mut goods = 0i32;
-    for opponent in &opponents {
-        if opponent == player {
-            continue;
+    stamped(context, player, "salvage", |state| {
+        let Some((_system, opponents)) = state.last_combat_sides.clone() else {
+            return;
+        };
+        let mut goods = 0i32;
+        for opponent in &opponents {
+            if opponent == player {
+                continue;
+            }
+            if let Some(seat) = state.player_mut(opponent) {
+                goods += seat.commodities;
+                seat.commodities = 0;
+            }
         }
-        if let Some(seat) = context.state.player_mut(opponent) {
-            goods += seat.commodities;
-            seat.commodities = 0;
+        if goods > 0
+            && let Some(winner) = state.player_mut(player)
+        {
+            winner.commodities += goods;
         }
-    }
-    if goods > 0
-        && let Some(winner) = context.state.player_mut(player)
-    {
-        winner.commodities += goods;
-    }
+    });
 }
 
 /// Reverse Engineer: "After another player discards an action card that has a component
@@ -1669,23 +1889,26 @@ fn salvage(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
 /// component action — is checked here, against the content, and a second holder who acted
 /// first leaves the pile empty for the one who acted after: the card is taken, not copied.
 fn reverse_engineer(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let Some((by, alias)) = context.state.last_action_discarded.clone() else {
-        return;
-    };
-    if by == *player {
-        return;
-    }
-    if !is_component_action(context.content, &alias) {
-        return;
-    }
-    let pile = &mut context.state.discarded_action_cards;
-    let Some(at) = pile.iter().position(|held| held == &alias) else {
-        return; // a faster reverse engineer took it first
-    };
-    pile.remove(at);
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.action_cards.push(alias);
-    }
+    let content = context.content;
+    stamped(context, player, "reverse_engineer", |state| {
+        let Some((by, alias)) = state.last_action_discarded.clone() else {
+            return;
+        };
+        if by == *player {
+            return;
+        }
+        if !is_component_action(content, &alias) {
+            return;
+        }
+        let pile = &mut state.discarded_action_cards;
+        let Some(at) = pile.iter().position(|held| held == &alias) else {
+            return; // a faster reverse engineer took it first
+        };
+        pile.remove(at);
+        if let Some(seat) = state.player_mut(player) {
+            seat.action_cards.push(alias);
+        }
+    });
 }
 
 /// Rout: "your opponent must announce a retreat, if able."
@@ -1696,10 +1919,12 @@ fn reverse_engineer(context: &mut crate::timing::TimingContext<'_>, player: &Pla
 /// when the marker matches; a defender that cannot legally retreat simply keeps fighting, which
 /// is what "if able" says.
 fn rout(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let round = context.state.combat_round_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.rout_round = Some(round);
-    }
+    stamped(context, player, "rout", |state| {
+        let round = state.combat_round_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.rout_round = Some(round);
+        }
+    });
 }
 
 /// Waylay: "before you roll dice for ANTI-FIGHTER BARRAGE: hits from this roll are produced
@@ -1710,10 +1935,12 @@ fn rout(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
 /// the ordinary casualty absorption (owner-chosen, sustain-eligible) instead of auto-destroying
 /// fighters.
 fn waylay(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let round = context.state.combat_round_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.waylay_barrage_round = Some(round);
-    }
+    stamped(context, player, "waylay", |state| {
+        let round = state.combat_round_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.waylay_barrage_round = Some(round);
+        }
+    });
 }
 
 /// Direct Hit (dh1-dh4): "after another player's ship uses SUSTAIN DAMAGE to cancel a hit
@@ -1826,7 +2053,7 @@ fn direct_hit(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId)
 /// nobody has to absorb. The window fires right before that gunner's hits are absorbed, so a
 /// grant made in it cancels hits of that roll rather than of some other absorption.
 fn maneuvering_jets(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    crate::combat::grant_hit_cancellation(context.state, player, 1);
+    stamped(context, player, "maneuvering_jets", |state| crate::combat::grant_hit_cancellation(state, player, 1));
 }
 
 /// Reflective Shielding: "when one of your ships uses SUSTAIN DAMAGE during combat: produce 2
@@ -1840,15 +2067,15 @@ fn maneuvering_jets(context: &mut crate::timing::TimingContext<'_>, player: &Pla
 /// that plays this card has closed, so the opponent's own sustain answers and loss choices
 /// still happen through the ordinary question path.
 fn reflective(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let Some((system, victim, _unit_type, producer, _during_space_combat)) =
-        context.state.last_sustain.clone()
-    else {
-        return; // no sustain was just used; the guard should have kept this window closed
-    };
-    if &victim != player || &producer == player {
-        return; // defence in depth: the window guard already checks it was your ship
-    }
-    context.state.pending_reflective_hits = Some((system, producer, 2));
+    stamped(context, player, "reflective", |state| {
+        let Some((system, victim, _unit_type, producer, _during_space_combat)) = state.last_sustain.clone() else {
+            return; // no sustain was just used; the guard should have kept this window closed
+        };
+        if &victim != player || &producer == player {
+            return; // defence in depth: the window guard already checks it was your ship
+        }
+        state.pending_reflective_hits = Some((system, producer, 2));
+    });
 }
 
 /// Courageous to the End: "after 1 of your ships is destroyed during a space combat: roll 2
@@ -2119,10 +2346,12 @@ fn choose_crashlanding_planet(
 /// All of them, including a gravity rift's +1 and its destruction roll. A rift's bonus is as much
 /// an effect of an anomaly as a supernova's bar, so the card gives up the one along with the other.
 fn nav_suite(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let activation = context.state.activation_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.anomalies_ignored_activation = Some(activation);
-    }
+    stamped(context, player, "nav_suite", |state| {
+        let activation = state.activation_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.anomalies_ignored_activation = Some(activation);
+        }
+    });
 }
 
 /// In The Silence Of Space: "choose 1 system; during this tactical action, your ships in the
@@ -3185,9 +3414,9 @@ pub fn apply_movement_effects(
 ///
 /// A pure gain from the supply; the card's trigger is the window it is played into.
 fn rally(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    context
-        .state
-        .gain_token(player, ti4_model::state::TokenPool::Fleet, 2);
+    stamped(context, player, "rally", |state| {
+        state.gain_token(player, ti4_model::state::TokenPool::Fleet, 2);
+    });
 }
 
 /// Forward Supply Base: "After another player activates a system that contains your units, gain
@@ -3268,7 +3497,7 @@ fn counterstroke(context: &mut crate::timing::TimingContext<'_>, player: &Player
 /// `record` (`game.rs`/`vote.rs`): a voter who exhausts no planet is banked in the same step the
 /// window opens, and an abstainer casts nothing to add to.
 fn distinguished_councilor(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    crate::vote::add_votes(context.state, player, 5);
+    stamped(context, player, "councilor", |state| crate::vote::add_votes(state, player, 5));
 }
 
 /// Bribery: "After the speaker votes on an agenda: spend any number of trade goods. For each
@@ -3324,7 +3553,7 @@ fn bribery_spend(context: &mut crate::timing::TimingContext<'_>, player: &Player
 /// holding all four cancels eight, and the pool is consumed across the round rather than
 /// refreshed per assignment.
 fn shields_holding(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    crate::combat::grant_hit_cancellation(context.state, player, 2);
+    stamped(context, player, "shields_holding", |state| crate::combat::grant_hit_cancellation(state, player, 2));
 }
 
 /// Intercept: "After your opponent declares a retreat during a space combat: your opponent
@@ -3362,10 +3591,12 @@ fn intercept(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) 
 /// what keeps it from improving the next combat. One entry per copy, so two copies in the same
 /// round give +4, and the fleet rolls and the anti-fighter barrage both read the marker.
 fn fighter_prototype(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let round = context.state.combat_round_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.fighter_bonus_round.push(round);
-    }
+    stamped(context, player, "f_prototype", |state| {
+        let round = state.combat_round_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.fighter_bonus_round.push(round);
+        }
+    });
 }
 
 /// Bunker: "During this invasion, apply -4 to the result of each BOMBARDMENT roll against
@@ -3377,10 +3608,12 @@ fn fighter_prototype(context: &mut crate::timing::TimingContext<'_>, player: &Pl
 /// (49.1), so the marker is in place by the time the rolls are made. One entry per copy: two
 /// Bunkers give -8.
 fn bunker(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let activation = context.state.activation_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.bunker_invasion.push(activation);
-    }
+    stamped(context, player, "bunker", |state| {
+        let activation = state.activation_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.bunker_invasion.push(activation);
+        }
+    });
 }
 
 /// War Machine (all four copies are identical): "Apply +4 to the total PRODUCTION value of
@@ -3396,10 +3629,12 @@ fn bunker(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
 /// The WILD WILD Galaxy printing ("reduce the combined cost by 5") is not modelled: the engine
 /// plays the base rules.
 fn war_machine(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let activation = context.state.activation_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.war_machine_use.push(activation);
-    }
+    stamped(context, player, "war_machine", |state| {
+        let activation = state.activation_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.war_machine_use.push(activation);
+        }
+    });
 }
 
 /// Blitz: "Each of your non-fighter ships in the active system that do not have BOMBARDMENT
@@ -3410,10 +3645,12 @@ fn war_machine(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId
 /// on 6. The marker is keyed to the activation that owns the invasion, the same way Bunker's
 /// is, so it cannot leak into a later activation.
 fn blitz(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let activation = context.state.activation_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.blitz_invasion.push(activation);
-    }
+    stamped(context, player, "blitz", |state| {
+        let activation = state.activation_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.blitz_invasion.push(activation);
+        }
+    });
 }
 
 /// Disable: "Your opponents' PDS units lose PLANETARY SHIELD and SPACE CANNON during this
@@ -3425,29 +3662,25 @@ fn blitz(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
 /// read by the bombardment plan (the shield) and the space-cannon guns (the cannon); both are
 /// keyed to the activation that owns the invasion.
 fn disable(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let Some(system) = context.state.active_system.clone() else {
-        return;
-    };
-    let types = ti4_content::units::catalogue(context.content, context.sources);
-    let board = context.state.system_state(&system);
-    let has_opponent_pds = board
-        .planet_units
-        .values()
-        .flatten()
-        .chain(&board.units)
-        .any(|unit| {
+    let (content, sources) = (context.content, context.sources);
+    stamped(context, player, "disable", |state| {
+        let Some(system) = state.active_system.clone() else {
+            return;
+        };
+        let types = ti4_content::units::catalogue(content, sources);
+        let board = state.system_state(&system);
+        let has_opponent_pds = board.planet_units.values().flatten().chain(&board.units).any(|unit| {
             &unit.owner != player
-                && types
-                    .get(unit.type_id.as_str())
-                    .is_some_and(|kind| kind.base_type() == "pds")
+                && types.get(unit.type_id.as_str()).is_some_and(|kind| kind.base_type() == "pds")
         });
-    if !has_opponent_pds {
-        return;
-    }
-    let activation = context.state.activation_seq;
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.disable_invasion.push(activation);
-    }
+        if !has_opponent_pds {
+            return;
+        }
+        let activation = state.activation_seq;
+        if let Some(seat) = state.player_mut(player) {
+            seat.disable_invasion.push(activation);
+        }
+    });
 }
 
 /// Parley: "Return the committed units to the space area."
@@ -3875,22 +4108,24 @@ fn decoy_operation(context: &mut crate::timing::TimingContext<'_>, player: &Play
 /// A unit's sustained damage is a flag on the unit, and the active system of the combat round
 /// is `state.active_system`, so the repair is a scan of both its space and its planets.
 fn emergency_repairs(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let Some(system) = context.state.active_system.clone() else {
-        return;
-    };
-    let board = context.state.system_mut(&system);
-    for unit in &mut board.units {
-        if &unit.owner == player {
-            unit.sustained_damage = false;
-        }
-    }
-    for units in board.planet_units.values_mut() {
-        for unit in units.iter_mut() {
+    stamped(context, player, "emergency_repairs", |state| {
+        let Some(system) = state.active_system.clone() else {
+            return;
+        };
+        let board = state.system_mut(&system);
+        for unit in &mut board.units {
             if &unit.owner == player {
                 unit.sustained_damage = false;
             }
         }
-    }
+        for units in board.planet_units.values_mut() {
+            for unit in units.iter_mut() {
+                if &unit.owner == player {
+                    unit.sustained_damage = false;
+                }
+            }
+        }
+    });
 }
 
 /// Upgrade: "after you activate a system that contains 1 or more of your ships, replace 1 of
@@ -4291,24 +4526,19 @@ pub fn cultural_planets_preview(
 
 /// Economic Initiative: "Ready each cultural planet you control."
 fn economic_initiative(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let owned: Vec<ti4_model::id::PlanetId> = context
-        .state
-        .controlled_planets(player)
-        .into_iter()
-        .map(|(_, planet)| planet.clone())
-        .collect();
-    for planet in owned {
-        let cultural =
-            ti4_content::galaxy::planet(context.content, planet.as_str(), context.sources)
-                .is_some_and(|planet| {
-                    planet
-                        .planet_type()
-                        .is_some_and(|kind| kind.eq_ignore_ascii_case("cultural"))
-                });
-        if cultural {
-            context.state.exhausted_planets.remove(&planet);
+    let (content, sources) = (context.content, context.sources);
+    stamped(context, player, "economic_initiative", |state| {
+        let owned: Vec<ti4_model::id::PlanetId> =
+            state.controlled_planets(player).into_iter().map(|(_, planet)| planet.clone()).collect();
+        for planet in owned {
+            let cultural = ti4_content::galaxy::planet(content, planet.as_str(), sources).is_some_and(|planet| {
+                planet.planet_type().is_some_and(|kind| kind.eq_ignore_ascii_case("cultural"))
+            });
+            if cultural {
+                state.exhausted_planets.remove(&planet);
+            }
         }
-    }
+    });
 }
 
 /// Industrial Initiative: "Gain 1 trade good for each industrial planet you control."
@@ -5778,32 +6008,9 @@ pub fn place_units(
     base_type: &str,
     count: usize,
 ) {
-    let Some(type_id) = placed_unit_id(
-        context.state,
-        context.content,
-        context.sources,
-        player,
-        base_type,
-    ) else {
+    let Some((type_id, count)) = place_units_plan(context, player, base_type, count) else {
         return;
     };
-    if crate::factions::hooks_economy::effect_placement_forbidden(
-        context.state,
-        context.content,
-        context.sources,
-        player,
-        &type_id,
-    ) {
-        return;
-    }
-    let count = crate::supply::allowed(
-        context.state,
-        context.content,
-        context.sources,
-        player,
-        &type_id,
-        count,
-    );
     for _ in 0..count {
         let unit = ti4_model::units::Unit::new(type_id.clone(), player.clone());
         match planet {
@@ -5817,6 +6024,42 @@ pub fn place_units(
             None => context.state.system_mut(system).units.push(unit),
         }
     }
+}
+
+/// What [`place_units`] places: the unit type the player's cards resolve `base_type` to and how many of
+/// `count` the supply allows; `None` when there is no such unit or an effect forbids the placement. The
+/// resolution, split from the write so a core rule can do the write (`leaders::solcommander`).
+pub(crate) fn place_units_plan(
+    context: &crate::timing::TimingContext<'_>,
+    player: &PlayerId,
+    base_type: &str,
+    count: usize,
+) -> Option<(ti4_model::id::UnitTypeId, usize)> {
+    let type_id = placed_unit_id(
+        context.state,
+        context.content,
+        context.sources,
+        player,
+        base_type,
+    )?;
+    if crate::factions::hooks_economy::effect_placement_forbidden(
+        context.state,
+        context.content,
+        context.sources,
+        player,
+        &type_id,
+    ) {
+        return None;
+    }
+    let count = crate::supply::allowed(
+        context.state,
+        context.content,
+        context.sources,
+        player,
+        &type_id,
+        count,
+    );
+    Some((type_id, count))
 }
 
 // -- placement from reinforcements, for faction cards (BF-00b-economy) ----------------------------
@@ -7825,6 +8068,387 @@ mod tests {
             galaxy: None,
         };
         effect(&mut context, player);
+    }
+
+    #[test]
+    fn the_stamp_and_flag_effects_agree_with_the_core_on_the_whole_position() {
+        // Every card with a core effect, played with the area on Dual: the string and the core position are
+        // compared by the harness, so any difference panics here.
+        #[cfg(feature = "typed-core")]
+        {
+            use crate::dual::{AreaMask, Backend, with_mask};
+            let mask = AreaMask::all(Backend::String).with(crate::dual::Area::ActionCards, Backend::Dual);
+            let mut played = 0;
+            let _ = crate::dual::take_report();
+            for card in ti4_engine_core::generated::ActionCard::ALL {
+                if ti4_engine_core::rules::action_cards::Simple::of(card).is_none() {
+                    continue;
+                }
+                let mut state = crate::fixtures::game(&["a", "b"]);
+                state.combat_round_seq = 3;
+                state.activation_seq = 5;
+                state.agenda_seq = 2;
+                for (seat, faction) in state.players.iter_mut().zip(["arborec", "hacan"]) {
+                    seat.faction = ti4_model::id::FactionId::new(faction);
+                }
+                with_mask(mask, || play_effect(&mut state, crate::generated::IdStr::as_str(card), &PlayerId::new("a")));
+                played += 1;
+            }
+            let report = crate::dual::take_report();
+            assert!(report.differences.is_empty(), "{:?}", report.differences.first());
+            assert_eq!(played, 26 + 18, "the stamp and flag effects, then the state effects");
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "typed-core")]
+    fn the_state_effects_agree_with_the_core_on_a_populated_position() {
+        // A position where each of the second-batch effects has something to do, so the dual compares real
+        // changes (an empty fixture would compare two no-ops).
+        use crate::dual::{AreaMask, Backend, with_mask};
+        use crate::generated::IdStr;
+        use ti4_engine_core::generated::{ActionCard, Planet, PlanetTrait};
+        let mask = AreaMask::all(Backend::String).with(crate::dual::Area::ActionCards, Backend::Dual);
+        let planet = Planet::ALL
+            .iter()
+            .copied()
+            .find(|p| {
+                let d = p.data();
+                d.traits.contains(&PlanetTrait::Cultural) && d.system.is_some() && d.source == ti4_engine_core::generated::Source::Base
+            })
+            .expect("a base cultural planet");
+        let system = planet.data().system.unwrap();
+        let (planet_id, system_id) = (planet.as_str().to_owned(), system.as_str().to_owned());
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        let build = || {
+            let mut state = crate::fixtures::game(&["a", "b"]);
+            state.combat_round_seq = 3;
+            state.activation_seq = 5;
+            for (seat, faction) in state.players.iter_mut().zip(["arborec", "hacan"]) {
+                seat.faction = ti4_model::id::FactionId::new(faction);
+            }
+            let sys = ti4_model::id::SystemId::new(system_id.clone());
+            let pid = ti4_model::id::PlanetId::new(planet_id.clone());
+            state.system_mut(&sys).planet_control.insert(pid.clone(), a.clone());
+            state.system_mut(&sys).planet_units.insert(
+                pid.clone(),
+                vec![ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new("pds"), b.clone())],
+            );
+            state.exhausted_planets.insert(pid);
+            let mut hurt = ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new("dreadnought"), a.clone());
+            hurt.sustained_damage = true;
+            state.system_mut(&sys).units.push(hurt);
+            state.promissory_notes.clear(); // the fixture ones carry the faction "generic", which the Cards codec refuses
+            state.active_system = Some(sys.clone());
+            state.player_mut(&b).unwrap().commodities = 3;
+            state.last_combat_sides = Some((sys.clone(), vec![a.clone(), b.clone()]));
+            state.last_sustain = Some((sys, a.clone(), ti4_model::id::UnitTypeId::new("dreadnought"), b.clone(), true));
+            state.discarded_action_cards = vec![ActionCardId::new("spy")];
+            state.last_action_discarded = Some((b.clone(), ActionCardId::new("spy")));
+            state.player_mut(&a).unwrap().fleet_tokens = 1;
+            state.player_mut(&a).unwrap().tactic_tokens = 3;
+            state
+        };
+        let _ = crate::dual::take_report();
+        for card in [
+            ActionCard::Rally,
+            ActionCard::ManeuveringJets2,
+            ActionCard::ShieldsHolding3,
+            ActionCard::ReflectiveShielding,
+            ActionCard::ConfoundingLegalText,
+            ActionCard::DeadlyPlot,
+            ActionCard::Salvage,
+            ActionCard::ReverseEngineer,
+            ActionCard::EconomicInitiative,
+            ActionCard::Disable,
+            ActionCard::DistinguishedCouncilor,
+            ActionCard::EmergencyRepairs,
+        ] {
+            let mut state = build();
+            let before = state.clone();
+            // The core half must run (not bail on the fixture), or the dual compares the string with itself.
+            let mut probe = build();
+            let name = match card {
+                ActionCard::Rally => "rally",
+                ActionCard::ManeuveringJets2 => "maneuvering_jets",
+                ActionCard::ShieldsHolding3 => "shields_holding",
+                ActionCard::ReflectiveShielding => "reflective",
+                ActionCard::ConfoundingLegalText => "confounding",
+                ActionCard::DeadlyPlot => "deadly_plot",
+                ActionCard::Salvage => "salvage",
+                ActionCard::ReverseEngineer => "reverse_engineer",
+                ActionCard::EconomicInitiative => "economic_initiative",
+                ActionCard::DistinguishedCouncilor => "councilor",
+                ActionCard::EmergencyRepairs => "emergency_repairs",
+                _ => "disable",
+            };
+            assert!(crate::action_cards_view::play_simple(&mut probe, &a, name, &ti4_model::content_types::POK).is_some(), "{card:?}: the core bailed");
+            with_mask(mask, || play_effect(&mut state, card.as_str(), &a));
+            assert_ne!(
+                serde_json::to_string(&state).unwrap(),
+                serde_json::to_string(&before).unwrap(),
+                "{card:?} changed nothing: the fixture compares two no-ops"
+            );
+        }
+        let report = crate::dual::take_report();
+        assert!(report.differences.is_empty(), "{:?}", report.differences.first());
+    }
+
+    /// Play a card's registered effect through [`super::play_effect`] (the dual wrapper) with scripted answers.
+    #[cfg(feature = "typed-core")]
+    fn dual_card(state: &mut GameState, alias: &str, player: &PlayerId) {
+        /// Takes the last option, so a first-option default would differ.
+        struct LastOption;
+        impl crate::choice::Decider for LastOption {
+            fn choose(&mut self, choice: &Choice) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
+                choice.options.last().cloned().ok_or_else(|| crate::choice::IllegalChoice::NoOptions {
+                    player: choice.player.clone(),
+                    prompt: choice.prompt.clone(),
+                })
+            }
+        }
+        let alias = ActionCardId::new(alias);
+        let effect = effect_for(&alias).expect("a registered effect");
+        let mut table = crate::choice::Table::with_default(Box::new(LastOption));
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut context = crate::timing::TimingContext {
+            state,
+            content: ContentStore::embedded(),
+            sources: ti4_model::content_types::POK,
+            table: &mut table,
+            dice: &mut dice,
+            rng: &mut rng,
+            event_sequence: &mut sequence,
+            galaxy: None,
+        };
+        super::play_effect(&mut context, &alias, player, effect);
+    }
+
+    /// The position the question effects are played in: three seats, a rival with tokens and cultural planets,
+    /// planets with PDS and docks, a pending agenda with two outcomes.
+    #[cfg(feature = "typed-core")]
+    fn question_position() -> GameState {
+        use crate::generated::IdStr;
+        use ti4_engine_core::generated::{Planet, PlanetTrait, Source};
+        let (a, b, c) = (PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c"));
+        let mut state = crate::fixtures::game(&["a", "b", "c"]);
+        for (seat, faction) in state.players.iter_mut().zip(["arborec", "hacan", "sol"]) {
+            seat.faction = ti4_model::id::FactionId::new(faction);
+        }
+        state.promissory_notes.clear();
+        let free: Vec<Planet> = Planet::ALL
+            .iter()
+            .copied()
+            .filter(|p| {
+                let d = p.data();
+                d.system.is_some() && d.homeworld_of.is_none() && d.source == Source::Base && d.traits.contains(&PlanetTrait::Cultural)
+            })
+            .take(2)
+            .chain(
+                Planet::ALL.iter().copied().filter(|p| {
+                    let d = p.data();
+                    d.system.is_some() && d.homeworld_of.is_none() && d.source == Source::Base && !d.traits.contains(&PlanetTrait::Cultural)
+                }).take(4),
+            )
+            .collect();
+        let unit = |kind: &str, owner: &PlayerId| ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new(kind), owner.clone());
+        for (i, planet) in free.iter().enumerate() {
+            let sys = ti4_model::id::SystemId::new(planet.data().system.unwrap().as_str());
+            let pid = ti4_model::id::PlanetId::new(planet.as_str());
+            let owner = [&c, &b, &a, &b, &a, &b][i];
+            state.system_mut(&sys).planet_control.insert(pid.clone(), owner.clone());
+            let kind = if i < 3 { "pds" } else { "spacedock" };
+            state.system_mut(&sys).planet_units.insert(pid, vec![unit(kind, &c), unit("pds", &b)]);
+            state.system_mut(&sys).command_tokens.insert(a.clone());
+        }
+        state.player_mut(&a).unwrap().passed = true;
+        state.player_mut(&b).unwrap().tactic_tokens = 2;
+        state.player_mut(&c).unwrap().tactic_tokens = 1;
+        state.active = Some(b.clone());
+        state.active_system = Some(ti4_model::id::SystemId::new(free[0].data().system.unwrap().as_str()));
+        state.agenda_in_play = Some("regulations".to_owned());
+        state.agenda_choices = vec!["for".to_owned(), "against".to_owned()];
+        state.activation_seq = 4;
+        // c holds a note that goes faceup on receipt, a generic one and an action-placed one, so the option order matters.
+        for key in ["cf:hacan", "convoys:hacan", "an:sol", "ps:hacan"] {
+            state.promissory_notes.insert(key.to_owned(), c.clone());
+        }
+        state.system_mut(&ti4_model::id::SystemId::new("33")).units.push(unit("cruiser", &a));
+        state.system_mut(&ti4_model::id::SystemId::new("35")).units.push(unit("destroyer", &a));
+        state.system_mut(&ti4_model::id::SystemId::new("34")).units.push(unit("cruiser", &a));
+        state
+    }
+
+    #[test]
+    #[cfg(feature = "typed-core")]
+    fn the_question_effects_agree_with_the_core_window_in_lockstep() {
+        use crate::dual::{AreaMask, Backend, with_mask};
+        let mask = AreaMask::all(Backend::String).with(crate::dual::Area::ActionCards, Backend::Dual);
+        let a = PlayerId::new("a");
+        let cases: &[&str] = &[
+            "sabo1", "insub", "assassin", "abs", "fsb", "confusing", "imp_rider", "const_rider", "diplo_rider", "lead_rider",
+            "politic_rider", "tech_rider", "trade_rider", "war_rider", "sanction", "puppetsonastring", "extremeduress",
+            "counterstroke", "unexpected", "mining_initiative", "uprising", "cripple", "meltdown", "veto", "veto3", "veto4",
+            "industrial_initiative", "silence_space", "dp1", "dp2", "dp3", "dp4",
+            "tactical", "messiah", "f_deployment", "war_effort", "insider",
+        ];
+        let _ = crate::dual::take_report();
+        reset_core_plays();
+        for alias in cases {
+            let mut state = question_position();
+            let before = state.clone();
+            with_mask(mask, || dual_card(&mut state, alias, &a));
+            if *alias != "sabo1" {
+                assert!(serde_json::to_string(&state).unwrap() != serde_json::to_string(&before).unwrap(), "{alias} changed nothing");
+            }
+        }
+        let report = crate::dual::take_report();
+        let shown: String = format!("{:?}", report.differences).chars().take(1200).collect();
+        assert!(report.differences.is_empty(), "{} differences: {shown}", report.differences.len());
+        assert_eq!(core_plays(), (cases.len() as u32, 0), "every case ran on the core");
+    }
+
+    #[test]
+    #[cfg(feature = "typed-core")]
+    fn the_offered_component_actions_and_the_discard_agree_with_the_core() {
+        use crate::dual::{AreaMask, Backend, with_mask};
+        let mask = AreaMask::all(Backend::String).with(crate::dual::Area::ActionCards, Backend::Dual);
+        let a = PlayerId::new("a");
+        let hand = |aliases: &[&str]| -> GameState {
+            let mut state = question_position();
+            state.player_mut(&a).unwrap().action_cards = aliases.iter().map(|x| ActionCardId::new(*x)).collect();
+            state
+        };
+        let _ = crate::dual::take_report();
+        // Spy (no rival holds a card), Insubordination (a rival has tokens), Blitz (no component action), Bribery
+        // (no goods to pay with), Uprising (a rival planet off the home systems), Counterstroke (a reaction card).
+        let state = hand(&["spy", "insub", "blitz", "bribery", "uprising", "counterstroke"]);
+        let offered = with_mask(mask, || available_actions(&state, ContentStore::embedded(), ti4_model::content_types::POK, None, &a));
+        let ids: Vec<&str> = offered.iter().map(|o| o.id.as_str()).collect();
+        assert_eq!(ids, ["action_card|1", "action_card|4"]);
+        // Signal Jamming is the documented bail: the string answer stands.
+        let state = hand(&["insub", "jamming"]);
+        let _ = with_mask(mask, || available_actions(&state, ContentStore::embedded(), ti4_model::content_types::POK, None, &a));
+        // The discard.
+        let mut state = hand(&["spy", "insub"]);
+        let taken = with_mask(mask, || discard(&mut state, &a, 1));
+        assert_eq!(taken, Some(ActionCardId::new("insub")));
+        assert_eq!(state.player(&a).unwrap().action_cards, vec![ActionCardId::new("spy")]);
+        assert_eq!(with_mask(mask, || discard(&mut state, &a, 5)), None);
+        let report = crate::dual::take_report();
+        let shown: String = format!("{:?}", report.differences).chars().take(1200).collect();
+        assert!(report.differences.is_empty(), "{} differences: {shown}", report.differences.len());
+    }
+
+    #[test]
+    #[cfg(feature = "typed-core")]
+    fn the_legal_target_reads_agree_with_the_core_on_boards_with_and_without_a_target() {
+        use crate::dual::{AreaMask, Backend, with_mask};
+        use crate::generated::IdStr;
+        use ti4_engine_core::generated::{ActionCard, Planet, PlanetTrait};
+        let mask = AreaMask::all(Backend::String).with(crate::dual::Area::ActionCards, Backend::Dual);
+        let planet = Planet::ALL
+            .iter()
+            .copied()
+            .find(|p| {
+                let d = p.data();
+                d.traits.contains(&PlanetTrait::Cultural) && d.system.is_some() && d.homeworld_of.is_none() && d.source == ti4_engine_core::generated::Source::Base
+            })
+            .expect("a base cultural planet");
+        let (planet_id, system_id) = (planet.as_str().to_owned(), planet.data().system.unwrap().as_str().to_owned());
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        let unit = |kind: &str, owner: &PlayerId| ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new(kind), owner.clone());
+        // 0: nothing; 1: a rival owns the planet, we have a ship; 2: we own it, a rival cruiser sits above, docks and PDS on it.
+        for scene in 0..4 {
+            let mut state = crate::fixtures::game(&["a", "b"]);
+            for (seat, faction) in state.players.iter_mut().zip(["arborec", "hacan"]) {
+                seat.faction = ti4_model::id::FactionId::new(faction);
+            }
+            state.promissory_notes.clear();
+            let sys = ti4_model::id::SystemId::new(system_id.clone());
+            let pid = ti4_model::id::PlanetId::new(planet_id.clone());
+            if scene == 1 {
+                state.system_mut(&sys).planet_control.insert(pid.clone(), b.clone());
+                state.system_mut(&sys).units.push(unit("destroyer", &a));
+            }
+            if scene >= 2 {
+                state.system_mut(&sys).planet_control.insert(pid.clone(), a.clone());
+                state.system_mut(&sys).units.push(unit("cruiser", &b));
+                state.system_mut(&sys).planet_units.insert(pid, vec![if scene == 2 { unit("pds", &b) } else { unit("spacedock", &a) }]);
+            }
+            let _ = crate::dual::take_report();
+            let mut yes = Vec::new();
+            for card in [
+                ActionCard::Plague,
+                ActionCard::CrippleDefenses,
+                ActionCard::ReactorMeltdown,
+                ActionCard::LuckyShot,
+                ActionCard::TacticalBombardment,
+                ActionCard::Scuttle,
+                ActionCard::Uprising,
+                ActionCard::RiseOfAMessiah,
+                ActionCard::FrontlineDeployment,
+                ActionCard::WarEffort,
+                ActionCard::UnstablePlanet,
+            ] {
+                let got = with_mask(mask, || {
+                    has_legal_target_text_dual(&state, &a, &ActionCardId::new(card.as_str()))
+                });
+                if got {
+                    yes.push(card);
+                }
+            }
+            let report = crate::dual::take_report();
+            assert!(report.differences.is_empty(), "scene {scene}: {:?}", report.differences.first());
+            let want: &[ActionCard] = match scene {
+                0 => &[],
+                1 => &[ActionCard::Plague, ActionCard::TacticalBombardment, ActionCard::Scuttle, ActionCard::Uprising, ActionCard::WarEffort],
+                2 => &[ActionCard::CrippleDefenses, ActionCard::LuckyShot, ActionCard::RiseOfAMessiah, ActionCard::FrontlineDeployment],
+                _ => &[ActionCard::ReactorMeltdown, ActionCard::LuckyShot, ActionCard::RiseOfAMessiah, ActionCard::FrontlineDeployment],
+            };
+            assert_eq!(yes, want, "scene {scene}");
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "typed-core")]
+    fn unstable_planet_needs_a_hazardous_planet_with_a_unit_entry_even_an_empty_one() {
+        use crate::dual::{AreaMask, Backend, with_mask};
+        use crate::generated::IdStr;
+        use ti4_engine_core::generated::{Planet, PlanetTrait, Source};
+        let mask = AreaMask::all(Backend::String).with(crate::dual::Area::ActionCards, Backend::Dual);
+        let a = PlayerId::new("a");
+        let planet = Planet::ALL
+            .iter()
+            .copied()
+            .find(|p| {
+                let d = p.data();
+                d.traits.contains(&PlanetTrait::Hazardous) && d.system.is_some() && d.source == Source::Base
+            })
+            .expect("a base hazardous planet");
+        let _ = crate::dual::take_report();
+        for entry in [false, true] {
+            let mut state = crate::fixtures::game(&["a", "b"]);
+            for (seat, faction) in state.players.iter_mut().zip(["arborec", "hacan"]) {
+                seat.faction = ti4_model::id::FactionId::new(faction);
+            }
+            state.promissory_notes.clear();
+            if entry {
+                let sys = ti4_model::id::SystemId::new(planet.data().system.unwrap().as_str());
+                state.system_mut(&sys).planet_units.insert(ti4_model::id::PlanetId::new(planet.as_str()), Vec::new());
+            }
+            let got = with_mask(mask, || has_legal_target_text_dual(&state, &a, &ActionCardId::new("unstable")));
+            assert_eq!(got, entry, "an empty entry counts");
+        }
+        let report = crate::dual::take_report();
+        assert!(report.differences.is_empty(), "{:?}", report.differences.first());
+    }
+
+    #[cfg(feature = "typed-core")]
+    fn has_legal_target_text_dual(state: &GameState, player: &PlayerId, alias: &ActionCardId) -> bool {
+        has_legal_target(state, ContentStore::embedded(), ti4_model::content_types::SourceSet::all(), player, alias)
     }
 
     #[test]

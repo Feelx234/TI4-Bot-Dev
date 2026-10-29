@@ -75,6 +75,7 @@ pub fn option(o: &Opt, w: &Wording) -> ChoiceOption {
     };
     let mut out = ChoiceOption::labelled(id, w.kind.as_deref().unwrap_or(kind), w.label.clone().unwrap_or(label));
     out.payload = w.payload.clone();
+    out.preview = w.preview.clone();
     out
 }
 
@@ -95,7 +96,7 @@ pub fn parse(id: &str, numbers: bool) -> Option<Opt> {
 
 // ---- context -------------------------------------------------------------------------------------
 
-const RULES: [(Rule, &str); 29] = [
+const RULES: [(Rule, &str); 31] = [
     (Rule::R2_4, "2.4"),
     (Rule::R8, "8"),
     (Rule::R8_10, "8.10"),
@@ -124,6 +125,8 @@ const RULES: [(Rule, &str); 29] = [
     (Rule::R89_1, "89.1"),
     (Rule::R89_2, "89.2"),
     (Rule::R95, "95"),
+    (Rule::Coexistence, "Coexistence"),
+    (Rule::Coexistence7_2, "Coexistence 7.2"),
     (Rule::EndOfTurn, "end of turn"),
 ];
 
@@ -143,7 +146,7 @@ fn id_of<T: IdStr>(x: T) -> String {
 }
 
 /// Which table an alias came from (first match in this order).
-fn content_of(r: &Render, alias: &str) -> Content {
+pub fn content_of(r: &Render, alias: &str) -> Content {
     macro_rules! try_tables {
         ($($ty:ty => $v:ident),*) => {$(
             if let Some(x) = <$ty as IdStr>::from_id(alias) { return Content::$v(x); }
@@ -156,6 +159,9 @@ fn content_of(r: &Render, alias: &str) -> Content {
         cg::GenericCard => GenericCard, cg::Attachment => Attachment,
         cg::ActionCard => ActionCard
     );
+    if let Some(step) = super::explore::step_of(alias) {
+        return Content::Step(step);
+    }
     Content::Other(r.code(alias))
 }
 
@@ -171,6 +177,7 @@ fn content_text(r: &Render, c: Content) -> String {
         Content::GenericCard(x) => id_of(x),
         Content::Attachment(x) => id_of(x),
         Content::ActionCard(x) => id_of(x),
+        Content::Step(s) => super::explore::step_text(s).to_owned(),
         Content::Other(c) => r.code_text(c),
     }
 }
