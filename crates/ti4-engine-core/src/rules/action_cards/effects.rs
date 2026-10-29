@@ -2276,6 +2276,16 @@ mod tests {
         }
     }
 
+    /// Bail: Infiltrate below rules version 1 (the string plays the card as it did then).
+    #[test]
+    fn bail_infiltrate_declines_below_rules_version_one() {
+        let core = CoreState::all_loaded();
+        let old = Env { facts: super::super::Facts { rules_version: 0, ..super::super::Facts::default() }, ..bare_env() };
+        assert!(Play::of(&core, ActionCard::Infiltrate, Seat(0), old).is_none());
+        let new = Env { facts: super::super::Facts { rules_version: 1, ..super::super::Facts::default() }, ..bare_env() };
+        assert!(Play::of(&core, ActionCard::Infiltrate, Seat(0), new).is_some());
+    }
+
     /// Bail: Harness Energy while a replenishment causes events the core does not hold.
     #[test]
     fn bail_harness_energy_declines_while_a_replenishment_causes_events() {

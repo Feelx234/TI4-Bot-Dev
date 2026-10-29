@@ -697,7 +697,10 @@ fn infiltrate_replaces_the_structures_of_the_planet_just_taken_in_the_core_windo
     state.last_control_gained = Some((ti4_model::id::SystemId::new("33"), planet, a.clone(), Some(b.clone())));
     // The box holds only one more PDS: the second swap is not made.
     let mut thin = state.clone();
-    thin.system_mut(&ti4_model::id::SystemId::new("33")).planet_units.get_mut("corneeq").unwrap().extend((0..4).map(|_| unit("pds", "a")));
+    let list = thin.system_mut(&ti4_model::id::SystemId::new("33")).planet_units.get_mut("corneeq").unwrap();
+    list.extend((0..3).map(|_| unit("pds", "a")));
+    // The holder's own PDS stands before the others': it is not replaced and uses up none of the box.
+    list.insert(0, unit("pds", "a"));
     let mut older = state.clone();
     older.rules_version = 0;
     announce_all(&[("infiltrate", state.clone())]);
@@ -720,7 +723,7 @@ fn infiltrate_replaces_the_structures_of_the_planet_just_taken_in_the_core_windo
     assert_eq!(on(&after, "spacedock", "a"), 2);
     assert_eq!(on(&after, "infantry", "b"), 1, "the infantry stays");
     let thin_after = played("infiltrate", &thin);
-    assert_eq!(on(&thin_after, "pds", "a"), 6, "one PDS was left in the box: one swap");
+    assert_eq!(on(&thin_after, "pds", "a"), 6, "one PDS was left in the box: one swap (five standing before)");
     // Below rules version 1 the string plays another card: the core declines.
     let _ = crate::dual::take_report();
 }
@@ -748,7 +751,7 @@ fn crash_landing_lands_a_ground_force_on_a_planet_of_the_system_in_the_core_wind
     let planets: Vec<String> = found.iter().map(|p| crate::generated::IdStr::as_str(*p).to_owned()).collect();
     state.system_mut(&sys).planet_units.insert(ti4_model::id::PlanetId::new(planets[0].clone()), vec![unit("infantry", "b")]);
     state.system_mut(&sys).planet_units.insert(ti4_model::id::PlanetId::new(planets[1].clone()), vec![]);
-    state.system_mut(&sys).units = vec![unit("infantry", "a"), unit("mech", "a"), unit("infantry", "a")];
+    state.system_mut(&sys).units = vec![unit("infantry", "a"), unit("mech", "a"), unit("fighter", "a"), unit("infantry", "a")];
     state.last_ship_destroyed = Some((sys.clone(), a.clone(), ti4_model::id::UnitTypeId::new("cruiser")));
     let mut one_kind = state.clone();
     one_kind.system_mut(&sys).units = vec![unit("infantry", "a"), unit("infantry", "a")];
@@ -756,13 +759,17 @@ fn crash_landing_lands_a_ground_force_on_a_planet_of_the_system_in_the_core_wind
     theirs.last_ship_destroyed = Some((sys.clone(), b.clone(), ti4_model::id::UnitTypeId::new("cruiser")));
     let mut nothing = state.clone();
     nothing.system_mut(&sys).units.clear();
-    for case in [&state, &one_kind, &theirs, &nothing] {
+    // Mecatol Rex is the only planet of its system: nowhere to land.
+    let mut mecatol = state.clone();
+    mecatol.system_mut(&ti4_model::id::SystemId::new("18")).units = vec![unit("infantry", "a")];
+    mecatol.last_ship_destroyed = Some((ti4_model::id::SystemId::new("18"), a.clone(), ti4_model::id::UnitTypeId::new("cruiser")));
+    for case in [&state, &one_kind, &theirs, &nothing, &mecatol] {
         announce_all(&[("crashlanding", case.clone())]);
     }
     let _ = crate::dual::take_report();
     let after = played("crashlanding", &state);
     let landed: usize = after.board[&sys].planet_units.values().flatten().filter(|u| u.owner == a).count();
     assert_eq!(landed, 1, "one ground force landed");
-    assert_eq!(after.board[&sys].units.len(), 2);
+    assert_eq!(after.board[&sys].units.len(), 3);
     let _ = crate::dual::take_report();
 }
