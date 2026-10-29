@@ -123,6 +123,8 @@ pub enum Fx {
     PirateFleet,
     /// Mercenary Contract: two trade goods, then two neutral infantry on a non-home planet without units.
     Mercenary,
+    /// Ghost Ship: a destroyer into a non-home wormhole system without another player's ship.
+    Ghost,
 }
 
 impl Fx {
@@ -136,6 +138,12 @@ impl Fx {
     #[must_use]
     pub const fn needs_neutral(self) -> bool {
         matches!(self, Self::PirateContract | Self::PirateFleet | Self::Mercenary)
+    }
+
+    /// Whether the effect reads the game's map (the adapter lends the galaxy; without one it bails).
+    #[must_use]
+    pub const fn needs_map(self) -> bool {
+        matches!(self, Self::Ghost)
     }
 
     /// The bill the effect pays before anything else (the string `production::pay`): the currency and the amount.
@@ -203,6 +211,7 @@ impl Fx {
             C::PirateContract1 | C::PirateContract2 | C::PirateContract3 | C::PirateContract4 => Self::PirateContract,
             C::PirateFleet => Self::PirateFleet,
             C::MercenaryContract => Self::Mercenary,
+            C::GhostShip => Self::Ghost,
             _ => return None,
         })
     }
@@ -345,6 +354,7 @@ impl Play {
             Fx::Dig => What::Dig,
             Fx::PirateContract | Fx::PirateFleet => What::Pirate,
             Fx::Mercenary => What::Landing,
+            Fx::Ghost => What::Ghost,
             Fx::Exchange if self.step == 0 => What::Player,
             Fx::Exchange if self.step == 1 => What::Offer,
             Fx::Exchange => What::Accept,
@@ -570,6 +580,27 @@ impl Play {
                 }
                 spots.as_mut_slice().sort_by_key(|(_, p)| *p);
                 spots.as_slice().iter().map(|(s, p)| Opt::Spot(*s, *p)).collect()
+            }
+            Fx::Ghost => {
+                // The systems on the map (the hex order of the galaxy), off-map ones left out.
+                let Some(galaxy) = core.galaxy() else { return SmallList::new() };
+                let scope = self.env.scope;
+                let mut on_map: SmallList<(crate::hex::Hex, System), 64> = SmallList::new();
+                for (i, system) in System::ALL.iter().copied().enumerate() {
+                    if let Some(hex) = galaxy.coord_of(crate::ids::system_at(i)) {
+                        on_map.push((hex, system));
+                    }
+                }
+                on_map.as_mut_slice().sort_unstable();
+                on_map
+                    .as_slice()
+                    .iter()
+                    .map(|(_, s)| *s)
+                    .filter(|s| crate::tables::printed_wormholes(*s) != 0)
+                    .filter(|s| !is_home_system(scope, *s))
+                    .filter(|s| !board::space_units(core, *s).iter().any(|p| p.owner() != who && scope.unit(p.kind()).is_some_and(|d| d.ship)))
+                    .map(Opt::System)
+                    .collect()
             }
             Fx::Mercenary => {
                 // Two trade goods are held (the goods are spent after the infantry land, so the check comes first).
@@ -1102,6 +1133,7 @@ impl Play {
                     fx::place_unit(core, neutral, system, None, crate::generated::Unit::NeutralDestroyer);
                 }
             }
+            (Fx::Ghost, Opt::System(system)) => self.place(core, self.env.facts.destroyer, system, None, 1),
             (Fx::Mercenary, Opt::Spot(system, planet)) => {
                 if let Some(neutral) = self.env.facts.neutral {
                     for _ in 0..2 {
@@ -1376,7 +1408,6 @@ mod tests {
             (C::DirectHit1, "the exact sustain mark and the ship-lost observers"),
             (C::DirectHit4, "the exact sustain mark and the ship-lost observers"),
             (C::SkilledRetreat1, "destinations and previews"),
-            (C::GhostShip, "the game's map and the wormhole systems"),
             (C::CourageousToTheEnd, "dice and a casualty choice"),
             (C::Strategize1, "performs another area's ability"),
             (C::Bribery, "the trade-good payment"),
@@ -1414,6 +1445,7 @@ mod tests {
             C::PirateContract4,
             C::PirateFleet,
             C::MercenaryContract,
+            C::GhostShip,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }
@@ -1448,7 +1480,7 @@ mod tests {
     #[test]
     fn bail_a_paid_card_declines_while_the_keleres_agent_could_be_offered() {
         let core = CoreState::all_loaded();
-        let facts = super::super::Facts { neutral: Some(Seat(1)), agent_offered: false };
+        let facts = super::super::Facts { neutral: Some(Seat(1)), agent_offered: false, ..super::super::Facts::default() };
         let env = Env { facts, ..bare_env() };
         assert!(Play::of(&core, ActionCard::PirateFleet, Seat(0), env).is_some());
         let env = Env { facts: super::super::Facts { agent_offered: true, ..facts }, ..bare_env() };
@@ -1489,7 +1521,6 @@ mod tests {
             (C::ExperimentalBattlestation, "the space cannon of a structure joined to the movement window"),
             (C::FocusedResearch, "four trade goods (the Keleres goods window) then a research"),
             (C::FireTeam, "per-die reroll questions of a staged ground roll"),
-            (C::GhostShip, "the systems of the game's map with a wormhole"),
             (C::GhostSquad, "ground forces moved through the faction hooks"),
             (C::HarnessEnergy, "the commodity limit of the faction hooks, the Siphon event and the Trade Agreement hook"),
             (C::Impersonation, "three influence by the question-driven payment, then a secret objective draw with the hand limit"),

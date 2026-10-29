@@ -121,3 +121,48 @@ fn mercenary_contract_lands_neutral_infantry_on_a_bare_planet_in_the_core_window
     assert_eq!(after.player(&a).unwrap().trade_goods, 1, "one trade good buys nothing");
     let _ = crate::dual::take_report();
 }
+
+/// A map of one ring: Mecatol Rex and six systems, four of which carry a wormhole (alpha, alpha, beta, alpha).
+fn ring() -> ti4_content::galaxy::Galaxy {
+    ti4_content::galaxy::Galaxy::build(ti4_content::ContentStore::embedded(), &["18", "25", "26", "39", "40", "67", "68"], ti4_model::content_types::POK, 1)
+        .expect("one ring holds the tiles")
+}
+
+/// Ghost Ship: the wormhole systems of the map without another player's ship, in the order of the map's hexes.
+#[test]
+fn ghost_ship_names_the_wormhole_systems_of_the_map_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let galaxy = ring();
+    let a = PlayerId::new("a");
+    let mut state = closing_position();
+    // A rival's cruiser in one wormhole system closes it; the holder's own ship does not.
+    state.system_mut(&ti4_model::id::SystemId::new("26")).units.push(unit("cruiser", "b"));
+    state.system_mut(&ti4_model::id::SystemId::new("39")).units.push(unit("cruiser", "a"));
+    state.system_mut(&ti4_model::id::SystemId::new("40")).units.push(unit("neutral_cruiser", "neutral"));
+    crate::action_cards_closing_tests::announce_all_on(&[("ghost_ship", state.clone())], Some(&galaxy));
+    let _ = crate::dual::take_report();
+    let mut game = state.clone();
+    game.player_mut(&a).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("ghost_ship")];
+    crate::action_cards::discard(&mut game, &a, 0);
+    crate::dual::with_mask(crate::action_cards_closing_tests::dual(), || {
+        crate::action_cards_announce_tests::announce_on(&mut game, "ghost_ship", &a, Box::new(crate::action_cards_announce_tests::DeclineSlots), Some(&galaxy))
+    });
+    assert_eq!(units_of(&game, "destroyer", "a") - units_of(&state, "destroyer", "a"), 1);
+    let _ = crate::dual::take_report();
+}
+
+/// Bail: Ghost Ship played without a map (the string names no system; the core cannot read the galaxy it was not lent).
+#[test]
+fn bail_ghost_ship_without_a_map_is_counted() {
+    let _serial = crate::dual::tests::serial();
+    let a = PlayerId::new("a");
+    let mut state = closing_position();
+    state.player_mut(&a).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("ghost_ship")];
+    crate::action_cards::discard(&mut state, &a, 0);
+    let _ = crate::dual::take_report();
+    crate::dual::with_mask(crate::action_cards_closing_tests::dual(), || {
+        crate::action_cards_announce_tests::announce(&mut state, "ghost_ship", &a, Box::new(crate::action_cards_announce_tests::DeclineSlots))
+    });
+    assert_eq!(crate::action_cards_closing_tests::windows("action_cards::announce"), (0, 1));
+    let _ = crate::dual::take_report();
+}

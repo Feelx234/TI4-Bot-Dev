@@ -246,6 +246,7 @@ fn env_of(state: &GameState, player: &PlayerId, sources: &ti4_model::content_typ
         facts: rules::Facts {
             neutral: r.seat(crate::neutral_units::NEUTRAL),
             agent_offered: state.player(player).is_some_and(|p| p.commodities > 0) && crate::factions::keleres::agent_could_grant(state, player),
+            destroyer: rules::Placed::NONE,
         },
     }
 }
@@ -293,6 +294,9 @@ pub fn plays(alias: &ActionCardId) -> bool {
     ActionCard::from_id(alias.as_str()).and_then(rules::effects::Fx::of).is_some()
 }
 
+/// The map slice, lent for the cards that read it.
+const MAP: crate::core_sync::Footprint = crate::core_sync::Footprint::new(&[Slice::Map], &[]);
+
 const PLAY: crate::core_sync::Footprint = crate::core_sync::Footprint::new(
     &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending, Slice::Strategy, Slice::Ledger],
     &[Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending, Slice::Strategy, Slice::Ledger],
@@ -308,6 +312,7 @@ pub fn play_window(
     sources: &ti4_model::content_types::SourceSet,
     script: &crate::dual_window::Recording,
     before_rolls: Option<&crate::rng::RngPositions>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
 ) -> Option<crate::dual::CoreWindow<crate::action_cards_typed::Rolled>> {
     use ti4_engine_core::driver::Driver;
     use ti4_engine_core::kernel::stage::AbilityTable;
@@ -318,6 +323,7 @@ pub fn play_window(
     let mut env = env_of(gs, player, sources, &r);
     env.infantry = placed(gs, player, sources, "infantry")?;
     env.cruiser = placed(gs, player, sources, "cruiser")?;
+    env.facts.destroyer = placed(gs, player, sources, "destroyer")?;
     let lent = lend_rolls(alias, before_rolls, "action_cards::play")?;
     let before = gs.clone();
     let kernel = Kernel::plain();
@@ -327,7 +333,13 @@ pub fn play_window(
     let mut unsupported = false;
     let mut rng_after = None;
     let fp = if lent.is_some() { PLAY.union(crate::core_sync::Footprint::new(&[Slice::Rng], &[Slice::Rng])) } else { PLAY };
-    let src = Sources { galaxy: None, rng: lent.as_ref().map(|l| &l.before) };
+    let wants_map = rules::effects::Fx::of(card).is_some_and(rules::effects::Fx::needs_map);
+    if wants_map && galaxy.is_none() {
+        crate::dual::note_bail("action_cards::play", "a card that reads the map, played without one");
+        return None;
+    }
+    let fp = if wants_map { fp.union(MAP) } else { fp };
+    let src = Sources { galaxy: if wants_map { galaxy } else { None }, rng: lent.as_ref().map(|l| &l.before) };
     let mut driver_seeds = None;
     if lent.is_some() {
         driver_seeds = Some(std::rc::Rc::new(crate::dual_window::DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?)));
@@ -338,6 +350,9 @@ pub fn play_window(
         crate::strategy_cards_core::complete_tokens(c, core, rendered, letnev);
     };
     let driven = crate::core_sync::with_core(gs, &mut cx, src, fp, |core, _| {
+        if wants_map && core.galaxy().is_none() {
+            return None;
+        }
         let play = rules::effects::Play::of(core, card, seat, env)?;
         let mut driver = Driver::new(play, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         if let Some(seeds) = driver_seeds {
@@ -421,6 +436,7 @@ pub fn announce_window(
     sources: &ti4_model::content_types::SourceSet,
     script: &crate::dual_window::Recording,
     before_rolls: Option<&crate::rng::RngPositions>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
 ) -> Option<crate::dual::CoreWindow<(Option<bool>, crate::action_cards_typed::Rolled)>> {
     use ti4_engine_core::driver::Driver;
     use ti4_engine_core::kernel::stage::AbilityTable;
@@ -433,6 +449,7 @@ pub fn announce_window(
     let mut env = env_of(gs, player, sources, &r);
     env.infantry = placed(gs, player, sources, "infantry")?;
     env.cruiser = placed(gs, player, sources, "cruiser")?;
+    env.facts.destroyer = placed(gs, player, sources, "destroyer")?;
     if crate::factions::ralnel_cards::skimmer_holder(gs).is_some() {
         crate::dual::note_bail("action_cards::announce", SKIMMER_BAIL);
         return None;
@@ -452,13 +469,24 @@ pub fn announce_window(
     if lent.is_some() {
         fp = fp.union(crate::core_sync::Footprint::new(&[Slice::Rng], &[Slice::Rng]));
     }
-    let src = Sources { galaxy: None, rng: lent.as_ref().map(|l| &l.before) };
+    let wants_map = rules::effects::Fx::of(card).is_some_and(rules::effects::Fx::needs_map);
+    if wants_map && galaxy.is_none() {
+        crate::dual::note_bail("action_cards::announce", "a card that reads the map, played without one");
+        return None;
+    }
+    if wants_map {
+        fp = fp.union(MAP);
+    }
+    let src = Sources { galaxy: if wants_map { galaxy } else { None }, rng: lent.as_ref().map(|l| &l.before) };
     let seeds = match lent {
         Some(_) => Some(std::rc::Rc::new(crate::dual_window::DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?))),
         None => None,
     };
     let rolled = seeds.is_some();
     let driven = crate::core_sync::with_core(gs, &mut cx, src, fp, |core, _| {
+        if wants_map && core.galaxy().is_none() {
+            return None;
+        }
         let announce = rules::announce::Announce::of(core, card, seat, env, has_effect, false)?;
         let mut driver = Driver::new(announce, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         if let Some(seeds) = seeds {

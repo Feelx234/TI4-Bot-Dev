@@ -164,14 +164,15 @@ pub(crate) fn play_window(
     sources: &ti4_model::content_types::SourceSet,
     script: &crate::dual_window::Recording,
     before: Option<&crate::rng::RngPositions>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
 ) -> Option<crate::dual::CoreWindow<Rolled>> {
     #[cfg(feature = "typed-core")]
     {
-        crate::action_cards_view::play_window(state, player, alias, sources, script, before)
+        crate::action_cards_view::play_window(state, player, alias, sources, script, before, galaxy)
     }
     #[cfg(not(feature = "typed-core"))]
     {
-        let _ = (state, player, alias, sources, script, before);
+        let _ = (state, player, alias, sources, script, before, galaxy);
         None
     }
 }
@@ -210,14 +211,15 @@ pub(crate) fn announce_window(
     sources: &ti4_model::content_types::SourceSet,
     script: &crate::dual_window::Recording,
     before: Option<&crate::rng::RngPositions>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
 ) -> Option<crate::dual::CoreWindow<(Option<bool>, Rolled)>> {
     #[cfg(feature = "typed-core")]
     {
-        crate::action_cards_view::announce_window(state, player, alias, sources, script, before)
+        crate::action_cards_view::announce_window(state, player, alias, sources, script, before, galaxy)
     }
     #[cfg(not(feature = "typed-core"))]
     {
-        let _ = (state, player, alias, sources, script, before);
+        let _ = (state, player, alias, sources, script, before, galaxy);
         None
     }
 }

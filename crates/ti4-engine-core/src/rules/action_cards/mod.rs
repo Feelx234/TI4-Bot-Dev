@@ -345,13 +345,21 @@ pub struct Env {
 
 /// What the cards of package B6d read from outside the core (inputs of the card, like the adjacency of Argent's agent):
 /// the neutral owner of the table, the forms the seat places, the systems of the game's map that carry a wormhole.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct Facts {
     /// The seat of the neutral owner (`neutral_units::NEUTRAL`), present in the owner table when the card needs it.
     pub neutral: Option<Seat>,
     /// A readied Keleres agent could be offered before a payment of the holder (the goods window and the payment window ask
     /// the holders first: a window of its own the card does not carry).
     pub agent_offered: bool,
+    /// The destroyer the seat places (Ghost Ship).
+    pub destroyer: Placed,
+}
+
+impl Default for Facts {
+    fn default() -> Self {
+        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE }
+    }
 }
 
 impl Simple {

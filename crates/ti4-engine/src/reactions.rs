@@ -755,7 +755,7 @@ pub fn announce(
             crate::dual::Run::new((stood, (if rolls { faces } else { Vec::new() }, rolls.then(|| rng.positions()))))
         },
         |s: &mut GameState, script: &crate::dual_window::Recording| {
-            crate::action_cards_typed::announce_window(s, player, alias, &sources, script, reproducible.then_some(&rng_before))
+            crate::action_cards_typed::announce_window(s, player, alias, &sources, script, reproducible.then_some(&rng_before), galaxy)
         }
     );
     let stood = stood.0;

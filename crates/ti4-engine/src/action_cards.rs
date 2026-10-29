@@ -1102,7 +1102,7 @@ pub(crate) fn play_effect(
                 crate::dual::Run::new((if rolls { faces } else { Vec::new() }, rolls.then(|| rng.positions())))
             },
             |s: &mut GameState, script: &crate::dual_window::Recording| {
-                let window = crate::action_cards_typed::play_window(s, player, alias, &sources, script, reproducible.then_some(&rng_before));
+                let window = crate::action_cards_typed::play_window(s, player, alias, &sources, script, reproducible.then_some(&rng_before), galaxy);
                 CORE_PLAYS.with(|c| {
                     let (ran, bailed) = c.get();
                     c.set(if window.is_some() { (ran + 1, bailed) } else { (ran, bailed + 1) });
