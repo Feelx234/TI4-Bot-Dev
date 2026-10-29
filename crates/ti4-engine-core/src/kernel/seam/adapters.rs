@@ -160,7 +160,8 @@ pub fn bridge_legacy(seams: &mut Seams) {
         if let Obs::ProductionWindowClosed { who, system } = *o {
             let k = cx.kernel;
             k.hooks.direct.argent_clear_agent_production_destinations(cx, who, system);
-            k.hooks.direct.keleres_close_agent_window(cx, who);
+            // Keleres' agent window is not closed here: a placement does not end the payment window, the caller of
+            // the production does (`keleres::close_agent_window`, string), after the use.
         }
     });
     seams.observers.push(ObsKind::Replenished, Phase::After, |cx, o| {

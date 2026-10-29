@@ -21,7 +21,7 @@ use crate::kernel::{Kernel, Next};
 use crate::query::economy::Spend;
 use crate::query::{fleet, reach};
 use crate::rules::production as rules;
-use super::{Cx, Extras, Spot};
+use super::{Cx, Held, Spot};
 use crate::generated::Leader;
 use crate::state::{CoreState, EventKind, LeaderStatus, Payload};
 use crate::state::{Key, Val};
@@ -139,12 +139,12 @@ impl ProductionWindow {
                     return None;
                 }
                 let ask = self.choose_ask();
-                let mut opts: Opts = rules::build_opts(&cx, self.who, &ask, &Extras::default()).as_slice().iter().map(|o| Opt::Production(*o)).collect();
+                let mut opts: Opts = rules::build_opts(&cx, self.who, &ask, &Held::of(&cx, self.who).extras()).as_slice().iter().map(|o| Opt::Production(*o)).collect();
                 if self.agent_offerable(s) && (self.remaining > 0 || self.small_exemptions > 0) {
                     let reaches = opts.len() > 0 || {
                         let mut probe = ask;
                         probe.discount_remaining += 2;
-                        !rules::build_opts(&cx, self.who, &probe, &Extras::default()).as_slice().is_empty()
+                        !rules::build_opts(&cx, self.who, &probe, &Held::of(&cx, self.who).extras()).as_slice().is_empty()
                     };
                     if reaches {
                         opts.push(Opt::Production(POpt::Agent));
@@ -159,7 +159,7 @@ impl ProductionWindow {
                 Some(Choice { actor: self.who, ask: Ask::Production(PAsk::Choose(ask)), ctx: self.ctx(s, Rule::R68, PSub::Choose, owed), opts })
             }
             Stage::Paying { owed, cost, paid, .. } => {
-                let (ask, opts) = rules::pay_opts(&cx, self.who, Spend::Resources, 0, i64::from(owed), &Extras::default());
+                let (ask, opts) = rules::pay_opts(&cx, self.who, Spend::Resources, 0, i64::from(owed), &Held::of(&cx, self.who).extras());
                 if opts.as_slice().is_empty() {
                     return None;
                 }
@@ -202,7 +202,7 @@ impl ProductionWindow {
     /// Apply a payment option; its worth, `None` for one that cannot be paid.
     fn apply_payment(&self, s: &mut CoreState, k: &Kernel, picked: POpt) -> Option<i32> {
         let cx = self.cx(s, k);
-        let (_, offered) = rules::pay_opts(&cx, self.who, Spend::Resources, 0, 0, &Extras::default());
+        let (_, offered) = rules::pay_opts(&cx, self.who, Spend::Resources, 0, 0, &Held::of(&cx, self.who).extras());
         // The offered option equal to the pick carries the worth (the pick, parsed from an id, does not).
         let chosen = *offered.as_slice().iter().find(|o| **o == picked)?;
         match chosen {
@@ -218,6 +218,12 @@ impl ProductionWindow {
                 p.econ.trade_goods -= 1;
                 Some(shown.worth)
             }
+            POpt::Commodity { shown } => {
+                // Keleres' agent: a commodity spent as if it were a trade good.
+                let p = s.players_mut().by_seat_mut(self.who)?;
+                p.econ.commodities -= 1;
+                Some(shown.worth)
+            }
             _ => None,
         }
     }
@@ -231,9 +237,15 @@ impl ProductionWindow {
             Spot::Planet(p) => (self.system, Some(p)),
             Spot::Remote(sys, at) => (sys, at),
         };
+        let naaz = unit == Unit::Eidolon && s.players().by_seat(self.who).is_some_and(|p| p.faction == crate::generated::Faction::TheNaazRokhaAlliance);
         for _ in 0..made {
             fx::place_unit(s, self.who, system, planet, unit);
             self.produced.push((unit, spot));
+            if naaz {
+                // `supply::stage_naaz_mech_placed`: Absolute Synergy resolves before the next action.
+                let payload = Payload::new().with(Key::Player, Val::Seat(self.who)).with(Key::System, Val::System(system));
+                fx::stage(s, fx::event(EventKind::NaazMechPlaced, payload));
+            }
         }
         let d = unit.data();
         let count = made as i64;
@@ -262,7 +274,7 @@ impl Window for ProductionWindow {
             match self.stage {
                 Stage::Paying { unit, owed, made, cost, paid } => {
                     let cx = self.cx(sx.state, sx.kernel);
-                    let (_, opts) = rules::pay_opts(&cx, self.who, Spend::Resources, 0, i64::from(owed), &Extras::default());
+                    let (_, opts) = rules::pay_opts(&cx, self.who, Spend::Resources, 0, i64::from(owed), &Held::of(&cx, self.who).extras());
                     match opts.as_slice() {
                         [] => {
                             self.stage = Stage::Done;

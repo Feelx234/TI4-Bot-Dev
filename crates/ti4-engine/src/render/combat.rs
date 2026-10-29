@@ -68,6 +68,7 @@ impl Family for Fam {
             Ask::CancelHit { system, .. } => format!("cancel a hit at {}", system.as_str()),
             Ask::AnnounceRetreat { system, .. } => format!("announce a retreat from {}", system.as_str()),
             Ask::RetreatTo { .. } => "retreat to which system".to_owned(),
+            Ask::Withdraw { .. } => "Skilled Retreat: withdraw to which system".to_owned(),
             Ask::AssignHit => "assign a hit".to_owned(),
             Ask::RaidDamage { .. } => "Raid Formation: choose a ship with SUSTAIN DAMAGE to become damaged".to_owned(),
             Ask::RerollDie { unit, die, .. } => format!("reroll die {} of {}", u16::from(*die) + 1, _r.code_text(*unit)),
@@ -83,6 +84,7 @@ impl Family for Fam {
             Subtype::SustainDamage => "sustain_damage".to_owned(),
             Subtype::AnnounceRetreat => "announce_retreat".to_owned(),
             Subtype::RetreatTo => "retreat_to".to_owned(),
+            Subtype::Withdraw => "skilled_retreat_choose_system".to_owned(),
             Subtype::Casualty(code) => _r.code_text(*code),
             Subtype::Reroll(RerollSource::Relic) => "crown_of_thalnos_relic_reroll".to_owned(),
             Subtype::Reroll(RerollSource::Law) => "crown_of_thalnos_law_reroll".to_owned(),
@@ -174,6 +176,15 @@ impl Family for Fam {
                     .with("system", id.to_owned())
                     .previewed(ships(i64::from(*there), i64::from(*there) + fleet));
             }
+            Opt::Withdraw { system, there } => {
+                let fleet = match a {
+                    Ask::Withdraw { fleet, .. } => i64::from(*fleet),
+                    _ => 0,
+                };
+                let id = system.as_str();
+                return ChoiceOption::labelled(id.to_owned(), "skilled_retreat", format!("withdraw to {id}"))
+                    .previewed(ships(i64::from(*there), i64::from(*there) + fleet));
+            }
             Opt::Sustain { site, unit, galvanized } => (site, unit, galvanized),
         };
         let window = match a {
@@ -200,6 +211,7 @@ impl Family for Fam {
                 _ => None,
             },
             Ask::RetreatTo { .. } => None,
+            Ask::Withdraw { .. } => <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(id).map(|system| Opt::Withdraw { system, there: 0 }),
             Ask::RaidDamage { .. } => Some(Opt::RaidDamage { unit: <Unit as crate::generated::IdStr>::from_id(id)? }),
             _ => None,
         }

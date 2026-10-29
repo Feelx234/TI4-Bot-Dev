@@ -121,6 +121,27 @@ fn empty_and_absent_entries_stay_distinct() {
     assert_eq!(json(&back), json(&gs));
 }
 
+/// `combat:sustain_target` is a typed mark: the JSON the string writes loads as six fields and stores back byte for byte
+/// (the planet of a planet-standing unit, none for a ship); a text of another shape stays a blob.
+#[test]
+fn the_sustain_target_mark_is_typed_and_round_trips() {
+    let mut gs = game();
+    let ship = r#"{"planet":null,"system":"18","unit":{"galvanized":false,"owner":"b","sustained_damage":true,"type_id":"dreadnought"}}"#;
+    let ground = r#"{"planet":"mr","system":"18","unit":{"galvanized":true,"owner":"a","sustained_damage":true,"type_id":"naaz_voltron"}}"#;
+    for (i, text) in [ship, ground].into_iter().enumerate() {
+        gs.faction_marks.clear();
+        gs.faction_marks.insert("combat:sustain_target".into(), text.into());
+        let mut cx = Ctx::of(&gs).unwrap();
+        let core = Codec::load(&mut cx, &gs, Sources::default(), SliceSet::of(&[Slice::Marks])).unwrap();
+        let typed = core.marks().tail.iter().any(|(k, v)| matches!(k, ti4_engine_core::keys::MarkKey::CombatSustainTarget()) && matches!(v, ti4_engine_core::keys::MarkVal::Rec(f) if f.len() == 6));
+        assert!(typed, "case {i} loads as six typed fields");
+        let mut back = gs.clone();
+        back.faction_marks.clear();
+        Codec::store(&cx, &core, &mut back, SliceSet::of(&[Slice::Marks])).unwrap();
+        assert_eq!(back.faction_marks, gs.faction_marks, "case {i}");
+    }
+}
+
 #[test]
 fn text_codes_are_stable_between_lends() {
     let mut gs = game();

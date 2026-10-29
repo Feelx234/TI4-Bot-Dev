@@ -37,3 +37,8 @@ pub(crate) use crate::common::testkit;
 pub fn register_abilities(t: &mut ti4_engine_core::kernel::ability::AbilityTable) {
     arborec::timing::register_abilities(t);
 }
+
+/// The abilities of the factions that come after Mentak and Nekro in the string order of the modules (Nomad).
+pub fn register_late_abilities(t: &mut ti4_engine_core::kernel::ability::AbilityTable) {
+    nomad::timing::register_abilities(t);
+}

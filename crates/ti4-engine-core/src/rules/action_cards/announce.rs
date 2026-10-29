@@ -41,6 +41,9 @@ enum Effect {
     Play(Box<Play>),
     /// The string side has no effect for the card: announced unresolved.
     Unresolved,
+    /// A rules package registered the effect (`AbilityTable::add_card_play`: the cards that read the combat or invasion
+    /// area, Sabotage, Parley, Direct Hit, Skilled Retreat); it runs on the host of the window, so only inline.
+    Registered,
 }
 
 /// The suspension points.
@@ -75,15 +78,21 @@ fn card_event(kind: EventKind, who: Option<Seat>, card: ActionCard) -> EventRec 
 
 impl Announce {
     /// The announcement of `card` played by `who`; `has_effect` is whether the string side has an effect for it
-    /// (`action_cards::effect_for`). `None` when the core does not play the effect (the bail: the string runs).
+    /// (`action_cards::effect_for`); `registered` whether a rules package registered the effect of `card` (only the inline
+    /// runner has the host to run it). `None` when the core does not play the effect (the bail: the string runs).
     #[must_use]
-    pub fn of(core: &CoreState, card: ActionCard, who: Seat, env: Env, has_effect: bool) -> Option<Self> {
+    pub fn of(core: &CoreState, card: ActionCard, who: Seat, env: Env, has_effect: bool, registered: bool) -> Option<Self> {
         let effect = if !has_effect {
             Effect::Unresolved
         } else if let Some(simple) = Simple::of(card) {
             Effect::Simple(simple)
+        } else if let Some(play) = Play::of(core, card, who, env) {
+            Effect::Play(Box::new(play))
+        } else if registered && Fx::of(card).is_none() {
+            // A card the Fx table owns that refuses the position (a bail of its own) stays the string's.
+            Effect::Registered
         } else {
-            Effect::Play(Box::new(Play::of(core, card, who, env)?))
+            return None;
         };
         Some(Self { who, card, env, effect, stage: Stage::Start, played: false })
     }
@@ -112,6 +121,7 @@ impl Announce {
             match &mut self.effect {
                 Effect::Simple(simple) => super::play_simple(rt.state(), self.who, *simple, self.env),
                 Effect::Play(play) => play.begin(rt.state()),
+                Effect::Registered => rt.run_registered_play(self.who, self.card)?,
                 Effect::Unresolved => {
                     rt.emit(card_event(EventKind::ActionCardUnresolved, None, self.card))?;
                 }
@@ -125,7 +135,9 @@ impl Announce {
                 return Ok(play.ask_of(s, k));
             }
             self.discard(rt)?;
-            // An effect may have staged a destruction (Direct Hit): its announcement is the string's.
+            // An effect may have staged a destruction (Direct Hit, Courageous to the End): a rules package that registered
+            // the announcement of the removals gives them their windows; otherwise it is the string's.
+            rt.after_play()?;
             if !rt.state().transient().combat.pending_destructions.is_empty() {
                 rt.unknown(Unknown::PendingDestructions);
             }
@@ -232,7 +244,8 @@ pub fn play_inline<R: Runner>(rt: &mut R, who: Seat, card: ActionCard) -> Result
         return Ok(false);
     };
     let has_effect = rt.facts().plays.as_ref().is_some_and(|f| f.has_effect.get(card as usize).copied().unwrap_or(false));
-    let Some(mut announce) = Announce::of(rt.state(), card, who, env, has_effect) else {
+    let registered = rt.has_registered_play(card);
+    let Some(mut announce) = Announce::of(rt.state(), card, who, env, has_effect, registered) else {
         rt.unknown(Unknown::PlayFacts);
         return Ok(false);
     };
@@ -264,6 +277,14 @@ pub fn register(t: &mut AbilityTable) {
 #[must_use]
 pub fn plays(card: ActionCard) -> bool {
     Simple::of(card).is_some() || Fx::of(card).is_some()
+}
+
+/// Whether the core plays `card` from a reaction window: [`plays`], or an effect a rules package registered in the table.
+/// Not Reflective Shielding: it stages hits that the sustain window of the string drains after the window closes (the
+/// census names the card; [`play_inline`] answers `Unknown::ReflectiveShielding` if it gets there anyway).
+#[must_use]
+pub fn plays_in(t: &AbilityTable, card: ActionCard) -> bool {
+    card != ActionCard::ReflectiveShielding && (plays(card) || t.card_play(card).is_some())
 }
 
 #[cfg(test)]
@@ -324,7 +345,7 @@ mod tests {
     #[test]
     fn a_stamp_card_is_announced_resolved_and_discarded_in_order() {
         let mut s = two_seats();
-        let a = Announce::of(&s, ActionCard::MoraleBoost1, Seat(0), env(), true).unwrap();
+        let a = Announce::of(&s, ActionCard::MoraleBoost1, Seat(0), env(), true, false).unwrap();
         let d = run(a, &mut s, plays_table());
         let kinds: Vec<EventKind> = d.emitted.iter().map(|e| e.kind).collect();
         assert_eq!(kinds, [EventKind::ActionCardPlayed, EventKind::ActionCardDiscarded]);
@@ -338,7 +359,7 @@ mod tests {
     #[test]
     fn a_card_the_string_side_has_no_effect_for_is_announced_unresolved() {
         let mut s = two_seats();
-        let a = Announce::of(&s, ActionCard::Spy, Seat(0), env(), false).unwrap();
+        let a = Announce::of(&s, ActionCard::Spy, Seat(0), env(), false, false).unwrap();
         let d = run(a, &mut s, plays_table());
         let kinds: Vec<EventKind> = d.emitted.iter().map(|e| e.kind).collect();
         assert_eq!(kinds, [EventKind::ActionCardPlayed, EventKind::ActionCardUnresolved, EventKind::ActionCardDiscarded]);
@@ -348,8 +369,8 @@ mod tests {
     #[test]
     fn bail_a_card_with_an_unported_effect_has_no_announcement() {
         let s = two_seats();
-        assert!(Announce::of(&s, ActionCard::Spy, Seat(0), env(), true).is_none());
-        assert!(Announce::of(&s, ActionCard::DirectHit1, Seat(0), env(), true).is_none());
+        assert!(Announce::of(&s, ActionCard::Spy, Seat(0), env(), true, false).is_none());
+        assert!(Announce::of(&s, ActionCard::DirectHit1, Seat(0), env(), true, false).is_none());
     }
 
     /// Bail: destructions staged when the card is done (Direct Hit's removals are announced by the string).
@@ -363,7 +384,7 @@ mod tests {
             reason: Code(0),
             during_space_combat: false,
         });
-        let a = Announce::of(&s, ActionCard::MoraleBoost1, Seat(0), env(), true).unwrap();
+        let a = Announce::of(&s, ActionCard::MoraleBoost1, Seat(0), env(), true, false).unwrap();
         let d = run(a, &mut s, plays_table());
         assert_eq!(d.unknown(), Some(Unknown::PendingDestructions));
     }
@@ -372,7 +393,7 @@ mod tests {
     #[test]
     fn bail_a_discard_the_data_skimmer_could_take_is_unknown() {
         let mut s = two_seats();
-        let a = Announce::of(&s, ActionCard::MoraleBoost1, Seat(0), env(), true).unwrap();
+        let a = Announce::of(&s, ActionCard::MoraleBoost1, Seat(0), env(), true, false).unwrap();
         let mut table = plays_table();
         table.facts.plays.as_mut().unwrap().skimmer = true;
         let d = run(a, &mut s, table);

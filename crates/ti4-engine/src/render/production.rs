@@ -41,8 +41,9 @@ impl Family for Fam {
     type Opt = Opt;
     type Subtype = Subtype;
 
-    fn prompt(_: &Render, a: &Ask) -> String {
+    fn prompt(r: &Render, a: &Ask) -> String {
         match a {
+            Ask::AgentOffer { payer } => format!("Xander Alexin Victori III: let {} spend commodities as trade goods", r.seat_text(*payer)),
             Ask::Pay(p) => format!("pay {} more {}", p.owed, name(p.kind)),
             Ask::Choose(c) => format!("produce in {} ({} left)", <System as IdStr>::as_str(c.system), c.remaining),
             Ask::Place(p) => format!("place the {}", unit_id(p.unit)),
@@ -62,11 +63,15 @@ impl Family for Fam {
             Subtype::SlingShip => "sling_relay_ship".to_owned(),
             Subtype::Economy => "integrated_economy".to_owned(),
             Subtype::HeroFree => "leader_hacanhero_free_production".to_owned(),
+            Subtype::AgentOffer => "keleres_agent_commodities".to_owned(),
         }
     }
 
     fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
         let PayAsk { kind, owed, pool, goods } = match *a {
+            Ask::AgentOffer { payer } => {
+                return ChoiceOption::labelled("use", "leader_ability", format!("exhaust the agent: {}'s commodities count as trade goods", r.seat_text(payer)));
+            }
             Ask::Pay(p) => p,
             Ask::Choose(c) => return build_option(r, &c, o),
             Ask::Place(p) => return place_option(r, &p, o),
@@ -115,6 +120,7 @@ impl Family for Fam {
             | Opt::SlingShip { .. }
             | Opt::Economy { .. }
             | Opt::HeroUse
+            | Opt::Use
             | Opt::Decline => unreachable!("builds are asked by Ask::Choose"),
             Opt::Commodity { shown } => {
                 let worth = i64::from(shown.worth);
@@ -136,6 +142,7 @@ impl Family for Fam {
 
     fn parse(_: &Render, a: &Ask, id: &str) -> Option<Opt> {
         let kind = match *a {
+            Ask::AgentOffer { .. } => return (id == "use").then_some(Opt::Use),
             Ask::Pay(p) => p.kind,
             Ask::Choose(_) => return parse_build(id),
             Ask::Place(p) => return parse_place(&p, id),

@@ -68,6 +68,10 @@ pub enum Unknown {
     NomadAgentExhaustion,
     /// Instinct Training may be carried by a Nekro Valefar Assimilator.
     NekroCarriedCard,
+    /// An action card played into a window at once (the Sabotage window, or a rules version before 3): the string path.
+    ImmediateCardPlay,
+    /// A played card whose effect is not one of the stamps the core plays, or one that comes from the salvage yard.
+    UnportedCard,
     /// A fact the adapter should have computed for the window is missing (`Facts`).
     MissingFact,
     /// A card was played while destructions were staged (`pending_destructions`: the announcement of the removals is
@@ -119,10 +123,24 @@ pub struct Codes {
     pub harrow: crate::state::Code,
     /// The `source` of the trade good Self-Assembly Routines gains.
     pub self_assembly: crate::state::Code,
+    /// The `source` `action_card` and `forward_supply_base` of the trade goods a card gains (`Env`).
+    pub action_card: crate::state::Code,
+    pub supply_base: crate::state::Code,
     /// The `source` `mentak` of the trade good Salvage Operations gains.
     pub mentak: crate::state::Code,
     /// The `reason` of the strategy token Instinct Training spends.
     pub instinct_training: crate::state::Code,
+    /// The causes `action_card:direct_hit` and `action_card:courageous` of a destroyed ship.
+    pub direct_hit: crate::state::Code,
+    /// The cause `retreat_capacity` of a ship a retreat strands, and the pool `reinforcements` of its command token.
+    /// The unit aliases `mahact_infantry` and `mahact_infantry2`: the source of a Crimson Legionnaire's trade good and the
+    /// name of its question's source.
+    pub mahact_infantry: crate::state::Code,
+    pub mahact_infantry2: crate::state::Code,
+    /// The alias `cavalry`, the source of the question of The Cavalry.
+    pub cavalry: crate::state::Code,
+    pub retreat_capacity: crate::state::Code,
+    pub reinforcements: crate::state::Code,
 }
 
 /// What the effects of the action cards read from outside the core, per seat (the faction and source answers of
@@ -169,6 +187,10 @@ pub struct AdapterFacts {
     reach: Vec<(Seat, crate::generated::System, Vec<crate::generated::System>)>,
     /// The play of action cards (B6).
     pub plays: Option<PlayFacts>,
+    /// `supply::staging_enabled` of the position (a registered faction module is seated): losses are announced and a Direct
+    /// Hit removes the exact sustained ship.
+    pub staging: bool,
+    withdraw: Vec<(Seat, crate::generated::System, Vec<crate::generated::System>)>,
 }
 
 impl AdapterFacts {
@@ -176,6 +198,18 @@ impl AdapterFacts {
     pub fn set_reach(&mut self, who: Seat, system: crate::generated::System, neighbours: Vec<crate::generated::System>) {
         self.reach.retain(|(w, s, _)| !(*w == who && *s == system));
         self.reach.push((who, system, neighbours));
+    }
+
+    /// Record the systems Skilled Retreat may withdraw `who` to from `system` (the map's part: the adapter computed them).
+    pub fn set_withdraw(&mut self, who: Seat, system: crate::generated::System, destinations: Vec<crate::generated::System>) {
+        self.withdraw.retain(|(w, s, _)| !(*w == who && *s == system));
+        self.withdraw.push((who, system, destinations));
+    }
+
+    /// The withdrawal destinations of `who` leaving `system`, if the string's card looked for them.
+    #[must_use]
+    pub fn withdraw(&self, who: Seat, system: crate::generated::System) -> Option<&[crate::generated::System]> {
+        self.withdraw.iter().find(|(w, s, _)| *w == who && *s == system).map(|(_, _, d)| d.as_slice())
     }
 
     /// The neighbours of `system` for `who`, if the adapter computed them.
@@ -193,8 +227,23 @@ pub type Effect = fn(&mut Eff<'_, '_>) -> Result<(), TimingError>;
 pub type CloseHook = fn(&mut Inline<'_, '_>) -> Result<(), TimingError>;
 /// The cards a seat's reaction slot could play (`AbilityTable::slot_cards`).
 pub type SlotCards = fn(&CoreState, &Kernel, bool, Seat, &EventRec, Relation) -> Vec<crate::generated::ActionCard>;
+/// What follows the discard of a played card the faction crates register (`AbilityTable::after_play`).
+pub type Closed = fn(&mut RulesHost<'_>, &mut Resolver) -> Result<(), TimingError>;
 /// The predicate of a registered "cannot" (`Host::forbids`).
 pub type Forbids = fn(&CoreState, &CannotDef, &EventRec) -> bool;
+
+/// The effect of a reaction card played from a window, run when the play is announced (after `ACTION_CARD_PLAYED`
+/// was not cancelled, before the card reaches the discard pile): the host, the resolver of the window, the holder and
+/// the card. Registered by the rules package that owns the effect (an effect that reads the combat or invasion area
+/// cannot live in the action-card area: the areas do not import each other).
+pub type CardEffect = fn(&mut RulesHost<'_>, &mut Resolver, Seat, crate::generated::ActionCard) -> Result<(), TimingError>;
+
+/// A registered card effect: which cards it plays, and how.
+#[derive(Clone, Copy)]
+pub struct CardPlay {
+    pub covers: fn(crate::generated::ActionCard) -> bool,
+    pub effect: CardEffect,
+}
 
 /// One ability rule: its registry row and its behaviour.
 #[derive(Clone, Copy)]
@@ -309,9 +358,25 @@ pub struct AbilityTable {
     pub slot_cards: Option<SlotCards>,
     pub codes: Codes,
     pub facts: AdapterFacts,
+    /// A key that is equal for the copies of one printed card (the core has no card names); set by the adapter.
+    pub card_name: Option<fn(crate::generated::ActionCard) -> u32>,
+    /// What follows the discard of a played reaction card: announce what its effect staged (a destroyed ship).
+    pub after_play: Option<Closed>,
+    card_plays: Vec<CardPlay>,
 }
 
 impl AbilityTable {
+    /// Register the effect of some reaction cards.
+    pub fn add_card_play(&mut self, play: CardPlay) {
+        self.card_plays.push(play);
+    }
+
+    /// The registered effect that plays `card`, if any.
+    #[must_use]
+    pub fn card_play(&self, card: crate::generated::ActionCard) -> Option<&CardPlay> {
+        self.card_plays.iter().find(|p| (p.covers)(card))
+    }
+
     pub fn add(&mut self, spec: Spec) {
         debug_assert!(self.of_slot(spec.slot).is_none(), "slot {:?} registered twice", spec.slot);
         self.specs.push(spec);
@@ -396,6 +461,9 @@ pub struct Tape {
     used: usize,
     needed: Option<Choice>,
     facts: Option<NestedFacts>,
+    /// The state at the moment the question was put (the driver rolls the state back; the display facts of the question
+    /// are read from this one).
+    state_at: Option<Box<CoreState>>,
     /// A condition the core could not answer (`CondCx::unknown`); survives the rewind of a re-run.
     pub unknown: std::cell::Cell<Option<Unknown>>,
 }
@@ -416,6 +484,7 @@ impl Tape {
         self.used = 0;
         self.needed = None;
         self.facts = None;
+        self.state_at = None;
     }
 
     pub fn push(&mut self, pick: Pick) {
@@ -428,6 +497,12 @@ impl Tape {
         self.needed.as_ref()
     }
 
+    /// The state the nested question was put in.
+    #[must_use]
+    pub fn needed_state(&self) -> Option<&CoreState> {
+        self.state_at.as_deref()
+    }
+
     /// What that question was asked about (`None` for a question that has no event).
     #[must_use]
     pub fn needed_facts(&self) -> Option<&NestedFacts> {
@@ -435,7 +510,7 @@ impl Tape {
     }
 
     /// [`Asker::pick`] with the facts of the window the question belongs to.
-    pub fn pick_with(&mut self, choice: &Choice, facts: Option<NestedFacts>) -> Pick {
+    pub fn pick_with(&mut self, state: &CoreState, choice: &Choice, facts: Option<NestedFacts>) -> Pick {
         if let Some(p) = self.answers.get(self.used) {
             self.used += 1;
             return *p;
@@ -443,6 +518,7 @@ impl Tape {
         if self.needed.is_none() {
             self.needed = Some(choice.clone());
             self.facts = facts;
+            self.state_at = Some(Box::new(state.clone()));
         }
         // The run is rolled back; an option that ends the question lets it finish: the decline when there is one
         // (a repeatable, unlimited ability that is picked again and again would never end the window).
@@ -451,8 +527,8 @@ impl Tape {
 }
 
 impl Asker for Tape {
-    fn pick(&mut self, _: &CoreState, choice: &Choice) -> Pick {
-        self.pick_with(choice, None)
+    fn pick(&mut self, state: &CoreState, choice: &Choice) -> Pick {
+        self.pick_with(state, choice, None)
     }
 }
 
@@ -466,6 +542,17 @@ pub struct RulesHost<'a> {
     pub next_id: &'a mut u64,
     /// Seeds the random streams (see `Sx::die`).
     pub seeds: &'a dyn SeedSource,
+}
+
+impl RulesHost<'_> {
+    /// Put a question that belongs to no window of the resolver (a played card's, asked while the play is announced): the
+    /// display facts of the question (battle, invasion) are the adapter's, the trigger is not part of it.
+    pub fn ask(&mut self, choice: &Choice) -> Pick {
+        let event = EventRec { id: 0, kind: EventKind::ActionCardPlayed, payload: crate::state::Payload::new(), cancelled: false };
+        let facts = NestedFacts { event, relation: Relation::When, chain: Vec::new(), offered: Vec::new() };
+        let state: &CoreState = self.state;
+        self.tape.pick_with(state, choice, Some(facts))
+    }
 }
 
 impl Host for RulesHost<'_> {
@@ -518,7 +605,8 @@ impl Host for RulesHost<'_> {
             };
             NestedFacts { event: event.clone(), relation, chain: chain.to_vec(), offered }
         });
-        self.tape.pick_with(choice, facts)
+        let state: &CoreState = self.state;
+        self.tape.pick_with(state, choice, facts)
     }
 }
 
@@ -546,6 +634,25 @@ impl<'a> Eff<'_, 'a> {
     #[must_use]
     pub fn barred(&self) -> bool {
         self.host.table.bars.is_some_and(|f| f(self.host.state, self.def.owner))
+    }
+
+    /// The window cannot be followed (the same reason a condition gives with `CondCx::unknown`).
+    pub fn unknown(&self, why: Unknown) {
+        if self.host.tape.unknown.get().is_none() {
+            self.host.tape.unknown.set(Some(why));
+        }
+    }
+
+    /// Political Secret bars this seat's faction abilities and action cards.
+    #[must_use]
+    pub fn barred_of(&self, who: Seat) -> bool {
+        self.host.table.bars.is_some_and(|f| f(self.host.state, who))
+    }
+
+    /// Whether two cards are copies of one printed card.
+    #[must_use]
+    pub fn card_key(&self, card: crate::generated::ActionCard) -> u32 {
+        self.host.table.card_name.map_or(card as u32, |f| f(card))
     }
 
     /// The texts the adapter interned for the abilities.
@@ -583,10 +690,17 @@ impl<'a> Eff<'_, 'a> {
         NestedFacts { event: self.event.clone(), relation: self.def.relation, chain: self.chain(), offered: Vec::new() }
     }
 
+    /// Run `f` with the host and the resolver of this effect: a nested announcement that is not an event of the window
+    /// (a card played at once).
+    pub fn with_host<R>(&mut self, f: impl FnOnce(&mut RulesHost<'_>, &mut Resolver) -> R) -> R {
+        f(&mut *self.host, &mut *self.resolver)
+    }
+
     /// Put a question and take the answer.
     pub fn ask(&mut self, choice: &Choice) -> Pick {
         let facts = self.facts();
-        self.host.tape.pick_with(choice, Some(facts))
+        let state: &CoreState = &*self.host.state;
+        self.host.tape.pick_with(state, choice, Some(facts))
     }
 
     /// Draw a die from the stream of `domain` (`Sx::die`).
@@ -656,6 +770,25 @@ pub trait Runner {
     fn ask(&mut self, choice: &Choice) -> Pick;
     /// The run cannot be trusted (a documented bail of the rule being run): the adapter falls back to the string.
     fn unknown(&mut self, why: Unknown);
+    /// Whether a rules package registered the effect of `card` (`AbilityTable::add_card_play`): the effects that read the
+    /// combat or invasion area and run on the host and the resolver of the window.
+    fn has_registered_play(&self, _card: crate::generated::ActionCard) -> bool {
+        false
+    }
+    /// Run the registered effect of `card` played by `who` (nothing when there is none).
+    ///
+    /// # Errors
+    /// What the resolver refuses with.
+    fn run_registered_play(&mut self, _who: Seat, _card: crate::generated::ActionCard) -> Result<(), TimingError> {
+        Ok(())
+    }
+    /// What follows the discard of a played card: announce what its effect staged (`AbilityTable::after_play`).
+    ///
+    /// # Errors
+    /// What the resolver refuses with.
+    fn after_play(&mut self) -> Result<(), TimingError> {
+        Ok(())
+    }
 }
 
 /// The services of a rule that runs inside an effect or at the close of a window.
@@ -691,12 +824,31 @@ impl Runner for Inline<'_, '_> {
     }
 
     fn ask(&mut self, choice: &Choice) -> Pick {
-        self.host.tape.pick_with(choice, self.facts.clone())
+        let state: &CoreState = self.host.state;
+        self.host.tape.pick_with(state, choice, self.facts.clone())
     }
 
     fn unknown(&mut self, why: Unknown) {
         if self.host.tape.unknown.get().is_none() {
             self.host.tape.unknown.set(Some(why));
+        }
+    }
+
+    fn has_registered_play(&self, card: crate::generated::ActionCard) -> bool {
+        self.host.table.card_play(card).is_some()
+    }
+
+    fn run_registered_play(&mut self, who: Seat, card: crate::generated::ActionCard) -> Result<(), TimingError> {
+        match self.host.table.card_play(card).copied() {
+            Some(play) => (play.effect)(&mut *self.host, &mut *self.resolver, who, card),
+            None => Ok(()),
+        }
+    }
+
+    fn after_play(&mut self) -> Result<(), TimingError> {
+        match self.host.table.after_play {
+            Some(after) => after(&mut *self.host, &mut *self.resolver),
+            None => Ok(()),
         }
     }
 }

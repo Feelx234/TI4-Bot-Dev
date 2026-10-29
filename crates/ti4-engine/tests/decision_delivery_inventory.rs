@@ -474,7 +474,7 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         // Keleres agent: offered once per payment window (BF-keleres.md).
         module: "keleres.rs",
-        function: "offer_agent",
+        function: "offer_agent_text",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1643,7 +1643,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("cabal.rs", "alraith", 1),
     ("nomad.rs", "ask", 1),
     ("keleres.rs", "laws_order", 1),
-    ("keleres.rs", "offer_agent", 1),
+    ("keleres.rs", "offer_agent_text", 1),
     ("keleres_units.rs", "ask", 1),
     ("production.rs", "agency_supply_network", 2),
     ("empyrean.rs", "tether_place", 1),

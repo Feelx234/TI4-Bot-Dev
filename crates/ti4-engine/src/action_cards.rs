@@ -2428,6 +2428,7 @@ fn skilled_retreat(context: &mut crate::timing::TimingContext<'_>, player: &Play
         player,
         &system,
     );
+    crate::dual_window::note_withdraw(player.as_str(), system.as_str(), &destinations);
     let Some(first) = destinations.first().cloned() else {
         return;
     };

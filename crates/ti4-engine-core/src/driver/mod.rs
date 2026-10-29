@@ -97,6 +97,7 @@ pub struct Driver<W: Window> {
     seeded: bool,
     tape: Tape,
     facts: Option<NestedFacts>,
+    facts_state: Option<CoreState>,
     unknown: Option<Unknown>,
     awaiting: Awaiting,
     finished: bool,
@@ -126,6 +127,7 @@ impl<W: Window> Driver<W> {
             seeded: false,
             tape: Tape::default(),
             facts: None,
+            facts_state: None,
             unknown: None,
             awaiting: Awaiting::Nothing,
             finished: false,
@@ -204,6 +206,7 @@ impl<W: Window> Driver<W> {
             }
             if let Some(choice) = dry {
                 self.facts = self.tape.needed_facts().cloned();
+                self.facts_state = self.tape.needed_state().cloned();
                 self.awaiting = Awaiting::Nested(op);
                 return Ok(Status::Asking(choice));
             }
@@ -213,6 +216,7 @@ impl<W: Window> Driver<W> {
             match outcome? {
                 Flow::Ask(choice) => {
                     self.facts = None;
+                    self.facts_state = None;
                     self.awaiting = Awaiting::Stage(choice.clone());
                     return Ok(Status::Asking(choice));
                 }
@@ -286,6 +290,12 @@ impl<W: Window> Driver<W> {
     #[must_use]
     pub fn is_seeded(&self) -> bool {
         self.seeded
+    }
+
+    /// The state a nested question was put in (`nested_facts` says whether the last question was one).
+    #[must_use]
+    pub fn nested_state(&self) -> Option<&CoreState> {
+        self.facts_state.as_ref()
     }
 
     /// Whether the window ended.

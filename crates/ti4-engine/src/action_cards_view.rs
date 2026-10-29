@@ -367,7 +367,7 @@ pub fn announce_window(
     let mut played = None;
     let fp = crate::dual_window::nested_fp(PLAY, script);
     let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), fp, |core, _| {
-        let announce = rules::announce::Announce::of(core, card, seat, env, has_effect)?;
+        let announce = rules::announce::Announce::of(core, card, seat, env, has_effect, false)?;
         let mut driver = Driver::new(announce, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let battle = |_: &ti4_engine_core::choice::Choice, _: &ti4_engine_core::state::CoreState, rendered: &mut crate::choice::Choice| {
             // The effect's questions are asked through `ask_seeing`: the battle or invasion the position is in.

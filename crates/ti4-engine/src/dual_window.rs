@@ -74,6 +74,8 @@ pub struct Recording {
     pub nested: bool,
     /// The event types and the questions that happened inside the emissions of the window (for the bail census).
     pub nested_kinds: Vec<String>,
+    /// The action cards announced as played inside the window's emissions (`ACTION_CARD_PLAYED`'s `card`), in order.
+    pub played: Vec<String>,
     /// The ids of the abilities whose effect ran inside the window (at any emission depth), in order.
     pub effects: Vec<String>,
     /// The ids of the abilities that were eligible in some window of an emission (picked, offered or taken
@@ -88,6 +90,9 @@ pub struct Recording {
     pub cfg: Option<ResolverCfg>,
     /// The trace id of the first event the window emitted (the core numbers its own from there).
     pub first_event_id: Option<u64>,
+    /// The destinations a Skilled Retreat found for `(player, system)`, as the string's map computed them (the core is lent
+    /// no galaxy): an input of the card, noted by its effect.
+    pub withdraw: Vec<(String, String, Vec<String>)>,
     effect_depth: u32,
     in_pick: u32,
     /// The emission depth the window started at: a window may itself run inside an emission (an ability's
@@ -112,7 +117,10 @@ impl Recording {
         let mut abilities: Vec<String> = self.eligible.iter().map(anon).collect();
         abilities.sort();
         abilities.dedup();
-        format!("{} | {}", kinds.join(","), abilities.join(","))
+        let mut played = self.played.clone();
+        played.sort();
+        let played = if played.is_empty() { String::new() } else { format!(" | cards {}", played.join(",")) };
+        format!("{} | {}{played}", kinds.join(","), abilities.join(","))
     }
 }
 
@@ -262,6 +270,15 @@ impl Drop for PickGuard {
     }
 }
 
+/// Skilled Retreat found these destinations for `player` leaving `system` (the map is the string's).
+pub fn note_withdraw(player: &str, system: &str, destinations: &[ti4_model::id::SystemId]) {
+    REC.with(|r| {
+        if let Some(rec) = r.borrow_mut().as_mut() {
+            rec.withdraw.push((player.to_owned(), system.to_owned(), destinations.iter().map(ToString::to_string).collect()));
+        }
+    });
+}
+
 /// A roll was made (`Dice::roll`): kept when an ability's effect made it.
 pub fn note_dice(roll: &crate::dice::Roll) {
     REC.with(|r| {
@@ -321,6 +338,9 @@ pub fn leave_emit(began: u32, done: Option<&Event>) {
                 }
                 if let Some(event) = done {
                     rec.nested_kinds.push(event.event_type.clone());
+                    if event.event_type == "ACTION_CARD_PLAYED" {
+                        rec.played.push(event.text("card").unwrap_or_default().to_owned());
+                    }
                 }
             } else if rec.base == began
                 && let Some(event) = done
@@ -487,6 +507,8 @@ pub fn drive_positioned<W: Window>(
                 ti4_engine_core::kernel::ability::Unknown::CardCost => "a card cost the core does not judge",
                 ti4_engine_core::kernel::ability::Unknown::HarnessOrInfiltrate => "Harness Energy / Infiltrate",
                 ti4_engine_core::kernel::ability::Unknown::NomadAgentExhaustion => "Nomad Temporal Command Suite (agent exhaustion)",
+                ti4_engine_core::kernel::ability::Unknown::ImmediateCardPlay => "an action card played at once",
+                ti4_engine_core::kernel::ability::Unknown::UnportedCard => "an action card the core does not play",
                 ti4_engine_core::kernel::ability::Unknown::NekroCarriedCard => "a technology carried by a Nekro Valefar Assimilator",
                 ti4_engine_core::kernel::ability::Unknown::MissingFact => "a fact the adapter did not compute for the window",
                 ti4_engine_core::kernel::ability::Unknown::PendingDestructions => "an action card that staged destructions",
@@ -518,7 +540,9 @@ pub fn drive_positioned<W: Window>(
                     rendered.context = None;
                 }
                 if let Some(facts) = driver.nested_facts() {
-                    complete_nested(r, &choice, facts, gs, &mut rendered);
+                    // The question was put in a state the driver has since rolled back: its display facts read that one.
+                    let at = driver.nested_state().unwrap_or(core);
+                    complete_nested(r, &choice, facts, gs, at, &mut rendered);
                     // The previews of a reaction window ("what each single-card slot would do now") are display facts
                     // the string builds from its position (`reaction_preview`); the core renders none, so they are the
                     // recorded question's own (the same convention as the option previews, B1g-10).
@@ -642,6 +666,7 @@ fn complete_nested(
     choice: &CoreChoice,
     facts: &ti4_engine_core::kernel::NestedFacts,
     gs: &GameState,
+    core: &ti4_engine_core::state::CoreState,
     rendered: &mut Choice,
 ) {
     if let Some(ctx) = rendered.context.take() {
@@ -659,6 +684,15 @@ fn complete_nested(
         rendered.context = Some(ctx.about_battle(gs).about_invasion(gs));
     }
     crate::render::leaders::complete_round_agent(r, choice, rendered);
+    if matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(ti4_engine_core::choice::reaction::Ask::Legionnaire { .. })) {
+        // `strategy_cards::commodity_standing`: display only, the asked seat's commodities, their printed limit and trade goods.
+        if let Some(p) = core.players().by_seat(choice.actor) {
+            rendered.details.insert(
+                "commodities".to_owned(),
+                serde_json::json!({"have": p.econ.commodities, "max": ti4_engine_core::rules::strategy::commodity_limit(p.faction), "trade_goods": p.econ.trade_goods}),
+            );
+        }
+    }
     if is_window_pick(choice) {
         slot_options(r, choice, facts, rendered);
     }
@@ -672,10 +706,12 @@ fn complete_nested(
 /// Whether a nested question carries the trigger of its window in its context: the window's own pick, and the
 /// questions whose string ability builds one (`DecisionTrigger::from_event`).
 fn with_trigger_of(choice: &CoreChoice) -> bool {
-    matches!(
-        choice.ask,
-        ti4_engine_core::choice::Ask::Reaction(_) | ti4_engine_core::choice::Ask::Cards(ti4_engine_core::choice::cards::Ask::PlayCard { .. })
-    )
+    use ti4_engine_core::choice::reaction::Ask as RAsk;
+    match choice.ask {
+        ti4_engine_core::choice::Ask::Reaction(a) => !matches!(a, RAsk::Legionnaire { .. } | RAsk::Cavalry),
+        ti4_engine_core::choice::Ask::Cards(ti4_engine_core::choice::cards::Ask::PlayCard { .. }) => true,
+        _ => false,
+    }
 }
 
 /// Whether a nested question is the window's own pick (the one that carries the `active` detail of the action phase).
@@ -1002,7 +1038,7 @@ pub fn deadly_plot(gs: &mut GameState, holder: &PlayerId, script: &Recording) ->
 
 const SUSTAIN_OFFER: Footprint = Footprint::new(
     &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
-    &[Slice::Board, Slice::Players, Slice::Transient, Slice::Pending],
+    &[Slice::Board, Slice::Players, Slice::Transient, Slice::Marks, Slice::Pending],
 );
 
 /// What the string `offer_sustain` was called with.
@@ -1075,25 +1111,7 @@ pub fn sustain_offer(
     .ok()?
     .ok()?;
     apply_staged(gs, &r, &staged)?;
-    // `remember_sustain_target`: the string writes the handoff of the last unit that sustained.
-    if offer.staging
-        && let Some((site, piece)) = driver.window.last
-    {
-        let unit = ti4_model::units::Unit {
-            type_id: ti4_model::id::UnitTypeId::new(piece.kind().as_str()),
-            owner: PlayerId::new(r.seat_text(piece.owner())),
-            sustained_damage: piece.sustained(),
-            galvanized: piece.galvanized(),
-        };
-        let planet = match site {
-            ti4_engine_core::choice::combat::SustainSite::Planet { planet, .. } => Some(planet.as_str()),
-            ti4_engine_core::choice::combat::SustainSite::Space(_) => None,
-        };
-        gs.faction_marks.insert(
-            "combat:sustain_target".to_owned(),
-            serde_json::json!({"system": a.system, "planet": planet, "unit": unit}).to_string(),
-        );
-    }
+    // `remember_sustain_target` is the core window's own (`sustain_offer::remember_target`, a typed mark).
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     Some(CoreWindow { run: Run::new(usize::from(driver.window.hits)).with_events_vec(events), questions: driven.rendered })
 }
@@ -3349,7 +3367,7 @@ pub fn answer_machine(
 fn settle_run(
     gs: &mut GameState,
     sources: ti4_model::content_types::SourceSet,
-    mut a: SettleArgs,
+    a: SettleArgs,
     rng_before: &crate::rng::RngPositions,
     script: &Recording,
     answering: Option<()>,
@@ -3359,9 +3377,8 @@ fn settle_run(
     if crate::neutral_units::is_neutral(&a.attacker) || crate::neutral_units::is_neutral(&a.defender) {
         return None;
     }
-    if a.begin_occurrence && a.occurrence.is_none() {
-        a.occurrence = Some(gs.begin_feat_occurrence().0);
-    }
+    // The first round begins the occurrence itself, once the opening has not ended the fight.
+    let begin_occurrence = a.begin_occurrence && a.occurrence.is_none();
     let (mut cx, r) = tables(gs)?;
     nested_check(script)?;
     let seat = |p: &PlayerId| r.seat(p.as_str());
@@ -3417,6 +3434,7 @@ fn settle_run(
         announce: a.announce,
         staging: a.staging,
         occurrence: a.occurrence.unwrap_or(0),
+        begin_occurrence,
         phases: phase_codes,
         opening_unported: a.opening_unported,
         round_seq_listens: a.round_seq_listens,
@@ -3519,25 +3537,7 @@ fn settle_run(
         }
     }
     apply_staged(gs, &r, &staged)?;
-    // `remember_sustain_target`: the string writes the handoff of the unit that sustained.
-    if a.staging
-        && let Some((site, piece)) = w.last_sustain
-    {
-        let unit = ti4_model::units::Unit {
-            type_id: ti4_model::id::UnitTypeId::new(piece.kind().as_str()),
-            owner: PlayerId::new(r.seat_text(piece.owner())),
-            sustained_damage: piece.sustained(),
-            galvanized: piece.galvanized(),
-        };
-        let planet = match site {
-            ti4_engine_core::choice::combat::SustainSite::Planet { planet, .. } => Some(planet.as_str()),
-            ti4_engine_core::choice::combat::SustainSite::Space(_) => None,
-        };
-        gs.faction_marks.insert(
-            "combat:sustain_target".to_owned(),
-            serde_json::json!({"system": a.system, "planet": planet, "unit": unit}).to_string(),
-        );
-    }
+    // `remember_sustain_target` is the core window's own (`sustain_offer::remember_target`, a typed mark).
     let positions = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     let player = |s: ti4_engine_core::ids::Seat| Some(PlayerId::new(r.seats.get(usize::from(s.0))?.clone()));

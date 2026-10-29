@@ -19,6 +19,8 @@ pub enum Sh {
     Alt(&'static [Sh]),
     /// The JSON of a Ssruu / round agent bonus (`borrowed_round_agents::RoundBonus`) as twelve fields.
     RoundBonus,
+    /// The JSON of the unit that last sustained (`combat:sustain_target`): system, planet, owner, type, damage, galvanize token.
+    SustainTarget,
 }
 
 const NUM: Sh = Sh::A(K::Num);
@@ -116,7 +118,8 @@ pub fn schema(key: &MarkKey) -> Sh {
             ],
         ),
         MarkKey::YssarilSsruuRoundAgent(..) => Sh::Alt(&[Sh::RoundBonus, BLOB]),
-        MarkKey::CombatSustainTarget() | MarkKey::PrivateStagedEvent(..) => BLOB,
+        MarkKey::CombatSustainTarget() => Sh::Alt(&[Sh::SustainTarget, BLOB]),
+        MarkKey::PrivateStagedEvent(..) => BLOB,
         MarkKey::CommanderAbility(..) => GRANTED,
         MarkKey::CrimsonCard(..) => Sh::List(b',', &UNIT),
         MarkKey::CrimsonSever(..) => Sh::Rec(b'|', &[SEAT, SYS]),
@@ -234,6 +237,7 @@ impl Codec {
             }
             Sh::Alt(shapes) => shapes.iter().find_map(|s| self.parse_shape(*s, text)),
             Sh::RoundBonus => self.parse_round_bonus(text),
+            Sh::SustainTarget => self.parse_sustain_target(text),
         }
     }
 
@@ -262,6 +266,52 @@ impl Codec {
             num(u64::from(b.round_seq))?,
         ]);
         (self.render_round_bonus(&value).as_deref() == Some(text)).then_some(value)
+    }
+
+    /// The six fields of a sustain target; `None` unless the text is exactly what [`Self::render_sustain_target`] writes back.
+    fn parse_sustain_target(&mut self, text: &str) -> Option<MarkVal> {
+        let v: serde_json::Value = serde_json::from_str(text).ok()?;
+        let unit = v.get("unit")?;
+        let planet = match v.get("planet")? {
+            serde_json::Value::Null => MarkVal::Atom(Atom::Absent),
+            p => self.parse_atom(K::Planet, p.as_str()?).map(MarkVal::Atom)?,
+        };
+        let flag = |b: bool| MarkVal::Atom(Atom::Num(u32::from(b)));
+        let value = MarkVal::Rec(vec![
+            self.parse_atom(K::System, v.get("system")?.as_str()?).map(MarkVal::Atom)?,
+            planet,
+            self.parse_atom(K::Seat, unit.get("owner")?.as_str()?).map(MarkVal::Atom)?,
+            self.parse_atom(K::Unit, unit.get("type_id")?.as_str()?).map(MarkVal::Atom)?,
+            flag(unit.get("sustained_damage")?.as_bool()?),
+            flag(unit.get("galvanized")?.as_bool()?),
+        ]);
+        (self.render_sustain_target(&value).as_deref() == Some(text)).then_some(value)
+    }
+
+    fn render_sustain_target(&self, value: &MarkVal) -> Option<String> {
+        let MarkVal::Rec(f) = value else { return None };
+        let [system, planet, owner, unit, sustained, galvanized] = f.as_slice() else { return None };
+        let text = |kind: K, v: &MarkVal| -> Option<String> {
+            let MarkVal::Atom(a) = v else { return None };
+            let mut out = String::new();
+            self.render_atom(kind, *a, &mut out)?;
+            Some(out)
+        };
+        let flag = |v: &MarkVal| match v {
+            MarkVal::Atom(Atom::Num(n)) => Some(*n == 1),
+            _ => None,
+        };
+        let planet = match planet {
+            MarkVal::Atom(Atom::Absent) => None,
+            p => Some(text(K::Planet, p)?),
+        };
+        let unit = ti4_model::units::Unit {
+            type_id: ti4_model::id::UnitTypeId::new(text(K::Unit, unit)?),
+            owner: ti4_model::id::PlayerId::new(text(K::Seat, owner)?),
+            sustained_damage: flag(sustained)?,
+            galvanized: flag(galvanized)?,
+        };
+        Some(serde_json::json!({"system": text(K::System, system)?, "planet": planet, "unit": unit}).to_string())
     }
 
     fn render_round_bonus(&self, value: &MarkVal) -> Option<String> {
@@ -335,6 +385,7 @@ impl Codec {
             }
             (Sh::Alt(shapes), value) => shapes.iter().find_map(|s| self.render_shape(*s, value)),
             (Sh::RoundBonus, value) => self.render_round_bonus(value),
+            (Sh::SustainTarget, value) => self.render_sustain_target(value),
             _ => None,
         }
     }
