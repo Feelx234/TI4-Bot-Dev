@@ -9850,7 +9850,7 @@ mod tests {
         let (mut faceup, mut home) = (0, 0);
         for (note, third) in [("antivirus:nekro", "nekro"), ("cavalry:nomad", "nomad")] {
             let _ = take_report();
-            with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || crate::dual_window::with_composed(true, || {
+            with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
                 for seed in 1..=4_u64 {
                     let mut state = crate::fixtures::seated_game(&[("a", "hacan"), ("b", "sol"), ("c", third)], ti4_model::content_types::DEFAULT);
                     state.promissory_notes.clear();
@@ -9881,9 +9881,12 @@ mod tests {
                     faceup += usize::from(state.promissory_faceup.contains(note));
                     home += usize::from(state.promissory_notes.get(note) == Some(&PlayerId::new("c")));
                 }
-            }));
+            });
             let r = report();
             assert!(r.windows.keys().all(|k| !k.contains("unported ability promissory:*:")), "{note}: {:?}", r.windows);
+            if note.starts_with("cavalry") {
+                assert!(r.windows.get("combat::announce_end").is_some_and(|w| w.compared > 0), "the end of the combat, where the note goes home, is compared: {:?}", r.windows);
+            }
             assert_eq!(r.total_differences(), 0, "{note}: {:?}", r.differences);
         }
         assert!(faceup > 0, "Antivirus was placed faceup");
