@@ -138,13 +138,15 @@ pub enum Fx {
     Squad,
     /// Harness Energy: the holder's commodities are replenished.
     Harness,
+    /// Brilliance: a seat without a breakthrough gains its own (the Fracture may enter play: the roll is the Fracture stream's).
+    Brilliance,
 }
 
 impl Fx {
     /// Whether the effect rolls the game's dice (the window needs the random streams of the state).
     #[must_use]
     pub const fn rolls(self) -> bool {
-        matches!(self, Self::Spy | Self::Plague)
+        matches!(self, Self::Spy | Self::Plague | Self::Brilliance)
     }
 
     /// Whether the effect places units of the neutral owner (the owner table must hold it).
@@ -231,6 +233,7 @@ impl Fx {
             C::DecoyOperation => Self::Decoy,
             C::GhostSquad => Self::Squad,
             C::HarnessEnergy => Self::Harness,
+            C::Brilliance => Self::Brilliance,
             _ => return None,
         })
     }
@@ -391,6 +394,7 @@ impl Play {
             Fx::Mercenary => What::Landing,
             Fx::Ghost => What::Ghost,
             Fx::Upgrade => What::Cruiser,
+            Fx::Brilliance => What::Gain,
             Fx::Squad => What::Squad { system: self.jam? },
             Fx::Refit => What::Troops { second: self.troop.is_some() },
             Fx::Decoy if self.step == 0 => What::Pull { second: false },
@@ -648,6 +652,13 @@ impl Play {
                 reach.as_mut_slice().sort_unstable();
                 reach.as_slice().iter().copied().filter(|s| !is_home_system(scope, *s)).map(Opt::System).collect()
             }
+            Fx::Brilliance => seats::seating_order(core)
+                .as_slice()
+                .iter()
+                .copied()
+                .filter(|s| core.players().by_seat(*s).is_some_and(|p| p.cards.breakthrough.is_none()))
+                .map(Opt::Seat)
+                .collect(),
             Fx::Squad => {
                 let Some(system) = self.jam else { return SmallList::new() };
                 let scope = self.env.scope;
@@ -1359,6 +1370,23 @@ impl Play {
                     fx::place_unit(core, neutral, system, None, crate::generated::Unit::NeutralDestroyer);
                 }
             }
+            (Fx::Brilliance, Opt::Seat(target)) => {
+                let Some(own) = self.env.facts.own_breakthrough.get(usize::from(target.0)).copied().flatten() else { return false };
+                if let Some(p) = core.players_mut().by_seat_mut(target) {
+                    p.cards.breakthrough = Some(own);
+                }
+                if !self.env.facts.fracture_in_play {
+                    // The Fracture's roll (nothing for the Cabal's, which enters play without one); a hit puts it into play with
+                    // questions of its own, which the window does not carry.
+                    let enters = own.data().faction == crate::generated::FactionTag::Cabal || {
+                        let face = core.rng_mut().die(RngDomain::Fracture, seeds, 10);
+                        face == 1 || face == 10
+                    };
+                    if enters {
+                        self.unsupported = true;
+                    }
+                }
+            }
             (Fx::Squad, Opt::Move { from, to, kind, .. }) => {
                 let moved: SmallList<Piece, 12> = board::planet_units(core, from).iter().filter(|p| p.owner() == who && p.kind() == kind).copied().collect();
                 if moved.is_empty() {
@@ -1748,6 +1776,7 @@ mod tests {
             C::DecoyOperation,
             C::GhostSquad,
             C::HarnessEnergy,
+            C::Brilliance,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }
@@ -1800,6 +1829,50 @@ mod tests {
         assert!(Play::of(&core, ActionCard::RefitTroops, Seat(0), bare_env()).is_none());
     }
 
+    /// Bail: Brilliance gives the Cabal its breakthrough, which puts the Fracture into play without a roll: the Fracture's
+    /// ingress questions are not carried, so the window marks the run unsupported (the adapter declines it).
+    #[test]
+    fn bail_brilliance_for_the_cabal_marks_the_run_unsupported() {
+        use crate::driver::{Driver, Status};
+        use crate::generated::{Breakthrough, Faction, FactionTag};
+        use crate::kernel::stage::AbilityTable;
+        use crate::kernel::Resolver;
+        use crate::state::{Player, Players};
+        let cabal_bt = Breakthrough::ALL.iter().copied().find(|b| b.data().faction == FactionTag::Cabal).expect("the Cabal breakthrough");
+        let other_bt = Breakthrough::ALL.iter().copied().find(|b| b.data().faction != FactionTag::Cabal).expect("another");
+        let run = |gain: Breakthrough| {
+            let mut s = CoreState::all_loaded();
+            s.players = Players::from_vec(vec![Player::new(Seat(0), Faction::TheArborec), Player::new(Seat(1), Faction::TheEmiratesOfHacan)]);
+            s.seats = crate::state::Seats::new(&[Seat(0), Seat(1)], &[Seat(0), Seat(1)], 2);
+            let mut facts = super::super::Facts::default();
+            facts.own_breakthrough[1] = Some(gain);
+            facts.own_breakthrough[0] = Some(gain);
+            let env = Env { facts, ..bare_env() };
+            let play = Play::of(&s, ActionCard::Brilliance, Seat(0), env).expect("a play");
+            let k = Kernel::plain();
+            let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), 1);
+            let seeds: std::rc::Rc<dyn SeedSource> = std::rc::Rc::new(ZeroSeeds);
+            d = d.with_seeds(seeds);
+            let mut status = d.run(&mut s, &k).unwrap();
+            while let Status::Asking(c) = status {
+                let pick = c.pick(1).unwrap();
+                status = d.resume(&mut s, &k, pick).unwrap();
+            }
+            (d.window.unsupported(), s.players().by_seat(Seat(1)).unwrap().cards.breakthrough)
+        };
+        let (unsupported, held) = run(cabal_bt);
+        assert!(unsupported && held == Some(cabal_bt), "the Cabal's enters the Fracture without a roll");
+        let _ = other_bt;
+    }
+
+    struct ZeroSeeds;
+
+    impl SeedSource for ZeroSeeds {
+        fn seed_for(&self, _: u64, _: RngDomain) -> [u8; 32] {
+            [7; 32]
+        }
+    }
+
     /// Bail: Harness Energy while a replenishment causes events the core does not hold.
     #[test]
     fn bail_harness_energy_declines_while_a_replenishment_causes_events() {
@@ -1833,7 +1906,6 @@ mod tests {
         use ActionCard as C;
         [
             (C::Bribery, "the trade goods may include the Keleres agent's commodities (the goods window asks first); the slot judges the bill with them"),
-            (C::Brilliance, "a planet with a technology specialty readies or another seat's breakthrough is gained (the breakthrough hooks and the Fracture)"),
             (C::CourageousToTheEnd, "dice with the producer in the casualty question"),
             (C::CrashLanding, "placement of a ground force through the faction hooks onto a contested planet"),
             (C::DivertFunding, "a technology returned, then a research (Deepwrought's window around it)"),

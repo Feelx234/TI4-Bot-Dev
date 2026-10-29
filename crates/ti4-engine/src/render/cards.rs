@@ -72,6 +72,10 @@ impl Family for Fam {
 
     fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
         match o {
+            Opt::Seat(seat) if matches!(pick_of(a).1, What::Gain) => {
+                let id = r.seat_text(*seat);
+                ChoiceOption::labelled(id, "player", format!("{id} gains their own breakthrough"))
+            }
             Opt::Seat(seat) if matches!(pick_of(a).1, What::JamWho { .. }) => {
                 let faction = r.faction_text(*seat);
                 ChoiceOption::labelled(faction, "player", format!("{faction}'s command token"))
@@ -193,7 +197,7 @@ impl Family for Fam {
     fn parse(r: &Render, a: &Ask, id: &str) -> Option<Opt> {
         match a {
             Ask::OwnHand { .. } | Ask::PlayCard { .. } => ActionCard::from_id(id).map(Opt::Card),
-            Ask::Pick { what: What::Player | What::Elect, .. } => r.seat(id).map(Opt::Seat),
+            Ask::Pick { what: What::Player | What::Elect | What::Gain, .. } => r.seat(id).map(Opt::Seat),
             Ask::Pick { what: What::JamWho { .. }, .. } => (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(ti4_engine_core::Seat)).find(|s| r.faction_text(*s) == id).map(Opt::Seat),
             Ask::Pick { what: What::Recall | What::Silence | What::Bombard | What::Deploy | What::Rescue | What::Pirate | What::Ghost | What::Jam, .. } => System::from_id(id).map(Opt::System),
             Ask::Pick { what: What::Planet | What::Landing, .. } => {
@@ -247,6 +251,7 @@ const fn pick_kind(what: What) -> &'static str {
         What::Pull { .. } => "unit",
         What::Land => "planet",
         What::Squad { .. } => "move",
+        What::Gain => "player",
         What::Offer | What::Landing => "planet",
         What::JamWho { .. } => "player",
         What::Accept => "answer",
@@ -313,6 +318,7 @@ const fn pick_prompt(card: ActionCard, what: What) -> &'static str {
         (C::DecoyOperation, _) => "Decoy Operation: which planet they land on",
         (C::RefitTroops, What::Troops { second: true }) => "Refit Troops: another infantry or stop",
         (C::RefitTroops, _) => "Refit Troops: which infantry to replace",
+        (C::Brilliance, _) => "Brilliance: which player gains their own breakthrough",
         (C::Upgrade, _) => "Upgrade: which cruiser becomes a dreadnought",
         (C::SignalJamming, _) => "Signal Jamming: jam which system",
         (C::GhostShip, _) => "Ghost Ship: into which wormhole system",

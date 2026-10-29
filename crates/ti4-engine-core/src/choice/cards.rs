@@ -55,6 +55,8 @@ pub enum What {
     Hull,
     /// kind `ship`: a ship Scuttle returns; the second question (`second`) also offers to stop after one.
     Scuttle { second: bool },
+    /// kind `player`, label `<seat> gains their own breakthrough`: whose breakthrough Brilliance gives.
+    Gain,
     /// kind `move`, subtype `ghost_squad_move`, with a decline: a move of ground forces between the planets of `system`.
     Squad { system: System },
     /// kind `unit`, id `system|planet|index`, label `<unit> in <system>`: a ground force Decoy Operation pulls; the second

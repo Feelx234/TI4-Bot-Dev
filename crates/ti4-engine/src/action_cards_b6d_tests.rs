@@ -412,3 +412,25 @@ fn harness_energy_replenishes_the_holders_commodities_in_the_core_window() {
     assert_eq!(crate::action_cards_closing_tests::windows("action_cards::announce"), (0, 1));
     let _ = crate::dual::take_report();
 }
+
+/// Brilliance: a seat without a breakthrough gains its own; the roll for the Fracture is the Fracture stream's (positions
+/// compared). The seats' breakthroughs are the Thunder's Edge ones of their factions.
+#[test]
+fn brilliance_gives_a_seat_its_own_breakthrough_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let mut state = closing_position();
+    state.rules_version = ti4_model::state::RULES_VERSION;
+    let _ = crate::dual::take_report();
+    crate::action_cards_closing_tests::announce_all(&[("brilliance", state.clone())]);
+    let _ = crate::dual::take_report();
+    let after = played("brilliance", &state);
+    let held = |s: &GameState| s.players.iter().filter(|p| p.breakthrough.is_some()).count();
+    assert!(held(&after) > held(&state), "a seat gained its breakthrough");
+    // Everybody has one already: no question, nothing happens.
+    let mut all = state.clone();
+    for p in &mut all.players {
+        p.breakthrough = Some(ti4_model::id::BreakthroughId::new("cabalbt"));
+    }
+    announce_all(&[("brilliance", all)]);
+    let _ = crate::dual::take_report();
+}

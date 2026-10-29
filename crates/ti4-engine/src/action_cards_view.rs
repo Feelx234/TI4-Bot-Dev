@@ -250,6 +250,8 @@ fn env_of(state: &GameState, player: &PlayerId, sources: &ti4_model::content_typ
             dreadnought: rules::Placed::NONE,
             mech: rules::Placed::NONE,
             replenish_events: crate::leaders_core::replenish_causes_events(state),
+            fracture_in_play: state.fracture_in_play,
+            own_breakthrough: own_breakthroughs(state, r),
             unit_order: |a, b| crate::generated::IdStr::as_str(a).cmp(crate::generated::IdStr::as_str(b)),
         },
     }
@@ -555,4 +557,16 @@ pub fn announce_window(
         None => None,
     };
     Some(crate::dual::CoreWindow { run: crate::dual::Run::new((played, (faces, positions))).with_events_vec(events), questions: driven.rendered })
+}
+
+/// The breakthrough of each seat's faction, by seat (`breakthroughs::for_faction`).
+fn own_breakthroughs(state: &GameState, r: &crate::render::Render) -> [Option<ti4_engine_core::generated::Breakthrough>; 16] {
+    let content = ti4_content::ContentStore::embedded();
+    let mut out = [None; 16];
+    for p in &state.players {
+        let Some(seat) = r.seat(p.id.as_str()) else { continue };
+        let own = crate::breakthroughs::for_faction(content, p.faction.as_str());
+        out[usize::from(seat.0)] = own.and_then(|b| <ti4_engine_core::generated::Breakthrough as crate::generated::IdStr>::from_id(b.as_str()));
+    }
+    out
 }
