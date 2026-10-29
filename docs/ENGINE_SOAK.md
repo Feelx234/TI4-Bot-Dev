@@ -44,5 +44,93 @@ game: index, seed, map, players, factions, rules version, `selfplay replay` flag
 game, unsharded text).
 
 Coverage check: `dual_run --specs ... | soak_corpus.py coverage` prints the histogram of players, maps and factions. For the
-five 100-game std/te/old/factions/bot-v1 tiers together: every one of the 24 lobby factions is seated 62 to 151 times, 49
-distinct maps incl. all the hyperlane ones, 3-8 players.
+seven 100-game tier files together (700 games): 3-8 players (83/173/107/177/69/91 seats of games), 51 distinct maps (all 12
+hyperlane maps among them, plus the seeded random board), every one of the 24 lobby factions seated 83 to 218 times.
+Rules versions: `std`/`te`/`factions`(half)/`bot-*` at the newest (35), `old` over 18 older versions.
+
+**Game order matters for a short run.** `dual_run CONFIG N` plays the first N games of the matrix, which are the setups in
+order (3 players first). A tier file is meant to be played whole (`dual_run std-100.json 100`); the soak asks `gen` for
+exactly the games it plays.
+
+## 3. The runner: `tools/engine_core/soak.sh`
+
+```
+export DUAL_RUN=<built dual_run>      # gate profile is fine; release is about 2x faster for a long soak
+tools/engine_core/soak.sh start       # background, nice 19 + ionice idle, log /root/soak-reports/soak.log
+tools/engine_core/soak.sh status      # running?, head of LATEST.md, log tail
+tools/engine_core/soak.sh stop        # SIGTERM; the slice in flight is abandoned (and redone on the next start)
+tools/engine_core/soak.sh run         # foreground (what start launches)
+```
+
+Not installed anywhere (no cron, no systemd): only this command starts it.
+
+**A round** is one slice per lane (`plan` in `soak_analyze.py`): `SLICE_GAMES` (default 40) games split over the lanes by
+weight, at least 2 per lane. A slice = (lane, first seed, games, mask). Lanes start at `SEED_BASE` (100000) and each lane's next
+seed advances by the games it played, so every slice is a new seed range; the mask rotates over lanes and rounds
+(`MASKS="all driver wide"`):
+
+| mask | spec | note |
+|---|---|---|
+| `all` | `all=dual` | every area compares at every call: about 1.3 M calls per game instead of a few hundred, so its slices get 0.3 of the games (`SOAK_MASK_SCALE=all=0.3`) |
+| `driver` | `driver=dual` | the ported windows (combat, invasion, strategy, agenda... through the driver) |
+| `wide` | `driver,invasion,production,leaders,exploration,agenda=dual` | the wide mask of the gates; raw `area=dual,...` specs also work in `MASKS` |
+
+A slice runs `dual_sharded.sh` with `SHARDS` (default 3) shards, i.e. at most 3 busy processes, at `nice -n 19`, `ionice -c3`.
+It never sets `TI4_DUAL_FAIL_FAST`, so a game with a difference runs to its end and every difference (the first 200 per game)
+is kept.
+
+**Lock awareness.** The soak never holds `/root/.ti4-heavy.lock`. Before a slice (and before every round) it waits while the
+lock is held (`flock -n` fails) or someone queues for it (a `->` waiter on the lock file's inode in `/proc/locks`). While a
+slice runs it checks every `SOAK_POLL` (10) s; when a gate takes or queues for the lock the slice's whole process group is
+`SIGSTOP`ped (no CPU; memory stays) and continued when the lock is free and unqueued. A slice that needs more than
+`SLICE_TIMEOUT` (3600) active seconds is killed and counted as incomplete. `SOAK_HOLDS_LOCK=1` switches the checks off for a
+one-off run that the caller wrapped in `flock /root/.ti4-heavy.lock` itself.
+
+**Resume.** `/root/soak-reports/state.json` holds the finished slice ids, the next seed per lane, the round counter, the
+totals and the difference/bail/window tables. A killed soak starts with the same plan (next seeds only advance when a slice
+finished), so the interrupted slice is simply played again.
+
+**Files.** `/root/soak-reports/YYYY-MM-DD/<lane>_<seed>_<games>_<mask>/` has `config.json` (the exact matrix),
+`specs.jsonl` (the games), `merged.txt` (the merged `dual_run` text), `result.json` (per slice: calls, comparisons, per-area and
+per-window counts, differences with game seed/map/factions/rules version/TE and a repro line, hash changes, silent windows),
+and `shards/` only when the slice is evidence (a difference, a hash change, an incomplete slice). `slices.log` of the day has one
+line per slice. `/root/soak-reports/LATEST.md` is the rolling summary an agent reads first (below).
+
+### LATEST.md
+
+Totals and a verdict (CLEAN / ATTENTION); the **differences** grouped by area and call site with the first example (game seed,
+map, players, rules version, Thunder's Edge, factions, both sides of the first leaf paths) and a repro line; incomplete
+slices; **silent bails**; calls and comparisons by mask and by lane; **bail counts per window label** (compared/bailed, worst
+share first) and the **bail reasons** (`label [bail: reason]` rows of the dual report, by count); next seeds; the last 25 slices.
+
+**Silent-bail detection** (the `compared == 0` idea of the lockstep tests, applied to the corpus): a window label that ran in a
+slice and never compared (compared 0, bailed > 0; the `[bail: ...]` reason rows are excluded) is listed with the number of slices
+it happened in; an area on the mask that made no call at all in a slice of at least 8 games is listed too. The bail table shows
+the rest of the picture (a label that bails 100% of the time over the soak). Both only point; whether a bail is a documented one
+(`ENGINE_KNOWN_ISSUES.md`) is for the reader. A real silent bail is a label that compares 0 on a corpus where the string engine
+reaches it.
+
+## 4. Repro: `tools/engine_core/soak_repro.sh`
+
+Single game, full detail, no lock needed (about 10 s to a minute per game):
+
+```
+tools/engine_core/soak_repro.sh --line '<repro line from LATEST.md>'                # --seed S names the game
+tools/engine_core/soak_repro.sh --record <slice>/result.json 0                      # 0-based difference of the slice
+tools/engine_core/soak_repro.sh --record <slice>/result.json 0 --hash               # a hash change
+tools/engine_core/soak_repro.sh --config C --games G --mask M --seed S [--failfast] [--nested]
+```
+
+It prints the game (index, seed, map, players, factions, the `selfplay replay` flags, bot overrides), then runs
+`dual_run CONFIG GAMES MASK --seed S` (only that game; dual, then string) and prints every difference with both sides. The
+config is the one stored in the slice directory, so the repro is independent of the soak's state. `--failfast` sets
+`TI4_DUAL_FAIL_FAST=1` and `RUST_BACKTRACE=1`: the first difference panics at its call site. `dual_run --seed` needs the seed to
+be unique in the config (the soak's lanes give every setup its own range, so it is); `--game I` otherwise.
+
+## 5. Self-test
+
+`tools/engine_core/test_soak.sh` (about 50 s, no engine): the corpus is deterministic and covers players 3-8, hyperlane maps,
+Thunder's Edge on/off, rules versions 31-34 and all 24 lobby factions; a fake `dual_run` plays a soak round and the test
+checks the state, LATEST.md, a planted difference with its repro line, silent-bail detection, that a held heavy lock pauses
+and resumes a slice in flight, that a queued waiter makes the soak yield before starting, stop/resume, and that
+`soak_repro.sh` parses a repro line.
