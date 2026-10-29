@@ -428,3 +428,16 @@ fn an_argent_mech_rides_free_in_a_full_hold() {
     assert_eq!(total(&done.state, &target, &a(), Some("argent_mech")), 1, "the mech arrived with a full hold");
     assert_eq!(total(&done.state, &target, &a(), Some("infantry")), 1);
 }
+
+#[test]
+fn a_free_rider_taken_first_leaves_the_slot_for_an_ordinary_unit() {
+    let (hub, origin, target) = hub();
+    let mut state = table(&[("a", "argent"), ("b", "hacan")]);
+    crate::fixtures::put(&mut state, &origin, "dreadnought", &a(), 1);
+    crate::fixtures::put(&mut state, &origin, "argent_mech", &a(), 1);
+    crate::fixtures::put(&mut state, &origin, "infantry", &a(), 1);
+    let mv = id(&origin, 0);
+    let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv, "load|0", "load|1"], |_| {});
+    assert_eq!(done.counts("tactical::load"), (2, 0), "{:?}", done.reasons);
+    assert_eq!(total(&done.state, &target, &a(), Some("infantry")), 1, "the one slot was still free for the infantry");
+}
