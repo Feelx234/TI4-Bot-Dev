@@ -114,7 +114,7 @@ pub(crate) fn planet_term_payable(state: &GameState, player: &PlayerId, term: &P
 }
 
 /// What a planet card is worth to hold: its resources and influence.
-fn planet_value(content: &ContentStore, planet: &PlanetId) -> f64 {
+pub(crate) fn planet_value(content: &ContentStore, planet: &PlanetId) -> f64 {
     ti4_content::galaxy::planet(content, planet.as_str(), DEFAULT).map_or(2.0, |record| {
         #[allow(clippy::cast_precision_loss)]
         let value = (record.resources() + record.influence()) as f64;

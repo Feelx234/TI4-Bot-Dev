@@ -16,7 +16,7 @@
 
 use core::cmp::Ordering;
 
-use crate::generated::{ActionCard, ExploreType, Faction, PromissoryNote};
+use crate::generated::{ActionCard, ExploreType, Faction, Planet, PromissoryNote, Unit};
 use crate::choice::trade::Shape;
 use crate::ids::Seat;
 use crate::query::promissory as qn;
@@ -38,6 +38,9 @@ pub struct DealFacts {
     pub may: [bool; 2],
     /// `transactions::trades_action_cards` of `pair.0` and of `pair.1` (Arbiters).
     pub arbiters: [bool; 2],
+    /// The worth of each planet card, indexed by `Planet::index` (`planet_value`: resources plus influence, at
+    /// least one; two for a planet the content does not know). Read by the Pride of Kenara deals only.
+    pub planet_values: &'static [u8],
 }
 
 impl DealFacts {
@@ -84,7 +87,12 @@ pub struct Side {
     pub note: Option<Held>,
     pub card: bool,
     pub secret: bool,
+    /// A planet card and its worth (Pride of Kenara).
+    pub planet: Option<u8>,
 }
+
+/// `transactions::PLANET_GIVING_COST`: more than any deal pays.
+pub const PLANET_GIVING_COST: f64 = 100.0;
 
 /// `promissory::trade_agreement_worth`: slightly under the owner's commodity value.
 #[must_use]
@@ -145,14 +153,26 @@ impl Side {
     #[must_use]
     pub fn worth(&self) -> f64 {
         let note = self.note.map_or(0.0, note_worth);
-        f64::from(self.goods) + f64::from(self.commodities) + f64::from(self.fragments) + note + f64::from(u8::from(self.card)) + f64::from(u8::from(self.secret)) + 0.0
+        f64::from(self.goods)
+            + f64::from(self.commodities)
+            + f64::from(self.fragments)
+            + note
+            + f64::from(u8::from(self.card))
+            + f64::from(u8::from(self.secret))
+            + self.planet.map_or(0.0, f64::from)
     }
 
     /// `Terms::cost_to_giver`.
     #[must_use]
     pub fn cost(&self) -> f64 {
         let note = self.note.map_or(0.0, note_cost);
-        f64::from(self.goods) + 0.2 * f64::from(self.commodities) + f64::from(self.fragments) + note + f64::from(u8::from(self.card)) + f64::from(u8::from(self.secret)) + 0.0
+        f64::from(self.goods)
+            + 0.2 * f64::from(self.commodities)
+            + f64::from(self.fragments)
+            + note
+            + f64::from(u8::from(self.card))
+            + f64::from(u8::from(self.secret))
+            + self.planet.map_or(0.0, |_| PLANET_GIVING_COST)
     }
 }
 
@@ -189,6 +209,8 @@ pub fn sides(shape: Shape) -> (Side, Side) {
         Shape::BuyNoteWithCommodities { note: n, price } => (commodities(i(price)), note(n)),
         Shape::NoteForCommodities { note: n, paid } => (note(n), commodities(i(paid))),
         Shape::NoteForNote { owed, want } => (note(owed), note(want)),
+        Shape::PlanetSale { price, value, .. } => (Side { planet: Some(value), ..Side::default() }, goods(i(price))),
+        Shape::PlanetBuy { price, value, .. } => (goods(i(price)), Side { planet: Some(value), ..Side::default() }),
     }
 }
 
@@ -331,7 +353,56 @@ pub fn deals(core: &CoreState, f: &DealFacts, proposer: Seat, partner: Seat) -> 
     }
 
     partner_assets(core, f, proposer, partner, &mine, &theirs, &mut out);
+    planet_shapes(core, f, proposer, partner, &mut out);
     out
+}
+
+/// `transactions::pride_of_kenara_planets`: the planets the seat could trade away with a Pride of Kenara (rules
+/// version 17), each with the planets its units could move to. A planet with a Pride of Kenara of the seat on it,
+/// of the planets the seat controls, in system then planet order.
+#[must_use]
+pub fn kenara_planets(core: &CoreState, seat: Seat) -> Vec<(Planet, Vec<Planet>)> {
+    if !core.loaded.has(crate::state::Slice::Board) || core.meta().rules_version < RULES_FACTION_BUGFIXES {
+        return Vec::new();
+    }
+    let owned = crate::query::board::controlled_planets(core, seat);
+    owned
+        .as_slice()
+        .iter()
+        .filter(|(_, planet)| core.board().planet(*planet).units.as_slice().iter().any(|u| u.kind() == Unit::PrideOfKenara && u.owner() == seat))
+        .filter_map(|(_, planet)| {
+            let moves: Vec<Planet> = owned.as_slice().iter().map(|(_, other)| *other).filter(|other| other != planet).collect();
+            (!moves.is_empty()).then_some((*planet, moves))
+        })
+        .collect()
+}
+
+/// `transactions::RULES_FACTION_BUGFIXES`: the rules version of the Pride of Kenara's trade.
+pub const RULES_FACTION_BUGFIXES: u32 = 17;
+
+/// `planet_shapes`: the planet cards a Pride of Kenara lets change hands, as gifts, sales and asks.
+fn planet_shapes(core: &CoreState, f: &DealFacts, proposer: Seat, partner: Seat, out: &mut Vec<Shape>) {
+    let (my_goods, _) = econ(core, proposer);
+    let (their_goods, _) = econ(core, partner);
+    let value = |planet: Planet| f.planet_values.get(planet.index()).copied().unwrap_or(2);
+    for (planet, moves) in kenara_planets(core, proposer) {
+        for to in moves {
+            let price = value(planet);
+            out.push(Shape::PlanetSale { planet, to, price: 0, value: price });
+            if their_goods >= i32::from(price) {
+                out.push(Shape::PlanetSale { planet, to, price, value: price });
+            }
+        }
+    }
+    for (planet, moves) in kenara_planets(core, partner) {
+        let price = value(planet);
+        if my_goods < i32::from(price) {
+            continue;
+        }
+        for to in moves {
+            out.push(Shape::PlanetBuy { planet, to, price, value: price });
+        }
+    }
 }
 
 /// `partner_assets`: the asks that take something from the partner.
@@ -411,9 +482,17 @@ pub fn offer_of(core: &CoreState, f: &DealFacts, shape: Shape, proposer: Seat, p
         Shape::SellCard { card } | Shape::CardForNote { card, .. } => given.action_card = Some(card),
         Shape::SellSecret { secret } => given.secret = Some(secret),
         Shape::SellFragment { kind } => given.fragments = fragments_of(kind),
+        Shape::PlanetSale { planet, to, .. } => given.planet = Some(planet_leg(core, proposer, planet, to)),
+        Shape::PlanetBuy { planet, to, .. } => received.planet = Some(planet_leg(core, partner, planet, to)),
         _ => {}
     }
     Offer { proposer, partner, given, received }
+}
+
+/// The planet-card leg: whether the giver could pay it now (`planet_term_payable`) and what moves.
+fn planet_leg(core: &CoreState, giver: Seat, planet: Planet, to: Planet) -> crate::query::trade::PlanetFacts {
+    let payable = kenara_planets(core, giver).iter().any(|(p, moves)| *p == planet && moves.contains(&to));
+    crate::query::trade::PlanetFacts { payable, mv: Some((planet, to)) }
 }
 
 #[cfg(test)]

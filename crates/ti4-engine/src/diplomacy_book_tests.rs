@@ -310,4 +310,44 @@ mod tests {
         assert_eq!(state.player(&p("b")).unwrap().trade_goods, b_before + 2);
         assert_eq!(state.diplomacy.history[0].status, DealStatus::Fulfilled);
     }
+
+    #[test]
+    fn the_history_keeps_the_last_thirty_two_deals() {
+        let mut state = table();
+        lockstep(|| {
+            for _ in 0..33 {
+                let id = crate::diplomacy::book::create_deal(&mut state, &p("a"), &p("b"), &rev(0, "a", vec![now(1)], vec![])).unwrap();
+                crate::diplomacy::book::accept(&mut state, id, &p("b"), true).unwrap();
+            }
+            assert_eq!(ran("diplomacy::accept"), 33);
+        });
+        assert_eq!(state.diplomacy.history.len(), 32);
+        assert_eq!(state.diplomacy.history[0].id, DealId(2), "the oldest was dropped");
+    }
+
+    #[test]
+    fn only_a_promise_to_attack_a_third_party_is_an_anti_third_party_deal() {
+        // The recipient promising to attack the proposer, or itself, is nobody's third party.
+        for target in ["a", "b"] {
+            let mut state = table();
+            lockstep(|| {
+                let hit = DealTerm::Attack { player: p(target), deadline_round: 2 };
+                let id = crate::diplomacy::book::create_deal(&mut state, &p("a"), &p("b"), &rev(0, "a", vec![now(1)], vec![hit])).unwrap();
+                crate::diplomacy::book::accept(&mut state, id, &p("b"), true).unwrap();
+            });
+            assert_eq!((trust(&state, "c", "a"), trust(&state, "c", "b")), (0, 0), "{target}");
+        }
+    }
+
+    #[test]
+    fn a_vote_assurance_nobody_bore_out_is_broken_when_its_round_ends() {
+        let mut state = table();
+        lockstep(|| {
+            let say = SignalStatement::WillVote { agenda: "arms_reduction".into(), outcome: "for".into() };
+            crate::diplomacy::signals::emit_signal(&mut state, draft(say, 1)).unwrap();
+            crate::diplomacy::settle_deadlines(&mut state, 1).unwrap();
+        });
+        assert_eq!(state.diplomacy.recent_signals[0].status, SignalStatus::Broken);
+        assert!(trust(&state, "b", "a") < 2, "a broken assurance costs the trust it earned");
+    }
 }

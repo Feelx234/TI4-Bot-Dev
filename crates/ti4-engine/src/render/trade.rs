@@ -10,7 +10,7 @@
 
 use serde_json::Value;
 use ti4_engine_core::choice::trade::{Ask, Opt, Shape, Subtype};
-use ti4_engine_core::generated::ExploreType;
+use ti4_engine_core::generated::{ExploreType, Planet};
 use ti4_engine_core::query::trade_deals::nets;
 use ti4_engine_core::state::NoteKey;
 
@@ -38,8 +38,17 @@ fn kind_text(kind: ExploreType) -> &'static str {
     }
 }
 
-/// The option the string engine lists for a deal (`offer_options`): id, label, payload and prices.
+/// The worth of every planet card (`transactions::planet_value`, as whole numbers: resources plus influence, at
+/// least one), indexed by `Planet::index`, from the embedded content.
 #[must_use]
+pub fn planet_values() -> &'static [u8] {
+    static VALUES: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    VALUES.get_or_init(|| {
+        let content = ti4_content::ContentStore::embedded();
+        Planet::ALL.iter().map(|p| crate::transactions::planet_value(content, &ti4_model::id::PlanetId::new(p.as_str())) as u8).collect()
+    })
+}
+
 /// The shape a deal option id names (the inverse of [`deal_option`]'s id), or `None` for an id the core has no shape
 /// for (a free-form deal, a Pride of Kenara planet card, an unknown note). `swap` names the two factions of the
 /// Support swap, whose id does not.
@@ -55,8 +64,16 @@ pub fn shape_of(id: &str, swap: Option<(ti4_engine_core::generated::Faction, ti4
         let (l, r) = text.split_once(':')?;
         Some((count(l)?, count(r)?))
     };
-    if id.starts_with(FREE_FORM_PREFIX) || id.starts_with("kp") || id.starts_with("kq") {
+    if id.starts_with(FREE_FORM_PREFIX) {
         return None;
+    }
+    if let Some(rest) = id.strip_prefix("kp").or_else(|| id.strip_prefix("kq")) {
+        let (cards, p) = rest.rsplit_once(':')?;
+        let (planet, to) = cards.split_once('>')?;
+        let (planet, to) = (typed::<Planet>(planet)?, typed::<Planet>(to)?);
+        let value = planet_values().get(planet.index()).copied()?;
+        let price = price(p)?;
+        return Some(if id.starts_with("kp") { Shape::PlanetSale { planet, to, price, value } } else { Shape::PlanetBuy { planet, to, price, value } });
     }
     if id == "ss" {
         let (from, to) = swap?;
@@ -184,6 +201,21 @@ pub fn deal_option(shape: Shape) -> ChoiceOption {
             payload.insert("promissory".to_owned(), text(&o));
             payload.insert("received_promissory".to_owned(), text(&w));
             (format!("nn{o}>{w}"), format!("give the note {o} for the note {w}"))
+        }
+        Shape::PlanetSale { planet, to, price, .. } => {
+            let (p, t) = (planet.as_str(), to.as_str());
+            payload.insert("planet".to_owned(), text(p));
+            payload.insert("moves_to".to_owned(), text(t));
+            if price == 0 {
+                (format!("kp{p}>{t}:0"), format!("give the planet {p}, moving the units to {t}"))
+            } else {
+                (format!("kp{p}>{t}:{price}"), format!("sell the planet {p} for {price} trade goods, units to {t}"))
+            }
+        }
+        Shape::PlanetBuy { planet, to, price, .. } => {
+            let (p, t) = (planet.as_str(), to.as_str());
+            payload.insert("received_planet".to_owned(), text(p));
+            (format!("kq{p}>{t}:{price}"), format!("pay {price} trade goods for the planet {p}, their units to {t}"))
         }
     };
     let (net, their_net) = nets(shape);

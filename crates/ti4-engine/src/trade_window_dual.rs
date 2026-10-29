@@ -7,8 +7,8 @@
 //! compares the state and the outcome afterwards. The core derives the option list and the prices
 //! (`query::trade_deals`); what stays with the string engine is in `docs/ENGINE_KNOWN_ISSUES.md` (B4c): the
 //! faction hooks (reach, Arbiters, an Alliance's commander), the staged `TRADE_GOODS_GAINED` events of an accepted
-//! deal, Dark Pact's gains, the `TRANSACTION_RESOLVED` event, and every window with a free-form deal, a Pride of
-//! Kenara planet card, a faction two seats play, or diplomacy on.
+//! deal, Dark Pact's gains, the `TRANSACTION_RESOLVED` event, and every window with a free-form deal, a faction two
+//! seats play, or diplomacy on.
 
 #[cfg(feature = "typed-core")]
 pub use real::*;
@@ -81,6 +81,12 @@ mod real {
         &[Slice::Players, Slice::Cards, Slice::Trade, Slice::Ledger],
     );
 
+    /// [`WINDOW`] with the board: a Pride of Kenara card moves its giver's units and its control.
+    pub(crate) const WINDOW_BOARD: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Cards, Slice::Trade, Slice::Ledger, Slice::Transient, Slice::Board],
+        &[Slice::Players, Slice::Cards, Slice::Trade, Slice::Ledger, Slice::Board],
+    );
+
     fn note_order(a: NoteKey, b: NoteKey) -> Ordering {
         note_id(a).cmp(&note_id(b))
     }
@@ -131,6 +137,7 @@ mod real {
                 crate::transactions::trades_action_cards(gs, content, proposer),
                 crate::transactions::trades_action_cards(gs, content, partner),
             ],
+            planet_values: crate::render::trade::planet_values(),
         })
     }
 
@@ -152,10 +159,8 @@ mod real {
             return None;
         }
         let pair = [&at.proposer, &at.partner];
-        if pair.iter().any(|p| !crate::transactions::pride_of_kenara_planets(gs, p).is_empty()) {
-            note_bail(LABEL, "a Pride of Kenara planet card");
-            return None;
-        }
+        // A Pride of Kenara on either chair brings the board into the window (units move with the card).
+        let kenara = pair.iter().any(|p| !crate::transactions::pride_of_kenara_planets(gs, p).is_empty());
         let mut factions: Vec<&str> = gs.players.iter().map(|p| p.faction.as_str()).collect();
         factions.sort_unstable();
         if factions.windows(2).any(|w| w[0] == w[1]) {
@@ -172,7 +177,7 @@ mod real {
         };
         let before = gs.clone();
         let kernel = Kernel::plain();
-        let driven = with_core(gs, &mut cx, Sources::default(), WINDOW, |core, _| {
+        let driven = with_core(gs, &mut cx, Sources::default(), if kenara { WINDOW_BOARD } else { WINDOW }, |core, _| {
             let deal: Option<Shape> = match &at.offer {
                 Some((_, id)) => match shape_of(id, swap) {
                     Some(shape) => Some(shape),

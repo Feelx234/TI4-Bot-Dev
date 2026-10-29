@@ -443,19 +443,66 @@ fn negotiate_pair(state: GameState, hub: &crate::fixtures::Hub, from: &PlayerId,
     Done { traded, state, compared, bailed, reasons: Vec::new() }
 }
 
-#[test]
-fn a_pride_of_kenara_planet_card_keeps_the_window_on_the_string_engine() {
-    let (mut state, hub) = sol_hacan();
+/// Put a Pride of Kenara on the first planet `who` controls; the planets it controls, in the string's order.
+fn with_kenara(state: &mut GameState, who: &PlayerId) -> Vec<ti4_model::id::PlanetId> {
+    // Two planets, or the units have nowhere to go.
+    if state.controlled_planets(who).len() < 2 {
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        state.system_mut(&system).set_control(planet, who.clone());
+    }
     let (system, planet) = {
-        let owned = state.controlled_planets(&b());
-        let (system, planet) = owned.first().map(|(s, p)| ((*s).clone(), (*p).clone())).expect("hacan holds a planet");
+        let owned = state.controlled_planets(who);
+        let (system, planet) = owned.first().map(|(s, p)| ((*s).clone(), (*p).clone())).expect("a seat holds a planet");
         (system, planet)
     };
-    state.system_mut(&system).planet_units.entry(planet).or_default().push(ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new("hacan_mech"), b()));
-    assert!(!crate::transactions::pride_of_kenara_planets(&state, &b()).is_empty(), "the fixture gives Hacan a Pride of Kenara");
-    let done = plain(state, &hub, &["cc3", "accept"]);
-    assert_eq!(done.compared, 0);
-    assert!(done.reasons.iter().any(|(k, _)| k.contains("a Pride of Kenara planet card")), "{:?}", done.reasons);
+    state.system_mut(&system).planet_units.entry(planet).or_default().push(ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new("hacan_mech"), who.clone()));
+    assert!(!crate::transactions::pride_of_kenara_planets(state, who).is_empty(), "the position gives {who} a Pride of Kenara");
+    state.controlled_planets(who).into_iter().map(|(_, p)| p.clone()).collect()
+}
+
+#[test]
+fn a_planet_card_is_given_sold_and_bought_with_its_units_moving_in_lockstep() {
+    // The proposer's own card: a gift (price 0) and a sale, the units move to the planet it names.
+    for price in ["0", "~"] {
+        let (mut state, hub) = sol_hacan();
+        let planets = with_kenara(&mut state, &a());
+        let planet = planets[0].clone();
+        let before = state.system_state(&crate::planets::system_of(&state, ContentStore::embedded(), ti4_model::content_types::DEFAULT, planet.as_str()).unwrap()).on_planet_of(&planet, &a()).len();
+        let pick = if price == "0" { format!("kp{}>{}:0", planet, planets[1]) } else { format!("~kp{planet}>") };
+        let done = plain(state, &hub, &[&pick, "accept"]);
+        assert_eq!(done.traded, [Traded::Offered, Traded::Resolved], "{price}");
+        assert_eq!((done.compared, done.bailed), (2, 0), "{price}: {:?}", done.reasons);
+        assert_eq!(done.state.controlled_planets(&b()).iter().filter(|(_, p)| **p == planet).count(), 1, "b holds the card now");
+        assert!(done.state.controlled_planets(&a()).iter().all(|(_, p)| **p != planet));
+        let _ = before;
+    }
+    // The partner's card, paid for in trade goods: their units move to their planet.
+    let (mut state, hub) = sol_hacan();
+    let planets = with_kenara(&mut state, &b());
+    let done = plain(state, &hub, &[&format!("~kq{}>", planets[0]), "accept"]);
+    assert_eq!(done.traded, [Traded::Offered, Traded::Resolved]);
+    assert_eq!((done.compared, done.bailed), (2, 0), "{:?}", done.reasons);
+    assert!(done.state.controlled_planets(&a()).iter().any(|(_, p)| **p == planets[0]));
+    assert!(done.state.controlled_planets(&b()).iter().all(|(_, p)| **p != planets[0]));
+}
+
+#[test]
+fn a_planet_card_whose_mech_left_is_rejected_at_the_accept() {
+    let (mut state, hub) = sol_hacan();
+    let planets = with_kenara(&mut state, &a());
+    let pick = format!("kp{}>{}:0", planets[0], planets[1]);
+    let done = negotiate(state, &hub, &[&pick, "accept"], |n, s| {
+        if n == 0 {
+            // The mech is gone: the card can no longer be given.
+            for sys in s.board.values_mut() {
+                for units in sys.planet_units.values_mut() {
+                    units.retain(|u| u.type_id.as_str() != "hacan_mech");
+                }
+            }
+        }
+    });
+    assert!(matches!(done.traded[1], Traded::Rejected(_)), "{:?}", done.traded);
+    assert_eq!((done.compared, done.bailed), (2, 0));
 }
 
 #[test]

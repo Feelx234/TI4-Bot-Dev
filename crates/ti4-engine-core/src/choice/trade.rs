@@ -10,7 +10,7 @@
 //!
 //! The "open a transaction" options live in the turn question of the tactical area and stay there.
 
-use crate::generated::{ActionCard, ExploreType, Faction, SecretObjective};
+use crate::generated::{ActionCard, ExploreType, Faction, Planet, SecretObjective};
 use crate::ids::Seat;
 use crate::state::NoteKey;
 
@@ -51,6 +51,13 @@ pub enum Shape {
     NoteForCommodities { note: NoteKey, paid: u8 },
     /// `nn{owed}>{want}`: a note for a note.
     NoteForNote { owed: NoteKey, want: NoteKey },
+    /// `kp{planet}>{to}:{price}` (Pride of Kenara): the proposer's planet card, their units moving to their planet
+    /// `to`, for `price` of the partner's trade goods (0: a gift). `value` is the card's worth (resources and
+    /// influence; not in the id).
+    PlanetSale { planet: Planet, to: Planet, price: u8, value: u8 },
+    /// `kq{planet}>{to}:{price}`: the partner's planet card (their units moving to their planet `to`) for `price` of
+    /// the proposer's trade goods.
+    PlanetBuy { planet: Planet, to: Planet, price: u8, value: u8 },
 }
 
 /// What the area asks. Parameters only; the option list is derived by the window.

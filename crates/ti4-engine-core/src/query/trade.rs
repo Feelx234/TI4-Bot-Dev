@@ -244,6 +244,8 @@ pub enum NoteMove {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PlanetFacts {
     pub payable: bool,
+    /// The planet whose card changes hands and the planet its giver's units move to.
+    pub mv: Option<(crate::generated::Planet, crate::generated::Planet)>,
 }
 
 /// What one side of a deal hands over (`transactions::Terms`).

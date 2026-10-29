@@ -368,7 +368,10 @@ use crate::generated::IdStr;
                 Some(s) => Some(typed::<SecretObjective>(s.as_str())?),
                 None => None,
             },
-            planet: t.planet.as_ref().map(|p| q::PlanetFacts { payable: crate::transactions::planet_term_payable(state, giver, p) }),
+            planet: t.planet.as_ref().map(|p| q::PlanetFacts {
+                payable: crate::transactions::planet_term_payable(state, giver, p),
+                mv: typed::<ti4_engine_core::generated::Planet>(p.planet.as_str()).zip(typed::<ti4_engine_core::generated::Planet>(p.moves_to.as_str())),
+            }),
         })
     }
 
@@ -380,15 +383,17 @@ use crate::generated::IdStr;
         &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Cards, Slice::Trade, Slice::Ledger],
         &[Slice::Players, Slice::Cards, Slice::Trade, Slice::Ledger],
     );
+    /// [`GOODS`] with the board (a planet card moves its giver's units and its control).
+    const GOODS_BOARD: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Cards, Slice::Trade, Slice::Ledger, Slice::Board],
+        &[Slice::Players, Slice::Cards, Slice::Trade, Slice::Ledger, Slice::Board],
+    );
     const TRADE: Footprint = Footprint::new(&[Slice::Trade], &[Slice::Trade]);
 
     /// The goods half of `transactions::resolve` on the typed state. `None` when the deal has a
     /// term the core does not move (a note or a planet card) or the position is not expressible.
     pub fn exchange(state: &mut GameState, content: &ContentStore, offer: &Offer) -> Option<()> {
-        if !content.is_embedded()
-            || offer.given.planet.is_some()
-            || offer.received.planet.is_some()
-        {
+        if !content.is_embedded() {
             return counted(None);
         }
         let mut cx = Ctx::of(state).ok()?;
@@ -399,10 +404,11 @@ use crate::generated::IdStr;
             given: terms(state, content, &offer.proposer, &offer.partner, &offer.given)?,
             received: terms(state, content, &offer.partner, &offer.proposer, &offer.received)?,
         };
-        if [&typed_offer.given, &typed_offer.received].iter().any(|t| t.note.is_some_and(|n| n.mv.is_none())) {
+        if [&typed_offer.given, &typed_offer.received].iter().any(|t| t.note.is_some_and(|n| n.mv.is_none()) || t.planet.is_some_and(|p| p.mv.is_none())) {
             return counted(None);
         }
-        counted(with_core(state, &mut cx, Sources { galaxy: None, rng: None }, GOODS, |core, _| rules::exchange(core, &typed_offer)).ok().flatten())
+        let planets = typed_offer.given.planet.is_some() || typed_offer.received.planet.is_some();
+        counted(with_core(state, &mut cx, Sources { galaxy: None, rng: None }, if planets { GOODS_BOARD } else { GOODS }, |core, _| rules::exchange(core, &typed_offer)).ok().flatten())
     }
 
     /// `GameState::record_transaction` on the typed state.
