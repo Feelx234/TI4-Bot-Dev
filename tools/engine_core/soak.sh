@@ -14,7 +14,7 @@
 #   SOAK_WORK=/root/deploytmp/soak-work, SLICE_TIMEOUT=3600 (active seconds a slice may take), HEAVY_LOCK=/root/.ti4-heavy.lock.
 #
 # Lock awareness: the soak never holds the heavy lock. It runs a slice only while nobody holds the lock and nobody waits for
-# it (/proc/locks), and while a slice runs it polls every 10 s: when a gate takes or queues for the lock, the slice's process
+# it (/proc/locks), and while a slice runs it polls every SOAK_POLL (10) s: when a gate takes or queues for the lock, the slice's process
 # group is SIGSTOPped (no CPU, memory stays) and continued when the lock is free and unqueued again. Slices run under
 # `nice -n 19` and `ionice -c3`. No cron job; nothing starts it but this command.
 set -uo pipefail
@@ -29,6 +29,7 @@ MASKS="${MASKS:-all driver wide}"
 ROUNDS="${ROUNDS:-0}"
 SEED_BASE="${SEED_BASE:-100000}"
 SLICE_TIMEOUT="${SLICE_TIMEOUT:-3600}"
+POLL="${SOAK_POLL:-10}"   # seconds between lock checks while a slice runs (tests use 1)
 LANES="${LANES:-$(python3 -I "$here/soak_corpus.py" lanes | awk '{print $1}' | tr '\n' ' ')}"
 state="$SOAK_DIR/state.json"
 pidfile="$SOAK_DIR/soak.pid"
@@ -57,7 +58,7 @@ wait_for_gate() {
   local said=0
   while gate_busy; do
     ((said)) || { say "yielding: a gate holds or waits for $HEAVY_LOCK"; said=1; }
-    sleep 30
+    sleep $((POLL * 3))
   done
   ((said)) && say "lock free, continuing"
   return 0
@@ -82,11 +83,11 @@ run_slice() {  # lane first games maskname
   while kill -0 "$pid" 2>/dev/null; do
     if gate_busy; then
       kill -STOP -- "-$pid" 2>/dev/null; say "paused $id (gate on $HEAVY_LOCK)"
-      while gate_busy; do sleep 15; done
+      while gate_busy; do sleep "$POLL"; done
       kill -CONT -- "-$pid" 2>/dev/null; say "resumed $id"
     fi
-    sleep 10
-    active=$((active + 10))
+    sleep "$POLL"
+    active=$((active + POLL))
     if ((active > SLICE_TIMEOUT)); then
       say "slice $id exceeded $SLICE_TIMEOUT s of active time, killed"; kill -TERM -- "-$pid" 2>/dev/null; sleep 2; kill -KILL -- "-$pid" 2>/dev/null; break
     fi

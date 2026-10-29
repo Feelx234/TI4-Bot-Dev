@@ -309,7 +309,7 @@ def main(argv):
     if len(argv) >= 6 and argv[0] == "plan":
         plan(argv[1], argv[2].split(), int(argv[3]), int(argv[4]), argv[5].split())
         return 0
-    if len(argv) >= 3 and argv[0] == "round":
+    if len(argv) >= 2 and argv[0] == "round":
         bump(argv[1], "round")
         return 0
     if len(argv) >= 4 and argv[0] == "meta":
