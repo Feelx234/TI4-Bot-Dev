@@ -172,9 +172,15 @@ impl Close {
         };
         // The ballot is on the state while the window is open: a Deadly Plot guard reads it.
         sx.state.agenda_mut().votes = self.ballot.as_slice().iter().copied().collect();
-        let mut payload = Payload::new().with(Key::Agenda, Val::Agenda(self.vote)).with(Key::Player, Val::Outcome(winner));
-        if let Outcome::Seat(elected) = winner {
-            payload.set(Key::ElectedPlayer, Val::Seat(elected));
+        // `player` is the outcome's text in the string: a seat when a player was elected ("when you are elected" reads it as the
+        // actor), else the outcome itself (Deadly Plot's guard reads that).
+        let mut payload = Payload::new().with(Key::Agenda, Val::Agenda(self.vote));
+        match winner {
+            Outcome::Seat(elected) => {
+                payload.set(Key::Player, Val::Seat(elected));
+                payload.set(Key::ElectedPlayer, Val::Seat(elected));
+            }
+            _ => payload.set(Key::Player, Val::Outcome(winner)),
         }
         let rec = EventRec { id: 0, kind: EventKind::AgendaResolved, payload, cancelled: false };
         if sx.emit(rec).is_err() {
@@ -463,6 +469,7 @@ mod tests {
         let w = Close::new(facts(), Agenda::PoliticalCensure, None, Some(Outcome::Seat(C)), &[(A, Outcome::Seat(C))], &[(Outcome::Seat(C), 2)], &[Outcome::Seat(B), Outcome::Seat(C)]);
         let d = run(w, &mut s, &[]);
         assert_eq!(d.emitted[0].payload.get(Key::ElectedPlayer), Some(Val::Seat(C)));
+        assert_eq!(d.emitted[0].payload.get(Key::Player), Some(Val::Seat(C)), "the actor of 'when you are elected'");
         assert_eq!(d.window.elected(), Some(C));
         assert_eq!(s.agenda().laws.get(&Agenda::PoliticalCensure), Some(&Outcome::Seat(C)));
         assert!(!s.agenda().log.last().unwrap().speaker_decided);

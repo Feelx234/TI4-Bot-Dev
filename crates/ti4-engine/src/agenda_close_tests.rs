@@ -505,3 +505,46 @@ fn committee_formation_on_generic_fixture_seats_has_no_window() {
     });
     assert_eq!((compared, bailed), (0, 1));
 }
+
+#[test]
+fn confusing_legal_text_asks_who_is_elected_instead() {
+    let (g, compared, bailed, diff) = lockstep(|| {
+        let mut s = position();
+        hand(&mut s, "b", &["confusing"]);
+        let mut g = Game::new(s, ContentStore::embedded()).with_sources(DEFAULT);
+        g.put_vote(election("b"));
+        assert_eq!(g.close_vote().error, None);
+        g
+    });
+    ok(compared, bailed, &diff);
+    assert!(g.state.player(&p("b")).unwrap().action_cards.is_empty(), "the card was played");
+    assert_eq!(points(&g.state, "b"), 0);
+    assert_eq!(points(&g.state, "a") + points(&g.state, "c"), 1, "the redirect names another seat");
+}
+
+#[test]
+fn several_cards_played_into_one_resolution_are_followed() {
+    // (holder, card) sets played into the `AGENDA_RESOLVED` window of an election of b by a and c.
+    let sets: [&[(&str, &str)]; 4] = [
+        &[("b", "confusing"), ("c", "confounding")],
+        &[("c", "confounding"), ("a", "deadly_plot")],
+        &[("b", "confusing"), ("a", "deadly_plot")],
+        &[("a", "confounding"), ("b", "confusing"), ("c", "deadly_plot")],
+    ];
+    for set in sets {
+        let (_, compared, bailed, diff) = lockstep(|| {
+            let mut s = position();
+            for (who, card) in set {
+                let mut cards: Vec<String> = s.player(&p(who)).unwrap().action_cards.iter().map(|c| c.to_string()).collect();
+                cards.push((*card).to_owned());
+                s.player_mut(&p(who)).unwrap().action_cards = cards.iter().map(|c| ActionCardId::new(c.as_str())).collect();
+            }
+            let w = VoteWindow::finished("censure", &["a", "b", "c"], &[("a", "b"), ("c", "a")], &[("b", 2), ("a", 1)], Some("b"));
+            let mut g = Game::new(s, ContentStore::embedded()).with_sources(DEFAULT);
+            g.put_vote(w);
+            let _ = g.close_vote();
+        });
+        assert!(diff.is_empty(), "{set:?}: {diff}");
+        assert_eq!((compared, bailed), (1, 0), "{set:?}");
+    }
+}
