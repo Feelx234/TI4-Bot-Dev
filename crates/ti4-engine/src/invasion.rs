@@ -7034,6 +7034,33 @@ mod tests {
         let _ = take_report();
     }
 
+    /// A Firmament seat's Siphon watches the commodities a Legionnaire gains: the core does not stage that event, so the
+    /// window bails (named, counted) and nothing differs.
+    #[test]
+    fn bail_the_crimson_legionnaire_with_a_siphoning_firmament_seat_is_counted() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        with_mask(mask, || {
+            for seed in 1..=4_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "mahact"), ("c", "firmament")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 8);
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "mahact_infantry", &PlayerId::new("b"), 4);
+                run_invasion_first_option(&mut state, seed, &system);
+            }
+        });
+        let r = report();
+        assert!(r.windows.keys().any(|k| k.contains("a fact the adapter did not compute")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
     /// Brother Milor (the Yin agent), ground branch: after a ground force is destroyed in a ground combat the readied
     /// agent lets its owner place 2 infantry on the planet; the core resolver places the same units (form, count)
     /// and exhausts the card.

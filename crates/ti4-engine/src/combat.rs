@@ -9914,6 +9914,11 @@ mod tests {
                     put(&mut state, &system, "cruiser", &attacker(), 3);
                     put(&mut state, &system, "cruiser", &defender(), 2);
                     put(&mut state, &system, "destroyer", &defender(), 2);
+                    if seed % 2 == 0 {
+                        // The hero's owner loses ships too: those place nothing.
+                        put(&mut state, &system, "destroyer", &attacker(), 4);
+                        put(&mut state, &system, "dreadnought", &defender(), 2);
+                    }
                     state.active_system = Some(system.clone());
                     state.active = Some(attacker());
                     let before = state.system_state(&system).units.iter().filter(|u| u.owner == attacker()).count() as i64;
@@ -9932,7 +9937,9 @@ mod tests {
                     resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
                     purged += usize::from(state.player(&attacker()).unwrap().leaders.get(ti4_model::id::text(&"mentakhero")) == Some(&ti4_model::state::LeaderStatus::Purged));
                     assert!(!state.faction_marks.contains_key("mentak:hero:18"), "the record of the combat is cleared");
-                    gained += state.system_state(&system).units.iter().filter(|u| u.owner == attacker()).count() as i64 - before;
+                    if seed % 2 == 1 {
+                        gained += state.system_state(&system).units.iter().filter(|u| u.owner == attacker()).count() as i64 - before;
+                    }
                 }
             }));
             let r = report();
