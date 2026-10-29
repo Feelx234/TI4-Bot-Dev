@@ -2,6 +2,7 @@
 //! D1). Replaces the private window fields of `Game` and `GameState.pending`.
 
 use crate::containers::SmallList;
+use crate::generated::{Agenda, Leader, StrategyCard};
 use crate::ids::Seat;
 
 /// The one legacy tag `GameState.pending` ever holds.
@@ -30,13 +31,58 @@ pub enum WindowKind {
     AgendaTalks,
 }
 
-/// An open window: its kind, who it waits on and a small payload whose layout the owning area
-/// defines (D1 replaces this by one struct per kind).
+/// How a follower of a strategic action's secondary stands (`strategy::SecondaryResolution`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Window {
-    pub kind: WindowKind,
-    pub actor: Option<Seat>,
-    pub data: [u32; 3],
+pub enum SecondaryHow {
+    /// Not asked: the follower may not follow (no token, no card to follow, a faction rule).
+    Ineligible,
+    Declined,
+    Followed,
+}
+
+/// The follower window of a strategic action (`strategy::StrategySecondaryWindow`): the primary player's card, the
+/// followers in resolution order, how far the window has come and how each follower answered (package D1a).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Secondary {
+    pub primary: Seat,
+    pub card: StrategyCard,
+    pub followers: SmallList<Seat, 8>,
+    /// The index of the next follower to look at (the ones before it are in `resolved`).
+    pub next: u8,
+    pub resolved: SmallList<(Seat, SecondaryHow), 8>,
+    /// Finishing the window exhausts the primary player's copy of the card.
+    pub exhausts_card: bool,
+}
+
+/// An open window: one variant per window kind of `Game` (`game.rs:919-975`). The kinds that have a typed payload carry
+/// it; the others are placeholders (`Untyped`) until their package types them (D1a: finished areas, D1b: the action phase).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Window {
+    StrategySecondary(Secondary),
+    /// The follower window of Thunder's Edge Warfare, resolved after the free tactical action.
+    StrategySecondaryAfterTactical(Secondary),
+    /// A hero's strategy primary and selected secondaries are still resolving (`Game.leader_strategy`).
+    LeaderStrategy { player: Seat, leader: Leader, card: StrategyCard },
+    /// Executive Order (Keleres): the owner, and the speaker whose seat is restored after the vote.
+    ExecutiveOrder { owner: Seat, speaker: Seat },
+    /// Agendas retained while the just-resolved agenda's scoring occurrence is open.
+    AgendaQueueAfterEventScoring(SmallList<Agenda, 8>),
+    /// A kind with no typed payload yet.
+    Untyped { kind: WindowKind, actor: Option<Seat>, data: [u32; 3] },
+}
+
+impl Window {
+    #[must_use]
+    pub const fn kind(&self) -> WindowKind {
+        match self {
+            Self::StrategySecondary(_) => WindowKind::StrategySecondary,
+            Self::StrategySecondaryAfterTactical(_) => WindowKind::StrategySecondaryAfterTactical,
+            Self::LeaderStrategy { .. } => WindowKind::LeaderStrategy,
+            Self::ExecutiveOrder { .. } => WindowKind::ExecutiveOrder,
+            Self::AgendaQueueAfterEventScoring(_) => WindowKind::AgendaQueueAfterEventScoring,
+            Self::Untyped { kind, .. } => *kind,
+        }
+    }
 }
 
 /// The question on top: an area number, a code and arguments (F4 replaces it by `choice::Ask`).
@@ -70,12 +116,40 @@ impl DriverFlags {
     }
 }
 
+impl Pending {
+    /// The open window of `kind`.
+    #[must_use]
+    pub fn window(&self, kind: WindowKind) -> Option<&Window> {
+        self.stack.iter().find(|w| w.kind() == kind)
+    }
+
+    /// The open window of `kind`, mutably.
+    pub fn window_mut(&mut self, kind: WindowKind) -> Option<&mut Window> {
+        self.stack.iter_mut().find(|w| w.kind() == kind)
+    }
+
+    /// Open `window`, replacing an open window of its kind (a kind is open at most once).
+    pub fn open(&mut self, window: Window) {
+        match self.window_mut(window.kind()) {
+            Some(slot) => *slot = window,
+            None => self.stack.push(window),
+        }
+    }
+
+    /// Close the window of `kind`; returns it.
+    pub fn close(&mut self, kind: WindowKind) -> Option<Window> {
+        let at = self.stack.iter().position(|w| w.kind() == kind)?;
+        Some(self.stack.remove(at))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Pending {
     /// Events staged by effects that had no resolver in reach (`kernel::fx::stage`), announced in order
     /// by `fx::announce_staged` (the string engine keeps them as `private:#staged:*` marks).
     pub staged: Vec<super::EventRec>,
-    pub stack: SmallList<Window, 4>,
+    /// The open windows, the most recently opened last. At most one per kind (the string holds one `Option` per kind).
+    pub stack: Vec<Window>,
     pub top: Option<PendingAsk>,
     pub tag: Option<PendingTag>,
     pub driver: DriverFlags,

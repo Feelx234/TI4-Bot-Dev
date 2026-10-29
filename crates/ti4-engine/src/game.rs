@@ -35,6 +35,18 @@ use crate::tokens::{TokenGain, TokenGainError};
 use crate::transit::{CargoError, CargoWindow, MoveOutcome, apply_move, survives_gravity_rifts};
 use crate::vote::{VoteError, VoteWindow, is_law, outcomes};
 
+// A child of `game` to read the private window fields (package D1a).
+#[cfg(feature = "typed-core")]
+#[path = "d1_pending.rs"]
+mod d1_pending;
+#[cfg(not(feature = "typed-core"))]
+mod d1_pending {
+    #[derive(Debug, Clone, Default)]
+    pub(super) struct Shadow {
+        pub(super) outcome: Option<crate::strategy::StepOutcome>,
+    }
+}
+
 /// Metadata returned after one attempted game step.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StepResult {
@@ -1009,6 +1021,8 @@ pub struct Game<'a> {
     aftermath_observer: Option<AftermathObserver>,
     /// Told which card a strategic action will resolve, before its primary runs.
     strategic_observer: Option<StrategicObserver>,
+    /// The windows the driver holds beside the string fields (package D1a; only used with `driver=dual`).
+    d1: d1_pending::Shadow,
 }
 
 /// A copy of everything a [`Game`] needs to continue identically, taken at a step boundary.
@@ -1158,6 +1172,7 @@ impl<'a> GameSnapshot<'a> {
             round_income_seat: round_income_seat.clone(),
             aftermath_observer: None,
             strategic_observer: None,
+            d1: d1_pending::Shadow::default(),
         }
     }
 
@@ -1241,6 +1256,7 @@ impl<'a> GameSnapshot<'a> {
             round_income_seat,
             aftermath_observer: None,
             strategic_observer: None,
+            d1: d1_pending::Shadow::default(),
         }
     }
 
@@ -1330,6 +1346,8 @@ impl<'a> Game<'a> {
             // Input wiring, chosen by whoever drives the copy: never copied.
             aftermath_observer: _,
             strategic_observer: _,
+            // Derived observer of the D1 dual: a copy re-seeds it at its first checked step.
+            d1: _,
         } = self;
         let mut rng = rng.clone();
         // A copy is a separate execution: it must never mark the activity of its source.
@@ -1528,6 +1546,7 @@ impl<'a> Game<'a> {
             round_income_seat: None,
             aftermath_observer: None,
             strategic_observer: None,
+            d1: d1_pending::Shadow::default(),
         }
     }
 
@@ -1627,6 +1646,8 @@ impl<'a> Game<'a> {
             round_income_seat,
             aftermath_observer: _,
             strategic_observer: _,
+            // Derived observer of the D1 dual: a copy re-seeds it at its first checked step.
+            d1: _,
         } = self.fork();
         let timing = timing.into_worker();
         move || Self {
@@ -1668,6 +1689,7 @@ impl<'a> Game<'a> {
             round_income_seat,
             aftermath_observer: None,
             strategic_observer: None,
+            d1: d1_pending::Shadow::default(),
         }
     }
 
@@ -2049,11 +2071,22 @@ impl<'a> Game<'a> {
 
     /// Resolve one generated decision, or one choice-free phase/window transition.
     #[must_use]
+    pub fn step(&mut self) -> StepResult {
+        #[cfg(feature = "typed-core")]
+        if d1_pending::active() {
+            self.d1.outcome = None;
+            let result = self.step_flow();
+            d1_pending::check(self, &result);
+            return result;
+        }
+        self.step_flow()
+    }
+
     #[expect(
         clippy::too_many_lines,
         reason = "the driver keeps the ordered window/phase precedence visible in one place"
     )]
-    pub fn step(&mut self) -> StepResult {
+    fn step_flow(&mut self) -> StepResult {
         // Identical-ask counts are per step: a cycle inside one step is what trips the guard.
         self.table.begin_step();
         if !self.state.starting_tech_picks.is_empty() {
@@ -5317,6 +5350,7 @@ impl<'a> Game<'a> {
         let galaxy = self.galaxy.as_ref();
         let table = &mut self.table;
         let slot = &mut self.secondary;
+        let d1 = &mut self.d1;
         let events_len = self.events.len();
         let keep_rollback = self.leader_strategy.is_some();
         let before_window = (crate::dual::backend(crate::dual::Area::Strategy) == crate::dual::Backend::Dual)
@@ -5376,14 +5410,17 @@ impl<'a> Game<'a> {
                 {
                     match before_window.as_ref() {
                         Some(window) if !failed.get() => {
-                            crate::strategy_secondary_dual::secondary_step(state, content, sources, window, script)
+                            let core = crate::strategy_secondary_dual::secondary_step(state, content, sources, window, script);
+                            // The held follower window of the D1 dual moves on by the core's outcome.
+                            d1.outcome = core.as_ref().map(|c| c.run.value.clone());
+                            core
                         }
                         _ => None,
                     }
                 }
                 #[cfg(not(feature = "typed-core"))]
                 {
-                    let _ = (state, script, &before_window, &failed);
+                    let _ = (state, script, &before_window, &failed, &d1);
                     None
                 }
             }

@@ -32,6 +32,18 @@ pub enum StrategyActionError {
     IllegalChoice(#[from] IllegalChoice),
 }
 
+/// The fields of a [`StrategySecondaryWindow`] (see [`StrategySecondaryWindow::parts`]).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SecondaryParts<'a> {
+    pub primary: &'a PlayerId,
+    pub card: &'a StrategyCardId,
+    pub followers: &'a [PlayerId],
+    pub next: usize,
+    pub resolutions: &'a [(PlayerId, SecondaryResolution)],
+    pub exhausts_card: bool,
+    pub preview: bool,
+}
+
 /// The recorded structural result of one eligible follower's secondary decision.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SecondaryResolution {
@@ -471,6 +483,41 @@ impl StrategySecondaryWindow {
     #[must_use]
     pub(crate) const fn exhausts_card(&self) -> bool {
         self.exhausts_card
+    }
+
+    /// Every field of the window, for the typed copy of the driver's `Pending` (package D1a).
+    #[must_use]
+    pub(crate) fn parts(&self) -> SecondaryParts<'_> {
+        SecondaryParts {
+            primary: &self.primary_player,
+            card: &self.card,
+            followers: &self.followers,
+            next: self.next_follower,
+            resolutions: &self.resolutions,
+            exhausts_card: self.exhausts_card,
+            preview: self.preview,
+        }
+    }
+
+    /// The window of `parts` (the inverse of [`Self::parts`]).
+    #[must_use]
+    pub(crate) fn from_parts(
+        primary: PlayerId,
+        card: StrategyCardId,
+        followers: Vec<PlayerId>,
+        next: usize,
+        resolutions: Vec<(PlayerId, SecondaryResolution)>,
+        exhausts_card: bool,
+    ) -> Self {
+        Self {
+            primary_player: primary,
+            card,
+            followers,
+            next_follower: next,
+            resolutions,
+            exhausts_card,
+            preview: false,
+        }
     }
 
     /// What the core half of one step of this window is told (package B8c-1): the followers from the front to the first

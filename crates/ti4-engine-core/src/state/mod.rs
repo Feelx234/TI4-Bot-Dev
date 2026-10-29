@@ -39,7 +39,7 @@ pub use map::MapSlice;
 pub use marks::{Family, MarkKey, MarkMap, MarkVal, Marks};
 pub use meta::{Meta, MetaFlags, Phase};
 pub use objectives::{ObjectiveRef, ObjectiveSet, Objectives};
-pub use pending::{DriverFlags, Pending, PendingAsk, PendingTag, Window, WindowKind};
+pub use pending::{DriverFlags, Pending, PendingAsk, PendingTag, Secondary, SecondaryHow, Window, WindowKind};
 pub use piece::Piece;
 pub use player::{
     CardTimers, CombatTimers, ExtraVotes, Feat, FragmentCounts, LeaderStatus, Plot, PlotCard, Player, PlayerCards, PlayerEcon, RoundKind, RoundMarks,

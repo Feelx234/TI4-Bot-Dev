@@ -94,6 +94,33 @@ pub struct Outcome {
     pub complete: bool,
 }
 
+/// The held follower window after one step (package D1a; string `StrategySecondaryWindow::{next_choice, take_choice}` on the
+/// window itself): the followers skipped are recorded as ineligible and the one asked as it answered, each moving the
+/// window on by one follower.
+pub fn advance(window: &mut crate::state::Secondary, out: &Outcome) {
+    use crate::state::SecondaryHow;
+    for seat in out.skipped.as_slice() {
+        window.resolved.push((*seat, SecondaryHow::Ineligible));
+        window.next += 1;
+    }
+    if let Some((seat, how)) = out.answered {
+        window.resolved.push((
+            seat,
+            match how {
+                Resolution::Declined => SecondaryHow::Declined,
+                Resolution::Followed => SecondaryHow::Followed,
+            },
+        ));
+        window.next += 1;
+    }
+}
+
+/// Whether every follower of the held window is recorded (`StrategySecondaryWindow::is_complete`).
+#[must_use]
+pub fn is_complete(window: &crate::state::Secondary) -> bool {
+    usize::from(window.next) == window.followers.len()
+}
+
 /// The step of the follower window up to and including the first follower who is asked.
 #[derive(Debug, Clone)]
 pub struct SecondaryStep {
@@ -298,6 +325,40 @@ mod tests {
     use crate::kernel::stage::AbilityTable;
     use crate::kernel::Resolver;
     use crate::state::{Player, Players};
+
+    fn held(followers: &[u8]) -> crate::state::Secondary {
+        crate::state::Secondary {
+            primary: Seat(0),
+            card: StrategyCard::Politics,
+            followers: followers.iter().map(|s| Seat(*s)).collect(),
+            next: 0,
+            resolved: SmallList::new(),
+            exhausts_card: true,
+        }
+    }
+
+    #[test]
+    fn the_held_window_takes_the_skipped_followers_and_the_answer_and_is_complete_when_none_is_left() {
+        use crate::state::SecondaryHow;
+        let mut w = held(&[1, 2, 3]);
+        let mut skipped = SmallList::new();
+        skipped.push(Seat(1));
+        advance(&mut w, &Outcome { skipped, answered: Some((Seat(2), Resolution::Followed)), complete: false });
+        assert_eq!(w.next, 2);
+        assert_eq!(w.resolved.as_slice(), [(Seat(1), SecondaryHow::Ineligible), (Seat(2), SecondaryHow::Followed)]);
+        assert!(!is_complete(&w));
+        advance(&mut w, &Outcome { skipped: SmallList::new(), answered: Some((Seat(3), Resolution::Declined)), complete: true });
+        assert_eq!((w.next, w.resolved.len()), (3, 3));
+        assert!(is_complete(&w));
+        // A step that only skips the rest (nobody is asked) completes it too.
+        let mut w = held(&[1, 2]);
+        let mut skipped = SmallList::new();
+        skipped.push(Seat(1));
+        skipped.push(Seat(2));
+        advance(&mut w, &Outcome { skipped, answered: None, complete: true });
+        assert!(is_complete(&w));
+    }
+
 
     const REASON: Code = Code(0);
 
