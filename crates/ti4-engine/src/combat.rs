@@ -9894,6 +9894,57 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Ipswitch, Loose Cannon (the Mentak hero): purged at the start of the combat, it places a ship of the type of every
+    /// other player's ship destroyed in it, and the record of the combat is cleared at its end.
+    #[test]
+    fn the_mentak_hero_places_ships_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        for composed in [false, true] {
+            let _ = take_report();
+            let (mut purged, mut gained) = (0, 0_i64);
+            with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || crate::dual_window::with_composed(composed, || {
+                for seed in 1..=6_u64 {
+                    let mut state = crate::fixtures::seated_game(&[("a", "mentak"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+                    state.promissory_notes.clear();
+                    state.promissory_faceup.clear();
+                    state.rng_seed = seed;
+                    state.player_mut(&attacker()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("mentakhero"), ti4_model::state::LeaderStatus::Unlocked);
+                    let system = SystemId::new("18");
+                    put(&mut state, &system, "cruiser", &attacker(), 3);
+                    put(&mut state, &system, "cruiser", &defender(), 2);
+                    put(&mut state, &system, "destroyer", &defender(), 2);
+                    state.active_system = Some(system.clone());
+                    state.active = Some(attacker());
+                    let before = state.system_state(&system).units.iter().filter(|u| u.owner == attacker()).count() as i64;
+                    let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                    let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                    let mut resolver = crate::fixtures::armed_resolver(&state);
+                    let mut sequence = crate::event::EventSequence::new();
+                    let mut ctx = Resolving {
+                        content: ContentStore::embedded(),
+                        sources: ti4_model::content_types::DEFAULT,
+                        dice: &mut dice,
+                        rng: &mut rng,
+                        table: &mut table,
+                        timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                    };
+                    resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+                    purged += usize::from(state.player(&attacker()).unwrap().leaders.get(ti4_model::id::text(&"mentakhero")) == Some(&ti4_model::state::LeaderStatus::Purged));
+                    assert!(!state.faction_marks.contains_key("mentak:hero:18"), "the record of the combat is cleared");
+                    gained += state.system_state(&system).units.iter().filter(|u| u.owner == attacker()).count() as i64 - before;
+                }
+            }));
+            let r = report();
+            assert!(purged > 0, "composed {composed}: the hero was purged");
+            assert!(gained > 0, "composed {composed}: ships were placed ({gained})");
+            assert!(r.windows.keys().all(|k| !k.contains("unported ability leader:*:mentakhero")), "composed {composed}: {:?}", r.windows);
+            assert!(!composed || r.windows.keys().any(|k| k.contains("a fact the adapter did not compute")), "composed {composed}: a destroyed cruiser is the string's form: {:?}", r.windows);
+            assert_eq!(r.total_differences(), 0, "composed {composed}: {:?}", r.differences);
+        }
+        let _ = take_report();
+    }
+
     /// Direct Hit: the attacker's hit is sustained by a dreadnought, the attacker destroys that ship from the slot of
     /// `SUSTAIN_DAMAGE_USED`; the core removes it and announces `SHIP_DESTROYED` after the discard. With a faction module
     /// seated (staging) the exact sustained ship goes; without, the first of the type.

@@ -7060,8 +7060,11 @@ mod tests {
         for (answer, used) in [("use", true), ("decline", false)] {
             let (state, r) = offered_use(
                 ["hacan", "keleresm", "sardakk"],
-                1,
+                0,
                 |s| {
+                    // Only the commodities can pay: every planet is exhausted and there are no trade goods.
+                    let held: Vec<_> = s.controlled_planets(&player()).into_iter().map(|(_, planet)| planet.clone()).collect();
+                    s.exhausted_planets.extend(held);
                     s.player_mut(&player()).unwrap().commodities = 3;
                     s.player_mut(&PlayerId::new("b")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("keleresagent"), ti4_model::state::LeaderStatus::Readied);
                 },
@@ -7072,6 +7075,9 @@ mod tests {
             assert_eq!(r.total_differences(), 0, "{answer}: {:?}", r.differences.first());
             let exhausted = state.player(&PlayerId::new("b")).unwrap().leaders.get(ti4_model::id::text(&"keleresagent")) == Some(&ti4_model::state::LeaderStatus::Exhausted);
             assert_eq!(exhausted, used, "{answer}");
+            if used {
+                assert!(state.player(&player()).unwrap().commodities < 3, "the unit was paid for with commodities");
+            }
         }
     }
 

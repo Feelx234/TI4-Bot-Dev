@@ -48,6 +48,9 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::LEGIONNAIRE, kind: "unit", card: "mahact_infantry" },
     Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::LEGIONNAIRE_II, kind: "unit", card: "mahact_infantry2" },
     Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::SALVAGE_TRADE_GOOD, kind: "technology", card: "so" },
+    Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::HERO_START, kind: "leader", card: "mentakhero" },
+    Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::HERO_SHIPS, kind: "leader", card: "mentakhero" },
+    Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::HERO_END, kind: "leader", card: "mentakhero" },
     Named { slot: ti4_engine_core::rules::reactions::saar::SAAR_TRADE_GOOD, kind: "tech", card: "sar" },
     Named { slot: ti4_engine_core_factions::cc_ground::borrowed::timing::SOL_AGENT, kind: "leader", card: "solagent" },
     Named { slot: ti4_engine_core_factions::cc_ground::borrowed::timing::LETNEV_AGENT, kind: "leader", card: "letnevagent" },
@@ -462,7 +465,7 @@ mod tests {
                 let before = gs.clone();
                 let mut got = Vec::new();
                 with_core(&mut gs, &mut cx, Sources::default(), fp, |core, _| {
-                    for base in [UnitBaseType::Fighter, UnitBaseType::Infantry] {
+                    for base in [UnitBaseType::Fighter, UnitBaseType::Infantry, UnitBaseType::Carrier, UnitBaseType::Destroyer, UnitBaseType::Dreadnought, UnitBaseType::Warsun] {
                         let form = ti4_engine_core_factions::cd_registry::yin::timing::placed_form(core, ti4_engine_core::tables::Scope(crate::core_adapter::scope(sources).0), r.seat("a").unwrap(), base);
                         got.push((base, form.map(<ti4_engine_core::generated::Unit as IdStr>::as_str)));
                     }
