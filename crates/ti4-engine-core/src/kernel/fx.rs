@@ -9,10 +9,10 @@
 use crate::choice::reaction::Relation;
 use crate::generated::{Planet, System, Unit};
 use crate::ids::Seat;
-use crate::kernel::resolver::{Host, Resolver, TimingError};
+use crate::kernel::resolver::{Host, Line, Resolver, TimingError};
 use crate::kernel::Cx;
 use crate::generated::SecretObjective;
-use crate::state::{Code, CoreState, EventKind, EventRec, Key, LedgerReason, ObjectiveRef, Payload, Piece, PlanetFlags, Val, VpRec};
+use crate::state::{Code, CoreState, Emit, EventKind, EventRec, Key, LedgerReason, ObjectiveRef, Payload, Piece, PlainRec, PlanetFlags, Val, VpRec};
 
 /// A new event record (id 0: the emitter assigns the trace id).
 #[must_use]
@@ -70,6 +70,49 @@ pub fn announce_staged<H: Host + ?Sized>(
             announced += 1;
         }
     }
+}
+
+// -- the emission queue (package P1) -------------------------------------------------------------
+
+/// Append a plain event (`Game::emit`) to the ordered emission queue `ledger.events`, at once, as the string pushes it.
+///
+/// The queue is output only: the codecs neither load nor store it, so this needs no slice in a footprint (it writes the
+/// field, not through the `ledger_mut` accessor). It lives in the state, so a step the driver rolls back takes the plain
+/// events it wrote with it.
+pub fn plain(s: &mut CoreState, rec: PlainRec) {
+    debug_assert!(rec.is_valid(), "a plain event whose arguments do not fit its kind: {rec:?}");
+    s.ledger.events.push(Emit::Plain(rec));
+}
+
+/// The cursor of [`mirror_journal`]: how many lines the resolver's trace has now. Take it BEFORE the timing call
+/// whose events are to be mirrored (the string's `let logged = self.timing.log().len()`).
+#[must_use]
+pub fn journal_mark(resolver: &Resolver) -> usize {
+    resolver.log().len()
+}
+
+/// Mirror the events the resolver emitted since `from` into the emission queue, in the resolver's order, and return the
+/// new cursor. The string engine's `mirror_timing_log` does the same with the bare names of every `emit NAME#id` line of
+/// the trace since `logged`, the events nested abilities caused included, when the surrounding call returns: a window
+/// calls this at the same program point, so a plain event pushed between the emission and this call is stored BEFORE
+/// the emission's events, exactly as in `Game::events`.
+pub fn mirror_journal(s: &mut CoreState, resolver: &Resolver, from: usize) -> usize {
+    let log = resolver.log();
+    for line in log.iter().skip(from) {
+        if let Line::Emit { kind, id } = line {
+            // The journal keeps the event as it ended (cancelled or not, payload as the windows left it); the trace
+            // line only names it. A trace line without a journal entry (a failed emission) keeps its bare name.
+            let rec = resolver
+                .applied_events()
+                .iter()
+                .rev()
+                .find(|e| e.id == *id && e.kind == *kind)
+                .cloned()
+                .unwrap_or(EventRec { id: *id, kind: *kind, payload: Payload::new(), cancelled: false });
+            s.ledger.events.push(Emit::Typed(rec));
+        }
+    }
+    log.len()
 }
 
 // -- economy ------------------------------------------------------------------------------------

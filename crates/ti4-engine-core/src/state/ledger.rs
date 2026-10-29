@@ -8,6 +8,7 @@ pub use crate::keys::LedgerReason;
 use crate::ids::Seat;
 
 use super::event::Payload;
+use super::plain::Emit;
 use super::Code;
 
 /// Kind of an emitted event: the closed set of event names the string engine emits (the text is
@@ -338,7 +339,9 @@ pub struct RelicRec {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Ledger {
-    pub events: Log<EventRec>,
+    /// The ordered emission queue (`Game::events`): typed events mirrored from the resolver and plain events, in the order
+    /// the string pushes them (package P1; `state/plain.rs`). Output only: no codec loads or stores it.
+    pub events: Log<Emit>,
     pub dice: Log<RollRec>,
     pub vp: Log<VpRec>,
     pub relics: Log<RelicRec>,

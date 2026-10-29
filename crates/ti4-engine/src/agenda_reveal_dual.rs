@@ -3,8 +3,9 @@
 //!
 //! The questions it compares are Quash's, Political Favor's and Political Secret's offers (`UseOnAgenda`); the typed
 //! `AGENDA_REVEALED` of each round is emitted through the resolver, with the nested reaction windows followed from the
-//! recording (`dual_window::drive`). The plain events of the string (`AGENDA_DISCARDED`, `QUASH_USED`, ...) are not
-//! compared. Bails (`None`): a deck reserve (a turn-redo replay draws through it), a nested activity the table does
+//! recording (`dual_window::drive`). The plain events of the string (`AGENDA_DISCARDED`, `QUASH_USED`, ...) and the
+//! typed names it mirrors into `Game::events` are compared as ONE ordered sequence (package P1: the window writes both
+//! to the emission queue of the core state, `Run::with_order`). Bails (`None`): a deck reserve (a turn-redo replay draws through it), a nested activity the table does
 //! not follow, an agenda the core does not know, a position the codecs refuse (more than 16 owners, generic
 //! promissory notes).
 
@@ -63,9 +64,12 @@ pub fn reveal(
     let kernel = crate::production_view::kernel();
     let mut driver = Driver::new(Reveal::new(facts, first), Resolver::new(&[], None), AbilityTable::default(), 1);
     let mut staged = Vec::new();
+    let mut queue = Vec::new();
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(REVEAL, script), |core, _| {
+        let start = core.ledger.events.iter().count();
         let driven = drive(&mut driver, core, kernel, &r, &before, script);
         staged = std::mem::take(&mut core.pending_mut().staged);
+        queue = core.ledger.events.iter().skip(start).cloned().collect::<Vec<_>>();
         driven
     })
     .ok()?
@@ -85,24 +89,8 @@ pub fn reveal(
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     let mut run = Run::new(found).with_events_vec(events);
     if driven.finished && !driver.window.failed() {
-        run = run.with_plain(plain_texts(driver.window.plain(), &r)?);
+        let order = queue.iter().map(|e| crate::render::events::pushed_of(&r, &cx, e)).collect::<Option<Vec<_>>>()?;
+        run = run.with_order(order);
     }
     Some(CoreWindow { run, questions: driven.rendered })
-}
-
-/// The plain events of the string's `Game::emit` that the core window made, as `Game::events` holds them (package P1.1).
-fn plain_texts(plain: &[ti4_engine_core::rules::agenda::reveal::PlainEv], r: &crate::render::Render) -> Option<Vec<String>> {
-    use ti4_engine_core::rules::agenda::reveal::PlainEv;
-    plain
-        .iter()
-        .map(|p| {
-            Some(match p {
-                PlainEv::Revealed(a) => format!("AGENDA_REVEALED:{}", a.as_str()),
-                PlainEv::Discarded(a) => format!("AGENDA_DISCARDED:{}", a.as_str()),
-                PlainEv::QuashUsed => "QUASH_USED".to_owned(),
-                PlainEv::FavorUsed => "POLITICAL_FAVOR_USED".to_owned(),
-                PlainEv::SecretUsed(owner) => format!("POLITICAL_SECRET_USED:{}", r.seats.get(usize::from(owner.0))?),
-            })
-        })
-        .collect()
 }

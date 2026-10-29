@@ -28,7 +28,7 @@ use super::seam::{Obs, Phase, Q};
 use crate::state::{RngDomain, SeedSource};
 use super::{Asker, Cx, Kernel, Next};
 use crate::choice::{Choice, Pick};
-use crate::state::{CoreState, EventRec};
+use crate::state::{CoreState, EventRec, PlainRec};
 
 /// A pick that was not one of the options of the question.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,6 +119,24 @@ impl<'a> Sx<'a> {
         if top {
             self.emitted.push(done.clone());
         }
+        Ok(done)
+    }
+
+    /// A plain event of the string's `Game::emit`, appended to the ordered emission queue at once (package P1).
+    pub fn plain(&mut self, rec: PlainRec) {
+        super::fx::plain(&mut *self.state, rec);
+    }
+
+    /// [`Self::emit`] followed by the mirror of everything the resolver emitted meanwhile into the emission queue: the
+    /// string's `emit_typed` (`let logged = timing.log().len(); emit; mirror_timing_log(logged)`). Nothing is mirrored
+    /// when the emission fails, as in the string, where the error returns before the mirror.
+    ///
+    /// # Errors
+    /// What the resolver refuses with.
+    pub fn emit_mirrored(&mut self, rec: EventRec) -> Result<EventRec, TimingError> {
+        let mark = super::fx::journal_mark(self.resolver);
+        let done = self.emit(rec)?;
+        super::fx::mirror_journal(&mut *self.state, &*self.resolver, mark);
         Ok(done)
     }
 

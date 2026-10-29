@@ -6,21 +6,19 @@
 //! [`OfferDiscard`](super::offer_discard::OfferDiscard) window; this one asks the owner which player is elected, then
 //! lists the agenda with that outcome (no votes, never speaker-decided) and, for a law, enacts it. Copied from the
 //! string: nothing resolves the agenda's effect, no typed `AGENDA_RESOLVED` is emitted through the resolver (the plain
-//! `AGENDA_RESOLVED:{agenda}:{player}` and `LAW_ENACTED` of `Game::emit` are kept as [`PlainEv`]s), and a table
+//! `AGENDA_RESOLVED:{agenda}:{player}` and `LAW_ENACTED` of `Game::emit` go to the emission queue, `sx.plain`), and a table
 //! with no players asks nothing and records nothing.
 
-use super::close::PlainEv;
 use super::is_law;
 use crate::choice::agenda::{Ask as AAsk, Opt as AOpt};
 use crate::choice::generic::Content;
 use crate::choice::{Choice, Opt, Opts, Origin, Pick};
-use crate::containers::SmallList;
 use crate::generated::Agenda;
 use crate::ids::Seat;
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{fx_agenda, Kernel, Next};
 use crate::keys::Outcome;
-use crate::state::{Code, CoreState};
+use crate::state::{Code, CoreState, PlainArg, PlainKind, PlainRec};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage {
@@ -38,20 +36,12 @@ pub struct Committee {
     source: Code,
     stage: Stage,
     chosen: Option<Seat>,
-    /// The plain events the window made (`AGENDA_RESOLVED`, `LAW_ENACTED`; package P1.1).
-    plain: SmallList<PlainEv, 2>,
 }
 
 impl Committee {
     #[must_use]
     pub const fn new(agenda: Agenda, owner: Seat, source: Code) -> Self {
-        Self { agenda, owner, source, stage: Stage::Start, chosen: None, plain: SmallList::new() }
-    }
-
-    /// The plain events the window made so far, in order.
-    #[must_use]
-    pub fn plain(&self) -> &[PlainEv] {
-        self.plain.as_slice()
+        Self { agenda, owner, source, stage: Stage::Start, chosen: None }
     }
 
     /// The player the owner chose; `None` when nobody was asked.
@@ -92,12 +82,12 @@ impl Window for Committee {
             return Err(Illegal);
         }
         self.chosen = Some(seat);
-        self.plain.push(PlainEv::Resolved(self.agenda, Outcome::Seat(seat)));
+        sx.plain(PlainRec::two(PlainKind::AgendaResolved, PlainArg::Agenda(self.agenda), PlainArg::Outcome(Outcome::Seat(seat))));
         let law = is_law(self.agenda);
         fx_agenda::log_voted(sx.state, self.agenda, law, Some(Outcome::Seat(seat)), &[], false, false);
         if law {
             fx_agenda::enact(sx.state, self.agenda, Outcome::Seat(seat));
-            self.plain.push(PlainEv::LawEnacted(self.agenda, Outcome::Seat(seat)));
+            sx.plain(PlainRec::two(PlainKind::LawEnacted, PlainArg::Agenda(self.agenda), PlainArg::Outcome(Outcome::Seat(seat))));
         }
         self.stage = Stage::Done;
         Ok(())
@@ -143,6 +133,26 @@ mod tests {
         assert_eq!(s.agenda().laws.get(&Agenda::PoliticalCensure), Some(&Outcome::Seat(Seat(2))));
         let rec = s.agenda().log.last().unwrap();
         assert_eq!((rec.round, rec.outcome, rec.law, rec.enacted, rec.discarded, rec.speaker_decided, rec.votes.len()), (4, Some(Outcome::Seat(Seat(2))), true, true, false, false, 0));
+    }
+
+    #[test]
+    fn the_election_queues_the_resolution_and_a_law_enactment_as_plain_events() {
+        use crate::state::queue_kinds;
+        use PlainKind::{AgendaResolved, LawEnacted};
+        let mut s = game(3);
+        let (mut d, status) = start(Agenda::PoliticalCensure, &mut s);
+        let Status::Asking(c) = status else { panic!("asks") };
+        assert!(queue_kinds(&s).is_empty(), "nothing before the answer");
+        d.resume(&mut s, &Kernel::plain(), c.pick(2).unwrap()).unwrap();
+        assert_eq!(queue_kinds(&s), [Ok(AgendaResolved), Ok(LawEnacted)], "no typed resolution is emitted (copied from the string)");
+        let first = s.ledger.events.iter().find_map(|e| e.plain().copied());
+        assert_eq!(first, Some(PlainRec::two(AgendaResolved, PlainArg::Agenda(Agenda::PoliticalCensure), PlainArg::Outcome(Outcome::Seat(Seat(2))))));
+        // A directive is resolved but not enacted.
+        let mut s = game(3);
+        let (mut d, status) = start(Agenda::ArmedForcesStandardization, &mut s);
+        let Status::Asking(c) = status else { panic!("asks") };
+        d.resume(&mut s, &Kernel::plain(), c.pick(0).unwrap()).unwrap();
+        assert_eq!(queue_kinds(&s), [Ok(AgendaResolved)]);
     }
 
     #[test]

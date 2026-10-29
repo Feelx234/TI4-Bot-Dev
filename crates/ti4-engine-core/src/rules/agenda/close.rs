@@ -15,9 +15,9 @@
 //! faction hook changes or that leaves the hand over its limit, and a rules version below the pool question
 //! (`RULES_COMMAND_TOKEN_POOL`) end the window `unsupported`: the adapter drops it and the string result stands.
 //!
-//! Not in the core (and not compared): the plain events of the string's `Game::emit` (`AGENDA_RESOLVED`,
-//! `AGENDA_DISCARDED`, `COVERT_AGENDA_RESOLVED`, `AGENDA_OUTCOME_REDIRECTED`, `AGENDA_PREDICTION_CORRECT`,
-//! `LAW_ENACTED`).
+//! The plain events of the string's `Game::emit` (`AGENDA_RESOLVED`, `AGENDA_DISCARDED`, `COVERT_AGENDA_RESOLVED`,
+//! `AGENDA_OUTCOME_REDIRECTED`, `AGENDA_PREDICTION_CORRECT`, `LAW_ENACTED`) go to the emission queue (`sx.plain`) at the
+//! program points of the pushes; the `AGENDA_RESOLVED` event is mirrored when its emission returns (package P1).
 
 use super::{is_law, undisputed_winner};
 use crate::choice::strategy::{gain_pool_choice, Ask as SAsk, Opt as SOpt};
@@ -29,7 +29,7 @@ use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{fx, fx_agenda, Kernel, Next};
 use crate::keys::{LedgerReason, Outcome, Prediction, PredictionTag};
 use crate::query::laws;
-use crate::state::{Code, CoreState, EventKind, EventRec, Key, Payload, TransientFlags, Val};
+use crate::state::{Code, CoreState, EventKind, EventRec, Key, Payload, PlainArg, PlainKind, PlainRec, TransientFlags, Val};
 
 /// `ti4_model::state::RULES_COMMAND_TOKEN_POOL`: from here Leadership Rider asks the pool of each token.
 pub const RULES_COMMAND_TOKEN_POOL: u32 = 12;
@@ -48,24 +48,6 @@ pub struct Facts {
     pub blanked: bool,
     /// Seats (bit per seat) whose action card draw a faction hook changes (Scheming, a draw bonus).
     pub hooked: u16,
-}
-
-/// A plain event of the string's `Game::emit` that the window makes (no typed home in the core yet, package P1.2; the dual
-/// compares them with the string's, package P1.1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlainEv {
-    /// `AGENDA_RESOLVED:{agenda}:{outcome}`: the vote's agenda (Covert Legislation itself under Covert Legislation).
-    Resolved(Agenda, Outcome),
-    /// `COVERT_AGENDA_RESOLVED:{hidden}:{outcome}`.
-    CovertResolved(Agenda, Outcome),
-    /// `AGENDA_DISCARDED:{agenda}`: Deadly Plot.
-    Discarded(Agenda),
-    /// `AGENDA_OUTCOME_REDIRECTED:{outcome}:{player}`: the vote's outcome and the seat a redirect named.
-    Redirected(Outcome, Seat),
-    /// `AGENDA_PREDICTION_CORRECT:{player}`.
-    PredictionCorrect(Seat),
-    /// `LAW_ENACTED:{agenda}:{outcome}`.
-    LawEnacted(Agenda, Outcome),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,8 +84,6 @@ pub struct Close {
     discarded: bool,
     failed: bool,
     unsupported: bool,
-    /// The plain events the window made, in order.
-    plain: SmallList<PlainEv, 12>,
 }
 
 impl Close {
@@ -137,14 +117,7 @@ impl Close {
             discarded: false,
             failed: false,
             unsupported: false,
-            plain: SmallList::new(),
         }
-    }
-
-    /// The plain events the window made so far, in order.
-    #[must_use]
-    pub fn plain(&self) -> &[PlainEv] {
-        self.plain.as_slice()
     }
 
     /// The seat the outcome elected (the redirect applied): a seat, or the controller of an elected planet. `None`
@@ -197,7 +170,7 @@ impl Close {
             self.finish();
             return;
         };
-        self.plain.push(PlainEv::Resolved(self.vote, winner));
+        sx.plain(PlainRec::two(PlainKind::AgendaResolved, PlainArg::Agenda(self.vote), PlainArg::Outcome(winner)));
         // The ballot is on the state while the window is open: a Deadly Plot guard reads it.
         sx.state.agenda_mut().votes = self.ballot.as_slice().iter().copied().collect();
         // `player` is the outcome's text in the string: a seat when a player was elected ("when you are elected" reads it as the
@@ -211,7 +184,7 @@ impl Close {
             _ => payload.set(Key::Player, Val::Outcome(winner)),
         }
         let rec = EventRec { id: 0, kind: EventKind::AgendaResolved, payload, cancelled: false };
-        if sx.emit(rec).is_err() {
+        if sx.emit_mirrored(rec).is_err() {
             self.failed = true;
             self.finish();
             return;
@@ -226,10 +199,10 @@ impl Close {
         if let Some(hidden) = self.covert {
             // The face-down agenda is turned up and listed with the outcome it was given.
             fx_agenda::log_voted(sx.state, hidden, is_law(hidden), Some(winner), self.counts.as_slice(), speaker_decided, self.discarded);
-            self.plain.push(PlainEv::CovertResolved(hidden, winner));
+            sx.plain(PlainRec::two(PlainKind::CovertAgendaResolved, PlainArg::Agenda(hidden), PlainArg::Outcome(winner)));
         }
         if self.discarded {
-            self.plain.push(PlainEv::Discarded(self.vote));
+            sx.plain(PlainRec::one(PlainKind::AgendaDiscarded, PlainArg::Agenda(self.vote)));
             // "Resolved with no effect": a redirect played into the same window is spent on an election that has none.
             let agenda = sx.state.agenda_mut();
             agenda.elected_override = None;
@@ -240,7 +213,7 @@ impl Close {
         // `redirect_elected`, then `elected_seat_or_planet` of the effective outcome.
         let redirect = sx.state.agenda_mut().elected_override.take();
         if let Some(seat) = redirect {
-            self.plain.push(PlainEv::Redirected(winner, seat));
+            sx.plain(PlainRec::two(PlainKind::AgendaOutcomeRedirected, PlainArg::Outcome(winner), PlainArg::Seat(seat)));
         }
         let effective = redirect.map_or(winner, Outcome::Seat);
         self.effective = Some(effective);
@@ -326,7 +299,7 @@ impl Close {
             return;
         }
         fx_agenda::enact(sx.state, resolved, winner);
-        self.plain.push(PlainEv::LawEnacted(resolved, winner));
+        sx.plain(PlainRec::two(PlainKind::LawEnacted, PlainArg::Agenda(resolved), PlainArg::Outcome(winner)));
         if let (Agenda::ClassifiedDocumentLeaks, Outcome::Secret(secret)) = (resolved, winner)
             && !self.facts.blanked
         {
@@ -364,7 +337,7 @@ impl Window for Close {
                         Prediction::Barred(_) => (false, None),
                     };
                     if hit {
-                        self.plain.push(PlainEv::PredictionCorrect(seat));
+                        sx.plain(PlainRec::one(PlainKind::AgendaPredictionCorrect, PlainArg::Seat(seat)));
                     }
                     if hit && self.pay(sx, seat, tag) {
                         return Next::Continue(Ask::Strategy(SAsk::GainPool { left: self.left }));
@@ -480,6 +453,50 @@ mod tests {
         assert_eq!(d.window.effective(), Some(Outcome::For));
         assert!(s.agenda().votes.is_empty(), "the ballot is only on the state while the window is open");
         assert_eq!(s.agenda().log.iter().count(), 1);
+    }
+
+    #[test]
+    fn a_law_that_passes_queues_the_plain_events_around_the_mirrored_resolution_in_the_strings_order() {
+        use crate::state::queue_kinds;
+        use PlainKind::{AgendaResolved, LawEnacted};
+        let mut s = game();
+        run(close(law(), Some(Outcome::For)), &mut s, &[]);
+        assert_eq!(queue_kinds(&s), [Ok(AgendaResolved), Err(EventKind::AgendaResolved), Ok(LawEnacted)]);
+        let plain: Vec<PlainRec> = s.ledger.events.iter().filter_map(|e| e.plain().copied()).collect();
+        assert_eq!(plain[0], PlainRec::two(AgendaResolved, PlainArg::Agenda(law()), PlainArg::Outcome(Outcome::For)));
+        assert_eq!(plain[1], PlainRec::two(LawEnacted, PlainArg::Agenda(law()), PlainArg::Outcome(Outcome::For)));
+        // A vote without a winner pushes nothing.
+        let mut s = game();
+        run(close(law(), None), &mut s, &[]);
+        assert!(queue_kinds(&s).is_empty());
+    }
+
+    #[test]
+    fn a_redirect_a_correct_prediction_and_a_law_queue_in_the_order_of_the_string() {
+        use crate::state::queue_kinds;
+        use PlainKind::{AgendaOutcomeRedirected, AgendaPredictionCorrect, AgendaResolved, LawEnacted};
+        let mut s = game();
+        s.agenda_mut().elected_override = Some(B);
+        s.agenda_mut().predictions.insert(A, Prediction::Plain(Outcome::Seat(C)));
+        let w = Close::new(facts(), Agenda::PoliticalCensure, None, Some(Outcome::Seat(C)), &[], &[(Outcome::Seat(C), 2)], &[Outcome::Seat(C)]);
+        run(w, &mut s, &[]);
+        assert_eq!(
+            queue_kinds(&s),
+            [Ok(AgendaResolved), Err(EventKind::AgendaResolved), Ok(AgendaOutcomeRedirected), Ok(AgendaPredictionCorrect), Ok(LawEnacted)]
+        );
+        let redirected = s.ledger.events.iter().filter_map(|e| e.plain()).find(|p| p.kind == AgendaOutcomeRedirected).copied();
+        assert_eq!(redirected, Some(PlainRec::two(AgendaOutcomeRedirected, PlainArg::Outcome(Outcome::Seat(C)), PlainArg::Seat(B))));
+    }
+
+    #[test]
+    fn a_covert_vote_and_a_deadly_plot_discard_queue_their_plain_events() {
+        use crate::state::queue_kinds;
+        use PlainKind::{AgendaDiscarded, AgendaResolved, CovertAgendaResolved};
+        let mut s = game();
+        s.transient_mut().misc.flags.set(TransientFlags::AGENDA_DISCARDED);
+        let w = Close::new(facts(), Agenda::CovertLegislation, Some(law()), Some(Outcome::For), &[], &COUNTS, &[Outcome::For, Outcome::Against]);
+        run(w, &mut s, &[]);
+        assert_eq!(queue_kinds(&s), [Ok(AgendaResolved), Err(EventKind::AgendaResolved), Ok(CovertAgendaResolved), Ok(AgendaDiscarded)]);
     }
 
     #[test]

@@ -30,6 +30,7 @@ pub mod agenda;
 pub mod cards;
 pub mod combat;
 pub mod diplomacy;
+pub mod events;
 pub mod explore;
 pub mod invasion;
 pub mod leaders;

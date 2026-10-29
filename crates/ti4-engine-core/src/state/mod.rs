@@ -19,6 +19,7 @@ mod marks;
 mod meta;
 mod objectives;
 mod pending;
+mod plain;
 mod piece;
 mod player;
 mod players;
@@ -41,6 +42,9 @@ pub use meta::{Meta, MetaFlags, Phase};
 pub use objectives::{ObjectiveRef, ObjectiveSet, Objectives};
 pub use pending::{DriverFlags, Pending, PendingAsk, PendingTag, Scoring, ScoringTiming, Secondary, SecondaryHow, Window, WindowKind};
 pub use piece::Piece;
+#[cfg(test)]
+pub(crate) use plain::kinds as queue_kinds;
+pub use plain::{Emit, PlainArg, PlainKind, PlainRec, Shape, Slot as PlainSlot};
 pub use player::{
     CardTimers, CombatTimers, ExtraVotes, Feat, FragmentCounts, LeaderStatus, Plot, PlotCard, Player, PlayerCards, PlayerEcon, RoundKind, RoundMarks,
     PlayerLeaders, PlayerMisc, PlayerTech, ProductionTimers, ReactionMode, TechSet, Timers,
@@ -250,7 +254,7 @@ mod tests {
     #[test]
     fn clone_shares_players_board_logs_and_rng() {
         let mut a = state();
-        a.ledger.events.extend((0..70).map(|id| EventRec { id, kind: EventKind::TurnBegan, payload: Payload::new(), cancelled: false }));
+        a.ledger.events.extend((0..70).map(|id| Emit::Typed(EventRec { id, kind: EventKind::TurnBegan, payload: Payload::new(), cancelled: false })));
         let b = a.clone();
         assert_eq!(a.players.shared_with(&b.players), 6);
         assert_eq!(a.board.shared_chunks(&b.board), 25);

@@ -9,8 +9,9 @@
 //! offered to the holders of Political Secret and the window ends with it and its outcomes.
 //!
 //! The plain events of the string's `Game::emit` (`AGENDA_REVEALED:{agenda}`, `AGENDA_DISCARDED:{agenda}`, `QUASH_USED`,
-//! `POLITICAL_FAVOR_USED`, `POLITICAL_SECRET_USED:{owner}`) have no typed home in the core yet (package P1.2); the window
-//! keeps what it would make as [`PlainEv`]s, in order, so the dual can compare them with the string's (package P1.1).
+//! `POLITICAL_FAVOR_USED`, `POLITICAL_SECRET_USED:{owner}`) are written to the emission queue (`sx.plain`) at the program
+//! points of the pushes, and the `AGENDA_REVEALED` event is mirrored when its emission returns (`sx.emit_mirrored`), so the
+//! queue holds the lines of `Game::events` in the string's order (package P1).
 
 use super::covert::CovertDraw;
 use super::window::KernelEnv;
@@ -24,7 +25,7 @@ use crate::ids::Seat;
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{fx, fx_agenda, Kernel, Next};
 use crate::keys::{Prediction, VoteBar};
-use crate::state::{Code, CoreState, EventKind, EventRec, Key, NoteKey, Outcome, Payload, Val};
+use crate::state::{Code, CoreState, EventKind, EventRec, Key, NoteKey, Outcome, Payload, PlainArg, PlainKind, PlainRec, Val};
 use crate::tables::Scope;
 
 /// `ti4_model::state::RULES_AGENDA_GRANT_REVEAL`.
@@ -47,21 +48,6 @@ pub struct Facts {
     pub favor: Code,
     /// The renderer's text `ps`: the source of Political Secret's question (the generic note has no id of its own).
     pub secret: Code,
-}
-
-/// A plain event of the string's `Game::emit` that the window makes (see the module docs).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlainEv {
-    /// `AGENDA_REVEALED:{agenda}`: every pass of the loop, before the outcomes are read.
-    Revealed(Agenda),
-    /// `AGENDA_DISCARDED:{agenda}`: nothing to elect, or replaced by Quash, Political Favor or a Veto.
-    Discarded(Agenda),
-    /// `QUASH_USED`.
-    QuashUsed,
-    /// `POLITICAL_FAVOR_USED`.
-    FavorUsed,
-    /// `POLITICAL_SECRET_USED:{owner}`.
-    SecretUsed(Seat),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,8 +86,6 @@ pub struct Reveal {
     choices: SmallList<Outcome, 16>,
     /// The emission failed (the string returns the error).
     failed: bool,
-    /// The plain events the window made, in order.
-    plain: SmallList<PlainEv, 16>,
 }
 
 impl Reveal {
@@ -117,14 +101,7 @@ impl Reveal {
             result: None,
             choices: SmallList::new(),
             failed: false,
-            plain: SmallList::new(),
         }
-    }
-
-    /// The plain events the window made so far, in order.
-    #[must_use]
-    pub fn plain(&self) -> &[PlainEv] {
-        self.plain.as_slice()
     }
 
     /// The agenda that goes to the vote and its outcomes; `None` when nothing was left to elect.
@@ -150,10 +127,10 @@ impl Reveal {
         loop {
             let meta = sx.state.meta_mut();
             meta.agenda_seq = meta.agenda_seq.saturating_add(1);
-            self.plain.push(PlainEv::Revealed(self.alias));
+            sx.plain(PlainRec::one(PlainKind::AgendaRevealed, PlainArg::Agenda(self.alias)));
             let choices = self.reveal_choices(sx);
             if choices.is_empty() {
-                self.plain.push(PlainEv::Discarded(self.alias));
+                sx.plain(PlainRec::one(PlainKind::AgendaDiscarded, PlainArg::Agenda(self.alias)));
                 if !sx.state.meta().rules_at_least(RULES_AGENDA_GRANT_REVEAL) {
                     return true;
                 }
@@ -172,7 +149,7 @@ impl Reveal {
                 payload: Payload::new().with(Key::Agenda, Val::Agenda(self.alias)),
                 cancelled: false,
             };
-            if sx.emit(rec).is_err() {
+            if sx.emit_mirrored(rec).is_err() {
                 self.failed = true;
                 return true;
             }
@@ -319,7 +296,7 @@ impl Window for Reveal {
                     }
                     // Replaced (Quash, Favor, or a Veto played into the window): log it and reveal the replacement.
                     if let Some(replacement) = sx.state.agenda_mut().veto_replacement.take() {
-                        self.plain.push(PlainEv::Discarded(self.alias));
+                        sx.plain(PlainRec::one(PlainKind::AgendaDiscarded, PlainArg::Agenda(self.alias)));
                         if sx.state.meta().rules_at_least(RULES_AGENDA_GRANT_REVEAL) {
                             fx_agenda::log_discarded(sx.state, self.alias, is_law(self.alias), self.facts.replaced);
                         }
@@ -386,7 +363,7 @@ impl Window for Reveal {
                     Self::spent(sx, o.holder, self.facts.quash);
                     // The offer ends with the first user, with or without a replacement to hand over.
                     if Self::replace(sx) {
-                        self.plain.push(PlainEv::QuashUsed);
+                        sx.plain(PlainRec::bare(PlainKind::QuashUsed));
                     }
                     self.at = self.offers.len();
                 }
@@ -399,7 +376,7 @@ impl Window for Reveal {
                         if let Some(note) = o.note {
                             fx::give_back_note(sx.state, note);
                         }
-                        self.plain.push(PlainEv::FavorUsed);
+                        sx.plain(PlainRec::bare(PlainKind::PoliticalFavorUsed));
                     }
                     self.at = self.offers.len();
                 }
@@ -408,7 +385,7 @@ impl Window for Reveal {
                     if let Some(note) = o.note {
                         fx::give_back_note(sx.state, note);
                     }
-                    self.plain.push(PlainEv::SecretUsed(o.owner));
+                    sx.plain(PlainRec::one(PlainKind::PoliticalSecretUsed, PlainArg::Seat(o.owner)));
                     self.at += 1;
                 }
             },
