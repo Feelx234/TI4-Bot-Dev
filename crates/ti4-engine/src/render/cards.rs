@@ -113,6 +113,7 @@ impl Family for Fam {
             Opt::Stop if matches!(pick_of(a).1, What::Pull { .. }) => ChoiceOption::labelled("stop", "unit", "stop after one"),
             Opt::Stop if matches!(pick_of(a).1, What::Troops { .. }) => ChoiceOption::labelled("stop", "infantry", "stop after one"),
             Opt::Stop => ChoiceOption::labelled("stop", "ship", "stop after one"),
+            Opt::Count(n) => ChoiceOption::labelled(n.to_string(), "count", format!("spend {n} trade goods")),
             Opt::Tech(tech) => {
                 let id = tech.as_str();
                 let label = match pick_of(a).1 {
@@ -236,6 +237,7 @@ impl Family for Fam {
             },
             Ask::Pick { what: What::Cruiser | What::Troops { .. } | What::Pull { .. } | What::Squad { .. } | What::Steal, .. } => None,
             Ask::Pick { what: What::Lie { .. }, .. } => ActionCard::from_id(id).map(Opt::Card),
+            Ask::Pick { what: What::Spend, .. } => id.parse().ok().map(Opt::Count),
             Ask::Pick { what: What::Focus | What::Return | What::Funding | What::Prototype, .. } => ti4_engine_core::generated::Technology::from_id(id).map(Opt::Tech),
             Ask::Pick { what: What::Hull | What::Scuttle { .. }, .. } => {
                 let (system, index) = id.split_once('|')?;
@@ -277,6 +279,7 @@ const fn pick_kind(what: What) -> &'static str {
         What::Land => "planet",
         What::Squad { .. } => "move",
         What::Gain => "player",
+        What::Spend => "count",
         What::Lie { .. } => "action_card",
         What::Steal | What::Focus | What::Return | What::Funding | What::Prototype => "technology",
         What::Offer | What::Landing => "planet",
@@ -350,6 +353,7 @@ const fn pick_prompt(card: ActionCard, what: What) -> &'static str {
         (C::DivertFunding, What::Return) => "Divert Funding: which technology to return",
         (C::DivertFunding, _) => "Divert Funding: what to research with the funding",
         (C::RevealPrototype, _) => "Reveal Prototype: which prototype to reveal",
+        (C::Bribery, _) => "Bribery: how many trade goods to spend?",
         (C::LieInWait, _) => "Lie in Wait: take which action card",
         (C::Plagiarize, _) => "Plagiarize: which technology to steal",
         (C::Upgrade, _) => "Upgrade: which cruiser becomes a dreadnought",

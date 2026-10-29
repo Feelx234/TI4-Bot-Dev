@@ -55,6 +55,8 @@ pub enum What {
     Hull,
     /// kind `ship`: a ship Scuttle returns; the second question (`second`) also offers to stop after one.
     Scuttle { second: bool },
+    /// kind `count`, label `spend <n> trade goods`: how many trade goods Bribery spends.
+    Spend,
     /// kind `action_card`, label `take <card> from <seat>`, detail `from`: the card Lie in Wait takes from `from`.
     Lie { from: Seat },
     /// kind `technology`, label `research <id>`: the technology Focused Research researches.
@@ -157,6 +159,8 @@ pub enum Opt {
     Troop { system: System, planet: Planet, index: u8, kind: crate::generated::Unit },
     /// Every ground force of one type moves from a planet to another (`What::Squad`).
     Tech(crate::generated::Technology),
+    /// A number (`What::Spend`).
+    Count(u8),
     Steal { from: Seat, tech: crate::generated::Technology },
     Move { from: Planet, to: Planet, kind: crate::generated::Unit, count: u8 },
 }

@@ -153,6 +153,8 @@ pub enum Fx {
     Reveal,
     /// Lie in Wait: one action card is taken from each of two neighbours who traded this round.
     Lie,
+    /// Bribery: any number of trade goods are spent, one extra vote each on this agenda.
+    Bribery,
 }
 
 impl Fx {
@@ -262,6 +264,7 @@ impl Fx {
             C::DivertFunding => Self::Divert,
             C::RevealPrototype => Self::Reveal,
             C::LieInWait => Self::Lie,
+            C::Bribery => Self::Bribery,
             _ => return None,
         })
     }
@@ -392,7 +395,7 @@ impl Play {
             return None;
         }
         // A readied Keleres agent could be offered before a payment (a window of its own, the goods window).
-        if (fx.bill().is_some() || fx == Fx::Mercenary) && env.facts.agent_offered {
+        if (fx.bill().is_some() || matches!(fx, Fx::Mercenary | Fx::Bribery)) && env.facts.agent_offered {
             return None;
         }
         // The Siphon event, Cabal's note and the Trade Agreement hook follow a replenishment: the string's.
@@ -436,6 +439,7 @@ impl Play {
             Fx::Upgrade => What::Cruiser,
             Fx::Plagiarize => What::Steal,
             Fx::Focused => What::Focus,
+            Fx::Bribery => What::Spend,
             Fx::Lie => What::Lie { from: self.victim? },
             Fx::Divert if self.step == 0 => What::Return,
             Fx::Divert => What::Funding,
@@ -697,6 +701,14 @@ impl Play {
                 }
                 reach.as_mut_slice().sort_unstable();
                 reach.as_slice().iter().copied().filter(|s| !is_home_system(scope, *s)).map(Opt::System).collect()
+            }
+            Fx::Bribery => {
+                // "Any number" includes zero, but with no trade good there is nothing to ask.
+                let held = core.players().by_seat(who).map_or(0, |p| p.econ.trade_goods.max(0));
+                if held == 0 {
+                    return SmallList::new();
+                }
+                (0..=held).filter_map(|n| u8::try_from(n).ok()).map(Opt::Count).collect()
             }
             Fx::Lie => match self.victim.and_then(|v| core.players().by_seat(v)) {
                 Some(p) => p.cards.hand.iter().map(|c| Opt::Card(*c)).collect(),
@@ -1495,6 +1507,18 @@ impl Play {
                     fx::place_unit(core, neutral, system, None, crate::generated::Unit::NeutralDestroyer);
                 }
             }
+            (Fx::Bribery, Opt::Count(n)) => {
+                if n > 0 && fx_pay::pay_trade_goods(core, who, i32::from(n)) {
+                    let agenda = core.meta().agenda_seq;
+                    if let Some(p) = core.players_mut().by_seat_mut(who) {
+                        let running = match p.card_timers.extra_votes_agenda {
+                            Some(held) if held.agenda == agenda => held.votes,
+                            _ => 0,
+                        };
+                        p.card_timers.extra_votes_agenda = Some(crate::state::ExtraVotes { agenda, votes: running + i64::from(n) });
+                    }
+                }
+            }
             (Fx::Lie, Opt::Card(card)) => {
                 let Some(victim) = self.victim else { return false };
                 let at = core.players().by_seat(victim).and_then(|p| p.cards.hand.iter().position(|c| *c == card));
@@ -1974,7 +1998,6 @@ mod tests {
             (C::SkilledRetreat1, "destinations and previews"),
             (C::CourageousToTheEnd, "dice and a casualty choice"),
             (C::Strategize1, "performs another area's ability"),
-            (C::Bribery, "the trade-good payment"),
         ] {
             assert_eq!(Fx::of(card), None, "{card:?}: {why}");
         }
@@ -2023,6 +2046,7 @@ mod tests {
             C::DivertFunding,
             C::RevealPrototype,
             C::LieInWait,
+            C::Bribery,
         ] {
             assert!(Fx::of(card).is_some(), "{card:?}");
         }
@@ -2151,7 +2175,6 @@ mod tests {
     const BAILS: &[(ActionCard, &str)] = &{
         use ActionCard as C;
         [
-            (C::Bribery, "the trade goods may include the Keleres agent's commodities (the goods window asks first); the slot judges the bill with them"),
             (C::CourageousToTheEnd, "dice with the producer in the casualty question"),
             (C::CrashLanding, "placement of a ground force through the faction hooks onto a contested planet"),
             (C::ExperimentalBattlestation, "the space cannon of a structure joined to the movement window"),

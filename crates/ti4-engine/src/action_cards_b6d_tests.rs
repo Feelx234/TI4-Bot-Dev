@@ -651,3 +651,32 @@ fn lie_in_wait_takes_a_card_from_each_neighbour_who_traded_in_the_core_window() 
     assert_eq!(game.player(&b).unwrap().action_cards.len(), 2);
     let _ = crate::dual::take_report();
 }
+
+/// Bribery: any number of trade goods are spent (a count question), one extra vote each on this agenda.
+#[test]
+fn bribery_spends_trade_goods_for_votes_in_the_core_window() {
+    let _serial = crate::dual::tests::serial();
+    let a = PlayerId::new("a");
+    let mut state = closing_position();
+    state.agenda_seq = 3;
+    state.player_mut(&a).unwrap().trade_goods = 4;
+    let mut running = state.clone();
+    running.player_mut(&a).unwrap().extra_votes_agenda = Some((3, 2));
+    let mut stale = state.clone();
+    stale.player_mut(&a).unwrap().extra_votes_agenda = Some((2, 9));
+    let mut broke = state.clone();
+    broke.player_mut(&a).unwrap().trade_goods = 0;
+    for case in [&state, &running, &stale, &broke] {
+        announce_all(&[("bribery", case.clone())]);
+    }
+    let _ = crate::dual::take_report();
+    // The last option is the largest count; the first spends nothing.
+    assert_eq!(played("bribery", &state).player(&a).unwrap().extra_votes_agenda, Some((3, 4)));
+    assert_eq!(played("bribery", &running).player(&a).unwrap().extra_votes_agenda, Some((3, 6)));
+    assert_eq!(played("bribery", &stale).player(&a).unwrap().extra_votes_agenda, Some((3, 4)));
+    assert_eq!(played("bribery", &state).player(&a).unwrap().trade_goods, 0);
+    let first = played_by("bribery", &state, Box::new(crate::action_cards_closing_tests::FirstOption));
+    assert_eq!(first.player(&a).unwrap().trade_goods, 4, "zero spent");
+    assert_eq!(played("bribery", &broke).player(&a).unwrap().extra_votes_agenda, None);
+    let _ = crate::dual::take_report();
+}
