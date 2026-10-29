@@ -41,6 +41,14 @@ fn emit_signal_inner(
     draft: SignalDraft,
     consume_allowance: bool,
 ) -> Result<SignalId, SignalError> {
+    super::book::emit_signal(state, &draft, consume_allowance)
+}
+
+pub(super) fn emit_signal_string(
+    state: &mut GameState,
+    draft: SignalDraft,
+    consume_allowance: bool,
+) -> Result<SignalId, SignalError> {
     if !state.diplomacy.enabled {
         return Err(SignalError::Disabled);
     }
@@ -95,6 +103,13 @@ fn emit_signal_inner(
 /// # Errors
 /// Returns [`DiplomacyError`] only if a resulting relationship change cannot be applied.
 pub(crate) fn judge_event(
+    state: &mut GameState,
+    event: &DiplomacyEventContext,
+) -> Result<(), DiplomacyError> {
+    super::book::judge_event(state, event)
+}
+
+pub(super) fn judge_event_string(
     state: &mut GameState,
     event: &DiplomacyEventContext,
 ) -> Result<(), DiplomacyError> {
@@ -159,6 +174,13 @@ pub(crate) fn settle_deadlines(
     state: &mut GameState,
     completed_round: u32,
 ) -> Result<(), DiplomacyError> {
+    super::book::settle_signals(state, completed_round)
+}
+
+pub(super) fn settle_signals_string(
+    state: &mut GameState,
+    completed_round: u32,
+) -> Result<(), DiplomacyError> {
     let due: Vec<(usize, SignalStatus)> = state
         .diplomacy
         .recent_signals
@@ -213,7 +235,7 @@ fn judge(state: &mut GameState, index: usize, status: SignalStatus) -> Result<()
     Ok(())
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub enum SignalError {
     #[error("diplomacy is disabled")]
     Disabled,

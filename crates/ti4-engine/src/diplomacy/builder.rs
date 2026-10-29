@@ -63,7 +63,7 @@ impl Counted {
         Self::Unknown,
     ];
 
-    const fn id(self) -> &'static str {
+    pub(crate) const fn id(self) -> &'static str {
         match self {
             Self::TradeGoods => "tg",
             Self::Commodities => "commodities",
@@ -74,7 +74,7 @@ impl Counted {
         }
     }
 
-    const fn label(self) -> &'static str {
+    pub(crate) const fn label(self) -> &'static str {
         match self {
             Self::TradeGoods => "trade goods",
             Self::Commodities => "commodities",

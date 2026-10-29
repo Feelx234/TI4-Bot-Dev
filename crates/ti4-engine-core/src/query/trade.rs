@@ -244,6 +244,8 @@ pub enum NoteMove {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PlanetFacts {
     pub payable: bool,
+    /// The planet whose card changes hands and the planet its giver's units move to.
+    pub mv: Option<(crate::generated::Planet, crate::generated::Planet)>,
 }
 
 /// What one side of a deal hands over (`transactions::Terms`).
@@ -339,7 +341,19 @@ pub fn can_pay(core: &CoreState, seat: Seat, terms: &Terms) -> bool {
 /// `transactions::why_illegal`: why an offer cannot be resolved, or `None`.
 #[must_use]
 pub fn why_illegal(cx: &Cx<'_>, offer: &Offer) -> Option<Illegal> {
-    let core = cx.core;
+    why_illegal_with(cx.core, || may_transact(cx, offer.proposer, offer.partner), || cx.env.black_market(), |s| cx.env.trades_action_cards(s), offer)
+}
+
+/// [`why_illegal`] with the three answers the core cannot give on its own as closures, asked only where the string
+/// engine asks them (the reach after the phase test, the table's action-card door only for a deal with a card).
+#[must_use]
+pub fn why_illegal_with(
+    core: &CoreState,
+    may_transact: impl FnOnce() -> bool,
+    black_market: impl FnOnce() -> bool,
+    trades_action_cards: impl Fn(Seat) -> bool,
+    offer: &Offer,
+) -> Option<Illegal> {
     if offer.proposer == offer.partner {
         return Some(Illegal::SamePlayer);
     }
@@ -351,7 +365,7 @@ pub fn why_illegal(cx: &Cx<'_>, offer: &Offer) -> Option<Illegal> {
     if offer.given.is_empty() && offer.received.is_empty() {
         return Some(Illegal::Empty);
     }
-    if core.meta().phase != Phase::Agenda && !may_transact(cx, offer.proposer, offer.partner) {
+    if core.meta().phase != Phase::Agenda && !may_transact() {
         return Some(Illegal::NotNeighbours(offer.proposer, offer.partner));
     }
     if !can_pay(core, offer.proposer, &offer.given) {
@@ -366,8 +380,7 @@ pub fn why_illegal(cx: &Cx<'_>, offer: &Offer) -> Option<Illegal> {
         }
     }
     if offer.given.action_card.is_some() || offer.received.action_card.is_some() {
-        let black_market = cx.env.black_market();
-        let arbiters = black_market || cx.env.trades_action_cards(offer.proposer) || cx.env.trades_action_cards(offer.partner);
+        let arbiters = black_market() || trades_action_cards(offer.proposer) || trades_action_cards(offer.partner);
         if !arbiters {
             return Some(Illegal::ActionCardsNotTradeable);
         }

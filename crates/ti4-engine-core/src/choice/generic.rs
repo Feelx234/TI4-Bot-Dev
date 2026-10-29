@@ -61,6 +61,7 @@ pub enum Rule {
     R82,
     R89_1,
     R89_2,
+    R94,
     R95,
     /// `Coexistence` (the coexistence rules of the Deepwrought; the chain of combats, 12)
     Coexistence,

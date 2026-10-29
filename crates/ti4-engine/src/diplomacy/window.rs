@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 use ti4_model::{
-    DealId, DealRevision, DealStatus, DealTerm, DiplomacyEvent, DiplomacyJournalEntry, GameState,
+    DealId, DealRevision, DealTerm, GameState,
     PlayerId, SignalStatement,
 };
 
@@ -19,7 +19,6 @@ use super::builder::{
     amount_options, apply_item, describe, item_options,
 };
 use super::candidates::{CandidateBundle, built_bundle};
-use super::relations::{RelationshipEvent, apply_relationship_event};
 use super::signals::{SignalDraft, emit_signal_in_open_contact};
 
 pub const RESPONSE_KIND: &str = "diplomacy_response";
@@ -295,18 +294,36 @@ impl Window for DiplomacyWindow {
         }
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "the resumable negotiation transition table remains explicit and linear"
-    )]
     fn resolve(
         &mut self,
         state: &mut GameState,
         ctx: &mut Resolving<'_>,
         answer: ChoiceOption,
     ) -> Result<(), IllegalChoice> {
+        let galaxy = ctx.timing.as_ref().and_then(|timing| timing.galaxy);
+        self.apply(state, ctx.content, ctx.sources, galaxy, answer)
+    }
+}
+
+impl DiplomacyWindow {
+    /// Apply one answer. `galaxy` is the position's map: an accepted deal with immediate terms needs it to settle.
+    ///
+    /// # Errors
+    /// [`IllegalChoice`] when the answer is not offered or the step cannot be taken.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the resumable negotiation transition table remains explicit and linear"
+    )]
+    pub fn apply(
+        &mut self,
+        state: &mut GameState,
+        content: &ti4_content::ContentStore,
+        sources: ti4_model::SourceSet,
+        galaxy: Option<&ti4_content::galaxy::Galaxy>,
+        answer: ChoiceOption,
+    ) -> Result<(), IllegalChoice> {
         let choice = self
-            .pending_choice(state, ctx.content, ctx.sources)
+            .pending_choice(state, content, sources)
             .ok_or_else(|| failed(&self.proposer, "negotiation is already complete"))?;
         let offered =
             choice
@@ -376,31 +393,17 @@ impl Window for DiplomacyWindow {
                         let revision = self.revision(state, &draft)?;
                         let candidate = built_bundle(revision.clone());
                         if let Some(id) = self.deal_id {
-                            state
-                                .diplomacy
-                                .active_deals
-                                .get_mut(&id)
-                                .ok_or_else(|| failed(&choice.player, "deal disappeared"))?
-                                .add_counter(revision.clone())
+                            super::book::counter(state, id, &revision)
                                 .map_err(|error| failed(&choice.player, &error.to_string()))?;
-                            state.diplomacy.journal.push(DiplomacyJournalEntry {
-                                round: state.round,
-                                event: DiplomacyEvent::Countered {
-                                    deal_id: id,
-                                    revision,
-                                },
-                            });
                             self.responses += 1;
                         } else {
-                            let id = state
-                                .diplomacy
-                                .create_deal(
-                                    self.proposer.clone(),
-                                    self.recipient.clone(),
-                                    state.round,
-                                    revision,
-                                )
-                                .map_err(|error| failed(&self.proposer, &error.to_string()))?;
+                            let id = super::book::create_deal(
+                                state,
+                                &self.proposer,
+                                &self.recipient,
+                                &revision,
+                            )
+                            .map_err(|error| failed(&self.proposer, &error.to_string()))?;
                             self.deal_id = Some(id);
                         }
                         self.current = Some(candidate);
@@ -424,27 +427,11 @@ impl Window for DiplomacyWindow {
                 // like a decline: settlement checks everything before anything moves, so nothing
                 // has changed, and one bad deal must not end a game.
                 let accepted = offered.id == ACCEPT_ID
-                    && apply_acceptance(state, ctx, id, &choice.player).is_ok();
+                    && apply_acceptance(state, content, galaxy, id, &choice.player).is_ok();
                 if accepted {
                     self.stage = DiplomacyStage::Done;
                 } else if offered.id == DECLINE_ID || offered.id == ACCEPT_ID {
-                    let deal = state
-                        .diplomacy
-                        .active_deals
-                        .get_mut(&id)
-                        .ok_or_else(|| failed(&choice.player, "deal disappeared"))?;
-                    deal.status = DealStatus::Declined;
-                    state.diplomacy.journal.push(DiplomacyJournalEntry {
-                        round: state.round,
-                        event: DiplomacyEvent::Declined {
-                            deal_id: id,
-                            actor: choice.player.clone(),
-                            revision: deal.latest().number,
-                        },
-                    });
-                    state
-                        .diplomacy
-                        .archive_deal(id, state.round)
+                    super::book::decline(state, id, &choice.player)
                         .map_err(|error| failed(&choice.player, &error.to_string()))?;
                     self.stage = DiplomacyStage::Done;
                 } else {
@@ -484,8 +471,81 @@ impl Window for DiplomacyWindow {
     }
 }
 
+/// The label of the window's lockstep.
+pub const LABEL_ANSWER: &str = "diplomacy::answer";
+
+/// Where a window stands after a step: what the lockstep compares of the window itself (the state it wrote is
+/// compared as the game state).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Snap {
+    pub stage: DiplomacyStage,
+    pub draft: Option<Draft>,
+    pub revision: Option<DealRevision>,
+    pub deal_id: Option<DealId>,
+    pub responses: u8,
+    pub counter_abandoned: bool,
+    /// The step was refused.
+    pub failed: bool,
+}
+
+impl DiplomacyWindow {
+    /// The window as the lockstep compares it.
+    #[must_use]
+    pub fn snap(&self, failed: bool) -> Snap {
+        Snap {
+            stage: self.stage,
+            draft: self.draft.clone(),
+            revision: self.current.as_ref().map(|c| c.revision.clone()),
+            deal_id: self.deal_id,
+            responses: self.responses,
+            counter_abandoned: self.counter_abandoned,
+            failed,
+        }
+    }
+
+    /// One step as the game drives it: the table answers `choice` (`ask`, which reads the position it is given) and
+    /// the window applies the answer. Under `TI4_AREAS=trade=dual` the core window (`rules::diplomacy_window`) takes
+    /// the same step beside it and the question, the state and the window are compared (package B4d). An `ask` that
+    /// fails leaves the window as it was.
+    ///
+    /// # Errors
+    /// Whatever `ask` fails with.
+    pub fn answer_with<E>(
+        &mut self,
+        state: &mut GameState,
+        content: &ti4_content::ContentStore,
+        sources: ti4_model::SourceSet,
+        galaxy: Option<&ti4_content::galaxy::Galaxy>,
+        choice: &Choice,
+        ask: impl FnOnce(&Choice, &mut GameState) -> Result<ChoiceOption, E>,
+    ) -> Result<Result<(), IllegalChoice>, E> {
+        let at = self.clone();
+        let mut asked = None;
+        let mut outcome = Ok(());
+        let _snap = crate::dual_window!(
+            crate::dual::Area::TradeDiplomacy,
+            LABEL_ANSWER,
+            state,
+            |s: &mut GameState| match ask(choice, s) {
+                Ok(answer) => {
+                    outcome = self.apply(s, content, sources, galaxy, answer);
+                    crate::dual::Run::new(self.snap(outcome.is_err()))
+                }
+                Err(error) => {
+                    asked = Some(error);
+                    crate::dual::Run::new(self.snap(true))
+                }
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| crate::diplomacy_window_dual::step(
+                s, content, galaxy, &at, script
+            )
+        );
+        asked.map_or(Ok(outcome), Err)
+    }
+}
+
 /// The canonical option id of a statement: its template and, where it names one, the system.
-fn signal_id(statement: &SignalStatement) -> String {
+pub(crate) fn signal_id(statement: &SignalStatement) -> String {
     match statement {
         SignalStatement::WillVote { agenda, outcome } => {
             format!("{SIGNAL_PREFIX}will_vote|{agenda}|{outcome}")
@@ -497,7 +557,7 @@ fn signal_id(statement: &SignalStatement) -> String {
 }
 
 /// A signal as the proposer sees it: the full sentence, sent to last through the next round.
-fn signal_option(statement: &SignalStatement, round: u32) -> ChoiceOption {
+pub(crate) fn signal_option(statement: &SignalStatement, round: u32) -> ChoiceOption {
     let until = round.saturating_add(1);
     let label = match statement {
         SignalStatement::WillVote { agenda, outcome } => {
@@ -541,7 +601,8 @@ fn bundle_payload(
 )]
 fn apply_acceptance(
     state: &mut GameState,
-    ctx: &mut Resolving<'_>,
+    content: &ti4_content::ContentStore,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
     id: DealId,
     actor: &PlayerId,
 ) -> Result<(), IllegalChoice> {
@@ -557,16 +618,12 @@ fn apply_acceptance(
     let received = super::transfers::immediate_terms(&revision.recipient_terms)
         .map_err(|reason| failed(&deal.recipient, reason))?;
     // Priced before anything moves, exactly as the legacy transaction window prices a deal.
-    let fair = (given.worth_to_receiver(state, ctx.content)
-        - received.worth_to_receiver(state, ctx.content))
+    let fair = (given.worth_to_receiver(state, content)
+        - received.worth_to_receiver(state, content))
     .abs()
         <= 0.5;
     if !given.is_empty() || !received.is_empty() {
-        let galaxy = ctx
-            .timing
-            .as_ref()
-            .and_then(|timing| timing.galaxy)
-            .ok_or_else(|| {
+        let galaxy = galaxy.ok_or_else(|| {
                 failed(
                     &deal.proposer,
                     "immediate diplomacy terms require a galaxy context",
@@ -574,7 +631,7 @@ fn apply_acceptance(
             })?;
         crate::transactions::resolve(
             state,
-            ctx.content,
+            content,
             galaxy,
             &Offer {
                 proposer: deal.proposer.clone(),
@@ -585,95 +642,8 @@ fn apply_acceptance(
         )
         .map_err(|error| failed(&deal.proposer, &error.to_string()))?;
     }
-    let active = state
-        .diplomacy
-        .active_deals
-        .get_mut(&id)
-        .expect("checked deal");
-    active.status = DealStatus::Accepted;
-    state.diplomacy.journal.push(DiplomacyJournalEntry {
-        round: state.round,
-        event: DiplomacyEvent::Accepted {
-            deal_id: id,
-            actor: actor.clone(),
-            revision: revision.number,
-        },
-    });
-    for (index, term) in revision
-        .proposer_terms
-        .iter()
-        .chain(&revision.recipient_terms)
-        .enumerate()
-    {
-        if term.is_immediate() {
-            state.diplomacy.journal.push(DiplomacyJournalEntry {
-                round: state.round,
-                event: DiplomacyEvent::ImmediateApplied {
-                    deal_id: id,
-                    term_index: u8::try_from(index).unwrap_or(u8::MAX),
-                },
-            });
-        }
-    }
-    let future = revision
-        .proposer_terms
-        .iter()
-        .chain(&revision.recipient_terms)
-        .any(|term| !term.is_immediate());
-    active.status = if future {
-        DealStatus::Active
-    } else {
-        DealStatus::Fulfilled
-    };
-    // Immediate transfers only is a transaction and is judged as one: a fair trade builds trust and
-    // an unfair one builds nothing. A bundle with any promise in it is a deal.
-    let relationship = if future {
-        Some(RelationshipEvent::DealAccepted {
-            a: deal.proposer.clone(),
-            b: deal.recipient.clone(),
-        })
-    } else if fair {
-        Some(RelationshipEvent::FairTransaction {
-            a: deal.proposer.clone(),
-            b: deal.recipient.clone(),
-        })
-    } else {
-        None
-    };
-    if let Some(event) = relationship {
-        apply_relationship_event(state, &event)
-            .map_err(|error| failed(&PlayerId::new(""), &error.to_string()))?;
-    }
-    for term in &revision.recipient_terms {
-        if let DealTerm::Attack { player: target, .. } = term
-            && target != &deal.proposer
-            && target != &deal.recipient
-        {
-            apply_relationship_event(
-                state,
-                &RelationshipEvent::AntiThirdPartyDeal {
-                    payer: deal.proposer.clone(),
-                    attacker: deal.recipient.clone(),
-                    target: target.clone(),
-                },
-            )
-            .map_err(|error| failed(&PlayerId::new(""), &error.to_string()))?;
-        }
-    }
-    if !future {
-        state.diplomacy.journal.push(DiplomacyJournalEntry {
-            round: state.round,
-            event: DiplomacyEvent::DealSettled {
-                deal_id: id,
-                status: DealStatus::Fulfilled,
-            },
-        });
-        state
-            .diplomacy
-            .archive_deal(id, state.round)
-            .map_err(|error| failed(&PlayerId::new(""), &error.to_string()))?;
-    }
-    Ok(())
+    super::book::accept(state, id, actor, fair)
+        .map_err(|error| failed(&PlayerId::new(""), &error.to_string()))
 }
 
 fn failed(player: &PlayerId, reason: &str) -> IllegalChoice {

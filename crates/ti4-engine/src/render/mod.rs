@@ -74,7 +74,7 @@ pub struct Render {
     /// The position of the question being rendered, when the caller set one (`None` for the families
     /// that need none; see [`Position`]).
     position: RefCell<Option<Position>>,
-    /// Option shapes of areas whose options the string engine still builds (trade deals), by index.
+    /// Option shapes of areas whose options the string engine still builds (waivers), by index.
     shapes: RefCell<Vec<ChoiceOption>>,
 }
 
@@ -236,7 +236,7 @@ macro_rules! uninhabited {
     )*};
 }
 uninhabited!(
-    tactical, technology, tokens, diplomacy,
+    tactical, technology, tokens,
     legendary, promissory
 );
 
@@ -333,7 +333,7 @@ registry! {
     Invasion => invasion::Fam,
     Production => production::Fam,
     Trade => trade::Fam,
-    Diplomacy => unported!(diplomacy),
+    Diplomacy => diplomacy::Fam,
     Explore => explore::Fam,
     Relic => relic::Fam,
     Legendary => unported!(legendary),
