@@ -3,7 +3,7 @@
 use ti4_content::{ContentStore, StrategyCardKind};
 use ti4_model::content_types::SourceSet;
 use ti4_model::id::{PlayerId, StrategyCardId};
-use ti4_model::state::{GameState, TokenPool};
+use ti4_model::state::GameState;
 
 use crate::choice::{Choice, ChoiceOption, IllegalChoice, validate};
 use crate::draft::strategy_card_label;
@@ -621,10 +621,10 @@ impl StrategySecondaryWindow {
             let costs_token = secondary_costs_token(content, &self.card)
                 && !secondary_is_free(state, content, &choice.player, &self.card);
             if costs_token {
-                let player = state.player_mut(&choice.player).ok_or_else(|| {
-                    StrategySecondaryError::FollowerMissing(choice.player.clone())
-                })?;
-                if !player.spend_token(TokenPool::Strategic) {
+                if state.player(&choice.player).is_none() {
+                    return Err(StrategySecondaryError::FollowerMissing(choice.player.clone()));
+                }
+                if !crate::strategy_write::spend_strategic_token(state, &choice.player) {
                     return Err(StrategySecondaryError::NoStrategyToken(choice.player));
                 }
                 crate::supply::note_strategy_token_spent(
@@ -672,7 +672,7 @@ impl StrategySecondaryWindow {
 
     fn exhaust_primary(&self, state: &mut GameState) {
         if self.is_complete() && self.exhausts_card {
-            let exhausted = state.exhaust_strategy_card(&self.primary_player, self.card.clone());
+            let exhausted = crate::strategy_write::exhaust(state, &self.primary_player, &self.card);
             debug_assert!(
                 exhausted,
                 "the primary holder must retain the selected card"
@@ -928,7 +928,7 @@ pub fn take_strategic_action(
     // This convenience operation is retained for the M04-008 structural-primary API. New
     // action drivers must use `begin_strategic_action` so the primary stays ready while the
     // secondary window is open.
-    let exhausted = state.exhaust_strategy_card(player_id, card.clone());
+    let exhausted = crate::strategy_write::exhaust(state, player_id, &card);
     debug_assert!(exhausted, "the checked player must hold the checked card");
     Ok(card)
 }
@@ -1053,22 +1053,28 @@ pub fn exchange_strategy_cards(
     if !seat_a.strategy_cards.contains(card_a) || !seat_b.strategy_cards.contains(card_b) {
         return false;
     }
-    let spent_a = seat_a.exhausted_strategy_cards.contains(card_a);
-    let spent_b = seat_b.exhausted_strategy_cards.contains(card_b);
-    state.swap_strategy_card(a, card_a, card_b.clone());
-    state.swap_strategy_card(b, card_b, card_a.clone());
-    // `swap_strategy_card` moves exhaustion with the *slot*; here it must follow the card.
-    for (player, gave, got, got_spent) in
-        [(a, card_a, card_b, spent_b), (b, card_b, card_a, spent_a)]
-    {
-        if let Some(seat) = state.player_mut(player) {
-            seat.exhausted_strategy_cards.remove(gave);
-            seat.exhausted_strategy_cards.remove(got);
-            if got_spent {
-                seat.exhausted_strategy_cards.insert(got.clone());
+    crate::strategy_write::exchange(state, a, card_a, b, card_b, |s| {
+        let (Some(seat_a), Some(seat_b)) = (s.player(a), s.player(b)) else {
+            return false;
+        };
+        let spent_a = seat_a.exhausted_strategy_cards.contains(card_a);
+        let spent_b = seat_b.exhausted_strategy_cards.contains(card_b);
+        s.swap_strategy_card(a, card_a, card_b.clone());
+        s.swap_strategy_card(b, card_b, card_a.clone());
+        // `swap_strategy_card` moves exhaustion with the *slot*; here it must follow the card.
+        for (player, gave, got, got_spent) in
+            [(a, card_a, card_b, spent_b), (b, card_b, card_a, spent_a)]
+        {
+            if let Some(seat) = s.player_mut(player) {
+                seat.exhausted_strategy_cards.remove(gave);
+                seat.exhausted_strategy_cards.remove(got);
+                if got_spent {
+                    seat.exhausted_strategy_cards.insert(got.clone());
+                }
             }
         }
-    }
+        true
+    });
     true
 }
 

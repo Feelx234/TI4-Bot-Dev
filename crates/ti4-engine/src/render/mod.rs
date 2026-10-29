@@ -66,6 +66,9 @@ impl std::fmt::Debug for Position {
 pub struct Render {
     /// The text of every seat, in seat order (= text order of the owner ids).
     pub seats: Vec<String>,
+    /// The faction text of every seat (empty for a seat with no player), where a family names seats by
+    /// faction (the Trade primary's options); empty when the caller set none.
+    pub factions: Vec<String>,
     /// Texts the core holds as a [`Code`] (open string sets until X1 closes them).
     codes: RefCell<Vec<String>>,
     /// The position of the question being rendered, when the caller set one (`None` for the families
@@ -78,7 +81,7 @@ pub struct Render {
 impl Render {
     #[must_use]
     pub fn new(seats: Vec<String>) -> Self {
-        Self { seats, codes: RefCell::new(Vec::new()), position: RefCell::new(None), shapes: RefCell::new(Vec::new()) }
+        Self { seats, factions: Vec::new(), codes: RefCell::new(Vec::new()), position: RefCell::new(None), shapes: RefCell::new(Vec::new()) }
     }
 
     /// Set the position the following `prompt`/`option`/`details` calls render in; `None` clears it.
@@ -98,6 +101,19 @@ impl Render {
         let out = f(self);
         *self.position.borrow_mut() = before;
         out
+    }
+
+    /// [`Self::new`] knowing the faction text of every seat.
+    #[must_use]
+    pub fn with_factions(mut self, factions: Vec<String>) -> Self {
+        self.factions = factions;
+        self
+    }
+
+    /// The faction text of a seat; empty when unknown.
+    #[must_use]
+    pub fn faction_text(&self, seat: Seat) -> &str {
+        self.factions.get(usize::from(seat.0)).map_or("", String::as_str)
     }
 
     #[must_use]
@@ -215,7 +231,7 @@ macro_rules! uninhabited {
 }
 uninhabited!(
     tactical, technology, tokens, diplomacy,
-    legendary, promissory, strategy
+    legendary, promissory
 );
 
 impl<A: Uninhabited, O: Uninhabited, S: Uninhabited> Family for Unported<A, O, S> {
@@ -318,7 +334,7 @@ registry! {
     Promissory => unported!(promissory),
     Cards => cards::Fam,
     Leaders => leaders::Fam,
-    Strategy => unported!(strategy),
+    Strategy => strategy::Fam,
     Agenda => agenda::Fam,
 }
 

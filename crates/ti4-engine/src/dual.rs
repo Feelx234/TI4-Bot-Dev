@@ -542,16 +542,7 @@ static FAIL_FAST: AtomicBool = AtomicBool::new(false);
 /// Count one run of a window the dual cannot follow as a call (`compared`) or a bail, for the windows that are
 /// recorded outside [`run_dual_window`] (the vote).
 pub(crate) fn note_window(label: &str, compared: bool) {
-    #[cfg(test)]
-    LOCAL_WINDOWS.with(|m| {
-        let mut m = m.borrow_mut();
-        let w = m.entry(label.to_owned()).or_insert((0, 0));
-        if compared {
-            w.0 += 1;
-        } else {
-            w.1 += 1;
-        }
-    });
+    note_thread_window(label, compared);
     with_report(|r| {
         let w = r.windows.entry(label.to_owned()).or_default();
         if compared {
@@ -562,17 +553,10 @@ pub(crate) fn note_window(label: &str, compared: bool) {
     });
 }
 
-#[cfg(test)]
-thread_local! {
-    /// (compared, bailed) windows per label run on this thread: the process-wide report is shared by the
-    /// parallel tests, which take it from each other.
-    static LOCAL_WINDOWS: std::cell::RefCell<BTreeMap<String, (u64, u64)>> = const { std::cell::RefCell::new(BTreeMap::new()) };
-}
-
 /// The windows of `label` this thread compared and bailed.
 #[cfg(test)]
 pub(crate) fn local_windows(label: &str) -> (u64, u64) {
-    LOCAL_WINDOWS.with(|m| m.borrow().get(label).copied().unwrap_or((0, 0)))
+    thread_window_counts(label)
 }
 
 /// The thread of the test that holds the report (`tests::serial`): while it runs, the other threads of the test
@@ -1150,6 +1134,37 @@ pub fn write<R: PartialEq + Debug>(
             None => Run::new(string(s)),
         }
     )
+}
+
+#[cfg(test)]
+thread_local! {
+    /// `(compared, bailed)` of the windows this thread ran, by label: the shared report also counts the windows
+    /// other test threads run under a global `TI4_AREAS`, so a test that asserts exact counts reads this one.
+    static THREAD_WINDOWS: std::cell::RefCell<BTreeMap<String, (u64, u64)>> = const { std::cell::RefCell::new(BTreeMap::new()) };
+}
+
+#[cfg(test)]
+fn note_thread_window(label: &str, compared: bool) {
+    THREAD_WINDOWS.with(|w| {
+        let mut w = w.borrow_mut();
+        let entry = w.entry(label.to_owned()).or_default();
+        if compared { entry.0 += 1 } else { entry.1 += 1 }
+    });
+}
+
+#[cfg(not(test))]
+fn note_thread_window(_: &str, _: bool) {}
+
+/// `(compared, bailed)` of the windows of `label` this thread ran since [`reset_thread_windows`].
+#[cfg(test)]
+pub(crate) fn thread_window_counts(label: &str) -> (u64, u64) {
+    THREAD_WINDOWS.with(|w| w.borrow().get(label).copied().unwrap_or((0, 0)))
+}
+
+/// Forget the windows this thread ran.
+#[cfg(test)]
+pub(crate) fn reset_thread_windows() {
+    THREAD_WINDOWS.with(|w| w.borrow_mut().clear());
 }
 
 /// The core half of a window run: what the lockstep driver saw.

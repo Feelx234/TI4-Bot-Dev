@@ -173,6 +173,38 @@ fn gain_tokens_offering(
     Ok(())
 }
 
+/// Leadership beside its core window (`strategy_cards_core::leadership`): the primary (three free tokens, then
+/// the purchase loop) or the secondary (the follower's first purchase already accepted).
+fn leadership_ability(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    primary: bool,
+) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        if primary { "strategy_cards::leadership_primary" } else { "strategy_cards::leadership_secondary" },
+        state,
+        |state: &mut GameState| {
+            result = if primary {
+                gain_tokens_offering(state, content, sources, galaxy, table, player, LEADERSHIP_TOKENS, true)
+                    .and_then(|()| buy_tokens_with_influence(state, content, sources, galaxy, table, player))
+            } else {
+                buy_tokens_first_yes_assumed(state, content, sources, galaxy, table, player)
+            };
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_cards_core::leadership(
+            state, content, sources, player, primary, script
+        )
+    );
+    result
+}
+
 /// What a client needs to plan Leadership's influence purchases as one screen (display only).
 ///
 /// `max` is how many tokens the seat's influence can pay for in total (`floor(available / 3)`;
@@ -493,6 +525,39 @@ fn research_option(
         .payload
         .insert("cost_tokens".to_owned(), serde_json::Value::from(tokens));
     option
+}
+
+/// The Technology abilities beside their core window (`strategy_cards_core::research`): the primary's free
+/// research and its paid one, or the secondary's paid one.
+fn technology_ability(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    primary: bool,
+) -> Result<(), IllegalChoice> {
+    let cost = if primary { TECHNOLOGY_PRIMARY_SECOND_COST } else { TECHNOLOGY_SECONDARY_COST };
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        if primary { "strategy_cards::technology_primary" } else { "strategy_cards::technology_secondary" },
+        state,
+        |state: &mut GameState| {
+            result = if primary {
+                offer_research(state, content, sources, galaxy, table, player, technology_primary())
+                    .and_then(|_| paid_research(state, content, sources, galaxy, table, player, cost))
+            } else {
+                paid_research(state, content, sources, galaxy, table, player, cost)
+            };
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_cards_core::research(
+            state, content, sources, player, primary, cost, script
+        )
+    );
+    result
 }
 
 /// The Technology primary's research, inside Doctor Carrina's window (every research route opens
@@ -1621,7 +1686,59 @@ fn ready_planets(
     Ok(())
 }
 
+/// The Diplomacy primary beside its core window (`strategy_cards_core::diplomacy`).
 fn diplomacy_primary(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    card: &str,
+) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        "strategy_cards::diplomacy_primary",
+        state,
+        |state: &mut GameState| {
+            result = diplomacy_primary_string(state, content, sources, galaxy, table, player, card);
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_cards_core::diplomacy(
+            state, content, sources, player, card, false, script
+        )
+    );
+    result
+}
+
+/// The Diplomacy secondary beside its core window.
+fn diplomacy_secondary(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    card: &str,
+) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        "strategy_cards::diplomacy_secondary",
+        state,
+        |state: &mut GameState| {
+            result = ready_planets(state, content, sources, galaxy, table, player, 2);
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_cards_core::diplomacy(
+            state, content, sources, player, card, true, script
+        )
+    );
+    result
+}
+
+fn diplomacy_primary_string(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1700,7 +1817,46 @@ fn diplomacy_primary(
     ready_planets(state, content, sources, galaxy, table, player, 2)
 }
 
+/// The Politics primary beside its core window (`strategy_cards_core::politics`).
 fn politics_primary(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        "strategy_cards::politics_primary",
+        state,
+        |state: &mut GameState| {
+            result = politics_primary_string(state, content, sources, galaxy, table, player);
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_cards_core::politics(state, content, player, true, script)
+    );
+    result
+}
+
+/// The Politics secondary beside its core window.
+fn politics_secondary(state: &mut GameState, content: &ContentStore, table: &mut Table, player: &PlayerId) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        "strategy_cards::politics_secondary",
+        state,
+        |state: &mut GameState| {
+            result = crate::action_cards::draw(state, content, table, player, 2).map(|_| ());
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_cards_core::politics(state, content, player, false, script)
+    );
+    result
+}
+
+fn politics_primary_string(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1963,6 +2119,39 @@ pub(crate) fn construction_placement(
     )
 }
 
+/// The Construction abilities beside their core window (`strategy_cards_core::construction`): the primary's
+/// two structures or the secondary's one.
+fn construction_ability(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    primary: bool,
+) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        if primary { "strategy_cards::construction_primary" } else { "strategy_cards::construction_secondary" },
+        state,
+        |state: &mut GameState| {
+            result = if primary {
+                place_structure_step(state, content, sources, galaxy, table, player, false, Some((1, 2)))
+                    .and_then(|_| place_structure_step(state, content, sources, galaxy, table, player, true, Some((2, 2))))
+                    .map(|_| ())
+            } else {
+                place_structure(state, content, sources, galaxy, table, player, false).map(|_| ())
+            };
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_cards_core::construction(
+            state, content, sources, player, primary, script
+        )
+    );
+    result
+}
+
 pub(crate) fn place_structure(
     state: &mut GameState,
     content: &ContentStore,
@@ -2219,18 +2408,51 @@ pub(crate) fn commander_payment_offer(
 
 pub(crate) fn replenish(state: &mut GameState, content: &ContentStore, player: &PlayerId) {
     let limit = commodity_limit(state, content, player);
-    let mut gained = 0;
-    if let Some(seat) = state.player_mut(player) {
-        gained = (limit - seat.commodities).max(0);
-        seat.commodities = limit;
-    }
+    let gained = crate::strategy_write::replenish(state, player, limit);
     // Siphon (Obsidian plot): the commodities gained, announced before Trade Agreement can take them.
     crate::supply::note_commodities_gained(state, player, gained);
     // Trade Agreement: "When the <color> player replenishes commodities".
     crate::promissory::trade_agreement_on_replenish(state, player);
 }
 
-fn trade_primary(
+/// The Trade secondary beside its core half (`strategy_cards_core::replenish_secondary`).
+fn trade_secondary(state: &mut GameState, content: &ContentStore, player: &PlayerId) {
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        "strategy_cards::trade_secondary",
+        state,
+        |state: &mut GameState| {
+            replenish(state, content, player);
+            crate::dual::Run::new(true)
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_cards_core::replenish_secondary(state, content, player, script)
+    );
+}
+
+/// The Trade primary beside its core window (`strategy_core::trade_primary`).
+pub(crate) fn trade_primary(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        "strategy_cards::trade_primary",
+        state,
+        |state: &mut GameState| {
+            result = trade_primary_string(state, content, sources, galaxy, table, player);
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_core::trade_primary(state, player, script)
+    );
+    result
+}
+
+fn trade_primary_string(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -2346,7 +2568,30 @@ fn home_production(
     Ok(())
 }
 
+/// The Warfare primary beside its core window (`strategy_cards_core::warfare_primary`).
 fn warfare_primary(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        "strategy_cards::warfare_primary",
+        state,
+        |state: &mut GameState| {
+            result = warfare_primary_string(state, content, sources, galaxy, table, player);
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_cards_core::warfare_primary(state, player, script)
+    );
+    result
+}
+
+fn warfare_primary_string(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -2476,7 +2721,48 @@ pub(crate) fn redistribute_tokens(
     Ok(Ability::Resolved)
 }
 
+/// Imperial's draw of a secret objective beside its core half (`strategy_cards_core::draw_secret`).
+fn imperial_secret(state: &mut GameState, content: &ContentStore, table: &mut Table, player: &PlayerId) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        "strategy_cards::imperial_secret",
+        state,
+        |state: &mut GameState| {
+            result = crate::secrets::draw(state, content, table, player).map(|_| ());
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_cards_core::draw_secret(state, content, player, script)
+    );
+    result
+}
+
+/// Imperial's primary beside its core window (`strategy_cards_core::imperial_primary`).
 fn imperial_primary(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Strategy,
+        "strategy_cards::imperial_primary",
+        state,
+        |state: &mut GameState| {
+            result = imperial_primary_string(state, content, sources, galaxy, table, player);
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::strategy_cards_core::imperial_primary(
+            state, content, sources, galaxy, player, script
+        )
+    );
+    result
+}
+
+fn imperial_primary_string(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -2544,7 +2830,7 @@ fn imperial_primary(
             state, content, sources, galaxy, table, player,
         )?;
     } else {
-        crate::secrets::draw(state, content, table, player)?;
+        imperial_secret(state, content, table, player)?;
     }
     state.finished = crate::objectives::winner(state).is_some();
     Ok(())
@@ -2696,17 +2982,7 @@ pub fn primary(
     };
     match kind {
         StrategyCardKind::Leadership => {
-            gain_tokens_offering(
-                state,
-                content,
-                sources,
-                galaxy,
-                table,
-                player,
-                LEADERSHIP_TOKENS,
-                true,
-            )?;
-            buy_tokens_with_influence(state, content, sources, galaxy, table, player)?;
+            leadership_ability(state, content, sources, galaxy, table, player, true)?;
         }
         StrategyCardKind::Diplomacy => {
             diplomacy_primary(state, content, sources, galaxy, table, player, card)?
@@ -2715,50 +2991,14 @@ pub fn primary(
             politics_primary(state, content, sources, galaxy, table, player)?
         }
         StrategyCardKind::Construction => {
-            place_structure_step(
-                state,
-                content,
-                sources,
-                galaxy,
-                table,
-                player,
-                false,
-                Some((1, 2)),
-            )?;
-            place_structure_step(
-                state,
-                content,
-                sources,
-                galaxy,
-                table,
-                player,
-                true,
-                Some((2, 2)),
-            )?;
+            construction_ability(state, content, sources, galaxy, table, player, true)?;
         }
         StrategyCardKind::Trade => trade_primary(state, content, sources, galaxy, table, player)?,
         StrategyCardKind::Warfare => {
             warfare_primary(state, content, sources, galaxy, table, player)?
         }
         StrategyCardKind::Technology => {
-            offer_research(
-                state,
-                content,
-                sources,
-                galaxy,
-                table,
-                player,
-                technology_primary(),
-            )?;
-            paid_research(
-                state,
-                content,
-                sources,
-                galaxy,
-                table,
-                player,
-                TECHNOLOGY_PRIMARY_SECOND_COST,
-            )?;
+            technology_ability(state, content, sources, galaxy, table, player, true)?;
         }
         StrategyCardKind::Imperial => {
             imperial_primary(state, content, sources, galaxy, table, player)?
@@ -2811,33 +3051,23 @@ pub fn secondary(
     match kind {
         // The window's `yes` already asked the oracle question; pay for it and continue.
         StrategyCardKind::Leadership => {
-            buy_tokens_first_yes_assumed(state, content, sources, galaxy, table, player)?;
+            leadership_ability(state, content, sources, galaxy, table, player, false)?;
         }
         StrategyCardKind::Diplomacy => {
-            ready_planets(state, content, sources, galaxy, table, player, 2)?
+            diplomacy_secondary(state, content, sources, galaxy, table, player, card)?
         }
-        StrategyCardKind::Politics => {
-            crate::action_cards::draw(state, content, table, player, 2)?;
-        }
+        StrategyCardKind::Politics => politics_secondary(state, content, table, player)?,
         StrategyCardKind::Construction => {
-            place_structure(state, content, sources, galaxy, table, player, false)?;
+            construction_ability(state, content, sources, galaxy, table, player, false)?;
         }
-        StrategyCardKind::Trade => replenish(state, content, player),
+        StrategyCardKind::Trade => trade_secondary(state, content, player),
         StrategyCardKind::Warfare => {
             home_production(state, content, sources, galaxy, table, player)?
         }
-        StrategyCardKind::Technology => paid_research(
-            state,
-            content,
-            sources,
-            galaxy,
-            table,
-            player,
-            TECHNOLOGY_SECONDARY_COST,
-        )?,
-        StrategyCardKind::Imperial => {
-            crate::secrets::draw(state, content, table, player)?;
+        StrategyCardKind::Technology => {
+            technology_ability(state, content, sources, galaxy, table, player, false)?;
         }
+        StrategyCardKind::Imperial => imperial_secret(state, content, table, player)?,
     }
     Ok(Ability::Resolved)
 }

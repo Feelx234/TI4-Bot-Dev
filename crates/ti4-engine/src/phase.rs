@@ -103,9 +103,7 @@ pub fn next_strategy_picker_text(state: &GameState) -> Option<PlayerId> {
 /// it, which is the compensation the rules pay for going late — without it a low-initiative
 /// card is worth exactly as much in round nine as in round one.
 pub fn stock_unclaimed_cards(state: &mut GameState) {
-    for card in state.unclaimed_strategy_cards.clone() {
-        *state.strategy_card_goods.entry(card).or_insert(0) += 1;
-    }
+    crate::strategy_write::stock_unclaimed(state);
 }
 
 /// Start one action-phase turn.
@@ -180,20 +178,10 @@ pub fn begin_next_round(state: &mut GameState, strategy_cards: Vec<ti4_model::id
     state.action_turn = 0;
     state.active = None;
     // The Naalu "0" token (and Gift of Prescience's transfer of it) lasts one game round.
-    crate::strategy::clear_initiative_overrides(state);
     // A card kept under Political Stability is not on the mat, so it is not drafted: putting every
     // card back let a second seat take the kept one (reported 2026-09-23: two factions holding
     // Leadership).
-    let held: std::collections::BTreeSet<ti4_model::id::StrategyCardId> = state
-        .players
-        .iter()
-        .filter(|player| player.stability)
-        .flat_map(|player| player.strategy_cards.iter().cloned())
-        .collect();
-    state.unclaimed_strategy_cards = strategy_cards
-        .into_iter()
-        .filter(|card| !held.contains(card))
-        .collect();
+    crate::strategy_write::lay_out_mat(state, &strategy_cards);
     // Lie in Wait counts *this* round's transactions.
     crate::transactions::reset_round(state);
 }

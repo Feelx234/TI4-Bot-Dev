@@ -119,6 +119,17 @@ pub fn give_back_note(s: &mut CoreState, note: crate::state::NoteKey) {
     cards.promissory_faceup.edit().remove(&note);
 }
 
+/// `strategy_cards::replenish` without the announcements: the seat's commodities go to its faction's printed
+/// value (a seat above it is set down to it, as the string does). Returns how many were gained; `0` for a seat
+/// that is not there. The Siphon event, Cabal's note and the Trade Agreement hook are the string callers'.
+pub fn replenish_commodities(s: &mut CoreState, who: Seat) -> i32 {
+    let Some(p) = s.players_mut().by_seat_mut(who) else { return 0 };
+    let limit = i16::from(p.faction.data().commodities);
+    let gained = (limit - p.econ.commodities).max(0);
+    p.econ.commodities = limit;
+    i32::from(gained)
+}
+
 /// The `TRADE_GOODS_GAINED` event of a gain (`player`, `amount`, `source`).
 #[must_use]
 pub fn trade_goods_gained(who: Seat, gained: i32, source: Code) -> EventRec {
@@ -293,6 +304,92 @@ pub fn place_command_token(s: &mut CoreState, who: Seat, system: System) -> bool
     cell.flags.set(crate::state::SysFlags::TOUCHED, true);
     cell.cmd.insert(who)
 }
+
+/// Take `who`'s command token out of a system; whether one was there.
+pub fn remove_command_token(s: &mut CoreState, who: Seat, system: System) -> bool {
+    s.board_mut().sys_mut(system).cmd.remove(who)
+}
+
+/// Command tokens in a seat's reinforcements: sixteen less the sheet and the board (`GameState::
+/// tokens_in_reinforcements`; a token in a Mahact fleet pool is the caller's to bail on).
+#[must_use]
+pub fn tokens_in_reinforcements(s: &CoreState, who: Seat) -> i32 {
+    let on_sheet = s.players().by_seat(who).map_or(0, |p| {
+        i32::from(p.econ.tactic_tokens) + i32::from(p.econ.fleet_tokens) + i32::from(p.econ.strategic_tokens)
+    });
+    let on_board = s.board().systems().filter(|(_, cell)| cell.cmd.contains(who)).count();
+    (TOKENS_PER_FACTION - on_sheet - i32::try_from(on_board).unwrap_or(i32::MAX)).max(0)
+}
+
+/// `GameState::gain_token` for a positive count: at most what is in reinforcements. Returns how many were gained.
+pub fn gain_token(s: &mut CoreState, who: Seat, pool: crate::choice::strategy::Pool, count: i32) -> i32 {
+    use crate::choice::strategy::Pool;
+    let granted = count.min(tokens_in_reinforcements(s, who)).max(0);
+    if granted > 0
+        && let Some(p) = s.players_mut().by_seat_mut(who)
+    {
+        let slot = match pool {
+            Pool::Tactic => &mut p.econ.tactic_tokens,
+            Pool::Fleet => &mut p.econ.fleet_tokens,
+            Pool::Strategic => &mut p.econ.strategic_tokens,
+        };
+        *slot = slot.saturating_add(i16::try_from(granted).unwrap_or(i16::MAX));
+    }
+    granted
+}
+
+/// The plain action card draw (`action_cards::draw` with no faction hook, no reserve and a hand that stays
+/// within the limit): up to `count` cards from the top of the deck into the hand. Returns how many came.
+/// `drop_unofficial`: the two unofficial cards leave the deck first (`deck::drop_unofficial_action_cards`).
+pub fn draw_action_cards(s: &mut CoreState, who: Seat, count: usize, drop_unofficial: bool) -> usize {
+    use crate::generated::ActionCard;
+    if drop_unofficial && s.decks().action.cards().iter().any(|c| matches!(c, ActionCard::Veto3 | ActionCard::Veto4)) {
+        let kept: Vec<ActionCard> = s.decks().action.cards().iter().copied().filter(|c| !matches!(c, ActionCard::Veto3 | ActionCard::Veto4)).collect();
+        s.decks_mut().action.set(kept);
+    }
+    let mut drawn = 0;
+    for _ in 0..count {
+        let Some(card) = s.decks_mut().action.draw() else { break };
+        if let Some(p) = s.players_mut().by_seat_mut(who) {
+            p.cards.hand.push(card);
+        }
+        drawn += 1;
+    }
+    drawn
+}
+
+/// The plain secret objective draw (`secrets::draw` with a hand that stays within the limit): the top card of
+/// the deck joins the hand. `false`: the deck is empty or the seat is not there.
+pub fn draw_secret(s: &mut CoreState, who: Seat) -> bool {
+    if s.players().by_seat(who).is_none() {
+        return false;
+    }
+    let Some(card) = s.decks_mut().secret.draw() else { return false };
+    if let Some(p) = s.players_mut().by_seat_mut(who) {
+        p.cards.secrets.push(card);
+    }
+    true
+}
+
+/// The plain gain of a researched technology (`technology::grant`: the card joins the seat's technologies;
+/// the unit upgrades, the laws and the notes that follow a research are the caller's). Whether it was new.
+pub fn grant_technology(s: &mut CoreState, who: Seat, tech: crate::generated::Technology) -> bool {
+    s.players_mut().by_seat_mut(who).is_some_and(|p| p.tech.owned.insert(tech))
+}
+
+/// Spend one command token from the strategy pool (`Player::spend_token(Strategic)`): whether the pool had one.
+pub fn spend_strategic_token(s: &mut CoreState, who: Seat) -> bool {
+    let Some(p) = s.players_mut().by_seat_mut(who) else { return false };
+    if p.econ.strategic_tokens > 0 {
+        p.econ.strategic_tokens -= 1;
+        true
+    } else {
+        false
+    }
+}
+
+/// Command tokens a faction has (`ti4_model::state::TOKENS_PER_FACTION`, LRR 20.4).
+pub const TOKENS_PER_FACTION: i32 = 16;
 
 /// Exhaust a planet; whether it was ready.
 pub fn exhaust_planet(s: &mut CoreState, planet: Planet) -> bool {

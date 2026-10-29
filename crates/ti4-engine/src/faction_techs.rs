@@ -342,8 +342,8 @@ pub fn offer_quantum_datahub(
         QUANTUM_DATAHUB_GOODS,
         "quantum_datahub",
     );
-    state.swap_strategy_card(&holder, &given, taken.clone());
-    state.swap_strategy_card(&partner, &taken, given);
+    crate::strategy_write::swap(state, &holder, &given, &taken);
+    crate::strategy_write::swap(state, &partner, &taken, &given);
     Some((holder, partner))
 }
 

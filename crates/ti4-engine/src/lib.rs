@@ -37,6 +37,9 @@ pub mod draft;
 pub mod entropic_scars;
 pub mod explore_core;
 pub mod explore_write;
+pub mod strategy_cards_core;
+pub mod strategy_core;
+pub mod strategy_write;
 /// The offline dual of Area::ExplorationRelics.
 #[cfg(feature = "typed-core")]
 #[doc(hidden)]

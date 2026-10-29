@@ -150,6 +150,16 @@ mod real {
 
     use crate::dual_window::outside;
 
+    /// Whether a commodity change at this table causes events the core does not hold: a Cabal (its replenish
+    /// note), a siphoning Firmament plot, a Trade Agreement in play.
+    pub(crate) fn replenish_causes_events(gs: &GameState) -> bool {
+        gs.players.iter().any(|p| {
+            p.faction.as_str() == "cabal"
+                || crate::factions::firmament_plots::siphon_watches(gs, &p.id)
+                || crate::promissory::holder_of(gs, "ta", &p.id).is_some()
+        })
+    }
+
     /// The kernel of a leader window: no hooks, the game's source scope.
     fn kernel(sources: SourceSet) -> Option<Kernel> {
         let mut kernel = Kernel::plain();
@@ -245,12 +255,7 @@ mod real {
         if outside(gs, script) {
             return None;
         }
-        let others_cause_events = gs.players.iter().any(|p| {
-            p.faction.as_str() == "cabal"
-                || crate::factions::firmament_plots::siphon_watches(gs, &p.id)
-                || crate::promissory::holder_of(gs, "ta", &p.id).is_some()
-        });
-        if others_cause_events {
+        if replenish_causes_events(gs) {
             return None;
         }
         let (mut cx, r) = crate::dual_window::tables(gs)?;
