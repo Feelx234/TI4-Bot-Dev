@@ -402,7 +402,7 @@ fn ship_value(
     if player.is_some_and(|p| p.cards.breakthrough == Some(Breakthrough::GravleashManeuvers))
         && base_type != crate::generated::UnitBaseType::Fighter
     {
-        own.max(core.transient().production.gravleash_move_values.get(&origin).copied().unwrap_or(0))
+        own.max(core.transient().movement.gravleash_move_values.get(&origin).copied().unwrap_or(0))
     } else {
         own
     }

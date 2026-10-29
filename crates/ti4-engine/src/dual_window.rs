@@ -512,6 +512,11 @@ pub fn drive_positioned<W: Window>(
                 out.questions.push(choice.clone());
                 let mut rendered = typed.rendered;
                 complete(&choice, core, &mut rendered);
+                // A question the string builds with no `DecisionContext` (Sling Relay, Integrated Economy) is compared
+                // without one: a typed `Choice` always carries its context, and the string adds none to its own.
+                if script.questions.get(out.questions.len() - 1).is_some_and(|q| q.choice.context.is_none()) {
+                    rendered.context = None;
+                }
                 if let Some(facts) = driver.nested_facts() {
                     complete_nested(r, &choice, facts, gs, &mut rendered);
                     // The previews of a reaction window ("what each single-card slot would do now") are display facts

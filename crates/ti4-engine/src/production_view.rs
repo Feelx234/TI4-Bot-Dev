@@ -36,7 +36,7 @@ pub struct ProdView<'a> {
 
 /// The factions whose string modules still answer production questions with hooks the typed seams do not
 /// carry yet (package CB): the typed reads decline and the caller keeps the string answer.
-fn unported_economy(state: &GameState) -> bool {
+pub(crate) fn unported_economy(state: &GameState) -> bool {
     use crate::factions::{bastion, crimson};
     let held = [
         bastion::MODULE.alias,
@@ -63,6 +63,15 @@ pub(crate) fn unported_window(state: &GameState, player: &PlayerId) -> bool {
     unported_economy(state)
         || state.player(player).is_some_and(|p| own.contains(&p.faction.as_str()))
         || state.players.iter().any(|p| cross.contains(&p.faction.as_str()))
+}
+
+/// [`unported_window`], and any Keleres seat at the table: the triggered productions (Sling Relay, Integrated
+/// Economy) pay through the shared payment window, which offers a Keleres holder the agent when the payer holds
+/// commodities (the tier-W offer stays string).
+pub(crate) fn unported_triggered(state: &GameState, player: &PlayerId) -> bool {
+    use crate::factions::keleres;
+    let keleres = [keleres::MODULE_M.alias, keleres::MODULE_X.alias, keleres::MODULE_A.alias];
+    unported_window(state, player) || state.players.iter().any(|p| keleres.contains(&p.faction.as_str()))
 }
 
 /// The kernel of the production reads: the seams of the laws and relics, and the bridge to the legacy

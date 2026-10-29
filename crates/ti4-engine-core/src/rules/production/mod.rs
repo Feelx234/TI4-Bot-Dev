@@ -235,6 +235,8 @@ pub fn structure_allowed(cx: &Cx<'_>, who: Seat, planet: Planet, base: UnitBaseT
 
 pub mod pay;
 pub mod strategy_cards;
+pub mod supply;
+pub mod triggered;
 
 /// What the table adds to a context when it asks (`DecisionContext::about_invasion`): the invasion of the system
 /// the question is about (production contexts never name a battle).
@@ -448,7 +450,8 @@ pub fn spots_of(cx: &Cx<'_>, who: Seat, system: System, unit: Unit) -> SmallList
     }
     if !spots.as_slice().is_empty() {
         let dests = cx.seams().production_destinations.collect(cx.q, &DestSite { who, system, base: unit.data().base_type });
-        for (sys, planet) in dests.as_slice() {
+        // The producing system's own spots are `placements` (the string `production_destinations` drops it).
+        for (sys, planet) in dests.as_slice().iter().filter(|(sys, _)| *sys != system) {
             spots.push(Spot::Remote(*sys, *planet));
         }
     }
@@ -673,6 +676,25 @@ mod tests {
         assert_eq!(price(Some(2), false), (1, 1));
         assert_eq!(price(Some(5), false), (3, 1));
         assert_eq!(price(None, false), (0, 1));
+    }
+
+    /// Found by the bench with `production=core` (seed 11, Saar commander): a module's destination in the
+    /// producing system itself is dropped (its own spots are `placements`), as the string's
+    /// `hooks_economy::production_destinations` does.
+    #[test]
+    fn a_destination_in_the_producing_system_is_not_a_remote_spot() {
+        use crate::kernel::seam::{Pass, Source};
+        let mut k = Kernel::plain();
+        let (here, there) = (crate::ids::system_at(30), crate::ids::system_at(31));
+        k.hooks.seam.production_destinations.push(Source::Faction(crate::generated::Faction::TheClanOfSaar), Pass::Add, |_: Q<'_>, _: &DestSite, out| {
+            out.push((crate::ids::system_at(30), None));
+            out.push((crate::ids::system_at(31), None));
+        });
+        let mut s = CoreState::all_loaded();
+        s.players = crate::state::Players::from_vec(vec![crate::state::Player::new(Seat(0), crate::generated::Faction::TheClanOfSaar)]);
+        let cx = Cx::new(&s, &k, Scope(u32::from(k.sources.0)), false);
+        let spots = spots_of(&cx, Seat(0), here, Unit::CruiserI);
+        assert_eq!(spots.as_slice(), &[Spot::Space, Spot::Remote(there, None)]);
     }
 
     #[test]
