@@ -149,27 +149,90 @@ fn a_follow_spends_the_token_and_announces_it() {
 }
 
 /// Acquiescence: Winnu's promissory note lets its holder follow without a token. The question carries the waiver
-/// option (compared), a plain answer is compared, and taking the waiver bails.
+/// option (compared), a plain answer is compared, and taking the waiver is paid by the core step (the note goes home).
 #[test]
-fn a_waiver_is_offered_and_compared_and_taking_it_bails() {
+fn a_waiver_is_offered_and_compared_and_taking_it_is_paid_in_lockstep() {
     let winnu = [("a", "winnu"), ("b", "sol"), ("c", "arborec")];
-    for (answer, bailed) in [("yes", false), ("no", false)] {
+    for answer in ["yes", "no"] {
         let mut state = dealt(&winnu, "Trade");
         state.promissory_notes.insert(crate::factions::winnu::ACQUIESCENCE.to_owned(), pid("b"));
         prepare(&mut state);
-        let (counts, bails, _) = play(state, answer);
+        let (counts, bails, game) = play(state, answer);
         assert!(counts.0 >= 2, "{answer}: {counts:?}");
-        assert_eq!(!bails.is_empty(), bailed, "{answer}: {bails:?}");
+        assert!(bails.is_empty(), "{answer}: {bails:?}");
+        assert_eq!(game.state.promissory_notes.get(crate::factions::winnu::ACQUIESCENCE), Some(&pid("b")), "{answer}: kept");
     }
     let mut state = dealt(&winnu, "Trade");
     state.promissory_notes.insert(crate::factions::winnu::ACQUIESCENCE.to_owned(), pid("b"));
     prepare(&mut state);
     let (counts, bails, game) = play(state, "follow|waived|");
-    assert!(bails.iter().any(|k| k.contains("a waiver taken")), "{bails:?}");
-    assert!(counts.0 >= 1, "{counts:?}");
-    assert_eq!(game.state.promissory_notes.get(crate::factions::winnu::ACQUIESCENCE), Some(&pid("a")), "the string paid the waiver");
+    assert!(bails.is_empty(), "the waiver is paid by the core step: {bails:?}");
+    assert!(counts.0 >= 2, "{counts:?}");
+    assert_eq!(game.state.promissory_notes.get(crate::factions::winnu::ACQUIESCENCE), Some(&pid("a")), "the note went home");
+    assert_eq!(game.state.player(&pid("b")).unwrap().strategic_tokens, 3, "no token was spent");
 }
 
+/// Jae Mir Kan: the Mahact follower exhausts the agent instead of a token; the primary player's token leaves the board.
+#[test]
+fn jae_mir_kan_is_paid_by_the_core_step_in_lockstep() {
+    let mahact = [("a", "sol"), ("b", "mahact"), ("c", "arborec")];
+    let system = ti4_model::id::SystemId::new("18");
+    let setup = || {
+        let mut state = dealt(&mahact, "Politics");
+        prepare(&mut state);
+        let agent = ti4_model::id::LeaderId::new(crate::factions::mahact::AGENT);
+        state.player_mut(&pid("b")).unwrap().leaders.insert(agent, ti4_model::state::LeaderStatus::Readied);
+        state.system_mut(&system).command_tokens.insert(pid("a"));
+        state
+    };
+    let (counts, bails, game) = play(setup(), "follow|waived|");
+    assert!(bails.is_empty(), "{bails:?}");
+    assert!(counts.0 >= 2, "{counts:?}");
+    let agent = ti4_model::id::LeaderId::new(crate::factions::mahact::AGENT);
+    assert_eq!(game.state.player(&pid("b")).unwrap().leaders.get(&agent), Some(&ti4_model::state::LeaderStatus::Exhausted));
+    assert!(!game.state.board.get(&system).is_some_and(|b| b.command_tokens.contains(&pid("a"))), "the token left the board");
+    assert_eq!(game.state.player(&pid("b")).unwrap().strategic_tokens, 3, "no token was spent");
+    // Declined or followed with a token: the agent stays ready (compared too).
+    for answer in ["yes", "no"] {
+        let (counts, bails, game) = play(setup(), answer);
+        assert!(counts.0 >= 2 && bails.is_empty(), "{answer}: {counts:?} {bails:?}");
+        assert_eq!(game.state.player(&pid("b")).unwrap().leaders.get(&agent), Some(&ti4_model::state::LeaderStatus::Readied));
+    }
+}
+
+/// Bail: while the Nomad's suite watches agents exhaust, Jae Mir Kan's waiver is paid by the string (a staged event the
+/// core does not make).
+#[test]
+fn bail_jae_mir_kan_while_the_nomad_watches_keeps_the_string_payment() {
+    let table = [("a", "sol"), ("b", "mahact"), ("c", "nomad")];
+    let system = ti4_model::id::SystemId::new("18");
+    let mut state = dealt(&table, "Politics");
+    prepare(&mut state);
+    let agent = ti4_model::id::LeaderId::new(crate::factions::mahact::AGENT);
+    state.player_mut(&pid("b")).unwrap().leaders.insert(agent.clone(), ti4_model::state::LeaderStatus::Readied);
+    state.system_mut(&system).command_tokens.insert(pid("a"));
+    state.player_mut(&pid("c")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("tcs"));
+    assert!(crate::factions::nomad::watches_agent_exhaustion(&state), "the Temporal Command Suite is watching");
+    let (_, bails, game) = play(state, "follow|waived|");
+    assert!(bails.iter().any(|k| k.contains("payment the core tables do not carry")), "{bails:?}");
+    assert_eq!(game.state.player(&pid("b")).unwrap().leaders.get(&agent), Some(&ti4_model::state::LeaderStatus::Exhausted), "the string paid");
+}
+
+/// Mindsieve: the Naalu follower hands the primary player a promissory note instead of a token.
+#[test]
+fn mindsieve_is_paid_by_the_core_step_in_lockstep() {
+    let naalu = [("a", "sol"), ("b", "naalu"), ("c", "arborec")];
+    let mut state = dealt(&naalu, "Politics");
+    prepare(&mut state);
+    state.player_mut(&pid("b")).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new("naalubt"));
+    let held = crate::promissory::held_by(&state, &pid("b"));
+    assert!(!held.is_empty(), "the Naalu seat holds its own notes");
+    let (counts, bails, game) = play(state, "follow|waived|");
+    assert!(bails.is_empty(), "{bails:?}");
+    assert!(counts.0 >= 2, "{counts:?}");
+    let handed: Vec<_> = held.iter().filter(|n| game.state.promissory_notes.get(n.as_str()) == Some(&pid("a"))).collect();
+    assert_eq!(handed.len(), 1, "exactly one note went to the primary player: {handed:?}");
+}
 
 /// A preview (the planning fork asks one follower in isolation) is not the step the core covers: it bails, and the
 /// string answers.

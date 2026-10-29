@@ -3019,6 +3019,23 @@ mod tests {
         }
     }
 
+    /// B8c-2: Enervate's token-free way to follow (the `enervate` waiver, a tokenless follower of a puppeted player's
+    /// card) is paid by the core step: it costs nothing, compared in lockstep.
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn the_enervate_waiver_is_taken_in_lockstep_with_the_core() {
+        use crate::strategy_secondary_dual_tests::{dealt_to, pid, play};
+        let (mut state, galaxy) = plotted(&[("enervate", "b")]);
+        flip(&mut state, &galaxy);
+        let mut state = dealt_to(state, "Politics", "b");
+        state.player_mut(&pid("a")).unwrap().strategic_tokens = 0;
+        let (counts, bails, game) = play(state, "follow|waived|");
+        assert!(counts.0 >= 2, "{counts:?} {bails:?}");
+        assert!(bails.is_empty(), "{bails:?}");
+        assert_eq!(game.state.player(&pid("a")).unwrap().strategic_tokens, 0, "no token spent, none needed");
+        assert!(game.events.iter().any(|e| e == "STRATEGY_SECONDARY_FOLLOWED"));
+    }
+
     #[test]
     fn enervate_lets_the_obsidian_perform_leadership_s_primary_instead_of_its_secondary() {
         use crate::strategy::StrategySecondaryWindow;

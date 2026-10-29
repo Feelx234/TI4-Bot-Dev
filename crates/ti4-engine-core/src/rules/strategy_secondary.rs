@@ -10,9 +10,13 @@
 //! payment rules and the secret hand (`strategy::secondary_eligible` and its `Env`), which this package does not
 //! move; the sums behind them are compared as reads (`strategy::secondary_eligible`).
 //!
-//! Not ported (the adapter bails, one test each): a waiver taken (the module pays its own cost in the string
-//! state: Acquiescence, Jae Mir Kan, Mindsieve), a window that is a preview or resolves a card nobody holds (Winnu
-//! hero), a position with a nested emission.
+//! A waiver taken is paid here ([`WaiverEffect`]: Acquiescence's note goes home, Mindsieve's note is handed over, Jae
+//! Mir Kan is exhausted and the token comes off the board, Enervate costs nothing); what each waiver does is told by the
+//! string side as data, like the rest of the facts.
+//!
+//! Not ported (the adapter bails, one test each): a waiver whose payment the tables do not carry
+//! ([`WaiverEffect::Unported`]: an unknown module, Jae Mir Kan while the Nomad watches an agent exhaust), a window that
+//! is a preview or resolves a card nobody holds (Winnu hero), a position with a nested emission.
 //!
 //! The follow EFFECT (`strategy_cards::follow`, `resolve_faction_strategy`) is not this window: the string runs it
 //! after the step, and each card's effect is already its own window.
@@ -21,12 +25,34 @@ use crate::choice::strategy::{ctx, rule_ctx, Ask as SAsk, Opt as SOpt, Subtype a
 use crate::choice::generic::Rule;
 use crate::choice::{Ask, Choice, Opt, Opts, Pick};
 use crate::containers::SmallList;
-use crate::generated::{StrategyCard, StrategyCardKind};
+use crate::generated::{Leader, StrategyCard, StrategyCardKind, System};
 use crate::ids::Seat;
 use crate::kernel::stage::{Illegal, Sx, Window};
-use crate::kernel::{fx, Kernel, Next};
+use crate::kernel::{fx, fx_strategy, Kernel, Next};
 use crate::keys::{Atom, MarkKey, MarkVal};
-use crate::state::{Code, CoreState, EventKind, EventRec, Key, Payload, Val};
+use crate::state::{Code, CoreState, EventKind, EventRec, Key, NoteKey, Payload, Val};
+
+/// What taking a waiver does to the position (the payment the module that offered it makes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WaiverEffect {
+    /// Costs nothing (Enervate).
+    Free,
+    /// Acquiescence: the follower's note goes back to its owner.
+    GiveBack(NoteKey),
+    /// Mindsieve: the follower hands the primary player the note.
+    HandOver(NoteKey),
+    /// Jae Mir Kan: the follower's agent is exhausted and the primary player's token comes off `system`.
+    Agent { leader: Leader, system: System },
+    /// A payment the tables do not carry: the window refuses the waiver (the adapter bails before it is taken).
+    Unported,
+}
+
+/// One token-free way to follow: its interned option shape and what it costs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Waiver {
+    pub code: Code,
+    pub effect: WaiverEffect,
+}
 
 /// What the window is told of one follower, from the string side.
 #[derive(Debug, Clone)]
@@ -38,8 +64,8 @@ pub struct FollowerFacts {
     pub costs_token: bool,
     /// Enervate: the primary may be performed instead (only offered when the follow costs no token).
     pub primary_instead: bool,
-    /// The token-free ways offered beside the follow (when it costs a token), as interned option shapes.
-    pub waivers: Vec<Code>,
+    /// The token-free ways offered beside the follow (when it costs a token).
+    pub waivers: Vec<Waiver>,
 }
 
 /// How a follower answered.
@@ -121,6 +147,30 @@ impl SecondaryStep {
         self.followers.get(self.asked?)
     }
 
+    /// `hooks_strategy::secondary_waived` of the module that offered the waiver.
+    fn pay_waiver(&self, core: &mut CoreState, f: &FollowerFacts, effect: WaiverEffect) -> Result<(), Illegal> {
+        match effect {
+            WaiverEffect::Free => {}
+            WaiverEffect::GiveBack(note) => {
+                if core.cards().promissory.get(&note) == Some(&f.who) {
+                    fx::give_back_note(core, note);
+                }
+            }
+            WaiverEffect::HandOver(note) => {
+                if f.who != self.primary && core.cards().promissory.get(&note) == Some(&f.who) {
+                    fx_strategy::take_note(core, self.primary, note);
+                }
+            }
+            WaiverEffect::Agent { leader, system } => {
+                if core.board().sys(system).cmd.contains(self.primary) && fx_strategy::exhaust_leader(core, f.who, leader) {
+                    fx::remove_command_token(core, self.primary, system);
+                }
+            }
+            WaiverEffect::Unported => return Err(Illegal),
+        }
+        Ok(())
+    }
+
     /// `Enervate` is remembered per follower; every other answer forgets it (`record_follow_answer`).
     fn note_answer(core: &mut CoreState, who: Seat, primary_instead: bool) {
         let marks = core.marks_mut().tail.edit();
@@ -181,7 +231,7 @@ impl Window for SecondaryStep {
             }
         } else {
             for w in &f.waivers {
-                opts.push(Opt::Strategy(SOpt::Waive(*w)));
+                opts.push(Opt::Strategy(SOpt::Waive(w.code)));
             }
         }
         let leadership = self.card.data().kind == StrategyCardKind::Leadership;
@@ -218,7 +268,12 @@ impl Window for SecondaryStep {
                 Resolution::Followed
             }
             SOpt::PrimaryInstead if !f.costs_token && f.primary_instead => Resolution::Followed,
-            // A waiver's cost is paid by the module that offered it, in the string state: the adapter does not run it.
+            // A token-free way: the module that offered it pays its cost.
+            SOpt::Waive(code) if f.costs_token => {
+                let waiver = f.waivers.iter().find(|w| w.code == code).ok_or(Illegal)?;
+                self.pay_waiver(sx.state, &f, waiver.effect)?;
+                Resolution::Followed
+            }
             _ => return Err(Illegal),
         };
         Self::note_answer(sx.state, f.who, opt == SOpt::PrimaryInstead);
@@ -340,11 +395,28 @@ mod tests {
         assert!(s.marks().tail.get(&MarkKey::FirmamentEnervate()).is_none(), "a decline forgets it");
     }
 
+    fn waiver(effect: WaiverEffect) -> Waiver {
+        Waiver { code: Code(7), effect }
+    }
+
+    /// Drives one asked follower holding `effect` as its only waiver and answers it by taking the waiver.
+    fn take_waiver(s: &mut CoreState, effect: WaiverEffect) -> (Driver<SecondaryStep>, bool) {
+        let mut f = fact(1, true, true);
+        f.waivers.push(waiver(effect));
+        let k = Kernel::plain();
+        let step = SecondaryStep::new(Seat(0), StrategyCard::Trade, true, 1, &[f], REASON);
+        let mut d = Driver::new(step, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), 1);
+        let Status::Asking(c) = d.run(s, &k).unwrap() else { panic!("asks") };
+        let at = c.opts.iter().position(|o| *o == Opt::Strategy(SOpt::Waive(Code(7)))).expect("the waiver is offered");
+        let ok = d.resume(s, &k, c.pick(at).unwrap()).is_ok();
+        (d, ok)
+    }
+
     #[test]
     fn a_tokenless_follower_with_a_waiver_is_not_offered_the_follow() {
         let mut s = game([0, 0, 0]);
         let mut f = fact(1, true, true);
-        f.waivers.push(Code(7));
+        f.waivers.push(waiver(WaiverEffect::Free));
         let k = Kernel::plain();
         let step = SecondaryStep::new(Seat(0), StrategyCard::Trade, true, 1, &[f], REASON);
         let mut d = Driver::new(step, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), 1);
@@ -352,16 +424,71 @@ mod tests {
         assert_eq!(c.opts.as_slice(), &[Opt::Strategy(SOpt::Skip), Opt::Strategy(SOpt::Waive(Code(7)))]);
     }
 
-    /// Bail: a waiver taken is a module's own payment in the string state; the window refuses it and the adapter does not run it.
+    /// Bail: a waiver whose payment the tables do not carry is refused (the adapter bails before it is taken).
     #[test]
-    fn bail_a_waiver_taken_is_refused() {
+    fn bail_an_unported_waiver_is_refused_and_changes_nothing() {
         let mut s = game([0, 0, 0]);
-        let mut f = fact(1, true, true);
-        f.waivers.push(Code(7));
-        let k = Kernel::plain();
-        let step = SecondaryStep::new(Seat(0), StrategyCard::Trade, true, 1, &[f], REASON);
-        let mut d = Driver::new(step, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), 1);
-        let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
-        assert!(d.resume(&mut s, &k, c.pick(1).unwrap()).is_err());
+        let before = s.clone();
+        let (_, ok) = take_waiver(&mut s, WaiverEffect::Unported);
+        assert!(!ok);
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().strat_exhausted, before.players().by_seat(Seat(0)).unwrap().strat_exhausted);
+        assert!(s.pending().staged.is_empty());
+    }
+
+    #[test]
+    fn a_free_waiver_follows_without_a_token_and_forgets_enervate() {
+        let mut s = game([0, 2, 0]);
+        s.marks_mut().tail.edit().insert(MarkKey::FirmamentEnervate(), MarkVal::Atom(Atom::Seat(Seat(1))));
+        let (d, ok) = take_waiver(&mut s, WaiverEffect::Free);
+        assert!(ok);
+        assert_eq!(d.window.outcome().answered, Some((Seat(1), Resolution::Followed)));
+        assert_eq!(s.players().by_seat(Seat(1)).unwrap().econ.strategic_tokens, 2, "no token");
+        assert!(s.pending().staged.is_empty());
+        assert!(s.marks().tail.get(&MarkKey::FirmamentEnervate()).is_none());
+        assert!(s.players().by_seat(Seat(0)).unwrap().strat_exhausted.contains(StrategyCard::Trade), "the last follower exhausts the card");
+    }
+
+    #[test]
+    fn acquiescence_goes_home_when_it_is_taken() {
+        let mut s = game([0, 0, 0]);
+        let key = NoteKey { note: crate::generated::PromissoryNote::Acquiescence, faction: Faction::ALL[0] };
+        let seats = [Seat(0), Seat(1), Seat(2)];
+        s.seats = crate::state::Seats::new(&seats, &seats, 3);
+        s.cards_mut().promissory.edit().insert(key, Seat(1));
+        let (_, ok) = take_waiver(&mut s, WaiverEffect::GiveBack(key));
+        assert!(ok);
+        assert_eq!(s.cards().promissory.get(&key), Some(&Seat(0)), "back with its owner");
+    }
+
+    #[test]
+    fn mindsieve_hands_the_primary_player_the_note() {
+        let mut s = game([0, 0, 0]);
+        let key = NoteKey { note: crate::generated::PromissoryNote::Acquiescence, faction: Faction::ALL[2] };
+        s.cards_mut().promissory.edit().insert(key, Seat(1));
+        let (_, ok) = take_waiver(&mut s, WaiverEffect::HandOver(key));
+        assert!(ok);
+        assert_eq!(s.cards().promissory.get(&key), Some(&Seat(0)), "the primary player holds it now");
+        // A note the follower does not hold is not handed over.
+        let mut s = game([0, 0, 0]);
+        s.cards_mut().promissory.edit().insert(key, Seat(2));
+        take_waiver(&mut s, WaiverEffect::HandOver(key));
+        assert_eq!(s.cards().promissory.get(&key), Some(&Seat(2)));
+    }
+
+    #[test]
+    fn jae_mir_kan_is_exhausted_and_the_token_leaves_the_board() {
+        use crate::generated::{Leader, System};
+        let mut s = game([0, 0, 0]);
+        s.board_mut().sys_mut(System::ALL[3]).cmd.insert(Seat(0));
+        s.players_mut().by_seat_mut(Seat(1)).unwrap().leaders.status.insert(Leader::JaeMirKan, crate::state::LeaderStatus::Readied);
+        let (_, ok) = take_waiver(&mut s, WaiverEffect::Agent { leader: Leader::JaeMirKan, system: System::ALL[3] });
+        assert!(ok);
+        assert_eq!(s.players().by_seat(Seat(1)).unwrap().leaders.status.get(&Leader::JaeMirKan), Some(&crate::state::LeaderStatus::Exhausted));
+        assert!(!s.board().sys(System::ALL[3]).cmd.contains(Seat(0)), "the token is off the board");
+        // An agent that is not ready pays nothing and the token stays.
+        let mut s = game([0, 0, 0]);
+        s.board_mut().sys_mut(System::ALL[3]).cmd.insert(Seat(0));
+        take_waiver(&mut s, WaiverEffect::Agent { leader: Leader::JaeMirKan, system: System::ALL[3] });
+        assert!(s.board().sys(System::ALL[3]).cmd.contains(Seat(0)));
     }
 }
