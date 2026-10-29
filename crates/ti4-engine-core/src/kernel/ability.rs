@@ -139,6 +139,8 @@ pub struct Codes {
     pub cavalry: crate::state::Code,
     /// The name `technological_singularity`, the source of the question of the Nekro's ability.
     pub technological_singularity: crate::state::Code,
+    /// The unit alias `empyrean_mech`, the source of the Watcher's question.
+    pub empyrean_mech: crate::state::Code,
     pub retreat_capacity: crate::state::Code,
     pub reinforcements: crate::state::Code,
 }
@@ -191,6 +193,10 @@ pub struct AdapterFacts {
     /// Hit removes the exact sustained ship.
     pub staging: bool,
     withdraw: Vec<(Seat, crate::generated::System, Vec<crate::generated::System>)>,
+    /// The kernel whose economy hooks a payment inside an ability reads (the production kernel; the combat kernel holds none of
+    /// the faction hooks of a payment). Set by the adapter.
+    pub pay_kernel: Option<fn() -> &'static Kernel>,
+    adjacent: Vec<(crate::generated::System, crate::generated::System, bool)>,
 }
 
 impl AdapterFacts {
@@ -210,6 +216,19 @@ impl AdapterFacts {
     #[must_use]
     pub fn withdraw(&self, who: Seat, system: crate::generated::System) -> Option<&[crate::generated::System]> {
         self.withdraw.iter().find(|(w, s, _)| *w == who && *s == system).map(|(_, _, d)| d.as_slice())
+    }
+
+    /// Record that the map has `a` next to `b` (or not): an input of the abilities that look at the map (Dynamo, the Watcher).
+    pub fn set_adjacent(&mut self, a: crate::generated::System, b: crate::generated::System, adjacent: bool) {
+        if !self.adjacent.iter().any(|(x, y, _)| *x == a && *y == b) {
+            self.adjacent.push((a, b, adjacent));
+        }
+    }
+
+    /// Whether the map has `a` next to `b`, if the string's ability asked it.
+    #[must_use]
+    pub fn adjacent(&self, a: crate::generated::System, b: crate::generated::System) -> Option<bool> {
+        self.adjacent.iter().find(|(x, y, _)| *x == a && *y == b).map(|(_, _, v)| *v)
     }
 
     /// The neighbours of `system` for `who`, if the adapter computed them.
@@ -665,6 +684,12 @@ impl<'a> Eff<'_, 'a> {
     #[must_use]
     pub fn adapter_facts(&self) -> &AdapterFacts {
         &self.host.table.facts
+    }
+
+    /// The kernel a payment inside this ability reads, if the adapter lent one.
+    #[must_use]
+    pub fn pay_kernel(&self) -> Option<&'static Kernel> {
+        self.host.table.facts.pay_kernel.map(|f| f())
     }
 
     /// The state and the kernel, read together (`state()` borrows the effect mutably).

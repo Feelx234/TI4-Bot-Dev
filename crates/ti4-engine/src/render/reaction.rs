@@ -36,6 +36,7 @@ impl Family for Fam {
             Ask::Legionnaire { .. } => "Crimson Legionnaire: gain 1 commodity or convert 1 to a trade good".to_owned(),
             Ask::Cavalry => "The Cavalry: which non-fighter ship takes the Nomad flagship's abilities".to_owned(),
             Ask::Assimilate => "gain a technology, or assimilate instead".to_owned(),
+            Ask::Watcher { actor } => format!("Watcher: which mech cancels {}'s action card", r.seat_text(*actor)),
             Ask::AgentSwap { target } => format!(
                 "I48S: exhaust to let {} replace 1 infantry in the active system with a mech",
                 target.map_or_else(|| "the active player".to_owned(), |t| r.seat_text(t).to_owned())
@@ -52,6 +53,7 @@ impl Family for Fam {
             Subtype::Legionnaire => "legionnaire_payment".to_owned(),
             Subtype::Cavalry => "cavalry_ship".to_owned(),
             Subtype::Assimilate => "assimilate".to_owned(),
+            Subtype::Watcher => "watcher_remove".to_owned(),
         }
     }
 
@@ -86,6 +88,11 @@ impl Family for Fam {
                 };
                 ChoiceOption::labelled(format!("{kind}|{source}|{tech_id}"), "nekro_assimilate", label)
             }
+            (Ask::Watcher { .. }, Opt::Site { system, planet }) => {
+                let system = system.as_str();
+                let place = planet.map_or_else(|| "space".to_owned(), |p| p.as_str().to_owned());
+                ChoiceOption::labelled(format!("watcher|{system}|{place}"), "watcher", format!("remove the Watcher in system {system}")).with("system", system)
+            }
             _ => panic!("option {o:?} in the question {a:?}"),
         }
     }
@@ -96,6 +103,12 @@ impl Family for Fam {
         }
         if let Ask::Cavalry = a {
             return <ti4_engine_core::generated::Unit as IdStr>::from_id(id).map(Opt::Ship);
+        }
+        if let Ask::Watcher { .. } = a {
+            let mut parts = id.splitn(3, '|');
+            let (Some("watcher"), Some(system), Some(place)) = (parts.next(), parts.next(), parts.next()) else { return None };
+            let planet = if place == "space" { None } else { Some(<ti4_engine_core::generated::Planet as IdStr>::from_id(place)?) };
+            return Some(Opt::Site { system: <ti4_engine_core::generated::System as IdStr>::from_id(system)?, planet });
         }
         if let Ask::Assimilate = a {
             let mut parts = id.splitn(3, '|');

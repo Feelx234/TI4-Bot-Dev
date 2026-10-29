@@ -10126,6 +10126,130 @@ mod tests {
         assert_eq!(plain_bailed, 0, "no Z token, no bail");
     }
 
+    /// One space fight of `a` against `b` (real factions, the fixture's notes cleared) at the centre of a plain hub whose map is
+    /// lent to the combat, after `prepare`; every question is answered by `pick(seed, nth question of its prompt kind, choice)`.
+    /// `(the state after, the windows of the report, the number of differences)`.
+    fn hub_fight(
+        seed: u64,
+        factions: [&str; 2],
+        prepare: impl Fn(&mut GameState, &SystemId),
+        pick: fn(u64, usize, &Choice) -> usize,
+    ) -> (GameState, std::collections::BTreeMap<String, crate::dual::WindowCounts>, u64, Vec<String>) {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        struct Rotate(u64, usize, fn(u64, usize, &Choice) -> usize);
+        impl crate::choice::Decider for Rotate {
+            fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+                self.1 += 1;
+                let i = (self.2)(self.0, self.1, choice).min(choice.options.len().saturating_sub(1));
+                choice.options.get(i).cloned().ok_or_else(|| IllegalChoice::NoOptions { player: choice.player.clone(), prompt: choice.prompt.clone() })
+            }
+        }
+        let hub = crate::fixtures::plain_hub();
+        let mut out = None;
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || crate::dual_window::with_composed(true, || {
+            let mut state = crate::fixtures::seated_game(&[("a", factions[0]), ("b", factions[1])], ti4_model::content_types::DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = seed;
+            let system = SystemId::new(hub.centre.clone());
+            prepare(&mut state, &system);
+            state.active_system = Some(system.clone());
+            state.active = Some(attacker());
+            let mut table = Table::with_default(Box::new(Rotate(seed, 0, pick)));
+            let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+            let mut resolver = crate::fixtures::armed_resolver(&state);
+            let mut sequence = crate::event::EventSequence::new();
+            let mut ctx = Resolving {
+                content: ContentStore::embedded(),
+                sources: ti4_model::content_types::DEFAULT,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: Some(&hub.galaxy) }),
+            };
+            resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+            out = Some(state);
+        }));
+        let r = report();
+        let differences = r.total_differences();
+        if differences > 0 {
+            eprintln!("{:?}", r.differences.first());
+        }
+        let windows = r.windows.clone();
+        let nested = r.nested.keys().cloned().collect();
+        let _ = take_report();
+        (out.unwrap(), windows, differences, nested)
+    }
+
+    /// Dynamo (the Empyrean flagship): after a defender's dreadnought sustains in the fight the Empyrean may spend 2 influence
+    /// to repair it; the planets are the payment's own questions, answered in turn.
+    #[test]
+    fn dynamo_repairs_in_the_core_window_in_lockstep() {
+        let (mut offered, mut paid_questions) = (0, 0);
+        for seed in 0..10_u64 {
+            let (_state, windows, differences, nested) = hub_fight(
+                seed,
+                ["empyrean", "hacan"],
+                |s, system| {
+                    // Half of the fights have the flagship in an adjacent system: the map is an input of the ability.
+                    let home = if s.rng_seed % 2 == 1 { SystemId::new(crate::fixtures::plain_hub().outer[0].clone()) } else { system.clone() };
+                    put(s, &home, "empyrean_flagship", &attacker(), 1);
+                    put(s, system, "cruiser", &attacker(), 2);
+                    put(s, system, "dreadnought", &defender(), 3);
+                    put(s, system, "cruiser", &defender(), 1);
+                    // Trade goods beside the planets make the payment a real choice.
+                    s.player_mut(&attacker()).unwrap().trade_goods = 6;
+                },
+                |seed, nth, c| if c.prompt.starts_with("pay ") { (seed as usize + nth) % 3 } else { 0 },
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            assert!(windows.keys().all(|k| !k.contains("[bail:")), "seed {seed}: {windows:?}");
+            offered += nested.iter().filter(|k| k.contains("unit:*:empyrean_flagship:SUSTAIN_DAMAGE_USED:after")).count();
+            paid_questions += nested.iter().filter(|k| k.contains("ask:pay ")).count();
+        }
+        assert!(offered > 0, "Dynamo was offered and followed");
+        assert!(paid_questions > 0, "a payment question was put inside the ability");
+    }
+
+    /// The Watcher (the Empyrean mech): the opponent plays a reaction card in the fight; the Empyrean removes a mech in reach to
+    /// cancel it (a question when several mechs are in reach).
+    #[test]
+    fn the_watcher_cancels_a_card_in_the_core_window_in_lockstep() {
+        let (mut offered, mut asked) = (0, 0);
+        for seed in 0..8_u64 {
+            let (state, windows, differences, nested) = hub_fight(
+                seed,
+                ["empyrean", "hacan"],
+                |s, system| {
+                    put(s, system, "cruiser", &attacker(), 2);
+                    put(s, system, "empyrean_mech", &attacker(), 2);
+                    put(s, system, "dreadnought", &defender(), 2);
+                    let outer = SystemId::new(crate::fixtures::plain_hub().outer[0].clone());
+                    put(s, &outer, "empyrean_mech", &attacker(), 1);
+                    s.player_mut(&defender()).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("mb1")];
+                },
+                |seed, _, c| {
+                    if let Some(i) = c.options.iter().position(|o| o.id.contains("empyrean_mech")) {
+                        return i;
+                    }
+                    if c.prompt.starts_with("Watcher") {
+                        return seed as usize;
+                    }
+                    c.options.iter().position(|o| o.id.starts_with("reaction:")).unwrap_or(0)
+                },
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            assert!(windows.keys().all(|k| !k.contains("[bail:")), "seed {seed}: {windows:?}");
+            offered += nested.iter().filter(|k| k.contains("unit:*:empyrean_mech:ACTION_CARD_PLAYED:when")).count();
+            asked += nested.iter().filter(|k| k.contains("ask:Watcher")).count();
+            let _ = state;
+        }
+        assert!(offered > 0, "the Watcher was offered and followed");
+        assert!(asked > 0, "several mechs were in reach: the Empyrean was asked which");
+    }
+
     /// Direct Hit: the attacker's hit is sustained by a dreadnought, the attacker destroys that ship from the slot of
     /// `SUSTAIN_DAMAGE_USED`; the core removes it and announces `SHIP_DESTROYED` after the discard. With a faction module
     /// seated (staging) the exact sustained ship goes; without, the first of the type.

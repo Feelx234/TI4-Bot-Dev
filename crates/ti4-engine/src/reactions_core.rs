@@ -50,6 +50,9 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::CLOSE_SPACE, kind: "ability", card: "technological_singularity_close" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::CLOSE_GROUND, kind: "ability", card: "technological_singularity_close" },
     Named { slot: ti4_engine_core_factions::cd_registry::sardakk::timing::HERO_FINISH, kind: "leader", card: "sardakkhero" },
+    Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::DYNAMO_SHIP, kind: "unit", card: "empyrean_flagship" },
+    Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::DYNAMO_GROUND, kind: "unit", card: "empyrean_flagship" },
+    Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::WATCHER, kind: "unit", card: "empyrean_mech" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::CAVALRY_PLAY, kind: "promissory", card: "cavalry" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::CAVALRY_RETURN, kind: "promissory", card: "cavalry" },
     Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::LEGIONNAIRE, kind: "unit", card: "mahact_infantry" },
@@ -257,6 +260,10 @@ pub fn follow(r: &Render, gs: &GameState, script: &Recording) -> Result<Option<F
         let destinations = destinations.iter().filter_map(|d| <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(d)).collect();
         table.facts.set_withdraw(who, system, destinations);
     }
+    for (a, b, adjacent) in &script.adjacent {
+        let (Some(a), Some(b)) = (<ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(a), <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(b)) else { continue };
+        table.facts.set_adjacent(a, b, *adjacent);
+    }
     // A played card: Data Skimmer takes another player's discard onto the breakthrough (a Ral Nel seat). A rules version
     // before 3 plays at once, which the core's play does too (B6: `reaction_slot::play`).
     if let Some(slot) = script.effects.iter().find(|e| e.starts_with("reaction:")) {
@@ -376,6 +383,8 @@ impl Follow {
         self.table.codes.direct_hit = r.code("action_card:direct_hit");
         self.table.codes.cavalry = r.code("cavalry");
         self.table.codes.technological_singularity = r.code("technological_singularity");
+        self.table.codes.empyrean_mech = r.code("empyrean_mech");
+        self.table.facts.pay_kernel = Some(crate::production_view::kernel);
         self.table.codes.mahact_infantry = r.code("mahact_infantry");
         self.table.codes.mahact_infantry2 = r.code("mahact_infantry2");
         self.table.codes.retreat_capacity = r.code("retreat_capacity");
@@ -441,9 +450,6 @@ mod tests {
     fn bail_every_family_that_stays_in_the_string_is_named() {
         let t = table();
         for id in [
-            "unit:empyrean:empyrean_flagship:SUSTAIN_DAMAGE_USED:after",
-            "unit:empyrean:empyrean_flagship:GROUND_FORCE_SUSTAINED:after",
-            "unit:empyrean:empyrean_mech:ACTION_CARD_PLAYED:when",
             "technology:mentak:so:SPACE_COMBAT_ENDED:produce",
             "unit:sardakk:sardakk_mech:GROUND_FORCE_SUSTAINED:after",
             "leader:sardakk:sardakkhero_turn:TURN_BEGAN:after",
@@ -579,7 +585,7 @@ mod tests {
         use ti4_engine_core::state::Slice;
         let content = ti4_content::ContentStore::embedded();
         let _ = content;
-        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")]] {
+        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")]] {
             let mut gs = crate::fixtures::seated_game(&factions, ti4_model::content_types::POK);
             gs.promissory_notes.clear();
             gs.promissory_faceup.clear();

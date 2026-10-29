@@ -9,7 +9,9 @@ use crate::choice::production::{Ask as PAsk, Currency, Opt as POpt, Subtype as P
 use crate::choice::{Ask, Choice, Ctx, Opt, Origin, Owed, OwedKind, Pick, Subtype};
 use crate::containers::SmallList;
 use crate::ids::Seat;
+use crate::kernel::ability::{Eff, Unknown};
 use crate::kernel::fx;
+use crate::kernel::resolver::TimingError;
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
 use crate::query::economy::Spend;
@@ -105,6 +107,55 @@ impl PayStep {
             _ => None,
         }
     }
+}
+
+/// A free payment loop run inside an ability's effect (the string `pay_seeing` of Dynamo, Salvage Operations): the steps of
+/// [`PayStep`] repeated until the bill is met, a lone option taken without a question and every real choice put through the
+/// effect's tape. `Ok(false)` (the state as the loop left it; the caller restores) when the bill cannot be met. Needs the
+/// kernel the adapter lent for payments (`AdapterFacts::pay_kernel`); without one the window is unknown.
+///
+/// # Errors
+/// Never; the result type is the effect's.
+pub fn pay_in(eff: &mut Eff<'_, '_>, who: Seat, cost: i64, kind: Spend) -> Result<bool, TimingError> {
+    let Some(k) = eff.pay_kernel() else {
+        eff.unknown(Unknown::MissingFact);
+        return Ok(false);
+    };
+    if cost <= 0 {
+        return Ok(true);
+    }
+    {
+        let s: &CoreState = eff.state();
+        let cx = PayStep::cx(s, k);
+        if rules::available(&cx, who, kind, &Held::of(&cx, who).extras()) < cost {
+            return Ok(false);
+        }
+    }
+    let mut step = PayStep { who, kind, cost, used_credit: 0, owed: cost, paid: 0, took: None, stage: Stage::Paying };
+    while step.paid < step.owed {
+        let (lone, question) = {
+            let s: &CoreState = eff.state();
+            let cx = PayStep::cx(s, k);
+            let (_, opts) = rules::pay_opts(&cx, who, kind, step.paid, step.owed, &Held::of(&cx, who).extras());
+            match opts.as_slice() {
+                [] => return Ok(false),
+                [only] => (Some(*only), None),
+                _ => (None, step.question(s, k)),
+            }
+        };
+        let picked = match (lone, question) {
+            (Some(only), _) => only,
+            (None, Some(q)) => match eff.ask(&q) {
+                Pick::Opt(Opt::Production(o)) => o,
+                _ => return Ok(false),
+            },
+            (None, None) => return Ok(false),
+        };
+        let took = step.apply(eff.state(), k, picked);
+        let Some(worth) = took else { return Ok(false) };
+        step.paid += worth;
+    }
+    Ok(true)
 }
 
 impl Window for PayStep {

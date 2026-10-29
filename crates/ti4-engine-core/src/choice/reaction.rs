@@ -76,6 +76,8 @@ pub enum Ask {
     Cavalry,
     /// Technological Singularity (the Nekro): "gain a technology, or assimilate instead" (`nekro::take_from`).
     Assimilate,
+    /// The Watcher (Empyrean mech): which of the mechs in reach cancels the action card `actor` played.
+    Watcher { actor: Seat },
 }
 
 /// What a Nekro takes of an opponent's technology through an ability.
@@ -106,6 +108,8 @@ pub enum Opt {
     Ship(crate::generated::Unit),
     /// A technology of `source` taken the way `how` says (Technological Singularity).
     Take { how: Take, tech: crate::generated::Technology, source: Seat },
+    /// The place of a mech (the Watcher): a system and a planet, `None` for its space area.
+    Site { system: crate::generated::System, planet: Option<crate::generated::Planet> },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`): `reaction_{relation}_{EVENT}`.
@@ -121,4 +125,6 @@ pub enum Subtype {
     Cavalry,
     /// `assimilate`.
     Assimilate,
+    /// `watcher_remove`.
+    Watcher,
 }

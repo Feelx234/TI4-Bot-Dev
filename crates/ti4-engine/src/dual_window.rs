@@ -93,6 +93,8 @@ pub struct Recording {
     /// The destinations a Skilled Retreat found for `(player, system)`, as the string's map computed them (the core is lent
     /// no galaxy): an input of the card, noted by its effect.
     pub withdraw: Vec<(String, String, Vec<String>)>,
+    /// The pairs of systems the string's abilities asked the map about (`near`): `(a, b, adjacent)`; the core is lent no galaxy.
+    pub adjacent: Vec<(String, String, bool)>,
     effect_depth: u32,
     in_pick: u32,
     /// The emission depth the window started at: a window may itself run inside an emission (an ability's
@@ -152,6 +154,17 @@ fn intern_label(label: &str) -> &'static str {
     let leaked: &'static str = Box::leak(label.to_owned().into_boxed_str());
     all.push(leaked);
     leaked
+}
+
+/// An ability asked the map whether `a` is next to `b` (`galaxy.adjacent`): an input of Dynamo and the Watcher.
+pub fn note_adjacent(a: &str, b: &str, adjacent: bool) {
+    REC.with(|r| {
+        if let Some(rec) = r.borrow_mut().as_mut() {
+            if !rec.adjacent.iter().any(|(x, y, _)| x == a && y == b) {
+                rec.adjacent.push((a.to_owned(), b.to_owned(), adjacent));
+            }
+        }
+    });
 }
 
 /// Begin a recording; `false` (and nothing changes) when one is running already.
@@ -707,7 +720,7 @@ fn complete_nested(
 fn with_trigger_of(choice: &CoreChoice) -> bool {
     use ti4_engine_core::choice::reaction::Ask as RAsk;
     match choice.ask {
-        ti4_engine_core::choice::Ask::Reaction(a) => !matches!(a, RAsk::Legionnaire { .. } | RAsk::Cavalry | RAsk::Assimilate),
+        ti4_engine_core::choice::Ask::Reaction(a) => !matches!(a, RAsk::Legionnaire { .. } | RAsk::Cavalry | RAsk::Assimilate | RAsk::Watcher { .. }),
         ti4_engine_core::choice::Ask::Cards(ti4_engine_core::choice::cards::Ask::PlayCard { .. }) => true,
         _ => false,
     }
