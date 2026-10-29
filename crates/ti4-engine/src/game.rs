@@ -45,6 +45,12 @@ mod d1_pending {
         false
     }
 
+    pub(super) fn probe(_: &super::Game<'_>) -> Option<serde_json::Value> {
+        None
+    }
+
+    pub(super) fn probed(_: &super::Game<'_>, _: &mut Option<serde_json::Value>, _: &str) {}
+
     #[derive(Debug, Clone, Default)]
     pub(super) struct Shadow {
         pub(super) outcome: Option<crate::strategy::StepOutcome>,
@@ -2095,8 +2101,11 @@ impl<'a> Game<'a> {
     fn step_flow(&mut self) -> StepResult {
         // Identical-ask counts are per step: a cycle inside one step is what trips the guard.
         self.table.begin_step();
+        // The reconcile hooks below are counted under the D1 dual (which of them changed the state: `d1::reconcile`).
+        let mut probe = d1_pending::probe(self);
         if !self.state.starting_tech_picks.is_empty() {
             crate::starting_tech::settle(&mut self.state, self.content, self.sources);
+            d1_pending::probed(self, &mut probe, "starting_tech::settle");
         }
         // Rolls are stamped with the system in play, for the public roll feed only.
         let scene = self
@@ -2108,13 +2117,16 @@ impl<'a> Game<'a> {
         if let Err(error) = self.announce_staged_ground_events() {
             return self.result(false, Some(error));
         }
+        d1_pending::probed(self, &mut probe, "announce_staged_ground_events");
         if let Err(error) = self.announce_gains() {
             return self.result(false, Some(error));
         }
+        d1_pending::probed(self, &mut probe, "announce_gains");
         // Space station control is a function of occupancy, not an event (rules 2, 2a, 2b), so it
         // is recomputed once per step rather than at each of the dozen places a unit can move or
         // die. Doing it here means a movement path added later cannot forget to.
         crate::space_stations::reconcile_all(&mut self.state, self.content, self.sources);
+        d1_pending::probed(self, &mut probe, "space_stations::reconcile_all");
         // The two wormhole laws are switches on the map, and the map is owned here. Set once per
         // step for the same reason as station control: derived state is cheaper to recompute than
         // to keep in sync from every place a law can be enacted or repealed.
@@ -2125,19 +2137,23 @@ impl<'a> Game<'a> {
         if !self.state.nexus_unlocked && crate::seating::nexus_is_triggered(&self.state) {
             self.state.nexus_unlocked = true;
         }
+        d1_pending::probed(self, &mut probe, "nexus_unlocked");
         // A Song Like Marrow moves a victory point with control of Styx, in both directions.
         // Reconciled here rather than hooked onto a control change for the same reason as the two
         // above: control is handed over in dozens of places, and a VP swing that misses one is
         // silently wrong.
         crate::legendary::settle_control_points(&mut self.state);
+        d1_pending::probed(self, &mut probe, "legendary::settle_control_points");
         // I.I.H.Q. Modernization: "Gain the Custodia Vigilia planet card ... You cannot lose these
         // cards." The technology and the breakthrough reach a seat from many places, none of which
         // announces it, so the planet card is reconciled here, as station control is.
         crate::factions::keleres::reconcile(&mut self.state);
+        d1_pending::probed(self, &mut probe, "keleres::reconcile");
         // Sundered: "Other players' units that move or are placed into your home system are
         // destroyed." Units reach a system by too many routes to hook each, so it is reconciled here
         // as station control is (and again when a movement step finishes, before anything fires).
         crate::factions::crimson::enforce_sundered(&mut self.state, self.content, self.sources);
+        d1_pending::probed(self, &mut probe, "crimson::enforce_sundered");
         if let Some(galaxy) = self.galaxy.as_mut() {
             crate::laws::apply_to_galaxy(&self.state, galaxy);
             // Tiles a faction effect changed (Nova Seed), replayed onto the owned map. A recorded
@@ -2155,6 +2171,7 @@ impl<'a> Game<'a> {
             let outcome = if survived { "SURVIVED" } else { "LOST" };
             self.emit(&format!("SPEC_OPS_{outcome}:{owner}"));
         }
+        d1_pending::probed(self, &mut probe, "faction_techs::roll_spec_ops");
 
         if self.state.finished {
             self.complete_leader_strategy();

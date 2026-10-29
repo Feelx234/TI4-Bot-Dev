@@ -335,6 +335,47 @@ fn advance_held(pending: &mut Pending, out: &Outcome) -> bool {
     true
 }
 
+// --- the census of phase flow and reconcile hooks (W3, W4) -------------------------------------------------------------
+
+/// The kinds of the windows a `Pending` holds.
+fn kinds(stack: &[Window]) -> Vec<WindowKind> {
+    stack.iter().map(Window::kind).collect()
+}
+
+/// Which window kinds the string opened and closed in this step (`d1::pending.open [bail: <kind>]`,
+/// `d1::pending.close [bail: <kind>]`): the openers and closers of phase flow the core does not run yet, the worklist of
+/// D1b's `Session::step`. Counted, never compared.
+fn census_flow(held: &Pending, observed: &[Window]) {
+    let (before, now) = (kinds(&held.stack), kinds(observed));
+    for kind in &now {
+        if !before.contains(kind) {
+            note_bail("d1::pending.open", &format!("{kind:?}"));
+        }
+    }
+    for kind in &before {
+        if !now.contains(kind) {
+            note_bail("d1::pending.close", &format!("{kind:?}"));
+        }
+    }
+}
+
+/// A probe of the per-step reconcile hooks (`starting_tech::settle` ... `roll_spec_ops`): the state before a hook, taken
+/// only under the D1 dual. [`probed`] counts the hooks that changed it (`d1::reconcile [bail: <hook>]`), the lent bodies the
+/// core step would have to run first; none of them is ported.
+pub(super) fn probe(g: &Game<'_>) -> Option<serde_json::Value> {
+    if active() { serde_json::to_value(&g.state).ok() } else { None }
+}
+
+/// Count `hook` when the state differs from the probe taken before it ran; the probe is refreshed for the next hook.
+pub(super) fn probed(g: &Game<'_>, probe: &mut Option<serde_json::Value>, hook: &str) {
+    let Some(before) = probe.as_ref() else { return };
+    let now = serde_json::to_value(&g.state).ok();
+    if now.as_ref() != Some(before) {
+        note_bail("d1::reconcile", hook);
+        *probe = now;
+    }
+}
+
 // --- the check ------------------------------------------------------------------------------------------------------
 
 /// Compare the held `Pending` with the string fields after `Game::step`, then re-seed it from them.
@@ -346,6 +387,7 @@ pub(super) fn check(g: &mut Game<'_>, result: &StepResult) {
     if !any_open(g) && g.d1.pending.stack.is_empty() {
         return;
     }
+    // (A step that closed the last window still reaches the census below: the held copy is not empty.)
     let Ok(cx) = crate::core_sync::Ctx::of(&g.state) else {
         note_bail(LABEL, "more than 16 owners");
         g.d1.pending = Pending::default();
@@ -360,6 +402,7 @@ pub(super) fn check(g: &mut Game<'_>, result: &StepResult) {
             return;
         }
     };
+    census_flow(&g.d1.pending, &observed);
     let mut compared = false;
     let mut ok = true;
     // The held follower window, moved on by the core's own outcome of this step.
@@ -839,5 +882,45 @@ mod tests {
         let r = report();
         let _ = take_report();
         assert!(!ok && r.differences.iter().any(|d| d.label == "d1::pending.roundtrip"), "{:?}", r.differences);
+    }
+
+    #[test]
+    fn the_windows_the_string_opens_and_closes_are_counted_by_kind() {
+        let _serial = crate::dual::tests::serial();
+        let state = dealt(&F3, "Politics");
+        let mut g = Game::with_table(state, ContentStore::embedded(), Table::with_default(Box::new(Followers { follow: "yes" })));
+        g.executive_order = Some((pid("b"), pid("c")));
+        let (r, _) = checked(&mut g);
+        assert_eq!(r.windows.get("d1::pending.open [bail: ExecutiveOrder]").map(|w| w.bailed), Some(1), "{:?}", r.windows);
+        assert!(!r.windows.keys().any(|k| k.starts_with("d1::pending.close")), "{:?}", r.windows);
+        // The window stays open: nothing new is counted. Closing it is counted once.
+        let (r, _) = checked(&mut g);
+        assert!(!r.windows.keys().any(|k| k.starts_with("d1::pending.open") || k.starts_with("d1::pending.close")), "{:?}", r.windows);
+        g.executive_order = None;
+        let (r, held) = checked(&mut g);
+        assert_eq!(r.windows.get("d1::pending.close [bail: ExecutiveOrder]").map(|w| w.bailed), Some(1), "{:?}", r.windows);
+        assert!(held.stack.is_empty());
+    }
+
+    #[test]
+    fn a_reconcile_hook_that_changes_the_state_is_counted_by_name_and_one_that_does_not_is_not() {
+        let _serial = crate::dual::tests::serial();
+        let state = dealt(&F3, "Politics");
+        let mut g = Game::with_table(state, ContentStore::embedded(), Table::with_default(Box::new(Followers { follow: "yes" })));
+        let _ = take_report();
+        with_mask(both(), || {
+            let mut p = probe(&g);
+            assert!(p.is_some(), "the probe is taken under the D1 dual");
+            probed(&g, &mut p, "quiet_hook");
+            g.state.nexus_unlocked = !g.state.nexus_unlocked;
+            probed(&g, &mut p, "nexus_unlocked");
+            probed(&g, &mut p, "after_it");
+        });
+        let r = report();
+        let _ = take_report();
+        let keys: Vec<&String> = r.windows.keys().filter(|k| k.starts_with("d1::reconcile")).collect();
+        assert_eq!(keys, ["d1::reconcile [bail: nexus_unlocked]"], "{:?}", r.windows);
+        // Off the dual the probe is free: nothing is taken.
+        with_mask(AreaMask::STRING, || assert!(probe(&g).is_none()));
     }
 }
