@@ -114,6 +114,7 @@ mod tests {
         set(&mut s, 1, Leader::BrotherMilor, LeaderStatus::Readied);
         assert!(!lends(&s, None), "an ability that names no lender");
         assert!(!lends(&s, Some(Seat(2))), "a lender that does not hold the agent");
+        set(&mut s, 1, Leader::Ssruu, LeaderStatus::Readied);
         assert!(!borrowable(&s, Seat(1), Some(Seat(1)), Leader::BrotherMilor), "no one borrows from itself");
         set(&mut s, 0, Leader::Ssruu, LeaderStatus::Exhausted);
         assert!(!lends(&s, Some(Seat(1))), "Ssruu itself must be readied");

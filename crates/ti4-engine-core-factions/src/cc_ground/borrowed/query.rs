@@ -245,6 +245,8 @@ mod round_bonus_tests {
         assert_eq!(dice(&s, 1, Unit::DestroyerI, 0, 3), 0, "another type");
         s.board_mut().sys_mut(system).units.as_mut_slice()[0] = Piece::new(Unit::CruiserI, Seat(1)).with_sustained(true);
         assert_eq!(dice(&s, 1, Unit::CruiserI, 0, 3), 0, "the unit changed (it sustained since)");
+        s.board_mut().sys_mut(system).units.as_mut_slice()[0] = Piece::new(Unit::CruiserI, Seat(1));
+        assert_eq!(dice(&s, 1, Unit::CruiserI, 0, 3), 1, "the unit is the one again");
         s.meta_mut().combat_round_seq = 4;
         assert_eq!(dice(&s, 1, Unit::CruiserI, 0, 3), 0, "the round is over");
     }
