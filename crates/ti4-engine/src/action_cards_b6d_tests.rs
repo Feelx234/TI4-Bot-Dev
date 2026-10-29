@@ -809,7 +809,10 @@ fn strategize_asks_which_card_to_perform_and_performs_the_trade_and_imperial_sec
     let mut full = lone_imperial.clone();
     let held: Vec<_> = full.secret_deck.drain(..3).collect();
     full.player_mut(&a).unwrap().secret_objectives = held;
-    for case in [&pick, &mat, &both, &lone_trade, &lone_imperial, &full] {
+    // The deck has run out: nothing is drawn and the hand, over its limit already, is not asked about.
+    let mut dry = full.clone();
+    dry.secret_deck.clear();
+    for case in [&pick, &mat, &both, &lone_trade, &lone_imperial, &full, &dry] {
         announce_all(&[("strategize1", case.clone())]);
     }
     announce_all(&[("strategize3", pick.clone())]);
@@ -944,7 +947,9 @@ fn overrule_performs_the_politics_primary_in_the_core_window() {
     dry.agenda_deck.clear();
     let mut old = politics.clone();
     old.rules_version = ti4_model::state::RULES_OFFICIAL_ACTION_DECK - 1;
-    for case in [&politics, &dry, &old] {
+    let mut edge = politics.clone();
+    edge.rules_version = ti4_model::state::RULES_OFFICIAL_ACTION_DECK;
+    for case in [&politics, &dry, &old, &edge] {
         announce_all(&[("overrule", case.clone())]);
     }
     let _ = crate::dual::take_report();
@@ -994,6 +999,11 @@ fn strategize_and_overrule_follow_the_seating_order_the_faction_and_the_rules_ve
         announce_all(&[("strategize1", case.clone())]);
     }
     announce_all(&[("overrule", letnev_warfare.clone())]);
+    for version in [ti4_model::state::RULES_LETNEV_FLEET_POOL - 1, ti4_model::state::RULES_LETNEV_FLEET_POOL] {
+        let mut older = letnev_warfare.clone();
+        older.rules_version = version;
+        announce_all(&[("overrule", older)]);
+    }
     announce_all(&[("overrule", letnev_leadership.clone())]);
     announce_all(&[("overrule", naalu_trade.clone())]);
     announce_all(&[("strategize1", naalu_trade)]);
