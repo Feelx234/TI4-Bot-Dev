@@ -227,6 +227,17 @@ pub struct NoteFacts {
     pub payable: bool,
     /// The receiver may take it (`promissory::may_receive`).
     pub receivable: bool,
+    /// What moves when the deal settles (`None`: an id the tables do not know; the string engine moves it).
+    pub mv: Option<NoteMove>,
+}
+
+/// The typed form of the note a deal moves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoteMove {
+    /// A note of the table: the holder changes (`promissory::take`).
+    Held(crate::state::NoteKey),
+    /// Support for the Throne of this faction: the loan and its point (`promissory::receive`).
+    Support(crate::generated::Faction),
 }
 
 /// The planet-card leg of a deal (Pride of Kenara): whether the giver can pay it.

@@ -862,8 +862,8 @@ pub fn resolve(
 }
 
 /// The goods half of [`resolve`]: both sides are taken before either is given. The typed core moves
-/// goods, commodities, fragments, an action card and a secret; a deal with a note or a planet card
-/// stays on the string engine (those slices belong to other packages).
+/// goods, commodities, fragments, an action card, a secret and a promissory note (a Support for the
+/// Throne with its point); a deal with a planet card stays on the string engine (the board's control).
 fn settle(state: &mut GameState, content: &ContentStore, offer: &Offer) {
     let string = |s: &mut GameState| {
         take(s, &offer.proposer, &offer.given);
@@ -918,6 +918,44 @@ pub fn record_transaction(state: &mut GameState, a: &PlayerId, b: &PlayerId) {
     #[cfg(not(feature = "typed-core"))]
     let core = string;
     crate::dual!(crate::dual::Area::TradeDiplomacy, "transactions::record_transaction", state, string, core);
+}
+
+/// `GameState::clear_transactions` behind the dual: a new turn restores everyone's one transaction per
+/// neighbour.
+pub fn clear_turn_transactions(state: &mut GameState) {
+    crate::dual::write(
+        crate::dual::Area::TradeDiplomacy,
+        state,
+        "transactions::clear_turn_transactions",
+        GameState::clear_transactions,
+        crate::trade_write::clear_turn_transactions,
+    );
+}
+
+/// `negotiations_this_action.clear()` behind the dual: a new action for the negotiation limit.
+pub fn clear_action_negotiations(state: &mut GameState) {
+    crate::dual::write(
+        crate::dual::Area::TradeDiplomacy,
+        state,
+        "transactions::clear_action_negotiations",
+        |s| s.negotiations_this_action.clear(),
+        crate::trade_write::clear_action_negotiations,
+    );
+}
+
+/// The round reset of the trade records (`phase::advance_phase`) behind the dual.
+pub fn reset_round(state: &mut GameState) {
+    crate::dual::write(
+        crate::dual::Area::TradeDiplomacy,
+        state,
+        "transactions::reset_round",
+        |s| {
+            s.transactions_this_round.clear();
+            s.negotiations_this_round.clear();
+            s.negotiations_this_action.clear();
+        },
+        crate::trade_write::reset_round,
+    );
 }
 
 /// `GameState::note_negotiation`: one negotiation `player` initiated, this action and this round.
@@ -2094,7 +2132,7 @@ impl TradeWindow {
     ) -> Self {
         record_unless_exempt(state, content, proposer, partner);
         if state.diplomacy.enabled {
-            let _ = state.diplomacy.consume_initiation(proposer, partner);
+            let _ = crate::diplomacy::relations::consume_initiation(state, proposer, partner);
         }
         Self {
             proposer: proposer.clone(),

@@ -129,8 +129,8 @@ pub fn begin_action_turn(state: &mut GameState, player: &PlayerId) {
 /// modelled yet; when it is, it must return early *before* the transaction reset, because
 /// the two actions are explicitly the same turn.
 pub fn advance_turn(state: &mut GameState) -> Option<PlayerId> {
-    state.clear_transactions();
-    state.diplomacy.clear_turn_initiations();
+    crate::transactions::clear_turn_transactions(state);
+    crate::diplomacy::relations::clear_turn_initiations(state);
     if state.all_passed() {
         state.active = None;
         return None;
@@ -195,9 +195,7 @@ pub fn begin_next_round(state: &mut GameState, strategy_cards: Vec<ti4_model::id
         .filter(|card| !held.contains(card))
         .collect();
     // Lie in Wait counts *this* round's transactions.
-    state.transactions_this_round.clear();
-    state.negotiations_this_round.clear();
-    state.negotiations_this_action.clear();
+    crate::transactions::reset_round(state);
 }
 
 /// What [`advance_phase`] did, so a caller can drive the parts not modelled here.

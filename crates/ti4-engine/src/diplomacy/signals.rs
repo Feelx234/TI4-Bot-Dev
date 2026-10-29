@@ -54,9 +54,7 @@ fn emit_signal_inner(
         return Err(SignalError::InvalidExpiry);
     }
     if consume_allowance
-        && !state
-            .diplomacy
-            .consume_initiation(&draft.speaker, &draft.target)
+        && !super::relations::consume_initiation(state, &draft.speaker, &draft.target)
     {
         return Err(SignalError::AlreadyInitiated);
     }

@@ -78,7 +78,7 @@ impl DiplomacyWindow {
         scope: ContactScope,
         signals: Vec<SignalStatement>,
     ) -> Result<Self, IllegalChoice> {
-        if !state.diplomacy.enabled || !state.diplomacy.consume_initiation(&proposer, &recipient) {
+        if !state.diplomacy.enabled || !super::relations::consume_initiation(state, &proposer, &recipient) {
             return Err(failed(&proposer, "diplomatic contact is unavailable"));
         }
         let draft = Draft::new(proposer.clone(), recipient.clone());

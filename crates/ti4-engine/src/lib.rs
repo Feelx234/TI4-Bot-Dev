@@ -186,6 +186,7 @@ pub mod thunders_edge;
 pub mod timing;
 pub mod tokens;
 pub mod trade_core;
+pub mod trade_write;
 pub mod transactions;
 pub mod transit;
 pub mod trigger;
