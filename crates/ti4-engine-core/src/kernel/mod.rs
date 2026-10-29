@@ -19,6 +19,8 @@
 
 pub mod ability;
 pub mod fx;
+pub mod fx_pay;
+pub mod fx_strategy;
 pub mod hooks;
 pub mod hits;
 pub mod next;

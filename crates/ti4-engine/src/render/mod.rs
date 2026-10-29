@@ -151,6 +151,12 @@ impl Render {
         Code(u16::try_from(i).expect("fewer than 65536 distinct shapes"))
     }
 
+    /// How many option shapes were interned.
+    #[must_use]
+    pub fn shape_count(&self) -> usize {
+        self.shapes.borrow().len()
+    }
+
     /// The option shape of a code.
     #[must_use]
     pub fn shape_option(&self, code: Code) -> ChoiceOption {

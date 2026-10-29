@@ -6,8 +6,7 @@
 //!
 //! Every function answers `None` when the position is outside what the core holds (more than 16 owners, an id
 //! the tables do not know, a deck reserve of a turn redo, a value the codecs refuse): the caller keeps the string
-//! write. The string callers keep what the core cannot do (the price of a bought objective, the leaders a score
-//! unlocks, the staged event of Yin's breakthrough, the log, who is asked next in a scoring window); see
+//! write. The string callers keep what the core cannot do (the leaders a score unlocks, the staged event of Yin's breakthrough, the log, who is asked next in a scoring window); see
 //! `docs/ENGINE_KNOWN_ISSUES.md`, A4.
 
 #[cfg(feature = "typed-core")]
@@ -29,7 +28,10 @@ mod real {
     use ti4_engine_core::driver::Driver;
     use ti4_engine_core::generated::{PublicObjective, SecretObjective};
     use ti4_engine_core::kernel::stage::AbilityTable;
-    use ti4_engine_core::kernel::{Kernel, Resolver};
+    use ti4_engine_core::driver::DriverError;
+    use ti4_engine_core::kernel::fx_pay::PayEnv;
+    use ti4_engine_core::kernel::Kernel;
+    use ti4_engine_core::kernel::Resolver;
     use ti4_engine_core::query::objectives as q;
     use ti4_engine_core::rules::objective_windows::{HandLimit, ScoreOne};
     use ti4_engine_core::rules::objectives as rules;
@@ -42,7 +44,7 @@ mod real {
     use crate::core_sync::keys::{parse_ledger, render_ledger};
     use crate::core_sync::{Footprint, Sources};
     use crate::dual::{CoreWindow, Run};
-    use crate::dual_window::{Recording, lend};
+    use crate::dual_window::{Driven, Recording, lend};
     use crate::generated::IdStr;
 
     /// A victory point move and its ledger row.
@@ -60,6 +62,13 @@ mod real {
     const SCORE_WINDOW: Footprint = Footprint::new(
         &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Objectives, Slice::Ledger, Slice::Pending],
         &[Slice::Meta, Slice::Players, Slice::Objectives, Slice::Ledger],
+    );
+    /// The scoring question of an offer with a price (a bought objective, Destroy Heretical Works, Form a Spy
+    /// Network): the price spends trade goods, commodities, tokens, fragments and cards and exhausts planets, and
+    /// the hooks it reads (Mentak, Keleres, the ocean cards) read the marks and the board, and the value of a planet the laws in play.
+    const SCORE_PRICED_WINDOW: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Objectives, Slice::Ledger, Slice::Pending, Slice::Board, Slice::Marks, Slice::Agenda],
+        &[Slice::Meta, Slice::Players, Slice::Objectives, Slice::Ledger, Slice::Board],
     );
     /// The hand limit question: the hand and the secret deck.
     const HAND_WINDOW: Footprint = Footprint::new(
@@ -155,30 +164,51 @@ mod real {
             return None;
         }
         let mut offers = Vec::new();
+        let mut priced = false;
         for option in asked.options.iter().filter(|o| !o.is_decline()) {
             let obj = objective(&option.id)?;
             // The price of a bought objective (`objectives::pay_for`) and of the two priced secrets
-            // (`secrets::pay_for`: two relic fragments, five action cards) is the string's.
-            if matches!(obj, ObjectiveRef::Public(p) if q::cost_of(p).is_some()) || PRICED_SECRETS.contains(&option.id.as_str()) {
-                return None;
-            }
+            // (`secrets::pay_for`: two relic fragments, five action cards) is paid by the core window.
+            priced |= matches!(obj, ObjectiveRef::Public(p) if q::cost_of(p).is_some()) || PRICED_SECRETS.contains(&option.id.as_str());
             offers.push(obj);
+        }
+        if priced && price_is_string(gs, &asked.player) {
+            return None;
         }
         let (mut cx, r) = crate::dual_window::tables(gs)?;
         let seat = r.seat(asked.player.as_str())?;
         let before = gs.clone();
-        let kernel = Kernel::plain();
+        // The production kernel: its hooks answer what a trade good pays, which commodities a payment may spend
+        // and the ocean cards (`fx_pay::pay_facts`).
+        let kernel = crate::production_view::kernel();
+        let env = PayEnv { scope: crate::core_adapter::scope(sources), blanked: crate::laws::blanked(gs) };
         let mut driver = Driver::new(
-            ScoreOne::new(seat, args.status, &offers, args.occurrence),
+            ScoreOne::new(seat, args.status, &offers, args.occurrence).with_price(env),
             Resolver::new(&[seat], Some(seat)),
             AbilityTable::default(),
             1,
         );
-        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), SCORE_WINDOW, |core, _| {
-            crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script)
+        // The string was answered with an offer that has a price and the core refused the answer.
+        let answered_priced = script
+            .questions
+            .first()
+            .and_then(|q| q.answer.as_deref())
+            .and_then(objective)
+            .is_some_and(|o| matches!(o, ObjectiveRef::Public(p) if q::cost_of(p).is_some()) || matches!(o, ObjectiveRef::Secret(s) if PRICED_SECRETS.contains(&s.as_str())));
+        let footprint = if priced { SCORE_PRICED_WINDOW } else { SCORE_WINDOW };
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), footprint, |core, _| {
+            crate::dual_window::drive(&mut driver, core, kernel, &r, &before, script)
         })
-        .ok()?
         .ok()?;
+        let driven = match driven {
+            Ok(driven) => driven,
+            // The string took a price the core refuses: the facts differ. Report it (a window that never
+            // finished, nothing scored) instead of bailing silently.
+            Err(DriverError::Illegal) if answered_priced => {
+                Driven { questions: Vec::new(), rendered: Vec::new(), finished: false }
+            }
+            Err(_) => return None,
+        };
         let scored = driver.window.scored;
         // What the core does not do: the leaders a public score unlocks and Yin's staged event.
         let public_now = scored.is_some_and(|o| before_revealed(&before, o) || matches!(o, ObjectiveRef::Public(_)));
@@ -188,6 +218,15 @@ mod real {
         let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
         let value = (driven.finished, scored.map(|o| ObjectiveId::new(crate::render::objectives::objective_text(o))));
         Some(CoreWindow { run: Run::new(value).with_events_vec(events), questions: driven.rendered })
+    }
+
+    /// Where the price stays with the string: a table with a Last Bastion or a Crimson seat (their economy hooks
+    /// are not in the production kernel's reads, `production_view::unported_economy`), and a payer holding
+    /// Deepwrought ocean cards (planet cards off the map the core has no planets for).
+    fn price_is_string(gs: &GameState, payer: &PlayerId) -> bool {
+        use crate::factions::{bastion, crimson};
+        gs.players.iter().any(|p| [bastion::MODULE.alias, crimson::MODULE.alias].contains(&p.faction.as_str()))
+            || !crate::factions::deepwrought::spendable_oceans(gs, payer).is_empty()
     }
 
     fn before_revealed(gs: &GameState, obj: ObjectiveRef) -> bool {
