@@ -220,7 +220,7 @@ fn parley(host: &mut RulesHost<'_>, _: &mut Resolver, _: Seat, _: ActionCard) ->
     if unit.owner() != owner {
         return Ok(());
     }
-    let standing = host.state.board().planet(planet).units.iter().any(|u| *u == unit);
+    let standing = host.state.board().planet(planet).units.contains(&unit);
     if !standing {
         // An earlier window in the same emission took the unit from the planet.
         return Ok(());
@@ -338,7 +338,7 @@ mod tests {
         let t = registered();
         let outcome = run(&mut s, &t, ActionCard::DirectHit1, Seat(0), true);
         assert_eq!(outcome, Ok(None));
-        assert!(!s.board().sys(system).units.iter().any(|p| *p == hurt), "the sustained ship is gone");
+        assert!(!s.board().sys(system).units.contains(&hurt), "the sustained ship is gone");
         assert_eq!(s.board().sys(system).units.len(), 1, "the other stays");
         let staged = s.transient().combat.pending_destructions.as_slice().to_vec();
         assert_eq!(staged.len(), 1);
@@ -357,7 +357,7 @@ mod tests {
     fn direct_hit_without_staging_removes_the_first_ship_of_the_type() {
         let (mut s, system, hurt) = sustained_dreadnought_fight();
         assert_eq!(run(&mut s, &registered(), ActionCard::DirectHit3, Seat(0), false), Ok(None));
-        assert!(s.board().sys(system).units.iter().any(|p| *p == hurt), "the first ship of the type was removed, damaged or not");
+        assert!(s.board().sys(system).units.contains(&hurt), "the first ship of the type was removed, damaged or not");
         assert_eq!(s.board().sys(system).units.len(), 1);
         assert_eq!(s.transient().combat.pending_destructions.len(), 1);
     }

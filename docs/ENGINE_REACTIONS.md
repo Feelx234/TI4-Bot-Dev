@@ -6,7 +6,10 @@ Branch `core-reactions`, cut from `core-integration` 04578c39, with `core-b1-com
 Stage 2 (this document's sections 3.2, 4, 5, 6 and 8) ported the round agents, the Argent agent in the production
 window, Tellurian, Brother Milor, the two S8 slots, Self-Assembly Routines, Letani Warrior II and Salvage Operations,
 and lifted two bails of stage 1 (Transparasteel Plating, the silent "no stream" bail). Stage 2b (section 4) added the play of
-reaction cards from the standing slot for the stamps of B6. Stage 1 text follows.
+reaction cards from the standing slot for the stamps of B6. Stage 3 (section 9) registers card effects that read another area
+(Sabotage at once, Intercept, Parley, Direct Hit, Skilled Retreat), lifts the guard of the production window for the tier-W
+factions and windows the Hacan hero and Keleres agent offers, and ports Antivirus, the Cavalry, the Crimson Legionnaire and
+Ipswitch. Stage 1 text follows.
 
 Problem: the core `AbilityTable` is empty, so every core window that emits an event whose WHEN/AFTER window holds a
 registered ability (a reaction slot, a technology, a faction ability, a leader) bails (`Recording.nested`, 24
@@ -230,6 +233,10 @@ Bails 1-4 have a unit test in `reactions_core::tests` (the card ones: `bail_a_pl
 | 5 | `technology:*:it:ACTION_CARD_PLAYED:when` | Instinct Training: question, token, exhaustion, staged `STRATEGY_TOKEN_SPENT`, cancel (core tests only: no followed window emits a card play yet) |
 | 6 | `leader:*:l1z1xagent:SYSTEM_ACTIVATED:after` | I48S: question, the mech swap, exhaustion (core tests only: no window emits the activation) |
 | 100+i | `reaction:*:<EVENT>:<rel>` (one per printed window) | the offer, the choice of card and the declared play of the stamps of B6 (Morale Boost, Shields Holding, Emergency Repairs, Rout, Waylay, Maneuvering Jets, ...); the announcement at the window close |
+| 2001 / 2002 | `promissory:*:antivirus:{SPACE,GROUND}_COMBAT_STARTED:after` | Antivirus placed faceup (stage 3) |
+| 5001 / 5002 | `unit:*:mahact_infantry{,2}:GROUND_FORCE_DESTROYED:after` | Crimson Legionnaire (stage 3, section 9.5) |
+| 8002-8004 | `leader:*:mentakhero:{SPACE_COMBAT_STARTED,SHIP_DESTROYED,SPACE_COMBAT_ENDED}:after` | Ipswitch, Loose Cannon: the purge, a ship placed per destroyed ship of another player, the end of the record (stage 3; a destroyed cruiser or flagship bails: the placed form is the string's) |
+| 10001 / 10002 | `promissory:*:cavalry:SPACE_COMBAT_{STARTED,ENDED}:after` | The Cavalry (stage 3) |
 | 3001 | `unit:*:cabal_mech:GROUND_FORCE_DESTROYED:after` | Reanimator |
 | 3002 / 3003 | `ability:*:devour:SHIP_DESTROYED:after` / `...GROUND_FORCE_DESTROYED:after` | Devour |
 | 3004 / 3005 | `unit:*:cabal_flagship:SHIP_DESTROYED:after` / `...GROUND_FORCE_DESTROYED:after` | The Terror Between (a Cabal seat; the Nekro-carried text stays string) |
@@ -245,14 +252,12 @@ Training, I48S, Infantry II, the faction packages (Argent, Cabal, Arborec, Yin, 
 chains behind the faction hooks (Tellurian, Self-Assembly Routines).
 
 Not ported, with the reason (each is an `unported ability` bail with a test of the naming): the Ssruu copies of every
-agent; the reaction-card play of every card that is not one of the stamps listed in `reaction_slot::effect_ported` (cards that ask:
-Skilled Retreat, Fire Team, Reveal Prototype, Direct Hit's staged destruction, ...), Reflective Shielding (it stages hits
-the string's sustain window takes up afterwards), a play at once (Sabotage and the window of `ACTION_CARD_PLAYED`, rules
-below 3), Data Skimmer, a card from the salvage yard; the Empyrean flagship (Dynamo: adjacency and an influence payment); Nekro's Technological Singularity;
-Mentak's hero and Salvage Operations' produce half; Mahact's Crimson Legionnaire and its infantry II; Sardakk's mech
-(a hit assigned through the timing, with its own windows); Hacan's hero, the Keleres and Winnu agents and the payment
-window's agent (offers of B3's production window, behind `unported_window`: their faction gates stay); the promissory
-notes (Cavalry, Antivirus).
+agent; the reaction-card play of every card that is neither one of the stamps of `reaction_slot::effect_ported` nor a `CardPlay` of
+section 9 (Fire Team, Scramble, Reveal Prototype, Courageous to the End), Reflective Shielding (design in 9.2), a play at once
+below rules version 3, Data Skimmer, a card from the salvage yard; the Empyrean flagship (Dynamo: adjacency and an influence payment); Nekro's Technological Singularity;
+Salvage Operations' produce half (Mentak's hero and Mahact's Crimson Legionnaire are ported in stage 3); Sardakk's mech
+(a hit assigned through the timing, with its own windows); the Empyrean mech's Watcher (it reads the map); (the offers of B3's production window, Hacan's hero and the Keleres
+agent, and the promissory notes Cavalry and Antivirus are stage 3).
 
 ## 5. Census: the nested bails before and after
 
@@ -369,3 +374,111 @@ tests (`infantry_ii_...`, `a_reaction_slot_that_is_declined_...`, `a_yssaril_sea
   Shielding (its staged hits belong to the sustain window).
 * Event trace ids: the core numbers its events from the first id the string run used (`Recording.first_event_id`);
   an ability whose nested events skip ids in the string would show up as a trigger `event_id` difference.
+
+## 9. Stage 3: the card effects of the table, the tier-W production, more abilities (branch `core-reactions`, third round)
+
+### 9.1 Design: card effects that read another area (`CardPlay`)
+
+The reaction slot (`rules/action_cards/reaction_slot.rs`) announces a declared card at the close of its window and plays the
+stamp of a `Simple` effect itself. A card whose effect reads the combat or invasion area (the retreat, the ships of a system,
+the sustained unit) cannot be played from the action-card area: areas do not import each other. The table therefore holds a
+second registry, `AbilityTable::card_plays`: a `CardPlay { covers, effect }` per group of copies, registered by the faction
+crate (L6, which may import every area): `ti4-engine-core-factions/src/cards/`. `reaction_slot::plays(table, card)` is the one
+question "does the core play this card" (the adapter's `Recording::unported` asks it). `AbilityTable::after_play` runs after the
+discard of a played card (`ACTION_CARD_DISCARDED` windows) and announces what the effect staged: the ships it destroyed
+(`combat.pending_destructions`, announced with `assign::announce_loss`, so the payload (`last`, `galvanized`, cause) is the
+combat's). A question the effect asks goes through `RulesHost::ask` (the tape, as an ability's).
+
+Cards in the table now: Sabotage (nothing; see below), Intercept, Parley, Direct Hit, Skilled Retreat.
+
+* **Sabotage, played at once.** The window of `ACTION_CARD_PLAYED:when` is the answer to a play, so the slot plays in it
+  immediately (string `reactions::slot`: rules version 3 and later, event `ACTION_CARD_PLAYED`): `Eff::with_host` lends the
+  host and the resolver, the card is spent, announced (its own `ACTION_CARD_PLAYED` opens the windows of the others) and
+  discarded, and a Sabotage cancels the event that opened the window (`Eff::cancel`). The same path serves any card a seat
+  plays in that window (the Empyrean mech's Watcher is an ability, not a card, and stays string).
+* **Intercept**: every other combatant of the active system gets `retreat_barred_round` = this round.
+* **Parley**: the unit in `last_committed_unit` goes from its planet back to space; a Naaz mech (the other form flips) is a
+  documented bail (`UnportedCard`).
+* **Direct Hit.** The string reads the `combat:sustain_target` blob mark (the exact sustained unit, written when the unit
+  sustains) and removes that unit without the ship-lost observers; it destroys the first sustained ship of the type when there
+  is no mark and (below `supply::staging_enabled`) the first ship of the type. The mark is now typed (`Sh::SustainTarget`:
+  system, planet, owner, type, damage, galvanize token; JSON round trip checked) and written by the core windows themselves
+  (`sustain_offer::remember_target`, from `SustainOffer::take` and the combat machine), so the Direct Hit can read and clear it
+  and the adapters no longer write it after the window. The core derives the exact ship as the first sustained ship of the
+  type and bails (`MissingFact`) where that could differ from the mark: a planet-standing combatant of the victim (Eidolon
+  Maximum, an Alastor ground force), or sustained ships of the type that differ in the galvanize token.
+* **Skilled Retreat.** The destinations are the map's; the windows are lent no galaxy. The string card notes them
+  (`dual_window::note_withdraw`, a `Recording` field, an *input* of the card like the adjacency of Argent's agent) and
+  `follow` installs them as `AdapterFacts::withdraw`. The core filters nothing (the string list already excludes systems with
+  other players' ships and the Mahact bar), asks `combat::Ask::Withdraw` when there are several (prompt, `skilled_retreat_choose_system`,
+  options "withdraw to X" with the ships-in-system preview, source the played copy), then runs the `Retreat` window (never asks)
+  through `with_sx` and sets `combat_draw_round`. Bails (`UnportedCard`, as `dual_window::retreat_unported`): a Last Bastion seat,
+  a Naaz dual-form unit, a structure that moves like a ship, an Eidolon Maximum on a planet. Found by its lockstep test: the combat
+  machine did not look at the fight after the round opening (a card played at its start can end it), and it began the feat
+  occurrence before the opening, so the machine now checks `over` before the barrage and begins the occurrence itself
+  (`Env::begin_occurrence`).
+
+### 9.2 Not ported, with the design (cards)
+
+* **Reflective Shielding.** The string stages `pending_reflective_hits = (system, producer, 2)` (the core's `Simple::Reflective`
+  writes it too) and the sustain step *drains it right after the emission*: the producer assigns two hits to its own ships
+  (`absorb_hits_seeing_with_context` with origin `CombatRoll`, cause `action_card:reflective_shielding`, a full sub-flow: sustain
+  offers, casualty questions, `SHIP_DESTROYED` announcements). That is a window inside a window; the core drivers have no child
+  windows. Design: the drain becomes a stage of the owner (`SustainOffer::Stage::Reflective`, after `Commander`), which enqueues
+  a `Pend { player: producer, hits: 2, producer: sustainer, .. }` at the front of the combat machine's hit queue (a `cause` field
+  per `Pend`, today one per queue) and, for the standalone offer of the space cannon, runs an `AssignHits`/`SustainOffer` pair
+  as a child through a `Child<W>` helper of `kernel::stage`. Until then the card bails (`unported ability reaction:*:...
+  (card reflective)`, test `reflective_shielding_stays_in_the_string_in_lockstep`; the first golden run with it found 12 differences).
+* **Courageous to the End** (dice, then the opponent's casualty choice with a `HitDetail` whose producer is the card's holder:
+  the `Ctx` carries no producer), **Fire Team** and **Scramble Frequency** (per-die reroll questions with a new `RerollSource`,
+  the ledger reason of the reroll, and the dice stream inside the announcement: `Recording.dice` only notes dice rolled inside
+  an ability's effect, the announcement of a declared card is not one), **Reveal Prototype** (a printed cost the core does not judge
+  and a research choice), a card from the salvage yard, Data Skimmer (Ral Nel).
+
+### 9.3 Production: the tier-W factions
+
+`production_view::unported_window` kept the whole production window in the string for a Deepwrought, Keleres, Naaz, Mentak,
+Nomad or Yssaril seat, a Bastion and a Crimson seat. `unported_production` (the guard of `ProductionWindow::step` and
+`production::pay_step`) now keeps only the Last Bastion, the Crimson (typed reads decline: `unported_economy`) and a Mentak
+producer (a bail of the typed window for another reason: its Corsair form). The invasion's custodians and toll payments keep
+`unported_window` (their own windows pay inside the core window).
+
+The experiment behind it (a producer of each faction, agents readied, commodities to spend, pseudo-random answers) compared with
+no difference except one: the Naaz mech stages `NAAZ_MECH_PLACED` (`supply::stage_naaz_mech_placed`) on every placement, which the
+core window did not; it does now (`ProductionWindow::place`) and `production_window_dual::step` applies the staged events.
+Test: `production::tests::the_tier_w_factions_run_in_lockstep_on_the_core_production_window` (fails without the staging).
+Winnu's Berekar Berekon was already an option of the core question (`POpt::Agent`); the Argent agent is an ability of the table.
+
+### 9.4 The tier-W offers as windows
+
+The offers that open a use of PRODUCTION or a payment are not abilities of the resolver: the string asks them directly of the seat
+between the windows of the production. Each is now a window of its own in `rules/production/offers.rs` with a call site
+wrapped in `dual_window!(Area::Production, ..)`:
+
+* `production::hero_offer` (`leaders::offer_production_hero`): Harrugh Gefhara, "make this use of PRODUCTION free", `Ask::Production(Hero)`,
+  options `Use` / decline. Using it purges the card and sets `free_production_use` to the production sequence.
+* `production::agent_offer` (`keleres::offer_agent`): Xander Alexin Victori III, one question per Keleres holder of a readied agent
+  (`Ask::Production(AgentOffer { payer })`). Using it exhausts the agent and writes the payer's `KeleresAgentGoods` mark with the holder; if every
+  holder declines the mark says `declined`. A Nomad that hears the exhaustion of an agent (`nomad_watches_agent_exhaustion`) is told by the string
+  and not by the core: the window bails (`Unknown::NomadAgentExhaustion`, test `bail_the_keleres_agent_with_a_listening_nomad_is_counted`).
+* The Winnu agent (`POpt::Agent`) and the Argent agent were in the core window already; the payment window's agent is the Keleres offer above, closed
+  by the string after the payment (`keleres::close_agent_window`).
+
+Found by the lockstep test of the offer: the core windows paid with `Extras::default()`, so neither Keleres' commodities (open inside an agent window) nor the
+Deepwrought's ocean cards were ever options, which is why the guard kept those seats out. `rules::production::Held` now reads both through the hook table
+(`keleres_spendable_commodities`, `deepwrought_spendable_oceans`) for the production window and the payment step; both windows apply the `Commodity` option
+(`commodities -= 1`), and the observer of `ProductionWindowClosed` no longer closes the agent window at every placement (the payment window outlives a placement; the
+string's caller closes it after the use). Tests: `the_keleres_agent_is_offered_in_the_core_window_in_lockstep`,
+`a_payment_with_the_keleres_agent_runs_in_the_core_window_in_lockstep`, `the_hacan_hero_is_offered_in_the_core_window_in_lockstep`.
+
+### 9.5 Abilities
+
+| slot | string id | notes |
+|---|---|---|
+| 2001 / 2002 | `promissory:*:antivirus:{SPACE,GROUND}_COMBAT_STARTED:after` | Antivirus, the placement: the holder (a note of another faction) may place it faceup (optional) |
+| 5001 / 5002 | `unit:*:mahact_infantry{,2}:GROUND_FORCE_DESTROYED:after` | Crimson Legionnaire: gain 1 commodity or convert 1 to a trade good (a question `reaction::Ask::Legionnaire { second }` when both are possible, the commodities in the details); the II waits on the card (`MahactCl2`). Registered for every seat as the string does. A Firmament or Obsidian seat (Siphon watches commodities) is `MissingFact`. |
+| 10001 / 10002 | `promissory:*:cavalry:SPACE_COMBAT_{STARTED,ENDED}:after` | The Cavalry: played at the start of a space combat (optional; a question `reaction::Ask::Cavalry` over the non-fighter ship types in id order when there are several; the note faceup, `NomadCavalry` = system and type) and returned to the Nomad at the end of the combat |
+
+The registry of the table now follows the string order of the faction modules for abilities that share a bucket: Mahact and Mentak before Nekro,
+Nomad and Yin (`reactions_core::table`; `the_native_registry_equals_the_string_one_for_the_ported_abilities` names the first difference).
+`with_trigger_of` no longer gives the Legionnaire's and the Cavalry's question a trigger (the string builds none).

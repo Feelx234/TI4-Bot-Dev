@@ -3116,7 +3116,7 @@ pub fn answer_machine(
 fn settle_run(
     gs: &mut GameState,
     sources: ti4_model::content_types::SourceSet,
-    mut a: SettleArgs,
+    a: SettleArgs,
     rng_before: &crate::rng::RngPositions,
     script: &Recording,
     answering: Option<()>,
