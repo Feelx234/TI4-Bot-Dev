@@ -20,7 +20,7 @@
 //! * a card whose effect the core does not play (`Announce::of` is `None`), or a play inside a window whose
 //!   adapter facts are missing (`Unknown::PlayFacts`).
 
-use crate::choice::{Ask, Choice, Pick};
+use crate::choice::{Choice, Pick};
 use crate::generated::ActionCard;
 use crate::ids::Seat;
 use crate::kernel::ability::{AbilityTable, Inline, Runner, Unknown};

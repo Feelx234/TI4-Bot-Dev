@@ -31,4 +31,48 @@ proceeds; the final column is the state at the closing commit.
 | Fire Team / Scramble Frequency / Courageous To The End / Crash Landing | in a combat window | rerolls, dice, casualty questions | see plan |
 | Harness Energy / Infiltrate / Signal Jamming | various | tile catalogue, swap rules, blockade map | see plan |
 
-The final state per card is in the table "Closing state" below (written when the package closes).
+## Closing state (the commit that is gated)
+
+PORTED in this package (core effect in `rules::action_cards::effects::Play`, lockstep test in
+`ti4-engine/src/action_cards_closing_tests.rs` through the announce window with three deciders (last option, first option,
+last option that does not stop), mutation-checked; Spy/Plague/Repeal/Unstable also in
+`action_cards::tests::repeal_law_spy_plague_and_unstable_planet_agree_with_the_core_window_in_lockstep` through the play window):
+
+| card | core half |
+|---|---|
+| Repeal Law | law pick (kind `repeal`, `laws` display facts taken from the recorded question), `fx::repeal_law` (shared with the agenda area) |
+| Spy | seat pick, one die (`RngDomain::Dice`, 10 sides) picks the card `(face - 1) % held`; faces and stream positions compared |
+| Plague | planet pick, one die per infantry, a six destroys one; ground-force deaths staged as `private:#staged:ground:` rows (`kernel::fx_ground`) |
+| Unstable Planet | hazardous planet pick, exhaust, up to three infantry destroyed and staged |
+| Seize Artifact | neighbour (seating order) with fragments, then the fragment kind |
+| Reparations | exhaust (asked of the new controller) then ready (asked of the holder); skipped steps as the string |
+| Public Disgrace | the picker's strategy card goes back to the mat, the picker chooses again ("if able" restores) |
+| Archaeological Expedition | planet deck pick (printed traits, then attachment traits), top three cards, fragments kept |
+| Lucky Shot | per-ship options (one per distinguishable kill), display facts from the recorded question |
+| Scuttle | one or two own non-fighter ships (second question offers "stop after one"), cost in halves as trade goods |
+| Summit | two pool questions of the strategy area (`gain_pool_choice`, previews and pool details completed in the adapter) |
+| Exchange Program | the asked seat answers, one generic infantry each on the planet, or both pay a fleet token |
+
+Also new in the machinery: `Runner::with_seeds` (a rule that rolls while it writes), the component action's window plays a
+registered `CardPlay` like an inline play (`Sx` implements `has_registered_play` / `run_registered_play` / `after_play`;
+unit test `a_registered_effect_runs_in_the_component_actions_window`), the dice of a card that rolls are lent to the core
+window (`Sources::rng`, the streams' positions compared like the agenda effects), the play footprint carries the ledger.
+
+DOCUMENTED BAILS (the string effect runs alone; `Fx::of` is `None`; the list and the reason of each is the constant `BAILS`
+in `rules/action_cards/effects.rs`, and `every_action_card_is_ported_or_a_documented_bail` fails when a card is in neither
+that list nor the ported set): Bribery, Brilliance, Courageous To The End, Crash Landing, Decoy Operation, Divert Funding,
+Experimental Battlestation, Focused Research, Fire Team, Ghost Ship, Ghost Squad, Harness Energy, Impersonation, Infiltrate,
+Signal Jamming, Lie in Wait, Mercenary Contract, Overrule, Pirate Contract x4, Pirate Fleet, Plagiarize, Exploration Probe,
+Refit Troops, Reveal Prototype, Scramble Frequency, Strategize x4, Upgrade.
+What they wait for (not a card list problem but a missing child-window helper and facts): a `Child<W>` runner for the
+question-driven payment and research windows (Focused Research, Divert Funding, Impersonation, Plagiarize, Reveal Prototype,
+Mercenary Contract, Pirate Fleet), the neutral seat (Pirate Contract x4, Mercenary Contract, Pirate Fleet), the map facts
+(Ghost Ship, Signal Jamming, Exploration Probe, Lie in Wait), the faction unit-form flip (Refit Troops, Upgrade, Decoy
+Operation, Ghost Squad, Crash Landing, Experimental Battlestation), reroll questions with the dice stream inside the
+announcement (Fire Team, Scramble Frequency, Courageous To The End), the goods window of the Keleres agent (Bribery, Focused
+Research, Mercenary Contract), the performed ability of another card (Strategize, Overrule), the capture glue (Infiltrate,
+Harness Energy). Bails with an adapter-level behaviour keep their tests from earlier slices (`bail_a_card_with_an_unported_effect_*`).
+
+Conditions inside the ported cards that stay string (each a `None` of `Play::of` or an `unsupported` window, one test each):
+Summit with a Mahact token held; Archaeological Expedition and Veto with a deck reserve; Plague / Unstable Planet when a
+galvanized ground force falls (the staged row has no `|g` tail); Intercept at a table with a Naaz or Nekro seat (earlier).
