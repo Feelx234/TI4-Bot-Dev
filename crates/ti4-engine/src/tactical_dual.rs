@@ -144,6 +144,15 @@ mod real {
         &[Slice::Meta, Slice::Players, Slice::Board, Slice::Cards, Slice::Trade, Slice::Marks, Slice::Transient, Slice::Pending, Slice::Rng, Slice::Ledger],
     );
 
+    /// The kernel of a window run: the combat one (the string bridge for the reaction table) with the faction movement hooks
+    /// of the scope, which the combat kernel does not register (Argent's free cargo, Gravleash, the wormhole limits...).
+    #[must_use]
+    pub(crate) fn env_of(gs: &GameState, cx: &crate::core_sync::Ctx, sources: SourceSet) -> Option<crate::core_combat::WindowEnv> {
+        let mut env = crate::core_combat::window_env(gs, cx, sources)?;
+        env.kernel.hooks.movement = crate::core_adapter::kernel_for(sources).hooks.movement.clone();
+        Some(env)
+    }
+
     fn bail<T>(label: &str, why: &str) -> Option<T> {
         note_bail(label, why);
         None
@@ -266,7 +275,7 @@ mod real {
         let seat = r.seat(args.player.as_str())?;
         let facts = Facts { pool: r.code("tactic") };
         let before = gs.clone();
-        let env = crate::core_combat::window_env(&before, &cx, sources)?;
+        let env = env_of(&before, &cx, sources)?;
         // The answer's route suffix is not an option id; the route is a fact of the machine.
         let mut script = script.clone();
         let mut route = None;
@@ -365,7 +374,7 @@ mod real {
         let target = <System as IdStr>::from_id(system.as_str())?;
         let facts = Facts { pool: r.code("tactic") };
         let before = gs.clone();
-        let env = crate::core_combat::window_env(&before, &cx, sources)?;
+        let env = env_of(&before, &cx, sources)?;
         let resolver = Resolver::new(&[seat], Some(seat));
         let src = Sources { galaxy: Some(galaxy), rng: Some(args.rng_before) };
         let mut staged = Vec::new();
@@ -435,7 +444,7 @@ mod real {
         let seat = r.seat(player.as_str())?;
         let facts = Facts { pool: r.code("tactic") };
         let before = gs.clone();
-        let env = crate::core_combat::window_env(&before, &cx, sources)?;
+        let env = env_of(&before, &cx, sources)?;
         let resolver = Resolver::new(&[seat], Some(seat));
         let src = Sources { galaxy: Some(galaxy), rng: None };
         let mut staged = Vec::new();

@@ -396,7 +396,7 @@ fn an_open_hold_round_trips_through_the_typed_payload_and_asks_the_same_question
     let (mut cx, r) = crate::dual_window::tables_for_tests(&state).expect("a seated table");
     let seat = r.seat("a").unwrap();
     let facts = Facts { pool: r.code("tactic") };
-    let env = crate::core_combat::window_env(&state.clone(), &cx, POK).expect("a kernel");
+    let env = crate::tactical_dual::env_of(&state.clone(), &cx, POK).expect("a kernel");
     let (origin_c, target_c) = (<System as crate::generated::IdStr>::from_id(origin.as_str()).unwrap(), <System as crate::generated::IdStr>::from_id(target.as_str()).unwrap());
     let ship = Piece::new(<CUnit as crate::generated::IdStr>::from_id("carrier").unwrap(), seat);
     let fp = crate::tactical_dual::WINDOW;
