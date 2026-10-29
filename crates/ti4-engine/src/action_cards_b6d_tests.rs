@@ -832,7 +832,9 @@ fn played_on(alias: &str, start: &GameState, galaxy: &ti4_content::galaxy::Galax
 fn exploration_probe_resolves_every_card_of_the_frontier_deck_in_the_core_window() {
     let _serial = crate::dual::tests::serial();
     let galaxy = ring();
-    let cards = ["urf1", "minent", "ent", "majent", "kel1", "kel2", "dw", "dv1", "dv2", "ed1", "ed2", "gamma", "ion", "lc1", "lc2", "ms1", "ms2", "mirage"];
+    // The last two are cards of other decks that the string resolves the same way when they are in the frontier deck: the
+    // Gamma Wormhole and a cultural relic fragment (the fragment of the card's own deck).
+    let cards = ["urf1", "minent", "ent", "majent", "kel1", "kel2", "dw", "dv1", "dv2", "ed1", "ed2", "gamma", "ion", "lc1", "lc2", "ms1", "ms2", "mirage", "gw", "crf1"];
     let mut gamma_less = probe_position(&["gamma"]);
     gamma_less.active_system = None;
     let mut cases: Vec<(&str, GameState)> = cards.iter().map(|card| ("probe", probe_position(&[card, "urf2"]))).collect();

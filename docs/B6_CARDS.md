@@ -115,7 +115,7 @@ PORTED (core effect in `rules::action_cards::effects::Play`, lockstep test in `t
 the announce window under three deciders, mutation-checked by Haiku runners in scratch worktrees): Pirate Contract x4, Pirate
 Fleet, Mercenary Contract, Ghost Ship, Signal Jamming, Upgrade, Refit Troops, Decoy Operation, Ghost Squad, Harness Energy,
 Brilliance, Impersonation, Plagiarize, Focused Research, Divert Funding, Reveal Prototype, Lie in Wait, Bribery, Infiltrate,
-Crash Landing (25 of the 33 cards).
+Crash Landing, Exploration Probe (26 of the 33 cards).
 
 Conditions inside ported cards that stay string (each a `None` of `Play::of`, `unsupported`, or a bail of the adapter, a test each):
 a readied Keleres agent that could be offered before a payment (dropped by decision: Keleres); a Deepwrought, Keleres or Mentak
@@ -126,8 +126,27 @@ is compared); a Naaz mech for Refit Troops; Infiltrate below rules version 1; Gh
 a deck reserve for Impersonation (dropped by decision). From inside another window (a reaction slot) the cards of this package are
 the string's (`Fx::nested`, the census names them).
 
+Exploration Probe (`Fx::Probe`): the token pick is the frontier tokens in a system with a ship of the holder or next to one (the
+adapter lends the galaxy when the string has one; without it only the systems with a ship, a test each), then the string
+`exploration_probe` -> `explore_with(.., FRONTIER, None)` as the window: the token is spent first (a deck that has run out loses it
+and logs no row, whatever the string's comment said; a test pins it), the top card is drawn, its log row opened by the core (the
+words of the row, `exploration::row_words`, are written by the adapter from the holdings the core reads before and after) and the
+card resolved. Which resolutions of the frontier deck ask or touch what (checked against `resolve_instant`, planet and system None):
+a fragment (no question); the three entropic fields and the Keleres Ship (command tokens: one pool question each from rules
+version 12, the strategy pool before, then trade goods; no `TRADE_GOODS_GAINED`, the string explores with no timing handle); Dead
+World (a relic, the Shard scores); Derelict Vessel (a secret, the `HandLimit` child window); Enigmatic Device (kept in the play
+area); Lost Crew (two action cards, plain draw only); Merchant Station (the `Reward` child window of `explore_windows`: replenish or
+convert, the conversion offered to a seat without commodities below version 19); Gamma Relay (the gamma token in the ACTIVE system
+of the state, nothing without one); Ion Storm and Mirage (nothing: they need "this system", which `explore_with` does not pass — the
+string's own shortcoming, pinned by `exploration_probe_resolves_every_card_of_the_frontier_deck_in_the_core_window`; fixing it
+needs a rules version). The windows of `explore_windows` that the probe never reaches (ChooseDeck, DistantSuns, IonStorm,
+DominusOrb, CrownExplore, PayMechOrInfantry) all need a planet. Conditions that mark the run `unsupported` (the adapter declines
+the whole play; a core unit test `bail_exploration_probe_*` and an adapter test each): a card of another deck in the frontier deck
+(an attachment, a planet's reward); a Lost Crew whose draw is not plain (a full hand, Yssaril, a draw bonus); command tokens while
+a Mahact fleet holds the holder's tokens; a Merchant Station's replenish while a replenishment causes events (Cabal, a siphoning
+plot, a Trade Agreement). A replay reserve declines the play (`Play::of`).
+
 DOCUMENTED BAILS left (`BAILS` in `rules/action_cards/effects.rs`; the reason of each is the constant):
-Strategize x4 and Overrule (eight card kinds, each with a window and guards of its own to run as child windows), Exploration
-Probe (the exploration resolution is not one core window), Courageous To The End, Experimental Battlestation (the combat area's
+Strategize x4 and Overrule (eight card kinds, each with a window and guards of its own to run as child windows), Courageous To The End, Experimental Battlestation (the combat area's
 hit flow as a child window), Fire Team (ported on `core-b12` as a registered play, bb26913b; not merged here) and Scramble Frequency
 (a bail of `core-b12` too).
