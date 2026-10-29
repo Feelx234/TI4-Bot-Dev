@@ -25,6 +25,7 @@ use ti4_model::state::GameState;
 
 use crate::choice::{Choice, DecisionRecord};
 use crate::dice::Roll;
+use crate::dual_window::Pushed;
 use crate::event::Event;
 use crate::fingerprint::{CanonicalHashVersion, decision_hash, event_hash};
 use crate::rng::{GameRng, RngPositions};
@@ -1044,18 +1045,30 @@ pub struct Run<R> {
     pub record: Option<DecisionRecord>,
     /// The plain events (`NAME` or `NAME:argument`, as `Game::events` holds them) the call pushed, in order (package P1.1).
     pub plain: Option<Vec<String>>,
+    /// Everything the call pushed to `Game::events`, plain events AND the mirrored typed names, in the order of the pushes
+    /// (package P1.1b). Compared as `<label>.order` when both sides give it.
+    pub order: Option<Vec<Pushed>>,
 }
 
 impl<R> Run<R> {
     #[must_use]
     pub const fn new(value: R) -> Self {
-        Self { value, choice: None, events: None, rng: None, dice: None, record: None, plain: None }
+        Self { value, choice: None, events: None, rng: None, dice: None, record: None, plain: None, order: None }
     }
 
     /// The plain events this call pushed. Only compared when both sides give them.
     #[must_use]
     pub fn with_plain(mut self, plain: Vec<String>) -> Self {
         self.plain = Some(plain);
+        self
+    }
+
+    /// Everything this call pushed to `Game::events` in order (plain events and mirrored typed names). Also sets the plain
+    /// list (the plain texts among them, as `<label>.plain`), so a side that gives the order compares both.
+    #[must_use]
+    pub fn with_order(mut self, order: Vec<Pushed>) -> Self {
+        self.plain = Some(order.iter().filter_map(|p| if let Pushed::Plain(t) = p { Some(t.clone()) } else { None }).collect());
+        self.order = Some(order);
         self
     }
 
@@ -1128,6 +1141,9 @@ pub fn compare_runs<R: PartialEq + Debug>(
     }
     if let (Some(a), Some(b)) = (&string_run.plain, &core_run.plain) {
         ok &= compare_value(area, &format!("{label}.plain"), a, b);
+    }
+    if let (Some(a), Some(b)) = (&string_run.order, &core_run.order) {
+        ok &= compare_value(area, &format!("{label}.order"), a, b);
     }
     ok
 }
@@ -1247,6 +1263,9 @@ pub fn run_dual_window<R: PartialEq + Debug>(
     string_run.events = Some(crate::dual_window::normalized(&recording.emits));
     if core_run.run.plain.is_some() {
         string_run.plain = Some(recording.plain.clone());
+    }
+    if core_run.run.order.is_some() {
+        string_run.order = Some(recording.order.clone());
     }
     let ok = compare_value(area, &format!("{label}.questions"), &recording.questions.len(), &core_run.questions.len());
     if ok {

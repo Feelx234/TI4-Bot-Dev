@@ -64,6 +64,25 @@ pub struct ResolverCfg {
     pub stack: Vec<(String, u64)>,
 }
 
+/// One push to `Game::events` as the recorder saw it (package P1.1b).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Pushed {
+    /// A plain event (`Game::emit`, `Live::emit`), the text as pushed: `NAME` or `NAME:argument`.
+    Plain(String),
+    /// The name of a typed event mirrored from the timing log (`mirror_timing_log`).
+    Mirrored(String),
+}
+
+impl Pushed {
+    /// The text as `Game::events` holds it.
+    #[must_use]
+    pub fn text(&self) -> &str {
+        match self {
+            Self::Plain(t) | Self::Mirrored(t) => t,
+        }
+    }
+}
+
 /// What the string window did at its own level.
 #[derive(Debug, Clone, Default)]
 pub struct Recording {
@@ -98,6 +117,11 @@ pub struct Recording {
     pub plain: Vec<String>,
     /// The typed events the string mirrored from the timing log into `Game::events` while the window ran (names only).
     pub mirrored: Vec<String>,
+    /// Both lists in ONE sequence, in the order of the pushes to `Game::events` (package P1.1b). The string pushes a plain
+    /// event at once but copies the typed events of the resolver in batches (`mirror_timing_log`, when the surrounding call
+    /// returns), so a plain event pushed after an emission is stored BEFORE that emission's names: only this sequence shows it.
+    /// `plain` and `mirrored` are the two views of it.
+    pub order: Vec<Pushed>,
     effect_depth: u32,
     in_pick: u32,
     /// The emission depth the window started at: a window may itself run inside an emission (an ability's
@@ -190,6 +214,7 @@ pub fn note_plain_event(text: &str) {
     let kept = REC.with(|r| match r.borrow_mut().as_mut() {
         Some(rec) => {
             rec.plain.push(text.to_owned());
+            rec.order.push(Pushed::Plain(text.to_owned()));
             true
         }
         None => false,
@@ -207,6 +232,7 @@ pub fn note_mirrored_events(names: &[String]) {
     REC.with(|r| {
         if let Some(rec) = r.borrow_mut().as_mut() {
             rec.mirrored.extend(names.iter().cloned());
+            rec.order.extend(names.iter().cloned().map(Pushed::Mirrored));
         }
     });
 }

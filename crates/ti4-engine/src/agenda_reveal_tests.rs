@@ -454,3 +454,58 @@ fn plain_events_pushed_outside_any_window_are_counted_under_the_game() {
     with_mask(AreaMask::all(Backend::String), || crate::dual_window::note_plain_event("TURN_PASSED"));
     assert!(take_report().plain.is_empty());
 }
+
+// -- the interleaved order of the pushes (package P1.1b) ------------------------------------------------------------
+
+#[test]
+fn the_recorder_keeps_plain_events_and_mirrored_names_in_one_sequence_in_the_order_of_the_pushes() {
+    use crate::dual_window::{Pushed, finish, note_mirrored_events, note_plain_event, start};
+    let _guard = crate::dual::tests::serial();
+    let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();
+    let rec = with_mask(mask, || {
+        assert!(start());
+        // One timing call: the plain event pushed after the emission is stored BEFORE the names the emission mirrors, because
+        // `mirror_timing_log` copies them only when the surrounding call returns.
+        note_plain_event("AGENDA_REVEALED:secret");
+        note_plain_event("QUASH_USED");
+        note_mirrored_events(&["AGENDA_REVEALED".to_owned(), "STRATEGY_TOKEN_SPENT".to_owned()]);
+        note_plain_event("AGENDA_DISCARDED:secret");
+        note_mirrored_events(&["AGENDA_REVEALED".to_owned()]);
+        finish()
+    });
+    let want = [
+        Pushed::Plain("AGENDA_REVEALED:secret".to_owned()),
+        Pushed::Plain("QUASH_USED".to_owned()),
+        Pushed::Mirrored("AGENDA_REVEALED".to_owned()),
+        Pushed::Mirrored("STRATEGY_TOKEN_SPENT".to_owned()),
+        Pushed::Plain("AGENDA_DISCARDED:secret".to_owned()),
+        Pushed::Mirrored("AGENDA_REVEALED".to_owned()),
+    ];
+    assert_eq!(rec.order, want);
+    assert_eq!(rec.plain, ["AGENDA_REVEALED:secret", "QUASH_USED", "AGENDA_DISCARDED:secret"], "the plain view");
+    assert_eq!(rec.mirrored, ["AGENDA_REVEALED", "STRATEGY_TOKEN_SPENT", "AGENDA_REVEALED"], "the mirrored view");
+    assert_eq!(want.iter().map(Pushed::text).collect::<Vec<_>>(), ["AGENDA_REVEALED:secret", "QUASH_USED", "AGENDA_REVEALED", "STRATEGY_TOKEN_SPENT", "AGENDA_DISCARDED:secret", "AGENDA_REVEALED"]);
+}
+
+#[test]
+fn two_sides_that_push_the_same_events_in_another_order_are_a_difference_of_the_order() {
+    use crate::dual::{Area, Run, compare_runs};
+    use crate::dual_window::Pushed::{Mirrored, Plain};
+    let _guard = crate::dual::tests::serial();
+    let _ = take_report();
+    let state = position(2, &["committee"]);
+    let string = Run::new(1).with_order(vec![Plain("QUASH_USED".to_owned()), Mirrored("AGENDA_REVEALED".to_owned())]);
+    let same = Run::new(1).with_order(vec![Plain("QUASH_USED".to_owned()), Mirrored("AGENDA_REVEALED".to_owned())]);
+    assert!(compare_runs(Area::AgendaLaws, LABEL, &state, &string, &state, &same));
+    assert_eq!(take_report().total_differences(), 0);
+    // The same two events, the typed name first: the plain lists are equal, only the interleaving differs.
+    let swapped = Run::new(1).with_order(vec![Mirrored("AGENDA_REVEALED".to_owned()), Plain("QUASH_USED".to_owned())]);
+    assert!(!compare_runs(Area::AgendaLaws, LABEL, &state, &string, &state, &swapped));
+    let report = take_report();
+    assert_eq!(report.total_differences(), 1, "{report}");
+    assert!(report.differences[0].label.ends_with(".order"), "{}", report.differences[0]);
+    // A side that gives no order (or only a plain list) compares no order.
+    let silent = Run::new(1).with_plain(vec!["QUASH_USED".to_owned()]);
+    assert!(compare_runs(Area::AgendaLaws, LABEL, &state, &string, &state, &silent));
+    assert_eq!(take_report().total_differences(), 0);
+}
