@@ -17,6 +17,19 @@ use ti4_model::id::PlayerId;
 use crate::choice::Observed;
 use crate::core_sync::{CoreView, Ctx, Sources, Unmapped};
 
+/// The kernel of the view for a source scope: the full hook table (every faction module, the seams of the laws and
+/// relics), with the scope of the game it reads (units, planets and systems of an expansion the game does not play are
+/// not in the tables the rules read, as in the string `catalogue(content, sources)`). Built once per scope and process.
+fn kernel_for(sources: ti4_model::content_types::SourceSet) -> &'static Kernel {
+    static KERNELS: [std::sync::OnceLock<Kernel>; 128] = [const { std::sync::OnceLock::new() }; 128];
+    let slot = usize::try_from(sources.as_u32()).ok().and_then(|i| KERNELS.get(i)).unwrap_or(&KERNELS[127]);
+    slot.get_or_init(|| {
+        let mut k = crate::production_view::kernel().clone();
+        k.sources = ti4_engine_core::kernel::Sources(u8::try_from(crate::core_adapter::scope(sources).0).unwrap_or(u8::MAX));
+        k
+    })
+}
+
 /// One position as the typed view reads it, with the owner table that maps player ids to seats.
 #[derive(Clone)]
 pub struct SeenOwned {
@@ -38,8 +51,7 @@ impl SeenOwned {
         // map slice; the movement accessors of the view then answer as the string side does without a galaxy.
         let reads = if galaxy.is_some() { READS } else { SliceSet::of_without(READS, Slice::Map) };
         let core = CoreView::of(state, &mut cx, Sources { galaxy, rng: None }, reads)?.into_state();
-        let _ = sources;
-        Ok(Self { core, cx, kernel: crate::production_view::kernel(), blanked: crate::laws::blanked(state) })
+        Ok(Self { core, cx, kernel: kernel_for(sources), blanked: crate::laws::blanked(state) })
     }
 
     /// The view for the bound player; `None` when the id is not an owner of the game.

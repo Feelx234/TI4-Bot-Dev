@@ -50,10 +50,13 @@ impl<'a> SystemView<'a> {
         self.seen.st().board().sys(self.system).cmd
     }
 
-    /// The planets of the system now (printed and placed ones), in planet order.
+    /// The planets whose cells sit in the system now (printed and placed ones, whatever the source scope: the Fracture's
+    /// planets hold neutral units though they are not in the game's scope), in planet order.
     #[must_use]
     pub fn planets(&self) -> PlanetList {
-        board::planets_in(self.seen.st(), self.seen.scope(), self.system)
+        let mut out: PlanetList = board::planets_of(self.seen.st(), self.system).collect();
+        out.as_mut_slice().sort_unstable();
+        out
     }
 
     /// One planet's cell.
