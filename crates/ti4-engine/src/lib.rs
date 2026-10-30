@@ -35,6 +35,7 @@ pub mod dice;
 pub mod dual;
 pub mod core_factions;
 pub mod dual_window;
+pub mod cannon_dual;
 pub mod reactions_core;
 pub mod diplomacy;
 pub mod draft;

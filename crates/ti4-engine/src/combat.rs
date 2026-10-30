@@ -43,7 +43,7 @@ pub enum HitOrigin {
 }
 
 /// The display cause of hits whose engine `cause` string is given (see `absorb_hits_seeing_with_context`).
-fn hit_cause_of(cause: &str) -> HitCause {
+pub(crate) fn hit_cause_of(cause: &str) -> HitCause {
     if cause.contains("anti_fighter_barrage") {
         HitCause::AntiFighterBarrage
     } else if cause.contains("space_cannon") {
@@ -2307,6 +2307,11 @@ fn destroy_fighters(
 /// this", because adding the fifth unit means editing code that looks unrelated to the content
 /// change. `every_unit_that_reaches_an_adjacent_system_is_found` pins the derived set so a reworded
 /// card fails a test instead of silently disarming a gun.
+/// The unit ids whose card lets their SPACE CANNON reach an adjacent system (the `reaching` list the core offense is given).
+pub(crate) fn reaching_units(content: &ContentStore, sources: SourceSet) -> Vec<String> {
+    catalogue(content, sources).iter().filter(|(_, kind)| reaches_adjacent(**kind)).map(|(id, _)| (*id).to_owned()).collect()
+}
+
 fn reaches_adjacent(kind: ti4_content::units::UnitType<'_>) -> bool {
     let Some(ability) = kind.record().text("ability") else {
         return false;

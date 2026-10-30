@@ -195,6 +195,23 @@ impl Absorb {
         };
         Self { offer, assign, hits, stage: AbsorbStage::Spending, sustain: Child::idle(), assigning: Child::idle() }
     }
+
+    /// The hits of a unit ability's roll (the space cannon offense: `absorb_hits_seeing_with` with `HitOrigin::UnitAbility`):
+    /// like [`Self::new`], but a Maximum cannot be assigned them, they are not part of a combat, `bound` binds the loss to
+    /// non-fighter ships while one is left (Graviton Laser System; `non_fighter_left` is the display flag of the decline), the
+    /// loss carries `cause`, and `announce` says whether the resolver carries the timing machinery.
+    #[must_use]
+    pub fn unit_ability(who: Seat, producer: Seat, system: System, hits: u16, texts: HitTexts, cause: Code, bound: bool, non_fighter_left: bool, announce: bool) -> Self {
+        let mut w = Self::new(who, producer, system, hits, texts);
+        w.offer.ability = true;
+        w.offer.non_fighters_first = bound && non_fighter_left;
+        w.offer.announce = announce;
+        w.assign.ability = true;
+        w.assign.non_fighters_first = bound;
+        w.assign.cause = cause;
+        w.assign.announce = announce;
+        w
+    }
 }
 
 impl Window for Absorb {

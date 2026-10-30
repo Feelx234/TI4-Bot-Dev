@@ -27,6 +27,7 @@ pub mod raid_formation;
 pub mod retreat;
 pub mod roll;
 pub mod sustain_commander;
+pub mod space_cannon_offense;
 pub mod sustain_offer;
 
 use crate::containers::{SmallList, SortedMap};

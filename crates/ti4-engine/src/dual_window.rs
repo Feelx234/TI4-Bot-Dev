@@ -621,6 +621,25 @@ pub fn drive_positioned<W: Window>(
     script: &Recording,
     complete: &dyn Fn(&CoreChoice, &CoreState, &mut Choice),
 ) -> Result<Driven, DriverError> {
+    drive_windowed(driver, core, kernel, position, r, gs, script, &|_, c, s, rendered| complete(c, s, rendered))
+}
+
+/// [`drive_positioned`], letting the caller read the window too when it completes a question (a composed window knows which of
+/// its children asked, and for whom).
+///
+/// # Errors
+/// As [`drive`].
+#[allow(clippy::too_many_arguments)]
+pub fn drive_windowed<W: Window>(
+    driver: &mut Driver<W>,
+    core: &mut CoreState,
+    kernel: &Kernel,
+    position: Option<&'static Kernel>,
+    r: &Render,
+    gs: &GameState,
+    script: &Recording,
+    complete: &dyn Fn(&W, &CoreChoice, &CoreState, &mut Choice),
+) -> Result<Driven, DriverError> {
     let (phase, round) = (render::generic::core_phase(gs.phase), gs.round);
     let mut out = Driven { questions: Vec::new(), rendered: Vec::new(), finished: false };
     match crate::reactions_core::follow(r, gs, script) {
@@ -676,7 +695,7 @@ pub fn drive_positioned<W: Window>(
                 };
                 out.questions.push(choice.clone());
                 let mut rendered = typed.rendered;
-                complete(&choice, core, &mut rendered);
+                complete(&driver.window, &choice, core, &mut rendered);
                 // A question the string builds with no `DecisionContext` (Sling Relay, Integrated Economy) is compared
                 // without one: a typed `Choice` always carries its context, and the string adds none to its own.
                 if script.questions.get(out.questions.len() - 1).is_some_and(|q| q.choice.context.is_none()) {
