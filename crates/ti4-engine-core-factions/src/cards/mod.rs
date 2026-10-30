@@ -113,6 +113,7 @@ const fn skilled_retreat_covers(card: ActionCard) -> bool {
 fn retreat_unported(host: &RulesHost<'_>, who: Seat, system: System, destination: System) -> bool {
     let s = &*host.state;
     if s.players().iter().any(|p| p.faction == Faction::LastBastion) {
+        ti4_engine_core::unsupported::hit(ti4_engine_core::unsupported::Disabled::LastBastion);
         return true;
     }
     let rd = Rd::new(s, host.kernel);

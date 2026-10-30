@@ -4147,6 +4147,7 @@ dependencies = [
  "ti4-model",
  "ti4-rule-bot",
  "ti4-selfplay",
+ "ti4-server",
  "ti4-wasm",
  "zstd 0.13.3",
 ]

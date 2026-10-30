@@ -8152,7 +8152,8 @@ pub(crate) mod tests {
             let mut hurt = ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new("dreadnought"), a.clone());
             hurt.sustained_damage = true;
             state.system_mut(&sys).units.push(hurt);
-            state.promissory_notes.clear(); // the fixture ones carry the faction "generic", which the Cards codec refuses
+            // the notes setup dealt carry the faction "generic", which the Cards codec refuses: deal them again
+            crate::fixtures::redeal_notes(&mut state, ti4_model::content_types::POK);
             state.active_system = Some(sys.clone());
             state.player_mut(&b).unwrap().commodities = 3;
             state.last_combat_sides = Some((sys.clone(), vec![a.clone(), b.clone()]));

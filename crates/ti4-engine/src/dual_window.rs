@@ -952,6 +952,7 @@ pub(crate) fn tables(gs: &GameState) -> Option<(Ctx, Render)> {
 
 /// [`tables`] with owners the position does not hold yet in the table (the neutral owner of a card that places units for it).
 pub(crate) fn tables_with(gs: &GameState, extra: &[&str]) -> Option<(Ctx, Render)> {
+    crate::core_sync::unsupported::check(gs).ok()?;
     let cx = Ctx::with_extra(gs, extra).ok()?;
     let r = Render::new(cx.owners.ids().to_vec());
     Some((cx, r))

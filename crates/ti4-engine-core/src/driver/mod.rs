@@ -155,6 +155,7 @@ impl<W: Window> Driver<W> {
     /// # Errors
     /// The resolver refused, or the window broke its contract.
     pub fn run(&mut self, s: &mut CoreState, k: &Kernel) -> Result<Status, DriverError> {
+        crate::unsupported::guard(s);
         self.tape.clear();
         self.settle(s, k, Op::Step, Awaiting::Nothing)
     }
@@ -545,5 +546,30 @@ mod tests {
         let expect: Vec<u32> = (0..3).map(|_| bare.die(RngDomain::Dice, &Plain, 10)).collect();
         assert_eq!(d.window.faces, expect);
         assert!(s.rng.positions().eq(bare.positions()), "three draws were taken, not six");
+    }
+
+    /// A position that uses a switched-off feature is refused at the driver's entry under `Policy::Panic`
+    /// (docs/DISABLE_XF123.md; package D2-2) and runs as before under `Off`.
+    #[test]
+    fn the_driver_refuses_a_switched_off_position_at_its_entry() {
+        use crate::unsupported::{Policy, with_policy};
+        let (mut s, k, mut d) = setup();
+        s.players = Players::from_vec(vec![Player::new(Seat(0), Faction::LastBastion)]);
+        with_policy(Policy::Off, || {
+            let _ = d.run(&mut s.clone(), &k);
+        });
+        let (mut s2, k2, mut d2) = setup();
+        s2.players = Players::from_vec(vec![Player::new(Seat(0), Faction::TheCrimsonRebellion)]);
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            with_policy(Policy::Panic, || {
+                let _ = d2.run(&mut s2, &k2);
+            });
+        }));
+        std::panic::set_hook(prev);
+        let text = r.err().and_then(|e| e.downcast_ref::<String>().cloned()).unwrap_or_default();
+        assert!(text.contains("Crimson"), "{text}");
+        let _ = &mut s;
     }
 }

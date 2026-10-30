@@ -245,6 +245,51 @@ pub fn seated_game(
     state
 }
 
+/// [`seated_game`] with every player's own promissory notes dealt **after** the factions were
+/// seated (package D2-1).
+///
+/// Setup deals the notes before a faction is chosen, so on a [`seated_game`] they name the
+/// placeholder faction `generic`, which the corpus does not have: the cards
+/// codec of `core_sync` refuses them and every typed half silently bails (trap T1 of
+/// `docs/todo/D2-prereqs.md`). Use this where a test must reach the typed core.
+///
+/// # Panics
+/// As [`seated_game`].
+#[must_use]
+pub fn seated_dealt(
+    seats: &[(&str, &str)],
+    sources: ti4_model::content_types::SourceSet,
+) -> GameState {
+    let mut state = seated_game(seats, sources);
+    state.promissory_notes.clear();
+    state.promissory_faceup.clear();
+    crate::promissory::deal(&mut state, ContentStore::embedded(), sources);
+    state
+}
+
+/// Deal every player's own promissory notes again, after their factions were set by hand on a
+/// [`game`] (the notes setup dealt name the placeholder faction `generic`; see [`seated_dealt`]).
+/// For the few tests that build a table around an overwritten `Player::faction`; prefer [`seated_dealt`].
+pub fn redeal_notes(state: &mut GameState, sources: ti4_model::content_types::SourceSet) {
+    state.promissory_notes.clear();
+    state.promissory_faceup.clear();
+    crate::promissory::deal(state, ContentStore::embedded(), sources);
+}
+
+/// A game of `players` (named seats) with a real, distinct lobby faction each, in the order of
+/// [`crate::seating::LOBBY_FACTIONS`], deployed and with its notes dealt, at the Prophecy of Kings
+/// sources: the table the typed core can hold (no `generic`). For gates and tests that need
+/// "some real table" and do not care which factions.
+///
+/// # Panics
+/// More than 8 players, or if setup refuses them.
+#[must_use]
+pub fn real_game(players: &[&str]) -> GameState {
+    assert!(players.len() <= 8, "a table has at most 8 seats");
+    let seats: Vec<(&str, &str)> = players.iter().copied().zip(crate::seating::LOBBY_FACTIONS).collect();
+    seated_dealt(&seats, POK)
+}
+
 /// `seats` seated, the seat named `a` a Nekro holding the Valefar Assimilator Z breakthrough with a
 /// Z token on each faction in `lent`. For the Nekro flagship-text tests.
 pub fn nekro_with_z(seats: &[(&str, &str)], lent: &[&str]) -> GameState {

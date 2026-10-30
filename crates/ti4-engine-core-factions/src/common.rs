@@ -25,7 +25,13 @@ pub fn player(s: &CoreState, who: Seat) -> Option<&Player> {
 /// Whether the seat plays this faction.
 #[must_use]
 pub fn is_faction(s: &CoreState, who: Seat, faction: Faction) -> bool {
-    player(s, who).is_some_and(|p| p.faction == faction)
+    let plays = player(s, who).is_some_and(|p| p.faction == faction);
+    if plays {
+        // Last Bastion, Crimson, Keleres, Deepwrought, Firmament, Obsidian and Ral Nel are switched off
+        // (docs/DISABLE_XF123.md): a panic under `Policy::Panic`, dead code after the flip (D2-8), deleted in D4.
+        ti4_engine_core::unsupported::faction_in_play(faction);
+    }
+    plays
 }
 
 /// `breakthroughs::holds`.
@@ -227,5 +233,42 @@ mod upgrade_tests {
         apply_unit_upgrades(&mut s, scope, Seat(0));
         assert_eq!(s.board().sys(system).units.as_slice().iter().map(|p| (p.owner(), p.kind())).collect::<Vec<_>>(), vec![(Seat(0), Unit::CruiserII), (Seat(1), Unit::CruiserI)], "the owner's only, in place");
         assert_eq!(s.board().planet(planet).units.as_slice()[0].kind(), Unit::InfantryII, "a planet's units too");
+    }
+}
+
+#[cfg(test)]
+mod unsupported_tests {
+    use super::*;
+    use crate::common::testkit::table;
+    use ti4_engine_core::unsupported::{Policy, with_policy};
+
+    fn panics_with(name: &str, f: impl FnOnce()) -> bool {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+        std::panic::set_hook(prev);
+        r.err().is_some_and(|e| {
+            e.downcast_ref::<String>().is_some_and(|t| t.contains(name))
+                || e.downcast_ref::<&str>().is_some_and(|t| t.contains(name))
+        })
+    }
+
+    #[test]
+    fn is_faction_panics_for_each_switched_off_faction_and_only_for_those() {
+        for (f, name) in [
+            (Faction::LastBastion, "LastBastion"),
+            (Faction::TheCrimsonRebellion, "Crimson"),
+            (Faction::TheCouncilKeleresArgent, "Keleres"),
+            (Faction::TheDeepwroughtScholarate, "Deepwrought"),
+            (Faction::TheFirmament, "Firmament"),
+            (Faction::TheObsidian, "Obsidian"),
+            (Faction::TheRalNelConsortium, "RalNel"),
+        ] {
+            let (s, _) = table(&[Faction::TheArborec, f]);
+            assert!(with_policy(Policy::Off, || is_faction(&s, Seat(1), f)), "{f:?} off");
+            assert!(panics_with(name, || with_policy(Policy::Panic, || { let _ = is_faction(&s, Seat(1), f); })), "{f:?}");
+            // asking about another faction at the same table does not touch the switched-off seat
+            assert!(!with_policy(Policy::Panic, || is_faction(&s, Seat(0), Faction::TheEmiratesOfHacan)));
+        }
     }
 }

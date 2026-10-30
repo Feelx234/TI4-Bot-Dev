@@ -22,7 +22,7 @@ CORE_LAYER = {
     'ids': 0, 'bits': 0, 'hex': 0, 'galaxy': 0, 'movement': 0, 'board': 0, 'occupancy': 0,
     'tables': 0, 'generated': 0,
     # L1 state + decision types
-    'containers': 1, 'state': 1, 'choice': 1, 'event': 1, 'keys': 1,
+    'containers': 1, 'state': 1, 'choice': 1, 'event': 1, 'keys': 1, 'unsupported': 1,
     # L2 queries
     'query': 2,
     # L3 kernel

@@ -576,6 +576,8 @@ impl Play {
             return None;
         }
         if matches!(fx, Fx::Veto | Fx::Dig | Fx::Impersonation | Fx::Probe | Fx::Perform { .. }) && core.cards().reserve.is_some() {
+            // XF-2 (docs/DISABLE_XF123.md): the turn-redo reserve is switched off; dead after the flip (D2-8), deleted in D4.
+            crate::unsupported::hit(crate::unsupported::Disabled::DeckReserve);
             return None;
         }
         // A readied Keleres agent could be offered before a payment (a window of its own, the goods window).
@@ -4290,5 +4292,39 @@ mod tests {
         assert!(Play::of(&core, ActionCard::Veto, who, env).is_some());
         core.cards_mut().reserve = Some(crate::containers::Cow::new(Default::default()));
         assert!(Play::of(&core, ActionCard::Veto, who, env).is_none(), "the string draws through the reserve");
+    }
+
+    /// XF-2 (docs/DISABLE_XF123.md): the turn-redo reserve is switched off; under `Policy::Panic` the site that declines
+    /// the draw panics instead.
+    #[test]
+    fn a_card_that_draws_through_a_replay_reserve_panics_when_the_reserve_is_switched_off() {
+        let mut core = CoreState::all_loaded();
+        let env = Env {
+            mahact_held: 0,
+            scope: crate::tables::Scope(u32::MAX),
+            blanked: false,
+            action_card: crate::state::Code(0),
+            supply_base: crate::state::Code(0),
+            note_order: |a, b| a.cmp(&b),
+            infantry: super::super::Placed::NONE,
+            cruiser: super::super::Placed::NONE,
+            fighter: super::super::Placed::NONE,
+            facts: super::super::Facts::default(),
+        };
+        let who = Seat(0);
+        core.cards_mut().reserve = Some(crate::containers::Cow::new(Default::default()));
+        crate::unsupported::with_policy(crate::unsupported::Policy::Off, || {
+            assert!(Play::of(&core, ActionCard::Veto, who, env).is_none());
+        });
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::unsupported::with_policy(crate::unsupported::Policy::Panic, || {
+                let _ = Play::of(&core, ActionCard::Veto, who, env);
+            });
+        }));
+        std::panic::set_hook(prev);
+        let text = r.err().and_then(|e| e.downcast_ref::<String>().cloned()).unwrap_or_default();
+        assert!(text.contains("DeckReserve"), "{text}");
     }
 }

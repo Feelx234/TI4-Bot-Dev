@@ -47,6 +47,23 @@ pub enum Unmapped {
     Duplicate(String),
 }
 
+impl Unmapped {
+    /// Count this refusal (`core_sync::unmapped`); every construction site ends in it.
+    #[must_use]
+    fn noted(self) -> Self {
+        let (what, text) = match &self {
+            Self::System(t) => ("adapter: system", t.clone()),
+            Self::Unit(t) => ("adapter: unit", t.clone()),
+            Self::WormholeKind(t) => ("adapter: wormhole kind", t.clone()),
+            Self::Seats(n) => ("adapter: more than 16 owners", n.to_string()),
+            Self::OffGrid(t) => ("adapter: off the grid", t.clone()),
+            Self::Duplicate(t) => ("adapter: duplicate", t.clone()),
+        };
+        crate::core_sync::unmapped::note_adapter(what, &text);
+        self
+    }
+}
+
 #[must_use]
 pub fn system_ix(id: &str) -> Option<SystemIx> {
     <SystemIx as IdStr>::from_id(id)
@@ -86,7 +103,7 @@ pub fn lane_table() -> &'static ti4_engine_core::tables::LaneTable {
 }
 
 fn sys(id: &str) -> Result<SystemIx, Unmapped> {
-    system_ix(id).ok_or_else(|| Unmapped::System(id.to_owned()))
+    system_ix(id).ok_or_else(|| Unmapped::System(id.to_owned()).noted())
 }
 
 /// The scope mask of a source set: the core's bit of each source (`tables::source_bit`), matched
@@ -109,7 +126,7 @@ pub fn wormhole_mask<'k>(kinds: impl IntoIterator<Item = &'k str>) -> Result<u8,
     let mut mask = 0;
     for kind in kinds {
         let k = <Wormhole as IdStr>::from_id(kind)
-            .ok_or_else(|| Unmapped::WormholeKind(kind.to_owned()))?;
+            .ok_or_else(|| Unmapped::WormholeKind(kind.to_owned()).noted())?;
         mask |= ti4_engine_core::tables::wormhole_bit(k);
     }
     Ok(mask)
@@ -155,7 +172,7 @@ pub fn unit_set_lossy<'s>(ids: impl IntoIterator<Item = &'s str>) -> UnitSet {
 /// # Errors
 /// A type the tables do not know.
 pub fn ship_type(id: Option<&str>) -> Result<Option<UnitIx>, Unmapped> {
-    id.map(|t| unit_ix(t).ok_or_else(|| Unmapped::Unit(t.to_owned())))
+    id.map(|t| unit_ix(t).ok_or_else(|| Unmapped::Unit(t.to_owned()).noted()))
         .transpose()
 }
 
@@ -170,15 +187,15 @@ pub fn galaxy_from_legacy(galaxy: &Galaxy) -> Result<CoreGalaxy, Unmapped> {
         let ix = sys(id)?;
         let hex = galaxy
             .coord_of(id)
-            .ok_or_else(|| Unmapped::System(id.to_owned()))?;
+            .ok_or_else(|| Unmapped::System(id.to_owned()).noted())?;
         raw.place(ix, Hex::new(hex.q, hex.r)).map_err(|e| match e {
-            ti4_engine_core::galaxy::PlaceError::Duplicate(_) => Unmapped::Duplicate(id.to_owned()),
-            ti4_engine_core::galaxy::PlaceError::OffGrid(_) => Unmapped::OffGrid(id.to_owned()),
+            ti4_engine_core::galaxy::PlaceError::Duplicate(_) => Unmapped::Duplicate(id.to_owned()).noted(),
+            ti4_engine_core::galaxy::PlaceError::OffGrid(_) => Unmapped::OffGrid(id.to_owned()).noted(),
         })?;
     }
     for id in galaxy.off_map_systems() {
         raw.place_off_map(sys(id)?)
-            .map_err(|_| Unmapped::Duplicate(id.to_owned()))?;
+            .map_err(|_| Unmapped::Duplicate(id.to_owned()).noted())?;
     }
     // Kinds as the string galaxy reports them (printed, token, a copy's retained or suppressed kinds)
     // with Nexus Sovereignty lifted; the switch itself is copied below, so `wormhole_kinds` applies it
@@ -206,7 +223,7 @@ pub fn galaxy_from_legacy(galaxy: &Galaxy) -> Result<CoreGalaxy, Unmapped> {
     for ix in SystemIx::ALL {
         let id = ix.as_str();
         if raw.is_hyperlane(ix) != hyperlanes.contains(id) {
-            return Err(Unmapped::System(id.to_owned()));
+            return Err(Unmapped::System(id.to_owned()).noted());
         }
     }
     raw.hyperlane_lanes = galaxy.hyperlane_lanes;
@@ -231,11 +248,11 @@ pub fn galaxy_native(tiles: &[(&str, Hex)], off_map: &[&str]) -> Result<CoreGala
     let mut raw = CoreGalaxy::new(lane_table());
     for (id, hex) in tiles {
         raw.place(sys(id)?, *hex)
-            .map_err(|_| Unmapped::Duplicate((*id).to_owned()))?;
+            .map_err(|_| Unmapped::Duplicate((*id).to_owned()).noted())?;
     }
     for id in off_map {
         raw.place_off_map(sys(id)?)
-            .map_err(|_| Unmapped::Duplicate((*id).to_owned()))?;
+            .map_err(|_| Unmapped::Duplicate((*id).to_owned()).noted())?;
     }
     raw.refresh_lane_links();
     Ok(raw)
@@ -260,7 +277,7 @@ impl Seats {
             ids.extend(system.command_tokens.iter().map(|p| p.as_str()));
         }
         if ids.len() > 16 {
-            return Err(Unmapped::Seats(ids.len()));
+            return Err(Unmapped::Seats(ids.len()).noted());
         }
         Ok(Self {
             ids: ids.into_iter().map(str::to_owned).collect(),
@@ -292,7 +309,7 @@ pub fn board_from_state(
 ) -> Result<CoreBoard, Unmapped> {
     let scope = scope(sources);
     let mut board = CoreBoard::new();
-    let owner = |id: &str| seats.seat(id).ok_or(Unmapped::Seats(17));
+    let owner = |id: &str| seats.seat(id).ok_or_else(|| Unmapped::Seats(17).noted());
     for (id, system) in &state.board {
         let ix = sys(id.as_str())?.index();
         board.systems.insert(ix);

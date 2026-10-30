@@ -21,7 +21,8 @@
 # 3 dual run (engine suite with the area on Dual and fail-fast, 20 golden games, templates);
 # 5 benches (bench + v1..v5 with the area on Core; bench with it on String; Dual optional);
 # 6/7 golden hashes + CPU A/B (AREA on Core vs BASE_SELFPLAY); 8 wasm size; 9 hygiene (layers,
-# lint_core, clippy); 10 state_size; 11 build times. The round trip (4) runs inside 1 (F2's tests).
+# lint_core, clippy); 10 state_size; 11 build times. The round trip (4): F2's tests inside 1, and since D2-1 the
+# strict core_sync_gate over the golden positions, the marks census and the alpha-log round trip as their own steps.
 # Exit 1 when anything failed.
 set -uo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -70,6 +71,23 @@ if [[ $rc1 == 0 && $rc2 == 0 ]]; then note "ok   immutable surfaces (vs $base_re
 t0=$SECONDS; check build-selfplay cargo build --profile gate -p ti4-selfplay; note "     build-selfplay $((SECONDS - t0)) s"
 cp "$target/gate/selfplay" "$out/selfplay-new"
 check build-bridge cargo build --profile gate -p ti4-engine-core-bridge --bins
+
+# 4 round trip, strict (package D2-1, trap T16: this was never part of the script): store(load(g)) == g and
+# load(store(x)) == x over the template openings, the fixtures and every STRIDE-th position of the golden games, with
+# no refusal (`unmapped: 0`). The marks census lists the faction_marks key templates no typed family covers.
+check roundtrip "$target/gate/core_sync_gate" tools/engine_profile/profile-20.json "$games" 10 --strict
+note "     $(grep '^positions ' "$out/roundtrip.log" | tail -1)"
+note "     $(grep '^unmapped (census' "$out/roundtrip.log" | tail -1)"
+check marks-census python3 -I tools/engine_core/marks_census.py --strict
+note "     $(tail -1 "$out/marks-census.log")"
+# The alpha logs, on a COPY (the tool refuses the live directory). SKIP_ALPHA=1 or no /var/lib/ti4-public skips it.
+if [[ -d /var/lib/ti4-public && "${SKIP_ALPHA:-0}" != 1 ]]; then
+  alpha_copy="$(mktemp -d /root/deploytmp/alpha-copy.XXXXXX)"
+  rsync -a --exclude feedback /var/lib/ti4-public/ "$alpha_copy/"
+  check alpha-roundtrip "$target/gate/alpha_roundtrip" "$alpha_copy" --strict
+  note "     $(grep '^alpha_roundtrip:' "$out/alpha-roundtrip.log" | tail -1)"
+  rm -rf "$alpha_copy"
+fi
 
 # 1 tests
 check tests cargo test -p ti4-model -p ti4-content -p ti4-engine -p ti4-host -p ti4-rule-bot \

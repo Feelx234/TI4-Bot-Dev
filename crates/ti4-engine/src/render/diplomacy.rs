@@ -88,7 +88,7 @@ pub const fn counted(kind: Counted) -> SCounted {
 /// # Errors
 /// A seat or a term the tables cannot write.
 pub fn string_draft(cx: &Ctx, d: &ti4_engine_core::query::diplomacy_items::Draft) -> Result<Draft, crate::core_sync::Unmapped> {
-    let seat = |s: Seat| cx.owners.id(s).map(ti4_model::id::PlayerId::new).ok_or_else(|| crate::core_sync::Unmapped { slice: ti4_engine_core::state::Slice::Trade, what: "diplomacy: a seat the table does not know", text: String::new() });
+    let seat = |s: Seat| cx.owners.id(s).map(ti4_model::id::PlayerId::new).ok_or_else(|| crate::core_sync::bad(ti4_engine_core::state::Slice::Trade, "diplomacy: a seat the table does not know", ""));
     let terms = |l: &[ti4_engine_core::state::DealTerm]| l.iter().map(|t| crate::core_sync::codec::trade::term_back(cx, t)).collect::<Result<Vec<_>, _>>();
     Ok(Draft {
         builder: seat(d.builder)?,

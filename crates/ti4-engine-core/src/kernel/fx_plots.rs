@@ -16,7 +16,11 @@ pub const PRINTED: [PlotCard; 5] = [PlotCard::Enervate, PlotCard::Siphon, PlotCa
 /// `firmament::is_firmament`: the seat plays the Firmament (not yet the Obsidian).
 #[must_use]
 pub fn is_firmament(core: &CoreState, seat: Seat) -> bool {
-    core.players().by_seat(seat).is_some_and(|p| p.faction == Faction::TheFirmament)
+    let firmament = core.players().by_seat(seat).is_some_and(|p| p.faction == Faction::TheFirmament);
+    if firmament {
+        crate::unsupported::hit(crate::unsupported::Disabled::Firmament);
+    }
+    firmament
 }
 
 /// `firmament::remaining_cards` (`ti4_model::plots::remaining`): the plot cards no player has in play. A card of
