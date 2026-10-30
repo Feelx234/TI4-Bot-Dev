@@ -12444,6 +12444,35 @@ mod ground_routes {
         let _ = take_report();
     }
 
+    /// Package W5: the paid removal of the custodians token at a table with a Naaz, Nomad, Yssaril or Mentak seat is a core window
+    /// (the pre-W5 guard `unported_window` bailed it: "paid removal at a table with a faction the production window does not carry").
+    #[test]
+    fn the_paid_custodians_removal_runs_in_the_core_at_tables_with_the_tier_w_seats() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let mecatol = SystemId::new(crate::seating::MECATOL);
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual);
+        for seats in [[("a", "naaz"), ("b", "letnev")], [("a", "sol"), ("b", "nomad")], [("a", "sol"), ("b", "yssaril")], [("a", "mentak"), ("b", "naaz")]] {
+            let _ = take_report();
+            with_mask(mask, || {
+                let mut state = crate::fixtures::seated_game(&seats, POK);
+                state.board.entry(mecatol.clone()).or_default();
+                crate::fixtures::put(&mut state, &mecatol, "infantry", &a(), 1);
+                state.player_mut(&a()).unwrap().trade_goods = 8;
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                let mut window = InvasionWindow::at_commit_step(&mut state, &a(), &mecatol);
+                let (_, _) = drive(&mut state, &mut window, &["yes", "trade_good", "trade_good", "trade_good", "trade_good", "trade_good", "trade_good", "done_committing"], &[]);
+                assert!(state.custodians_removed, "{seats:?}");
+            });
+            let r = report();
+            let w = r.windows.get("invasion::answer_custodians").copied().unwrap_or_default();
+            assert!(w.compared >= 1 && w.bailed == 0, "{seats:?}: {:?}", r.windows);
+            assert_eq!(r.total_differences(), 0, "{seats:?}: {:?}", r.differences);
+        }
+        let _ = take_report();
+    }
+
     /// Lifting the custodians token pays its six influence through the ordinary payment question:
     /// typed `pay_influence` with the whole bill outstanding, one `pay` option per planet (`exhaust|<planet>`)
     /// with its worth, so the client renders it with the payment panel (both printed
