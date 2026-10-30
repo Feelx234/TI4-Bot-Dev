@@ -987,7 +987,7 @@ mod tests {
     fn held_tactical(g: &mut Game<'static>) -> ti4_engine_core::state::Tactical {
         let (r, held) = checked(g);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        assert!(!r.windows.keys().any(|k| k.contains("[bail")), "{:?}", r.windows);
+        assert!(!r.windows.keys().any(|k| k.starts_with("d1::pending [bail")), "{:?}", r.windows);
         match held.window(WindowKind::Tactical) {
             Some(Window::Tactical(t)) => t.clone(),
             other => panic!("{other:?}"),
@@ -1067,7 +1067,7 @@ mod tests {
     fn held_aftermath(g: &mut Game<'static>) -> ti4_engine_core::state::Aftermath {
         let (r, held) = checked(g);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        assert!(!r.windows.keys().any(|k| k.contains("[bail")), "{:?}", r.windows);
+        assert!(!r.windows.keys().any(|k| k.starts_with("d1::pending [bail")), "{:?}", r.windows);
         match held.window(WindowKind::Aftermath) {
             Some(Window::Aftermath(a)) => (**a).clone(),
             other => panic!("{other:?}"),

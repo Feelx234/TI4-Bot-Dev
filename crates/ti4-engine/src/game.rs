@@ -7009,14 +7009,7 @@ impl<'a> Game<'a> {
         // A new turn re-offers everything: the withholding below is scoped to the turn whose
         // action failed, not to the game.
         self.failed_component_actions.clear();
-        if self
-            .state
-            .transient_flags
-            .has(TransientFlags::ADDITIONAL_ACTION)
-        {
-            self.state
-                .transient_flags
-                .clear(TransientFlags::ADDITIONAL_ACTION);
+        if crate::turn_write::take_retention(&mut self.state) {
             self.emit("TURN_RETAINED");
             return Ok(());
         }
@@ -7026,31 +7019,21 @@ impl<'a> Game<'a> {
         // moves on, since the additional action is this player's.
         if self.state.phase == Phase::Action {
             self.minister_of_war();
-            if self
-                .state
-                .transient_flags
-                .has(TransientFlags::ADDITIONAL_ACTION)
-            {
-                self.state
-                    .transient_flags
-                    .clear(TransientFlags::ADDITIONAL_ACTION);
+            if crate::turn_write::take_retention(&mut self.state) {
                 self.emit("TURN_RETAINED");
                 return Ok(());
             }
         }
         let ended = self.state.active.clone();
         self.actions_this_turn = 0;
-        // A new turn is a new action for the negotiation limit.
-        crate::transactions::clear_action_negotiations(&mut self.state);
-        // A Black Market marker outlives no turn: the negotiation it unlocked is closed by
-        // the time the turn ends, and the marker is cleared here too so a flag no window
-        // consumed can never leak into another player's table.
-        self.state
-            .transient_flags
-            .clear(TransientFlags::BLACK_MARKET);
-        self.state
-            .transient_flags
-            .clear(TransientFlags::EXPEDITION_CLAIMED);
+        // A new turn is a new action for the negotiation limit. A Black Market marker outlives no turn: the
+        // negotiation it unlocked is closed by the time the turn ends, and the marker is cleared here too so a flag no
+        // window consumed can never leak into another player's table. (An expedition claim lasts the turn as well.)
+        crate::turn_write::end_turn_scratch(&mut self.state, |s| {
+            crate::transactions::clear_action_negotiations(s);
+            s.transient_flags.clear(TransientFlags::BLACK_MARKET);
+            s.transient_flags.clear(TransientFlags::EXPEDITION_CLAIMED);
+        });
         if self.state.phase == Phase::Action
             && let Some(active) = ended.clone()
         {
@@ -7080,14 +7063,7 @@ impl<'a> Game<'a> {
             // untouched until some later turn ended, handing the extra action to whoever was
             // active then. It returns before the fleet sweep for the same reason the Master Plan
             // path above does: the turn has not ended, so the end-of-turn work is not due.
-            if self
-                .state
-                .transient_flags
-                .has(TransientFlags::ADDITIONAL_ACTION)
-            {
-                self.state
-                    .transient_flags
-                    .clear(TransientFlags::ADDITIONAL_ACTION);
+            if crate::turn_write::take_retention(&mut self.state) {
                 self.emit("TURN_RETAINED");
                 return Ok(());
             }
@@ -7114,6 +7090,21 @@ impl<'a> Game<'a> {
             )
             .map_err(GameError::IllegalChoice)?;
         }
+        let before = (crate::dual::backend(crate::dual::Area::Driver) == crate::dual::Backend::Dual).then(|| self.state.clone());
+        let mut announced = Vec::new();
+        let result = self.pass_on_tail(ended.clone(), &mut announced);
+        if result.is_ok()
+            && let Some(before) = before
+        {
+            crate::turn_write::check_pass_on(&before, &self.state, ended.as_ref(), &announced);
+        }
+        result
+    }
+
+    /// The choice-free tail of [`Self::advance_turn_inner`]: the turn passes on, its end is announced (`TURN_PASSED`), the
+    /// seat Crisis names is skipped and a Puppets on a String grant gives the passer a fresh turn. `announced` lists what
+    /// was announced, for the D1 turn-flow dual.
+    fn pass_on_tail(&mut self, ended: Option<PlayerId>, announced: &mut Vec<String>) -> Result<(), GameError> {
         if advance_turn(&mut self.state).is_none()
             && !self
                 .state
@@ -7124,6 +7115,7 @@ impl<'a> Game<'a> {
             // windows open (Naaz agent), there is just no next turn to pass to.
             if let Some(ended) = ended {
                 self.emit("TURN_PASSED");
+                announced.push(format!("PASSED:{ended}"));
                 let mut payload = BTreeMap::new();
                 payload.insert(
                     "player".to_owned(),
@@ -7137,6 +7129,7 @@ impl<'a> Game<'a> {
             return Ok(());
         };
         self.emit("TURN_PASSED");
+        announced.push(format!("PASSED:{ended}"));
         let mut payload = BTreeMap::new();
         payload.insert(
             "player".to_owned(),
@@ -7153,6 +7146,7 @@ impl<'a> Game<'a> {
                 .clear(TransientFlags::SKIP_NEXT_TURN);
             if let Some(skipped) = self.state.active.clone() {
                 self.emit(&format!("TURN_SKIPPED:{skipped}"));
+                announced.push(format!("SKIPPED:{skipped}"));
                 let _ = advance_turn(&mut self.state);
             }
         }
@@ -7171,6 +7165,7 @@ impl<'a> Game<'a> {
                 .clear(TransientFlags::PUPPET_ACTION);
             crate::phase::begin_action_turn(&mut self.state, &ended);
             self.emit(&format!("TURN_PUPPET:{ended}"));
+            announced.push(format!("PUPPET:{ended}"));
         }
         Ok(())
     }

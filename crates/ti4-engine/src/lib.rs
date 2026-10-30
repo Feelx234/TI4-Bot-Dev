@@ -219,6 +219,7 @@ pub mod trade_window_dual;
 #[cfg(all(test, feature = "typed-core"))]
 mod trade_window_tests;
 pub mod trade_write;
+pub mod turn_write;
 pub mod transactions;
 pub mod transit;
 pub mod trigger;
