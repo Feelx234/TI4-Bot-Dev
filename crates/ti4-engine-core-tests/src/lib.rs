@@ -10,6 +10,7 @@
 //! * [`inv`]: the invariants (conservation) the properties check;
 //! * [`generators`]: proptest strategies and the deterministic scenario generator;
 //! * [`props`]: the core-level properties P1-P6 as plain functions over a window factory;
+//! * [`smoke`]: the standard rule test of one window position (four answer policies, contract and conservation at every step, snapshot);
 //! * [`covers`]: the `covers!` registry the coverage report reads.
 //!
 //! Tests run in the default (dev) profile, with debug assertions on: the `CoreState` slice accessors
@@ -23,6 +24,7 @@ pub mod kernel;
 pub mod props;
 pub mod rig;
 pub mod scenario;
+pub mod smoke;
 pub mod snap;
 
 pub use snap::assert_snapshot;
@@ -33,6 +35,7 @@ pub mod prelude {
     pub use crate::kernel::{kernel_all, kernel_plain};
     pub use crate::rig::Rig;
     pub use crate::scenario::{LATEST_RULES, LOBBY, Scenario};
+    pub use crate::smoke::{smoke, smoke_quiet};
     pub use crate::snap::assert_snapshot;
     pub use crate::covers_slot;
     pub use crate::{covers, covers_card};
