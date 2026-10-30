@@ -103,7 +103,10 @@ impl<W: Window> Rig<W> {
             let defs = table.registry(state, order, &mut |spec, _, _| AbilityId { kind: AbilityKind::Other, key: Code(spec.slot.0) });
             resolver.register(defs);
         }
-        let d = Driver::new(window.clone(), resolver, table.clone(), 1);
+        // The links to the windows an area runs as children (Politics draws through a `DrawCards` child since W6): installed in every run.
+        let mut table = table.clone();
+        ti4_engine_core::driver::children::register(&mut table);
+        let d = Driver::new(window.clone(), resolver, table, 1);
         match seed {
             Some(s) => d.with_seeds(Rc::new(KitSeeds(s))),
             None => d,

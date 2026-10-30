@@ -27,26 +27,33 @@ fn names(n: usize) -> Vec<&'static str> {
 
 #[test]
 fn a_dealt_table_of_every_lobby_faction_loads_and_round_trips_without_a_refusal() {
+    // 24 lobby factions as three tables of eight seats. The fixtures are built with the areas of `TI4_AREAS` on (setup and the deal
+    // lend to the core on a table whose factions are not seated yet: those refusals are the fixture's, not the codecs'): only the
+    // refusals of the codec calls below are counted.
+    let mut refused = 0;
     let _ = unmapped::take_thread();
-    // 24 lobby factions as three tables of eight seats
     for (t, chunk) in crate::seating::LOBBY_FACTIONS.chunks(8).enumerate() {
         let seats: Vec<(&str, &str)> = names(chunk.len()).into_iter().zip(chunk.iter().copied()).collect();
         let gs = crate::fixtures::seated_dealt(&seats, ti4_model::content_types::POK);
+        let _ = unmapped::take_thread();
         let mut cx = Ctx::of(&gs).unwrap();
         let core = Codec::load(&mut cx, &gs, Sources::default(), no_map())
             .unwrap_or_else(|e| panic!("table {t} {chunk:?}: {e}"));
         // store into the same table with the seats' factions rotated, so every field a codec writes shows
         let rotated: Vec<(&str, &str)> =
             seats.iter().enumerate().map(|(i, (n, _))| (*n, chunk[(i + 1) % chunk.len()])).collect();
+        refused += unmapped::take_thread().total;
         let mut back = crate::fixtures::seated_dealt(&rotated, ti4_model::content_types::POK);
+        let _ = unmapped::take_thread();
         Codec::store(&cx, &core, &mut back, no_map()).unwrap();
         let (a, b) = (json(&back), json(&gs));
         for (k, v) in a.as_object().unwrap() {
             assert_eq!(Some(v), b.get(k), "table {t}: field {k}");
         }
         assert_eq!(Codec::load(&mut cx, &back, Sources::default(), no_map()).unwrap(), core, "table {t}");
+        refused += unmapped::take_thread().total;
     }
-    assert_eq!(unmapped::take_thread().total, 0, "a dealt table must not be refused anywhere");
+    assert_eq!(refused, 0, "a dealt table must not be refused anywhere");
 }
 
 #[test]
@@ -66,8 +73,8 @@ fn seated_dealt_names_the_seated_faction_in_every_note_and_a_plain_seated_game_d
 
 #[test]
 fn real_game_is_a_table_of_distinct_lobby_factions_the_typed_core_holds() {
-    let _ = unmapped::take_thread();
     let gs = crate::fixtures::real_game(&["a", "b", "c"]);
+    let _ = unmapped::take_thread(); // what the fixture's own setup lent under `TI4_AREAS` is not the codec's refusal
     let mut seen = std::collections::BTreeSet::new();
     for p in &gs.players {
         assert!(crate::seating::LOBBY_FACTIONS.contains(&p.faction.as_str()), "{}", p.faction);
