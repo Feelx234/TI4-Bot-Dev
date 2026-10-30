@@ -7519,6 +7519,55 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Assimilate with room for ONE PDS in the reinforcements and two rival PDS on the planet: the first (list order) is converted, the second is
+    /// destroyed with the other rival structures; the dock is converted too. Pins the room count (`remaining - taken`) of the core window
+    /// (the single-structure test above cannot see it: found by the mutation check of `control.rs`).
+    #[test]
+    fn assimilate_converts_only_what_the_reinforcements_hold() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        let mut checked = 0;
+        with_mask(mask, || {
+            for seed in 1..=4_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "l1z1x"), ("b", "sardakk")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 8);
+                state.system_mut(&system).set_control(planet.clone(), PlayerId::new("b"));
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 1);
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "pds", &PlayerId::new("b"), 2);
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "spacedock", &PlayerId::new("b"), 1);
+                let (elsewhere, other) = ["a", "b"]
+                    .iter()
+                    .filter_map(|who| state.player(&PlayerId::new(*who)).unwrap().home_system.clone())
+                    .filter(|home| *home != system)
+                    .find_map(|home| state.system_state(&home).planet_control.keys().find(|p| **p != planet).cloned().map(|p| (home.clone(), p)))
+                    .unwrap();
+                crate::fixtures::put_on_planet(&mut state, &elsewhere, &other, "pds", &PlayerId::new("a"), 4);
+                let own_before = |state: &GameState, id: &str| state.system_state(&system).planet_units.get(&planet).map_or(0, |u| u.iter().filter(|x| x.owner == PlayerId::new("a") && x.type_id.as_str() == id).count());
+                let (pds_before, dock_before) = (own_before(&state, "pds"), own_before(&state, "spacedock"));
+                run_invasion_first_option(&mut state, seed, &system);
+                if state.system_state(&system).planet_control.get(&planet) != Some(&PlayerId::new("a")) {
+                    continue;
+                }
+                let standing = state.system_state(&system).planet_units.get(&planet).cloned().unwrap_or_default();
+                let count = |owner: &str, id: &str| standing.iter().filter(|u| u.owner == PlayerId::new(owner) && u.type_id.as_str() == id).count();
+                assert_eq!((count("a", "pds"), count("b", "pds"), count("a", "spacedock"), count("b", "spacedock")), (pds_before + 1, 0, dock_before + 1, 0), "{standing:?}");
+                checked += 1;
+            }
+        });
+        let r = report();
+        assert!(checked > 0, "a planet changed hands");
+        assert!(r.windows.get("invasion::finish_control_gain").is_some_and(|w| w.compared >= 1 && w.bailed == 0), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+        let _ = take_report();
+    }
+
     /// What the chain still hands to the string: Integrated Economy (a production nested in the chain) is a counted gate, the window is not
     /// opened and the run has no difference.
     #[test]
