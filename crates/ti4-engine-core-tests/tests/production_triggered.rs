@@ -34,6 +34,7 @@ fn space_ships(rig: &Rig<impl Window>, system: System, seat: u8) -> usize {
 #[test]
 fn sling_relay_with_one_dock_and_several_ships_asks_the_ship_then_pays_and_places_it_in_space() {
     covers!("rules::production::triggered::SlingRelay");
+    covers!("rules::production::pay::PayStep");
     let (system, planet) = dock_system(0);
     let sc = two_seats().map_from(&[system]).control(planet, 0).unit(system, Some(planet), Unit::SpaceDockI, 0, 1).goods(0, 5);
     let mut rig = Rig::new(sc, SlingRelay::new(Seat(0), buildable(&[Unit::DestroyerI, Unit::CruiserI, Unit::CarrierI])));
