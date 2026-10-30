@@ -10526,9 +10526,10 @@ mod tests {
     /// is offered (both answers); the whole composed machine runs in the core and agrees with the string.
     #[test]
     fn a_naaz_side_opens_its_space_rounds_in_the_core_machine_in_lockstep() {
-        let (mut compared_settle, mut asked_sc, mut used) = (0, 0, 0);
+        let (mut compared_settle, mut used) = (0, 0);
+        let asked_sc = std::cell::Cell::new(0_usize);
         for (seed, composed) in (0..8_u64).flat_map(|s| [(s, false), (s, true)]) {
-            let (state, windows, differences, nested) = hub_fight_composed(
+            let (state, windows, differences, _) = hub_fight_composed(
                 composed,
                 seed,
                 &["naaz", "hacan"],
@@ -10539,18 +10540,24 @@ mod tests {
                     put(s, system, "destroyer", &defender(), 1);
                     s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("sc"));
                 },
-                |seed, _, c| if c.prompt.starts_with("Supercharge") { usize::from(seed % 2 == 1) } else { 0 },
+                |seed, _, c| {
+                    if c.prompt.starts_with("Supercharge") {
+                        asked_sc.set(asked_sc.get() + 1);
+                        usize::from(seed % 2 == 1)
+                    } else {
+                        0
+                    }
+                },
             );
             assert_eq!(differences, 0, "seed {seed} composed {composed}: {windows:?}");
             assert!(windows.keys().all(|k| !k.contains("a Naaz side")), "seed {seed}: {windows:?}");
             compared_settle += windows.get(if composed { "combat::settle" } else { "combat::begin_round" }).map_or(0, |w| w.compared);
             let units = &state.system_state(&SystemId::new(crate::fixtures::plain_hub().centre)).units;
             assert!(!units.iter().any(|u| u.type_id.as_str() == "naaz_mech_space"), "seed {seed}: no ship form survives the battle");
-            asked_sc += usize::from(nested.iter().any(|k| k.contains("ask:Supercharge")));
             used += usize::from(state.player(&attacker()).unwrap().exhausted_technologies.contains(ti4_model::id::text(&"sc")));
         }
         assert!(compared_settle > 0, "the composed machine ran: {compared_settle}");
-        assert!(asked_sc > 0, "Supercharge was offered");
+        assert!(asked_sc.get() > 0, "Supercharge was offered");
         assert!(used > 0, "and used");
     }
 
