@@ -1952,13 +1952,13 @@ mod tests {
     #[test]
     fn the_component_actions_that_stay_in_the_string_are_counted() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
-        for id in ["faction|production_biomes", "faction|trade_convoys", "faction|winnu|lgf", "somethingelse"] {
+        for id in ["faction|production_biomes", "faction|trade_convoys", "faction|winnu|lgf", "faction|titans|terraform|elysium", "faction|nekro|c4r|repair", "somethingelse"] {
             assert_eq!(string_only_component(id), None, "{id}");
         }
         for id in [
-            "faction|orbital_drop", "faction|muaat|star_forge", "faction|ghost|wg", "faction|saar|deorbit_barrage", "faction|titans|terraform|elysium",
+            "faction|orbital_drop", "faction|muaat|star_forge", "faction|ghost|wg", "faction|saar|deorbit_barrage",
             "faction|naaz|bmf", "faction|yssaril|stall_tactics", "faction|cabal|vortex", "faction|arborec|psychospore",
-            "faction|nekro|c4r|pds", "faction|mahact|x",
+            "faction|nekro|c4r|pds", "faction|nekro|c4r|draw", "faction|mahact|x",
         ] {
             assert!(string_only_component(id).is_some_and(|why| why.starts_with(id.split('|').take(2).collect::<Vec<_>>().join("|").as_str())), "{id}");
         }

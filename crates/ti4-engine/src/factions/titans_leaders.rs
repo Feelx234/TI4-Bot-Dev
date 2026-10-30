@@ -979,6 +979,38 @@ mod tests {
         assert!(component_actions(&state, content, &a()).is_empty());
     }
 
+    /// Terraform is a body of the core: the conditions read again, the attachment and the note turned faceup. The core half agrees with
+    /// the string for a legal target, a planet that is not the seat's, a second use and a home planet, and it ran every time.
+    #[test]
+    fn terraform_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let run = |setup: &dyn Fn(&mut GameState, &PlanetId, &PlanetId), pick_second: bool| -> bool {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "titans")], DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            let (first, _) = take_planet(&mut state, &a(), 1);
+            let (second, _) = take_planet(&mut state, &a(), 2);
+            crate::promissory::take(&mut state, ContentStore::embedded(), &a(), "terraform:titans");
+            setup(&mut state, &first, &second);
+            let target = if pick_second { &second } else { &first };
+            let option = ChoiceOption::labelled(format!("{TERRAFORM_ACTION}{target}"), crate::faction_abilities::ACTION_KIND, "Terraform");
+            with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || {
+                crate::fixtures::with_context(&mut state, DEFAULT, None, &mut scripted(&[]), |ctx| perform_component(ctx, &a(), &option))
+            })
+        };
+        assert!(run(&|_, _, _| {}, false));
+        assert!(run(&|_, _, _| {}, true));
+        assert!(!run(&|s, first, _| { s.planet_attachments.entry(first.clone()).or_default().push(TERRAFORM_ATTACHMENT.to_owned()); }, true), "already in play");
+        assert!(!run(&|s, first, _| { s.system_state(&SystemId::new("18")); let _ = first; s.promissory_notes.clear(); }, false), "no note");
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("factions::titans::terraform"), (4, 0), "{r:?}");
+        let _ = take_report();
+    }
+
     #[test]
     fn terraform_cannot_be_offered_twice_and_a_wrong_option_is_refused() {
         let mut state = game();
