@@ -72,19 +72,25 @@ fn each_voter_backs_an_outcome_and_exhausts_planets_for_their_influence() {
 #[test]
 fn a_tie_goes_to_the_speaker_who_picks_among_the_tied_outcomes() {
     covers!("rules::agenda::window::Vote");
-    let [a, b, _] = planets_by_influence();
-    let _ = b;
-    let sc = table().speaker(2).control(a, 0);
-    let mut rig = Rig::new(sc, Vote::new(Agenda::ALL[0], &[Outcome::For, Outcome::Against], &[Seat(0), Seat(1)], facts()));
-    rig.run();
-    rig.pick_opt(back(Outcome::For));
-    rig.pick_where(|o| matches!(o, Opt::Agenda(AOpt::Exhaust { planet, .. }) if *planet == a));
+    let ones: Vec<Planet> = plain_systems().iter().flat_map(|s| s.data().planets.iter().copied()).filter(|p| p.data().influence == 1 && p.data().source == Source::Base && !p.data().legendary).take(2).collect();
+    assert_eq!(ones.len(), 2, "two one-influence planets");
+    let sc = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat, Faction::TheYssarilTribes]).map_from(&[system_of(ones[0]), system_of(ones[1])]).control(ones[0], 0).control(ones[1], 1).speaker(2);
+    let mut rig = Rig::new(sc, vote());
+    rig.run().pick_opt(back(Outcome::For));
+    rig.pick(0);
     rig.decline();
-    // Seat 1 votes against with a planet worth as much? Their only planet is worth 2: give seat 0 a second planet instead.
-    assert_eq!(rig.asked().actor, Seat(1));
     rig.pick_opt(back(Outcome::Against));
-    let own = rig.opts();
-    assert!(own.iter().any(|o| matches!(o, Opt::Agenda(AOpt::Exhaust { .. }))));
+    rig.pick(0);
+    rig.decline();
+    rig.decline();
+    assert!(!rig.is_done(), "one vote each: a tie");
+    assert_eq!(rig.asked().actor, Seat(2), "the speaker breaks it");
+    assert_eq!(rig.opts(), vec![back(Outcome::Against), back(Outcome::For)], "the tied outcomes in text order");
+    rig.expect_illegal(Pick::Opt(Opt::Decline));
+    rig.pick_opt(back(Outcome::For));
+    assert!(rig.is_done());
+    assert_eq!(rig.driver.window.winner(), Some(Outcome::For));
+    assert_eq!((votes_of(&rig, Outcome::For), votes_of(&rig, Outcome::Against)), (1, 1));
 }
 
 #[test]
